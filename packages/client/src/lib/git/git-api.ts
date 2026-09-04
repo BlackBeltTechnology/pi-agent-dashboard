@@ -76,12 +76,12 @@ export async function fetchBranches(cwd: string): Promise<GitBranchesResult> {
   return json.data;
 }
 
-export interface CheckoutOk {
+interface CheckoutOk {
   success: true;
   stashed?: boolean;
 }
 
-export interface CheckoutDirty {
+interface CheckoutDirty {
   success: false;
   dirty: true;
   files: string[];

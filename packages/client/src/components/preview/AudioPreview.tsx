@@ -20,4 +20,3 @@ export function AudioPreview({ target }: Props) {
   );
 }
 
-export default AudioPreview;

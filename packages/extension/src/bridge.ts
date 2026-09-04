@@ -32,7 +32,7 @@ import { registerAskUserTool } from "./ask-user-tool.js";
 import { type AutoNamer, adoptRestoredNamerState, createAutoNamer, type PersistedNamerState, type StreamSimpleFn } from "./auto-session-namer.js";
 import type { BridgeContext } from "./bridge-context.js";
 import { extractFirstMessage, extractLatestTurnWindow, filterHiddenCommands, getCurrentModelString, isHeadlessRpcSession, safeCwd } from "./bridge-context.js";
-import { shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
+import { hasExplicitModelArg, shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
 import { mintBridgeTicket, readDeviceToken, withTicket } from "./bridge-ticket-client.js";
 import { registerCanvasTool } from "./canvas-tool.js";
 import {
@@ -3249,14 +3249,22 @@ function initBridge(pi: ExtensionAPI) {
       } catch { /* modelRegistry not available */ }
     }
 
-    // Apply default model only on brand-new sessions (no prior message history).
-    // Resume (--session) and fork (--fork) both load parent messages, so messageCount > 0
-    // and we keep their existing model. Mirrors pi's own !hasExistingSession gate
-    // (sdk.js:106 — `existingSession.messages.length > 0`). NOT the raw getEntries()
-    // count: pi's sdk.js auto-appends model_change + thinking_level_change setup
-    // entries to a brand-new session BEFORE emitting session_start, so getEntries()
-    // is ≥ 2 even for a session with no user history. Only message entries count.
-    // See changes: fix-resume-keeps-session-model, fix-default-model-new-session-entry-count.
+    // Apply default model only on brand-new sessions (no prior message history)
+    // that were NOT launched with an explicit --model flag. Resume (--session) and
+    // fork (--fork) both load parent messages, so messageCount > 0 and we keep their
+    // existing model. Mirrors pi's own !hasExistingSession gate (sdk.js:106 —
+    // `existingSession.messages.length > 0`). NOT the raw getEntries() count: pi's
+    // sdk.js auto-appends model_change + thinking_level_change setup entries to a
+    // brand-new session BEFORE emitting session_start, so getEntries() is ≥ 2 even
+    // for a session with no user history. Only message entries count.
+    // The bridge runs inside the pi process, so process.argv is pi's argv — an
+    // explicit --model there is the spawner's resolved choice and the default
+    // never overrides it. The deferred retry below needs no separate guard: when
+    // the gate is false this never sets pendingDefaultModel, so onProviderChanged
+    // has nothing to re-apply.
+    // See changes: fix-resume-keeps-session-model,
+    //              fix-default-model-new-session-entry-count,
+    //              fix-default-model-clobbers-explicit-model (issue #595).
     const entryCount = ctx.sessionManager.buildSessionContext?.()?.messages?.length ?? 0;
     const freshConfig = loadConfig();
     if (shouldApplyDefaultModel({
@@ -3264,6 +3272,7 @@ function initBridge(pi: ExtensionAPI) {
       entryCount,
       hasModelRegistry: Boolean(cachedModelRegistry),
       hasDefaultModel: Boolean(freshConfig.defaultModel),
+      hasExplicitModel: hasExplicitModelArg(process.argv),
     })) {
       pendingDefaultModel = applyDefaultModel();
     }

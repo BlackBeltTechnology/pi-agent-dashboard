@@ -35,8 +35,8 @@ import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/typ
 import { useCallback, useState } from "react";
 import { t } from "../lib/i18n/i18n.js";
 
-export const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB base64
-export const SUPPORTED_IMAGE_TYPES = new Set([
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB base64
+const SUPPORTED_IMAGE_TYPES = new Set([
 	"image/jpeg",
 	"image/png",
 	"image/gif",

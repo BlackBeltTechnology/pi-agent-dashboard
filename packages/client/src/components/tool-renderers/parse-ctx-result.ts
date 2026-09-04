@@ -5,7 +5,7 @@
 // card to "header chip from args + linkified raw body", strictly better than
 // the old generic JSON dump. See change: add-ctx-tool-renderer (design.md → Decision 3).
 
-export type CtxErrorVariant = "validation" | "timeout" | "runtime";
+type CtxErrorVariant = "validation" | "timeout" | "runtime";
 
 /** Preview list emitted by ctx_execute / ctx_execute_file when `intent` is set. */
 export interface IntentPreview {

@@ -127,11 +127,11 @@ export interface PopoverFlipState {
 }
 
 /** Default readable-height floor (`minHeight`) so a popover is never a sliver. */
-export const MIN_POPOVER_HEIGHT = 120;
+const MIN_POPOVER_HEIGHT = 120;
 /** Floor for filterable list popovers, which read as cramped at the default. */
 export const LIST_POPOVER_MIN_HEIGHT = 260;
 /** Minimum popover width so it never collapses to nothing. */
-export const MIN_POPOVER_WIDTH = 160;
+const MIN_POPOVER_WIDTH = 160;
 const DEFAULT_GAP = 8;
 const DEFAULT_THRESHOLD = 200;
 

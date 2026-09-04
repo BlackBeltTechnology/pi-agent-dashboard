@@ -52,8 +52,8 @@ function isMdFile(name: string): boolean {
     !name.endsWith(".agent.md")
   );
 }
-export const AREA_FILE_THRESHOLD = 8; // ≥ this many md files in a subdir → own AGENTS.md
-export const ROW_CAP = 40;
+const AREA_FILE_THRESHOLD = 8; // ≥ this many md files in a subdir → own AGENTS.md
+const ROW_CAP = 40;
 // pi auto-injects a dir AGENTS.md on every turn when cwd sits at/below it. Past
 // this byte cap it is "too large" → split file-based: promote the heaviest rows
 // to `<File>.AGENTS.md` sidecars (pull-only) + cap remaining rows to one line.

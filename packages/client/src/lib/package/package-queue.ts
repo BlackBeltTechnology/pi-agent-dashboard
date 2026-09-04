@@ -62,7 +62,7 @@ export function piCoreSource(name: string): string {
   return PI_CORE_SOURCE_PREFIX + name;
 }
 
-export interface EnqueueRequest {
+interface EnqueueRequest {
   source: string;
   action: PackageAction;
   scope: PackageScope;

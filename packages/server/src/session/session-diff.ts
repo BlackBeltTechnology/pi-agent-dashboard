@@ -633,7 +633,7 @@ export async function enrichWithGitDiff(
 
 // ── Unified dispatcher ──────────────────────────────────────────────────
 
-export interface VcsEnrichmentResult {
+interface VcsEnrichmentResult {
   enrichedFiles: FileDiffEntry[];
   isGitRepo: boolean;
   vcsKind?: "git";

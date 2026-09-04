@@ -125,7 +125,38 @@ describe("bridge applies default thinking level alongside default model", () => 
       entryCount: 30,
       hasModelRegistry: true,
       hasDefaultModel: true,
+      hasExplicitModel: false,
     });
     expect(apply).toBe(false);
+  });
+
+  // ── X2: explicit-model session — gate false → thinking level skipped too ─
+  // Deliberate CLI parity: plain `pi --model X` gets no dashboard thinking
+  // level either. See change: fix-default-model-clobbers-explicit-model
+  // (test-plan #X2).
+  it("does not enter the apply branch for an explicit-model session (gate false)", async () => {
+    const setThinkingLevel = vi.fn();
+    const setModel = vi.fn(() => Promise.resolve());
+    const order: string[] = [];
+    const apply = shouldApplyDefaultModel({
+      reason: "startup",
+      entryCount: 0,
+      hasModelRegistry: true,
+      hasDefaultModel: true,
+      hasExplicitModel: true,
+    });
+    expect(apply).toBe(false);
+    // Session_start branch runs; the gate verdict routes around the success
+    // branch entirely — setThinkingLevel is never called.
+    if (apply) {
+      await applyDefaultModelSuccessBranch({
+        pi: { setModel, setThinkingLevel },
+        found: { provider: "anthropic", id: "claude-sonnet-4-5" },
+        defaultThinkingLevel: "high",
+        order,
+      });
+    }
+    expect(setModel).not.toHaveBeenCalled();
+    expect(setThinkingLevel).not.toHaveBeenCalled();
   });
 });

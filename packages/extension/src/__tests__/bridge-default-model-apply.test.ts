@@ -16,7 +16,7 @@
  *              fix-default-model-new-session-entry-count (signal correction).
  */
 import { describe, it, expect, vi } from "vitest";
-import { shouldApplyDefaultModel } from "../bridge-default-model-gate.js";
+import { hasExplicitModelArg, shouldApplyDefaultModel } from "../bridge-default-model-gate.js";
 
 interface BuildSessionContextResult {
   messages: unknown[];
@@ -40,11 +40,17 @@ interface RunArgs {
   event: FakePiEvent;
   hasModelRegistry: boolean;
   defaultModel: string; // "" === unset
+  /**
+   * Injected pi argv — the bridge passes its own `process.argv`; the mirror
+   * NEVER reads vitest's `process.argv`. Optional: omitted = argv modeled as
+   * carrying no `--model` flag.
+   */
+  argv?: string[];
 }
 
 /**
  * Pure-model mirror of bridge.ts session_start default-model branch.
- * Production reference (bridge.ts ~L1632-L1647):
+ * Production reference (bridge.ts session_start handler):
  *
  *   const entryCount = ctx.sessionManager.buildSessionContext?.()?.messages?.length ?? 0;
  *   const freshConfig = loadConfig();
@@ -53,19 +59,47 @@ interface RunArgs {
  *     entryCount,
  *     hasModelRegistry: Boolean(cachedModelRegistry),
  *     hasDefaultModel: Boolean(freshConfig.defaultModel),
+ *     hasExplicitModel: hasExplicitModelArg(process.argv),
  *   })) {
  *     pendingDefaultModel = applyDefaultModel();
  *   }
+ *
+ * Returns the gate verdict AND the pending signal: a true verdict with an
+ * unresolved custom-provider default sets `pendingDefaultModel` (the model
+ * string); a false verdict leaves it null — which is exactly why the
+ * provider-ready retry arm can never re-apply to an explicit-model session.
  */
-function runSessionStartDefaultModelBranch(args: RunArgs): { applied: boolean } {
+function runSessionStartDefaultModelBranch(args: RunArgs): {
+  applied: boolean;
+  pending: string | null;
+} {
   const entryCount = args.ctx.sessionManager.buildSessionContext?.()?.messages?.length ?? 0;
   const apply = shouldApplyDefaultModel({
     reason: args.event.reason,
     entryCount,
     hasModelRegistry: args.hasModelRegistry,
     hasDefaultModel: Boolean(args.defaultModel),
+    hasExplicitModel: hasExplicitModelArg(args.argv ?? []),
   });
-  return { applied: apply };
+  // Gate-true + default not yet resolvable (custom provider) → applyDefaultModel()
+  // returns the model string and the bridge stores it in pendingDefaultModel.
+  return { applied: apply, pending: apply ? args.defaultModel : null };
+}
+
+/**
+ * Mirror of the provider-ready retry arm in `onProviderChanged`:
+ *
+ *   if (pendingDefaultModel) {
+ *     pendingDefaultModel = applyDefaultModel();
+ *   }
+ */
+function runProviderReadyRetry(args: { pending: string | null }): {
+  applied: boolean;
+  pending: string | null;
+} {
+  if (args.pending === null) return { applied: false, pending: null };
+  // Retry ran and the provider now resolves → applied, pending cleared.
+  return { applied: true, pending: null };
 }
 
 /**
@@ -238,5 +272,56 @@ describe("bridge default-model apply at session_start", () => {
     expect(buildSessionContext).toHaveBeenCalled();
     // getEntries() MAY or MAY NOT be called by the production branch; the
     // important contract is that buildSessionContext is the source of truth.
+  });
+
+  // ── Explicit model dominates the whole flow (X1, issue #595) ─────────────
+  // See change: fix-default-model-clobbers-explicit-model (test-plan #X1).
+  describe("explicit-model session: default never applied, never pended", () => {
+    const explicitArgv = ["pi", "--mode", "rpc", "--model", "newapi/MiniMax-M3"];
+    const customDefaultArgs = {
+      event: { reason: "startup" },
+      hasModelRegistry: true,
+      defaultModel: "custom/slow-provider-model", // custom provider — unresolved at startup
+    } as const;
+
+    it("gate false at session_start despite all other conditions holding", () => {
+      const ctx = makeCtx({ entriesCount: 2, messageCount: 0 });
+      const result = runSessionStartDefaultModelBranch({
+        ctx,
+        ...customDefaultArgs,
+        argv: explicitArgv,
+      });
+      expect(result.applied).toBe(false);
+      // The gated entry point never sets pendingDefaultModel — this is WHY the
+      // deferred retry below needs no separate guard.
+      expect(result.pending).toBeNull();
+    });
+
+    it("provider-ready retry arm finds nothing to re-apply", () => {
+      const ctx = makeCtx({ entriesCount: 2, messageCount: 0 });
+      const first = runSessionStartDefaultModelBranch({
+        ctx,
+        ...customDefaultArgs,
+        argv: explicitArgv,
+      });
+      const after = runProviderReadyRetry({ pending: first.pending });
+      expect(after.applied).toBe(false);
+      expect(after.pending).toBeNull();
+    });
+
+    it("control: the same session WITHOUT --model does pend, proving the mirror detects it", () => {
+      // Guards the mirror itself: identical conditions minus the argv flag must
+      // produce applied=true with the model pended for the provider-ready retry.
+      const ctx = makeCtx({ entriesCount: 2, messageCount: 0 });
+      const result = runSessionStartDefaultModelBranch({
+        ctx,
+        ...customDefaultArgs,
+        argv: ["pi", "--mode", "rpc"],
+      });
+      expect(result.applied).toBe(true);
+      expect(result.pending).toBe("custom/slow-provider-model");
+      const after = runProviderReadyRetry({ pending: result.pending });
+      expect(after.applied).toBe(true);
+    });
   });
 });
