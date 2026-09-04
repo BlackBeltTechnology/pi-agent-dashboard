@@ -29,7 +29,9 @@
 
 ## 4. Ship
 
-- [ ] 4.1 PR against develop; watch CI (the flake must NOT reproduce on the
-      new methodology across the CI run).
-- [ ] 4.2 After merge: re-base PR #586 onto the fixed develop, re-run its CI,
-      land it.
+- [x] 4.1 PR against develop; watch CI (the flake must NOT reproduce on the
+      new methodology across the CI run). — DONE: PR #590 merged 2026-08-31
+      (88b57ce01); CI green across the run, flake did not reproduce.
+- [x] 4.2 After merge: re-base PR #586 onto the fixed develop, re-run its CI,
+      land it. — MOOT: PR #586 (investigate-bridge-cwd-asymmetric-immunity)
+      is already MERGED; nothing to re-base.
