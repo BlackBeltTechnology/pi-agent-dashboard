@@ -3,8 +3,12 @@ import { expect, test } from "./fixtures.js";
 import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
 /**
- * Rendered-UI behaviour of the `customEntryFallback` kill switch (browser E2E,
- * test-plan #E11).
+ * Rendered-UI behaviour of the custom-entry visibility gate (browser E2E,
+ * test-plan #E11; updated by add-custom-event-group-filters): the single
+ * `customEntryFallback` kill switch is REPLACED by the catch-all `other`
+ * group toggle. The faux scenario's `e2e:*` types match no shipped pattern,
+ * so they all resolve to `other`, and its toggle carries the exact same
+ * hide/restore semantics through the same ⚙ View popover.
  *
  * Driver: the `[[faux:custom-entries]]` scenario emits custom content through
  * the REAL paths — `e2e_custom_message` → `pi.sendMessage` (role:"custom"
@@ -52,7 +56,7 @@ test.describe("customEntryFallback — the kill switch, end to end", () => {
       await page.getByRole("button", { name: /view/i }).first().click();
       const popover = page.locator('[data-testid="chat-view-popover"]');
       await popover.waitFor({ state: "visible", timeout: 15_000 });
-      const box = popover.getByRole("checkbox", { name: "Custom entries in chat" });
+      const box = popover.getByRole("checkbox", { name: "Other extension entries" });
       await box.uncheck();
       await expect(box).not.toBeChecked();
     }).toPass({ timeout: 20_000 });
@@ -66,7 +70,7 @@ test.describe("customEntryFallback — the kill switch, end to end", () => {
     await expect(async () => {
       const box2 = page
         .locator('[data-testid="chat-view-popover"]')
-        .getByRole("checkbox", { name: "Custom entries in chat" });
+        .getByRole("checkbox", { name: "Other extension entries" });
       await box2.check();
       await expect(box2).toBeChecked();
     }).toPass({ timeout: 20_000 });

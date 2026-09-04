@@ -63,7 +63,10 @@ export const SHIPPED_CUSTOM_EVENT_GROUPS: readonly CustomEventGroup[] = [
 /** The reserved catch-all as a group (synthesized, never shipped). */
 export const RESERVED_OTHER_GROUP: CustomEventGroup = {
   id: RESERVED_OTHER_GROUP_ID,
-  label: "Other",
+  // Not plain "Other": the View popover already has a toolCalls row labeled
+  // "Other" (toolCallPrefKey generic bucket), and two identically-labeled
+  // toggles in one popover are indistinguishable — to a user AND to tests.
+  label: "Other extension entries",
   pattern: "",
   default: true,
 };
