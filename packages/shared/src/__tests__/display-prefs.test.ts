@@ -5,9 +5,14 @@ import {
   NOTIFY_MIN_LEVELS,
   isNotifyRowVisible,
   mergeDisplayPrefs,
+  migrateLegacyCustomEntryFallback,
   normalizeNotifyMinLevel,
   toolCallPrefKey,
 } from "../display-prefs.js";
+import {
+  RESERVED_OTHER_GROUP_ID,
+  SHIPPED_CUSTOM_EVENT_GROUPS,
+} from "../custom-event-groups.js";
 
 const PRESET_NAMES = ["simple", "standard", "everything"] as const;
 
@@ -21,9 +26,13 @@ describe("reasoningInlineFlow + customEntryFallback", () => {
     }
   });
 
-  it("defaults customEntryFallback to true in all three presets (E3)", () => {
+  it("carries customEventGroups seeded per shipped defaults in all three presets (task 5.5)", () => {
     for (const name of PRESET_NAMES) {
-      expect(DISPLAY_PRESETS[name].customEntryFallback).toBe(true);
+      const groups = DISPLAY_PRESETS[name].customEventGroups;
+      for (const g of SHIPPED_CUSTOM_EVENT_GROUPS) {
+        expect(groups[g.id]).toBe(g.default);
+      }
+      expect(groups[RESERVED_OTHER_GROUP_ID]).toBe(true);
     }
   });
 
@@ -38,21 +47,51 @@ describe("reasoningInlineFlow + customEntryFallback", () => {
     ).toBe(false);
   });
 
-  it("merges customEntryFallback: override wins when present, global otherwise (E5)", () => {
-    expect(mergeDisplayPrefs(global, { customEntryFallback: false }).customEntryFallback).toBe(false);
-    expect(mergeDisplayPrefs(global, {}).customEntryFallback).toBe(global.customEntryFallback);
-    expect(mergeDisplayPrefs(global, undefined).customEntryFallback).toBe(global.customEntryFallback);
-    // explicit true beats a global false
+  it("merges customEventGroups field-by-field: override wins per group id, global otherwise (task 5.2)", () => {
+    // Override of ONE group id leaves every other group at the global value.
+    const merged = mergeDisplayPrefs(global, { customEventGroups: { memory: true } });
+    expect(merged.customEventGroups.memory).toBe(true);
+    expect(merged.customEventGroups.search).toBe(global.customEventGroups.search);
+    expect(merged.customEventGroups[RESERVED_OTHER_GROUP_ID]).toBe(
+      global.customEventGroups[RESERVED_OTHER_GROUP_ID],
+    );
+    // The override does NOT replace the whole object.
+    expect(merged.customEventGroups.subagents).toBe(global.customEventGroups.subagents);
+    // explicit false beats a global true
     expect(
-      mergeDisplayPrefs({ ...global, customEntryFallback: false }, { customEntryFallback: true })
-        .customEntryFallback,
-    ).toBe(true);
+      mergeDisplayPrefs(global, { customEventGroups: { search: false } }).customEventGroups.search,
+    ).toBe(false);
+  });
+
+  it("migrates legacy customEntryFallback onto the other group (task 6.1)", () => {
+    // hidden custom entries stay hidden across upgrade
+    const hidden = migrateLegacyCustomEntryFallback({
+      reasoning: true,
+      customEntryFallback: false,
+    } as unknown as DisplayPrefs);
+    expect((hidden as any).customEventGroups.other).toBe(false);
+    expect((hidden as any).customEntryFallback).toBeUndefined();
+
+    // the legacy default (true) does NOT force an explicit key
+    const visible = migrateLegacyCustomEntryFallback({ customEntryFallback: true } as any);
+    expect((visible as any).customEventGroups?.other).toBeUndefined();
+    expect((visible as any).customEntryFallback).toBeUndefined();
+
+    // idempotent + non-destructive of an explicit user choice
+    const explicit = { customEventGroups: { other: true } } as any;
+    const once = migrateLegacyCustomEntryFallback({
+      customEntryFallback: false,
+      customEventGroups: { other: true },
+    } as any);
+    expect(once.customEventGroups.other).toBe(true);
+    expect(migrateLegacyCustomEntryFallback(once).customEventGroups.other).toBe(true);
+    expect(migrateLegacyCustomEntryFallback(explicit)).toEqual(explicit);
   });
 
   it("leaves the toolCalls merge unaffected by the new top-level arms (E5)", () => {
     const merged = mergeDisplayPrefs(global, {
       reasoningInlineFlow: true,
-      customEntryFallback: false,
+      customEventGroups: { memory: false },
       toolCalls: { bash: false },
     });
     expect(merged.toolCalls.bash).toBe(false);

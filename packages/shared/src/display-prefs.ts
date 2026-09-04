@@ -9,6 +9,7 @@
  */
 import { normalizeNotifyLevel } from "./notify.js";
 import type { NotifyLevel } from "./protocol.js";
+import { defaultCustomEventGroupPrefs } from "./custom-event-groups.js";
 
 /**
  * Minimum `ctx.ui.notify` level that renders as a chat row.
@@ -206,15 +207,19 @@ export interface DisplayPrefs {
    */
   reasoningInlineFlow: boolean;
   /**
-   * When true (default), non-`flow-event` extension custom content (both
-   * `pi.sendMessage({customType})` messages and `pi.appendEntry()` entries)
-   * renders as a bounded generic chat row. When false, those rows are hidden
-   * (kill switch) — `flow-event` keeps its dedicated rendering at every
-   * value. Render-time gate only: rows still exist in state, so toggling
-   * never replays anything.
-   * See change: render-inline-reasoning-and-custom-entries.
+   * Per-group visibility for custom chat rows, keyed by custom event group id
+   * (see `custom-event-groups.ts`). Shallow-merged field-by-field exactly like
+   * `toolCalls`: a group id present in a per-session override wins for that
+   * group only; every absent id falls through to the global value, and a
+   * group id absent from BOTH resolves to the group's configured `default`
+   * (the server backfill seeds every configured group so the lookup is total).
+   * Replaces the removed single-switch `customEntryFallback`; the catch-all
+   * `other` group's toggle carries its behavior. `flow-event` keeps its
+   * dedicated rendering at every value. Render-time gate only: rows still
+   * exist in state, so toggling never replays anything.
+   * See change: add-custom-event-group-filters.
    */
-  customEntryFallback: boolean;
+  customEventGroups: Record<string, boolean>;
 }
 
 /**
@@ -224,7 +229,9 @@ export interface DisplayPrefs {
  * to be a full `ToolCallPrefs` whenever present.
  */
 export type PartialDisplayPrefs = {
-  [K in keyof DisplayPrefs]?: K extends "toolCalls" ? Partial<ToolCallPrefs> : DisplayPrefs[K];
+  [K in keyof DisplayPrefs]?: K extends "toolCalls" | "customEventGroups"
+    ? Partial<DisplayPrefs[K]>
+    : DisplayPrefs[K];
 };
 
 export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", DisplayPrefs> = {
@@ -244,7 +251,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     showOutOfCwdSessionDiffs: false,
     notifyMinLevel: "all",
     reasoningInlineFlow: false,
-    customEntryFallback: true,
+    customEventGroups: defaultCustomEventGroupPrefs(),
   },
   standard: {
     tokenStatsBar: true,
@@ -262,7 +269,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     showOutOfCwdSessionDiffs: false,
     notifyMinLevel: "all",
     reasoningInlineFlow: false,
-    customEntryFallback: true,
+    customEventGroups: defaultCustomEventGroupPrefs(),
   },
   everything: {
     tokenStatsBar: true,
@@ -280,15 +287,36 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     showOutOfCwdSessionDiffs: false,
     notifyMinLevel: "all",
     reasoningInlineFlow: false,
-    customEntryFallback: true,
+    customEventGroups: defaultCustomEventGroupPrefs(),
   },
 };
+
+/**
+ * Shallow field-by-field merge of two group-id → boolean records — the
+ * `customEventGroups` arm shared by `mergeDisplayPrefs` (per-session merge)
+ * and the server's PATCH arm. An override key present wins for that group id
+ * only; undefined-valued keys are ignored (they mean "not specified").
+ * See change: add-custom-event-group-filters.
+ */
+export function mergeCustomEventGroupPrefs(
+  global: Record<string, boolean>,
+  override?: Partial<Record<string, boolean>>,
+): Record<string, boolean> {
+  const out: Record<string, boolean> = { ...global };
+  if (override) {
+    for (const [k, v] of Object.entries(override)) {
+      if (typeof v === "boolean") out[k] = v;
+    }
+  }
+  return out;
+}
 
 /**
  * Merge a sparse per-session override over global prefs.
  *
  * - Top-level boolean fields: override.value ?? global.value.
- * - `toolCalls`: shallow merge of override.toolCalls onto global.toolCalls.
+ * - `toolCalls` and `customEventGroups`: shallow merge of the override's
+ *   object onto the global's, field by field.
  * - `undefined` override returns `{ ...global }` (defensive copy).
  */
 export function mergeDisplayPrefs(
@@ -296,7 +324,7 @@ export function mergeDisplayPrefs(
   override?: PartialDisplayPrefs,
 ): DisplayPrefs {
   if (!override) {
-    return { ...global, toolCalls: { ...global.toolCalls } };
+    return { ...global, toolCalls: { ...global.toolCalls }, customEventGroups: { ...global.customEventGroups } };
   }
   return {
     tokenStatsBar: override.tokenStatsBar ?? global.tokenStatsBar,
@@ -319,8 +347,40 @@ export function mergeDisplayPrefs(
       override.showOutOfCwdSessionDiffs ?? global.showOutOfCwdSessionDiffs,
     notifyMinLevel: override.notifyMinLevel ?? global.notifyMinLevel,
     reasoningInlineFlow: override.reasoningInlineFlow ?? global.reasoningInlineFlow,
-    customEntryFallback: override.customEntryFallback ?? global.customEntryFallback,
+    customEventGroups: mergeCustomEventGroupPrefs(global.customEventGroups, override.customEventGroups),
   };
+}
+
+/**
+ * One-shot migration (design D7): map a persisted `customEntryFallback` onto
+ * `customEventGroups.other`, then drop the legacy field. Idempotent — once
+ * the field is absent, no further action. Non-destructive: an explicit
+ * `customEventGroups.other` is never overwritten. A legacy `true` (the old
+ * default) does NOT force an explicit key — the absent key resolves to the
+ * `other` group's configured default (visible out of the box).
+ *
+ * Typed loosely over the prefs shape so it runs over the global prefs, a
+ * per-session override, or a raw legacy file object alike.
+ * See change: add-custom-event-group-filters.
+ */
+export function migrateLegacyCustomEntryFallback<
+  T extends { customEntryFallback?: unknown; customEventGroups?: unknown },
+>(prefs: T): T {
+  if (!prefs || typeof prefs !== "object") return prefs;
+  const legacy = prefs.customEntryFallback;
+  if (typeof legacy !== "boolean") return prefs;
+  const next = { ...prefs } as T & { customEventGroups?: Record<string, boolean> };
+  if (legacy === false) {
+    const groups = {
+      ...(typeof next.customEventGroups === "object" && next.customEventGroups !== null
+        ? next.customEventGroups
+        : {}),
+    };
+    if (groups.other === undefined) groups.other = false;
+    next.customEventGroups = groups;
+  }
+  delete (next as { customEntryFallback?: unknown }).customEntryFallback;
+  return next;
 }
 
 /**

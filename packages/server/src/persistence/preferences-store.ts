@@ -16,6 +16,10 @@ import path from "node:path";
 import type { Workspace } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { CONFIG_DIR } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { DisplayPrefs, PartialDisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import {
+  mergeCustomEventGroupPrefs,
+  migrateLegacyCustomEntryFallback,
+} from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import type { LiveServerTarget } from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
 import { normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
 import { safeRealpathSync } from "../resolve-path.js";
@@ -202,7 +206,10 @@ function sanitizeName(input: unknown): string | null {
  * (default false). See changes: reasoning-auto-collapse-timer,
  * keep-reasoning-open-until-turn-ends.
  */
-function backfillDisplayPrefs(prefs: DisplayPrefs | undefined): DisplayPrefs | undefined {
+function backfillDisplayPrefs(
+  prefs: DisplayPrefs | undefined,
+  customEventGroupDefaults: Record<string, boolean> = {},
+): DisplayPrefs | undefined {
   if (!prefs) return prefs;
   let out = prefs;
   if (typeof out.reasoningAutoCollapseMs !== "number") {
@@ -242,9 +249,18 @@ function backfillDisplayPrefs(prefs: DisplayPrefs | undefined): DisplayPrefs | u
   if (typeof out.reasoningInlineFlow !== "boolean") {
     out = { ...out, reasoningInlineFlow: false };
   }
-  if (typeof out.customEntryFallback !== "boolean") {
-    out = { ...out, customEntryFallback: true };
-  }
+  // Custom event groups (add-custom-event-group-filters): migrate the removed
+  // single `customEntryFallback` switch onto the `other` group (idempotent,
+  // design D7), then seed every configured group so a gate is never
+  // `undefined` — a legacy file without the field resolves each group to its
+  // configured default, and a group added to the file after seeding gets its
+  // default on the next (restart-to-apply) load.
+  out = migrateLegacyCustomEntryFallback(out);
+  const existingGroups =
+    typeof out.customEventGroups === "object" && out.customEventGroups !== null
+      ? out.customEventGroups
+      : {};
+  out = { ...out, customEventGroups: { ...customEventGroupDefaults, ...existingGroups } };
   return out;
 }
 
@@ -258,7 +274,22 @@ function normalizeWorkspaceOnLoad(ws: Workspace): Workspace {
   };
 }
 
-export function createPreferencesStore(filePath: string = PREFERENCES_FILE): PreferencesStore {
+export function createPreferencesStore(
+  filePath: string = PREFERENCES_FILE,
+  deps: {
+    /**
+     * Configured custom-event-group defaults (group id → default visibility),
+     * read from the groups file at composition time. Seeds `backfillDisplayPrefs`
+     * and the `setDisplayPrefs` base literal so no group gate is ever `undefined`.
+     * See change: add-custom-event-group-filters.
+     */
+    customEventGroupDefaults?: Record<string, boolean>;
+  } = {},
+): PreferencesStore {
+  // Resolved once per process — the groups file is restart-to-apply (design D6).
+  const seededCustomEventGroupDefaults: Record<string, boolean> = {
+    ...(deps.customEventGroupDefaults ?? {}),
+  };
   const data: PreferencesData = readJsonFile<PreferencesData>(filePath, {
     sessionOrder: {},
     pinnedDirectories: [],
@@ -298,7 +329,10 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
 
   const rawWorkspaces = Array.isArray(data.workspaces) ? data.workspaces : [];
   let workspaces: Workspace[] = rawWorkspaces.map(normalizeWorkspaceOnLoad);
-  let displayPrefs: DisplayPrefs | undefined = backfillDisplayPrefs(data.displayPrefs);
+  let displayPrefs: DisplayPrefs | undefined = backfillDisplayPrefs(
+    data.displayPrefs ? migrateLegacyCustomEntryFallback(data.displayPrefs) : data.displayPrefs,
+    deps.customEventGroupDefaults,
+  );
   let openspecUpdateSignatures: Record<string, string> = data.openspecUpdateSignatures ?? {};
   // Opt-in auto-init flag. Absent/non-boolean → false (today's behavior).
   let autoInitWorktreeOnSpawn: boolean = data.autoInitWorktreeOnSpawn === true;
@@ -593,7 +627,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
         showOutOfCwdSessionDiffs: false,
         notifyMinLevel: "all",
         reasoningInlineFlow: false,
-        customEntryFallback: true,
+        customEventGroups: { ...seededCustomEventGroupDefaults },
       };
       const merged: DisplayPrefs = {
         tokenStatsBar: partial.tokenStatsBar ?? base.tokenStatsBar,
@@ -615,7 +649,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
           partial.showOutOfCwdSessionDiffs ?? base.showOutOfCwdSessionDiffs,
         notifyMinLevel: partial.notifyMinLevel ?? base.notifyMinLevel,
         reasoningInlineFlow: partial.reasoningInlineFlow ?? base.reasoningInlineFlow,
-        customEntryFallback: partial.customEntryFallback ?? base.customEntryFallback,
+        customEventGroups: mergeCustomEventGroupPrefs(base.customEventGroups, partial.customEventGroups),
       };
       displayPrefs = merged;
       scheduleSave();

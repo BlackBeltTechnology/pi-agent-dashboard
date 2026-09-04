@@ -60,6 +60,11 @@ import {
 import type { PreferencesStore } from "./persistence/preferences-store.js";
 import { scanPiResources } from "./pi/pi-resource-scanner.js";
 import type { SessionManager } from "./session/memory-session-manager.js";
+import {
+  customEventTypeOfEvent,
+  isGroupableCustomEvent,
+  stampEventGroup,
+} from "./session/custom-event-group-annotation.js";
 import { discoverSessionsForCwd } from "./session/session-discovery.js";
 import {
   createSessionLoadWorkerPool,
@@ -327,6 +332,13 @@ export interface DirectoryServiceOptions {
    * add-openspec-init-affordances.
    */
   currentGlobalSignature?: (cwd: string) => Promise<string | undefined>;
+  /**
+   * Optional resolver for custom chat rows: replayed session events are
+   * stamped with their resolved `groupId` AFTER the worker returns, using the
+   * same resolver + helper as the live path, so a reloaded session tags
+   * identically to live. See change: add-custom-event-group-filters.
+   */
+  customEventGroupResolver?: import("./session/custom-event-group-resolver.js").CustomEventGroupResolver;
 }
 
 export function createDirectoryService(
@@ -606,7 +618,20 @@ export function createDirectoryService(
       const out = await result;
       entryCount = out.entryCount ?? 0;
       eventCount = out.events.length;
-      if (out.success) return { success: true, events: out.events };
+      if (out.success) {
+        // Replay-path group annotation — same resolver + helper as the live
+        // path, so a reloaded session tags identically to live (design D1).
+        // LoadedEvent is structurally a DashboardEvent.
+        if (options.customEventGroupResolver) {
+          for (const ev of out.events) {
+            if (!isGroupableCustomEvent(ev)) continue;
+            const customType = customEventTypeOfEvent(ev);
+            if (customType === undefined) continue;
+            stampEventGroup(ev, await options.customEventGroupResolver.resolve(customType));
+          }
+        }
+        return { success: true, events: out.events };
+      }
       return { success: false, events: [], error: out.error };
     } finally {
       loadingSet.delete(sessionId);

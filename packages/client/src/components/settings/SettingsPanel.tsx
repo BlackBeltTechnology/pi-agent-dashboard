@@ -4,6 +4,7 @@ import { VALID_SETTINGS_TABS } from "@blackbelt-technology/pi-dashboard-shared/d
 import {
   DISPLAY_PRESETS,
   type DisplayPrefs,
+  mergeCustomEventGroupPrefs,
   normalizeNotifyMinLevel,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 // From the BROWSER-SAFE module, never `config.js`: a value import of the latter
@@ -44,6 +45,7 @@ import { t as i18nT, LANGUAGE_OPTIONS, type Language, useI18n } from "../../lib/
 import { buildPiResourceFileUrl } from "../../lib/nav/route-builders.js";
 import { logRejection } from "../../lib/report-error.js";
 import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
+import { useCustomEventGroups } from "../../lib/state/custom-event-groups.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
 import { KnownServersSection } from "../connectivity/KnownServersSection.js";
 import { NetworkDiscoverySection } from "../connectivity/NetworkDiscoverySection.js";
@@ -2345,12 +2347,19 @@ function DisplayPrefsSection() {
   }, [baselineKey]);
 
   type ToolCallPatch = Partial<DisplayPrefs["toolCalls"]>;
-  type DisplayPrefsPatch = Partial<Omit<DisplayPrefs, "toolCalls">> & { toolCalls?: ToolCallPatch };
+  type CustomEventGroupsPatch = Partial<DisplayPrefs["customEventGroups"]>;
+  type DisplayPrefsPatch =
+    Partial<Omit<DisplayPrefs, "toolCalls" | "customEventGroups">> & {
+      toolCalls?: ToolCallPatch;
+      customEventGroups?: CustomEventGroupsPatch;
+    };
+  const customGroups = useCustomEventGroups();
   const patch = useCallback((partial: DisplayPrefsPatch) => {
     setDraft((prev) => ({
       ...prev,
       ...partial,
       toolCalls: { ...prev.toolCalls, ...(partial.toolCalls ?? {}) },
+      customEventGroups: mergeCustomEventGroupPrefs(prev.customEventGroups, partial.customEventGroups),
     }));
   }, []);
   const commit = useCallback(async () => {
@@ -2397,14 +2406,21 @@ function DisplayPrefsSection() {
         onChange={(v) => patch({ notifyMinLevel: v as DisplayPrefs["notifyMinLevel"] })}
         hint={i18nT("settings.hint.notifyMinLevel", undefined, "Minimum level of extension notification shown in chat. Errors are never hidden, and questions that need an answer always appear.")}
       />
-      {/* Extension-row visibility pair, adjacent by contract (test-plan E10):
-          the fallback toggle sits DIRECTLY after the notifications select. */}
-      <ToggleField
-        label={t("settings.customEntryFallback", undefined, "Custom entries in chat")}
-        value={prefs.customEntryFallback}
-        onChange={(v) => patch({ customEntryFallback: v })}
-        hint={i18nT("settings.hint.customEntryFallback", undefined, "Show extension custom messages and entries as generic cards in the chat. Turn off to hide them (flow cards are always shown).")}
-      />
+      {/* One toggle per configured custom event group (including the
+          catch-all `other`), in configured order, replacing the removed
+          single "Custom entries in chat" switch. Labels come from the
+          groups file; an id absent from prefs resolves to the group's
+          configured default. See change: add-custom-event-group-filters. */}
+      <div className="text-xs font-semibold text-[var(--text-primary)] mt-3 mb-2">{i18nT("settings.customEventGroups", undefined, "Custom event groups")}</div>
+      {(customGroups ?? []).map((g) => (
+        <ToggleField
+          key={g.id}
+          label={g.label}
+          value={prefs.customEventGroups[g.id] ?? g.default}
+          onChange={(v) => patch({ customEventGroups: { [g.id]: v } })}
+          hint={i18nT("settings.hint.customEventGroups", undefined, "One toggle per group defined in ~/.pi/dashboard/custom-event-groups.json (restart to apply edits to that file). om.* memory telemetry ships hidden.")}
+        />
+      ))}
       <h3 className="text-xs font-semibold text-[var(--text-primary)] mt-3 mb-2">{t("settings.chatDisplayReasoning", undefined, "Reasoning")}</h3>
       <ToggleField label={t("settings.reasoningBlocks", undefined, "Reasoning blocks")} value={prefs.reasoning} onChange={(v) => patch({ reasoning: v })} hint={i18nT("settings.hint.reasoningBlocks", undefined, "Show the model's thinking. Off hides it entirely and disables the two settings below.")} />
       <GatedGroup>

@@ -95,6 +95,10 @@ import { createMemoryEventStore, DEFAULT_MAX_EVENT_DATA_SIZE, type EventStore } 
 import { createMetaPersistence, type MetaPersistence } from "./persistence/meta-persistence.js";
 import { needsMigration, runMigration } from "./persistence/migrate-persistence.js";
 import { createPreferencesStore, type PreferencesStore } from "./persistence/preferences-store.js";
+import { migrateCustomEntryFallbackOverrides } from "./persistence/migrate-custom-entry-fallback.js";
+import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
+import { CustomEventGroupMatcher } from "./session/custom-event-group-matcher.js";
+import { CustomEventGroupResolver } from "./session/custom-event-group-resolver.js";
 import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
 import { createPiGateway, type PiGateway } from "./pi/pi-gateway.js";
@@ -127,6 +131,7 @@ import { registerPluginActivationRoutes } from "./routes/plugin-activation-route
 import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
 import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
 import { registerPreferencesDisplayRoutes } from "./routes/preferences-display-routes.js";
+import { registerCustomEventGroupsRoutes } from "./routes/custom-event-groups-routes.js";
 import { registerPreferencesWorktreeInitRoutes } from "./routes/preferences-worktree-init-routes.js";
 import { registerProviderAuthRoutes } from "./routes/provider-auth-routes.js";
 import { registerProviderRoutes } from "./routes/provider-routes.js";
@@ -334,8 +339,26 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     const migResult = runMigration();
     console.log(`[dashboard] Migration complete: ${migResult.sessionsWritten} sessions, ${migResult.hiddenApplied} hidden applied, ${migResult.hiddenOrphaned} orphaned, renamed: ${migResult.oldFilesRenamed.join(", ")}`);
   }
+  // One-shot customEntryFallback → customEventGroups.other migration over
+  // per-session overrides (design D7). Idempotent; the global-prefs half
+  // runs at preferences-store load. See change: add-custom-event-group-filters.
+  migrateCustomEntryFallbackOverrides();
 
-  const preferencesStore = createPreferencesStore();
+  // Custom event groups (add-custom-event-group-filters): one store per
+  // process (restart-to-apply, design D6); the resolver owns the memo +
+  // quarantine over the matcher's worker thread (design D3).
+  const customEventGroupsStore = new CustomEventGroupsStore();
+  const customEventGroupMatcher = new CustomEventGroupMatcher();
+  const customEventGroupResolver = new CustomEventGroupResolver(
+    customEventGroupsStore.list(),
+    customEventGroupMatcher,
+  );
+
+  const preferencesStore = createPreferencesStore(undefined, {
+    customEventGroupDefaults: Object.fromEntries(
+      customEventGroupsStore.definitions().map((g) => [g.id, g.default]),
+    ),
+  });
   // Single cwd-policy registry (Part B — host-cwd-policy). Recognized workspace
   // roots = pinned directories + every folder in a folder-workspace, evaluated
   // lazily so a freshly pinned dir is honored without a rebuild. Wired into BOTH
@@ -733,6 +756,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     sessionManager,
     config.openspec,
     {
+      customEventGroupResolver,
       enrichOpenSpecData: async (cwd, data) => {
         try {
           const file = await openspecGroupStore.read(cwd);
@@ -1196,6 +1220,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     metaPersistence,
     liveEpoch,
     commitDraftRelay,
+    customEventGroupResolver,
   });
 
   // Auto-shutdown idle timer
@@ -1829,6 +1854,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     preferencesStore,
     networkGuard,
     broadcast: (msg) => browserGateway.broadcastToAll(msg),
+  });
+  // Custom event group definitions (add-custom-event-group-filters).
+  registerCustomEventGroupsRoutes(fastify, {
+    networkGuard,
+    definitions: () => customEventGroupsStore.definitions(),
   });
   // Canvas-type registry read/write (auto-canvas task 5.2).
   registerCanvasTypesRoutes(fastify, { networkGuard });

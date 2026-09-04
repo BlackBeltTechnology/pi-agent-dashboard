@@ -925,9 +925,11 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           return showDebugTools;
         case "custom":
           // Render-time gate only (rawEvent precedent): rows stay in state, so
-          // toggling never replays anything. See change:
-          // render-inline-reasoning-and-custom-entries (D7).
-          return prefs.customEntryFallback;
+          // toggling never replays anything. Per-group lookup keyed on the
+          // server-stamped groupId; an un-annotated row is the catch-all
+          // `other` (fail-visible). See change:
+          // add-custom-event-group-filters (D1).
+          return prefs.customEventGroups[msg.groupId ?? "other"] !== false;
         default:
           return true;
       }
@@ -1843,9 +1845,10 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
 
         if (msg.role === "custom") {
           // Mirrored gate (isRowVisible already filters; render branch keeps
-          // the branch safe if reached via another path). See change:
-          // render-inline-reasoning-and-custom-entries (D7).
-          if (!prefs.customEntryFallback) return null;
+          // the branch safe if reached via another path). Per-group lookup;
+          // un-annotated rows follow the catch-all `other` group.
+          // See change: add-custom-event-group-filters (D1).
+          if (prefs.customEventGroups[msg.groupId ?? "other"] === false) return null;
           return (
             <CustomEntryCard
               key={msg.id}

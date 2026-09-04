@@ -1,13 +1,14 @@
 /**
- * SettingsPanel — the two new chat-display controls
- * (change: render-inline-reasoning-and-custom-entries, test-plan E10).
+ * SettingsPanel — the chat-display controls
+ * (changes: render-inline-reasoning-and-custom-entries,
+ * add-custom-event-group-filters).
  *
  * - `reasoningInlineFlow` joins the reasoning GatedGroup: same sub-section as
  *   the auto-collapse + keep-open controls, VISIBLE but DISABLED while the
  *   `reasoning` master toggle is off, enabled when on.
- * - `customEntryFallback` sits adjacent to (immediately after, DOM order) the
- *   "Extension notifications" select — both are extension-row visibility
- *   controls.
+ * - One toggle per configured custom event group (labels from the groups
+ *   definitions fetch) replaces the removed single "Custom entries in chat"
+ *   switch; its behavior is reachable via the `other` toggle.
  *
  * Harness glue copied from settings-page-composition.test.tsx.
  */
@@ -52,12 +53,25 @@ function mockFetchConfig() {
     if (url === "/api/config" && options?.method === "PUT") {
       return Promise.resolve({ json: () => Promise.resolve({ success: true }) });
     }
+    if (url === "/api/custom-event-groups" && !options?.method) {
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            groups: [
+              { id: "memory", label: "Memory telemetry", default: false },
+              { id: "search", label: "Web search results", default: true },
+              { id: "other", label: "Catch-all other", default: true },
+            ],
+          }),
+      });
+    }
     return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
   });
 }
 
 const INLINE_FLOW_LABEL = "Inline reasoning flow";
-const CUSTOM_FALLBACK_LABEL = "Custom entries in chat";
+const LEGACY_CUSTOM_LABEL = "Custom entries in chat";
 
 function chatDisplayPage() {
   render(<SettingsPanel />);
@@ -74,7 +88,7 @@ function switchByLabel(label: string): HTMLButtonElement {
   return screen.getByRole("switch", { name: label }) as HTMLButtonElement;
 }
 
-describe("settings chat-display — reasoningInlineFlow + customEntryFallback (E10)", () => {
+describe("settings chat-display — reasoningInlineFlow + custom event groups (E10, add-custom-event-group-filters)", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     fetchAutoInitWorktreePref.mockResolvedValue(false);
@@ -109,23 +123,27 @@ describe("settings chat-display — reasoningInlineFlow + customEntryFallback (E
     expect(inlineFlow.compareDocumentPosition(toolCallsHead) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("places the custom-entry control ADJACENT to (right after) Extension notifications", async () => {
+  it("renders one toggle per configured custom event group with no session selected (task 7.4)", async () => {
     await chatDisplayPage();
-    const customToggle = switchByLabel(CUSTOM_FALLBACK_LABEL);
-    const notifyLabel = screen.getByText("Extension notifications");
-    // Adjacent in DOM order: notifications first, custom entries immediately
-    // after — no unrelated control between them (FieldShell outer divs are
-    // siblings; each contains its flex row + hint paragraph).
-    const notifyField = notifyLabel.closest("div.flex")!.parentElement!;
-    const customField = customToggle.closest("div.flex")!.parentElement!;
-    expect(notifyField.nextElementSibling).toBe(customField);
+    // Group labels come from the definitions fetch, in configured order.
+    const memory = switchByLabel("Memory telemetry");
+    expect(memory).toBeTruthy();
+    expect(switchByLabel("Web search results")).toBeTruthy();
+    expect(switchByLabel("Catch-all other")).toBeTruthy();
+    const header = screen.getByText("Custom event groups");
+    const search = switchByLabel("Web search results");
+    // configured order: memory (default-hidden group) before search
+    expect(header.compareDocumentPosition(memory) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(memory.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // absent-from-prefs group id resolves to its configured default:
+    // memory default-hidden → off; search default-visible → on.
+    expect(memory.getAttribute("aria-checked")).toBe("false");
+    expect(search.getAttribute("aria-checked")).toBe("true");
   });
 
-  it("renders the custom-entry toggle enabled by default (fallback defaults ON)", async () => {
+  it("the legacy single custom-entry toggle is gone (task 7.6)", async () => {
     await chatDisplayPage();
-    const toggle = switchByLabel(CUSTOM_FALLBACK_LABEL);
-    expect(toggle).toBeTruthy();
-    expect(toggle.disabled).toBe(false);
-    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    expect(switchByLabel("Memory telemetry")).toBeTruthy(); // group rows present…
+    expect(screen.queryByRole("switch", { name: LEGACY_CUSTOM_LABEL })).toBeNull(); // …legacy row absent
   });
 });
