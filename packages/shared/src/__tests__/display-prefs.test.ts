@@ -63,29 +63,39 @@ describe("reasoningInlineFlow + customEntryFallback", () => {
     ).toBe(false);
   });
 
-  it("migrates legacy customEntryFallback onto the other group (task 6.1)", () => {
-    // hidden custom entries stay hidden across upgrade
+  it("migrates legacy customEntryFallback=false onto the FULL gated population (task 6.1)", () => {
+    // hidden custom entries stay hidden across upgrade — the old switch gated
+    // EVERY non-flow custom row, so the whole shipped set seeds false, not
+    // just the catch-all (doubt-review finding: search/subagents/flows/goals
+    // would otherwise REAPPEAR for a hide-everything user).
     const hidden = migrateLegacyCustomEntryFallback({
       reasoning: true,
       customEntryFallback: false,
     } as unknown as DisplayPrefs);
     expect((hidden as any).customEventGroups.other).toBe(false);
+    for (const g of SHIPPED_CUSTOM_EVENT_GROUPS) {
+      expect((hidden as any).customEventGroups[g.id]).toBe(false);
+    }
     expect((hidden as any).customEntryFallback).toBeUndefined();
 
-    // the legacy default (true) does NOT force an explicit key
+    // the legacy default (true) does NOT force explicit keys
     const visible = migrateLegacyCustomEntryFallback({ customEntryFallback: true } as any);
     expect((visible as any).customEventGroups?.other).toBeUndefined();
     expect((visible as any).customEntryFallback).toBeUndefined();
 
     // idempotent + non-destructive of an explicit user choice
-    const explicit = { customEventGroups: { other: true } } as any;
     const once = migrateLegacyCustomEntryFallback({
       customEntryFallback: false,
-      customEventGroups: { other: true },
+      customEventGroups: { other: true, search: true },
     } as any);
     expect(once.customEventGroups.other).toBe(true);
+    expect(once.customEventGroups.search).toBe(true);
+    expect(once.customEventGroups.memory).toBe(false);
     expect(migrateLegacyCustomEntryFallback(once).customEventGroups.other).toBe(true);
-    expect(migrateLegacyCustomEntryFallback(explicit)).toEqual(explicit);
+
+    // a corrupt non-boolean legacy value is dropped, not migrated
+    const corrupt = migrateLegacyCustomEntryFallback({ customEntryFallback: "yes" } as any);
+    expect((corrupt as any).customEntryFallback).toBeUndefined();
   });
 
   it("leaves the toolCalls merge unaffected by the new top-level arms (E5)", () => {

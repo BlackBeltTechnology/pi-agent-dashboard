@@ -333,6 +333,14 @@ export function createPreferencesStore(
     data.displayPrefs ? migrateLegacyCustomEntryFallback(data.displayPrefs) : data.displayPrefs,
     deps.customEventGroupDefaults,
   );
+  // The load-time migration + seeding must be DURABLE on the load that
+  // performs it — "the legacy field does not survive" and "second boot is a
+  // no-op" are only true if the migrated prefs reach disk. The debounced
+  // dirty flag below deliberately excludes displayPrefs (a modern file
+  // round-trips identically → no write), so persist only when the JSON
+  // content actually changed.
+  const prefsChangedOnLoad =
+    JSON.stringify(data.displayPrefs ?? null) !== JSON.stringify(displayPrefs ?? null);
   let openspecUpdateSignatures: Record<string, string> = data.openspecUpdateSignatures ?? {};
   // Opt-in auto-init flag. Absent/non-boolean → false (today's behavior).
   let autoInitWorktreeOnSpawn: boolean = data.autoInitWorktreeOnSpawn === true;
@@ -344,7 +352,10 @@ export function createPreferencesStore(
     Array.isArray(data.favoriteModels) ? data.favoriteModels.filter((l) => typeof l === "string") : [],
   );
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  let dirty =
+let dirty =
+    // Load-time displayPrefs migration/seeding (custom-entry-fallback) must
+    // reach disk on THIS load — see the prefsChangedOnLoad comment above.
+    prefsChangedOnLoad ||
     data.pinSeeded !== true ||
     pinnedDirectories.length !== rawPinned.length ||
     pinnedDirectories.some((p, i) => p !== rawPinned[i]) ||

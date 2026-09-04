@@ -9,7 +9,10 @@
  */
 import { normalizeNotifyLevel } from "./notify.js";
 import type { NotifyLevel } from "./protocol.js";
-import { defaultCustomEventGroupPrefs } from "./custom-event-groups.js";
+import {
+  defaultCustomEventGroupPrefs,
+  SHIPPED_CUSTOM_EVENT_GROUPS,
+} from "./custom-event-groups.js";
 
 /**
  * Minimum `ctx.ui.notify` level that renders as a chat row.
@@ -353,11 +356,18 @@ export function mergeDisplayPrefs(
 
 /**
  * One-shot migration (design D7): map a persisted `customEntryFallback` onto
- * `customEventGroups.other`, then drop the legacy field. Idempotent — once
- * the field is absent, no further action. Non-destructive: an explicit
- * `customEventGroups.other` is never overwritten. A legacy `true` (the old
- * default) does NOT force an explicit key — the absent key resolves to the
- * `other` group's configured default (visible out of the box).
+ * `customEventGroups`, then drop the legacy field. Idempotent — once the
+ * field is absent, no further action. Non-destructive: explicit
+ * `customEventGroups` keys are never overwritten.
+ *
+ * The old switch gated EVERY non-`flow-event` custom row. A legacy `false`
+ * therefore hides the WHOLE gated population, not just the catch-all: every
+ * shipped group seeds `false` (plus `other`), so the user's exact prior
+ * visible-set survives the upgrade — "custom entries that were hidden do not
+ * reappear" (spec requirement). A legacy `true` (the old default) forces no
+ * keys at all: absent keys resolve to configured defaults, and the one
+ * intended behavior change (memory/om.* ships hidden) is the CHANGELOG'd
+ * default flip, not a migration artifact.
  *
  * Typed loosely over the prefs shape so it runs over the global prefs, a
  * per-session override, or a raw legacy file object alike.
@@ -383,6 +393,9 @@ export function migrateLegacyCustomEntryFallback<
         : {}),
     };
     if (groups.other === undefined) groups.other = false;
+    for (const g of SHIPPED_CUSTOM_EVENT_GROUPS) {
+      if (groups[g.id] === undefined) groups[g.id] = false;
+    }
     next.customEventGroups = groups;
   }
   delete (next as { customEntryFallback?: unknown }).customEntryFallback;

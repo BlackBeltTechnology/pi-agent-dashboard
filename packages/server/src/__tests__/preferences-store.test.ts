@@ -754,7 +754,17 @@ describe("preferences-store", () => {
       const prefs = store.getDisplayPrefs() as any;
       // persisted false lands as other:false, not overwritten by the default
       expect(prefs.customEventGroups.other).toBe(false);
+      // ...and as hidden for EVERY shipped group the old switch gated —
+      // a hide-everything user keeps everything hidden (doubt-review fix)
+      for (const g of ["memory", "search", "subagents", "flows", "goals"]) {
+        expect(prefs.customEventGroups[g]).toBe(false);
+      }
       expect(prefs.customEntryFallback).toBeUndefined();
+      // the migration is DURABLE on the load that performs it: flush and
+      // assert the on-disk file no longer carries the legacy field
+      store.flush();
+      const onDisk = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      expect(onDisk.displayPrefs.customEntryFallback).toBeUndefined();
       // second load performs no further migration and keeps the user choice
       const store2 = createPreferencesStore(filePath, {
         customEventGroupDefaults: { memory: false, other: true },

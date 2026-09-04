@@ -38,7 +38,11 @@ describe("customEntryFallback override sweep (task 6.1)", () => {
     const { migratedOverrides } = migrateCustomEntryFallbackOverrides(sessionsDir);
     expect(migratedOverrides).toHaveLength(1);
     const override = readMeta("a").displayPrefsOverride;
-    expect(override.customEventGroups).toEqual({ other: false });
+    // the FULL gated population seeds hidden — not just the catch-all
+    expect(override.customEventGroups.other).toBe(false);
+    for (const g of ["memory", "search", "subagents", "flows", "goals"]) {
+      expect(override.customEventGroups[g]).toBe(false);
+    }
     expect(override.customEntryFallback).toBeUndefined();
     expect(override.debugTools).toBe(true); // unrelated fields untouched
   });

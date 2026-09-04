@@ -41,12 +41,12 @@
 
 ## 7. Client rendering and surfaces
 
-- [ ] 7.1 Replace the `customEntryFallback` gate at both `ChatView.tsx` sites (`isRowVisible`, render branch) with a `prefs.customEventGroups[row.groupId ?? "other"]` lookup, and verify a test asserts a hidden group's rows are excluded from row-visibility computation as well as from rendering
-- [ ] 7.2 Treat a row arriving with no `groupId` as `other`, and verify a test asserts an un-annotated custom row renders under default prefs
-- [ ] 7.3 Verify a test asserts groups are independently gated — hiding one group leaves rows of another group rendering — and that flow cards still render with every group toggled off
-- [ ] 7.4 Render one toggle per configured group (including `other`, in configured order) in `SettingsPanel.tsx`, and verify a test asserts the list renders with no session selected
-- [ ] 7.5 Render the same rows in `ChatViewMenu.tsx` with the existing per-session "overridden" indicator, and verify a test asserts toggling one group creates a session override affecting only that group
-- [ ] 7.6 Remove the single "Custom entries in chat" row from both surfaces, and verify a test asserts it is absent and that its behavior is reachable via the `other` toggle
+- [x] 7.1 Replace the `customEntryFallback` gate at both `ChatView.tsx` sites (`isRowVisible`, render branch) with a `prefs.customEventGroups[row.groupId ?? "other"]` lookup, and verify a test asserts a hidden group's rows are excluded from row-visibility computation as well as from rendering
+- [x] 7.2 Treat a row arriving with no `groupId` as `other`, and verify a test asserts an un-annotated custom row renders under default prefs
+- [x] 7.3 Verify a test asserts groups are independently gated — hiding one group leaves rows of another group rendering — and that flow cards still render with every group toggled off
+- [x] 7.4 Render one toggle per configured group (including `other`, in configured order) in `SettingsPanel.tsx`, and verify a test asserts the list renders with no session selected
+- [x] 7.5 Render the same rows in `ChatViewMenu.tsx` with the existing per-session "overridden" indicator, and verify a test asserts toggling one group creates a session override affecting only that group
+- [x] 7.6 Remove the single "Custom entries in chat" row from both surfaces, and verify a test asserts it is absent and that its behavior is reachable via the `other` toggle
 
 ## 8. Verification and documentation
 
@@ -57,4 +57,4 @@
 - [ ] 8.5 Invoke the `doubt-driven-review` discipline skill on the `customEntryFallback` removal plus prefs migration before it lands, and verify the rollback path in `design.md` still holds
 - [ ] 8.6 Delegate to DocScribe: add `custom-event-groups.json` to the `docs/architecture.md` config reference (noting restart-to-apply) and update the `~/.pi/dashboard/` file inventory, and verify the docs tree rows are applied
 - [ ] 8.7 Add a CHANGELOG entry calling out that `om.*` memory telemetry now defaults to hidden, and verify the entry is under `## [Unreleased]`
-- [ ] 8.8 Invoke the `review-code` discipline skill on the full diff before commit and verify findings are resolved
+- [x] 8.8 Invoke the `review-code` discipline skill on the full diff before commit and verify findings are resolved
