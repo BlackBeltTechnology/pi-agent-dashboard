@@ -7,10 +7,23 @@ import type { Config } from "../config.js";
 import { extractedAudioPath } from "../ffmpeg.js";
 import { type RunDeps, run } from "../run.js";
 
-const cfg: Config = {
+const sonioxTarget = {
+  backend: "soniox" as const,
   apiKey: "k",
   maxChunkHours: 4.5,
   maxChunkSeconds: 16200,
+  srtSuffix: ".srt",
+};
+const assemblyTarget = {
+  backend: "assemblyai" as const,
+  apiKey: "aai",
+  maxChunkHours: 9,
+  maxChunkSeconds: 32400,
+  srtSuffix: ".diarize.srt",
+};
+
+const cfg: Config = {
+  targets: [sonioxTarget],
   maxAudioMb: 200,
   concurrency: 8,
 };
@@ -177,5 +190,81 @@ describe("run (smoke)", () => {
     });
     await run([dir], depsWithConcurrency(1, { transcribe }));
     expect(order).toEqual(["a.m4a", "b.m4a", "c.m4a", "d.m4a"]);
+  });
+});
+
+describe("run with both backends", () => {
+  let dir: string;
+  const bothCfg: Config = { ...cfg, targets: [sonioxTarget, assemblyTarget] };
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "vt-both-"));
+  });
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** Deps whose transcribe output names the backend that produced it. */
+  function bothDeps(over: Partial<RunDeps> = {}): RunDeps {
+    return makeDeps({
+      loadConfig: () => bothCfg,
+      makeService: (target) => ({
+        transcribeFile: vi.fn(async () => `srt-from-${target.backend}`),
+      }),
+      transcribe: vi.fn(async (service: TranscribeService, audioPath: string) =>
+        service.transcribeFile(audioPath),
+      ),
+      ...over,
+    });
+  }
+
+  it("writes one SRT per backend from a single file", async () => {
+    fs.writeFileSync(path.join(dir, "a.m4a"), "x");
+    const summary = await run([dir], bothDeps());
+    expect(summary).toMatchObject({ total: 1, newlyTranscribed: 1, failed: 0 });
+    expect(fs.readFileSync(path.join(dir, "a.srt"), "utf8")).toBe("srt-from-soniox");
+    expect(fs.readFileSync(path.join(dir, "a.diarize.srt"), "utf8")).toBe("srt-from-assemblyai");
+  });
+
+  it("extracts the video's audio once and reuses it for both backends", async () => {
+    const v = path.join(dir, "v.mp4");
+    fs.writeFileSync(v, "x");
+    const deps = bothDeps();
+    await run([dir], deps);
+    expect(deps.extractAudio).toHaveBeenCalledTimes(1);
+    expect(fs.existsSync(path.join(dir, "v.srt"))).toBe(true);
+    expect(fs.existsSync(path.join(dir, "v.diarize.srt"))).toBe(true);
+  });
+
+  it("fills only the missing backend when one SRT already exists", async () => {
+    fs.writeFileSync(path.join(dir, "a.m4a"), "x");
+    fs.writeFileSync(path.join(dir, "a.srt"), "pre-existing");
+    const summary = await run([dir], bothDeps());
+    expect(summary).toMatchObject({ total: 1, newlyTranscribed: 1 });
+    expect(fs.readFileSync(path.join(dir, "a.srt"), "utf8")).toBe("pre-existing");
+    expect(fs.readFileSync(path.join(dir, "a.diarize.srt"), "utf8")).toBe("srt-from-assemblyai");
+  });
+
+  it("skips a file only when every backend's SRT exists", async () => {
+    fs.writeFileSync(path.join(dir, "a.m4a"), "x");
+    fs.writeFileSync(path.join(dir, "a.srt"), "s");
+    fs.writeFileSync(path.join(dir, "a.diarize.srt"), "d");
+    const transcribe = vi.fn(async () => fakeSrt);
+    const summary = await run([dir], bothDeps({ transcribe }));
+    expect(summary).toMatchObject({ total: 1, already: 1, newlyTranscribed: 0 });
+    expect(transcribe).not.toHaveBeenCalled();
+  });
+
+  it("keeps one backend's output when the other backend fails", async () => {
+    fs.writeFileSync(path.join(dir, "a.m4a"), "x");
+    const transcribe = vi.fn(async (service: TranscribeService, audioPath: string) => {
+      const out = await service.transcribeFile(audioPath);
+      if (out.endsWith("soniox")) throw new Error("api down");
+      return out;
+    });
+    const summary = await run([dir], bothDeps({ transcribe }));
+    expect(summary).toMatchObject({ total: 1, newlyTranscribed: 1, failed: 0 });
+    expect(fs.existsSync(path.join(dir, "a.srt"))).toBe(false);
+    expect(fs.readFileSync(path.join(dir, "a.diarize.srt"), "utf8")).toBe("srt-from-assemblyai");
   });
 });

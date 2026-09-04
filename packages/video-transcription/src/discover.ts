@@ -20,14 +20,21 @@ export function isVideo(file: string): boolean {
   return VIDEO_EXTENSIONS.has(path.extname(file).toLowerCase());
 }
 
-/** Sibling `.srt` path derived from the original file's stem. */
-export function srtPath(file: string): string {
-  return `${file.replace(/\.[^./\\]+$/, "")}.srt`;
+/** Default sibling-subtitle suffix (Soniox backend). */
+export const DEFAULT_SRT_SUFFIX = ".srt";
+
+/**
+ * Sibling subtitle path derived from the original file's stem. `suffix` lets a
+ * backend write beside another one's output (e.g. `.diarize.srt`) so the same
+ * source file can be transcribed by both without clobbering.
+ */
+export function srtPath(file: string, suffix: string = DEFAULT_SRT_SUFFIX): string {
+  return `${file.replace(/\.[^./\\]+$/, "")}${suffix}`;
 }
 
-/** True when a sibling `.srt` already exists. */
-export function isTranscribed(file: string): boolean {
-  return fs.existsSync(srtPath(file));
+/** True when the sibling subtitle file for `suffix` already exists. */
+export function isTranscribed(file: string, suffix: string = DEFAULT_SRT_SUFFIX): boolean {
+  return fs.existsSync(srtPath(file, suffix));
 }
 
 function sortByMtime(files: string[]): string[] {
