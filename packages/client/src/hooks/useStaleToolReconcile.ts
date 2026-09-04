@@ -42,7 +42,7 @@ export const RECONCILE_POLL_MS = 5_000;
  * After a 404 / in-flight result (tool genuinely still running, or the end
  * event was evicted), wait this long before probing the same row again.
  */
-export const RECONCILE_REARM_MS = 15_000;
+const RECONCILE_REARM_MS = 15_000;
 
 /**
  * Number of reconcile HTTP 404s a row must accrue before the supersede heal is

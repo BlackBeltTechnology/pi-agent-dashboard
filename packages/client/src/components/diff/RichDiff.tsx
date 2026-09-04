@@ -11,7 +11,7 @@ import { highlighter } from "@git-diff-view/lowlight";
 import "@git-diff-view/react/styles/diff-view.css";
 import { useThemeContext } from "../settings/ThemeProvider.js";
 
-export const EXT_LANG_MAP: Record<string, string> = {
+const EXT_LANG_MAP: Record<string, string> = {
   ".ts": "typescript", ".tsx": "tsx", ".js": "javascript", ".jsx": "jsx",
   ".json": "json", ".sh": "bash", ".bash": "bash", ".zsh": "bash",
   ".py": "python", ".rb": "ruby", ".rs": "rust", ".go": "go",

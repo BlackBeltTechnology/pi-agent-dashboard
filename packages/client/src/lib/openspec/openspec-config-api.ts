@@ -64,7 +64,7 @@ function notifyOpenSpecConfigChanged(): void {
 // ── add-openspec-profile-settings ─────────────────────────────────────
 
 /** Per-cwd staleness of generated /opsx: skill files vs the current profile. */
-export type OpenSpecUpdateStatus = "up-to-date" | "needs-update" | "unknown";
+type OpenSpecUpdateStatus = "up-to-date" | "needs-update" | "unknown";
 export interface CwdUpdateStatus { cwd: string; status: OpenSpecUpdateStatus; }
 export interface CwdUpdateResult { cwd: string; success: boolean; error?: string; }
 

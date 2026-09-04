@@ -208,7 +208,7 @@ function extractAtQuery(text: string): string | null {
 }
 
 /** Minimum bare-leaf length before a walk-backed `list_files` request fires. */
-export const MIN_FILE_QUERY_LEN = 3;
+const MIN_FILE_QUERY_LEN = 3;
 
 /**
  * Whether an `@`-mention query should issue a walk-backed `list_files` request.

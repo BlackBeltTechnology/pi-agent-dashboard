@@ -23,7 +23,7 @@ import type React from "react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { EditorPaneAction, EditorPaneState, OpenFile } from "./editor-pane-state.js";
 
-export const TERM_TAB_PREFIX = "term:";
+const TERM_TAB_PREFIX = "term:";
 
 /** `term:<id>` → `<id>`; `null` for any non-terminal path. */
 export function stripTermId(path: string): string | null {

@@ -27,7 +27,7 @@ let entries: SpawnErrorToastEntry[] = [];
 const listeners = new Set<Listener>();
 
 /** Auto-dismiss timeout per entry; visible long enough to read + copy cwd. */
-export const SPAWN_ERROR_TOAST_DURATION_MS = 10_000;
+const SPAWN_ERROR_TOAST_DURATION_MS = 10_000;
 
 /** Truncate the message body to the spec-mandated <= 200 chars. */
 function truncate(s: string, max = 200): string {

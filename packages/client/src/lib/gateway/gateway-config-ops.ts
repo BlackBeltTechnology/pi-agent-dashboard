@@ -31,7 +31,7 @@ export function isSecureBaseUrl(url: string): boolean {
 }
 
 /** A shallow `pairing` config object (only `publicBaseUrls` is typed here). */
-export interface PairingConfigShape {
+interface PairingConfigShape {
   publicBaseUrls?: string[];
   [k: string]: unknown;
 }

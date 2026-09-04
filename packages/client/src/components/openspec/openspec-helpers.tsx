@@ -2,7 +2,7 @@ import type { OpenSpecArtifact, OpenSpecChange } from "@blackbelt-technology/pi-
 import React from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 
-export const LETTER_MAP: Record<string, string> = {
+const LETTER_MAP: Record<string, string> = {
   proposal: "P",
   design: "D",
   specs: "S",
