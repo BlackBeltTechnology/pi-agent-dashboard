@@ -20,7 +20,7 @@
  */
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { Workspace } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import { normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
+import { isFilesystemRoot, normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
 import { mdiClose, mdiInformationOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useEffect, useMemo, useState } from "react";
@@ -53,11 +53,19 @@ interface Props {
   onOpenServers?: () => void;
 }
 
-/** Trailing path segment, for the pill label. */
+/**
+ * Trailing path segment, for the pill label. Filesystem roots (`/`, `C:\`, a
+ * UNC share root) have no meaningful leaf — return the full path so the pill and
+ * its accessible remove label are non-empty AND unambiguous (`C:\`, not the
+ * drive-relative `C:`). The `leaf || p` tail is a final guard for any other
+ * empty-leaf shape (design D6).
+ */
 function leafName(p: string): string {
+  if (isFilesystemRoot(p, inferPlatform([p]))) return p;
   const trimmed = p.replace(/[/\\]+$/, "");
   const idx = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
-  return idx >= 0 ? trimmed.slice(idx + 1) : trimmed;
+  const leaf = idx >= 0 ? trimmed.slice(idx + 1) : trimmed;
+  return leaf || p;
 }
 
 export function AddFoldersDialog({

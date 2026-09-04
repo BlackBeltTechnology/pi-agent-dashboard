@@ -59,11 +59,15 @@ function isRecord(v: unknown): v is Record<string, unknown> {
  * @param knownKinds  Set of registered trigger kinds (e.g. `{"schedule"}`).
  *                    An `on.kind` outside this set fails validation with an
  *                    error naming the kind.
+ * @param knownActionIds  Registered `<source>.<verb>` action ids.
+ * @param knownSourceIds  Registered work-source ids. An `on.source` outside
+ *                    this set isolates the automation (mirrors unknown kind).
  */
 export function parseAutomationYaml(
   rawText: string,
   knownKinds: ReadonlySet<string>,
   knownActionIds: ReadonlySet<string> = new Set(),
+  knownSourceIds: ReadonlySet<string> = new Set(),
 ): ParseResult {
   let doc: unknown;
   try {
@@ -109,6 +113,20 @@ export function parseAutomationYaml(
     };
   }
 
+  // ── schedule.batch (work-source fan-out) ─────────────────────────────
+  // Requires a registered `on.source`; one item maps to one child running the
+  // single `action:`, so `actions:`/`count` are rejected below.
+  const isBatch = kind === "schedule.batch";
+  if (isBatch) {
+    const source = on.source;
+    if (typeof source !== "string" || source.length === 0) {
+      return { error: "`schedule.batch` requires a non-empty `on.source`" };
+    }
+    if (!knownSourceIds.has(source)) {
+      return { error: `unknown work source: "${source}"` };
+    }
+  }
+
   // ── action / actions (mutually exclusive) ─────────────────────────────
   const action = doc.action;
   const actionsRaw = doc.actions;
@@ -117,6 +135,11 @@ export function parseAutomationYaml(
   }
   if (action === undefined && actionsRaw === undefined) {
     return { error: "missing `action:` or `actions:` block" };
+  }
+  if (isBatch && actionsRaw !== undefined) {
+    return {
+      error: "`schedule.batch` requires a single `action:` (one leased item → one child); `actions:` is not allowed",
+    };
   }
 
   let singleAction: AutomationAction | undefined;
@@ -142,6 +165,11 @@ export function parseAutomationYaml(
     const actionResult = validateAction(action, knownActionIds);
     if ("error" in actionResult) return { error: actionResult.error };
     singleAction = actionResult.value;
+  }
+  if (isBatch && singleAction?.count !== undefined) {
+    return {
+      error: "`count` is not allowed on a `schedule.batch` action — fan-out width is the number of leased items",
+    };
   }
 
   // ── maxConcurrentSpawns (per-automation bound) ────────────────────────

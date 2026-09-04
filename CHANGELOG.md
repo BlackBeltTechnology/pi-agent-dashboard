@@ -12,6 +12,12 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Video-transcription: AssemblyAI backend.** `pi-transcribe` now supports an
+  opt-in second backend (`TRANSCRIBE_BACKEND=assemblyai`, key `ASSEMBLY_AI_KEY`,
+  EU endpoint) alongside the Soniox default — or both at once
+  (`TRANSCRIBE_BACKEND=both`). AssemblyAI output lands as `<name>.diarize.srt`,
+  so the same source can carry both transcripts side by side.
+
 - **A blocking `ctx.ui` prompt now shows as input-requested, not as busy work.**
   The bridge forwards pi 0.84.4's `ui_prompt_start` / `ui_prompt_end`, and the
   server maps them to `currentTool: "ask_user"` / `null` — which also raises the

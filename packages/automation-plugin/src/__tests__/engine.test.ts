@@ -12,6 +12,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ActionRegistry } from "../server/action-registry.js";
 import { buildRunDispatch, buildRunPrompt, createEngine, effectiveVisibility } from "../server/engine.js";
+import { collectFolderScopeBases } from "../server/folder-scope-contributions.js";
 import { listRuns, readChildRuns, startRun as storeStartRun } from "../server/run-store.js";
 import type { DiscoveredAutomation, RunRecord } from "../shared/automation-types.js";
 
@@ -835,5 +836,129 @@ describe("engine fan-out reaper", () => {
     ageRecordOnDisk(parentRun(repo, "liveparent", r.runId).dir, nowRef.v - 10_000);
     engine.reapStaleRuns();
     expect(parentRun(repo, "liveparent", r.runId).status).toBe("running");
+  });
+});
+
+// See change: add-automation-folder-scope-contribution.
+describe("folder-scope contributions (union → scan/arm)", () => {
+  const extraDirs: string[] = [];
+  const tmp = (prefix: string): string => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+    extraDirs.push(d);
+    return d;
+  };
+  afterEach(() => {
+    for (const d of extraDirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
+  });
+
+  function writeEnabledAutomation(base: string, name: string): void {
+    const dir = path.join(base, ".pi", "automation", name);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "prompt.md"), "do the thing");
+    fs.writeFileSync(
+      path.join(dir, "automation.yaml"),
+      `on: { kind: schedule, cron: "* * * * *" }\naction: { kind: prompt, prompt: ./prompt.md }\nmodel: "@fast"\nmode: local\n`,
+    );
+  }
+
+  const contrib = (base: string, id = "acme") => ({ key: `automation.folderscope.${id}`, value: { base } });
+
+  /** Mirror index.ts `folderScopeBases()`: session cwds ∪ collected contributions. */
+  function composeBases(
+    sessionCwds: string[],
+    entries: Array<{ key: string; value: unknown }>,
+    opts: { homeDir?: string; warnedKeys?: Set<string> } = {},
+  ): string[] {
+    const bases = new Set(sessionCwds.filter(Boolean).map((c) => path.resolve(c)));
+    for (const b of collectFolderScopeBases(entries, { warn: () => {}, ...opts })) bases.add(b);
+    return [...bases];
+  }
+
+  function engineForScopes(
+    listScopes: () => Array<{ base: string; scope: "folder" | "global" }>,
+    scanGlobal = false,
+  ) {
+    return createEngine({
+      spawnSession: async () => ({ success: true, spawnToken: "tok" }),
+      listScopes,
+      config: () => ({
+        defaultVisibility: "hidden",
+        retention: 100,
+        defaultModel: "anthropic/claude-sonnet-4-5",
+        scanFolder: true,
+        scanGlobal,
+        maxRunAgeMs: 30 * 60 * 1000,
+      }),
+      readRoles: () => ({ fast: "anthropic/claude-haiku-4-5" }),
+      warn: () => {},
+    });
+  }
+
+  it("I1: zero-session contributed base is scanned + armed at boot", () => {
+    writeEnabledAutomation(repo, "intake");
+    const bases = composeBases([], [contrib(repo)]);
+    const engine = engineForScopes(() => bases.map((base) => ({ base, scope: "folder" })));
+    engine.start();
+    expect(engine.scheduler.armedKeys()).toContain("folder:intake");
+    engine.dispose();
+  });
+
+  it("E4/I2: contributed base == session cwd (and trailing slash) dedupes to one scope + one armed key", () => {
+    writeEnabledAutomation(repo, "dedup");
+    const bases = composeBases([repo], [contrib(repo, "a"), contrib(`${repo}/`, "b")]);
+    expect(bases).toEqual([path.resolve(repo)]);
+    const engine = engineForScopes(() => bases.map((base) => ({ base, scope: "folder" })));
+    engine.start();
+    expect(engine.scheduler.armedKeys()).toEqual(["folder:dedup"]);
+    engine.dispose();
+  });
+
+  it("E7: contributed base == home dir arms under global only, never as folder", () => {
+    const home = tmp("auto-home-");
+    writeEnabledAutomation(home, "homeauto");
+    const folderBases = composeBases([], [contrib(home)], { homeDir: home });
+    expect(folderBases).toEqual([]); // home dropped from the folder set
+    const engine = engineForScopes(
+      () => [
+        { base: home, scope: "global" },
+        ...folderBases.map((base) => ({ base, scope: "folder" as const })),
+      ],
+      true,
+    );
+    engine.start();
+    const keys = engine.scheduler.armedKeys();
+    expect(keys).toContain("global:homeauto");
+    expect(keys).not.toContain("folder:homeauto");
+    engine.dispose();
+  });
+
+  it("I3: a nav pin that is NOT contributed is never scoped or armed", () => {
+    const pinned = tmp("auto-pin-");
+    writeEnabledAutomation(pinned, "pinned");
+    // Only the contribution axis feeds scopes — the pinned dir is absent from entries.
+    const bases = composeBases([], []);
+    expect(bases).not.toContain(path.resolve(pinned));
+    const engine = engineForScopes(() => bases.map((base) => ({ base, scope: "folder" })));
+    engine.start();
+    expect(engine.scheduler.armedKeys()).not.toContain("folder:pinned");
+    engine.dispose();
+  });
+
+  it("S1: a post-boot zero-session live-add is not armed until a re-arm trigger fires", () => {
+    const late = tmp("auto-late-");
+    writeEnabledAutomation(late, "late");
+    const entries: Array<{ key: string; value: unknown }> = [];
+    const engine = engineForScopes(() =>
+      composeBases([], entries).map((base) => ({ base, scope: "folder" })),
+    );
+    engine.start();
+    expect(engine.scheduler.armedKeys()).toEqual([]);
+    // Contribution published AFTER boot, zero sessions, no watched-file change.
+    entries.push(contrib(late));
+    expect(engine.scheduler.armedKeys()).toEqual([]); // documented boundary: no re-arm trigger
+    // A later trigger (refresh) does arm it — proving the boundary, not a defect.
+    engine.refresh();
+    expect(engine.scheduler.armedKeys()).toContain("folder:late");
+    engine.dispose();
   });
 });
