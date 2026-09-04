@@ -9,7 +9,7 @@
  */
 import { parentPort } from "node:worker_threads";
 
-export interface MatcherRequest {
+interface MatcherRequest {
   idx: number;
   pattern: string;
   customType: string;

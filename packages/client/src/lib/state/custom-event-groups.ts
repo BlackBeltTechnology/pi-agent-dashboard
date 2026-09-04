@@ -18,7 +18,7 @@ let inflight: Promise<ClientCustomEventGroup[]> | null = null;
 
 /** Fetch (once) the group definitions; failures resolve to an empty list —
  *  a surface that cannot read the file still renders, just without rows. */
-export function fetchCustomEventGroups(): Promise<ClientCustomEventGroup[]> {
+function fetchCustomEventGroups(): Promise<ClientCustomEventGroup[]> {
   if (cache) return Promise.resolve(cache);
   if (!inflight) {
     inflight = fetch("/api/custom-event-groups", { credentials: "include" })
