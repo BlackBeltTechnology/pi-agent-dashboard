@@ -97,6 +97,14 @@ The `parallel-test-execution` delta inherits the shipped **3 consecutive green r
 
 ## Implementation-phase findings (2026-09-01)
 
+- **Follow-up noted (review, non-blocking):** the 8 stable-negative conversions
+  use `await act(async () => {})` (microtask flush) where the old code waited a
+  real timer. For "never called / never rendered" assertions a regression that
+  defers the forbidden action to a macrotask would evade the flush window;
+  `vi.useFakeTimers()` + `advanceTimersByTime` is the stronger form. The tested
+  decisions are synchronous (verified per site), ids are census-pinned, and the
+  reviewer classified this non-blocking — deferred as a follow-up, not shipped
+  as a weakening.
 - **Worktree-without-install mimics the defect.** A `.worktrees/` checkout with no
   root `node_modules` resolves `vitest` and every dep from the PARENT checkout —
   failures appear (pi-version-skew X13, verify-published-imports X3, kb eval-guard,
