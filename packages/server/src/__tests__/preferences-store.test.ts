@@ -759,6 +759,21 @@ describe("preferences-store", () => {
       for (const g of ["memory", "search", "subagents", "flows", "goals"]) {
         expect(prefs.customEventGroups[g]).toBe(false);
       }
+      // ...and for USER-CONFIGURED groups (CodeRabbit Xw): a configured id
+      // absent from the prefs also seeds hidden, not its visible default.
+      const storeXw = createPreferencesStore(filePath, {
+        customEventGroupDefaults: { memory: false, other: true, myplugin: true },
+      });
+      const legacyFile = filePath.replace(".json", "-xw.json");
+      fs.writeFileSync(legacyFile, JSON.stringify({
+        displayPrefs: { ...NEW_FIELDS_LEGACY_DISPLAY_PREFS, customEntryFallback: false },
+      }));
+      const storeXw2 = createPreferencesStore(legacyFile, {
+        customEventGroupDefaults: { memory: false, other: true, myplugin: true },
+      });
+      expect((storeXw2.getDisplayPrefs() as any).customEventGroups.myplugin).toBe(false);
+      storeXw.dispose();
+      storeXw2.dispose();
       expect(prefs.customEntryFallback).toBeUndefined();
       // the migration is DURABLE on the load that performs it: flush and
       // assert the on-disk file no longer carries the legacy field

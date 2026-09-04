@@ -342,17 +342,20 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // One-shot customEntryFallback → customEventGroups.other migration over
   // per-session overrides (design D7). Idempotent; the global-prefs half
   // runs at preferences-store load. See change: add-custom-event-group-filters.
-  migrateCustomEntryFallbackOverrides();
-
-  // Custom event groups (add-custom-event-group-filters): one store per
-  // process (restart-to-apply, design D6); the resolver owns the memo +
-  // quarantine over the matcher's worker thread (design D3).
   const customEventGroupsStore = new CustomEventGroupsStore();
   const customEventGroupMatcher = new CustomEventGroupMatcher();
   const customEventGroupResolver = new CustomEventGroupResolver(
     customEventGroupsStore.list(),
     customEventGroupMatcher,
   );
+
+  migrateCustomEntryFallbackOverrides(undefined, undefined, Object.fromEntries(
+    customEventGroupsStore.definitions().map((g) => [g.id, g.default]),
+  ));
+
+  // Custom event groups (add-custom-event-group-filters): one store per
+  // process (restart-to-apply, design D6); the resolver owns the memo +
+  // quarantine over the matcher's worker thread (design D3).
 
   const preferencesStore = createPreferencesStore(undefined, {
     customEventGroupDefaults: Object.fromEntries(

@@ -627,7 +627,17 @@ export function createDirectoryService(
             if (!isGroupableCustomEvent(ev)) continue;
             const customType = customEventTypeOfEvent(ev);
             if (customType === undefined) continue;
-            stampEventGroup(ev, await options.customEventGroupResolver.resolve(customType));
+            // Fail-open parity with the live path: a resolution failure
+            // leaves THIS event unannotated (client → other) and never
+            // fails the whole session load.
+            try {
+              stampEventGroup(ev, await options.customEventGroupResolver.resolve(customType));
+            } catch (err) {
+              console.warn(
+                `[custom-event-groups] replay annotation failed for ${customType} (${sessionId}):`,
+                err instanceof Error ? err.message : err,
+              );
+            }
           }
         }
         return { success: true, events: out.events };

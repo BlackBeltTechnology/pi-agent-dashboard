@@ -330,7 +330,9 @@ export function createPreferencesStore(
   const rawWorkspaces = Array.isArray(data.workspaces) ? data.workspaces : [];
   let workspaces: Workspace[] = rawWorkspaces.map(normalizeWorkspaceOnLoad);
   let displayPrefs: DisplayPrefs | undefined = backfillDisplayPrefs(
-    data.displayPrefs ? migrateLegacyCustomEntryFallback(data.displayPrefs) : data.displayPrefs,
+    data.displayPrefs
+      ? migrateLegacyCustomEntryFallback(data.displayPrefs, deps.customEventGroupDefaults)
+      : data.displayPrefs,
     deps.customEventGroupDefaults,
   );
   // The load-time migration + seeding must be DURABLE on the load that

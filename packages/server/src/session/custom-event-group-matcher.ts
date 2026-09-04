@@ -160,6 +160,13 @@ export class CustomEventGroupMatcher {
         this.ready = null;
         this.workerDead = true;
         clearTimeout(bootTimer);
+        // A worker that never became ready is a stuck thread: terminate it so
+        // the next ensureWorker() cannot accumulate hung boots.
+        try {
+          w.terminate();
+        } catch {
+          // already dead — nothing to do
+        }
         reject(err);
       };
       w.once("error", (err) => failBoot(err instanceof Error ? err : new Error(String(err))));

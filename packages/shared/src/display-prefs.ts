@@ -375,7 +375,16 @@ export function mergeDisplayPrefs(
  */
 export function migrateLegacyCustomEntryFallback<
   T extends { customEntryFallback?: unknown; customEventGroups?: unknown },
->(prefs: T): T {
+>(
+  prefs: T,
+  /**
+   * Configured group defaults (id → default visibility) from the groups file,
+   * when the caller has them (server paths do). A legacy `false` hides the
+   * WHOLE gated population — shipped groups AND user-configured groups — so
+   * every configured id absent from the prefs also seeds `false`.
+   */
+  configuredGroupDefaults?: Record<string, boolean>,
+): T {
   if (!prefs || typeof prefs !== "object") return prefs;
   const legacy = prefs.customEntryFallback;
   if (typeof legacy !== "boolean") {
@@ -395,6 +404,11 @@ export function migrateLegacyCustomEntryFallback<
     if (groups.other === undefined) groups.other = false;
     for (const g of SHIPPED_CUSTOM_EVENT_GROUPS) {
       if (groups[g.id] === undefined) groups[g.id] = false;
+    }
+    if (configuredGroupDefaults) {
+      for (const id of Object.keys(configuredGroupDefaults)) {
+        if (groups[id] === undefined) groups[id] = false;
+      }
     }
     next.customEventGroups = groups;
   }

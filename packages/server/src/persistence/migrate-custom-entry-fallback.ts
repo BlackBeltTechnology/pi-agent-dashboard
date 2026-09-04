@@ -27,6 +27,7 @@ export interface CustomEntryFallbackMigrationResult {
 export function migrateCustomEntryFallbackOverrides(
   sessionsDir: string = resolvePiSessionsDir(),
   log: (message: string) => void = (m) => console.log(m),
+  configuredGroupDefaults?: Record<string, boolean>,
 ): CustomEntryFallbackMigrationResult {
   const migratedOverrides: string[] = [];
   let entries: string[];
@@ -43,7 +44,7 @@ export function migrateCustomEntryFallbackOverrides(
     const override = meta?.displayPrefsOverride as Record<string, unknown> | undefined;
     if (!override || typeof override !== "object") continue;
     if (typeof override.customEntryFallback !== "boolean") continue;
-    const migrated = migrateLegacyCustomEntryFallback(override);
+    const migrated = migrateLegacyCustomEntryFallback(override, configuredGroupDefaults);
     writeSessionMeta(metaFile.replace(/\.meta\.json$/, ".jsonl"), {
       ...meta,
       displayPrefsOverride: migrated,

@@ -2375,8 +2375,14 @@ function DisplayPrefsSection() {
   useSettingsDraftSource({ id: "display-prefs", page: "general", isDirty, commit, reset });
 
   const resetToDefaults = useCallback(() => {
-    patch(DISPLAY_PRESETS.standard);
-  }, [patch]);
+    // The preset only carries SHIPPED group ids — a user-configured group
+    // absent from it would retain its old value through "reset to defaults".
+    // Build the group arm from the FETCHED definitions so every configured id
+    // resets to its configured default.
+    const groupReset: Record<string, boolean> = {};
+    for (const g of customGroups ?? []) groupReset[g.id] = g.default;
+    patch({ ...DISPLAY_PRESETS.standard, customEventGroups: groupReset });
+  }, [patch, customGroups]);
   const prefs = draft;
 
   return (
