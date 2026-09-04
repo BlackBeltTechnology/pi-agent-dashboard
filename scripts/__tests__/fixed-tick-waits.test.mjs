@@ -69,6 +69,48 @@ describe('barrier detection (E10)', () => {
     expect(violations[0].line).toBe(2);
   });
 
+  it('matches the canonical two-parameter executor signature', () => {
+    const root = makeFixtureTree({
+      'two-param.test.ts': 'it("x", async () => {\n  await new Promise((resolve, reject) => setTimeout(resolve, 0));\n});\n',
+    });
+    const { violations } = analyzeFixedTickWaits(root);
+    expect(violations).toHaveLength(1);
+    expect(violations[0].line).toBe(2);
+  });
+
+  it('matches function-form executors', () => {
+    const root = makeFixtureTree({
+      'fn-form.test.ts': 'it("x", async () => {\n  await new Promise(function (r) { setTimeout(r, 0) });\n});\n',
+    });
+    const { violations } = analyzeFixedTickWaits(root);
+    expect(violations).toHaveLength(1);
+    expect(violations[0].line).toBe(2);
+  });
+
+  it('matches a line-wrapped (formatter-split) barrier — reported at the await', () => {
+    const root = makeFixtureTree({
+      'wrapped.test.ts': 'it("x", async () => {\n  await new Promise((r) =>\n    setTimeout(r, 0),\n  );\n});\n',
+    });
+    const { violations } = analyzeFixedTickWaits(root);
+    expect(violations).toHaveLength(1);
+    expect(violations[0].line).toBe(2);
+  });
+
+  it('flags a sleep-helper definition that moves setTimeout off the await line', () => {
+    const root = makeFixtureTree({
+      'sleeper.test.ts': [
+        'const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));',
+        'it("x", async () => {',
+        '  await sleep(0);',
+        '  expect(done).toBe(true);',
+        '});',
+      ].join('\n'),
+    });
+    const { violations } = analyzeFixedTickWaits(root);
+    expect(violations).toHaveLength(1);
+    expect(violations[0].line).toBe(1);
+  });
+
   it('flags the pattern inside helpers too, not only test bodies', () => {
     const root = makeFixtureTree({
       'helper.test.ts': [

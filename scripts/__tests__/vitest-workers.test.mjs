@@ -101,19 +101,35 @@ describe('no dependency edge added (E17)', () => {
 });
 
 describe('effective worker count unchanged (P1)', () => {
-  it('parallel configs resolve to the shared target; serial configs to 1', async () => {
-    const resolved = {};
+  it('every importing config resolves to the shared target; serial configs to 1', async () => {
+    const wrong = [];
     for (const { pkg, path } of configs) {
       const mod = await import(`${path}?worker-census-${pkg}`);
       const config = typeof mod.default === 'function' ? await mod.default({}) : mod.default;
-      resolved[pkg] = config?.test?.maxWorkers;
+      const resolved = config?.test?.maxWorkers;
+      // A config that IMPORTS the module must actually resolve to it (an
+      // import whose resolution silently fails would pass a looser check);
+      // serial projects must resolve to exactly 1; anything else (only
+      // dashboard-plugin-skill today) declares no worker setting at all.
+      const importsModule = readFileSync(path, 'utf8').includes('vitest.workers');
+      const expected = importsModule
+        ? PARALLEL_MAX_WORKERS
+        : SERIAL_PROJECTS.includes(pkg)
+          ? 1
+          : undefined;
+      if (resolved !== expected) {
+        wrong.push(`${pkg}: resolved ${String(resolved)}, expected ${String(expected)}`);
+      }
     }
-    const wrong = Object.entries(resolved).filter(([pkg, v]) =>
-      SERIAL_PROJECTS.includes(pkg) ? v !== 1 : v !== undefined && v !== PARALLEL_MAX_WORKERS,
-    );
     expect(wrong).toEqual([]);
     // The shared target must actually be in effect somewhere — a consolidation
     // that resolved everything to undefined would wrongly pass the check above.
-    expect(Object.values(resolved)).toContain(PARALLEL_MAX_WORKERS);
+    const resolvedValues = [];
+    for (const { pkg, path } of configs) {
+      const mod = await import(`${path}?worker-census-${pkg}`);
+      const config = typeof mod.default === 'function' ? await mod.default({}) : mod.default;
+      resolvedValues.push(config?.test?.maxWorkers);
+    }
+    expect(resolvedValues).toContain(PARALLEL_MAX_WORKERS);
   });
 });

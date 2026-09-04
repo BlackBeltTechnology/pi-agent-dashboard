@@ -42,8 +42,23 @@ export const CLIENT_SRC = join(REPO_ROOT, "packages", "client", "src");
 
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", "coverage", ".next", "out"]);
 
-/** The barrier: an awaited promise whose executor is a bare setTimeout call. */
-const BARRIER_PATTERN = /await\s+new\s+Promise\s*\(\s*\(?\w+\)?\s*=>\s*setTimeout\s*\(/;
+/**
+ * The barrier: an awaited promise whose executor is (or leads within a few
+ * chars to) a bare setTimeout call. Deliberately tolerant of the forms a
+ * reviewer would actually write or a formatter would produce: arrow and
+ * function executors, one- and two-parameter executors, and line-wrapped
+ * `await new Promise((r) =>\n  setTimeout(...))`.
+ */
+const BARRIER_PATTERN =
+  /await\s+new\s+Promise\s*\(\s*(?:function\s*)?\(?\s*\w+\s*(?:,\s*\w+\s*)?\)?\s*(?:=>\s*\{?)?[\s\S]{0,60}?setTimeout\s*\(/g;
+/**
+ * A Promise-setTimeout helper DEFINED in a test file (`const sleep = (ms) =>
+ * new Promise((r) => setTimeout(r, ms))`) — it moves setTimeout off the await
+ * line and would hollow the rule if only awaited barriers were flagged.
+ * Single-line form; the definition is the violation, not its call sites.
+ */
+const HELPER_PATTERN =
+  /(?:const|let|var)\s+\w+\s*=[^;\n]*new\s+Promise\s*\([^;\n]{0,40}setTimeout/g;
 /** Line-scoped opt-out marker — must sit on the line directly above. */
 const OPT_OUT_PATTERN = /fixed-tick-waits:\s*opt-out/;
 const TEST_FILE_PATTERN = /\.test\.(ts|tsx)$/;
@@ -75,19 +90,26 @@ export function analyzeFixedTickWaits(root = CLIENT_SRC) {
   const files = listTestFiles(root);
   for (const file of files) {
     const lines = readFileSync(file, "utf8").split("\n");
-    for (let i = 0; i < lines.length; i++) {
-      if (!BARRIER_PATTERN.test(lines[i])) continue;
-      // The opt-out applies to this occurrence only: the previous non-empty
-      // line must carry the marker.
-      const prev = lines[i - 1] ?? "";
+    const text = lines.join("\n");
+    // Offset → 1-based line, without re-scanning per match.
+    const lineAt = (offset) => text.slice(0, offset).split("\n").length;
+    const flagged = new Map(); // line → text (first hit wins)
+    for (const pattern of [BARRIER_PATTERN, HELPER_PATTERN]) {
+      pattern.lastIndex = 0;
+      for (const m of text.matchAll(pattern)) {
+        const line = lineAt(m.index);
+        if (!flagged.has(line)) flagged.set(line, lines[line - 1].trim());
+      }
+    }
+    for (const [line, lineText] of flagged) {
+      // The opt-out applies to this occurrence only: the line directly above
+      // must carry the marker.
+      const prev = lines[line - 2] ?? "";
       if (OPT_OUT_PATTERN.test(prev)) continue;
-      violations.push({
-        file: relative(root, file).split(sep).join("/"),
-        line: i + 1,
-        text: lines[i].trim(),
-      });
+      violations.push({ file: relative(root, file).split(sep).join("/"), line, text: lineText });
     }
   }
+  violations.sort((a, b) => (a.file === b.file ? a.line - b.line : a.file < b.file ? -1 : 1));
   return { files: files.length, violations };
 }
 

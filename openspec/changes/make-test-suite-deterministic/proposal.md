@@ -30,6 +30,20 @@ Measured on clean `develop` @ `3053db19` (CI: 0 failures):
   - *Worker-count throttling.* An earlier draft proposed reducing `maxWorkers` when the machine is already loaded. It was cut: the load average is only observable at config-evaluation time, i.e. **before** vitest forks, so it cannot see the contention the run itself creates. Sampled ambient load on the affected machine is ~9.9 against 16 cores, which selects the same 8 workers that fail. Throttling also treats the symptom; the 11 fixed-tick tests are the actual race, and once they poll, worker count stops mattering.
   - *`@earendil-works/pi-coding-agent` version skew.* `packages/server` declares `^0.83.0` and `pnpm-lock.yaml` resolves **0.83.0** — the lockfile is correct. A local `packages/server/node_modules/` holding 0.81.1 is a **stale install**, not a lockfile problem, and `pnpm install` corrects it. Recorded so the next investigator does not chase it.
 
+## Discipline Skills
+
+- `review-code` — pre-commit review of the non-trivial diff (test conversions must
+  not weaken assertions; ship-it step 4.5 runs the isolated reviewer with this
+  rubric).
+- `doubt-driven-review` — the scope-amendment decision (defect A already fixed
+  upstream) was adversarially checked against filesystem reality before any code
+  moved; evidence in `SHIP_IT_BLOCKED.md`.
+
+None of `security-hardening`, `performance-optimization`,
+`observability-instrumentation`, or `systematic-debugging` trigger: no auth/secrets/
+untrusted-input surface, no measured runtime regression being optimized, no new
+endpoint/job, and the flake diagnosis was completed during planning.
+
 ## Capabilities
 
 ### New Capabilities
