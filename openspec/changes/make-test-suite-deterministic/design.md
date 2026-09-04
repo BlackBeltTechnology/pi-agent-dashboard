@@ -95,6 +95,21 @@ It was also aimed at the symptom. Once the 11 tests poll instead of guessing tic
 
 The `parallel-test-execution` delta inherits the shipped **3 consecutive green runs** gate; a single pass proves nothing about a rotating failure. Defect A is deterministic and needs only a single verification, which the frontmatter delta reflects — it carries no repetition gate.
 
+## Implementation-phase findings (2026-09-01)
+
+- **Worktree-without-install mimics the defect.** A `.worktrees/` checkout with no
+  root `node_modules` resolves `vitest` and every dep from the PARENT checkout —
+  failures appear (pi-version-skew X13, verify-published-imports X3, kb eval-guard,
+  browse-endpoint) that are install artifacts, not suite defects. Run `pnpm install`
+  in the worktree before drawing conclusions. Recorded in docs/faq.md.
+- **Baseline on the installed tree:** run 1 failed `auth-redirect-base` P1 (100ms
+  wall-clock perf budget under 8 forks); run 2 failed `keeper` E5 (interval-timer
+  rotation) — the failing set still rotates, and both are timing-sensitive tests
+  outside this change's fixed-tick scope.
+- Defect A's upstream fix (`71ea6e593`) also covers proposal-era falsified
+  hypotheses: pi lockfile skew and macOS realpath divergence were ruled out during
+  planning; see proposal.md.
+
 ## Risks / Trade-offs
 
 - **10 test files touched at once** → every conversion is mechanical (barrier → `waitFor`) with no change to assertions or coverage. Reviewable as one pattern repeated 10 times, and the suite itself is the check.

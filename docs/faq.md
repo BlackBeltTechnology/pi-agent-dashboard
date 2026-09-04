@@ -2864,3 +2864,28 @@ See change: add-apple-tools-imcp-plugin.
 Cross-refs:
 - packages/apple-tools/README.md
 - packages/apple-tools/.pi/skills/apple-tools/SKILL.md
+
+## npm test red locally, green in CI — is the suite broken?
+
+Rotating failure set = different file each run. Green CI on same commit = timing race under fork contention. NOT pre-existing regression. Do not dismiss as noise. Do not "fix" by re-running.
+
+Confirm suspicion: `npm test -- --maxWorkers=2` or run failing file alone. Passes in isolation → contention flake.
+
+Root cause class: fixed-tick test barriers. Pattern: `await new Promise((r) => setTimeout(r, N))` before one-shot assertion. Now banned in client tests. Guard triple:
+- `scripts/check-fixed-tick-waits.mjs` — standalone checker.
+- CI step `Fixed-tick wait guard` in `.github/workflows/ci.yml`.
+- Vitest wrapper `scripts/__tests__/fixed-tick-waits.test.mjs`.
+
+Converted tests poll via `waitFor` (5s `asyncUtilTimeout`).
+
+Deliberate timer yields opt out PER OCCURRENCE. Comment on line directly above awaited timer: `// fixed-tick-waits: opt-out — <reason>`. Never file-level waiver. Exemplar: `packages/client/src/components/__tests__/PairLanding.test.tsx` postJson mock yield.
+
+Worker target single source: `vitest.workers.ts` at repo root (`PARALLEL_MAX_WORKERS = "50%"`). Imported by all parallel vitest configs. 7 serial projects keep `maxWorkers: 1`: electron, image-fit-extension, kb-extension, mockup-loop, nano-banana, video-production, video-transcription.
+
+Worktree trap: `.worktrees/<name>` checkout WITHOUT root `node_modules` resolves deps from parent checkout. Misleading failures (pi-version-skew, published-imports). Fix: `pnpm install` inside worktree before `npm test`.
+
+Cross-refs:
+- openspec/changes/make-test-suite-deterministic/
+- scripts/check-fixed-tick-waits.mjs
+- vitest.workers.ts
+- packages/client/src/__tests__/fixed-tick-conversion-equivalence.test.ts
