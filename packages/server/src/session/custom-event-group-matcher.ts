@@ -140,7 +140,7 @@ export class CustomEventGroupMatcher {
 
   /** Wait for the current worker's readiness banner (boot + module load). */
   private ensureReady(): Promise<void> {
-    if (this.ready) return this.ready;
+    if (this.ready !== null) return this.ready;
     const w = this.ensureWorker();
     this.ready = new Promise<void>((resolve, reject) => {
       const bootTimer = setTimeout(
