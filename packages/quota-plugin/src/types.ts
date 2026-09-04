@@ -64,8 +64,26 @@ export interface ApiQuotaResponse {
   unavailable?: QuotaUnavailableDto[];
 }
 
+/**
+ * Retry policy for a transient quota-fetch failure. Off by default; every
+ * numeric field is schema-bounded AND clamped on read (design D5), so a
+ * hand-edited persisted config can never drive an unbounded wait or a Node
+ * timer overflow. `maxAttempts` = retries AFTER the initial attempt (0 disables).
+ * See change: add-quota-refresh-and-retry.
+ */
+export interface QuotaRetryConfig {
+  enabled?: boolean;
+  /** Retries after the initial attempt. Bounds: 0–5. */
+  maxAttempts?: number;
+  /** First backoff delay in ms; doubles each retry. Bounds: 100–10000. */
+  baseDelayMs?: number;
+  /** Ceiling for a single backoff delay in ms. Bounds: 100–60000. */
+  maxDelayMs?: number;
+}
+
 /** Persisted plugin config shape (`plugins.quota.*`). */
 export interface QuotaPluginConfig {
   enabled?: boolean;
   providers?: Record<string, { enabled?: boolean }>;
+  retry?: QuotaRetryConfig;
 }

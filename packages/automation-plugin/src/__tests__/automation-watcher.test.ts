@@ -118,3 +118,59 @@ describe("reconcileWatchers (incremental attach — leak fix)", () => {
     expect(w.attachedBases().sort()).toEqual(["/a", "/b"]);
   });
 });
+
+// See change: add-automation-folder-scope-contribution.
+describe("contributed folder-scope bases (reconcile degrade)", () => {
+  const dirs: string[] = [];
+  const tmp = () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "auto-contrib-"));
+    dirs.push(d);
+    return d;
+  };
+  afterEach(() => {
+    for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
+  });
+
+  it("I1: attaches a watcher to <contributedBase>/.pi/automation with no live session", () => {
+    const repo = tmp();
+    fs.mkdirSync(path.join(repo, ".pi", "automation", "intake"), { recursive: true });
+    const watcher = createAutomationWatcher({ onChange: () => {}, logger: () => {} });
+    reconcileWatchers(watcher, [repo]);
+    expect(watcher.attachedBases()).toEqual([repo]);
+    watcher.detachAll();
+  });
+
+  it("X1: an unwatchable contributed base degrades — attach returns false, sibling still attaches, no throw", () => {
+    // `fs.watch` sync-throw behaviour is platform-dependent (Linux defers to the
+    // async error event), so assert the reconcile-level degrade contract with a
+    // fake watcher whose attach fails for the bad base (EACCES/ENOENT/etc.):
+    // the sibling still attaches and reconcile never throws. The real watcher's
+    // warn-once (failedOnce) path is covered by the fs-integration attach test.
+    const good = tmp();
+    const bad = tmp();
+    const attached = new Set<string>();
+    let badAttachCalls = 0;
+    const fake = {
+      attach: (b: string) => {
+        if (b === bad) {
+          badAttachCalls++;
+          return false; // simulate fs.watch throw → degrade
+        }
+        if (attached.has(b)) return false;
+        attached.add(b);
+        return true;
+      },
+      detach: (b: string) => {
+        attached.delete(b);
+      },
+      attachedBases: () => [...attached],
+    };
+    expect(() => reconcileWatchers(fake, [good, bad])).not.toThrow();
+    expect(fake.attachedBases()).toEqual([good]);
+    expect(badAttachCalls).toBe(1);
+    // Steady-state re-reconcile: good is not re-attached, bad IS retried (non-fatal).
+    reconcileWatchers(fake, [good, bad]);
+    expect(fake.attachedBases()).toEqual([good]);
+    expect(badAttachCalls).toBe(2); // unattached base retried each reconcile, no give-up
+  });
+});

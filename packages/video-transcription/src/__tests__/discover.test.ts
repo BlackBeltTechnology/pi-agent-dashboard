@@ -88,3 +88,23 @@ describe("discovery", () => {
     expect(isTranscribed(media)).toBe(true);
   });
 });
+
+describe("srtPath suffix", () => {
+  it("supports a backend-specific suffix beside the default", () => {
+    expect(srtPath("/a/clip.mkv", ".diarize.srt")).toBe("/a/clip.diarize.srt");
+    expect(srtPath("/a/clip.mkv")).toBe("/a/clip.srt");
+  });
+
+  it("isTranscribed tracks each suffix independently", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "srt-suffix-"));
+    try {
+      const media = path.join(dir, "clip.m4a");
+      fs.writeFileSync(media, "x");
+      fs.writeFileSync(srtPath(media), "1\n");
+      expect(isTranscribed(media)).toBe(true);
+      expect(isTranscribed(media, ".diarize.srt")).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

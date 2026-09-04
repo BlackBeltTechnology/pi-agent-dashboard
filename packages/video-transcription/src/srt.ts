@@ -69,12 +69,11 @@ export function groupTokens(tokens: Token[], maxSegmentMs: number = MAX_SEGMENT_
   return segments;
 }
 
-/** Convert a Soniox transcript (with `tokens`) to an SRT string. */
-export function tokensToSrt(transcript: { tokens?: Token[] }): string {
-  const tokens = transcript.tokens ?? [];
-  if (tokens.length === 0) return "";
-
-  const segments = groupTokens(tokens);
+/**
+ * Render grouped segments as SRT cues (`N`, timespan, `[Speaker] text`).
+ * Shared by every backend so all of them emit byte-identical SRT structure.
+ */
+export function renderSegments(segments: Segment[]): string {
   const lines: string[] = [];
   segments.forEach((segment, i) => {
     const startTime = formatTimestamp(segment.start_ms);
@@ -86,4 +85,12 @@ export function tokensToSrt(transcript: { tokens?: Token[] }): string {
   });
 
   return lines.join("\n");
+}
+
+/** Convert a Soniox transcript (with `tokens`) to an SRT string. */
+export function tokensToSrt(transcript: { tokens?: Token[] }): string {
+  const tokens = transcript.tokens ?? [];
+  if (tokens.length === 0) return "";
+
+  return renderSegments(groupTokens(tokens));
 }

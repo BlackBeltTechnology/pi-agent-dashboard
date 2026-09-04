@@ -29,6 +29,21 @@ function encodeFolderPath(cwd: string): string {
 const NAME = "e2e-fanout";
 const NEVER_CRON = "0 0 1 1 *"; // fires only on Jan 1 — we trigger manually.
 
+// Work-source fan-out (F3): a `schedule.batch` automation whose `on.source`
+// names the harness-seeded `e2e-inbox` folder work-source (3 files). One fire
+// leases up to the bound and fans out one child per leased file.
+// See change: automation-work-source-fanout.
+const BATCH_NAME = "e2e-batch";
+const batchConfig = {
+  on: { kind: "schedule.batch", cron: NEVER_CRON, source: "e2e-inbox" },
+  action: { kind: "core.skill", payload: { skill: "$noop-a" } },
+  model: "@fast",
+  mode: "local",
+  sandbox: "workspace-write",
+  concurrency: "skip",
+  visibility: "shown",
+};
+
 const fanoutConfig = {
   on: { kind: "schedule", cron: NEVER_CRON },
   actions: [
@@ -101,6 +116,51 @@ test.describe("automation fan-out (parent → children)", () => {
     const labels = page.locator('[data-testid^="child-action-"]');
     await expect(labels.nth(0)).toContainText("skill");
     await expect(labels.nth(1)).toContainText("skill");
+  });
+
+  test("F3: a schedule.batch fire fans out one child per leased work item", async ({ page }) => {
+    // Create the work-source automation (source: e2e-inbox, seeded with 3 files).
+    const created = await page.request.post("/api/plugins/automation/create", {
+      data: { scope: "folder", cwd: FIXTURE_GIT, name: BATCH_NAME, config: batchConfig },
+    });
+    expect(created.ok(), `create failed: ${created.status()} ${await created.text()}`).toBe(true);
+    try {
+      const run = await page.request.post("/api/plugins/automation/run", {
+        data: { scope: "folder", cwd: FIXTURE_GIT, name: BATCH_NAME },
+      });
+      expect(run.ok(), `run failed: ${run.status()} ${await run.text()}`).toBe(true);
+      // Bind the assertion to THIS fire's parent run so a reused fixture or a
+      // historical e2e-batch run cannot satisfy it.
+      const { runId } = (await run.json()) as { runId: string };
+      expect(runId, "run response missing runId").toBeTruthy();
+
+      // FIRM — the parent run this test created discloses exactly 3 children
+      // (dynamic width = the 3 leased files). Single-flight leasing guarantees
+      // each child is bound to a distinct item (no file processed twice).
+      await expect
+        .poll(
+          async () => {
+            const res = await page.request.get(
+              `/api/plugins/automation/runs?scope=folder&cwd=${encodeURIComponent(FIXTURE_GIT)}&name=${BATCH_NAME}`,
+            );
+            if (!res.ok()) return -1;
+            const { runs } = (await res.json()) as {
+              runs: Array<{ runId?: string; children?: string[]; childRuns?: unknown[] }>;
+            };
+            const parent = runs.find((r) => r.runId === runId && Array.isArray(r.children));
+            return parent?.childRuns?.length ?? 0;
+          },
+          { timeout: 60_000, intervals: [1000] },
+        )
+        .toBe(3);
+    } finally {
+      const del = await page.request.delete(
+        `/api/plugins/automation?scope=folder&cwd=${encodeURIComponent(FIXTURE_GIT)}&name=${BATCH_NAME}`,
+      );
+      const body = (await del.json().catch(() => ({}))) as { ok?: boolean };
+      // Soft so a cleanup miss is reported without masking a real body failure.
+      expect.soft(body.ok, `cleanup delete of ${BATCH_NAME} failed: HTTP ${del.status()}`).toBe(true);
+    }
   });
 
   test("F6: stopping the parent converges the whole occurrence to terminal", async ({ page }) => {

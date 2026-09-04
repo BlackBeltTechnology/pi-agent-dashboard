@@ -28,36 +28,30 @@
  * See change: add-custom-roles-ui (roles:remove + builtinRoleNames payload).
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { isValidRoleName } from "@blackbelt-technology/pi-dashboard-shared/role-name-validation.js";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { isValidRoleName } from "@blackbelt-technology/pi-dashboard-shared/role-name-validation.js";
+import {
+  DEFAULT_ROLE_NAMES,
+  effectiveRoleNames,
+  overlayRoles,
+  parseRoleConfig,
+  type RoleConfig,
+  type RolePreset,
+} from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 // -- Types ----------------------------------------------------------------
 
-export interface RolePreset {
-  name: string;
-  roles: Record<string, string>;
-}
-
-export interface RoleConfig {
-  roles: Record<string, string>;
-  rolePresets: RolePreset[];
-  activePreset: string | null;
-  /**
-   * User-added role names beyond DEFAULT_ROLE_NAMES. Persisted so an added
-   * role surfaces as an empty slot everywhere even before a model is assigned.
-   * See change: add-agent-role-model-tools (design D5, task 3.1).
-   */
-  roleNames?: string[];
-  /**
-   * Removal markers for DEFAULT role names the user removed, so the read-time
-   * overlay does NOT re-inject them. User-added names need no marker (dropping
-   * them from `roleNames` removes them from the effective schema).
-   */
-  removedRoles?: string[];
-}
+export type { RoleConfig, RolePreset };
+// The role-schema core (types, DEFAULT_ROLE_NAMES, effectiveRoleNames,
+// overlayRoles, and the normalizer) now lives in
+// `@blackbelt-technology/pi-dashboard-shared/role-schema.js` so the bridge,
+// the roles-plugin server route, and the plugin client derive one definition.
+// Re-exported here for the existing importers of this module.
+// See change: add-roles-read-api.
+export { DEFAULT_ROLE_NAMES, effectiveRoleNames, overlayRoles };
 
 // -- Config path ----------------------------------------------------------
 
@@ -89,26 +83,10 @@ function loadFullConfig(): Record<string, unknown> {
  * Re-read on every call — handlers depend on this to see cross-session updates.
  */
 export function loadRoleConfig(): RoleConfig {
-  const raw = loadFullConfig();
-  const roles: Record<string, string> = {};
-  const rawRoles = raw.roles;
-  if (rawRoles && typeof rawRoles === "object") {
-    for (const [k, v] of Object.entries(rawRoles)) {
-      if (typeof v === "string" && v.trim() !== "") roles[k] = v.trim();
-    }
-  }
-  const rolePresets: RolePreset[] = Array.isArray(raw.rolePresets)
-    ? (raw.rolePresets as RolePreset[])
-    : [];
-  const activePreset: string | null =
-    typeof raw.activePreset === "string" ? (raw.activePreset as string) : null;
-  const roleNames: string[] | undefined = Array.isArray(raw.roleNames)
-    ? (raw.roleNames as unknown[]).filter((n): n is string => typeof n === "string")
-    : undefined;
-  const removedRoles: string[] | undefined = Array.isArray(raw.removedRoles)
-    ? (raw.removedRoles as unknown[]).filter((n): n is string => typeof n === "string")
-    : undefined;
-  return { roles, rolePresets, activePreset, roleNames, removedRoles };
+  // File read stays here (per-side); normalization is delegated to the shared
+  // total normalizer so every reader normalizes identically. See change:
+  // add-roles-read-api (design D2a).
+  return parseRoleConfig(loadFullConfig());
 }
 
 /**
@@ -136,25 +114,6 @@ export function saveRoleConfig(roleConfig: RoleConfig): void {
 }
 
 // -- Default roles --------------------------------------------------------
-//
-// Dashboard-owned canonical role-name set. Roles ownership moved off
-// pi-flows (change: adopt-model-resolve-handler-and-roles-ownership), so the
-// dashboard owns the default names too rather than depending on pi-flows
-// being installed. Mirrors pi-flows' `KNOWN_MODEL_ROLES`.
-//
-// See change: roles-standalone-defaults-and-local-install-detection.
-export const DEFAULT_ROLE_NAMES = [
-  "planning",
-  "coding",
-  "compact",
-  "fast",
-  "vision",
-  "research",
-  // Auto session naming resolves `@naming` first and falls back to `@fast`, so
-  // making naming work does not force a global downgrade of the shared `fast`
-  // slot. See change: fix-auto-naming-reasoning-model (design D1).
-  "naming",
-] as const;
 
 /**
  * Overlay the default role names onto an assigned-roles map for DISPLAY.
@@ -171,38 +130,6 @@ export function overlayDefaultRoles(
   const out: Record<string, string> = {};
   for (const name of DEFAULT_ROLE_NAMES) out[name] = "";
   return { ...out, ...roles };
-}
-
-/**
- * Effective role-name schema = (defaults ∪ added ∪ assigned) − removed,
- * order-stable (defaults first, then adds, then any assigned extras).
- * A removed default is NOT re-injected. See change: add-agent-role-model-tools.
- */
-export function effectiveRoleNames(
-  cfg: Pick<RoleConfig, "roles" | "roleNames" | "removedRoles">,
-): string[] {
-  const removed = new Set(cfg.removedRoles ?? []);
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const n of [...DEFAULT_ROLE_NAMES, ...(cfg.roleNames ?? []), ...Object.keys(cfg.roles)]) {
-    if (removed.has(n) || seen.has(n)) continue;
-    seen.add(n);
-    out.push(n);
-  }
-  return out;
-}
-
-/**
- * Read-time overlay keyed off the EFFECTIVE schema (defaults ∪ added − removed)
- * instead of the hardcoded const. Every effective name appears (empty when
- * unassigned); assigned values win. Used by roles:get-all.
- */
-export function overlayRoles(
-  cfg: Pick<RoleConfig, "roles" | "roleNames" | "removedRoles">,
-): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const name of effectiveRoleNames(cfg)) out[name] = "";
-  return { ...out, ...cfg.roles };
 }
 
 /**

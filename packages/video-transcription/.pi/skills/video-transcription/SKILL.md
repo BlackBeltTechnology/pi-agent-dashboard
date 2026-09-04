@@ -1,6 +1,6 @@
 ---
 name: video-transcription
-description: Transcribe video and audio files to SRT subtitle format with speaker diarization using the Soniox API. Use when the user wants to transcribe meeting recordings, videos, or audio files. Supports MKV, MP4, MOV, M4A, and MP3 files. Triggers on "/transcribe", "transcribe my meetings", "transcribe videos in ~/Movies", "create subtitles for recordings", or any request to convert audio/video to text.
+description: Transcribe video and audio files to SRT subtitle format with speaker diarization using the Soniox API (default) or AssemblyAI (opt-in, better diarization). Use when the user wants to transcribe meeting recordings, videos, or audio files. Supports MKV, MP4, MOV, M4A, and MP3 files. Triggers on "/transcribe", "transcribe my meetings", "transcribe videos in ~/Movies", "create subtitles for recordings", or any request to convert audio/video to text.
 ---
 
 # Video Transcription
@@ -8,6 +8,15 @@ description: Transcribe video and audio files to SRT subtitle format with speake
 Transcribe video and audio files in-place to SRT subtitle format with speaker
 diarization. Backed by the `pi-transcribe` CLI (a TypeScript port of the
 original standalone skill — no Python).
+
+Two backends. Soniox is the default and writes `<name>.srt`. AssemblyAI is
+opt-in via `TRANSCRIBE_BACKEND=assemblyai`, uses the EU endpoint, and writes
+`<name>.diarize.srt` — a different suffix, so both can transcribe the same file
+and you can compare diarization side by side.
+
+`TRANSCRIBE_BACKEND=both` runs them in one pass: audio is extracted once and
+fed to both APIs, producing `<name>.srt` and `<name>.diarize.srt` together. Use
+this when the user asks to compare diarization or wants both transcripts.
 
 ## Usage
 
@@ -28,7 +37,10 @@ Examples:
 - `/transcribe` — transcribe all untranscribed files in `~/Movies`
 - `/transcribe /path/to/recordings` — transcribe files in a specific directory
 - `pi-transcribe "~/Movies/May 28 at 4-04 PM.m4a" "~/Movies/Feb 2 at 5-05 PM.m4a"` — transcribe specific files
-- `MAX_CHUNK_HOURS=4 pi-transcribe ~/Movies` — change the long-recording chunk size (default 4.5h)
+- `TRANSCRIBE_BACKEND=assemblyai pi-transcribe ~/Movies` — use AssemblyAI instead of Soniox (writes `.diarize.srt`, needs `ASSEMBLY_AI_KEY`)
+- `TRANSCRIBE_BACKEND=both pi-transcribe ~/Movies` — run BOTH backends in one pass (writes `.srt` + `.diarize.srt`; needs both keys)
+- `TRANSCRIBE_BACKEND=assemblyai TRANSCRIBE_LANGUAGE=hu pi-transcribe file.m4a` — pin Hungarian instead of auto-detecting
+- `MAX_CHUNK_HOURS=4 pi-transcribe ~/Movies` — change the long-recording chunk size (default 4.5h Soniox / 9h AssemblyAI)
 - `TRANSCRIBE_CONCURRENCY=4 pi-transcribe ~/Movies` — change how many files transcribe in parallel (default 8)
 
 ## Parallel processing
@@ -48,16 +60,18 @@ behavior. The value is clamped to `1`–`100` (100 = the Soniox pending-job cap)
    transcribed, newly transcribed, failed)
 4. If there are failures, report which files failed and the error messages
 
-## Long recordings (>5h)
+## Long recordings
 
-Soniox enforces a HARD per-request limit on audio **duration** (18000 s / 5 h),
-independent of file size. Recordings longer than this are automatically split
-into `MAX_CHUNK_HOURS`-sized chunks (default 4.5 h), transcribed separately, and
+Each provider enforces a HARD per-request limit on audio **duration**,
+independent of file size: Soniox 18000 s / 5 h, AssemblyAI 10 h. Recordings
+longer than the limit are automatically split into `MAX_CHUNK_HOURS`-sized
+chunks (default 4.5 h on Soniox, 9 h on AssemblyAI), transcribed separately, and
 merged into a single SRT with correct absolute timestamps — full coverage, no
 truncation. Override the chunk size with the `MAX_CHUNK_HOURS` env var.
 
 Note: the limit is on duration, not megabytes — a long low-bitrate recording can
-be small in size yet still exceed 5 h, so the guard probes duration via ffprobe.
+be small in size yet still exceed the cap, so the guard probes duration via
+ffprobe.
 
 ## Prerequisites
 
@@ -68,16 +82,31 @@ be small in size yet still exceed 5 h, so the guard probes duration via ffprobe.
   here). When absent, video files are skipped with a warning; audio-only
   files still process. `pi-dashboard-ensure <package-root>/package.json`
   reports both.
-- **`SONIOX_API_KEY`** — declared as an `env` probe in `pi.tools`; resolved
-  from the environment first, then an optional gitignored `.env` (current
-  directory, then the skill dir). No secret ships in the package; the bin
-  fails fast with a clear message if the key is unresolved.
+- **The selected backend's API key** — `SONIOX_API_KEY` or `ASSEMBLY_AI_KEY`,
+  both declared as `env` probes in `pi.tools`. Same resolver: environment
+  first, then an optional gitignored `.env` (current directory, then the skill
+  dir). Only the active backend's key is required. No secret ships in the
+  package; the bin fails fast with a clear message if the key is unresolved.
 
 ### Environment overrides
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `SONIOX_API_KEY` | _(required)_ | Soniox API key. |
-| `MAX_CHUNK_HOURS` | `4.5` | Chunk size for recordings over the 5 h duration limit. |
+| `TRANSCRIBE_BACKEND` | `soniox` | `soniox`, `assemblyai`, `both`/`all`, or a comma list. Unknown values fall back to `soniox`. |
+| `SONIOX_API_KEY` | _(required for soniox)_ | Soniox API key. |
+| `ASSEMBLY_AI_KEY` | _(required for assemblyai)_ | AssemblyAI API key. |
+| `MAX_CHUNK_HOURS` | `4.5` / `9` | Chunk size for long recordings; default follows the backend's duration cap. |
 | `MAX_AUDIO_MB` | `200` | Reserved size guard; `0` disables. |
 | `TRANSCRIBE_CONCURRENCY` | `8` | Files transcribed in parallel. Clamped to `1`–`100`; `1` = serial. |
+| `TRANSCRIBE_SRT_SUFFIX` | per backend | Override the sibling subtitle suffix (`.srt` / `.diarize.srt`). |
+| `TRANSCRIBE_LANGUAGE` | _(unset)_ | AssemblyAI only: pin a language (e.g. `hu`) instead of auto-detecting. |
+| `TRANSCRIBE_MAX_SPEAKERS` | _(unset)_ | AssemblyAI only: hard cap on speaker labels. |
+
+### AssemblyAI backend notes
+
+EU endpoint (`api.eu.assemblyai.com`) for data residency. Runs
+`speech_models: ["universal-3-5-pro", "universal-2"]` with `speaker_labels` and
+`language_detection` on: `universal-3-5-pro` natively covers 18 languages and
+anything outside that set (Hungarian included) automatically falls back to
+`universal-2` (99 languages). Speaker letters `A`/`B`/`C` are normalised to
+`Speaker 1`/`Speaker 2`/`Speaker 3`, so the SRT format is identical to Soniox's.

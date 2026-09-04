@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Add folders — D refined (inset grouped)</title>
+<style>
+  :root {
+    --bg-dialog: #ffffff;
+    --bg-inset: #f4f5f7;
+    --text-primary: #1a1b1e;
+    --text-secondary: #5c6068;
+    --text-tertiary: #8b8f98;
+    --text-muted: #a6aab2;
+    --border-subtle: #ececee;
+    --border-secondary: #dcdde0;
+    --accent-blue: #2f74d0;
+    --green: #17924a;
+    --cyan: #0f8ea8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: radial-gradient(1200px 600px at 20% -10%, #2b2d31, transparent), #17181b;
+    min-height: 100vh; padding: 40px 20px 80px; color: var(--text-primary);
+  }
+  .page-head { text-align: center; color: #d7d9de; margin-bottom: 28px; }
+  .page-head h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  .page-head p { font-size: 13px; color: #8b8f98; margin: 0; }
+  .page-head code { color: #cdd0d6; }
+
+  .gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 30px; max-width: 1120px; margin: 0 auto; }
+  @media (max-width: 880px) { .gallery { grid-template-columns: 1fr; } }
+
+  .concept { display: flex; flex-direction: column; gap: 10px; }
+  .concept-head { color: #e7e9ee; }
+  .concept-head .tag { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .05em; color: #9ec2ff; background: rgba(47,116,208,.18); border: 1px solid rgba(47,116,208,.35); padding: 2px 8px; border-radius: 6px; margin-bottom: 6px; }
+  .concept-head h2 { font-size: 15px; font-weight: 600; margin: 0 0 3px; }
+  .concept-head p { font-size: 12px; color: #9a9ea7; margin: 0; line-height: 1.45; }
+  .concept-head .src { font-size: 11px; color: #6f737b; margin-top: 3px; }
+
+  .dialog { background: var(--bg-dialog); border-radius: 14px; box-shadow: 0 18px 46px rgba(0,0,0,.5); overflow: hidden; }
+  .dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 8px; }
+  .dialog-title { font-size: 16px; font-weight: 600; }
+  .x { border: 0; background: transparent; cursor: pointer; color: var(--text-tertiary); font-size: 17px; line-height: 1; }
+  .body { padding: 4px 16px 16px; display: flex; flex-direction: column; gap: 12px; }
+
+  .address { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; color: var(--text-secondary); background: #f6f7f8; border: 1px solid var(--border-secondary); border-radius: 9px; padding: 9px 11px; }
+
+  /* eyebrow — tiny, two words max (Apple HIG: uppercase, muted, small) */
+  .eyebrow { font-size: 10px; line-height: 1; letter-spacing: .07em; text-transform: uppercase; font-weight: 700; color: var(--text-muted); padding: 0 4px 6px; }
+
+  /* inset grouped card */
+  .group { border: 1px solid var(--border-secondary); border-radius: 10px; overflow: hidden; background: #fff; }
+  .group.scroll { max-height: 176px; overflow-y: auto; }
+
+  .row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 13px; cursor: pointer; border-bottom: 1px solid var(--border-subtle); }
+  .row:last-child { border-bottom: 0; }
+  .row:hover { background: #f6f7f8; }
+  .chk { width: 17px; height: 17px; border-radius: 5px; border: 1.5px solid #c4c6ca; flex: none; display: flex; align-items: center; justify-content: center; color: #fff; background: #fff; }
+  .row.checked .chk { background: var(--accent-blue); border-color: var(--accent-blue); }
+  .chk svg { width: 11px; height: 11px; opacity: 0; }
+  .row.checked .chk svg { opacity: 1; }
+  .ico { flex: none; color: #6b7078; display: flex; }
+  .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge { font-size: 9px; padding: 2px 7px; border-radius: 999px; background: rgba(47,116,208,.12); color: var(--accent-blue); flex: none; }
+  .tag2 { font-size: 11px; flex: none; }
+  .tag2.git { color: var(--green); }
+  .tag2.pi { color: var(--cyan); }
+  .chev { color: #c8cace; flex: none; display: flex; }
+  .row.updir .name { color: var(--text-secondary); }
+  .row.updir .chk { visibility: hidden; }
+
+  /* self-row: the current folder, accent-tinted, open folder icon, no chevron */
+  .selfrow { background: rgba(47,116,208,.07); }
+  .selfrow:hover { background: rgba(47,116,208,.11); }
+  .selfrow .ico { color: var(--accent-blue); }
+  .selfrow .name { font-weight: 600; }
+
+  .sect { border-top: 1px solid var(--border-subtle); padding-top: 10px; }
+  .sect-label { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-right: 8px; }
+  .basket { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; min-height: 24px; }
+  .basket .empty { font-size: 12px; font-style: italic; color: var(--text-muted); }
+  .pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 4px 3px 10px; border-radius: 999px; font-size: 12px; background: #eef1f4; color: var(--text-secondary); }
+  .pill.self { background: rgba(47,116,208,.12); color: var(--accent-blue); font-weight: 600; }
+  .pill .rm { border: 0; background: transparent; cursor: pointer; color: inherit; width: 18px; height: 18px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; opacity: .7; }
+  .pill .rm:hover { opacity: 1; color: #d0453c; }
+
+  .foot { display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--border-subtle); padding-top: 11px; }
+  .foot .cancel { border: 0; background: transparent; cursor: pointer; color: var(--text-secondary); font-size: 13px; padding: 8px 13px; border-radius: 8px; }
+  .foot .commit { border: 0; cursor: pointer; color: #fff; font-size: 13px; padding: 8px 15px; border-radius: 8px; background: var(--accent-blue); }
+  .foot .commit:disabled { opacity: .45; cursor: not-allowed; }
+</style>
+</head>
+<body>
+  <div class="page-head">
+    <h1>Idea D, refined — Apple HIG "inset grouped list"</h1>
+    <p>Current dir <code>/home/botond/</code>. Tiny two-word eyebrows; grouping does the talking, not sentences.</p>
+  </div>
+  <div class="gallery" id="gallery"></div>
+
+<script>
+  const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4"><path d="M5 12.5l4.5 4.5L19 7"/></svg>';
+  const FOLDER = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>';
+  const FOLDER_OPEN = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1H3V7z"/><path d="M3 9h18l-2 8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9z"/></svg>';
+  const UP = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 19V6M6 11l6-6 6 6"/></svg>';
+  const CHEV = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>';
+  const XI = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+
+  const CURRENT = { name: 'botond', path: '/home/botond' };
+  const CHILDREN = [
+    { name: 'agent-tools', pi: true },
+    { name: 'attendance', sessions: 1, git: true, pi: true },
+    { name: 'BME' },
+    { name: 'Desktop' },
+    { name: 'Documents', pi: true },
+    { name: 'Downloads' },
+  ];
+
+  const CONCEPTS = [
+    { id: 'D1', tag: 'D · v1', title: 'Two inset cards, gap-separated',
+      note: 'Self-row is its own rounded card; contents are a second card below. The gap + two-word eyebrows carry the split — no explaining sentence.',
+      src: 'Apple HIG inset-grouped list · headers outside the fill (Berry)' },
+    { id: 'D2', tag: 'D · v2', title: 'One card, one tiny eyebrow',
+      note: 'Even less text: self-row on top (tinted), a single “CONTENTS” eyebrow marks where browsing begins. The current row needs no label — the tint + open folder say it.',
+      src: 'Apple HIG grouped list, minimal-label variant' },
+  ];
+
+  const state = {}; CONCEPTS.forEach(c => state[c.id] = new Set());
+  function has(id, p) { return state[id].has(p); }
+  function toggle(id, p) { const s = state[id]; s.has(p) ? s.delete(p) : s.add(p); render(); }
+
+  function childRow(id, c) {
+    const p = CURRENT.path + '/' + c.name;
+    const on = has(id, p);
+    const badges = [
+      c.sessions ? `<span class="badge">${c.sessions} sessions</span>` : '',
+      c.git ? `<span class="tag2 git">git</span>` : '',
+      c.pi ? `<span class="tag2 pi">pi</span>` : '',
+    ].join('');
+    return `<div class="row ${on ? 'checked' : ''}" onclick="toggle('${id}','${p}')">
+      <div class="chk">${CHECK}</div><div class="ico">${FOLDER}</div>
+      <span class="name">${c.name}</span>${badges}
+      <div class="chev" onclick="event.stopPropagation()">${CHEV}</div></div>`;
+  }
+  function updir() {
+    return `<div class="row updir"><div class="chk"></div><div class="ico">${UP}</div><span class="name">..</span><div class="chev">${CHEV}</div></div>`;
+  }
+  function selfRow(id) {
+    const on = has(id, CURRENT.path);
+    return `<div class="row selfrow ${on ? 'checked' : ''}" onclick="toggle('${id}','${CURRENT.path}')">
+      <div class="chk">${CHECK}</div><div class="ico">${FOLDER_OPEN}</div>
+      <span class="name">botond</span></div>`;
+  }
+
+  function content(id) {
+    if (id === 'D1') {
+      return `
+        <div class="eyebrow">This folder</div>
+        <div class="group">${selfRow(id)}</div>
+        <div class="eyebrow" style="padding-top:6px">Contents</div>
+        <div class="group scroll">${updir()}${CHILDREN.map(c=>childRow(id,c)).join('')}</div>`;
+    }
+    // D2: one card, single eyebrow before contents
+    return `
+      <div class="group">
+        ${selfRow(id)}
+        <div class="eyebrow" style="padding:8px 12px 5px; background:#fafbfc; border-bottom:1px solid var(--border-subtle)">Contents</div>
+        <div class="scroll" style="max-height:150px; overflow-y:auto">${updir()}${CHILDREN.map(c=>childRow(id,c)).join('')}</div>
+      </div>`;
+  }
+
+  function basket(id) {
+    const sel = [...state[id]];
+    if (sel.length === 0) return `<span class="sect-label">Selected</span><span class="empty">Nothing selected — tick a checkbox</span>`;
+    const pills = sel.map(p => {
+      const isSelf = p === CURRENT.path;
+      const leaf = p.split('/').filter(Boolean).pop();
+      return `<span class="pill ${isSelf ? 'self' : ''}">${leaf}<button class="rm" onclick="toggle('${id}','${p}')">${XI}</button></span>`;
+    }).join('');
+    return `<span class="sect-label">Selected</span>${pills}`;
+  }
+
+  function dialog(c) {
+    const n = state[c.id].size;
+    return `<div class="concept">
+      <div class="concept-head"><span class="tag">${c.tag}</span><h2>${c.title}</h2><p>${c.note}</p><div class="src">↳ ${c.src}</div></div>
+      <div class="dialog">
+        <div class="dialog-head"><div class="dialog-title">Add folders</div><button class="x">&times;</button></div>
+        <div class="body">
+          <div class="address">/home/botond/</div>
+          ${content(c.id)}
+          <div class="sect"><div class="basket">${basket(c.id)}</div></div>
+          <div class="foot">
+            <button class="cancel">Cancel</button>
+            <button class="commit" ${n===0?'disabled':''}>${n===0?'Add folders':`Add ${n} folder${n>1?'s':''}`}</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function render() { document.getElementById('gallery').innerHTML = CONCEPTS.map(dialog).join(''); }
+  render();
+</script>
+</body>
+</html>

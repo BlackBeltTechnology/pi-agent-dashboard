@@ -153,10 +153,32 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
           logRequests: false,
           apiKeys: [{ id: "e2e", label: "e2e-oauth-filter", hash, scopes: ["all"], createdAt: 0 }],
         },
+        // Folder-backed work-source for the schedule.batch fan-out e2e
+        // (tests/e2e/automation-fanout.spec.ts F3). The engine reads this at
+        // plugin init, so it MUST be present before boot. The inbox dir is
+        // seeded below. See change: automation-work-source-fanout.
+        plugins: {
+          automation: {
+            workSources: [{ id: "e2e-inbox", dir: "/fixtures/sample-git/.pi/inbox" }],
+          },
+        },
       };
       fs.writeFileSync(out, JSON.stringify(cfg) + "\n");
     ' "${E2E_PROXY_KEY}" "${PI_SPAWN_STRATEGY:-tmux}" "${PI_DIR}/dashboard/config.json" "${PI_E2E_TRUSTED_NETWORKS:-}"
     echo "[test-entrypoint] PI_E2E_SEED: seeded trustedNetworks (${PI_E2E_TRUSTED_NETWORKS:-0.0.0.0/0}) + defaultModel + modelProxy apiKey → config.json"
+  fi
+
+  # --- Work-source inbox seed (schedule.batch fan-out e2e) ------------------
+  # Three plain files the `e2e-inbox` folder work-source drains on one fire.
+  # Idempotent: only seeds when the inbox is absent/empty so a re-up does not
+  # clobber in-flight state. See change: automation-work-source-fanout.
+  E2E_INBOX="/fixtures/sample-git/.pi/inbox"
+  if [ ! -d "${E2E_INBOX}" ] || [ -z "$(ls -A "${E2E_INBOX}" 2>/dev/null)" ]; then
+    mkdir -p "${E2E_INBOX}"
+    printf 'work-a\n' > "${E2E_INBOX}/a.txt"
+    printf 'work-b\n' > "${E2E_INBOX}/b.txt"
+    printf 'work-c\n' > "${E2E_INBOX}/c.txt"
+    echo "[test-entrypoint] PI_E2E_SEED: seeded 3 work-source items → ${E2E_INBOX}"
   fi
 
   # --- OAuth provider seed (PI_E2E_OAUTH=1) ---------------------------------
