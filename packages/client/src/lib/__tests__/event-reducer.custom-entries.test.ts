@@ -223,3 +223,50 @@ describe("replay idempotency", () => {
     expect(twice.messages).toEqual(once.messages);
   });
 });
+
+// ── add-custom-event-group-filters: server-stamped groupId rides the row ──
+describe("groupId stamping (task 7.1/7.2, D1)", () => {
+  it("custom_entry rows carry the server-stamped groupId", () => {
+    const state = applyEvents([
+      {
+        eventType: "custom_entry",
+        timestamp: 3,
+        data: { customType: "om.observations.recorded", data: { x: 1 }, entryId: "g1", groupId: "memory" },
+      },
+    ]);
+    const rows = customRows(state);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].groupId).toBe("memory");
+  });
+
+  it("message_end role=custom rows carry the server-stamped groupId", () => {
+    const state = applyEvents([
+      {
+        eventType: "message_end",
+        timestamp: 4,
+        data: { message: { role: "custom", customType: "om.x", content: "b", display: true, groupId: "memory" } },
+      },
+    ]);
+    const rows = customRows(state);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].groupId).toBe("memory");
+  });
+
+  it("an un-annotated row has NO groupId — the gate treats it as the other catch-all", () => {
+    const state = applyEvents([customEntryEvent({ any: true })]);
+    const rows = customRows(state);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].groupId).toBeUndefined();
+  });
+
+  it("a non-string groupId is dropped, never stamped", () => {
+    const state = applyEvents([
+      {
+        eventType: "custom_entry",
+        timestamp: 5,
+        data: { customType: "x.y", data: 1, entryId: "g2", groupId: 42 },
+      },
+    ]);
+    expect(customRows(state)[0].groupId).toBeUndefined();
+  });
+});

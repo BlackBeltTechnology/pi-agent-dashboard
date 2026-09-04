@@ -731,27 +731,80 @@ describe("preferences-store", () => {
       notifyMinLevel: "all",
     };
 
-    it("backfills a legacy displayPrefs file to customEntryFallback=true / reasoningInlineFlow=false (E4)", () => {
+    it("backfills a legacy displayPrefs file: each configured group resolves to its default, never undefined (task 5.3)", () => {
       fs.writeFileSync(filePath, JSON.stringify({
         displayPrefs: NEW_FIELDS_LEGACY_DISPLAY_PREFS,
       }));
-      const store = createPreferencesStore(filePath);
+      const store = createPreferencesStore(filePath, {
+        customEventGroupDefaults: { memory: false, search: true, other: true },
+      });
       const prefs = store.getDisplayPrefs();
-      expect(prefs?.customEntryFallback).toBe(true);
+      expect(prefs?.customEventGroups).toEqual({ memory: false, search: true, other: true });
       expect(prefs?.reasoningInlineFlow).toBe(false);
       store.dispose();
     });
 
+    it("migrates a legacy customEntryFallback=false onto customEventGroups.other at load (task 6.1)", () => {
+      fs.writeFileSync(filePath, JSON.stringify({
+        displayPrefs: { ...NEW_FIELDS_LEGACY_DISPLAY_PREFS, customEntryFallback: false },
+      }));
+      const store = createPreferencesStore(filePath, {
+        customEventGroupDefaults: { memory: false, other: true },
+      });
+      const prefs = store.getDisplayPrefs() as any;
+      // persisted false lands as other:false, not overwritten by the default
+      expect(prefs.customEventGroups.other).toBe(false);
+      // ...and as hidden for EVERY shipped group the old switch gated —
+      // a hide-everything user keeps everything hidden (doubt-review fix)
+      for (const g of ["memory", "search", "subagents", "flows", "goals"]) {
+        expect(prefs.customEventGroups[g]).toBe(false);
+      }
+      // ...and for USER-CONFIGURED groups (CodeRabbit Xw): a configured id
+      // absent from the prefs also seeds hidden, not its visible default.
+      const storeXw = createPreferencesStore(filePath, {
+        customEventGroupDefaults: { memory: false, other: true, myplugin: true },
+      });
+      const legacyFile = filePath.replace(".json", "-xw.json");
+      fs.writeFileSync(legacyFile, JSON.stringify({
+        displayPrefs: { ...NEW_FIELDS_LEGACY_DISPLAY_PREFS, customEntryFallback: false },
+      }));
+      const storeXw2 = createPreferencesStore(legacyFile, {
+        customEventGroupDefaults: { memory: false, other: true, myplugin: true },
+      });
+      expect((storeXw2.getDisplayPrefs() as any).customEventGroups.myplugin).toBe(false);
+      storeXw.dispose();
+      storeXw2.dispose();
+      expect(prefs.customEntryFallback).toBeUndefined();
+      // the migration is DURABLE on the load that performs it: flush and
+      // assert the on-disk file no longer carries the legacy field
+      store.flush();
+      const onDisk = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      expect(onDisk.displayPrefs.customEntryFallback).toBeUndefined();
+      // second load performs no further migration and keeps the user choice
+      const store2 = createPreferencesStore(filePath, {
+        customEventGroupDefaults: { memory: false, other: true },
+      });
+      const again = store2.getDisplayPrefs() as any;
+      expect(again.customEventGroups.other).toBe(false);
+      store.dispose();
+      store2.dispose();
+    });
+
     it("setDisplayPrefs base/merged literals carry the new defaults (E4)", () => {
-      const store = createPreferencesStore(filePath);
+      const store = createPreferencesStore(filePath, {
+        customEventGroupDefaults: { memory: false, search: true, other: true },
+      });
       const merged = store.setDisplayPrefs({ debugTools: true });
-      expect(merged.customEntryFallback).toBe(true);
+      expect(merged.customEventGroups).toEqual({ memory: false, search: true, other: true });
       expect(merged.reasoningInlineFlow).toBe(false);
       // An unrelated PATCH must not reset a stored value of either field.
-      store.setDisplayPrefs({ reasoningInlineFlow: true, customEntryFallback: false });
+      store.setDisplayPrefs({ reasoningInlineFlow: true, customEventGroups: { memory: true } });
       const again = store.setDisplayPrefs({ debugTools: false });
       expect(again.reasoningInlineFlow).toBe(true);
-      expect(again.customEntryFallback).toBe(false);
+      // PATCH of one group id preserves every other key (task 5.4 arm)
+      expect(again.customEventGroups.memory).toBe(true);
+      expect(again.customEventGroups.search).toBe(true);
+      expect(again.customEventGroups.other).toBe(true);
       store.dispose();
     });
   });

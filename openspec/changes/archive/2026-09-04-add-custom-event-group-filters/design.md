@@ -129,8 +129,14 @@ is the difference between "coverage stays current" and "the file fights you". Th
 
 ### D7: `customEntryFallback` is removed, not deprecated in place
 
-A one-shot migration maps `customEntryFallback` onto `customEventGroups.other` in the global prefs and in every
-per-session override, then drops the field. Placed alongside the existing legacy migrations
+A one-shot migration maps `customEntryFallback` onto `customEventGroups` in the global prefs and in every
+per-session override, then drops the field.
+
+> **Implementation refinement (doubt-driven-review, in-flight):** the old switch gated EVERY non-`flow-event`
+> custom row, so a persisted `false` seeds `false` for EVERY shipped group (plus `other`) — not `other` alone —
+> preserving the user's exact prior visible-set; a legacy `true` (the default) forces no keys. The load-time
+> migration also persists on the load that performs it (the store's dirty flag covers displayPrefs content
+> change), so "the field does not survive" and "second boot is a no-op" hold literally. Placed alongside the existing legacy migrations
 (`migrate-persistence.ts` / `backfillDisplayPrefs`), which already establish the once-and-idempotent pattern for this
 store — including the precedent migration from the `show-debug-tools` localStorage flag.
 

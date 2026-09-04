@@ -18,6 +18,12 @@ export interface CustomEntryForwardData {
   customType: string;
   data: unknown;
   entryId: string;
+  /**
+   * Server-stamped custom event group id (design D1,
+   * add-custom-event-group-filters). The extension never sets it: resolution
+   * + stamping happen in the dashboard server before browser ingest.
+   */
+  groupId?: string;
 }
 
 /**
@@ -44,6 +50,8 @@ export interface CustomMessageForwardData {
     content: unknown;
     display: boolean | undefined;
     details: unknown;
+    /** Server-stamped (design D1); never set by the extension. */
+    groupId?: string;
   };
   entryId: string | undefined;
 }

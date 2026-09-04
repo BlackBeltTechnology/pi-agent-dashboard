@@ -5,6 +5,7 @@ Files in this directory. One row per source file.
 | File | Purpose |
 |------|---------|
 | `attachment-routes.ts` | `GET /api/sessions/:sessionId/attachments/:attachmentId` — full-resolution original for click-to-zoom. → see `attachment-routes.ts.AGENTS.md` |
+| `custom-event-groups-routes.ts` | `GET /api/custom-event-groups` → `{ groups: [{id,label,default}] }` in resolution order; patterns never transmitted. See change: add-custom-event-group-filters. |
 | `doctor-routes.ts` | Fastify plugin. `GET /api/doctor` returns `{checks, summary, generatedAt}`. → see `doctor-routes.ts.AGENTS.md` |
 | `live-server-routes.ts` | Live-server-preview REST. `registerLiveServerRoutes`. `POST /api/live-server/start {host,port,label}` (SSRF… → see `live-server-routes.ts.AGENTS.md` |
 | `file-routes.ts` | REST routes for file read/browse. `/api/file` decodes leading `file://` on `path` via `decodeFileUri`. → see `file-routes.ts.AGENTS.md` |

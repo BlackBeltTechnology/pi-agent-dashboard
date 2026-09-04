@@ -22,12 +22,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
+import { useCustomEventGroups } from "../../lib/state/custom-event-groups.js";
 import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 
 type ToolCallPatch = Partial<DisplayPrefs["toolCalls"]>;
+type CustomEventGroupsPatch = Partial<DisplayPrefs["customEventGroups"]>;
 type DisplayPrefsPatch =
-  Partial<Omit<DisplayPrefs, "toolCalls">> & { toolCalls?: ToolCallPatch };
+  Partial<Omit<DisplayPrefs, "toolCalls" | "customEventGroups">> & {
+    toolCalls?: ToolCallPatch;
+    customEventGroups?: CustomEventGroupsPatch;
+  };
 
 interface Props {
   sessionId: string;
@@ -48,6 +53,7 @@ interface Props {
 export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React.ReactElement {
   const { global } = useDisplayPrefsContext();
   const prefs = useDisplayPrefs(sessionId);
+  const customGroups = useCustomEventGroups();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -83,6 +89,12 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
     if (delta.toolCalls) {
       next.toolCalls = { ...(currentOverride?.toolCalls ?? {}), ...delta.toolCalls };
     }
+    if (delta.customEventGroups) {
+      next.customEventGroups = {
+        ...(currentOverride?.customEventGroups ?? {}),
+        ...delta.customEventGroups,
+      };
+    }
     send({ type: "setSessionDisplayPrefs", sessionId, override: next });
   }, [currentOverride, send, sessionId]);
 
@@ -101,6 +113,13 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
       currentOverride?.toolCalls?.[key] !== undefined &&
       global !== undefined &&
       currentOverride!.toolCalls![key] !== global.toolCalls[key],
+    [currentOverride, global],
+  );
+  const isCustomGroupOverridden = useCallback(
+    (gid: string) =>
+      currentOverride?.customEventGroups?.[gid] !== undefined &&
+      global !== undefined &&
+      currentOverride!.customEventGroups![gid] !== global.customEventGroups[gid],
     [currentOverride, global],
   );
 
@@ -156,10 +175,21 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
             marked={isOverridden("notifyMinLevel")}
             onChange={(v) => patch({ notifyMinLevel: v })}
           />
-          {/* Extension-row visibility pair — same order as the settings page
-              (notifications, then custom entries). See change:
-              render-inline-reasoning-and-custom-entries. */}
-          <Row label={i18nT("settings.customEntryFallback", undefined, "Custom entries in chat")} value={prefs.customEntryFallback} marked={isOverridden("customEntryFallback")} onChange={(v) => patch({ customEntryFallback: v })} />
+          {/* Extension-row visibility — one toggle per configured custom
+              event group, in configured order, including the catch-all
+              `other`. An id absent from prefs resolves to the group's
+              configured default. See change:
+              add-custom-event-group-filters. */}
+          <div className="text-[var(--text-tertiary)] mb-1">{i18nT("settings.customEventGroups", undefined, "Custom event groups")}</div>
+          {(customGroups ?? []).map((g) => (
+            <Row
+              key={g.id}
+              label={g.label}
+              value={prefs.customEventGroups[g.id] ?? g.default}
+              marked={isCustomGroupOverridden(g.id)}
+              onChange={(v) => patch({ customEventGroups: { [g.id]: v } })}
+            />
+          ))}
           <div className="my-2 border-t border-[var(--border-subtle)]" />
           <div className="text-[var(--text-tertiary)] mb-1">{i18nT("common.toolCalls", undefined, "Tool calls")}</div>
           <Row label={i18nT("common.read", undefined, "Read")} value={prefs.toolCalls.read} marked={isToolCallOverridden("read")} onChange={(v) => patch({ toolCalls: { read: v } })} />

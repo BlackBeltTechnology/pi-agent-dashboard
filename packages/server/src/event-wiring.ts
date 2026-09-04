@@ -9,7 +9,13 @@ import { normalizeNotifyLevel } from "@blackbelt-technology/pi-dashboard-shared/
 import { detectOpenSpecActivity, isValidOpenSpecChangeSlug } from "@blackbelt-technology/pi-dashboard-shared/openspec-activity-detector.js";
 import { mergeSessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { extractTurnStats } from "@blackbelt-technology/pi-dashboard-shared/stats-extractor.js";
+import type { ExtensionToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { DashboardSession, NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import {
+  customEventTypeOfEvent,
+  isGroupableCustomEvent,
+  stampEventGroup,
+} from "./session/custom-event-group-annotation.js";
 import { type PendingAttachment, prepareEventForIngest } from "./attachments/attachment-ingest.js";
 import { createAttachmentResolver } from "./attachments/attachment-resolver.js";
 import { AUTO_NAME_OUTCOMES, autoNameOutcomes } from "./auto-name-outcome-store.js";
@@ -220,6 +226,15 @@ export interface EventWiringDeps {
    * add-session-uncommitted-indicator-and-commit.
    */
   commitDraftRelay?: import("./commit-draft-relay.js").CommitDraftRelay;
+  /**
+   * Optional resolver for custom chat rows: the wiring stamps the resolved
+   * `groupId` onto `custom_entry` / custom `message_end` events BEFORE ingest
+   * so the persisted + broadcast events carry it (design D1). Resolution runs
+   * off-thread (design D3); absent → rows are treated as `other` by the
+   * client. When omitted (minimal wirings/tests) events pass unannotated.
+   * See change: add-custom-event-group-filters.
+   */
+  customEventGroupResolver?: import("./session/custom-event-group-resolver.js").CustomEventGroupResolver;
 }
 
 /**
@@ -258,6 +273,7 @@ export function wireEvents(deps: EventWiringDeps): void {
     metaPersistence,
     liveEpoch,
     commitDraftRelay,
+    customEventGroupResolver,
   } = deps;
 
   // Once-per-activation guard for the eager liveness marker: maps sessionId
@@ -784,7 +800,7 @@ export function wireEvents(deps: EventWiringDeps): void {
   }
   const LAST_ACTIVITY_BROADCAST_INTERVAL_MS = 30_000;
 
-  piGateway.onEvent = (sessionId, msg) => {
+  const coreGatewayEventHandler = (sessionId: string, msg: ExtensionToServerMessage): void => {
     // Generic plugin bridge→server channel. Routed to plugin-server
     // handlers by messageType; never touches core session state.
     // See change: add-goal-continuation-plugin.
@@ -2187,5 +2203,41 @@ export function wireEvents(deps: EventWiringDeps): void {
       });
     }
 
+  };
+
+  // Custom-row group annotation (design D1/D3): resolution is async (a
+  // worker-thread round trip per distinct customType, memoized thereafter),
+  // so groupable custom events fork: the group id is awaited, stamped onto
+  // the event, THEN the shared ingest tail runs — insert + broadcast see the
+  // annotated event, so store replay is annotated too. The first sight of
+  // each type pays one round trip; every later row resolves from the memo.
+  // Ordering trade-off (D3): events ingested during a first-sight round trip
+  // take lower store sequences — bounded at once per distinct customType per
+  // process (~a dozen types), and only near a server's first sight of each.
+  piGateway.onEvent = (sessionId, msg) => {
+    if (
+      customEventGroupResolver &&
+      msg.type === "event_forward" &&
+      isGroupableCustomEvent(msg.event)
+    ) {
+      const customType = customEventTypeOfEvent(msg.event) ?? "";
+      const annotateAndIngest = async () => {
+        try {
+          stampEventGroup(msg.event, await customEventGroupResolver.resolve(customType));
+        } catch {
+          // Resolution failure must never swallow the row: unannotated →
+          // the client treats it as `other` (fail-visible).
+        }
+        // Exactly once, and OUTSIDE the try: the ingest tail is not
+        // re-entrant — a throw after insertEvent must never re-run the
+        // insert on the same (half-handled) event.
+        coreGatewayEventHandler(sessionId, msg);
+      };
+      void annotateAndIngest().catch((err) => {
+        console.error(`[custom-event-groups] ingest failed for session ${sessionId}:`, err);
+      });
+      return;
+    }
+    coreGatewayEventHandler(sessionId, msg);
   };
 }

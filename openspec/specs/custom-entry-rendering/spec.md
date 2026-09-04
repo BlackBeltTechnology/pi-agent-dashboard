@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change render-inline-reasoning-and-custom-entries. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Custom entries SHALL reach the chat as first-class rows
 The system SHALL forward non-`flow-event` custom content from both pi extension surfaces to the chat: `pi.sendMessage` custom messages (persisted as `custom_message` entries, arriving as `message_end` events with `message.role === "custom"`) and `pi.appendEntry` entries (persisted as `custom` entries, forwarded live by the bridge as `custom_entry` events). Both surfaces SHALL reduce into a common `role: "custom"` chat row instead of being dropped.
 
@@ -41,7 +43,7 @@ Custom messages sent with `display: false` (LLM-context-only by contract) SHALL 
 - **THEN** it SHALL NOT synthesize any event for it
 
 ### Requirement: Custom rows SHALL render as a bounded generic fallback
-The chat SHALL render `role: "custom"` rows with a generic card showing the `customType` as a label and the payload as PLAIN TEXT (never markdown-interpreted), with the display body truncated to the same last-200-lines form the event store already enforces. Rendering SHALL be gated by the `customEntryFallback` preference (default `true`), applied at render time only.
+The chat SHALL render `role: "custom"` rows with a generic card showing the `customType` as a label and the payload as PLAIN TEXT (never markdown-interpreted), with the display body truncated to the same last-200-lines form the event store already enforces. Rendering SHALL be gated by the effective visibility of the custom event group that the row's `customType` resolves to (first-match-wins, falling back to the catch-all `other` group), applied at render time only. The same gate SHALL be applied consistently at every site that decides whether a custom row is visible, so a hidden row is excluded from row-visibility computations as well as from rendering.
 
 #### Scenario: payload renders as plain text
 - **WHEN** a `role: "custom"` row renders
@@ -53,17 +55,34 @@ The chat SHALL render `role: "custom"` rows with a generic card showing the `cus
 - **THEN** the rendered body SHALL be the last 200 lines prefixed by the `«N earlier lines hidden»` marker, identical for live and replayed rows
 
 #### Scenario: preference suppresses the fallback
-- **WHEN** `customEntryFallback` is `false`
-- **THEN** `role: "custom"` rows SHALL render nothing
-- **AND** toggling the preference back SHALL make them visible again without a replay
+- **GIVEN** a `role: "custom"` row whose `customType` resolves to group `memory`
+- **WHEN** the effective visibility of `memory` is `false`
+- **THEN** that row SHALL render nothing
+- **AND** toggling the group back on SHALL make it visible again without a replay
+
+#### Scenario: groups are independently gated
+- **GIVEN** rows whose `customType` values resolve to different groups
+- **WHEN** one group's visibility is `false` and another's is `true`
+- **THEN** only the rows belonging to the hidden group SHALL be suppressed
+- **AND** rows belonging to the visible group SHALL continue to render
+
+#### Scenario: ungrouped type follows the catch-all
+- **GIVEN** a `role: "custom"` row whose `customType` matches no configured group
+- **WHEN** the effective visibility of the `other` group is `false`
+- **THEN** that row SHALL render nothing
 
 ### Requirement: flow-event entries keep their dedicated rendering
-`customType: "flow-event"` entries SHALL continue down their existing dedicated path (seq-sorted flow-card reduction on replay, flow reducer live) and SHALL never be claimed by the generic custom-entry fallback.
+`customType: "flow-event"` entries SHALL continue down their existing dedicated path (seq-sorted flow-card reduction on replay, flow reducer live) and SHALL never be claimed by the generic custom-entry fallback, and SHALL never be gated by a custom event group toggle.
 
 #### Scenario: flow-event is not double-rendered
 - **WHEN** state replay encounters a persisted `type: "custom"` entry with `customType: "flow-event"`
 - **THEN** it SHALL synthesize the flow events per the existing seq-sorted behavior
 - **AND** it SHALL NOT emit a `custom_entry` event for it
+
+#### Scenario: flow cards ignore group visibility
+- **GIVEN** every custom event group is toggled off
+- **WHEN** the chat renders a flow card
+- **THEN** the flow card SHALL still render
 
 ### Requirement: Custom entries survive replay
 State replay (`replayEntriesAsEvents`) SHALL synthesize the same events for persisted custom content that the live path emits: `custom_message` entries whose `display` is not exactly `false` (the same exact-comparison rule as the live path, so an omitted flag replays visible) replay as `message_end` events with `role: "custom"`, and non-`flow-event` `custom` entries replay as `custom_entry` events — so a reloaded session shows the same custom rows as the live view.
@@ -72,3 +91,31 @@ State replay (`replayEntriesAsEvents`) SHALL synthesize the same events for pers
 - **WHEN** a session containing custom messages and custom entries is cold-loaded or re-replayed
 - **THEN** the rebuilt chat SHALL contain the same `role: "custom"` rows in their persisted order
 
+### Requirement: Custom event group toggles SHALL appear in both display surfaces
+Both display-preference surfaces — the global settings panel and the per-session chat view menu — SHALL render one
+toggle per configured custom event group, labelled with the group's configured label, in the configured group order,
+including the catch-all `other` group. No additional surface (inline click-to-hide, per-`customType` control) SHALL be
+introduced. The per-session surface SHALL show its existing "overridden" indicator when a group's value comes from the
+session override rather than the global value.
+
+#### Scenario: Both surfaces list every configured group
+- **WHEN** either the global settings panel or the per-session chat view menu renders its display-preferences section
+- **THEN** it SHALL list one toggle per configured group, including `other`, in configured order
+
+#### Scenario: Global toggle applies with no session selected
+- **GIVEN** no session is selected
+- **WHEN** the user toggles a group off in the global settings panel
+- **THEN** the change SHALL persist globally
+- **AND** SHALL apply to sessions that have no override for that group
+
+#### Scenario: Per-session toggle overrides only that group
+- **GIVEN** a global value for group `memory`
+- **WHEN** the user toggles `memory` in the per-session chat view menu
+- **THEN** only that session's effective `memory` visibility SHALL change
+- **AND** every other group in that session SHALL continue to follow the global value
+- **AND** the surface SHALL indicate that the value is overridden for this session
+
+#### Scenario: Legacy single custom-entry toggle is gone
+- **WHEN** either surface renders its display-preferences section after upgrade
+- **THEN** no single combined "custom entries in chat" toggle SHALL be present
+- **AND** its behavior SHALL be reachable through the `other` group toggle

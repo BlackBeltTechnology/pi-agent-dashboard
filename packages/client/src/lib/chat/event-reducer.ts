@@ -52,6 +52,13 @@ export interface ChatMessage {
    * See change: render-inline-reasoning-and-custom-entries.
    */
   customType?: string;
+  /**
+   * Server-resolved custom event group id — present ONLY on `role: "custom"`
+   * rows (stamped by the server on the live and replay paths, design D1).
+   * Drives the per-group visibility gate; an absent value is treated as the
+   * catch-all `other` group. See change: add-custom-event-group-filters.
+   */
+  groupId?: string;
   images?: ChatImage[];
   toolName?: string;
   toolCallId?: string;
@@ -1794,6 +1801,9 @@ export function reduceEvent(
             customType: typeof msg.customType === "string" && msg.customType !== ""
               ? msg.customType
               : "custom",
+            // Server-stamped group id (D1); absent → the gate treats the row
+            // as the catch-all `other` group.
+            ...(typeof msg.groupId === "string" && msg.groupId !== "" ? { groupId: msg.groupId } : {}),
             // Extraction first, truncation second, AT ROW CREATION — live and
             // replay render identically (D4).
             content: truncateOutputForDisplay(extractCustomEntryBody(msg.content)),
@@ -1973,12 +1983,16 @@ export function reduceEvent(
         : "custom";
       if (customType === "flow-event") break;
       const entryId = typeof data.entryId === "string" ? data.entryId : undefined;
+      const groupId = typeof data.groupId === "string" && data.groupId !== "" ? data.groupId : undefined;
       next.messages = [
         ...next.messages,
         {
           id: entryId ? `custom-entry-${entryId}` : `custom-${next.messages.length}`,
           role: "custom",
           customType,
+          // Server-stamped group id (D1); absent → the gate treats the row as
+          // the catch-all `other` group.
+          ...(groupId ? { groupId } : {}),
           // Extraction first, truncation second, AT ROW CREATION (D4).
           content: truncateOutputForDisplay(extractCustomEntryBody(data.data)),
           timestamp: event.timestamp,
