@@ -2919,6 +2919,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // Terminate fit workers so a restart never leaves orphaned threads.
       // See change: fit-attachments-for-display (task 5.1).
       await fitWorkerPool.dispose();
+      // Same for the custom-event-group matcher worker.
+      // See change: add-custom-event-group-filters.
+      await customEventGroupMatcher.dispose();
 
       stopTunnelWatchdog();
       await deleteTunnel(config.port);

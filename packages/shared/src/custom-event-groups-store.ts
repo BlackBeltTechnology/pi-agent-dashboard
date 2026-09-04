@@ -146,6 +146,15 @@ export class CustomEventGroupsStore {
       : [];
 
     const merged = this.upgradeMerge(groups);
+    // The catch-all is the LAST resort by definition (design D4): a
+    // user-authored `other` placed mid-file would silently disable every
+    // group after it (the resolver breaks at `other`), so relocate it to the
+    // tail. Identity is preserved — only the position moves.
+    const otherIdx = merged.groups.findIndex((g) => g.id === RESERVED_OTHER_GROUP_ID);
+    if (otherIdx !== -1 && otherIdx !== merged.groups.length - 1) {
+      const [other] = merged.groups.splice(otherIdx, 1);
+      merged.groups.push(other);
+    }
     if (!merged.groups.some((g) => g.id === RESERVED_OTHER_GROUP_ID)) {
       merged.groups.push({ ...RESERVED_OTHER_GROUP });
     }

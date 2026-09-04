@@ -653,7 +653,11 @@ export function createPreferencesStore(
       };
       displayPrefs = merged;
       scheduleSave();
-      return { ...merged, toolCalls: { ...merged.toolCalls } };
+      return {
+        ...merged,
+        toolCalls: { ...merged.toolCalls },
+        customEventGroups: { ...merged.customEventGroups },
+      };
     },
 
     reorderWorkspaces(ids: string[]): boolean {

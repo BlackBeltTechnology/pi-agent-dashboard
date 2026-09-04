@@ -55,6 +55,11 @@ export class CustomEventGroupResolver {
     return p;
   }
 
+  /** Test seam: whether a group is currently quarantined. */
+  isQuarantined(groupId: string): boolean {
+    return this.quarantined.has(groupId);
+  }
+
   private async run(customType: string): Promise<string> {
     for (const g of this.groups) {
       // The catch-all is the fallback below, never a walked candidate.

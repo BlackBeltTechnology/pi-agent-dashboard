@@ -70,40 +70,62 @@ export class CustomEventGroupMatcher {
    * boot failure, or the worker died unexpectedly) so the caller can
    * quarantine the group.
    *
+   * Matches are SERIALIZED (FIFO, one in-flight per worker): a timeout kills
+   * the whole worker, so concurrent matches would make the kill orphan a
+   * healthy sibling's response and its own timer would then quarantine an
+   * innocent group. Serializing means the deadline bounds exactly the one
+   * match that is in flight, and a kill only ever abandons the offender.
+   * Cost is irrelevant — the resolver memoizes per customType, so this path
+   * runs once per distinct type per process (design D3).
+   *
    * Worker boot is NOT part of the match deadline: the deadline bounds only
    * regex execution (design D3), so a slow first boot cannot spuriously
    * quarantine a group.
    */
-  async match(pattern: string, customType: string): Promise<boolean> {
-    await this.ensureReady();
-    const idx = this.nextIdx++;
-    return new Promise<boolean>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(idx);
-        this.killWorker();
-        reject(new Error(`pattern match exceeded ${this.timeoutMs}ms; worker terminated`));
-      }, this.timeoutMs);
-      this.pending.set(idx, { resolve, reject, timer });
-      try {
-        this.ensureWorker().postMessage({ idx, pattern, customType });
-      } catch (err) {
-        // postMessage can throw on a just-killed worker; retry once on a
-        // fresh worker so one kill never wedges the matcher.
-        this.pending.delete(idx);
-        clearTimeout(timer);
+  private tail: Promise<void> = Promise.resolve();
+
+  match(pattern: string, customType: string): Promise<boolean> {
+    const run = async (): Promise<boolean> => {
+      await this.ensureReady();
+      const idx = this.nextIdx++;
+      return new Promise<boolean>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          this.pending.delete(idx);
+          this.killWorker();
+          reject(new Error(`pattern match exceeded ${this.timeoutMs}ms; worker terminated`));
+        }, this.timeoutMs);
+        this.pending.set(idx, { resolve, reject, timer });
         try {
-          this.pending.set(idx, { resolve, reject, timer: setTimeout(() => {
+          this.ensureWorker().postMessage({ idx, pattern, customType });
+        } catch {
+          // postMessage can throw on a just-killed worker; retry once on a
+          // fresh worker so one kill never wedges the matcher.
+          this.pending.delete(idx);
+          clearTimeout(timer);
+          const retryTimer = setTimeout(() => {
             this.pending.delete(idx);
             this.killWorker();
             reject(new Error(`pattern match exceeded ${this.timeoutMs}ms; worker terminated`));
-          }, this.timeoutMs) });
-          this.ensureWorker().postMessage({ idx, pattern, customType });
-        } catch (err2) {
-          this.pending.delete(idx);
-          reject(err2 instanceof Error ? err2 : new Error(String(err2)));
+          }, this.timeoutMs);
+          this.pending.set(idx, { resolve, reject, timer: retryTimer });
+          try {
+            this.ensureWorker().postMessage({ idx, pattern, customType });
+          } catch (err2) {
+            this.pending.delete(idx);
+            clearTimeout(retryTimer);
+            reject(err2 instanceof Error ? err2 : new Error(String(err2)));
+          }
         }
-      }
-    });
+      });
+    };
+    // FIFO over the previous match — run regardless of how the predecessor
+    // settled (a rejection must not stall the queue).
+    const result = this.tail.then(run, run);
+    this.tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
   async dispose(): Promise<void> {

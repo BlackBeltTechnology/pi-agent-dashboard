@@ -2211,6 +2211,9 @@ export function wireEvents(deps: EventWiringDeps): void {
   // the event, THEN the shared ingest tail runs — insert + broadcast see the
   // annotated event, so store replay is annotated too. The first sight of
   // each type pays one round trip; every later row resolves from the memo.
+  // Ordering trade-off (D3): events ingested during a first-sight round trip
+  // take lower store sequences — bounded at once per distinct customType per
+  // process (~a dozen types), and only near a server's first sight of each.
   piGateway.onEvent = (sessionId, msg) => {
     if (
       customEventGroupResolver &&
@@ -2219,14 +2222,19 @@ export function wireEvents(deps: EventWiringDeps): void {
     ) {
       const customType = customEventTypeOfEvent(msg.event) ?? "";
       const annotateAndIngest = async () => {
-        const groupId = await customEventGroupResolver.resolve(customType);
-        stampEventGroup(msg.event, groupId);
+        try {
+          stampEventGroup(msg.event, await customEventGroupResolver.resolve(customType));
+        } catch {
+          // Resolution failure must never swallow the row: unannotated →
+          // the client treats it as `other` (fail-visible).
+        }
+        // Exactly once, and OUTSIDE the try: the ingest tail is not
+        // re-entrant — a throw after insertEvent must never re-run the
+        // insert on the same (half-handled) event.
         coreGatewayEventHandler(sessionId, msg);
       };
-      void annotateAndIngest().catch(() => {
-        // Resolution failure must never swallow the row: unannotated →
-        // the client treats it as `other` (fail-visible).
-        coreGatewayEventHandler(sessionId, msg);
+      void annotateAndIngest().catch((err) => {
+        console.error(`[custom-event-groups] ingest failed for session ${sessionId}:`, err);
       });
       return;
     }

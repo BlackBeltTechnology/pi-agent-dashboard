@@ -368,7 +368,13 @@ export function migrateLegacyCustomEntryFallback<
 >(prefs: T): T {
   if (!prefs || typeof prefs !== "object") return prefs;
   const legacy = prefs.customEntryFallback;
-  if (typeof legacy !== "boolean") return prefs;
+  if (typeof legacy !== "boolean") {
+    // Corrupt value: the field is unused either way, and the contract is
+    // "the field does not survive" — drop it rather than migrate it.
+    const next = { ...prefs } as T;
+    delete (next as { customEntryFallback?: unknown }).customEntryFallback;
+    return next;
+  }
   const next = { ...prefs } as T & { customEventGroups?: Record<string, boolean> };
   if (legacy === false) {
     const groups = {

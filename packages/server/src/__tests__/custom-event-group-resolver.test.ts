@@ -125,6 +125,30 @@ describe("resolver (task 3.1, 3.2, 3.3)", () => {
     expect(callCountByPattern.get("^good\\.")).toBe(2);
   });
 
+  it("concurrent resolutions: one pathological group cannot collateral-quarantine a healthy one", async () => {
+    // Review finding: the worker is killed WHOLE on timeout, so two matches
+    // in flight would orphan the healthy one and its own timer would then
+    // quarantine an innocent group. The matcher serializes matches (FIFO),
+    // so the healthy match runs AFTER the kill on the respawned worker.
+    const matcher = new CustomEventGroupMatcher({ timeoutMs: 120 });
+    try {
+      const resolver = new CustomEventGroupResolver(
+        [group("bad", "(a+)+$"), group("good", "^good\\.")],
+        matcher,
+      );
+      const [bad, good] = await Promise.all([
+        resolver.resolve("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab"),
+        resolver.resolve("good.thing"),
+      ]);
+      expect(bad).toBe(RESERVED_OTHER_GROUP_ID); // abandoned → quarantined → other
+      expect(good).toBe("good"); // healthy group answered, never quarantined
+      expect(resolver.isQuarantined("bad")).toBe(true);
+      expect(resolver.isQuarantined("good")).toBe(false);
+    } finally {
+      await matcher.dispose();
+    }
+  });
+
   it("a file of pathological patterns cannot cause a respawn storm (task 2.3)", async () => {
     const matcher = new CustomEventGroupMatcher({ timeoutMs: 60 });
     try {

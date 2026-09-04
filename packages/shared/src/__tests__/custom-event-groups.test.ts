@@ -174,6 +174,31 @@ describe("store: reserved other (task 1.4)", () => {
   });
 });
 
+describe("store: reserved other is always the last resort", () => {
+  it("relocates a user-authored other that sits mid-file to the tail", () => {
+    const p = storePath();
+    fs.writeFileSync(
+      p,
+      JSON.stringify({
+        version: 1,
+        groups: [
+          { id: "other", label: "User Other", pattern: "^x$", default: false },
+          { id: "mine", label: "Mine", pattern: "^mine\\.", default: true },
+        ],
+        seenShippedIds: [],
+      }),
+    );
+    const store = new CustomEventGroupsStore({ filePath: p });
+    const groups = store.list();
+    expect(groups[groups.length - 1]?.id).toBe(RESERVED_OTHER_GROUP_ID);
+    // identity preserved — only the position moved
+    const other = groups[groups.length - 1];
+    expect(other.label).toBe("User Other");
+    expect(other.default).toBe(false);
+    expect(groups.some((g) => g.id === "mine")).toBe(true);
+  });
+});
+
 describe("store: seenShippedIds upgrade-merge (task 1.5)", () => {
   function writeUserFile(p: string, groups: any[], seenShippedIds: string[]): void {
     fs.writeFileSync(p, JSON.stringify({ version: 1, groups, seenShippedIds }));
