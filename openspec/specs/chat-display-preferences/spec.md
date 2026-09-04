@@ -10,11 +10,15 @@ opt-out so non-technical users can hide noise without learning what
 "thinking" or "tool result" means first. `ask_user` is non-hidable.
 
 See change: configurable-chat-display.
+
 ## Requirements
+
 ### Requirement: Global display preferences SHALL gate chat-view elements
-The dashboard MUST persist a `DisplayPrefs` object in `preferences.json` controlling which chat-view elements render. The schema SHALL include boolean flags for `tokenStatsBar`, `contextUsageBar`, `reasoning`, `toolResults`, `turnMetadata`, `debugTools`, plus a `toolCalls` sub-object with booleans `read`, `bash`, `edit`, `agent`, `generic`. The schema SHALL also include a numeric `reasoningAutoCollapseMs` controlling how long a live-streamed reasoning block stays expanded after it completes before auto-collapsing.
+The dashboard MUST persist a `DisplayPrefs` object in `preferences.json` controlling which chat-view elements render. The schema SHALL include boolean flags for `tokenStatsBar`, `contextUsageBar`, `reasoning`, `toolResults`, `turnMetadata`, `debugTools`, plus a `toolCalls` sub-object with booleans `read`, `bash`, `edit`, `agent`, `generic`, plus a `customEventGroups` sub-object mapping custom event group ids to booleans. The schema SHALL also include a numeric `reasoningAutoCollapseMs` controlling how long a live-streamed reasoning block stays expanded after it completes before auto-collapsing.
 
 `reasoningAutoCollapseMs` SHALL default to `30000` (30 seconds). A value of `0` SHALL mean "never auto-collapse" — a live-streamed reasoning block stays expanded until the user collapses it. The value SHALL only affect live-streamed reasoning blocks; replayed blocks are unaffected.
+
+`customEventGroups` SHALL be an open keyspace keyed by the group ids defined in the custom event groups configuration. A group id absent from the object SHALL resolve to that group's configured `default` visibility, so a preferences file that predates a group never hides it implicitly.
 
 #### Scenario: Reasoning hidden when disabled
 - **GIVEN** global `displayPrefs.reasoning = false`
@@ -39,6 +43,12 @@ The dashboard MUST persist a `DisplayPrefs` object in `preferences.json` control
 - **THEN** the stored and broadcast `reasoningAutoCollapseMs` SHALL retain its prior value
 - **AND** SHALL NOT be reset to `undefined`
 
+#### Scenario: Unknown group id falls back to its configured default
+- **GIVEN** a stored `customEventGroups` object that has no key for a configured group
+- **WHEN** effective visibility for that group is computed
+- **THEN** the group's configured `default` SHALL be used
+- **AND** the group SHALL NOT be treated as hidden merely because the key is absent
+
 ### Requirement: Per-session overrides SHALL deep-merge over global prefs
 Per-session `displayPrefsOverride` SHALL deep-merge over the global `DisplayPrefs` via `mergeDisplayPrefs`. Scalar and numeric fields present in the override SHALL win over the global value; absent fields SHALL fall through to global. `reasoningAutoCollapseMs` SHALL follow the same rule, and an override value of `0` SHALL be preserved (not coerced to the default).
 
@@ -59,7 +69,7 @@ Per-session `displayPrefsOverride` SHALL deep-merge over the global `DisplayPref
 The server SHALL expose:
 
 - `GET /api/preferences/display` returning the current `DisplayPrefs` or HTTP 200 with `displayPrefs: undefined` when never seeded.
-- `PATCH /api/preferences/display` accepting `Partial<DisplayPrefs>` and deep-merging into the stored prefs (toolCalls merged field-by-field).
+- `PATCH /api/preferences/display` accepting `Partial<DisplayPrefs>` and deep-merging into the stored prefs (`toolCalls` and `customEventGroups` merged field-by-field).
 
 On any successful PATCH, the server MUST broadcast `display_prefs_updated { prefs: DisplayPrefs }` to every connected browser socket. Connected clients MUST update their local store on receipt without page reload.
 
@@ -104,6 +114,12 @@ The server SHALL broadcast `session_updated` with `updates.displayPrefsOverride:
 - **GIVEN** stored `toolCalls = { read:true, bash:true, edit:true, agent:true, generic:true }`
 - **WHEN** a PATCH body of `{ toolCalls: { bash: false } }` is applied
 - **THEN** stored `toolCalls.bash = false` and every other `toolCalls.*` field is unchanged
+
+#### Scenario: PATCH deep-merges customEventGroups
+- **GIVEN** stored `customEventGroups = { memory:false, search:true, subagents:true }`
+- **WHEN** a PATCH body of `{ customEventGroups: { search: false } }` is applied
+- **THEN** stored `customEventGroups.search = false` and every other `customEventGroups.*` field is unchanged
+- **AND** the merge SHALL NOT drop keys for groups absent from the PATCH body
 
 ### Requirement: First-launch SHALL prompt the user to choose a preset
 
@@ -375,19 +391,60 @@ SHALL render.
 - **WHEN** visibility is evaluated at any `notifyMinLevel`
 - **THEN** the row SHALL render
 
-### Requirement: reasoningInlineFlow and customEntryFallback display preferences
-`DisplayPrefs` SHALL include `reasoningInlineFlow: boolean` and `customEntryFallback: boolean`. Both SHALL default to `reasoningInlineFlow: false` and `customEntryFallback: true` in every preset (`simple`, `standard`, `everything`) and in the legacy-backfill path, so out-of-the-box behavior is unchanged. The legacy defaults SHALL be injected at every `DisplayPrefs` construction site for persisted prefs — the server's per-field backfill (`backfillDisplayPrefs`) and the `setDisplayPrefs` base/merged literals — not only in `mergeDisplayPrefs`, because a legacy file without the fields must resolve to the defaults (a missing `customEntryFallback` backfill would leave the gate `undefined` and hide custom rows for existing users). `mergeDisplayPrefs` SHALL additionally resolve both as plain top-level arms (override value when present, else global). Existing persisted preferences files and per-session overrides without the new fields SHALL load unchanged and resolve to the defaults.
+### Requirement: reasoningInlineFlow and customEventGroups display preferences
+`DisplayPrefs` SHALL include `reasoningInlineFlow: boolean` and `customEventGroups: Record<string, boolean>`. `reasoningInlineFlow` SHALL default to `false` in every preset (`simple`, `standard`, `everything`) and in the legacy-backfill path. `customEventGroups` SHALL default to an object seeding each configured group id with that group's configured `default` visibility, so out-of-the-box behavior matches the shipped configuration.
+
+The `customEntryFallback` boolean is REMOVED from `DisplayPrefs`; the catch-all `other` group entry in `customEventGroups` replaces it.
+
+The legacy defaults SHALL be injected at every `DisplayPrefs` construction site for persisted prefs — the server's per-field backfill (`backfillDisplayPrefs`) and the `setDisplayPrefs` base/merged literals — not only in `mergeDisplayPrefs`, because a legacy file without the fields must resolve to the defaults (a missing `customEventGroups` backfill would leave every group gate `undefined` and hide custom rows for existing users). `mergeDisplayPrefs` SHALL resolve `reasoningInlineFlow` as a plain top-level arm (override value when present, else global), and SHALL resolve `customEventGroups` by shallow field-by-field merge, exactly as it resolves `toolCalls` — an override key present wins for that group id only, and every group id absent from the override falls through to the global value. Existing persisted preferences files and per-session overrides without the new fields SHALL load unchanged and resolve to the defaults.
 
 #### Scenario: Defaults preserve current behavior
 - **WHEN** a preferences file predates the new fields (or a fresh preset is applied)
-- **THEN** the effective prefs SHALL resolve `reasoningInlineFlow` to `false` and `customEntryFallback` to `true`
-- **AND** a legacy global file without the fields SHALL resolve `customEntryFallback` to `true` via the server backfill (not stay `undefined`)
+- **THEN** the effective prefs SHALL resolve `reasoningInlineFlow` to `false`
+- **AND** `customEventGroups` SHALL resolve each configured group to its configured `default`
+- **AND** a legacy global file without the fields SHALL resolve them via the server backfill (not stay `undefined`)
 
 #### Scenario: Per-session override wins
-- **WHEN** a per-session override sets `reasoningInlineFlow` or `customEntryFallback`
+- **WHEN** a per-session override sets `reasoningInlineFlow`
 - **THEN** `mergeDisplayPrefs` SHALL return the override value for that field and the global value for every other field
+
+#### Scenario: Per-session override merges customEventGroups field-by-field
+- **GIVEN** global `customEventGroups = { memory:false, search:true }`
+- **AND** a per-session override `{ customEventGroups: { memory: true } }`
+- **WHEN** effective prefs are computed
+- **THEN** the result SHALL have `customEventGroups.memory = true` and `customEventGroups.search = true`
+- **AND** the override SHALL NOT replace the whole object
 
 #### Scenario: PATCH round-trips the new fields
 - **WHEN** a client PATCHes `/api/preferences/display` with the new fields (globally or as a per-session override)
 - **THEN** the fields SHALL persist, broadcast via `display_prefs_updated`, and be included in the connect snapshot
 
+### Requirement: customEntryFallback SHALL migrate once to the other group
+On upgrade, any persisted `customEntryFallback` value SHALL be migrated to `customEventGroups.other` and the legacy
+field removed, so a user who had already hidden custom chat entries does not have them reappear. The migration SHALL be
+applied to the global `DisplayPrefs` and to every per-session `displayPrefsOverride` that carries the legacy field. The
+migration SHALL be idempotent — once the legacy field is absent, no further action.
+
+#### Scenario: Hidden custom entries stay hidden across upgrade
+- **GIVEN** a persisted global `displayPrefs.customEntryFallback === false`
+- **WHEN** the preferences store loads after upgrade
+- **THEN** `customEventGroups.other` SHALL be `false`
+- **AND** `customEntryFallback` SHALL no longer be present in the stored prefs
+
+#### Scenario: Per-session override carrying the legacy field migrates too
+- **GIVEN** a session whose `displayPrefsOverride` contains `customEntryFallback: false`
+- **WHEN** the migration runs
+- **THEN** that override SHALL carry `customEventGroups: { other: false }`
+- **AND** SHALL no longer carry `customEntryFallback`
+
+#### Scenario: Default-valued legacy field does not force an explicit key
+- **GIVEN** a persisted `customEntryFallback === true` (the legacy default)
+- **WHEN** the migration runs
+- **THEN** the resulting effective visibility of the `other` group SHALL be visible
+- **AND** the legacy field SHALL be removed
+
+#### Scenario: Migration is idempotent
+- **GIVEN** preferences that have already been migrated
+- **WHEN** the preferences store loads again
+- **THEN** no further migration SHALL occur
+- **AND** an explicit user choice for `customEventGroups.other` SHALL NOT be overwritten
