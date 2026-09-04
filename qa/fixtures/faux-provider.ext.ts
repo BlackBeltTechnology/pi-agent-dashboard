@@ -102,7 +102,14 @@ export default function fauxProviderExtension(pi: ExtensionAPI): void {
   const registration = registerFauxProvider({
     api: "faux",
     provider: "faux",
-    models: [{ id: "faux-1", input: ["text", "image"] }],
+    models: [
+      { id: "faux-1", input: ["text", "image"] },
+      // Second model so an explicit `--model faux/faux-2` resolves to something
+      // DIFFERENT from the seeded `config.defaultModel` (faux/faux-1) — the
+      // explicit-model-preserved e2e asserts the default never overrides it.
+      // See change: fix-default-model-clobbers-explicit-model (test-plan #I1).
+      { id: "faux-2", input: ["text", "image"] },
+    ],
     tokensPerSecond: Number(process.env.FAUX_TPS ?? 50),
   });
 
@@ -125,6 +132,15 @@ export default function fauxProviderExtension(pi: ExtensionAPI): void {
       {
         id: "faux-1",
         name: "faux-1",
+        reasoning: false,
+        input: ["text", "image"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 128000,
+        maxTokens: 16384,
+      },
+      {
+        id: "faux-2",
+        name: "faux-2",
         reasoning: false,
         input: ["text", "image"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },

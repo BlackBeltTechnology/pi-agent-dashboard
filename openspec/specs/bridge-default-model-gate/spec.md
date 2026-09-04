@@ -3,10 +3,12 @@
 ## Purpose
 
 The bridge-default-model-gate is a pure decision predicate that determines whether the bridge applies `config.defaultModel` to a pi session at `session_start` time. It ensures the configured default model is applied ONLY to brand-new sessions that have no prior message history, so that resumed, forked, and reloaded sessions always keep their existing model. The gate mirrors pi's own `hasExistingSession` semantics by deriving its "brand-new" signal from `buildSessionContext().messages.length` rather than the raw entry count.
+
 ## Requirements
+
 ### Requirement: Apply default model only to brand-new startup sessions
 
-The gate SHALL return true (apply `config.defaultModel`) only when all of the following conditions hold simultaneously: the session start reason is startup, the session has no prior message history, a model registry has been captured from pi, and a non-empty default model is configured. When all conditions hold, the bridge applies the configured default model.
+The gate SHALL return true (apply `config.defaultModel`) only when all of the following conditions hold simultaneously: the session start reason is startup, the session has no prior message history, a model registry has been captured from pi, a non-empty default model is configured, and the session's pi process was NOT launched with an explicit `--model` argument. When all conditions hold, the bridge applies the configured default model.
 
 #### Scenario: Brand-new startup session with configured default model
 
@@ -14,6 +16,7 @@ The gate SHALL return true (apply `config.defaultModel`) only when all of the fo
 - AND the session has zero message-history entries
 - AND the bridge has captured a model registry from pi
 - AND a non-empty `config.defaultModel` is configured
+- AND the pi process was launched without a `--model` argument
 - THEN the gate returns true
 - AND the bridge applies the configured default model to the session
 
@@ -72,9 +75,10 @@ the level.
 
 When `config.defaultThinkingLevel` is empty, the bridge SHALL NOT set the thinking
 level and pi's own resolution SHALL stand. When the default-model gate does not
-apply the default model (resumed, forked, reloaded, or non-startup sessions, or
-when prerequisites are absent), the bridge SHALL NOT apply the default thinking
-level either — the session keeps its existing level.
+apply the default model (resumed, forked, reloaded, or non-startup sessions,
+sessions launched with an explicit `--model` argument, or when prerequisites are
+absent), the bridge SHALL NOT apply the default thinking level either — the
+session keeps its existing level.
 
 #### Scenario: Brand-new startup applies both model and thinking level
 
@@ -111,3 +115,28 @@ level either — the session keeps its existing level.
 - **AND** the bridge does not apply the default thinking level
 - **AND** the session keeps its existing thinking level
 
+#### Scenario: Explicit-model session does not receive the default thinking level
+
+- **WHEN** the gate returns false because the session was launched with an explicit `--model` argument
+- **AND** a non-empty `config.defaultThinkingLevel` is configured
+- **THEN** the bridge does not apply the default thinking level either
+- **AND** the session's thinking level is whatever its launch arguments and pi's own resolution produce
+
+### Requirement: Never override an explicitly requested model
+
+The gate SHALL return false (do not apply `config.defaultModel`) when the session's pi process was launched with an explicit `--model` argument, regardless of every other condition. An explicit model on the launch command line is authoritative — the resolved choice of the spawner (subagent agent definition, automation run, worktree init hook, or a user's manual `pi --model` invocation) — and the bridge SHALL leave it intact, matching plain pi CLI behavior. The deferred re-apply path (retry after a custom provider becomes ready) SHALL likewise never apply the default model to such a session.
+
+#### Scenario: Subagent child keeps its agent model
+
+- WHEN a brand-new session starts with reason "startup" and zero message-history entries
+- AND the pi process was launched with an explicit `--model` argument
+- AND a model registry is captured and a non-empty `config.defaultModel` is configured
+- THEN the gate returns false
+- AND the session keeps the model from its launch arguments
+
+#### Scenario: Explicit model with custom provider ready later is still not overridden
+
+- WHEN a session launched with an explicit `--model` argument starts brand-new
+- AND the configured default model's custom provider becomes available after startup
+- THEN the bridge does not apply the configured default model at that later point
+- AND the session keeps the model from its launch arguments
