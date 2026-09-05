@@ -1,0 +1,3 @@
+# canvas-webapp/SKILL.md — index
+
+Bundled skill: render a web app on the dashboard canvas. Canvas loopback `kind:"url"` loads under `/live/<id>/` in a `sandbox="allow-scripts"` (opaque-origin, NO allow-same-origin) iframe. Vite DEV fails (absolute paths → 404 blank); static build needs RELATIVE `base:'./'` + a static server sending `Access-Control-Allow-Origin: *` (opaque-origin module fetch is CORS w/ Origin:null). Carries a minimal `canvas-serve.mjs`. Pitfalls: `kill %1` not persisting across tool calls, Vite IPv6-only bind → IPv4 ECONNREFUSED 500, `kind:'server'`→tap-chip vs `kind:'url'`→auto-open.

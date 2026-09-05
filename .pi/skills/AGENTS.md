@@ -2,7 +2,7 @@
 
 Files in this directory. One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md`; source of truth now here). See change: migrate-file-index-to-agents-tree.
 
-**Deliberately undocumented:** `openspec-*/` (except `openspec-shared/`) and `.pi/prompts/opsx-*.md` are vendored by the openspec CLI and gitignored via `.pi/.gitignore`. `kb dox lint` walks the filesystem, not git, so it reports them `missing` — that finding is expected. Do NOT add rows; they describe files absent from a fresh clone and drift on every openspec upgrade.
+**Vendored, gitignored (no rows needed):** `openspec-*/` (except `openspec-shared/`) and `.pi/prompts/opsx-*.md` are vendored by the openspec CLI and gitignored via `.pi/.gitignore`. `kb dox lint` honours `.gitignore` (see change: fix-dox-lint-blind-rows), so these files are skipped by the walk — `openspec-shared/` files remain tracked, linted, and rowed below.
 
 | File | Purpose |
 |------|---------|

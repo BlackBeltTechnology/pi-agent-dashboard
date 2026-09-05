@@ -155,6 +155,8 @@ export async function reindexAll(cwd: string): Promise<KbReindexResult> {
           extensions: cfg.extensions,
           indexAgentsFiles: cfg.indexAgentsFiles,
           includeSourceMarkdown: cfg.includeSourceMarkdown,
+          respectGitignore: cfg.respectGitignore,
+          cwd,
         },
       );
       changed += stats.changed;

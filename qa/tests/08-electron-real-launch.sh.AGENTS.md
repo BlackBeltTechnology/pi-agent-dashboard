@@ -1,0 +1,3 @@
+# 08-electron-real-launch.sh — index
+
+Linux Electron AppImage launch smoke under `xvfb-run`. Polls `/api/health` within 90 s, asserts `starter == "Electron"`, `~/.pi/dashboard/server.log` non-empty, no `FATAL` in stdout. Skips (exit 0) when AppImage absent; fails when `xvfb-run` missing. Pre-launch seeds a `.bin/openspec`→`bin/openspec.js` shebang symlink + `~/.config/openspec/config.json` (profile core); post-health asserts `GET /api/openspec/config` returns 200 + profile core (pre-fix stripped-PATH shebang dies 127→502), SKIP if seed uncreatable. See change: expand-electron-qa-coverage, fix-openspec-config-read-bundled-node.

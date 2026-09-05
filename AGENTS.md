@@ -56,6 +56,7 @@ Before reading source, consult the per-file record (directory `AGENTS.md` tree, 
 Rules (full rationale + caveman-style spec: [docs/architecture.md](docs/architecture.md)):
 - **The ROOT AGENTS.md MUST NOT contain a per-file index** — no Key Files table, no per-file rows. Per-file records live in the directory `AGENTS.md` tree.
 - **Purpose row** carries everything per-file: one-line summary, key exports, contracts, `See change:`. Update in place if present, else insert alphabetically.
+- **File tables use the exact header `| File | Purpose |`** — `kb dox lint` recognizes rows by table header, not heading state; prose tables keep other headers.
 - **Tree files stay small** (~1 row/file, cap 30 KB `AGENTS_BYTE_CAP`). Flat dirs with many files split file-based: rows >200 chars promote to a pull-only `<File>.AGENTS.md` sidecar; dir row keeps a summary + `→ see`. Run `node scripts/split-large-agents.mjs <path> --write`. `kb dox lint` flags `over-threshold`.
 - **Every write under `docs/`** (prose AND `docs/AGENTS.md`) is delegated to a general-purpose subagent (DocScribe) with the **caveman-style** rule passed verbatim — short declarative fragments, drop articles/copulas, subject→verb→object, one fact per line, concrete tokens (paths/fns/env/ports) over prose, symbols verbatim. Main agent orchestrates, never edits `docs/` directly. Source-tree rows under `packages/`+non-source areas: main agent edits directly.
 

@@ -4,8 +4,9 @@
 // and `--fix` only fill PATH columns / prune orphans; the LLM authors purposes.
 
 import { createHash } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { type GitignoreMatcher, loadGitignoreMatcher } from "./gitignore.js";
 import { readStaleness } from "./staleness.js";
 import type { KbStore } from "./types.js";
 
@@ -129,6 +130,115 @@ export function fallbackManifest(cwd: string, targetPath: string, store?: KbStor
   return lines.join("\n");
 }
 
+// --- row recognition (design D1/D2, fix-dox-lint-blind-rows) ---
+
+// A row counts iff it sits in a table whose header matches EXACTLY this shape
+// (whitespace-flexible, exact cell names, case-sensitive — all walked tables
+// match exactly). Recognition is keyed on the TABLE, never on heading state:
+// a heading-state gate silently skips rows under subheadings and in files
+// without a `# DOX` heading, while reporting the file as clean.
+const FILE_TABLE_HEADER = /^\|\s*File\s*\|\s*Purpose\s*\|\s*$/;
+// A delimiter row: pipes + dash cells only. The FIRST delimiter after the
+// header belongs to the table; a SECOND one closes it — a directly-adjacent
+// prose table brings its own delimiter, which ends the file table before the
+// prose body cells can be read as rows (the adjacency hazard).
+const TABLE_DELIMITER = /^\|(?:\s*:?-+:?\s*\|)+$/;
+const ROW_PATH = /^\|\s*`([^`]+)`\s*\|/;
+
+export interface DoxRow {
+  path: string; // the backticked row path (relative to its AGENTS.md dir)
+  line: string; // the raw line
+  lineIndex: number; // index into text.split("\n") — the --fix prune key
+}
+export interface DoxScan {
+  rows: DoxRow[];
+  /** File-row tables from which zero rows were recognized (header line
+   *  indexes). A header nobody filled is a finding, not silence. */
+  emptyFileTables: { line: number }[];
+}
+
+/** Recognize DOX file rows by table header (design D1). One state machine,
+ *  three consumers (parseRowPaths, countInlineRows, doxLint). Opens on the
+ *  header line; stays open while lines start with `|` and are not a second
+ *  delimiter; closes on the first non-`|` line or the second delimiter. */
+export function scanDoxRows(text: string): DoxScan {
+  const rows: DoxRow[] = [];
+  const emptyFileTables: { line: number }[] = [];
+  const lines = text.split("\n");
+  let open = false;
+  let seenDelimiter = false;
+  let rowsInTable = 0;
+  let headerLine = -1;
+  const closeTable = () => {
+    if (open && rowsInTable === 0) emptyFileTables.push({ line: headerLine });
+    open = false;
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (FILE_TABLE_HEADER.test(line)) {
+      closeTable();
+      open = true;
+      seenDelimiter = false;
+      rowsInTable = 0;
+      headerLine = i;
+      continue;
+    }
+    if (!open) continue;
+    if (!line.startsWith("|") || !line.slice(1).includes("|")) {
+      closeTable();
+      continue;
+    }
+    if (TABLE_DELIMITER.test(line)) {
+      if (seenDelimiter) closeTable();
+      else seenDelimiter = true;
+      continue;
+    }
+    const m = line.match(ROW_PATH);
+    if (m) {
+      rows.push({ path: m[1], line, lineIndex: i });
+      rowsInTable++;
+    }
+  }
+  closeTable();
+  return { rows, emptyFileTables };
+}
+
+const FILE_TABLE_TEMPLATE = "| File | Purpose |\n|---|---|\n";
+
+/** Table-aware row insertion (design D2). Appends after the file table's last
+ *  row (never a leading blank line — that would close the table); creates the
+ *  header + delimiter at EOF when the file has no file table. Shared by
+ *  --fix's missing arm AND doxInit, so appended rows are recognized on the
+ *  next run and duplicates never accumulate. */
+function insertRows(text: string, newRows: string[]): string {
+  const scan = scanDoxRows(text);
+  const lines = text.split("\n");
+  if (scan.rows.length > 0) {
+    const at = scan.rows[scan.rows.length - 1].lineIndex + 1;
+    lines.splice(at, 0, ...newRows);
+    return lines.join("\n");
+  }
+  if (scan.emptyFileTables.length > 0) {
+    const h = scan.emptyFileTables[scan.emptyFileTables.length - 1].line;
+    const at = h + 1 < lines.length && TABLE_DELIMITER.test(lines[h + 1]) ? h + 2 : h + 1;
+    lines.splice(at, 0, ...newRows);
+    return lines.join("\n");
+  }
+  const prefix = text === "" ? "" : text.endsWith("\n") ? text : `${text}\n`;
+  return `${prefix}\n${FILE_TABLE_TEMPLATE}${newRows.join("\n")}\n`;
+}
+
+function appendRowsToAgentsFile(agentsFile: string, rows: string[]): void {
+  if (rows.length === 0) return;
+  let text = "";
+  try {
+    text = readFileSync(agentsFile, "utf8");
+  } catch {
+    /* new file — insertRows creates the table from scratch */
+  }
+  writeFileSync(agentsFile, insertRows(text, rows), "utf8");
+}
+
 // --- dox init ---
 
 export interface DoxInitOptions {
@@ -145,23 +255,28 @@ export interface DoxInitPlan {
 // DEFAULT_EXCLUDE is tested against the path RELATIVE to the walk root, so an
 // ancestor dir named like an excluded token (e.g. running inside .worktrees)
 // does not nuke the whole walk.
-function walkFiles(dir: string, match: (name: string) => boolean, out: string[] = [], root: string = dir): string[] {
+function walkFiles(dir: string, match: (name: string) => boolean, out: string[] = [], root: string = dir, ignore?: GitignoreMatcher): string[] {
   if (!existsSync(dir)) return out;
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     const abs = join(dir, e.name);
     if (DEFAULT_EXCLUDE.test(relative(root, abs))) continue;
     if (e.isDirectory()) {
       if (e.name === "__tests__") continue;
-      walkFiles(abs, match, out, root);
-    } else if (match(e.name)) out.push(abs);
+      const rel = relative(root, abs);
+      // Conservative dir-pruning (design D3): hard-prune only when the dir
+      // matches AND no deeper .gitignore could negate it; otherwise descend
+      // and filter files at match time so deep negations survive.
+      if (ignore?.isIgnoredDir(rel) && !ignore.hasDeeperGitignore(rel)) continue;
+      walkFiles(abs, match, out, root, ignore);
+    } else if (match(e.name) && !ignore?.isIgnored(relative(root, abs))) out.push(abs);
   }
   return out;
 }
-function walkMd(dir: string, out: string[] = []): string[] {
-  return walkFiles(dir, isMdFile, out);
+function walkMd(dir: string, out: string[] = [], ignore?: GitignoreMatcher): string[] {
+  return walkFiles(dir, isMdFile, out, dir, ignore);
 }
-function walkSource(dir: string, out: string[] = []): string[] {
-  return walkFiles(dir, isSourceFile, out);
+function walkSource(dir: string, out: string[] = [], ignore?: GitignoreMatcher): string[] {
+  return walkFiles(dir, isSourceFile, out, dir, ignore);
 }
 
 /** Resolve a DOX row path. Rows document paths RELATIVE TO THEIR OWN AGENTS.md
@@ -189,49 +304,27 @@ const SIDECAR_POINTER = /→ see `[^`]+\.AGENTS\.md`/;
  *  + the missing/orphan/staleness checks); the exclusion is count-only. */
 export function countInlineRows(agentsFile: string): number {
   if (!existsSync(agentsFile)) return 0;
-  const text = readFileSync(agentsFile, "utf8");
-  let inDox = false;
-  let count = 0;
-  for (const line of text.split("\n")) {
-    const h = line.match(/^#{1,6}\s+(.*)$/);
-    if (h) { inDox = /^DOX\b/.test(h[1].trim()); continue; }
-    if (!inDox) continue;
-    const m = line.match(/^\|\s*`([^`]+)`\s*\|/);
-    if (!m) continue;
-    if (SIDECAR_POINTER.test(line)) continue; // sidecar-pointer row, pull-only
-    count++;
-  }
-  return count;
+  return scanDoxRows(readFileSync(agentsFile, "utf8")).rows.filter((r) => !SIDECAR_POINTER.test(r.line)).length;
 }
 
-/** Parse existing row paths from an AGENTS.md file. */
+/** Parse existing row paths from an AGENTS.md file. Rows are recognized by
+ *  their table's `| File | Purpose |` header (design D1) — independent of
+ *  heading structure. */
 export function parseRowPaths(agentsFile: string): string[] {
   if (!existsSync(agentsFile)) return [];
-  const text = readFileSync(agentsFile, "utf8");
-  const paths: string[] = [];
-  // Only rows under a `# DOX —` heading are file-index rows. Prose tables
-  // (Subagent Routing, QA globs, …) under other headings are NOT DOX rows.
-  let inDox = false;
-  for (const line of text.split("\n")) {
-    const h = line.match(/^#{1,6}\s+(.*)$/);
-    if (h) { inDox = /^DOX\b/.test(h[1].trim()); continue; }
-    if (!inDox) continue;
-    const m = line.match(/^\|\s*`([^`]+)`\s*\|/);
-    if (m) paths.push(m[1]);
-  }
-  return paths;
+  return scanDoxRows(readFileSync(agentsFile, "utf8")).rows.map((r) => r.path);
 }
 
 /** Source-file walk (delta ①②), exported for the file-index migration. */
-export function sourceFiles(cwd: string): string[] {
-  return walkSource(cwd);
+export function sourceFiles(cwd: string, ignore?: GitignoreMatcher): string[] {
+  return walkSource(cwd, [], ignore);
 }
 
 // delta ③: group source files by FULL parent dir (dirname), not the top-level
 // segment — this is what makes the tree directory-level.
-export function areaFiles(cwd: string): Map<string, string[]> {
+export function areaFiles(cwd: string, ignore?: GitignoreMatcher): Map<string, string[]> {
   const groups = new Map<string, string[]>();
-  for (const f of walkSource(cwd)) {
+  for (const f of walkSource(cwd, [], ignore)) {
     const rel = relative(cwd, f);
     const dir = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : ".";
     (groups.get(dir) ?? groups.set(dir, []).get(dir)!).push(rel);
@@ -243,8 +336,9 @@ export function areaFiles(cwd: string): Map<string, string[]> {
  *  AGENTS.md; only adds missing files + missing path rows. */
 export function doxInit(opts: DoxInitOptions): DoxInitPlan {
   const cwd = opts.cwd;
+  const gi = loadGitignoreMatcher(cwd, { cwd, prune: (rel) => DEFAULT_EXCLUDE.test(rel) });
   const plan: DoxInitPlan = { created: [], appended: [] };
-  const groups = areaFiles(cwd);
+  const groups = areaFiles(cwd, gi);
 
   const ensure = (agentsFile: string, rows: string[]) => {
     if (existsSync(agentsFile)) {
@@ -254,12 +348,15 @@ export function doxInit(opts: DoxInitOptions): DoxInitPlan {
         return m && !existing.has(m[1]);
       });
       if (missRows.length) plan.appended.push({ file: agentsFile, rows: missRows });
-      if (!opts.dryRun && missRows.length) appendFileSync(agentsFile, "\n" + missRows.join("\n") + "\n");
+      // Table-aware append (design D2): rows land inside the file table, so a
+      // rerun recognizes them and stays idempotent (an EOF-append outside any
+      // table would re-fire as missing forever).
+      if (!opts.dryRun && missRows.length) appendRowsToAgentsFile(agentsFile, missRows);
     } else {
       plan.created.push(agentsFile);
       if (!opts.dryRun) {
         mkdirSync(dirname(agentsFile), { recursive: true });
-        writeFileSync(agentsFile, `# DOX — ${relative(cwd, dirname(agentsFile)) || "root"}\n\nFiles in this area. Purposes left for the agent to author.\n\n${rows.join("\n")}\n`, "utf8");
+        writeFileSync(agentsFile, `# DOX — ${relative(cwd, dirname(agentsFile)) || "root"}\n\nFiles in this area. Purposes left for the agent to author.\n\n${FILE_TABLE_TEMPLATE}${rows.join("\n")}\n`, "utf8");
       }
     }
   };
@@ -352,7 +449,7 @@ function globHit(pattern: string, cwd: string): boolean {
 }
 
 export interface DoxIssue {
-  kind: "stale" | "orphan" | "missing" | "missing-companion" | "broken-pointer" | "broken-ref" | "over-threshold";
+  kind: "stale" | "orphan" | "missing" | "missing-companion" | "broken-pointer" | "broken-ref" | "zero-row-table" | "over-threshold";
   agentsFile: string;
   path?: string;
   detail: string;
@@ -375,6 +472,11 @@ export interface DoxLintOptions {
 export interface DoxLintResult {
   issues: DoxIssue[];
   fixed: number;
+  /** Coverage (design D4): AGENTS.md files row-parsed, so a clean verdict can
+   *  be distinguished from an unread file. */
+  filesScanned: number;
+  /** Recognized rows across all scanned files. */
+  rowsScanned: number;
 }
 
 function fileSha(p: string): string {
@@ -388,6 +490,12 @@ export function doxLint(opts: DoxLintOptions): DoxLintResult {
   const cwd = opts.cwd;
   const issues: DoxIssue[] = [];
   let fixed = 0;
+  let filesScanned = 0;
+  let rowsScanned = 0;
+
+  // Gitignore-aware walk predicate (design D3), seeded from the repo root so
+  // root-anchored patterns apply even though the walk starts at cwd.
+  const gi = loadGitignoreMatcher(cwd, { cwd, prune: (rel) => DEFAULT_EXCLUDE.test(rel) });
 
   // Top-level entries of THIS repo — the primary discriminator that stops
   // broken-ref from firing on prose that merely looks path-shaped.
@@ -409,8 +517,11 @@ export function doxLint(opts: DoxLintOptions): DoxLintResult {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
       const abs = join(dir, e.name);
       if (DEFAULT_EXCLUDE.test(relative(cwd, abs))) continue;
-      if (e.isDirectory()) walkAgents(abs);
-      else if (e.name === "AGENTS.md") agentsFiles.push(abs);
+      if (e.isDirectory()) {
+        const rel = relative(cwd, abs);
+        if (gi.isIgnoredDir(rel) && !gi.hasDeeperGitignore(rel)) continue;
+        walkAgents(abs);
+      } else if (e.name === "AGENTS.md" && !gi.isIgnored(relative(cwd, abs))) agentsFiles.push(abs);
     }
   };
   walkAgents(cwd);
@@ -420,7 +531,7 @@ export function doxLint(opts: DoxLintOptions): DoxLintResult {
   const sf = opts.stalenessFile ?? join(cwd, ".pi", "dashboard", "kb", "dox-staleness.json");
   const staleness = readStaleness(sf);
 
-  const allMd = new Set(walkMd(cwd).map((f) => relative(cwd, f)));
+  const allMd = new Set(walkMd(cwd, [], gi).map((f) => relative(cwd, f)));
   const rowPaths = new Set<string>();
 
   for (const af of agentsFiles) {
@@ -436,16 +547,19 @@ export function doxLint(opts: DoxLintOptions): DoxLintResult {
     if (afBytes > AGENTS_BYTE_CAP) issues.push({ kind: "over-threshold", agentsFile: afRel, arm: "bytes", detail: `${afBytes} bytes > cap ${AGENTS_BYTE_CAP}; auto-injected per turn — actionable: promote heaviest rows to <File>.AGENTS.md sidecars` });
     const inlineCount = countInlineRows(af);
     if (inlineCount > ROW_CAP) issues.push({ kind: "over-threshold", agentsFile: afRel, arm: "rows", detail: `${inlineCount} inline rows > cap ${ROW_CAP}; informational (advisory; no per-turn injection cost) — optional: folder into cohesive subdirectories` });
-    const survivingRows: string[] = [];
-    const text = readFileSync(af, "utf8").split("\n");
+    filesScanned++;
+    const text = readFileSync(af, "utf8");
+    const scan = scanDoxRows(text);
+    rowsScanned += scan.rows.length;
+    // A file-row table nobody filled is a finding, not silence (design D4).
+    for (const t of scan.emptyFileTables) {
+      issues.push({ kind: "zero-row-table", agentsFile: afRel, detail: `file-row table header at line ${t.line + 1} has zero recognized rows` });
+    }
+    const pruneIdx = new Set<number>();
     const afDir = dirname(af);
-    let inDox = false;
-    for (const line of text) {
-      const h = line.match(/^#{1,6}\s+(.*)$/);
-      if (h) { inDox = /^DOX\b/.test(h[1].trim()); if (opts.fix) survivingRows.push(line); continue; }
-      const m = inDox ? line.match(/^\|\s*`([^`]+)`\s*\|/) : null;
-      if (!m) { if (opts.fix) survivingRows.push(line); continue; }
-      const rp = m[1];
+    for (const row of scan.rows) {
+      const rp = row.path;
+      const line = row.line;
       // Cross-references inside the PURPOSE cell. Rot here is invisible to the
       // hash check, because the row's own file is untouched by the move.
       const purposeCell = line.slice(line.indexOf("|", line.indexOf("`" + rp + "`")) + 1);
@@ -464,16 +578,21 @@ export function doxLint(opts: DoxLintOptions): DoxLintResult {
         // could be a broken pointer to an area AGENTS.md, or an orphan source row
         const kind = rp.endsWith("AGENTS.md") ? "broken-pointer" : "orphan";
         issues.push({ kind, agentsFile: afRel, path: rp, detail: `${kind}: ${rp} does not exist` });
-        if (opts.fix && kind === "orphan") { fixed++; continue; } // prune orphan row
+        if (opts.fix && kind === "orphan") {
+          fixed++;
+          pruneIdx.add(row.lineIndex); // prune the orphan line, keep every other line byte-identical
+        }
       } else if (staleness[rel]?.sha256) {
         const diskSha = fileSha(abs);
         if (diskSha && staleness[rel]!.sha256 !== diskSha) {
           issues.push({ kind: "stale", agentsFile: afRel, path: rp, detail: `tracked source-hash drifted` });
         }
       }
-      if (opts.fix) survivingRows.push(line);
     }
-    if (opts.fix) writeFileSync(af, survivingRows.join("\n") + "\n", "utf8");
+    if (opts.fix && pruneIdx.size > 0) {
+      const out = text.split("\n").filter((_, idx) => !pruneIdx.has(idx));
+      writeFileSync(af, out.join("\n"), "utf8");
+    }
   }
 
   // missing rows: md files in an area (dir containing an AGENTS.md) with no row.
@@ -498,7 +617,12 @@ export function doxLint(opts: DoxLintOptions): DoxLintResult {
     if (owner) {
       const ownerRel = relative(cwd, owner) || "AGENTS.md";
       issues.push({ kind: "missing", agentsFile: ownerRel, path: md, detail: `no row for ${md}` });
-      if (opts.fix) { appendFileSync(owner, `| \`${md}\` |  |\n`); fixed++; }
+      // Table-aware append (design D2): an EOF-append outside the table would
+      // never be recognized again — the finding would re-fire forever.
+      if (opts.fix) {
+        appendRowsToAgentsFile(owner, [`| \`${md}\` |  |`]);
+        fixed++;
+      }
     }
   }
 
@@ -507,7 +631,7 @@ export function doxLint(opts: DoxLintOptions): DoxLintResult {
   // through the `agents` doc-type lane that retrieval depends on. Opt-in, and
   // never auto-fixed: a blank purpose row is worse than an honest finding.
   if (opts.sourceFileRows) {
-    for (const abs of sourceFiles(cwd)) {
+    for (const abs of sourceFiles(cwd, gi)) {
       const rel = relative(cwd, abs);
       if (rowPaths.has(rel)) continue;
       if (existsSync(join(cwd, `${rel}.AGENTS.md`))) continue;
@@ -527,5 +651,5 @@ export function doxLint(opts: DoxLintOptions): DoxLintResult {
     }
   }
 
-  return { issues, fixed };
+  return { issues, fixed, filesScanned, rowsScanned };
 }

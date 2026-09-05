@@ -1,0 +1,3 @@
+# useWebSocket.ts — index
+
+WebSocket lifecycle: connects `url`, parses `ServerToBrowserMessage`, exposes `send`/`onMessage`/`status` (`connected`/`connecting`/`offline`/`auth_required`). Exponential backoff reconnect (via `connectRef` so reconnect re-runs the current path), auth probe after `OFFLINE_THRESHOLD` closes, registers `send` as plugin-action sender. Paired-device browsers (`getDeviceBearer()` set) mint a FRESH single-use `/api/ws-ticket` per (re)connect and present only `?ticket=` (durable bearer never rides WS, F6); unpaired browsers skip ticketing (cookie/loopback path unchanged). Exports `useWebSocket`, `ConnectionStatus`. See change: make-pairing-qr-camera-scannable.

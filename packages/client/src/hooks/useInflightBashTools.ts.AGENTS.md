@@ -1,0 +1,3 @@
+# useInflightBashTools.ts — index
+
+Pure selector `selectInflightBashTools(state)` + memoized hook `useInflightBashTools(state)`. Filters event-reducer `toolCalls` Map to unresolved `bash` tools (toolName matched case-insensitive). Returns `Array<{ toolCallId, command, startedAt }>` sorted newest-first by `startedAt`. Consumed by `App.tsx` (builds `inflightBashMap` via `useMemo`) and threaded through `SessionList` to `SessionCard`'s PROCESS subcard. Also extends `event-reducer.ts` `ToolCallState` with `startedAt` (stamped at `tool_execution_start`). See change: redesign-process-list-activity-bar.

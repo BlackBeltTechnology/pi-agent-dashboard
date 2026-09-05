@@ -14,7 +14,7 @@ See change: add-modular-doctor-skill.
 | `_lib/checks.ts` | Wraps shared resolver primitives (NO reimpl). `probePeer` (tier-1 createRequire / tier-2 pi packages[]), `detectNameSkew`, `enumeratePiInstalls`, `piVersionDivergence`, `readPiFloor`. |
 | `_lib/server-tier.ts` | Additive `/api/*` tier. `fetchHealth`, `fetchPiCoreVersions` — degrade to `{ok:false,reason}` when server down, never throw. |
 | `_lib/provenance.ts` | Fact labeller. `fileFact`/`serverFact`/`summariseProvenance` — `serverUnavailable` true when no server-enriched fact. |
-| `_lib/knowledge-hash.ts` | Per-module semantic hash. `extractSemanticTokens` (package names + semver, no prose), `computeKnowledgeHash`, `checkDrift`, read/write sidecar. Whitespace-stable; peer rename / floor bump drifts. |
+| `_lib/knowledge-hash.ts` | Per-module semantic hash. `extractSemanticTokens` (package names + semver, no prose), `computeKnowledgeHash`, `checkDrift`, read/write sidecar. Whitespace-stable; peer rename / floor bump drifts. Stored sidecars: 9 generated `modules/<name>.knowledge.hash` files, regenerated via `_lib/regenerate.ts --write`. |
 | `_lib/derive-tokens.ts` | `MODULE_TOKEN_SOURCES` maps module→repo-relative derives-from files; `deriveLiveTokens(repoRoot,id)` reads them for the hash. |
 | `_lib/regenerate.ts` | CLI: `--check` reports drift, `--write [module]` rewrites sidecars from live sources. Never edits authored prose. `findRepoRoot`, `reportDrift`, `writeHashes`. |
 | `modules/env-node.md` | Node version/OS/platform baseline. depends-on: none (root layer). |
@@ -26,4 +26,3 @@ See change: add-modular-doctor-skill.
 | `modules/model-resolution.md` | `model:resolve` handler, roles/preset, `@role` resolvability, pi-flows model-resolve-aware. depends-on: pi-resolution, plugins-bridges. |
 | `modules/oauth-redirect-base.md` | Which OAuth redirect base actually won + which tier produced it (`auth.redirectBaseUrl` → tunnel → localhost); reads `GET /api/auth/diagnostics` over loopback, falls back to the `server.log` resolved-base line. Covers the register-with-the-provider trap + the zero-provider-boot `authActive:false` state. depends-on: install-topology. See change: config-override-oauth-redirect-base. |
 | `modules/apple-tools.md` | iMCP (Apple PIM) provisioning for the `apple-tools` plugin: platform gate, `MIN_MACOS` 15.3 floor, `imcp-server` discovery, two config writes. Verdict from the same write-suppressed checker as CLI `--check` + settings panel (`doctorProbe` → `runInstaller(env,{check:true})`). Non-macOS host inert, never a fault. depends-on: env-node. |
-| `modules/*.knowledge.hash` | Per-module stored knowledge-hash sidecar (9). Regenerate via `_lib/regenerate.ts --write`. |

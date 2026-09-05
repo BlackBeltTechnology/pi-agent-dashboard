@@ -1,0 +1,3 @@
+# 25-gateway-remote-join-perf.sh — index
+
+OPT-IN perf (test-plan #P2, #P3 → tasks 12.40, 12.41); not in `run-all.sh`. 20 runs each at 4 MB and 44 MB (the observed max across 3471 transcripts), streaming `transcript_chunk` immediately after `session_register`. Enforces the agreed 1 s register→usable p95 AND a calibrated 150 ms ceiling — the agreed budget alone is ~80× the observed value and would sleep through a regression; 150 ms was fixed by mutating `RemoteTranscriptStore.append` into a blocking ingest, which moves the metric to 315 ms. Connects over the local socket, so the network leg is NOT measured. `QA_PERF_RUNS` overrides the run count. See change: add-pi-gateway-transport-identity.
