@@ -62,7 +62,7 @@ repinned to dedicated files (`scripts/__tests__/fixed-tick-waits.test.mjs`,
 - [x] 7.1 L1 test: single source of truth — input: all `vitest.config.ts` under `packages/*` and `scripts/` · trigger: static scan for a `maxWorkers` literal other than `1` · observable: 0 configs restate the parallel target (test-plan #E15, see `scripts/__tests__/vitest-workers.test.mjs`)
 - [x] 7.2 L1 test: serial projects stay serial — input: the 7 serial configs · trigger: static scan · observable: each declares `maxWorkers: 1` and does not import the shared module (test-plan #E16, see `scripts/__tests__/vitest-workers.test.mjs`)
 - [x] 7.3 L1 test: no dependency edge added — input: every `vitest.config.ts` importing the module · trigger: static scan of import specifiers · observable: all imports are relative paths; no `package.json` references the module (test-plan #E17, see `scripts/__tests__/vitest-workers.test.mjs`)
-- [x] 7.4 L1 test: effective worker count unchanged — input: every project config resolved after adoption · trigger: single resolution pass · observable: parallel configs resolve to the shared target, serial configs to `1`, equal to the pre-change census from 1.3 (test-plan #P1, see `scripts/__tests__/vitest-workers.test.mjs`)
+- [x] 7.4 L1 test: effective worker count unchanged — input: every project config resolved after adoption · trigger: single resolution pass · observable: parallel configs resolve to the shared target, serial configs to `1`, equal to the pre-change census (recorded at 1.3 execution; the merge-base state is structurally pinned by E15/E16) (test-plan #P1, see `scripts/__tests__/vitest-workers.test.mjs`)
 
 ## 8. Verification
 
