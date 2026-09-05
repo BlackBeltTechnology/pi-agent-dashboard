@@ -1,0 +1,3 @@
+# 21-gateway-rendezvous.sh — index
+
+L2 (test-plan #X5, #X6 → tasks 12.44, 12.45). Owner + one attach instance under a THROWAWAY `$HOME` (the record, socket and instance id are all per-HOME, and this arm SIGKILLs the owner — never point it at a real home). X5 kills the owner outright, X6 stops it with SIGTERM; both require the survivor to promote within 60 s and the promoted socket to actually answer. Also asserts attach mode does NOT write the record (task 2.0c). Reads pids from `/api/health`, never `$!` — `pi-dashboard start` detaches. Proven fails-on-revert by disabling the promotion poll. See change: add-pi-gateway-transport-identity.

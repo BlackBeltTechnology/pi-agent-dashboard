@@ -1,0 +1,3 @@
+# 20-tunnel-readiness-perf.sh — index
+
+P1/P3/X12 — readiness tick p95 (<2s) + concurrent-tunnel soak. Verifies the response SHAPE before timing anything: the SPA catch-all answers unknown `/api` paths with 200 text/html in ~1ms, which would make every latency assertion pass against a server lacking the endpoint. Measures the WARM-cache steady state and says so: the server's in-process provider memo cannot be reset over HTTP, so cold-cache p95 is measured at the unit level instead (6.7, recorded in tasks.md). `PI_QA_WINDOW_MINUTES` samples over a real duration. Soak + X12 recycle arms need two REAL enrolled providers and skip LOUDLY (`PI_QA_TUNNEL_SOAK=1`). See change: add-zrok-custom-reserved-name.

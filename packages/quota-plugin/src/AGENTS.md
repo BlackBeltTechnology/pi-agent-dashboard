@@ -11,7 +11,6 @@ Files in this directory. One row per source file.
 | `types.ts` | Wire contract: `QuotaWindowDto` (label, usedPercent, resetsAt ISO, windowSeconds, optional currency), `ProviderQuota` (+`stale?` = retained from an earlier success because the latest refresh failed), `QuotaUnavailableReason`/`QuotaUnavailableDto`, `ApiQuotaResponse` (`providers` + optional `unavailable`), `QuotaPluginConfig` (`enabled` + `providers`; no `acknowledgedToS` — ToS is a printed warning, not a gate). No token fields — verified by test against real credentials. |
 | `i18n.ts` | i18n `catalog` (zh-CN + hu) merged under `plugin.quota.*`; English fallbacks passed inline at call sites via `useT`. |
 | `__tests__/widget.test.tsx` | `QuotaWidget` render tests: renders from `/api/quota` with `now` tick; NO percentage in the compact row; bar-fill severity colour; Anthropic rendered (no longer excluded); renders nothing when empty or on fetch failure. |
-
 | `__tests__/dialog.test.tsx` | `QuotaDialog` tests against the REAL client-utils `Dialog` primitive: `role=dialog`+`aria-modal`, pre-selection, selector switch (All / per-provider), Esc closes, plus the retained-snapshot badge (`stale:true` → `quota-stale-<id>` present and the figures still rendered; fresh → absent). |
 
 See change: publish-quota-plugin.

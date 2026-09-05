@@ -9,7 +9,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { type AckRecord, agentsChain, indexSource, loadConfig, parseRowPaths, type ResolvedConfig, readStaleness, stalenessVersionOnDisk, SqliteFtsStore, STALENESS_VERSION } from "@blackbelt-technology/pi-dashboard-kb";
+import { type AckRecord, agentsChain, indexSource, loadConfig, parseRowPaths, type ResolvedConfig, readStaleness, SqliteFtsStore, STALENESS_VERSION, stalenessVersionOnDisk } from "@blackbelt-technology/pi-dashboard-kb";
 
 /** Resolve a DOX row path relative to its AGENTS.md dir, with a project-root
  *  fallback (a nested AGENTS.md may document a file living at the root).
@@ -163,7 +163,7 @@ export function reindexNow(state: ReindexState, cwd: string): Promise<{ changed:
     const { store, cfg } = getKb(state, cwd);
     let changed = 0, chunks = 0;
     for (const s of cfg.resolvedSources) {
-      const st = await indexSource(store, { root: s.id, dir: s.dir }, { indexAgentsFiles: cfg.indexAgentsFiles, includeSourceMarkdown: cfg.includeSourceMarkdown, include: cfg.include, exclude: cfg.exclude, extensions: cfg.extensions });
+      const st = await indexSource(store, { root: s.id, dir: s.dir }, { indexAgentsFiles: cfg.indexAgentsFiles, includeSourceMarkdown: cfg.includeSourceMarkdown, include: cfg.include, exclude: cfg.exclude, extensions: cfg.extensions, respectGitignore: cfg.respectGitignore, cwd });
       changed += st.changed; chunks += st.chunks;
     }
     return { changed, chunks };

@@ -1,0 +1,3 @@
+# 26-gateway-promotion-soak.sh — index
+
+OPT-IN soak (test-plan #P5 → task 12.42); not in `run-all.sh`. Owner + 3 attach instances on one throwaway `$HOME` for 600 s (`QA_SOAK_SECONDS`), sampling the record every 10 s: no promotion, no `promotion re-check failed`, every instance alive. Ends by SIGKILLing the owner and REQUIRING a promotion — without that coda a build that never starts the poll passes trivially, and it is the arm's only teeth: forcing the health probe to report `dead` and forcing every lock to look stale both leave the record intact, because acquire-then-verify (2.0h) hands it back when the holder is alive. See change: add-pi-gateway-transport-identity.

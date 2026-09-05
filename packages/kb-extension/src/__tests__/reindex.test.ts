@@ -175,7 +175,7 @@ describe("DOX nudge Job 2: decideNudge + acknowledgeRows", () => {
   beforeAll(() => {
     dir = mkdtempSync(join(tmpdir(), "kb-doxext-"));
     mkdirSync(join(dir, "src"), { recursive: true });
-    writeFileSync(join(dir, "AGENTS.md"), "# DOX\n\n| `src/a.ts` |  |\n");
+    writeFileSync(join(dir, "AGENTS.md"), "# DOX\n\n| File | Purpose |\n|---|---|\n| `src/a.ts` |  |\n");
     writeFileSync(join(dir, "src", "a.ts"), "export const a = 1;\n");
     writeFileSync(join(dir, "src", "b.ts"), "export const b = 2;\n");
   });
@@ -220,7 +220,7 @@ describe("DOX nudge Job 2: decideNudge + acknowledgeRows", () => {
     try {
       mkdirSync(join(sub, "pkg", "src"), { recursive: true });
       // AGENTS.md lives in pkg/src with a BARE BASENAME row
-      writeFileSync(join(sub, "pkg", "src", "AGENTS.md"), "# DOX \u2014 pkg/src\n\n| `api.ts` |  |\n");
+      writeFileSync(join(sub, "pkg", "src", "AGENTS.md"), "# DOX \u2014 pkg/src\n\n| File | Purpose |\n|---|---|\n| `api.ts` |  |\n");
       writeFileSync(join(sub, "pkg", "src", "api.ts"), "export const api = 1;\n");
       // row exists (resolved dir-relative) → not "missing"
       expect(decideNudge(sub, join(sub, "pkg", "src", "api.ts"))).toBeNull();

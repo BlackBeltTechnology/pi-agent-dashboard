@@ -1,0 +1,3 @@
+# usePackageOperations.ts — index
+
+Subscriber over singleton `packageQueue`. Returns `operation`, `install`/`remove`/`update` (enqueue), `coreUpdate(name)` (enqueues `kind:"pi-core"` under source `pi-core:<scoped-npm-name>`; `name` is `PiCorePackage.name`, `scope:"global"` is a placeholder the endpoint ignores — change: unify-pi-core-into-package-queue), `move`/`moveStateFor`/`clearMove` (via `moveTracker`), `resetToNpm(source,{scope,cwd})` (POST `/reset-to-npm`, registers a `moveTracker` state kind:`"reset"` — change: reset-override-to-npm), `statusFor`/`messageFor`/`queueDepth`/`runningSource`/`isAnyRunning`. `clearOperation`/`handleMessage` are back-compat no-ops. Uses `useSyncExternalStore` with stable snapshot.

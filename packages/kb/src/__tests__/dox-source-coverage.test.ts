@@ -23,7 +23,10 @@ afterEach(() => {
   for (const d of tmps.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
-const DOX = (rows = "") => `# DOX\n\n| FILE | PURPOSE |\n|---|---|\n${rows}`;
+// Table-header shape (fix-dox-lint-blind-rows): rows are recognized by the
+// `| File | Purpose |` header, not by heading state — uppercase is rejected
+// by the case-sensitive grammar.
+const DOX = (rows = "") => `# DOX\n\n| File | Purpose |\n|---|---|\n${rows}`;
 const missingFor = (dir: string, extra: Record<string, unknown> = {}) =>
   doxLint({ cwd: dir, sourceFileRows: true, ...extra }).issues.filter((i) => i.kind === "missing").map((i) => i.path);
 

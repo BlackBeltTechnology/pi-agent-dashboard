@@ -1,0 +1,3 @@
+# useAsyncAction.ts — index
+
+`useAsyncAction(fn, opts) → { pending, error, run, bind }`. Wraps async action. Tracks idle→pending→success\|error. `bind` spreads `onClick`+`disabled`. Guards concurrent runs via pendingRef. Routes failure to `opts.showToast` (error variant), success to `opts.onSuccess`+`opts.successToast`. `confirm:"http"` (default) ends pending when fn settles. `confirm:"ws"` registers WS handler on run() via `opts.onMessage` before fn fires, holds pending until `opts.confirmEvent(msg, result)` matches echoed requestId, clears on match; `opts.confirmTimeoutMs` (default 15000) fallback emits info "Still working in the background…" toast, never stuck-spins. Generalizes WorktreeInitButton FSM. See change: add-async-action-feedback.

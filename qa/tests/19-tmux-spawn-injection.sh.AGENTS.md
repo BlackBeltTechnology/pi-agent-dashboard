@@ -1,0 +1,3 @@
+# 19-tmux-spawn-injection.sh — index
+
+L2 harness (test-plan #X1-#X3, #X6). Creates workspace directories whose NAMES embed `$(…)`, backticks, quotes/semicolons/spaces with a sentinel-writing payload, spawns real tmux sessions into them, and asserts the sentinel does NOT exist, the session was created for the literal name, and the pane cwd is the literal directory. #X6 asserts the pane command references a resolved install rather than a bare PATH `pi`. Skips (exit 0) when tmux is absent. The invariant: `buildTmuxCommand` returns argv and `spawnTmux` invokes it WITHOUT a dashboard-side shell — before the conversion these directory names executed their payload. See change: select-pi-runtime-install / fix-tmux-cwd-command-injection.

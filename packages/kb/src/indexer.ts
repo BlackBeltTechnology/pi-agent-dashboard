@@ -4,7 +4,8 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { chunkMarkdown } from "./chunker.js";
-import { DEFAULT_FACET_KEYS, DEFAULT_SEARCHABLE_KEYS, type FacetKeyConfig, buildMeta, buildProperties } from "./frontmatter.js";
+import { buildMeta, buildProperties, DEFAULT_FACET_KEYS, DEFAULT_SEARCHABLE_KEYS, type FacetKeyConfig } from "./frontmatter.js";
+import { type GitignoreMatcher, loadGitignoreMatcher } from "./gitignore.js";
 import type { DocType, KbStore } from "./types.js";
 
 export interface IndexSource {
@@ -20,6 +21,13 @@ export interface IndexOptions {
   exclude?: string[]; // glob patterns to exclude
   extensions?: string[]; // e.g. [".md"]
   frontmatter?: { searchableKeys: string[]; facetKeys: FacetKeyConfig[] }; // structural indexing routing
+  /** Honour `.gitignore` in the walk (design D3, fix-dox-lint-blind-rows).
+   *  Default true — makes the long-declared `respectGitignore` config real.
+   *  A source dir absent from a fresh clone must not be indexed. */
+  respectGitignore?: boolean;
+  /** Project boundary for the gitignore up-walk (usually the resolved cwd).
+   *  Omit to seed the pattern stack from the `.git` root discovered upward. */
+  cwd?: string;
 }
 export interface IndexStats {
   scanned: number;
@@ -57,13 +65,17 @@ function matchAny(pats: RegExp[], rel: string): boolean {
   return pats.some((re) => re.test(rel));
 }
 
-function walk(dir: string, base: string, out: string[] = []): string[] {
+function walk(dir: string, base: string, out: string[] = [], ignore?: GitignoreMatcher): string[] {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     const abs = join(dir, e.name);
     const rel = relative(base, abs);
     if (DEFAULT_EXCLUDE.test(rel)) continue;
-    if (e.isDirectory()) walk(abs, base, out);
-    else if (/\.(md|mdx|markdown)$/i.test(e.name)) out.push(abs);
+    if (e.isDirectory()) {
+      // Conservative dir-pruning (design D3): descend unless the dir matches
+      // AND no deeper .gitignore could negate the match.
+      if (ignore?.isIgnoredDir(rel) && !ignore.hasDeeperGitignore(rel)) continue;
+      walk(abs, base, out, ignore);
+    } else if (/\.(md|mdx|markdown)$/i.test(e.name) && !ignore?.isIgnored(rel)) out.push(abs);
   }
   return out;
 }
@@ -90,7 +102,8 @@ export async function indexSource(store: KbStore, src: IndexSource, opts: IndexO
   const inc = opts.include?.map(globToRe);
   const exc = opts.exclude?.map(globToRe);
   const includeSourceMd = opts.includeSourceMarkdown !== false;
-  const files = walk(src.dir, src.dir).filter((abs) => {
+  const gi = opts.respectGitignore === false ? undefined : loadGitignoreMatcher(src.dir, { cwd: opts.cwd, prune: (rel) => DEFAULT_EXCLUDE.test(rel) });
+  const files = walk(src.dir, src.dir, [], gi).filter((abs) => {
     const rel = relative(src.dir, abs);
     if (src.include && !src.include(rel)) return false;
     if (inc && !matchAny(inc, rel)) return false;
