@@ -53,7 +53,7 @@ None. Both defects are gaps in shipped requirements.
 ### Modified Capabilities
 
 - ~~`skill-frontmatter-validity`~~ — REMOVED by scope amendment (defect A already fixed upstream).
-- `parallel-test-execution`: the existing prohibition on fixed-tick waits SHALL be machine-enforced by a guard test and the client suite SHALL be brought into compliance; the worker setting SHALL be defined once rather than duplicated per package.
+- `parallel-test-execution`: the existing prohibition on fixed-tick waits SHALL be machine-enforced by a guard test and the client suite SHALL be brought into compliance; the worker setting SHALL be defined once rather than duplicated per package (every config DECLARING a worker setting either imports the module or declares `1`; `dashboard-plugin-skill`, which declares none, is exempt — see design D3/E15).
 
 ## Impact
 
