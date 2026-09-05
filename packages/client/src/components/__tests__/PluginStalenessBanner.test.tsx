@@ -3,7 +3,7 @@
  * (Group 6).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { render, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
 import React from "react";
 import { PluginStalenessBanner } from "../packages/PluginStalenessBanner.js";
 import { PLUGIN_REGISTRY_HASH } from "../../generated/plugin-registry.js";
@@ -79,15 +79,16 @@ describe("PluginStalenessBanner", () => {
     sessionStorage.setItem("pi-plugin-staleness-dismissed", "1");
     mockFetch({ bundleHash: "ffeeddccbbaa00112233445566778899" });
     const { container } = render(<PluginStalenessBanner />);
-    // Give the fetch a chance to settle even though the banner is gated by sessionStorage
-    await new Promise((r) => setTimeout(r, 5));
+    // Give the mocked fetch chain a microtask flush to settle even though the
+    // banner is gated by sessionStorage.
+    await act(async () => {});
     expect(container.querySelector("[data-testid='plugin-staleness-banner']")).toBeNull();
   });
 
   it("renders nothing when /api/health response is malformed", async () => {
     mockFetch({});
     const { container } = render(<PluginStalenessBanner />);
-    await new Promise((r) => setTimeout(r, 5));
+    await act(async () => {});
     expect(container.querySelector("[data-testid='plugin-staleness-banner']")).toBeNull();
   });
 });

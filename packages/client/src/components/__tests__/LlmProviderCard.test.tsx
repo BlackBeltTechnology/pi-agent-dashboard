@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, act } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LlmProviderCard } from "../settings/SettingsPanel.js";
@@ -139,8 +139,8 @@ describe("LlmProviderCard Test button", () => {
   it("does not call testProvider when disabled", async () => {
     renderCard({ baseUrl: "" });
     fireEvent.click(screen.getByTestId("test-provider-button"));
-    // Give any microtask a chance
-    await new Promise((r) => setTimeout(r, 5));
+    // Flush microtasks so a (buggy) async call path would have surfaced.
+    await act(async () => {});
     expect(mockTestProvider).not.toHaveBeenCalled();
   });
 });

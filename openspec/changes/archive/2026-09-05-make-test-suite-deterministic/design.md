@@ -39,6 +39,12 @@ The directory is **not** produced by a current build step. `packages/electron/fo
 
 ### D1 — Exclude generated trees by git-ignore status, layered over the basename prune
 
+> **DROPPED by scope amendment (2026-08-01).** The defect D1 addressed was already
+> fixed on `develop` by `71ea6e593` (tracked-file filter in `analyzeRepository`),
+> landed while this change sat in planning. Residual hardening idea (the landed
+> fix's no-git degraded mode judges all files, unlike D1's prune-only fallback)
+> is a follow-up, not a defect. Full evidence: `SHIP_IT_BLOCKED.md`.
+
 `collectSkillManifests()` keeps its existing `SKIP_DIRS` prune during the walk, then filters the collected candidate list through a single batched `git check-ignore --stdin` call. Git-ignore is an **additional** exclusion layer, not a replacement.
 
 *Why layered, not replacing:* the spec's intent is "don't scan things that aren't source", and git already owns that answer. But making git the *only* layer has two failure modes the first draft of this design missed:
@@ -88,6 +94,40 @@ It was also aimed at the symptom. Once the 11 tests poll instead of guessing tic
 ### D4 — Verify by repetition where the spec demands it
 
 The `parallel-test-execution` delta inherits the shipped **3 consecutive green runs** gate; a single pass proves nothing about a rotating failure. Defect A is deterministic and needs only a single verification, which the frontmatter delta reflects — it carries no repetition gate.
+
+## Implementation-phase findings (2026-09-01)
+
+- **P2 (3-consecutive-run gate) — environment-limited, 2026-09-01.** Eight full
+  runs on the loaded dev box produced a DIFFERENT single rotating casualty per
+  run: `auth-redirect-base` P1 (100ms wall-clock perf budget), `keeper` E5
+  (one-shot post-rotation read — baseline casualty, fixed by this change
+  mid-verification, green in every run since), `cli-signal-forwarding`
+  (SIGTERM real-process timing), `FileLink.split` (waitFor 5s budget starved
+  at extreme load). Zero
+  failures ever in this change's own scope. The class — real-process,
+  wall-clock-budgeted server tests + extreme-load starvation — is pre-existing
+  and owned by the follow-up change `contention-harden-real-process-tests`.
+  CI (controlled load) is the authoritative gate per the proposal's baseline.
+- **Follow-up noted (review, non-blocking):** the 8 stable-negative conversions
+  use `await act(async () => {})` (microtask flush) where the old code waited a
+  real timer. For "never called / never rendered" assertions a regression that
+  defers the forbidden action to a macrotask would evade the flush window;
+  `vi.useFakeTimers()` + `advanceTimersByTime` is the stronger form. The tested
+  decisions are synchronous (verified per site), ids are census-pinned, and the
+  reviewer classified this non-blocking — deferred as a follow-up, not shipped
+  as a weakening.
+- **Worktree-without-install mimics the defect.** A `.worktrees/` checkout with no
+  root `node_modules` resolves `vitest` and every dep from the PARENT checkout —
+  failures appear (pi-version-skew X13, verify-published-imports X3, kb eval-guard,
+  browse-endpoint) that are install artifacts, not suite defects. Run `pnpm install`
+  in the worktree before drawing conclusions. Recorded in docs/faq.md.
+- **Baseline on the installed tree:** run 1 failed `auth-redirect-base` P1 (100ms
+  wall-clock perf budget under 8 forks); run 2 failed `keeper` E5 (interval-timer
+  rotation) — the failing set still rotates, and both are timing-sensitive tests
+  outside this change's fixed-tick scope.
+- Defect A's upstream fix (`71ea6e593`) also covers proposal-era falsified
+  hypotheses: pi lockfile skew and macOS realpath divergence were ruled out during
+  planning; see proposal.md.
 
 ## Risks / Trade-offs
 

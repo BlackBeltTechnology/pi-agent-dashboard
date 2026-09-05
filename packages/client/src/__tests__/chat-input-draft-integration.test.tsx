@@ -14,7 +14,7 @@
  */
 import React, { useState, useEffect, useRef } from "react";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { render, fireEvent, act, cleanup } from "@testing-library/react";
+import { render, fireEvent, act, cleanup, waitFor } from "@testing-library/react";
 import { CommandInput } from "../components/chat/CommandInput.js";
 import {
   readAllDrafts,
@@ -90,12 +90,6 @@ function getTextarea(container: HTMLElement): HTMLTextAreaElement | null {
   return container.querySelector("textarea");
 }
 
-async function flushTimers(ms = 10) {
-  await act(async () => {
-    await new Promise((r) => setTimeout(r, ms));
-  });
-}
-
 describe("chat-input draft integration", () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -153,8 +147,11 @@ describe("chat-input draft integration", () => {
     const { container } = render(<Harness initialSessionId="persisting" debounceMs={0} />);
     const textarea = getTextarea(container)!;
     fireEvent.change(textarea, { target: { value: "please save me" } });
-    // Allow the debounced effect to flush.
-    await flushTimers(20);
+    // Poll the observable — the debounced effect (0ms here) lands whenever the
+    // scheduler gets to it; never a fixed tick count.
+    await waitFor(() =>
+      expect(window.localStorage.getItem(DRAFT_KEY_PREFIX + "persisting")).toBe("please save me"),
+    );
     expect(window.localStorage.getItem(DRAFT_KEY_PREFIX + "persisting")).toBe("please save me");
   });
 
@@ -164,7 +161,7 @@ describe("chat-input draft integration", () => {
     const textarea = getTextarea(container)!;
     expect(textarea.value).toBe("to be cleared");
     fireEvent.change(textarea, { target: { value: "" } });
-    await flushTimers(20);
+    await waitFor(() => expect(window.localStorage.getItem(DRAFT_KEY_PREFIX + "xyz")).toBeNull());
     expect(window.localStorage.getItem(DRAFT_KEY_PREFIX + "xyz")).toBeNull();
   });
 });

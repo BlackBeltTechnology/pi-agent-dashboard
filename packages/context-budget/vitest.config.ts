@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
+import { PARALLEL_MAX_WORKERS } from "../../vitest.workers";
 
 export default defineConfig({
   test: {
@@ -7,6 +8,6 @@ export default defineConfig({
     pool: "forks",
     // Must match the default-group peers: the root runner refuses to group two
     // projects that disagree on maxWorkers under the same sequence.groupOrder.
-    maxWorkers: "50%",
+    maxWorkers: PARALLEL_MAX_WORKERS,
   },
 });

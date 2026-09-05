@@ -42,8 +42,9 @@ describe("ServerSelector", () => {
         onSwitch={() => {}}
       />,
     );
-    // Give the component + knownServers async load a tick.
-    await new Promise((r) => setTimeout(r, 50));
+    // Give the component + knownServers async load a flush; then assert the
+    // stable absence of any health probe.
+    await act(async () => {});
     const healthCalls = fetchMock.mock.calls
       .map((c) => c[0] as string)
       .filter((u) => u.includes("/api/health"));
@@ -70,8 +71,8 @@ describe("ServerSelector", () => {
     ).length;
     // Close dropdown
     act(() => btn.click());
-    // Wait a beat — nothing should probe
-    await new Promise((r) => setTimeout(r, 50));
+    // Flush microtasks — nothing should probe after the close.
+    await act(async () => {});
     const countAfterClose = fetchMock.mock.calls.filter((c) =>
       String(c[0]).includes("/api/health"),
     ).length;
@@ -139,9 +140,7 @@ describe("ServerSelector", () => {
     );
     // Let the mount-time known-servers load flush so the LAN entry exists
     // BEFORE opening (the probe effect runs once on open, over current entries).
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 30));
-    });
+    await act(async () => {});
     const btn = screen.getByTitle("Switch server");
     act(() => btn.click());
     await waitFor(() => {

@@ -1,12 +1,13 @@
 import { defineConfig } from "vitest/config";
 import path from "node:path";
+import { PARALLEL_MAX_WORKERS } from "../../vitest.workers";
 
 export default defineConfig({
   test: {
     include: ["src/**/__tests__/**/*.test.{ts,tsx}"],
     environment: "jsdom",
     pool: "forks",
-    maxWorkers: "50%",
+    maxWorkers: PARALLEL_MAX_WORKERS,
     // Headroom for `waitFor`-based assertions (asyncUtilTimeout raised to 5s in
     // the setup) so a slow-under-contention poll finishes inside the test
     // budget instead of tripping the 5s default. A genuine hang still fails at

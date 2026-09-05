@@ -1,12 +1,13 @@
 import { defineConfig } from "vitest/config";
 import path from "node:path";
+import { PARALLEL_MAX_WORKERS } from "../../vitest.workers";
 
 export default defineConfig({
   test: {
     include: ["src/**/__tests__/**/*.test.ts"],
     environment: "node",
     pool: "forks",
-    maxWorkers: "50%",
+    maxWorkers: PARALLEL_MAX_WORKERS,
     // Many server tests boot a full server (via `vi.resetModules()` + a fresh
     // `import("../server.js")`), spawn git worktree operations, or probe
     // subprocess state — legitimately slow work. `pool: "forks"` gives each

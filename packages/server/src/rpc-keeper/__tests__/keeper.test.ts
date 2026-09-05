@@ -847,9 +847,14 @@ describe.skipIf(process.platform === "win32")("keeper-log rotation (real keeper)
     expect(size).toBeLessThan(2 * 65_536);
     // The writer emits only 'a' bytes (no newlines). Any keeper-originated
     // line after the child's first byte would introduce a timestamp bracket.
+    // After the rotation the fresh log holds nothing until the writer's next
+    // chunk lands — a one-shot read raced that gap under fork contention
+    // (`indexOf("a") === -1`), so poll (bounded) for the child to re-populate
+    // the post-rotation file, THEN assert purity.
+    // See change: make-test-suite-deterministic.
+    await waitFor(() => readFileSync(keeperLogIn(home, sessionId), "utf8").includes("a"), 30_000);
     const content = readFileSync(keeperLogIn(home, sessionId), "utf8");
     const firstChildByte = content.indexOf("a");
-    expect(firstChildByte).toBeGreaterThanOrEqual(0);
     expect(content.slice(firstChildByte)).toMatch(/^a+$/); // pure child bytes, no keeper lines
     await killAndAwait(k);
   }, 90_000);

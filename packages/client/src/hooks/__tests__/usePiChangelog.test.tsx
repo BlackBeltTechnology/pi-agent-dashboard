@@ -112,8 +112,8 @@ describe("usePiChangelog", () => {
       );
       await Promise.resolve();
     });
-    // Settle event-loop and confirm no extra fetch.
-    await new Promise((r) => setTimeout(r, 10));
+    // Flush microtasks and confirm no extra fetch.
+    await act(async () => {});
     expect(fetchMock.mock.calls.length).toBe(initialCalls);
   });
 
