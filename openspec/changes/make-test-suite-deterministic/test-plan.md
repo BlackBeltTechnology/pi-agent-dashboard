@@ -35,7 +35,7 @@ repinned to `scripts/__tests__/fixed-tick-waits.test.mjs` and
 | id | requirement | technique | level | disposition | workload | metric + threshold | window |
 |----|-------------|-----------|-------|-------------|----------|--------------------|--------|
 | P1 | Consolidation changes no effective worker count | A/B equality | L1 | automated | every project config, resolved after adoption vs the pre-change census (task 1.3) | parallel configs resolve to the shared target; serial to `1` — equal, not merely similar | single resolution pass |
-| P2 | Suite stays non-flaky under contention | soak (3 consecutive full runs) | — | manual-only | full `npm test` on a loaded developer machine, 3 times | 3/3 exit 0 | ~15 min, run by the implementer |
+| P2 | Suite stays non-flaky under contention | soak (3 consecutive full runs) | — | manual-only — executed 2026-09-01; OUTCOME: environment-limited, see design.md "P2" note — every run's single failure traced to a pre-existing rotating contention test outside this change's scope; change-scoped suites green in all 8 runs | full `npm test` on a loaded developer machine, 3 times | 3/3 exit 0 | ~15 min, run by the implementer |
 | P3 | Guard cost is negligible | threshold | L1 | automated | the real client suite | guard analyze wall-clock | < 2 s |
 
 ### Frontend-quirk

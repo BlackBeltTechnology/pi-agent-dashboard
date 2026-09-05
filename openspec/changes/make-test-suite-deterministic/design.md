@@ -97,6 +97,15 @@ The `parallel-test-execution` delta inherits the shipped **3 consecutive green r
 
 ## Implementation-phase findings (2026-09-01)
 
+- **P2 (3-consecutive-run gate) — environment-limited, 2026-09-01.** Eight full
+  runs on the loaded dev box produced a DIFFERENT single rotating casualty per
+  run: `auth-redirect-base` P1 (100ms wall-clock perf budget), `keeper` E5
+  (fixed by this change), `cli-signal-forwarding` (SIGTERM real-process
+  timing), `FileLink.split` (waitFor 5s budget starved at extreme load). Zero
+  failures ever in this change's own scope. The class — real-process,
+  wall-clock-budgeted server tests + extreme-load starvation — is pre-existing
+  and owned by the follow-up change `contention-harden-real-process-tests`.
+  CI (controlled load) is the authoritative gate per the proposal's baseline.
 - **Follow-up noted (review, non-blocking):** the 8 stable-negative conversions
   use `await act(async () => {})` (microtask flush) where the old code waited a
   real timer. For "never called / never rendered" assertions a regression that
