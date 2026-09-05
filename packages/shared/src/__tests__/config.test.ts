@@ -32,6 +32,20 @@ describe("loadConfig", () => {
     expect(config.shutdownIdleSeconds).toBe(300);
   });
 
+  // add-configurable-readiness-timeout: defaults to the historical 10 s
+  // window; a positive number round-trips, anything else falls back.
+  it("readinessTimeoutMs defaults to 10000; valid values round-trip; invalid → default", () => {
+    expect(loadConfig().readinessTimeoutMs).toBe(10_000);
+    fs.writeFileSync(configFile, JSON.stringify({ readinessTimeoutMs: 60_000 }));
+    expect(loadConfig().readinessTimeoutMs).toBe(60_000);
+    fs.writeFileSync(configFile, JSON.stringify({ readinessTimeoutMs: 0 }));
+    expect(loadConfig().readinessTimeoutMs).toBe(10_000);
+    fs.writeFileSync(configFile, JSON.stringify({ readinessTimeoutMs: -1 }));
+    expect(loadConfig().readinessTimeoutMs).toBe(10_000);
+    fs.writeFileSync(configFile, JSON.stringify({ readinessTimeoutMs: "fast" }));
+    expect(loadConfig().readinessTimeoutMs).toBe(10_000);
+  });
+
   it("reopenSessionsAfterShutdown defaults to ask and round-trips valid values; invalid → ask", () => {
     expect(loadConfig().reopenSessionsAfterShutdown).toBe("ask");
     fs.writeFileSync(configFile, JSON.stringify({ reopenSessionsAfterShutdown: "auto" }));

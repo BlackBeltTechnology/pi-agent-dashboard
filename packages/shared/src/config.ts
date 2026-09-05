@@ -344,6 +344,17 @@ export interface DashboardConfig {
   autoShutdown: boolean;
   shutdownIdleSeconds: number;
   /**
+   * Cold-start readiness budget (ms) the bridge's auto-spawn allows before
+   * giving up its health poll and reporting "readiness timeout". The spawned
+   * server keeps booting regardless — the timeout only controls how long the
+   * bridge waits before surfacing a warning, so a value below the real cold
+   * start produces a spurious error next to a healthy server. Slow hosts
+   * (large session histories make the startup scan the dominant cost) can
+   * raise this; there is no upper clamp. Must be a positive number.
+   * See change: add-configurable-readiness-timeout.
+   */
+  readinessTimeoutMs: number;
+  /**
    * Coalescing window (ms) the bridge applies to subagent `Agent` ticks on the
    * `tool_execution_update` carrier. `0` disables the throttle entirely and is
    * the byte-identical rollback path. Only Agent updates carrying a
@@ -728,6 +739,9 @@ const DEFAULTS: DashboardConfig = {
   autoStart: true,
   autoShutdown: false,
   shutdownIdleSeconds: 300,
+  // Historical hardcoded value of the bridge cold-start health window.
+  // See change: add-configurable-readiness-timeout.
+  readinessTimeoutMs: 10_000,
   // Rollout default `0` (off). Flipped to 500 once the throttle's suites are
   // green. See change: reduce-bridge-tick-bandwidth (D4, task 6.1).
   subagentTickThrottleMs: 0,
@@ -1262,6 +1276,12 @@ export function loadConfig(): DashboardConfig {
       autoStart: parsed.autoStart ?? defaults.autoStart,
       autoShutdown: parsed.autoShutdown ?? defaults.autoShutdown,
       shutdownIdleSeconds: parsed.shutdownIdleSeconds ?? defaults.shutdownIdleSeconds,
+      readinessTimeoutMs:
+        typeof parsed.readinessTimeoutMs === "number" &&
+        Number.isFinite(parsed.readinessTimeoutMs) &&
+        parsed.readinessTimeoutMs > 0
+          ? parsed.readinessTimeoutMs
+          : defaults.readinessTimeoutMs,
       subagentTickThrottleMs:
         typeof parsed.subagentTickThrottleMs === "number" &&
         Number.isFinite(parsed.subagentTickThrottleMs) &&
@@ -1360,6 +1380,7 @@ export function ensureConfig(): void {
     autoStart: DEFAULTS.autoStart,
     autoShutdown: DEFAULTS.autoShutdown,
     shutdownIdleSeconds: DEFAULTS.shutdownIdleSeconds,
+    readinessTimeoutMs: DEFAULTS.readinessTimeoutMs,
     subagentTickThrottleMs: DEFAULTS.subagentTickThrottleMs,
     spawnStrategy: DEFAULTS.spawnStrategy,
     tunnel: DEFAULTS.tunnel,
