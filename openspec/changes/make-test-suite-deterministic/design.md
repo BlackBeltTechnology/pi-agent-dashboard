@@ -100,8 +100,10 @@ The `parallel-test-execution` delta inherits the shipped **3 consecutive green r
 - **P2 (3-consecutive-run gate) — environment-limited, 2026-09-01.** Eight full
   runs on the loaded dev box produced a DIFFERENT single rotating casualty per
   run: `auth-redirect-base` P1 (100ms wall-clock perf budget), `keeper` E5
-  (fixed by this change), `cli-signal-forwarding` (SIGTERM real-process
-  timing), `FileLink.split` (waitFor 5s budget starved at extreme load). Zero
+  (one-shot post-rotation read — baseline casualty, fixed by this change
+  mid-verification, green in every run since), `cli-signal-forwarding`
+  (SIGTERM real-process timing), `FileLink.split` (waitFor 5s budget starved
+  at extreme load). Zero
   failures ever in this change's own scope. The class — real-process,
   wall-clock-budgeted server tests + extreme-load starvation — is pre-existing
   and owned by the follow-up change `contention-harden-real-process-tests`.

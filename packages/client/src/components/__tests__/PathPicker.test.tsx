@@ -303,10 +303,12 @@ describe("PathPicker", () => {
     renderPicker();
     await waitFor(() => expect(screen.getByText("Desktop")).toBeTruthy());
     fireEvent.change(getInput(), { target: { value: "/Users/robson/Desktop" } });
-    // The debounced refetch must land before Enter — poll on the fetch,
-    // not on a fixed tick count.
+    // The debounced refetch must land before Enter — poll on the fetch, then
+    // flush its RESOLVED result into component state (a resolved mock alone
+    // does not prove the entries re-rendered).
     const callsBeforeEnter = mockBrowse.mock.calls.length;
     await waitFor(() => expect(mockBrowse.mock.calls.length).toBeGreaterThan(callsBeforeEnter));
+    await act(async () => {});
     fireEvent.keyDown(getInput(), { key: "Enter" });
     await waitFor(() =>
       expect(onSelect).toHaveBeenCalledWith("/Users/robson/Desktop"),
@@ -549,9 +551,11 @@ describe("PathPicker", () => {
 
     // homeEntries still mocked; partial 'Desktop' matches exactly → no Create row
     fireEvent.change(getInput(), { target: { value: "/Users/robson/Desktop" } });
-    // The debounced refetch must land before asserting the row state.
+    // The debounced refetch must land and its result must be rendered before
+    // asserting the row state (flush the resolved mock into state).
     const callsBeforeRow = mockBrowse.mock.calls.length;
     await waitFor(() => expect(mockBrowse.mock.calls.length).toBeGreaterThan(callsBeforeRow));
+    await act(async () => {});
 
     expect(screen.queryByText(/Create ".*" here/)).toBeNull();
   });

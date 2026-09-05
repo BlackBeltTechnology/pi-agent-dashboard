@@ -8,7 +8,7 @@ amendment (full evidence: `SHIP_IT_BLOCKED.md`). Remaining scope: defect B
 (fixed-tick barriers + guard, groups 3–6 below) and the maxWorkers consolidation
 (groups 7–8 below). Folded-test pointers for the new automated suites were
 repinned to dedicated files (`scripts/__tests__/fixed-tick-waits.test.mjs`,
-`scripts/__tests__/vitest-workers.test.ts`) instead of overloading
+`scripts/__tests__/vitest-workers.test.mjs`) instead of overloading
 `skill-frontmatter.test.mjs`.
 
 ## 1. Baseline capture
@@ -59,10 +59,10 @@ repinned to dedicated files (`scripts/__tests__/fixed-tick-waits.test.mjs`,
 
 ## 7. maxWorkers — folded test scenarios
 
-- [x] 7.1 L1 test: single source of truth — input: all `vitest.config.ts` under `packages/*` and `scripts/` · trigger: static scan for a `maxWorkers` literal other than `1` · observable: 0 configs restate the parallel target (test-plan #E15, see `scripts/__tests__/vitest-workers.test.ts`)
-- [x] 7.2 L1 test: serial projects stay serial — input: the 7 serial configs · trigger: static scan · observable: each declares `maxWorkers: 1` and does not import the shared module (test-plan #E16, see `scripts/__tests__/vitest-workers.test.ts`)
-- [x] 7.3 L1 test: no dependency edge added — input: every `vitest.config.ts` importing the module · trigger: static scan of import specifiers · observable: all imports are relative paths; no `package.json` references the module (test-plan #E17, see `scripts/__tests__/vitest-workers.test.ts`)
-- [x] 7.4 L1 test: effective worker count unchanged — input: every project config resolved after adoption · trigger: single resolution pass · observable: parallel configs resolve to the shared target, serial configs to `1`, equal to the pre-change census from 1.3 (test-plan #P1, see `scripts/__tests__/vitest-workers.test.ts`)
+- [x] 7.1 L1 test: single source of truth — input: all `vitest.config.ts` under `packages/*` and `scripts/` · trigger: static scan for a `maxWorkers` literal other than `1` · observable: 0 configs restate the parallel target (test-plan #E15, see `scripts/__tests__/vitest-workers.test.mjs`)
+- [x] 7.2 L1 test: serial projects stay serial — input: the 7 serial configs · trigger: static scan · observable: each declares `maxWorkers: 1` and does not import the shared module (test-plan #E16, see `scripts/__tests__/vitest-workers.test.mjs`)
+- [x] 7.3 L1 test: no dependency edge added — input: every `vitest.config.ts` importing the module · trigger: static scan of import specifiers · observable: all imports are relative paths; no `package.json` references the module (test-plan #E17, see `scripts/__tests__/vitest-workers.test.mjs`)
+- [x] 7.4 L1 test: effective worker count unchanged — input: every project config resolved after adoption · trigger: single resolution pass · observable: parallel configs resolve to the shared target, serial configs to `1`, equal to the pre-change census from 1.3 (test-plan #P1, see `scripts/__tests__/vitest-workers.test.mjs`)
 
 ## 8. Verification
 
@@ -75,5 +75,5 @@ repinned to dedicated files (`scripts/__tests__/fixed-tick-waits.test.mjs`,
 ## 9. Documentation
 
 - [ ] 9.1 Add a `docs/faq.md` entry via DocScribe (caveman style): "npm test red locally, green in CI" — rotating failure set, contention, fixed-tick barriers now guarded, confirm with `--maxWorkers=2`
-- [ ] 9.2 Update directory `AGENTS.md` rows for `scripts/check-fixed-tick-waits.mjs`, `scripts/__tests__/fixed-tick-waits.test.mjs`, the repo-root worker module, and `scripts/__tests__/vitest-workers.test.ts`, each with `See change: make-test-suite-deterministic`
+- [x] 9.2 Update directory `AGENTS.md` rows for `scripts/check-fixed-tick-waits.mjs`, `scripts/__tests__/fixed-tick-waits.test.mjs`, the repo-root worker module, and `scripts/__tests__/vitest-workers.test.mjs`, each with `See change: make-test-suite-deterministic`
 - [ ] 9.3 Record in the change notes: pi lockfile skew and macOS realpath divergence ruled out (proposal-era); worktree-without-install runs against the parent checkout's `node_modules` and mimics rotation (this phase)

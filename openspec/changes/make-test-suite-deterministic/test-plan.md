@@ -11,7 +11,7 @@ and the fixed-tick guard ships as **script + CI step + vitest wrapper**, mirrori
 were REMOVED: the defect was already fixed by `71ea6e593` before implementation
 started (evidence: `SHIP_IT_BLOCKED.md`). Folded-test pointers for new suites were
 repinned to `scripts/__tests__/fixed-tick-waits.test.mjs` and
-`scripts/__tests__/vitest-workers.test.ts`.
+`scripts/__tests__/vitest-workers.test.mjs`.
 
 ---
 
@@ -26,7 +26,7 @@ repinned to `scripts/__tests__/fixed-tick-waits.test.mjs` and
 | E12 | File-level opt-out does not waive later violations | BVA (2nd occurrence) | L1 | automated | fixture with one annotated occurrence AND one un-annotated barrier later in the same file | the guard's analyze fn | returns exactly 1 violation, naming the un-annotated line only |
 | E13 | Client suite compliant when guard lands | census | L1 | automated | the real `packages/client/src` tree at merge commit | the guard's analyze fn over the client suite | returns 0 violations |
 | E14 | Guard hard-fails, not warns | exit-code | ci | automated | a fixture tree containing one un-annotated barrier | `node scripts/check-fixed-tick-waits.mjs <fixture>` | exit code non-zero and the file is named on stderr |
-| E15 | Worker target single source of truth | census | L1 | automated | all `vitest.config.ts` under `packages/*` + `scripts/` | static scan for a `maxWorkers` literal other than `1` | 0 configs restate the parallel target as a literal |
+| E15 | Worker target single source of truth | census | L1 | automated | all `vitest.config.ts` under `packages/*` + `scripts/` | static scan for a `maxWorkers` literal other than `1` | 0 configs restate the parallel target as a literal; every config that DECLARES a worker setting either imports the shared module (parallel) or declares `1` (serial). Exception, documented: `dashboard-plugin-skill` declares none — vitest's unset default is `numCpus-1`, so adopting would CHANGE its effective count, violating the no-value-change mandate (D3) |
 | E16 | Deliberately serial projects stay serial | decision-table (7 rows) | L1 | automated | the 7 serial configs — `electron`, `image-fit-extension`, `kb-extension`, `mockup-loop`, `nano-banana`, `video-production`, `video-transcription` | static scan | each declares `maxWorkers: 1` explicitly AND does not import the shared worker module |
 | E17 | Adopting the module adds no dependency edge | invariant | L1 | automated | every `vitest.config.ts` importing the worker module | static scan of import specifiers + `package.json` references | all imports are relative; no `package.json` references the module; no new workspace edge |
 
@@ -43,7 +43,7 @@ repinned to `scripts/__tests__/fixed-tick-waits.test.mjs` and
 | id | requirement | technique | level | disposition | input | trigger | expected observable (invariant) |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------------------|
 | F1 | FileReader paste assertions poll | state-convergence | L1 | automated | paste event carrying 2 `image/png` blobs | `handlePaste` under an artificially delayed `FileReader` (decode resolved on a later macrotask than the old 2-tick barrier) | `pendingImages` converges to length 2 via `waitFor`; no dependence on tick count |
-| F2 | Converted tests preserve behaviour | A/B equivalence | L1 | automated | each of the 10 converted files | test-id census at merge-base vs converted | same test ids, same count; no assertion added or removed |
+| F2 | Converted tests preserve test identity | A/B equivalence | L1 | automated | each of the 10 converted files | test-id + test-count census at merge-base vs converted | same test ids, same count (assertion/test-body preservation is verified separately by diff review under the no-weakening guard, not by this census) |
 | F3 | Mock-internal yield is preserved | state-transition (illegal edge) | L1 | automated | `PairLanding.test.tsx` with its `postJson` mock yield intact | the pairing poll → approved transition | phase converges `polling → done`, confirm-code render committed; the awaited timer + its opt-out annotation are still present in the file |
 | F4 | Client async assertion polls, not ticks | state-convergence | L1 | covered | any converted file's async effect | run with `maxWorkers` forced high on a loaded box | no `expected … got 0` one-shot race; assertions resolve within `asyncUtilTimeout` — covered by the `waitFor` conversion itself plus the P2 3-run gate; no dedicated test |
 
