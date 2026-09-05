@@ -67,7 +67,7 @@ repinned to dedicated files (`scripts/__tests__/fixed-tick-waits.test.mjs`,
 ## 8. Verification
 
 - [x] 8.1 Full suite runs executed 3 consecutive times on a loaded developer machine (2026-09-01) — OUTCOME: environment-limited (test-plan P2): each run's single failure traced to a pre-existing rotating contention test outside this change's scope (`auth-redirect` perf budget, `cli-signal-forwarding`, `FileLink.split` starvation); change-scoped suites green in all 8 runs; class owned by follow-up `contention-harden-real-process-tests`; PR CI validates
-- [ ] 8.2 Confirm CI green on the branch
+- [x] 8.2 CI green on the branch (all 6 PR checks pass — ci, CodeRabbit, CodeQL, 3× Analyze)
 - [x] 8.3 Wall-clock not regressed: baseline ~593s/run; gate runs 478–595s (run-to-run variance, no regression)
 - [x] 8.4 `image-fit-extension` (27.5s, exit 0) and `bus-client` (1.7s, exit 0) re-run in this worktree checkout — originally reported failures do not reappear
 - [ ] 8.5 Run `openspec validate --changes make-test-suite-deterministic`
