@@ -1,9 +1,11 @@
 # Index code symbols into the Tier-1 knowledge-base graph
 
 > **SUPERSEDED by `add-codegraph-code-plane` — do not implement.** The
-> code plane is now federated to the external CodeGraph tool behind a
-> `kb-extension` router (separate store, kb core untouched) instead of absorbed
-> into `packages/kb` via embedded tree-sitter. Kept for rationale/history only.
+> code plane is now federated to the external CodeGraph tool as a standalone
+> package family (`codegraph-driver`/`codegraph-extension`/`codegraph-plugin`,
+> mirroring kb's 3-slot shape; separate store, `packages/kb` AND
+> `packages/kb-extension` untouched) instead of absorbed into `packages/kb`
+> via embedded tree-sitter. Kept for rationale/history only.
 >
 > Scope note: the shipped Tier-1 knowledge graph is **deterministic and
 > zero-LLM** — `markdown-knowledge-base` mandates *"No LLM extraction SHALL be

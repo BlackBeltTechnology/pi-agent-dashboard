@@ -1,5 +1,9 @@
 # Tasks — add-kb-code-symbol-index
 
+> **SUPERSEDED by `add-codegraph-code-plane` — do NOT implement these tasks.**
+> The delta specs in this change are dead: `packages/kb` stays untouched per
+> the superseding change.
+
 ## 1. Extractor core (web-tree-sitter, WASM)
 - [ ] 1.1 Add `web-tree-sitter` as an **optional/lazy** dep of `packages/kb` (imported only when `symbols.enabled`); keep `kb` core dep-free → verify: disabled build loads no WASM.
 - [ ] 1.2 Vendor core-tier grammar `.wasm` + `<lang>-tags.scm` (from tree-sitter-wasms / tree-sitter-language-pack) for ~15–20 popular langs; NOT authored → verify: files present, licenses recorded.

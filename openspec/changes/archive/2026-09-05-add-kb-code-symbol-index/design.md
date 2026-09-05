@@ -1,5 +1,9 @@
 # Design — code symbol index
 
+> **SUPERSEDED by `add-codegraph-code-plane` — do not implement.** Kept for
+> rationale/history (the engine-fork analysis below informed the federate
+> decision).
+
 ## The engine fork (the real decision)
 
 Three ways to get symbols out of source. Only one is "LSP." The choice is a
