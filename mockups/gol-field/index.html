@@ -42,7 +42,7 @@
 <title>PI Dashboard — your coding agents, visible from anywhere</title>
 <meta name="description" content="Every pi session mirrored to the browser as it runs. Read the transcript, answer the prompt, kill the runaway, resume it from your phone. Open source, self-hosted.">
 <link rel="canonical" href="https://pi-dashboard.dev/">
-<link rel="icon" type="image/png" href="favicon.png">
+<link rel="icon" type="image/png" href="../../site/public/favicon.png">
 
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://pi-dashboard.dev/">
@@ -146,11 +146,21 @@ body{
    the depth returns at the two moments the page is making a claim, and gets out
    of the way while it is presenting evidence. Content is raised above it with
    one rule rather than a z-index on each section. */
-#field,#life{position:fixed;inset:0;z-index:0;display:block;width:100%;height:100%;pointer-events:none}
+#field,#fleet{position:fixed;inset:0;z-index:0;display:block;width:100%;height:100%;pointer-events:none}
+/* TWO canvases, not one. The mockup has to show the shipped slab fleet and the
+   Life board side by side AND on top of each other, and neither module owns a
+   teardown path — re-initialising on every switch would leak a WebGL context
+   per click. So both are built once and the switch is display + paused. Both
+   renderers are alpha:true with no scene.background, so stacking composites
+   correctly; #fleet paints last, which is why the combined mode reads as the
+   fleet drifting ABOVE the living floor. */
+#fleet{display:none}
+body[data-bg="fleet"] #field{display:none}
+body[data-bg="fleet"] #fleet,body[data-bg="both"] #fleet{display:block}
 /* :not(header) matters: this rule sits AFTER the header rule, so without the
    exclusion it overwrote position:sticky with position:relative and the header
    scrolled away. A blanket stacking rule must skip anything already positioned. */
-body > *:not(#field):not(#life):not(header){position:relative;z-index:1}
+body > *:not(#field):not(#fleet):not(header){position:relative;z-index:1}
 
 /* --- mono UI type: the entire "this is for developers" signal ---------- */
 .mono,nav a,.btn,.eyebrow,.chip,.stat-k,.foot a{
@@ -530,16 +540,49 @@ footer{border-top:1px solid var(--border);padding-block:30px}
 .filters{position:absolute;width:0;height:0;overflow:hidden}
 
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ---------------- mockup lab panel ----------------
+   Design-time only; deleted when this composition ships. It sits on the page's
+   own glass recipe so it never disagrees with the surface it floats over. */
+#lab{
+  /* !important: the page sets `body > *:not(#field){position:relative}` — a
+     (1,0,1) selector that silently outranks a plain `#lab{position:fixed}`.
+     Same trap that once broke the sticky header; see site/design-scratch. */
+  position:fixed!important;right:18px;bottom:18px;z-index:60;width:252px;
+  max-height:calc(100vh - 36px);overflow:auto;
+  padding:12px 14px 10px;border:1px solid var(--border);border-radius:12px;
+  background:color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  box-shadow:0 18px 48px var(--shadow-card);
+  font-size:12px;color:var(--text-secondary);
+}
+.lab-h{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--text-primary);display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.lab-badge{font-size:9px;padding:2px 6px;border-radius:999px;color:var(--accent-text);
+  border:1px solid var(--accent);letter-spacing:.06em}
+.lab-row{display:block;margin:7px 0}
+.lab-row output{float:right;font-family:var(--mono);color:var(--text-primary)}
+.lab-row input[type=range]{width:100%;margin-top:6px;accent-color:var(--accent)}
+.lab-seg{display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.lab-seg button{flex:1;background:transparent;border:0;border-left:1px solid var(--border);
+  color:var(--text-tertiary);font:inherit;font-size:11px;padding:7px 4px;cursor:pointer}
+.lab-seg button:first-child{border-left:0}
+.lab-seg button:hover{color:var(--text-primary)}
+.lab-seg button[aria-checked="true"]{background:var(--bg-tertiary);color:var(--accent-text)}
+.lab-note{margin:8px 0 12px;font-size:11px;line-height:1.45;color:var(--text-tertiary)}
+.lab-btns{display:flex;gap:6px}
+.lab-btns button{flex:1;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:7px;
+  color:var(--text-secondary);font:inherit;font-size:11px;padding:6px 0;cursor:pointer}
+.lab-btns button:hover{color:var(--text-primary);border-color:var(--accent)}
+.lab-stats{margin-top:10px;padding-top:9px;border-top:1px solid var(--border);
+  font-family:var(--mono);font-size:10px;line-height:1.5;color:var(--text-tertiary)}
+@media(max-width:900px){#lab{display:none}}
 </style>
 </head>
 <body>
 
-<!-- Two stacked background canvases: #life (Conway board of file-type chips,
-     gol.js) paints first as the raked floor, #field (session slab fleet,
-     field.js) paints above it. Neither module exposes destroy(), so both live
-     for the whole page life. -->
-<canvas id="life" aria-hidden="true"></canvas>
 <canvas id="field" aria-hidden="true"></canvas>
+<canvas id="fleet" aria-hidden="true"></canvas>
 
 <!-- Backdrop filter for .glass. Blur once, then split the blurred copy into
      three channel-isolated layers, offset red left and blue right, and screen
@@ -564,7 +607,7 @@ footer{border-top:1px solid var(--border);padding-block:30px}
 <header>
   <div class="wrap nav">
     <div class="brand">
-      <img class="logo" src="media/app-icon.png" width="24" height="24" alt="" aria-hidden="true">
+      <img class="logo" src="../../site/media/app-icon.png" width="24" height="24" alt="" aria-hidden="true">
       <span class="wm">PI Dashboard</span>
     </div>
     <nav>
@@ -627,11 +670,11 @@ footer{border-top:1px solid var(--border);padding-block:30px}
     <!-- The hero art is the actual product UI, captured live and cut to video.
          No device mock, no gradient, no fake terminal. -->
     <figure class="film" id="live">
-      <video id="film" poster="media/hero-dark-poster.jpg"
+      <video id="film" poster="../../site/media/hero-dark-poster.jpg"
              autoplay muted loop playsinline preload="metadata"
              aria-label="Screen recording of the PI Dashboard: session list, live transcript, commit review, OpenSpec board and the built-in editor">
-        <source src="media/hero-dark-web.webm" type="video/webm">
-        <source src="media/hero-dark-web.mp4" type="video/mp4">
+        <source src="../../site/media/hero-dark-web.webm" type="video/webm">
+        <source src="../../site/media/hero-dark-web.mp4" type="video/mp4">
       </video>
       <figcaption><span class="dot dot-working"></span> Real UI · not a mockup</figcaption>
     </figure>
@@ -1040,9 +1083,9 @@ function setFilm(t){
   if(!film || t === filmTheme) return;
   filmTheme = t;
   const at = film.currentTime || 0;
-  film.poster = `media/hero-${t}-poster.jpg`;
-  film.querySelector('source[type="video/webm"]').src = `media/hero-${t}-web.webm`;
-  film.querySelector('source[type="video/mp4"]').src  = `media/hero-${t}-web.mp4`;
+  film.poster = `../../site/media/hero-${t}-poster.jpg`;
+  film.querySelector('source[type="video/webm"]').src = `../../site/media/hero-${t}-web.webm`;
+  film.querySelector('source[type="video/mp4"]').src  = `../../site/media/hero-${t}-web.mp4`;
   film.load();
   film.addEventListener('loadedmetadata', () => {
     if(Number.isFinite(at) && at < film.duration) film.currentTime = at;
@@ -1165,28 +1208,189 @@ document.querySelectorAll('.copy-btn').forEach(btn => {
 })();
 </script>
 
+<!-- ======================= MOCKUP LAB PANEL ==============================
+     Not part of the page design — it exists so all three GRID COMPOSITIONS
+     can be judged in real context, against real copy, at one keystroke.
+     Hidden below 900px (where the panel would be the layout).            -->
+<aside id="lab" aria-label="Mockup controls">
+  <div class="lab-h">Life field <span class="lab-badge">mockup</span></div>
+
+  <div class="lab-row lab-seg" role="radiogroup" aria-label="Grid composition">
+    <button data-layout="stack" aria-checked="false" role="radio">Deep stack</button>
+    <button data-layout="board" aria-checked="false" role="radio">Tilted board</button>
+    <button data-layout="wall"  aria-checked="false" role="radio">Upright wall</button>
+  </div>
+  <div class="lab-row lab-seg" role="radiogroup" aria-label="Background">
+    <button data-layout="fleet" aria-checked="false" role="radio">Session fleet</button>
+    <button data-layout="both"  aria-checked="true"  role="radio">Fleet + Life</button>
+  </div>
+  <p class="lab-note" id="labNote"></p>
+
+  <label class="lab-row">Generations / s <output id="oGps">2.2</output>
+    <input id="cGps" type="range" min="0.3" max="6" step="0.1" value="2.2"></label>
+  <label class="lab-row" id="rowDepth">Generations in view <output id="oDepth">8</output>
+    <input id="cDepth" type="range" min="2" max="14" step="1" value="8"></label>
+  <label class="lab-row">Grid width <output id="oCols">30</output>
+    <input id="cCols" type="range" min="14" max="48" step="2" value="30"></label>
+  <label class="lab-row">Fog <output id="oFog">1.0</output>
+    <input id="cFog" type="range" min="0.3" max="2.5" step="0.05" value="1"></label>
+  <label class="lab-row">Text corridor <output id="oCor">1.0</output>
+    <input id="cCor" type="range" min="0" max="1" step="0.05" value="1"></label>
+  <label class="lab-row">Pointer sway <output id="oSway">1.6</output>
+    <input id="cSway" type="range" min="0" max="4" step="0.1" value="1.6"></label>
+
+  <div class="lab-row lab-seg" role="radiogroup" aria-label="Cell faces" id="segIcons">
+    <button data-icons="0" aria-checked="false" role="radio">Plain</button>
+    <button data-icons="1" aria-checked="true"  role="radio">File icons</button>
+  </div>
+  <label class="lab-row">Icon colour <output id="oIcoT">0.35</output>
+    <input id="cIcoT" type="range" min="0" max="1" step="0.05" value="0.35"></label>
+
+  <div class="lab-row lab-seg" role="radiogroup" aria-label="Life mask" id="segMask">
+    <button data-mask="none" aria-checked="true"  role="radio">Free</button>
+    <button data-mask="ts"   aria-checked="false" role="radio">TS</button>
+    <button data-mask="js"   aria-checked="false" role="radio">JS</button>
+    <button data-mask="py"   aria-checked="false" role="radio">PY</button>
+    <button data-mask="md"   aria-checked="false" role="radio">MD</button>
+  </div>
+
+  <div class="lab-row lab-btns">
+    <button id="bSeed">Reseed</button>
+    <button id="bPause">Pause</button>
+    <button id="bTheme">Theme</button>
+  </div>
+  <div class="lab-stats" id="labStats">—</div>
+</aside>
+
 <script type="module">
-/* ---------------- page background: the session fleet (3D) -----------------
-   Replaces the earlier boxed 2D arc shader. That one borrowed Cerebrium's
-   motion idiom into a rectangle beside the headline; this is real geometry
-   behind the WHOLE page — matte untextured slabs, one soft key light, real
-   contact shadows, exactly one accent card lit ("needs you").
+/* ---------------- page background: Game of Life (3D) ----------------------
+   Candidate replacement for the session-slab fleet. Same house rules — matte
+   untextured slabs, one soft key light, real contact shadows, exactly one
+   accent cell lit ("needs you"), no bloom — but the subject is a live Conway
+   board instead of a scattered fleet.
 
-   Rationale, palette and the photoreal-without-texture rules live in field.js.
-   It is imported rather than inlined so the lab page (bg3d.html) exercises the
-   identical module: a lab running a copy of the code proves nothing. */
-import { initField } from './field.js';
+   Rationale, palette, the ping-pong rule and the three compositions live in
+   gol.js. It is imported rather than inlined so the lab panel below drives the
+   identical module the page runs. */
 import { initLifeField } from './gol.js';
+import { initField }     from '../../site/field.js';
 
-/* Combined background (calibrated in mockups/gol-field/): the Life board runs
-   as a raked floor of file-type chips beneath the session fleet. The fleet is
-   thinned to 22 slabs / spread 1.15 so the two never fight for the same
-   pixels; gol.js defaults (icons on, iconTone 0.35, fog 1.0 -> fleet fog 0.2)
-   are the baked calibration. */
-initLifeField(document.getElementById('life'), { layout: 'board' });
-const fleet = initField(document.getElementById('field'));
-fleet.set('count', 22);
-fleet.set('spread', 1.15);
+/* Both fields exist for the whole page life. See the #fleet CSS note: neither
+   module exposes a destroy(), so switching is display + paused, never re-init.
+   Same three.js module URL in both imports => one instance, one WebGL vendor
+   blob, two contexts. */
+const field = initLifeField(document.getElementById('field'));
+window.__field = field;   /* headless audits poke the dials through this */
+const fleet = initField(document.getElementById('fleet'));
+
+const NOTES = {
+  stack: 'Each generation is a slab layer; the conveyor carries history away from camera into fog. The accent draws a blue thread back through time.',
+  board: 'One generation on a raked plane. Cells rise as they are born and sink as they die — the board read as a physical object.',
+  wall:  'One generation square to camera, behind the copy. Densest read of the rules; leans hardest on the text corridor.',
+  fleet: 'The shipped background, untouched: site/field.js. Scattered session slabs on a slow flow, one lit accent card. Here for direct comparison — the Life dials do not apply.',
+  both:  'Both at once. The Life board runs as the raked floor and the fleet drifts above it, so the page keeps its subject (sessions) and gains a substrate that is actually computing something. Fleet thinned to 22 slabs so the two never fight for the same pixels.'
+};
+const LIFE_MODES = new Set(['stack', 'board', 'wall']);
+const $ = s => document.querySelector(s);
+const note = $('#labNote');
+let mode = 'stack';
+
+function setLayout(name){
+  mode = name;
+  /* [data-layout] scoping matters: the icon/mask rows are .lab-seg too, and
+     an unscoped selector once bound THEM to setLayout(undefined) — which
+     paused both fields the moment a mask was picked. */
+  document.querySelectorAll('#lab .lab-seg button[data-layout]').forEach(b =>
+    b.setAttribute('aria-checked', String(b.dataset.layout === name)));
+  const lifeOn = LIFE_MODES.has(name) || name === 'both';
+  document.body.dataset.bg = name === 'fleet' ? 'fleet' : name === 'both' ? 'both' : 'life';
+  $('#rowDepth').style.opacity = name === 'stack' ? '1' : '.35';
+  /* Dim, do not hide: a control that vanishes reads as a bug, and the panel
+     must stay the same height across all five modes to compare shots. */
+  document.querySelectorAll('#lab label.lab-row').forEach(r =>
+    r.style.opacity = lifeOn ? (r.id === 'rowDepth' && name !== 'stack' ? '.35' : '1') : '.35');
+  note.textContent = NOTES[name];
+
+  /* The hidden field is PAUSED, not merely invisible: an off-screen WebGL loop
+     still costs a full frame budget and would make the fps readout a lie. */
+  field?.set('paused', !lifeOn);
+  fleet?.set('paused', LIFE_MODES.has(name));
+  if (lifeOn) field.set('layout', name === 'both' ? 'board' : name);
+  if (name === 'both') { fleet?.set('count', 22); fleet?.set('spread', 1.15); }
+  else if (name === 'fleet') { fleet?.set('count', 38); fleet?.set('spread', 0.8); }
+}
+document.querySelectorAll('#lab .lab-seg button[data-layout]').forEach(b =>
+  b.addEventListener('click', () => setLayout(b.dataset.layout)));
+setLayout('both');
+
+const dial = (id, out, key, fix = 1, cast = Number) => {
+  const el = $(id);
+  el.addEventListener('input', () => {
+    $(out).textContent = (+el.value).toFixed(fix);
+    field?.set(key, cast(el.value));
+  });
+};
+/* Fog is the one dial both fields own, and the only one that must stay in sync
+   or the combined mode reads as two depths in one frame. */
+dial('#cGps', '#oGps', 'gps');
+dial('#cDepth', '#oDepth', 'depth', 0, v => +v);
+dial('#cCols', '#oCols', 'cols', 0, v => +v);
+dial('#cFog', '#oFog', 'fog', 2);
+$('#cFog').addEventListener('input', e => fleet?.set('fog', +e.target.value * 0.2));
+dial('#cCor', '#oCor', 'corridor', 2);
+dial('#cSway', '#oSway', 'sway', 1);
+dial('#cIcoT', '#oIcoT', 'iconTone', 2);
+
+/* Cell faces: a uniform flip, no rebuild — cheap enough to toggle live. */
+$('#segIcons').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+  $('#segIcons').querySelectorAll('button').forEach(o =>
+    o.setAttribute('aria-checked', String(o === b)));
+  field?.set('icons', b.dataset.icons === '1');
+}));
+
+/* Mask: confining Life to a centered glyph collides head-on with the text
+   corridor (which hollows out exactly that center). Picking a mask therefore
+   MOVES the corridor slider to 0 — visibly, on the slider, not as a hidden
+   override — and going back to Free restores 1.0. The user can re-drag it. */
+$('#segMask').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+  $('#segMask').querySelectorAll('button').forEach(o =>
+    o.setAttribute('aria-checked', String(o === b)));
+  const cor = b.dataset.mask === 'none' ? 1 : 0;
+  $('#cCor').value = cor; $('#oCor').textContent = cor.toFixed(2);
+  field?.set('corridor', cor);
+  field?.set('mask', b.dataset.mask);
+}));
+
+$('#bSeed').addEventListener('click', () => field?.reseed());
+$('#bPause').addEventListener('click', e => {
+  const p = !e.currentTarget.dataset.on;
+  /* Pause means the BACKGROUND stops, whichever field is currently drawing it;
+     un-pausing must not wake the field the mode switch deliberately parked. */
+  if (p) { field?.set('paused', true); fleet?.set('paused', true); }
+  else setLayout(mode);
+  e.currentTarget.dataset.on = p ? '1' : '';
+  e.currentTarget.textContent = p ? 'Run' : 'Pause';
+});
+$('#bTheme').addEventListener('click', () => {
+  const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', next);
+});
+
+/* Stats are read, never pushed: the field owns its own numbers. */
+setInterval(() => {
+  const f = fleet?.stats();
+  if (mode === 'fleet') {
+    $('#labStats').textContent = f
+      ? `${f.fps} fps · ${f.slabs} slabs · spin ${f.spin} · mood ${f.mood}`
+      : 'field.js: no WebGL';
+    return;
+  }
+  const s = field?.stats(); if (!s) return;
+  $('#labStats').textContent =
+    `${s.fps} fps · gen ${s.gen} · pop ${s.pop} · ${s.cells} cells · ${s.layers} layer${s.layers > 1 ? 's' : ''}`
+    + (mode === 'both' && f ? ` + ${f.slabs} slabs @ ${f.fps} fps` : '')
+    + ` · mood ${s.mood}`;
+}, 500);
 </script>
 </body>
 </html>

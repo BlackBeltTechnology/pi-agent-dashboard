@@ -27,6 +27,7 @@ const ENTRIES = [
   "index.html",
   "404.html",
   "field.js",
+  "gol.js", // Conway board background (combined mode floor)
   "media", // hero film + posters
   "vendor", // three.module.min.js
 ];
