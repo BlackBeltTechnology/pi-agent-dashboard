@@ -24,7 +24,7 @@ Recorded so the next attempt does not repeat them:
 |---|---|---|
 | 1 | `requires.piExtensions` deactivates the plugin | It does not. `loader.ts` keeps unsatisfied plugins loaded; `missingRequirements` is consumed only by the Packages UI. Only the enabled-set filter drops claims. |
 | 2 | Plugin keeps an installed-flag cache | No feeder. `missingRequirements` is not in the plugin-facing surface. |
-| 3 | Plugin self-publishes via `publishSessionData` | Called only by the host (`useMessageHandler.ts:475,482`); zero plugin precedent. The gate layer subscribes to nothing, so it would never re-render. |
+| 3 | Plugin self-publishes via `publishSessionData` | Called only by the host (`useMessageHandler.ts` ≈lines 578/585); zero plugin precedent. The gate layer subscribes to nothing, so it would never re-render. |
 | 4 | Read host-published `commandsList` | Delivered only for the subscribed session — a permanent false negative on every other card. Also depends on a bare `blackhole` command whose registration form is unverifiable. |
 | 5 | Module-level fetch at boot, global installed-check | Delivery layer verified sound, but: a module-level `fetch` breaks the jsdom test suite; directory existence means "has run once", not "is installed"; no re-render path for idle/ended sessions; no retry, so a transient failure is permanent. |
 
@@ -34,7 +34,8 @@ Mechanism 5 is the closest. Its delivery path (eager static import of the client
 
 - Adds the `session-card-memory` claim and the `content-view` drill-in to the existing `blackhole` plugin package created by `add-blackhole-plugin`.
 - Adds `GET /api/plugins/blackhole/session/:id`, returning per-session cursors and pending state plus the global fields the subcard needs.
-- Adds the visibility gate, once a sound mechanism exists.
+- Adds the visibility gate — mechanism #6, resolved: the plugin's own server route answers from pi's package registry (via a new `ServerPluginContext.isPiExtensionInstalled` capability), degrading to config-file existence only when the capability is absent; the client resolves it once at boot (vitest-guarded, retried until success) and nudges quiet cards via a new runtime slot-claims invalidation store. See `design.md` D1–D4.
+- Adds the two platform capabilities above to `dashboard-plugin-runtime` / `packages/server` as an argued `dashboard-plugin-loader` delta.
 
 ## Capabilities
 
@@ -44,14 +45,11 @@ Mechanism 5 is the closest. Its delivery path (eager static import of the client
 
 ### Modified Capabilities
 
-<!-- None yet. If the chosen fix is a host-side per-session capability signal, this
-     section gains a delta against the relevant platform capability — that is a
-     legitimate platform change to argue on its own merits, which is precisely why
-     it was split out of the plugin change rather than smuggled into it. -->
+- `dashboard-plugin-loader`: two additive platform features — `ServerPluginContext.isPiExtensionInstalled?(name)` (boolean-only, ungated, cached, registry-backed) and a client-side slot-claims invalidation store (`bumpSlotClaimsVersion()` + `useSyncExternalStore` subscription in the gate path). Global signals only; per-session capability delivery to unselected cards remains out of scope.
 
 ## Impact
 
-Depends on `add-blackhole-plugin` having landed (package, shared config model, server scaffolding). Adds no new dependency. Touches no existing package **unless** the gate is resolved by a host-side signal, in which case it touches `packages/client/` and `packages/shared/` and needs a delta spec.
+Depends on `add-blackhole-plugin` (landed: `packages/blackhole-plugin/`). Adds no new dependency. Touches `packages/dashboard-plugin-runtime/` (capability type + invalidation store) and `packages/server/` (capability wiring) via the `dashboard-plugin-loader` delta spec; both additions are additive and optional. `packages/shared/` slot definitions stay unmodified (repo-lint scenario).
 
 ## Discipline Skills
 

@@ -8,7 +8,7 @@ The plugin SHALL contribute its per-session surface as a `session-card-memory` c
 
 - **WHEN** the `blackhole` plugin is active and claims `session-card-memory`
 - **THEN** the MEMORY subcard SHALL render on session cards
-- **AND** the plugin's component SHALL receive `{ session, pluginContext }`
+- **AND** the plugin's component SHALL receive `{ session }` as props, with the plugin context available via the runtime's plugin layer (the host does not pass `pluginContext` as a prop)
 
 #### Scenario: No shared slot definitions change
 
@@ -24,7 +24,7 @@ The plugin SHALL contribute its per-session surface as a `session-card-memory` c
 
 #### Scenario: The gate is synchronous and fails closed
 
-- **WHEN** the plugin has not yet published its detection result for the session
+- **WHEN** the plugin's global detection result has not yet resolved
 - **THEN** `shouldRender` SHALL return `false`
 - **AND** SHALL return synchronously without awaiting a probe
 
@@ -32,17 +32,42 @@ The plugin SHALL contribute its per-session surface as a `session-card-memory` c
 
 - **WHEN** the gate determines whether the extension is present
 - **THEN** it SHALL read a module-level value resolved once from the plugin's own server route
-- **AND** that route SHALL determine presence from the existence of blackhole's directory or config file
+- **AND** when the host provides the `isPiExtensionInstalled` capability, that route SHALL report the registry answer alone — a negative registry answer SHALL NOT be overridden by config-file existence, because the config file survives uninstall and means "has run once" rather than "is installed"
+- **AND** only when the capability is absent SHALL the route degrade to config-file existence as its fallback signal
 - **AND** detection SHALL NOT depend on any command name, whose registration form is unverifiable
 - **AND** SHALL NOT depend on the host's `missingRequirements`, which is not exposed to plugins
 - **AND** SHALL NOT publish session data, which no plugin does and which would not re-render the gate
-- **AND** SHALL NOT require any change to an existing dashboard package
+
+#### Scenario: A capability failure is retryable, not a false negative
+
+- **WHEN** the status route's `isPiExtensionInstalled` call rejects
+- **THEN** the route SHALL respond with a 5xx status
+- **AND** SHALL NOT respond `{ installed: false }`, so the client's retry path treats the failure as transient rather than as an authoritative not-installed answer
 
 #### Scenario: The check runs without a mount point
 
 - **WHEN** the dashboard client boots
 - **THEN** the plugin's client entry SHALL perform the check at module scope
 - **AND** SHALL NOT require a slot, a mounted component, or polling
+
+#### Scenario: The boot check does not run under the test environment
+
+- **WHEN** the client entry is imported under vitest/jsdom
+- **THEN** the module-scope check SHALL NOT issue a network request
+- **AND** the resolve function SHALL remain invokable explicitly with an injected fetch
+
+#### Scenario: A transient failure is not a permanent false negative
+
+- **WHEN** the boot check's request does not produce a well-formed `200 { installed: boolean }` response — network error, any non-200 status (including the 404 of a disabled plugin), or a malformed body
+- **THEN** the check SHALL retry with capped backoff and then continue at a slow fixed interval until a request succeeds — it SHALL NOT permanently give up
+- **AND** the gate SHALL continue returning `false` until a successful resolve
+- **AND** after the first successful resolve, the value SHALL be final for the page lifetime with no further polling
+
+#### Scenario: A late-arriving positive resolve re-evaluates gates for quiet sessions
+
+- **WHEN** the check resolves installed after session cards have already rendered
+- **THEN** the plugin SHALL bump the runtime's slot-claims invalidation store
+- **AND** the MEMORY subcard SHALL appear on cards of sessions that will never broadcast again, without user interaction
 
 #### Scenario: A session that never loaded the extension shows the empty state, not a hidden subcard
 
@@ -146,6 +171,12 @@ The subcard SHALL render one indicator per worker — observer, reflector, dropp
 - **THEN** the subcard SHALL report a lag of 38 entries
 - **AND** that figure SHALL NOT be marked as approximate
 
+#### Scenario: Cursor ahead of history renders a stale-cursor state, not a negative lag
+
+- **WHEN** the per-session file records a cursor at entry `#450` and the branch tip is entry `#412` (history truncated/compacted since the cursor was written)
+- **THEN** the subcard SHALL render a distinct stale-cursor indicator stating the cursor is ahead of the recorded history
+- **AND** SHALL NOT render a numeric lag, a negative number, or a caught-up (`0`) figure
+
 ### Requirement: Compaction proximity is presented as an explicit approximation
 
 Blackhole's own counter is never persisted, so the subcard SHALL derive compaction proximity from the dashboard's `contextTokens` measured against `compactAfterTokens`, and SHALL present it in a way that cannot be mistaken for blackhole's internal figure.
@@ -228,6 +259,7 @@ The subcard SHALL render an advisory row only when the pipeline is not in its or
 - **WHEN** another plugin's `content-view` claim is active for the session
 - **THEN** the blackhole claim SHALL NOT take the active slot by ordering alone
 - **AND** the plugin's manifest-level `priority` SHALL be a HIGHER number than that of first-party plugins claiming the same slot, because the lowest number wins
+- **AND** the shipped manifest value of `100` — tied with `flows`, where the `pluginId` tie-break would make `blackhole` win — SHALL be raised accordingly
 
 #### Scenario: Ordering is not declared per claim
 
