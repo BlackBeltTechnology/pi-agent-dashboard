@@ -3,7 +3,7 @@
  * Uses mDNS discovery first, falls back to health check, then auto-starts.
  */
 import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
-import { SPAWN_READINESS_BUDGET_MS } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { spawnReadinessBudgetMs } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { DashboardCheckOpts } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
 import { appendAutoStartLog, shouldRefuseWorktreeAutoStart } from "./autostart-guard.js";
 import {
@@ -88,7 +88,13 @@ export interface AutoStartDeps {
    * See change: fix-autostart-discovery-precedence (E12).
    */
   probeSleep?: (ms: number) => Promise<void>;
-  /** Spawn readiness budget (lock staleness bound + the loser's wait). */
+  /**
+   * Spawn readiness budget (lock staleness bound + the loser's wait).
+   * Production omits it: the budget is DERIVED from the session's configured
+   * `readinessTimeoutMs` (`spawnReadinessBudgetMs`), so a raised readiness
+   * window cannot let a second session break a live holder's lock mid-spawn.
+   * See change: add-configurable-readiness-timeout.
+   */
   readinessBudgetMs?: number;
   /**
    * Poll interval (ms) for the lock loser's bounded wait. Default 250.
@@ -171,7 +177,7 @@ export function selectLocalCandidate<T extends { host: string; port: number; isL
  * Returns the server to connect to.
  */
 export async function autoStartServer(
-  config: { piPort: number; port: number; autoStart: boolean },
+  config: { piPort: number; port: number; autoStart: boolean; readinessTimeoutMs?: number },
   deps: AutoStartDeps,
 ): Promise<AutoStartResult> {
   const noMdns = mdnsDisabled();
@@ -291,7 +297,7 @@ export async function autoStartServer(
   }
 
   // 3b. Single-flight lock (D2). Only the winner spawns.
-  const budgetMs = deps.readinessBudgetMs ?? SPAWN_READINESS_BUDGET_MS;
+  const budgetMs = deps.readinessBudgetMs ?? spawnReadinessBudgetMs(config.readinessTimeoutMs);
   const probes = deps.lockProbes ?? defaultProbes();
   const lock = acquireAutoStartLock(
     { port: config.port, cliPath, dir: deps.lockDir },

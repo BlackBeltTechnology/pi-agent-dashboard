@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type DashboardConfig, DEFAULT_MEMORY_LIMITS, DEFAULT_DASHBOARD_PORT, DEFAULT_GATEWAY_PORT, ensureConfig, loadConfig, resolveDashboardPorts, resolvePublicBaseUrls } from "../config.js";
+import { type DashboardConfig, DEFAULT_MEMORY_LIMITS, DEFAULT_DASHBOARD_PORT, DEFAULT_GATEWAY_PORT, ensureConfig, loadConfig, READINESS_TIMEOUT_MAX_MS, READINESS_TIMEOUT_MIN_MS, resolveDashboardPorts, resolvePublicBaseUrls, SPAWN_READINESS_BUDGET_MS, spawnReadinessBudgetMs } from "../config.js";
 
 describe("loadConfig", () => {
   let testDir: string;
@@ -44,6 +44,47 @@ describe("loadConfig", () => {
     expect(loadConfig().readinessTimeoutMs).toBe(10_000);
     fs.writeFileSync(configFile, JSON.stringify({ readinessTimeoutMs: "fast" }));
     expect(loadConfig().readinessTimeoutMs).toBe(10_000);
+  });
+
+  // Both ends of the range are failure modes, not preferences: a sub-second
+  // window reproduces the spurious timeout, an unbounded one never ends the
+  // poll (`now() + 1e21 === 1e21`) so `onLaunchEnd` never fires.
+  it("readinessTimeoutMs clamps into [1000, 600000]; non-finite → default", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ readinessTimeoutMs: 0.5 }));
+    expect(loadConfig().readinessTimeoutMs).toBe(READINESS_TIMEOUT_MIN_MS);
+    fs.writeFileSync(configFile, JSON.stringify({ readinessTimeoutMs: 500 }));
+    expect(loadConfig().readinessTimeoutMs).toBe(READINESS_TIMEOUT_MIN_MS);
+    fs.writeFileSync(configFile, JSON.stringify({ readinessTimeoutMs: 1e21 }));
+    expect(loadConfig().readinessTimeoutMs).toBe(READINESS_TIMEOUT_MAX_MS);
+
+    // JSON has no Infinity/NaN literal — both arrive as null through a
+    // `JSON.stringify` round-trip, and null is not a number either way.
+    fs.writeFileSync(configFile, JSON.stringify({ readinessTimeoutMs: Infinity }));
+    expect(loadConfig().readinessTimeoutMs).toBe(10_000);
+    fs.writeFileSync(configFile, JSON.stringify({ readinessTimeoutMs: NaN }));
+    expect(loadConfig().readinessTimeoutMs).toBe(10_000);
+    fs.writeFileSync(configFile, JSON.stringify({ readinessTimeoutMs: null }));
+    expect(loadConfig().readinessTimeoutMs).toBe(10_000);
+    // …and the raw literals a hand-edited config could carry.
+    fs.writeFileSync(configFile, '{"readinessTimeoutMs": 1e999}');
+    expect(loadConfig().readinessTimeoutMs).toBe(10_000);
+  });
+
+  // The lock staleness bound must stay LARGER than the health poll for every
+  // configured value, or a second session breaks a live holder's lock
+  // mid-spawn and starts a competing server.
+  it("spawnReadinessBudgetMs keeps budget > poll for every configured value", () => {
+    expect(spawnReadinessBudgetMs(undefined)).toBe(SPAWN_READINESS_BUDGET_MS);
+    expect(spawnReadinessBudgetMs(10_000)).toBe(SPAWN_READINESS_BUDGET_MS);
+    expect(spawnReadinessBudgetMs(1_000)).toBe(SPAWN_READINESS_BUDGET_MS);
+    expect(spawnReadinessBudgetMs(60_000)).toBe(180_000);
+    expect(spawnReadinessBudgetMs(READINESS_TIMEOUT_MAX_MS)).toBe(READINESS_TIMEOUT_MAX_MS * 3);
+    // Invalid input degrades to the constant floor, never to 0/NaN.
+    expect(spawnReadinessBudgetMs(0)).toBe(SPAWN_READINESS_BUDGET_MS);
+    expect(spawnReadinessBudgetMs(NaN)).toBe(SPAWN_READINESS_BUDGET_MS);
+    for (const v of [1_000, 10_000, 60_000, READINESS_TIMEOUT_MAX_MS]) {
+      expect(spawnReadinessBudgetMs(v)).toBeGreaterThan(v);
+    }
   });
 
   it("reopenSessionsAfterShutdown defaults to ask and round-trips valid values; invalid → ask", () => {

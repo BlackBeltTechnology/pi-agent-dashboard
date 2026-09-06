@@ -7,7 +7,10 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import {
+  type DashboardConfig,
+  HEALTH_CHECK_TIMEOUT_MS,
+} from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import {
   EarlyExitError,
@@ -137,7 +140,7 @@ export async function launchServer(config: DashboardConfig): Promise<LaunchResul
       cliPath,
       extraArgs: args,
       stdio: { logFile: getDashboardServerLogPath() },
-      healthTimeoutMs: config.readinessTimeoutMs ?? 10_000,
+      healthTimeoutMs: config.readinessTimeoutMs ?? HEALTH_CHECK_TIMEOUT_MS,
       port: config.port,
       starter: "Bridge",
     });

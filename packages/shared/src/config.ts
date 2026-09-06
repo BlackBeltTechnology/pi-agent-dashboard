@@ -350,8 +350,16 @@ export interface DashboardConfig {
    * bridge waits before surfacing a warning, so a value below the real cold
    * start produces a spurious error next to a healthy server. Slow hosts
    * (large session histories make the startup scan the dominant cost) can
-   * raise this; there is no upper clamp. Must be a positive number.
-   * See change: add-configurable-readiness-timeout.
+   * raise this. A positive number is clamped into
+   * [`READINESS_TIMEOUT_MIN_MS`, `READINESS_TIMEOUT_MAX_MS`]; anything else
+   * falls back to the default. The clamp exists because both ends are
+   * failure modes, not preferences: a sub-second value reproduces the
+   * spurious timeout it is meant to cure, and an unbounded one leaves the
+   * bridge's launch spinner running for the session's lifetime.
+   *
+   * The auto-start lock's staleness bound is DERIVED from this value
+   * (`spawnReadinessBudgetMs`), so raising it cannot invert the
+   * budget > poll invariant. See change: add-configurable-readiness-timeout.
    */
   readinessTimeoutMs: number;
   /**
@@ -680,6 +688,34 @@ export const HEALTH_CHECK_TIMEOUT_MS = 10_000;
 export const SPAWN_READINESS_BUDGET_MS = HEALTH_CHECK_TIMEOUT_MS * 3;
 export const SERVER_STARTUP_DEADLINE_MS = SPAWN_READINESS_BUDGET_MS * 4;
 
+/** Clamp bounds for `readinessTimeoutMs` (see the field's doc comment). */
+export const READINESS_TIMEOUT_MIN_MS = 1_000;
+export const READINESS_TIMEOUT_MAX_MS = 600_000;
+
+/**
+ * The auto-start lock staleness bound (and the lock loser's wait) for a given
+ * configured readiness window.
+ *
+ * `SPAWN_READINESS_BUDGET_MS` is a CONSTANT floor, so a configurable health
+ * poll would otherwise invert the invariant documented above: the lock carries
+ * no `childPid` for the whole readiness window (`server-auto-start.ts` records
+ * it only on readiness success), so `isLockStale` falls through to pure age.
+ * With a 60 s poll and a 30 s bound, a second session breaks the winner's lock
+ * mid-spawn and starts a COMPETING server → `PortConflictError`, on exactly the
+ * slow hosts a raised window targets. Keeping the same ×3 ratio preserves
+ * "budget > poll" for every configured value.
+ * See change: add-configurable-readiness-timeout.
+ */
+export function spawnReadinessBudgetMs(readinessTimeoutMs?: number): number {
+  const poll =
+    typeof readinessTimeoutMs === "number" &&
+    Number.isFinite(readinessTimeoutMs) &&
+    readinessTimeoutMs > 0
+      ? readinessTimeoutMs
+      : HEALTH_CHECK_TIMEOUT_MS;
+  return Math.max(poll * 3, SPAWN_READINESS_BUDGET_MS);
+}
+
 /**
  * The shared production ports. Exported because the bridge's worktree
  * auto-start refusal keys on them (`autostart-guard.ts`) and a silent desync
@@ -739,9 +775,10 @@ const DEFAULTS: DashboardConfig = {
   autoStart: true,
   autoShutdown: false,
   shutdownIdleSeconds: 300,
-  // Historical hardcoded value of the bridge cold-start health window.
-  // See change: add-configurable-readiness-timeout.
-  readinessTimeoutMs: 10_000,
+  // Historical hardcoded value of the bridge cold-start health window — the
+  // shared health-poll constant, referenced rather than respelled so the two
+  // cannot drift. See change: add-configurable-readiness-timeout.
+  readinessTimeoutMs: HEALTH_CHECK_TIMEOUT_MS,
   // Rollout default `0` (off). Flipped to 500 once the throttle's suites are
   // green. See change: reduce-bridge-tick-bandwidth (D4, task 6.1).
   subagentTickThrottleMs: 0,
@@ -1280,7 +1317,10 @@ export function loadConfig(): DashboardConfig {
         typeof parsed.readinessTimeoutMs === "number" &&
         Number.isFinite(parsed.readinessTimeoutMs) &&
         parsed.readinessTimeoutMs > 0
-          ? parsed.readinessTimeoutMs
+          ? Math.min(
+              READINESS_TIMEOUT_MAX_MS,
+              Math.max(READINESS_TIMEOUT_MIN_MS, parsed.readinessTimeoutMs),
+            )
           : defaults.readinessTimeoutMs,
       subagentTickThrottleMs:
         typeof parsed.subagentTickThrottleMs === "number" &&
