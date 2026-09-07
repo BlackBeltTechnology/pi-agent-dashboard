@@ -542,8 +542,16 @@ describe("useKbStats — consumers share one folder state", () => {
   });
 
   it("F4: the busy window is shared — the second consumer cannot submit a second POST", async () => {
+    // Start IDLE so consumer A's click genuinely issues the trigger POST; the
+    // guard under test is what happens to consumer B during the pending window
+    // that click opens (and afterwards, once the poll reports indexing).
+    const seq = [
+      base({ chunks: 4, indexed: true }),
+      base({ indexing: true, jobStatus: "running", chunks: 4, indexed: true }),
+    ];
+    let gi = 0;
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) =>
-      init?.method === "POST" ? json202() : json(base({ indexing: true, jobStatus: "running" })),
+      init?.method === "POST" ? json202() : json(seq[Math.min(gi++, seq.length - 1)]),
     );
     (globalThis as { fetch?: unknown }).fetch = fetchMock;
     const { getByTestId } = render(
@@ -552,13 +560,22 @@ describe("useKbStats — consumers share one folder state", () => {
         <Consumer id="b" cwd="/repo/busy" />
       </>,
     );
-    await waitFor(() => expect(getByTestId("b").getAttribute("data-indexing")).toBe("true"));
-    // Poll already reports indexing → both consumers are busy; nothing may POST.
+    await waitFor(() => expect(getByTestId("b").getAttribute("data-chunks")).toBe("4"));
     expect(postsOf(fetchMock)).toBe(0);
-    fireEvent.click(getByTestId("b-go"));
+
     fireEvent.click(getByTestId("a-go"));
+    expect(postsOf(fetchMock)).toBe(1);
+    // B is busy in the SAME commit — the optimistic pending is shared, so its
+    // control is already disabled and its activation is a no-op.
+    expect(getByTestId("b").getAttribute("data-pending")).toBe("true");
+    fireEvent.click(getByTestId("b-go"));
+    expect(postsOf(fetchMock)).toBe(1);
+
+    // And it stays a no-op across the handoff into the polled indexing window.
+    await waitFor(() => expect(getByTestId("b").getAttribute("data-indexing")).toBe("true"), { timeout: 5000 });
+    fireEvent.click(getByTestId("b-go"));
     await new Promise((r) => setTimeout(r, 50));
-    expect(postsOf(fetchMock)).toBe(0);
+    expect(postsOf(fetchMock)).toBe(1);
   });
 
   it("F7: a consumer mounting after the reindex settled renders the settled counts, then revalidates", async () => {
