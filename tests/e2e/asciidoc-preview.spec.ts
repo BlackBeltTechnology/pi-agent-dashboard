@@ -52,14 +52,17 @@ test.describe("AsciiDoc preview styling", () => {
   test("F1/F2/F3/F4/F5: headings, admonition, tables and TOC are styled", async ({ page }) => {
     const body = await openAdoc(page);
 
-    // F1 — heading sizes strictly decrease h1 → h2 → h3, all above body text.
+    // F1 — heading sizes strictly decrease level over level, all above body
+    // text. Asciidoctor runs `standalone:false`, which DROPS the doctitle, so
+    // the fixture's three `=`/`==`/`===` levels render as h2/h3/h4 — those are
+    // the three levels this document actually has.
     const bodySize = px(await body.evaluate((n) => getComputedStyle(n).fontSize));
-    const h1 = px(await styleOf(body, "h1", "font-size"));
-    const h2 = px(await styleOf(body, "h2", "font-size"));
-    const h3 = px(await styleOf(body, "h3", "font-size"));
-    expect(h1).toBeGreaterThan(h2);
-    expect(h2).toBeGreaterThan(h3);
-    expect(h3).toBeGreaterThan(bodySize);
+    const l1 = px(await styleOf(body, "h2", "font-size"));
+    const l2 = px(await styleOf(body, "h3", "font-size"));
+    const l3 = px(await styleOf(body, "h4", "font-size"));
+    expect(l1).toBeGreaterThan(l2);
+    expect(l2).toBeGreaterThan(l3);
+    expect(l3).toBeGreaterThan(bodySize);
 
     // F2 — the admonition is a card: real left accent + its own background.
     const adm = body.locator(".admonitionblock").first();
@@ -108,13 +111,14 @@ test.describe("AsciiDoc preview styling", () => {
 
   test("F6: switching the theme retargets the preview colors without a reload", async ({ page }) => {
     const body = await openAdoc(page);
-    const headingColor = () => styleOf(body, "h1", "color");
+    // h2 = the top rendered heading level (embedded output drops the doctitle).
+    const headingColor = () => styleOf(body, "h2", "color");
     const before = await headingColor();
 
     // The ThemePicker lives in the sidebar header, which stays mounted next to
     // the editor pane — so no navigation or reload happens between samples.
     await dismissToasts(page);
-    await byTestId(page, "theme-picker-trigger").click();
+    await page.getByTestId("theme-picker-trigger").click();
     const dropdown = page.getByTestId("theme-picker-dropdown");
     await expect(dropdown).toBeVisible({ timeout: 10_000 });
     const options = dropdown.locator('[data-testid^="theme-option-"]');
@@ -129,7 +133,7 @@ test.describe("AsciiDoc preview styling", () => {
       await expect(dropdown).toHaveCount(0, { timeout: 10_000 });
       after = await headingColor();
       if (after !== before) break;
-      await byTestId(page, "theme-picker-trigger").click();
+      await page.getByTestId("theme-picker-trigger").click();
       await expect(dropdown).toBeVisible({ timeout: 10_000 });
     }
     expect(after, "no registered theme changed the .asciidoc-body heading colour").not.toBe(before);
