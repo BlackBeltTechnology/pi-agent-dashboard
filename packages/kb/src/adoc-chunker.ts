@@ -59,12 +59,24 @@ function delimiterOf(line: string): string | null {
   return null;
 }
 
+/** A section's slot on the heading stack. `chunkOrdinal` stays -1 until the
+ *  section's chunk is actually EMITTED, so a dropped (empty) section never
+ *  becomes a descendant's parent — including the doctitle, whose preamble chunk
+ *  is dropped in the common `= Title` + immediate `== Section` shape. */
+interface Slot {
+  level: number;
+  title: string;
+  chunkOrdinal: number;
+}
+
 interface Section {
   headingPath: string;
   heading: string;
   level: number;
   parentChunkId: string | null;
   headingLine: number; // 1-based line of the title (or of the first body line)
+  ordinal: number;
+  slot: Slot | null; // this section's stack entry, stamped on emit
   bodyLines: string[];
   lineNos: number[]; // absolute 1-based source line per body line
 }
@@ -141,14 +153,16 @@ export function chunkAsciiDoc(input: AdocChunkInput): AdocParseResult {
   // A doctitle is a real level-0 document heading, so it roots the breadcrumb.
   // Without a header the preamble heading is the file name and roots nothing
   // (markdown chunker parity).
-  const stack: Array<{ level: number; title: string; chunkOrdinal: number }> = [];
+  const stack: Slot[] = [];
   if (doctitle) stack.push({ level: 0, title: doctitle, chunkOrdinal: -1 });
   let cur: Section | null = null;
   let open: string | null = null;
   let ordinal = 0;
 
   const flush = () => {
-    if (cur && bodyOf(cur).trim()) raw.push(cur);
+    if (!cur || !bodyOf(cur).trim()) return; // empty section → no chunk, slot stays -1
+    raw.push(cur);
+    if (cur.slot) cur.slot.chunkOrdinal = cur.ordinal;
   };
 
   for (let i = bodyStart; i < lines.length; i++) {
@@ -167,13 +181,16 @@ export function chunkAsciiDoc(input: AdocChunkInput): AdocParseResult {
         const title = tm[2];
         while (stack.length && stack[stack.length - 1].level >= level) stack.pop();
         const parentOrdinal = stack.length ? stack[stack.length - 1].chunkOrdinal : -1;
-        stack.push({ level, title, chunkOrdinal: ordinal });
+        const slot: Slot = { level, title, chunkOrdinal: -1 };
+        stack.push(slot);
         cur = {
           headingPath: stack.map((s) => s.title).join(" > "),
           heading: title,
           level,
           parentChunkId: parentOrdinal >= 0 ? String(parentOrdinal) : null,
           headingLine: lineNo,
+          ordinal,
+          slot,
           bodyLines: [],
           lineNos: [],
         };
@@ -182,8 +199,8 @@ export function chunkAsciiDoc(input: AdocChunkInput): AdocParseResult {
       }
     }
     if (!cur) {
-      cur = { headingPath: rootTitle, heading: rootTitle, level: 0, parentChunkId: null, headingLine: lineNo, bodyLines: [], lineNos: [] };
-      if (doctitle) stack[0].chunkOrdinal = ordinal; // the doctitle's own chunk
+      // The preamble IS the doctitle's chunk, so it claims the doctitle's slot.
+      cur = { headingPath: rootTitle, heading: rootTitle, level: 0, parentChunkId: null, headingLine: lineNo, ordinal, slot: doctitle ? stack[0] : null, bodyLines: [], lineNos: [] };
       ordinal++;
     }
     cur.bodyLines.push(line);

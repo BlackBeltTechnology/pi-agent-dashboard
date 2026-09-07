@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadConfig, validateConfig } from "../config.js";
 import { DEFAULT_SEARCHABLE_KEYS } from "../frontmatter.js";
@@ -255,6 +256,40 @@ describe("schema-version + config-hash reindex gate", () => {
     const chunk = q.getChunk("t", "a.adoc", "Doc > Sec");
     expect(chunk?.startLine).toBe(4);
     expect(chunk?.endLine).toBe(4);
+    q.close();
+  });
+
+  // The gate above is NOT sufficient on its own: a store created BEFORE the D3a
+  // column addition keeps its 10-column FTS5 `chunks` table, and
+  // `CREATE VIRTUAL TABLE IF NOT EXISTS` will not widen it. Without the rebuild
+  // in `init()` every `insertChunk` throws "table chunks has no column named
+  // start_line" and the store is permanently un-reindexable. This builds the
+  // genuine PRE-change table shape rather than re-opening a new-schema store.
+  it("E17: a store carrying the PRE-change chunks table is rebuilt, not bricked", async () => {
+    const dir = mkdir();
+    md(dir, "a.adoc", "= Doc\n\n== Sec\nasciidoc body padded well past the tiny-chunk merge threshold so it survives.\n");
+    const dbDir = mkdir();
+    const dbPath = join(dbDir, "index.db");
+
+    // Hand-build the OLD 10-column schema + a file-state row claiming a.adoc is
+    // already indexed (an incremental walk would otherwise skip it).
+    const old = new DatabaseSync(dbPath);
+    old.exec("PRAGMA journal_mode=WAL");
+    old.exec(`CREATE VIRTUAL TABLE chunks USING fts5(
+      root UNINDEXED, path UNINDEXED, chunk_id UNINDEXED, doc_type UNINDEXED,
+      parent_chunk_id UNINDEXED, level UNINDEXED, body_hash UNINDEXED,
+      heading_path, heading, body, tokenize='porter unicode61');`);
+    old.exec("CREATE TABLE files (root TEXT, path TEXT, mtime_ms REAL, sha256 TEXT, PRIMARY KEY (root, path))");
+    old.prepare("INSERT INTO files(root,path,mtime_ms,sha256) VALUES('t','a.adoc',1,'stale')").run();
+    old.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 1}`);
+    old.close();
+
+    const run = await runIndexAtomic({ dbPath, sources: [{ id: "t", dir }] });
+    expect(run.changed).toBe(1); // rebuilt + re-chunked, no throw
+    const q = new SqliteFtsStore(dbPath);
+    expect(q.getUserVersion()).toBe(SCHEMA_VERSION);
+    const chunk = q.getChunk("t", "a.adoc", "Doc > Sec");
+    expect(chunk?.startLine).toBe(4); // the new columns are real and readable
     q.close();
   });
 

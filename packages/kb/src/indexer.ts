@@ -46,7 +46,10 @@ const DEFAULT_EXCLUDE = /(^|\/)(node_modules|\.git|dist|build|\.next|coverage|\.
  *  indexes zero extra files. */
 const SELECTABLE_RE = /\.(md|mdx|markdown|adoc|asciidoc)$/i;
 const ADOC_RE = /\.(adoc|asciidoc)$/i;
-/** Extension strip for file-name title fallbacks. */
+/** Extension strip for the meta-chunk heading fallback. Reached only when a file
+ *  HAS frontmatter/attributes but no title; an AsciiDoc header always carries a
+ *  doctitle, so a headerless `.adoc` gets its `guide`-style heading from the
+ *  chunker's own file-name fallback, not from here. */
 const TITLE_EXT_RE = /\.(md|mdx|markdown|adoc|asciidoc)$/i;
 
 /** Files processed between event-loop yields + batch commits. A long synchronous

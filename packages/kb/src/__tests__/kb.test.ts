@@ -1104,6 +1104,30 @@ describe("adoc chunker", () => {
     expect(chunks.some((c) => c.heading === "B")).toBe(true);
   });
 
+  it("a section is never its own parent when the preamble chunk is dropped", () => {
+    // `= Title` immediately followed by `== Section` is the COMMON shape: the
+    // doctitle's preamble is empty and dropped, so its stack slot must not hand
+    // its ordinal to the section (that produced a self-referential parent, and a
+    // src===dst `child_of` self-loop in the graph).
+    const text = `= Title\n\n== Section\n${LONG}\n`;
+    const { chunks } = chunkAsciiDoc({ root: "r", path: "p.adoc", text });
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].parentChunkId).toBeNull();
+    expect(chunks[0].parentChunkId).not.toBe(chunks[0].chunkId);
+
+    // An EMPTY intermediate section is likewise never a parent.
+    const nested = `= T\n\n== Empty\n=== Child\n${LONG}\n`;
+    const kids = chunkAsciiDoc({ root: "r", path: "n.adoc", text: nested }).chunks;
+    expect(kids.map((c) => c.heading)).toEqual(["Child"]);
+    expect(kids[0].parentChunkId).toBeNull();
+
+    // A REAL parent still links: a preamble that survives owns the doctitle slot.
+    const withPreamble = `= T\n\n${LONG}\n\n== Section\n${LONG}\n`;
+    const linked = chunkAsciiDoc({ root: "r", path: "w.adoc", text: withPreamble }).chunks;
+    expect(linked).toHaveLength(2);
+    expect(linked[1].parentChunkId).toBe(linked[0].chunkId);
+  });
+
   it("E8: an oversize split point never lands inside a delimited block", () => {
     // One section whose ONLY blank lines sit inside a listing block. There is no
     // safe split point, so the section must stay a single oversized chunk.

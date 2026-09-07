@@ -108,7 +108,37 @@ export class SqliteFtsStore implements KbStore {
     this.db.exec("PRAGMA busy_timeout=5000");
   }
   init() {
+    this.migrateChunksSchema();
     this.db.exec(DDL);
+  }
+
+  /** Rebuild the `chunks` FTS5 table when its column set predates the current
+   *  DDL. `CREATE VIRTUAL TABLE IF NOT EXISTS` is a NO-OP on an existing table
+   *  and FTS5 has no `ALTER TABLE ADD COLUMN`, so without this an older store
+   *  keeps its 10-column table and every `insertChunk` throws "table chunks has
+   *  no column named start_line" — permanently un-reindexable. Chunks are
+   *  derived data, so dropping is safe; `files` (the mtime/sha256 state) is
+   *  cleared with them, or the next INCREMENTAL walk would skip every unchanged
+   *  file and leave the rebuilt table empty. Runs for every opener, not just the
+   *  `runIndexAtomic` version gate. See change: asciidoc-support (design D3a). */
+  private migrateChunksSchema(): void {
+    let cols: string[];
+    try {
+      cols = (this.db.prepare("PRAGMA table_info(chunks)").all() as any[]).map((r) => String(r.name));
+    } catch {
+      return; // no table yet → the DDL below creates it at the current shape
+    }
+    if (cols.length === 0) return;
+    if (cols.includes("start_line") && cols.includes("end_line")) return;
+    this.db.exec("DROP TABLE IF EXISTS chunks");
+    // Everything below is derived from the same walk; clearing it keeps the
+    // rebuilt index free of rows the deletion sweep can no longer reach (that
+    // sweep reads `listPaths`, which now returns nothing).
+    for (const t of ["files", "nodes", "edges", "properties"]) {
+      try {
+        this.db.exec(`DELETE FROM ${t}`);
+      } catch { /* table absent in a pre-DDL store — nothing to clear */ }
+    }
   }
   begin() {
     this.db.exec("BEGIN");
