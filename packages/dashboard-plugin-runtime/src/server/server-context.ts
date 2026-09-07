@@ -100,6 +100,20 @@ export type EmitEventToSessionFn = (
 export type RegisterBrowserHandlerFn = (type: string, handler: (msg: unknown, ws: unknown) => void) => void;
 
 /**
+ * Ask whether a pi extension is installed, answered from the host's package
+ * registry (`packageManagerWrapper.listInstalled`, union of global and local
+ * scopes) and matched with the same logic as the `piExtensions` requirement
+ * probe. Boolean-only: no installed-package records are exposed. Ungated: a
+ * per-name existence oracle leaks nothing. The host caches successful scans
+ * for ~30 s; a registry-scan failure REJECTS the promise — it never resolves
+ * `false`, which callers could not distinguish from an authoritative
+ * not-installed answer. Optional so contexts constructed without it (older
+ * hosts, injected test contexts) remain valid; the calling plugin owns the
+ * fallback. See change: add-blackhole-session-pipeline.
+ */
+export type IsPiExtensionInstalledFn = (name: string) => Promise<boolean>;
+
+/**
  * Options for the plugin session-spawn hook.
  * See change: add-automation-plugin.
  */
@@ -528,6 +542,12 @@ export interface ServerPluginContext {
    */
   modelRuntime?: PluginModelRuntime;
   /**
+   * Ask whether a pi extension is installed (registry-backed, boolean-only,
+   * host-cached). Optional — absent on hosts that do not wire it; the plugin
+   * owns the fallback. See change: add-blackhole-session-pipeline.
+   */
+  isPiExtensionInstalled?: IsPiExtensionInstalledFn;
+  /**
    * Stored provider credentials. Optional — absent for untrusted plugins.
    * See change: publish-quota-plugin.
    */
@@ -561,6 +581,8 @@ export interface ServerContextDeps {
   modelRuntime?: PluginModelRuntime;
   /** Provider-credential seam (optional, host-gated). See change: publish-quota-plugin. */
   providerAuth?: PluginProviderAuth;
+  /** Installed-extension probe (optional). See change: add-blackhole-session-pipeline. */
+  isPiExtensionInstalled?: IsPiExtensionInstalledFn;
 }
 
 /**
@@ -602,6 +624,7 @@ export function createServerPluginContext(
 
     modelRuntime: deps.modelRuntime,
     providerAuth: deps.providerAuth,
+    isPiExtensionInstalled: deps.isPiExtensionInstalled,
     logger,
   };
 }

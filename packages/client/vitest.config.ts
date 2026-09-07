@@ -27,6 +27,26 @@ export default defineConfig({
     alias: {
       "@blackbelt-technology/pi-dashboard-shared": path.resolve(__dirname, "../shared/src"),
       "@blackbelt-technology/pi-dashboard-client-utils": path.resolve(__dirname, "../client-utils/src"),
+      // Worktree-local runtime source for the same reason — the runtime's slot
+      // consumers gained the claims-invalidation subscription this change
+      // gates on. Specific subpath keys MUST precede the bare key (alias
+      // matches by prefix). See change: add-blackhole-session-pipeline.
+      "@blackbelt-technology/dashboard-plugin-runtime/server": path.resolve(
+        __dirname,
+        "../dashboard-plugin-runtime/src/server/index.ts",
+      ),
+      "@blackbelt-technology/dashboard-plugin-runtime/context": path.resolve(
+        __dirname,
+        "../dashboard-plugin-runtime/src/plugin-context.tsx",
+      ),
+      "@blackbelt-technology/dashboard-plugin-runtime/test-support": path.resolve(
+        __dirname,
+        "../dashboard-plugin-runtime/src/test-support/index.ts",
+      ),
+      "@blackbelt-technology/dashboard-plugin-runtime": path.resolve(
+        __dirname,
+        "../dashboard-plugin-runtime/src/index.ts",
+      ),
     },
   },
 });

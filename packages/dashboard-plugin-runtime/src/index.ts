@@ -30,6 +30,13 @@ export type { IntentActionSender, IntentRendererProps } from "./intent-renderer.
 export { IntentRenderer, isIntentNode, UnknownPrimitive } from "./intent-renderer.js";
 export type { IntentKey, IntentStoreEntry } from "./intent-store.js";
 export { IntentStore, intentStore, keyToString, useSlotIntents } from "./intent-store.js";
+export {
+  __resetSlotClaimsVersionForTests,
+  bumpSlotClaimsVersion,
+  getSlotClaimsVersion,
+  subscribeSlotClaimsVersion,
+  useSlotClaimsVersion,
+} from "./slot-claims-invalidation.js";
 export { sendPluginAction, setSender } from "./plugin-action-bridge.js";
 export type { InteractiveUiRequestSnapshot, PluginContextProviderProps, PluginLogger, PluginRouter, SubagentStateSnapshot } from "./plugin-context.js";
 export {

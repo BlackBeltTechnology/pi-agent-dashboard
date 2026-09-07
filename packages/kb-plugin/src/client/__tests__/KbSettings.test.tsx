@@ -12,13 +12,16 @@
 import { mdiDatabaseRefreshOutline, mdiRefresh } from "@mdi/js";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KbConfigResponse, KbStats, SourceConfig } from "../../shared/kb-plugin-types.js";
 import { KbSettingsPanel, parentRepoOf } from "../KbSettingsPanel.js";
 import { useKbConfig } from "../useKbConfig.js";
-import { REINDEX_GUARD_MS } from "../useKbStats.js";
+import { REINDEX_GUARD_MS, resetKbStatsStores } from "../useKbStats.js";
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+// The per-cwd stats store is a module singleton — reset it so no snapshot,
+// poll or armed guard leaks between tests. See change: fix-kb-card-refresh-and-shared-stats.
+beforeEach(() => { resetKbStatsStores(); });
+afterEach(() => { cleanup(); resetKbStatsStores(); vi.restoreAllMocks(); });
 
 function configResponse(over: Partial<KbConfigResponse> = {}): KbConfigResponse {
   return {

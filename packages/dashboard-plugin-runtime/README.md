@@ -93,6 +93,14 @@ function MyBadge({ session }) {
 
 **You MUST call these hooks from within a slot contribution component** (i.e. inside a `CurrentPluginLayer`). Calling them from outside throws a descriptive error.
 
+### Slot-claims invalidation store
+
+A plugin whose `shouldRender` gate depends on a signal that resolves AFTER first render (e.g. a boot-time installed check) calls `bumpSlotClaimsVersion()` once the signal lands. Every mounted gate wrapper — including cards of idle/ended sessions that never broadcast `session_updated` again — re-invokes `shouldRender` synchronously. Global signals only; no per-session payload rides a bump. See change: add-blackhole-session-pipeline.
+
+```ts
+import { bumpSlotClaimsVersion } from "@blackbelt-technology/dashboard-plugin-runtime";
+```
+
 ## Server-side ServerPluginContext API
 
 Your server entry must export a default `registerPlugin` function:
@@ -117,6 +125,7 @@ Available on `ctx`:
 - `registerPiHandler(type, handler)` / `registerBrowserHandler(type, handler)` — hook into WebSocket message flows.
 - `getPluginConfig<T>()` — read this plugin's config from `~/.pi/dashboard/config.json#plugins.<id>.*`.
 - `updatePluginConfig<T>(partial)` — validate, merge, persist, and broadcast `plugin_config_update`.
+- `isPiExtensionInstalled?(name)` — boolean-only installed-check against pi's package registry (union of global+local scopes, ~30s cached). Optional: absent on older hosts / injected test contexts — the plugin owns a fallback. A scan failure REJECTS (never resolves `false`), so a `false` is authoritative. See change: add-blackhole-session-pipeline.
 - `logger` — namespaced logger (`[plugin:<id>]`).
 
 ## Bridge auto-register

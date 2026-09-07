@@ -44,22 +44,23 @@ function allDefaultConfig(over: Record<string, unknown> = {}) {
   };
 }
 
-/** Wire `fetch` for the two endpoints the component reads. */
-function mockFetch(opts: { missing?: string[]; config?: unknown; configStatus?: number }) {
+/** Wire `fetch` for the endpoints the component reads (config + status). */
+function mockFetch(opts: { installed?: boolean; config?: unknown; configStatus?: number }) {
   return vi.fn(async (url: string) => {
     if (url.includes("/api/plugins/blackhole/config")) {
       const status = opts.configStatus ?? 200;
       return jsonRes(opts.config ?? allDefaultConfig(), status < 400, status);
     }
-    return jsonRes({
-      plugins: [{ id: "blackhole", status: { missingRequirements: opts.missing ?? [] } }],
-    });
+    if (url.includes("/api/plugins/blackhole/status")) {
+      return jsonRes({ installed: opts.installed ?? true });
+    }
+    throw new Error(`unexpected fetch url: ${url}`);
   });
 }
 
 describe("not-installed state (E23, F6)", () => {
   it("renders the install command and no config control when the registry reports it missing", async () => {
-    (globalThis as { fetch?: unknown }).fetch = mockFetch({ missing: ["pi-blackhole"] });
+    (globalThis as { fetch?: unknown }).fetch = mockFetch({ installed: false });
     const { getByTestId, container } = render(<BlackholeSettings />);
     await waitFor(() => expect(getByTestId("blackhole-not-installed")).toBeTruthy());
     expect(getByTestId("blackhole-install-command").textContent).toBe("pi install npm:pi-blackhole");
@@ -69,15 +70,25 @@ describe("not-installed state (E23, F6)", () => {
   it("is produced by this component, not by the host declining to mount it", async () => {
     // The component is mounted unconditionally; the not-installed branch is its
     // own output. If the host had withheld it, nothing would render at all.
-    (globalThis as { fetch?: unknown }).fetch = mockFetch({ missing: ["pi-blackhole"] });
+    (globalThis as { fetch?: unknown }).fetch = mockFetch({ installed: false });
     const { getByTestId } = render(<BlackholeSettings />);
     await waitFor(() => expect(getByTestId("blackhole-not-installed")).toBeTruthy());
+  });
+
+  it("answers from the plugin's own /status route, not the host plugin list (repoint, 3.1a)", async () => {
+    const fetchMock = mockFetch({ installed: false });
+    (globalThis as { fetch?: unknown }).fetch = fetchMock;
+    const { getByTestId } = render(<BlackholeSettings />);
+    await waitFor(() => expect(getByTestId("blackhole-not-installed")).toBeTruthy());
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls.some((u) => u.includes("/api/plugins/blackhole/status"))).toBe(true);
+    expect(urls.every((u) => !u.includes("/api/plugins\"") && !u.endsWith("/api/plugins"))).toBe(true);
   });
 });
 
 describe("installed but never run (E22)", () => {
   it("renders the defaults form rather than the not-installed state", async () => {
-    (globalThis as { fetch?: unknown }).fetch = mockFetch({ missing: [] });
+    (globalThis as { fetch?: unknown }).fetch = mockFetch({ installed: true });
     const { getByTestId, queryByTestId } = render(<BlackholeSettings />);
     await waitFor(() => expect(getByTestId("blackhole-settings")).toBeTruthy());
     expect(queryByTestId("blackhole-not-installed")).toBeNull();
@@ -120,7 +131,7 @@ describe("parse-error state renders no form (X1, X3)", () => {
 
 describe("apply semantics (F7)", () => {
   it("never demands a restart and attributes immediate apply to the extension", async () => {
-    (globalThis as { fetch?: unknown }).fetch = mockFetch({ missing: [] });
+    (globalThis as { fetch?: unknown }).fetch = mockFetch({ installed: true });
     const { getByTestId } = render(<BlackholeSettings />);
     await waitFor(() => expect(getByTestId("blackhole-settings")).toBeTruthy());
 
@@ -181,7 +192,7 @@ describe("the save payload does not materialise untouched defaults", () => {
 describe("chains render from the config (E18)", () => {
   it("renders primary then fallbacks in array order", async () => {
     (globalThis as { fetch?: unknown }).fetch = mockFetch({
-      missing: [],
+      installed: true,
       config: allDefaultConfig({
         observerModel: { provider: "openrouter", id: "A" },
         observerFallbackModels: [

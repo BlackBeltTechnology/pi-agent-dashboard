@@ -67,3 +67,13 @@ Use `pluginRouter.open("my-content-view", { foo: "bar" })` to navigate to a `con
 ## Server-side equivalent
 
 If your plugin has a `server` entry, see [`server-context-api.md`](./server-context-api.md) for the `ServerPluginContext` surface.
+
+## Late-arriving gate signals
+
+A `shouldRender` gate backed by a signal that resolves after first render (boot-time installed check) must nudge mounted gate wrappers when the signal lands:
+
+```ts
+import { bumpSlotClaimsVersion } from "@blackbelt-technology/dashboard-plugin-runtime";
+```
+
+Every gate wrapper re-invokes `shouldRender` synchronously — including idle sessions that never broadcast again. Global signals only; no per-session payload rides a bump. See change: add-blackhole-session-pipeline.
