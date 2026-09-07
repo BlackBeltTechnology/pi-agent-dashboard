@@ -934,3 +934,263 @@ describe("GET /api/file/sheet (xlsx/csv)", () => {
     expect(res.statusCode).toBe(413);
   });
 });
+
+describe("POST /api/diagram/render and Kroki resolution (test-plan #E1–#E7, #X1, #X2)", () => {
+  it("resolution ladder decision table (test-plan #E1)", async () => {
+    const { resolveKrokiEndpoint } = await import("@blackbelt-technology/pi-dashboard-shared/config.js");
+
+    // All 8 combinations of {env set/unset} × {config url set/unset} × {allowRemote true/false}
+    // 1. env set, config set, remote true -> env
+    expect(resolveKrokiEndpoint({ url: "http://config:8000", allowRemote: true }, "http://env:8000")).toBe("http://env:8000");
+    // 2. env set, config set, remote false -> env
+    expect(resolveKrokiEndpoint({ url: "http://config:8000", allowRemote: false }, "http://env:8000")).toBe("http://env:8000");
+    // 3. env set, config unset, remote true -> env
+    expect(resolveKrokiEndpoint({ allowRemote: true }, "http://env:8000")).toBe("http://env:8000");
+    // 4. env set, config unset, remote false -> env
+    expect(resolveKrokiEndpoint({ allowRemote: false }, "http://env:8000")).toBe("http://env:8000");
+    // 5. env unset, config set, remote true -> config
+    expect(resolveKrokiEndpoint({ url: "http://config:8000", allowRemote: true }, undefined)).toBe("http://config:8000");
+    // 6. env unset, config set, remote false -> config
+    expect(resolveKrokiEndpoint({ url: "http://config:8000", allowRemote: false }, undefined)).toBe("http://config:8000");
+    // 7. env unset, config unset, remote true -> https://kroki.io
+    expect(resolveKrokiEndpoint({ allowRemote: true }, undefined)).toBe("https://kroki.io");
+    // 8. env unset, config unset, remote false -> null (decline)
+    expect(resolveKrokiEndpoint({ allowRemote: false }, undefined)).toBeNull();
+  });
+
+  it("request cannot choose endpoint (test-plan #E2)", async () => {
+    const { renderDiagram, clearDiagramCache } = await import("../lib/diagram-render.js");
+    clearDiagramCache();
+    const calls: string[] = [];
+    const mockFetch = vi.fn().mockImplementation(async (url: string) => {
+      calls.push(url);
+      return { ok: true, text: async () => "<svg>mock</svg>" };
+    });
+
+    const res = await renderDiagram("plantuml", "@startuml\nA->B\n@enduml", {
+      krokiConfig: { url: "http://allowed-host:8000", allowRemote: false },
+      fetchFn: mockFetch as any,
+    });
+    expect(res.success).toBe(true);
+    expect(calls[0]).toContain("http://allowed-host:8000/plantuml/svg/");
+  });
+
+  it("happy path renders sanitized SVG via mock upstream (test-plan #E3)", async () => {
+    const { renderDiagram, clearDiagramCache, encodeDiagramSource } = await import("../lib/diagram-render.js");
+    clearDiagramCache();
+    const dirtySvg = '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script><text onclick="evil()">hello</text></svg>';
+    let calledUrl = "";
+    const mockFetch = vi.fn().mockImplementation(async (url: string) => {
+      calledUrl = url;
+      return { ok: true, text: async () => dirtySvg };
+    });
+
+    const source = "@startuml\nBob -> Alice : hello\n@enduml";
+    const res = await renderDiagram("plantuml", source, {
+      krokiConfig: { url: "http://mock-kroki:8000", allowRemote: false },
+      fetchFn: mockFetch as any,
+    });
+
+    expect(res.success).toBe(true);
+    if (res.success) {
+      expect(res.svg).not.toContain("<script>");
+      expect(res.svg).not.toContain("onclick");
+      expect(res.svg).toContain("<svg");
+      expect(res.svg).toContain("hello");
+    }
+    const expectedPath = `/plantuml/svg/${encodeDiagramSource(source)}`;
+    expect(calledUrl).toBe(`http://mock-kroki:8000${expectedPath}`);
+  });
+
+  it("type whitelist rejection: graphviz and garbage (test-plan #E4)", async () => {
+    const { renderDiagram } = await import("../lib/diagram-render.js");
+    const mockFetch = vi.fn();
+    const res1 = await renderDiagram("graphviz", "digraph { a -> b }", {
+      krokiConfig: { url: "http://mock-kroki:8000", allowRemote: false },
+      fetchFn: mockFetch as any,
+    });
+    expect(res1.success).toBe(false);
+    if (!res1.success) {
+      expect(res1.statusCode).toBe(400);
+      expect(res1.code).toBe("bad_request");
+    }
+    const res2 = await renderDiagram("garbage", "whatever", {
+      krokiConfig: { url: "http://mock-kroki:8000", allowRemote: false },
+      fetchFn: mockFetch as any,
+    });
+    expect(res2.success).toBe(false);
+    if (!res2.success) {
+      expect(res2.statusCode).toBe(400);
+      expect(res2.code).toBe("bad_request");
+    }
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("source size cap boundary (test-plan #E5)", async () => {
+    const { renderDiagram, DIAGRAM_SOURCE_CAP } = await import("../lib/diagram-render.js");
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, text: async () => "<svg></svg>" });
+
+    const atCap = "a".repeat(DIAGRAM_SOURCE_CAP);
+    const overCap = "a".repeat(DIAGRAM_SOURCE_CAP + 1);
+
+    const resAt = await renderDiagram("plantuml", atCap, {
+      krokiConfig: { url: "http://mock-kroki:8000", allowRemote: false },
+      fetchFn: mockFetch as any,
+    });
+    expect(resAt.success).toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    const resOver = await renderDiagram("plantuml", overCap, {
+      krokiConfig: { url: "http://mock-kroki:8000", allowRemote: false },
+      fetchFn: mockFetch as any,
+    });
+    expect(resOver.success).toBe(false);
+    if (!resOver.success) {
+      expect(resOver.statusCode).toBe(413);
+    }
+    expect(mockFetch).toHaveBeenCalledTimes(1); // not called again
+  });
+
+  it("cache hit and one-byte miss (test-plan #E6)", async () => {
+    const { renderDiagram, clearDiagramCache } = await import("../lib/diagram-render.js");
+    clearDiagramCache();
+    let fetchCount = 0;
+    const mockFetch = vi.fn().mockImplementation(async () => {
+      fetchCount++;
+      return { ok: true, text: async () => "<svg>rendered</svg>" };
+    });
+
+    const opts = {
+      krokiConfig: { url: "http://mock-kroki:8000", allowRemote: false },
+      fetchFn: mockFetch as any,
+    };
+
+    // 1st render
+    await renderDiagram("plantuml", "A -> B", opts);
+    expect(fetchCount).toBe(1);
+
+    // 2nd render (exact same source) -> cache hit
+    await renderDiagram("plantuml", "A -> B", opts);
+    expect(fetchCount).toBe(1);
+
+    // 3rd render (one byte changed) -> cache miss, re-fetch
+    await renderDiagram("plantuml", "A -> C", opts);
+    expect(fetchCount).toBe(2);
+  });
+
+  it("cache key includes endpoint (test-plan #E7)", async () => {
+    const { renderDiagram, clearDiagramCache } = await import("../lib/diagram-render.js");
+    clearDiagramCache();
+    let fetchCount = 0;
+    const mockFetch = vi.fn().mockImplementation(async () => {
+      fetchCount++;
+      return { ok: true, text: async () => "<svg>rendered</svg>" };
+    });
+
+    const source = "A -> B";
+    // Render with endpoint 1
+    await renderDiagram("plantuml", source, {
+      krokiConfig: { url: "http://endpoint-1:8000", allowRemote: false },
+      fetchFn: mockFetch as any,
+    });
+    expect(fetchCount).toBe(1);
+
+    // Render same source with endpoint 2
+    await renderDiagram("plantuml", source, {
+      krokiConfig: { url: "http://endpoint-2:8000", allowRemote: false },
+      fetchFn: mockFetch as any,
+    });
+    expect(fetchCount).toBe(2);
+  });
+
+  it("upstream 500/refused degrades distinctly without cache pollution (test-plan #X1)", async () => {
+    const { renderDiagram, clearDiagramCache } = await import("../lib/diagram-render.js");
+    clearDiagramCache();
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      text: async () => "Internal Server Error",
+    });
+
+    const opts = {
+      krokiConfig: { url: "http://mock-kroki:8000", allowRemote: false },
+      fetchFn: mockFetch as any,
+    };
+
+    const res = await renderDiagram("plantuml", "A -> B", opts);
+    expect(res.success).toBe(false);
+    if (!res.success) {
+      expect(res.code).toBe("upstream_failure");
+      expect(res.statusCode).toBe(502);
+    }
+
+    // A subsequent call should attempt fetch again (no cached error)
+    mockFetch.mockResolvedValueOnce({ ok: true, text: async () => "<svg>recovered</svg>" });
+    const retry = await renderDiagram("plantuml", "A -> B", opts);
+    expect(retry.success).toBe(true);
+  });
+
+  it("hung upstream times out within abort timeout (test-plan #X2)", async () => {
+    const { renderDiagram, clearDiagramCache } = await import("../lib/diagram-render.js");
+    clearDiagramCache();
+
+    const mockFetch = vi.fn().mockImplementation((_url: string, init?: { signal?: AbortSignal }) => {
+      return new Promise((_resolve, reject) => {
+        if (init?.signal) {
+          init.signal.addEventListener("abort", () => {
+            reject(new Error("The operation was aborted"));
+          });
+        }
+      });
+    });
+
+    const res = await renderDiagram("plantuml", "A -> B", {
+      krokiConfig: { url: "http://mock-kroki:8000", allowRemote: false },
+      timeoutMs: 50, // fast timeout for test
+      fetchFn: mockFetch as any,
+    });
+
+    expect(res.success).toBe(false);
+    if (!res.success) {
+      expect(res.code).toBe("upstream_failure");
+      expect(res.error).toContain("aborted");
+    }
+  });
+
+  it("route POST /api/diagram/render integration", async () => {
+    const app = Fastify({ logger: false });
+    const { registerFileRoutes } = await import("../routes/file-routes.js");
+    registerFileRoutes(app, {
+      sessionManager: { listAll: () => [] } as any,
+      preferencesStore: {} as any,
+      networkGuard: async () => {},
+    });
+
+    // 1. Missing type/source
+    const badReq = await app.inject({
+      method: "POST",
+      url: "/api/diagram/render",
+      payload: {},
+    });
+    expect(badReq.statusCode).toBe(400);
+
+    // 2. Unsupported type
+    const unsupp = await app.inject({
+      method: "POST",
+      url: "/api/diagram/render",
+      payload: { type: "graphviz", source: "digraph {}" },
+    });
+    expect(unsupp.statusCode).toBe(400);
+
+    // 3. No endpoint configured -> 503 unavailable
+    const unavail = await app.inject({
+      method: "POST",
+      url: "/api/diagram/render",
+      payload: { type: "plantuml", source: "@startuml\nA->B\n@enduml" },
+    });
+    expect(unavail.statusCode).toBe(503);
+    const json = unavail.json();
+    expect(json.success).toBe(false);
+    expect(json.code).toBe("unavailable");
+  });
+});

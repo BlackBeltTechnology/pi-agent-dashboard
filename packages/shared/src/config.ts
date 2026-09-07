@@ -327,6 +327,54 @@ export const DEFAULT_MODEL_PROXY: ModelProxyConfig = {
  * Plugin-specific config namespace.
  * Lives at ~/.pi/dashboard/config.json#plugins.<id>.*
  */
+export interface KrokiConfig {
+  /** Base URL of a Kroki instance used for diagram rendering. */
+  url?: string;
+  /** Opt-in to rendering via the public kroki.io when no URL is configured. Default false. */
+  allowRemote: boolean;
+}
+
+export const DEFAULT_KROKI_CONFIG: KrokiConfig = {
+  allowRemote: false,
+};
+
+export function parseKrokiConfig(raw: unknown): KrokiConfig {
+  if (!raw || typeof raw !== "object") return { ...DEFAULT_KROKI_CONFIG };
+  const r = raw as Record<string, unknown>;
+  const url = typeof r.url === "string" && r.url.trim() ? r.url.trim() : undefined;
+  const allowRemote = r.allowRemote === true;
+  return {
+    ...(url ? { url } : {}),
+    allowRemote,
+  };
+}
+
+/**
+ * Resolve the effective Kroki endpoint URL according to the resolution ladder (design D5):
+ * 1. Live KROKI_URL env override (highest precedence)
+ * 2. Explicitly configured kroki.url
+ * 3. https://kroki.io if allowRemote is true
+ * 4. null (declined)
+ */
+export function resolveKrokiEndpoint(
+  krokiConfig?: KrokiConfig,
+  envOverride: string | undefined = process.env.KROKI_URL,
+): string | null {
+  const sanitize = (url: string | undefined) => {
+    if (!url || typeof url !== "string") return undefined;
+    const trimmed = url.trim();
+    if (!/^https?:\/\//i.test(trimmed)) return undefined;
+    return trimmed.replace(/\/+$/, "");
+  };
+
+  const envUrl = sanitize(envOverride);
+  if (envUrl) return envUrl;
+  const cfgUrl = sanitize(krokiConfig?.url);
+  if (cfgUrl) return cfgUrl;
+  if (krokiConfig?.allowRemote) return "https://kroki.io";
+  return null;
+}
+
 export type PluginsConfig = Record<string, Record<string, unknown>>;
 
 export interface DashboardConfig {
@@ -546,6 +594,8 @@ export interface DashboardConfig {
    * until each extract-*-as-plugin change migrates them.
    */
   plugins: PluginsConfig;
+  /** Kroki diagram render proxy settings. */
+  kroki: KrokiConfig;
   /** Model proxy configuration (OpenAI/Anthropic-compatible /v1/* endpoints). */
   modelProxy: ModelProxyConfig;
   /**
@@ -768,6 +818,7 @@ export function resolveDashboardPorts(
 
 const DEFAULTS: DashboardConfig = {
   plugins: {},
+  kroki: { ...DEFAULT_KROKI_CONFIG },
   modelProxy: { ...DEFAULT_MODEL_PROXY },
   port: DEFAULT_DASHBOARD_PORT,
   piPort: DEFAULT_GATEWAY_PORT,
@@ -1385,6 +1436,7 @@ export function loadConfig(): DashboardConfig {
           ? parsed.windowsGitSource
           : defaults.windowsGitSource,
       modelProxy: parseModelProxyConfig(parsed.modelProxy),
+      kroki: parseKrokiConfig(parsed.kroki),
       ...(typeof parsed.piSessionsDir === "string" && parsed.piSessionsDir.trim()
         ? { piSessionsDir: parsed.piSessionsDir }
         : {}),

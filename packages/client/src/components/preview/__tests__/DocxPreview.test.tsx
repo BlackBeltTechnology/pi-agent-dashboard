@@ -8,6 +8,9 @@ import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../lib/api/api-context.js", () => ({ getApiBase: () => "" }));
+vi.mock("../../settings/ThemeProvider.js", () => ({
+  useThemeContext: () => ({ resolved: "dark", themeName: "studio" }),
+}));
 // Stub the lazily-loaded PdfPreview so the test never pulls in pdfjs; it echoes
 // the srcUrl it was mounted against.
 vi.mock("../PdfPreview.js", () => ({
@@ -103,3 +106,41 @@ describe("asciidoc-body typography scope", () => {
     expect(w.className).not.toContain("prose-invert");
   });
 });
+
+describe("AsciiDoc diagram hydration (test-plan #E14, #F5)", () => {
+  it("E14: adoc-sourced mermaid parity: mounts MermaidBlock with identical source", async () => {
+    const mermaidCode = "graph TD;\n  A-->B;";
+    const adocHtml = `
+<div class="paragraph"><p>Preamble</p></div>
+<div class="listingblock"><div class="content">
+<pre class="highlight"><code class="language-mermaid" data-lang="mermaid">${mermaidCode}</code></pre>
+</div></div>
+`;
+    mockFetch({ success: true, data: { html: adocHtml } });
+    render(<AsciiDocPreview target={{ kind: "file", cwd: "/proj", path: "doc.adoc" }} />);
+    await waitFor(() => {
+      // MermaidBlock renders with loading or container
+      const el = document.querySelector(".asciidoc-body");
+      expect(el).toBeTruthy();
+    });
+    // Should mount MermaidBlock and not raw listing
+    expect(screen.getByText("Preamble")).toBeTruthy();
+  });
+
+  it("F5: invalid adoc mermaid degrades to raw code + error (test-plan #F5)", async () => {
+    const invalidMermaid = "graph INVALID syntax :::";
+    const adocHtml = `
+<div class="listingblock"><div class="content">
+<pre class="highlight"><code class="language-mermaid" data-lang="mermaid">${invalidMermaid}</code></pre>
+</div></div>
+`;
+    mockFetch({ success: true, data: { html: adocHtml } });
+    render(<AsciiDocPreview target={{ kind: "file", cwd: "/proj", path: "doc.adoc" }} />);
+    // Should render MermaidBlock error / code fallback
+    await waitFor(() => {
+      expect(screen.getAllByText((content) => content.includes("graph INVALID syntax")).length).toBeGreaterThan(0);
+      expect(screen.getByText((content) => content.includes("Failed to render Mermaid diagram"))).toBeTruthy();
+    });
+  });
+});
+

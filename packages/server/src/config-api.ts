@@ -247,6 +247,11 @@ export function writeConfigPartial(partial: Record<string, any>): WriteConfigRes
       partial.openspec = { ...existing.openspec, ...partial.openspec };
     }
 
+    // Merge kroki sub-object
+    if (partial.kroki) {
+      partial.kroki = { ...existing.kroki, ...partial.kroki };
+    }
+
     const merged = { ...existing, ...partial };
 
     // Remove computed fields that shouldn't be persisted. `reachability` is

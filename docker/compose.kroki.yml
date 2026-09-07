@@ -1,0 +1,31 @@
+# pi-dashboard — Kroki diagram rendering overlay.
+#
+#   docker compose -f compose.yml -f compose.kroki.yml up -d
+#
+# Adds a self-contained yuzutech/kroki container for local PlantUML and diagram
+# rendering without external network egress.
+#
+# Security:
+#   - KROKI_SAFE_MODE=secure prevents !include and !includeurl SSRF pivots.
+#   - No published ports — the kroki container is accessible only across the
+#     internal Docker compose network.
+#   - Atomically wires KROKI_URL=http://kroki:8000 on the pi-dashboard service.
+#
+# See openspec change: diagram-rendering (design D6).
+
+services:
+  kroki:
+    image: yuzutech/kroki:latest
+    restart: unless-stopped
+    environment:
+      KROKI_SAFE_MODE: secure
+    deploy:
+      resources:
+        limits:
+          memory: "${KROKI_MEM_LIMIT:-2g}"
+
+  pi-dashboard:
+    environment:
+      KROKI_URL: "http://kroki:8000"
+    depends_on:
+      - kroki

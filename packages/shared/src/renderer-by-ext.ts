@@ -22,12 +22,14 @@ export type RendererKind =
   | "image"
   | "youtube"
   | "email"
+  | "diagram"
   | "fallback";
 
 /**
  * The non-`fallback` renderer kinds — the canvas policy universe. Grows as
  * sibling preview changes add kinds (docx/spreadsheet via render-office-previews,
- * email via add-eml-preview). `canvasTypes` is sized to this live union.
+ * email via add-eml-preview, diagram via diagram-rendering). `canvasTypes` is
+ * sized to this live union.
  */
 export const NON_FALLBACK_KINDS: readonly Exclude<RendererKind, "fallback">[] = [
   "markdown",
@@ -42,6 +44,7 @@ export const NON_FALLBACK_KINDS: readonly Exclude<RendererKind, "fallback">[] = 
   "image",
   "youtube",
   "email",
+  "diagram",
 ];
 
 /** Lowercase extension (including leading dot) → renderer. */
@@ -72,6 +75,8 @@ export const RENDERER_BY_EXT: Record<string, RendererKind> = {
   ".svg": "image",
   ".webp": "image",
   ".eml": "email",
+  ".puml": "diagram",
+  ".plantuml": "diagram",
 };
 
 /**

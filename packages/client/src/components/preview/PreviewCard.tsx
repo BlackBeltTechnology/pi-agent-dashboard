@@ -30,6 +30,7 @@ import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { dispatchPreview, type RendererKind } from "../../lib/preview/preview-dispatch.js";
 import { AsciiDocPreview } from "./AsciiDocPreview.js";
 import { AudioPreview } from "./AudioPreview.js";
+import { DiagramPreview } from "./DiagramPreview.js";
 import { DocxPreview } from "./DocxPreview.js";
 import { EmlPreview } from "./EmlPreview.js";
 import { FallbackPreview } from "./FallbackPreview.js";
@@ -74,6 +75,8 @@ function iconFor(kind: RendererKind): string {
       return mdiLanguageHtml5;
     case "email":
       return mdiEmailOutline;
+    case "diagram":
+      return mdiFileDocumentOutline;
     default:
       return mdiWeb;
   }
@@ -92,6 +95,7 @@ function bodyClassFor(kind: RendererKind): string {
     case "email":
     case "docx":
     case "spreadsheet":
+    case "diagram":
       return "max-h-[60vh] overflow-auto";
     case "pdf":
     case "pptx":
@@ -151,6 +155,8 @@ export function PreviewBody({
       return <AudioPreview target={target} />;
     case "image":
       return <ImagePreview target={target} />;
+    case "diagram":
+      return <DiagramPreview target={target} />;
     default:
       return <FallbackPreview target={target} />;
   }

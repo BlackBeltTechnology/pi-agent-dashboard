@@ -41,7 +41,7 @@ A pure function `dispatchPreview(target: ViewTarget): RendererKind` SHALL select
 renderer using only the target's shape (extension for files; host + URL extension for
 URLs). It SHALL NOT perform server round-trips, MIME sniffing, or file reads to make the
 decision. `RendererKind` SHALL be one of
-`"markdown" | "asciidoc" | "html" | "pdf" | "video" | "audio" | "image" | "youtube" | "docx" | "pptx" | "spreadsheet" | "email" | "fallback"`.
+`"markdown" | "asciidoc" | "html" | "pdf" | "video" | "audio" | "image" | "youtube" | "docx" | "pptx" | "spreadsheet" | "email" | "diagram" | "fallback"`.
 The `.pptx` file extension (compared case-insensitively) SHALL map to `"pptx"`.
 
 #### Scenario: Markdown extension
@@ -83,6 +83,10 @@ The `.pptx` file extension (compared case-insensitively) SHALL map to `"pptx"`.
 #### Scenario: EML extension
 - **WHEN** the file extension is `.eml`
 - **THEN** the result is `"email"`
+
+#### Scenario: PlantUML extensions
+- **WHEN** the file extension is `.puml` or `.plantuml` (compared case-insensitively)
+- **THEN** the result is `"diagram"`
 
 #### Scenario: Unknown file extension
 - **WHEN** the file extension is unrecognized (e.g. `.dat`)
@@ -678,3 +682,27 @@ The AsciiDoc preview SHALL render the returned HTML inside a dedicated `.asciido
 #### Scenario: Docx html-mode shares the typography scope
 - **WHEN** a docx file is previewed in html mode
 - **THEN** its output renders inside the same `.asciidoc-body` scope and picks up the same typography rules
+
+### Requirement: Diagram source blocks in AsciiDoc preview hydrate
+
+The AsciiDoc preview SHALL upgrade diagram source blocks in the rendered HTML to rendered diagrams, keying on the language attributes that survive the secure embedded convert (`[source,mermaid]` / `[source,plantuml]` blocks) plus content sniffing for listing blocks that start with `@startuml`. Mermaid blocks SHALL render client-side; PlantUML blocks SHALL render via the diagram render proxy. A block that fails or declines to render SHALL remain visible as its original code listing. Bare style-only blocks (`[mermaid]` without `source`) carry no surviving type information and SHALL remain code listings.
+
+#### Scenario: source,mermaid block hydrates client-side
+- **WHEN** a previewed `.adoc` contains a `[source,mermaid]` block with valid mermaid syntax
+- **THEN** it renders as a mermaid diagram in place of the code listing, with no server render request
+
+#### Scenario: source,plantuml block hydrates via proxy
+- **WHEN** a previewed `.adoc` contains a `[source,plantuml]` block and the proxy resolves an endpoint
+- **THEN** it renders as an SVG diagram in place of the code listing
+
+#### Scenario: @startuml sniffing
+- **WHEN** a plain listing block's content starts with `@startuml`
+- **THEN** it is treated as a PlantUML block and hydrated via the proxy
+
+#### Scenario: Declined rendering leaves the listing
+- **WHEN** the proxy declines (no endpoint permitted) or fails
+- **THEN** the original code listing remains visible, optionally with an unobtrusive notice
+
+#### Scenario: Bare style block stays a listing
+- **WHEN** a previewed `.adoc` contains a bare `[mermaid]` style block (not `[source,mermaid]`)
+- **THEN** it remains a code listing (no type information survives the secure convert)

@@ -319,6 +319,48 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     fi
     echo "#S3: no warning and reachability.unreachable empty under PI_DASHBOARD_HOST=0.0.0.0"
 
+    # =========================================================================
+    # Docker packaging: Kroki overlay configuration assertion (test-plan #D1, #D2)
+    # =========================================================================
+    echo "--- Checking docker compose configurations (D1, D2) ---"
+    REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+    # D1: Default compose has no kroki service and no KROKI_URL
+    DEFAULT_CONFIG=$(docker compose -f "$REPO_ROOT/docker/compose.yml" config 2>/dev/null || true)
+    if [ -n "$DEFAULT_CONFIG" ]; then
+      if echo "$DEFAULT_CONFIG" | grep -qi "kroki:"; then
+        echo "FAIL (#D1): default compose.yml contains kroki service"
+        exit 1
+      fi
+      if echo "$DEFAULT_CONFIG" | grep -qi "KROKI_URL"; then
+        echo "FAIL (#D1): default compose.yml sets KROKI_URL"
+        exit 1
+      fi
+      echo "#D1: default compose.yml has no kroki service and no KROKI_URL"
+    else
+      echo "WARN: docker compose config failed or docker unavailable; skipping D1 config assertion"
+    fi
+
+    # D2: Overlay wires both kroki service (with safe mode and no ports) and KROKI_URL on pi-dashboard
+    OVERLAY_CONFIG=$(docker compose -f "$REPO_ROOT/docker/compose.yml" -f "$REPO_ROOT/docker/compose.kroki.yml" config 2>/dev/null || true)
+    if [ -n "$OVERLAY_CONFIG" ]; then
+      if ! echo "$OVERLAY_CONFIG" | grep -qi "kroki:"; then
+        echo "FAIL (#D2): overlay does not define kroki service"
+        exit 1
+      fi
+      if ! echo "$OVERLAY_CONFIG" | grep -qi "KROKI_SAFE_MODE: \"*secure\"*"; then
+        echo "FAIL (#D2): kroki service missing KROKI_SAFE_MODE=secure"
+        exit 1
+      fi
+      if ! echo "$OVERLAY_CONFIG" | grep -qi "KROKI_URL: \"*http://kroki:8000\"*"; then
+        echo "FAIL (#D2): pi-dashboard missing KROKI_URL=http://kroki:8000"
+        exit 1
+      fi
+      echo "#D2: overlay wires kroki service with safe mode and KROKI_URL on pi-dashboard"
+    else
+      echo "WARN: docker compose overlay config failed or docker unavailable; skipping D2 config assertion"
+    fi
+
     echo "PASS: Server started successfully"
     exit 0
   fi

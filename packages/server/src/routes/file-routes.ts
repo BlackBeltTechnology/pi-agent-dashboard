@@ -14,6 +14,8 @@ import { classifyPaths, createDirectory, listDirectories, parseFlagsQuery } from
 import { isImageUnderArtifactRoot } from "../lib/artifact-roots.js";
 import { decodeFileUri } from "../lib/decode-file-uri.js";
 import { EML_SIZE_CAP, loadParsedEml, toParseResult } from "../lib/eml.js";
+import { renderDiagram } from "../lib/diagram-render.js";
+import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { enumerateMdCandidates } from "../lib/md-candidates.js";
 import { extToContentType } from "../lib/mime-types.js";
 import {
@@ -1115,6 +1117,41 @@ export function registerFileRoutes(
       reply.header("Cache-Control", "private, max-age=60");
       reply.header("Content-Length", String(att.content.length));
       return reply.send(att.content);
+    },
+  );
+
+  // Diagram render endpoint (change: diagram-rendering).
+  // Accepts POST with JSON body { type, source }. Type must be 'plantuml' in v1.
+  // Encodes source with deflate+base64url, fetches from Kroki, sanitizes SVG,
+  // caches responses.
+  fastify.post<{ Body: { type?: unknown; source?: unknown; [key: string]: unknown } }>(
+    "/api/diagram/render",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const type = typeof body.type === "string" ? body.type : "";
+      const source = typeof body.source === "string" ? body.source : "";
+
+      if (!type || typeof body.source !== "string") {
+        reply.code(400);
+        return { success: false, error: "type and source are required" } satisfies ApiResponse;
+      }
+
+      const cfg = loadConfig();
+      const result = await renderDiagram(type, source, { krokiConfig: cfg.kroki });
+      if (!result.success) {
+        reply.code(result.statusCode);
+        return {
+          success: false,
+          code: result.code,
+          error: result.error,
+        } satisfies ApiResponse;
+      }
+
+      return {
+        success: true,
+        data: { svg: result.svg },
+      } satisfies ApiResponse;
     },
   );
 }

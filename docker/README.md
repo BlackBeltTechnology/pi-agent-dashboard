@@ -101,6 +101,17 @@ The dev overlay bind-mounts the source, keeps the container's Linux-compiled
 exposes `5173`, and sets `NODE_ENV=development`. Without Vite running, `--dev`
 falls back to the built client.
 
+## Diagram rendering (Kroki overlay)
+
+```bash
+docker compose -f compose.yml -f compose.kroki.yml up -d
+```
+
+The Kroki overlay (`compose.kroki.yml`) adds a `yuzutech/kroki` service for
+local PlantUML and text-to-diagram rendering without remote egress. It sets
+`KROKI_SAFE_MODE=secure` (blocks SSRF via `!include` / `!includeurl`), exposes
+no host ports, and sets `KROKI_URL=http://kroki:8000` on `pi-dashboard` atomically.
+
 ## Connect the Electron desktop app (Remote mode)
 
 The Electron desktop app can attach to a Docker-hosted server with **no local
