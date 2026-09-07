@@ -29,6 +29,7 @@ import { type ComponentType, lazy, Suspense } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { AsciiDocPreview } from "../preview/AsciiDocPreview.js";
 import { AudioPreview } from "../preview/AudioPreview.js";
+import { DiagramPreview } from "../preview/DiagramPreview.js";
 import { DocxPreview } from "../preview/DocxPreview.js";
 import { EmlPreview } from "../preview/EmlPreview.js";
 import { HtmlPreview } from "../preview/HtmlPreview.js";
@@ -54,6 +55,7 @@ const asTarget = ({ cwd, path }: ViewerProps) => ({ kind: "file" as const, cwd, 
 /** Absolute path for `fileKind` (which throws on a relative path). */
 const absOf = (cwd: string, rel: string): string => (rel ? `${cwd}/${rel}` : cwd);
 
+const DiagramViewer = (p: ViewerProps) => <DiagramPreview target={asTarget(p)} />;
 const PdfViewer = (p: ViewerProps) => (
   <Suspense
     fallback={
@@ -99,5 +101,6 @@ export const viewerRegistry: Record<OpenPathViewer, ComponentType<ViewerProps>> 
   spreadsheet: SpreadsheetViewer,
   asciidoc: AsciiDocViewer,
   email: EmlViewer,
+  diagram: DiagramViewer,
   "binary-warn": BinaryWarn,
 };

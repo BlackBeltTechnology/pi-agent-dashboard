@@ -10,6 +10,7 @@ import { DialogPortal } from "../primitives/DialogPortal.js";
 import { useThemeContext } from "../settings/ThemeProvider.js";
 import { detectLanguage } from "../tool-renderers/lang-detect.js";
 import { AsciiDocPreview } from "./AsciiDocPreview.js";
+import { DiagramPreview } from "./DiagramPreview.js";
 import { DocxPreview } from "./DocxPreview.js";
 import { EmlPreview } from "./EmlPreview.js";
 import { MarkdownContent } from "./MarkdownContent.js";
@@ -46,6 +47,8 @@ const RICH_PREVIEW_BY_EXT: Record<string, ComponentType<FileTargetProps>> = {
   adoc: AsciiDocPreview,
   asciidoc: AsciiDocPreview,
   eml: EmlPreview,
+  puml: DiagramPreview,
+  plantuml: DiagramPreview,
 };
 
 interface Props {
