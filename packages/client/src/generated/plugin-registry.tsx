@@ -2,7 +2,6 @@
 
 import { AppleToolsSettings } from "@blackbelt-technology/pi-dashboard-apple-tools";
 import { FolderAutomationSection, AutomationBoard, AutomationRunMonitor, AutomationBadge, isAutomationRun, AutomationSettings, catalog as automation_catalog } from "@blackbelt-technology/pi-dashboard-automation-plugin";
-import { BlackholeSettings, catalog as blackhole_catalog } from "@blackbelt-technology/pi-dashboard-blackhole-plugin";
 import { CostView, CostSettings } from "@blackbelt-technology/pi-dashboard-cost-estimator";
 import { SessionFlowActionsClaim, shouldRenderFlowsSubcard, FlowDashboardClaim, FlowYamlPreviewClaim, isFlowYamlPreviewActive, FlowWriteToolRenderer, FlowAgentsToolRenderer, FlowsSettings, FlowInputWiringClaim, catalog as flows_catalog } from "@blackbelt-technology/pi-dashboard-flows-plugin";
 import { GoalChip, hasGoal, GoalControl, FolderGoalsSection, GoalsBoardClaim, GoalDetailClaim, GoalPluginSettings, catalog as goal_catalog } from "@blackbelt-technology/pi-dashboard-goal-plugin";
@@ -11,6 +10,7 @@ import { HermesMemorySettings, catalog as hermes_memory_catalog } from "@blackbe
 import { FolderKbSection, KbSettingsClaim, catalog as kb_catalog } from "@blackbelt-technology/pi-dashboard-kb-plugin";
 import { BuiltInRolesSettings, catalog as roles_catalog } from "@blackbelt-technology/pi-dashboard-roles-plugin";
 import { SubagentsSettings, SubagentPopoutClaim, catalog as subagents_catalog } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
+import { BlackholeSettings, MemorySubcard, shouldRenderMemorySubcard, PipelineDetailView, isPipelineDetailActive, catalog as blackhole_catalog } from "@blackbelt-technology/pi-dashboard-blackhole-plugin";
 import { FlowsAnthropicBridgeSettings, catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
 import { QuotaWidget, QuotaSettings, catalog as quota_catalog } from "@blackbelt-technology/pi-dashboard-quota-plugin";
 
@@ -102,33 +102,6 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
       { pluginId: "automation", priority: 100, slot: "settings-section", tab: "general", Component: AutomationSettings },
     ],
     catalog: automation_catalog,
-  },
-  {
-    manifest: {
-        "id": "blackhole",
-        "displayName": "Blackhole",
-        "priority": 100,
-        "claims": [
-            {
-                "slot": "settings-section",
-                "component": "BlackholeSettings",
-                "tab": "general"
-            }
-        ],
-        "client": "./src/client/index.tsx",
-        "server": "./src/server/index.ts",
-        "configSchema": "./src/configSchema.json",
-        "i18nCatalog": "catalog",
-        "requires": {
-            "piExtensions": [
-                "pi-blackhole"
-            ]
-        }
-    },
-    claims: [
-      { pluginId: "blackhole", priority: 100, slot: "settings-section", tab: "general", Component: BlackholeSettings },
-    ],
-    catalog: blackhole_catalog,
   },
   {
     manifest: {
@@ -424,6 +397,45 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
+        "id": "blackhole",
+        "displayName": "Blackhole",
+        "priority": 200,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "BlackholeSettings",
+                "tab": "general"
+            },
+            {
+                "slot": "session-card-memory",
+                "component": "MemorySubcard",
+                "shouldRender": "shouldRenderMemorySubcard"
+            },
+            {
+                "slot": "content-view",
+                "component": "PipelineDetailView",
+                "predicate": "isPipelineDetailActive"
+            }
+        ],
+        "client": "./src/client/index.tsx",
+        "server": "./src/server/index.ts",
+        "configSchema": "./src/configSchema.json",
+        "i18nCatalog": "catalog",
+        "requires": {
+            "piExtensions": [
+                "pi-blackhole"
+            ]
+        }
+    },
+    claims: [
+      { pluginId: "blackhole", priority: 200, slot: "settings-section", tab: "general", Component: BlackholeSettings },
+      { pluginId: "blackhole", priority: 200, slot: "session-card-memory", Component: MemorySubcard, shouldRender: shouldRenderMemorySubcard },
+      { pluginId: "blackhole", priority: 200, slot: "content-view", Component: PipelineDetailView, predicate: isPipelineDetailActive },
+    ],
+    catalog: blackhole_catalog,
+  },
+  {
+    manifest: {
         "id": "flows-anthropic-bridge",
         "displayName": "Anthropic Messages Bridge",
         "priority": 500,
@@ -474,4 +486,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "59d19bdd86d8795a0112914867cea8ae37f21953619cfac3a741925e331dbef5";
+export const PLUGIN_REGISTRY_HASH = "6e9c8e7ff3eba955ba974204ee9237f20a3f02e10b16ca96199d8220224a188e";

@@ -1,7 +1,7 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-blackhole-plugin",
   "version": "0.8.0",
-  "description": "Dashboard settings surface for the pi-blackhole extension — reads and writes its on-disk pi-blackhole-config.json through validated server routes, including an ordered per-worker model fallback-chain editor.",
+  "description": "Dashboard surface for the pi-blackhole extension — settings (config file editor + fallback chains) and the per-session memory pipeline subcard/detail view.",
   "license": "MIT",
   "publishConfig": {
     "access": "public"
@@ -38,7 +38,7 @@
     "id": "blackhole",
     "displayName": "Blackhole",
     "i18nCatalog": "catalog",
-    "priority": 100,
+    "priority": 200,
     "client": "./src/client/index.tsx",
     "server": "./src/server/index.ts",
     "configSchema": "./src/configSchema.json",
@@ -47,6 +47,16 @@
         "slot": "settings-section",
         "component": "BlackholeSettings",
         "tab": "general"
+      },
+      {
+        "slot": "session-card-memory",
+        "component": "MemorySubcard",
+        "shouldRender": "shouldRenderMemorySubcard"
+      },
+      {
+        "slot": "content-view",
+        "component": "PipelineDetailView",
+        "predicate": "isPipelineDetailActive"
       }
     ],
     "requires": {

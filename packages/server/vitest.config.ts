@@ -32,6 +32,19 @@ export default defineConfig({
     // build does. Mirrors packages/client/vitest.config.ts resolve.alias.
     alias: {
       "@blackbelt-technology/pi-dashboard-shared": path.resolve(__dirname, "../shared/src"),
+      // Worktree-local runtime source wins for the same reason — server.ts
+      // calls `createIsPiExtensionInstalled`, an export that exists only in
+      // this worktree until it lands. Specific `/server` key MUST precede the
+      // bare key (alias matches by prefix). See change:
+      // add-blackhole-session-pipeline.
+      "@blackbelt-technology/dashboard-plugin-runtime/server": path.resolve(
+        __dirname,
+        "../dashboard-plugin-runtime/src/server/index.ts",
+      ),
+      "@blackbelt-technology/dashboard-plugin-runtime": path.resolve(
+        __dirname,
+        "../dashboard-plugin-runtime/src/index.ts",
+      ),
     },
   },
 });

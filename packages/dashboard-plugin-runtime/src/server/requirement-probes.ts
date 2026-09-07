@@ -78,8 +78,11 @@ const KNOWN_SERVICES: Record<
   "pi-model-proxy": (deps) => probePiModelProxy({ fetchImpl: deps.fetchImpl }),
 };
 
-/** Match an installed entry to a requirement name. Reuses the recommended-extensions matcher. */
-function installedMatchesName(installed: InstalledPackageRecord, name: string): boolean {
+/** Match an installed entry to a requirement name. Reuses the recommended-extensions matcher.
+ * Exported for the `isPiExtensionInstalled` capability, which must match with the
+ * SAME logic (not a weaker source-only comparison). See change:
+ * add-blackhole-session-pipeline. */
+export function installedMatchesName(installed: InstalledPackageRecord, name: string): boolean {
   if (!installed) return false;
   if (installed.id === name) return true;
   if (installed.name === name) return true;

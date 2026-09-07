@@ -29,6 +29,7 @@ The loader awaits the function (if async) before proceeding to the next plugin.
 | `getPluginConfig<T>()` | Re-fetch current config (post-write) |
 | `updatePluginConfig<T>(partial)` | Validated write; broadcasts `plugin_config_update` |
 | `logger` | Pino-style logger namespaced to the plugin id |
+| `isPiExtensionInstalled?(name)` | Boolean-only installed-check vs pi's package registry (global+local union, ~30s cached). OPTIONAL — absent on older hosts/injected test contexts; plugin owns the fallback. Scan failure REJECTS (never resolves `false`). See change: add-blackhole-session-pipeline |
 
 ## Failure isolation
 

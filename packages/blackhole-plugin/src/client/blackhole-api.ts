@@ -2,13 +2,16 @@
  * Thin REST client for the blackhole config endpoints plus the installed-ness
  * probe.
  *
- * Installed-ness comes from `GET /api/plugins` — pi's package registry as the
- * host's own requirement probes report it — NOT from the presence of blackhole's
- * directory or config file, which the extension creates on first run and which
- * therefore only means "has run at least once" (spec: installed-ness comes from
- * the package registry).
+ * Installed-ness comes from `GET /api/plugins/blackhole/status` — the plugin's
+ * own route, whose answer is the registry-backed `isPiExtensionInstalled`
+ * capability (degrading to config-file existence only when the host lacks the
+ * capability) — NOT from a client-side guess. During a scan failure (503) or
+ * any unknown answer this resolves to `true` (fail-open): an unknown answer
+ * must not fabricate a not-installed state over a working config. The client
+ * boot gate fails CLOSED on the same uncertainty — opposite stakes, deliberate
+ * postures (design D1).
  *
- * See change: add-blackhole-plugin.
+ * See change: add-blackhole-plugin, add-blackhole-session-pipeline.
  */
 
 export interface FieldView {
@@ -34,8 +37,7 @@ export interface ConfigParseError {
 export type ConfigResult = ConfigOk | ConfigParseError;
 
 const ROUTE = "/api/plugins/blackhole/config";
-const PLUGIN_ID = "blackhole";
-const EXTENSION_ID = "pi-blackhole";
+const STATUS_ROUTE = "/api/plugins/blackhole/status";
 
 async function parseJson<T>(res: Response): Promise<T> {
   const ct = res.headers.get("content-type") ?? "";
@@ -77,22 +79,19 @@ export async function putConfig(managed: Record<string, unknown>, apiBase = ""):
   return body;
 }
 
-interface PluginRow {
-  id: string;
-  status: { missingRequirements?: string[] } | null;
-}
-
 /**
- * Is `pi-blackhole` present in pi's installed-package registry? Answers from the
- * host's own requirement report. A probe that has not reported yet (or a plugin
- * row the host does not know) resolves to `true` — an unknown answer must not
- * fabricate a not-installed state over a working config.
+ * Is `pi-blackhole` installed? Answers from the plugin's own `/status` route
+ * (design D1). Fail-open on unknown: network error, non-200 (incl. the 503 of
+ * a scan failure), or a malformed body resolve to `true` so an unknown answer
+ * cannot fabricate a not-installed state over a working config.
  */
 export async function isExtensionInstalled(apiBase = "", signal?: AbortSignal): Promise<boolean> {
-  const res = await fetch(`${apiBase}/api/plugins`, { signal });
-  const body = await parseJson<{ plugins?: PluginRow[] }>(res);
-  const row = body.plugins?.find((p) => p.id === PLUGIN_ID);
-  const missing = row?.status?.missingRequirements;
-  if (!Array.isArray(missing)) return true;
-  return !missing.some((m) => m === EXTENSION_ID || m.includes(EXTENSION_ID));
+  try {
+    const res = await fetch(`${apiBase}${STATUS_ROUTE}`, { signal });
+    const body = await parseJson<{ installed?: unknown }>(res);
+    if (res.ok && typeof body?.installed === "boolean") return body.installed;
+  } catch {
+    // network failure — unknown, fail open
+  }
+  return true;
 }
