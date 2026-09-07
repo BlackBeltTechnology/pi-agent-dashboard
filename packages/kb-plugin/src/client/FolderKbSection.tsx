@@ -14,6 +14,16 @@
  * worktree-card placement has no folder actions menu, so it registers nothing.
  * See change: move-slot-actions-to-menu.
  *
+ * Because that placement has no menu, the CARD placement instead renders ONE
+ * compact reindex control as a SIBLING of the pill — outside the pill's
+ * `role="button"` root, so no interactive element nests inside it and the pill's
+ * Enter/Space handler can never swallow the control's activation. Its accessible
+ * name varies with the KB state exactly like the menu item (Retry / Index now /
+ * Reindex now) and lives on a wrapping `span`'s `title` as well, because a
+ * disabled button swallows the mouse events a tooltip needs. The sidebar
+ * placement renders no such sibling — its actions stay in the folder menu.
+ * See change: fix-kb-card-refresh-and-shared-stats.
+ *
  * State derivation is ORDERED — `error` (failed job) wins over `not-indexed`
  * (chunks:0, never run), so a failed first index shows `Retry`, not
  * `Index now`. `indexing` outranks the count states.
@@ -28,6 +38,7 @@
 import { SlotPill, useFolderMenuItem, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { FolderDescriptor, SlotPlacement } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import { mdiDatabaseOutline, mdiDatabaseRefreshOutline } from "@mdi/js";
+import { Icon } from "@mdi/react";
 import type React from "react";
 import { useMemo } from "react";
 import { useLocation } from "wouter";
@@ -116,6 +127,7 @@ export function FolderKbSection({ folder, placement = "sidebar" }: { folder: Fol
       data-testid="folder-kb-section"
       data-state={state}
       onClick={(e) => e.stopPropagation()}
+      className={placement === "card" ? "flex items-center gap-1.5 [&>[role=button]]:flex-1 [&>[role=button]]:min-w-0" : undefined}
     >
       <SlotPill
         surface={placement === "card" ? "flat" : "raised"}
@@ -149,6 +161,26 @@ export function FolderKbSection({ folder, placement = "sidebar" }: { folder: Fol
           )}
         </span>
       </SlotPill>
+      {placement === "card" && (
+        // Wrapper carries the tooltip: a disabled <button> swallows mouse
+        // events, so a `title` on the button itself vanishes exactly in the
+        // `indexing` window where the label matters most.
+        <span title={menuLabel} className="shrink-0 flex items-center">
+          <button
+            type="button"
+            data-testid="folder-kb-card-reindex"
+            aria-label={menuLabel}
+            disabled={busy}
+            onClick={(e) => {
+              e.stopPropagation();
+              reindex();
+            }}
+            className="focus-ring shrink-0 w-6 h-6 rounded-md flex items-center justify-center border border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-cyan-400 hover:border-cyan-500/45 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+          >
+            <Icon path={mdiDatabaseRefreshOutline} size={0.55} />
+          </button>
+        </span>
+      )}
     </div>
   );
 }

@@ -2,12 +2,14 @@
 
 ## Purpose
 TBD - created by archiving change redesign-directory-card. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Folder slots render as single-concern pills in a responsive grid
 
 The directory card (`SessionList.renderGroup`) SHALL present its folder slot sections — Automations, Goals, KB, OpenSpec — as discrete pills arranged in a grid, instead of dense one-line `LABEL (n) → ⟳ [action]` rows. Each slot pill SHALL show, at minimum: a slot-colored leading glyph, an uppercase slot label, and the slot's primary count/value; the slot's state (e.g. KB `⚠ N stale`, Automations `⚠ N invalid`) SHALL render inline within the same pill. Each pill SHALL remain a single click target that performs the slot's existing primary navigation (open board / open settings), and each slot section SHALL keep its own data hook.
 
-Slot pills SHALL be **state-only**: a pill SHALL render no secondary action buttons of any kind — no refresh, no create, no navigation shortcut. Pills read a number; the folder actions menu changes something. Every action a slot needs SHALL be contributed to the folder actions menu instead.
+Slot pills SHALL be **state-only**: a pill SHALL render no secondary action buttons of any kind — no refresh, no create, no navigation shortcut. Pills read a number; the folder actions menu changes something. On this directory-card (sidebar) surface, every action a slot needs SHALL be contributed to the folder actions menu instead. The worktree-card placement — whose scope has no folder actions menu — is governed by the placement requirement below, which sanctions at most one sibling action control outside the pill root.
 
 The pill component SHALL NOT expose a prop accepting arbitrary action markup. State markers that are *facts* rather than controls — such as the KB pill's inline stale marker — remain inside the pill; a stale badge appearing both on the pill (as state) and on the menu's reindex item (as that action's context) is intended, not duplication.
 
@@ -104,16 +106,18 @@ A directory card for a folder that is NOT a member of a workspace SHALL render w
 
 `SlotPill` (`packages/dashboard-plugin-runtime/src/SlotPill.tsx`) SHALL accept an optional
 `surface: "raised" | "flat"` prop defaulting to `"raised"`. The `surface` value SHALL affect ONLY
-the pill body's background and shadow; the border, corner radius, hover-border, leading glyph chip,
-and the overhanging capsule legend title SHALL be identical for both values.
+the pill body's background and shadow plus the capsule legend's fill; the border, corner radius,
+hover-border, leading glyph chip, and the capsule legend's structure (border, text, overhang
+position) SHALL be identical for both values.
 
 - For `surface="raised"` (the default, used for sidebar folder cards) the pill body SHALL carry
   `bg-[var(--bg-secondary)]` and `shadow-[0_1px_2px_var(--shadow-card)]` (the current appearance,
   unchanged).
 - For `surface="flat"` (used when a folder section is rendered inside a session card) the pill body
-  SHALL carry `bg-[color-mix(in_srgb,var(--bg-surface)_50%,transparent)]` and SHALL NOT carry any
-  `shadow-*` token — matching the `SessionSubcard` translucent panel surface so a folder section in
-  a session card is visually consistent with the sibling OPENSPEC / GIT / PROCESS subcards.
+  SHALL carry NO fill and NO shadow (border only), matching the `SessionSubcard` border-only panel
+  so a folder section in a session card is visually consistent with the sibling
+  OPENSPEC / GIT / PROCESS subcards. The capsule legend's fill follows the surface it overhangs
+  (the session-card background). See change: align-session-card-kb-slot-surface.
 
 The folder-section slot props SHALL carry an optional `placement: "sidebar" | "card"` defaulting to
 `"sidebar"`. A folder-section component SHALL pass `surface="flat"` to `SlotPill` when
@@ -121,23 +125,33 @@ The folder-section slot props SHALL carry an optional `placement: "sidebar" | "c
 slot consumer (`WorktreeCardSectionSlot`) SHALL supply `placement: "card"` to every claim it
 renders; the `sidebar-folder-section` consumer SHALL NOT set `placement` (defaulting to sidebar).
 
+The state-only rule binds the **pill root**: no interactive element SHALL nest inside a pill's
+button root in any placement. In the **card** placement — whose scope has no folder actions menu —
+a folder section MAY render at most one compact action control as a **sibling** of its pill,
+outside the pill root. The sidebar placement SHALL NOT render such a sibling control; sidebar
+actions belong to the folder actions menu.
+
 #### Scenario: SlotPill defaults to the raised sidebar surface
 - **WHEN** `SlotPill` is rendered without a `surface` prop
 - **THEN** its body SHALL carry `bg-[var(--bg-secondary)]` and the `shadow-[0_1px_2px_var(--shadow-card)]` token
 
 #### Scenario: SlotPill flat surface matches the subcard panel
 - **WHEN** `SlotPill` is rendered with `surface="flat"`
-- **THEN** its body SHALL carry `bg-[color-mix(in_srgb,var(--bg-surface)_50%,transparent)]`
-- **AND** its body SHALL NOT carry any `shadow-*` class token
-- **AND** its border, rounded corners, glyph chip, and capsule legend SHALL be unchanged from the raised variant
+- **THEN** its body SHALL carry no fill (background) class token and no `shadow-*` class token — border only
+- **AND** its border, rounded corners, glyph chip, and capsule legend structure SHALL be unchanged from the raised variant, while the legend's fill follows the surface it overhangs (`--bg-primary` when flat, the pill body's `--bg-tertiary` when raised)
 
 #### Scenario: KB section renders flat inside a session card
 - **WHEN** the KB folder section is rendered via the `worktree-card-section` slot on a worktree session card (placement `card`)
-- **THEN** the KB pill SHALL render with the flat translucent surface (no shadow), visually matching the OPENSPEC / GIT / PROCESS subcards on the same card
+- **THEN** the KB pill SHALL render with the flat border-only surface (no fill, no shadow), visually matching the OPENSPEC / GIT / PROCESS subcards on the same card
 
 #### Scenario: KB section stays raised in the sidebar
 - **WHEN** the KB folder section is rendered via the `sidebar-folder-section` slot in the sidebar folder card (no placement supplied)
 - **THEN** the KB pill SHALL render with the raised opaque surface (`bg-[var(--bg-secondary)]` + shadow), unchanged from today
+
+#### Scenario: Card-placement sibling action control stays outside the pill root
+- **WHEN** a folder section in the card placement renders an action control
+- **THEN** the control SHALL be a sibling of the pill outside the pill's button root, and the pill root SHALL contain no interactive element
+- **AND** in the sidebar placement no sibling action control SHALL render
 
 ### Requirement: The directory card has a named tier model with a call-to-action tier
 
@@ -188,4 +202,3 @@ The directory card SHALL uphold four invariants:
 - **WHEN** the card renders
 - **THEN** the git row SHALL carry only branch and dirty-state affordances
 - **AND** the initialization control SHALL render in tier 0
-
