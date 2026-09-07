@@ -35,6 +35,7 @@ const KIND_LABELS: Record<CanvasKind, string> = {
   image: "Image",
   youtube: "YouTube",
   email: "Email",
+  diagram: "Diagram (PlantUML)",
 };
 
 export function CanvasTypesSettingsSection({ selectedCwd }: { selectedCwd?: string }) {
