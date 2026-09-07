@@ -97,4 +97,4 @@ Re-render nudge for gate wrappers whose signal resolves after first render. See 
 - `packages/blackhole-plugin/src/client/installed-gate.ts` (reference boot gate)
 - `packages/dashboard-plugin-runtime/src/server/installed-probe.ts` (`createIsPiExtensionInstalled`)
 - `openspec/changes/auto-hide-empty-session-subcards` (architecture rationale)
-- `openspec/changes/add-blackhole-session-pipeline` (architecture rationale)
+- `openspec/changes/archive/2026-09-07-add-blackhole-session-pipeline` (architecture rationale)
