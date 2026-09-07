@@ -45,7 +45,7 @@ export function AsciiDocPreview({ target }: Props) {
   if (html == null) return <div className="text-[var(--text-muted)] text-sm p-2">{i18nT("common.loading2", undefined, "Loading…")}</div>;
   return (
     <div
-      className="asciidoc-body prose prose-invert max-w-none"
+      className="asciidoc-body"
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );

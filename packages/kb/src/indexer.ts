@@ -3,6 +3,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { chunkAsciiDoc } from "./adoc-chunker.js";
 import { chunkMarkdown } from "./chunker.js";
 import { buildMeta, buildProperties, DEFAULT_FACET_KEYS, DEFAULT_SEARCHABLE_KEYS, type FacetKeyConfig } from "./frontmatter.js";
 import { type GitignoreMatcher, loadGitignoreMatcher } from "./gitignore.js";
@@ -40,6 +41,13 @@ export interface IndexStats {
 
 const sha = (s: string | Buffer) => createHash("sha256").update(s).digest("hex");
 const DEFAULT_EXCLUDE = /(^|\/)(node_modules|\.git|dist|build|\.next|coverage|\.kb)(\/|$)/;
+/** Selectable source extensions. Widened together with `config.ts` defaults and
+ *  the per-extension chunker dispatch (design D4) — widening one gate alone
+ *  indexes zero extra files. */
+const SELECTABLE_RE = /\.(md|mdx|markdown|adoc|asciidoc)$/i;
+const ADOC_RE = /\.(adoc|asciidoc)$/i;
+/** Extension strip for file-name title fallbacks. */
+const TITLE_EXT_RE = /\.(md|mdx|markdown|adoc|asciidoc)$/i;
 
 /** Files processed between event-loop yields + batch commits. A long synchronous
  *  walk would otherwise pin the single Node thread for its whole duration, so a
@@ -75,7 +83,7 @@ function walk(dir: string, base: string, out: string[] = [], ignore?: GitignoreM
       // AND no deeper .gitignore could negate the match.
       if (ignore?.isIgnoredDir(rel) && !ignore.hasDeeperGitignore(rel)) continue;
       walk(abs, base, out, ignore);
-    } else if (/\.(md|mdx|markdown)$/i.test(e.name) && !ignore?.isIgnored(rel)) out.push(abs);
+    } else if (SELECTABLE_RE.test(e.name) && !ignore?.isIgnored(rel)) out.push(abs);
   }
   return out;
 }
@@ -98,7 +106,9 @@ export async function indexSource(store: KbStore, src: IndexSource, opts: IndexO
     console.warn(`kb index: source directory does not exist, skipping: ${src.dir}`);
     return { scanned: 0, changed: 0, deleted: 0, chunks: 0, missing: true };
   }
-  const extRe = opts.extensions?.length ? new RegExp("(" + opts.extensions.map((e) => e.replace(/\./g, "\\.")).join("|") + ")$", "i") : /\.(md|mdx|markdown)$/i;
+  // NOTE: `extRe` is dead (never applied to the file list) — kept as-is, only its
+  // default widened alongside the live gates. See design D4.
+  const extRe = opts.extensions?.length ? new RegExp("(" + opts.extensions.map((e) => e.replace(/\./g, "\\.")).join("|") + ")$", "i") : SELECTABLE_RE;
   const inc = opts.include?.map(globToRe);
   const exc = opts.exclude?.map(globToRe);
   const includeSourceMd = opts.includeSourceMarkdown !== false;
@@ -145,7 +155,9 @@ export async function indexSource(store: KbStore, src: IndexSource, opts: IndexO
       // changed → replace
       store.deleteByPath(src.root, rel);
       const dt = docTypeOf(rel, includeSourceMd);
-      const { chunks, wikilinks, mdLinks, frontmatter, parseFailed } = chunkMarkdown({ root: src.root, path: rel, text: buf.toString("utf8"), docType: dt });
+      // per-extension chunker dispatch (design D4)
+      const chunkFile = ADOC_RE.test(rel) ? chunkAsciiDoc : chunkMarkdown;
+      const { chunks, wikilinks, mdLinks, frontmatter, parseFailed } = chunkFile({ root: src.root, path: rel, text: buf.toString("utf8"), docType: dt });
       // file node
       store.addNode({ type: "file", name: rel, path: rel });
       for (const c of chunks) {
@@ -180,7 +192,7 @@ export async function indexSource(store: KbStore, src: IndexSource, opts: IndexO
           // Searchable meta needs only insertChunk (required); it must NOT be
           // gated on the optional insertProperty, or a chunk-capable store would
           // silently lose title/description search.
-          const heading = title ?? (rel.split("/").pop() ?? rel).replace(/\.(md|mdx|markdown)$/i, "");
+          const heading = title ?? (rel.split("/").pop() ?? rel).replace(TITLE_EXT_RE, "");
           store.insertChunk({ root: src.root, path: rel, chunkId: `${sha(rel).slice(0, 8)}:meta`, headingPath: heading, heading, level: 0, parentChunkId: null, docType: dt, body: metaBody, bodyHash: sha(metaText) });
           stats.chunks++;
         }

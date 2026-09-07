@@ -1,10 +1,10 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {acknowledgeRows, closeKb,
   closeKbForCwd, 
-  createReindexState, decideNudge, ensurePopulated,getKb, nudgeText, reindexNow, 
+  createReindexState, decideNudge, ensurePopulated,getKb, nudgeText, reindexNow, scheduleReindex,
 } from "../reindex.js";
 
 // Build a temp project with a KB config so reindex logic can open a real store.
@@ -233,5 +233,69 @@ describe("DOX nudge Job 2: decideNudge + acknowledgeRows", () => {
     expect(state.nudged.has(key)).toBe(false);
     state.nudged.add(key);
     expect(state.nudged.has(key)).toBe(true); // extension skips when present
+  });
+});
+
+// ── AsciiDoc reindex eligibility (change: asciidoc-support) ─────────────
+describe("Job 1 debounce for AsciiDoc edits (test-plan #E18, #X2)", () => {
+  // Isolate from the developer's own ~/.pi/dashboard/knowledge_base.json, whose
+  // `include`/`extensions` override would otherwise decide what gets indexed.
+  let home: string;
+  let prevHome: string | undefined;
+  beforeAll(() => {
+    home = mkdtempSync(join(tmpdir(), "kb-ext-home-"));
+    prevHome = process.env.HOME;
+    process.env.HOME = home;
+  });
+  afterAll(() => {
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("E18: an .adoc edit schedules a debounced reindex that lands in the index", async () => {
+    const dir = setupProject();
+    try {
+      writeFileSync(join(dir, "docs", "spec.adoc"), "= Spec\n\n== Bravo\nasciidoc body padded well past the tiny-chunk merge threshold so it survives.\n");
+      const state = createReindexState();
+      scheduleReindex(state, dir, join(dir, "docs", "spec.adoc"), 30);
+      expect(state.timers.size).toBe(1); // pending, not yet run
+      await new Promise((r) => setTimeout(r, 200));
+      expect(state.timers.size).toBe(0);
+      const { store } = getKb(state, dir);
+      expect(store.search("asciidoc body padded", { limit: 3 })[0]?.path).toMatch(/spec\.adoc$/);
+      closeKb(state);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("E18: rapid successive edits collapse to a single pending reindex per cwd", () => {
+    const dir = setupProject();
+    try {
+      const state = createReindexState();
+      scheduleReindex(state, dir, join(dir, "docs", "a.adoc"), 5_000);
+      const first = state.timers.get(dir);
+      scheduleReindex(state, dir, join(dir, "docs", "b.adoc"), 5_000);
+      const second = state.timers.get(dir);
+      expect(state.timers.size).toBe(1); // keyed per cwd, never two pending walks
+      expect(second).not.toBe(first); // the earlier timer was cleared + rescheduled
+      closeKb(state); // clears the pending timer
+      expect(state.timers.size).toBe(0);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("X2: a rejecting reindex on an .adoc edit is logged, not thrown", async () => {
+    const dir = setupProject();
+    writeFileSync(join(dir, ".pi", "dashboard", "knowledge_base.json"), "{ not json");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const state = createReindexState();
+      scheduleReindex(state, dir, join(dir, "docs", "x.adoc"), 10);
+      await new Promise((r) => setTimeout(r, 150)); // debounce fires → reindexNow rejects
+      expect(warn.mock.calls.some((c) => String(c[0]).includes("reindex failed"))).toBe(true);
+      closeKb(state);
+    } finally {
+      warn.mockRestore();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

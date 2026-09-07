@@ -17,6 +17,11 @@ export interface Chunk {
   docType: DocType;
   body: string; // section text (breadcrumb is indexed via columns, not prepended)
   bodyHash: string; // sha256 of trimmed body (exact-content dedup)
+  /** 1-based inclusive line anchors into the source file. Populated by the
+   *  AsciiDoc chunker; absent for markdown chunks (adoc-first extension,
+   *  design D3a). See change: asciidoc-support. */
+  startLine?: number;
+  endLine?: number;
   /** Further sections of this file NOT returned by this fetch. Set by a
    *  path-only `getChunk` so it can never silently truncate a multi-chunk file
    *  (design D7). Absent/0 = this is the whole story. */

@@ -5,10 +5,12 @@ import { createHash } from "node:crypto";
 import { type FmValue, parseFrontmatter } from "./frontmatter.js";
 import type { Chunk, DocType } from "./types.js";
 
-const MIN_CHUNK_CHARS = 100;
-const MAX_CHUNK_CHARS = 4000;
+// Shared with the AsciiDoc chunker (adoc-chunker.ts) so both normalize with the
+// SAME thresholds and id/hash scheme (chunk-contract parity, design D3).
+export const MIN_CHUNK_CHARS = 100;
+export const MAX_CHUNK_CHARS = 4000;
 
-const sha = (s: string) => createHash("sha256").update(s).digest("hex");
+export const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 
 export interface ChunkInput {
   root: string;

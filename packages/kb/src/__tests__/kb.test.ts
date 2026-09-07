@@ -5,11 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { chunkMarkdown } from "../chunker.js";
-import { loadConfig } from "../config.js";
+import { chunkAsciiDoc, extractXrefs } from "../adoc-chunker.js";
+import { chunkMarkdown, MIN_CHUNK_CHARS } from "../chunker.js";
+import { DEFAULTS, loadConfig } from "../config.js";
 import { agentsChain, countInlineRows, doxInit, doxLint, extractRefPaths, parseRowPaths, scanDoxRows } from "../dox.js";
 import { evaluate } from "../eval.js";
-import { indexSource } from "../indexer.js";
+import { docTypeOf, indexSource } from "../indexer.js";
 import { kbInit } from "../init.js";
 import { classifyRef, filesystemResolver, httpsResolver, npmResolver, resolveAll, sourceIdentity } from "../sources.js";
 import { SqliteFtsStore } from "../sqlite-store.js";
@@ -1058,5 +1059,182 @@ describe("dox: gitignore-aware walks (fix-dox-lint-blind-rows)", () => {
     } finally {
       store.close();
     }
+  });
+});
+
+// ── AsciiDoc chunker + indexing (change: asciidoc-support) ──────────────
+describe("adoc chunker", () => {
+  const LONG = "section body long enough to comfortably exceed the hundred character tiny-chunk merge threshold so it survives as its own chunk.";
+
+  it("E5: a title-shaped line inside any delimited block stays content", () => {
+    const blocks: Array<[string, string]> = [
+      ["listing", "----"],
+      ["literal", "...."],
+      ["example", "===="],
+      ["sidebar", "****"],
+      ["quote", "____"],
+      ["passthrough", "++++"],
+      ["open", "--"],
+      ["table", "|==="],
+      ["comment", "////"],
+    ];
+    for (const [name, delim] of blocks) {
+      const text = `= T\n\n== Real\n${LONG}\n\n${delim}\n== Fake Title\ninside ${name}\n${delim}\n\n${LONG}\n`;
+      const { chunks } = chunkAsciiDoc({ root: "r", path: "b.adoc", text });
+      expect(chunks.some((c) => c.heading === "Fake Title"), name).toBe(false);
+      expect(chunks.some((c) => c.body.includes("== Fake Title")), name).toBe(true);
+      // exactly two sections: the preamble-less doc has "Real" only (+ nothing else)
+      expect(chunks.filter((c) => c.level > 0).map((c) => c.heading), name).toEqual(["Real"]);
+    }
+  });
+
+  it("E6: six '=' starts a level-6 section, seven '=' is body content", () => {
+    const text = `= T\n\n== Top\n${LONG}\n\n====== L6 ok\n${LONG}\n\n======= L7 not-a-title\n${LONG}\n`;
+    const { chunks } = chunkAsciiDoc({ root: "r", path: "l.adoc", text });
+    const l6 = chunks.find((c) => c.heading === "L6 ok");
+    expect(l6?.level).toBe(6);
+    expect(chunks.some((c) => c.heading === "L7 not-a-title")).toBe(false);
+    expect(l6?.body).toContain("======= L7 not-a-title");
+  });
+
+  it("E7: a section with no body emits no chunk", () => {
+    const text = `= T\n\n== A\n== B\n${LONG}\n`;
+    const { chunks } = chunkAsciiDoc({ root: "r", path: "e.adoc", text });
+    expect(chunks.some((c) => c.heading === "A")).toBe(false);
+    expect(chunks.some((c) => c.heading === "B")).toBe(true);
+  });
+
+  it("E8: an oversize split point never lands inside a delimited block", () => {
+    // One section whose ONLY blank lines sit inside a listing block. There is no
+    // safe split point, so the section must stay a single oversized chunk.
+    const inner = Array.from({ length: 160 }, (_, i) => `line ${i} of listing payload padding\n`).join("\n");
+    const noSafe = `= T\n\n== Big\n----\n${inner}\n----\n`;
+    const one = chunkAsciiDoc({ root: "r", path: "o1.adoc", text: noSafe }).chunks;
+    expect(one).toHaveLength(1);
+    expect(one[0].body.length).toBeGreaterThan(4000);
+
+    // With a blank line OUTSIDE the block, the split happens there — and never
+    // between the two `----` delimiters.
+    const para = Array.from({ length: 60 }, (_, i) => `outside paragraph ${i} padding text`).join(" ");
+    const safe = `= T\n\n== Big\n----\n${inner}\n----\n\n${para}\n\n${para}\n`;
+    const many = chunkAsciiDoc({ root: "r", path: "o2.adoc", text: safe }).chunks;
+    expect(many.length).toBeGreaterThan(1);
+    for (const c of many) {
+      const opens = (c.body.match(/^----$/gm) ?? []).length;
+      expect(opens % 2).toBe(0); // never a half-open block ⇒ no mid-block split
+    }
+  });
+
+  it("E9: a below-threshold section merges using the markdown thresholds", () => {
+    const tiny = "too short";
+    expect(tiny.length).toBeLessThan(MIN_CHUNK_CHARS);
+    const text = `= T\n\n== First\n${LONG}\n\n== Tiny\n${tiny}\n`;
+    const { chunks } = chunkAsciiDoc({ root: "r", path: "m.adoc", text });
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].heading).toBe("First");
+    expect(chunks[0].body).toContain(tiny);
+  });
+
+  it("E10: line anchors match the section's real line range", () => {
+    //  1: = T
+    //  2:
+    //  3: == One
+    //  4: <LONG>
+    //  5:
+    //  6: == Two
+    //  7: <LONG>
+    const text = `= T\n\n== One\n${LONG}\n\n== Two\n${LONG}\n`;
+    const { chunks } = chunkAsciiDoc({ root: "r", path: "a.adoc", text });
+    const one = chunks.find((c) => c.heading === "One")!;
+    const two = chunks.find((c) => c.heading === "Two")!;
+    expect([one.startLine, one.endLine]).toEqual([4, 4]);
+    expect([two.startLine, two.endLine]).toEqual([7, 7]);
+    const lines = text.split("\n");
+    expect(lines[one.startLine! - 1]).toBe(LONG);
+  });
+
+  it("E11: xref file components are extracted, bare anchors are not", () => {
+    const links = extractXrefs("see xref:other.adoc[L] and xref:other.adoc#frag[L] and <<anchor>> and <<deep.adoc#x,D>>");
+    expect(links.filter((l) => l === "other.adoc")).toHaveLength(2);
+    expect(links).toContain("deep.adoc");
+    expect(links.some((l) => l.includes("anchor"))).toBe(false);
+  });
+
+  it("X1: malformed input never throws and degrades gracefully", () => {
+    const unclosed = chunkAsciiDoc({ root: "r", path: "x1.adoc", text: `= T\n\n== A\n----\n== B\n${LONG}\n` });
+    expect(unclosed.chunks.some((c) => c.heading === "B")).toBe(false); // block swallowed it
+    const stray = chunkAsciiDoc({ root: "r", path: "x2.adoc", text: `____\n++++\n|===\n${LONG}\n` });
+    expect(Array.isArray(stray.chunks)).toBe(true);
+    expect(chunkAsciiDoc({ root: "r", path: "x3.adoc", text: "" }).chunks).toEqual([]);
+    expect(chunkAsciiDoc({ root: "r", path: "x4.adoc", text: "" }).attributes).toBeNull();
+  });
+
+  it("E16: markdown chunk ids are byte-identical after the adoc change", () => {
+    const text =
+      "# Top\nintro paragraph comfortably longer than the hundred character minimum threshold so it stays its own chunk for sure here.\n" +
+      "## Sub\nsub-section body also comfortably longer than the hundred character minimum threshold so it remains a distinct separate chunk.";
+    const { chunks } = chunkMarkdown({ root: "r", path: "a.md", text });
+    // sha256("a.md").slice(0,8) — the unchanged id formula, pinned literally.
+    expect(chunks.map((c) => c.chunkId)).toEqual(["fecccc97:0", "fecccc97:1"]);
+    expect(chunks.every((c) => c.startLine === undefined && c.endLine === undefined)).toBe(true);
+  });
+});
+
+describe("adoc indexing pipeline", () => {
+  const LONG = "asciidoc content long enough to comfortably exceed the tiny-chunk merge threshold so the chunk survives normalization.";
+  let dir: string;
+  let store: SqliteFtsStore;
+
+  beforeAll(async () => {
+    dir = mkdtempSync(join(tmpdir(), "kb-adoc-"));
+    writeFileSync(join(dir, "a.md"), `# Alpha\n${LONG}\n`);
+    writeFileSync(join(dir, "b.adoc"), `= Bravo\n\n== Bravo Section\n${LONG}\n\nxref:c.asciidoc[Charlie]\n`);
+    writeFileSync(join(dir, "c.asciidoc"), `= Charlie\n\n== Charlie Section\n${LONG}\n`);
+    writeFileSync(join(dir, "d.txt"), `plain text file that must never be indexed ${LONG}\n`);
+    writeFileSync(join(dir, "guide.asciidoc"), LONG); // headerless → title fallback
+    store = new SqliteFtsStore(join(dir, ".kb.db"));
+    store.init();
+    const cfg = DEFAULTS; // default include/extensions, no caller overrides
+    await indexSource(store, { root: "t", dir }, { include: cfg.include, extensions: cfg.extensions });
+  });
+  afterAll(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("E13: default config indexes md + adoc + asciidoc and skips other files", () => {
+    const paths = new Set(store.listPaths("t"));
+    expect(paths.has("a.md")).toBe(true);
+    expect(paths.has("b.adoc")).toBe(true);
+    expect(paths.has("c.asciidoc")).toBe(true);
+    expect(paths.has("d.txt")).toBe(false);
+  });
+
+  it("E13: adoc files are chunked by the adoc chunker ('='-derived headings)", () => {
+    const hits = store.search("bravo section asciidoc content", { limit: 5, root: "t" });
+    const b = hits.find((h) => h.path === "b.adoc");
+    expect(b?.headingPath).toBe("Bravo > Bravo Section");
+  });
+
+  it("E15: a headerless asciidoc title falls back to the extension-stripped name", () => {
+    const chunk = store.getChunk("t", "guide.asciidoc");
+    expect(chunk?.heading).toBe("guide");
+  });
+
+  it("E10/E17: line anchors round-trip through the store", () => {
+    const chunk = store.getChunk("t", "c.asciidoc", "Charlie > Charlie Section");
+    expect(chunk?.startLine).toBe(4);
+    expect(chunk?.endLine).toBe(4);
+  });
+
+  it("E14: adoc under a source path is 'source-md', adoc under docs/ is 'doc'", () => {
+    expect(docTypeOf("packages/x/src/y.adoc", true)).toBe("source-md");
+    expect(docTypeOf("docs/z.adoc", true)).toBe("doc");
+    expect(docTypeOf("packages/x/src/y.adoc", false)).toBe("doc"); // source-md off
+  });
+
+  it("E12: an xref becomes a traversable graph edge", () => {
+    const nbrs = store.neighbors("b.adoc", 1);
+    expect(nbrs.some((n) => n.name === "c.asciidoc")).toBe(true);
   });
 });

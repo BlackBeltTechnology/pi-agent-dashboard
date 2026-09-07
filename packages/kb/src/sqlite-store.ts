@@ -9,13 +9,17 @@ import type { Chunk, FileState, Filter, GraphEdge, GraphNode, KbHit, KbStore, Se
 
 /** Bump when the frontmatter structural schema/behavior changes so an existing
  *  DB force-reindexes once on open (design D6). */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 const DDL = `
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks USING fts5(
   root UNINDEXED, path UNINDEXED, chunk_id UNINDEXED, doc_type UNINDEXED,
   parent_chunk_id UNINDEXED, level UNINDEXED, body_hash UNINDEXED,
   heading_path, heading, body,
+  -- Line anchors appended AFTER body so the body column keeps index 9 (bm25 and
+  -- snippet are positional). FTS5 has no ALTER TABLE ADD COLUMN, so adding
+  -- them is a SCHEMA_VERSION bump + one-time full reindex (design D3a).
+  start_line UNINDEXED, end_line UNINDEXED,
   tokenize='porter unicode61'
 );
 CREATE TABLE IF NOT EXISTS files (
@@ -215,8 +219,8 @@ export class SqliteFtsStore implements KbStore {
   }
 
   insertChunk(c: Chunk) {
-    this.prep("INSERT INTO chunks(root,path,chunk_id,doc_type,parent_chunk_id,level,body_hash,heading_path,heading,body) VALUES(?,?,?,?,?,?,?,?,?,?)")
-      .run(c.root, c.path, c.chunkId, c.docType, c.parentChunkId, c.level, c.bodyHash, c.headingPath, c.heading, c.body);
+    this.prep("INSERT INTO chunks(root,path,chunk_id,doc_type,parent_chunk_id,level,body_hash,heading_path,heading,body,start_line,end_line) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)")
+      .run(c.root, c.path, c.chunkId, c.docType, c.parentChunkId, c.level, c.bodyHash, c.headingPath, c.heading, c.body, c.startLine ?? null, c.endLine ?? null);
   }
   addNode(n: GraphNode) {
     this.db.prepare("INSERT INTO nodes(type,name,path) VALUES(?,?,?) ON CONFLICT(type,name) DO UPDATE SET path=COALESCE(excluded.path, nodes.path)").run(n.type, n.name, n.path);
@@ -342,7 +346,7 @@ export class SqliteFtsStore implements KbStore {
       args.push(...ff.args);
       const sql = `SELECT root, path, chunk_id chunkId, doc_type docType, body_hash bodyHash,
       parent_chunk_id parentChunkId, heading_path headingPath, heading, body,
-      bm25(chunks, 0,0,0,0,0,0,0, ${w.headingPath}, ${w.heading}, ${w.body}) score,
+      bm25(chunks, 0,0,0,0,0,0,0, ${w.headingPath}, ${w.heading}, ${w.body}, 0,0) score,
       snippet(chunks, 9, '[', ']', ' … ', 12) snippet
       FROM chunks WHERE ${where.join(" AND ")} ORDER BY score LIMIT ${depth}`;
       return this.db.prepare(sql).all(...args) as any[];
@@ -611,7 +615,12 @@ function tokenize(s: string): string[] {
 }
 
 function rowToChunk(r: any): Chunk {
-  return { root: r.root, path: r.path, chunkId: r.chunk_id, headingPath: r.heading_path, heading: r.heading, level: r.level, parentChunkId: r.parent_chunk_id, docType: r.doc_type, body: r.body, bodyHash: r.body_hash };
+  const c: Chunk = { root: r.root, path: r.path, chunkId: r.chunk_id, headingPath: r.heading_path, heading: r.heading, level: r.level, parentChunkId: r.parent_chunk_id, docType: r.doc_type, body: r.body, bodyHash: r.body_hash };
+  // Optional line anchors: absent (NULL) for markdown chunks — keep them off the
+  // object entirely so a markdown chunk round-trips byte-identically.
+  if (r.start_line != null) c.startLine = Number(r.start_line);
+  if (r.end_line != null) c.endLine = Number(r.end_line);
+  return c;
 }
 
 /** Query expansion (Tier C). synonym = curated glossary; off/agent =

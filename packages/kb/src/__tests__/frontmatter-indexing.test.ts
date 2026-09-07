@@ -6,7 +6,7 @@ import { loadConfig, validateConfig } from "../config.js";
 import { DEFAULT_SEARCHABLE_KEYS } from "../frontmatter.js";
 import { runIndexAtomic } from "../index-run.js";
 import { indexSource } from "../indexer.js";
-import { SqliteFtsStore } from "../sqlite-store.js";
+import { SCHEMA_VERSION, SqliteFtsStore } from "../sqlite-store.js";
 import type { KbStore } from "../types.js";
 
 const tmps: string[] = [];
@@ -227,8 +227,34 @@ describe("schema-version + config-hash reindex gate", () => {
     const run3 = await runIndexAtomic({ dbPath, sources });
     expect(run3.changed).toBe(1); // gate forced a full reindex
     const q = new SqliteFtsStore(dbPath);
-    expect(q.getUserVersion()).toBe(2);
+    expect(q.getUserVersion()).toBe(SCHEMA_VERSION);
     expect(q.facets(["tags"]).tags?.x).toBe(1);
+    q.close();
+  });
+
+  // change: asciidoc-support (test-plan #E17) — the D3a SCHEMA_VERSION bump adds
+  // two FTS5 line-anchor columns, which FTS5 cannot ALTER in. The gate must
+  // rebuild the store and the new columns must be readable afterwards.
+  it("E17: the SCHEMA_VERSION bump reindexes and the line-anchor columns are readable", async () => {
+    const dir = mkdir();
+    const body = "asciidoc content long enough to comfortably exceed the tiny-chunk merge threshold so the chunk survives normalization.";
+    md(dir, "a.adoc", `= Doc\n\n== Sec\n${body}\n`);
+    const dbDir = mkdir();
+    const dbPath = join(dbDir, "index.db");
+    const sources = [{ id: "t", dir }];
+
+    await runIndexAtomic({ dbPath, sources });
+    const s = new SqliteFtsStore(dbPath);
+    s.setUserVersion(SCHEMA_VERSION - 1); // simulate a store at the previous version
+    s.close();
+
+    const run = await runIndexAtomic({ dbPath, sources });
+    expect(run.changed).toBe(1); // full reindex, no crash
+    const q = new SqliteFtsStore(dbPath);
+    expect(q.getUserVersion()).toBe(SCHEMA_VERSION);
+    const chunk = q.getChunk("t", "a.adoc", "Doc > Sec");
+    expect(chunk?.startLine).toBe(4);
+    expect(chunk?.endLine).toBe(4);
     q.close();
   });
 
