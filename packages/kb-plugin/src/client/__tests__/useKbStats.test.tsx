@@ -364,6 +364,31 @@ describe("kb stats store — shared per folder", () => {
     un1(); un2();
   });
 
+  it("E6b: a poll tick never stacks on a request still in flight", async () => {
+    vi.useFakeTimers();
+    const hung = deferred<Response>();
+    let call = 0;
+    const fetchMock = vi.fn(() => {
+      call += 1;
+      return call === 1 ? Promise.resolve(json(base({ indexing: true, jobStatus: "running" }))) : hung.promise;
+    });
+    (globalThis as { fetch?: unknown }).fetch = fetchMock;
+
+    const store = getKbStatsStore("/repo/hung");
+    const un = store.subscribe(() => {});
+    await settle();                       // initial fetch → indexing:true → poll armed
+    await settle(1000);                   // first tick issues the hung request
+    expect(getsFor(fetchMock, "/repo/hung")).toBe(2);
+
+    await settle(5 * 1000);               // five more ticks while it never resolves
+    expect(getsFor(fetchMock, "/repo/hung")).toBe(2); // no accumulation
+
+    hung.resolve(json(base({ indexing: true, jobStatus: "running" })));
+    await settle(1000);                   // the loop resumes once it settles
+    expect(getsFor(fetchMock, "/repo/hung")).toBe(3);
+    un();
+  });
+
   it("F5: poll ticks never toggle `loading`", async () => {
     vi.useFakeTimers();
     (globalThis as { fetch?: unknown }).fetch = vi.fn(async () => json(base({ indexing: true, jobStatus: "running" })));

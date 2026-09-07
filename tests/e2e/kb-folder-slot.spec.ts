@@ -263,13 +263,31 @@ function inHarness(sh: string): void {
   execFileSync("docker", ["exec", harnessContainer(), "sh", "-c", sh], { encoding: "utf8" });
 }
 
+/**
+ * Rebuild the folder's KB through the REST API and wait for the job to settle.
+ * Setup goes through the API, assertions through the DOM — and the settled
+ * chunk count comes back, so the baseline the test compares against is a fact,
+ * not a reading of whatever a previous run left in the persisted index.
+ */
+async function reindexViaApi(page: Page, cwd: string): Promise<{ chunks: number }> {
+  return await page.evaluate(async (c: string) => {
+    await fetch(`/api/kb/reindex?cwd=${encodeURIComponent(c)}`, { method: "POST" });
+    for (let i = 0; i < 200; i++) {
+      const s = (await (await fetch(`/api/kb/stats?cwd=${encodeURIComponent(c)}`)).json()) as { indexing: boolean; chunks: number };
+      if (!s.indexing) return { chunks: s.chunks };
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    throw new Error("reindex never settled");
+  }, cwd);
+}
+
 test.describe("KB stats shared across surfaces (F2)", () => {
   test.afterEach(() => {
     try { inHarness(`rm -f ${EXTRA_DOC}`); } catch { /* container already down */ }
   });
 
   test("a reindex from the settings panel updates the sidebar row without a reload", async ({ page }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(180_000);
     inHarness(`rm -f ${EXTRA_DOC}`);
     await prepareShell(page);
 
@@ -279,29 +297,40 @@ test.describe("KB stats shared across surfaces (F2)", () => {
     const kbRow = kbRowFor(page, KB_FIXTURE);
     await expect(kbRow).toBeVisible({ timeout: 20_000 });
     await expect(kbRow).not.toHaveAttribute("data-state", "loading", { timeout: 15_000 });
-    if ((await kbRow.getAttribute("data-state")) !== "populated") {
-      await reindexFromMenu(page, KB_FIXTURE);
-    }
-    await expect(kbRow).toHaveAttribute("data-state", "populated", { timeout: 60_000 });
-    const before = (await kbRow.getByTestId("folder-kb-count").textContent()) ?? "";
 
-    // Grow the corpus out-of-band so the rebuild produces a DIFFERENT count.
+    // Deterministic baseline: rebuild WITHOUT the extra doc. The index is a
+    // persisted volume shared by every run, so the row's current number cannot
+    // be trusted as the pre-reindex value.
+    const baseline = await reindexViaApi(page, KB_FIXTURE);
+
+    // Grow the corpus out-of-band so the panel-driven rebuild produces a
+    // DIFFERENT count — "the row changed" must not be satisfiable by a re-render.
     inHarness(
-      `printf '# e2e shared stats\\n\\n%s\\n' "$(yes 'shared stats store convergence probe paragraph.' | head -n 40)" > ${EXTRA_DOC}`,
+      `printf '# e2e shared stats\n\n%s\n' "$(yes 'shared stats store convergence probe paragraph.' | head -n 40)" > ${EXTRA_DOC}`,
     );
 
-    // Open the settings overlay; the sidebar row stays mounted behind it.
+    // Open the settings overlay; the sidebar row stays mounted behind it, and
+    // the panel joining the shared store revalidates it onto the baseline.
     await kbRow.getByTestId("folder-kb-open-settings").click();
     await expect(page.getByTestId("kb-settings-page")).toBeVisible({ timeout: 15_000 });
     await expect(kbRow).toBeVisible();
+    await expect(kbRow).toHaveAttribute("data-state", "populated", { timeout: 30_000 });
+    await expect(kbRow.getByTestId("folder-kb-count")).toContainText(String(baseline.chunks), { timeout: 30_000 });
+    const before = (await kbRow.getByTestId("folder-kb-count").textContent()) ?? "";
 
     const reindexNow = page.getByTestId("kb-reindex-now");
     await expect(reindexNow).toBeEnabled({ timeout: 15_000 });
     await reindexNow.click();
 
     // NO reload, NO remount: the shared store fans the job out to the sidebar row.
-    await expect(kbRow.getByTestId("folder-kb-count")).not.toHaveText(before, { timeout: 60_000 });
-    await expect(kbRow).toHaveAttribute("data-state", "populated", { timeout: 60_000 });
+    // Both conditions must hold AT THE SAME TIME. Asserted separately either one
+    // can pass on a transient frame: `populated` is also the PRE-click state, and
+    // the optimistic `pending` rewrites folder-kb-count to "indexing… N files", so
+    // a rebuild that settles back on the OLD chunk count would still pass.
+    await expect(async () => {
+      await expect(kbRow).toHaveAttribute("data-state", "populated", { timeout: 1_000 });
+      await expect(kbRow.getByTestId("folder-kb-count")).not.toHaveText(before, { timeout: 1_000 });
+    }).toPass({ timeout: 90_000 });
     await expect(kbRow.getByTestId("folder-kb-count")).toContainText(/chunks/i);
   });
 });

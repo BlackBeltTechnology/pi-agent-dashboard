@@ -155,6 +155,10 @@ export class KbStatsStore {
   }
 
   private startFetch(kind: FetchKind): void {
+    // A poll tick NEVER stacks on a request still in flight: a slow or hung
+    // `/stats` would otherwise accumulate one request per second. The next tick
+    // after it settles resumes the loop.
+    if (kind === "poll" && this.inFlight) return;
     if (kind !== "poll") {
       this.ac?.abort(); // supersede the in-flight epoch
       // Parity with the old effect body, which reset the miss run on every
