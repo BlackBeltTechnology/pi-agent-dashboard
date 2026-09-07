@@ -105,12 +105,12 @@ describe("resolveInstalled — non-200 / malformed are transient (X2)", () => {
     vi.useFakeTimers();
     let n = 0;
     let succeed = false;
-    const fetch = (async () => {
+    const fetchImpl: typeof fetch = async () => {
       n += 1;
       if (succeed) return jsonRes(200, { installed: true });
       return respond();
-    }) as typeof fetch;
-    resolveInstalled({ fetchImpl: fetch, backoffMs: [10, 10, 10], slowIntervalMs: 20 });
+    };
+    resolveInstalled({ fetchImpl, backoffMs: [10, 10, 10], slowIntervalMs: 20 });
 
     await flush();
     expect(n).toBe(1);

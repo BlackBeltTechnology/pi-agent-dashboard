@@ -32,7 +32,7 @@ function mountGate(shouldRender: () => boolean, onRender?: () => void) {
   const registry = createSlotRegistry();
   registry.addClaim({
     pluginId: "blackhole",
-    id: "memory-claim",
+    priority: 100,
     slot: "session-card-memory",
     shouldRender: () => shouldRender(),
   });

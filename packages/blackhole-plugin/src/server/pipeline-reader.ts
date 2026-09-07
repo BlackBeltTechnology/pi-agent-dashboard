@@ -160,9 +160,9 @@ function readPendingState(pendingPath: string): SessionPipelineState {
     activity: anyCursor || hasBatches ? "active" : "none",
     pendingBatches: batchCount,
     cursors: {
-      observer: cursorView(cursors?.observer),
-      reflector: cursorView(cursors?.reflector),
-      dropper: cursorView(cursors?.dropper),
+      observer: cursorView(cursors?.observer as PinnedCursor | undefined),
+      reflector: cursorView(cursors?.reflector as PinnedCursor | undefined),
+      dropper: cursorView(cursors?.dropper as PinnedCursor | undefined),
     },
     tip:
       typeof state.tip === "number" && Number.isFinite(state.tip) ? state.tip : null,

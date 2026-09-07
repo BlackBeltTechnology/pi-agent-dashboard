@@ -135,7 +135,7 @@ export function registerBlackholeRoutes(
     // Per-worker chain head: `<worker>Model ?? model`, as `provider/id`.
     const chainHead = (worker: string): string | null =>
       modelKey(fieldValue(`${worker}Model`)) ?? modelKey(fieldValue("model"));
-    const state = readSessionPipeline(env, id, configFields, {
+    const state = readSessionPipeline(env ?? process.env, id, configFields, {
       observer: chainHead("observer"),
       reflector: chainHead("reflector"),
       dropper: chainHead("dropper"),
