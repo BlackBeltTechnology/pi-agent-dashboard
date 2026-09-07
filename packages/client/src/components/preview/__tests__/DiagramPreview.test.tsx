@@ -105,4 +105,44 @@ describe("DiagramPreview", () => {
       expect(screen.getByText((c) => c.includes("A->B"))).toBeTruthy();
     });
   });
+
+  it("clears prior state and shows fallback if second target read fails", async () => {
+    let callCount = 0;
+    global.fetch = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes("/api/file?")) {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            ok: true,
+            json: async () => ({ success: true, data: { content: "@startuml\nA->B\n@enduml" } }),
+          };
+        }
+        return {
+          ok: false,
+          json: async () => ({ success: false, error: "File not found" }),
+        };
+      }
+      if (url.includes("/api/diagram/render")) {
+        return {
+          ok: true,
+          json: async () => ({ success: true, data: { svg: '<svg xmlns="http://www.w3.org/2000/svg"><circle cx="5" cy="5" r="5"/></svg>' } }),
+        };
+      }
+      return { ok: false };
+    }) as any;
+
+    const { rerender } = render(<DiagramPreview target={{ kind: "file", cwd: "/proj", path: "first.puml" }} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("diagram-svg-container")).toBeTruthy();
+    });
+
+    // Rerender with second file that fails to load
+    rerender(<DiagramPreview target={{ kind: "file", cwd: "/proj", path: "second.puml" }} />);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("diagram-svg-container")).toBeNull();
+      expect(screen.getByText("File not found")).toBeTruthy();
+    });
+  });
 });

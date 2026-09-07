@@ -17,6 +17,8 @@ services:
   kroki:
     image: yuzutech/kroki:latest
     restart: unless-stopped
+    networks:
+      - kroki-internal
     environment:
       KROKI_SAFE_MODE: secure
     deploy:
@@ -25,7 +27,14 @@ services:
           memory: "${KROKI_MEM_LIMIT:-2g}"
 
   pi-dashboard:
+    networks:
+      - default
+      - kroki-internal
     environment:
       KROKI_URL: "http://kroki:8000"
     depends_on:
       - kroki
+
+networks:
+  kroki-internal:
+    internal: true

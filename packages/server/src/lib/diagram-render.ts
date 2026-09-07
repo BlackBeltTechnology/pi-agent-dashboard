@@ -45,13 +45,17 @@ async function sanitizeSvg(svg: string): Promise<string> {
 }
 
 // ── In-memory LRU cache ─────────────────────────────────────────────────────
-// Keyed sha256(type + "\0" + source + "\0" + endpoint), bounded to 100 entries (~20MB)
+// Keyed sha256(type + "\0" + source + "\0" + endpoint), bounded to 100 entries / 20 MB total bytes
 const CACHE_MAX_ENTRIES = 100;
+const CACHE_MAX_BYTES = 20 * 1024 * 1024; // 20 MB
+
 interface CacheEntry {
   key: string;
   svg: string;
+  bytes: number;
 }
 const renderCache: CacheEntry[] = [];
+let totalCacheBytes = 0;
 
 function computeCacheKey(type: string, source: string, endpoint: string): string {
   return createHash("sha256")
@@ -70,16 +74,25 @@ function getCachedRender(key: string): string | undefined {
 }
 
 function setCachedRender(key: string, svg: string): void {
+  const bytes = Buffer.byteLength(svg, "utf-8");
   const idx = renderCache.findIndex((e) => e.key === key);
-  if (idx >= 0) renderCache.splice(idx, 1);
-  renderCache.unshift({ key, svg });
-  if (renderCache.length > CACHE_MAX_ENTRIES) {
-    renderCache.length = CACHE_MAX_ENTRIES;
+  if (idx >= 0) {
+    const [existing] = renderCache.splice(idx, 1);
+    totalCacheBytes -= existing.bytes;
+  }
+
+  renderCache.unshift({ key, svg, bytes });
+  totalCacheBytes += bytes;
+
+  while (renderCache.length > CACHE_MAX_ENTRIES || totalCacheBytes > CACHE_MAX_BYTES) {
+    const evicted = renderCache.pop();
+    if (evicted) totalCacheBytes -= evicted.bytes;
   }
 }
 
 export function clearDiagramCache(): void {
   renderCache.length = 0;
+  totalCacheBytes = 0;
 }
 
 export type DiagramRenderResult =
@@ -157,11 +170,34 @@ export async function renderDiagram(
         if (!res.ok) {
           throw new Error(`Upstream returned HTTP ${res.status}`);
         }
-        const text = await res.text();
-        if (Buffer.byteLength(text, "utf-8") > MAX_DIAGRAM_RESPONSE_BYTES) {
-          throw new Error("Upstream response exceeded 5MB size cap");
+        if (!res.body) {
+          return await res.text();
         }
-        return text;
+
+        const reader = res.body.getReader();
+        const chunks: Uint8Array[] = [];
+        let totalBytes = 0;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) {
+            totalBytes += value.byteLength;
+            if (totalBytes > MAX_DIAGRAM_RESPONSE_BYTES) {
+              await reader.cancel();
+              throw new Error("Upstream response exceeded 5MB size cap");
+            }
+            chunks.push(value);
+          }
+        }
+
+        const combined = new Uint8Array(totalBytes);
+        let offset = 0;
+        for (const chunk of chunks) {
+          combined.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+        return new TextDecoder().decode(combined);
       } finally {
         clearTimeout(timer);
       }

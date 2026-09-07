@@ -1130,11 +1130,11 @@ export function registerFileRoutes(
     async (request, reply) => {
       const body = (request.body ?? {}) as Record<string, unknown>;
       const type = typeof body.type === "string" ? body.type : "";
-      const source = typeof body.source === "string" ? body.source : "";
+      const source = typeof body.source === "string" ? body.source.trim() : "";
 
-      if (!type || typeof body.source !== "string") {
+      if (!type || !source) {
         reply.code(400);
-        return { success: false, error: "type and source are required" } satisfies ApiResponse;
+        return { success: false, error: "type and non-empty source are required" } satisfies ApiResponse;
       }
 
       const cfg = loadConfig();

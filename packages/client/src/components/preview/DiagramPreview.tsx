@@ -34,6 +34,10 @@ export function DiagramPreview({ target, sourceText }: Props) {
       setSource(sourceText);
       return;
     }
+    setSource(null);
+    setSvg(null);
+    setStatusNotice(null);
+    setLoading(true);
     let cancelled = false;
     void (async () => {
       try {

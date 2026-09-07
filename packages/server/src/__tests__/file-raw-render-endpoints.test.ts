@@ -1183,14 +1183,20 @@ describe("POST /api/diagram/render and Kroki resolution (test-plan #E1–#E7, #X
     expect(unsupp.statusCode).toBe(400);
 
     // 3. No endpoint configured -> 503 unavailable
-    const unavail = await app.inject({
-      method: "POST",
-      url: "/api/diagram/render",
-      payload: { type: "plantuml", source: "@startuml\nA->B\n@enduml" },
-    });
-    expect(unavail.statusCode).toBe(503);
-    const json = unavail.json();
-    expect(json.success).toBe(false);
-    expect(json.code).toBe("unavailable");
+    const origKrokiUrl = process.env.KROKI_URL;
+    delete process.env.KROKI_URL;
+    try {
+      const unavail = await app.inject({
+        method: "POST",
+        url: "/api/diagram/render",
+        payload: { type: "plantuml", source: "@startuml\nA->B\n@enduml" },
+      });
+      expect(unavail.statusCode).toBe(503);
+      const json = unavail.json();
+      expect(json.success).toBe(false);
+      expect(json.code).toBe("unavailable");
+    } finally {
+      if (origKrokiUrl !== undefined) process.env.KROKI_URL = origKrokiUrl;
+    }
   });
 });
