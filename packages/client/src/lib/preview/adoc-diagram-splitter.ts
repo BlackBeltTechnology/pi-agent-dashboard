@@ -29,13 +29,15 @@ interface DiagramSegment {
 export type AdocSegment = RawHtmlSegment | DiagramSegment;
 
 function decodeHtmlEntities(str: string): string {
-  return str
-    .replace(/&gt;/g, ">")
-    .replace(/&lt;/g, "<")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&#x27;/g, "'");
+  const map: Record<string, string> = {
+    "&gt;": ">",
+    "&lt;": "<",
+    "&quot;": '"',
+    "&#39;": "'",
+    "&#x27;": "'",
+    "&amp;": "&",
+  };
+  return str.replace(/&(?:gt|lt|quot|#39|#x27|amp);/g, (m) => map[m] ?? m);
 }
 
 /**
