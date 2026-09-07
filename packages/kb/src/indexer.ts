@@ -60,6 +60,11 @@ const TITLE_EXT_RE = /\.(md|mdx|markdown|adoc|asciidoc)$/i;
 const YIELD_EVERY = 100;
 const yieldToEventLoop = (): Promise<void> => new Promise<void>((r) => setImmediate(r));
 
+/** Escape every RegExp metacharacter in a literal. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /** Minimal glob → RegExp (supports **, *, ?). Good enough for include/exclude. */
 function globToRe(g: string): RegExp {
   const body = g
@@ -111,7 +116,10 @@ export async function indexSource(store: KbStore, src: IndexSource, opts: IndexO
   }
   // NOTE: `extRe` is dead (never applied to the file list) — kept as-is, only its
   // default widened alongside the live gates. See design D4.
-  const extRe = opts.extensions?.length ? new RegExp("(" + opts.extensions.map((e) => e.replace(/\./g, "\\.")).join("|") + ")$", "i") : SELECTABLE_RE;
+  // Escape EVERY regex metacharacter, not just `.` — a caller-supplied extension
+  // is untrusted input and a lone `\` escape leaves the pattern injectable
+  // (`js/incomplete-sanitization`).
+  const extRe = opts.extensions?.length ? new RegExp("(" + opts.extensions.map(escapeRegExp).join("|") + ")$", "i") : SELECTABLE_RE;
   const inc = opts.include?.map(globToRe);
   const exc = opts.exclude?.map(globToRe);
   const includeSourceMd = opts.includeSourceMarkdown !== false;

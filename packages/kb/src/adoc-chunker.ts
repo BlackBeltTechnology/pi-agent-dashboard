@@ -106,6 +106,15 @@ function parseHeader(lines: string[]): { doctitle: string | null; attributes: Re
   return { doctitle: m[1], attributes, bodyStart: i };
 }
 
+/** Upper bound on a cross-reference target/label. Every quantifier below is
+ *  BOUNDED on purpose: an unbounded character class scanning from each of n
+ *  start positions is polynomial (`js/polynomial-redos`) on adversarial input,
+ *  and the indexer feeds these regexes arbitrary repository files. No real
+ *  xref target or label approaches this length. */
+const XREF_MAX = 256;
+const XREF_MACRO_RE = new RegExp(String.raw`xref:([^\[\s]{1,${XREF_MAX}})\[`, "g");
+const XREF_ANGLE_RE = new RegExp(String.raw`<<([^>,\s]{1,${XREF_MAX}})(?:,[^>]{0,${XREF_MAX}})?>>`, "g");
+
 /** Outbound document links: `xref:target[]` and `<<target>>` whose file
  *  component (fragment stripped first) ends in `.adoc`/`.asciidoc`. */
 export function extractXrefs(text: string): string[] {
@@ -114,8 +123,8 @@ export function extractXrefs(text: string): string[] {
     const file = raw.split("#")[0].trim();
     if (file && ADOC_EXT_RE.test(file)) out.push(file);
   };
-  for (const m of text.matchAll(/xref:([^\[\s]+)\[/g)) take(m[1]);
-  for (const m of text.matchAll(/<<([^>,\s]+)(?:,[^>]*)?>>/g)) take(m[1]);
+  for (const m of text.matchAll(XREF_MACRO_RE)) take(m[1]);
+  for (const m of text.matchAll(XREF_ANGLE_RE)) take(m[1]);
   return out;
 }
 
