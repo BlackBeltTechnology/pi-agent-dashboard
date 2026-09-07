@@ -101,7 +101,10 @@ function parseHeader(lines: string[]): { doctitle: string | null; attributes: Re
     const a = line.match(ATTR_RE);
     if (!a) break; // author/revision or anything else ends the header
     const negated = a[1] === "!" || a[3] === "!";
-    attributes[a[2]] = negated ? NEGATED : (a[4] ?? "");
+    // Asciidoctor normalizes attribute NAMES to lowercase (values keep their
+    // case), so `:Tags:` and `:tags:` are the same attribute. Canonicalize here
+    // or the indexer's facet/meta keys would miss a mixed-case declaration.
+    attributes[a[2].toLowerCase()] = negated ? NEGATED : (a[4] ?? "");
   }
   return { doctitle: m[1], attributes, bodyStart: i };
 }

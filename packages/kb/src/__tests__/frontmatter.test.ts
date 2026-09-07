@@ -136,6 +136,14 @@ describe("asciidoc document-attribute header", () => {
     expect(r.attributes?.attr).toBe("value");
   });
 
+  it("E2: attribute NAMES are lowercased, values keep their case (asciidoctor semantics)", () => {
+    const r = chunkAsciiDoc({ root: "r", path: "doc.adoc", text: `= T\n:Tags: API Docs\n:URL-Repo: https://Example.COM\n\n${LONG}` });
+    expect(r.attributes?.tags).toBe("API Docs");
+    expect(r.attributes?.["url-repo"]).toBe("https://Example.COM");
+    expect(r.attributes?.Tags).toBeUndefined();
+    expect(r.frontmatter?.tags).toBe("API Docs"); // reaches the indexer's facet keys
+  });
+
   it("E3: a headerless file has a null attribute map and a file-name heading", () => {
     const r = chunkAsciiDoc({ root: "r", path: "sub/notes.adoc", text: LONG });
     expect(r.attributes).toBeNull();

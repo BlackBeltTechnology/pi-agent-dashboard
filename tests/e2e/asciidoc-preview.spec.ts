@@ -115,6 +115,14 @@ test.describe("AsciiDoc preview styling", () => {
     const headingColor = () => styleOf(body, "h2", "color");
     const before = await headingColor();
 
+    // A window sentinel is the only assertion that survives ONLY without a
+    // document reload — a reload would recreate an identically-visible preview
+    // with the theme already applied, so "the preview is still visible" proves
+    // nothing about the no-reload half of the F6 contract.
+    await page.evaluate(() => {
+      (window as unknown as { __adocNoReload?: number }).__adocNoReload = Date.now();
+    });
+
     // The ThemePicker lives in the sidebar header, which stays mounted next to
     // the editor pane — so no navigation or reload happens between samples.
     await dismissToasts(page);
@@ -137,7 +145,10 @@ test.describe("AsciiDoc preview styling", () => {
       await expect(dropdown).toBeVisible({ timeout: 10_000 });
     }
     expect(after, "no registered theme changed the .asciidoc-body heading colour").not.toBe(before);
-    // Still the same document, never re-fetched: the preview is still mounted.
+    // Same document object: the sentinel survived, so the colour change came
+    // from CSS custom properties re-resolving, not from a reload.
+    const sentinel = await page.evaluate(() => (window as unknown as { __adocNoReload?: number }).__adocNoReload);
+    expect(sentinel, "the document reloaded — F6 requires an in-place retarget").toBeTruthy();
     await expect(body).toBeVisible();
   });
 });
