@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -233,46 +234,19 @@ describe("schema-version + config-hash reindex gate", () => {
     q.close();
   });
 
-  // change: asciidoc-support (test-plan #E17) — the D3a SCHEMA_VERSION bump adds
-  // two FTS5 line-anchor columns, which FTS5 cannot ALTER in. The gate must
-  // rebuild the store and the new columns must be readable afterwards.
-  it("E17: the SCHEMA_VERSION bump reindexes and the line-anchor columns are readable", async () => {
-    const dir = mkdir();
-    const body = "asciidoc content long enough to comfortably exceed the tiny-chunk merge threshold so the chunk survives normalization.";
-    md(dir, "a.adoc", `= Doc\n\n== Sec\n${body}\n`);
-    const dbDir = mkdir();
-    const dbPath = join(dbDir, "index.db");
-    const sources = [{ id: "t", dir }];
-
-    await runIndexAtomic({ dbPath, sources });
-    const s = new SqliteFtsStore(dbPath);
-    s.setUserVersion(SCHEMA_VERSION - 1); // simulate a store at the previous version
-    s.close();
-
-    const run = await runIndexAtomic({ dbPath, sources });
-    expect(run.changed).toBe(1); // full reindex, no crash
-    const q = new SqliteFtsStore(dbPath);
-    expect(q.getUserVersion()).toBe(SCHEMA_VERSION);
-    const chunk = q.getChunk("t", "a.adoc", "Doc > Sec");
-    expect(chunk?.startLine).toBe(4);
-    expect(chunk?.endLine).toBe(4);
-    q.close();
-  });
-
-  // The gate above is NOT sufficient on its own: a store created BEFORE the D3a
-  // column addition keeps its 10-column FTS5 `chunks` table, and
+  // change: asciidoc-support (test-plan #E17). The version gate alone is NOT
+  // sufficient: a store created BEFORE the D3a column addition keeps its 10-column FTS5 `chunks` table, and
   // `CREATE VIRTUAL TABLE IF NOT EXISTS` will not widen it. Without the rebuild
   // in `init()` every `insertChunk` throws "table chunks has no column named
   // start_line" and the store is permanently un-reindexable. This builds the
   // genuine PRE-change table shape rather than re-opening a new-schema store.
-  it("E17: a store carrying the PRE-change chunks table is rebuilt, not bricked", async () => {
-    const dir = mkdir();
-    md(dir, "a.adoc", "= Doc\n\n== Sec\nasciidoc body padded well past the tiny-chunk merge threshold so it survives.\n");
-    const dbDir = mkdir();
-    const dbPath = join(dbDir, "index.db");
-
-    // Hand-build the OLD 10-column schema + a file-state row claiming a.adoc is
-    // already indexed (an incremental walk would otherwise skip it).
+  /** Hand-build a store at the genuine PRE-change shape: a 10-column `chunks`
+   *  FTS5 table plus a `files` row claiming the fixture is already indexed at
+   *  its CURRENT mtime+sha (so an incremental walk would skip it). */
+  function seedPreChangeStore(dir: string, rel: string): string {
+    const dbPath = join(mkdir(), "index.db");
+    const st = statSync(join(dir, rel));
+    const hash = createHash("sha256").update(readFileSync(join(dir, rel))).digest("hex");
     const old = new DatabaseSync(dbPath);
     old.exec("PRAGMA journal_mode=WAL");
     old.exec(`CREATE VIRTUAL TABLE chunks USING fts5(
@@ -280,9 +254,18 @@ describe("schema-version + config-hash reindex gate", () => {
       parent_chunk_id UNINDEXED, level UNINDEXED, body_hash UNINDEXED,
       heading_path, heading, body, tokenize='porter unicode61');`);
     old.exec("CREATE TABLE files (root TEXT, path TEXT, mtime_ms REAL, sha256 TEXT, PRIMARY KEY (root, path))");
-    old.prepare("INSERT INTO files(root,path,mtime_ms,sha256) VALUES('t','a.adoc',1,'stale')").run();
+    old.prepare("INSERT INTO files(root,path,mtime_ms,sha256) VALUES('t',?,?,?)").run(rel, st.mtimeMs, hash);
     old.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 1}`);
     old.close();
+    return dbPath;
+  }
+
+  const ADOC = "= Doc\n\n== Sec\nasciidoc body padded well past the tiny-chunk merge threshold so it survives.\n";
+
+  it("E17 (asciidoc-support): the PRE-change chunks table is rebuilt via runIndexAtomic, not bricked", async () => {
+    const dir = mkdir();
+    md(dir, "a.adoc", ADOC);
+    const dbPath = seedPreChangeStore(dir, "a.adoc");
 
     const run = await runIndexAtomic({ dbPath, sources: [{ id: "t", dir }] });
     expect(run.changed).toBe(1); // rebuilt + re-chunked, no throw
@@ -291,6 +274,23 @@ describe("schema-version + config-hash reindex gate", () => {
     const chunk = q.getChunk("t", "a.adoc", "Doc > Sec");
     expect(chunk?.startLine).toBe(4); // the new columns are real and readable
     q.close();
+  });
+
+  it("E17 (asciidoc-support): the rebuild repopulates on a NO-FORCE incremental walk", async () => {
+    // The kb-extension reindex path has no version gate and never passes
+    // `force`, so the migration's `files` clear is what makes the rebuilt table
+    // repopulate. Without it the mtime+sha cheap-check skips every file and the
+    // store stays permanently empty.
+    const dir = mkdir();
+    md(dir, "a.adoc", ADOC);
+    const dbPath = seedPreChangeStore(dir, "a.adoc");
+
+    const store = new SqliteFtsStore(dbPath);
+    store.init();
+    const st = await indexSource(store, { root: "t", dir }); // no force, no gate
+    expect(st.changed).toBe(1);
+    expect(store.getChunk("t", "a.adoc", "Doc > Sec")?.startLine).toBe(4);
+    store.close();
   });
 
   it("X3: an INTERRUPTED forced reindex leaves the prior DB valid + no temp husk", async () => {

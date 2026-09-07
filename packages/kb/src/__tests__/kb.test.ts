@@ -1121,6 +1121,22 @@ describe("adoc chunker", () => {
     expect(kids.map((c) => c.heading)).toEqual(["Child"]);
     expect(kids[0].parentChunkId).toBeNull();
 
+    // The grandchild shape: `= Title` (dropped) + `== Section` + `=== Sub`.
+    // Parse-time ordinals are NOT final array indices — comparing the two made
+    // Sub its own parent (ordinal 1 vs final index 1).
+    const grand = `= Title\n\n== Section\n${LONG}\n\n=== Sub\n${LONG}\n`;
+    const gs = chunkAsciiDoc({ root: "r", path: "g.adoc", text: grand }).chunks;
+    expect(gs.map((c) => c.heading)).toEqual(["Section", "Sub"]);
+    expect(gs[0].parentChunkId).toBeNull();
+    expect(gs[1].parentChunkId).toBe(gs[0].chunkId);
+    expect(gs.every((c) => c.parentChunkId !== c.chunkId)).toBe(true);
+
+    // An empty section BEFORE a real parent+child must not shift the mapping.
+    const shifted = `= T\n\n== Empty\n== Real\n${LONG}\n\n=== Kid\n${LONG}\n`;
+    const sh = chunkAsciiDoc({ root: "r", path: "s.adoc", text: shifted }).chunks;
+    expect(sh.map((c) => c.heading)).toEqual(["Real", "Kid"]);
+    expect(sh[1].parentChunkId).toBe(sh[0].chunkId);
+
     // A REAL parent still links: a preamble that survives owns the doctitle slot.
     const withPreamble = `= T\n\n${LONG}\n\n== Section\n${LONG}\n`;
     const linked = chunkAsciiDoc({ root: "r", path: "w.adoc", text: withPreamble }).chunks;

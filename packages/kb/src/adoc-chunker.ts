@@ -73,7 +73,11 @@ interface Section {
   headingPath: string;
   heading: string;
   level: number;
-  parentChunkId: string | null;
+  /** Parse-time ordinal of the parent section, or -1. Resolved to a real
+   *  `chunkId` only at finalize — an ordinal is NOT the final array index
+   *  (dropped/merged sections shift it), and comparing the two produced a
+   *  section that was its own parent. */
+  parentOrdinal: number;
   headingLine: number; // 1-based line of the title (or of the first body line)
   ordinal: number;
   slot: Slot | null; // this section's stack entry, stamped on emit
@@ -187,7 +191,7 @@ export function chunkAsciiDoc(input: AdocChunkInput): AdocParseResult {
           headingPath: stack.map((s) => s.title).join(" > "),
           heading: title,
           level,
-          parentChunkId: parentOrdinal >= 0 ? String(parentOrdinal) : null,
+          parentOrdinal,
           headingLine: lineNo,
           ordinal,
           slot,
@@ -200,7 +204,7 @@ export function chunkAsciiDoc(input: AdocChunkInput): AdocParseResult {
     }
     if (!cur) {
       // The preamble IS the doctitle's chunk, so it claims the doctitle's slot.
-      cur = { headingPath: rootTitle, heading: rootTitle, level: 0, parentChunkId: null, headingLine: lineNo, ordinal, slot: doctitle ? stack[0] : null, bodyLines: [], lineNos: [] };
+      cur = { headingPath: rootTitle, heading: rootTitle, level: 0, parentOrdinal: -1, headingLine: lineNo, ordinal, slot: doctitle ? stack[0] : null, bodyLines: [], lineNos: [] };
       ordinal++;
     }
     cur.bodyLines.push(line);
@@ -242,6 +246,14 @@ export function chunkAsciiDoc(input: AdocChunkInput): AdocParseResult {
   }
 
   const fileSha = sha(input.path);
+  // ordinal → final array index. An oversize split yields several pieces for one
+  // ordinal; children point at the first. A section whose ordinal is absent was
+  // dropped or merged away, so its children get a null parent rather than a
+  // dangling (or self-referential) id.
+  const indexByOrdinal = new Map<number, number>();
+  sized.forEach((c, i) => {
+    if (!indexByOrdinal.has(c.ordinal)) indexByOrdinal.set(c.ordinal, i);
+  });
   const chunks: Chunk[] = sized.map((c, i) => {
     const body = bodyOf(c);
     const anchors = realAnchors(c);
@@ -252,7 +264,7 @@ export function chunkAsciiDoc(input: AdocChunkInput): AdocParseResult {
       headingPath: c.headingPath,
       heading: c.heading,
       level: c.level,
-      parentChunkId: c.parentChunkId ? `${fileSha.slice(0, 8)}:${c.parentChunkId}` : null,
+      parentChunkId: parentIdOf(c, i),
       docType,
       body: body.trimEnd(),
       bodyHash: sha(body.trim()),
@@ -260,6 +272,12 @@ export function chunkAsciiDoc(input: AdocChunkInput): AdocParseResult {
       endLine: anchors.endLine,
     };
   });
+
+  function parentIdOf(c: Section, ownIndex: number): string | null {
+    const idx = indexByOrdinal.get(c.parentOrdinal);
+    if (idx === undefined || idx === ownIndex) return null; // dropped/merged parent, or self
+    return `${fileSha.slice(0, 8)}:${idx}`;
+  }
 
   const frontmatter: Record<string, FmValue> | null = attributes ? { ...attributes, ...(doctitle ? { title: doctitle } : {}) } : null;
 
