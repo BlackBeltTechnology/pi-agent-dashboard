@@ -9,6 +9,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `automation-fanout.spec.ts` | L3 fan-out E2E (test-plan F5/F6). Creates an `actions:` fan-out automation via `page.request`, fires it, and… → see `automation-fanout.spec.ts.AGENTS.md` |
 | `bind-reachability-advisory.spec.ts` | L3 for the bind-vs-trust advisory (test-plan F1–F19, X5, X6): visibility, draft convergence, remediation +… → see `bind-reachability-advisory.spec.ts.AGENTS.md` |
 | `blackhole-settings.spec.ts` | L3 spec (change: add-blackhole-plugin). Covers test-plan X3 + F1-F9 for `/settings/plugins/blackhole`. → see `blackhole-settings.spec.ts.AGENTS.md` |
+| `blackhole-session-pipeline.spec.ts` | L3 (add-blackhole-session-pipeline, F9; task 7.0). pi-blackhole NOT installed in harness: probes `/api/plugins/blackhole/status` → `{installed:false}` (meaningful negative), then asserts zero MEMORY subcards / zero `bh-memory-*` DOM on all session cards. Port from harness config, never hardcoded. |
 | `bridge-contention-health.spec.ts` | L3 (test-plan #F6). Asserts `/api/health` always carries `bridgeContentionCount` + `contendedSessionIds`,… → see `bridge-contention-health.spec.ts.AGENTS.md` |
 | `bus-client-goal-plugin-action.spec.ts` | L3/P1 (change: add-dashboard-bus-client-scripting). Drives `BusClient` from host against the harness (port… → see `bus-client-goal-plugin-action.spec.ts.AGENTS.md` |
 | `chat-attachment-two-phase.spec.ts` | Two-phase attachment render E2E (change: fit-attachments-for-display)… → see `chat-attachment-two-phase.spec.ts.AGENTS.md` |

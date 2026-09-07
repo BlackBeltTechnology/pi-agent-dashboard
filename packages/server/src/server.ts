@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { createServerPluginContext, discoverPlugins, getPluginStatusStore, loadServerEntries, pluginSpawnToSessionOptions, refreshRequirementProbesFor } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, getPluginStatusStore, loadServerEntries, pluginSpawnToSessionOptions, refreshRequirementProbesFor } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
 import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
@@ -1651,6 +1651,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // arms; Electron arm uses electron-updater whole-app replacement.
   // Package management
   const packageManagerWrapper = new PackageManagerWrapper();
+  // `isPiExtensionInstalled` capability (design D2): one shared, success-only
+  // cached probe over the UNION of global+local installed scopes — a superset
+  // of the requirement probe's global-only wiring. A scan failure rejects
+  // (never resolves false) and is never cached, so a recovered registry
+  // answers on the next call. See change: add-blackhole-session-pipeline.
+  const isPiExtensionInstalled = createIsPiExtensionInstalled({
+    listGlobal: () => packageManagerWrapper.listInstalled("global"),
+    listLocal: () => packageManagerWrapper.listInstalled("local"),
+  });
 
   // Forward progress events to all browser clients. The third arg
   // (`moveId`) is set when the event is part of a composite move op;
@@ -2233,6 +2242,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           createContext: (plugin) => createServerPluginContext(
             {
               fastify,
+              isPiExtensionInstalled,
               sessionManager: {
                 listActive: () => sessionManager.listActive(),
                 listAll: () => sessionManager.listAll(),

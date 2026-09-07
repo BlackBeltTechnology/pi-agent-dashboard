@@ -44,9 +44,35 @@ describe("blackhole-plugin manifest", () => {
     expect(claim.tab).toBe("general");
   });
 
-  it("declares ONLY the settings-section claim — the session surfaces are deferred", () => {
+  it("lands the deferred session surfaces: session-card-memory + content-view claims", () => {
+    // add-blackhole-session-pipeline lands what this manifest previously
+    // deferred. The subcard claims the memory slot with the exported
+    // synchronous gate; the drill-in claims content-view with an
+    // explicit-navigation predicate.
     const v = validateManifest(manifest, "blackhole");
-    expect(v.claims.map((c) => c.slot)).toEqual(["settings-section"]);
+    const slots = v.claims.map((c) => c.slot);
+    expect(slots).toContain("session-card-memory");
+    expect(slots).toContain("content-view");
+    const memory = v.claims.find((c) => c.slot === "session-card-memory") as {
+      component: string;
+      shouldRender: string;
+    };
+    expect(memory.component).toBe("MemorySubcard");
+    expect(memory.shouldRender).toBe("shouldRenderMemorySubcard");
+    const detail = v.claims.find((c) => c.slot === "content-view") as {
+      component: string;
+      predicate: string;
+    };
+    expect(detail.component).toBe("PipelineDetailView");
+    expect(detail.predicate).toBe("isPipelineDetailActive");
+  });
+
+  it("orders manifest-wide with priority 200 — above flows' 100, no per-claim priority (E12)", () => {
+    const v = validateManifest(manifest, "blackhole");
+    expect(v.priority).toBe(200);
+    for (const claim of v.claims) {
+      expect(claim, JSON.stringify(claim)).not.toHaveProperty("priority");
+    }
   });
 
   it("names pi-blackhole in requires.piExtensions for the install prompt", () => {
