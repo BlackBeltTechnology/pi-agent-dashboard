@@ -138,6 +138,8 @@ export function deriveSubcardState(
     workers,
     lag: deriveLag(response.cursors, response.tip),
     proximityFraction: deriveProximity(inputs),
-    pendingBatches: response.pendingBatches,
+    // Spec: the flush advisory is a MANUAL-mode condition (E10). Batches in
+    // an auto/off session are not flushable — never advise.
+    pendingBatches: response.config.compaction === "manual" ? response.pendingBatches : 0,
   };
 }

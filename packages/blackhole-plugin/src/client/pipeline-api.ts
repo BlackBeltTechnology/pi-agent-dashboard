@@ -52,5 +52,18 @@ export async function getSessionPipeline(
 ): Promise<SessionPipelineResponse> {
   const res = await fetch(`${apiBase}${sessionRoute(sessionId)}`, { signal });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return (await res.json()) as SessionPipelineResponse;
+  const body: unknown = await res.json();
+  // Validate before the assertion: a malformed 200 body must reach the
+  // caller's catch (error state), not explode during render.
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    typeof (body as { config?: unknown }).config !== "object" ||
+    (body as { config?: unknown }).config === null ||
+    typeof (body as { cursors?: unknown }).cursors !== "object" ||
+    (body as { cursors?: unknown }).cursors === null
+  ) {
+    throw new Error("malformed pipeline payload");
+  }
+  return body as SessionPipelineResponse;
 }

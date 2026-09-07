@@ -106,11 +106,20 @@ describe("subcard states (E10)", () => {
   });
 
   it("manual pending batches: advisory with count and flush hint (E10)", async () => {
-    const { getByTestId } = mount(fixture({ pendingBatches: 4 }));
+    const { getByTestId } = mount(
+      fixture({ pendingBatches: 4, config: { compactAfterTokens: 81_000, memory: true, compaction: "manual" } }),
+    );
     await new Promise((r) => setTimeout(r, 0));
     const advisory = getByTestId("bh-memory-pending-advisory");
     expect(advisory.textContent).toContain("4");
     expect(advisory.textContent).toMatch(/blackhole|flush/i);
+  });
+
+  it("auto-mode batches never show the flush advisory (CodeRabbit: manual-mode guard)", async () => {
+    const { queryByTestId, getByTestId } = mount(fixture({ pendingBatches: 4 }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(queryByTestId("bh-memory-pending-advisory")).toBeNull();
+    expect(getByTestId("bh-memory-detail")).toBeTruthy();
   });
 });
 

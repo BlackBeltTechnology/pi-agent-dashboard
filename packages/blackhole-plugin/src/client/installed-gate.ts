@@ -84,6 +84,9 @@ let active: ActivePolling | null = null;
  * slot-claims store exactly once, and stops all polling.
  */
 export function resolveInstalled(opts: ResolveInstalledOptions = {}): void {
+  // Already resolved: the value is final for the page lifetime (no re-poll,
+  // no second bump). A repeated kick is a no-op.
+  if (installed !== null) return;
   const fetchImpl =
     opts.fetchImpl ??
     ((...args: Parameters<typeof fetch>) => fetch(...args));
@@ -111,6 +114,9 @@ export function resolveInstalled(opts: ResolveInstalledOptions = {}): void {
         return (body as { installed: boolean }).installed;
       })
       .then((value) => {
+        // A newer chain superseded this one (HMR): stay silent — the winner
+        // owns the bump and the value.
+        if (active !== state) return;
         // Success finalizes the page-lifetime value. No re-poll: the timer
         // chain ends here, so nothing is scheduled after this point.
         installed = value;

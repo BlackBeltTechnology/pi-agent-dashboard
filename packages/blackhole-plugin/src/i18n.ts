@@ -74,7 +74,7 @@ export const catalog = {
     cursorsSource: "工作器游标 —— 来源：pi-blackhole/<会话 id>-pending.json",
     cooldownReason: "已冷却：{reason}",
     cooldownSource:
-      "解析后的模型与冷却原因 —— 来源：pi-blackhole/pi-blackhole-cooldown.json",
+      "冷却回退与原因 —— 来源：pi-blackhole/pi-blackhole-cooldown.json（主模型来自配置）",
     proximitySource:
       "由仪表盘自身的 token 统计对 compactAfterTokens 估算。blackhole 的计数器统计不同的量且不持久化 —— 两者不可换算。",
     transcriptNote:
@@ -142,7 +142,7 @@ export const catalog = {
     cursorsSource: "Munkás kurzorok — forrás: pi-blackhole/<munkamenet id>-pending.json",
     cooldownReason: "Hűtésben: {reason}",
     cooldownSource:
-      "Feloldott modellek és hűtési okok — forrás: pi-blackhole/pi-blackhole-cooldown.json",
+      "Hűtéses tartalékok és okok — forrás: pi-blackhole/pi-blackhole-cooldown.json (az elsődleges modellek a konfigból)",
     proximitySource:
       "A dashboard saját tokenszámításából becsülve a compactAfterTokens ellen. A blackhole számlálója más mennyiséget mér és nem perzisztált —— a kettő nem váltható át.",
     transcriptNote:
