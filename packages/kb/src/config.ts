@@ -122,9 +122,11 @@ export interface ResolvedConfig extends KbConfig {
 export const DEFAULTS: KbConfig = {
   sources: [],
   sourceCacheDir: "~/.pi/dashboard/kb/sources",
-  include: ["**/*.md"],
+  // Widened for AsciiDoc together with the indexer walk regex + chunker dispatch
+  // (design D4) — widening one gate alone indexes zero extra files.
+  include: ["**/*.md", "**/*.adoc", "**/*.asciidoc"],
   exclude: ["**/node_modules/**", "**/archive/**"],
-  extensions: [".md"],
+  extensions: [".md", ".adoc", ".asciidoc"],
   maxFileCount: null, // no cap
   maxDepth: null,
   respectGitignore: true,

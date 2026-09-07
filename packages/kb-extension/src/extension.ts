@@ -3,11 +3,14 @@
  *
  * Phase 2 (design §8.2): registers `kb_search` / `kb_neighbors` / `kb_get`
  * native tools and a single `tool_result` hook with two jobs:
- *   Job 1 (always on): a write/edit to a `.md` file → debounced, hash-gated
- *     incremental reindex. Editing an AGENTS.md also acknowledges its rows.
- *   Job 2 (opt-in, `doxEnforcement` default OFF): a write/edit to a non-md
+ *   Job 1 (always on): a write/edit to an indexable file (markdown OR AsciiDoc)
+ *     → debounced, hash-gated incremental reindex. Editing an AGENTS.md also
+ *     acknowledges its rows.
+ *   Job 2 (opt-in, `doxEnforcement` default OFF): a write/edit to a non-markdown
  *     source file → one bounded, deduped nudge to update the nearest AGENTS.md
  *     row (or to run `kb dox init` on a treeless path).
+ * The two predicates are INDEPENDENT (design D5): an `.adoc` edit is both
+ * indexable and nudge-eligible, so it runs BOTH jobs.
  *
  * Isolated standalone extension — NOT in `src/extension/bridge.ts` (design §6d,
  * R §5.2). Retrieval is pull: the agent calls the tools; nothing is auto-injected
@@ -30,8 +33,14 @@ import {acknowledgeRows,closeKb,
 const WRITE_TOOLS = new Set(["write", "edit", "bash"]);
 const AGENTS_NAMES = new Set(["AGENTS.override.md", "AGENTS.md", "CLAUDE.md"]);
 
-function isMd(p: string): boolean {
-  return /\.(md|mdx|markdown)$/i.test(p);
+/** Job 1 predicate: the file is chunked into the kb index. */
+export function isIndexable(p: string): boolean {
+  return /\.(md|mdx|markdown|adoc|asciidoc)$/i.test(p);
+}
+/** Job 2 predicate: markdown documents its own rows, so only NON-markdown files
+ *  (AsciiDoc included) are DOX-nudge eligible. Independent of `isIndexable`. */
+export function isNudgeEligible(p: string): boolean {
+  return !/\.(md|mdx|markdown)$/i.test(p);
 }
 function isAgents(p: string): boolean {
   return AGENTS_NAMES.has(p.split("/").pop() ?? "");
@@ -295,12 +304,11 @@ export default function kbExtension(pi: ExtensionAPI): void {
     if (typeof p !== "string" || !p) return;
     const cwd = (ctx as { cwd?: string })?.cwd ?? process.cwd();
 
-    if (isMd(p)) {
+    if (isIndexable(p)) {
       scheduleReindex(state, cwd, p);
       if (isAgents(p)) acknowledgeRows(cwd, p);
-      return;
     }
-    if (doxEnforcement) {
+    if (doxEnforcement && isNudgeEligible(p)) {
       const decision = decideNudge(cwd, p);
       if (!decision) return;
       const key = `${decision.kind}:${p}`;

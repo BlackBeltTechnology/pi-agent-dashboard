@@ -16,6 +16,7 @@ vi.mock("../PdfPreview.js", () => ({
   ),
 }));
 
+import { AsciiDocPreview } from "../AsciiDocPreview.js";
 import { DocxPreview } from "../DocxPreview.js";
 
 const target = { kind: "file" as const, cwd: "/proj", path: "spec.docx" };
@@ -66,5 +67,39 @@ describe("DocxPreview", () => {
       expect(link).toBeTruthy();
       expect(link?.getAttribute("href")).toContain("/api/file/raw");
     });
+  });
+});
+
+/**
+ * Typography scope shared by the AsciiDoc and docx html-mode wrappers.
+ * The `prose prose-invert` classes were dead (no @tailwindcss/typography) and
+ * are replaced by the `.asciidoc-body` stylesheet.
+ * See change: asciidoc-support (test-plan #F7, #F8).
+ */
+describe("asciidoc-body typography scope", () => {
+  const wrapperOf = (html: string): HTMLElement => {
+    const el = document.querySelector(".asciidoc-body");
+    expect(el, `no .asciidoc-body wrapper around ${html}`).toBeTruthy();
+    return el as HTMLElement;
+  };
+
+  it("F8: DocxPreview html-mode wraps output in .asciidoc-body without prose classes", async () => {
+    mockFetch({ success: true, data: { mode: "html", html: "<p>docx scope probe</p>", truncated: false, imageCount: 0 } });
+    render(<DocxPreview target={target} />);
+    await waitFor(() => expect(screen.getByText("docx scope probe")).toBeTruthy());
+    const w = wrapperOf("docx html");
+    expect(w.className).toContain("asciidoc-body");
+    expect(w.className).not.toContain("prose");
+    expect(w.textContent).toContain("docx scope probe");
+  });
+
+  it("F7: AsciiDocPreview wraps output in .asciidoc-body without prose classes", async () => {
+    mockFetch({ success: true, data: { html: "<h1>adoc scope probe</h1>" } });
+    render(<AsciiDocPreview target={{ kind: "file", cwd: "/proj", path: "doc.adoc" }} />);
+    await waitFor(() => expect(screen.getByText("adoc scope probe")).toBeTruthy());
+    const w = wrapperOf("adoc html");
+    expect(w.className).toContain("asciidoc-body");
+    expect(w.className).not.toContain("prose");
+    expect(w.className).not.toContain("prose-invert");
   });
 });

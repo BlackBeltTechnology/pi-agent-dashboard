@@ -8,12 +8,20 @@ The standalone kb extension keeps the local markdown knowledge base fresh withou
 
 ### Requirement: Debounced hash-gated reindex on markdown edit
 
-Job 1 SHALL run whenever a `write`, `edit`, or `bash` tool result carries a path ending in `.md`, `.mdx`, or `.markdown`, scheduling a debounced incremental reindex whose actual re-chunking is gated by file content changes.
+Job 1 SHALL run whenever a `write`, `edit`, or `bash` tool result carries a path ending in `.md`, `.mdx`, `.markdown`, `.adoc`, or `.asciidoc`, scheduling a debounced incremental reindex whose actual re-chunking is gated by file content changes. Reindex eligibility and DOX-nudge eligibility SHALL be decided by independent predicates: scheduling a reindex for an AsciiDoc edit MUST NOT exempt that edit from Job 2's nudge decision.
 
 #### Scenario: Markdown edit schedules a debounced reindex
 - **WHEN** a `write` or `edit` tool result reports a path matching `.md`/`.mdx`/`.markdown` (case-insensitive)
 - **THEN** a reindex is scheduled for the edited file's cwd
 - **AND** the reindex fires after the debounce window (default 800 ms) elapses with no further edit
+
+#### Scenario: AsciiDoc edit schedules a debounced reindex
+- **WHEN** a `write` or `edit` tool result reports a path matching `.adoc`/`.asciidoc` (case-insensitive)
+- **THEN** a reindex is scheduled for the edited file's cwd, identically to a markdown edit
+
+#### Scenario: AsciiDoc edit stays nudge-eligible
+- **WHEN** DOX enforcement is on and a `.adoc` file lacking a fresh AGENTS.md row is edited
+- **THEN** a reindex is scheduled AND the DOX nudge for that path is still evaluated and sent
 
 #### Scenario: Rapid successive edits collapse to one reindex
 - **WHEN** multiple markdown edits arrive for the same cwd within the debounce window

@@ -20,6 +20,8 @@ export { renderHits } from "./render.js";
 export type { RenderOpts } from "./render.js";
 export { chunkMarkdown } from "./chunker.js";
 export type { ChunkInput, ParseResult } from "./chunker.js";
+export { chunkAsciiDoc, extractXrefs, NEGATED } from "./adoc-chunker.js";
+export type { AdocChunkInput, AdocParseResult } from "./adoc-chunker.js";
 export { SqliteFtsStore } from "./sqlite-store.js";
 export { indexSource } from "./indexer.js";
 export type { IndexSource, IndexOptions, IndexStats } from "./indexer.js";

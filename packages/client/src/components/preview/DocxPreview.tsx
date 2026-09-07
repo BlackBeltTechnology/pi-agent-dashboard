@@ -90,7 +90,7 @@ export function DocxPreview({ target }: Props) {
         />
       ) : null}
       <div
-        className="asciidoc-body prose prose-invert max-w-none p-2"
+        className="asciidoc-body p-2"
         dangerouslySetInnerHTML={{ __html: data.html }}
       />
     </div>

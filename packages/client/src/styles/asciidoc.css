@@ -1,0 +1,245 @@
+/* AsciiDoc / docx preview typography (design D1, D2).
+   Scope: `.asciidoc-body` — the wrapper around asciidoctor's embedded HTML
+   output (AsciiDocPreview) and mammoth's semantic HTML (DocxPreview html mode).
+   Every colour resolves through a theme CSS custom property, so switching
+   `data-theme` retargets the preview with no stylesheet change and no reload.
+   Targets asciidoctor's long-stable class vocabulary (`sect1`, `admonitionblock`,
+   `tableblock`, `frame-*`/`grid-*`/`stripes-*`), NOT @tailwindcss/typography —
+   which does not know that vocabulary (rejected in mockup validation).
+   See change: asciidoc-support. */
+
+.asciidoc-body {
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.65;
+  max-width: none;
+  overflow-wrap: anywhere;
+}
+
+/* ── Headings ─────────────────────────────────────────────────
+   Strictly decreasing sizes, all above the 14px body size. */
+.asciidoc-body h1,
+.asciidoc-body h2,
+.asciidoc-body h3,
+.asciidoc-body h4,
+.asciidoc-body h5,
+.asciidoc-body h6 {
+  color: var(--text-primary);
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 1.4em 0 0.5em;
+}
+.asciidoc-body > h1:first-child { margin-top: 0; }
+.asciidoc-body h1 { font-size: 26px; font-weight: 700; }
+.asciidoc-body h2 { font-size: 22px; padding-bottom: 0.25em; border-bottom: 1px solid var(--border-secondary); }
+.asciidoc-body h3 { font-size: 19px; }
+.asciidoc-body h4 { font-size: 17px; }
+.asciidoc-body h5 { font-size: 15.5px; }
+.asciidoc-body h6 { font-size: 14.5px; color: var(--text-tertiary); }
+
+.asciidoc-body p { margin: 0.7em 0; }
+.asciidoc-body a { color: var(--link); text-decoration: none; }
+.asciidoc-body a:hover { color: var(--link-hover); text-decoration: underline; }
+.asciidoc-body strong { color: var(--text-primary); font-weight: 600; }
+.asciidoc-body hr { border: none; border-top: 1px solid var(--border-secondary); margin: 1.2em 0; }
+.asciidoc-body img { max-width: 100%; height: auto; }
+
+/* Section wrappers + the document byline/details block. */
+.asciidoc-body .sect1 { padding-top: 0.2em; }
+.asciidoc-body .sect2,
+.asciidoc-body .sect3,
+.asciidoc-body .sect4 { padding-top: 0.1em; }
+.asciidoc-body #header .details,
+.asciidoc-body .title {
+  color: var(--text-tertiary);
+}
+.asciidoc-body .title { font-weight: 600; margin-bottom: 0.3em; }
+
+/* ── TOC panel (rendered only when the document declares :toc:) ── */
+.asciidoc-body #toc {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-secondary);
+  border-radius: 8px;
+  padding: 0.8em 1em;
+  margin: 0 0 1.4em;
+}
+.asciidoc-body #toc #toctitle {
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 0.4em;
+}
+.asciidoc-body #toc ul {
+  list-style: none;
+  margin: 0;
+  padding-left: 0.9em;
+}
+.asciidoc-body #toc > ul { padding-left: 0; }
+.asciidoc-body #toc li { margin: 0.15em 0; }
+.asciidoc-body #toc a { color: var(--text-secondary); }
+.asciidoc-body #toc a:hover { color: var(--link-hover); }
+
+/* ── Lists ───────────────────────────────────────────────────── */
+.asciidoc-body ul,
+.asciidoc-body ol { margin: 0.6em 0; padding-left: 1.5em; }
+.asciidoc-body li { margin: 0.25em 0; }
+.asciidoc-body li > p { margin: 0.2em 0; }
+.asciidoc-body dl { margin: 0.6em 0; }
+.asciidoc-body dt { color: var(--text-primary); font-weight: 600; margin-top: 0.6em; }
+.asciidoc-body dd { margin: 0.2em 0 0 1.5em; }
+.asciidoc-body .ulist .ulist,
+.asciidoc-body .olist .olist { margin: 0.2em 0; }
+
+/* ── Code / listing blocks ───────────────────────────────────── */
+.asciidoc-body code,
+.asciidoc-body .literal > pre,
+.asciidoc-body pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+}
+.asciidoc-body :not(pre) > code {
+  background: var(--bg-code);
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  color: var(--text-primary);
+}
+.asciidoc-body .listingblock pre,
+.asciidoc-body .literalblock pre,
+.asciidoc-body pre {
+  background: var(--bg-code);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  padding: 0.8em 1em;
+  overflow-x: auto;
+  line-height: 1.5;
+  margin: 0.6em 0;
+}
+.asciidoc-body .listingblock pre code { background: none; border: none; padding: 0; }
+
+/* ── Quote / sidebar / example blocks ────────────────────────── */
+.asciidoc-body .quoteblock {
+  border-left: 3px solid var(--border-strong);
+  padding-left: 1em;
+  margin: 0.8em 0;
+  color: var(--text-tertiary);
+}
+.asciidoc-body .quoteblock .attribution { font-size: 13px; color: var(--text-muted); }
+.asciidoc-body .sidebarblock,
+.asciidoc-body .exampleblock > .content {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-secondary);
+  border-radius: 8px;
+  padding: 0.8em 1em;
+  margin: 0.8em 0;
+}
+
+/* ── Admonitions — flatten asciidoctor's nested table into a card ──
+   Asciidoctor emits `.admonitionblock > table > tbody > tr > td.icon + td.content`.
+   The table chrome is stripped so the block reads as one accent-bordered card. */
+.asciidoc-body .admonitionblock {
+  background: var(--severity-info-bg);
+  border: 1px solid var(--severity-info-border);
+  border-left: 3px solid var(--severity-info-fg);
+  border-radius: 8px;
+  padding: 0.7em 0.9em;
+  margin: 0.9em 0;
+}
+.asciidoc-body .admonitionblock > table,
+.asciidoc-body .admonitionblock > table > tbody,
+.asciidoc-body .admonitionblock > table > tbody > tr {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+}
+.asciidoc-body .admonitionblock > table td {
+  display: block;
+  border: none;
+  background: none;
+  padding: 0;
+}
+.asciidoc-body .admonitionblock td.icon {
+  color: var(--severity-info-fg);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 0.25em;
+}
+.asciidoc-body .admonitionblock td.content > :first-child { margin-top: 0; }
+.asciidoc-body .admonitionblock td.content > :last-child { margin-bottom: 0; }
+
+.asciidoc-body .admonitionblock.note {
+  background: var(--severity-info-bg);
+  border-color: var(--severity-info-border);
+  border-left-color: var(--severity-info-fg);
+}
+.asciidoc-body .admonitionblock.note td.icon { color: var(--severity-info-fg); }
+.asciidoc-body .admonitionblock.tip {
+  background: var(--severity-success-bg);
+  border-color: var(--severity-success-border);
+  border-left-color: var(--severity-success-fg);
+}
+.asciidoc-body .admonitionblock.tip td.icon { color: var(--severity-success-fg); }
+.asciidoc-body .admonitionblock.warning,
+.asciidoc-body .admonitionblock.caution {
+  background: var(--severity-warning-bg);
+  border-color: var(--severity-warning-border);
+  border-left-color: var(--severity-warning-fg);
+}
+.asciidoc-body .admonitionblock.warning td.icon,
+.asciidoc-body .admonitionblock.caution td.icon { color: var(--severity-warning-fg); }
+.asciidoc-body .admonitionblock.important {
+  background: var(--severity-error-bg);
+  border-color: var(--severity-error-border);
+  border-left-color: var(--severity-error-fg);
+}
+.asciidoc-body .admonitionblock.important td.icon { color: var(--severity-error-fg); }
+
+/* ── Tables ──────────────────────────────────────────────────── */
+.asciidoc-body table {
+  border-collapse: collapse;
+  margin: 0.9em 0;
+  width: 100%;
+  font-size: 13.5px;
+}
+.asciidoc-body table.tableblock caption { color: var(--text-tertiary); text-align: left; padding-bottom: 0.3em; }
+.asciidoc-body th,
+.asciidoc-body td {
+  padding: 0.45em 0.7em;
+  text-align: left;
+  vertical-align: top;
+  border: 1px solid var(--border-primary);
+}
+.asciidoc-body th {
+  color: var(--text-primary);
+  font-weight: 600;
+  background: var(--bg-surface);
+}
+.asciidoc-body td p { margin: 0; }
+
+/* frame variants: asciidoctor sets frame-none / frame-ends / frame-sides */
+.asciidoc-body table.frame-none { border: none; }
+.asciidoc-body table.frame-ends { border-width: 1px 0; border-style: solid; border-color: var(--border-secondary); }
+.asciidoc-body table.frame-sides { border-width: 0 1px; border-style: solid; border-color: var(--border-secondary); }
+/* grid variants: grid-none removes every cell rule; grid-rows/cols keep one axis */
+.asciidoc-body table.grid-none th,
+.asciidoc-body table.grid-none td { border-width: 0; }
+.asciidoc-body table.grid-rows th,
+.asciidoc-body table.grid-rows td { border-width: 0 0 1px; }
+.asciidoc-body table.grid-cols th,
+.asciidoc-body table.grid-cols td { border-width: 0 1px 0 0; }
+
+/* stripes variants — zebra overlay from the shared table-stripe token */
+.asciidoc-body table.stripes-even tbody tr:nth-child(even),
+.asciidoc-body table.stripes-all tbody tr,
+.asciidoc-body table.stripes-hover tbody tr:hover { background: var(--table-stripe); }
+.asciidoc-body table.stripes-odd tbody tr:nth-child(odd) { background: var(--table-stripe); }
+
+/* ── Misc asciidoctor blocks ─────────────────────────────────── */
+.asciidoc-body .imageblock,
+.asciidoc-body .videoblock { margin: 0.9em 0; }
+.asciidoc-body .imageblock .title { color: var(--text-tertiary); font-size: 13px; font-weight: 400; }
+.asciidoc-body .colist { color: var(--text-tertiary); font-size: 13px; }
+.asciidoc-body mark { background: var(--severity-warning-bg); color: var(--text-primary); }

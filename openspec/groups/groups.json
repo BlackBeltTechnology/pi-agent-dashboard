@@ -204,13 +204,14 @@
     "add-blackhole-session-pipeline": "ui",
     "fix-kb-card-refresh-and-shared-stats": "ui",
     "contention-harden-real-process-tests": "ui",
-    "verify-windows-credential-acls": "ui"
+    "verify-windows-credential-acls": "ui",
+    "asciidoc-support": "ui",
+    "diagram-rendering": "ui"
   },
   "changeOrder": {
     "__ungrouped__": [
       "add-microservice-pattern-selection-skill",
       "add-session-step-table",
-      "add-voice-assistant-dashboard-plugin",
       "implement-it",
       "ab-test-rlm-delegation-claim",
       "drop-final-update-on-tool-execution-end",
@@ -218,6 +219,7 @@
       "serve-retained-remote-transcripts",
       "add-grammar-correction-eval",
       "add-native-pi-tui-view",
+      "add-voice-assistant-dashboard-plugin",
       "add-speaker-id-enrollment"
     ],
     "kowledge-base": [
@@ -233,7 +235,9 @@
       "fix-openspec-board-worktree-button-gating",
       "add-blackhole-session-pipeline",
       "contention-harden-real-process-tests",
-      "verify-windows-credential-acls"
+      "verify-windows-credential-acls",
+      "asciidoc-support",
+      "diagram-rendering"
     ],
     "next-phase": [
       "add-session-trajectory-view",
