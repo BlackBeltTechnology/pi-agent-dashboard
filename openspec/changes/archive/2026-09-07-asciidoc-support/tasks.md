@@ -50,4 +50,4 @@
 
 ## 5. Manual verification
 
-- [ ] 5.1 Review rendered AsciiDoc preview against the validated mockup across several themes, dark + light (test-plan: manual-only, #F9).
+- [x] 5.1 Review rendered AsciiDoc preview against the validated mockup across several themes, dark + light (test-plan: manual-only, #F9).
