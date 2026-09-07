@@ -16,12 +16,13 @@ import {
   type FolderMenuStore,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import type { KbStats } from "../../shared/kb-plugin-types.js";
 import { deriveKbRowState, FolderKbSection } from "../FolderKbSection.js";
 import { kbSettingsUrl } from "../kb-api.js";
+import { resetKbStatsStores } from "../useKbStats.js";
 
 const cwd = "/repo/alpha";
 
@@ -40,7 +41,10 @@ function mockStats(s: KbStats) {
   });
 }
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+// The per-cwd stats store is a module singleton — reset it so no snapshot,
+// poll or armed guard leaks between tests. See change: fix-kb-card-refresh-and-shared-stats.
+beforeEach(() => { resetKbStatsStores(); });
+afterEach(() => { cleanup(); resetKbStatsStores(); vi.restoreAllMocks(); });
 
 function renderSlot(hook?: unknown, store: FolderMenuStore = createFolderMenuStore()) {
   const utils = render(
@@ -105,7 +109,7 @@ describe("FolderKbSection render", () => {
     expect(item.badge).toBeUndefined();
   });
 
-  it("the pill exposes no action control of its own (test-plan #E1, #E2)", async () => {
+  it("the pill ROOT exposes no action control of its own (test-plan #E1, #E2)", async () => {
     (globalThis as { fetch?: unknown }).fetch = mockStats(stats({ chunks: 1247 }));
     const { getByTestId, queryByTestId } = renderSlot();
     await waitFor(() => expect(getByTestId("folder-kb-count").textContent).toContain("1,247"));
@@ -114,6 +118,10 @@ describe("FolderKbSection render", () => {
     }
     const section = getByTestId("folder-kb-section");
     const pill = getByTestId("folder-kb-open-settings");
+    // The state-only rule binds the PILL ROOT: nothing interactive may nest
+    // inside it. The card placement's sanctioned sibling control lives outside
+    // it (asserted separately); the sidebar placement rendered here has none.
+    expect(pill.querySelectorAll("button, a, [role='button'], [tabindex]:not([tabindex='-1'])")).toHaveLength(0);
     expect(
       Array.from(section.querySelectorAll("button, a, [role='button'], [tabindex]:not([tabindex='-1'])")),
     ).toEqual([pill]);
@@ -285,6 +293,89 @@ describe("FolderKbSection render", () => {
     const pill = getByTestId("folder-kb-open-settings");
     expect(pill.className).toContain("bg-[var(--bg-secondary)]");
     expect(pill.className).toContain("shadow-[0_1px_2px_var(--shadow-card)]");
+  });
+
+  // ── Card-placement sibling reindex control ──────────────────────
+  // The card scope has no folder actions menu, so the section renders ONE
+  // compact control as a SIBLING of the pill. See change:
+  // fix-kb-card-refresh-and-shared-stats (test-plan #E1, #E2, #F3).
+
+  const cardControl = (get: (id: string) => HTMLElement) => get("folder-kb-card-reindex") as HTMLButtonElement;
+
+  it("E1: the sibling control's accessible name follows the KB state", async () => {
+    const cases: Array<[Partial<KbStats>, string, boolean]> = [
+      [{ chunks: 0, indexed: false, jobStatus: "error", lastError: "boom" }, "Retry", false],
+      [{ indexing: true, jobStatus: "running" }, "indexing", true],
+      [{ chunks: 0, indexed: false }, "Index now", false],
+      [{ chunks: 88, staleCount: 3 }, "Reindex now", false],
+      [{ chunks: 88 }, "Reindex now", false],
+    ];
+    for (const [over, label, disabled] of cases) {
+      (globalThis as { fetch?: unknown }).fetch = mockStats(stats(over));
+      const { getByTestId, unmount } = renderSlotPlacement("card");
+      await waitFor(() => expect(getByTestId("folder-kb-card-reindex").getAttribute("aria-label")).toContain(label));
+      const control = cardControl(getByTestId);
+      expect(control.disabled).toBe(disabled);
+      // Perceivable while disabled: a disabled button swallows the mouse events
+      // its own `title` needs, so the wrapper carries the label too.
+      expect(control.parentElement?.getAttribute("title")).toContain(label);
+      unmount();
+      cleanup();
+      resetKbStatsStores();
+    }
+  });
+
+  it("E2: card renders exactly one control OUTSIDE the pill root; sidebar renders none", async () => {
+    (globalThis as { fetch?: unknown }).fetch = mockStats(stats({ chunks: 12 }));
+    const card = renderSlotPlacement("card");
+    await waitFor(() => expect(card.getByTestId("folder-kb-card-reindex")).toBeTruthy());
+    const section = card.getByTestId("folder-kb-section");
+    const pill = card.getByTestId("folder-kb-open-settings");
+    const control = card.getByTestId("folder-kb-card-reindex");
+    expect(section.querySelectorAll("[data-testid='folder-kb-card-reindex']")).toHaveLength(1);
+    // Sibling: outside the pill root, and its wrapper is a direct child of the section.
+    expect(pill.contains(control)).toBe(false);
+    expect(control.parentElement?.parentElement).toBe(section);
+    expect(pill.querySelectorAll("button, a, [role='button'], [tabindex]:not([tabindex='-1'])")).toHaveLength(0);
+    card.unmount();
+    cleanup();
+    resetKbStatsStores();
+
+    (globalThis as { fetch?: unknown }).fetch = mockStats(stats({ chunks: 12 }));
+    const sidebar = renderSlotPlacement();
+    await waitFor(() => expect(sidebar.getByTestId("folder-kb-open-settings")).toBeTruthy());
+    expect(sidebar.queryByTestId("folder-kb-card-reindex")).toBeNull();
+  });
+
+  it("F3: activating the sibling control reindexes and never opens settings", async () => {
+    const fetchMock = mockStats(stats({ chunks: 12 }));
+    (globalThis as { fetch?: unknown }).fetch = fetchMock;
+    const { hook, history } = memoryLocation({ path: "/", record: true });
+    const { getByTestId } = render(
+      <Router hook={hook as never}>
+        <FolderMenuProvider store={createFolderMenuStore()}>
+          <CurrentPluginLayer pluginId="kb-plugin">
+            <FolderKbSection folder={{ cwd }} placement="card" />
+          </CurrentPluginLayer>
+        </FolderMenuProvider>
+      </Router>,
+    );
+    await waitFor(() => expect(getByTestId("folder-kb-card-reindex")).toBeTruthy());
+    const before = history.length;
+    const control = getByTestId("folder-kb-card-reindex");
+    const posts = () => fetchMock.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === "POST").length;
+
+    // Keyboard first: the pill root's Enter/Space `onKeyDown` must never see
+    // these (the control is a sibling, so nothing bubbles into it). jsdom does
+    // not synthesize the native button click from keyDown, so the activation
+    // itself is asserted through the click a real Enter/Space would produce.
+    fireEvent.keyDown(control, { key: "Enter" });
+    fireEvent.keyDown(control, { key: " " });
+    expect(history.length).toBe(before);
+    fireEvent.click(control);
+    await waitFor(() => expect(posts()).toBe(1));
+    expect(history.length).toBe(before);
+    expect(history[history.length - 1]).not.toBe(kbSettingsUrl(cwd));
   });
 
   it("count opens the KB settings overlay on click", async () => {

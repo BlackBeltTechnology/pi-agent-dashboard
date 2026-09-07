@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { expect, type Page, test } from "./fixtures.js";
 import { gotoDashboard, pinDirectory } from "./helpers/index.js";
 
@@ -230,5 +232,76 @@ test.describe("folder header cluster at a narrow sidebar (F8)", () => {
     ]);
     expect(parentClipped).toBe(true);
     expect(leafWidth).toBeGreaterThan(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// fix-kb-card-refresh-and-shared-stats — F2 (the reported defect): a reindex
+// triggered from the KB settings panel must be reflected in the SIDEBAR KB row
+// WITHOUT a page reload. Before the shared per-cwd stats store the two surfaces
+// each held a private copy of the state, so the sidebar row only learned about
+// the rebuild on a remount/reload (the assertion the spec above still makes).
+//
+// The count is made to genuinely CHANGE by dropping an extra markdown file into
+// the fixture out-of-band (docker exec), so "updated" is observable and not a
+// re-render of the same number. The file is removed again in afterEach, keeping
+// the spec re-runnable against the shared container.
+// ─────────────────────────────────────────────────────────────────────────────
+const EXTRA_DOC = `${KB_FIXTURE}/e2e-shared-stats-extra.md`;
+
+function harnessContainer(): string {
+  // Never a literal port: global-setup derives PW_E2E_PORT from the harness
+  // state file, which is also the fallback source when it is read directly.
+  const port =
+    process.env.PW_E2E_PORT ??
+    String(JSON.parse(readFileSync(new URL("../../.pi-test-harness.json", import.meta.url), "utf8")).dashboardPort);
+  return execFileSync("docker", ["ps", "--filter", `publish=${port}`, "--format", "{{.Names}}"], { encoding: "utf8" })
+    .split("\n")
+    .filter(Boolean)[0];
+}
+function inHarness(sh: string): void {
+  execFileSync("docker", ["exec", harnessContainer(), "sh", "-c", sh], { encoding: "utf8" });
+}
+
+test.describe("KB stats shared across surfaces (F2)", () => {
+  test.afterEach(() => {
+    try { inHarness(`rm -f ${EXTRA_DOC}`); } catch { /* container already down */ }
+  });
+
+  test("a reindex from the settings panel updates the sidebar row without a reload", async ({ page }) => {
+    test.setTimeout(120_000);
+    inHarness(`rm -f ${EXTRA_DOC}`);
+    await prepareShell(page);
+
+    const cwdAnchor = `folder-actions-menu-${KB_FIXTURE}`;
+    if ((await page.getByTestId(cwdAnchor).count()) === 0) await pinFixture(page, KB_FIXTURE);
+
+    const kbRow = kbRowFor(page, KB_FIXTURE);
+    await expect(kbRow).toBeVisible({ timeout: 20_000 });
+    await expect(kbRow).not.toHaveAttribute("data-state", "loading", { timeout: 15_000 });
+    if ((await kbRow.getAttribute("data-state")) !== "populated") {
+      await reindexFromMenu(page, KB_FIXTURE);
+    }
+    await expect(kbRow).toHaveAttribute("data-state", "populated", { timeout: 60_000 });
+    const before = (await kbRow.getByTestId("folder-kb-count").textContent()) ?? "";
+
+    // Grow the corpus out-of-band so the rebuild produces a DIFFERENT count.
+    inHarness(
+      `printf '# e2e shared stats\\n\\n%s\\n' "$(yes 'shared stats store convergence probe paragraph.' | head -n 40)" > ${EXTRA_DOC}`,
+    );
+
+    // Open the settings overlay; the sidebar row stays mounted behind it.
+    await kbRow.getByTestId("folder-kb-open-settings").click();
+    await expect(page.getByTestId("kb-settings-page")).toBeVisible({ timeout: 15_000 });
+    await expect(kbRow).toBeVisible();
+
+    const reindexNow = page.getByTestId("kb-reindex-now");
+    await expect(reindexNow).toBeEnabled({ timeout: 15_000 });
+    await reindexNow.click();
+
+    // NO reload, NO remount: the shared store fans the job out to the sidebar row.
+    await expect(kbRow.getByTestId("folder-kb-count")).not.toHaveText(before, { timeout: 60_000 });
+    await expect(kbRow).toHaveAttribute("data-state", "populated", { timeout: 60_000 });
+    await expect(kbRow.getByTestId("folder-kb-count")).toContainText(/chunks/i);
   });
 });
