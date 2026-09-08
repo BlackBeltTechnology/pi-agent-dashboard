@@ -24,6 +24,7 @@ function baseDeps(): ServerContextDeps {
     registerBrowserHandler: () => {},
     onEvent: () => () => {},
     onSessionEnded: () => () => {},
+    onSessionResolved: () => () => {},
     sendToSession: () => true,
     emitEventToSession: () => true,
     consumeAll: () => [],

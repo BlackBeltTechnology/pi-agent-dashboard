@@ -21,6 +21,7 @@ function makeFakeContext(): ServerPluginContext {
     registerPiHandler: () => {},
     onEvent: () => () => {},
     onSessionEnded: () => () => {},
+    onSessionResolved: () => () => {},
     sendToSession: () => true,
     emitEventToSession: () => true,
     consumeAll: () => [],

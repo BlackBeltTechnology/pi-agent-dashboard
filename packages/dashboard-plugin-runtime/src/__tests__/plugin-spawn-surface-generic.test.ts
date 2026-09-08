@@ -36,9 +36,9 @@ describe("plugin spawn surface is generic (E9)", () => {
     const mapped = pluginSpawnToSessionOptions({
       cwd: "/w",
       name: "generic-name",
-      // biome-ignore lint/suspicious/noExplicitAny: exercising an untrusted extra field
-      automationRun: { name: "legacy", runId: "r" } as any,
-    });
+      automationRun: { name: "legacy", runId: "r" },
+      // biome-ignore lint/suspicious/noExplicitAny: automationRun is intentionally absent from PluginSpawnOptions; cast the whole bag to exercise the total mapper against a stray field
+    } as any);
     expect(mapped.name).toBe("generic-name");
   });
 });
