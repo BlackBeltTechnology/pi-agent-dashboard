@@ -73,6 +73,20 @@ export type OnEventFn = (handler: (sessionId: string, event: unknown) => void) =
 export type OnSessionEndedFn = (handler: (sessionId: string) => void) => () => void;
 
 /**
+ * Subscribe to session-ownership resolution. When a session this plugin spawned
+ * (with a `pluginRef`) registers and the host resolves its ref, the handler is
+ * invoked with `(sessionId, pluginRef)` — the plugin's OWN ref only. A plugin
+ * is never notified for another plugin's session. Fires BEFORE the host
+ * forwards the session's first event and before any pending prompt is
+ * dispatched, so a plugin correlating by its own ref never misses the first
+ * event/prompt. Returns an unsubscribe fn. See change:
+ * detach-automation-goal-from-core.
+ */
+export type OnSessionResolvedFn = (
+  handler: (sessionId: string, pluginRef: Record<string, unknown>) => void,
+) => () => void;
+
+/**
  * Send a prompt/command into a running pi session. Text starting with `/`
  * is routed through the bridge's extension-command dispatch (Path C keeper
  * for headless sessions). Returns false when the session is not connected.
@@ -114,6 +128,18 @@ export type RegisterBrowserHandlerFn = (type: string, handler: (msg: unknown, ws
 export type IsPiExtensionInstalledFn = (name: string) => Promise<boolean>;
 
 /**
+ * Generic lifecycle declaration a plugin attaches to a spawned session so core
+ * can make lifecycle decisions without naming the plugin. See change:
+ * detach-automation-goal-from-core.
+ */
+export interface PluginSessionLifecycle {
+  /** `false` opts the owned session out of cold-start recovery (default `true`). */
+  recover?: boolean;
+  /** `true` finalizes the session on socket close (no reconnect grace). */
+  finalizeOnSocketClose?: boolean;
+}
+
+/**
  * Options for the plugin session-spawn hook.
  * See change: add-automation-plugin.
  */
@@ -122,6 +148,8 @@ export interface PluginSpawnOptions {
   cwd: string;
   /** Optional model id (resolved provider/model) passed as `--model`. */
   model?: string;
+  /** Optional session name passed as `--name`. */
+  name?: string;
   /**
    * Run isolation mode requested by the caller. `worktree` asks the host to
    * run in an isolated git checkout; `local` runs in `cwd` directly. See
@@ -136,12 +164,21 @@ export interface PluginSpawnOptions {
    */
   sandbox?: "read-only" | "workspace-write" | "full-access";
   /**
-   * When set, the spawned session is stamped `kind="automation"` +
-   * `automationRun` once it registers (the server queues the stamp keyed
-   * by cwd and applies it on `session_register`). `visibility` carries the
-   * run's effective board visibility.
+   * Opaque, plugin-namespaced identity blob filed against the spawn token and
+   * merged onto the session when it registers. Core carries it verbatim and
+   * NEVER parses its interior; it is boundary-validated (plain-object only,
+   * fail-open) and may set only keys the owner owns — never a core-reserved
+   * session field or another plugin's key. `automation` files
+   * `{ kind: "automation", automationRun: {...}, lifecyclePolicy: "ephemeral" }`;
+   * `goal` files `{ goalId }`. Emitted `.meta.json` / wire keys stay
+   * byte-identical. See change: detach-automation-goal-from-core.
    */
-  automationRun?: { name: string; runId: string; visibility?: "hidden" | "shown" };
+  pluginRef?: Record<string, unknown>;
+  /**
+   * Generic lifecycle declaration read by core to make lifecycle decisions
+   * WITHOUT naming the plugin. See change: detach-automation-goal-from-core.
+   */
+  lifecycle?: PluginSessionLifecycle;
   /**
    * Optional capability-scope block constraining the spawned session's
    * tool / skill / extension surface, mapped 1:1 to pi CLI flags by
@@ -263,7 +300,7 @@ function sanitizeExtensionConfig(
  * Total, pure mapper: {@link PluginSpawnOptions} → {@link MappedSpawnOptions}.
  *
  * Reproduces the inline `spawnSession`-hook literal (headless strategy, the
- * `--model` from `opts.model`, the `--name` from `opts.automationRun?.name`)
+ * `--model` from `opts.model`, the `--name` from `opts.name`)
  * and additionally flattens the nested `scope` block into flat argv fields
  * plus `extensionConfig` (env).
  *
@@ -281,8 +318,7 @@ export function pluginSpawnToSessionOptions(opts: PluginSpawnOptions): MappedSpa
   // default headless result (design D7: total, pure mapper).
   const input: Record<string, unknown> = isRecord(opts) ? opts : {};
   if (isSafeArgvString(input.model)) result.model = input.model;
-  const name = isRecord(input.automationRun) ? input.automationRun.name : undefined;
-  if (isSafeArgvString(name)) result.name = name;
+  if (isSafeArgvString(input.name)) result.name = input.name;
 
   const scope: unknown = input.scope;
   if (isRecord(scope)) {
@@ -484,6 +520,11 @@ export interface ServerPluginContext {
    * finalize-automation-run-on-session-death.
    */
   onSessionEnded: OnSessionEndedFn;
+  /**
+   * Subscribe to session-ownership resolution for this plugin's own spawned
+   * sessions. See change: detach-automation-goal-from-core.
+   */
+  onSessionResolved: OnSessionResolvedFn;
   /** Send a prompt/command into a running session. See change: add-goal-continuation-plugin. */
   sendToSession: SendToSessionFn;
   /**
@@ -565,6 +606,7 @@ export interface ServerContextDeps {
   registerBrowserHandler: RegisterBrowserHandlerFn;
   onEvent: OnEventFn;
   onSessionEnded: OnSessionEndedFn;
+  onSessionResolved: OnSessionResolvedFn;
   sendToSession: SendToSessionFn;
   emitEventToSession: EmitEventToSessionFn;
   spawnSession: SpawnSessionFn;
@@ -603,6 +645,7 @@ export function createServerPluginContext(
     registerBrowserHandler: deps.registerBrowserHandler,
     onEvent: deps.onEvent,
     onSessionEnded: deps.onSessionEnded,
+    onSessionResolved: deps.onSessionResolved,
     sendToSession: deps.sendToSession,
     emitEventToSession: deps.emitEventToSession,
     spawnSession: deps.spawnSession,

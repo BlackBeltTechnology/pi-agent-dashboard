@@ -240,13 +240,13 @@ describe("pi-gateway duplicate register", () => {
   }, 20000);
 
   // ── E17 ───────────────────────────────────────────────────────────────────
-  it("E17: a non-owning socket closing neither unregisters nor finalizes an automation session", async () => {
+  it("E17: a non-owning socket closing neither unregisters nor finalizes a finalizeOnSocketClose session", async () => {
     const { sessionManager, port } = await startGateway();
 
     const a = await newClient(port);
     register(a, "S");
     await delay(100);
-    sessionManager.update("S", { kind: "automation" } as any);
+    sessionManager.update("S", { finalizeOnSocketClose: true } as any);
 
     const b = await newClient(port);
     referenceOnly(b, "S");
@@ -280,13 +280,13 @@ describe("pi-gateway duplicate register", () => {
   }, 20000);
 
   // ── E18b (automation branch of the same rule) ─────────────────────────────
-  it("E18: the owning socket closing finalizes an automation session as today", async () => {
+  it("E18: the owning socket closing finalizes a finalizeOnSocketClose session as today", async () => {
     const { sessionManager, port } = await startGateway();
 
     const a = await newClient(port);
     register(a, "S");
     await delay(100);
-    sessionManager.update("S", { kind: "automation" } as any);
+    sessionManager.update("S", { finalizeOnSocketClose: true } as any);
 
     a.ws.close();
     await until(() => sessionManager.get("S")?.status === "ended", 3000);

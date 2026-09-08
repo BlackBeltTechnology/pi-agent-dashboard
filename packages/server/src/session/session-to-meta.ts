@@ -76,6 +76,13 @@ export function sessionToMeta(session: DashboardSession): SessionMeta {
     // (absent ⇒ durable) and it would escape reaping forever.
     // See change: add-embed-session-lifecycle.
     lifecyclePolicy: session.lifecyclePolicy,
+    // Persist the core-owned recovery opt-out. MUST be listed here because this
+    // save does a full .meta.json overwrite (not a merge) — omitting it would
+    // wipe the seam's `recover:false` on the next unrelated save, silently
+    // re-enabling cold-start recovery for an opted-out (automation/goal) owned
+    // session. `undefined` (a normal user session) serializes to no key, so the
+    // byte-identity guard holds. See change: detach-automation-goal-from-core.
+    recover: session.recover,
     // Persist retained notifications. MUST be listed here because this save
     // does a full .meta.json overwrite (not a merge) — omitting it wipes the
     // notify log, making notifications the one transcript row type that
