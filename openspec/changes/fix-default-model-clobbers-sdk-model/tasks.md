@@ -11,4 +11,6 @@
 
 ## 3. Delivery
 
-- [ ] 3.1 Commit and push only the task branch, open a direct PR against the repository default branch, include validation evidence and explicit no-global-mutation startup-gate exclusion, and report the full PR URL. Do not merge or run shared lifecycle commands.
+- [x] 3.1 Commit and push only the task branch, open a direct PR against the repository default branch, include validation evidence and explicit no-global-mutation startup-gate exclusion, and report the full PR URL. Do not merge or run shared lifecycle commands.
+
+Delivery: https://github.com/BlackBeltTechnology/pi-agent-dashboard/pull/615
