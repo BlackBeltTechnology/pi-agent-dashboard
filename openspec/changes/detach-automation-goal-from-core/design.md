@@ -1,9 +1,9 @@
 # Design — evidence appendix
 
-> This change is a **request for validation**, not an implementation plan. This
-> document exists so a reviewer can check every claim in `proposal.md` against
-> the tree without re-deriving it. All line numbers are against
-> `private/invoicebot` unless a comparison to `develop` is stated.
+> This document is the **evidence appendix** for `proposal.md`: it lets a reviewer
+> check every claim against the tree without re-deriving it. All line numbers are
+> against `develop`. The eight open questions are now **decided** — see the
+> Decisions table in `proposal.md`; the shape below reflects those decisions.
 
 ## The doctrine being applied
 
@@ -37,7 +37,7 @@ export type ConsumeAllFn = /* enumerate every provide()d entry by name prefix */
 |---|---|---|
 | `ctx.provide` / `consumeAll` call sites | 3 axes (`action.`, `folderscope.`, `worksource.`) | **0** |
 | Product code in core | 1 pending registry + 1 event-wiring arm | **10 files** |
-| Session correlation | token-stamped (`consume(cwd, spawnToken)`) | token path exists, but wired in core |
+| Session correlation (on `develop`) | cwd-FIFO only (`consume(cwd)`) | token tier (`getGoalId`) + cwd-FIFO fallback, wired in core |
 | Server entry size | substantial | 138 lines (shell) |
 
 `automation-plugin/src/server/AGENTS.md` already records the correlation
@@ -58,7 +58,8 @@ doctrine verbatim:
 | generic mapper reads the field | `…/server-context.ts:284` |
 | core respawn policy from plugin word | `shared/src/session-meta.ts:211` |
 | core finalize policy from plugin word | `server/src/pi/pi-gateway.ts:898` |
-| cwd-FIFO ownership assignment | `server/src/event-wiring.ts:445` (develop) / `:434` (invoicebot, token-preferring) |
+| cwd-FIFO ownership assignment (automation) | `server/src/event-wiring.ts:445` (`consume(cwd)`) |
+| token-tier correlation (goal) | `server/src/event-wiring.ts:1379` (`getGoalId`) |
 | tier-3 self-documented as race-prone | `spawn-process/headless-pid-registry.ts:170-176` |
 | identity filed after spawn await | `server/src/server.ts:1519-1541` |
 | identity must survive restart | `headless-pid-registry.ts:85-107` (`PersistedEntry`), `:363` |
@@ -93,52 +94,46 @@ pi process this pi later spawns (subagent, nested `pi`, reload) does NOT inherit
 and re-report the consumed token"* — change `fix-spawn-token-env-leak`. Any
 ref-carrying env var that survives to a nested process re-opens that class.
 
-## Branch-divergence correction (audit trail)
+## Correlation-tier maturity on `develop`
 
-Commands run and their output, so the record is checkable:
+The two features sit at different correlation maturity on `develop`:
 
-```
-$ git merge-base --is-ancestor 892e5d9d1 946b48321      → false (not on develop)
-$ git branch -a --contains 892e5d9d1                    → remotes/origin/private/invoicebot
-$ git log -S'consume(cwd, spawnToken)' origin/private/invoicebot -- packages/server/src/event-wiring.ts
-    892e5d9d1  (single commit — the one that ADDED it; no deletion commit exists)
-$ git grep -c bindToken origin/private/invoicebot -- packages/server/src/pending/pending-automation-run-registry.ts
-    3          (alive today)
-$ git rev-list --count develop..origin/private/invoicebot   → 114
-$ git rev-list --count origin/private/invoicebot..develop   → 28
-```
+- **goal** already rides the spawn-token tier: `headlessPidRegistry.getGoalId(
+  sessionId)` (`event-wiring.ts:1379`), with cwd-FIFO only as a fallback
+  (`pendingGoalLinkRegistry.consume(cwd)`, `:1383`).
+- **automation** is still cwd-FIFO only: `pendingAutomationRunRegistry.consume(
+  cwd)` (`:445`) — no token tier. It is the laggard that would migrate onto the
+  generic token-keyed seam (Q8), closing its tier-3 race as a bonus.
 
-Tests present on `private/invoicebot` that already assert the anti-interleaving
-property (i.e. the "dead tests" claim is false):
+So the seam's "reuse the existing token machinery" premise is proven by goal
+today; the migration risk rides with automation, not goal.
 
-```
-it("claims the entry bound to the registering session's spawn token")
-it("never hands a token-bound stamp to a foreign or tokenless session")
-it("falls back to the oldest UNBOUND entry when the token is unknown")
-it("keeps legacy tokenless FIFO for spawn paths that mint no token")
-```
-
-plus `automation-plugin/src/__tests__/run-settles-promptly.test.ts` covering run
-lifecycle end-to-end.
-
-## Candidate shape (NOT decided — subject to Q1–Q8)
+## Decided shape
 
 ```
 plugin-core (dashboard-plugin-runtime) owns the MECHANISM
-  spawnSession({ cwd, pluginRef })        ref filed with the token, pre-spawn (Q5)
-  token → pluginRef                       reuses existing token machinery
-  on register: resolve ref → notify owning plugin
+  spawnSession({ cwd, pluginRef, lifecycle })   ref filed with the token, PRE-spawn (Q5)
+  token → pluginRef                             reuses existing token machinery (Q2: Shape A)
+  on register: resolve ref by TOKEN only → notify owning plugin (Q4: cwd never owns)
+  on spawn failure: remove the filed ref        (Q5: closes automation's missing rollback)
 
 plugins own the PAYLOAD (published, namespaced, immutable)
-  automation → { kind: "automation", automationRun: {...} }
-  goal       → { goalId }
-  invoicebot → { invoiceId }              future peer, no core change
+  automation → { kind: "automation", automationRun: {...} }   migrates off cwd-FIFO (Q8)
+  goal       → { goalId }                                     already on the token tier
+  third-party→ { ...opaque ref }                              future peer, no core change
 
 SAME KEYS STILL EMITTED — core merges the blob it was handed and never
-spells the words. .meta.json stays byte-identical → no migration needed.
+spells the words. .meta.json stays byte-identical for user sessions; an
+owned session that opts out of recovery gains one additive `recover: false`.
 ```
 
-Open design tension, unresolved: a ref slot alone does **not** remove the
-lifecycle branches in Q6 (`isRecoveryCandidate`, `pi-gateway.ts:898`). Those need
-either a declarative lifecycle block on the contribution or explicit plugin
-hooks. Choosing between those two is a deliberate non-decision in this document.
+Lifecycle branches (Q6) are removed from core by a **declarative lifecycle block**
+on the contribution: `{ recover?: boolean; finalizeOnSocketClose?: boolean }`.
+`isRecoveryCandidate` reads a single core-owned `meta.recover !== false` (default
+`true`) — never the plugin name, the owner ref, or owner-key presence; the
+`pi-gateway.ts:898` finalize path reads `finalizeOnSocketClose`. Neither retains a
+`kind === "automation"` branch. Both `automation` and `goal` set `recover: false`
+symmetrically. Because recovery already requires `live && !ended`, a normally
+closed owned session is excluded for free; `recover: false` only governs the crash
+window. Plugin hooks were rejected as a larger API surface than this change needs
+(Q3 continuity follows from the token entry's natural lifetime, not a callback).
