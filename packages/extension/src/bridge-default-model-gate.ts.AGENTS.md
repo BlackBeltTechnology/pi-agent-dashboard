@@ -1,3 +1,10 @@
 # bridge-default-model-gate.ts — index
 
 Pure predicate `shouldApplyDefaultModel({reason, entryCount, hasModelRegistry, hasDefaultModel, hasExplicitModel})`. Bridge applies `config.defaultModel` only when `reason==="startup"` AND `entryCount===0` AND `hasExplicitModel===false`. Resume/fork/reload keep existing model. Mirrors pi `!hasExistingSession` gate. Exports pure `hasExplicitModelArg(argv: string[]): boolean` — exact-token `--model` match on pi's own `process.argv` (the bridge runs inside the pi process; `--models` is a distinct token, no `-m` alias). Accepted fail-safe false-positives: dangling `--model`, literal `--model` after `--`, `--model` swallowed as another flag's value — all count as explicit (skip default, never clobber). Gate false ⇒ `pendingDefaultModel` never set ⇒ the provider-ready retry in bridge.ts needs no separate guard; `config.defaultThinkingLevel` is skipped together with the model (deliberate CLI parity). See changes: fix-resume-keeps-session-model, fix-default-model-new-session-entry-count, fix-default-model-clobbers-explicit-model.
+
+
+## SDK startup guard
+
+`hasProtectedSdkModel({subagentChild, startupModel, settingsPath})` suppresses defaults when `PI_SUBAGENT_CHILD` is present (even empty), or the startup provider/modelId differs from the complete global Pi `defaultProvider`/`defaultModel` pair. `bridge.ts` captures the SDK setup model before startup awaits; existing argv/history/reason/registry guards run before this read-only helper. Missing file/incomplete pair provides no comparison signal. Invalid JSON or other read errors throw with the settings path; no guessed model applies.
+
+An arbitrary SDK caller that explicitly chooses a model identical to Pi's own configured default, without the child marker or `--model`, is indistinguishable from an unchosen default and will still receive the Dashboard default when one is configured. This bounded limitation is approved; the helper does not claim universal SDK provenance. See change: fix-default-model-clobbers-sdk-model.

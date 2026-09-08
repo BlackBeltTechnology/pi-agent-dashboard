@@ -1396,6 +1396,47 @@ Plugin content-view claims (e.g. flows-plugin) remain predicate-driven, out of s
 6. Thinking level changes (via pi keybinding) are detected when `model_select` events fire, on reconnect, and immediately after `set_thinking_level` commands
 7. Browser can send `set_thinking_level` to change thinking level remotely
 
+### Startup default model
+
+`bridge.ts` snapshots `buildSessionContext().model` on `session_start`, before asynchronous setup.
+`shouldApplyDefaultModel` requires `reason === "startup"`, zero `buildSessionContext().messages`, model registry, and configured Dashboard `config.defaultModel`.
+Message history counts messages, not SDK setup entries; resume/fork/reload guards remain unchanged.
+`hasExplicitModelArg(process.argv)` protects literal `--model`; `--model=x`, `--models`, and `-m` do not match.
+`hasProtectedSdkModel` protects `PI_SUBAGENT_CHILD` presence, including empty string, across all sessions in marked process.
+
+```mermaid
+%%{init: {"theme":"base","themeVariables":{"background":"#ffffff","primaryColor":"#f1f5f9","primaryTextColor":"#0f172a","primaryBorderColor":"#334155","lineColor":"#334155","textColor":"#0f172a","edgeLabelBackground":"#ffffff"}}}%%
+flowchart TD
+    S["Snapshot startup model before awaits"] --> G{"Startup + zero messages + registry + Dashboard default?"}
+    G -->|no| P["Preserve current model"]
+    G -->|yes| V{"argv contains literal --model?"}
+    V -->|yes| P
+    V -->|no| C{"PI_SUBAGENT_CHILD present, even empty?"}
+    C -->|yes| P
+    C -->|no| M{"Startup model available?"}
+    M -->|no| A["Apply Dashboard default; defer if provider unavailable"]
+    M -->|yes| R["Read global settings pair; no writes"]
+    R -->|malformed or unreadable| E["Report error; preserve model"]
+    R -->|missing or incomplete pair| A
+    R -->|complete pair| D{"Startup provider or modelId differs?"}
+    D -->|yes| P
+    D -->|no| A
+    classDef default fill:#f1f5f9,stroke:#334155,color:#0f172a;
+    linkStyle default stroke:#334155,color:#0f172a;
+```
+
+Comparison reads only global `~/.pi/agent/settings.json` pair: `defaultProvider` / `defaultModel`.
+Helper compares startup `provider` and `modelId` separately; model IDs retain slashes.
+Read-only comparison excludes project overrides, custom SDK settings, authentication-dependent selection, and alias resolution.
+Differing startup pair preserves model, even when Pi selected model automatically.
+Missing settings, missing startup model, or incomplete configured pair means no comparison; argv and child-marker protection remain active.
+Malformed JSON, non-object settings, or unreadable settings reports path-specific error through bridge error handling without applying Dashboard default.
+
+Accepted limitation: arbitrary SDK caller choosing exactly Pi own default without `PI_SUBAGENT_CHILD` or `--model` remains indistinguishable and receives Dashboard default when configured and otherwise eligible.
+Suppressed startup application never assigns `pendingDefaultModel`; deferred provider retry cannot apply suppressed model or coupled `config.defaultThinkingLevel`.
+Eligible application retains provider retry and applies configured thinking level after `pi.setModel()` succeeds.
+See change: `fix-default-model-clobbers-sdk-model`.
+
 ### Model selector pairing rule
 
 Two classes of model selector exist:

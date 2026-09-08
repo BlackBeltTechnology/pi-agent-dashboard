@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 /**
  * Pure gate predicate for the bridge's default-model application.
  *
@@ -58,7 +60,7 @@ export interface DefaultModelGateInput {
  * form is not a pi flag, `--models` is a distinct flag, and there is no `-m`
  * alias. The bridge runs inside the pi process, so the argv to pass is
  * pi's own `process.argv` — this covers every spawner that passes `--model`
- * (pi-subagents children, automation-plugin run spawns, worktree init hooks,
+ * (CLI-launched children, automation-plugin run spawns, worktree init hooks,
  * and a user's manual `pi --model X`).
  *
  * Accepted fail-safe false-positives (pinned by tests): a trailing dangling
@@ -70,6 +72,37 @@ export interface DefaultModelGateInput {
  */
 export function hasExplicitModelArg(argv: string[]): boolean {
   return argv.includes("--model");
+}
+
+/**
+ * The existing pi-subagents marker is authoritative. Otherwise compare
+ * the SDK setup model with Pi's global configured pair, without writing settings.
+ * An unmarked SDK choice equal to Pi's default cannot be distinguished from an
+ * automatic choice. Missing/incomplete defaults provide no comparison signal.
+ * See change: fix-default-model-clobbers-sdk-model.
+ */
+export function hasProtectedSdkModel(args: {
+  subagentChild: string | undefined;
+  startupModel: { provider: string; modelId: string } | undefined;
+  settingsPath: string;
+}): boolean {
+  if (args.subagentChild !== undefined) return true;
+  if (!args.startupModel) return false;
+
+  let settings;
+  try {
+    settings = JSON.parse(readFileSync(args.settingsPath, "utf8"));
+    if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+      throw new Error("Expected a settings object");
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw new Error(`Cannot read Pi default model from ${args.settingsPath}`, { cause: error });
+  }
+  const { defaultProvider, defaultModel } = settings;
+  if (typeof defaultProvider !== "string" || !defaultProvider ||
+      typeof defaultModel !== "string" || !defaultModel) return false;
+  return args.startupModel.provider !== defaultProvider || args.startupModel.modelId !== defaultModel;
 }
 
 export function shouldApplyDefaultModel(args: DefaultModelGateInput): boolean {

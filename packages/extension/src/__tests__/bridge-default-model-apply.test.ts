@@ -1,8 +1,7 @@
 /**
  * Tests for the bridge's default-model application at session_start.
  *
- * Pure-model mirror of bridge.ts ~L1632-L1647. If production drifts from
- * this shape, this test drifts in lockstep.
+ * Bridge startup branch model with shared production guards.
  *
  * Covers the input-derivation expression (the bug surface fixed by this
  * change) PLUS the four spawn paths (new / resume / fork / reload) PLUS the
@@ -15,10 +14,14 @@
  * See changes: fix-resume-keeps-session-model (original gate),
  *              fix-default-model-new-session-entry-count (signal correction).
  */
-import { describe, it, expect, vi } from "vitest";
-import { hasExplicitModelArg, shouldApplyDefaultModel } from "../bridge-default-model-gate.js";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { hasExplicitModelArg, hasProtectedSdkModel, shouldApplyDefaultModel } from "../bridge-default-model-gate.js";
 
 interface BuildSessionContextResult {
+  model?: { provider: string; modelId: string };
   messages: unknown[];
 }
 
@@ -46,23 +49,14 @@ interface RunArgs {
    * carrying no `--model` flag.
    */
   argv?: string[];
+  subagentChild?: string;
+  settingsPath?: string;
 }
 
 /**
  * Pure-model mirror of bridge.ts session_start default-model branch.
- * Production reference (bridge.ts session_start handler):
- *
- *   const entryCount = ctx.sessionManager.buildSessionContext?.()?.messages?.length ?? 0;
- *   const freshConfig = loadConfig();
- *   if (shouldApplyDefaultModel({
- *     reason: _event?.reason,
- *     entryCount,
- *     hasModelRegistry: Boolean(cachedModelRegistry),
- *     hasDefaultModel: Boolean(freshConfig.defaultModel),
- *     hasExplicitModel: hasExplicitModelArg(process.argv),
- *   })) {
- *     pendingDefaultModel = applyDefaultModel();
- *   }
+ * The shared SDK helper uses real settings files. A wiring assertion below
+ * checks that production uses the same guard and captures its model before awaits.
  *
  * Returns the gate verdict AND the pending signal: a true verdict with an
  * unresolved custom-provider default sets `pendingDefaultModel` (the model
@@ -73,13 +67,19 @@ function runSessionStartDefaultModelBranch(args: RunArgs): {
   applied: boolean;
   pending: string | null;
 } {
+  const startupModel = args.ctx.sessionManager.buildSessionContext?.()?.model;
   const entryCount = args.ctx.sessionManager.buildSessionContext?.()?.messages?.length ?? 0;
-  const apply = shouldApplyDefaultModel({
+  const eligible = shouldApplyDefaultModel({
     reason: args.event.reason,
     entryCount,
     hasModelRegistry: args.hasModelRegistry,
     hasDefaultModel: Boolean(args.defaultModel),
     hasExplicitModel: hasExplicitModelArg(args.argv ?? []),
+  });
+  const apply = eligible && !hasProtectedSdkModel({
+    subagentChild: args.subagentChild,
+    startupModel,
+    settingsPath: args.settingsPath ?? "unused-settings-path",
   });
   // Gate-true + default not yet resolvable (custom provider) → applyDefaultModel()
   // returns the model string and the bridge stores it in pendingDefaultModel.
@@ -323,5 +323,120 @@ describe("bridge default-model apply at session_start", () => {
       const after = runProviderReadyRetry({ pending: result.pending });
       expect(after.applied).toBe(true);
     });
+  });
+});
+
+describe("SDK startup model protection", () => {
+  let directory: string;
+  let settingsPath: string;
+  const piDefault = { provider: "openai-codex", modelId: "gpt-6-astra" };
+  const sdkModel = { provider: "pi-claude", modelId: "claude-fable-5" };
+
+  beforeEach(() => {
+    directory = mkdtempSync(join(tmpdir(), "bridge-model-"));
+    settingsPath = join(directory, "settings.json");
+    writeFileSync(settingsPath, JSON.stringify({
+      defaultProvider: piDefault.provider,
+      defaultModel: piDefault.modelId,
+    }));
+  });
+  afterEach(() => rmSync(directory, { recursive: true, force: true }));
+
+  function start(model = piDefault, overrides: Partial<RunArgs> = {}) {
+    return runSessionStartDefaultModelBranch({
+      ctx: { sessionManager: { buildSessionContext: () => ({ messages: [], model }) } },
+      event: { reason: "startup" },
+      hasModelRegistry: true,
+      defaultModel: "dashboard/late-provider-model",
+      settingsPath,
+      argv: ["node", "sdk-runner.js"],
+      ...overrides,
+    });
+  }
+
+  it.each(["1", "", "0"])("protects child marker presence (%j), even when the SDK chose Pi's default", (subagentChild) => {
+    const result = start(piDefault, { subagentChild });
+    expect(result).toEqual({ applied: false, pending: null });
+    expect(runProviderReadyRetry(result).applied).toBe(false);
+  });
+
+  it("preserves an unmarked SDK caller's non-default startup model", () => {
+    const result = start(sdkModel);
+    expect(result).toEqual({ applied: false, pending: null });
+    expect(runProviderReadyRetry(result).applied).toBe(false);
+  });
+
+  it.each([
+    { provider: "other-provider", modelId: piDefault.modelId },
+    { provider: piDefault.provider, modelId: "other/model" },
+  ])("compares both provider and complete modelId: %j", (model) => {
+    expect(start(model).applied).toBe(false);
+  });
+
+  it("still protects a literal argv --model independently of SDK signals", () => {
+    expect(start(piDefault, { argv: ["pi", "--model", "openai-codex/gpt-6-astra"] }).applied).toBe(false);
+  });
+
+  it("applies the Dashboard default to a plain new session using Pi's default", () => {
+    expect(start()).toEqual({ applied: true, pending: "dashboard/late-provider-model" });
+  });
+
+  it("documents the accepted indistinguishable same-default arbitrary SDK choice", () => {
+    expect(start({ ...piDefault }).applied).toBe(true);
+  });
+
+  it.each(["resume", "fork", "reload", "new"])("keeps %s behavior without reading settings", (reason) => {
+    writeFileSync(settingsPath, "invalid-json");
+    expect(start(sdkModel, { event: { reason } }).applied).toBe(false);
+  });
+
+  it("keeps history-bearing startup resumes and forks without reading settings", () => {
+    writeFileSync(settingsPath, "invalid-json");
+    expect(start(sdkModel, { ctx: makeCtx({ entriesCount: 5, messageCount: 2 }) }).applied).toBe(false);
+  });
+
+  it.each([{}, { defaultProvider: "pi-claude" }, { defaultModel: "claude-fable-5" },
+    { defaultProvider: "", defaultModel: "claude-fable-5" }])("does not invent a comparison for incomplete settings: %j", (settings) => {
+    writeFileSync(settingsPath, JSON.stringify(settings));
+    expect(start(sdkModel).applied).toBe(true);
+  });
+
+  it("retains plain startup behavior when the settings file is absent", () => {
+    rmSync(settingsPath);
+    expect(start(sdkModel).applied).toBe(true);
+  });
+
+  it.each(["{invalid-json", "null", "[]"])("reports invalid settings (%s) instead of applying a guessed default", (contents) => {
+    writeFileSync(settingsPath, contents);
+    expect(() => start(sdkModel)).toThrow(settingsPath);
+  });
+
+  it("reports settings read failures other than absence", () => {
+    expect(() => start(sdkModel, { settingsPath: directory })).toThrow(directory);
+  });
+
+  it.each([
+    { argv: ["pi", "--model", "explicit"] },
+    { subagentChild: "1" },
+  ])("does not read settings for an already protected launch: %j", (overrides) => {
+    writeFileSync(settingsPath, "invalid-json");
+    expect(start(sdkModel, overrides).applied).toBe(false);
+  });
+
+  it("does not write Pi settings", () => {
+    const before = readFileSync(settingsPath, "utf8");
+    start(sdkModel);
+    expect(readFileSync(settingsPath, "utf8")).toBe(before);
+  });
+});
+
+describe("production startup guard wiring", () => {
+  it("captures the SDK model before awaits and guards the pending-default assignment", () => {
+    const source = readFileSync(new URL("../bridge.ts", import.meta.url), "utf8");
+    const handler = source.slice(source.indexOf('pi.on("session_start", safe(async'));
+    const snapshot = handler.indexOf("const startupModel = ctx.sessionManager.buildSessionContext?.()?.model;");
+    expect(snapshot).toBeGreaterThanOrEqual(0);
+    expect(snapshot).toBeLessThan(handler.indexOf("await "));
+    expect(handler).toMatch(/hasExplicitModel: hasExplicitModelArg\(process\.argv\),\s*\}\) && !hasProtectedSdkModel\(\{\s*subagentChild: process\.env\.PI_SUBAGENT_CHILD,\s*startupModel,\s*settingsPath: path\.join\(os\.homedir\(\), "\.pi", "agent", "settings\.json"\),\s*\}\)\) \{\s*pendingDefaultModel = applyDefaultModel\(\);/);
   });
 });

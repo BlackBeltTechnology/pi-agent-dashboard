@@ -529,6 +529,8 @@ The detection signal SHALL be the count of `message` entries returned by `ctx.se
 
 If `ctx.sessionManager.buildSessionContext` is unavailable (older pi versions), the bridge SHALL fall back to `0` (apply the default model) rather than `Infinity` (skip it) — preferring a one-time model overwrite on resume over silent failure on new sessions.
 
+In addition, the bridge SHALL suppress default application for literal `--model`, presence of `PI_SUBAGENT_CHILD`, or a startup model differing from the complete global Pi configured default pair, as specified by `bridge-default-model-gate`. Unmarked SDK choices equal to Pi's default remain subject to ordinary default application.
+
 This rule SHALL apply to both call sites of the default-model application:
 
 1. The direct call inside the `session_start` handler.
@@ -541,6 +543,7 @@ The pre-existing gate on `event.reason === "startup"` SHALL remain in place; the
 - **WHEN** the dashboard spawns pi without `--session` or `--fork` and `session_start` fires with `reason === "startup"`
 - **AND** `ctx.sessionManager.buildSessionContext().messages.length === 0`
 - **AND** `config.defaultModel` is set and the model is resolvable in the model registry
+- **AND** none of the protected startup signals above is present
 - **THEN** the bridge SHALL call `pi.setModel()` with the resolved default model
 
 #### Scenario: Brand-new session with pre-emit setup entries gets default model
@@ -549,6 +552,7 @@ The pre-existing gate on `event.reason === "startup"` SHALL remain in place; the
 - **AND** pi has auto-appended `model_change` and `thinking_level_change` entries to the session via `sdk.js` (so `ctx.sessionManager.getEntries().length === 2`)
 - **AND** `ctx.sessionManager.buildSessionContext().messages.length === 0` (those setup entries are not messages)
 - **AND** `config.defaultModel` is set and resolvable
+- **AND** none of the protected startup signals above is present
 - **THEN** the bridge SHALL call `pi.setModel()` with the resolved default model
 - **AND** the bridge SHALL NOT be misled by the non-zero `getEntries()` count
 
@@ -575,7 +579,7 @@ The pre-existing gate on `event.reason === "startup"` SHALL remain in place; the
 
 #### Scenario: Custom provider readiness retry respects the gate
 
-- **WHEN** a brand-new session (`messages.length === 0`) triggers default-model application but the configured model's provider is not yet registered, so `pendingDefaultModel` is set
+- **WHEN** a brand-new session (`messages.length === 0`) passes all startup guards and triggers default-model application but the configured model's provider is not yet registered, so `pendingDefaultModel` is set
 - **AND** later the provider becomes ready and the retry fires
 - **THEN** the bridge SHALL apply the default model
 
@@ -593,6 +597,7 @@ The pre-existing gate on `event.reason === "startup"` SHALL remain in place; the
 - **WHEN** the bridge runs against a pi version where `ctx.sessionManager.buildSessionContext` is undefined
 - **AND** `session_start` fires with `reason === "startup"`
 - **AND** `config.defaultModel` is set and resolvable
+- **AND** no explicit `--model` token or `PI_SUBAGENT_CHILD` marker is present
 - **THEN** the bridge SHALL treat the message count as `0` (via optional-chaining `?? 0`)
 - **AND** the bridge SHALL call `pi.setModel()` with the resolved default model
 - **AND** the bridge SHALL prefer this "apply on resume" failure mode over the alternative "silently skip on new"
