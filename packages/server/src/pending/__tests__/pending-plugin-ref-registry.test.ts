@@ -47,7 +47,7 @@ describe("pending-plugin-ref-registry", () => {
     // Each resolves its OWN run; zero cross-assignment.
     tokens.forEach((t, i) => {
       const r = reg.resolve(t);
-      expect((r?.ref.automationRun as { runId: string }).runId).toBe(`run-${i}`);
+      expect((r?.ref.automationRun as { runId: string } | undefined)?.runId).toBe(`run-${i}`);
     });
     expect(reg.size()).toBe(0);
   });
@@ -86,8 +86,8 @@ describe("pending-plugin-ref-registry", () => {
     // A's spawn rejects → rollback A only.
     reg.remove("A");
     expect(reg.resolve("A")).toBeNull();
-    expect((reg.resolve("B")?.ref.automationRun as { runId: string }).runId).toBe("b");
-    expect((reg.resolve("C")?.ref.automationRun as { runId: string }).runId).toBe("c");
+    expect((reg.resolve("B")?.ref.automationRun as { runId: string } | undefined)?.runId).toBe("b");
+    expect((reg.resolve("C")?.ref.automationRun as { runId: string } | undefined)?.runId).toBe("c");
   });
 
   it("X5: a late spawn-failure after the register already consumed the token is a no-op", () => {
