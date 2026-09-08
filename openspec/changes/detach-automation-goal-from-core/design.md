@@ -1,8 +1,9 @@
 # Design — evidence appendix
 
-> This change is a **request for validation**, not an implementation plan. This
-> document exists so a reviewer can check every claim in `proposal.md` against
-> the tree without re-deriving it. All line numbers are against `develop`.
+> This document is the **evidence appendix** for `proposal.md`: it lets a reviewer
+> check every claim against the tree without re-deriving it. All line numbers are
+> against `develop`. The eight open questions are now **decided** — see the
+> Decisions table in `proposal.md`; the shape below reflects those decisions.
 
 ## The doctrine being applied
 
@@ -107,24 +108,32 @@ The two features sit at different correlation maturity on `develop`:
 So the seam's "reuse the existing token machinery" premise is proven by goal
 today; the migration risk rides with automation, not goal.
 
-## Candidate shape (NOT decided — subject to Q1–Q8)
+## Decided shape
 
 ```
 plugin-core (dashboard-plugin-runtime) owns the MECHANISM
-  spawnSession({ cwd, pluginRef })        ref filed with the token, pre-spawn (Q5)
-  token → pluginRef                       reuses existing token machinery
-  on register: resolve ref → notify owning plugin
+  spawnSession({ cwd, pluginRef, lifecycle })   ref filed with the token, PRE-spawn (Q5)
+  token → pluginRef                             reuses existing token machinery (Q2: Shape A)
+  on register: resolve ref by TOKEN only → notify owning plugin (Q4: cwd never owns)
+  on spawn failure: remove the filed ref        (Q5: closes automation's missing rollback)
 
 plugins own the PAYLOAD (published, namespaced, immutable)
-  automation → { kind: "automation", automationRun: {...} }
-  goal       → { goalId }
-  third-party→ { ...opaque ref }          future peer, no core change
+  automation → { kind: "automation", automationRun: {...} }   migrates off cwd-FIFO (Q8)
+  goal       → { goalId }                                     already on the token tier
+  third-party→ { ...opaque ref }                              future peer, no core change
 
 SAME KEYS STILL EMITTED — core merges the blob it was handed and never
-spells the words. .meta.json stays byte-identical → no migration needed.
+spells the words. .meta.json stays byte-identical for user sessions; an
+owned session that opts out of recovery gains one additive `recover: false`.
 ```
 
-Open design tension, unresolved: a ref slot alone does **not** remove the
-lifecycle branches in Q6 (`isRecoveryCandidate`, `pi-gateway.ts:898`). Those need
-either a declarative lifecycle block on the contribution or explicit plugin
-hooks. Choosing between those two is a deliberate non-decision in this document.
+Lifecycle branches (Q6) are removed from core by a **declarative lifecycle block**
+on the contribution: `{ recover?: boolean; finalizeOnSocketClose?: boolean }`.
+`isRecoveryCandidate` reads a single core-owned `meta.recover !== false` (default
+`true`) — never the plugin name, the owner ref, or owner-key presence; the
+`pi-gateway.ts:898` finalize path reads `finalizeOnSocketClose`. Neither retains a
+`kind === "automation"` branch. Both `automation` and `goal` set `recover: false`
+symmetrically. Because recovery already requires `live && !ended`, a normally
+closed owned session is excluded for free; `recover: false` only governs the crash
+window. Plugin hooks were rejected as a larger API surface than this change needs
+(Q3 continuity follows from the token entry's natural lifetime, not a callback).

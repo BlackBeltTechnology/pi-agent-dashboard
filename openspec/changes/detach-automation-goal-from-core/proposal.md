@@ -1,10 +1,5 @@
 # Detach automation + goal session identity from core
 
-> **STATUS: REQUEST FOR VALIDATION.** This proposal is deliberately incomplete.
-> It records a verified problem statement and a candidate shape, and it ends in
-> a list of **Open Questions** that need a second opinion before any code moves.
-> Nothing here should be implemented until those questions are answered.
-
 ## Why
 
 The dashboard already has a proven doctrine for decoupling a feature from a
@@ -117,8 +112,9 @@ re-derived the same mechanism because there was no shared one to reuse.
   owning plugin. Core carries the blob and never parses it.
 - `automation` publishes `{ kind: "automation", automationRun: {...} }` as its
   ref; `goal` publishes `{ goalId }`. Core merges what it was handed, so the same
-  keys land in `.meta.json` byte-identically — **no migration, no back-compat
-  shim, no data loss.**
+  identity keys land in `.meta.json` byte-identically — **no migration, no
+  back-compat shim, no data loss** (the one additive byte is a core-owned
+  `recover: false` on opted-out owned sessions; see Behavior deltas).
 - Collapse the two near-clone pending registries into one generic token-keyed
   store.
 - `automationRun` leaves the generic plugin API (`server-context.ts:144`).
@@ -129,23 +125,27 @@ re-derived the same mechanism because there was no shared one to reuse.
 
 Batch fan-out run/lease lifecycle · grouped/queued parallel spawning · trusted
 user identity · any future third-party plugin consumer (named only as a possible
-future consumer needing no core change).
+future consumer needing no core change) · **relocating the ten
+`packages/server/src/goal/*.ts` product files into `goal-plugin`** (a separate
+follow-up change; this one adds the seam and adopts it, keeping the goal product
+in core — matching the wiring-only discipline of
+`decouple-automation-action-registry`).
 
 ## Capabilities
 
-### New Capabilities
-
-None yet. The capability boundary is itself an open question (Q1: does this land
-as one change or two?). Spec deltas are deliberately **not** written until Q1–Q8
-are answered — writing them now would encode an unvalidated scope decision.
-`.openspec.yaml` sets `skip_specs: true`, matching the precedent of
-`archive/2026-08-31-investigate-bridge-cwd-asymmetric-immunity`.
-
 ### Modified Capabilities
 
-None yet. Once answered, the likely touch set is `dashboard-plugin-loader`
-(`ServerPluginContext` gains the ownership seam) and `spawn-correlation` (the ref
-rides the existing token machinery) — but naming them now would presume Q1/Q2.
+- **`dashboard-plugin-loader`** — `ServerPluginContext` gains a generic
+  session-ownership seam: a plugin files an opaque `pluginRef` (plus an optional
+  lifecycle declaration `{ respawn?, finalizeOnSocketClose? }`) at spawn, and is
+  notified on register when its session resolves. Core reads the declaration,
+  never the plugin name. `automationRun` leaves the generic plugin API surface.
+- **`spawn-correlation`** — the `pluginRef` rides the existing spawn-token
+  machinery: filed under `token → pluginRef` **before** the spawn await (closes
+  the register-in-the-gap miss), resolved on first register alongside the
+  sessionId link. Cwd is demoted to **classification-only** — it never assigns
+  ownership. Automation migrates off its cwd-FIFO stamp tier onto the generic
+  token seam (closing its documented tier-3 same-cwd race).
 
 ## Impact
 
@@ -172,101 +172,52 @@ premise is proven by goal today; automation is the laggard that would migrate
 off cwd-FIFO onto the generic token tier as part of this work (closing its
 tier-3 race as a bonus).
 
-## Open Questions
+## Decisions
 
-These are the reason this document exists. Each needs a decision from someone
-with more context than the author before implementation starts.
+The eight questions this document opened with are resolved as follows (spike
+evidence + a scoping review). They are recorded here so the spec deltas trace to
+an explicit decision, not an inference.
 
-### Q1 — Scope: how much moves in one change?
+| # | Question | Decision |
+|---|---|---|
+| Q1 | Scope | **Seam only.** Automation + goal adopt the generic `pluginRef`; the ten `server/src/goal/*` files stay in core; relocation is a separate follow-up change. Matches the wiring-only discipline of `decouple-automation-action-registry`. |
+| Q2 | Child participation | **Shape A (host-side only).** The ref resolves via the existing token→pid/keeper entry; the child echoes nothing new. Shape B would need an un-scrubbed ref env var that nested pi processes inherit — re-opening the leak class `fix-spawn-token-env-leak` closed. |
+| Q3 | Continuity across in-process change | Keeper respawn deletes the token on relaunch (child registers with a new sessionId, **no token**), so continuity rides the **persisted keeper-mediated entry** (stable `keeperPid`, ref persisted on the entry as `goalId` is today) — NOT the consumed token. An in-process fork mints a tokenless sessionId with no keeper entry and does NOT inherit the ref (cwd never assigns ownership — Q4). |
+| Q4 | Legacy cwd-FIFO tier | **Cwd demoted to classification-only.** A cwd match never assigns `pluginRef` ownership; ownership is strictly token-derived. The cwd tier survives solely for its existing non-ownership classification role. |
+| Q5 | File ref before the await | **Yes.** The seam files `token → pluginRef` **before** the `spawnPiSession` await, closing the register-in-the-gap miss. The automation path's missing failure-rollback (vs goal's) is confirmed a latent asymmetry and is fixed as part of the migration. |
+| Q6 | Where lifecycle policy lives | **Generic declaration on the contribution:** `{ recover?: boolean; finalizeOnSocketClose?: boolean }`. Core reads a single core-owned `recover` boolean (default `true`); the hardcoded `kind === "automation"` branches in `isRecoveryCandidate` and `pi-gateway.ts:898` are removed. Both `automation` and `goal` declare `recover: false` symmetrically — core names neither, and never reads the owner ref to decide. |
+| Q7 | Undeletable-wiring guard | A **same-cwd collision test**: spawn two plugin-owned sessions into one cwd and assert each resolves its own `pluginRef`. This fails if the wiring degrades to cwd-based ownership. |
+| Q8 | Automation cwd-FIFO migration | **Migrate in this change.** Automation moves off its cwd-FIFO stamp tier onto the generic token seam, closing its documented tier-3 same-cwd race. |
 
-- **(a)** Seam only. Add the generic ref axis; automation + goal adopt it; the
-  ten `server/src/goal/*` files stay in core.
-- **(b)** Seam + full goal detach (move the ten files into `goal-plugin`).
-- **(c)** Two sequenced changes sharing this name: seam first, goal move second.
+## Behavior deltas (honest scope)
 
-*Author's lean: (c) — `decouple-automation-action-registry` deliberately scoped
-itself to "the wiring/ownership model" with no behaviour change, and that
-discipline seems right here too. Not decided.*
+This is a wiring/ownership change, but two spots are **not** pure wiring — recorded
+here so the "byte-identical, no migration" claim is not overstated:
 
-### Q2 — Does the child process need to participate?
+1. **Cold-start recovery generalizes via one additive core-owned boolean.** Today
+   `isRecoveryCandidate` reads `meta.kind !== "automation"`. It becomes
+   `meta.recover !== false` — a core-owned flag defaulting to `true`, so core
+   never reads the plugin name, the owner ref, or owner-key presence. A
+   plugin-owned session is closed normally by its owning plugin (→ not live /
+   `ended` → excluded for free); the persisted `recover: false` only governs the
+   crash window where an owned session is still `live && !ended`. User sessions
+   never carry the field (absent ⇒ recoverable) and stay byte-identical; only an
+   owned session that opts out gains the single additive `recover: false` byte.
+   Both `automation` and `goal` opt out through the same flag. Unowned sessions
+   recover exactly as before.
+2. **Goal's legacy tokenless cwd-FIFO ownership fallback is dropped.** On
+   `develop` goal always spawns with a token; ownership becomes strictly
+   token-derived (Q4). A tokenless register no longer acquires goal ownership by
+   cwd. This is a deliberate behavior change for that one legacy path, taken to
+   close the same-cwd race — flagged rather than hidden under "no behavior
+   change."
 
-The spawn token is single-use and scrubbed on first register:
+## Discipline Skills
 
-```ts
-// packages/extension/src/session-sync.ts:147
-const spawnToken = isFirstRegister ? consumeSpawnToken() : undefined;
-```
-
-Two paths produce a **new sessionId with no token**:
-1. in-process `new`/`fork`/`resume` — `session-sync.ts:243-268` sends no
-   `spawnToken` key at all, but carries the *same* `process.pid`;
-2. keeper respawn — `spawn-correlation/spec.md:417` mandates the token be deleted
-   from the child env on every relaunch after the first.
-
-**Shape A** (host-side only: resolve via the existing token→pid/keeper entry) vs
-**Shape B** (inject the ref as its own env var so the child echoes it).
-
-*Author's lean: Shape A. Shape B requires a ref env var that is NOT scrubbed,
-which means nested/subagent pi processes inherit it — re-opening the leak class
-that `fix-spawn-token-env-leak` closed. But this needs a second opinion.*
-
-### Q3 — Should ownership propagate across an in-process session change?
-
-The two tokenless cases want **opposite** answers:
-
-- **keeper respawn** — pi crashed, keeper relaunched: same logical run, ref
-  **should** propagate (not propagating orphans the run — the zombie class
-  `fix-automation-stop-zombie-runs` exists to kill).
-- **in-process fork** — someone forked inside a run session: a different session;
-  propagating would let a manual fork finalize someone else's run.
-
-So: is continuity a **plugin policy** (needs an `onSessionContinued`-style hook,
-larger API) or does core pick one blanket rule? Also unverified: can a headless
-automation/goal session even reach the fork path in practice?
-
-### Q4 — Does the legacy cwd-FIFO tier survive, and in what role?
-
-`headless-pid-registry.ts:170-176` documents tier 3 as *"Race-prone for
-concurrent same-cwd spawns"*. On `develop`, automation still relies on this
-cwd-FIFO tier (`consume(cwd)`), while goal already prefers the token tier.
-
-Should the generic seam permit a cwd match to **assign ownership** at all, or
-must cwd be demoted to classification-only, with ownership strictly token-derived?
-
-### Q5 — Should the ref be filed before the spawn await?
-
-```ts
-// packages/server/src/server.ts:1519-1541 (goal path)
-const spawnToken = mintSpawnToken();              // ① token exists
-const result = await spawnPiSession(cwd, {...});  // ② child may register HERE
-headlessPidRegistry.register(..., goalId);        // ③ identity filed AFTER ②
-```
-
-A register landing between ② and ③ finds no identity on the token path. A wrong
-match is impossible (the key is the token) but a **miss** is possible, and a miss
-falls into Q4's fallback. Should the seam require filing `token → pluginRef`
-*before* the spawn call? Note the goal path rolls back on failure
-(`consume(cwd)` at `:1543`/`:1546`); the automation path has no equivalent —
-is that a second latent bug or intentional?
-
-### Q6 — Where does plugin lifecycle policy live?
-
-`isRecoveryCandidate` (`session-meta.ts:211`) and `pi-gateway.ts:898` branch on
-`kind === "automation"` to make **respawn** and **finalization** decisions. A ref
-slot alone does not remove these — they need either a generic lifecycle
-declaration on the contribution (e.g. `{ respawn: false, finalizeOnSocketClose:
-true }`) or plugin hooks. Which?
-
-### Q7 — What makes the wiring undeletable?
-
-Registry-level unit tests can stay green while the *wiring* is severed. Is a
-collision test the right guard — spawn two plugin-owned sessions into **one cwd**
-and assert each resolves its own ref — or is there an existing pattern in this
-repo that is preferred?
-
-### Q8 — Should automation migrate off cwd-FIFO in the same change?
-
-`develop` automation still uses the cwd-FIFO tier (`consume(cwd)` at `:445`),
-while goal already rides the token tier. Should this change migrate automation
-onto the generic token-keyed seam in one step (closing its tier-3 race), or land
-the seam first and migrate automation's correlation tier as a follow-up?
+- **`doubt-driven-review`** — the seam is an irreversible ownership-API decision
+  carried by core for every spawned session; reviewed before the spec stands.
+- **`security-hardening`** — Q2 (Shape A) is a security boundary call: rejecting
+  an un-scrubbed ref env var keeps nested pi processes from inheriting a plugin
+  identity, preserving the `fix-spawn-token-env-leak` invariant.
+- **`review-code`** — non-trivial cross-package wiring change (runtime seam +
+  correlation tier migration + two-registry collapse) reviewed before commit.
