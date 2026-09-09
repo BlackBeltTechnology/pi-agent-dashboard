@@ -3,7 +3,9 @@
 MermaidBlock renders fenced mermaid code blocks to sanitized, zoomable,
 theme-aware SVG diagrams in the dashboard chat/markdown surfaces, with caching
 and default-node colorization.
+
 ## Requirements
+
 ### Requirement: Mermaid diagram rendering
 The MermaidBlock component SHALL accept a `code` string prop containing Mermaid diagram syntax, lazy-load the mermaid library via dynamic import, render the diagram to SVG using `mermaid.render()`, sanitize the SVG output using DOMPurify to remove script tags, event handlers, and other XSS vectors, and display the sanitized SVG inside a zoomable viewport container that spans the full content area width.
 
@@ -120,3 +122,14 @@ Colorization SHALL cover flowchart and class diagrams.
 - **THEN** the colorization pass SHALL make no changes and the diagram SHALL
   render with mermaid's theme colors
 
+### Requirement: Mermaid hydration in AsciiDoc previews
+
+The mermaid rendering component SHALL be mountable against mermaid source extracted from rendered AsciiDoc preview HTML, in addition to markdown fenced code blocks, preserving its existing behavior: theme-aware rendering, SVG caching, zoomable viewport, and raw-source-with-error display on invalid syntax.
+
+#### Scenario: Adoc-sourced mermaid renders identically
+- **WHEN** the same mermaid source is rendered from a markdown fence and from an AsciiDoc source block
+- **THEN** both produce the same sanitized SVG behavior (theme-aware, cached, zoomable)
+
+#### Scenario: Invalid adoc-sourced mermaid degrades
+- **WHEN** an AsciiDoc mermaid block contains invalid syntax
+- **THEN** the raw code text is displayed with an error message, matching markdown behavior

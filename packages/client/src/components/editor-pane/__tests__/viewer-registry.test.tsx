@@ -67,12 +67,12 @@ describe("viewerRegistry — preview/* delegation", () => {
     expect(Object.keys(pseudoTabRegistry).sort()).toEqual([...PSEUDO_TAB_VIEWERS].sort());
   });
 
-  it("the two halves are disjoint and together cover all 18 viewer kinds", () => {
+  it("the two halves are disjoint and together cover all 19 viewer kinds", () => {
     const a = Object.keys(viewerRegistry);
     const b = Object.keys(pseudoTabRegistry);
     expect(a.filter((k) => b.includes(k))).toEqual([]);
-    expect(new Set([...a, ...b]).size).toBe(18);
-    expect(a).toHaveLength(14);
+    expect(new Set([...a, ...b]).size).toBe(19);
+    expect(a).toHaveLength(15);
     expect(b).toHaveLength(4);
   });
 

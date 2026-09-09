@@ -1106,3 +1106,40 @@ describe("resolveDashboardPorts", () => {
     });
   });
 });
+
+describe("kroki configuration (test-plan #E9, #E10)", () => {
+  let testDir: string;
+  let configFile: string;
+  let origHome: string;
+
+  beforeEach(() => {
+    testDir = path.join(os.tmpdir(), `test-kroki-config-${Date.now()}`);
+    fs.mkdirSync(path.join(testDir, ".pi", "dashboard"), { recursive: true });
+    configFile = path.join(testDir, ".pi", "dashboard", "config.json");
+    origHome = process.env.HOME!;
+    process.env.HOME = testDir;
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true });
+  });
+
+  it("loads kroki fields when configured (test-plan #E9)", () => {
+    fs.writeFileSync(
+      configFile,
+      JSON.stringify({ kroki: { url: "http://localhost:8100", allowRemote: true } }),
+    );
+    const cfg = loadConfig();
+    expect(cfg.kroki.url).toBe("http://localhost:8100");
+    expect(cfg.kroki.allowRemote).toBe(true);
+  });
+
+  it("missing kroki section returns defaults (url undefined, allowRemote false) (test-plan #E9)", () => {
+    fs.writeFileSync(configFile, JSON.stringify({}));
+    const cfg = loadConfig();
+    expect(cfg.kroki.url).toBeUndefined();
+    expect(cfg.kroki.allowRemote).toBe(false);
+  });
+});
+

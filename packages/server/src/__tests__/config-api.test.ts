@@ -510,4 +510,17 @@ describe("writeConfigPartial — openspec readiness keys (add-openspec-init-affo
     expect(cfg.openspec.optOutDirectories).toEqual(["/only/this"]);
     expect(cfg.openspec.offerInitialization).toBe(false);
   });
+
+  it("kroki block survives save round-trip without field loss (test-plan #E10)", () => {
+    fs.writeFileSync(configFile, JSON.stringify({
+      port: 8000,
+      kroki: { url: "http://localhost:8100", allowRemote: true },
+    }));
+    const result = writeConfigPartial({ autoShutdown: false });
+    expect(result.success).toBe(true);
+    const cfg = loadConfig();
+    expect(cfg.kroki.url).toBe("http://localhost:8100");
+    expect(cfg.kroki.allowRemote).toBe(true);
+    expect(cfg.autoShutdown).toBe(false);
+  });
 });

@@ -36,6 +36,7 @@ export const OPEN_PATH_VIEWERS = [
   "asciidoc",
   "audio",
   "binary-warn",
+  "diagram",
   "docx",
   "email",
   "html",

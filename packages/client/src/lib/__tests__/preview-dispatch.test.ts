@@ -76,6 +76,13 @@ describe("dispatchPreview — file targets", () => {
     expect(dispatchPreview(f("Mail.EML"))).toBe("email");
   });
 
+  // test-plan #E8 — .puml, .plantuml (case-insensitive) map to diagram
+  it("maps .puml, .PUML, .plantuml to diagram (test-plan #E8)", () => {
+    expect(dispatchPreview(f("x.puml"))).toBe("diagram");
+    expect(dispatchPreview(f("X.PUML"))).toBe("diagram");
+    expect(dispatchPreview(f("y.plantuml"))).toBe("diagram");
+  });
+
   // test-plan #4 — unknown extension stays fallback (regression guard).
   it("maps .dat to fallback (test-plan #4)", () => {
     expect(dispatchPreview(f("blob.dat"))).toBe("fallback");

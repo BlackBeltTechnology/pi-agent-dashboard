@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change docker-packaging. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Dockerfile builds a self-contained image
 The Dockerfile SHALL produce a single image containing Node.js 24 LTS, pi coding agent, pi-dashboard (with built client), code-server, zrok, tmux, jq, git, curl, ripgrep, fd-find, and bash. The image SHALL use `node:24-bookworm-slim` as the base. The image SHALL create a non-root user `pi` (UID 1000) and run all processes as that user. Build-essential and python3 SHALL be removed after native addon compilation to reduce image size.
 
@@ -51,11 +53,13 @@ The entrypoint script SHALL run a `seed-auth.js` script that reads provider API 
 - **THEN** no `auth.json` is created, and the dashboard starts normally (keys can be added via browser UI)
 
 ### Requirement: Docker Compose base configuration
-The `compose.yml` SHALL define a single service `pi-dashboard` with: build context pointing to the project root, port mappings for dashboard (default 8000) and pi gateway (default 9999), named volumes for `pi-state` and `zrok-state`, tmpfs on `/tmp`, memory limits, and a healthcheck using `/api/health`. All ports and limits SHALL be configurable via environment variables with sensible defaults.
+
+The `compose.yml` SHALL define a single default service `pi-dashboard` with: build context pointing to the project root, port mappings for dashboard (default 8000) and pi gateway (default 9999), named volumes for `pi-state` and `zrok-state`, tmpfs on `/tmp`, memory limits, and a healthcheck using `/api/health`. All ports and limits SHALL be configurable via environment variables with sensible defaults. Additional services SHALL be permitted only via opt-in compose overlay files that are not applied by default; a Kroki overlay SHALL add a `yuzutech/kroki` service reachable by `pi-dashboard` on the compose network, running in Kroki's safe/include-restricted mode, AND set the dashboard's Kroki endpoint env to that service in the same overlay — both sides wired atomically.
 
 #### Scenario: Container starts with default configuration
 - **WHEN** `docker compose up` is run with no `.env` file
 - **THEN** the dashboard is accessible at `http://localhost:8000` and the pi gateway listens on port 9999
+- **AND** no overlay-gated service (including Kroki) is started and no Kroki endpoint is configured
 
 #### Scenario: Healthcheck detects running server
 - **WHEN** the dashboard server is running inside the container
@@ -64,6 +68,14 @@ The `compose.yml` SHALL define a single service `pi-dashboard` with: build conte
 #### Scenario: Named volumes persist across restarts
 - **WHEN** the container is stopped and restarted
 - **THEN** pi sessions, auth credentials, dashboard preferences, and zrok enrollment are preserved
+
+#### Scenario: Kroki overlay enables local diagram rendering
+- **WHEN** the stack is started with the Kroki overlay file applied
+- **THEN** the Kroki service is reachable from `pi-dashboard` on the compose network and the dashboard resolves it as the diagram endpoint (via the overlay-set live environment override, not first-run config seeding)
+
+#### Scenario: Kroki include fetching is restricted
+- **WHEN** a diagram submitted through the overlay-enabled Kroki uses `!include`/`!includeurl` with an arbitrary URL
+- **THEN** the Kroki service refuses to fetch it (safe mode), and the render fails cleanly rather than fetching network-internal resources
 
 ### Requirement: Path-identical workspace mounts
 The project SHALL mount host project directories into the container at their identical absolute paths (e.g. host `/Users/x/Project/a` mounts to container `/Users/x/Project/a`), read-write. The base `compose.yml` SHALL NOT include any workspace mounts. Two mechanisms SHALL be provided sharing one directory list: a wrapper `docker/up.sh` reading a `PI_WORKSPACES` path-separator list, and a hand-edited `compose.override.yml` documented via `compose.override.yml.example`. Workspace mounts SHALL NOT be placed under `/workspaces/`.
@@ -160,4 +172,3 @@ When `mode.json` specifies `mode: "remote"`, the `ensureServer()` function SHALL
 #### Scenario: Electron quit does not stop remote server
 - **WHEN** the Electron app is quit in remote mode
 - **THEN** no shutdown request is sent to the remote server
-
