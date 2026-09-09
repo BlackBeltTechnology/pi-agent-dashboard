@@ -52,7 +52,8 @@ export function seedFile(p) {
   let raw = null;
   try {
     raw = fs.readFileSync(p, "utf8");
-  } catch {
+  } catch (err) {
+    if (err?.code !== "ENOENT") throw err; // only a MISSING file is fresh; surface EACCES/EISDIR
     raw = null; // missing file → fresh cfg
   }
 
