@@ -41,7 +41,10 @@ let installed: boolean | null = null;
 export function shouldRenderMemorySubcard(
   _session?: unknown,
 ): boolean {
-  return installed === true;
+  // TEMP: MEMORY subcard parked — not informative enough. The resolve state
+  // machine below is left fully intact; restore by swapping these two lines.
+  // return installed === true;
+  return false;
 }
 
 export interface ResolveInstalledOptions {
