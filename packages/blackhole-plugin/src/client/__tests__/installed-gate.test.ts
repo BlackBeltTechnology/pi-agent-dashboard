@@ -11,8 +11,10 @@
  *    stays false, the value is never finalized (X2)
  *  - importing the client entry under vitest issues no network request (F4),
  *    while `resolveInstalled` remains explicitly invokable
+ *  - while the surface is PARKED, the gate stays false even after a successful
+ *    `installed: true` resolve (park-blackhole-session-card)
  *
- * See change: add-blackhole-session-pipeline.
+ * See change: add-blackhole-session-pipeline, park-blackhole-session-card.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bumpSlotClaimsVersion } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -69,6 +71,23 @@ describe("shouldRenderMemorySubcard — sync fail-closed (F1)", () => {
   });
 });
 
+describe("shouldRenderMemorySubcard — parked (park-blackhole-session-card)", () => {
+  it("stays false AFTER a successful installed:true resolve", async () => {
+    const { fetch, calls } = flakyFetch(0); // succeeds on the first attempt
+    resolveInstalled({ fetchImpl: fetch, backoffMs: [1_000], slowIntervalMs: 60_000 });
+    await flush();
+
+    // The resolve genuinely succeeded and finalized — without these two the
+    // assertion below would pass vacuously on a gate that never resolved.
+    expect(calls()).toBe(1);
+    expect(bumps).toHaveBeenCalledTimes(1);
+
+    // ...and the gate is STILL false. This is the park contract: restoring the
+    // subcard by uncommenting `return installed === true;` must turn this red.
+    expect(shouldRenderMemorySubcard({ id: "s" })).toBe(false);
+  });
+});
+
 describe("resolveInstalled — transient failures then success (X1)", () => {
   it("fails ×4 then succeeds: 3 backoff retries + slow-interval attempt, one bump, no further polling", async () => {
     vi.useFakeTimers();
@@ -85,7 +104,8 @@ describe("resolveInstalled — transient failures then success (X1)", () => {
     expect(calls()).toBe(4);
     await vi.advanceTimersByTimeAsync(60_000); await flush(); // slow interval
     expect(calls()).toBe(5); // succeeds here — fails ×4, 5th succeeds
-    expect(shouldRenderMemorySubcard({ id: "s" })).toBe(true);
+    // TEMP: MEMORY subcard parked — not informative enough (gate hard-false).
+    // expect(shouldRenderMemorySubcard({ id: "s" })).toBe(true);
     expect(bumps).toHaveBeenCalledTimes(1);
 
     // No re-poll after success: time passes, nothing more is requested.
@@ -121,10 +141,12 @@ describe("resolveInstalled — non-200 / malformed are transient (X2)", () => {
     expect(shouldRenderMemorySubcard({ id: "s" })).toBe(false);
     expect(bumps).not.toHaveBeenCalled();
 
-    // Eventually succeeds → gate opens (never gives up).
+    // Eventually the resolve succeeds (never gives up). The gate stays closed
+    // while the subcard is parked — see the park test above.
     succeed = true;
     await vi.advanceTimersByTimeAsync(20); await flush();
-    expect(shouldRenderMemorySubcard({ id: "s" })).toBe(true);
+    // TEMP: MEMORY subcard parked — not informative enough (gate hard-false).
+    // expect(shouldRenderMemorySubcard({ id: "s" })).toBe(true);
     expect(bumps).toHaveBeenCalledTimes(1);
   });
 

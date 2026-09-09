@@ -34,7 +34,8 @@ describe("client entry boot check guard", () => {
       }) as unknown as Response) as typeof fetch;
     resolveInstalled({ fetchImpl });
     await new Promise((r) => setTimeout(r, 0));
-    expect(shouldRenderMemorySubcard({ id: "s" })).toBe(true);
+    // TEMP: MEMORY subcard parked — not informative enough (gate hard-false).
+    // expect(shouldRenderMemorySubcard({ id: "s" })).toBe(true);
     expect(fetchSpy).not.toHaveBeenCalled(); // the global fetch was never touched
     __resetInstalledGateForTests();
   });
