@@ -28,6 +28,7 @@ function baseDeps(): ServerContextDeps {
     registerBrowserHandler: () => {},
     onEvent: () => () => {},
     onSessionEnded: () => () => {},
+    onSessionResolved: () => () => {},
     sendToSession: () => false,
     emitEventToSession: () => false,
     spawnSession: async () => ({ success: false }),

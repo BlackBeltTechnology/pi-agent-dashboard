@@ -329,7 +329,12 @@ describe("lease release on terminal status", () => {
     const engine = makeEngine(src, calls);
     engine.startRunFor(batchAutomation("w"));
     const keys = calls
-      .map((c) => (c.automationRun as { idempotencyKey?: string }).idempotencyKey)
+      .map((c) => {
+        // Identity moved inside the opaque `pluginRef`. See change:
+        // detach-automation-goal-from-core.
+        const ref = c.pluginRef as { automationRun?: { idempotencyKey?: string } };
+        return ref.automationRun?.idempotencyKey;
+      })
       .sort();
     expect(keys).toEqual(["key:a", "key:b"]);
   });

@@ -81,10 +81,9 @@ import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gat
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager } from "./pairing/pairing.js";
 import { createPendingAttachRegistry } from "./pending/pending-attach-registry.js";
-import { createPendingAutomationRunRegistry } from "./pending/pending-automation-run-registry.js";
+import { createPendingPluginRefRegistry } from "./pending/pending-plugin-ref-registry.js";
 import { createPendingClientCorrelations } from "./pending/pending-client-correlations.js";
 import { createPendingForkRegistry, type PendingForkRegistry } from "./pending/pending-fork-registry.js";
-import { createPendingGoalLinkRegistry } from "./pending/pending-goal-link-registry.js";
 import { createPendingInitialPromptRegistry } from "./pending/pending-initial-prompt-registry.js";
 import { createPendingPromptAcks } from "./pending/pending-prompt-acks.js";
 import { createPendingResumeIntentRegistry } from "./pending/pending-resume-intent-registry.js";
@@ -455,7 +454,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       live: session.live,
       status: session.status,
       closedReason: session.closedReason,
-      kind: session.kind,
+      recover: session.recover,
     });
     const candidate = diskCandidate && isRecoveryAllowed(ownerIntent);
     if (diskCandidate && !candidate) {
@@ -676,11 +675,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // hook to write .meta.json#gitWorktreeBase.
   // See change: add-worktree-spawn-dialog.
   const pendingWorktreeBaseRegistry = createPendingWorktreeBaseRegistry();
-  // Pending automation-run stamps (cwd → { name, runId, visibility }).
-  // Populated by the automation-plugin spawn hook, consumed by event-wiring's
-  // session_register hook to stamp kind="automation" + automationRun.
-  // See change: add-automation-plugin.
-  const pendingAutomationRunRegistry = createPendingAutomationRunRegistry();
+  // Unified token-keyed session-ownership store (spawnToken → pluginRef).
+  // Replaces the two per-feature clones (automation-run + goal-link). Filed
+  // before the spawn await; resolved on register, promoted onto the linked
+  // headlessPidRegistry entry, and its owner notified.
+  // See change: detach-automation-goal-from-core.
+  const pendingPluginRefRegistry = createPendingPluginRefRegistry();
   // Pending user-initiated resume intents (sessionId → timestamp).
   // Consumed by `sessionManager.onChange` in the ended→alive branch to
   // gate the sessionOrder mutation behind explicit user intent so that
@@ -705,7 +705,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // correlates spawn-from-goal sessions to their goalId at session_register.
   // See change: add-goals-folder-page.
   const goalStore = createGoalStore();
-  const pendingGoalLinkRegistry = createPendingGoalLinkRegistry();
+  // Owner id under which core files the goal identity ref into the unified
+  // token store. Goal spawns in core (its plugin entry never spawns), so core
+  // is the filer; the goal product reads the resolved `goalId` field.
+  // See change: detach-automation-goal-from-core.
+  const GOAL_REF_OWNER = "goal";
   // Goal session supervisor (main-server; owns GoalStore). Assigned below once
   // browserGateway/spawn deps exist, then rides `dispatchPluginSessionEnded`.
   // See change: add-goal-session-supervisor.
@@ -1022,6 +1026,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // death signal, even when no terminal pi event was forwarded.
   // See change: finalize-automation-run-on-session-death.
   const pluginSessionEndSubs = new Set<(sessionId: string) => void>();
+  // Plugin session-ownership-resolution subscribers, keyed by owning plugin id
+  // so a plugin is notified ONLY for its own resolved sessions
+  // (ServerPluginContext.onSessionResolved). Fired by wireEvents on register,
+  // before first-event forwarding + pending-prompt dispatch.
+  // See change: detach-automation-goal-from-core.
+  const pluginSessionResolvedSubs = new Map<
+    string,
+    Set<(sessionId: string, pluginRef: Record<string, unknown>) => void>
+  >();
   // Host-owned cross-plugin service registry backing ServerPluginContext
   // provide/consume. One instance shared across every plugin context; the
   // loader's topological order guarantees a provider's registerPlugin runs
@@ -1086,6 +1099,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     if (goalSupervisor) void goalSupervisor.onDriverDeath(sessionId);
     for (const h of pluginSessionEndSubs) {
       try { h(sessionId); } catch (err) { console.error("[plugin-onSessionEnded]", err); }
+    }
+  }
+  // Notify a resolved session's OWNING plugin only. Routed by ownerId so no
+  // plugin sees another's ref. See change: detach-automation-goal-from-core.
+  function dispatchPluginSessionResolved(
+    ownerId: string,
+    sessionId: string,
+    pluginRef: Record<string, unknown>,
+  ): void {
+    const set = pluginSessionResolvedSubs.get(ownerId);
+    if (!set) return;
+    for (const h of set) {
+      try { h(sessionId, pluginRef); } catch (err) { console.error("[plugin-onSessionResolved]", err); }
     }
   }
 
@@ -1209,8 +1235,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pendingDashboardSpawns,
     pendingAttachRegistry,
     pendingWorktreeBaseRegistry,
-    pendingAutomationRunRegistry,
-    pendingGoalLinkRegistry,
+    pendingPluginRefRegistry,
+    dispatchPluginSessionResolved,
     goalStore,
     primeGoalSession: primeGoalSessionImpl,
     pendingInitialPromptRegistry,
@@ -1511,13 +1537,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     abortGoalSupervision: (cwd, goalId, terminal) =>
       goalSupervisor ? goalSupervisor.abort(cwd, goalId, terminal) : Promise.resolve(),
     spawnGoalSession: async (cwd, goalId, opts) => {
-      // PRIMARY correlation: mint the spawn token up front and stamp `goalId`
-      // onto the registry entry keyed to it, so `session_register` links via
-      // the strong token path (getGoalId). The cwd-FIFO enqueue stays only as
-      // a legacy fallback for bridges that don't echo the token.
-      // See change: add-goal-session-supervisor (Correlation).
+      // Mint the spawn token up front and file the goal identity ref against it
+      // in the unified token store, so `session_register` resolves ownership
+      // strictly by token (cwd never confers goal ownership).
+      // See change: detach-automation-goal-from-core.
       const spawnToken = mintSpawnToken();
-      pendingGoalLinkRegistry.enqueue(cwd, goalId);
+      // File the goal identity ref against the token BEFORE the await (Q5),
+      // opting the driver out of cold-start recovery symmetrically with
+      // automation. See change: detach-automation-goal-from-core.
+      pendingPluginRefRegistry.file(spawnToken, { goalId }, GOAL_REF_OWNER, { recover: false });
       try {
         const result = await spawnPiSession(cwd, {
           strategy: "headless",
@@ -1534,15 +1562,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             result.process,
             result.spawnToken ?? spawnToken,
             keeperOptsFromSpawnResult(result),
-            goalId,
           );
         }
-        // On spawn failure, drop the goalId we just enqueued so it can't be
-        // mis-consumed by a later unrelated session in the same cwd.
-        if (!result.success) pendingGoalLinkRegistry.consume(cwd);
+        // Idempotent token-keyed rollback on spawn failure.
+        if (!result.success) pendingPluginRefRegistry.remove(spawnToken);
         return { success: result.success, ...(result.message ? { message: result.message } : {}) };
       } catch (err) {
-        pendingGoalLinkRegistry.consume(cwd);
+        pendingPluginRefRegistry.remove(spawnToken);
         return { success: false, message: err instanceof Error ? err.message : String(err) };
       }
     },
@@ -1558,7 +1584,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     if (req.reason === "fresh" && req.reprime) {
       pendingInitialPromptRegistry.enqueue(req.cwd, req.reprime);
     }
-    pendingGoalLinkRegistry.enqueue(req.cwd, req.goalId);
+    pendingPluginRefRegistry.file(req.spawnToken, { goalId: req.goalId }, GOAL_REF_OWNER, { recover: false });
     try {
       const result = await spawnPiSession(req.cwd, {
         strategy: "headless",
@@ -1576,16 +1602,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           result.process,
           result.spawnToken ?? req.spawnToken,
           keeperOptsFromSpawnResult(result),
-          req.goalId,
         );
       }
       if (!result.success) {
-        pendingGoalLinkRegistry.consume(req.cwd);
+        pendingPluginRefRegistry.remove(req.spawnToken);
         if (req.reason === "fresh" && req.reprime) pendingInitialPromptRegistry.consume(req.cwd);
       }
       return { success: result.success, ...(result.message ? { message: result.message } : {}) };
     } catch (err) {
-      pendingGoalLinkRegistry.consume(req.cwd);
+      pendingPluginRefRegistry.remove(req.spawnToken);
       if (req.reason === "fresh" && req.reprime) pendingInitialPromptRegistry.consume(req.cwd);
       return { success: false, message: err instanceof Error ? err.message : String(err) };
     }
@@ -2283,6 +2308,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 pluginSessionEndSubs.add(handler);
                 return () => pluginSessionEndSubs.delete(handler);
               },
+              onSessionResolved: (handler) => {
+                const id = plugin.manifest.id;
+                let set = pluginSessionResolvedSubs.get(id);
+                if (!set) {
+                  set = new Set();
+                  pluginSessionResolvedSubs.set(id, set);
+                }
+                set.add(handler);
+                return () => set.delete(handler);
+              },
               sendToSession: (sessionId, text) =>
                 piGateway.sendToSession(sessionId, { type: "send_prompt", sessionId, text }),
               // Session-spawn hook. Gated to first-party/trusted plugins
@@ -2294,7 +2329,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   return { success: false, message: `spawn not permitted for plugin "${plugin.manifest.id}"` };
                 }
                 // Validate the untrusted root options object BEFORE mapping or
-                // dereferencing `opts.automationRun`/`opts.cwd`. A JS plugin can
+                // dereferencing `opts.pluginRef`/`opts.cwd`. A JS plugin can
                 // call `spawnSession(null)` or omit `cwd`; reject both with a
                 // structured result instead of throwing.
                 if (typeof opts !== "object" || opts === null) {
@@ -2303,16 +2338,22 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 if (typeof opts.cwd !== "string" || opts.cwd.length === 0) {
                   return { success: false, message: "spawn options require a non-empty cwd" };
                 }
-                // Map plugin-facing options to session options BEFORE the
-                // enqueue below. The mapper is total (never throws) and
-                // sanitizes untrusted plugin input; calling it first closes the
-                // window where a mapping failure could strand a stale
-                // `automationRun` stamp keyed by `cwd`. See change:
+                // Map plugin-facing options to session options BEFORE filing
+                // the ref below. The mapper is total (never throws) and
+                // sanitizes untrusted plugin input. See change:
                 // add-plugin-spawn-scope (D7).
                 const sessionOptions = pluginSpawnToSessionOptions(opts);
-                if (opts.automationRun) {
-                  pendingAutomationRunRegistry.enqueue(opts.cwd, opts.automationRun);
-                }
+                // Mint the spawn token UP FRONT so the ownership ref is filed
+                // against it BEFORE the `spawnPiSession` await, closing the
+                // register-in-the-gap miss. See change:
+                // detach-automation-goal-from-core.
+                const spawnToken = mintSpawnToken();
+                pendingPluginRefRegistry.file(
+                  spawnToken,
+                  opts.pluginRef,
+                  plugin.manifest.id,
+                  opts.lifecycle,
+                );
                 // mode/sandbox threading (change: redesign-automation-editor-and-board).
                 // DOCUMENTED LIMITATION (task 4.2): the host hook does not yet
                 // enforce these. `worktree` would need ephemeral worktree
@@ -2327,7 +2368,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   );
                 }
                 try {
-                  const result = await spawnPiSession(opts.cwd, sessionOptions);
+                  const result = await spawnPiSession(opts.cwd, { ...sessionOptions, spawnToken });
                   // Plugin/automation spawn: transport-less, reclaim required.
                   armSpawnWatchdog(opts.cwd, "headless", result);
                   if (result.process && result.pid) {
@@ -2335,16 +2376,20 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                       result.pid,
                       opts.cwd,
                       result.process,
-                      result.spawnToken,
+                      result.spawnToken ?? spawnToken,
                       keeperOptsFromSpawnResult(result),
                     );
                   }
+                  // Token-keyed, idempotent rollback on failure so no later
+                  // session resolves a stale ref.
+                  if (!result.success) pendingPluginRefRegistry.remove(spawnToken);
                   return {
                     success: result.success,
                     message: result.message,
-                    ...(result.spawnToken ? { spawnToken: result.spawnToken } : {}),
+                    ...(result.spawnToken ? { spawnToken: result.spawnToken } : { spawnToken }),
                   };
                 } catch (err) {
+                  pendingPluginRefRegistry.remove(spawnToken);
                   return { success: false, message: err instanceof Error ? err.message : String(err) };
                 }
               },

@@ -78,17 +78,17 @@ describe("plugin-spawn-scope env projection", () => {
 });
 
 describe("plugin-spawn-scope hook ordering (X5)", () => {
-  it("maps options BEFORE enqueuing an automationRun stamp", () => {
+  it("maps options BEFORE filing the pluginRef against the spawn token", () => {
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = path.dirname(__filename);
     const source = fs.readFileSync(path.resolve(__dirname, "..", "server.ts"), "utf8");
     const mapIdx = source.indexOf("pluginSpawnToSessionOptions(opts)");
-    const enqueueIdx = source.indexOf("pendingAutomationRunRegistry.enqueue(opts.cwd");
+    const fileIdx = source.indexOf("pendingPluginRefRegistry.file(\n                  spawnToken");
     expect(mapIdx, "pluginSpawnToSessionOptions(opts) call must be present").toBeGreaterThan(-1);
-    expect(enqueueIdx, "pendingAutomationRunRegistry.enqueue(opts.cwd, ...) must be present").toBeGreaterThan(-1);
+    expect(fileIdx, "pendingPluginRefRegistry.file(spawnToken, ...) must be present").toBeGreaterThan(-1);
     expect(
       mapIdx,
-      "the total mapper must run BEFORE the automationRun enqueue so a sanitized/rejected input cannot strand a stale stamp keyed by cwd (design D7)",
-    ).toBeLessThan(enqueueIdx);
+      "the total mapper must run BEFORE the ref is filed so a sanitized/rejected input cannot strand a stale token-keyed ref (design D7, now token-keyed per detach-automation-goal-from-core)",
+    ).toBeLessThan(fileIdx);
   });
 });

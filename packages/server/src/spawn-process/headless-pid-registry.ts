@@ -73,13 +73,14 @@ export interface HeadlessEntry {
    */
   keeperSockPath?: string;
   /**
-   * Owning goal id for a supervisor/route goal-driver spawn. Stamped at
-   * `register` time (keyed to the spawn token) so `session_register` can link
-   * the driver to its `GoalRecord` via the strong token path instead of the
-   * racy cwd-FIFO. Round-trips across restart. See change:
-   * add-goal-session-supervisor (C2c).
+   * Opaque plugin-ownership ref promoted onto the linked entry once a session
+   * registers with its spawn token (resolved from the token-keyed pending
+   * store). Round-trips across restart so a keeper-respawned session reaches
+   * its existing owner via the persisted entry, not the consumed token.
+   * Replaces the automation/goal-specific `goalId` field.
+   * See change: detach-automation-goal-from-core.
    */
-  goalId?: string;
+  pluginRef?: Record<string, unknown>;
 }
 
 /**
@@ -103,7 +104,7 @@ interface PersistedEntry {
   piPid?: number;
   keeperPid?: number;
   keeperSockPath?: string;
-  goalId?: string;
+  pluginRef?: Record<string, unknown>;
 }
 
 interface PidFileData {
@@ -144,14 +145,29 @@ export interface HeadlessPidRegistry {
     proc: ChildProcess,
     spawnToken?: string,
     keeperOpts?: KeeperRegisterOptions,
-    goalId?: string,
   ): void;
   /**
-   * Resolve the owning `goalId` for a linked session (stamped at register by a
-   * goal-driver spawn, keyed to the spawn token). Returns `undefined` for a
-   * non-goal session. See change: add-goal-session-supervisor (C2c).
+   * Resolve the opaque `pluginRef` for a linked session (promoted onto the
+   * entry at resolve time). Returns `undefined` for an unowned session.
+   * See change: detach-automation-goal-from-core.
    */
-  getGoalId(sessionId: string): string | undefined;
+  getPluginRef(sessionId: string): Record<string, unknown> | undefined;
+  /**
+   * Promote a resolved `pluginRef` onto the entry linked to `sessionId` so it
+   * persists across restart / keeper respawn. Returns `true` when an entry
+   * matched. See change: detach-automation-goal-from-core.
+   */
+  setPluginRef(sessionId: string, pluginRef: Record<string, unknown>): boolean;
+  /**
+   * Keeper-respawn relink: a keeper (stable `keeperPid`) relaunched pi with a
+   * new sessionId + new pi pid + no token. Relink the persisted keeper entry
+   * to the new sessionId and refresh the stale `piPid`, so the respawned
+   * session reaches its existing `pluginRef`. Relinks even an entry already
+   * carrying a (now-dead) sessionId. Returns `true` on match. An in-process
+   * fork has no keeper entry of its own and is unaffected (never inherits the
+   * parent's ref). See change: detach-automation-goal-from-core.
+   */
+  relinkByKeeperPid(keeperPid: number, sessionId: string, piPid?: number): boolean;
   /**
    * Tier 1 link: find entry by `spawnToken`, set its `sessionId`. Returns
    * `true` on match. The strongest identity — used when the bridge sent
@@ -360,7 +376,7 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
         if (e.piPid !== undefined) out.piPid = e.piPid;
         if (e.keeperPid !== undefined) out.keeperPid = e.keeperPid;
         if (e.keeperSockPath) out.keeperSockPath = e.keeperSockPath;
-        if (e.goalId) out.goalId = e.goalId;
+        if (e.pluginRef) out.pluginRef = e.pluginRef;
         return out;
       }),
     };
@@ -383,7 +399,6 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
       proc: ChildProcess,
       spawnToken?: string,
       keeperOpts?: KeeperRegisterOptions,
-      goalId?: string,
     ) {
       const entry: HeadlessEntry = {
         pid,
@@ -396,7 +411,6 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
         entry.keeperPid = keeperOpts.keeperPid;
         entry.keeperSockPath = keeperOpts.keeperSockPath;
       }
-      if (goalId) entry.goalId = goalId;
       entries.set(pid, entry);
       proc.on("exit", () => {
         entries.delete(pid);
@@ -475,8 +489,28 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
       return false;
     },
 
-    getGoalId(sessionId: string): string | undefined {
-      return findBySessionId(sessionId)?.goalId;
+    getPluginRef(sessionId: string): Record<string, unknown> | undefined {
+      return findBySessionId(sessionId)?.pluginRef;
+    },
+
+    setPluginRef(sessionId: string, pluginRef: Record<string, unknown>): boolean {
+      const entry = findBySessionId(sessionId);
+      if (!entry) return false;
+      entry.pluginRef = pluginRef;
+      persist();
+      return true;
+    },
+
+    relinkByKeeperPid(keeperPid: number, sessionId: string, piPid?: number): boolean {
+      for (const entry of entries.values()) {
+        if (entry.keeperPid === keeperPid) {
+          entry.sessionId = sessionId;
+          if (piPid !== undefined) entry.piPid = piPid;
+          persist();
+          return true;
+        }
+      }
+      return false;
     },
 
     getPid(sessionId: string): number | undefined {
@@ -657,7 +691,7 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
         if (entry.piPid !== undefined) reclaimed.piPid = entry.piPid;
         if (entry.keeperPid !== undefined) reclaimed.keeperPid = entry.keeperPid;
         if (entry.keeperSockPath) reclaimed.keeperSockPath = entry.keeperSockPath;
-        if (entry.goalId) reclaimed.goalId = entry.goalId;
+        if (entry.pluginRef) reclaimed.pluginRef = entry.pluginRef;
         entries.set(entry.pid, reclaimed);
       }
 

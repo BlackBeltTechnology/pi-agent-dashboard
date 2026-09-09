@@ -173,6 +173,20 @@ export interface SessionMeta {
   liveEpoch?: number;
   closedReason?: string;
 
+  /**
+   * Core-owned cold-start recovery opt-out. Defaults to `true` when absent
+   * (⇒ recoverable). A plugin that owns a session and does not want it
+   * replayed after a host crash declares `recover: false` through the generic
+   * session-ownership seam; core persists the resolved boolean here. Core
+   * reads ONLY this flag in `isRecoveryCandidate` — never a plugin name, the
+   * owner `pluginRef`, or owner-key presence. User sessions never carry it and
+   * stay byte-identical; only an owned session that opts out gains this single
+   * additive byte. Both first-party features (`automation`, `goal`) opt out
+   * through this same field, symmetrically.
+   * See change: detach-automation-goal-from-core.
+   */
+  recover?: boolean;
+
   // Cache freshness — compared against .jsonl mtime
   cachedAt?: number;
 }
@@ -198,17 +212,19 @@ export interface SessionMeta {
  * AND a still-set `live` marker. Pre-feature sidecars (no `live`) are never
  * candidates. Reads ONLY per-session meta — never the home-lock.
  * See change: reopen-sessions-after-shutdown.
+ *
+ * Plugin-owned sessions opt out of recovery through the core-owned `recover`
+ * flag (default `true`), never a plugin name. `recover: false` only governs
+ * the crash window where an owned session is still `live && !ended`; a normally
+ * closed owned session is excluded by the liveness/status halves regardless.
+ * See change: detach-automation-goal-from-core.
  */
 export function isRecoveryCandidate(meta: SessionMeta | undefined): boolean {
   return (
     meta?.live === true &&
     meta.status !== "ended" &&
     meta.closedReason !== "manual" &&
-    // Automation run sessions are FULLY exempt: respawning a headless rpc
-    // run detached from its automation (no per-fire context, no run
-    // finalization) recreates the zombie class fix-automation-stop-zombie-runs
-    // exists to kill. They normalize to `ended` like any non-candidate.
-    meta.kind !== "automation"
+    meta.recover !== false
   );
 }
 

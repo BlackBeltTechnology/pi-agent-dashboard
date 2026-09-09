@@ -35,11 +35,14 @@ describe("pluginSpawnToSessionOptions", () => {
     expect(mapped.strategy).toBe("headless");
   });
 
-  it("E12: existing fields (model, automationRun name) forwarded unchanged", () => {
+  it("E12: existing fields (model, name) forwarded unchanged", () => {
+    // `automationRun` is gone from the generic surface; a session name now
+    // travels as the top-level `name` opt (→ `--name`). See change:
+    // detach-automation-goal-from-core.
     const mapped = pluginSpawnToSessionOptions({
       cwd: "/w",
       model: "provider/model",
-      automationRun: { name: "run-title", runId: "r1" },
+      name: "run-title",
     });
     expect(mapped.model).toBe("provider/model");
     expect(mapped.name).toBe("run-title");
