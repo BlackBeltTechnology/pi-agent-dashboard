@@ -157,7 +157,13 @@ flowchart TD
 anchor. A submodule currently derives a `.git/modules/…` parent that is never a known folder →
 denied (wrong but safe). Under `--separate-git-dir` the derived parent is a real sibling
 directory that *could* be known → over-admission. Anchoring on `mainCheckout` closes it. The
-change is stricter, not looser, in every state except a submodule admitted on its own cwd.
+change is stricter, not looser, in every state except two, both deliberate: a submodule (and a
+worktree of one) admitted on its own cwd, and a linked worktree whose repository-**local**
+`core.worktree` names a known folder — the resolver returns that value verbatim, and the guard
+rejects it only when it contains a `.git` segment. The second is bounded and accepted: the store
+always opens at the request's own `cwd`, inside the repo whose `core.worktree` the requester
+already controls, so reach stays within the requester's own files. See `design.md` — Risks;
+change 3 must NOT inherit that reasoning.
 
 ## Sequence
 

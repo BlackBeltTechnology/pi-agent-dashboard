@@ -17,15 +17,31 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { buildGitFixtures, type GitFixtures } from "@blackbelt-technology/pi-dashboard-shared/test-support/git-fixtures.js";
 import Fastify, { type FastifyInstance } from "fastify";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { KbJobRegistry } from "../job-registry.js";
 import { mountKbRoutes } from "../kb-routes.js";
 
 const cleanup: string[] = [];
 afterEach(() => {
   for (const r of cleanup.splice(0)) rmSync(r, { recursive: true, force: true });
+});
+
+/** The nine git states, built once — the guard tests read them, never mutate
+ *  them (except E19, which uses its own throwaway repo). */
+let gitFx: GitFixtures;
+const savedGitEnv = { global: process.env.GIT_CONFIG_GLOBAL, system: process.env.GIT_CONFIG_SYSTEM };
+beforeAll(() => {
+  process.env.GIT_CONFIG_GLOBAL = "/dev/null";
+  process.env.GIT_CONFIG_SYSTEM = "/dev/null";
+  gitFx = buildGitFixtures();
+});
+afterAll(() => {
+  gitFx.cleanup();
+  process.env.GIT_CONFIG_GLOBAL = savedGitEnv.global;
+  process.env.GIT_CONFIG_SYSTEM = savedGitEnv.system;
 });
 
 /** A temp folder with a docs/ tree + a knowledge_base.json pointing at it. */
@@ -148,6 +164,94 @@ describe("GET /api/kb/stats", () => {
   it("still 403s a worktree whose main repo is NOT a known folder", async () => {
     const { worktree } = makeRepoWithWorktree(); // main repo left out of known
     const { app } = buildApp([makeFolder()]);
+    const res = await app.inject({ method: "GET", url: `/api/kb/stats?cwd=${encodeURIComponent(worktree)}` });
+    expect(res.statusCode).toBe(403);
+    await app.close();
+  });
+
+  // ---- checkout-root resolution as the admission anchor -------------------
+  // See change: add-git-checkout-root-resolver.
+
+  // E20 — the deliberately permissive breadth of the rule is PRESERVED by the
+  // conversion: any descendant of a known repo still resolves to that repo.
+  it("E20: admits an ordinary subdirectory of a known repo", async () => {
+    const { app } = buildApp([gitFx.normal]);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/kb/stats?cwd=${encodeURIComponent(gitFx.normalSubdir)}`,
+    });
+    expect(res.statusCode).toBe(200);
+    await app.close();
+  });
+
+  // E21 — a submodule is an independent project; it must not inherit its
+  // superproject's trust. The superseded derivation produced a
+  // `<super>/.git/modules/…` parent, which was denied for the wrong reason.
+  it("E21: a submodule does not inherit admission from its superproject", async () => {
+    const denied = buildApp([gitFx.superproject]);
+    const res = await denied.app.inject({
+      method: "GET",
+      url: `/api/kb/stats?cwd=${encodeURIComponent(gitFx.submodule)}`,
+    });
+    expect(res.statusCode).toBe(403);
+    await denied.app.close();
+
+    // … and adding the submodule itself as a known folder admits it.
+    const allowed = buildApp([gitFx.superproject, gitFx.submodule]);
+    const ok = await allowed.app.inject({
+      method: "GET",
+      url: `/api/kb/stats?cwd=${encodeURIComponent(gitFx.submodule)}`,
+    });
+    expect(ok.statusCode).toBe(200);
+    await allowed.app.close();
+  });
+
+  it("admits a worktree of a KNOWN submodule via the submodule checkout", async () => {
+    const { app } = buildApp([gitFx.submodule]);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/kb/stats?cwd=${encodeURIComponent(gitFx.submoduleWorktree)}`,
+    });
+    expect(res.statusCode).toBe(200);
+    await app.close();
+  });
+
+  // E22 — a worktree of a bare hub is a linked worktree with NO main checkout.
+  // The superseded derivation named the hub's parent directory instead.
+  it("E22: a worktree of a bare hub is rejected when not independently known", async () => {
+    const { app } = buildApp([dirname(gitFx.bare)]); // the hub's PARENT is known
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/kb/stats?cwd=${encodeURIComponent(gitFx.bareWorktree)}`,
+    });
+    expect(res.statusCode).toBe(403);
+    await app.close();
+  });
+
+  // The `--separate-git-dir` over-admission this change closes: the parent of
+  // the git dir is a REAL, unrelated directory that may itself be known.
+  it("does not admit a --separate-git-dir cwd via the directory holding its git dir", async () => {
+    const { app } = buildApp([dirname(gitFx.separateGitDirGitDir)]);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/kb/stats?cwd=${encodeURIComponent(gitFx.separateGitDir)}`,
+    });
+    expect(res.statusCode).toBe(403);
+    await app.close();
+  });
+
+  // E19 — the resolver returns a user-controlled `core.worktree` verbatim, so
+  // an AUTHORIZATION consumer must reject it rather than match it.
+  it("E19: an implausible resolved main checkout is not used as a trust anchor", async () => {
+    const { main, worktree } = makeRepoWithWorktree();
+    // Point the repo-local core.worktree at a path inside the git dir, which
+    // sits under the known folder `main`. The directory must exist: `git config
+    // core.worktree` validates the path at WRITE time (it does not validate it
+    // afterwards, which is why the resolver still cannot trust the value).
+    const bogus = join(main, ".git", "modules", "x");
+    mkdirSync(bogus, { recursive: true });
+    git(main, ["--git-dir", join(main, ".git"), "config", "--local", "core.worktree", bogus]);
+    const { app } = buildApp([main]);
     const res = await app.inject({ method: "GET", url: `/api/kb/stats?cwd=${encodeURIComponent(worktree)}` });
     expect(res.statusCode).toBe(403);
     await app.close();

@@ -200,6 +200,14 @@ covers files restored from backup or synced in later.
   inherit a judgement it did not make. The cost is that every future consumer must add its own
   check; the spec states that obligation explicitly rather than leaving it implied.
 
+  Both converted consumers reject only the *inside a git dir* case (the `.git`-segment test). A
+  `core.worktree` pointing OUTSIDE the repository at a path that is itself a known folder is
+  not rejected. Reviewed and accepted for this change: the kb guard opens the store at the
+  request's own `cwd`, which must sit inside the repo whose `core.worktree` the requester
+  already controls, so reach is bounded to the requester's own files — not an escalation.
+  **Change 3 must not inherit that reasoning.** `path-containment` is a file-READ boundary
+  where the same case costs more, so it owns an explicit outside-the-repository check.
+
 - **Scenario names retained though they name a retired concept** — e.g. "Worktree identity is
   derived from git-common-dir vs toplevel" now describes the gitdir signal. → *Mitigation:*
   deliberate. Renaming a scenario inside a MODIFIED block makes `openspec archive` refuse the

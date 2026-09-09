@@ -14,7 +14,9 @@
  *
  * See change: platform-command-executor.
  */
+import path from "node:path";
 import type { GitStatus } from "../types.js";
+import { normalizePath, samePath } from "./paths.js";
 import { type Recipe, type Result, run, runAsync, unwrap } from "./runner.js";
 
 /**
@@ -127,6 +129,44 @@ export const GIT_TOPLEVEL: Recipe<WithCwd, string | undefined> = {
   timeout: GIT_TIMEOUT,
 };
 
+/**
+ * `git rev-parse --path-format=absolute --git-dir` — the PER-WORKTREE git dir.
+ *
+ * `--path-format=absolute` is part of the contract, not a preference: without
+ * it git reports the relative `.git` at a checkout root and an absolute path
+ * from a subdirectory, and `isLinkedWorktree` is an equality test between this
+ * probe and `GIT_COMMON_DIR_ABS`. Mixed forms would make every normal checkout
+ * report as a linked worktree. See change: add-git-checkout-root-resolver.
+ */
+export const GIT_DIR_ABS: Recipe<WithCwd, string | undefined> = {
+  argv: () => ["git", "rev-parse", "--path-format=absolute", "--git-dir"],
+  parse: (out) => out.trim() || undefined,
+  timeout: GIT_TIMEOUT,
+};
+
+/** `git rev-parse --path-format=absolute --git-common-dir` — the SHARED git dir. */
+export const GIT_COMMON_DIR_ABS: Recipe<WithCwd, string | undefined> = {
+  argv: () => ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+  parse: (out) => out.trim() || undefined,
+  timeout: GIT_TIMEOUT,
+};
+
+/**
+ * Repository-LOCAL `core.worktree` on an explicit git dir, in argv form.
+ *
+ * `--local` (not a merged read) is required: a merged read returns a value set
+ * in `~/.gitconfig` for every linked worktree on the machine, and this value
+ * feeds an authorization anchor. Argv form (not a shell string) is required
+ * because the git-dir path is runtime, cwd-derived input.
+ * Exit 1 = the key is unset, which is the common case, not an error.
+ */
+export const GIT_CONFIG_LOCAL_CORE_WORKTREE: Recipe<WithCwd & { gitDir: string }, string | undefined> = {
+  argv: ({ gitDir }) => ["git", "--git-dir", gitDir, "config", "--local", "--get", "core.worktree"],
+  parse: (out) => out.trim() || undefined,
+  timeout: GIT_TIMEOUT,
+  tolerate: [1],
+};
+
 export const GIT_DIFF: Recipe<WithCwd & { path: string; ref?: string }, string> = {
   argv: ({ path, ref }) => ["git", "diff", ref ?? "HEAD", "--", path],
   parse: (out) => out,
@@ -201,6 +241,9 @@ export const GIT_RECIPES = {
   GIT_REMOTE_URL,
   GIT_COMMON_DIR,
   GIT_TOPLEVEL,
+  GIT_DIR_ABS,
+  GIT_COMMON_DIR_ABS,
+  GIT_CONFIG_LOCAL_CORE_WORKTREE,
   GIT_DIFF,
   GIT_DIFF_ALL,
   GIT_NUMSTAT,
@@ -233,6 +276,138 @@ export function commonDir(input: WithCwd): Result<string | undefined> {
 
 export function toplevel(input: WithCwd): Result<string | undefined> {
   return run(GIT_TOPLEVEL, input, { cwd: input.cwd });
+}
+
+// ── Checkout-root resolution ────────────────────────────────────────────────
+// See change: add-git-checkout-root-resolver.
+
+/**
+ * The three facts a consumer actually needs about a cwd's git layout.
+ *
+ * They are three separate fields on purpose. `dirname(--git-common-dir)` —
+ * the derivation this type replaces — collapses them into one path and is
+ * wrong whenever the git dir does not sit inside the checkout it serves
+ * (submodule, worktree of a submodule, `--separate-git-dir`, bare, worktree
+ * of a bare hub).
+ */
+export interface GitCheckoutRoots {
+  /** The working tree containing the cwd; `null` for a bare repository. */
+  thisCheckout: string | null;
+  /** True iff the per-worktree git dir differs from the shared common dir. */
+  isLinkedWorktree: boolean;
+  /** The repository's primary working tree; `null` when it has none. */
+  mainCheckout: string | null;
+}
+
+/**
+ * Injected git reads, so the resolution logic is unit-testable without
+ * spawning git. The CANONICAL FORM is part of the contract — `gitDir` and
+ * `commonDir` must both be absolute (`--path-format=absolute`) — because the
+ * classifier compares them.
+ */
+export interface GitCheckoutRootProbes {
+  gitDir: () => string | undefined;
+  commonDir: () => string | undefined;
+  topLevel: () => string | undefined;
+  /** Repository-LOCAL `core.worktree` on the common dir; argv form only. */
+  localCoreWorktree: (commonDir: string) => string | undefined;
+}
+
+/**
+ * Whether `p` contains a `.git` path COMPONENT.
+ *
+ * Exact segment equality, never `includes(".git")`: an ordinary checkout
+ * legitimately located at `/work/app.git` must not be rejected.
+ */
+export function hasGitPathSegment(p: string, platform: NodeJS.Platform = process.platform): boolean {
+  return normalizePath(p, platform)
+    .split(/[\\/]+/)
+    .some((seg) => seg === ".git");
+}
+
+/** Call a probe, mapping any throw (timeout, missing binary) to `undefined`. */
+function tryProbe(read: () => string | undefined): string | undefined {
+  try {
+    return read();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Resolve a cwd's checkout roots from injected probes.
+ *
+ * `--git-dir` and `--git-common-dir` are REQUIRED: both succeeding is what
+ * proves the cwd is inside a repository, and either failing yields `null` (no
+ * result) rather than a path derived from a partial probe.
+ *
+ * `--show-toplevel` is NOT required. It fails by design in a bare repository,
+ * and that failure means `thisCheckout = null` for an EXISTING repo — which is
+ * what keeps bare distinguishable from non-repo, so a consumer does not fall
+ * through to a non-git code path.
+ *
+ * `mainCheckout` is returned VERBATIM. `core.worktree` is user-controlled and
+ * git does not validate it, so rule 1 may yield a nonexistent path or one
+ * inside a git dir. Validating it is the CONSUMER's obligation, because the
+ * safe response differs by consumer (a display consumer omits the field; an
+ * authorization consumer rejects).
+ *
+ * `platform` governs the ISOMORPHIC string helpers only (`normalizePath` /
+ * `samePath`). The `node:path` calls below are native and always follow
+ * `process.platform`, so passing a foreign `platform` cross-checks comparison
+ * semantics, not separator parsing.
+ */
+export function resolveCheckoutRootsFrom(
+  probes: GitCheckoutRootProbes,
+  platform: NodeJS.Platform = process.platform,
+): GitCheckoutRoots | null {
+  const gitDirRaw = tryProbe(probes.gitDir);
+  const commonDirRaw = tryProbe(probes.commonDir);
+  if (!gitDirRaw || !commonDirRaw) return null;
+
+  const gitDir = normalizePath(gitDirRaw, platform);
+  const commonDir = normalizePath(commonDirRaw, platform);
+  const topLevelRaw = tryProbe(probes.topLevel);
+  const thisCheckout = topLevelRaw ? normalizePath(topLevelRaw, platform) : null;
+
+  const isLinkedWorktree = !samePath(gitDir, commonDir, platform);
+  if (!isLinkedWorktree) return { thisCheckout, isLinkedWorktree, mainCheckout: thisCheckout };
+
+  // Rule 1 — repository-local `core.worktree`, resolved against the common dir.
+  const configured = tryProbe(() => probes.localCoreWorktree(commonDir));
+  if (configured) {
+    return {
+      thisCheckout,
+      isLinkedWorktree,
+      mainCheckout: normalizePath(path.resolve(commonDir, configured), platform),
+    };
+  }
+  // Rule 2 — the parent of the common dir, when the common dir is named `.git`.
+  if (path.basename(commonDir) === ".git") {
+    return { thisCheckout, isLinkedWorktree, mainCheckout: normalizePath(path.dirname(commonDir), platform) };
+  }
+  // Rule 3 — a bare hub has no working tree to name.
+  return { thisCheckout, isLinkedWorktree, mainCheckout: null };
+}
+
+/**
+ * Canonical wiring of {@link resolveCheckoutRootsFrom} over the git recipes.
+ *
+ * Every consumer SHOULD call this rather than assembling its own probes, so
+ * the `--path-format=absolute` requirement cannot be got wrong per call site.
+ *
+ * `timeout` overrides the recipes' default per probe — a request-path guard
+ * resolves three probes and must not inherit a batch-job budget.
+ */
+export function checkoutRoots(input: WithCwd & { timeout?: number }): GitCheckoutRoots | null {
+  const ctx = { cwd: input.cwd, timeout: input.timeout };
+  return resolveCheckoutRootsFrom({
+    gitDir: () => unwrap(run(GIT_DIR_ABS, input, ctx), undefined),
+    commonDir: () => unwrap(run(GIT_COMMON_DIR_ABS, input, ctx), undefined),
+    topLevel: () => unwrap(run(GIT_TOPLEVEL, input, ctx), undefined),
+    localCoreWorktree: (commonDir) =>
+      unwrap(run(GIT_CONFIG_LOCAL_CORE_WORKTREE, { cwd: input.cwd, gitDir: commonDir }, ctx), undefined),
+  });
 }
 
 export function diff(input: WithCwd & { path: string; ref?: string }): Result<string> {

@@ -32,7 +32,7 @@ import {
   SqliteFtsStore,
   validateConfig,
 } from "@blackbelt-technology/pi-dashboard-kb";
-import { execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { checkoutRoots, hasGitPathSegment } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { KbConfigPatch, KbReindexResult, KbStats } from "../shared/kb-plugin-types.js";
 import type { KbJobRegistry } from "./job-registry.js";
@@ -63,37 +63,50 @@ function canonPath(p: string): string {
   }
 }
 
-/** If `cwd` is inside a git worktree, return its MAIN working-tree path (parent
- *  of the shared git-common-dir), else null. Server-derived via git — never a
- *  client-supplied main path — so a worktree is admitted only when its parent
- *  repo is independently a known folder. Enables reindexing a SESSION-LESS
- *  worktree that neither a live session cwd nor a pin covers.
- *  See change: fix-kb-worktree-cwd-guard. */
-function worktreeMainPath(cwd: string): string | null {
-  try {
-    const commonDir = execFileSync(
-      "git",
-      ["-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"],
-      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 2000 },
-    ).trim();
-    return commonDir ? dirname(commonDir) : null;
-  } catch {
-    return null;
-  }
+/** The MAIN CHECKOUT of `cwd` — the durable git repo root admission anchors on
+ *  — or null when none resolves. Server-derived via git, never client-supplied.
+ *
+ *  Uses the shared checkout-root resolution rather than the superseded
+ *  `dirname(--git-common-dir)`, which names a real checkout only when the git
+ *  dir happens to sit inside one. Under `--separate-git-dir` that parent is a
+ *  real but UNRELATED directory which could itself be a known folder — an
+ *  over-admission this anchor closes.
+ *
+ *  The `.git`-segment rejection is this consumer's OWN obligation: the resolver
+ *  returns a user-controlled `core.worktree` value verbatim and does not judge
+ *  it. Being an AUTHORIZATION consumer, the safe response is to derive no main
+ *  path at all, so the value is never matched against the known-folder set.
+ *
+ *  A submodule resolves to its own checkout and therefore does NOT inherit
+ *  trust from its superproject; a worktree of a bare hub resolves to null and
+ *  is rejected unless independently known.
+ *  The probes run through the SYNCHRONOUS runner on a Fastify request path, so
+ *  the per-probe budget is what bounds event-loop blocking. The superseded
+ *  implementation blocked for at most one 2000ms `execFileSync`; this resolves
+ *  up to FOUR probes, so the budget is 500ms each to hold the SAME 2s worst
+ *  case rather than quadrupling it. A healthy git answers in ~10ms; only a
+ *  pathological (network-mounted, unresponsive) checkout approaches the bound,
+ *  and a timeout degrades to "no result" → reject, never admit.
+ *  See change: add-git-checkout-root-resolver (was: fix-kb-worktree-cwd-guard). */
+function mainCheckoutPath(cwd: string): string | null {
+  const roots = checkoutRoots({ cwd, timeout: 500 });
+  const main = roots?.mainCheckout;
+  if (!main || hasGitPathSegment(main)) return null;
+  return main;
 }
 
 /** Pure cwd guard shared by the REST routes and the plugin_action handler:
- *  a cwd is allowed when it (or its git-worktree MAIN repo) is a known folder.
+ *  a cwd is allowed when it (or its resolved MAIN CHECKOUT) is a known folder.
  *  Both sides canonicalize. See change: fix-plugin-action-fanout-and-handlers. */
 export function isAllowedCwd(cwd: string | undefined, known: () => string[]): cwd is string {
   if (!cwd) return false;
   const target = canonPath(cwd);
   const knownCanon = known().map(canonPath);
   if (knownCanon.includes(target)) return true;
-  // Admit a git worktree whose MAIN repo is a known folder (covers a
-  // session-less worktree — worktrees are never pinned and their session is
-  // transient, so the parent repo is the durable trust anchor).
-  const main = worktreeMainPath(cwd);
+  // Admit a cwd whose MAIN CHECKOUT is a known folder (covers a session-less
+  // worktree — worktrees are never pinned and their session is transient, so
+  // the durable repo root is the trust anchor).
+  const main = mainCheckoutPath(cwd);
   if (main && knownCanon.includes(canonPath(main))) return true;
   return false;
 }

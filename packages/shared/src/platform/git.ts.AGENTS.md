@@ -14,6 +14,22 @@ Recipe-based git API. Thin wrappers over `run()` / `runAsync()` (runner.ts). No 
 
 `diffAll` / `diffAllOr` (batched whole-worktree diff; callers split per file on `diff --git` header boundaries), `isGitRepoOrAsync`, `statusPorcelainOrAsync`, `numstatOrAsync`, `headShaOrAsync`. Used by `/api/session-diff` so no synchronous git blocks the event loop. See change: fix-session-diff-eventloop-block.
 
+## Checkout-root resolution
+
+`GitCheckoutRoots` = `{thisCheckout, isLinkedWorktree, mainCheckout}`. Three fields, never one path. Replaces `dirname(--git-common-dir)`, wrong whenever git dir sits outside its checkout (submodule, worktree-of-submodule, `--separate-git-dir`, bare, worktree-of-bare).
+
+`resolveCheckoutRootsFrom(probes, platform?)` — pure, injected thunks. `checkoutRoots({cwd, timeout?})` — canonical wiring over the recipes; every consumer SHOULD use it.
+
+Required probes `GIT_DIR_ABS` + `GIT_COMMON_DIR_ABS`, both `--path-format=absolute`. Absolute form is CONTRACT: `isLinkedWorktree` is an equality test, mixed forms make every normal checkout report as a worktree. Either fails → `null` (no result). `GIT_TOPLEVEL` NOT required — fails by design in a bare repo → `thisCheckout: null` with a RESULT, so bare stays distinguishable from non-repo.
+
+`isLinkedWorktree` = `--git-dir` ≠ `--git-common-dir` (via `samePath`). NOT common-dir-outside-toplevel (calls a submodule a worktree), NOT `basename(commonDir) === ".git"` (calls a worktree-of-submodule and worktree-of-bare non-worktrees).
+
+`mainCheckout`: not-worktree → `thisCheckout`; else `GIT_CONFIG_LOCAL_CORE_WORKTREE` resolved against commonDir (`--local`, argv — a merged read leaks `~/.gitconfig` into an authorization anchor); else `dirname(commonDir)` when named `.git`; else `null`.
+
+Returned VERBATIM. `core.worktree` is user-controlled and git does not validate it — CONSUMERS validate. `hasGitPathSegment(p, platform?)` = exact path-COMPONENT equality (`/work/app.git` is not rejected).
+
+Fixtures: `test-support/git-fixtures.ts`. Tests: `__tests__/git-checkout-roots.test.ts`. See change: add-git-checkout-root-resolver.
+
 ## Parser
 
 `parseGitStatusV2(stdout)` → `GitStatus` (pure). Parses `git status --porcelain=v2 --branch`: `1`/`2`/`u`/`?` lines + `# branch.ab`. Reused by bridge broadcast AND server `getGitStatus`. See changes: add-change-summary-table, add-session-uncommitted-indicator-and-commit.

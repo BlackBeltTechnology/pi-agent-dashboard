@@ -3,11 +3,13 @@
 ## Purpose
 
 Detect and propagate per-session git context — branch, detached HEAD SHA, worktree identity, remote URL, PR number, hosting-platform links, worktree base ref, cwd-missing state, and the persistent is-git-repo tri-state — from the bridge extension through the session protocol into `DashboardSession` and `.meta.json`, so the dashboard can render branch/PR affordances and gate worktree actions accurately across live, cold, and restarted sessions.
+
 ## Requirements
+
 ### Requirement: Git branch detection
 The bridge extension SHALL detect the current git branch by running `git rev-parse --abbrev-ref HEAD` in the session's `cwd`. If the command fails (not a git repo), the branch SHALL be `undefined`. When in detached HEAD state, the extension SHALL detect the short commit SHA via `git rev-parse --short HEAD`.
 
-In the same `gatherGitInfo` pass, the extension SHALL detect whether the cwd is a git worktree by comparing `git rev-parse --git-common-dir` against `git rev-parse --show-toplevel`. If `git-common-dir` resolves to a path outside `show-toplevel` (e.g. `<main-repo>/.git`), the cwd SHALL be classified as a worktree.
+In the same `gatherGitInfo` pass, the extension SHALL determine worktree identity via the shared checkout-root resolution (`git-checkout-root-resolution`). The cwd SHALL be classified as a worktree when it is a linked worktree (`git rev-parse --git-dir` differs from `git rev-parse --git-common-dir`) AND a main checkout resolves for it. The extension SHALL NOT classify by comparing `--git-common-dir` against `--show-toplevel`, and SHALL NOT derive `mainPath` as the parent of `--git-common-dir`: that comparison reports a submodule as a worktree, and that derivation names a real checkout only when the git dir happens to sit inside one.
 
 #### Scenario: Session in a git repository
 - **WHEN** the extension gathers git info in a directory that is a git repository
@@ -25,13 +27,15 @@ In the same `gatherGitInfo` pass, the extension SHALL detect whether the cwd is 
 - **AND** no branch link SHALL be generated
 
 #### Scenario: Session in main repo checkout
-- **WHEN** `git-common-dir` resolves under `show-toplevel` (typically `<cwd>/.git`)
+- **WHEN** the cwd is not a linked worktree (its `--git-dir` equals its `--git-common-dir`)
 - **THEN** the extension SHALL emit `gitWorktree: undefined` (or omit the field) on the gathered info
+- **AND** this SHALL hold for a submodule checkout, a `--separate-git-dir` checkout, and a bare repository alike
 
 #### Scenario: Session in a git worktree
-- **WHEN** `git-common-dir` resolves to a path outside `show-toplevel`
+- **WHEN** the cwd is a linked worktree and a main checkout resolves for it
 - **THEN** the extension SHALL emit `gitWorktree: { mainPath, name }`
-- **AND** `mainPath` SHALL be the absolute directory of the main worktree (the parent of `git-common-dir`)
+- **AND** `mainPath` SHALL be the resolved main checkout — the main working tree for an ordinary worktree, and the submodule's own checkout for a worktree of a submodule
+- **AND** `mainPath` SHALL NOT be the parent of `--git-common-dir` when that parent is not a working tree
 - **AND** `name` SHALL be the basename of the worktree cwd
 
 #### Scenario: Worktree detection failure
@@ -201,4 +205,3 @@ The server SHALL store `isGitRepo` on `DashboardSession`, forward it in `session
 #### Scenario: Legacy bridge / session
 - **WHEN** a session is registered by a bridge that does not send `isGitRepo`, or restored from a `.meta.json` lacking the field
 - **THEN** `DashboardSession.isGitRepo` SHALL be `undefined`
-

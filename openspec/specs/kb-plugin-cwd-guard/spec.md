@@ -37,13 +37,38 @@ The cwd guard SHALL canonicalize both the incoming `cwd` and every known-folder 
 
 ### Requirement: Git-repo-main admission (broad subdirectory reach)
 
-The cwd guard SHALL run a server-side `git rev-parse --git-common-dir` on ANY unknown `cwd` and SHALL admit it when the parent of the resolved git-common-dir is a known folder. Because the git-common-dir of any path inside a repo resolves to that repo's shared git directory, this rule admits NOT ONLY a linked worktree whose main working tree is known, but ANY subdirectory at any depth of ANY known git repo — e.g. `/repo/src` is admitted whenever `/repo` alone is a known folder. The main working-tree path SHALL be derived server-side via git and never taken from client input.
+The cwd guard SHALL resolve the checkout roots of ANY unknown `cwd` server-side
+(`git-checkout-root-resolution`) and SHALL admit it when the resolved `mainCheckout` is a
+known folder. Because the resolution of any path inside a checkout yields that checkout, this
+rule admits NOT ONLY a linked worktree whose main working tree is known, but ANY subdirectory
+at any depth of ANY known git repo — e.g. `/repo/src` is admitted whenever `/repo` alone is a
+known folder. The main working-tree path SHALL be derived server-side via git and never taken
+from client input.
 
 This is a deliberately permissive surface: admission is anchored to the *durable git repo root*, not to the exact known path, so any descendant of a known repo (including nested and worktree subdirectories) opens a store and touches disk under that repo. The guard does NOT restrict admitted paths to the repo root or to linked-worktree roots.
 
+The main working-tree path SHALL be the `mainCheckout` of the shared checkout-root resolution
+(`git-checkout-root-resolution`), NOT the parent of the git-common-dir. The parent-of-common-dir
+derivation names a real checkout only when the git dir happens to sit inside it, and
+otherwise yields either a nonexistent directory or a real but unrelated one; the guard SHALL
+NOT admit a cwd on that basis.
+
+The guard SHALL validate the resolved `mainCheckout` before using it as a trust anchor,
+because the resolver returns a user-controlled `core.worktree` value verbatim and does not
+judge it. A resolved path containing a `.git` path segment (exact-segment test) SHALL be
+treated as no main path and SHALL NOT be matched against the known-folder set — rejection is
+the safe response for an authorization consumer, which SHALL NOT assume the resolver filtered
+the value.
+
+When no `mainCheckout` resolves — a worktree of a bare repository, or a failed probe — the
+guard SHALL derive no main path, yielding rejection unless the cwd is independently known. A
+submodule SHALL NOT inherit trust from its superproject: it is an independent project whose
+`mainCheckout` is its own checkout, so it SHALL be admitted only by being a known folder in
+its own right, or by its own checkout being one.
+
 #### Scenario: Subdirectory of a known repo admitted
 - **WHEN** only `/repo` is in the known-folder set and a request carries `cwd = /repo/src` (an ordinary non-worktree subdirectory of that repo)
-- **THEN** the guard runs `git -C /repo/src rev-parse --git-common-dir`, resolves `/repo/.git`, takes its parent `/repo`, finds it in the known-folder set, and admits `/repo/src`
+- **THEN** the guard resolves the checkout roots of `/repo/src`, obtains `mainCheckout = /repo`, finds it in the known-folder set, and admits `/repo/src`
 - **AND** the store for `/repo/src` is opened and disk under it is read
 
 #### Scenario: Worktree of a known main repo admitted
@@ -57,6 +82,36 @@ This is a deliberately permissive surface: admission is anchored to the *durable
 #### Scenario: Non-git unknown path rejected
 - **WHEN** the request `cwd` is not a known folder and git cannot resolve a git-common-dir for it (not inside any repo)
 - **THEN** the guard treats it as unknown and rejects it with `403`
+
+#### Scenario: Submodule does not inherit admission from its superproject
+- **GIVEN** a known folder `/super` and a submodule checkout at `/super/models/sub` that is NOT itself a known folder
+- **WHEN** a request carries `cwd = /super/models/sub`, whose `mainCheckout` resolves to `/super/models/sub` itself
+- **THEN** the guard SHALL NOT admit it via `/super`
+- **AND** SHALL reject the request with `403`
+- **AND** when `/super/models/sub` is itself added as a known folder, the same request SHALL be admitted by the known-folder rule
+
+#### Scenario: Worktree of a known submodule is admitted via the submodule
+- **GIVEN** a known folder `/super/models/sub` and a worktree created from that submodule, the worktree itself not being a known folder
+- **WHEN** a request carries that worktree as `cwd`
+- **THEN** the guard SHALL resolve `mainCheckout` to `/super/models/sub`, find it in the known-folder set, and admit the worktree
+
+#### Scenario: An implausible resolved main checkout is not used as a trust anchor
+- **GIVEN** a linked worktree whose repository-local `core.worktree` points at a path inside a git directory that happens to be inside a known folder
+- **WHEN** a request carries that worktree as `cwd` and the worktree itself is not a known folder
+- **THEN** the guard SHALL treat the resolved value as no main path
+- **AND** SHALL reject the request with `403`
+- **AND** SHALL NOT admit the cwd on the basis of that path being under a known folder
+
+#### Scenario: Worktree of a bare repository is rejected unless independently known
+- **GIVEN** a worktree created from a bare hub, for which no `mainCheckout` resolves
+- **WHEN** a request carries that worktree as `cwd` and it is not a known folder
+- **THEN** the guard SHALL derive no main path and SHALL reject the request with `403`
+
+#### Scenario: Separate-git-dir cwd is not admitted via an unrelated sibling
+- **GIVEN** a checkout at `/work/app` created with `--separate-git-dir=/known/elsewhere.git`, where `/known` IS a known folder but `/work/app` is not
+- **WHEN** a request carries `cwd = /work/app`
+- **THEN** the guard SHALL NOT admit it by taking the parent of `/known/elsewhere.git`
+- **AND** SHALL reject the request with `403`
 
 ### Requirement: Config patch shape validation
 

@@ -72,45 +72,34 @@ export function detectPrNumber(cwd: string): number | undefined {
 /**
  * Detect whether `cwd` is a git worktree (not the main checkout).
  *
- * Uses the canonical signal: `git rev-parse --git-common-dir` resolves
- * to a path OUTSIDE `git rev-parse --show-toplevel` when the cwd is a
- * worktree (because `--git-common-dir` points back at the main repo's
- * `.git/`, while `--show-toplevel` is the worktree's own root).
+ * Delegates to the shared checkout-root resolver, whose worktree signal is
+ * `--git-dir != --git-common-dir`. The superseded test — "is the common dir
+ * outside `--show-toplevel`" — reported a SUBMODULE as a worktree and then
+ * derived `mainPath` as the parent of the common dir, i.e. a
+ * `…/.git/modules/<name>` path that does not exist.
  *
  * Returns `undefined` when:
- *   - either rev-parse invocation fails (not a repo, git missing,
- *     permission, etc.),
- *   - the cwd IS the main checkout (`commonDir` is inside `topLevel`).
+ *   - a required rev-parse invocation fails (not a repo, git missing, timeout);
+ *   - the cwd is not a linked worktree — which now covers a submodule, a
+ *     `--separate-git-dir` checkout, and a bare repository alike;
+ *   - no main checkout resolves (a worktree of a bare hub has none);
+ *   - the resolved main checkout is implausible.
  *
- * Resolution is path-prefix based with case-folding on Windows/macOS
- * via the shared platform helpers; relative `commonDir` outputs (which
- * happen on some git versions when cwd === main repo) are normalised
- * to absolute via `path.resolve(cwd, commonDir)`.
+ * That last check is this consumer's own obligation: the resolver returns a
+ * user-controlled `core.worktree` value verbatim and does not judge it. Being
+ * a DISPLAY consumer, the safe response here is to omit the field rather than
+ * put a `.git`-internal path on the wire.
+ *
+ * See change: add-git-checkout-root-resolver.
  */
 export function detectWorktree(cwd: string): GitWorktreeInfo | undefined {
-  const commonDirRaw = git.commonDirOr({ cwd });
-  const topLevel = git.toplevelOr({ cwd });
-  if (!commonDirRaw || !topLevel) return undefined;
+  const roots = git.checkoutRoots({ cwd });
+  if (!roots || !roots.isLinkedWorktree) return undefined;
 
-  // Normalise commonDir: when it's relative (`.git`), resolve against cwd.
-  // When absolute, leave as-is.
-  const commonDirAbs = path.isAbsolute(commonDirRaw)
-    ? commonDirRaw
-    : path.resolve(cwd, commonDirRaw);
+  const mainPath = roots.mainCheckout;
+  if (!mainPath || git.hasGitPathSegment(mainPath)) return undefined;
 
-  // Main checkout: commonDir == <toplevel>/.git (or anywhere inside toplevel).
-  // Worktree:      commonDir == <main-repo>/.git, which is NOT inside the
-  //                worktree's toplevel.
-  const topWithSep = topLevel.endsWith(path.sep) ? topLevel : topLevel + path.sep;
-  const insideToplevel =
-    commonDirAbs === topLevel || commonDirAbs.startsWith(topWithSep);
-  if (insideToplevel) return undefined;
-
-  // `commonDir` for a worktree is `<main-repo>/.git` — the parent dir is
-  // the main worktree root.
-  const mainPath = path.dirname(commonDirAbs);
-  const name = path.basename(cwd);
-  return { mainPath, name };
+  return { mainPath, name: path.basename(cwd) };
 }
 
 /**

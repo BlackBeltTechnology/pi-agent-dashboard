@@ -57,6 +57,67 @@ if [ -d /fixtures-src ] && [ -d /fixtures ]; then
     fi
   done
 
+  # Submodule states for the checkout-root resolver (change:
+  # add-git-checkout-root-resolver). `dirname(--git-common-dir)` derived a
+  # phantom `<super>/.git/modules/models` for both of these, so the folder card
+  # was headed at a path that does not exist. Built here, not baked, because a
+  # submodule's gitlink cannot survive a plain `cp -a` of a non-repo tree.
+  #
+  #   /fixtures/submodule-src   the repo that becomes the submodule
+  #   /fixtures/super           superproject
+  #   /fixtures/super/models/sub  the SUBMODULE checkout (carries its own .pi/)
+  #   /fixtures/sub-worktree    a linked worktree OF that submodule
+  #
+  # `-c protocol.file.allow=always` is required for a local-path `submodule
+  # add` (git refuses it by default since CVE-2022-39253).
+  # Sentinel is the LAST artifact written, not the first: `git init` creates
+  # `/fixtures/super/.git` BEFORE `submodule add` runs, so guarding on it would
+  # read a run that failed at `submodule add` as complete and never retry.
+  if [ ! -d /fixtures/sub-worktree ]; then
+    mkdir -p /fixtures/submodule-src/.pi
+    printf '# Submodule fixture\n' > /fixtures/submodule-src/README.md
+    printf '{}\n' > /fixtures/submodule-src/.pi/settings.json
+    ( cd /fixtures/submodule-src \
+      && git init -q \
+      && git add -A \
+      && git commit -q -m "submodule fixture" ) || true
+
+    mkdir -p /fixtures/super
+    ( cd /fixtures/super \
+      && git init -q \
+      && printf '# Superproject fixture\n' > README.md \
+      && git add -A \
+      && git commit -q -m "super fixture" \
+      && git -c protocol.file.allow=always submodule add -q /fixtures/submodule-src models/sub \
+      && git commit -q -m "add submodule" ) || true
+
+    if [ -d /fixtures/super/models/sub ]; then
+      ( cd /fixtures/super/models/sub \
+        && git worktree add -q -b subwt /fixtures/sub-worktree ) || true
+      echo "[test-entrypoint] git fixture ready: /fixtures/super/models/sub (+ /fixtures/sub-worktree)"
+    fi
+
+    # The submodule carries its own `.pi/` (that is the point of the scenario —
+    # it IS a project), which makes it trust-requiring: a headless `pi --mode
+    # rpc` would BLOCK on the interactive "Trust project folder?" prompt and
+    # never register, so no card would ever appear. Pre-seed pi's trust store.
+    TRUST_DIR="${HOME:-/home/pi}/.pi/agent"
+    mkdir -p "${TRUST_DIR}"
+    node -e '
+      const fs = require("node:fs");
+      const [p, ...cwds] = process.argv.slice(1);
+      let d = {};
+      try { d = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
+      for (const c of cwds) d[c] = true;
+      fs.writeFileSync(p, JSON.stringify(d, null, 2) + "\n");
+    ' "${TRUST_DIR}/trust.json" /fixtures/super /fixtures/super/models/sub /fixtures/sub-worktree \
+      && echo "[test-entrypoint] pre-trusted submodule fixtures (trust.json)" \
+      || echo "[test-entrypoint] WARN: submodule trust seeding failed"
+    # `|| echo` is not cosmetic: under `set -e` a failed write here would abort
+    # the harness boot before the smoke check and fail EVERY spec, not just the
+    # submodule ones. Matches the defensiveness of the git fixtures above.
+  fi
+
   # The board drop-targeting specs need a column deep enough to overflow its
   # visible height (≥14 cards) and a 64-card column for the frame-budget
   # assertion. Generated here so 64 change directories stay out of the repo.

@@ -137,9 +137,12 @@ describe("GIT_RECIPES registry", () => {
     expect(keys).toEqual([
       "GH_PR_NUMBER",
       "GIT_COMMON_DIR",
+      "GIT_COMMON_DIR_ABS",
+      "GIT_CONFIG_LOCAL_CORE_WORKTREE",
       "GIT_CURRENT_BRANCH",
       "GIT_DIFF",
       "GIT_DIFF_ALL",
+      "GIT_DIR_ABS",
       "GIT_HEAD_SHA",
       "GIT_IS_REPO",
       "GIT_NUMSTAT",

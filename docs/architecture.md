@@ -1591,6 +1591,95 @@ See change: add-worktree-lifecycle-actions.
 Manage-worktrees surface removes worktrees with NO entry in session map. `active_sessions` guard does not fire. Menu gate on folder being a git repository, never on live sessions.
 See change: manage-worktrees-filter-cleanup.
 
+### Git checkout-root resolution
+
+Resolver: `packages/shared/src/platform/git.ts`. Exports `GitCheckoutRoots { thisCheckout, isLinkedWorktree, mainCheckout }`, `resolveCheckoutRootsFrom(probes)`, `checkoutRoots({ cwd, timeout? })`, `hasGitPathSegment(p)`. One shared source for "which checkout does this cwd belong to" — the repo previously copied the arithmetic per consumer.
+
+Superseded derivation: `path.dirname(git rev-parse --git-common-dir)`. Assumed the git dir sits inside its checkout. Wrong for submodule, worktree-of-submodule, `--separate-git-dir`, bare, worktree-of-bare.
+
+Symptom: folder card headed `…/<super>/.git/modules/<name>`. Path does not exist. "Not a pi project yet" banner. "KNOWLEDGE BASE: not indexed".
+
+`--separate-git-dir` and bare are the dangerous rows: derived parent EXISTS and is UNRELATED, so nothing looks wrong.
+See change: add-git-checkout-root-resolver.
+
+#### Measured git-state table
+
+Measured on real repos — `git rev-parse` outputs per cwd state (`<r>` = repo root). NEVER re-derived from fixtures; fixtures pin these rows.
+
+| cwd state | `--git-dir` | `--git-common-dir` | `--show-toplevel` | `isLinkedWorktree` | `mainCheckout` |
+|---|---|---|---|---|---|
+| normal checkout | `<r>/normal/.git` | `<r>/normal/.git` | `<r>/normal` | false | `<r>/normal` |
+| subdir of checkout | `<r>/normal/.git` | `<r>/normal/.git` | `<r>/normal` | false | `<r>/normal` |
+| linked worktree | `<r>/normal/.git/worktrees/normal-wt` | `<r>/normal/.git` | `<r>/normal-wt` | true | `<r>/normal` |
+| submodule | `<r>/super/.git/modules/models/sub` | same as `--git-dir` | `<r>/super/models/sub` | false | `<r>/super/models/sub` |
+| worktree of submodule | `<r>/super/.git/modules/models/sub/worktrees/sub-wt` | `<r>/super/.git/modules/models/sub` | `<r>/sub-wt` | true | `<r>/super/models/sub` (via repo-local `core.worktree`) |
+| bare repo | `<r>/barehub.git` | `<r>/barehub.git` | (fails) | false | `null` |
+| worktree of bare hub | `<r>/barehub.git/worktrees/bare-wt` | `<r>/barehub.git` | `<r>/bare-wt` | true | `null` |
+| `--separate-git-dir` | `<r>/elsewhere.git` | `<r>/elsewhere.git` | `<r>/sepco` | false | `<r>/sepco` |
+| non-repo | (fails) | (fails) | (fails) | — | no result |
+See change: add-git-checkout-root-resolver.
+
+#### Required probes
+
+Required probes: `--git-dir` + `--git-common-dir`, both `--path-format=absolute`. Absolute form is contract, not preference: `isLinkedWorktree` is an equality test; mixed relative/absolute makes EVERY normal checkout report as a linked worktree.
+
+`--show-toplevel` NOT required. Fails by design in bare repo. Failure yields `thisCheckout: null` WITH a result. Keeps bare distinguishable from non-repo.
+
+Worktree signal: `--git-dir` != `--git-common-dir`. Compared via `samePath` (`packages/shared/src/platform/paths.ts`), never raw `!==`.
+
+Rejected signals: common-dir-outside-toplevel (calls submodule a worktree); `basename(commonDir) === ".git"` (calls worktree-of-submodule and worktree-of-bare non-worktrees). Both measured.
+See change: add-git-checkout-root-resolver.
+
+#### mainCheckout derivation
+
+`mainCheckout` order: not-worktree → `thisCheckout`; else repo-LOCAL `core.worktree` on commonDir; else `dirname(commonDir)` when basename is `.git`; else `null`.
+
+`core.worktree` read is `--local` and argv-form. Merged read returns `~/.gitconfig` value for EVERY linked worktree on the machine, and `mainCheckout` feeds an authorization anchor. Argv form because the git-dir path is runtime, cwd-derived input.
+
+Resolver returns `mainCheckout` VERBATIM. git does not validate `core.worktree`. CONSUMERS validate; each states its own check. Display consumer omits the field; authorization consumer rejects.
+
+`.git`-segment test is EXACT PATH-COMPONENT equality. `/work/app.git` is NOT rejected.
+
+```mermaid
+flowchart TD
+    A[cwd] --> B{git-dir + common-dir probes succeed?}
+    B -- no --> Z[null — no result, non-repo]
+    B -- yes --> C{gitDir == commonDir? samePath}
+    C -- yes, not a worktree --> D[mainCheckout = thisCheckout]
+    C -- no, linked worktree --> E{repo-local core.worktree set?}
+    E -- yes --> F[mainCheckout = resolve commonDir + core.worktree]
+    E -- no --> G{basename commonDir == .git?}
+    G -- yes --> H[mainCheckout = dirname commonDir]
+    G -- no --> I[mainCheckout = null — bare hub has no working tree]
+```
+See change: add-git-checkout-root-resolver.
+
+#### Converted consumers
+
+Converted consumers: `packages/extension/src/vcs-info.ts` `detectWorktree` (folder card + grouping); `packages/kb-plugin/src/server/kb-routes.ts` `mainCheckoutPath` → `isAllowedCwd`; `packages/server/src/session/session-scanner.ts` `isPlausibleWorktreeMainPath`.
+
+`detectWorktree` returns `undefined` when: required probe fails; cwd not a linked worktree (now covers submodule, `--separate-git-dir`, bare alike); no main checkout resolves (worktree of bare hub); resolved main checkout implausible (`.git` segment). Resolver's user-controlled `core.worktree` output judged HERE — display consumer, safe response omits the field.
+
+`mainCheckoutPath` (kb guard): `.git`-segment rejection is the consumer's OWN obligation. Authorization consumer — derives no main path at all, so value never matches known-folder set. Submodule resolves to own checkout, does NOT inherit superproject trust; worktree-of-bare resolves to null, rejected unless independently known.
+See change: add-git-checkout-root-resolver.
+
+#### Persisted phantom repair
+
+Persisted repair: `gitWorktree.mainPath` is written to `.meta.json` and re-seeded at every boot; an ended session never re-probes; phantoms do not expire. Filter runs at LOAD time.
+
+Plausible = no `.git` path segment AND `statSync(<mainPath>/.git)` succeeds. One stat per record. Zero subprocesses. Dropped on ANY stat failure, not only ENOENT. `.meta.json` never rewritten.
+
+`.git`-entry condition is load-bearing: `--separate-git-dir`/bare phantoms are real, existing, unrelated dirs.
+
+KNOWN LIMITATION: phantom landing on a real working tree survives (bare hub `$HOME/bare.git` → phantom `$HOME`, `$HOME` a dotfiles repo). Shape test, not identity test.
+
+kb guard is STRICTER, not looser, in every state except a submodule admitted on its own cwd. Submodule does not inherit superproject trust.
+
+Fixtures: `packages/shared/src/test-support/git-fixtures.ts`. Needs `GIT_CONFIG_GLOBAL=/dev/null` + `GIT_CONFIG_SYSTEM=/dev/null` and `-c protocol.file.allow=always`.
+
+NOT converted by this change: `resolveMainPath` + its twelve consumers (follow-up `apply-checkout-root-to-worktree-ops`); `packages/server/src/lib/path-containment.ts` (follow-up `widen-containment-to-resolved-checkout`); `listWorktrees()` reports the gitdir as main worktree for submodule/bare/`--separate-git-dir`.
+See change: add-git-checkout-root-resolver.
+
 ### Child Process Scanning
 1. Bridge scans child processes every 10s via `process-scanner.ts` (two-phase: capture new PGIDs during active bash calls, then check tracked PGIDs)
 2. Only processes running ≥30s are reported (filters out short-lived commands)
