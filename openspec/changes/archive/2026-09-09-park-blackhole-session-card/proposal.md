@@ -4,7 +4,7 @@ The blackhole MEMORY subcard was specced as a **monitor** and built as a **perma
 In the healthy case — which is the case essentially all the time — it spends fixed session-card
 real estate to say nothing:
 
-```
+```text
 observer● reflector● dropper●
 Compaction proximity ~=
 ▼ why is this approximate?
@@ -15,9 +15,11 @@ Three problems, in descending order of severity:
 1. **No CSS ever shipped.** The component emits BEM class names that nothing in the repo
    defines:
 
-   ```
-   $ rg "bh-mem|bh-settings|bh-pipeline" -g '*.css' packages/   → no output
-   $ find packages/blackhole-plugin -name '*.css'               → no output
+   ```console
+   $ rg "bh-mem|bh-settings|bh-pipeline" -g '*.css' packages/
+   no output
+   $ find packages/blackhole-plugin -name '*.css'
+   no output
    ```
 
    So `.bh-mem__proximity-track` / `__fill` — the proximity meter — have no width, height or
