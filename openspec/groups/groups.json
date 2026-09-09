@@ -206,7 +206,10 @@
     "contention-harden-real-process-tests": "ui",
     "verify-windows-credential-acls": "ui",
     "asciidoc-support": "ui",
-    "diagram-rendering": "ui"
+    "diagram-rendering": "ui",
+    "replay-compaction-boundary": "ui",
+    "fix-submodule-checkout-root": "ui",
+    "add-git-checkout-root-resolver": "ui"
   },
   "changeOrder": {
     "__ungrouped__": [
@@ -231,13 +234,13 @@
       "memory-retrieval-injection"
     ],
     "ui": [
-      "fix-kb-card-refresh-and-shared-stats",
       "fix-openspec-board-worktree-button-gating",
-      "add-blackhole-session-pipeline",
+      "replay-compaction-boundary",
       "contention-harden-real-process-tests",
       "verify-windows-credential-acls",
       "asciidoc-support",
-      "diagram-rendering"
+      "diagram-rendering",
+      "add-git-checkout-root-resolver"
     ],
     "next-phase": [
       "add-session-trajectory-view",
