@@ -4,21 +4,19 @@
 
 Two seed sites in `docker/test-entrypoint.sh` pin the faux model. They answer to **different contracts**, and only one drifted under pi-0.84.
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│  SITE 1 — dashboard config.json  (~line 148)                          │
-│    defaultModel: "faux/faux-1"        ← COMBINED "provider/model"     │
-│    Consumer: bridge-default-model-gate → pi.setModel("faux","faux-1") │
-│    The bridge SPLITS the string itself. Dashboard's own field.        │
-│    ✅ CORRECT — leave unchanged.                                       │
-├─────────────────────────────────────────────────────────────────────┤
-│  SITE 2 — pi's settings.json  (~line 299)                             │
-│    defaultModel: "faux/faux-1"        ← COMBINED, no defaultProvider   │
-│    Consumer: pi-0.84 findInitialModel step 3:                         │
-│       if (defaultProvider && defaultModelId)                          │
-│           getModel(defaultProvider, defaultModelId)                    │
-│    ❌ BROKEN — needs SPLIT keys; provider undefined → step 3 skipped. │
-└─────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+  subgraph S1["SITE 1 — dashboard config.json (~line 148)"]
+    A1["defaultModel: 'faux/faux-1' — COMBINED provider/model"]
+    A2["Consumer: bridge-default-model-gate → pi.setModel('faux','faux-1')"]
+    A3["Bridge SPLITS the string itself — dashboard's own field"]
+    A4["CORRECT — leave unchanged"]
+  end
+  subgraph S2["SITE 2 — pi settings.json (~line 299)"]
+    B1["defaultModel: 'faux/faux-1' — COMBINED, no defaultProvider"]
+    B2["Consumer: pi-0.84 findInitialModel step 3: if (defaultProvider && defaultModelId) getModel(...)"]
+    B3["BROKEN — needs SPLIT keys; provider undefined → step 3 skipped"]
+  end
 ```
 
 pi-0.84's `settings-manager` exposes `getDefaultProvider()` → `settings.defaultProvider` and `getDefaultModel()` → `settings.defaultModel` as two separate getters. The faux fixture registers `provider: "faux"` with model `id: "faux-1"`, so the split shape is `{ defaultProvider: "faux", defaultModel: "faux-1" }`.
