@@ -176,10 +176,16 @@ export const GIT_CONFIG_LOCAL_CORE_WORKTREE: Recipe<WithCwd & { gitDir: string }
  * name `/work/repo` as the main checkout of a hub that has no checkout at all —
  * an over-broad anchor for an authorization consumer. `--local` for the same
  * reason as `core.worktree`: a merged read would inherit `~/.gitconfig`.
- * Exit 1 = unset, which git treats as false.
+ *
+ * `--type=bool` is part of the contract, not a preference: git accepts `yes`,
+ * `on`, `1` and `true` as boolean-true, and a raw text read compared against
+ * the literal `"true"` would classify `bare = yes` as NOT bare. `--type=bool`
+ * makes git canonicalize to exactly `true` / `false`.
+ *
+ * Exit 1 = unset, which git's own boolean default reads as false.
  */
 export const GIT_CONFIG_LOCAL_CORE_BARE: Recipe<WithCwd & { gitDir: string }, string | undefined> = {
-  argv: ({ gitDir }) => ["git", "--git-dir", gitDir, "config", "--local", "--get", "core.bare"],
+  argv: ({ gitDir }) => ["git", "--git-dir", gitDir, "config", "--local", "--type=bool", "--get", "core.bare"],
   parse: (out) => out.trim() || undefined,
   timeout: GIT_TIMEOUT,
   tolerate: [1],
@@ -329,9 +335,20 @@ export interface GitCheckoutRootProbes {
   topLevel: () => string | undefined;
   /** Repository-LOCAL `core.worktree` on the common dir; argv form only. */
   localCoreWorktree: (commonDir: string) => string | undefined;
-  /** Repository-LOCAL `core.bare` on the common dir; argv form only. */
-  localCoreBare: (commonDir: string) => string | undefined;
+  /**
+   * Repository-LOCAL `core.bare` on the common dir; argv form only.
+   *
+   * THREE-valued on purpose. Collapsing `"unknown"` into `"not-bare"` would let
+   * a probe timeout re-open the very fallback the bareness check exists to
+   * close, so a probe that could not answer SHALL NOT be read as "not bare".
+   * An UNSET key is `"not-bare"` — that is git's own boolean default, and it is
+   * a successful read, not a failure to read.
+   */
+  localCoreBare: (commonDir: string) => GitBareness;
 }
+
+/** Outcome of the `core.bare` probe: answered false, answered true, or could not answer. */
+export type GitBareness = "not-bare" | "bare" | "unknown";
 
 /**
  * Whether `p` contains a `.git` path COMPONENT.
@@ -351,6 +368,15 @@ function tryProbe(read: () => string | undefined): string | undefined {
     return read();
   } catch {
     return undefined;
+  }
+}
+
+/** `localCoreBare`, with a throwing probe mapped to `"unknown"` (never `"not-bare"`). */
+function readBareness(probes: GitCheckoutRootProbes, commonDir: string): GitBareness {
+  try {
+    return probes.localCoreBare(commonDir);
+  } catch {
+    return "unknown";
   }
 }
 
@@ -403,10 +429,13 @@ export function resolveCheckoutRootsFrom(
     };
   }
   // Rule 2 — the parent of the common dir, when the common dir is named `.git`
-  // AND the repository is not bare. A bare hub may itself be named `.git`, and
-  // its parent is then an ordinary directory with no checkout in it; naming it
-  // would hand an authorization consumer an anchor the repo never owned.
-  if (path.basename(commonDir) === ".git" && tryProbe(() => probes.localCoreBare(commonDir)) !== "true") {
+  // AND the repository is CONFIRMED not bare. A bare hub may itself be named
+  // `.git`, and its parent is then an ordinary directory with no checkout in
+  // it; naming it would hand an authorization consumer an anchor the repo never
+  // owned. The fallback requires a POSITIVE `"not-bare"`: an unanswerable probe
+  // falls through to rule 3 (`null`) rather than silently re-opening the rule.
+  const bare = path.basename(commonDir) === ".git" ? readBareness(probes, commonDir) : "unknown";
+  if (bare === "not-bare") {
     return { thisCheckout, isLinkedWorktree, mainCheckout: normalizePath(path.dirname(commonDir), platform) };
   }
   // Rule 3 — a bare hub has no working tree to name.
@@ -430,8 +459,13 @@ export function checkoutRoots(input: WithCwd & { timeout?: number }): GitCheckou
     topLevel: () => unwrap(run(GIT_TOPLEVEL, input, ctx), undefined),
     localCoreWorktree: (commonDir) =>
       unwrap(run(GIT_CONFIG_LOCAL_CORE_WORKTREE, { cwd: input.cwd, gitDir: commonDir }, ctx), undefined),
-    localCoreBare: (commonDir) =>
-      unwrap(run(GIT_CONFIG_LOCAL_CORE_BARE, { cwd: input.cwd, gitDir: commonDir }, ctx), undefined),
+    localCoreBare: (commonDir) => {
+      const r = run(GIT_CONFIG_LOCAL_CORE_BARE, { cwd: input.cwd, gitDir: commonDir }, ctx);
+      // A non-ok Result is a FAILURE to read (spawn error, timeout), not a
+      // reading of "false". Unset is ok-with-no-value — git's boolean default.
+      if (!r.ok) return "unknown";
+      return r.value === "true" ? "bare" : "not-bare";
+    },
   });
 }
 

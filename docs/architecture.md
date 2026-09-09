@@ -1632,11 +1632,11 @@ See change: add-git-checkout-root-resolver.
 
 #### mainCheckout derivation
 
-`mainCheckout` order: not-worktree → `thisCheckout`; else repo-LOCAL `core.worktree` on commonDir; else `dirname(commonDir)` when basename is `.git` AND repo-LOCAL `core.bare` is not `"true"`; else `null`.
+`mainCheckout` order: not-worktree → `thisCheckout`; else repo-LOCAL `core.worktree` on commonDir; else `dirname(commonDir)` when basename is `.git` AND repo-LOCAL `core.bare` CONFIRMS `not-bare`; else `null`.
 
 `core.worktree` read is `--local` and argv-form. Merged read returns `~/.gitconfig` value for EVERY linked worktree on the machine, and `mainCheckout` feeds an authorization anchor. Argv form because the git-dir path is runtime, cwd-derived input.
 
-Rule-2 bareness guard reads recipe `GIT_CONFIG_LOCAL_CORE_BARE`. Same `--local` + argv-form constraints as `core.worktree` read; `tolerate: [1]` = unset. Bare hub may itself be named `.git` — `git init --bare <dir>/.git`. Parent holds no working tree. Naming it hands authorization consumer an anchor the repo never owned.
+Rule-2 bareness guard reads recipe `GIT_CONFIG_LOCAL_CORE_BARE` with `--type=bool`. git accepts `yes`, `on`, `1`, `true` as boolean-true; raw text read vs literal `"true"` classified `bare = yes` as NOT bare. `--type=bool` canonicalizes to exactly `true`/`false`. Same `--local` + argv-form constraints as `core.worktree` read; `tolerate: [1]` = key unset — reads `not-bare`, git's own boolean default, a SUCCESSFUL read. Probe THREE-valued, exported `GitBareness = "not-bare" | "bare" | "unknown"`. Spawn failure or timeout → `"unknown"`, NEVER `"not-bare"` — collapsing would re-open the exact fallback the check closes. `dirname(commonDir)` fallback fires ONLY on positive `"not-bare"`; `"unknown"` falls through to `mainCheckout = null`. Bare hub may itself be named `.git` — `git init --bare <dir>/.git`. Parent holds no working tree. Naming it hands authorization consumer an anchor the repo never owned.
 
 Resolver returns `mainCheckout` VERBATIM. git does not validate `core.worktree`. CONSUMERS validate; each states its own check. Display consumer omits the field; authorization consumer rejects.
 
@@ -1650,9 +1650,9 @@ flowchart TD
     C -- yes, not a worktree --> D[mainCheckout = thisCheckout]
     C -- no, linked worktree --> E{repo-local core.worktree set?}
     E -- yes --> F[mainCheckout = resolve commonDir + core.worktree]
-    E -- no --> G{basename commonDir == .git AND core.bare != true?}
+    E -- no --> G{basename commonDir == .git AND core.bare CONFIRMS not-bare?}
     G -- yes --> H[mainCheckout = dirname commonDir]
-    G -- no --> I[mainCheckout = null — bare hub has no working tree]
+    G -- no --> I[mainCheckout = null — bare hub, or bareness inconclusive]
 ```
 See change: add-git-checkout-root-resolver.
 

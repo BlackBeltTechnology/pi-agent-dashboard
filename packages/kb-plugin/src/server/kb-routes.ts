@@ -104,6 +104,12 @@ export function isAllowedCwd(cwd: string | undefined, known: () => string[]): cw
   // A git-internal path is never a legitimate KB root, so it is rejected BEFORE
   // either admission path — including the direct known-folder match, which a
   // stray pinned or session cwd of `<repo>/.git` would otherwise satisfy.
+  //
+  // The CANONICAL form is the only one worth testing. `hasGitPathSegment`
+  // normalizes before splitting, so a raw `<repo>/.git/..` collapses to
+  // `<repo>` on both sides — and `<repo>` is not a traversal, it IS the known
+  // folder. `canonPath` additionally realpaths, so a symlink AIMED at a git dir
+  // is caught here and would be missed by a raw-string test.
   if (hasGitPathSegment(target)) return false;
   const knownCanon = known().map(canonPath);
   if (knownCanon.includes(target)) return true;

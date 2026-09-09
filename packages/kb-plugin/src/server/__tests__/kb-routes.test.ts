@@ -177,6 +177,21 @@ describe("GET /api/kb/stats", () => {
     await app.close();
   });
 
+  // `<repo>/.git/..` is NOT a traversal: it denotes `<repo>` itself, which is
+  // the known folder. Both the guard and `hasGitPathSegment` normalize, so the
+  // segment test sees `<repo>` and the request is admitted — nothing under
+  // `.git` is ever served. Pinned so a future "reject the raw string too"
+  // change has to justify breaking a legitimate spelling of a known folder.
+  it("admits a known folder spelled with a `.git/..` round trip", async () => {
+    const known = makeFolder();
+    const { app } = buildApp([known]);
+    // NOT `join()` — it collapses `..` before the request is ever made.
+    const via = `${known}/.git/..`;
+    const res = await app.inject({ method: "GET", url: `/api/kb/stats?cwd=${encodeURIComponent(via)}` });
+    expect(res.statusCode).toBe(200);
+    await app.close();
+  });
+
   it("still 403s a worktree whose main repo is NOT a known folder", async () => {
     const { worktree } = makeRepoWithWorktree(); // main repo left out of known
     const { app } = buildApp([makeFolder()]);

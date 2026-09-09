@@ -24,7 +24,7 @@ Required probes `GIT_DIR_ABS` + `GIT_COMMON_DIR_ABS`, both `--path-format=absolu
 
 `isLinkedWorktree` = `--git-dir` ≠ `--git-common-dir` (via `samePath`). NOT common-dir-outside-toplevel (calls a submodule a worktree), NOT `basename(commonDir) === ".git"` (calls a worktree-of-submodule and worktree-of-bare non-worktrees).
 
-`mainCheckout`: not-worktree → `thisCheckout`; else `GIT_CONFIG_LOCAL_CORE_WORKTREE` resolved against commonDir (`--local`, argv — a merged read leaks `~/.gitconfig` into an authorization anchor); else `dirname(commonDir)` when named `.git` AND `GIT_CONFIG_LOCAL_CORE_BARE` is not `true` (a bare hub may itself be named `.git`; its parent owns no checkout); else `null`.
+`mainCheckout`: not-worktree → `thisCheckout`; else `GIT_CONFIG_LOCAL_CORE_WORKTREE` resolved against commonDir (`--local`, argv — a merged read leaks `~/.gitconfig` into an authorization anchor); else `dirname(commonDir)` when named `.git` AND `GIT_CONFIG_LOCAL_CORE_BARE` CONFIRMS not-bare (a bare hub may itself be named `.git`; its parent owns no checkout); else `null`. Bareness probe is `--type=bool` (git accepts `yes`/`on`/`1`) and THREE-valued `GitBareness = "not-bare"|"bare"|"unknown"` — spawn failure/timeout is `unknown`, never `not-bare`, so an unread probe cannot re-open the fallback; unset = `not-bare` (git's boolean default).
 
 Returned VERBATIM. `core.worktree` is user-controlled and git does not validate it — CONSUMERS validate. `hasGitPathSegment(p, platform?)` = exact path-COMPONENT equality (`/work/app.git` is not rejected).
 

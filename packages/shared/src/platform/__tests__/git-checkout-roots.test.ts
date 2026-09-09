@@ -56,7 +56,7 @@ function stubProbes(over: Partial<GitCheckoutRootProbes>): GitCheckoutRootProbes
     commonDir: () => undefined,
     topLevel: () => undefined,
     localCoreWorktree: () => undefined,
-    localCoreBare: () => undefined,
+    localCoreBare: () => "not-bare" as const,
     ...over,
   };
 }
@@ -176,6 +176,19 @@ describe("checkoutRoots over real repositories", () => {
     expect(roots.isLinkedWorktree).toBe(true);
     expect(roots.thisCheckout).toBe(wt);
     expect(roots.mainCheckout).toBeNull();
+  });
+
+  it("E5c: `core.bare = yes` counts as bare (git boolean, not the literal `true`)", () => {
+    // git accepts yes/on/1/true as boolean-true. A raw text read compared to the
+    // literal "true" would classify this hub as NOT bare and name its parent.
+    const parent = path.join(fx.root, "yeshub");
+    const hub = path.join(parent, ".git");
+    fixtureGit(fx.root, ["clone", "--bare", "-q", fx.normal, hub]);
+    fixtureGit(hub, ["config", "--local", "core.bare", "yes"]);
+    const wt = path.join(fx.root, "yes-hub-wt");
+    fixtureGit(hub, ["worktree", "add", "-q", "-b", "yeswt", wt]);
+
+    expect(checkoutRoots({ cwd: wt })!.mainCheckout).toBeNull();
   });
 
   it("E6: a bare repository yields a RESULT with both roots null", () => {
@@ -303,6 +316,31 @@ describe("resolveCheckoutRootsFrom", () => {
     );
     expect(withSep).toEqual(without);
     expect(withSep!.isLinkedWorktree).toBe(false);
+  });
+
+  it("E5d: an UNANSWERABLE bareness probe does not take the parent fallback", () => {
+    // A timed-out / failed probe is "unknown", never "not-bare": collapsing the
+    // two would let a slow git re-open the exact fallback the check closes.
+    const roots = resolveCheckoutRootsFrom(
+      stubProbes({
+        gitDir: () => "/work/repo/.git/worktrees/wt",
+        commonDir: () => "/work/repo/.git",
+        topLevel: () => "/work/wt",
+        localCoreBare: () => "unknown",
+      }),
+    );
+    expect(roots).toEqual({ thisCheckout: "/work/wt", isLinkedWorktree: true, mainCheckout: null });
+
+    // Control: the SAME shape with a confirmed non-bare answer does resolve.
+    const ok = resolveCheckoutRootsFrom(
+      stubProbes({
+        gitDir: () => "/work/repo/.git/worktrees/wt",
+        commonDir: () => "/work/repo/.git",
+        topLevel: () => "/work/wt",
+        localCoreBare: () => "not-bare",
+      }),
+    );
+    expect(ok!.mainCheckout).toBe("/work/repo");
   });
 
   it("E13: an implausible core.worktree is returned verbatim", () => {

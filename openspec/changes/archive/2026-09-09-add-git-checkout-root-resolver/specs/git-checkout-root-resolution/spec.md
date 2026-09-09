@@ -135,11 +135,16 @@ order:
    authorization and delete boundaries. The read SHALL also be issued in argv form, never by
    interpolating the common-dir path into a shell command string;
 2. otherwise the parent of the common dir, when the common dir is named `.git` AND the
-   repository is NOT bare. A bare hub MAY itself be named `.git` (`git init --bare
+   repository is CONFIRMED not bare. A bare hub MAY itself be named `.git` (`git init --bare
    <dir>/.git`), and its parent is then an ordinary directory holding no working tree; naming
    it would hand an authorization consumer an anchor the repository never owned. Bareness
    SHALL be read as repository-LOCAL `core.bare` on the common dir, under the same
-   local-only and argv-form constraints as rule 1;
+   local-only and argv-form constraints as rule 1, and SHALL be read as a GIT BOOLEAN
+   (`--type=bool`) so that `yes`, `on` and `1` are recognized as true — a raw text
+   comparison against the literal `true` SHALL NOT be used. The probe is THREE-valued:
+   answered-bare, answered-not-bare, and UNANSWERABLE (spawn failure or timeout). An
+   unanswerable probe SHALL NOT be treated as not-bare, and SHALL fall through to rule 3; an
+   UNSET key is answered-not-bare, that being git's own boolean default;
 3. otherwise `null`.
 
 The resolver SHALL return the resolved value VERBATIM and SHALL NOT judge its plausibility.
@@ -192,6 +197,13 @@ the resolver has already excluded implausible paths.
 - **THEN** `isLinkedWorktree` SHALL be true
 - **AND** `mainCheckout` SHALL be `null`, because the hub is bare and `<parent>` holds no working tree
 - **AND** `mainCheckout` SHALL NOT be `<parent>`, which an authorization consumer could otherwise match against its known-folder set
+
+#### Scenario: An unanswerable bareness probe does not take the parent fallback
+
+- **GIVEN** a linked worktree whose common dir is named `.git`, and a `core.bare` probe that fails or times out
+- **WHEN** the resolver resolves `mainCheckout`
+- **THEN** `mainCheckout` SHALL be `null`
+- **AND** the parent of the common dir SHALL NOT be used, because an unread probe is not evidence of a non-bare repository
 
 #### Scenario: Bare repository cwd
 

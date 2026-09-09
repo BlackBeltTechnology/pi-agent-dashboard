@@ -83,9 +83,11 @@ type GitCheckoutRoots = {
    a. repository-**local** `core.worktree`, resolved relative to `commonDir`, when set — this
       recovers `/super/models/sub` for a worktree of a submodule;
    b. else `dirname(commonDir)` when `basename(commonDir) === ".git"` AND repository-local
-      `core.bare` is not `true`. A bare hub may itself be named `.git`, and its parent is then
-      an ordinary directory with no checkout in it — naming it would hand an authorization
-      consumer an anchor the repo never owned;
+      `core.bare` CONFIRMS not-bare. A bare hub may itself be named `.git`, and its parent is
+      then an ordinary directory with no checkout in it — naming it would hand an
+      authorization consumer an anchor the repo never owned. Read with `--type=bool` (git
+      accepts `yes`/`on`/`1`), and three-valued: an unanswerable probe (spawn failure,
+      timeout) falls through to `null` rather than re-opening the fallback;
    c. else `null` — a bare hub has no working tree.
 
 An earlier design returned a single value, arguing "this checkout" and "the primary checkout"
