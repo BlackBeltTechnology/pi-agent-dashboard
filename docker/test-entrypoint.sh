@@ -347,22 +347,13 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
     echo "[test-entrypoint] PI_SYNTH_AGENT_TICKS: staged synthetic Agent-tick producer → ${SYNTH_EXT_DIR}"
   fi
 
-  # Also seed pi's own settings.json defaultModel (read at pi startup) so the
-  # faux model is selected even before the bridge gate runs. Merge — never
-  # clobber existing keys. No-op when already set.
+  # Also seed pi's own settings.json defaultProvider+defaultModel (read at pi
+  # startup) so the faux model is selected even before the bridge gate runs.
+  # The merge decision-table + file wrapper live in the standalone module so the
+  # L1 suite can unit-test them; it owns the seed log and no-ops when already
+  # set. See change: split-faux-seed-default-provider.
   SETTINGS="${PI_DIR}/agent/settings.json"
-  if [ ! -f "${SETTINGS}" ] || ! grep -q '"defaultModel"' "${SETTINGS}" 2>/dev/null; then
-    node -e '
-      const fs = require("node:fs");
-      const p = process.argv[1];
-      let cfg = {};
-      try { cfg = JSON.parse(fs.readFileSync(p, "utf8")); } catch { cfg = {}; }
-      if (!cfg.defaultModel) cfg.defaultModel = "faux/faux-1";
-      fs.mkdirSync(require("node:path").dirname(p), { recursive: true });
-      fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + "\n");
-    ' "${SETTINGS}"
-    echo "[test-entrypoint] PI_E2E_SEED: seeded defaultModel → settings.json"
-  fi
+  node /app/scripts/seed-settings-default-model.mjs "${SETTINGS}"
 
   # --- Faux role-preset: every role -> faux/faux-1 (change: add-flow-plugin-e2e-tests) ---
   # Delivery decision (design Open Question resolved): IMAGE-BAKED via this seed
