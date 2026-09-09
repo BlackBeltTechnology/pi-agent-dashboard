@@ -115,6 +115,12 @@ test("board worktree action is available without any session in the board cwd", 
 
   // Phase B — spawn a session in the folder, end it, and reload: availability
   // must survive the whole `session_removed` round trip.
+  //
+  // Phase A above is the DISCRIMINATING half (verified red against the old
+  // `gitBranch` gate). Phase B is deliberately a convergence check, not a
+  // second discriminator: an ended session row keeps its persisted
+  // `gitBranch`, so no assertion after a shutdown can distinguish the gates.
+  // Ending a session must not REGRESS availability — that is what is pinned.
   await page.goto("/");
   const body = page.locator(`[data-testid="folder-body-${FIXTURE}"]`);
   await expect(body).toBeVisible({ timeout: 30_000 });

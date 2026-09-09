@@ -158,18 +158,21 @@ describe("resolveWorktreeAvailability", () => {
     ).toEqual({ available: true });
   });
 
-  // E11
+  // E11 — the ended session carries the CONSEQUENTIAL flag (`isGitRepo:false`),
+  // so a resolver that skipped ended sessions would fail open to `true` and the
+  // assertion would catch it. A `true`-expecting variant could not: fail-open
+  // returns `true` either way.
   it("is independent of session liveness", () => {
     const input = (status: "ended" | "active") => ({
       cwd: "/repo",
       sessions: [
-        { cwd: "/repo", status, gitBranch: undefined, isGitRepo: true },
+        { cwd: "/repo", status, gitBranch: undefined, isGitRepo: false },
         { cwd: "/repo/.worktrees/x", status: "active" as const, isGitRepo: true },
       ],
       folderGitMap: new Map<string, string | null>(),
       gitWorktreeEnabled: true,
     });
-    expect(resolveWorktreeAvailability(input("ended"))).toEqual({ available: true });
+    expect(resolveWorktreeAvailability(input("ended"))).toEqual({ available: false, reason: "not-a-git-repo" });
     expect(resolveWorktreeAvailability(input("ended"))).toEqual(resolveWorktreeAvailability(input("active")));
   });
 
