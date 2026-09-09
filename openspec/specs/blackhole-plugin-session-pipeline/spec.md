@@ -9,9 +9,11 @@ TBD - created by archiving change add-blackhole-session-pipeline. Update Purpose
 
 The plugin SHALL contribute its per-session surface as a `session-card-memory` claim and SHALL NOT introduce a new slot or modify existing slot definitions.
 
+While the surface is parked (see *The per-session card surface is parked*), the claim SHALL remain declared but SHALL never mount, and the mounting scenarios in this requirement SHALL be read as the contract that governs on restore rather than as live assertions about the running dashboard.
+
 #### Scenario: Contribution renders inside the MEMORY subcard
 
-- **WHEN** the `blackhole` plugin is active and claims `session-card-memory`
+- **WHEN** the `blackhole` plugin is active, claims `session-card-memory`, and the surface is not parked
 - **THEN** the MEMORY subcard SHALL render on session cards
 - **AND** the plugin's component SHALL receive `{ session }` as props, with the plugin context available via the runtime's plugin layer (the host does not pass `pluginContext` as a prop)
 
@@ -72,7 +74,7 @@ The plugin SHALL contribute its per-session surface as a `session-card-memory` c
 
 - **WHEN** the check resolves installed after session cards have already rendered
 - **THEN** the plugin SHALL bump the runtime's slot-claims invalidation store
-- **AND** the MEMORY subcard SHALL appear on cards of sessions that will never broadcast again, without user interaction
+- **AND** the MEMORY subcard SHALL appear on cards of sessions that will never broadcast again, without user interaction, once the surface is no longer parked
 
 #### Scenario: A session that never loaded the extension shows the empty state, not a hidden subcard
 
@@ -91,6 +93,7 @@ The plugin SHALL contribute its per-session surface as a `session-card-memory` c
 
 - **WHEN** a user without `pi-blackhole` views any session card
 - **THEN** no MEMORY subcard SHALL appear on any card as a result of this plugin
+- **AND** while the surface is parked this SHALL hold for every user, installed or not
 
 ### Requirement: The per-session endpoint returns the global fields the subcard needs
 
@@ -321,3 +324,52 @@ The per-session endpoint SHALL expose no mutating operation; the plugin SHALL NO
 
 - **WHEN** any per-session request is served
 - **THEN** the modification time and bytes of `<session.id>-pending.json` SHALL be unchanged
+
+### Requirement: The per-session card surface is parked
+
+The plugin SHALL NOT render its `session-card-memory` contribution.
+`shouldRenderMemorySubcard` SHALL return `false` unconditionally, independent of the resolved
+installed-state, and the original `installed === true` expression SHALL be retained in place as
+a comment so the surface is restored by uncommenting rather than by rewriting.
+
+#### Scenario: Subcard never mounts
+
+- **WHEN** any user views any session card, with `pi-blackhole` installed or not
+- **THEN** `shouldRenderMemorySubcard` SHALL return `false`
+- **AND** `forSessionRendered` SHALL filter the claim out, so `useSlotHasClaimsForSession`
+  counts the `session-card-memory` slot empty and no MEMORY subcard renders
+
+#### Scenario: The claim and its components are retained
+
+- **WHEN** the manifest is inspected while the surface is parked
+- **THEN** the `session-card-memory` and `content-view` claims SHALL still be declared
+- **AND** `MemorySubcard`, `PipelineDetailView`, `pipeline-state`, `pipeline-api` and
+  `detail-navigation` SHALL remain present and exercised by the existing component tests
+- **AND** the park SHALL be expressible as a single commented line, reversible without
+  restoring deleted code
+
+#### Scenario: Rendering requirements are dormant, not withdrawn
+
+- **WHEN** a requirement below governs what the subcard or the detail view renders
+- **THEN** it SHALL continue to describe component behaviour under unit test
+- **AND** it SHALL govern the rendered dashboard again if the gate is restored
+- **AND** it SHALL NOT be treated as a live assertion about the running dashboard while the
+  surface is parked
+
+#### Scenario: The detail view becomes unreachable, not deleted
+
+- **WHEN** the surface is parked
+- **THEN** `isPipelineDetailActive` SHALL continue to return `false` as it does by default
+- **AND** no entry point SHALL remain to set it, the subcard's Details button being the only
+  caller of `openPipelineDetail`
+- **AND** this SHALL be dormancy rather than dead code, the flag already starting inactive
+
+#### Scenario: Server route and settings surface are unaffected
+
+- **WHEN** the surface is parked
+- **THEN** `GET /api/plugins/blackhole/session/:id` SHALL remain registered and behave as
+  specified below
+- **AND** `GET /api/plugins/blackhole/status` SHALL remain available to the settings surface
+- **AND** the `settings-section` claim SHALL continue to render `BlackholeSettings`
+- **AND** the park SHALL NOT be implemented by disabling the plugin in dashboard config, which
+  would zero every claim including the settings section
