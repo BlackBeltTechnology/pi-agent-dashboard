@@ -11,6 +11,7 @@ import { useFolderUrgencySort } from "../../hooks/useFolderUrgencySort.js";
 import { useInitStatus } from "../../hooks/useInitStatus.js";
 import { useInstallPrompt } from "../../hooks/useInstallPrompt.js";
 import { maybeAutoInitWorktreeOnSpawn } from "../../lib/git/auto-init-worktree.js";
+import { resolveWorktreeAvailability } from "../../lib/git/folder-worktree-availability.js";
 import type { WorktreeInitStatus } from "../../lib/git/git-api.js";
 import { t as i18nT, useI18n } from "../../lib/i18n/i18n.js";
 import { compatibleClosestCenter, resolveFolderMove, resolveWorkspaceFolderReorder, resolveWorkspaceReorder, SPRING_LOAD_DWELL_MS } from "../../lib/layout/sidebar-dnd.js";
@@ -271,8 +272,11 @@ export { type DirectoryGroup, filterSessions, groupSessionsByDirectory } from ".
  */
 const PROJECT_INIT_PROMPT = "/skill:project-init";
 
-export function folderIsGitRepo(group: { sessions: Array<{ isGitRepo?: boolean }> }): boolean {
-  return !group.sessions.some((s) => s.isGitRepo === false);
+export function folderIsGitRepo(
+  group: { cwd?: string; sessions: Array<{ cwd?: string; isGitRepo?: boolean }> },
+  folderGitMap?: Map<string, string | null>,
+): boolean {
+  return resolveWorktreeAvailability({ cwd: group.cwd ?? "", sessions: group.sessions, folderGitMap }).available;
 }
 
 function ToggleButton({
@@ -1202,7 +1206,11 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     // up worktrees that have none. Absent only on positive evidence that the
     // folder is not a repo; unknown keeps the item (same rule as the worktree
     // spawn button). See change: manage-worktrees-filter-cleanup.
-    if (gitWorktreeEnabled && folderIsGitRepo(group)) {
+    // `folderGitMap` is threaded so a positive folder HEAD outranks a stale
+    // session `isGitRepo:false` here EXACTLY as it does for `+ New Worktree`
+    // — without it the two sibling surfaces disagree after a `git init`.
+    // See change: fix-openspec-board-worktree-button-gating.
+    if (gitWorktreeEnabled && folderIsGitRepo(group, folderGitMap)) {
       items.push({
         id: "manage-worktrees",
         group: "directory",
@@ -1542,12 +1550,14 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
             </div>
             <FolderSpawnButtons
               spawningDisabled={spawningCwds?.has(group.cwd)}
-              // Show unless EVERY session in the folder is a confirmed non-git
-              // (`isGitRepo === false`). `true`/`undefined` keep the button, so
-              // a real repo whose probe timed out / a legacy session never
-              // hides it. NOT gated on `gitBranch` (data-arrival signal).
-              // See change: gate-session-worktree-button-on-git.
-              showWorktree={group.sessions.some((s) => s.isGitRepo !== false) && gitWorktreeEnabled && !!onSpawnSession}
+              // Availability comes from the shared folder rule (folder HEAD ∪
+              // session `isGitRepo`, fail-open, preference-gated) so the
+              // sidebar and the OpenSpec board cannot disagree — notably on a
+              // pinned git folder with ZERO sessions, where the old inlined
+              // `some(...)` failed closed. NOT gated on `gitBranch`.
+              // See changes: gate-session-worktree-button-on-git,
+              // fix-openspec-board-worktree-button-gating.
+              showWorktree={resolveWorktreeAvailability({ cwd: group.cwd, sessions: group.sessions, folderGitMap, gitWorktreeEnabled }).available && !!onSpawnSession}
               onSpawnSession={() => {
                 if (isCollapsed) handleToggleCollapse(group.cwd);
                 onSpawnSession?.(group.cwd);

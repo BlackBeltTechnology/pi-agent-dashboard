@@ -4,10 +4,12 @@
  * The inline `⑂+` button moved from `FolderOpenSpecSection` to the board's
  * proposal-card action footer. This verifies the card action fires
  * `onSpawnAttachedWorktree(cwd, changeName)` and is gated by
- * `isGitRepo` / `gitWorktreeEnabled`. The full dialog→spawn e2e is covered by
- * `WorktreeSpawnDialog` tests (now wired at the App level for the board).
+ * `worktreeAvailability`. Unavailability is rendered DISABLED-with-reason,
+ * never hidden — a vanished button is indistinguishable from a render bug.
+ * The full dialog→spawn e2e is covered by `WorktreeSpawnDialog` tests.
  *
- * See change: redesign-openspec-board.
+ * See changes: redesign-openspec-board,
+ * fix-openspec-board-worktree-button-gating.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
@@ -27,6 +29,7 @@ vi.mock("../../lib/openspec/openspec-config-api.js", () => ({
 }));
 
 import { OpenSpecBoardView } from "../openspec/OpenSpecBoardView.js";
+import { resolveWorktreeAvailability } from "../../lib/git/folder-worktree-availability.js";
 import type { OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
@@ -43,6 +46,15 @@ const data: OpenSpecData = {
   initialized: true,
   changes: [
     { name: "add-dark-mode", status: "in-progress", completedTasks: 1, totalTasks: 4, artifacts: [{ id: "proposal", status: "done" }] },
+  ],
+};
+
+const threeChanges: OpenSpecData = {
+  initialized: true,
+  changes: [
+    { name: "add-dark-mode", status: "in-progress", completedTasks: 1, totalTasks: 4, artifacts: [{ id: "proposal", status: "done" }] },
+    { name: "add-light-mode", status: "in-progress", completedTasks: 0, totalTasks: 2, artifacts: [{ id: "proposal", status: "done" }] },
+    { name: "add-auto-mode", status: "in-progress", completedTasks: 2, totalTasks: 2, artifacts: [{ id: "proposal", status: "done" }] },
   ],
 };
 
@@ -68,8 +80,7 @@ function baseProps() {
     onAttachProposal: vi.fn(),
     onDetachProposal: vi.fn(),
     onBulkArchive: vi.fn(),
-    isGitRepo: true,
-    gitWorktreeEnabled: true,
+    worktreeAvailability: { available: true } as const,
   };
 }
 
@@ -88,13 +99,46 @@ describe("OpenSpec board — per-change New worktree action", () => {
     expect(props.onSpawnSession).toHaveBeenCalledWith("/project/foo", "add-dark-mode");
   });
 
-  it("New worktree action hidden when gitWorktreeEnabled=false", () => {
-    render(<OpenSpecBoardView {...baseProps()} gitWorktreeEnabled={false} />);
-    expect(screen.queryByTestId("card-new-worktree-add-dark-mode")).toBeNull();
+  // F1 — rewrites the former "hidden on non-git folder" absence assertion.
+  it("unavailable worktree action stays VISIBLE, disabled and explained (non-git folder)", () => {
+    render(<OpenSpecBoardView {...baseProps()} worktreeAvailability={{ available: false, reason: "not-a-git-repo" }} />);
+    const btn = screen.getByTestId("card-new-worktree-add-dark-mode") as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    expect(btn.getAttribute("title")).toBe("This folder is not a git repository");
   });
 
-  it("New worktree action hidden on non-git folder even with flag on", () => {
-    render(<OpenSpecBoardView {...baseProps()} isGitRepo={false} />);
-    expect(screen.queryByTestId("card-new-worktree-add-dark-mode")).toBeNull();
+  // F2 — rewrites the former "hidden when gitWorktreeEnabled=false" assertion.
+  it("preference-off reason is shown on EVERY card", () => {
+    render(<OpenSpecBoardView {...baseProps()} data={threeChanges} openspecMap={new Map([["/project/foo", threeChanges]])} worktreeAvailability={{ available: false, reason: "worktrees-disabled" }} />);
+    for (const name of ["add-dark-mode", "add-light-mode", "add-auto-mode"]) {
+      const btn = screen.getByTestId(`card-new-worktree-${name}`) as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
+      expect(btn.getAttribute("title")).toBe("Worktrees are disabled in Settings");
+    }
+  });
+
+  // F3 — cold load: availability resolves as enabled before `/api/config` lands.
+  it("does not flash a disabled/Settings state on cold load", () => {
+    render(<OpenSpecBoardView {...baseProps()} worktreeAvailability={resolveWorktreeAvailability({ cwd: "/project/foo", sessions: [], folderGitMap: new Map(), gitWorktreeEnabled: undefined })} />);
+    const btn = screen.getByTestId("card-new-worktree-add-dark-mode") as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    expect(btn.getAttribute("title")).not.toMatch(/Settings/);
+  });
+
+  // F4 — the new-proposal dialog follows the same availability.
+  it("new-proposal dialog offers no worktree option when unavailable", () => {
+    render(<OpenSpecBoardView {...baseProps()} worktreeAvailability={{ available: false, reason: "not-a-git-repo" }} />);
+    fireEvent.click(screen.getByTestId("board-new-proposal"));
+    expect(screen.getByTestId("np-name")).toBeTruthy();
+    expect(screen.queryByTestId("np-worktree")).toBeNull();
+  });
+
+  // X3 — a forced click on the disabled action is inert.
+  it("disabled worktree action is inert when clicked", () => {
+    const props = { ...baseProps(), worktreeAvailability: { available: false, reason: "not-a-git-repo" } as const };
+    render(<OpenSpecBoardView {...props} />);
+    fireEvent.click(screen.getByTestId("card-new-worktree-add-dark-mode"));
+    expect(props.onSpawnAttachedWorktree).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("np-name")).toBeNull();
   });
 });
