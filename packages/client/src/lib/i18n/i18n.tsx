@@ -867,6 +867,8 @@ const zhCN: Record<string, string> = {
   "worktree.runWorktreeInitHook": "运行 worktree-init 钩子？",
   "worktree.showWorktreeSpawnButtonsInFolders": "在文件夹和 OpenSpec 行中显示 worktree 生成按钮",
   "worktree.spawnAWorktreeForThisProposal": "为此提案启动一个 worktree",
+  "worktree.unavailableDisabled": "工作树已在设置中禁用",
+  "worktree.unavailableNotGitRepo": "此文件夹不是 Git 仓库",
   "worktree.worktree": "Worktree",
   "worktree.worktreeActions": "Worktree 操作",
   "worktree.worktreeSession": "+Worktree 会话",

@@ -168,3 +168,27 @@ describe("SessionList — +Worktree isGitRepo gate (gate-session-worktree-button
     expect(screen.getByTestId("folder-spawn-worktree-btn")).toBeTruthy();
   });
 });
+
+// F5 — the sidebar must agree with the board on a folder that has ZERO
+// sessions: the old inlined `some(s => s.isGitRepo !== false)` failed CLOSED
+// there, so a pinned git repo lost its `+ New Worktree` button whenever its
+// last session ended. See change: fix-openspec-board-worktree-button-gating.
+describe("SessionList — folder +Worktree on a zero-session pinned folder", () => {
+  it("folder-header +Worktree PRESENT for a pinned git folder with no sessions", () => {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[]}
+            onSelect={() => {}}
+            onSpawnSession={vi.fn()}
+            pinnedDirectories={["/repo"]}
+            folderGitMap={new Map([["/repo", "develop"]])}
+            gitWorktreeEnabled={true}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    expect(screen.getByTestId("folder-spawn-worktree-btn")).toBeTruthy();
+  });
+});

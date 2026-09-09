@@ -77,6 +77,7 @@ import { normalizeFollowUpEntries } from "./lib/chat/followup-entries.js";
 import { nextBackfillRange } from "./lib/chat/history-gap.js";
 import { refreshChat } from "./lib/chat/refresh-chat.js";
 import { maybeAutoInitWorktreeOnSpawn } from "./lib/git/auto-init-worktree.js";
+import { resolveWorktreeAvailability } from "./lib/git/folder-worktree-availability.js";
 import { fetchActiveInits } from "./lib/git/git-api.js";
 import { refreshGitStatus } from "./lib/git/git-status-cache.js";
 import { resendActiveCwdSubscriptions, setInitSender } from "./lib/git/worktree-init-bus.js";
@@ -1712,8 +1713,17 @@ export default function App() {
       onDetachProposal={handleDetachProposal}
       onReplaceProposal={handleReplaceProposal}
       onBulkArchive={() => handleBulkArchive(openspecBoardCwd)}
-      isGitRepo={Array.from(sessions.values()).some((s) => s.cwd === openspecBoardCwd && !!s.gitBranch)}
-      gitWorktreeEnabled={gitWorktreeEnabled}
+      // Folder-level availability, NOT `gitBranch` (populated only for the
+      // live poll work-set, so the board's button vanished when the last
+      // main-cwd session ended). Pure + O(sessions) on an already-rendered
+      // path; cannot be a `useMemo` here because the cwd is a render-fn arg.
+      // See change: fix-openspec-board-worktree-button-gating.
+      worktreeAvailability={resolveWorktreeAvailability({
+        cwd: openspecBoardCwd,
+        sessions: Array.from(sessions.values()),
+        folderGitMap,
+        gitWorktreeEnabled,
+      })}
       selectedId={selectedId}
     />
   );

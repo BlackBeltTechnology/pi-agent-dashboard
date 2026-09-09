@@ -38,7 +38,11 @@ export function cardEl(page: Page, name: string): Locator {
 /** Pin the fixture and land on its board with the cards hydrated. */
 export async function openBoard(page: Page, minCards = 1): Promise<void> {
   await gotoDashboard(page);
-  const row = page.getByTestId(`folder-open-home-${BOARD_FIXTURE}`);
+  // The folder's own header row. NOT `folder-open-home-<cwd>` — that cluster
+  // button was deleted by `add-folder-actions-menu`, so waiting on it made the
+  // pin check always miss and every board spec die at the assertion below.
+  // See change: fix-openspec-board-worktree-button-gating.
+  const row = page.getByTestId(`folder-home-row-${BOARD_FIXTURE}`);
   // The sidebar hydrates over the websocket, so "not visible yet" is not the
   // same as "not pinned" — poll before deciding to pin, or a slow first paint
   // sends every spec down the onboarding path.

@@ -34,6 +34,16 @@ describe("folderIsGitRepo gating", () => {
     expect(folderIsGitRepo({ sessions: [{}] })).toBe(true);
     expect(folderIsGitRepo({ sessions: [{ isGitRepo: true }] })).toBe(true);
   });
+
+  // A positive folder HEAD outranks a stale session flag here EXACTLY as it
+  // does for the sidebar `+ New Worktree` button — the two surfaces must not
+  // disagree after a `git init`.
+  // See change: fix-openspec-board-worktree-button-gating.
+  it("lets a positive folder HEAD outrank a stale non-git session flag", () => {
+    const group = { cwd: "/repo", sessions: [{ cwd: "/repo", isGitRepo: false }] };
+    expect(folderIsGitRepo(group)).toBe(false);
+    expect(folderIsGitRepo(group, new Map([["/repo", "develop"]]))).toBe(true);
+  });
 });
 
 // test-plan #F6
