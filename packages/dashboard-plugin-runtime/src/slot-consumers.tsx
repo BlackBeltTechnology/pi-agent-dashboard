@@ -17,6 +17,7 @@ import { IntentRenderer } from "./intent-renderer.js";
 import { useSlotIntents } from "./intent-store.js";
 import { sendPluginAction } from "./plugin-action-bridge.js";
 import { CurrentPluginLayer, useSlotRegistryOrNull } from "./plugin-context.js";
+import { useSlotClaimsVersion } from "./slot-claims-invalidation.js";
 import { useShellSessionOrNull } from "./shell-sessions-context.js";
 import { SlotErrorBoundary } from "./slot-error-boundary.js";
 import type { FolderDescriptor } from "./slot-registry.js";
@@ -36,6 +37,12 @@ import { forActionId, forFolder, forSession, forSessionRendered, forToolName, ty
  * and parent wrappers hide cleanly.
  */
 export function useSlotHasClaimsForSession(slotId: SlotId, session: DashboardSession): boolean {
+  // Subscribe to the slot-claims invalidation store BEFORE the registry-null
+  // early return (rules of hooks): a late `bumpSlotClaimsVersion()` must
+  // re-render this wrapper whether or not a registry is present, so gates on
+  // idle sessions that never broadcast again still re-evaluate. See change:
+  // add-blackhole-session-pipeline.
+  useSlotClaimsVersion();
   const registry = useSlotRegistryOrNull();
   if (!registry) return false;
   return forSessionRendered(registry.getClaims(slotId), session).length > 0;
@@ -123,6 +130,7 @@ export function WorktreeCardSectionSlot({ folder }: { folder: FolderDescriptor }
 }
 
 export function SessionCardBadgeSlot({ session }: { session: DashboardSession }) {
+  useSlotClaimsVersion();
   const registry = useSlotRegistryOrNull();
   const intents = useSlotIntents("session-card-badge", session.id);
   const legacyClaims = registry
@@ -142,6 +150,7 @@ export function SessionCardBadgeSlot({ session }: { session: DashboardSession })
 }
 
 export function SessionCardActionBarSlot({ session }: { session: DashboardSession }) {
+  useSlotClaimsVersion();
   const registry = useSlotRegistryOrNull();
   const intents = useSlotIntents("session-card-action-bar", session.id);
   const legacyClaims = registry
@@ -161,6 +170,7 @@ export function SessionCardActionBarSlot({ session }: { session: DashboardSessio
 }
 
 export function SessionCardMemorySlot({ session }: { session: DashboardSession }) {
+  useSlotClaimsVersion();
   const registry = useSlotRegistryOrNull();
   const intents = useSlotIntents("session-card-memory", session.id);
   const legacyClaims = registry
@@ -180,6 +190,7 @@ export function SessionCardMemorySlot({ session }: { session: DashboardSession }
 }
 
 export function SessionCardFlowsSlot({ session }: { session: DashboardSession }) {
+  useSlotClaimsVersion();
   const registry = useSlotRegistryOrNull();
   const intents = useSlotIntents("session-card-flows", session.id);
   const legacyClaims = registry
@@ -199,6 +210,7 @@ export function SessionCardFlowsSlot({ session }: { session: DashboardSession })
 }
 
 export function WorkspaceActionBarSlot({ session }: { session: DashboardSession }) {
+  useSlotClaimsVersion();
   const registry = useSlotRegistryOrNull();
   const intents = useSlotIntents("workspace-action-bar", session.id);
   const legacyClaims = registry
@@ -267,6 +279,12 @@ export function ContentViewSlot({
   onClose: () => void;
 }) {
   const registry = useSlotRegistryOrNull();
+  // Subscribe to the slot-claims invalidation store: a plugin's explicit
+  // navigation into a one-active view (e.g. blackhole's detail drill-in)
+  // flips its predicate in module state — the bump is what re-renders this
+  // slot so the predicate is re-evaluated without any session broadcast.
+  // See change: add-blackhole-session-pipeline.
+  useSlotClaimsVersion();
   if (!registry) return null;
   // Multiple plugins may claim `content-view` (multiplicity:
   // "one-active"). Each claim's optional `predicate` decides whether
@@ -295,6 +313,7 @@ export function ContentViewSlot({
 }
 
 export function ContentHeaderStickySlot({ session }: { session: DashboardSession }) {
+  useSlotClaimsVersion();
   const registry = useSlotRegistryOrNull();
   const intents = useSlotIntents("content-header-sticky", session.id);
   const legacyClaims = registry
@@ -314,6 +333,7 @@ export function ContentHeaderStickySlot({ session }: { session: DashboardSession
 }
 
 export function ContentInlineFooterSlot({ session }: { session: DashboardSession }) {
+  useSlotClaimsVersion();
   const registry = useSlotRegistryOrNull();
   const intents = useSlotIntents("content-inline-footer", session.id);
   const legacyClaims = registry

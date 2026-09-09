@@ -27,6 +27,7 @@ export type ViewerKind =
   | "spreadsheet"
   | "asciidoc"
   | "email"
+  | "diagram"
   | "live-server"
   // Opened explicitly (never returned by `fileKind()`), like `live-server`.
   // `url:<url>` renders a `canvas()` url/youtube declare in the split pane.
@@ -57,6 +58,7 @@ export type FileKind =
   | "spreadsheet"
   | "asciidoc"
   | "email"
+  | "diagram"
   | "binary"
   | "unknown";
 
@@ -147,6 +149,9 @@ export const SPREADSHEET_EXTENSIONS = new Set([".xlsx", ".xls", ".csv"]);
 /** AsciiDoc → `AsciiDocPreview` (rendered). */
 export const ASCIIDOC_EXTENSIONS = new Set([".adoc", ".asciidoc"]);
 
+/** PlantUML diagram source → `DiagramPreview`. */
+export const DIAGRAM_EXTENSIONS = new Set([".puml", ".plantuml"]);
+
 /** RFC822 email → `EmlPreview` (sandboxed body, remote assets blocked). */
 export const EMAIL_EXTENSIONS = new Set([".eml"]);
 
@@ -200,6 +205,8 @@ const MIME_BY_EXT: Record<string, string> = {
   ".xls": "application/vnd.ms-excel",
   ".adoc": "text/asciidoc",
   ".asciidoc": "text/asciidoc",
+  ".puml": "text/x-plantuml",
+  ".plantuml": "text/x-plantuml",
   ".eml": "message/rfc822",
   ".md": "text/markdown",
   ".mdx": "text/markdown",
@@ -275,6 +282,9 @@ function richKind(ext: string, mimeOf: (fallback: string) => string): FileKindRe
   }
   if (EMAIL_EXTENSIONS.has(ext)) {
     return { kind: "email", mimeType: mimeOf("message/rfc822"), viewer: "email", editable: false };
+  }
+  if (DIAGRAM_EXTENSIONS.has(ext)) {
+    return { kind: "diagram", mimeType: mimeOf("text/x-plantuml"), viewer: "diagram", editable: false };
   }
   return null;
 }

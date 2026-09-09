@@ -2739,6 +2739,7 @@ Precedence: CLI flags → environment variables → config file (`~/.pi/dashboar
 | `autoStart` | true | Bridge extension auto-starts server if not running |
 | `autoShutdown` | false | Server shuts down after idle period (disabled by default; enable for TUI auto-start scenarios) |
 | `shutdownIdleSeconds` | 300 | Idle timeout before auto-shutdown |
+| `readinessTimeoutMs` | 10000 | Bridge auto-spawn cold-start readiness budget (ms). Expiry surfaces "readiness timeout" warning only; spawned server keeps booting. Raise on slow hosts (large session scan). Positive number clamped to [1000, 600000]; anything else falls back to default. Auto-start lock staleness bound derived from it: `spawnReadinessBudgetMs` = max(3x value, 30000); raising it cannot break the single-flight lock |
 | `spawnStrategy` | `"headless"` | How to spawn new sessions: `"headless"` or `"tmux"` |
 | `tunnel.enabled` | true | Enable Gateway (internal id `tunnel`) for remote access |
 | `tunnel.provider` | — | `"zrok"`\|`"ngrok"`\|`"tailscale"`\|`"zerotier"`. Required when enabled |

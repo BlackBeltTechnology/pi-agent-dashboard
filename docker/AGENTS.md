@@ -8,6 +8,7 @@ Files in this directory. One row per file. Non-source area. Subdir files owned b
 | `.gitignore` | Excludes `.env` + `compose.override.yml` (user-specific). See change: docker-packaging. |
 | `compose.dev.yml` | Dev overlay. Bind-mounts source, anonymous node_modules volume keeps Linux node-pty, exposes 5173, `NODE_ENV=development`, command `start --dev`. See change: docker-packaging. |
 | `compose.override.yml.example` | Power-user template. Path-identical workspace binds, `:ro` example, `PI_DASHBOARD_PIN_DIRS`. Copy to `compose.override.yml`. See change: docker-packaging. |
+| `compose.kroki.yml` | Kroki diagram rendering overlay. Adds `yuzutech/kroki` with `KROKI_SAFE_MODE=secure` and no host ports, atomically sets `KROKI_URL=http://kroki:8000` on `pi-dashboard`. See change: diagram-rendering. |
 | `compose.test.cap.yml` | Overlay-mode capability layer. Grants `cap_add: [SYS_ADMIN]` for `mount -t overlay` in test-entrypoint.sh. → see `compose.test.cap.yml.AGENTS.md` |
 | `compose.test.yml` | Test overlay on `compose.yml`. Sets `PI_DASHBOARD_NO_MDNS=1`, `DASHBOARD_PORT="${DASHBOARD_PORT:-18000}"`,… → see `compose.test.yml.AGENTS.md` |
 | `compose.yml` | Base compose. Service `pi-dashboard`, `init:true`, env-driven ports, named volumes `pi-state`→`/home/pi/.pi`… → see `compose.yml.AGENTS.md` |

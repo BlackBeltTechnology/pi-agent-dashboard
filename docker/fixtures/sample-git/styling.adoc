@@ -1,0 +1,46 @@
+= AsciiDoc Styling Fixture
+:toc:
+:sectnums:
+
+Preamble paragraph for the styled AsciiDoc preview E2E fixture.
+
+NOTE: This admonition must render as an accent-bordered card, not a bare table.
+
+== Level One Section
+
+Body text under the first section level.
+
+=== Level Two Subsection
+
+Body text under the nested section level, so the TOC has nesting to indent.
+
+==== Level Three Subsection
+
+Deepest section body, giving the heading-hierarchy assert three real levels.
+
+== Tables
+
+.Key/value table without a frame or grid
+[frame=none,grid=none]
+|===
+| Host | localhost
+| Port | 8000
+|===
+
+.Striped data table with a header row
+[stripes=even,options="header"]
+|===
+| Name | Role | Status
+
+| alice | admin | active
+| bob | editor | active
+| carol | viewer | idle
+| dave | viewer | idle
+|===
+
+== Code
+
+[source,ts]
+----
+export const styled = true;
+----

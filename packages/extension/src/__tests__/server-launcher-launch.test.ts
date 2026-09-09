@@ -2,12 +2,15 @@
  * Pins the Bridge → `launchDashboardServer` forwarding contract: the
  * extension's `launchServer` must always pass `starter: "Bridge"`,
  * `stdio: { logFile: getDashboardServerLogPath() }`, and
- * `healthTimeoutMs: 10_000`. The shared launcher is mocked so this test
- * never spawns a real server.
+ * `healthTimeoutMs` taken from `config.readinessTimeoutMs` (falling back
+ * to the historical 10 s default when the field is absent, e.g. a legacy
+ * config object). The shared launcher is mocked so this test never spawns
+ * a real server.
  *
  * See change: unify-server-launch-ts-loader (§3.1.2),
  * fix-bridge-server-start-diagnostics (bridge now owns the server log
- * and uses a 10 s cold-start window).
+ * and uses a 10 s cold-start window),
+ * add-configurable-readiness-timeout (window now configurable).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { launchDashboardServer } from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
@@ -50,7 +53,7 @@ beforeEach(() => {
 });
 
 describe("Bridge launchServer → launchDashboardServer forwarding", () => {
-  it("passes starter:Bridge + stdio:{logFile} + 10s health timeout + port", async () => {
+  it("passes starter:Bridge + stdio:{logFile} + default 10s health timeout + port", async () => {
     const r = await launchServer(cfg);
     expect(r.success).toBe(true);
     expect(launchSpy).toHaveBeenCalledOnce();
@@ -60,6 +63,14 @@ describe("Bridge launchServer → launchDashboardServer forwarding", () => {
     expect(opts.healthTimeoutMs).toBe(10000);
     expect(opts.port).toBe(3000);
     expect(opts.extraArgs).toEqual(["--port", "3000", "--pi-port", "4000"]);
+  });
+
+  // add-configurable-readiness-timeout: a configured value must win over
+  // the 10 s fallback so slow hosts can extend the readiness window.
+  it("forwards config.readinessTimeoutMs to the shared launcher's healthTimeoutMs", async () => {
+    await launchServer({ ...cfg, readinessTimeoutMs: 60_000 });
+    const opts = launchSpy.mock.calls[0]![0]!;
+    expect(opts.healthTimeoutMs).toBe(60_000);
   });
 
   it("maps JitiNotFoundError to a failed LaunchResult (no throw)", async () => {

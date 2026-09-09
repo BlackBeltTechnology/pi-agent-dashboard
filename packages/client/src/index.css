@@ -1,4 +1,7 @@
 @import "tailwindcss";
+/* AsciiDoc / docx preview typography, scoped to `.asciidoc-body`.
+   See change: asciidoc-support. */
+@import "./styles/asciidoc.css";
 
 /* Plugin packages that ship client-side React components with Tailwind
    utility classes. Without these @source directives, Tailwind v4 only

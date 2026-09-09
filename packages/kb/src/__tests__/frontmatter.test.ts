@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { chunkAsciiDoc, NEGATED } from "../adoc-chunker.js";
 import { buildMeta, buildProperties, DEFAULT_SEARCHABLE_KEYS, parseFrontmatter, strictDate, strictNumber } from "../frontmatter.js";
 
 describe("frontmatter parser (vendored YAML subset)", () => {
@@ -108,5 +109,54 @@ describe("structural routing (buildMeta / buildProperties / strict typing)", () 
     expect(meta.body).toBe("d");
     expect(meta.body).not.toContain("red");
     expect(buildProperties({ tags: ["red"] }, [{ key: "tags" }])[0].value).toBe("red");
+  });
+});
+
+// AsciiDoc document header — the adoc analogue of YAML frontmatter (design D3b).
+// See change: asciidoc-support.
+describe("asciidoc document-attribute header", () => {
+  const LONG = "body paragraph long enough to survive the tiny-chunk merge threshold so it stays its own dedicated chunk here.";
+
+  it("E1: header attributes are parsed into a map separate from the body", () => {
+    const r = chunkAsciiDoc({ root: "r", path: "doc.adoc", text: `= Title\n:toc:\n:sectnums:\n\n${LONG}` });
+    expect(r.attributes).toEqual({ toc: "", sectnums: "" });
+    expect(r.doctitle).toBe("Title");
+    const preamble = r.chunks[0];
+    expect(preamble.heading).toBe("Title");
+    expect(preamble.level).toBe(0);
+    expect(preamble.body).toContain(LONG);
+    expect(preamble.body).not.toContain(":toc:");
+    expect(preamble.body).not.toContain("= Title");
+  });
+
+  it("E2: negated and valued attribute entries are both captured, no throw", () => {
+    const r = chunkAsciiDoc({ root: "r", path: "doc.adoc", text: `= T\n:!sectnums:\n:attr: value\n:trailing!:\n\n${LONG}` });
+    expect(r.attributes?.sectnums).toBe(NEGATED);
+    expect(r.attributes?.trailing).toBe(NEGATED);
+    expect(r.attributes?.attr).toBe("value");
+  });
+
+  it("E2: attribute NAMES are lowercased, values keep their case (asciidoctor semantics)", () => {
+    const r = chunkAsciiDoc({ root: "r", path: "doc.adoc", text: `= T\n:Tags: API Docs\n:URL-Repo: https://Example.COM\n\n${LONG}` });
+    expect(r.attributes?.tags).toBe("API Docs");
+    expect(r.attributes?.["url-repo"]).toBe("https://Example.COM");
+    expect(r.attributes?.Tags).toBeUndefined();
+    expect(r.frontmatter?.tags).toBe("API Docs"); // reaches the indexer's facet keys
+  });
+
+  it("E3: a headerless file has a null attribute map and a file-name heading", () => {
+    const r = chunkAsciiDoc({ root: "r", path: "sub/notes.adoc", text: LONG });
+    expect(r.attributes).toBeNull();
+    expect(r.doctitle).toBeNull();
+    expect(r.frontmatter).toBeNull();
+    expect(r.chunks[0].heading).toBe("notes");
+  });
+
+  it("E4: CRLF and LF inputs produce byte-identical chunks, ids and hashes", () => {
+    const lf = `= Title\n:toc:\n\n${LONG}\n\n== Sec\n${LONG}\n`;
+    const a = chunkAsciiDoc({ root: "r", path: "doc.adoc", text: lf });
+    const b = chunkAsciiDoc({ root: "r", path: "doc.adoc", text: lf.replace(/\n/g, "\r\n") });
+    expect(b.chunks).toEqual(a.chunks);
+    expect(b.attributes).toEqual(a.attributes);
   });
 });

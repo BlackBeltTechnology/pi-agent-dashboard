@@ -34,7 +34,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `plan/electron-app.md` | Comprehensive Electron desktop-app plan. Bundle dashboard standalone macOS/Linux/Windows, zero prereqs,… → see `plan/electron-app.md.AGENTS.md` |
 | `playwright.config.ts` | (repo root) Playwright config. testDir `tests/e2e`, `use.baseURL` imports `BASE_URL` from lifecycle.ts,… → see `playwright.config.ts.AGENTS.md` |
 | `playwright.electron.config.ts` | (repo root) Playwright config for Electron-E2E suite. testDir `tests/e2e-electron`, testMatch… → see `playwright.electron.config.ts.AGENTS.md` |
-| `plugin-claim-gates.md` | `predicate` vs `shouldRender` contract for plugin claims. See change: auto-hide-empty-session-subcards. |
+| `plugin-claim-gates.md` | `predicate` vs `shouldRender` contract for plugin claims; slot-claims invalidation store. See change: auto-hide-empty-session-subcards, add-blackhole-session-pipeline. |
 | `plugin-intent-protocol.md` | Server-driven plugin UI. Plugins emit JSON intent trees; clients render via local primitive registry. → see `plugin-intent-protocol.md.AGENTS.md` |
 | `plugin-ui-primitives.md` | Plugins access dashboard React primitives via runtime registry. `useUiPrimitive(key)` lookup. Keys `UI_PRIMITIVE_KEYS`. Shell → plugin flow, complements slot system. Documents `ui:thinking-level-selector`. Documents `UiModelSelectorProps.placeholder?`. Documents shell-bound wrapper registrations (`lib/plugins/shell-primitives.tsx`). See change: upgrade-model-selector-primitives. |
 | `pnpm-workspace.yaml` | (repo root) pnpm workspace + config source of truth (package.json `pnpm.*` ignored when this exists). → see `pnpm-workspace.yaml.AGENTS.md` |

@@ -4,10 +4,10 @@
  * See change: fix-worktree-server-autostart-leak.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { autoStartLockPath } from "../autostart-lock.js";
+import { autoStartLockPath, type LockProbes } from "../autostart-lock.js";
 import { autoStartServer, type AutoStartDeps, type DiscoveredServer } from "../server-auto-start.js";
 
 const WORKTREE_CLI = "/repo/.worktrees/os-x/packages/server/src/cli.ts";
@@ -288,6 +288,51 @@ describe("candidate health verification gates admission (test-plan E4/E5)", () =
     expect(lines).toMatch(/rejected/);
     expect(lines).toContain("slow.local:8588");
     expect(lines).toMatch(/answer/); // the reason
+  });
+});
+
+// add-configurable-readiness-timeout: the lock staleness bound is DERIVED
+// from `config.readinessTimeoutMs`, so raising the readiness window cannot
+// invert the documented "budget > health poll" invariant. The lock carries no
+// `childPid` for the whole readiness window, so staleness falls through to
+// pure age — with a constant 30 s bound a 60 s window would let a second
+// session break a LIVE holder's lock and spawn a competing server.
+describe("readiness budget derives from the configured readiness timeout", () => {
+  /** Lock held 40 s ago by an alive session that has not reached readiness. */
+  function seedHeldLock(): LockProbes {
+    const startedAt = Date.now() - 40_000;
+    writeFileSync(
+      autoStartLockPath(cfg.port, dir),
+      JSON.stringify({ sessionPid: 424_242, startedAt, cliPath: HOST_CLI }),
+    );
+    return { now: Date.now, isAlive: () => true, processStartedAt: () => null };
+  }
+
+  it("a 60 s window keeps a 40 s-old holder's lock live — no competing spawn", async () => {
+    const lockProbes = seedHeldLock();
+    const deps = makeDeps({
+      readinessBudgetMs: undefined,
+      lockProbes,
+      // preflight: nothing yet; then the holder's server answers, ending the
+      // loser's bounded wait without burning the 180 s budget.
+      isDashboardRunning: vi.fn()
+        .mockResolvedValueOnce({ running: false })
+        .mockResolvedValue({ running: true }),
+    });
+
+    const result = await autoStartServer({ ...cfg, readinessTimeoutMs: 60_000 }, deps);
+
+    expect(deps.launchServer).not.toHaveBeenCalled();
+    expect(result.server).toEqual({ host: "localhost", port: 8000, piPort: 9999 });
+  });
+
+  it("the default window still expires the same 40 s-old lock (30 s bound)", async () => {
+    const lockProbes = seedHeldLock();
+    const deps = makeDeps({ readinessBudgetMs: undefined, lockProbes });
+
+    await autoStartServer(cfg, deps);
+
+    expect(deps.launchServer).toHaveBeenCalledTimes(1);
   });
 });
 

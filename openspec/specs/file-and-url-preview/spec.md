@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change render-file-previews. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: ViewTarget discriminated union
 
 The dashboard SHALL define a `ViewTarget` discriminated union in `packages/shared/src/types.ts` with exactly two variants: `{ kind: "file"; cwd: string; path: string }` and `{ kind: "url"; url: string }`. The `/view` composer command SHALL parse `@<relPath>` into a file target and `http(s)://…` into a URL target, then route that target to the internal editor pane (see `internal-monaco-editor-pane` → "`/view` opens its target in the editor pane"). `ChatMessage` SHALL NOT carry a `view?` field; `/view` no longer injects an inline preview row into the chat transcript.
@@ -39,7 +41,7 @@ A pure function `dispatchPreview(target: ViewTarget): RendererKind` SHALL select
 renderer using only the target's shape (extension for files; host + URL extension for
 URLs). It SHALL NOT perform server round-trips, MIME sniffing, or file reads to make the
 decision. `RendererKind` SHALL be one of
-`"markdown" | "asciidoc" | "html" | "pdf" | "video" | "audio" | "image" | "youtube" | "docx" | "pptx" | "spreadsheet" | "email" | "fallback"`.
+`"markdown" | "asciidoc" | "html" | "pdf" | "video" | "audio" | "image" | "youtube" | "docx" | "pptx" | "spreadsheet" | "email" | "diagram" | "fallback"`.
 The `.pptx` file extension (compared case-insensitively) SHALL map to `"pptx"`.
 
 #### Scenario: Markdown extension
@@ -81,6 +83,10 @@ The `.pptx` file extension (compared case-insensitively) SHALL map to `"pptx"`.
 #### Scenario: EML extension
 - **WHEN** the file extension is `.eml`
 - **THEN** the result is `"email"`
+
+#### Scenario: PlantUML extensions
+- **WHEN** the file extension is `.puml` or `.plantuml` (compared case-insensitively)
+- **THEN** the result is `"diagram"`
 
 #### Scenario: Unknown file extension
 - **WHEN** the file extension is unrecognized (e.g. `.dat`)
@@ -645,3 +651,58 @@ Because `pdfjs-dist/web/pdf_viewer.mjs` reads `globalThis.pdfjsLib` at module-ev
 - **THEN** the main `pdfjs-dist` module SHALL be fully loaded (populating `globalThis.pdfjsLib`) before `pdfjs-dist/web/pdf_viewer.mjs` is imported
 - **AND** the viewer mounts without a `globalThis.pdfjsLib` destructuring error
 
+### Requirement: AsciiDoc preview styling
+
+The AsciiDoc preview SHALL render the returned HTML inside a dedicated `.asciidoc-body` scope with stylesheet rules covering asciidoctor's embedded-output class vocabulary, using theme CSS custom properties only (no hardcoded colors), so all registered themes and both dark/light variants track automatically. The styling SHALL cover: section heading hierarchy with distinct sizes per level, the TOC panel when the document declares `:toc:`, tables including `frame`/`grid`/`stripes` attribute variants, admonition blocks (NOTE/TIP/WARNING/IMPORTANT/CAUTION) presented as accent-bordered cards, ordered/unordered/description lists with proper indentation, and listing/source blocks. The `prose prose-invert` classes (dead without `@tailwindcss/typography`) SHALL be removed from the components wrapping rendered AsciiDoc and docx HTML output.
+
+#### Scenario: Headings render hierarchically
+- **WHEN** an AsciiDoc document with nested section levels is previewed
+- **THEN** each heading level renders at a visually distinct size, larger than body text
+
+#### Scenario: TOC panel styled when declared
+- **WHEN** the previewed document declares `:toc:` and the rendered HTML contains a `#toc` element
+- **THEN** the TOC renders as a visually distinct panel with indented nesting and themed link colors
+
+#### Scenario: Admonition renders as accent card
+- **WHEN** the rendered HTML contains an `admonitionblock` (e.g. NOTE)
+- **THEN** it renders as a block card with a type-colored accent border and surface background, not as a bare table
+
+#### Scenario: Key/value table with frame=none
+- **WHEN** a table with `frame=none` and `grid=none` attributes is previewed
+- **THEN** cells keep padding and alignment without borders
+
+#### Scenario: Striped data table
+- **WHEN** a table with `stripes=even` is previewed
+- **THEN** even rows render with an alternate surface background and the header row is visually distinct
+
+#### Scenario: Colors come from theme variables
+- **WHEN** the active theme changes
+- **THEN** the AsciiDoc preview colors follow the new theme without stylesheet changes (all colors resolve through CSS custom properties)
+
+#### Scenario: Docx html-mode shares the typography scope
+- **WHEN** a docx file is previewed in html mode
+- **THEN** its output renders inside the same `.asciidoc-body` scope and picks up the same typography rules
+
+### Requirement: Diagram source blocks in AsciiDoc preview hydrate
+
+The AsciiDoc preview SHALL upgrade diagram source blocks in the rendered HTML to rendered diagrams, keying on the language attributes that survive the secure embedded convert (`[source,mermaid]` / `[source,plantuml]` blocks) plus content sniffing for listing blocks that start with `@startuml`. Mermaid blocks SHALL render client-side; PlantUML blocks SHALL render via the diagram render proxy. A block that fails or declines to render SHALL remain visible as its original code listing. Bare style-only blocks (`[mermaid]` without `source`) carry no surviving type information and SHALL remain code listings.
+
+#### Scenario: source,mermaid block hydrates client-side
+- **WHEN** a previewed `.adoc` contains a `[source,mermaid]` block with valid mermaid syntax
+- **THEN** it renders as a mermaid diagram in place of the code listing, with no server render request
+
+#### Scenario: source,plantuml block hydrates via proxy
+- **WHEN** a previewed `.adoc` contains a `[source,plantuml]` block and the proxy resolves an endpoint
+- **THEN** it renders as an SVG diagram in place of the code listing
+
+#### Scenario: @startuml sniffing
+- **WHEN** a plain listing block's content starts with `@startuml`
+- **THEN** it is treated as a PlantUML block and hydrated via the proxy
+
+#### Scenario: Declined rendering leaves the listing
+- **WHEN** the proxy declines (no endpoint permitted) or fails
+- **THEN** the original code listing remains visible, optionally with an unobtrusive notice
+
+#### Scenario: Bare style block stays a listing
+- **WHEN** a previewed `.adoc` contains a bare `[mermaid]` style block (not `[source,mermaid]`)
+- **THEN** it remains a code listing (no type information survives the secure convert)

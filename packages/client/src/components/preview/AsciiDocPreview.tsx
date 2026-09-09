@@ -4,8 +4,11 @@
  * `dangerouslySetInnerHTML` (safe because server guarantees sanitization).
  * See change: render-file-previews.
  */
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { splitAdocDiagramSegments, type AdocSegment } from "../../lib/preview/adoc-diagram-splitter.js";
+import { DiagramPreview } from "./DiagramPreview.js";
+import { MermaidBlock } from "./MermaidBlock.js";
 import { renderUrl } from "./raw-url.js";
 import { logRejection } from "../../lib/report-error.js";
 
@@ -41,12 +44,43 @@ export function AsciiDocPreview({ target }: Props) {
     };
   }, [target.cwd, target.path]);
 
+  const segments = useMemo<AdocSegment[]>(() => {
+    if (!html) return [];
+    return splitAdocDiagramSegments(html);
+  }, [html]);
+
   if (error) return <div className="text-red-400 text-sm p-2">{error}</div>;
   if (html == null) return <div className="text-[var(--text-muted)] text-sm p-2">{i18nT("common.loading2", undefined, "Loading…")}</div>;
+
   return (
-    <div
-      className="asciidoc-body prose prose-invert max-w-none"
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <div className="asciidoc-body">
+      {segments.map((seg, idx) => {
+        if (seg.kind === "raw") {
+          return (
+            <div
+              key={idx}
+              dangerouslySetInnerHTML={{ __html: seg.html }}
+            />
+          );
+        }
+        if (seg.type === "mermaid") {
+          return (
+            <MermaidBlock
+              key={idx}
+              code={seg.source}
+              complete={true}
+            />
+          );
+        }
+        return (
+          <div key={idx} className="my-2 h-[400px] border border-[var(--border-subtle)] rounded overflow-hidden">
+            <DiagramPreview
+              target={target}
+              sourceText={seg.source}
+            />
+          </div>
+        );
+      })}
+    </div>
   );
 }

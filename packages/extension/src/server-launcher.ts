@@ -7,7 +7,10 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import {
+  type DashboardConfig,
+  HEALTH_CHECK_TIMEOUT_MS,
+} from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import {
   EarlyExitError,
@@ -121,10 +124,12 @@ export function buildSpawnArgs(config: DashboardConfig): string[] {
  * Bridge-specific contract: `DASHBOARD_STARTER=Bridge`,
  * `stdio: { logFile: getDashboardServerLogPath() }` (Bridge auto-spawn
  * now owns the shared `~/.pi/dashboard/server.log` so a slow/crashed
- * cold start leaves an inspectable log), and a 10 s cold-start health
- * timeout (slow hosts reach `writePid()` but are not health-OK within
- * 2 s; `EarlyExitError` still surfaces a real crash instantly).
- * See change: fix-bridge-server-start-diagnostics.
+ * cold start leaves an inspectable log), and a cold-start health timeout
+ * taken from `config.readinessTimeoutMs` (default 10 s; raise on hosts whose
+ * cold start — e.g. a large startup session scan — outlives the window.
+ * `EarlyExitError` still surfaces a real crash instantly).
+ * See change: fix-bridge-server-start-diagnostics,
+ * add-configurable-readiness-timeout.
  */
 export async function launchServer(config: DashboardConfig): Promise<LaunchResult> {
   const cliPath = resolveServerCliPath();
@@ -135,7 +140,7 @@ export async function launchServer(config: DashboardConfig): Promise<LaunchResul
       cliPath,
       extraArgs: args,
       stdio: { logFile: getDashboardServerLogPath() },
-      healthTimeoutMs: 10_000,
+      healthTimeoutMs: config.readinessTimeoutMs ?? HEALTH_CHECK_TIMEOUT_MS,
       port: config.port,
       starter: "Bridge",
     });

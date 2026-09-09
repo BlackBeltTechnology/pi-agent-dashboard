@@ -327,6 +327,54 @@ export const DEFAULT_MODEL_PROXY: ModelProxyConfig = {
  * Plugin-specific config namespace.
  * Lives at ~/.pi/dashboard/config.json#plugins.<id>.*
  */
+export interface KrokiConfig {
+  /** Base URL of a Kroki instance used for diagram rendering. */
+  url?: string;
+  /** Opt-in to rendering via the public kroki.io when no URL is configured. Default false. */
+  allowRemote: boolean;
+}
+
+export const DEFAULT_KROKI_CONFIG: KrokiConfig = {
+  allowRemote: false,
+};
+
+export function parseKrokiConfig(raw: unknown): KrokiConfig {
+  if (!raw || typeof raw !== "object") return { ...DEFAULT_KROKI_CONFIG };
+  const r = raw as Record<string, unknown>;
+  const url = typeof r.url === "string" && r.url.trim() ? r.url.trim() : undefined;
+  const allowRemote = r.allowRemote === true;
+  return {
+    ...(url ? { url } : {}),
+    allowRemote,
+  };
+}
+
+/**
+ * Resolve the effective Kroki endpoint URL according to the resolution ladder (design D5):
+ * 1. Live KROKI_URL env override (highest precedence)
+ * 2. Explicitly configured kroki.url
+ * 3. https://kroki.io if allowRemote is true
+ * 4. null (declined)
+ */
+export function resolveKrokiEndpoint(
+  krokiConfig?: KrokiConfig,
+  envOverride: string | undefined = process.env.KROKI_URL,
+): string | null {
+  const sanitize = (url: string | undefined) => {
+    if (!url || typeof url !== "string") return undefined;
+    const trimmed = url.trim();
+    if (!/^https?:\/\//i.test(trimmed)) return undefined;
+    return trimmed.replace(/\/+$/, "");
+  };
+
+  const envUrl = sanitize(envOverride);
+  if (envUrl) return envUrl;
+  const cfgUrl = sanitize(krokiConfig?.url);
+  if (cfgUrl) return cfgUrl;
+  if (krokiConfig?.allowRemote) return "https://kroki.io";
+  return null;
+}
+
 export type PluginsConfig = Record<string, Record<string, unknown>>;
 
 export interface DashboardConfig {
@@ -343,6 +391,25 @@ export interface DashboardConfig {
   autoStart: boolean;
   autoShutdown: boolean;
   shutdownIdleSeconds: number;
+  /**
+   * Cold-start readiness budget (ms) the bridge's auto-spawn allows before
+   * giving up its health poll and reporting "readiness timeout". The spawned
+   * server keeps booting regardless — the timeout only controls how long the
+   * bridge waits before surfacing a warning, so a value below the real cold
+   * start produces a spurious error next to a healthy server. Slow hosts
+   * (large session histories make the startup scan the dominant cost) can
+   * raise this. A positive number is clamped into
+   * [`READINESS_TIMEOUT_MIN_MS`, `READINESS_TIMEOUT_MAX_MS`]; anything else
+   * falls back to the default. The clamp exists because both ends are
+   * failure modes, not preferences: a sub-second value reproduces the
+   * spurious timeout it is meant to cure, and an unbounded one leaves the
+   * bridge's launch spinner running for the session's lifetime.
+   *
+   * The auto-start lock's staleness bound is DERIVED from this value
+   * (`spawnReadinessBudgetMs`), so raising it cannot invert the
+   * budget > poll invariant. See change: add-configurable-readiness-timeout.
+   */
+  readinessTimeoutMs: number;
   /**
    * Coalescing window (ms) the bridge applies to subagent `Agent` ticks on the
    * `tool_execution_update` carrier. `0` disables the throttle entirely and is
@@ -527,6 +594,8 @@ export interface DashboardConfig {
    * until each extract-*-as-plugin change migrates them.
    */
   plugins: PluginsConfig;
+  /** Kroki diagram render proxy settings. */
+  kroki: KrokiConfig;
   /** Model proxy configuration (OpenAI/Anthropic-compatible /v1/* endpoints). */
   modelProxy: ModelProxyConfig;
   /**
@@ -669,6 +738,34 @@ export const HEALTH_CHECK_TIMEOUT_MS = 10_000;
 export const SPAWN_READINESS_BUDGET_MS = HEALTH_CHECK_TIMEOUT_MS * 3;
 export const SERVER_STARTUP_DEADLINE_MS = SPAWN_READINESS_BUDGET_MS * 4;
 
+/** Clamp bounds for `readinessTimeoutMs` (see the field's doc comment). */
+export const READINESS_TIMEOUT_MIN_MS = 1_000;
+export const READINESS_TIMEOUT_MAX_MS = 600_000;
+
+/**
+ * The auto-start lock staleness bound (and the lock loser's wait) for a given
+ * configured readiness window.
+ *
+ * `SPAWN_READINESS_BUDGET_MS` is a CONSTANT floor, so a configurable health
+ * poll would otherwise invert the invariant documented above: the lock carries
+ * no `childPid` for the whole readiness window (`server-auto-start.ts` records
+ * it only on readiness success), so `isLockStale` falls through to pure age.
+ * With a 60 s poll and a 30 s bound, a second session breaks the winner's lock
+ * mid-spawn and starts a COMPETING server → `PortConflictError`, on exactly the
+ * slow hosts a raised window targets. Keeping the same ×3 ratio preserves
+ * "budget > poll" for every configured value.
+ * See change: add-configurable-readiness-timeout.
+ */
+export function spawnReadinessBudgetMs(readinessTimeoutMs?: number): number {
+  const poll =
+    typeof readinessTimeoutMs === "number" &&
+    Number.isFinite(readinessTimeoutMs) &&
+    readinessTimeoutMs > 0
+      ? readinessTimeoutMs
+      : HEALTH_CHECK_TIMEOUT_MS;
+  return Math.max(poll * 3, SPAWN_READINESS_BUDGET_MS);
+}
+
 /**
  * The shared production ports. Exported because the bridge's worktree
  * auto-start refusal keys on them (`autostart-guard.ts`) and a silent desync
@@ -721,6 +818,7 @@ export function resolveDashboardPorts(
 
 const DEFAULTS: DashboardConfig = {
   plugins: {},
+  kroki: { ...DEFAULT_KROKI_CONFIG },
   modelProxy: { ...DEFAULT_MODEL_PROXY },
   port: DEFAULT_DASHBOARD_PORT,
   piPort: DEFAULT_GATEWAY_PORT,
@@ -728,6 +826,10 @@ const DEFAULTS: DashboardConfig = {
   autoStart: true,
   autoShutdown: false,
   shutdownIdleSeconds: 300,
+  // Historical hardcoded value of the bridge cold-start health window — the
+  // shared health-poll constant, referenced rather than respelled so the two
+  // cannot drift. See change: add-configurable-readiness-timeout.
+  readinessTimeoutMs: HEALTH_CHECK_TIMEOUT_MS,
   // Rollout default `0` (off). Flipped to 500 once the throttle's suites are
   // green. See change: reduce-bridge-tick-bandwidth (D4, task 6.1).
   subagentTickThrottleMs: 0,
@@ -1262,6 +1364,15 @@ export function loadConfig(): DashboardConfig {
       autoStart: parsed.autoStart ?? defaults.autoStart,
       autoShutdown: parsed.autoShutdown ?? defaults.autoShutdown,
       shutdownIdleSeconds: parsed.shutdownIdleSeconds ?? defaults.shutdownIdleSeconds,
+      readinessTimeoutMs:
+        typeof parsed.readinessTimeoutMs === "number" &&
+        Number.isFinite(parsed.readinessTimeoutMs) &&
+        parsed.readinessTimeoutMs > 0
+          ? Math.min(
+              READINESS_TIMEOUT_MAX_MS,
+              Math.max(READINESS_TIMEOUT_MIN_MS, parsed.readinessTimeoutMs),
+            )
+          : defaults.readinessTimeoutMs,
       subagentTickThrottleMs:
         typeof parsed.subagentTickThrottleMs === "number" &&
         Number.isFinite(parsed.subagentTickThrottleMs) &&
@@ -1325,6 +1436,7 @@ export function loadConfig(): DashboardConfig {
           ? parsed.windowsGitSource
           : defaults.windowsGitSource,
       modelProxy: parseModelProxyConfig(parsed.modelProxy),
+      kroki: parseKrokiConfig(parsed.kroki),
       ...(typeof parsed.piSessionsDir === "string" && parsed.piSessionsDir.trim()
         ? { piSessionsDir: parsed.piSessionsDir }
         : {}),
@@ -1360,6 +1472,7 @@ export function ensureConfig(): void {
     autoStart: DEFAULTS.autoStart,
     autoShutdown: DEFAULTS.autoShutdown,
     shutdownIdleSeconds: DEFAULTS.shutdownIdleSeconds,
+    readinessTimeoutMs: DEFAULTS.readinessTimeoutMs,
     subagentTickThrottleMs: DEFAULTS.subagentTickThrottleMs,
     spawnStrategy: DEFAULTS.spawnStrategy,
     tunnel: DEFAULTS.tunnel,
