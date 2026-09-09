@@ -38,4 +38,28 @@ test.describe("faux round-trip — plain text", () => {
     });
     await expect(page.getByTestId("pending-prompt-failed")).toHaveCount(0);
   });
+
+  // I1 (test-plan split-faux-seed-default-provider): a fresh harness-spawned
+  // session with NO `--model` must converge to the seeded split default
+  // `faux/faux-1`. This guards the settings.json seed (defaultProvider+
+  // defaultModel written by scripts/seed-settings-default-model.mjs): the faux
+  // stream reaching the browser proves the split default resolved at startup.
+  test("fresh no-model session converges to the seeded faux/faux-1 default", async ({
+    page,
+  }) => {
+    const card = await spawnFreshGitSession(page);
+
+    // The card's model line renders the active model; the seed makes it the
+    // startup default with no explicit `--model` on spawn.
+    await expect(card.getByText("faux/faux-1").first()).toBeVisible({
+      timeout: 60_000,
+    });
+
+    // And the faux model actually serves a turn (stream reaches the browser).
+    await card.click();
+    await sendPrompt(page, "[[faux:plain-text]] go");
+    await expect(page.getByText(PLAIN_TEXT_MARKER).first()).toBeVisible({
+      timeout: 30_000,
+    });
+  });
 });
