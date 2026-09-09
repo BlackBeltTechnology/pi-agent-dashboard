@@ -42,10 +42,28 @@ describe("isRecoveryCandidate", () => {
     expect(isRecoveryCandidate({ live: true, status: "idle" } as SessionMeta)).toBe(true);
   });
 
-  it("automation run sessions are NEVER candidates (fully exempt)", () => {
-    // A crash mid-automation-run must not respawn the headless rpc session
-    // detached from its automation (no per-fire context, no run finalization).
-    expect(isRecoveryCandidate({ live: true, status: "streaming", kind: "automation" } as SessionMeta)).toBe(false);
-    expect(isRecoveryCandidate({ live: true, status: "idle", kind: "automation", liveEpoch: 5 } as SessionMeta)).toBe(false);
+  it("E1: decision table over recover × liveness reads ONLY recover", () => {
+    // recover false/absent/true × live/ended/manual → false,true,true,false,false,false
+    // (test-plan E1). The flag is the sole opt-out; kind/goalId/pluginRef are
+    // never consulted. See change: detach-automation-goal-from-core.
+    expect(isRecoveryCandidate({ live: true, status: "streaming", recover: false } as SessionMeta)).toBe(false);
+    expect(isRecoveryCandidate({ live: true, status: "streaming" } as SessionMeta)).toBe(true); // recover absent ⇒ default true
+    expect(isRecoveryCandidate({ live: true, status: "streaming", recover: true } as SessionMeta)).toBe(true);
+    expect(isRecoveryCandidate({ live: false, status: "streaming", recover: true } as SessionMeta)).toBe(false);
+    expect(isRecoveryCandidate({ live: true, status: "ended", recover: true } as SessionMeta)).toBe(false);
+    expect(isRecoveryCandidate({ live: true, status: "streaming", closedReason: "manual", recover: true } as SessionMeta)).toBe(false);
+  });
+
+  it("recover:false exempts a live session; the classifier reads recover, never kind", () => {
+    // The opt-out is the core-owned `recover` flag, set from the spawn-time
+    // lifecycle declaration — NOT a plugin name. See change:
+    // detach-automation-goal-from-core.
+    expect(isRecoveryCandidate({ live: true, status: "streaming", recover: false } as SessionMeta)).toBe(false);
+    expect(isRecoveryCandidate({ live: true, status: "idle", recover: false, liveEpoch: 5 } as SessionMeta)).toBe(false);
+    // `kind:"automation"` alone no longer exempts — core stopped keying on it.
+    // Only the generic `recover` flag governs. An automation session becomes
+    // non-recoverable because the automation plugin DECLARES `recover:false`,
+    // which is persisted as the flag below — not because core reads `kind`.
+    expect(isRecoveryCandidate({ live: true, status: "streaming", kind: "automation" } as SessionMeta)).toBe(true);
   });
 });

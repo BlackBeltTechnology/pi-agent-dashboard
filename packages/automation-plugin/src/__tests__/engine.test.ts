@@ -185,7 +185,12 @@ describe("engine run lifecycle", () => {
     expect(r).not.toBeNull();
     expect(calls).toHaveLength(1);
     expect(calls[0].model).toBe("anthropic/claude-haiku-4-5"); // @fast resolved
-    expect(calls[0].automationRun).toMatchObject({ name: "nightly", visibility: "hidden" });
+    // Identity now travels inside the opaque `pluginRef`; the session name is a
+    // top-level `--name` opt. See change: detach-automation-goal-from-core.
+    expect(calls[0].name).toBe("nightly");
+    expect(calls[0].pluginRef.automationRun).toMatchObject({ name: "nightly", visibility: "hidden" });
+    expect(calls[0].pluginRef.kind).toBe("automation");
+    expect(calls[0].lifecycle).toMatchObject({ recover: false, finalizeOnSocketClose: true });
 
     const runs = listRuns(repo, "nightly");
     expect(runs).toHaveLength(1);
@@ -215,7 +220,7 @@ describe("engine run lifecycle", () => {
     const engine = makeEngine(calls);
     engine.startRunFor(skillAutomation("bugs"));
     expect(calls[0].model).toBe("anthropic/claude-sonnet-4-5");
-    expect(calls[0].automationRun.visibility).toBe("shown");
+    expect(calls[0].pluginRef.automationRun.visibility).toBe("shown");
   });
 
   it("captures result.md + done status on session end", () => {
@@ -720,7 +725,7 @@ describe("engine fan-out", () => {
     const withVis: DiscoveredAutomation = { ...base, config: { ...base.config!, visibility: "shown" } };
     engine.startRunFor(withVis);
     expect(calls).toHaveLength(3);
-    expect(calls.every((c) => c.automationRun.visibility === "shown")).toBe(true);
+    expect(calls.every((c) => c.pluginRef.automationRun.visibility === "shown")).toBe(true);
   });
 
   it("4.17: all children spawn regardless of concurrency policy", async () => {

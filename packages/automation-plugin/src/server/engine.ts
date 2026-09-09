@@ -154,7 +154,17 @@ export interface SpawnLike {
     mode?: RunMode;
     /** Sandbox level requested for the run. Honored by the host spawn hook. */
     sandbox?: Sandbox;
-    automationRun?: { name: string; runId: string; visibility?: Visibility; idempotencyKey?: string };
+    /** Session name passed as `--name` (host maps it; it is a core-reserved ref key). */
+    name?: string;
+    /**
+     * Opaque plugin-ownership ref filed against the spawn token. Automation's
+     * own identity travels ONLY here now: `{ kind, automationRun, lifecyclePolicy }`.
+     * Core carries it verbatim and merges its keys onto the session; it never
+     * parses the interior. See change: detach-automation-goal-from-core.
+     */
+    pluginRef?: Record<string, unknown>;
+    /** Core-owned lifecycle declaration (recover / finalize-on-socket-close). */
+    lifecycle?: { recover?: boolean; finalizeOnSocketClose?: boolean };
   }): Promise<{ success: boolean; spawnToken?: string; message?: string }>;
 }
 
@@ -634,12 +644,26 @@ export function createEngine(deps: EngineDeps): Engine {
         ...(resolved.model ? { model: resolved.model } : {}),
         mode: childAutomation.config!.mode,
         sandbox: childAutomation.config!.sandbox,
-        automationRun: {
-          name: parent.name,
-          runId: childRec.runId,
-          visibility: vis,
-          ...(extra?.idempotencyKey ? { idempotencyKey: extra.idempotencyKey } : {}),
+        // `name` → `--name` (core-reserved ref key, travels as a top-level opt).
+        name: parent.name,
+        // Automation identity lives only inside its own ref now; the host merges
+        // `kind`/`automationRun`/`lifecyclePolicy` onto the session verbatim.
+        // `lifecyclePolicy:"ephemeral"` keeps the reaper/caps producers real
+        // (was stamped by the removed host automation arm). See change:
+        // detach-automation-goal-from-core.
+        pluginRef: {
+          kind: "automation",
+          automationRun: {
+            name: parent.name,
+            runId: childRec.runId,
+            visibility: vis,
+            ...(extra?.idempotencyKey ? { idempotencyKey: extra.idempotencyKey } : {}),
+          },
+          lifecyclePolicy: "ephemeral",
         },
+        // Machine-fronted, one-shot: opt out of recovery + finalize on WS close
+        // (replaces core's former `kind==="automation"` lifecycle branches).
+        lifecycle: { recover: false, finalizeOnSocketClose: true },
       })
       .then((res) => {
         if (!res.success) {

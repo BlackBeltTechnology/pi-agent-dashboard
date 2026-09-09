@@ -1451,6 +1451,8 @@ export const huCatalog: Record<string, string> = {
   "worktree.runWorktreeInitHook": "Lefusson a worktree-init hook?",
   "worktree.showWorktreeSpawnButtonsInFolders": "Munkafa-létrehozó gombok megjelenítése a mappákban és az OpenSpec sorokban",
   "worktree.spawnAWorktreeForThisProposal": "Munkafa létrehozása ehhez a javaslathoz",
+  "worktree.unavailableDisabled": "A munkafák le vannak tiltva a Beállításokban",
+  "worktree.unavailableNotGitRepo": "Ez a mappa nem git tároló",
   "worktree.worktree": "Munkafa",
   "worktree.worktreeActions": "Munkafa-műveletek",
   "worktree.worktreeSession": "+Munkafa-munkamenet",

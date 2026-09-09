@@ -883,20 +883,22 @@ export function createPiGateway(
           // entry may run id-keyed teardown. A displaced or refused socket
           // closing must not raise a disconnect on a live session, clear the
           // incumbent's heartbeat/reconnect-grace timers, or finalize an
-          // automation run another socket is serving.
+          // finalize-on-socket-close session another socket is serving.
           // See change: fix-duplicate-bridge-registration (D3).
           if (currentSessionId && connections.get(currentSessionId) === ws) {
             console.error(`[gateway] connection closed: ${currentSessionId}`);
-            // Headless automation runs are one-shot and never reconnect.
-            // Treating a WS close as terminal for them finalizes the run
-            // immediately instead of holding it in the human-oriented
-            // reconnect-grace path (which would leave the run `running` for
-            // the full heartbeat window and starve `concurrency: skip`).
-            // Every other session keeps the grace behavior unchanged.
-            // See change: finalize-automation-run-on-session-death.
+            // Sessions that declared `finalizeOnSocketClose` (machine-fronted,
+            // one-shot, never reconnect — e.g. automation runs) treat a WS
+            // close as terminal, finalizing immediately instead of holding
+            // them in the human-oriented reconnect-grace path (which would
+            // leave the session `running` for the full heartbeat window and
+            // starve `concurrency: skip`). Every other session keeps the grace
+            // behavior unchanged. The flag is a core-owned lifecycle field set
+            // from the spawn-time declaration — core names no plugin here.
+            // See change: detach-automation-goal-from-core.
             const session = sessionManager.get(currentSessionId);
-            if (session?.kind === "automation" && session.status !== "ended") {
-              console.error(`[gateway] automation session ${currentSessionId} closed; finalizing now (no reconnect grace)`);
+            if (session?.finalizeOnSocketClose && session.status !== "ended") {
+              console.error(`[gateway] finalize-on-close session ${currentSessionId} closed; finalizing now (no reconnect grace)`);
               const timer = heartbeatTimers.get(currentSessionId);
               if (timer) clearTimeout(timer);
               heartbeatTimers.delete(currentSessionId);

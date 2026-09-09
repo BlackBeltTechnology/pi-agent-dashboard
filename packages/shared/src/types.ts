@@ -448,6 +448,24 @@ export interface DashboardSession {
    * See change: add-goals-folder-page.
    */
   goalId?: string;
+  /**
+   * Core-owned cold-start recovery opt-out, mirror of `SessionMeta.recover`.
+   * Absent ⇒ recoverable (`true`). Resolved from an owning plugin's lifecycle
+   * declaration `{ recover }` through the generic session-ownership seam; core
+   * never reads a plugin name or the owner `pluginRef` to set it. Persisted to
+   * `.meta.json` only when `false` (the single additive byte an opted-out
+   * owned session gains). See change: detach-automation-goal-from-core.
+   */
+  recover?: boolean;
+  /**
+   * Core-owned socket-close finalization flag. When `true`, the gateway
+   * finalizes the session immediately on socket close (no reconnect grace)
+   * instead of branching on a plugin name. Resolved from an owning plugin's
+   * lifecycle declaration `{ finalizeOnSocketClose }`. In-memory only — NOT
+   * persisted to `.meta.json` (only matters while a live socket is open), so
+   * it adds no on-disk byte. See change: detach-automation-goal-from-core.
+   */
+  finalizeOnSocketClose?: boolean;
 }
 
 // ── Extension UI System (Phase 1: management-modal slot) ───────────

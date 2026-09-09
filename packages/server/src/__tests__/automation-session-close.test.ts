@@ -1,8 +1,10 @@
 /**
- * Gateway: headless `kind="automation"` sessions treat a WebSocket close as
- * terminal immediately (no reconnect grace), while every other session keeps
- * the human-oriented grace window. See change:
- * finalize-automation-run-on-session-death.
+ * Gateway: sessions that declared `finalizeOnSocketClose` (machine-fronted,
+ * one-shot — e.g. automation runs) treat a WebSocket close as terminal
+ * immediately (no reconnect grace), while every other session keeps the
+ * human-oriented grace window. The finalize branch reads the core-owned
+ * lifecycle flag, never a plugin name. See change:
+ * detach-automation-goal-from-core (was finalize-automation-run-on-session-death).
  */
 import { describe, it, expect, afterEach } from "vitest";
 import { createPiGateway } from "../pi/pi-gateway.js";
@@ -29,7 +31,7 @@ describe("automation session close is terminal", () => {
   let gateway: ReturnType<typeof createPiGateway>;
   afterEach(() => gateway?.stop());
 
-  it("finalizes a kind=automation session immediately on WS close (no grace)", async () => {
+  it("finalizes a finalizeOnSocketClose session immediately on WS close (no grace)", async () => {
     const sm = createMemorySessionManager();
     const ended: string[] = [];
     sm.onUnregister = (sid) => ended.push(sid);
@@ -41,8 +43,9 @@ describe("automation session close is terminal", () => {
     await waitForOpen(ws);
     ws.send(JSON.stringify({ type: "session_register", sessionId: "auto-1", cwd: "/tmp", source: "dashboard" }));
     await delay(100);
-    // The host stamps kind="automation" on register; emulate that here.
-    sm.update("auto-1", { kind: "automation" });
+    // The generic seam applies the automation plugin's declared lifecycle
+    // (`finalizeOnSocketClose:true`) on register; emulate that here.
+    sm.update("auto-1", { finalizeOnSocketClose: true });
     expect(sm.get("auto-1")!.status).toBe("active");
 
     ws.close();
