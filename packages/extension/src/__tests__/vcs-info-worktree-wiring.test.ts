@@ -9,8 +9,13 @@
  *
  * See change: add-git-checkout-root-resolver.
  */
+
+import {
+  buildGitFixtures,
+  type GitFixtures,
+  restoreEnv,
+} from "@blackbelt-technology/pi-dashboard-shared/test-support/git-fixtures.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { buildGitFixtures, type GitFixtures } from "@blackbelt-technology/pi-dashboard-shared/test-support/git-fixtures.js";
 import { detectWorktree } from "../vcs-info.js";
 
 let fx: GitFixtures;
@@ -24,8 +29,8 @@ beforeAll(() => {
 
 afterAll(() => {
   fx.cleanup();
-  process.env.GIT_CONFIG_GLOBAL = saved.global;
-  process.env.GIT_CONFIG_SYSTEM = saved.system;
+  restoreEnv("GIT_CONFIG_GLOBAL", saved.global);
+  restoreEnv("GIT_CONFIG_SYSTEM", saved.system);
 });
 
 describe("detectWorktree against real repositories", () => {

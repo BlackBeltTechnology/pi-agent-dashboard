@@ -18,7 +18,11 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { buildGitFixtures, type GitFixtures } from "@blackbelt-technology/pi-dashboard-shared/test-support/git-fixtures.js";
+import {
+  buildGitFixtures,
+  type GitFixtures,
+  restoreEnv,
+} from "@blackbelt-technology/pi-dashboard-shared/test-support/git-fixtures.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { KbJobRegistry } from "../job-registry.js";
@@ -40,8 +44,8 @@ beforeAll(() => {
 });
 afterAll(() => {
   gitFx.cleanup();
-  process.env.GIT_CONFIG_GLOBAL = savedGitEnv.global;
-  process.env.GIT_CONFIG_SYSTEM = savedGitEnv.system;
+  restoreEnv("GIT_CONFIG_GLOBAL", savedGitEnv.global);
+  restoreEnv("GIT_CONFIG_SYSTEM", savedGitEnv.system);
 });
 
 /** A temp folder with a docs/ tree + a knowledge_base.json pointing at it. */
@@ -158,6 +162,18 @@ describe("GET /api/kb/stats", () => {
     const { app } = buildApp([main]); // only the MAIN repo is known
     const res = await app.inject({ method: "GET", url: `/api/kb/stats?cwd=${encodeURIComponent(worktree)}` });
     expect(res.statusCode).toBe(200);
+    await app.close();
+  });
+
+  // A git-internal path is never a legitimate KB root. The `.git`-segment check
+  // therefore runs BEFORE the direct known-folder match, so a stray pinned or
+  // session cwd of `<repo>/.git` cannot admit itself.
+  it("403s a `.git` cwd even when it is itself in the known-folder set", async () => {
+    const { main } = makeRepoWithWorktree();
+    const gitDir = join(main, ".git");
+    const { app } = buildApp([gitDir]); // the git dir IS known — still rejected
+    const res = await app.inject({ method: "GET", url: `/api/kb/stats?cwd=${encodeURIComponent(gitDir)}` });
+    expect(res.statusCode).toBe(403);
     await app.close();
   });
 

@@ -134,7 +134,12 @@ order:
    would propagate a single stray setting into every consumer of `mainCheckout`, including
    authorization and delete boundaries. The read SHALL also be issued in argv form, never by
    interpolating the common-dir path into a shell command string;
-2. otherwise the parent of the common dir, when the common dir is named `.git`;
+2. otherwise the parent of the common dir, when the common dir is named `.git` AND the
+   repository is NOT bare. A bare hub MAY itself be named `.git` (`git init --bare
+   <dir>/.git`), and its parent is then an ordinary directory holding no working tree; naming
+   it would hand an authorization consumer an anchor the repository never owned. Bareness
+   SHALL be read as repository-LOCAL `core.bare` on the common dir, under the same
+   local-only and argv-form constraints as rule 1;
 3. otherwise `null`.
 
 The resolver SHALL return the resolved value VERBATIM and SHALL NOT judge its plausibility.
@@ -179,6 +184,14 @@ the resolver has already excluded implausible paths.
 - **AND** `thisCheckout` SHALL be the worktree's own root
 - **AND** `mainCheckout` SHALL be `null`, because a bare repository has no working tree
 - **AND** `mainCheckout` SHALL NOT be the directory containing the bare git dir
+
+#### Scenario: Worktree of a bare hub NAMED `.git` has no main checkout
+
+- **GIVEN** a bare repository located at `<parent>/.git`, and a worktree created from it, so the common dir is `<parent>/.git` and the basename rule alone would name `<parent>`
+- **WHEN** the resolver runs for that worktree
+- **THEN** `isLinkedWorktree` SHALL be true
+- **AND** `mainCheckout` SHALL be `null`, because the hub is bare and `<parent>` holds no working tree
+- **AND** `mainCheckout` SHALL NOT be `<parent>`, which an authorization consumer could otherwise match against its known-folder set
 
 #### Scenario: Bare repository cwd
 

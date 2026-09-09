@@ -12,10 +12,17 @@
  * See change: add-git-checkout-root-resolver.
  */
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  buildGitFixtures,
+  fixtureGit,
+  type GitFixtures,
+  probeTriple,
+  restoreEnv,
+} from "../../test-support/git-fixtures.js";
 import {
   checkoutRoots,
   GIT_COMMON_DIR_ABS,
@@ -24,7 +31,6 @@ import {
   hasGitPathSegment,
   resolveCheckoutRootsFrom,
 } from "../git.js";
-import { buildGitFixtures, fixtureGit, type GitFixtures, probeTriple } from "../../test-support/git-fixtures.js";
 
 let fx: GitFixtures;
 const savedEnv = { global: process.env.GIT_CONFIG_GLOBAL, system: process.env.GIT_CONFIG_SYSTEM };
@@ -39,8 +45,8 @@ beforeAll(() => {
 
 afterAll(() => {
   fx.cleanup();
-  process.env.GIT_CONFIG_GLOBAL = savedEnv.global;
-  process.env.GIT_CONFIG_SYSTEM = savedEnv.system;
+  restoreEnv("GIT_CONFIG_GLOBAL", savedEnv.global);
+  restoreEnv("GIT_CONFIG_SYSTEM", savedEnv.system);
 });
 
 /** Probes that return fixed strings — for states no fixture can build. */
@@ -50,6 +56,7 @@ function stubProbes(over: Partial<GitCheckoutRootProbes>): GitCheckoutRootProbes
     commonDir: () => undefined,
     topLevel: () => undefined,
     localCoreWorktree: () => undefined,
+    localCoreBare: () => undefined,
     ...over,
   };
 }
@@ -156,6 +163,21 @@ describe("checkoutRoots over real repositories", () => {
     });
   });
 
+  it("E5b: a worktree of a BARE hub named `.git` has no main checkout", () => {
+    // The basename rule alone would name `<parent>` as the main checkout of a
+    // hub that owns no checkout at all — an anchor an authorization consumer
+    // would then match against the known-folder set. `core.bare` disambiguates.
+    const parent = path.join(fx.root, "hubparent");
+    fixtureGit(fx.root, ["clone", "--bare", "-q", fx.normal, path.join(parent, ".git")]);
+    const wt = path.join(fx.root, "dotgit-hub-wt");
+    fixtureGit(path.join(parent, ".git"), ["worktree", "add", "-q", "-b", "dotgitwt", wt]);
+
+    const roots = checkoutRoots({ cwd: wt })!;
+    expect(roots.isLinkedWorktree).toBe(true);
+    expect(roots.thisCheckout).toBe(wt);
+    expect(roots.mainCheckout).toBeNull();
+  });
+
   it("E6: a bare repository yields a RESULT with both roots null", () => {
     const roots = checkoutRoots({ cwd: fx.bare });
     expect(roots).not.toBeNull();
@@ -206,7 +228,7 @@ describe("checkoutRoots over real repositories", () => {
 
       expect(checkoutRoots({ cwd: fx.worktree })!.mainCheckout).toBe(fx.normal);
     } finally {
-      process.env.GIT_CONFIG_GLOBAL = prev;
+      restoreEnv("GIT_CONFIG_GLOBAL", prev);
       rmSync(cfgDir, { recursive: true, force: true });
     }
   });
@@ -226,7 +248,9 @@ describe("checkoutRoots over real repositories", () => {
     const evilWt = path.join(fx.root, "evil-wt");
     fixtureGit(evil, ["worktree", "add", "-q", "-b", "evilwt", evilWt]);
     expect(checkoutRoots({ cwd: evilWt })!.mainCheckout).toBe(evil);
-    expect(() => execFileSync("test", ["-e", canary])).toThrow();
+    // `existsSync`, not a spawned `test` binary: a lookup failure (ENOENT) would
+    // satisfy `.toThrow()` without ever having looked at the canary.
+    expect(existsSync(canary)).toBe(false);
   });
 });
 

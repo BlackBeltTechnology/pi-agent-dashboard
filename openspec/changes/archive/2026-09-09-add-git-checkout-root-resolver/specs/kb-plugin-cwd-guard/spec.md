@@ -18,6 +18,12 @@ derivation names a real checkout only when the git dir happens to sit inside it,
 otherwise yields either a nonexistent directory or a real but unrelated one; the guard SHALL
 NOT admit a cwd on that basis.
 
+A canonical request `cwd` containing an exact `.git` path SEGMENT SHALL be rejected BEFORE
+either admission path, including the direct known-folder match. A git-internal directory is
+never a legitimate knowledge-base root, so a stray pinned directory or session cwd of
+`<repo>/.git` SHALL NOT admit itself; the rejection SHALL occur before any store is opened or
+disk is read.
+
 The guard SHALL validate the resolved `mainCheckout` before using it as a trust anchor,
 because the resolver returns a user-controlled `core.worktree` value verbatim and does not
 judge it. A resolved path containing a `.git` path segment (exact-segment test) SHALL be
@@ -71,6 +77,12 @@ its own right, or by its own checkout being one.
 - **GIVEN** a worktree created from a bare hub, for which no `mainCheckout` resolves
 - **WHEN** a request carries that worktree as `cwd` and it is not a known folder
 - **THEN** the guard SHALL derive no main path and SHALL reject the request with `403`
+
+#### Scenario: A `.git` cwd is rejected even when it is itself a known folder
+- **GIVEN** a known-folder set that contains `<repo>/.git`
+- **WHEN** a request carries `cwd = <repo>/.git`
+- **THEN** the guard SHALL reject the request with `403`
+- **AND** SHALL NOT open a store or read disk for that path
 
 #### Scenario: Separate-git-dir cwd is not admitted via an unrelated sibling
 - **GIVEN** a checkout at `/work/app` created with `--separate-git-dir=/known/elsewhere.git`, where `/known` IS a known folder but `/work/app` is not

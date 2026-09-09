@@ -8,7 +8,7 @@
  *
  * See change: platform-command-executor.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { currentBranchOr, headShaOr, remoteUrlOr, prNumberOr, checkoutRoots, isGitRepo } = vi.hoisted(() => ({
   currentBranchOr: vi.fn(),
@@ -31,7 +31,7 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/git.js", async (impo
   isGitRepo,
 }));
 
-import { gatherGitInfo, detectBranch, detectRemoteUrl, detectPrNumber, detectWorktree, detectIsGitRepo } from "../vcs-info.js";
+import { detectBranch, detectIsGitRepo, detectPrNumber, detectRemoteUrl, detectWorktree, gatherGitInfo } from "../vcs-info.js";
 
 describe("git-info", () => {
   beforeEach(() => {

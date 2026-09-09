@@ -83,13 +83,13 @@ function canonPath(p: string): string {
  *  The probes run through the SYNCHRONOUS runner on a Fastify request path, so
  *  the per-probe budget is what bounds event-loop blocking. The superseded
  *  implementation blocked for at most one 2000ms `execFileSync`; this resolves
- *  up to FOUR probes, so the budget is 500ms each to hold the SAME 2s worst
- *  case rather than quadrupling it. A healthy git answers in ~10ms; only a
+ *  up to FIVE probes, so the budget is 400ms each to hold the SAME 2s worst
+ *  case rather than multiplying it. A healthy git answers in ~10ms; only a
  *  pathological (network-mounted, unresponsive) checkout approaches the bound,
  *  and a timeout degrades to "no result" → reject, never admit.
  *  See change: add-git-checkout-root-resolver (was: fix-kb-worktree-cwd-guard). */
 function mainCheckoutPath(cwd: string): string | null {
-  const roots = checkoutRoots({ cwd, timeout: 500 });
+  const roots = checkoutRoots({ cwd, timeout: 400 });
   const main = roots?.mainCheckout;
   if (!main || hasGitPathSegment(main)) return null;
   return main;
@@ -101,6 +101,10 @@ function mainCheckoutPath(cwd: string): string | null {
 export function isAllowedCwd(cwd: string | undefined, known: () => string[]): cwd is string {
   if (!cwd) return false;
   const target = canonPath(cwd);
+  // A git-internal path is never a legitimate KB root, so it is rejected BEFORE
+  // either admission path — including the direct known-folder match, which a
+  // stray pinned or session cwd of `<repo>/.git` would otherwise satisfy.
+  if (hasGitPathSegment(target)) return false;
   const knownCanon = known().map(canonPath);
   if (knownCanon.includes(target)) return true;
   // Admit a cwd whose MAIN CHECKOUT is a known folder (covers a session-less

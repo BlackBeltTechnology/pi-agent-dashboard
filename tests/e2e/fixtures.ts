@@ -89,7 +89,7 @@ async function probeHarness(): Promise<boolean> {
   }
 }
 
-async function connectBus(): Promise<BusClient> {
+export async function connectBus(): Promise<BusClient> {
   const client = new BusClient({ host: "localhost", port: DASHBOARD_PORT });
   await client.connect();
   return client;
@@ -114,7 +114,7 @@ async function connectBus(): Promise<BusClient> {
  * An unknown/already-gone session is success — `notify-channel.spec.ts`
  * force-kills its own session mid-test, and that must not be an error here.
  */
-async function shutdownSession(client: BusClient, sessionId: string): Promise<void> {
+export async function shutdownSession(client: BusClient, sessionId: string): Promise<void> {
   // `isLiveSession`, not mere presence: a shut-down session KEEPS its record
   // until `session_removed`. Treating a lingering `live:false`/`ended` record as
   // live meant sending `shutdown` to a dead session and then blocking the full

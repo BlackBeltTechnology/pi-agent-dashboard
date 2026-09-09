@@ -1632,9 +1632,11 @@ See change: add-git-checkout-root-resolver.
 
 #### mainCheckout derivation
 
-`mainCheckout` order: not-worktree → `thisCheckout`; else repo-LOCAL `core.worktree` on commonDir; else `dirname(commonDir)` when basename is `.git`; else `null`.
+`mainCheckout` order: not-worktree → `thisCheckout`; else repo-LOCAL `core.worktree` on commonDir; else `dirname(commonDir)` when basename is `.git` AND repo-LOCAL `core.bare` is not `"true"`; else `null`.
 
 `core.worktree` read is `--local` and argv-form. Merged read returns `~/.gitconfig` value for EVERY linked worktree on the machine, and `mainCheckout` feeds an authorization anchor. Argv form because the git-dir path is runtime, cwd-derived input.
+
+Rule-2 bareness guard reads recipe `GIT_CONFIG_LOCAL_CORE_BARE`. Same `--local` + argv-form constraints as `core.worktree` read; `tolerate: [1]` = unset. Bare hub may itself be named `.git` — `git init --bare <dir>/.git`. Parent holds no working tree. Naming it hands authorization consumer an anchor the repo never owned.
 
 Resolver returns `mainCheckout` VERBATIM. git does not validate `core.worktree`. CONSUMERS validate; each states its own check. Display consumer omits the field; authorization consumer rejects.
 
@@ -1648,7 +1650,7 @@ flowchart TD
     C -- yes, not a worktree --> D[mainCheckout = thisCheckout]
     C -- no, linked worktree --> E{repo-local core.worktree set?}
     E -- yes --> F[mainCheckout = resolve commonDir + core.worktree]
-    E -- no --> G{basename commonDir == .git?}
+    E -- no --> G{basename commonDir == .git AND core.bare != true?}
     G -- yes --> H[mainCheckout = dirname commonDir]
     G -- no --> I[mainCheckout = null — bare hub has no working tree]
 ```
@@ -1660,7 +1662,9 @@ Converted consumers: `packages/extension/src/vcs-info.ts` `detectWorktree` (fold
 
 `detectWorktree` returns `undefined` when: required probe fails; cwd not a linked worktree (now covers submodule, `--separate-git-dir`, bare alike); no main checkout resolves (worktree of bare hub); resolved main checkout implausible (`.git` segment). Resolver's user-controlled `core.worktree` output judged HERE — display consumer, safe response omits the field.
 
-`mainCheckoutPath` (kb guard): `.git`-segment rejection is the consumer's OWN obligation. Authorization consumer — derives no main path at all, so value never matches known-folder set. Submodule resolves to own checkout, does NOT inherit superproject trust; worktree-of-bare resolves to null, rejected unless independently known.
+`mainCheckoutPath` (kb guard): `.git`-segment rejection is the consumer's OWN obligation. Authorization consumer — derives no main path at all, so value never matches known-folder set. Submodule resolves to own checkout, does NOT inherit superproject trust; worktree-of-bare resolves to null, rejected unless independently known. Probe budget `timeout: 400` per probe — up to FIVE SYNC probes on a Fastify request path. Holds superseded single-2000ms worst-case event-loop block, never multiplies it. Timeout degrades to no result → reject, never admit.
+
+Request cwd containing `.git` path SEGMENT rejected BEFORE both admission paths — direct known-folder match included. Stray pinned dir or session cwd of `<repo>/.git` cannot admit itself. No store opened, no disk read.
 See change: add-git-checkout-root-resolver.
 
 #### Persisted phantom repair

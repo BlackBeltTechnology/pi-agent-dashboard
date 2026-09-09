@@ -23,7 +23,8 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, type Page, test } from "./fixtures.js";
+import type { BusClient } from "@blackbelt-technology/pi-dashboard-bus-client";
+import { connectBus, expect, type Page, shutdownSession, test } from "./fixtures.js";
 import { FIXTURE_GIT, gotoDashboard, pinDirectory } from "./helpers/index.js";
 
 const SUBMODULE = "/fixtures/super/models/sub";
@@ -175,10 +176,19 @@ test.describe("submodule folder grouping", () => {
     expect(probe, "submodule fixtures missing — rebuild the harness (--build)").toBe("ok");
   });
 
-  test.afterAll(async ({ playwright }) => {
-    const ctx = await playwright.request.newContext();
-    for (const id of spawned) await ctx.post(`/api/session/${id}/shutdown`).catch(() => undefined);
-    await ctx.dispose();
+  test.afterAll(async () => {
+    // The BUS path, not `playwright.request`: a bare `request.newContext()` has
+    // no baseURL, so every relative POST rejected and this fallback silently
+    // shut down nothing whenever `reapSessions` could not run.
+    let client: BusClient | undefined;
+    try {
+      client = await connectBus();
+      for (const id of spawned) await shutdownSession(client, id);
+    } catch {
+      /* best effort — cleanup must never fail the run */
+    } finally {
+      client?.close();
+    }
     // Specs share one container and the state volume outlives the run.
     try {
       inContainer(`rm -rf "$HOME/.pi/agent/sessions/--e2e-phantom--"`);

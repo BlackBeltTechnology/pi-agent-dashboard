@@ -27,6 +27,20 @@ export const FIXTURE_GIT_ENV = {
   GIT_CONFIG_SYSTEM: "/dev/null",
 } as const;
 
+/**
+ * Restore one env var to a previously-saved value, DELETING it when it was
+ * unset.
+ *
+ * `process.env.X = undefined` stores the literal string `"undefined"`, which
+ * git would then read as a config-file path. Vitest reuses fork workers across
+ * files, so a leaked `"undefined"` silently blanks git config for every later
+ * suite in the same worker.
+ */
+export function restoreEnv(name: string, saved: string | undefined): void {
+  if (saved === undefined) delete process.env[name];
+  else process.env[name] = saved;
+}
+
 /** Run git in `cwd` with the fixture isolation env. Throws on non-zero exit. */
 export function fixtureGit(cwd: string, args: string[]): string {
   return execFileSync(

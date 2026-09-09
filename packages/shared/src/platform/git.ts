@@ -167,6 +167,24 @@ export const GIT_CONFIG_LOCAL_CORE_WORKTREE: Recipe<WithCwd & { gitDir: string }
   tolerate: [1],
 };
 
+/**
+ * Repository-LOCAL `core.bare` on an explicit git dir, in argv form.
+ *
+ * Disambiguates a BARE hub that happens to be named `.git` (e.g.
+ * `git init --bare /work/repo/.git`) from an ordinary checkout's `.git`. Both
+ * present an identical common-dir basename, so the basename rule alone would
+ * name `/work/repo` as the main checkout of a hub that has no checkout at all —
+ * an over-broad anchor for an authorization consumer. `--local` for the same
+ * reason as `core.worktree`: a merged read would inherit `~/.gitconfig`.
+ * Exit 1 = unset, which git treats as false.
+ */
+export const GIT_CONFIG_LOCAL_CORE_BARE: Recipe<WithCwd & { gitDir: string }, string | undefined> = {
+  argv: ({ gitDir }) => ["git", "--git-dir", gitDir, "config", "--local", "--get", "core.bare"],
+  parse: (out) => out.trim() || undefined,
+  timeout: GIT_TIMEOUT,
+  tolerate: [1],
+};
+
 export const GIT_DIFF: Recipe<WithCwd & { path: string; ref?: string }, string> = {
   argv: ({ path, ref }) => ["git", "diff", ref ?? "HEAD", "--", path],
   parse: (out) => out,
@@ -311,6 +329,8 @@ export interface GitCheckoutRootProbes {
   topLevel: () => string | undefined;
   /** Repository-LOCAL `core.worktree` on the common dir; argv form only. */
   localCoreWorktree: (commonDir: string) => string | undefined;
+  /** Repository-LOCAL `core.bare` on the common dir; argv form only. */
+  localCoreBare: (commonDir: string) => string | undefined;
 }
 
 /**
@@ -382,8 +402,11 @@ export function resolveCheckoutRootsFrom(
       mainCheckout: normalizePath(path.resolve(commonDir, configured), platform),
     };
   }
-  // Rule 2 — the parent of the common dir, when the common dir is named `.git`.
-  if (path.basename(commonDir) === ".git") {
+  // Rule 2 — the parent of the common dir, when the common dir is named `.git`
+  // AND the repository is not bare. A bare hub may itself be named `.git`, and
+  // its parent is then an ordinary directory with no checkout in it; naming it
+  // would hand an authorization consumer an anchor the repo never owned.
+  if (path.basename(commonDir) === ".git" && tryProbe(() => probes.localCoreBare(commonDir)) !== "true") {
     return { thisCheckout, isLinkedWorktree, mainCheckout: normalizePath(path.dirname(commonDir), platform) };
   }
   // Rule 3 — a bare hub has no working tree to name.
@@ -407,6 +430,8 @@ export function checkoutRoots(input: WithCwd & { timeout?: number }): GitCheckou
     topLevel: () => unwrap(run(GIT_TOPLEVEL, input, ctx), undefined),
     localCoreWorktree: (commonDir) =>
       unwrap(run(GIT_CONFIG_LOCAL_CORE_WORKTREE, { cwd: input.cwd, gitDir: commonDir }, ctx), undefined),
+    localCoreBare: (commonDir) =>
+      unwrap(run(GIT_CONFIG_LOCAL_CORE_BARE, { cwd: input.cwd, gitDir: commonDir }, ctx), undefined),
   });
 }
 
