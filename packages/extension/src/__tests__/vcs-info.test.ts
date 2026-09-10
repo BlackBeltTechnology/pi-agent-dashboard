@@ -205,6 +205,16 @@ describe("git-info", () => {
       expect(detectWorktree("/repo/.worktrees/feat-x")).toEqual({ mainPath: "/repo", name: "feat-x" });
     });
 
+    it("returns undefined for a linked worktree with NO thisCheckout (toplevel probe failed)", () => {
+      // A linked worktree always HAS a working tree, so a null `thisCheckout`
+      // means the probe failed. Falling back to `basename(cwd)` would mislabel a
+      // session running in a subdirectory — exactly the case we cannot verify.
+      checkoutRoots.mockReturnValue(
+        roots({ thisCheckout: null, isLinkedWorktree: true, mainCheckout: "/repo" }),
+      );
+      expect(detectWorktree("/repo/.worktrees/feat-x/src/deep")).toBeUndefined();
+    });
+
     it("detects worktree at a sibling path (man-page example layout)", () => {
       checkoutRoots.mockReturnValue(
         roots({ thisCheckout: "/projects/myrepo-feat-x", isLinkedWorktree: true, mainCheckout: "/projects/myrepo" }),

@@ -68,6 +68,10 @@ re-tested, not re-assumed, because `reindexAll` follows a cwd-local
 
 - `packages/server/src/lib/path-containment.ts` + `__tests__/path-containment.test.ts`.
 - MODIFIED deltas for both `file-read-containment` requirements.
+- `packages/kb-plugin/src/server/kb-routes.ts` (`isAllowedCwd`) +
+  `__tests__/kb-routes.test.ts` — the SAME repository-binding rule, so the guard
+  and containment cannot diverge on what "the repository owns this path" means.
+- MODIFIED delta for `kb-plugin-cwd-guard`'s *Git-repo-main admission* requirement.
 
 ## Discipline Skills
 

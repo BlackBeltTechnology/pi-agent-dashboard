@@ -102,7 +102,13 @@ export function detectWorktree(cwd: string): GitWorktreeInfo | undefined {
   // `thisCheckout`, not `cwd`: a session can sit in a SUBDIRECTORY of the
   // worktree, and `basename(cwd)` would then label the card with the subdir
   // name. The verdict already carries the worktree root.
-  return { mainPath, name: path.basename(roots.thisCheckout ?? cwd) };
+  //
+  // A LINKED WORKTREE ALWAYS HAS A WORKING TREE, so a null `thisCheckout` here
+  // means `--show-toplevel` failed — an inconclusive probe, not a nameless
+  // worktree. Falling back to `cwd` would silently reintroduce the subdirectory
+  // mislabel for exactly the case we cannot verify, so omit the field instead.
+  if (!roots.thisCheckout) return undefined;
+  return { mainPath, name: path.basename(roots.thisCheckout) };
 }
 
 /**

@@ -1662,9 +1662,11 @@ See change: add-git-checkout-root-resolver.
 
 Converted consumers: `packages/extension/src/vcs-info.ts` `detectWorktree` (folder card + grouping); `packages/kb-plugin/src/server/kb-routes.ts` `mainCheckoutPath` → `isAllowedCwd`; `packages/server/src/session/session-scanner.ts` `isPlausibleWorktreeMainPath`.
 
-`detectWorktree` returns `undefined` when: required probe fails; cwd not a linked worktree (now covers submodule, `--separate-git-dir`, bare alike); no main checkout resolves (worktree of bare hub); resolved main checkout implausible (`.git` segment). Resolver's user-controlled `core.worktree` output judged HERE — display consumer, safe response omits the field.
+`detectWorktree` returns `undefined` when: required probe fails; cwd not a linked worktree (now covers submodule, `--separate-git-dir`, bare alike); no main checkout resolves (worktree of bare hub); resolved main checkout implausible (`.git` segment); `roots.thisCheckout` null despite `isLinkedWorktree` true. Resolver's user-controlled `core.worktree` output judged HERE — display consumer, safe response omits the field.
 
-`name` = `path.basename(roots.thisCheckout ?? cwd)` — the worktree's OWN root, NOT the request `cwd`. Reason: a session can sit in a SUBDIRECTORY of the worktree; `basename(cwd)` would label the folder card with the subdirectory name. Verdict already carries the worktree root.
+Null-`thisCheckout` + linked worktree = `--show-toplevel` probe FAILED, not a nameless worktree. Linked worktree ALWAYS has working tree. Inconclusive = return `undefined`. `cwd` fallback would silently reintroduce subdirectory mislabel for exactly the unverifiable case.
+
+`name` = `path.basename(roots.thisCheckout)` — the worktree's OWN root, NOT the request `cwd`. No `cwd` fallback. Reason: a session can sit in a SUBDIRECTORY of the worktree; `basename(cwd)` would label the folder card with the subdirectory name. Verdict already carries the worktree root. Null `thisCheckout` never reaches here — `detectWorktree` returns `undefined` first.
 
 `mainCheckoutPath` (kb guard): `.git`-segment rejection is the consumer's OWN obligation. Authorization consumer — derives no main path at all, so value never matches known-folder set. Submodule resolves to own checkout, does NOT inherit superproject trust; worktree-of-bare resolves to null, rejected unless independently known. Probe budget `timeout: 400` per probe — up to FIVE SYNC probes on a Fastify request path. Holds superseded single-2000ms worst-case event-loop block, never multiplies it. Timeout degrades to no result → reject, never admit.
 

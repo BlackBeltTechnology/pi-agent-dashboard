@@ -68,13 +68,18 @@ rejected by that test.
 - **AND** `thisCheckout` and `mainCheckout` SHALL both be `null`
 - **AND** a consumer SHALL be able to distinguish this from a non-repository cwd, so it does not fall through to a non-git code path
 
-#### Scenario: Relative and absolute probe forms do not change the classification
+#### Scenario: Mixed probe forms do not change the classification
 
-- **GIVEN** a normal checkout root, where `git rev-parse --git-dir` would report the relative form `.git` while `--git-common-dir` is read in absolute form
+This scenario guards the PROBE WIRING, not a state the canonical wiring can reach: with
+`--path-format=absolute` required on both probes, mixed forms cannot occur in production. It
+SHALL therefore be verified with INJECTED probes, which is the only way to observe a
+mis-wiring in which one side dropped the flag.
+
+- **GIVEN** injected probes for a normal checkout root, where `--git-dir` reports the relative form `.git` while `--git-common-dir` reports an absolute path
 - **WHEN** the resolver runs
-- **THEN** both probes SHALL be canonicalized to absolute form before comparison
-- **AND** `isLinkedWorktree` SHALL be false
-- **AND** the checkout SHALL NOT be misclassified as a linked worktree because the two probe outputs were expressed differently
+- **THEN** the classification SHALL rest on canonical absolute forms, not on the raw probe strings
+- **AND** the checkout SHALL NOT be misclassified as a linked worktree merely because the two probe outputs were expressed differently
+- **AND** the production wiring SHALL keep `--path-format=absolute` on BOTH probes, so this case never arises outside the injected-probe test
 
 #### Scenario: A checkout whose directory name ends in .git is not rejected
 
