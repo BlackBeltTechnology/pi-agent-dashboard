@@ -1623,6 +1623,8 @@ See change: add-git-checkout-root-resolver.
 
 Required probes: `--git-dir` + `--git-common-dir`, both `--path-format=absolute`. Absolute form is contract, not preference: `isLinkedWorktree` is an equality test; mixed relative/absolute makes EVERY normal checkout report as a linked worktree.
 
+Version floor: `--path-format=absolute` needs git >= 2.31.0 — the release that added the flag. Below floor: BOTH probes fail; `resolveCheckoutRootsFrom` returns `null`; every consumer degrades to its no-result branch — folder card omits `gitWorktree`, kb guard rejects. Fail-closed; worktree admission simply unavailable below 2.31.
+
 `--show-toplevel` NOT required. Fails by design in bare repo. Failure yields `thisCheckout: null` WITH a result. Keeps bare distinguishable from non-repo.
 
 Worktree signal: `--git-dir` != `--git-common-dir`. Compared via `samePath` (`packages/shared/src/platform/paths.ts`), never raw `!==`.
@@ -1661,6 +1663,8 @@ See change: add-git-checkout-root-resolver.
 Converted consumers: `packages/extension/src/vcs-info.ts` `detectWorktree` (folder card + grouping); `packages/kb-plugin/src/server/kb-routes.ts` `mainCheckoutPath` → `isAllowedCwd`; `packages/server/src/session/session-scanner.ts` `isPlausibleWorktreeMainPath`.
 
 `detectWorktree` returns `undefined` when: required probe fails; cwd not a linked worktree (now covers submodule, `--separate-git-dir`, bare alike); no main checkout resolves (worktree of bare hub); resolved main checkout implausible (`.git` segment). Resolver's user-controlled `core.worktree` output judged HERE — display consumer, safe response omits the field.
+
+`name` = `path.basename(roots.thisCheckout ?? cwd)` — the worktree's OWN root, NOT the request `cwd`. Reason: a session can sit in a SUBDIRECTORY of the worktree; `basename(cwd)` would label the folder card with the subdirectory name. Verdict already carries the worktree root.
 
 `mainCheckoutPath` (kb guard): `.git`-segment rejection is the consumer's OWN obligation. Authorization consumer — derives no main path at all, so value never matches known-folder set. Submodule resolves to own checkout, does NOT inherit superproject trust; worktree-of-bare resolves to null, rejected unless independently known. Probe budget `timeout: 400` per probe — up to FIVE SYNC probes on a Fastify request path. Holds superseded single-2000ms worst-case event-loop block, never multiplies it. Timeout degrades to no result → reject, never admit.
 

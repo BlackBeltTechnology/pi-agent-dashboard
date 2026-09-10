@@ -25,7 +25,7 @@ both are returned.
 The resolver SHALL return no result (a null/absent value, not a fabricated path) when the
 `cwd` is not inside a git repository or when a REQUIRED git probe fails. The required probes
 are exactly `--git-dir` and `--git-common-dir`; both succeeding means the cwd IS inside a
-repository. `--show-toplevel` is NOT required: it fails by design in a bare repository, and
+repository. Both probes SHALL be issued with `--path-format=absolute`, which REQUIRES git >= 2.31.0; below that floor both probes fail, resolution yields no result, and every consumer SHALL degrade to its no-result branch (omit the field / reject admission) rather than to a derived path. `--show-toplevel` is NOT required: it fails by design in a bare repository, and
 that failure SHALL yield `thisCheckout = null` for an existing repository rather than "no
 result". A bare repository SHALL therefore be distinguishable from a non-repository, because
 consumers that must not fall through to a non-git code path depend on that distinction.

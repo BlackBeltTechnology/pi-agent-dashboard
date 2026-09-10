@@ -74,8 +74,11 @@ an accident.
 - **`mainCheckout` is resolved, not derived from a substring**: `thisCheckout` when the cwd is
   not a linked worktree; otherwise repository-**local** `core.worktree` on the common dir
   (which recovers `/super/models/sub` for a worktree of a submodule), else
-  `dirname(commonDir)` when the common dir is named `.git`, else `null` — a bare hub has no
-  working tree to name.
+  `dirname(commonDir)` when the common dir is named `.git` **and repository-local `core.bare`
+  confirms the repo is not bare**, else `null` — a bare hub has no working tree to name. The
+  bareness read is `--type=bool` (git accepts `yes`/`on`/`1`) and FAIL-CLOSED: a probe that
+  cannot answer is `unknown`, never `not-bare`, so a bare hub that is itself named `.git`
+  never exposes its parent as `mainCheckout`.
 
 - **Both probes are read in canonical absolute form.** `--git-dir` reports the relative `.git`
   at a checkout root and an absolute path from a subdirectory, and this repo already mixes two
@@ -100,9 +103,9 @@ flowchart TD
   Q -->|no| M1["mainCheckout = thisCheckout"]
   Q -->|yes| CW{"LOCAL core.worktree<br/>set on commonDir ?"}
   CW -->|yes| M2["resolve(commonDir, core.worktree)"]
-  CW -->|no| BN{"basename(commonDir)<br/>== .git ?"}
+  CW -->|no| BN{"basename(commonDir) == .git<br/>AND core.bare confirms not-bare ?"}
   BN -->|yes| M3["dirname(commonDir)"]
-  BN -->|no| M4["null (bare hub)"]
+  BN -->|no| M4["null (bare hub, or bareness inconclusive)"]
 
   M1 --> R["GitCheckoutRoots"]
   M2 --> R

@@ -47,6 +47,23 @@ the request's own `cwd`, bounding reach to the requester's own files.
 boundary where the same case costs far more, so it owns an explicit
 outside-the-repository check.
 
+### Also carried forward: bind the kb guard's anchor to the repository
+
+Change 1's review raised the same gap against `isAllowedCwd` itself: a linked
+worktree can set repository-local `core.worktree` to an unrelated KNOWN folder
+and thereby admit an otherwise-unknown request `cwd`. It was accepted for change
+1 on the bounded-reach argument above (the store opens at the request's own
+`cwd`), and because closing it properly means *binding* `mainCheckout` to the
+repository — re-resolving the claimed main checkout and requiring it to point
+back at the same common dir — which is a new probe on an authorization request
+path, not a line change.
+
+This change SHALL settle it for both consumers at once, so the guard and
+containment do not diverge on what "the repository owns this path" means. A
+`security-hardening` pass covers it; the bounded-reach argument SHALL be
+re-tested, not re-assumed, because `reindexAll` follows a cwd-local
+`knowledge_base.json` whose `resolvedSources` need not stay under that cwd.
+
 ## Impact
 
 - `packages/server/src/lib/path-containment.ts` + `__tests__/path-containment.test.ts`.

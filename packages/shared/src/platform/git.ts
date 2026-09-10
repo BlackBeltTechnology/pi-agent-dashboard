@@ -136,7 +136,14 @@ export const GIT_TOPLEVEL: Recipe<WithCwd, string | undefined> = {
  * it git reports the relative `.git` at a checkout root and an absolute path
  * from a subdirectory, and `isLinkedWorktree` is an equality test between this
  * probe and `GIT_COMMON_DIR_ABS`. Mixed forms would make every normal checkout
- * report as a linked worktree. See change: add-git-checkout-root-resolver.
+ * report as a linked worktree.
+ *
+ * REQUIRES git >= 2.31.0 (the release that added `--path-format`). On an older
+ * git both probes fail, `resolveCheckoutRootsFrom` returns `null`, and every
+ * consumer degrades to its no-result branch: the folder card omits
+ * `gitWorktree` and the kb guard rejects rather than admits. Fail-closed, but
+ * it means worktree admission is unavailable below 2.31.
+ * See change: add-git-checkout-root-resolver.
  */
 export const GIT_DIR_ABS: Recipe<WithCwd, string | undefined> = {
   argv: () => ["git", "rev-parse", "--path-format=absolute", "--git-dir"],

@@ -10,6 +10,8 @@
  * See change: add-git-checkout-root-resolver.
  */
 
+import { mkdirSync } from "node:fs";
+import path from "node:path";
 import {
   buildGitFixtures,
   type GitFixtures,
@@ -44,6 +46,14 @@ describe("detectWorktree against real repositories", () => {
 
   it("reports the main checkout for a linked worktree", () => {
     expect(detectWorktree(fx.worktree)).toEqual({ mainPath: fx.normal, name: "normal-wt" });
+  });
+
+  it("names a worktree by its ROOT, even when the session sits in a subdirectory", () => {
+    // `basename(cwd)` would label the card `deep` — the folder card must carry
+    // the worktree's own name, which the verdict already supplies.
+    const deep = path.join(fx.worktree, "a", "deep", "dir");
+    mkdirSync(deep, { recursive: true });
+    expect(detectWorktree(deep)).toEqual({ mainPath: fx.normal, name: "normal-wt" });
   });
 
   it("reports NO worktree for a submodule, and never a .git/modules mainPath", () => {
