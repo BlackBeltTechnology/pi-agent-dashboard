@@ -7,6 +7,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { resolvePiSessionsDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+import { hasGitPathSegment } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import { metaPath, readSessionMeta, type SessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { condenseForFirstMessage } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
 import type { DashboardSession, SessionSource } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -39,6 +40,55 @@ function extractTimestamp(filename: string): number {
     .replace(/^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})-(\d{3}Z)$/, "$1:$2:$3.$4");
   const ts = new Date(isoStr).getTime();
   return isNaN(ts) ? Date.now() : ts;
+}
+
+/**
+ * Whether a PERSISTED `gitWorktree.mainPath` is a plausible working tree.
+ *
+ * Values written by the superseded `dirname(--git-common-dir)` derivation name
+ * a directory that is not a checkout, and they do NOT expire on their own: an
+ * ended session never re-probes, and `.meta.json` is re-seeded into memory at
+ * every startup. So the repair happens at LOAD time.
+ *
+ * Best-effort SHAPE test, not an identity check — three conditions, all
+ * required:
+ *   1. no `.git` path SEGMENT (exact component equality, so a checkout
+ *      legitimately at `/work/app.git` survives) — this catches the submodule
+ *      phantom `<super>/.git/modules/<name>`;
+ *   2. statable on disk;
+ *   3. it directly contains a `.git` entry of its own.
+ *
+ * (2) and (3) are one `statSync` on `<path>/.git`: a successful stat proves
+ * both, and one stat per record is the whole filesystem cost — no subprocess.
+ *
+ * (3) is load-bearing, not belt-and-braces. The `--separate-git-dir` and bare
+ * phantoms point at REAL, EXISTING, unrelated directories with no `.git`
+ * segment (`/tmp`, a sibling), so existence alone cannot see them — and those
+ * are precisely the hardest-to-notice corruptions. A genuine working tree
+ * always carries a `.git` entry: a directory in a normal checkout, a file in a
+ * submodule or linked worktree.
+ *
+ * Dropped on ANY stat failure, not only not-found. The accepted cost is that a
+ * legitimate checkout on an unmounted volume is dropped and, for an ended
+ * session, its grouping is not restored when the volume returns — paid for one
+ * unambiguous rule.
+ *
+ * KNOWN LIMITATION (pinned by test, not a defect): a phantom landing on a
+ * directory that is ITSELF a working tree survives — a bare hub at
+ * `$HOME/bare.git` yields the phantom `$HOME`, and a dotfiles `$HOME` passes
+ * all three conditions. Repairing it would mean re-probing git for every
+ * persisted session at startup.
+ *
+ * See change: add-git-checkout-root-resolver.
+ */
+function isPlausibleWorktreeMainPath(mainPath: string): boolean {
+  if (hasGitPathSegment(mainPath)) return false;
+  try {
+    statSync(join(mainPath, ".git"));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Build a DashboardSession from cached `.meta.json` data */
@@ -139,9 +189,14 @@ function sessionFromMeta(
     // parent repo via `resolveSessionGroupPath`, matching live-bridge grouping.
     // `base` is omitted here — it composes separately from `gitWorktreeBase`.
     // See change: fix-cold-start-worktree-session-grouping.
-    gitWorktree: meta.gitWorktree?.mainPath
-      ? { mainPath: meta.gitWorktree.mainPath, name: meta.gitWorktree.name ?? "" }
-      : undefined,
+    // A persisted mainPath that is not a plausible working tree is DROPPED
+    // (the session degrades to grouping by its own cwd). `.meta.json` is never
+    // rewritten — this is a read-time filter, so a revert simply stops
+    // filtering. See change: add-git-checkout-root-resolver.
+    gitWorktree:
+      meta.gitWorktree?.mainPath && isPlausibleWorktreeMainPath(meta.gitWorktree.mainPath)
+        ? { mainPath: meta.gitWorktree.mainPath, name: meta.gitWorktree.name ?? "" }
+        : undefined,
     // Probe whether the session's cwd still exists on disk. Cheap stat,
     // runs once per ended session at scan time. Avoids the dashboard
     // showing a stale resume button on a session whose dir was removed.
