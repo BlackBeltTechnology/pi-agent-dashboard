@@ -178,6 +178,21 @@ describe("checkoutRoots over real repositories", () => {
     expect(roots.mainCheckout).toBeNull();
   });
 
+  it("E5e: an UNSET core.bare is not-bare (git's boolean default), and resolves", () => {
+    // Unset is a SUCCESSFUL read of git's default, not a failure to read — so it
+    // must take the fallback, unlike the "unknown" case in E5d.
+    const repo = path.join(fx.root, "unset-bare");
+    fixtureGit(fx.root, ["clone", "-q", fx.normal, repo]);
+    fixtureGit(repo, ["config", "--local", "--unset", "core.bare"]);
+    // `config --get` EXITS 1 on an unset key, so the absence is asserted by the
+    // throw, not by an empty string.
+    expect(() => fixtureGit(repo, ["config", "--local", "--get", "core.bare"])).toThrow();
+    const wt = path.join(fx.root, "unset-bare-wt");
+    fixtureGit(repo, ["worktree", "add", "-q", "-b", "unsetwt", wt]);
+
+    expect(checkoutRoots({ cwd: wt })!.mainCheckout).toBe(repo);
+  });
+
   it("E5c: `core.bare = yes` counts as bare (git boolean, not the literal `true`)", () => {
     // git accepts yes/on/1/true as boolean-true. A raw text read compared to the
     // literal "true" would classify this hub as NOT bare and name its parent.

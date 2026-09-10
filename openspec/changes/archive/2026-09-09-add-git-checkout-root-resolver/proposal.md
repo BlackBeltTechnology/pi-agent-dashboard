@@ -76,9 +76,11 @@ an accident.
   (which recovers `/super/models/sub` for a worktree of a submodule), else
   `dirname(commonDir)` when the common dir is named `.git` **and repository-local `core.bare`
   confirms the repo is not bare**, else `null` — a bare hub has no working tree to name. The
-  bareness read is `--type=bool` (git accepts `yes`/`on`/`1`) and FAIL-CLOSED: a probe that
-  cannot answer is `unknown`, never `not-bare`, so a bare hub that is itself named `.git`
-  never exposes its parent as `mainCheckout`.
+  bareness read is `--type=bool` (git accepts `yes`/`on`/`1`) and THREE-valued. An UNSET key
+  is `not-bare` — that is a successful read of git's own boolean default, not a failure to
+  read — while a command error, timeout or unparseable value is `unknown`. Only `not-bare`
+  takes the fallback, so a bare hub that is itself named `.git`, and an unanswerable probe,
+  both resolve to `null` instead of exposing the parent as `mainCheckout`.
 
 - **Both probes are read in canonical absolute form.** `--git-dir` reports the relative `.git`
   at a checkout root and an absolute path from a subdirectory, and this repo already mixes two
