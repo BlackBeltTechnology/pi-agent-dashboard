@@ -4,6 +4,10 @@
  * Called at runtime (session_start) rather than extension load time to avoid
  * static tool-name conflicts with other extensions (e.g. pi-flows) that also
  * register ask_user. Runtime registration bypasses detectExtensionConflicts.
+ *
+ * Cwd-independence (change: update-pi-core-0-85-adopt-apis, task 5.1): pure
+ * `ctx.ui` interaction — it renders the prompt and returns the answer, resolves
+ * no filesystem path and spawns no process, so `ctx.cwd` is never consulted.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";

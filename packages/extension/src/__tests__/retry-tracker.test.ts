@@ -1,5 +1,4 @@
-import { describe, it, expect } from "vitest";
-import { settleFollowUp } from "../agent-settled.js";
+import { describe, expect, it } from "vitest";
 import { RetryTracker } from "../retry-tracker.js";
 
 /**
@@ -466,19 +465,22 @@ describe("RetryTracker — terminal convergence", () => {
     expect(t.isRetrying("s1")).toBe(false);
   });
 
-  it("floor-pi compatibility settles do not terminate a multi-attempt tracker chain", () => {
+  it("F5: the retry chain closes exactly ONCE on the native agent_settled", () => {
+    // pi's real order with NO floor-pi synthesis: agent_end(error) → waiting,
+    // then agent_start → in-flight, then agent_end(ok), then the single native
+    // agent_settled terminates the chain.
     const t = new RetryTracker({ maxRetries: 3, baseDelayMs: 2000 });
     t.observeMessageEnd("s1", { ...errAssistant });
-    t.observeAgentEnd("s1", errAgentEnd);
-    expect(settleFollowUp("agent_end", false, 1000)?.eventType).toBe("agent_settled");
-    // The bridge forwards floor compatibility settles to the client only; it
-    // must not feed them into RetryTracker because one is emitted per attempt.
-    expect(t.isRetrying("s1")).toBe(true);
-    expect(t.observeAgentStart("s1")?.eventType).toBe("auto_retry_start");
+    expect(t.observeAgentEnd("s1", errAgentEnd)!.eventType).toBe("auto_retry_waiting");
+    expect(t.observeAgentStart("s1")!.eventType).toBe("auto_retry_start");
+    expect(t.observeAgentEnd("s1", okAgentEnd)).toBeNull();
 
-    t.observeMessageEnd("s1", { ...errAssistant, errorMessage: "second" });
-    expect(t.observeAgentEnd("s1", { messages: [{ ...errAssistant, errorMessage: "second" }] })?.data.attempt).toBe(2);
-    expect(t.isRetrying("s1")).toBe(true);
+    const end = t.observeAgentSettled("s1");
+    expect(end!.eventType).toBe("auto_retry_end");
+    expect(end!.data.success).toBe(true);
+    // The sole terminal signal fires once — a second settle is a no-op.
+    expect(t.observeAgentSettled("s1")).toBeNull();
+    expect(t.isRetrying("s1")).toBe(false);
   });
 
   it("X4 a new explicit run releases abort suppression", () => {

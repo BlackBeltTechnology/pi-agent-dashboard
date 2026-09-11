@@ -28,4 +28,20 @@ describe("isOauthIncompatible", () => {
       expect(isOauthIncompatible("anthropic", id)).toBe(true);
     }
   });
+
+  // E10 (change: update-pi-core-0-85-adopt-apis): the table lists ONLY pre-4.x
+  // snapshots. The fable 5.1 HTTP 400 was a client-version (user-agent) header
+  // gate, NOT a catalog gate — adding it here would wrongly hide a model that
+  // IS reachable on 0.85.1, and the change explicitly forbids it.
+  it("E10: contains only pre-4.x snapshots; claude-fable-5-1 is absent", () => {
+    expect(OAUTH_INCOMPATIBLE.anthropic.has("claude-fable-5-1")).toBe(false);
+    expect(OAUTH_INCOMPATIBLE.anthropic.has("claude-fable-5")).toBe(false);
+    for (const id of OAUTH_INCOMPATIBLE.anthropic) {
+      expect(id, `${id} must be a pre-4.x claude-3 snapshot`).toMatch(/^claude-3/);
+    }
+    // No Codex/OpenAI OAuth-incompat entries exist — the Codex channel is
+    // routed by provider equality, not by this table.
+    expect(OAUTH_INCOMPATIBLE.openai).toBeUndefined();
+    expect(OAUTH_INCOMPATIBLE["openai-codex"]).toBeUndefined();
+  });
 });

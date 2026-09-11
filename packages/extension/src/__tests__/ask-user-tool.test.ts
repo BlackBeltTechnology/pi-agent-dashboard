@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 // Mock modules before importing
 vi.mock("typebox", () => ({
@@ -181,6 +181,37 @@ describe("registerAskUserTool", () => {
         tool.execute("id", { method: "multiselect", title: "Pick" }, undefined, undefined, ctx),
       ).rejects.toThrow(/options/i);
       expect(ctx.ui.custom).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("X7: the tool is cwd-independent (pi 0.85.1 honours ctx.cwd)", () => {
+    it("execute ignores ctx.cwd and never reads process.cwd", async () => {
+      const pi = createMockPi();
+      registerAskUserTool(pi as any);
+      const tool = pi.registerTool.mock.calls[0][0];
+      const ctx = {
+        // A session cwd DELIBERATELY different from the host process cwd — if
+        // the tool resolved anything relative, this is where it would show.
+        cwd: "/some/other/session/cwd",
+        ui: { input: vi.fn().mockResolvedValue("hello"), confirm: vi.fn().mockResolvedValue(true) },
+      };
+      const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue("/host/process/cwd");
+      try {
+        const res = await tool.execute(
+          "id",
+          { method: "input", title: "Q" },
+          undefined,
+          undefined,
+          ctx,
+        );
+        // Ask-user is pure UI: it renders the prompt and returns the answer.
+        expect(res.details.result).toBe("hello");
+        expect(ctx.ui.input).toHaveBeenCalledTimes(1);
+        // No filesystem/cwd resolution happens at all.
+        expect(cwdSpy).not.toHaveBeenCalled();
+      } finally {
+        cwdSpy.mockRestore();
+      }
     });
   });
 

@@ -59,12 +59,15 @@ const RULES = [
       "eliminate-electron-runtime-install task 1.1.a — pi lifted from " +
       "optional peer to regular dep so `npm install` resolves it for the " +
       "standalone + Electron arms. Floor tracks the deliberate pi bump to " +
-      "0.84.4 (0.84.0 null-bearing provider headers, ModelsRefreshOptions/Result, " +
-      "OAuth refresh abort signal, v4 lane-based session model; 0.84.1/0.84.2 add " +
-      "no breaking change; 0.84.3 renames the pi-ai-internal GoogleThinkingLevel " +
-      "type, which the dashboard does not consume; 0.84.4 adds ui_prompt_start/end " +
-      "events and RPC clear_queue). See change: update-pi-core-0-84-adopt-apis.",
-    minVersion: "0.84.4",
+      "0.85.1: the 0.85.1 Anthropic UA constant (claude-cli/2.1.251) lifts the " +
+      "Anthropic client-version gate that returned 400 claude_code_version_too_old " +
+      "for claude-fable-5-1 on Claude Pro/Max OAuth subscriptions, and the " +
+      "0.85.0/0.85.1 line carries ZERO upstream breaking changes. 0.85.1 (not " +
+      "0.85.0) is the target because 0.85.0 unintentionally published internal " +
+      "experimental code and deps (pi#9132), breaking SDK imports; 0.85.1 reverts " +
+      "that and restores the ./client compatibility entry point. " +
+      "See change: update-pi-core-0-85-adopt-apis.",
+    minVersion: "0.85.1",
   },
   {
     pkgPath: "packages/server/package.json",
@@ -139,47 +142,78 @@ export function floorOf(range) {
 }
 
 /**
- * pi pin coherence: the three single-source pi-version pins MUST resolve to the
- * same normalized version — the server dep range, `piCompatibility.recommended`,
- * and the docker global-install pin. Compares normalized floors (via `floorOf`)
- * so the differing syntaxes `^0.83.0` / `0.83.0` / `@0.83.0` are treated equal.
- * Returns an error string naming the drifted site(s), or null when coherent.
- * Exported so the unit test can drive it with fixtures.
- * See change: update-pi-core-0-83-adopt-apis.
+ * pi pin coherence: the SIX single-source pi-version pins MUST resolve to the
+ * same normalized version — the server dependency range, `minimum`,
+ * `piCompatibility.recommended`, the docker global-install pin, the
+ * `pnpm-workspace.yaml` override, and the checker's own `minVersion`.
+ * Compares normalized floors (via `floorOf`) so the differing syntaxes
+ * `^0.85.1` / `0.85.1` / `@0.85.1` are treated equal. Returns an error string
+ * naming the drifted site(s), or null when coherent. Exported so the unit test
+ * can drive it with fixtures.
+ *
+ * The `minimum` and workspace-override pins were added by
+ * update-pi-core-0-85-adopt-apis: the lockstep floor makes `minimum`
+ * semantically equal to `recommended`, and a stale override silently ghosts
+ * the tree under `nodeLinker: hoisted` (the harness catches it, no unit test
+ * does) — so both join the governed set.
+ * See change: update-pi-core-0-85-adopt-apis.
  */
-export function checkPiPinCoherence(serverPkg, dockerfileText) {
+export function checkPiPinCoherence(
+  serverPkg,
+  dockerfileText,
+  workspaceYamlText,
+  checkerMinVersion,
+) {
   const depRange = serverPkg?.dependencies?.["@earendil-works/pi-coding-agent"];
   const recommended = serverPkg?.piCompatibility?.recommended;
+  const minimum = serverPkg?.piCompatibility?.minimum;
   const dockerMatch = String(dockerfileText ?? "").match(
     /@earendil-works\/pi-coding-agent@(\S+)/,
   );
   const dockerPin = dockerMatch ? dockerMatch[1] : undefined;
-  if (!depRange || !recommended || !dockerPin) {
+  const overrideMatch = String(workspaceYamlText ?? "").match(
+    /^\s*"@earendil-works\/pi-coding-agent":\s*(\S+)/m,
+  );
+  const overridePin = overrideMatch ? overrideMatch[1] : undefined;
+  const checkerPin = checkerMinVersion;
+
+  const missing = [];
+  if (!depRange) missing.push("server dep");
+  if (!recommended) missing.push("piCompatibility.recommended");
+  if (!minimum) missing.push("piCompatibility.minimum");
+  if (!dockerPin) missing.push("docker/Dockerfile");
+  if (!overridePin) missing.push("pnpm-workspace.yaml override");
+  if (!checkerPin) missing.push("verify-release-deps.mjs minVersion");
+  if (missing.length > 0) {
     return (
-      "pi pin coherence: missing a governed pi pin " +
-      `(server dep=${depRange ?? "absent"}, recommended=${recommended ?? "absent"}, ` +
-      `dockerfile=${dockerPin ?? "absent"})`
+      "pi pin coherence: missing a governed pi pin " + `(${missing.join(", ")} absent)`
     );
   }
-  const depFloor = floorOf(depRange);
+
+  const surfaces = [
+    ["server dep", depRange],
+    ["piCompatibility.recommended", recommended],
+    ["piCompatibility.minimum", minimum],
+    ["docker/Dockerfile", dockerPin],
+    ["pnpm-workspace.yaml overrides", overridePin],
+    ["verify-release-deps.mjs minVersion", checkerPin],
+  ];
   const recFloor = floorOf(recommended);
-  const dockerFloor = floorOf(dockerPin);
-  if (
-    depFloor === null ||
-    recFloor === null ||
-    dockerFloor === null ||
-    depFloor !== recFloor ||
-    depFloor !== dockerFloor
-  ) {
-    const drifted = [];
-    if (recFloor !== depFloor) drifted.push(`piCompatibility.recommended ("${recommended}")`);
-    if (dockerFloor !== depFloor) drifted.push(`docker/Dockerfile ("${dockerPin}")`);
+  const floors = surfaces.map(([name, value]) => [name, floorOf(value)]);
+  if (recFloor === null || floors.some(([, floor]) => floor === null)) {
     return (
-      "pi pin drift: the three pi-version pins must resolve to one version — " +
-      `server dep "${depRange}" (floor ${depFloor}); drifted: ${drifted.join(", ") || "(unparseable pin)"}`
+      "pi pin drift: (unparseable pin) — " +
+      floors.map(([name, floor]) => `${name}="${floor}"`).join(", ")
     );
   }
-  return null;
+
+  const drifted = floors.filter(([, floor]) => floor !== recFloor);
+  if (drifted.length === 0) return null;
+  return (
+    "pi pin drift: the six pi-version pins must resolve to one version — " +
+    `piCompatibility.recommended "${recommended}" (floor ${recFloor}); drifted: ` +
+    drifted.map(([name, floor]) => `${name} ("${floor}")`).join(", ")
+  );
 }
 
 /**
@@ -264,13 +298,22 @@ try {
     failures.push(`Cannot check openspec floor consistency: ${err.message}`);
   }
 
-  // pi pin coherence gate: server dep ↔ piCompatibility.recommended ↔ Dockerfile.
+  // pi pin coherence gate: six surfaces must resolve to one pi version.
   try {
     const serverPkg = JSON.parse(
       readFileSync(path.join(repoRoot, "packages/server/package.json"), "utf-8"),
     );
     const dockerfileText = readFileSync(path.join(repoRoot, "docker/Dockerfile"), "utf-8");
-    const piDrift = checkPiPinCoherence(serverPkg, dockerfileText);
+    const workspaceYamlText = readFileSync(path.join(repoRoot, "pnpm-workspace.yaml"), "utf-8");
+    const piRule = RULES.find(
+      (r) => r.pkgPath === "packages/server/package.json" && r.dep === "@earendil-works/pi-coding-agent",
+    );
+    const piDrift = checkPiPinCoherence(
+      serverPkg,
+      dockerfileText,
+      workspaceYamlText,
+      piRule?.minVersion,
+    );
     if (piDrift) failures.push(piDrift);
   } catch (err) {
     failures.push(`Cannot check pi pin coherence: ${err.message}`);

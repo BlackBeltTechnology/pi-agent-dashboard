@@ -333,6 +333,7 @@ Pi owns the retry loop. Dashboard configures + observes + renders it. Attempts f
 - `agent_settled` carries NO `messages` (verified pi 0.81.1/0.83), so tracker remembers terminal disposition via `lastEndWasError` at `agent_end`.
 - `-1` sentinels REMOVED. `maxAttempts` / `delayMs` sourced read-only from pi settings via `packages/extension/src/pi-retry-settings.ts` (defaults 3 / 2000; unreadable → `delayMs: 0` → surface renders elapsed-only).
 - pi 0.83 exposes retry lifecycle events to RPC/SDK consumers ONLY. ExtensionAPI has no `auto_retry_*` and nothing on EventBus. `willRetry` in 0.83 is compaction-only (`session_before_compact`/`session_compact`). Bridge is extension → must observe-synthesize.
+- Native `agent_settled` guaranteed at the 0.85.1 lockstep floor (`piCompatibility.minimum == recommended == 0.85.1`). Bridge consumes the native settle unconditionally — no version gate, no floor-pi synthesis. Floor-pi synthesis module `packages/extension/src/agent-settled.ts` DELETED. `agent_settled` remains the SOLE terminal retry signal. See change: update-pi-core-0-85-adopt-apis.
 
 **3. Settings write + reload-on-save** (`packages/server/src/pi-agent-settings.ts`).
 
@@ -934,7 +935,7 @@ pi/openspec/tsx are regular npm dependencies of `@blackbelt-technology/pi-dashbo
 
 `launchSource` (returned by `/api/health`) is `"electron" | "standalone" | "bridge"`, derived from `DASHBOARD_STARTER`. Client uses it via `useLaunchSource()` to hide pi-core update UI on Electron (immutable bundle has no writable target).
 
-Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `readCurrentPiVersion`, `computeCompatibility`) survive as pure helpers. The pinned range is `minimum: "0.70.0"`, `recommended: "0.70.0"`, `maximum: null` (lockstep — one supported pi means no conditional code paths in the bridge).
+Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `readCurrentPiVersion`, `computeCompatibility`) survive as pure helpers. The pinned range is `minimum: "0.85.1"`, `recommended: "0.85.1"`, `maximum: null` (lockstep — one supported pi means no conditional code paths in the bridge).
 
 #### Legacy `~/.pi-dashboard/` advisory
 
@@ -4373,9 +4374,9 @@ sequenceDiagram
 
 `auth.json` holds one credential per provider key (`api_key` OR `oauth`, never both). No mixed-cred branch.
 
-Override table: `packages/server/src/model-proxy/oauth-compat.ts` → `OAUTH_INCOMPATIBLE: Record<provider, ReadonlySet<modelId>>` + `isOauthIncompatible(provider, id)`. Flags legacy Anthropic snapshots (`claude-3-5-haiku-20241022`, `claude-3-5-sonnet-*`, `claude-3-7-sonnet-*`, `claude-3-opus-*`, `claude-3-haiku-*`, `claude-3-sonnet-*`) unreachable over OAuth. `getAllModels()` sets `oauthCompatible = !isOauthIncompatible(provider, id)` on built-in models; custom models propagate `models.json#oauthCompatible` (default `true`). Hand-maintained. Review when provider ships new model. Stale entry falls back to listed-but-unreachable — not a regression.
+Override table: `packages/server/src/model-proxy/oauth-compat.ts` → `OAUTH_INCOMPATIBLE: Record<provider, ReadonlySet<modelId>>` + `isOauthIncompatible(provider, id)`. Flags legacy Anthropic snapshots (`claude-3-5-haiku-20241022`, `claude-3-5-sonnet-*`, `claude-3-7-sonnet-*`, `claude-3-opus-*`, `claude-3-haiku-*`, `claude-3-sonnet-*`) unreachable over OAuth. `getAllModels()` sets `oauthCompatible = !isOauthIncompatible(provider, id)` on built-in models; custom models propagate `models.json#oauthCompatible` (default `true`). Hand-maintained. Review when provider ships new model. Stale entry falls back to listed-but-unreachable — not a regression. Unchanged by the 0.85.1 bump: `claude-fable-5-1` NOT added. Its HTTP 400 `claude_code_version_too_old` on Claude Pro/Max OAuth = client-version (user-agent) header gate, not catalog gate. 0.85.1 raises pi's Anthropic UA to `claude-cli/2.1.251`, clearing it. Adding the id would wrongly hide a reachable model.
 
-Note: Codex OAuth stored under `auth.json` key `openai-codex`; pi-ai OpenAI models carry provider `openai`. Filter keys on `model.provider`, so raw `openai` override slot never sees `openai-codex` cred without provider-key remap. `openai` slot left empty.
+Codex OAuth stored under `auth.json` key `openai-codex`. pi 0.85.1 catalog publishes `gpt-6-astra` as FOUR first-class entries, one per channel, each carrying its own `provider`: `openai` (api `openai-responses`), `openai-codex` (api `openai-codex-responses`), `github-copilot`, `azure-openai-responses`. Registry matches credential key to `model.provider` by EQUALITY. An `openai-codex` credential lists the `openai-codex` entry and NOT the `openai` / `github-copilot` / `azure-openai-responses` entries of the same model id. NO provider-key remap needed. Do NOT add one: remap makes a Codex subscription credential appear to route every `openai`-provider model, widening credential scope. See change: `update-pi-core-0-85-adopt-apis`.
 
 `GET /api/model-proxy/diagnostics` (JWT-gated, main instance only, `routes/model-proxy-diagnostics-routes.ts`): `getAllAnnotated()` → `{id, provider, excludedReason}` per model. `excludedReason` ∈ `null` (included) | `"no-credential"` | `"oauth-incompatible"`. Feeds future Settings UI. 503 when pi-ai unresolved.
 

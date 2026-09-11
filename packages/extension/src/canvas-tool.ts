@@ -16,6 +16,11 @@
  *
  * Registered at runtime (session_start) like `ask_user` to avoid static
  * tool-name conflicts.
+ *
+ * Cwd-independence (change: update-pi-core-0-85-adopt-apis, task 5.1): the
+ * tool is intentionally cwd-independent — `execute` validates the raw shape
+ * only and resolves no filesystem path, so `ctx.cwd` is never consulted. The
+ * cwd-anchored normalization happens server-side.
  */
 
 import { validateCanvasDeclareShape } from "@blackbelt-technology/pi-dashboard-shared/canvas-declare.js";

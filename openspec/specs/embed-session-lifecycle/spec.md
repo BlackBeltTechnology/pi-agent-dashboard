@@ -292,8 +292,8 @@ normalized `agent_settled` signal with no per-session `piVersion` branch in the 
 - **THEN** no session SHALL be reaped or capped and acquire SHALL not alter spawn behavior
 
 #### Scenario: Quiescence gate reads a version-agnostic settle signal
-- **WHEN** a connected session runs any supported pi (floor 0.78.0 through the bundled
-  version)
+- **WHEN** a connected session runs any supported pi (the current compatibility floor
+  through the bundled version)
 - **THEN** the reaper SHALL determine "at rest" from exactly one `agent_settled` per run
   without branching on the session's pi version
 

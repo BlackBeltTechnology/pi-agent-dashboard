@@ -3,54 +3,158 @@
  *
  * See change: unified-bootstrap-install \u00a79.
  */
-import { describe, it, expect, beforeEach } from "vitest";
+
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import {
-  parseVersion,
-  compareVersions,
-  isBelow,
-  isAbove,
-  readPiCompatibility,
-  readCurrentPiVersion,
-  computeCompatibility,
-} from "../pi/pi-version-skew.js";
-import type { ToolRegistry, Resolution } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import type { Resolution, ToolRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import { beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error -- .mjs release gate, no type declarations; exported for fixture-driven tests.
-import { collectFailures, checkPiPinCoherence } from "../../../../scripts/verify-release-deps.mjs";
+import { checkPiPinCoherence, collectFailures } from "../../../../scripts/verify-release-deps.mjs";
+import {
+  compareVersions,
+  computeCompatibility,
+  isAbove,
+  isBelow,
+  parseVersion,
+  readCurrentPiVersion,
+  readPiCompatibility,
+} from "../pi/pi-version-skew.js";
 
 const REPO_ROOT = path.resolve(__dirname, "../../../..");
-const PINNED_PI = "0.84.4";
+const PINNED_PI = "0.85.1";
+const BELOW_FLOOR_PI = "0.84.4";
 
 /**
- * The governed pi pins must move together. Four surfaces, one version.
- * See change: update-pi-core-0-84-adopt-apis (test-plan #E1, #E3, #E4, #X13).
+ * The governed pi pins must move together. SIX surfaces, one version:
+ * server dep, piCompatibility.minimum, piCompatibility.recommended,
+ * docker/Dockerfile, the pnpm-workspace.yaml override, and the checker's own
+ * minVersion. The literals are deliberate (design \u00a76) \u2014 this test asserts
+ * coherence, so deriving them would make it a tautology.
+ * See change: update-pi-core-0-85-adopt-apis (test-plan #E1, #E2, #E3, #E4, #E5, #E6, #E11, #X13).
  */
-describe("pi pin block \u2014 0.84.4", () => {
+describe("pi pin block \u2014 0.85.1", () => {
   const serverPkg = JSON.parse(
     fs.readFileSync(path.join(REPO_ROOT, "packages/server/package.json"), "utf-8"),
   );
+  const dockerfile = fs.readFileSync(path.join(REPO_ROOT, "docker/Dockerfile"), "utf-8");
+  const workspaceYaml = fs.readFileSync(path.join(REPO_ROOT, "pnpm-workspace.yaml"), "utf-8");
+  const gateSource = fs.readFileSync(
+    path.join(REPO_ROOT, "scripts/verify-release-deps.mjs"),
+    "utf-8",
+  );
 
-  it("E1: piCompatibility declares recommended 0.84.4 over an unmoved 0.78.0 floor", () => {
+  interface PinFixture {
+    serverPkg: {
+      dependencies: Record<string, string>;
+      piCompatibility: { minimum: string; recommended: string; maximum: null };
+    };
+    dockerfile: string;
+    workspaceYaml: string;
+    checkerMinVersion: string;
+  }
+
+  /** A coherent six-pin fixture; mutate one surface to inject drift. */
+  const coherentFixture = (version: string): PinFixture => ({
+    serverPkg: {
+      dependencies: { "@earendil-works/pi-coding-agent": `^${version}` },
+      piCompatibility: { minimum: version, recommended: version, maximum: null },
+    },
+    dockerfile: `RUN npm install -g @earendil-works/pi-coding-agent@${version} openspec`,
+    workspaceYaml: `overrides:\n  "@earendil-works/pi-coding-agent": ${version}\n`,
+    checkerMinVersion: version,
+  });
+
+  const runCheck = (f: PinFixture) =>
+    checkPiPinCoherence(f.serverPkg, f.dockerfile, f.workspaceYaml, f.checkerMinVersion);
+
+  it("E1: piCompatibility declares recommended AND minimum 0.85.1 (lockstep)", () => {
     expect(serverPkg.piCompatibility).toEqual({
-      minimum: "0.78.0",
+      minimum: PINNED_PI,
       recommended: PINNED_PI,
       maximum: null,
     });
   });
 
-  it("E1: the server dependency is pinned to ^0.84.4", () => {
+  it("E1: the server dependency is pinned to ^0.85.1", () => {
     expect(serverPkg.dependencies["@earendil-works/pi-coding-agent"]).toBe(`^${PINNED_PI}`);
   });
 
-  it("E3: all four governed pin surfaces report 0.84.4 and the gate passes", () => {
-    const dockerfile = fs.readFileSync(path.join(REPO_ROOT, "docker/Dockerfile"), "utf-8");
-    const gateSource = fs.readFileSync(path.join(REPO_ROOT, "scripts/verify-release-deps.mjs"), "utf-8");
+  it("E1: a coherent six-pin fixture passes the checker", () => {
+    expect(runCheck(coherentFixture(PINNED_PI))).toBeFalsy();
+  });
 
+  it("E2: flipping exactly ONE pin is drift, named per surface \u2014 6/6", () => {
+    const flips: Array<[string, (f: PinFixture) => PinFixture]> = [
+      [
+        "server dep",
+        (f) => ({
+          ...f,
+          serverPkg: {
+            ...f.serverPkg,
+            dependencies: { "@earendil-works/pi-coding-agent": `^${BELOW_FLOOR_PI}` },
+          },
+        }),
+      ],
+      [
+        "piCompatibility.recommended",
+        (f) => ({
+          ...f,
+          serverPkg: {
+            ...f.serverPkg,
+            piCompatibility: { ...f.serverPkg.piCompatibility, recommended: BELOW_FLOOR_PI },
+          },
+        }),
+      ],
+      [
+        "piCompatibility.minimum",
+        (f) => ({
+          ...f,
+          serverPkg: {
+            ...f.serverPkg,
+            piCompatibility: { ...f.serverPkg.piCompatibility, minimum: BELOW_FLOOR_PI },
+          },
+        }),
+      ],
+      [
+        "docker/Dockerfile",
+        (f) => ({
+          ...f,
+          dockerfile: `RUN npm install -g @earendil-works/pi-coding-agent@${BELOW_FLOOR_PI} openspec`,
+        }),
+      ],
+      [
+        "pnpm-workspace.yaml overrides",
+        (f) => ({
+          ...f,
+          workspaceYaml: `overrides:\n  "@earendil-works/pi-coding-agent": ${BELOW_FLOOR_PI}\n`,
+        }),
+      ],
+      ["verify-release-deps.mjs minVersion", (f) => ({ ...f, checkerMinVersion: BELOW_FLOOR_PI })],
+    ];
+    for (const [label, flip] of flips) {
+      const drift = runCheck(flip(coherentFixture(PINNED_PI)));
+      expect(drift, `${label} flip must fail`).toBeTruthy();
+      expect(String(drift)).toMatch(/pi pin drift/i);
+      expect(String(drift), `${label} flip must name itself`).toContain(label);
+    }
+  });
+
+  it("E3: a lagging minimum is named as the drifted surface", () => {
+    const f = coherentFixture(PINNED_PI);
+    f.serverPkg.piCompatibility.minimum = "0.78.0";
+    const drift = runCheck(f);
+    expect(drift).toBeTruthy();
+    expect(String(drift)).toContain("piCompatibility.minimum");
+    expect(String(drift)).toContain("0.78.0");
+  });
+
+  it("E3: all six governed pin surfaces report 0.85.1 and the gate passes", () => {
     expect(serverPkg.dependencies["@earendil-works/pi-coding-agent"]).toContain(PINNED_PI);
     expect(serverPkg.piCompatibility.recommended).toBe(PINNED_PI);
+    expect(serverPkg.piCompatibility.minimum).toBe(PINNED_PI);
     expect(dockerfile).toContain(`@earendil-works/pi-coding-agent@${PINNED_PI}`);
+    expect(workspaceYaml).toContain(`"@earendil-works/pi-coding-agent": ${PINNED_PI}`);
     expect(gateSource).toContain(`minVersion: "${PINNED_PI}"`);
 
     expect(collectFailures({ repoRoot: REPO_ROOT })).toEqual([]);
@@ -60,9 +164,11 @@ describe("pi pin block \u2014 0.84.4", () => {
     const drift = checkPiPinCoherence(
       {
         dependencies: { "@earendil-works/pi-coding-agent": `^${PINNED_PI}` },
-        piCompatibility: { recommended: PINNED_PI },
+        piCompatibility: { minimum: PINNED_PI, recommended: PINNED_PI },
       },
       "RUN npm install -g @earendil-works/pi-coding-agent@0.84.0 openspec",
+      `overrides:\n  "@earendil-works/pi-coding-agent": ${PINNED_PI}\n`,
+      PINNED_PI,
     );
     expect(drift).toBeTruthy();
     expect(String(drift)).toMatch(/pi pin drift/i);
@@ -71,26 +177,82 @@ describe("pi pin block \u2014 0.84.4", () => {
     expect(String(drift)).toContain("0.84.0");
   });
 
-  it("E4: a stale gate minVersion is caught against the bumped dep", () => {
-    // Fixture tree: server dep on 0.84.1 but the gate rule still floors at 0.84.0.
+  it("E4: a stale dependency is caught against the gate rule, not as a missing pin", () => {
+    // Fixture tree: server dep left at 0.84.4 while the gate rule floors at 0.85.1.
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-pin-divergence-"));
     fs.mkdirSync(path.join(tmp, "packages/server"), { recursive: true });
     fs.mkdirSync(path.join(tmp, "docker"), { recursive: true });
     fs.writeFileSync(
       path.join(tmp, "packages/server/package.json"),
       JSON.stringify({
-        dependencies: { "@earendil-works/pi-coding-agent": "^0.84.0" },
-        piCompatibility: { recommended: PINNED_PI },
+        dependencies: { "@earendil-works/pi-coding-agent": `^${BELOW_FLOOR_PI}` },
+        piCompatibility: { minimum: PINNED_PI, recommended: PINNED_PI },
       }),
     );
     fs.writeFileSync(
       path.join(tmp, "docker/Dockerfile"),
       `RUN npm install -g @earendil-works/pi-coding-agent@${PINNED_PI} openspec`,
     );
+    fs.writeFileSync(
+      path.join(tmp, "pnpm-workspace.yaml"),
+      `overrides:\n  "@earendil-works/pi-coding-agent": ${PINNED_PI}\n`,
+    );
 
     const failures = collectFailures({ repoRoot: tmp });
     expect(failures.length).toBeGreaterThan(0);
     expect(failures.join("\n")).toMatch(/pi-coding-agent/);
+    // The original reason (a stale declared dependency / pin drift) must still
+    // be present \u2014 not only a "missing pin" error.
+    expect(failures.join("\n")).toMatch(/pi pin drift|Stale pin/i);
+    expect(failures.join("\n")).not.toMatch(/missing a governed pi pin/i);
+  });
+
+  it("E5: below-floor versions are hard-blocked, naming running + required", () => {
+    const range = { minimum: PINNED_PI, recommended: PINNED_PI, maximum: null };
+    for (const v of ["0.78.0", BELOW_FLOOR_PI, "0.85.0"]) {
+      const out = computeCompatibility(range, v);
+      expect(out.error, `${v} must be blocked`).toBeTruthy();
+      expect(out.error).toContain(v);
+      expect(out.error).toContain(PINNED_PI);
+    }
+    for (const v of [PINNED_PI, "0.86.0"]) {
+      const out = computeCompatibility(range, v);
+      expect(out.error, `${v} must not be blocked`).toBeUndefined();
+      expect(out.upgradeRecommended).toBeFalsy();
+    }
+  });
+
+  it("E6: the hint band is empty under lockstep while the branch stays reachable", () => {
+    const range = { minimum: PINNED_PI, recommended: PINNED_PI, maximum: null };
+    for (let minor = 78; minor <= 86; minor++) {
+      const out = computeCompatibility(range, `0.${minor}.0`);
+      expect(out.upgradeRecommended === true && out.error === undefined).toBe(false);
+    }
+    // The hint branch itself must still exist \u2014 a synthetic range drives it
+    // (packages/server/src/__tests__/pi-version-skew-recommended-0-84.test.ts
+    // stays untouched as the companion coverage).
+    const synthetic = computeCompatibility(
+      { minimum: "0.78.0", recommended: "0.84.1", maximum: null },
+      "0.84.0",
+    );
+    expect(synthetic.error).toBeUndefined();
+    expect(synthetic.upgradeRecommended).toBe(true);
+  });
+
+  it("E11: publishable peer ranges stay broad and out of the governed set", () => {
+    const pkgRoot = path.join(REPO_ROOT, "packages");
+    const peers: Array<{ name: string; range: string }> = [];
+    for (const dir of fs.readdirSync(pkgRoot)) {
+      const pkgPath = path.join(pkgRoot, dir, "package.json");
+      if (!fs.existsSync(pkgPath)) continue;
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+      const range = pkg.peerDependencies?.["@earendil-works/pi-coding-agent"];
+      if (range) peers.push({ name: dir, range });
+    }
+    expect(peers.length).toBe(8);
+    for (const { name, range } of peers) {
+      expect(range, `${name} peer range must stay broad`).toBe(">=0.80.10");
+    }
   });
 
   it("X13: the resolved pi in node_modules satisfies the server dependency range", () => {

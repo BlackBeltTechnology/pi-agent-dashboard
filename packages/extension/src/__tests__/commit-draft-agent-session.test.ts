@@ -69,7 +69,11 @@ describe("runForkSubagentDraft — 0.84.x session-model audit", () => {
     expect(typeof sdk.createAgentSession).toBe("function");
     expect(typeof sdk.SessionManager).toBe("function");
     expect(typeof sdk.SessionManager.inMemory).toBe("function");
-  });
+    // Importing the REAL 0.85.1 SDK module graph is heavy (~9 s cold on a dev
+    // machine) and exceeds vitest's 5 s default. The audit must still resolve
+    // the actual package, so widen THIS test's timeout rather than drop the
+    // `importActual` (which is the whole point — it proves the real export).
+  }, 30_000);
 
   it("X7: drafts via createAgentSession + SessionManager.inMemory, then tears down", async () => {
     vi.resetModules();

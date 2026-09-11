@@ -103,8 +103,8 @@ function extractRawSessionUpdates(event: DashboardEvent): SessionUpdates | null 
     // pi >= 0.84.3 reports a compaction that failed or was aborted. Without
     // this arm the `compacting` latch set by `session_before_compact` never
     // clears on the failure path, and the reload dispatcher refuses every
-    // later reload for the session. Older pi never emits it, so the arm is
-    // inert below the floor — no version gate needed.
+    // later reload for the session. The 0.85.1 lockstep floor guarantees pi
+    // emits it, so the arm needs no version gate.
     case "session_compact_failed":
       return { compacting: false };
 
