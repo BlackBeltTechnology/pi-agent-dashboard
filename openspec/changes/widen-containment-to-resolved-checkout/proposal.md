@@ -1,9 +1,9 @@
 # Widen File-Read Containment to the Resolved Checkout
 
-> **STUB — not yet designed.** Recorded ahead of implementation so change 1's
-> sequence is durable rather than living only in that proposal's prose. Requires
-> a `doubt-driven-review` pass and a `test-plan.md` before any code is written.
 > Change 3 of 3. Depends on `add-git-checkout-root-resolver` (shipped).
+> Design and spec deltas are in `design.md` / `specs/`; the
+> `doubt-driven-review` + `security-hardening` gate is tasks §1 and must land
+> before any code in tasks §2–§5.
 
 ## Why
 
@@ -24,9 +24,13 @@ line changed in passing while fixing a display bug.
 
 ## What Changes
 
-- Anchor file-read containment on the resolver's `thisCheckout` instead of
+- Anchor file-read containment on the resolver's `thisCheckout` AND
+  `mainCheckout` (equal for every non-worktree state; both needed for a linked
+  worktree so the existing worktree→main-checkout reach survives) instead of
   `dirname(--git-common-dir)`, so a submodule / `--separate-git-dir` session may
-  read its OWN checkout.
+  read its OWN checkout. Each anchor is first BOUND to the repository (below).
+- Expose the resolver's `commonDir` (identity only, never an anchor) and an
+  async wiring of the same resolver, so the file route does not block.
 - **Both `file-read-containment` requirements currently mandate `dirname()`**, so
   both need MODIFIED deltas — the code cannot simply be changed under them.
 - Add tests for the widened states. The current suite builds only the non-repo
@@ -55,8 +59,9 @@ and thereby admit an otherwise-unknown request `cwd`. It was accepted for change
 1 on the bounded-reach argument above (the store opens at the request's own
 `cwd`), and because closing it properly means *binding* `mainCheckout` to the
 repository — re-resolving the claimed main checkout and requiring it to point
-back at the same common dir — which is a new probe on an authorization request
-path, not a line change.
+back at the same common dir — which is up to five new probes on an
+authorization request path (design D4 re-budgets the guard to hold its 2 s
+ceiling), not a line change.
 
 This change SHALL settle it for both consumers at once, so the guard and
 containment do not diverge on what "the repository owns this path" means. A
@@ -64,10 +69,23 @@ containment do not diverge on what "the repository owns this path" means. A
 re-tested, not re-assumed, because `reindexAll` follows a cwd-local
 `knowledge_base.json` whose `resolvedSources` need not stay under that cwd.
 
+## Coordination
+
+`add-access-grants-and-review` (planned, unshipped) also carries a MODIFIED
+delta on the `file-read-containment` layered-check requirement (it adds a layer
+3 and freezes per-site anchor sets). The two are compatible: this change alters
+how layer 2 DERIVES an anchor's checkout roots, not which anchors a site passes.
+Whichever change archives second re-derives its delta on the then-current main
+spec (tasks 5.4).
+
 ## Impact
 
 - `packages/server/src/lib/path-containment.ts` + `__tests__/path-containment.test.ts`.
-- MODIFIED deltas for both `file-read-containment` requirements.
+- MODIFIED deltas for all four `file-read-containment` requirements (the third and fourth only re-word "git common root" → bound checkout roots and correct the site enumeration; no `system-routes` site exists).
+- `packages/shared/src/platform/git.ts`: `commonDir` field, `checkoutRootsAsync`,
+  shared `isBoundCheckout` — MODIFIED delta for `git-checkout-root-resolution`'s
+  *three distinct facts* requirement plus an ADDED *repository binding*
+  requirement.
 - `packages/kb-plugin/src/server/kb-routes.ts` (`isAllowedCwd`) +
   `__tests__/kb-routes.test.ts` — the SAME repository-binding rule, so the guard
   and containment cannot diverge on what "the repository owns this path" means.
