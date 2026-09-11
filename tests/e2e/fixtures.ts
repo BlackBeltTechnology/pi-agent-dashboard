@@ -50,27 +50,27 @@
  * See change: fix-e2e-harness-memory-exhaustion.
  */
 
-import { test as base, expect } from "@playwright/test";
 import { BusClient } from "@blackbelt-technology/pi-dashboard-bus-client";
 import type { SessionRemovedMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { test as base, expect } from "@playwright/test";
 import { DASHBOARD_PORT, HEALTH_URL } from "./lifecycle.js";
 import {
-  HARNESS_DOWN_MESSAGE,
-  RESIDUAL_SESSION_BUDGET,
   checkBudget,
   computeDelta,
   createLatch,
   decideGate,
+  HARNESS_DOWN_MESSAGE,
   isLiveSession,
-  settleSessionIds,
+  RESIDUAL_SESSION_BUDGET,
   type SessionLike,
+  settleSessionIds,
 } from "./reap-core.js";
 
+export type { APIRequestContext, Locator, Page, WebSocket } from "@playwright/test";
 // Re-export `expect` plus EVERY type the specs pull from the same statement.
 // A missing re-export here breaks every spec at once while the import guard still
 // passes, so this list is type-checked by `npm run lint:e2e`, not eyeballed.
 export { expect };
-export type { APIRequestContext, Locator, Page, WebSocket } from "@playwright/test";
 
 /** Module state — see the SINGLE-WORKER DEPENDENCY note above. */
 const latch = createLatch();
@@ -89,7 +89,7 @@ async function probeHarness(): Promise<boolean> {
   }
 }
 
-async function connectBus(): Promise<BusClient> {
+export async function connectBus(): Promise<BusClient> {
   const client = new BusClient({ host: "localhost", port: DASHBOARD_PORT });
   await client.connect();
   return client;
@@ -114,7 +114,7 @@ async function connectBus(): Promise<BusClient> {
  * An unknown/already-gone session is success — `notify-channel.spec.ts`
  * force-kills its own session mid-test, and that must not be an error here.
  */
-async function shutdownSession(client: BusClient, sessionId: string): Promise<void> {
+export async function shutdownSession(client: BusClient, sessionId: string): Promise<void> {
   // `isLiveSession`, not mere presence: a shut-down session KEEPS its record
   // until `session_removed`. Treating a lingering `live:false`/`ended` record as
   // live meant sending `shutdown` to a dead session and then blocking the full

@@ -260,17 +260,24 @@ describe("session-scanner", () => {
   });
 
   it("reconstructs gitWorktree from persisted mainPath + name", () => {
+    // `mainPath` must be a PLAUSIBLE working tree (exists, no `.git` segment,
+    // carries a `.git` entry) or the load-time phantom filter drops it — so the
+    // fixture is a real directory rather than the literal `/repo`.
+    // See change: add-git-checkout-root-resolver.
+    const mainPath = path.join(tmpDir, "repo");
+    fs.mkdirSync(path.join(mainPath, ".git"), { recursive: true });
+    const cwd = path.join(mainPath, ".worktrees", "feat-x");
     const dir = createSessionDir("--test-cwd--");
-    const sf = createJsonl(dir, "2026-03-30T21-39-43-034Z_wt-id.jsonl", { id: "wt-id", cwd: "/repo/.worktrees/feat-x" });
+    const sf = createJsonl(dir, "2026-03-30T21-39-43-034Z_wt-id.jsonl", { id: "wt-id", cwd });
     writeSessionMeta(sf, {
-      cwd: "/repo/.worktrees/feat-x",
+      cwd,
       status: "ended",
-      gitWorktree: { mainPath: "/repo", name: "feat-x" },
+      gitWorktree: { mainPath, name: "feat-x" },
       cachedAt: Date.now() + 10000,
     });
 
     const result = scanAllSessions(tmpDir);
-    expect(result.sessions[0].gitWorktree?.mainPath).toBe("/repo");
+    expect(result.sessions[0].gitWorktree?.mainPath).toBe(mainPath);
     expect(result.sessions[0].gitWorktree?.name).toBe("feat-x");
   });
 

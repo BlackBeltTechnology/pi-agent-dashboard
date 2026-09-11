@@ -48,13 +48,21 @@ export type LifecyclePolicy = "ephemeral" | "durable";
 export type SessionStatus = "active" | "idle" | "streaming" | "ended";
 
 /**
- * Per-session git-worktree state. Populated by the bridge's VCS probe when
- * `git rev-parse --git-common-dir` resolves outside `--show-toplevel` (the
- * canonical signal that this cwd is a worktree, not the main checkout).
- * Absent (or `undefined`) for plain checkouts — clients MUST treat absence
- * as "not a worktree". Used by the dashboard to (a) group worktree
- * sessions under their parent repo, (b) render the WORKSPACE-subcard
- * worktree pill.
+ * Per-session git-worktree state. Populated by the bridge's VCS probe when the
+ * shared checkout-root resolution reports the cwd as a LINKED WORKTREE — its
+ * `git rev-parse --git-dir` differs from its `--git-common-dir` — AND a
+ * plausible main checkout resolves for it. Absent (or `undefined`) otherwise,
+ * which now covers a submodule, a `--separate-git-dir` checkout, a bare
+ * repository, and a worktree of a bare hub (a linked worktree whose repository
+ * has no working tree to name). Clients MUST treat absence as "not a
+ * worktree". Used by the dashboard to (a) group worktree sessions under their
+ * parent repo, (b) render the WORKSPACE-subcard worktree pill.
+ *
+ * `mainPath` is the RESOLVED main checkout, never `dirname(--git-common-dir)`:
+ * that derivation names a real checkout only when the git dir happens to sit
+ * inside one, and otherwise yields a nonexistent `…/.git/modules/<name>` path
+ * or a real but unrelated directory. It never contains a `.git` path segment.
+ * See change: add-git-checkout-root-resolver.
  *
  * `base` is post-create metadata, set by the server when a session is
  * spawned via the dashboard's worktree dialog and persisted to
