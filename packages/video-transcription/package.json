@@ -26,7 +26,8 @@
   ],
   "pi": {
     "skills": [
-      ".pi/skills/video-transcription"
+      ".pi/skills/video-transcription",
+      ".pi/skills/speaker-id"
     ],
     "tools": [
       {
@@ -51,7 +52,8 @@
     ]
   },
   "bin": {
-    "pi-transcribe": "src/bin/transcribe.ts"
+    "pi-transcribe": "src/bin/transcribe.ts",
+    "pi-voiceid": "src/bin/voiceid.ts"
   },
   "files": [
     "src/",
@@ -85,6 +87,7 @@
   },
   "optionalDependencies": {
     "ffmpeg-static": "^5.3.0",
-    "@ffprobe-installer/ffprobe": "^2.1.2"
+    "@ffprobe-installer/ffprobe": "^2.1.2",
+    "sherpa-onnx-node": "^1.13.6"
   }
 }

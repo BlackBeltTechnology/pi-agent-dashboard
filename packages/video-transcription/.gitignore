@@ -1,2 +1,7 @@
 .env
 dist/
+# Voiceprint library is biometric-derived data; never commit it if a --store
+# path is pointed inside the package.
+voiceprints.json
+*.voiceprints.json
+.voiceprints/
