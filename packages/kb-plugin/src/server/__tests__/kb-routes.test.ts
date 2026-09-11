@@ -359,15 +359,20 @@ describe("GET /api/kb/stats", () => {
 
   // P1 — the guard resolves synchronously on a request path, so a pathological
   // git must not block past the documented 2 s ceiling. The shim sleeps LONGER
-  // than the 200 ms per-probe budget: every probe times out, so the guard
-  // REJECTS quickly. A budget raised to 400 ms (the superseded value) or 2 s
-  // would let the probes succeed and ADMIT the worktree — this fails then.
+  // than the 200 ms per-probe budget and then EXECUTES the real git: the probes
+  // time out, so the guard REJECTS. Executing the real git matters — a shim that
+  // merely slept and exited non-zero would be rejected under ANY budget, so the
+  // test could not detect the regression. A budget raised to 400 ms (the
+  // superseded value) or 2 s would let the probes succeed and ADMIT the
+  // worktree, failing the assertion below.
   it.skipIf(process.platform === "win32")("P1: a pathological git is bounded and rejected, never admitted", async () => {
     const { main, worktree } = makeRepoWithWorktree();
     // Control: with a healthy git the worktree is admitted via its main repo.
     expect(isAllowedCwd(worktree, () => [main])).toBe(true);
 
-    const restore = useGitPath(makeGitShim("sleep 0.3"));
+    // Resolve the REAL git before the shim shadows it on PATH.
+    const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+    const restore = useGitPath(makeGitShim(`sleep 0.3\nexec "${realGit}" "$@"`));
     try {
       const started = Date.now();
       const allowed = isAllowedCwd(worktree, () => [main]);

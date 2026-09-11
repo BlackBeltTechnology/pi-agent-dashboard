@@ -11,7 +11,7 @@ table for tasks 4.2–4.7 (test ids in parentheses).
 |---|---|---|---|---|
 | normal | `<C>` | `<C>` | — | `/etc/passwd` (E21) |
 | normalSubdir | `<C>/a/b/c` | `<C>` | own checkout root | sibling outside `<C>` (E21) |
-| worktree | `<C>/…/wt` | wt, main | own wt root | — |
+| worktree | `<C>/…/wt` | wt, main | own wt root | a path outside both wt and main (E21); an unrelated repo via unbound `core.worktree` (E20) |
 | submodule | `<S>/models/sub/…` | submodule | **+ own checkout** | `<S>/.env` (E15) |
 | submoduleWorktree | wt of submodule | subwt, submodule | **+ own wt, + submodule** | `<S>/.git/modules/models/x` (E16) |
 | bare | `<C>` (bare) | none | none (cwd-only) | `<C>/../…` (E19) |

@@ -15,6 +15,7 @@
  * See change: platform-command-executor.
  */
 import { realpathSync } from "node:fs";
+import { realpath as realpathAsync } from "node:fs/promises";
 import path from "node:path";
 import type { GitStatus } from "../types.js";
 import { normalizePath, samePath } from "./paths.js";
@@ -637,15 +638,57 @@ function realpathOrNull(p: string): string | null {
   }
 }
 
+/** `fs.promises.realpath`, or `null` when the path does not exist. */
+async function realpathOrNullAsync(p: string): Promise<string | null> {
+  try {
+    return await realpathAsync(p);
+  } catch {
+    return null;
+  }
+}
+
 /** Canonicalize for a binding compare: follow symlinks when possible, else normalize. */
 function canonical(p: string, platform: NodeJS.Platform): string {
   return normalizePath(realpathOrNull(p) ?? p, platform);
+}
+
+/**
+ * Async twin of {@link canonical}.
+ *
+ * The async binding path MUST NOT call `realpathSync`: a remote caller can force
+ * layer 2 of containment at will, so a slow filesystem would block the event
+ * loop outside every git probe timeout — the same DoS the async PROBES exist to
+ * avoid. `fs.promises.realpath` keeps the whole path non-blocking.
+ */
+async function canonicalAsync(p: string, platform: NodeJS.Platform): Promise<string> {
+  return normalizePath((await realpathOrNullAsync(p)) ?? p, platform);
 }
 
 /** Whether `p` is `base` itself or sits under it (native separators). */
 function isUnder(p: string, base: string): boolean {
   const rel = path.relative(base, p);
   return rel === "" || (!rel.startsWith(".." + path.sep) && rel !== ".." && !path.isAbsolute(rel));
+}
+
+/**
+ * The binding decision over paths ALREADY canonicalized to real form. Signals
+ * only; it re-canonicalizes the resolver's two fields through `canonicalize`,
+ * which the caller supplies (sync or async), so the decision itself is written
+ * once.
+ */
+function bindDecision(
+  candidateCanon: string,
+  commonCanon: string,
+  reResolved: GitCheckoutRoots | null,
+  reCommonCanon: string | null,
+  reThisCanon: string | null,
+  platform: NodeJS.Platform,
+): boolean {
+  if (!reResolved) return false;
+  if (!reCommonCanon || !samePath(reCommonCanon, commonCanon, platform)) return false;
+  if (!reThisCanon) return false;
+  if (!samePath(reThisCanon, candidateCanon, platform)) return false;
+  return !isUnder(candidateCanon, commonCanon);
 }
 
 /**
@@ -678,13 +721,14 @@ export function isBoundCheckoutFromRoots(
   reResolved: GitCheckoutRoots | null,
   platform: NodeJS.Platform = process.platform,
 ): boolean {
-  if (!reResolved) return false;
-  const commonCanon = canonical(commonDir, platform);
-  if (!samePath(canonical(reResolved.commonDir, platform), commonCanon, platform)) return false;
-  if (!reResolved.thisCheckout) return false;
-  const candidateCanon = canonical(candidate, platform);
-  if (!samePath(canonical(reResolved.thisCheckout, platform), candidateCanon, platform)) return false;
-  return !isUnder(candidateCanon, commonCanon);
+  return bindDecision(
+    canonical(candidate, platform),
+    canonical(commonDir, platform),
+    reResolved,
+    reResolved ? canonical(reResolved.commonDir, platform) : null,
+    reResolved?.thisCheckout ? canonical(reResolved.thisCheckout, platform) : null,
+    platform,
+  );
 }
 
 /**
@@ -721,13 +765,19 @@ export async function isBoundCheckoutAsync(
   commonDir: string,
   opts: BindCheckoutOptions = {},
 ): Promise<boolean> {
-  const candidateReal = realpathOrNull(candidate);
+  const platform = process.platform;
+  const candidateReal = await realpathOrNullAsync(candidate);
   if (!candidateReal || hasGitPathSegment(candidateReal)) return false;
-  return isBoundCheckoutFromRoots(
-    candidateReal,
-    commonDir,
-    await checkoutRootsAsync({ cwd: candidateReal, timeout: opts.timeout }),
-  );
+  const reResolved = await checkoutRootsAsync({ cwd: candidateReal, timeout: opts.timeout });
+  // Fully async canonicalization: see {@link canonicalAsync} for why the async
+  // path must not reach `realpathSync`.
+  const [candidateCanon, commonCanon, reCommonCanon, reThisCanon] = await Promise.all([
+    canonicalAsync(candidateReal, platform),
+    canonicalAsync(commonDir, platform),
+    reResolved ? canonicalAsync(reResolved.commonDir, platform) : Promise.resolve(null),
+    reResolved?.thisCheckout ? canonicalAsync(reResolved.thisCheckout, platform) : Promise.resolve(null),
+  ]);
+  return bindDecision(candidateCanon, commonCanon, reResolved, reCommonCanon, reThisCanon, platform);
 }
 
 export function diff(input: WithCwd & { path: string; ref?: string }): Result<string> {
