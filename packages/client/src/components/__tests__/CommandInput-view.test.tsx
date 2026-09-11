@@ -97,6 +97,36 @@ function renderInput(props: Partial<React.ComponentProps<typeof CommandInput>> =
   return { ...result, textarea, onSend, onViewLocal };
 }
 
+// fix-quota-widget-clipping: the composer must be bounded by a share of the CHAT
+// PANE (not a fixed pixel height) and scroll its own content at that bound, so a
+// long draft can never push the rows below it out of the pane, and ChatView is
+// always left a share. jsdom computes no layout, so the declared contract is what
+// is asserted here; the geometric behaviour is covered by browser verification.
+describe("CommandInput — chat-pane height budget", () => {
+  it("bounds the composer to a fraction of the pane", () => {
+    const { container } = renderInput();
+    const cls = container.querySelector('[data-testid="composer-root"]')!.className;
+    // Pane-relative ceiling, not a fixed px height.
+    expect(cls).toContain("max-h-[40%]");
+    // Allowed to yield below its content height.
+    expect(cls).toContain("min-h-0");
+  });
+
+  it("scrolls the card, not the root, so the dropdown is not clipped", () => {
+    const { container } = renderInput();
+    const root = container.querySelector('[data-testid="composer-root"]')!;
+    const card = container.querySelector('[data-testid="composer-card"]')!;
+    // The root is `relative` — the containing block for the autocomplete
+    // dropdowns, which render ABOVE the composer. Making it a scrollport clips
+    // them away entirely (measured: 272px of a 269px dropdown lost).
+    expect(root.className).not.toContain("overflow-y-auto");
+    expect(root.className).toContain("flex-col");
+    // The deficit is absorbed here instead.
+    expect(card.className).toContain("overflow-y-auto");
+    expect(card.className).toContain("min-h-0");
+  });
+});
+
 describe("CommandInput — /view interception", () => {
   it("lists /view in command dropdown when typing /v", () => {
     const { container, textarea } = renderInput();
