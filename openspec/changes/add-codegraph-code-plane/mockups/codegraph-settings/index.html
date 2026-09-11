@@ -1,0 +1,788 @@
+<!doctype html>
+<html lang="en" data-theme="studio">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Code Graph surfaces (mockup) — folder dialog · rows · global settings</title>
+<style>
+  /* ---- theme tokens (from packages/client/src/index.css) ---- */
+  :root, [data-theme="studio"] {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+    --bg-hover:rgba(255,255,255,.06); --bg-code:#1a1a1a;
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+    --border-primary:#252525; --border-secondary:#333333; --border-subtle:rgba(255,255,255,.06);
+    --cg-accent:#a5b4fc; --cg-accent-bd:#6366f1; --cg-accent-bg:rgba(99,102,241,.1);
+    --cg-ok:#4ade80; --cg-warn:#fbbf24; --cg-off:var(--text-muted);
+    --cg-ok-bd:color-mix(in srgb,var(--cg-ok) 70%,transparent);
+    --cg-warn-bd:color-mix(in srgb,var(--cg-warn) 70%,transparent);
+    --on-accent:#ffffff;
+    --shadow-card:rgba(0,0,0,.4); --elevation-rim:rgba(255,255,255,.10);
+    /* SlotPill accent ramp. The shipped SlotPill hardcodes Tailwind *-400
+       literals; these are the theme-aware, light-legible equivalents. */
+    --ac-blue:#60a5fa; --ac-indigo:#a5b4fc; --ac-cyan:#22d3ee;
+    --ac-teal:#2dd4bf; --ac-purple:#c084fc; --ac-red:#f87171;
+  }
+  [data-theme="light"] {
+    --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+    --bg-hover:rgba(0,0,0,.04); --bg-code:#f5f5f5;
+    --text-primary:#1a1a1a; --text-secondary:#444444; --text-tertiary:#5f5f5f; --text-muted:#8a8a8a;
+    --border-primary:#e0e0e0; --border-secondary:#cccccc; --border-subtle:rgba(0,0,0,.06);
+    --cg-accent:#3730a3; --cg-accent-bd:#4f46e5; --cg-accent-bg:rgba(79,70,229,.08);
+    --cg-ok:#15803d; --cg-warn:#a16207; --cg-off:var(--text-muted);
+    --cg-ok-bd:var(--cg-ok); --cg-warn-bd:var(--cg-warn);
+    --on-accent:#ffffff;
+    --shadow-card:rgba(0,0,0,.08); --elevation-rim:rgba(255,255,255,.9);
+    --ac-blue:#1d4ed8; --ac-indigo:#4338ca; --ac-cyan:#0e7490;
+    --ac-teal:#0f766e; --ac-purple:#7e22ce; --ac-red:#b91c1c;
+  }
+  :focus-visible{outline:2px solid var(--cg-accent);outline-offset:2px;border-radius:4px;}
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    background:var(--bg-primary);color:var(--text-secondary);font-size:14px;line-height:1.45;}
+
+  /* ── mockup chrome (not part of the panel) ── */
+  .lab{max-width:820px;margin:0 auto;padding:16px 20px 0;}
+  .lab-top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;}
+  .lab h1{font-size:12px;font-weight:600;color:var(--text-tertiary);margin:0;letter-spacing:.06em;text-transform:uppercase;}
+  .lab-tools{display:flex;gap:6px;flex-wrap:wrap;}
+  .tbtn,.statesel{font:inherit;font-size:12px;color:var(--text-secondary);background:var(--bg-tertiary);
+    border:1px solid var(--border-secondary);border-radius:6px;padding:6px 10px;cursor:pointer;min-height:34px;}
+  .tbtn:hover{background:var(--bg-hover);}
+  .statebar{display:flex;gap:2px;margin:12px 0 0;border-bottom:1px solid var(--border-secondary);overflow-x:auto;padding-bottom:1px;}
+  .stab{font:inherit;font-size:12.5px;font-weight:500;background:none;border:none;color:var(--text-tertiary);
+    padding:9px 12px;cursor:pointer;border-bottom:2px solid transparent;min-height:40px;white-space:nowrap;}
+  .stab:hover{color:var(--text-secondary);}
+  .stab[aria-selected="true"]{color:var(--text-primary);border-bottom-color:var(--cg-accent);}
+  .frame{margin:14px 0 60px;border:1px solid var(--border-secondary);border-radius:10px;overflow:hidden;background:var(--bg-primary);}
+
+  /* ── route-backed overlay DIALOG — the REAL container for this claim ────────
+     `presentation` is omitted by all 8 bundled `shell-overlay-route` claims,
+     so the spec default applies: `"dialog"`. Geometry from
+     `RouteBackedOverlay.tsx` + `Dialog size="full" flush`:
+       scrim  absolute inset-0            bg-black/60
+       panel  max-w-[95vw] max-h-[92vh]   rounded-lg border shadow-xl
+              bg-[var(--bg-primary)] overflow-hidden flex flex-col
+       claim  App.tsx wraps it in  h-[92vh]  — a DEFINITE height, not h-full
+              (a percentage height there resolves against nothing and the
+               whole chain collapses to 0; caught by kb-folder-slot.spec.ts)
+     `.dlgstage` stands in for the viewport so the lab chrome stays clickable;
+     the panel's 95%/92% are OF THE STAGE — the same proportion as 95vw/92vh.
+     NB: named `dlgstage`, NOT `stage` — `.stage` is already taken at the list
+     demo below (`padding:14px`), and same-specificity-later-wins silently
+     stole the box, shrinking every ratio measured here. */
+  .dlgstage{position:relative;height:600px;overflow:hidden;background:var(--bg-primary);}
+  .underlay{position:absolute;inset:0;overflow:hidden;pointer-events:none;user-select:none;}
+  .scrim{position:absolute;inset:0;background:rgba(0,0,0,.6);}
+  .stageflex{position:relative;height:100%;display:flex;align-items:center;justify-content:center;}
+  /* `w-full mx-4 max-w-[95vw]` ⇒ min(95%, 100% − 32px). The max-width is what
+     makes the panel stop shrinking into the margins on a narrow viewport. */
+  .dlgpanel{width:95%;max-width:calc(100% - 32px);height:92%;display:flex;flex-direction:column;overflow-y:auto;
+    background:var(--bg-primary);border:1px solid var(--border-primary);border-radius:8px;
+    box-shadow:0 20px 25px -5px rgba(0,0,0,.45),0 8px 10px -6px rgba(0,0,0,.45);}
+  .dlgpanel .foot{position:sticky;bottom:0;}
+
+  /* ── the panel itself (mirrors KbSettingsPanel geometry) ── */
+  .p-head{display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid var(--border-primary);
+    background:var(--bg-primary);position:sticky;top:0;z-index:5;}
+  .p-back{background:none;border:none;color:var(--text-tertiary);cursor:pointer;padding:4px;min-height:28px;font-size:15px;line-height:1;}
+  .p-back:hover{color:var(--text-primary);}
+  .p-title{font-size:13.5px;font-weight:500;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .strip{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 16px;border-bottom:1px solid var(--border-subtle);
+    font-size:11px;color:var(--text-tertiary);}
+  .strip .count{color:var(--text-tertiary);}
+  .strip .right{margin-left:auto;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;
+    color:var(--text-tertiary);white-space:nowrap;}
+  .sec{padding:12px 16px;border-bottom:1px solid var(--border-subtle);}
+  .sec-h{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-tertiary);font-weight:700;margin-bottom:8px;}
+  .band{padding:8px 16px;font-size:12px;border-bottom:1px solid var(--border-subtle);background:var(--bg-secondary);}
+
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:10px;text-transform:uppercase;letter-spacing:.05em;
+    padding:1px 6px;border-radius:4px;border:1px solid var(--border-secondary);color:var(--text-tertiary);}
+  .pill.ok{color:var(--cg-ok);border-color:var(--cg-ok-bd);}
+  .pill.warn{color:var(--cg-warn);border-color:var(--cg-warn-bd);}
+  .pill.info{color:var(--cg-accent);border-color:var(--cg-accent-bd);}
+  .pill .dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none;}
+
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--text-primary);
+    background:var(--bg-tertiary);padding:1px 5px;border-radius:4px;}
+
+  /* resolution ladder */
+  .ladder{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;}
+  .rung{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;border:1px solid transparent;
+    font-size:12px;color:var(--text-tertiary);}
+  .rung .n{width:16px;height:16px;flex:none;border-radius:4px;border:1px solid var(--border-secondary);
+    font-size:9.5px;display:flex;align-items:center;justify-content:center;color:var(--text-tertiary);}
+  .rung .lbl{flex:1 1 auto;min-width:0;}
+  .rung .hint{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;color:var(--text-tertiary);
+    flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .rung.active{border-color:var(--cg-accent-bd);background:var(--cg-accent-bg);color:var(--text-primary);}
+  .rung.active .n{border-color:var(--cg-accent-bd);color:var(--cg-accent);}
+  .rung.active .hint{color:var(--cg-accent);}
+  .rung.active.warnrung{border-color:var(--cg-warn-bd);background:color-mix(in srgb,var(--cg-warn) 10%,transparent);}
+  .rung.active.warnrung .n,.rung.active.warnrung .hint{color:var(--cg-warn);border-color:var(--cg-warn-bd);}
+  .rung .mark{font-size:11px;color:var(--cg-accent);}
+  .rung.active.warnrung .mark{color:var(--cg-warn);}
+
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:3px 14px;font-size:12px;margin-bottom:10px;}
+  .kv dt{color:var(--text-tertiary);}
+  .kv dd{margin:0;color:var(--text-secondary);}
+  .pathline{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;margin-top:8px;font-size:12px;color:var(--text-tertiary);}
+  .pathline code{word-break:break-all;white-space:normal;}
+
+  .bar{height:6px;border-radius:99px;background:var(--bg-tertiary);overflow:hidden;margin:8px 0 6px;}
+  .bar > i{display:block;height:100%;background:var(--cg-accent);}
+  .jobnote{font-size:11.5px;color:var(--text-tertiary);}
+
+  .tools{display:flex;flex-direction:column;gap:6px;}
+  .tool{display:flex;gap:10px;align-items:baseline;padding:7px 9px;border:1px solid var(--border-subtle);
+    border-radius:6px;background:var(--bg-secondary);font-size:12px;}
+  .tool .name{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--cg-accent);flex:none;}
+  .tool .for{color:var(--text-secondary);}
+
+  .foot{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 16px;background:var(--bg-secondary);}
+  .btn{font:inherit;font-size:12px;padding:6px 12px;border-radius:6px;border:1px solid var(--border-secondary);
+    color:var(--text-secondary);background:transparent;cursor:pointer;min-height:34px;display:inline-flex;align-items:center;gap:6px;}
+  .btn:hover{color:var(--text-primary);border-color:var(--text-tertiary);}
+  .btn.primary{color:var(--cg-accent);border-color:var(--cg-accent-bd);background:var(--cg-accent-bg);font-weight:600;}
+  .btn.primary:hover{border-color:var(--cg-accent);}
+  .btn:disabled{opacity:.45;cursor:not-allowed;}
+  .btn:disabled:hover{border-color:var(--border-secondary);color:var(--text-secondary);}
+  .settled{margin-left:auto;font-size:11px;color:var(--text-tertiary);}
+  .err{padding:8px 16px;font-size:11.5px;color:var(--cg-warn);border-top:1px solid var(--border-subtle);}
+  .note{color:var(--cg-warn);} .note-ok{color:var(--cg-ok);} .note-mut{color:var(--text-tertiary);}
+  .jobnote a{color:var(--cg-accent);font-weight:600;}
+
+  /* ── SlotPill + host surfaces ──
+     Geometry mirrors packages/dashboard-plugin-runtime/src/SlotPill.tsx and
+     packages/kb-plugin/src/client/FolderKbSection.tsx verbatim (radius 11px,
+     px 10px pt 10px pb 6px, 26px glyph chip, 13px extrabold value line, capsule
+     legend overhanging the top border). Only the accent palette is re-bound to
+     theme-aware tokens. See change: add-codegraph-code-plane. */
+  .pin{position:relative;display:inline-flex;align-items:center;gap:8px;min-width:0;
+    padding:10px 10px 6px;border-radius:11px;border:1px solid var(--border-subtle);
+    cursor:pointer;font:inherit;text-align:left;}
+  .pin.raised{background:var(--bg-secondary);box-shadow:0 1px 2px var(--shadow-card);}
+  .pin.flat{background:transparent;}
+  .pin:hover{border-color:color-mix(in srgb,var(--ac) 45%,transparent);}
+  .pin .legend{position:absolute;top:-6px;left:50%;transform:translateX(-50%);
+    max-width:calc(100% - 12px);padding:1px 6px;border-radius:99px;border:1px solid var(--border-subtle);
+    font-size:9px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;line-height:1.25;
+    color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .pin.raised .legend{background:var(--bg-tertiary);}
+  .pin.flat .legend{background:var(--bg-primary);}
+  .pin .gchip{width:26px;height:26px;flex:none;border-radius:8px;display:flex;
+    align-items:center;justify-content:center;background:color-mix(in srgb,var(--ac) 12%,transparent);color:var(--ac);}
+  .pin .gchip svg{width:15px;height:15px;display:block;fill:currentColor;}
+  .pin .val{display:flex;align-items:baseline;gap:6px;min-width:0;flex:1;overflow:hidden;
+    white-space:nowrap;font-size:13px;font-weight:800;color:var(--text-primary);line-height:1.25;}
+  .pin .sub{font-size:10px;font-weight:600;color:var(--text-tertiary);}
+  .pin .st{color:var(--ac);}
+  .pin .warnmark{font-size:10px;font-weight:800;color:var(--cg-warn);}
+  /* accent bindings — one class per SlotPill accent */
+  .a-blue{--ac:var(--ac-blue);} .a-indigo{--ac:var(--ac-indigo);} .a-cyan{--ac:var(--ac-cyan);}
+  .a-teal{--ac:var(--ac-teal);} .a-purple{--ac:var(--ac-purple);} .a-red{--ac:var(--ac-red);}
+
+  /* host: sidebar directory card — the pill grid from SessionList.tsx
+     (`grid-cols-1 sm:grid-cols-2 gap-x-2 gap-y-3 mt-3`) */
+  .stage{padding:14px;border-radius:10px;background:var(--bg-primary);}
+  .stage.list{background:var(--bg-secondary);}
+  .dirhead{display:flex;align-items:baseline;gap:8px;font-size:13px;font-weight:600;color:var(--text-primary);}
+  .dirhead .dircount{margin-left:auto;font-size:11px;font-weight:500;color:var(--text-tertiary);}
+  .gitrow{display:flex;gap:6px;align-items:baseline;margin-top:4px;font-size:11px;color:var(--text-tertiary);}
+  .dirgrid{display:grid;grid-template-columns:1fr;gap:12px 8px;margin-top:14px;}
+  @media (min-width:520px){ .dirgrid{grid-template-columns:1fr 1fr;} }
+
+  /* host: worktree session card — SessionCard.tsx root + SessionSubcard */
+  .scard{border:1px solid var(--border-subtle);border-radius:12px;padding:8px 10px 10px;
+    background:var(--bg-primary);box-shadow:inset 0 1px 0 var(--elevation-rim),0 4px 8px var(--shadow-card);}
+  .scardhead{display:flex;align-items:baseline;gap:8px;font-size:13px;font-weight:600;color:var(--text-primary);}
+  .scardhead .sstatus{margin-left:auto;font-size:10.5px;font-weight:600;color:var(--text-tertiary);}
+  .subcard{position:relative;margin-top:6px;border:1px solid var(--border-subtle);border-radius:8px;padding:6px 8px;}
+  .sublegend{position:absolute;top:-6px;left:50%;transform:translateX(-50%);padding:1px 6px;border-radius:99px;
+    background:var(--bg-primary);border:1px solid var(--border-subtle);font-size:9px;font-weight:600;
+    letter-spacing:.06em;text-transform:uppercase;line-height:1.25;color:var(--text-tertiary);}
+  .subrow{display:flex;align-items:baseline;gap:8px;font-size:12px;color:var(--text-secondary);}
+  .subrow .sub{margin-left:auto;font-size:10.5px;font-weight:600;color:var(--text-tertiary);}
+  /* component root — flex + gap ONLY in card placement, and the pill flexes to
+     fill while the sibling button stays 24px (`[&>[role=button]]:flex-1`) */
+  .pinroot{display:flex;flex-direction:column;}
+  .pinroot.card{flex-direction:row;align-items:center;gap:6px;}
+  .pinroot.card .pin{flex:1;min-width:0;}
+  /* SessionCard's `mt-1.5` wrapper around the worktree-card-section slot */
+  .cardslot{margin-top:6px;}
+  .csync-wrap{flex:none;display:flex;align-items:center;}
+  .cardsync{width:24px;height:24px;flex:none;border-radius:6px;border:1px solid var(--border-subtle);
+    background:none;color:var(--text-tertiary);display:flex;align-items:center;justify-content:center;
+    cursor:pointer;padding:0;}
+  .cardsync svg{width:13px;height:13px;display:block;fill:currentColor;}
+  .cardsync:hover{color:var(--ac-teal);border-color:color-mix(in srgb,var(--ac-teal) 45%,transparent);}
+  .cardsync:disabled{opacity:.4;cursor:not-allowed;}
+  .cardsync:disabled:hover{color:var(--text-tertiary);border-color:var(--border-subtle);}
+
+  /* ── the two axes, made visible — the restructure's whole point ── */
+  .axisrow{display:flex;align-items:baseline;gap:10px;margin:10px 0 0;flex-wrap:wrap;}
+  .axislbl{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-tertiary);white-space:nowrap;}
+  .axislbl-sub{font-weight:600;text-transform:none;letter-spacing:0;font-size:9px;opacity:.7;}
+  .binb{font:inherit;font-size:12px;font-weight:600;background:var(--bg-tertiary);border:1px solid var(--border-secondary);
+    color:var(--text-tertiary);padding:5px 11px;border-radius:6px;cursor:pointer;min-height:30px;}
+  .binb[data-k="present"][aria-selected="true"]{color:var(--cg-ok);border-color:var(--cg-ok-bd);
+    background:color-mix(in srgb,var(--cg-ok) 14%,transparent);}
+  .binb[data-k="absent"][aria-selected="true"]{color:var(--cg-warn);border-color:var(--cg-warn-bd);
+    background:color-mix(in srgb,var(--cg-warn) 16%,transparent);}
+
+  /* ── compact binary OUTCOME line — replaces the folder-local ladder ──
+     The folder dialog needs the binary RESULT (present/absent + path, one
+     line); the RESOLUTION PROCESS is a host fact and lives on surface 4. */
+  .binline{display:flex;align-items:center;gap:8px;padding:7px 16px;border-bottom:1px solid var(--border-subtle);
+    font-size:11px;color:var(--text-tertiary);flex-wrap:wrap;}
+  .binline .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:50%;}
+  .binled{width:7px;height:7px;border-radius:50%;flex:none;}
+  .binled.ok{background:var(--cg-ok);}
+  .binled.warn{background:var(--cg-warn);}
+  .binlink{margin-left:auto;color:var(--cg-accent);font-weight:600;text-decoration:none;white-space:nowrap;}
+  .binlink:hover{text-decoration:underline;}
+
+  /* ── surface 4: the GLOBAL settings dialog ──
+     Built-in `/settings/...` panels size to CONTENT capped at 92vh — the flush
+     Dialog there is `max-h`-capped with NO definite height, which is why
+     SettingsPanel uses `min-h-0` and not `h-full`. A folder CLAIM is the
+     opposite: App.tsx pins `h-[92vh]`. Same container, two height contracts. */
+  .dlgpanel.auto{height:auto;max-height:92%;}
+  .setwrap{display:flex;flex:1;min-height:0;}
+  .setnav{width:186px;flex:none;border-right:1px solid var(--border-primary);overflow-y:auto;padding:8px;}
+  .sgrp{font-size:9.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-muted);padding:10px 7px 4px;}
+  .sit{display:flex;align-items:center;gap:7px;padding:5px 7px;border-radius:6px;font-size:12.5px;color:var(--text-muted);cursor:pointer;white-space:nowrap;}
+  .sit:hover{background:var(--bg-secondary);color:var(--text-secondary);}
+  .sit.on{background:rgba(37,99,235,.15);color:var(--text-primary);font-weight:600;}
+  .sit.sub{padding-left:24px;}
+  .sdot{width:6px;height:6px;border-radius:50%;flex:none;}
+  .sdot.ok{background:var(--cg-ok);}
+  .setcontent{flex:1;min-width:0;overflow-y:auto;padding:14px 16px 18px;}
+  .setcontent .sec{padding-left:0;padding-right:0;border-bottom:0;}
+  .plugchrome{border:1px solid var(--border-secondary);border-radius:8px;background:var(--bg-secondary);margin-bottom:14px;}
+  .plughead{display:flex;align-items:center;gap:9px;padding:10px 12px;}
+  .plughead .gchip{width:26px;height:26px;border-radius:7px;flex:none;display:flex;align-items:center;justify-content:center;
+    background:var(--cg-accent-bg);color:var(--cg-accent);}
+  .plughead .gchip svg{width:15px;height:15px;fill:currentColor;}
+  .plugtitle{font-size:14px;font-weight:600;color:var(--text-primary);}
+  .plugid{font-size:10px;color:var(--text-muted);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .switchon{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text-secondary);cursor:pointer;}
+  .plugmeta{display:flex;flex-wrap:wrap;gap:4px 14px;padding:0 12px 10px;font-size:10px;color:var(--text-muted);}
+  .plugmeta b{font-weight:600;color:var(--text-secondary);}
+  .plugmeta b.ok{color:var(--cg-ok);}
+  .gact{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;}
+  .gact .settled{margin-left:auto;font-size:10.5px;font-weight:600;color:var(--text-tertiary);}
+
+  .surfbar{display:flex;gap:2px;margin:12px 0 0;padding-bottom:1px;overflow-x:auto;}
+  .surb{font:inherit;font-size:12px;font-weight:600;background:var(--bg-tertiary);border:1px solid var(--border-secondary);
+    color:var(--text-tertiary);padding:6px 12px;border-radius:6px;cursor:pointer;min-height:34px;white-space:nowrap;}
+  .surb[aria-selected="true"]{color:var(--cg-accent);border-color:var(--cg-accent-bd);background:var(--cg-accent-bg);}
+  .ctxnote{margin:10px 0 0;font-size:11.5px;color:var(--text-tertiary);}
+  .ctxnote b{color:var(--text-secondary);font-weight:600;}
+
+  /* SettingsPanel's shell is `flex-1 flex flex-col md:flex-row min-h-0` — below
+     md the nav STACKS above the content rather than holding a fixed rail (at 390
+     a 186px rail left the content 128px). The true narrow-viewport experience is
+     the MobileShell settings hierarchy; this mirrors the container behaviour the
+     two surfaces share. */
+  @media (max-width:767.98px){
+    .setwrap{flex-direction:column;}
+    .setnav{width:auto;flex:none;max-height:200px;border-right:0;
+      border-bottom:1px solid var(--border-primary);}
+    .setcontent{padding:12px 14px 16px;}
+  }
+
+  /* narrow: stack rung hint under its label, let the strip breathe */
+  @media (max-width:560px){
+    .rung{flex-wrap:wrap;row-gap:2px;}
+    .rung .lbl{flex-basis:calc(100% - 46px);}
+    .rung .hint{flex:1 1 100%;order:1;padding-left:24px;}
+    .strip .right{margin-left:0;}
+    .tool{flex-direction:column;gap:2px;}
+  }
+</style>
+</head>
+<body>
+<div class="lab">
+  <div class="lab-top">
+    <h1>Mockup · add-codegraph-code-plane → CodegraphSettingsPanel + folder rows</h1>
+    <div class="lab-tools">
+      <select class="statesel" id="stateSel" aria-label="Panel state"></select>
+      <button class="tbtn" id="themeBtn">◐ Light</button>
+    </div>
+  </div>
+  <div class="surfbar" id="surfBar" role="tablist" aria-label="Surface"></div>
+  <div class="axisrow">
+    <span class="axislbl">Folder index <span class="axislbl-sub">per-worktree</span></span>
+    <div class="statebar" id="stateBar" role="tablist" aria-label="Folder index state"></div>
+  </div>
+  <div class="axisrow">
+    <span class="axislbl">Host binary <span class="axislbl-sub">global</span></span>
+    <div class="statebar" id="binBar" role="tablist" aria-label="Host binary availability"></div>
+  </div>
+  <div class="frame" id="frame"></div>
+  <p class="ctxnote" id="ctxNote"></p>
+</div>
+
+<script>
+/* ── TWO ORTHOGONAL AXES — the correction this restructure encodes ───────
+   CodeGraph has a per-worktree fact (the index) and a HOST-GLOBAL fact (is the
+   binary there at all). D9's five rungs read env / process.resourcesPath / PATH
+   / npm -g — NOT ONE reads the cwd, so the binary answer is identical for every
+   folder. The old model folded both into one 6-value enum; `absent` and
+   `fallback` were host facts wearing a folder label, which is exactly why
+   `fallback` already needed a special case to render as `fresh` on the rows.
+   Now: folder axis (FOLDER) × host axis (BINARY), combined in ONE place. */
+const FOLDER = {
+  fresh:{ index:{state:"fresh",builtAt:"4 min ago",pending:0,symbols:12482,files:318,langs:"TypeScript, TSX, Markdown, JSON"}, settled:"up to date" },
+  stale:{ index:{state:"stale",builtAt:"2 h ago",pending:7,symbols:12411,files:315,langs:"TypeScript, TSX, Markdown, JSON"}, settled:"unsaved index changes" },
+  unindexed:{ index:{state:"absent",symbols:0,files:0}, settled:"no index in this worktree" },
+  building:{ index:{state:"building",progress:42,pending:214,symbols:5380,files:140}, settled:"initializing…" }
+};
+const BINARY = {
+  present:{ present:true, rung:2, path:"/Applications/Pi.app/Contents/Resources/codegraph/codegraph", ver:"codegraph 1.0.4" },
+  absent: { present:false, rung:5, pin:"@colbymchenry/codegraph@1.0.4" }
+};
+const LABELS = {fresh:"Fresh",stale:"Stale",unindexed:"Not indexed",building:"Building"};
+const BIN_LABELS = {present:"present",absent:"absent"};
+
+/* The ONLY place the axes combine. When the binary is gone the index is
+   unreadable — CodeGraph IS the reader — so `index` goes null and every folder
+   surface degrades to the same host fact instead of inventing a folder state. */
+function compose(folderKey, binKey){
+  const f = FOLDER[folderKey], b = BINARY[binKey];
+  return { binary:b, index: b.present ? f.index : null,
+           settled: b.present ? f.settled : "binary not found" };
+}
+const RUNGS = [
+  "CODEGRAPH_BIN env / config override",
+  "bundled in app resources",
+  "system PATH",
+  "npm install -g (self-installed)",
+  "not found → built-in tools"
+];
+
+const esc = (s)=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+/* Real MDI path data (from @mdi/js) — the sidebar glyphs are `mdiGraphOutline`
+   for the row and `mdiSync` for the card action, chosen to not collide with
+   kb (`mdiDatabaseOutline` / `mdiDatabaseRefreshOutline`), Goals (`mdiTarget`),
+   Automations (`mdiCogOutline`) or OpenSpec (`mdiClipboardTextOutline`). */
+const ICONS = {
+  "graph":"M19.5 17C19.36 17 19.24 17 19.11 17.04L17.5 13.8C17.95 13.35 18.25 12.71 18.25 12C18.25 10.62 17.13 9.5 15.75 9.5C15.61 9.5 15.5 9.5 15.35 9.54L13.74 6.3C14.21 5.84 14.5 5.21 14.5 4.5C14.5 3.12 13.38 2 12 2S9.5 3.12 9.5 4.5C9.5 5.2 9.79 5.84 10.26 6.29L8.65 9.54C8.5 9.5 8.39 9.5 8.25 9.5C6.87 9.5 5.75 10.62 5.75 12C5.75 12.71 6.04 13.34 6.5 13.79L4.89 17.04C4.76 17 4.64 17 4.5 17C3.12 17 2 18.12 2 19.5C2 20.88 3.12 22 4.5 22S7 20.88 7 19.5C7 18.8 6.71 18.16 6.24 17.71L7.86 14.46C8 14.5 8.12 14.5 8.25 14.5C8.38 14.5 8.5 14.5 8.63 14.46L10.26 17.71C9.79 18.16 9.5 18.8 9.5 19.5C9.5 20.88 10.62 22 12 22S14.5 20.88 14.5 19.5C14.5 18.12 13.38 17 12 17C11.87 17 11.74 17 11.61 17.04L10 13.8C10.45 13.35 10.75 12.71 10.75 12C10.75 11.3 10.46 10.67 10 10.21L11.61 6.96C11.74 7 11.87 7 12 7C12.13 7 12.26 7 12.39 6.96L14 10.21C13.54 10.66 13.25 11.3 13.25 12C13.25 13.38 14.37 14.5 15.75 14.5C15.88 14.5 16 14.5 16.13 14.46L17.76 17.71C17.29 18.16 17 18.8 17 19.5C17 20.88 18.12 22 19.5 22S22 20.88 22 19.5C22 18.12 20.88 17 19.5 17M4.5 20.5C3.95 20.5 3.5 20.05 3.5 19.5S3.95 18.5 4.5 18.5 5.5 18.95 5.5 19.5 5.05 20.5 4.5 20.5M13 19.5C13 20.05 12.55 20.5 12 20.5S11 20.05 11 19.5 11.45 18.5 12 18.5 13 18.95 13 19.5M7.25 12C7.25 11.45 7.7 11 8.25 11S9.25 11.45 9.25 12 8.8 13 8.25 13 7.25 12.55 7.25 12M11 4.5C11 3.95 11.45 3.5 12 3.5S13 3.95 13 4.5 12.55 5.5 12 5.5 11 5.05 11 4.5M14.75 12C14.75 11.45 15.2 11 15.75 11S16.75 11.45 16.75 12 16.3 13 15.75 13 14.75 12.55 14.75 12M19.5 20.5C18.95 20.5 18.5 20.05 18.5 19.5S18.95 18.5 19.5 18.5 20.5 18.95 20.5 19.5 20.05 20.5 19.5 20.5Z",
+  "database":"M12 3C7.58 3 4 4.79 4 7V17C4 19.21 7.59 21 12 21S20 19.21 20 17V7C20 4.79 16.42 3 12 3M18 17C18 17.5 15.87 19 12 19S6 17.5 6 17V14.77C7.61 15.55 9.72 16 12 16S16.39 15.55 18 14.77V17M18 12.45C16.7 13.4 14.42 14 12 14C9.58 14 7.3 13.4 6 12.45V9.64C7.47 10.47 9.61 11 12 11C14.39 11 16.53 10.47 18 9.64V12.45M12 9C8.13 9 6 7.5 6 7S8.13 5 12 5C15.87 5 18 6.5 18 7S15.87 9 12 9Z",
+  "cog":"M12,8A4,4 0 0,1 16,12A4,4 0 0,1 12,16A4,4 0 0,1 8,12A4,4 0 0,1 12,8M12,10A2,2 0 0,0 10,12A2,2 0 0,0 12,14A2,2 0 0,0 14,12A2,2 0 0,0 12,10M10,22C9.75,22 9.54,21.82 9.5,21.58L9.13,18.93C8.5,18.68 7.96,18.34 7.44,17.94L4.95,18.95C4.73,19.03 4.46,18.95 4.34,18.73L2.34,15.27C2.21,15.05 2.27,14.78 2.46,14.63L4.57,12.97L4.5,12L4.57,11L2.46,9.37C2.27,9.22 2.21,8.95 2.34,8.73L4.34,5.27C4.46,5.05 4.73,4.96 4.95,5.05L7.44,6.05C7.96,5.66 8.5,5.32 9.13,5.07L9.5,2.42C9.54,2.18 9.75,2 10,2H14C14.25,2 14.46,2.18 14.5,2.42L14.87,5.07C15.5,5.32 16.04,5.66 16.56,6.05L19.05,5.05C19.27,4.96 19.54,5.05 19.66,5.27L21.66,8.73C21.79,8.95 21.73,9.22 21.54,9.37L19.43,11L19.5,12L19.43,13L21.54,14.63C21.73,14.78 21.79,15.05 21.66,15.27L19.66,18.73C19.54,18.95 19.27,19.04 19.05,18.95L16.56,17.95C16.04,18.34 15.5,18.68 14.87,18.93L14.5,21.58C14.46,21.82 14.25,22 14,22H10M11.25,4L10.88,6.61C9.68,6.86 8.62,7.5 7.85,8.39L5.44,7.35L4.69,8.65L6.8,10.2C6.4,11.37 6.4,12.64 6.8,13.8L4.68,15.36L5.43,16.66L7.86,15.62C8.63,16.5 9.68,17.14 10.87,17.38L11.24,20H12.76L13.13,17.39C14.32,17.14 15.37,16.5 16.14,15.62L18.57,16.66L19.32,15.36L17.2,13.81C17.6,12.64 17.6,11.37 17.2,10.2L19.31,8.65L18.56,7.35L16.15,8.39C15.38,7.5 14.32,6.86 13.12,6.62L12.75,4H11.25Z",
+  "target":"M11,2V4.07C7.38,4.53 4.53,7.38 4.07,11H2V13H4.07C4.53,16.62 7.38,19.47 11,19.93V22H13V19.93C16.62,19.47 19.47,16.62 19.93,13H22V11H19.93C19.47,7.38 16.62,4.53 13,4.07V2M11,6.08V8H13V6.09C15.5,6.5 17.5,8.5 17.92,11H16V13H17.91C17.5,15.5 15.5,17.5 13,17.92V16H11V17.91C8.5,17.5 6.5,15.5 6.08,13H8V11H6.09C6.5,8.5 8.5,6.5 11,6.08M12,11A1,1 0 0,0 11,12A1,1 0 0,0 12,13A1,1 0 0,0 13,12A1,1 0 0,0 12,11Z",
+  "clipboard":"M19,3H14.82C14.25,1.44 12.53,0.64 11,1.2C10.14,1.5 9.5,2.16 9.18,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5A2,2 0 0,0 19,3M12,3A1,1 0 0,1 13,4A1,1 0 0,1 12,5A1,1 0 0,1 11,4A1,1 0 0,1 12,3M7,7H17V5H19V19H5V5H7V7M17,11H7V9H17V11M15,15H7V13H15V15Z",
+  "sync":"M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"
+};
+const icon = (n)=>`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[n]||""}"/></svg>`;
+
+/* Ordered derivation, mirroring kb's `deriveKbRowState`, now keyed on BOTH
+   axes. A host-global `not-installed` outranks everything: the capability is
+   absent for this folder, whatever the index on disk says.
+   Design review decision: `binary absent` IS shown on every folder row. The
+   pill answers "is code graph usable for THIS folder", and the honest answer is
+   no. The label names the HOST cause (`not installed`, title "on this host") so
+   it does not read as the folder's fault. */
+function rowState(folderKey, binKey){
+  if(binKey==="absent")           return "not-installed";
+  return folderKey==="unindexed" ? "not-indexed"
+       : folderKey==="building"  ? "indexing"
+       : folderKey==="stale"     ? "stale"
+       : "fresh";
+}
+function rowCells(s,st){
+  if(st==="not-installed") return `<span class="st">not installed</span>`;
+  if(st==="not-indexed")   return `<span class="st">not indexed</span>`;
+  if(st==="indexing")      return `<span class="st">indexing…</span><span class="sub">${s.index.files.toLocaleString()} files</span>`;
+  if(st==="stale")         return `<span>${s.index.symbols.toLocaleString()}</span><span class="sub">symbols</span><span class="warnmark">⚠ ${s.index.pending} stale</span>`;
+  return `<span>${s.index.symbols.toLocaleString()}</span><span class="sub">symbols</span>`;
+}
+function rowTitle(s,st){
+  if(st==="not-installed") return "CodeGraph is not installed on this host — open Code graph settings to install";
+  if(st==="not-indexed")   return "Not indexed — open Code graph settings to build the index";
+  if(st==="indexing")      return "Indexing… — open Code graph settings";
+  if(st==="stale")         return `${s.index.symbols.toLocaleString()} symbols · ${s.index.pending} stale — open Code graph settings`;
+  return `${s.index.symbols.toLocaleString()} symbols — open Code graph settings`;
+}
+/* Same label contract as kb's folder-menu item / card button: the accessible
+   name tracks the state so the control never reads "Reindex" while broken. */
+const ACTION = {"not-installed":"Install CodeGraph","not-indexed":"Build index",indexing:"indexing…",stale:"Sync now",fresh:"Force reindex"};
+const BUSY = {indexing:true};
+
+function codegraphRow(s,st,placement){
+  const card = placement==="card";
+  const action = ACTION[st];
+  return `<div class="pinroot${card?" card":""}" data-testid="folder-codegraph-section" data-state="${st}">
+    <div class="pin ${card?"flat":"raised"} a-teal" role="button" tabindex="0"
+         data-testid="folder-codegraph-open-settings" title="${esc(rowTitle(s,st))}">
+      <span class="legend">Code graph</span>
+      <span class="gchip">${icon("graph")}</span>
+      <span class="val">${rowCells(s,st)}</span>
+    </div>
+    ${card?`<span class="csync-wrap" title="${esc(action)}"><button class="cardsync"
+        data-testid="folder-codegraph-card-reindex" aria-label="${esc(action)}"${BUSY[st]?" disabled":""}>${icon("sync")}</button></span>`:""}
+  </div>`;
+}
+
+/* Sibling pills, so the accent budget is visible rather than asserted. */
+function sibPill(label,glyph,accent,value,sub){
+  return `<div class="pinroot"><div class="pin raised a-${accent}" role="button" tabindex="0">
+    <span class="legend">${esc(label)}</span>
+    <span class="gchip">${icon(glyph)}</span>
+    <span class="val"><span>${value}</span>${sub?`<span class="sub">${sub}</span>`:""}</span>
+  </div></div>`;
+}
+
+function renderSidebar(s,st){
+  return `<div class="stage">
+    <div class="dirhead"><span>pi-agent-dashboard</span><span class="dircount">3 sessions</span></div>
+    <div class="gitrow"><span>main</span><span>·</span><span>clean</span></div>
+    <div class="dirgrid">
+      ${sibPill("Automations","cog","blue","12","rules")}
+      ${sibPill("Goals","target","indigo","4","active")}
+      ${sibPill("Knowledge base","database","cyan","1,204","chunks")}
+      ${codegraphRow(s,st,"sidebar")}
+      ${sibPill("OpenSpec","clipboard","purple","2","active")}
+    </div>
+  </div>`;
+}
+
+function renderCard(s,st){
+  return `<div class="stage list">
+    <div class="scard">
+      <div class="scardhead"><span>feat/codegraph-plane</span><span class="sstatus">idle</span></div>
+      <div class="subcard"><span class="sublegend">OpenSpec</span>
+        <div class="subrow"><span>add-codegraph-code-plane</span><span class="sub">5/8 tasks</span></div>
+      </div>
+      <div class="cardslot" data-testid="worktree-card-section-gap">
+        ${codegraphRow(s,st,"card")}
+      </div>
+      <div class="subcard"><span class="sublegend">Git</span>
+        <div class="subrow"><span class="mono">main</span><span class="sub">+2 −0 · 1 ahead</span></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function strip(s){
+  const b = s.binary, ix = s.index;
+  const binPill = b.present
+    ? `<span class="pill ok"><i class="dot"></i>binary present</span>`
+    : `<span class="pill warn"><i class="dot"></i>binary absent</span>`;
+  let freshPill, count;
+  if(!ix){ freshPill=`<span class="pill">index —</span>`; count="—"; }
+  else if(ix.state==="building"){ freshPill=`<span class="pill info"><i class="dot"></i>building</span>`; count=`${ix.symbols.toLocaleString()} symbols · ${ix.files} files`; }
+  else if(ix.state==="absent"){ freshPill=`<span class="pill warn"><i class="dot"></i>not indexed</span>`; count="0 symbols · not indexed"; }
+  else if(ix.pending>0){ freshPill=`<span class="pill warn"><i class="dot"></i>stale</span>`; count=`${ix.symbols.toLocaleString()} symbols · ${ix.files} files`; }
+  else { freshPill=`<span class="pill ok"><i class="dot"></i>fresh</span>`; count=`${ix.symbols.toLocaleString()} symbols · ${ix.files} files`; }
+  return `<div class="strip">
+    <span data-testid="codegraph-binary-state">${binPill}</span>
+    <span data-testid="codegraph-freshness">${freshPill}</span>
+    <span class="count" data-testid="codegraph-count">${count}</span>
+    <span class="right" data-testid="codegraph-binary-version">${esc(b.ver||"—")}</span>
+  </div>`;
+}
+
+function ladder(s){
+  const b = s.binary;
+  return `<div class="sec">
+    <div class="sec-h">Binary resolution · this host</div>
+    <ol class="ladder" data-testid="codegraph-ladder">
+      ${RUNGS.map((lbl,i)=>{
+        const n=i+1, on=n===b.rung;
+        const warn = on && (n===4||n===5);
+        const hint = on ? (b.path || "built-in tools (grep / Read)") : "";
+        return `<li class="rung${on?" active":""}${warn?" warnrung":""}">
+          <span class="n">${n}</span>
+          <span class="lbl">${lbl}</span>
+          ${hint?`<span class="hint">${esc(hint)}</span>`:""}
+          ${on?`<span class="mark">${n===5?"✕":"✔"}</span>`:""}
+        </li>`;
+      }).join("")}
+    </ol>
+    ${b.present
+      ? `<div class="pathline"><span>resolved:</span><code data-testid="codegraph-bin-path">${esc(b.path)}</code></div>`
+      : `<div class="pathline"><span class="note">No binary found — the passthrough tool returns built-in-tools guidance instead of erroring.</span></div>`}
+  </div>`;
+}
+
+function indexSection(s){
+  const b=s.binary, ix=s.index;
+  if(!ix){
+    return `<div class="sec">
+      <div class="sec-h">Index</div>
+      <div class="note-mut" style="font-size:12px">Install CodeGraph to build a code index for this folder.</div>
+    </div>`;
+  }
+  if(ix.state==="absent"){
+    return `<div class="sec">
+      <div class="sec-h">Index · this worktree</div>
+      <p style="margin:0 0 8px;font-size:12px;color:var(--text-secondary)">
+        No <code>.codegraph/</code> index in this worktree. First init parses all source — it runs as a background job.</p>
+      <div class="jobnote">Indexes are per-worktree; nothing is shared between checkouts.</div>
+    </div>`;
+  }
+  if(ix.state==="building"){
+    return `<div class="sec">
+      <div class="sec-h">Index · this worktree</div>
+      <div class="bar" role="progressbar" aria-valuenow="${ix.progress}" aria-valuemin="0" aria-valuemax="100"><i style="width:${ix.progress}%"></i></div>
+      <div class="jobnote" data-testid="codegraph-job-progress">Building index… ${ix.progress}% · ${ix.pending} files remaining · ${ix.symbols.toLocaleString()} symbols so far</div>
+    </div>`;
+  }
+  const stale = ix.pending>0;
+  return `<div class="sec">
+    <div class="sec-h">Index · this worktree</div>
+    <dl class="kv" data-testid="codegraph-index-detail">
+      <dt>Last built</dt><dd>${esc(ix.builtAt)}</dd>
+      <dt>Pending files</dt><dd>${stale?`<span class="note">${ix.pending} changed since last sync</span>`:`<span class="note-ok">none</span>`}</dd>
+      <dt>Symbols</dt><dd>${ix.symbols.toLocaleString()}</dd>
+      <dt>Files</dt><dd>${ix.files}</dd>
+      <dt>Languages</dt><dd>${esc(ix.langs)}</dd>
+    </dl>
+    <div class="jobnote">${stale
+      ? `Sync applies the ${ix.pending} pending files incrementally — no full re-parse.`
+      : "Write-hook sync keeps this fresh; connect-time reconcile self-heals a skipped sync."}</div>
+  </div>`;
+}
+
+function guidance(){
+  return `<div class="sec">
+    <div class="sec-h">Which tool answers what</div>
+    <div class="tools">
+      <div class="tool"><span class="name">codegraph_explore</span><span class="for">code questions — where is symbol X defined, who calls it, what breaks if I change it</span></div>
+      <div class="tool"><span class="name">kb_search</span><span class="for">docs questions — how does X work per the docs, where is X documented</span></div>
+    </div>
+  </div>`;
+}
+
+function footer(s){
+  const b=s.binary, ix=s.index;
+  let actions;
+  if(!b.present){
+    /* Install moved to the GLOBAL surface (it is a host mutation). The folder
+       dialog keeps only its own actions, disabled, plus the deep link. This
+       supersedes D9's "panel's install-hint drives the rung-4 install". */
+    actions = `<button class="btn" data-testid="codegraph-sync-now" disabled>↻ Sync now</button>
+      <button class="btn" data-testid="codegraph-reindex-now" disabled>⟳ Force reindex</button>
+      <span class="jobnote">no binary on this host — <a href="/settings/plugins/codegraph">install in Settings</a></span>`;
+  } else if(!ix || ix.state==="absent"){
+    actions = `<button class="btn primary" data-testid="codegraph-init">▶ Initialize index</button>
+      <button class="btn" data-testid="codegraph-reindex-now" disabled>↻ Reindex</button>`;
+  } else if(ix.state==="building"){
+    actions = `<button class="btn primary" data-testid="codegraph-init" disabled>▶ Initializing…</button>
+      <button class="btn" data-testid="codegraph-reindex-now" disabled>↻ Reindex</button>`;
+  } else if(ix.pending>0){
+    actions = `<button class="btn primary" data-testid="codegraph-sync-now">↻ Sync now</button>
+      <button class="btn" data-testid="codegraph-reindex-now">⟳ Force reindex</button>`;
+  } else {
+    actions = `<button class="btn" data-testid="codegraph-sync-now" disabled>↻ Sync now</button>
+      <button class="btn primary" data-testid="codegraph-reindex-now">⟳ Force reindex</button>`;
+  }
+  return `<div class="foot">${actions}<span class="settled" data-testid="codegraph-settled">${esc(s.settled)}</span></div>`;
+}
+
+/* Compact OUTCOME line: the binary's RESULT in one line + the deep link. The
+   resolution PROCESS (the 5-rung ladder) is host-global and now lives on
+   surface 4 — repeating it per folder printed one host fact N times. */
+function binaryLine(b){
+  return `<div class="binline" data-testid="codegraph-binary-status">
+    <span class="binled ${b.present?"ok":"warn"}" aria-hidden="true"></span>
+    <span class="mono">${b.present ? esc(b.path) : "not found via CODEGRAPH_BIN, app resources, or PATH"}</span>
+    <a class="binlink" href="/settings/plugins/codegraph" data-testid="codegraph-manage-in-settings">Manage in Settings →</a>
+  </div>`;
+}
+
+/* Binary absent ⇒ the index is UNREADABLE (CodeGraph is the reader), so the
+   index section is replaced by a blocker whose one real action is global. */
+function blocker(){
+  return `<div class="sec" data-testid="codegraph-binary-blocker">
+    <div class="sec-h">Index · this worktree</div>
+    <p style="margin:0 0 10px;font-size:12px;color:var(--text-secondary)">
+      CodeGraph is not installed on this host, so nothing can be indexed here. The agent falls
+      back to built-in tools (grep / Read) — nothing breaks.</p>
+    <a class="btn primary" href="/settings/plugins/codegraph" data-testid="codegraph-install">⤓ Install CodeGraph in Settings</a>
+  </div>`;
+}
+
+function renderPanel(s){
+  return `<div class="p-head">
+       <button class="p-back" title="Back" aria-label="Back">←</button>
+       <span class="p-title">pi-agent-dashboard · Code Graph</span>
+     </div>`
+    + strip(s) + binaryLine(s.binary)
+    + (s.binary.present ? indexSection(s) : blocker())
+    + guidance() + footer(s);
+}
+
+/* Left nav, mirroring SettingsPanel's `navGroups` + its indented plugin
+   children (the `plugins` item expands to one row per plugin). */
+function setnav(){
+  const groups = [
+    ["Dashboard",[["General"],["Server"],["Sessions"]]],
+    ["Network",[["Remote Servers"],["Gateway"],["Security"]]],
+    ["Extensions",[["Providers"],["Packages"],["Plugins",[["codegraph","Code Graph"]]],["OpenSpec"]]],
+    ["Resources",[["Skills"],["Agents"],["Extensions"],["Prompts"],["Themes"]]],
+    ["Advanced",[["Developer"],["Instructions"]]]
+  ];
+  return groups.map(([label,items]) =>
+    `<div class="sgrp">${esc(label)}</div>` + items.map(([name,kids])=>{
+      const child = kids ? kids.map(([id,cn]) =>
+        `<div class="sit sub${id==="codegraph"?" on":""}" data-testid="nav-plugin-${id}">`+
+        `<span class="sdot ok" role="img" aria-label="loaded" title="loaded"></span>${esc(cn)}</div>`).join("") : "";
+      return `<div class="sit">${esc(name)}</div>` + child;
+    }).join("")).join("");
+}
+
+/* Surface 4 — the GLOBAL home: `/settings/plugins/codegraph`.
+   Mechanism: `settings-section` claims render through
+   `SettingsSectionByPluginSlot`, mounted inside PluginSettingsPage's chrome.
+   `SettingsSectionSlot` itself is a deliberate no-op ("two live render paths
+   was the bug this change removes"), so a claim's `tab` field is INERT and this
+   plugin page is the only mount point. No new slot was needed for the split. */
+function renderGlobal(s){
+  const b = s.binary;
+  const acts = b.present
+    ? `<button class="btn" data-testid="codegraph-install">⤓ Reinstall / upgrade</button>
+       <button class="btn primary" data-testid="codegraph-reprobe">↻ Re-probe</button>`
+    : `<button class="btn primary" data-testid="codegraph-install">⤓ Install CodeGraph</button>
+       <button class="btn" data-testid="codegraph-reprobe">↻ Re-probe</button>`;
+  return `<div class="dlgstage">
+    <div class="underlay" aria-hidden="true">${folderUnderlay()}</div>
+    <div class="scrim" aria-hidden="true"></div>
+    <div class="stageflex">
+      <div class="dlgpanel auto" role="dialog" aria-modal="true" aria-label="Settings">
+        <div class="p-head">
+          <button class="p-back" title="Back" aria-label="Back">←</button>
+          <span class="p-title">Settings</span>
+        </div>
+        <div class="setwrap">
+          <nav class="setnav" aria-label="Settings pages">${setnav()}</nav>
+          <div class="setcontent">
+            <div class="plugchrome" data-testid="plugin-page-chrome">
+              <div class="plughead">
+                <span class="gchip">${icon("graph")}</span>
+                <div style="flex:1;min-width:0">
+                  <div class="plugtitle" data-testid="plugin-page-title">Code Graph</div>
+                  <div class="plugid">codegraph</div>
+                </div>
+                <label class="switchon"><input type="checkbox" checked> enable</label>
+              </div>
+              <div class="plugmeta">
+                <span>status <b class="ok">loaded</b></span>
+                <span>version <b>0.1.0</b></span>
+                <span>server <b>yes</b></span>
+                <span>client <b>yes</b></span>
+              </div>
+            </div>
+            ${ladder(s)}
+            <div class="sec" style="padding-bottom:0">
+              <div class="jobnote">One binary per <b>host</b> — every folder resolves to this same
+                path, which is why this section is global and the per-worktree index is not.</div>
+              <div class="gact">${acts}<span class="settled">${esc(b.ver||"binary not found")}</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ── chrome ── */
+const SURFACES = [
+  {id:"panel", label:"Folder dialog",
+   note:`<b>shell-overlay-route</b> <span class="mono">/folder/:encodedCwd/codegraph</span> — the container is a <b>route-backed dialog</b>, not a page. <span class="mono">presentation</span> is omitted by all 8 bundled claims, so the spec default <span class="mono">"dialog"</span> applies: <span class="mono">Dialog size="full" flush</span> → <span class="mono">max-w-[95vw] max-h-[92vh] rounded-lg</span> over a <span class="mono">bg-black/60</span> scrim, with the launching folder frozen <span class="mono">aria-hidden inert</span> behind it. On mobile it is the <span class="mono">MobileShell</span> depth slide, not a dialog at all. Zero claims in the repo declare <span class="mono">presentation: "page"</span>. The stage below stands in for the viewport. <b>Note:</b> <span class="mono">flush</span> without <span class="mono">showClose</span> suppresses the built-in ✕ — the claim MUST render its own exit (the ← below), or keyboard users get no visible way out.`},
+  {id:"sidebar", label:"Sidebar row",
+   note:`<b>sidebar-folder-section</b> → <span class="mono">CodegraphFolderSection</span>, <span class="mono">placement="sidebar"</span> <span class="mono">raised</span>. One pill in the folder's 2-col pill grid; maintenance actions stay in the folder actions menu. Accent is <b>teal</b> — the only unclaimed slot (Automations blue · Goals indigo · Knowledge base cyan · OpenSpec purple · red reserved for the error state).`},
+  {id:"card", label:"Worktree card row",
+   note:`<b>worktree-card-section</b> → same component, <span class="mono">placement="card"</span> <span class="mono">flat</span> + a sibling 24px sync button, because a worktree card has no folder actions menu. This is the <b>only</b> surface scoped to the worktree's own cwd — a worktree groups under <span class="mono">gitWorktree.mainPath</span> and never gets its own sidebar folder card.`},
+  {id:"global", label:"Global settings",
+   note:`<b>settings-section</b> → <span class="mono">/settings/plugins/codegraph</span> — the GLOBAL home for the <b>binary resolution ladder</b>. Mechanism: <span class="mono">settings-section</span> claims render through <span class="mono">SettingsSectionByPluginSlot</span> inside <span class="mono">PluginSettingsPage</span>; the bare <span class="mono">SettingsSectionSlot</span> is a deliberate no-op, so a claim's <span class="mono">tab</span> field is <b>inert</b> (do not copy the legacy <span class="mono">tab: "general"</span>) and this page is the only mount point. Precedent: <span class="mono">NodeRuntimeSection</span> / <span class="mono">PiRuntimeSection</span> — "one curated selection surface per family". Note the <b>container difference</b>: a built-in settings panel sizes to content capped at <span class="mono">92vh</span> (<span class="mono">min-h-0</span>, no definite height), whereas a folder claim is pinned <span class="mono">h-[92vh]</span>.`}
+];
+
+/* The frozen shell behind the dialog: ShellContent variant="desktop" frozen,
+   aria-hidden + inert. Rendered coarse — a 60% scrim sits on top of it. */
+function folderUnderlay(){
+  const card=(t,sub)=>`<div style="border:1px solid var(--border-subtle);border-radius:10px;padding:10px 12px;background:var(--bg-primary)">
+      <div style="font-size:12.5px;font-weight:600;color:var(--text-secondary)">${t}</div>
+      <div style="font-size:11px;color:var(--text-tertiary);margin-top:3px">${sub}</div>
+      <div style="height:6px;border-radius:3px;background:var(--bg-tertiary);margin-top:10px"></div>
+      <div style="height:6px;border-radius:3px;background:var(--bg-tertiary);margin-top:6px;width:70%"></div>
+    </div>`;
+  return `<div style="display:flex;height:100%">
+    <div style="width:250px;flex:none;border-right:1px solid var(--border-subtle);padding:14px;background:var(--bg-secondary)">
+      <div style="font-size:12.5px;font-weight:700;color:var(--text-secondary)">pi-agent-dashboard</div>
+      <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">main · clean</div>
+      <div style="margin-top:12px;display:grid;gap:6px">
+        ${["Automations · 12 rules","Goals · 4 active","Knowledge base · 1,204 chunks","OpenSpec · 2 active"]
+          .map(x=>`<div style="border:1px solid var(--border-subtle);border-radius:8px;padding:7px 9px;font-size:11.5px;color:var(--text-tertiary)">${x}</div>`).join("")}
+      </div>
+    </div>
+    <div style="flex:1;padding:16px;display:grid;gap:10px;align-content:start">
+      ${card("Refactor the bridge reconnect path","running · 12 min")}
+      ${card("Add CodeGraph code plane","idle · feat/codegraph-plane")}
+    </div>
+  </div>`;
+}
+
+function dialogStage(s){
+  return `<div class="dlgstage">
+    <div class="underlay" aria-hidden="true">${folderUnderlay()}</div>
+    <div class="scrim" aria-hidden="true"></div>
+    <div class="stageflex">
+      <div class="dlgpanel" role="dialog" aria-modal="true" aria-label="Code Graph settings">
+        ${renderPanel(s)}
+      </div>
+    </div>
+  </div>`;
+}
+
+let SURF = "panel", SEL = "fresh", BIN = "present";
+function render(){
+  const s = compose(SEL,BIN), st = rowState(SEL,BIN);
+  document.getElementById("frame").innerHTML =
+    SURF==="panel"   ? dialogStage(s)
+  : SURF==="sidebar" ? renderSidebar(s,st)
+  : SURF==="card"    ? renderCard(s,st)
+  :                     renderGlobal(s);
+  document.getElementById("ctxNote").innerHTML = SURFACES.find(x=>x.id===SURF).note;
+}
+
+const sel=document.getElementById("stateSel"), bar=document.getElementById("stateBar");
+Object.keys(FOLDER).forEach(k=>{
+  const o=document.createElement("option"); o.value=k; o.textContent=LABELS[k]; sel.appendChild(o);
+  const b=document.createElement("button"); b.className="stab"; b.dataset.k=k; b.setAttribute("role","tab");
+  b.textContent=LABELS[k]; b.onclick=()=>{SEL=k;sel.value=k;render();syncBar();}; bar.appendChild(b);
+});
+function syncBar(){ [...bar.children].forEach(b=>b.setAttribute("aria-selected", b.dataset.k===SEL)); }
+sel.onchange=()=>{SEL=sel.value;render();syncBar();};
+
+/* Host-binary axis — orthogonal to the folder axis above, and the reason the
+   old 6-value enum was wrong. */
+const binBar=document.getElementById("binBar");
+Object.keys(BINARY).forEach(k=>{
+  const b=document.createElement("button"); b.className="binb"; b.dataset.k=k; b.setAttribute("role","tab");
+  b.textContent="binary "+BIN_LABELS[k];
+  b.onclick=()=>{BIN=k;[...binBar.children].forEach(x=>x.setAttribute("aria-selected", x.dataset.k===k));render();};
+  binBar.appendChild(b);
+});
+binBar.children[0].setAttribute("aria-selected","true");
+
+const surfBar=document.getElementById("surfBar");
+SURFACES.forEach(s=>{
+  const b=document.createElement("button"); b.className="surb"; b.dataset.s=s.id; b.setAttribute("role","tab");
+  b.textContent=s.label;
+  b.onclick=()=>{SURF=s.id;[...surfBar.children].forEach(x=>x.setAttribute("aria-selected", x.dataset.s===s.id));render();};
+  surfBar.appendChild(b);
+});
+surfBar.children[0].setAttribute("aria-selected","true");
+
+const html=document.documentElement, tb=document.getElementById("themeBtn");
+tb.onclick=()=>{const light=html.getAttribute("data-theme")==="light";
+  html.setAttribute("data-theme",light?"studio":"light"); tb.textContent=light?"◐ Light":"◑ Dark";};
+render(); syncBar();
+</script>
+</body>
+</html>

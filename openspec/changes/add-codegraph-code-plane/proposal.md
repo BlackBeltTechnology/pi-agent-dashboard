@@ -59,15 +59,17 @@ kb-extension a second job:
 CodeGraph is 100% local, ships as an OS-native standalone binary + MCP server,
 requires no Node, and degrades cleanly (a path with no `.codegraph/` index
 returns guidance to use built-in tools). Accepted as a **peer binary** (like
-`zrok`/`code-server` already carried by the Docker image), not an npm dependency.
+`zrok`), not an npm dependency of this repo. How the peer is *delivered* varies
+by install shape — bundled in Electron, pinned in the opt-in Docker image, or
+`npm install -g` as the fallback rung — see the resolution ladder.
 
 ## What Changes
 
 - **New standalone package family (kb is a 3-slot mirror). `packages/kb` and
   `packages/kb-extension` are not modified.**
   - **`packages/codegraph-driver`** — pure CLI adapter: spawn the `codegraph`
-    binary, parse its JSON, detect presence (binary on PATH + `.codegraph/`
-    index for a cwd). **No pi imports**, unit-testable (analogous to
+    binary, parse its JSON, detect presence (binary via the full resolution
+    ladder — not a bare PATH probe — plus per-cwd index readiness). **No pi imports**, unit-testable (analogous to
     kb-extension's pure `reindex.ts`). Shared by the extension and the plugin's
     server API — the "core" slot that, for kb, is `packages/kb` (here the
     indexer is the external binary, so the driver is a thin adapter, not a
@@ -79,8 +81,9 @@ returns guidance to use built-in tools). Accepted as a **peer binary** (like
   - **`packages/codegraph-plugin`** — dashboard UI plugin: a
     `CodegraphSettingsPanel` + `useCodegraphStats` + server API mirroring
     `packages/kb-plugin` (`KbSettingsPanel`/`useKbStats`/`kb-api`). Surfaces
-    binary-present state, per-worktree index health/freshness, force-reindex,
-    and per-language enablement.
+    the resolved-binary state on the global surface, and per-worktree index
+    health/freshness + force-reindex on the folder surface (see D9 for the
+    scope split).
 - **Two-tools-plus-guidance discovery (not a classifier).** The "one surface" is
   the docs-first **guidance row**, not a routing classifier — mirroring the
   proven kb pattern (*"call kb_search FIRST for any 'where is X' question"*). Add
@@ -97,14 +100,17 @@ returns guidance to use built-in tools). Accepted as a **peer binary** (like
   owns its `.codegraph/` index; the extension drives CodeGraph in pull mode with
   its watcher disabled (`CODEGRAPH_NO_DAEMON=1`):
   - **Cold-start init** — first `codegraph_explore` in a cwd with no
-    `.codegraph/` runs `codegraph init <cwd>` once, then serves (mirrors kb's
-    `ensurePopulated`).
+    `.codegraph/` returns guidance immediately and schedules `codegraph init
+    <cwd>` once as a background job; the tool call never blocks on the
+    multi-minute full-repo parse, and a per-cwd in-flight guard prevents two
+    concurrent builds racing the same SQLite index.
   - **Incremental reindex on write** — the extension's own write-hook debounces
     `codegraph sync <cwd>` on source-file writes, per-cwd.
   - **Freshness on query** — a fast `codegraph sync <cwd>` (or CodeGraph's
     connect-time reconciliation) before serving, mirroring kb_search freshness.
-  - **Command-callable** — `codegraph init|sync|index|status <cwd>` are the
-    manual controls, symmetric with `kb index`.
+  - **Manual controls** — `init|sync|index|status` are driven from the dashboard
+    surfaces (force-reindex etc.); CodeGraph's own CLI remains directly runnable
+    by the user. No new dashboard-registered command is added by this change.
   - `.codegraph/` is gitignored per worktree, as kb gitignores its `dbPath`.
 - **Graceful degradation.** Binary absent or no `.codegraph/` index → the tool
   returns clean guidance to use built-in tools; the extension is a no-op. No
@@ -118,14 +124,22 @@ returns guidance to use built-in tools). Accepted as a **peer binary** (like
   delivered method is present — plain npm install, unbundled arch), (5) none →
   graceful degradation + an actionable install hint in the panel.
 - **Electron bundling (delivered method), scoped to available prebuilts.** Mirror
-  the existing git/node bundling: a build-time `download-codegraph.mjs`
-  (pinned + sha256, resolves `npm_config_target_arch`) drops the per-arch binary
-  into `resources/codegraph/`, listed as an `extraResource` in `forge.config.ts`;
-  runtime resolves it via `process.resourcesPath`. Bundle **only targets where
-  CodeGraph publishes a prebuilt binary**; other targets fall back to rung 4.
+  the existing git/node bundling: a build-time
+  `packages/electron/scripts/download-codegraph.mjs` (pinned + sha256, resolves
+  `GIT_TARGET_ARCH` then `npm_config_target_arch`) drops the per-arch binary into
+  `packages/electron/resources/codegraph/`, listed as an `extraResource` in
+  `packages/electron/forge.config.ts`; runtime resolves it via
+  `process.resourcesPath`. Spawned from
+  `packages/electron/scripts/bundle-server.mjs` as a GO/NO-GO step, like
+  `download-git-windows.mjs`. Bundle **only targets where CodeGraph publishes
+  a prebuilt binary** (verify this first — rung 2 is unbuildable without it);
+  other targets fall back to rung 4.
   The rung-4 `npm install -g` can reuse Electron's already-bundled node/npm.
-- **Docker peer carry (opt-in)** — the `ARG CODEGRAPH_ENABLED=0` build-arg
-  (details in Out of scope) sits on the same ladder (rung 3, PATH).
+- **Docker peer carry (opt-in)** — the `ARG CODEGRAPH_ENABLED=0` build-arg sits
+  on the same ladder (rung 3, PATH). **In scope and implemented** (D7, tasks
+  7.1–7.3): lean default image, opt-in fat image, pinned version, telemetry off.
+  Only the *tarball-vs-npm* install mechanism is left to resolve at
+  Dockerfile-authoring time.
 - **Deprecate `add-kb-code-symbol-index`.** Do not implement the in-kb
   tree-sitter extractor. The code plane is federated, not absorbed.
 
@@ -134,17 +148,14 @@ stances below so a follow-up doesn't re-litigate):
 
 - **Cross-plane linking → NOT a graph-schema change.** Two separate stores mean
   kb's single-DB `neighbors`/`backlinks` CTE cannot JOIN to `.codegraph`, so
-  materialized cross-plane edges are out. The useful 80% is a **read-time,
-  name-keyed federation** where the symbol name is the join key: an optional
-  `codegraph_explore` result footer ("📄 documented in: …") computed by
-  `codegraph-plugin` calling kb's existing `/api/kb/search` REST endpoint by
-  symbol name. Direction: **code→doc first** (an agent editing a symbol asking
-  "is this documented?" is the higher-value query). Coupling is read-time,
-  optional, HTTP-level (categorically weaker than the index-time package
-  coupling this change rejects), and feature-flagged
-  (`CODEGRAPH_CROSSREF_DOCS`, off by default). kb's dormant `entity` node type
-  stays reserved for a later *annotated* materialized version if authors ever
-  emit `[[sym:…]]` links — not needed for the read-time footer.
+  materialized cross-plane edges are out. A read-time, name-keyed code→doc
+  footer ("📄 documented in: …") was considered and **dropped**: it would call
+  a kb search endpoint that **does not exist**. `packages/kb-plugin` exposes
+  only `/api/kb/stats`, `/api/kb/reindex` and `/api/kb/config`, so shipping the
+  footer would mean adding a search route to kb-plugin — widening scope into the
+  packages this change exists to leave untouched, for a flag-off nicety. kb's
+  dormant `entity` node type stays reserved for a later *annotated* materialized
+  version if authors ever emit `[[sym:…]]` links.
 - **Unified `kb_explore` fan-out tool → measure-first.** Ship two tools +
   guidance row (kb already proves guidance steers agents). Instrument the
   mis-pick signal (agent calls `kb_search` for a clearly code-structural
