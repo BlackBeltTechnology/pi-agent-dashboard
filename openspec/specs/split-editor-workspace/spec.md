@@ -331,9 +331,11 @@ never reduced to nothing.
 
 These guarantees hold while the pane is at least as tall as the sum of its rows'
 minimum heights (the transcript floor plus the fixed furniture below it). Below
-that floor sum no arrangement can fit every row; the pane SHALL then degrade
-proportionally — each row giving up a share — rather than clipping one row away
-entirely.
+that floor sum no arrangement can fit every row. The pane does not currently
+distribute that deficit: the transcript holds at its floor, the bounded composer
+holds at its own minimum, and the remaining shortfall is clipped from the
+bottom-most rows by the pane's `overflow: hidden` boundary. A weighted
+below-floor allocation is not specified here.
 
 The composer SHALL be bounded to a fraction of the pane's height rather than to a
 fixed pixel height, and SHALL scroll its own content when it reaches that bound.
@@ -350,12 +352,14 @@ clipping boundary.
   and remain entirely visible within the pane
 - **AND** no row SHALL be cut off by the pane's bottom edge
 
-#### Scenario: Below the floor sum the pane degrades proportionally
+#### Scenario: Below the floor sum the shortfall clips the bottom rows
 
 - **GIVEN** a pane shorter than the sum of its rows' minimum heights
 - **WHEN** the chat pane is rendered
-- **THEN** the visible shortfall SHALL be distributed across the rows
-- **AND** SHALL NOT be taken entirely from the last row in the pane
+- **THEN** the shortfall SHALL be clipped from the bottom-most rows rather than
+  distributed across every row
+- **AND** the clipped amount SHALL grow with the size of the deficit rather than
+  removing a row in one step
 
 #### Scenario: A long draft does not push the bottom rows out of the pane
 
