@@ -329,6 +329,12 @@ plugin contributions). The pane SHALL apportion its height so that the composer
 cannot grow at the expense of the rows below it, and so that the transcript is
 never reduced to nothing.
 
+These guarantees hold while the pane is at least as tall as the sum of its rows'
+minimum heights (the transcript floor plus the fixed furniture below it). Below
+that floor sum no arrangement can fit every row; the pane SHALL then degrade
+proportionally — each row giving up a share — rather than clipping one row away
+entirely.
+
 The composer SHALL be bounded to a fraction of the pane's height rather than to a
 fixed pixel height, and SHALL scroll its own content when it reaches that bound.
 The thin furniture rows SHALL NOT be selected to absorb a height deficit, since
@@ -337,11 +343,19 @@ clipping boundary.
 
 #### Scenario: Bottom furniture stays fully visible in a short pane
 
+- **GIVEN** a pane at least as tall as the sum of its rows' minimum heights
 - **WHEN** the chat pane is short enough that its transcript has no spare space to
   give up
 - **THEN** every furniture row below the transcript SHALL render at its full height
   and remain entirely visible within the pane
 - **AND** no row SHALL be cut off by the pane's bottom edge
+
+#### Scenario: Below the floor sum the pane degrades proportionally
+
+- **GIVEN** a pane shorter than the sum of its rows' minimum heights
+- **WHEN** the chat pane is rendered
+- **THEN** the visible shortfall SHALL be distributed across the rows
+- **AND** SHALL NOT be taken entirely from the last row in the pane
 
 #### Scenario: A long draft does not push the bottom rows out of the pane
 
@@ -352,6 +366,7 @@ clipping boundary.
 
 #### Scenario: Transcript retains a share of the pane
 
+- **GIVEN** a pane at least as tall as the sum of its rows' minimum heights
 - **WHEN** the composer is at its maximum size in a short pane
 - **THEN** the transcript SHALL retain a non-zero share of the pane's height
 - **AND** SHALL NOT be collapsed to zero height
