@@ -75,6 +75,22 @@ export interface ConnectionManagerOptions {
   onOpen?: () => void;
   onReconnect?: () => void;
   /**
+   * Fired after the buffered frames queued during a drop have been flushed
+   * onto the freshly opened socket. Paired with `onReconnect`: it deliberately
+   * skips the first open, where there is no drop to heal from.
+   *
+   * `onopen` fires `onReconnect()` BEFORE the flush, so anything sent from
+   * there OVERTAKES a buffered real event. A status correction sent that early
+   * would settle the session to `idle` first, and the buffered real
+   * `agent_end` would then arrive with `before.status === "idle"` — the
+   * `streaming→idle` edge `isUnreadTrigger` needs is gone and the unread
+   * stripe is silently lost. Ordering is pinned by construction here rather
+   * than by comment.
+   *
+   * See change: fix-stuck-streaming-status-latch (design D8).
+   */
+  onPostFlush?: () => void;
+  /**
    * Fired when the server terminally refuses this bridge's registration for a
    * session id (another live bridge already serves it). Reconnection is NOT
    * retried afterwards. See change: fix-duplicate-bridge-registration (D2).
@@ -128,6 +144,7 @@ export class ConnectionManager {
   private onMessage?: (data: unknown) => void | Promise<void>;
   private onOpen?: () => void;
   private onReconnect?: () => void;
+  private onPostFlush?: () => void;
   private onRegisterRejected?: (sessionId: string, reason: string) => void;
   private getSessionIdForReports?: () => string | undefined;
   private dropReportWindowStart = 0;
@@ -330,6 +347,7 @@ export class ConnectionManager {
     this.onMessage = options.onMessage;
     this.onOpen = options.onOpen;
     this.onReconnect = options.onReconnect;
+    this.onPostFlush = options.onPostFlush;
     this.onRegisterRejected = options.onRegisterRejected;
     this.getSessionIdForReports = options.getSessionId;
     this.onMigrationEvent = options.onMigrationEvent;
@@ -783,7 +801,8 @@ export class ConnectionManager {
       }
 
       // Notify reconnect if this isn't the first connection
-      if (this.hasConnectedBefore) {
+      const isReconnect = this.hasConnectedBefore;
+      if (isReconnect) {
         this.onReconnect?.();
       }
       this.hasConnectedBefore = true;
@@ -794,6 +813,12 @@ export class ConnectionManager {
       this.buffer = [];
       for (const data of buffered) {
         this.ws?.send(data);
+      }
+
+      // Strictly after the flush — see the `onPostFlush` doc comment. Paired
+      // with `onReconnect`, so it skips the first open for the same reason.
+      if (isReconnect) {
+        this.onPostFlush?.();
       }
     };
 
