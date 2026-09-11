@@ -1487,6 +1487,23 @@ function initBridge(pi: ExtensionAPI) {
       // See change: add-extension-ui-modal.
       refreshUiModules(uiModulesBridgeCtx);
     }),
+    // The idle half of the reconnect heal. The `agent_start` above re-asserts
+    // `streaming` when mid-turn; without this branch a `streaming` latched by
+    // an `agent_end` lost in the drop is never corrected.
+    //
+    // Spelled as a heartbeat, NOT a synthetic `agent_end`: that event carries
+    // run-boundary side effects (unread stamping, card reordering, OpenSpec
+    // proposal clearing) a correction must not fire (design D3).
+    //
+    // Sent from the POST-FLUSH hook so a real buffered `agent_end` is still
+    // processed first and still stamps unread (design D8).
+    //
+    // See change: fix-stuck-streaming-status-latch.
+    onPostFlush: safe(() => {
+      if (!isActive()) return; // Stale listener guard
+      if (getBridgeState().isAgentStreaming) return;
+      connection.send({ type: "session_heartbeat", sessionId, agentRunning: false });
+    }),
   });
 
   // Track connection so future bridge incarnations can disconnect it
@@ -3438,6 +3455,14 @@ function initBridge(pi: ExtensionAPI) {
       connection.send({
         type: "session_heartbeat",
         sessionId,
+        // Liveness truth for the server's status reconcile: `streaming` is
+        // otherwise a one-way latch and a single dropped `agent_end` sticks
+        // the card on `Thinking…` forever.
+        // `=== true` because the flag is optional and is `undefined` before
+        // the first turn: sent raw it would serialize away and read as "old
+        // bridge, no liveness truth" instead of "idle".
+        // See change: fix-stuck-streaming-status-latch.
+        agentRunning: getBridgeState().isAgentStreaming === true,
         // Fold the bridge→server ring-buffer eviction count into the heartbeat
         // so it reaches `/api/health`. See change:
         // fix-stuck-tool-card-on-dropped-event.

@@ -1,6 +1,6 @@
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
-import { extractSessionUpdates } from "../session/event-status-extraction.js";
+import { extractSessionUpdates, reconcileAgentLiveness } from "../session/event-status-extraction.js";
 
 function makeEvent(eventType: string, data: Record<string, unknown> = {}): DashboardEvent {
   return { eventType, timestamp: Date.now(), data: { type: eventType, ...data } };
@@ -202,5 +202,48 @@ describe("extractSessionUpdates — hasPendingPrompt fold", () => {
       expect(extractSessionUpdates(event, false)).toEqual(expected[i]);
       expect(extractSessionUpdates(event)).toEqual(expected[i]);
     }
+  });
+});
+
+/**
+ * Decision table over the full `status` × `agentRunning` domain.
+ * See change: fix-stuck-streaming-status-latch (design D9, test-plan #E1–#E8).
+ */
+describe("reconcileAgentLiveness", () => {
+  it("settles a latched streaming session when the agent is not running (#E1)", () => {
+    expect(reconcileAgentLiveness("streaming", false)).toEqual({
+      status: "idle",
+      currentTool: null,
+    });
+  });
+
+  it("corrects idle → streaming without touching currentTool (#E2)", () => {
+    const updates = reconcileAgentLiveness("idle", true);
+    expect(updates).toEqual({ status: "streaming" });
+    expect(updates && "currentTool" in updates).toBe(false);
+  });
+
+  it("corrects active → streaming (#E3)", () => {
+    expect(reconcileAgentLiveness("active", true)).toEqual({ status: "streaming" });
+  });
+
+  it("is inert for active + not running — the routine resting state (#E4)", () => {
+    expect(reconcileAgentLiveness("active", false)).toBeNull();
+  });
+
+  it("never resurrects an ended session (#E5)", () => {
+    expect(reconcileAgentLiveness("ended", true)).toBeNull();
+  });
+
+  it("is inert for ended + not running (#E6)", () => {
+    expect(reconcileAgentLiveness("ended", false)).toBeNull();
+  });
+
+  it("is inert when streaming agrees with a running agent (#E7)", () => {
+    expect(reconcileAgentLiveness("streaming", true)).toBeNull();
+  });
+
+  it("is inert when idle agrees with a stopped agent (#E8)", () => {
+    expect(reconcileAgentLiveness("idle", false)).toBeNull();
   });
 });

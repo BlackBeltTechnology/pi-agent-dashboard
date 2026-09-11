@@ -249,6 +249,22 @@ export interface SessionHeartbeatMessage {
   sessionId: string;
   /** Process metrics from the pi agent process */
   metrics?: ProcessMetrics;
+  /**
+   * Bridge-reported agent liveness (`getBridgeState().isAgentStreaming`).
+   *
+   * `status: "streaming"` is otherwise a one-way latch — `agent_end` is the
+   * only path back to `idle`, so a single dropped `agent_end` sticks a card on
+   * `Thinking…` forever. The server reconciles session status against this on
+   * each beat (`reconcileAgentLiveness`).
+   *
+   * OPTIONAL by design (D5): absent ⇒ no liveness truth ⇒ no reconcile ⇒
+   * exactly the pre-change behaviour, so an old bridge against a new server
+   * degrades rather than breaks. Advisory for the watchdog: it MUST NOT alter
+   * the existing timeout/grace behaviour.
+   *
+   * See change: fix-stuck-streaming-status-latch.
+   */
+  agentRunning?: boolean;
 }
 
 export interface EventForwardMessage {

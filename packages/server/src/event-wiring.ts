@@ -36,7 +36,7 @@ import type { PiGateway } from "./pi/pi-gateway.js";
 import { sessionCommandRegistry } from "./pi/session-skill-registry.js";
 import { handleDispatchExtensionCommand } from "./rpc-keeper/dispatch-router.js";
 import type { UnreadTriggerSnapshot } from "./session/event-status-extraction.js";
-import { extractSessionUpdates, isActivityEvent, isUnreadTrigger } from "./session/event-status-extraction.js";
+import { extractSessionUpdates, isActivityEvent, isUnreadTrigger, reconcileAgentLiveness } from "./session/event-status-extraction.js";
 import type { SessionManager } from "./session/memory-session-manager.js";
 import {
   attachedStillExistsInCandidateRoots,
@@ -1135,6 +1135,50 @@ export function wireEvents(deps: EventWiringDeps): void {
           if (!replayingSessions.has(sessionId)) {
             browserGateway.broadcastEvent(sessionId, statsSeq, statsEvent);
             browserGateway.broadcastSessionUpdated(sessionId, statsUpdates);
+          }
+        }
+      }
+    }
+
+    // Heartbeat-carried agent liveness. `status: "streaming"` is otherwise a
+    // one-way latch (`agent_end` is the only path back to `idle`), so a single
+    // dropped `agent_end` sticks the card on `Thinking…` until a restart. The
+    // bridge holds the truth and now reports it on every beat; here it is
+    // reconciled against the stored status.
+    //
+    // Deliberately NOT routed through `stampUnreadIfTriggered`: the exemption
+    // is by CALL PATH, not by a flag — a correction is not a finished turn, so
+    // it must not stamp unread, append an `agent_end`, or fire any other
+    // run-boundary consumer (design D3).
+    //
+    // See change: fix-stuck-streaming-status-latch.
+    if (msg.type === "session_heartbeat") {
+      if (msg.agentRunning !== undefined && !replayingSessions.has(sessionId)) {
+        const session = sessionManager.get(sessionId);
+        if (session) {
+          const updates = reconcileAgentLiveness(session.status, msg.agentRunning);
+          if (updates) {
+            // A live `ask_user` is real truth the correction must not erase —
+            // the same gate `extractSessionUpdates` applies via
+            // `hasPendingPrompt` (design D10).
+            const applied =
+              updates.currentTool === null && browserGateway.hasPendingPromptRequests(sessionId)
+                ? { status: updates.status }
+                : updates;
+            // `streaming`/`idle` disagreements mean a run-boundary event was
+            // lost in transport — this log is the loss-rate signal the WS-churn
+            // follow-up needs. `active → streaming` is NOT that: a re-register
+            // unconditionally writes `active`, so no event need have been lost.
+            // Saying so would skew the very analysis the log exists for.
+            const cause =
+              session.status === "active"
+                ? "post-register status did not reflect the live turn"
+                : "a run-boundary event was lost in transport";
+            console.log(
+              `[reconcile] session ${sessionId}: ${session.status} -> ${applied.status} (bridge agentRunning=${msg.agentRunning}; ${cause})`,
+            );
+            sessionManager.update(sessionId, applied as Partial<DashboardSession>);
+            browserGateway.broadcastSessionUpdated(sessionId, applied);
           }
         }
       }

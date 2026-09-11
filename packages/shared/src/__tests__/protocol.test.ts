@@ -36,6 +36,26 @@ describe("Protocol message serialization round-trip", () => {
         type: "session_heartbeat",
         sessionId: "s1",
       },
+      // `agentRunning` is optional so an old bridge (which never sends it)
+      // degrades to the pre-change behaviour against a new server.
+      // See change: fix-stuck-streaming-status-latch (test-plan #E10, D5).
+      {
+        type: "session_heartbeat",
+        sessionId: "s1",
+        agentRunning: true,
+      },
+      {
+        type: "session_heartbeat",
+        sessionId: "s1",
+        agentRunning: false,
+        metrics: {
+          rss: 1,
+          heapUsed: 2,
+          heapTotal: 3,
+          cpuPercent: 4,
+          loadAvg1m: 5,
+        },
+      },
       {
         type: "event_forward",
         sessionId: "s1",

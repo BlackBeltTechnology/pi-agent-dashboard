@@ -148,6 +148,50 @@ function extractRawSessionUpdates(event: DashboardEvent): SessionUpdates | null 
 }
 
 /**
+ * Reconcile a session's stored status against bridge-reported agent liveness.
+ *
+ * Deliberately NOT an arm of `extractSessionUpdates`: a reconcile needs the
+ * session's CURRENT status, which the event-keyed extractor does not have, and
+ * keeping it off the event path is what keeps run-boundary semantics (unread,
+ * naming, retry disposition) anchored to real `agent_start`/`agent_end` only
+ * (design D2/D3). Pure: two values in, a partial update or `null` out.
+ *
+ * The domain is the full `SessionStatus`, and the table is deliberately narrow
+ * (design D9):
+ *
+ * | current     | `false`               | `true`        |
+ * |-------------|-----------------------|---------------|
+ * | `streaming` | → `idle` (the fix)    | inert         |
+ * | `idle`      | inert                 | → `streaming` |
+ * | `active`    | inert (resting state) | → `streaming` |
+ * | `ended`     | inert (terminal)      | inert         |
+ *
+ * The two directions are asymmetric on purpose: `→ idle` clears `currentTool`
+ * because a stopped agent cannot be inside a tool; `→ streaming` leaves it
+ * alone because a running agent may well be (D4).
+ *
+ * See change: fix-stuck-streaming-status-latch.
+ */
+export function reconcileAgentLiveness(
+  currentStatus: SessionStatus | undefined,
+  agentRunning: boolean,
+): SessionUpdates | null {
+  // Terminal sessions are never reconciled in either direction — a beat racing
+  // teardown must not resurrect one.
+  if (currentStatus === "ended") return null;
+  if (agentRunning) {
+    if (currentStatus === "idle" || currentStatus === "active") {
+      return { status: "streaming" };
+    }
+    return null;
+  }
+  if (currentStatus === "streaming") {
+    return { status: "idle", currentTool: null };
+  }
+  return null;
+}
+
+/**
  * Activity-event allowlist for `session.lastActivityAt` stamping.
  *
  * Returns `true` for event types that represent user-or-agent action
