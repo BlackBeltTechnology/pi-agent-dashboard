@@ -1,47 +1,33 @@
-// E24 (phase 7.7): the project-init seeded READ doctrine stays UNTRIMMED —
-// both template variants (kb-wired + manual) keep their substitution-table
-// rows, because a seeded project may never install kb-extension and its prose
-// is the only enforcement it has. A gate trim landed in THIS repo's root
-// AGENTS.md must never silently shrink the seeds.
-// See change: add-kb-trust-verdicts-and-search-guard.
-import { readFileSync } from "node:fs";
+// The project-init DOX seed is now a POINTER block; the full READ doctrine is
+// carried (and injected per turn) by the kb extension. This file guards the
+// boundary: the seed must not re-introduce a doctrine table, and the coding
+// profile template keeps its own fallback table for the pre-extension case.
+// See change: inject-dox-doctrine-and-describe.
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { buildDoctrineBlock } from "../project-init/seed-doctrine.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // packages/extension/src/__tests__ → packages/extension/.pi/skills/project-init
 const SEED_DIR = resolve(HERE, "..", "..", ".pi", "skills", "project-init");
 
-const doctrine = () => readFileSync(join(SEED_DIR, "dox-doctrine.md"), "utf8");
 const codingTmpl = () => readFileSync(join(SEED_DIR, "profiles", "coding", "AGENTS.md.tmpl"), "utf8");
 
-function block(text: string, start: string, end: string): string {
-  const s = text.indexOf(start);
-  const e = text.indexOf(end);
-  expect(s, `missing marker ${start}`).toBeGreaterThanOrEqual(0);
-  expect(e, `missing marker ${end}`).toBeGreaterThan(s);
-  return text.slice(s, e);
-}
-
-describe("project-init seeds keep the full READ doctrine (E24)", () => {
-  it("kb-wired variant keeps the substitution table rows + fall-through", () => {
-    const kb = block(doctrine(), "<!-- dox:read:kb:start -->", "<!-- dox:read:kb:end -->");
-    expect(kb).toContain("| You're about to… | Do this FIRST instead |");
-    expect(kb).toContain("kb_search --doc-type agents");
-    expect(kb).toContain("kb agents <path>");
-    expect(kb).toContain("kb_get <path> <section>");
-    expect(kb).toContain("Fall-through");
+describe("project-init seed carries no doctrine text", () => {
+  it("the doctrine file moved out of the skill dir", () => {
+    expect(existsSync(join(SEED_DIR, "dox-doctrine.md"))).toBe(false);
   });
 
-  it("manual variant keeps its substitution table rows + fall-through", () => {
-    const manual = block(doctrine(), "<!-- dox:read:manual:start -->", "<!-- dox:read:manual:end -->");
-    expect(manual).toContain("| You're about to… | Do this FIRST instead |");
-    expect(manual).toContain("read the nearest directory `AGENTS.md`");
-    expect(manual).toContain("Fall-through");
+  it("the seed is a pointer only — no READ table, no legacy delimiters", () => {
+    const block = buildDoctrineBlock();
+    expect(block).toContain(".pi/dashboard/knowledge_base.json");
+    expect(block).not.toContain("kb_search --doc-type agents");
+    expect(block).not.toMatch(/dox:\w+:start/);
   });
 
-  it("the coding profile AGENTS.md.tmpl keeps its own substitution table", () => {
+  it("the coding profile template keeps its own fallback READ table", () => {
     const tmpl = codingTmpl();
     expect(tmpl).toContain("kb_search --doc-type agents");
     expect(tmpl).toContain("kb agents <path>");

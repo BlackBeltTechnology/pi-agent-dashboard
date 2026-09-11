@@ -21,9 +21,24 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 /** Minimal structural shape of the extension context we use (cwd). */
 type Ctx = { cwd?: string };
 
+/** Structural shape of the `before_agent_start` event this extension reads. */
+type BeforeAgentStartInput = {
+  systemPrompt?: unknown;
+  systemPromptOptions?: { cwd?: unknown; contextFiles?: ContextFile[] };
+};
+
 import { readFileSync } from "node:fs";
+import type { DoctrineConfig } from "@blackbelt-technology/pi-dashboard-kb";
 import { agentsChain, enrichHits, loadConfig, renderHits, searchOptsFromConfig } from "@blackbelt-technology/pi-dashboard-kb";
 import { Type } from "typebox";
+import {
+  buildDoctrineFragment,
+  buildFirstContactNudge,
+  buildMigrationNudge,
+  type ContextFile,
+  hasLegacySeed,
+  insertFragment,
+} from "./doctrine.js";
 import { createGuard, type GuardInput, guardNoteSafe, type KbGuard, resolveGuardMode } from "./guard.js";
 import {acknowledgeRows,closeKb, 
   createReindexState, 
@@ -74,6 +89,68 @@ export default function kbExtension(pi: ExtensionAPI): void {
     }
     pendingGuardWarnings.set(id, text);
   };
+
+  // --- DOX doctrine injection (change: inject-dox-doctrine-and-describe) ---
+  // READ injected when `doctrine.inject === "kb"`; WRITE additionally when
+  // `doctrine.write`. Config is resolved PER TURN from the session cwd (a
+  // dashboard session may switch folders and the config may be written during
+  // the session). Insertion lands BEFORE pi's `Current working directory:`
+  // anchor so the bridge's splice (which drops everything after that anchor)
+  // cannot eat it. Idempotent on the delimiter.
+  let configWarned = false; // malformed project config: warn once per session
+  let doctrineFileWarned = false; // unreadable doctrine file: warn once per session
+  let nudgeFired = false; // first-contact / migration nudge: once per session
+
+  pi.on("before_agent_start", (event) => {
+    const e = event as BeforeAgentStartInput;
+    const sp = e.systemPrompt;
+    if (typeof sp !== "string") return undefined;
+    const cwd = typeof e.systemPromptOptions?.cwd === "string" ? e.systemPromptOptions.cwd : process.cwd();
+
+    let doctrine: DoctrineConfig = { inject: "kb", write: false };
+    let doctrineSource: "project" | "global" | "none" = "none";
+    let configError = false;
+    try {
+      const cfg = loadConfig(cwd);
+      doctrine = cfg.doctrine;
+      doctrineSource = cfg.doctrineSource;
+    } catch (e) {
+      if (!configWarned) {
+        console.warn(`[kb] doctrine config invalid, using defaults: ${(e as Error).message}`);
+        configWarned = true;
+      }
+      configError = true;
+    }
+
+    // Legacy seeded copy in a loaded context file → no injection (no double
+    // load); offer migration instead, unless the project opted out.
+    if (hasLegacySeed(e.systemPromptOptions?.contextFiles)) {
+      if (doctrine.inject === "off" || nudgeFired) return undefined;
+      nudgeFired = true;
+      return { systemPrompt: insertFragment(sp, buildMigrationNudge(cwd)) };
+    }
+
+    let fragment = "";
+    try {
+      fragment = buildDoctrineFragment({ inject: doctrine.inject, write: doctrine.write });
+    } catch (e) {
+      if (!doctrineFileWarned) {
+        console.warn(`[kb] doctrine file unreadable, skipping injection: ${(e as Error).message}`);
+        doctrineFileWarned = true;
+      }
+      return undefined;
+    }
+
+    if (doctrineSource === "none" && !configError && !nudgeFired) {
+      nudgeFired = true;
+      const nudge = buildFirstContactNudge(cwd);
+      fragment = fragment ? `${fragment}\n\n${nudge}` : nudge;
+    }
+
+    if (!fragment) return undefined;
+    const next = insertFragment(sp, fragment);
+    return next === sp ? undefined : { systemPrompt: next };
+  });
 
   // --- native tools (pull retrieval) ---
 

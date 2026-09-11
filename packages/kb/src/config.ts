@@ -77,6 +77,14 @@ export type GuardMode = "off" | "warn" | "block";
 export interface ReadDisciplineConfig {
   guard: { mode: GuardMode };
 }
+/** Per-turn DOX doctrine delivery (change: inject-dox-doctrine-and-describe).
+ *  `inject: "kb"` appends the READ doctrine to the system prompt; `write`
+ *  additionally appends the WRITE discipline. `inject: "off"` suppresses both
+ *  and makes `write` inert. */
+export interface DoctrineConfig {
+  inject: "kb" | "off";
+  write: boolean;
+}
 export interface KbConfig {
   sources: SourceConfig[];
   roots?: Array<{ path: string; priority?: number }>; // legacy alias → filesystem sources
@@ -98,6 +106,7 @@ export interface KbConfig {
   frontmatter: FrontmatterConfig;
   doxEnforcement: boolean; // opt-in Phase-2 hook Job 2 (default OFF)
   readDiscipline: ReadDisciplineConfig;
+  doctrine: DoctrineConfig;
   ranking: RankingConfig;
   expand: ExpandConfig;
   rerank: RerankConfig;
@@ -117,6 +126,9 @@ export interface ResolvedConfig extends KbConfig {
   allSourceSpecs: SourceConfig[]; // roots[] legacy + sources[] (for async resolveAll)
   resolvedSources: ResolvedSource[]; // filesystem-only, sync (remote need async resolveAll)
   origin: "project" | "global" | "defaults";
+  /** Highest layer that supplied a `doctrine` KEY (`{}` counts) — distinct from
+   *  `origin`, which is file-presence. Callers use it to detect first contact. */
+  doctrineSource: "project" | "global" | "none";
 }
 
 export const DEFAULTS: KbConfig = {
@@ -144,6 +156,7 @@ export const DEFAULTS: KbConfig = {
   frontmatter: { searchableKeys: DEFAULT_SEARCHABLE_KEYS, facetKeys: DEFAULT_FACET_KEYS },
   doxEnforcement: false,
   readDiscipline: { guard: { mode: "warn" } },
+  doctrine: { inject: "kb", write: false },
   ranking: {
     fieldWeights: { headingPath: 10, heading: 3, body: 1 },
     proximityBoost: true,
@@ -167,7 +180,7 @@ export const DEFAULTS: KbConfig = {
 
 // Nested object keys that need one-level field fill-in (not wholesale replace),
 // so a partial `{ranking:{proximityBoost:false}}` keeps default fieldWeights/diversity.
-const NESTED_KEYS = ["chunking", "dedup", "graph", "directoryLevelAgents", "frontmatter", "readDiscipline", "ranking", "expand", "rerank", "queryExpansion"] as const;
+const NESTED_KEYS = ["chunking", "dedup", "graph", "directoryLevelAgents", "frontmatter", "readDiscipline", "doctrine", "ranking", "expand", "rerank", "queryExpansion"] as const;
 
 /** Stable hash of the frontmatter routing config. A change forces a full reindex
  *  (design D6) since existing property rows/meta chunks reflect the old routing. */
@@ -210,6 +223,10 @@ export function validateConfig(c: Partial<KbConfig>, origin = "config"): KbConfi
   if (!/^(off|prf|synonym|agent)$/.test(merged.queryExpansion.mode)) throw err(`queryExpansion.mode "${merged.queryExpansion.mode}" unknown`);
   const gm = merged.readDiscipline?.guard?.mode;
   if (gm !== undefined && !/^(off|warn|block)$/.test(gm)) throw err(`readDiscipline.guard.mode "${gm}" unknown (off | warn | block)`);
+  const doc = merged.doctrine as Partial<DoctrineConfig> | null | undefined;
+  if (!doc || typeof doc !== "object" || Array.isArray(doc)) throw err("doctrine must be an object ({ inject, write })");
+  if (doc.inject !== undefined && !/^(kb|off)$/.test(doc.inject as string)) throw err(`doctrine.inject "${doc.inject}" unknown (kb | off)`);
+  if (doc.write !== undefined && typeof doc.write !== "boolean") throw err("doctrine.write must be a boolean");
   const lq = merged.ranking.laneQuota;
   if (typeof lq !== "number" || !Number.isFinite(lq) || lq < 0 || lq > 1) throw err("ranking.laneQuota must be a number in [0,1]");
   const llm = merged.ranking.laneLeadMargin;
@@ -245,6 +262,10 @@ export function loadConfig(cwd: string, opts: { configPath?: string } = {}): Res
   const project = opts.configPath ? readJson(opts.configPath) : readJson(projectConfigPath(cwd));
   const global = readJson(globalConfigPath());
   const origin: ResolvedConfig["origin"] = project ? "project" : global ? "global" : "defaults";
+  // KEY-presence (a non-null object, `{}` included) — NOT file-presence. A
+  // project file holding only `readDiscipline` has recorded no doctrine choice.
+  const doctrineSource: ResolvedConfig["doctrineSource"] =
+    project?.doctrine !== undefined ? "project" : global?.doctrine !== undefined ? "global" : "none";
   const merged = validateConfig(mergeConfig(DEFAULTS, global, project), origin);
 
   // legacy roots[] → filesystem sources
@@ -260,5 +281,5 @@ export function loadConfig(cwd: string, opts: { configPath?: string } = {}): Res
 
   const dbAbsPath = isAbsolute(merged.dbPath) ? merged.dbPath : resolve(cwd, merged.dbPath);
   const cacheDirAbs = expandTilde(merged.sourceCacheDir);
-  return { ...merged, cwd, dbAbsPath, cacheDirAbs, allSourceSpecs, resolvedSources, origin };
+  return { ...merged, cwd, dbAbsPath, cacheDirAbs, allSourceSpecs, resolvedSources, origin, doctrineSource };
 }

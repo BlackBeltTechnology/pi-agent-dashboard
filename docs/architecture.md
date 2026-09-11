@@ -4553,6 +4553,28 @@ Result render emits leaf heading, not breadcrumb, plus `(+N more sections)`. Ful
 
 Path-only fetch (`getChunk` without `headingPath`) returns first chunk plus `suppressedSections` count. Never a silent 1-of-N slice.
 
+#### DOX doctrine injection (`doctrine` config)
+
+Config group `doctrine: { "inject": "kb" | "off", "write": boolean }`. Layered project `.pi/dashboard/knowledge_base.json` → global `~/.pi/dashboard/knowledge_base.json` → defaults. Deep-merged one level, same as `readDiscipline` / `ranking`. Defaults `{ inject: "kb", write: false }`. Validation: `inject` ∈ {`kb`,`off`}; `write` boolean.
+
+`ResolvedConfig.doctrineSource` = `"project"` | `"global"` | `"none"` — highest layer that supplied a `doctrine` KEY. Empty object `{}` counts as a recorded choice; a file that exists without the key does NOT. Distinct from `origin` (file-presence).
+
+Carrier: kb extension (`packages/kb-extension/src/extension.ts`) registers a `before_agent_start` handler. Config resolved PER TURN from session cwd (`systemPromptOptions.cwd`), so a mid-session config write takes effect next turn.
+
+READ injection: when `inject === "kb"`, canonical READ doctrine (`packages/kb-extension/dox-doctrine.md`, section `dox:read:kb`) inserted into system prompt under delimiter line `── dox doctrine ──`. WRITE section (`dox:write`) appended only when `write === true`. `inject: "off"` injects nothing and makes `write` inert.
+
+Insertion point: immediately BEFORE pi's `Current working directory: ` anchor (anchor preserved). Why: dashboard bridge `dashboard-context-injector.ts` splice-replaces everything AFTER that anchor, so a plain append is order-dependent. Idempotent by the delimiter — a reload/repeat never stacks a second fragment.
+
+First-contact flow: when `doctrineSource === "none"`, a ONE-TIME (per session) nudge tells the agent to ask the user (`ask_user`) which mode to enable — `kb read`, `kb read + write`, `off`, `ask later` — and to record the choice in the PROJECT config by read-merge-write (preserve every other key). Non-interactive run → proceed with defaults and write nothing. `ask later` writes nothing and the nudge re-fires next session. Defaults (`kb read`) apply meanwhile.
+
+Legacy seed guard: if a loaded context file (root `AGENTS.md`) carries a `dox:write` / `dox:read:kb` / `dox:read:manual` section delimiter, injection is skipped for that cwd (no double-load) and a once-per-session MIGRATION nudge offers to replace the legacy block with the pointer block. Detection is on the delimiter alone (half-migrated files still detected). The new marker-only pointer block (`<!-- dox-doctrine -->`, no delimiter) never trips the guard. `inject: "off"` suppresses both nudges.
+
+Fault behavior: malformed project config → built-in defaults for that turn (READ injected, WRITE off), NO first-contact nudge, one `[kb]`-prefixed `console.warn` per session. Unreadable doctrine file → system prompt unchanged, one `[kb]` warn per session.
+
+Packaging: `dox-doctrine.md` ships in the npm `files` of `packages/kb-extension`; the `dox-describe` skill ships at `packages/kb-extension/.pi/skills/dox-describe/`.
+
+See change: inject-dox-doctrine-and-describe.
+
 #### Measured outcome (31,121-chunk index, K=10)
 
 | metric | baseline | shipped |

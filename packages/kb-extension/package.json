@@ -26,6 +26,8 @@
   "files": [
     "src/",
     "!src/__tests__",
+    "dox-doctrine.md",
+    ".pi/skills/dox-describe/",
     "README.md",
     "!**/AGENTS.md",
     "!**/*.AGENTS.md"

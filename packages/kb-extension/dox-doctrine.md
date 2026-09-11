@@ -1,17 +1,19 @@
 # DOX Doctrine
 
 Canonical per-directory `AGENTS.md` documentation doctrine. Shipped once with
-the `project-init` skill. Adapted from agent0ai/dox, extended with a kb-backed
-READ discipline. Retrievable via `kb_search "dox doctrine"`.
+the `pi-dashboard-kb-extension` and injected into the system prompt per turn.
+Adapted from agent0ai/dox, extended with a kb-backed READ discipline.
+Retrievable via `kb_search "dox doctrine"`.
 
-The scaffold seeds ONE block into a project's root `AGENTS.md` when that file
-lacks the `<!-- dox-doctrine -->` marker: the WRITE discipline plus one READ
-variant (kb-wired or manual). The sections below are delimited so the seeder
-can compose the right block.
+The READ and WRITE disciplines below are delimited so the injector can compose
+the right fragment: the READ section is injected when `doctrine.inject` is `kb`;
+the WRITE section is appended only when `doctrine.write` is `true`. Tune both in
+`.pi/dashboard/knowledge_base.json`. The scope is per project, so the injector
+resolves config from the session cwd every turn.
 
 The MAINTAIN section at the end sits deliberately **outside** those markers: it is
 reference for whoever repairs a drifted tree, not a per-turn rule, so it is never
-seeded into a root `AGENTS.md` and costs nothing per turn. Reach it on demand via
+injected into a system prompt and costs nothing per turn. Reach it on demand via
 `kb_search "dox maintenance"`.
 
 <!-- dox:write:start -->
@@ -65,12 +67,11 @@ the threshold stay verbatim (lossless).
 <!-- dox:read:kb:start -->
 ## Finding docs (READ discipline)
 
-`kb_*` tools are faster and cheaper than raw search — they return a one-line
-purpose + key exports per file, not raw bytes. **This fires on the ACTION, not
-the intent** — before you `grep`/`rg` for a symbol, `cat`/read a file to learn
-what it does, or chase an import, the kb call goes first. It fires **even
-mid-task when you already know the file**; knowing the file does not exempt you.
-When your reflex is the left column, run the right column instead:
+`kb_*` tools return a one-line purpose + key exports per file instead of raw
+bytes. **This gate fires on the ACTION, not the intent** — before you
+`grep`/`rg` a symbol, `cat`/read a file to learn its purpose, or chase an
+import, the kb call goes first. It fires **even mid-task when you already know
+the file**. When your reflex is the left column, run the right instead:
 
 | You're about to… | Do this FIRST instead |
 |---|---|
@@ -79,34 +80,23 @@ When your reflex is the left column, run the right column instead:
 | `cat` / read a file just to learn its purpose before editing | `kb agents <path>` — one-line purpose + exports + change history |
 | chase imports / callers across files | `kb_neighbors <path\|heading>` |
 | read one doc section in full | `kb_get <path> <section>` |
+| a kb hit shows `STALE` / `GONE` / `MOVED` / `FRESH` (trust verdict) | verify the row against source before acting — `MOVED` verifies at its reported successor path; `FRESH` may be acted on without re-reading; see `kb_search` verdicts (trust label, never ranking) |
+| derive a fact from a large file / big command output | `ctx_execute_file` / `ctx_execute` **when present** (context-mode is optional); else read with `offset`+`limit`, or `rg`/`awk` via Bash |
+
+`kb_search` indexes repo markdown (`docs/ openspec/ packages/ .pi/`) — NOT
+`tests/ qa/ scripts/ docker/`. `ctx_search`/`memory_search` index session memory,
+NOT repo docs — different corpus.
+
+**Pick the lane — the single highest-yield kb habit.** Looking for a FILE or
+SYMBOL → pass `doc_type:"agents"` (measured P@1 0.048 → 0.231, MRR 0.187 → 0.327
+on mined file-lookup queries; unfiltered, verbose spec prose takes rank 1 and
+buries the per-file row). Asking how something WORKS, or anything conceptual →
+leave `doc_type` unset; the `agents` filter measurably HURTS prose queries.
 
 **Fall-through (explicit):** if the kb call returns nothing relevant, `rg` /
 source read is allowed — then add the missing directory `AGENTS.md` row per the
 WRITE discipline. kb does NOT replace grep; it goes first.
 <!-- dox:read:kb:end -->
-
-<!-- dox:read:manual:start -->
-## Finding docs (READ discipline)
-
-The directory `AGENTS.md` tree is faster and cheaper than raw search — each row
-carries a one-line purpose + key exports per file. **This fires on the ACTION,
-not the intent** — before you `grep`/`rg` for a symbol, `cat`/read a file to
-learn what it does, or chase an import, consult the tree first. It fires **even
-mid-task when you already know the file**; knowing the file does not exempt you.
-When your reflex is the left column, do the right column instead:
-
-| You're about to… | Do this FIRST instead |
-|---|---|
-| `grep -rn "SymbolName" src/` — find where a fn / type / const lives | read the nearest directory `AGENTS.md`; scan rows for the symbol |
-| `grep -rn "feature\|topic" src/` — how does X work / where's X handled | walk the root→nearest `AGENTS.md` chain toward the file's directory |
-| `cat` a file just to learn its purpose before editing | read that file's row in its directory `AGENTS.md` (purpose + exports + change history) |
-| chase imports / callers across files | follow the `See change:` / pointer references in the nearest `AGENTS.md` |
-| read one doc section in full | open the specific `docs/<topic>.md` section |
-
-**Fall-through (explicit):** if the tree misses, `rg` / source read is allowed —
-then add the missing directory `AGENTS.md` row per the WRITE discipline. The tree
-goes first.
-<!-- dox:read:manual:end -->
 
 ## Maintaining a drifted tree (NOT seeded — reference only)
 
