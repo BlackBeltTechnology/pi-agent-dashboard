@@ -18,6 +18,16 @@ const models: ModelInfo[] = [
 // redesign-prompt-input). T3: no standalone model row renders.
 // ---------------------------------------------------------------------------
 describe("StatusBar", () => {
+  // fix-quota-widget-clipping: the chat pane is `flex-col overflow-hidden`, so a
+  // thin furniture row that absorbs a height deficit gets CLIPPED (it cannot
+  // compress below its content) rather than shrunk. The status bar must declare a
+  // non-shrinking floor so the deficit goes to the composer, which scrolls.
+  it("declares a non-shrinking floor so a short pane cannot clip it", () => {
+    render(<StatusBar status="streaming" />);
+    const bar = screen.getByTestId("status-bar");
+    expect(bar.className).toContain("shrink-0");
+  });
+
   it("shows working status when streaming", () => {
     render(<StatusBar status="streaming" />);
     expect(screen.getByTestId("working-status")).toBeTruthy();

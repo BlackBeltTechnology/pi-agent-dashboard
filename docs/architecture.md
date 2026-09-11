@@ -333,6 +333,7 @@ Pi owns the retry loop. Dashboard configures + observes + renders it. Attempts f
 - `agent_settled` carries NO `messages` (verified pi 0.81.1/0.83), so tracker remembers terminal disposition via `lastEndWasError` at `agent_end`.
 - `-1` sentinels REMOVED. `maxAttempts` / `delayMs` sourced read-only from pi settings via `packages/extension/src/pi-retry-settings.ts` (defaults 3 / 2000; unreadable → `delayMs: 0` → surface renders elapsed-only).
 - pi 0.83 exposes retry lifecycle events to RPC/SDK consumers ONLY. ExtensionAPI has no `auto_retry_*` and nothing on EventBus. `willRetry` in 0.83 is compaction-only (`session_before_compact`/`session_compact`). Bridge is extension → must observe-synthesize.
+- Native `agent_settled` guaranteed at the 0.85.1 lockstep floor (`piCompatibility.minimum == recommended == 0.85.1`). Bridge consumes the native settle unconditionally — no version gate, no floor-pi synthesis. Floor-pi synthesis module `packages/extension/src/agent-settled.ts` DELETED. `agent_settled` remains the SOLE terminal retry signal. See change: update-pi-core-0-85-adopt-apis.
 
 **3. Settings write + reload-on-save** (`packages/server/src/pi-agent-settings.ts`).
 
@@ -934,7 +935,7 @@ pi/openspec/tsx are regular npm dependencies of `@blackbelt-technology/pi-dashbo
 
 `launchSource` (returned by `/api/health`) is `"electron" | "standalone" | "bridge"`, derived from `DASHBOARD_STARTER`. Client uses it via `useLaunchSource()` to hide pi-core update UI on Electron (immutable bundle has no writable target).
 
-Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `readCurrentPiVersion`, `computeCompatibility`) survive as pure helpers. The pinned range is `minimum: "0.70.0"`, `recommended: "0.70.0"`, `maximum: null` (lockstep — one supported pi means no conditional code paths in the bridge).
+Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `readCurrentPiVersion`, `computeCompatibility`) survive as pure helpers. The pinned range is `minimum: "0.85.1"`, `recommended: "0.85.1"`, `maximum: null` (lockstep — one supported pi means no conditional code paths in the bridge).
 
 #### Legacy `~/.pi-dashboard/` advisory
 
@@ -1687,7 +1688,7 @@ kb guard is STRICTER, not looser, in every state except a submodule admitted on 
 
 Fixtures: `packages/shared/src/test-support/git-fixtures.ts`. Needs `GIT_CONFIG_GLOBAL=/dev/null` + `GIT_CONFIG_SYSTEM=/dev/null` and `-c protocol.file.allow=always`.
 
-NOT converted by this change: `resolveMainPath` + its twelve consumers (follow-up `apply-checkout-root-to-worktree-ops`); `packages/server/src/lib/path-containment.ts` (follow-up `widen-containment-to-resolved-checkout`); `listWorktrees()` reports the gitdir as main worktree for submodule/bare/`--separate-git-dir`.
+NOT converted by this change: `resolveMainPath` + its twelve consumers (follow-up `apply-checkout-root-to-worktree-ops`); `listWorktrees()` reports the gitdir as main worktree for submodule/bare/`--separate-git-dir`. `path-containment.ts` converted by `widen-containment-to-resolved-checkout` — see File Read API.
 See change: add-git-checkout-root-resolver.
 
 ### Child Process Scanning
@@ -1884,7 +1885,13 @@ The attached-change row on every session card has four affordances driven by the
 - `POST /api/openspec/tasks/toggle` — body `{ cwd, change, id, done, line }`. Reads the file, validates that `line` still contains the requested `id` and the *opposite* state (optimistic-concurrency check), rewrites only that one line's `[ ]`/`[x]` marker, and atomic-writes via `tmp + rename` so other lines are preserved byte-for-byte. Maps typed errors to HTTP: `NotFoundError` → 404, `LineMismatchError` → 409, `NotACheckboxError` → 400. On success, fires a fire-and-forget `directoryService.refreshOpenSpec(cwd)` followed by an `openspec_update` broadcast.
 
 ### File Read API
-The server exposes `GET /api/file?cwd=...&path=...` for reading files or listing directories from session working directories. Guards: localhost-only, cwd must match a known session, resolved path must stay inside cwd. Returns `{ type: "file", content }` or `{ type: "directory", entries }`.
+The server exposes `GET /api/file?cwd=...&path=...` for reading files or listing directories from session working directories. Guards: localhost-only, cwd must match a known session, path admitted by `isAllowed` (`packages/server/src/lib/path-containment.ts`). Returns `{ type: "file", content }` or `{ type: "directory", entries }`.
+
+Containment anchors at each anchor's resolved, repository-BOUND checkout roots — `thisCheckout` + `mainCheckout` from the shared resolver (`packages/shared/src/platform/git.ts`), never `dirname(--git-common-dir)`. `commonDir` = repository identity, never an anchor. Layer ① logical: resolved under anchor cwd, string compare, no spawn — hot path. Layer ② checkout roots: spawned only on ① miss, via `checkoutRootsAsync` — remote caller forces ② at will, so a synchronous probe would be an event-loop DoS. Each derived root kept only when `isBoundCheckout(candidate, commonDir)`: no `.git` path segment, not under the common dir, re-resolves to the SAME common dir, candidate IS its own `thisCheckout`. Binding stops a repository-local `core.worktree` naming an unrelated KNOWN folder. Unbound root → dropped (containment) / rejected (kb cwd guard). Widened states: submodule, `--separate-git-dir`, worktree-of-bare sessions read their OWN checkout — none reaches its superproject, the directory holding its git dir, or a bare hub's parent.
+
+kb cwd guard (`isAllowedCwd`, `packages/kb-plugin/src/server/kb-routes.ts`) shares `isBoundCheckout`. Admission = authority over the cwd's CONFIGURED paths, not the cwd subtree: an admitted cwd's `knowledge_base.json` may name absolute `sources[].ref` and an absolute `dbPath` outside the cwd (`packages/kb/src/config.ts` `loadConfig` resolves absolute refs verbatim). Reach past admission unbounded → guard rejects an unbound main checkout, never tolerates it.
+
+See change: widen-containment-to-resolved-checkout (was: git-root-file-containment).
 
 ### Filesystem Browser (PathPicker)
 
@@ -4367,9 +4374,9 @@ sequenceDiagram
 
 `auth.json` holds one credential per provider key (`api_key` OR `oauth`, never both). No mixed-cred branch.
 
-Override table: `packages/server/src/model-proxy/oauth-compat.ts` → `OAUTH_INCOMPATIBLE: Record<provider, ReadonlySet<modelId>>` + `isOauthIncompatible(provider, id)`. Flags legacy Anthropic snapshots (`claude-3-5-haiku-20241022`, `claude-3-5-sonnet-*`, `claude-3-7-sonnet-*`, `claude-3-opus-*`, `claude-3-haiku-*`, `claude-3-sonnet-*`) unreachable over OAuth. `getAllModels()` sets `oauthCompatible = !isOauthIncompatible(provider, id)` on built-in models; custom models propagate `models.json#oauthCompatible` (default `true`). Hand-maintained. Review when provider ships new model. Stale entry falls back to listed-but-unreachable — not a regression.
+Override table: `packages/server/src/model-proxy/oauth-compat.ts` → `OAUTH_INCOMPATIBLE: Record<provider, ReadonlySet<modelId>>` + `isOauthIncompatible(provider, id)`. Flags legacy Anthropic snapshots (`claude-3-5-haiku-20241022`, `claude-3-5-sonnet-*`, `claude-3-7-sonnet-*`, `claude-3-opus-*`, `claude-3-haiku-*`, `claude-3-sonnet-*`) unreachable over OAuth. `getAllModels()` sets `oauthCompatible = !isOauthIncompatible(provider, id)` on built-in models; custom models propagate `models.json#oauthCompatible` (default `true`). Hand-maintained. Review when provider ships new model. Stale entry falls back to listed-but-unreachable — not a regression. Unchanged by the 0.85.1 bump: `claude-fable-5-1` NOT added. Its HTTP 400 `claude_code_version_too_old` on Claude Pro/Max OAuth = client-version (user-agent) header gate, not catalog gate. 0.85.1 raises pi's Anthropic UA to `claude-cli/2.1.251`, clearing it. Adding the id would wrongly hide a reachable model.
 
-Note: Codex OAuth stored under `auth.json` key `openai-codex`; pi-ai OpenAI models carry provider `openai`. Filter keys on `model.provider`, so raw `openai` override slot never sees `openai-codex` cred without provider-key remap. `openai` slot left empty.
+Codex OAuth stored under `auth.json` key `openai-codex`. pi 0.85.1 catalog publishes `gpt-6-astra` as FOUR first-class entries, one per channel, each carrying its own `provider`: `openai` (api `openai-responses`), `openai-codex` (api `openai-codex-responses`), `github-copilot`, `azure-openai-responses`. Registry matches credential key to `model.provider` by EQUALITY. An `openai-codex` credential lists the `openai-codex` entry and NOT the `openai` / `github-copilot` / `azure-openai-responses` entries of the same model id. NO provider-key remap needed. Do NOT add one: remap makes a Codex subscription credential appear to route every `openai`-provider model, widening credential scope. See change: `update-pi-core-0-85-adopt-apis`.
 
 `GET /api/model-proxy/diagnostics` (JWT-gated, main instance only, `routes/model-proxy-diagnostics-routes.ts`): `getAllAnnotated()` → `{id, provider, excludedReason}` per model. `excludedReason` ∈ `null` (included) | `"no-credential"` | `"oauth-incompatible"`. Feeds future Settings UI. 503 when pi-ai unresolved.
 

@@ -13,6 +13,12 @@
  * role slice, so a missing/malformed `providers.json#roles` cannot break model
  * discovery.
  *
+ * Cwd-independence (change: update-pi-core-0-85-adopt-apis, task 5.1): these
+ * tools are intentionally cwd-independent — they read the in-process session
+ * registry and the machine-wide `~/.pi/agent/providers.json` (an absolute
+ * path), and resolve no session-relative path or spawn a process. `ctx.cwd` is
+ * never consulted.
+ *
  * See change: add-agent-role-model-tools.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";

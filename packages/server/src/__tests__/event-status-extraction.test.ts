@@ -113,6 +113,22 @@ describe("extractSessionUpdates — compaction signal", () => {
     expect(fold([before, replayed, real]).compacting).toBe(false);
   });
 
+  // X1 (change: update-pi-core-0-85-adopt-apis, design §8): pi 0.85.1 abort
+  // genuinely CANCELS an in-progress manual compaction (pi#8920). The audit's
+  // answer is that the abort path STILL emits `session_compact_failed` — pi's
+  // `AgentSession.compact()` catch calls
+  // `_emitSessionCompactFailed({reason:"manual", aborted:true})` — so the
+  // latch does not strand and no defensive timeout is added. This pins the
+  // full set→clear sequence.
+  it("X1: an aborted manual compaction clears the latch (no strand)", () => {
+    expect(extractSessionUpdates(makeEvent("session_before_compact"))).toEqual({
+      compacting: true,
+    });
+    expect(
+      extractSessionUpdates(makeEvent("session_compact_failed", { reason: "manual", aborted: true })),
+    ).toEqual({ compacting: false });
+  });
+
   it("does not disturb currentTool (no fold when hasPendingPrompt)", () => {
     // The `hasPendingPrompt` fold only rewrites an update that CLEARS
     // currentTool. A compaction update carries no currentTool at all, so it

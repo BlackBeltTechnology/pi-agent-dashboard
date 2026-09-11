@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-modular-doctor-skill. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Modular router skill
 The doctor SHALL be a single skill whose `SKILL.md` is a thin router that owns
 no capability knowledge, delegating to self-contained capability MDs read on
@@ -69,7 +71,13 @@ function without the dashboard server running.
 
 ### Requirement: Multi-location pi resolution reporting
 The doctor SHALL report pi across all install locations and flag divergence and
-floor violations.
+floor violations. Because `piCompatibility.minimum` now tracks the pinned
+runtime in lockstep, a location behind the pin is a floor violation rather than
+a soft upgrade hint, and the doctor SHALL report it as failing.
+
+The floor and pin values the module reports SHALL be derived from
+`packages/server/package.json` at regeneration time, never hand-edited into the
+module's knowledge tables.
 
 #### Scenario: Report all pi installs
 - **WHEN** the `pi-resolution` module runs
@@ -78,14 +86,26 @@ floor violations.
   per-session-cwd `createRequire` resolution)
 
 #### Scenario: Flag divergence
-- **WHEN** two pi locations resolve to different versions (e.g. CLI 0.80.3 vs
-  server 0.80.2)
+- **WHEN** two pi locations resolve to different versions
 - **THEN** the doctor reports the divergence and identifies which location each
   consumer uses
 
 #### Scenario: Flag floor violation
 - **WHEN** any resolved pi version is below the `piCompatibility.minimum` floor
 - **THEN** the doctor flags that location as failing with the required version
+
+#### Scenario: Location behind the pin fails rather than hints
+- **GIVEN** a resolved pi one or more releases behind the pinned runtime
+- **WHEN** the `pi-resolution` module runs
+- **THEN** that location SHALL be flagged as failing the floor
+- **AND** SHALL NOT be reported merely as an upgrade recommendation
+
+#### Scenario: Version tables are regenerated, not hand-edited
+- **WHEN** the pinned version or floor moves
+- **THEN** the `pi-resolution` module's derived version tables SHALL be
+  regenerated from `packages/server/package.json`
+- **AND** its per-module knowledge hash SHALL be updated by the same
+  regeneration
 
 ### Requirement: Peer resolution and name-skew detection
 The doctor SHALL probe peers via tier-1 and tier-2 resolution and detect
@@ -247,4 +267,3 @@ The module SHALL route a `source` that disagrees with the deployment shape to th
 #### Scenario: Zero-provider boot is not reported as live
 - **WHEN** the server booted with an empty resolvable provider registry
 - **THEN** the module SHALL report `authActive: false` rather than a value that looks live
-
