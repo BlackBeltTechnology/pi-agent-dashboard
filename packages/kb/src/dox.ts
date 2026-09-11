@@ -330,7 +330,13 @@ export interface EmptyPurposeList {
  *  by the table header (`scanDoxRows`), so a prose-only file is skipped. */
 export function listEmptyPurposeRows(opts: { cwd: string; dir?: string }): EmptyPurposeList {
   const cwd = opts.cwd;
-  const start = opts.dir ? resolve(cwd, opts.dir) : cwd;
+  const dir = typeof opts.dir === "string" && opts.dir.length > 0 ? opts.dir : undefined;
+  const start = dir ? resolve(cwd, dir) : cwd;
+  // A `--dir` outside cwd, or one naming an excluded / `__tests__` directory,
+  // is rejected: the descent skips those dirs, so the START dir needs the same
+  // gate (else `--dir a/__tests__` enumerates what the walk would skip).
+  if (start !== cwd && !start.startsWith(cwd + sep)) return { groups: [], total: 0 };
+  if (basename(start) === "__tests__" || DEFAULT_EXCLUDE.test(relative(cwd, start))) return { groups: [], total: 0 };
   const gi = loadGitignoreMatcher(cwd, { cwd, prune: (rel) => DEFAULT_EXCLUDE.test(rel) });
   const agentsFiles: string[] = [];
   const walk = (dir: string) => {

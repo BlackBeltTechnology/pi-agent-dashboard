@@ -47,14 +47,14 @@ row per the WRITE discipline. The table SHALL NOT read as "kb replaces grep."
 
 ### Requirement: New projects inherit the substitution table
 
-The READ discipline, including the substitution table using `kb agents` / `kb_search`, SHALL be delivered to new projects by the kb extension's per-turn doctrine injection rather than by text seeded into the root `AGENTS.md`. `project-init` SHALL seed only a marker + pointer block naming the extension and the project settings file. The manual (`dox:read:manual`) variant is no longer produced.
+The READ discipline, including the substitution table using `kb agents` / `kb_search`, SHALL be delivered to new projects by the kb extension's per-turn doctrine injection rather than by text seeded into the root `AGENTS.md`, for any project where the kb extension is loaded. `project-init` SHALL seed only a marker + pointer block naming the extension and the project settings file. The manual (`dox:read:manual`) variant is no longer produced.
 
 #### Scenario: kb-wired seed carries the table
 - **WHEN** `project-init` seeds a project and the kb extension is loaded there
 - **THEN** the agent's system prompt carries the substitution table via injection
 - **AND** the root `AGENTS.md` carries only the marker + pointer block
 
-#### Scenario: Manual seed carries a degraded table
+#### Scenario: Extensionless seed carries only the pointer
 - **WHEN** `project-init` seeds a project and the kb extension is not loaded
 - **THEN** no degraded table is seeded
 - **AND** the root `AGENTS.md` pointer block names the extension and the settings file that provide the doctrine

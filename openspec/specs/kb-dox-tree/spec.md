@@ -258,4 +258,4 @@ The `dox describe --list` operation SHALL walk the same directory set as `dox in
 
 #### Scenario: JSON output
 - **WHEN** `--json` is passed
-- **THEN** the output is a JSON array of `{ agentsPath, subjects: string[] }` plus a total count
+- **THEN** the output is `{ groups: [{ agentsPath: string, subjects: string[] }], total: number }`

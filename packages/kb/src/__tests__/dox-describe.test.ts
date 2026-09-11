@@ -56,6 +56,22 @@ describe("listEmptyPurposeRows (E24–E28, X3)", () => {
     expect(out.groups[0].agentsPath).toBe("a/AGENTS.md");
   });
 
+  it("rejects a --dir outside cwd, or an excluded/__tests__ dir", () => {
+    const dir = project({
+      "a/AGENTS.md": DOX("| `a/x.ts` |  |\n"),
+      "a/__tests__/AGENTS.md": DOX("| `a/__tests__/x.test.ts` |  |\n"),
+    });
+    expect(listEmptyPurposeRows({ cwd: dir, dir: "../outside" })).toEqual({ groups: [], total: 0 });
+    expect(listEmptyPurposeRows({ cwd: dir, dir: "a/__tests__" })).toEqual({ groups: [], total: 0 });
+  });
+
+  it("treats a non-string --dir (flag without a value) as no restriction", () => {
+    const dir = project({ "a/AGENTS.md": DOX("| `a/x.ts` |  |\n") });
+    // `--dir` with no value parses to boolean true; must not throw in path.resolve.
+    const out = listEmptyPurposeRows({ cwd: dir, dir: true as unknown as string });
+    expect(out.total).toBe(1);
+  });
+
   it("E27: nothing to describe → empty groups, total 0", () => {
     const dir = project({ "a/AGENTS.md": DOX("| `a/x.ts` | has a purpose |\n") });
     const out = listEmptyPurposeRows({ cwd: dir });

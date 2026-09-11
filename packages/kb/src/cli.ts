@@ -218,7 +218,7 @@ function main() {
     }
     if (sub === "describe") {
       // --list is the only v1 op; accept it (and its absence) uniformly.
-      const r = listEmptyPurposeRows({ cwd, dir: flags.dir as string | undefined });
+      const r = listEmptyPurposeRows({ cwd, dir: typeof flags.dir === "string" ? flags.dir : undefined });
       if (flags.json) {
         console.log(JSON.stringify(r, null, 2));
         return;

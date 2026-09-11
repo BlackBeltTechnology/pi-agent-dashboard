@@ -69,8 +69,9 @@ Each subagent's task must include:
 
 ## Step 4 — verify, report, reindex
 
-1. `kb dox lint` — must be clean (a subagent that broke the table shape shows up
-   here; fix or revert that one file).
+1. `kb dox lint` — must be clean. On a finding, hand it back to the subagent
+   that owns that `AGENTS.md` to repair or revert its OWN file (the parent never
+   edits a tree file). Re-run lint after the repair.
 2. One final reindex so the new purposes are searchable:
    ```bash
    kb index
