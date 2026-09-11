@@ -32,7 +32,7 @@ import {
   SqliteFtsStore,
   validateConfig,
 } from "@blackbelt-technology/pi-dashboard-kb";
-import { checkoutRoots, hasGitPathSegment } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
+import { checkoutRoots, hasGitPathSegment, isBoundCheckout } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { KbConfigPatch, KbReindexResult, KbStats } from "../shared/kb-plugin-types.js";
 import type { KbJobRegistry } from "./job-registry.js";
@@ -72,27 +72,33 @@ function canonPath(p: string): string {
  *  real but UNRELATED directory which could itself be a known folder — an
  *  over-admission this anchor closes.
  *
- *  The `.git`-segment rejection is this consumer's OWN obligation: the resolver
- *  returns a user-controlled `core.worktree` value verbatim and does not judge
- *  it. Being an AUTHORIZATION consumer, the safe response is to derive no main
- *  path at all, so the value is never matched against the known-folder set.
+ *  The `.git`-segment rejection and the repository binding are this
+ *  consumer's OWN obligations: the resolver returns a user-controlled
+ *  `core.worktree` value verbatim and does not judge it. Being an
+ *  AUTHORIZATION consumer, the safe response is to derive no main path at all,
+ *  so the value is never matched against the known-folder set. Binding
+ *  re-resolves the candidate and requires it to point back at the SAME common
+ *  dir, which closes a repository-local `core.worktree` naming an unrelated
+ *  KNOWN folder.
  *
  *  A submodule resolves to its own checkout and therefore does NOT inherit
  *  trust from its superproject; a worktree of a bare hub resolves to null and
  *  is rejected unless independently known.
  *  The probes run through the SYNCHRONOUS runner on a Fastify request path, so
  *  the per-probe budget is what bounds event-loop blocking. The superseded
- *  implementation blocked for at most one 2000ms `execFileSync`; this resolves
- *  up to FIVE probes, so the budget is 400ms each to hold the SAME 2s worst
- *  case rather than multiplying it. A healthy git answers in ~10ms; only a
- *  pathological (network-mounted, unresponsive) checkout approaches the bound,
+ *  implementation blocked for at most one 2000ms `execFileSync`; resolving the
+ *  cwd takes up to FIVE probes and binding a linked-worktree candidate takes up
+ *  to FIVE MORE, so the budget is 200ms each to hold the SAME 2s worst case
+ *  (10 × 200ms) rather than multiplying it. A healthy git answers in ~10ms; only
+ *  a pathological (network-mounted, unresponsive) checkout approaches the bound,
  *  and a timeout degrades to "no result" → reject, never admit.
- *  See change: add-git-checkout-root-resolver (was: fix-kb-worktree-cwd-guard). */
+ *  See changes: add-git-checkout-root-resolver (was: fix-kb-worktree-cwd-guard),
+ *  widen-containment-to-resolved-checkout. */
 function mainCheckoutPath(cwd: string): string | null {
-  const roots = checkoutRoots({ cwd, timeout: 400 });
+  const roots = checkoutRoots({ cwd, timeout: 200 });
   const main = roots?.mainCheckout;
-  if (!main || hasGitPathSegment(main)) return null;
-  return main;
+  if (!main) return null;
+  return isBoundCheckout(main, roots.commonDir, { timeout: 200 }) ? main : null;
 }
 
 /** Pure cwd guard shared by the REST routes and the plugin_action handler:

@@ -23,10 +23,15 @@ import {
   type GitFixtures,
   restoreEnv,
 } from "@blackbelt-technology/pi-dashboard-shared/test-support/git-fixtures.js";
+import {
+  cleanupGitShims,
+  makeGitShim,
+  useGitPath,
+} from "@blackbelt-technology/pi-dashboard-shared/test-support/git-shim.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { KbJobRegistry } from "../job-registry.js";
-import { mountKbRoutes } from "../kb-routes.js";
+import { isAllowedCwd, mountKbRoutes } from "../kb-routes.js";
 
 const cleanup: string[] = [];
 afterEach(() => {
@@ -44,6 +49,7 @@ beforeAll(() => {
 });
 afterAll(() => {
   gitFx.cleanup();
+  cleanupGitShims();
   restoreEnv("GIT_CONFIG_GLOBAL", savedGitEnv.global);
   restoreEnv("GIT_CONFIG_SYSTEM", savedGitEnv.system);
 });
@@ -285,6 +291,128 @@ describe("GET /api/kb/stats", () => {
     const { app } = buildApp([main]);
     const res = await app.inject({ method: "GET", url: `/api/kb/stats?cwd=${encodeURIComponent(worktree)}` });
     expect(res.statusCode).toBe(403);
+    await app.close();
+  });
+
+  // ---- repository BINDING of the resolved main checkout -------------------
+  // See change: widen-containment-to-resolved-checkout.
+
+  // A repository-local `core.worktree` is user-controlled and returned VERBATIM
+  // by the resolver, so an unknown cwd could name an unrelated KNOWN folder to
+  // admit itself. Binding re-resolves the candidate and requires the same common
+  // dir, which closes it.
+  it("E27: a core.worktree naming an unrelated KNOWN repo does not admit the cwd", async () => {
+    const knownRepo = makeRepoWithWorktree().main; // ordinary checkout of a DIFFERENT repo
+    const repoA = realpathSync(mkdtempSync(join(tmpdir(), "kb-e27-a-")));
+    cleanup.push(repoA);
+    git(repoA, ["-c", "init.defaultBranch=main", "init"]);
+    git(repoA, ["commit", "--allow-empty", "-m", "init"]);
+    const wtA = join(tmpdir(), `kb-e27-wt-${process.pid}-${Math.random().toString(36).slice(2)}`);
+    cleanup.push(wtA);
+    git(repoA, ["worktree", "add", "-b", "e27", wtA]);
+    git(repoA, ["config", "--local", "core.worktree", knownRepo]);
+
+    const { app } = buildApp([knownRepo]); // the worktree itself is NOT known
+    const res = await app.inject({ method: "GET", url: `/api/kb/stats?cwd=${encodeURIComponent(wtA)}` });
+    expect(res.statusCode).toBe(403);
+    // …and no store was opened under the rejected cwd.
+    expect(existsSync(join(wtA, ".pi", "dashboard", "kb", "index.db"))).toBe(false);
+    await app.close();
+  });
+
+  // The honest setups must keep working: binding is a rejection of impostors,
+  // not a narrowing of the documented positive cases. (E19 above still 403s.)
+  it("E28: honest positives stay admitted", async () => {
+    const byWorktree = buildApp([gitFx.normal]);
+    expect(
+      (
+        await byWorktree.app.inject({
+          method: "GET",
+          url: `/api/kb/stats?cwd=${encodeURIComponent(gitFx.worktree)}`,
+        })
+      ).statusCode,
+    ).toBe(200);
+    await byWorktree.app.close();
+
+    const bySubmoduleWorktree = buildApp([gitFx.submodule]);
+    expect(
+      (
+        await bySubmoduleWorktree.app.inject({
+          method: "GET",
+          url: `/api/kb/stats?cwd=${encodeURIComponent(gitFx.submoduleWorktree)}`,
+        })
+      ).statusCode,
+    ).toBe(200);
+    await bySubmoduleWorktree.app.close();
+
+    const bySubdir = buildApp([gitFx.normal]);
+    expect(
+      (
+        await bySubdir.app.inject({
+          method: "GET",
+          url: `/api/kb/stats?cwd=${encodeURIComponent(gitFx.normalSubdir)}`,
+        })
+      ).statusCode,
+    ).toBe(200);
+    await bySubdir.app.close();
+  });
+
+  // P1 — the guard resolves synchronously on a request path, so a pathological
+  // git must not block past the documented 2 s ceiling. The shim sleeps LONGER
+  // than the 200 ms per-probe budget and then EXECUTES the real git: the probes
+  // time out, so the guard REJECTS. Executing the real git matters — a shim that
+  // merely slept and exited non-zero would be rejected under ANY budget, so the
+  // test could not detect the regression. A budget raised to 400 ms (the
+  // superseded value) or 2 s would let the probes succeed and ADMIT the
+  // worktree, failing the assertion below.
+  it.skipIf(process.platform === "win32")("P1: a pathological git is bounded and rejected, never admitted", async () => {
+    const { main, worktree } = makeRepoWithWorktree();
+    // Control: with a healthy git the worktree is admitted via its main repo.
+    expect(isAllowedCwd(worktree, () => [main])).toBe(true);
+
+    // Resolve the REAL git before the shim shadows it on PATH.
+    const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+    const restore = useGitPath(makeGitShim(`sleep 0.3\nexec "${realGit}" "$@"`));
+    try {
+      const started = Date.now();
+      const allowed = isAllowedCwd(worktree, () => [main]);
+      const elapsed = Date.now() - started;
+      expect(allowed).toBe(false);
+      expect(elapsed).toBeLessThan(2_500);
+    } finally {
+      restore();
+    }
+  });
+
+  // E29 — the premise for rejecting an unbound main checkout, MEASURED rather
+  // than assumed: an admitted cwd's project config may name sources and a
+  // database path OUTSIDE the cwd, so admission is authority over the cwd's
+  // subtree only on paper. The cwd here has NO docs/ of its own, so a non-zero
+  // chunk count can only come from the outside source.
+  it("E29: an admitted cwd reaches OUTSIDE its own subtree (measured, not assumed)", async () => {
+    const cwd = makeFolder();
+    const outside = mkdtempSync(join(tmpdir(), "kb-e29-outside-"));
+    cleanup.push(outside);
+    mkdirSync(join(outside, "src"), { recursive: true });
+    writeFileSync(join(outside, "src", "far.md"), "# Far\n\nzebrafinch content reachable from outside.\n");
+    rmSync(join(cwd, "docs"), { recursive: true, force: true });
+    writeFileSync(
+      join(cwd, ".pi", "dashboard", "knowledge_base.json"),
+      JSON.stringify(
+        { sources: [{ kind: "filesystem", ref: join(outside, "src") }], dbPath: join(outside, "kb.db") },
+        null,
+        2,
+      ),
+    );
+
+    const { app } = buildApp([cwd]);
+    const res = await app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${encodeURIComponent(cwd)}` });
+    expect(res.statusCode).toBe(202);
+    // The only source is the OUTSIDE directory, so chunks > 0 proves it was read.
+    const settled = await pollStats(app, cwd, (b) => b.indexing === false && b.chunks > 0);
+    expect(settled.chunks).toBeGreaterThan(0);
+    // …and the database was written outside the cwd too.
+    expect(existsSync(join(outside, "kb.db"))).toBe(true);
     await app.close();
   });
 

@@ -47,6 +47,13 @@ from client input.
 
 This is a deliberately permissive surface: admission is anchored to the *durable git repo root*, not to the exact known path, so any descendant of a known repo (including nested and worktree subdirectories) opens a store and touches disk under that repo. The guard does NOT restrict admitted paths to the repo root or to linked-worktree roots.
 
+Admission is NOT bounded to the admitted `cwd`'s own files. An admitted `cwd` selects a
+project configuration whose filesystem sources and database path MAY be absolute or MAY
+climb above the `cwd`; reindexing an admitted `cwd` therefore reads every directory that
+configuration names and writes the database wherever it names. The guard SHALL treat
+admission as authority over arbitrary configured paths, not over the `cwd` subtree, and
+SHALL NOT relax any check on the reasoning that reach is confined to the `cwd`.
+
 The main working-tree path SHALL be the `mainCheckout` of the shared checkout-root resolution
 (`git-checkout-root-resolution`), NOT the parent of the git-common-dir. The parent-of-common-dir
 derivation names a real checkout only when the git dir happens to sit inside it, and
@@ -61,10 +68,15 @@ disk is read.
 
 The guard SHALL validate the resolved `mainCheckout` before using it as a trust anchor,
 because the resolver returns a user-controlled `core.worktree` value verbatim and does not
-judge it. A resolved path containing a `.git` path segment (exact-segment test) SHALL be
-treated as no main path and SHALL NOT be matched against the known-folder set — rejection is
-the safe response for an authorization consumer, which SHALL NOT assume the resolver filtered
-the value.
+judge it. The guard SHALL apply the shared repository-binding check of
+`git-checkout-root-resolution`: a resolved `mainCheckout` SHALL be matched against the
+known-folder set ONLY when it is BOUND to the repository of the request `cwd` — it contains
+no `.git` path segment, it re-resolves to the same common dir as the `cwd`, and it is its
+own checkout root. An unbound `mainCheckout` SHALL be treated as no main path and SHALL NOT
+be matched against the known-folder set — rejection is the safe response for an
+authorization consumer, which SHALL NOT assume the resolver filtered the value. This closes
+the case in which a repository-local `core.worktree` names an unrelated KNOWN folder to
+admit an otherwise-unknown `cwd`.
 
 When no `mainCheckout` resolves — a worktree of a bare repository, or a failed probe — the
 guard SHALL derive no main path, yielding rejection unless the cwd is independently known. A
@@ -79,7 +91,7 @@ its own right, or by its own checkout being one.
 
 #### Scenario: Worktree of a known main repo admitted
 - **WHEN** a request `cwd` is a git worktree whose main working tree is in the known-folder set, but the worktree path itself is not
-- **THEN** the guard derives the main working-tree path via git, canonicalizes it, finds it in the known-folder set, and admits the worktree
+- **THEN** the guard derives the main working-tree path via git, confirms it is bound to the worktree's repository, canonicalizes it, finds it in the known-folder set, and admits the worktree
 
 #### Scenario: Path under an unknown repo rejected
 - **WHEN** a request `cwd` resolves via git to a repo whose main working tree is not in the known-folder set
@@ -99,7 +111,7 @@ its own right, or by its own checkout being one.
 #### Scenario: Worktree of a known submodule is admitted via the submodule
 - **GIVEN** a known folder `/super/models/sub` and a worktree created from that submodule, the worktree itself not being a known folder
 - **WHEN** a request carries that worktree as `cwd`
-- **THEN** the guard SHALL resolve `mainCheckout` to `/super/models/sub`, find it in the known-folder set, and admit the worktree
+- **THEN** the guard SHALL resolve `mainCheckout` to `/super/models/sub`, find it bound to the worktree's repository and present in the known-folder set, and admit the worktree
 
 #### Scenario: An implausible resolved main checkout is not used as a trust anchor
 - **GIVEN** a linked worktree whose repository-local `core.worktree` points at a path inside a git directory that happens to be inside a known folder
@@ -107,6 +119,13 @@ its own right, or by its own checkout being one.
 - **THEN** the guard SHALL treat the resolved value as no main path
 - **AND** SHALL reject the request with `403`
 - **AND** SHALL NOT admit the cwd on the basis of that path being under a known folder
+
+#### Scenario: A core.worktree aimed at an unrelated known folder does not admit the cwd
+- **GIVEN** a known folder `/known/other` that is an ordinary checkout of a DIFFERENT repository, and a linked worktree of an UNKNOWN repository whose repository-local `core.worktree` is set to `/known/other`
+- **WHEN** a request carries that worktree as `cwd`
+- **THEN** the guard SHALL find the resolved `mainCheckout = /known/other` UNBOUND to the worktree's repository, because it re-resolves to a different common dir
+- **AND** SHALL treat it as no main path and reject the request with `403`
+- **AND** SHALL NOT open a store or read disk for that cwd
 
 #### Scenario: Worktree of a bare repository is rejected unless independently known
 - **GIVEN** a worktree created from a bare hub, for which no `mainCheckout` resolves
@@ -124,6 +143,12 @@ its own right, or by its own checkout being one.
 - **WHEN** a request carries `cwd = /work/app`
 - **THEN** the guard SHALL NOT admit it by taking the parent of `/known/elsewhere.git`
 - **AND** SHALL reject the request with `403`
+
+#### Scenario: Admitted cwd reach is measured, not assumed
+- **GIVEN** an admitted `cwd` whose project configuration names a filesystem source outside the `cwd` (an absolute path or a `..` reference) and an absolute database path outside the `cwd`
+- **WHEN** a reindex is run for that `cwd`
+- **THEN** the indexer reads the outside source and writes the outside database — demonstrating that admission is authority over configured paths, not over the `cwd` subtree
+- **AND** this measured reach is the reason the binding check SHALL reject rather than tolerate an unbound `mainCheckout`
 
 ### Requirement: Config patch shape validation
 
