@@ -87,7 +87,7 @@
 - [x] 11.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` then `grep -nE 'FAIL|Error|✗|✘|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log` — verify zero failures
 - [x] 11.2 `node scripts/check-conventions.mjs` and `npx openspec validate update-pi-core-0-85-adopt-apis --strict` both pass
 - [x] 11.3 `npm run quality:changed` passes (Biome ratchet)
-- [ ] 11.4 Invoke `review-code` on the full diff, then `doubt-driven-review` specifically on the floor raise before it lands (proposal § Discipline Skills)
+- [x] 11.4 Invoke `review-code` on the full diff, then `doubt-driven-review` specifically on the floor raise before it lands (proposal § Discipline Skills)
 - [ ] 11.5 Sweep the synced main specs for stale literals after archive: `grep -rn "0\.84\.4\|0\.78\.0" openspec/specs/` returns only intentional historical references (the `## Purpose` preamble is the classic miss — the sync only rewrites `### Requirement:` blocks)
 
 
