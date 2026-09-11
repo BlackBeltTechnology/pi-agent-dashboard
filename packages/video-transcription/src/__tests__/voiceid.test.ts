@@ -143,6 +143,16 @@ describe("enroll", () => {
     expect(code).toBe(0);
     expect(loadLibrary(h.store).voiceprints.Bob).toBeDefined();
   });
+
+  it("rejects a non-numeric --end", async () => {
+    const h = makeHarness();
+    const clip = path.join(h.dir, "clip.wav");
+    fs.writeFileSync(clip, "");
+    expect(
+      await h.run(["enroll", "--name", "X", "--audio", clip, "--start", "0", "--end", "abc", "--store", h.store]),
+    ).toBe(1);
+    expect(h.errors.join("\n")).toMatch(/--end/);
+  });
 });
 
 describe("list", () => {

@@ -314,6 +314,23 @@ interface EnrollTarget {
   otherClusters: boolean;
 }
 
+/** Resolve a standalone clip target; a returned string is an error. */
+async function resolveClipTarget(p: ParsedArgs, deps: VoiceIdDeps): Promise<EnrollTarget | string> {
+  const audio = p.values.audio ?? "";
+  if (!fs.existsSync(audio)) return `audio file not found: ${audio}`;
+  const start = p.values.start === undefined ? 0 : Number.parseFloat(p.values.start);
+  if (!Number.isFinite(start) || start < 0) return `--start is not a valid time: ${p.values.start}`;
+  const end = p.values.end === undefined ? await deps.getDuration(audio) : Number.parseFloat(p.values.end);
+  if (!Number.isFinite(end)) return `--end is not a valid time: ${p.values.end}`;
+  if (end <= start) return `--end (${end}) must be after --start (${start})`;
+  return {
+    media: audio,
+    clusters: new Map([["1", sliceWindows(start, end)]]),
+    targetKey: "1",
+    otherClusters: false,
+  };
+}
+
 /** Resolve an enroll target (clip or SRT cluster); a returned string is an error. */
 async function resolveEnrollTarget(p: ParsedArgs, deps: VoiceIdDeps): Promise<EnrollTarget | string> {
   if (p.values.srt) {
@@ -335,15 +352,7 @@ async function resolveEnrollTarget(p: ParsedArgs, deps: VoiceIdDeps): Promise<En
     return { media, clusters: all, targetKey, otherClusters: true };
   }
   if (!p.values.audio) return "enroll needs --audio and/or --srt";
-  if (!fs.existsSync(p.values.audio)) return `audio file not found: ${p.values.audio}`;
-  const end = p.values.end ? Number.parseFloat(p.values.end) : await deps.getDuration(p.values.audio);
-  const start = Number.parseFloat(p.values.start ?? "0") || 0;
-  return {
-    media: p.values.audio,
-    clusters: new Map([["1", sliceWindows(start, end)]]),
-    targetKey: "1",
-    otherClusters: false,
-  };
+  return resolveClipTarget(p, deps);
 }
 
 /** Contributions for one enrollment: the subject, plus other clusters for the cohort. */

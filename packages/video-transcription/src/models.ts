@@ -9,6 +9,7 @@
  *
  * See change: add-speaker-id-enrollment.
  */
+import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -67,7 +68,9 @@ export async function downloadModel(
   expectedBytes: number = EXPECTED_MODEL_BYTES,
 ): Promise<void> {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
-  const tmp = `${dest}.partial`;
+  // A unique temp per call: two processes racing on an empty cache must not
+  // remove each other's partial file.
+  const tmp = `${dest}.${process.pid}.${randomBytes(6).toString("hex")}.partial`;
   try {
     const res = await fetchFn(MODEL_URL);
     if (!res.ok) throw new Error(`download failed with HTTP ${res.status}`);

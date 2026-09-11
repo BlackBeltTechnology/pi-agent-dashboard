@@ -130,6 +130,35 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isNumberArray(value: unknown): value is number[] {
+  return Array.isArray(value) && value.every((n) => typeof n === "number");
+}
+
+/** A persisted voiceprint must carry the fields the compare path dereferences. */
+function isVoiceprint(value: unknown): value is Voiceprint {
+  return (
+    isObject(value) &&
+    isNumberArray(value.vector) &&
+    typeof value.dim === "number" &&
+    typeof value.model === "string" &&
+    typeof value.nSegments === "number"
+  );
+}
+
+/** A persisted contribution must carry the fields the cohort path dereferences. */
+function isContribution(value: unknown): value is Contribution {
+  return (
+    isObject(value) &&
+    typeof value.recordingId === "string" &&
+    typeof value.speakerKey === "string" &&
+    isNumberArray(value.sum) &&
+    typeof value.count === "number" &&
+    typeof value.duration === "number" &&
+    typeof value.dim === "number" &&
+    typeof value.model === "string"
+  );
+}
+
 /** Load a library; absent or malformed input yields an empty library. */
 export function loadLibrary(file: string): Library {
   try {
@@ -140,6 +169,15 @@ export function loadLibrary(file: string): Library {
       !isObject(parsed.voiceprints) ||
       !Array.isArray(parsed.contributions) ||
       !Array.isArray(parsed.contributedRecordings)
+    ) {
+      return emptyLibrary();
+    }
+    // Validate nested records too: a null/partial entry must degrade to an empty
+    // library, not throw later when a compare path dereferences it.
+    if (
+      !Object.values(parsed.voiceprints).every(isVoiceprint) ||
+      !parsed.contributions.every(isContribution) ||
+      !parsed.contributedRecordings.every((r) => typeof r === "string")
     ) {
       return emptyLibrary();
     }
@@ -170,10 +208,15 @@ export function saveLibrary(file: string, lib: Library): void {
   }
 }
 
-/** True when the lock was acquired; throws on any non-EEXIST error. */
-function tryAcquireLock(lock: string): boolean {
+/** True when the lock was acquired and stamped with `token`; false on EEXIST. */
+function tryAcquireLock(lock: string, token: string): boolean {
   try {
-    fs.closeSync(fs.openSync(lock, "wx"));
+    const fd = fs.openSync(lock, "wx");
+    try {
+      fs.writeSync(fd, token);
+    } finally {
+      fs.closeSync(fd);
+    }
     return true;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "EEXIST") return false;
@@ -190,11 +233,12 @@ function lockAgeMs(lock: string): number {
   }
 }
 
-function removeLock(lock: string): void {
+/** Remove the lock only if this invocation still owns it (token matches). */
+function releaseLock(lock: string, token: string): void {
   try {
-    fs.rmSync(lock, { force: true });
+    if (fs.readFileSync(lock, "utf8") === token) fs.rmSync(lock, { force: true });
   } catch {
-    // ignore
+    // the lock is gone, or another process already replaced it
   }
 }
 
@@ -224,10 +268,11 @@ export async function withStoreLock<T>(
   stalenessMs: number = LOCK_STALENESS_MS,
 ): Promise<T> {
   const lock = `${file}.lock`;
+  const token = `${process.pid}.${randomBytes(8).toString("hex")}`;
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const deadline = Date.now() + stalenessMs * 4;
   for (;;) {
-    if (tryAcquireLock(lock)) break;
+    if (tryAcquireLock(lock, token)) break;
     if (lockAgeMs(lock) > stalenessMs) {
       stealLock(lock);
       continue;
@@ -238,7 +283,7 @@ export async function withStoreLock<T>(
   try {
     return await fn();
   } finally {
-    removeLock(lock);
+    releaseLock(lock, token);
   }
 }
 

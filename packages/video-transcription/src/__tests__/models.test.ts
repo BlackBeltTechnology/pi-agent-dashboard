@@ -81,7 +81,7 @@ describe("downloadModel", () => {
     const dest = path.join(dir, "m.onnx");
     await expect(downloadModel(dest, fetchWith(Buffer.alloc(3, 1)), 8)).rejects.toThrow(/truncated/);
     expect(fs.existsSync(dest)).toBe(false);
-    expect(fs.existsSync(`${dest}.partial`)).toBe(false);
+    expect(fs.readdirSync(dir).some((f) => f.endsWith(".partial"))).toBe(false);
   });
 
   it("rejects a short body against a content-length header", async () => {

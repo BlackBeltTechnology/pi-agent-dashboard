@@ -108,6 +108,15 @@ describe("library persistence", () => {
     fs.writeFileSync(file, JSON.stringify({ version: 2, cohort: { sum: null, count: 0 }, voiceprints: {} }));
     expect(loadLibrary(file)).toEqual(emptyLibrary());
   });
+
+  it("treats a malformed nested record as an empty library", () => {
+    const file = path.join(tmp(), "nested.json");
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ version: 3, voiceprints: { Alice: null }, contributions: [], contributedRecordings: [] }),
+    );
+    expect(loadLibrary(file)).toEqual(emptyLibrary());
+  });
 });
 
 describe("store path precedence", () => {
@@ -299,6 +308,27 @@ describe("locking and atomic writes", () => {
     const ran = await withStoreLock(file, () => Promise.resolve("ran"));
     expect(ran).toBe("ran");
     expect(fs.existsSync(lock)).toBe(false);
+  });
+
+  it("does not release a lock another process stole and replaced", async () => {
+    const file = path.join(tmp(), "store.json");
+    saveLibrary(file, emptyLibrary());
+    const lock = `${file}.lock`;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const holding = withStoreLock(file, async () => {
+      await gate;
+    });
+    while (!fs.existsSync(lock)) await new Promise((r) => setTimeout(r, 5));
+    // simulate a thief that broke the stale lock and acquired its own
+    fs.rmSync(lock, { force: true });
+    fs.writeFileSync(lock, "thief-token");
+    release();
+    await holding;
+    expect(fs.readFileSync(lock, "utf8")).toBe("thief-token");
+    fs.rmSync(lock, { force: true });
   });
 
   it("leaves the previous store intact and no temp file when a write throws", () => {
