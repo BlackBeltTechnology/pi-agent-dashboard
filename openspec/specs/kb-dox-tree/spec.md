@@ -2,7 +2,9 @@
 
 ## Purpose
 The kb-dox-tree capability maintains a directory-level `AGENTS.md` navigation tree over a codebase: it scaffolds one `AGENTS.md` per source directory, audits the tree for drift against the filesystem, triages drifted rows against the git history, resolves the nearest-applicable chain of `AGENTS.md` files on a path, and synthesizes a routing manifest when none exists. It is pure-local and deterministic — it fills path columns, prunes rows, and applies externally-supplied purpose text, but never authors a row purpose itself.
+
 ## Requirements
+
 ### Requirement: Directory-level tree scaffolding
 The `dox init` operation SHALL scaffold an `AGENTS.md` in every directory that holds at least one source file, and SHALL be idempotent — never clobbering an existing `AGENTS.md`, only adding missing files and missing path rows.
 
@@ -247,3 +249,13 @@ The acknowledged content hash recorded for a documented file SHALL be readable b
 - **WHEN** a documented file has never had a row acknowledged
 - **THEN** the absence of a hash SHALL NOT be reported as a change
 
+### Requirement: Empty-purpose enumeration
+The `dox describe --list` operation SHALL walk the same directory set as `dox init` and report every `| File | Purpose |` row whose Purpose cell is empty, grouped by `AGENTS.md` path. Output SHALL be human-readable by default and machine-readable with `--json`; `--dir <path>` SHALL restrict the walk to one subtree.
+
+#### Scenario: Rows reported per AGENTS.md
+- **WHEN** two `AGENTS.md` files each carry an empty-purpose row
+- **THEN** the output lists both files, each with its empty subject paths
+
+#### Scenario: JSON output
+- **WHEN** `--json` is passed
+- **THEN** the output is a JSON array of `{ agentsPath, subjects: string[] }` plus a total count

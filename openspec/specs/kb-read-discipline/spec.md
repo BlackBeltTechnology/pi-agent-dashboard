@@ -8,7 +8,9 @@ discipline is expressed as a mechanical tool-substitution table (reflex → exac
 doctrine, so agents reflex-run the cheap kb call instead of grepping source.
 Established by change `steer-agents-to-kb-tools` after measured under-use of the
 kb surface (grep/rg dominating `kb_search` ~10:1, mostly symbol lookups).
+
 ## Requirements
+
 ### Requirement: The READ discipline is a mechanical tool-substitution table
 
 The docs-first READ discipline SHALL be expressed as a tool-substitution table
@@ -45,18 +47,17 @@ row per the WRITE discipline. The table SHALL NOT read as "kb replaces grep."
 
 ### Requirement: New projects inherit the substitution table
 
-The `project-init` seeded READ discipline SHALL carry the substitution table. The
-kb-wired variant (`dox:read:kb`) SHALL use `kb agents` / `kb_search`; the manual
-variant (`dox:read:manual`) SHALL carry a degraded same-shape table that walks
-the directory `AGENTS.md` chain instead of calling `kb_search`.
+The READ discipline, including the substitution table using `kb agents` / `kb_search`, SHALL be delivered to new projects by the kb extension's per-turn doctrine injection rather than by text seeded into the root `AGENTS.md`. `project-init` SHALL seed only a marker + pointer block naming the extension and the project settings file. The manual (`dox:read:manual`) variant is no longer produced.
 
 #### Scenario: kb-wired seed carries the table
-- **WHEN** `project-init` seeds a project whose kb toolset is wired
-- **THEN** the root `AGENTS.md` READ block contains the substitution table using `kb agents` / `kb_search`
+- **WHEN** `project-init` seeds a project and the kb extension is loaded there
+- **THEN** the agent's system prompt carries the substitution table via injection
+- **AND** the root `AGENTS.md` carries only the marker + pointer block
 
 #### Scenario: Manual seed carries a degraded table
-- **WHEN** `project-init` seeds a project without the kb toolset
-- **THEN** the root `AGENTS.md` READ block contains a same-shape table whose lookup rows walk the directory `AGENTS.md` chain
+- **WHEN** `project-init` seeds a project and the kb extension is not loaded
+- **THEN** no degraded table is seeded
+- **AND** the root `AGENTS.md` pointer block names the extension and the settings file that provide the doctrine
 
 ### Requirement: The coding template does not steer to blind source reads
 
@@ -168,8 +169,8 @@ Where the guard is active, the compliance-pressure portion of the per-turn READ 
 - **THEN** the per-turn doctrine for that surface SHALL NOT be reduced
 
 #### Scenario: Seeded projects keep the full doctrine
-- **WHEN** `project-init` seeds a project
-- **THEN** the seeded READ discipline SHALL carry the full table irrespective of whether the guard ships, because a seeded project may never install the kb extension
+- **WHEN** the kb extension injects the READ doctrine into a project
+- **THEN** the injected text SHALL carry the full table irrespective of whether the guard is enabled, because injection is the project's only carrier of the doctrine
 
 ### Requirement: Reducing per-turn doctrine is gated on a measured result
 Any reduction of the per-turn READ doctrine justified by runtime enforcement SHALL be gated on a non-inferiority result from the context-injection A/B harness, not on an unmeasured assumption that the guard substitutes for the prose.
@@ -190,4 +191,3 @@ The READ discipline table SHALL state what a returned trust verdict means for th
 - **THEN** it states that a stale, gone, or unverified verdict means the row must be verified against source before it is acted on
 - **AND** it states that a moved verdict must be verified at its reported successor path
 - **AND** it states that a fresh verdict may be acted on without re-reading the source
-
