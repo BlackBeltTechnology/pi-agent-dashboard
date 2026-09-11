@@ -354,6 +354,11 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
   # set. See change: split-faux-seed-default-provider.
   SETTINGS="${PI_DIR}/agent/settings.json"
   node /app/scripts/seed-settings-default-model.mjs "${SETTINGS}"
+  # E2E-only compaction tuning for the replay-compaction-boundary browser
+  # specs: lower `keepRecentTokens` so a manual /compact leaves something to
+  # summarize after a few small turns. Same standalone-module pattern as above.
+  # See change: replay-compaction-boundary.
+  node /app/scripts/seed-settings-compaction.mjs "${SETTINGS}"
 
   # --- Faux role-preset: every role -> faux/faux-1 (change: add-flow-plugin-e2e-tests) ---
   # Delivery decision (design Open Question resolved): IMAGE-BAKED via this seed

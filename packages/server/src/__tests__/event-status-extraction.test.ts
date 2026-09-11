@@ -91,6 +91,28 @@ describe("extractSessionUpdates — compaction signal", () => {
     ).toEqual({ compacting: false });
   });
 
+  // E9 (change: replay-compaction-boundary). A reconnect whose replay carries
+  // an OLD compaction entry clears the latch early (design D6, an accepted
+  // trade-off). The exposure is bounded only because the REAL session_compact
+  // re-clears at the end — so pin the whole sequence's convergence, not just
+  // the single-event mapping above.
+  it("converges to compacting:false across before → replayed compact → real compact", () => {
+    const fold = (events: DashboardEvent[]): Record<string, unknown> =>
+      events.reduce<Record<string, unknown>>(
+        (state, e) => ({ ...state, ...(extractSessionUpdates(e) ?? {}) }),
+        {},
+      );
+    const before = makeEvent("session_before_compact");
+    const replayed = makeEvent("session_compact");
+    const real = makeEvent("session_compact");
+
+    expect(fold([before])).toEqual({ compacting: true });
+    // Transient early clear — asserted so the trade-off is recorded, not hidden.
+    expect(fold([before, replayed])).toEqual({ compacting: false });
+    // Self-healing: never left stuck true.
+    expect(fold([before, replayed, real]).compacting).toBe(false);
+  });
+
   it("does not disturb currentTool (no fold when hasPendingPrompt)", () => {
     // The `hasPendingPrompt` fold only rewrites an update that CLEARS
     // currentTool. A compaction update carries no currentTool at all, so it

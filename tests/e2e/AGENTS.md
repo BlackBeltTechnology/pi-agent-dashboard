@@ -18,6 +18,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `chat-render-fx.spec.ts` | Browser E2E gate for `reduce-chat-render-cpu-umbrella` (umbrella-own surface not gated by… → see `chat-render-fx.spec.ts.AGENTS.md` |
 | `chat-render-perf.spec.ts` | ADVISORY opt-in perf probe for `reduce-chat-render-cpu-umbrella` (tasks 2.8/4.4/5.1). → see `chat-render-perf.spec.ts.AGENTS.md` |
 | `chat-transcript-virtualization.spec.ts` | Browser E2E gate for `virtualize-chat-transcript-tanstack` (Phase 2 Step B) + preserved `chat-scroll-lock`. → see `chat-transcript-virtualization.spec.ts.AGENTS.md` |
+| `compaction-boundary-replay.spec.ts` | L3 for change replay-compaction-boundary (F1/F2). Real `/compact` (canned `session_before_compact` + harness-seeded low `keepRecentTokens`) persists a `compaction` entry; server-restart cold load rebuilds exactly ONE divider between the messages around it, headless `/reload` reconnect replay keeps exactly one. → see `compaction-boundary-replay.spec.ts.AGENTS.md` |
 | `csp.spec.ts` | Baseline CSP e2e (§7). Asserts a CSP header (report-only or enforce) present on `/` with… → see `csp.spec.ts.AGENTS.md` |
 | `ctx-running-render.spec.ts` | Browser E2E for `fix-ctx-running-render`. Drives `[[faux:ctx-batch-running]]` (single `ctx_batch_execute`… → see `ctx-running-render.spec.ts.AGENTS.md` |
 | `custom-entry-fallback.spec.ts` | L3 (change: render-inline-reasoning-and-custom-entries, E11). → see `custom-entry-fallback.spec.ts.AGENTS.md` |

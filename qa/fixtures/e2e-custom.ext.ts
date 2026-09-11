@@ -24,8 +24,33 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
+/**
+ * Summary text the canned compaction writes. Distinctive so a spec can prove
+ * the persisted `summary` is NOT rendered into the transcript.
+ * See change: replay-compaction-boundary.
+ */
+export const E2E_COMPACTION_SUMMARY =
+  "E2E-COMPACTION-SUMMARY: earlier turns collapsed by the fixture compactor";
+
 export default function activate(pi: ExtensionAPI): void {
   let pendingMessages: Array<{ customType: string; content: string; display: boolean }> = [];
+
+  // Deterministic compaction (change: replay-compaction-boundary). A `/compact`
+  // command calls `ctx.compact()`, which runs `session_before_compact` before
+  // any model call; returning a canned `compaction` result lets the replay
+  // specs produce a real persisted `compaction` entry with no faux
+  // summarization round-trip (which would consume a scenario step).
+  pi.on("session_before_compact" as any, (event: any) => {
+    const firstKeptEntryId = event?.preparation?.firstKeptEntryId;
+    if (typeof firstKeptEntryId !== "string") return undefined; // fall through
+    return {
+      compaction: {
+        summary: E2E_COMPACTION_SUMMARY,
+        firstKeptEntryId,
+        tokensBefore: event?.preparation?.tokensBefore ?? 0,
+      },
+    };
+  });
 
   pi.on("agent_settled" as any, () => {
     const batch = pendingMessages;
