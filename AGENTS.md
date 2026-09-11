@@ -2,28 +2,13 @@
 
 Web dashboard to monitor + control pi agent sessions remotely. Three components: bridge extension + Node server + React client. Full architecture: [docs/architecture.md](docs/architecture.md).
 
-## Docs-First Gate — kb before grep (per-turn doctrine)
+## Retrieval pointers (repo-specific)
 
-`kb_*` tools return a one-line purpose + key exports per file instead of raw bytes. **This gate fires on the ACTION, not the intent** — before you `grep`/`rg` a symbol, `cat`/Read a file to learn its purpose, or chase an import, the kb call goes first. It fires **even mid-task when you already know the file**. When your reflex is the left column, run the right instead:
+The kb-first READ doctrine is injected per turn by the kb extension. Two
+repo-specific pointers the canonical doctrine leaves out:
 
-| You're about to… | Do this FIRST instead |
-|---|---|
-| `grep -rn "SymbolName"` — find where a fn/type/const lives | `kb_search --doc-type agents "SymbolName"` |
-| `grep -rn "topic" src/` — how does X work / where's X handled | `kb_search "feature topic"` |
-| `cat`/`Read` a file to learn its purpose before editing | `kb agents <path>` — purpose + exports + `See change:` |
-| chase imports / callers across files | `rg "<symbol>"` — the Tier-1 graph is markdown-structure only and CANNOT resolve code refs |
-| read one doc section in full | `kb_get <path> <section>` |
-| a kb hit shows `STALE` / `GONE` / `UNVERIFIED` (trust verdict) | verify the row against source before acting — `MOVED` verifies at its reported successor path; `FRESH` may be acted on without re-reading; see `kb_search` verdicts (trust label, never ranking) |
-| build / run / install / setup / release / "how do I X" | `grep -i <kw> docs/faq.md README.md docs/` — then quote |
-| derive a fact from a large file / big command output | `ctx_execute_file` / `ctx_execute` **when present** (context-mode is optional); else `Read` w/ `offset`+`limit`, or `rg`/`awk` via Bash |
-
-`kb_search` indexes repo markdown (`docs/ openspec/ packages/ .pi/`) — NOT `tests/ qa/ scripts/ docker/`. `ctx_search`/`memory_search` index session memory, NOT repo docs — different corpus.
-
-**Pick the lane — this is the single highest-yield kb habit.** Looking for a FILE or SYMBOL → pass `doc_type:"agents"` (measured P@1 0.048 → 0.231, MRR 0.187 → 0.327 on the 104 mined file-lookup queries; unfiltered, verbose `openspec/` spec prose takes rank 1 and buries the per-file row at rank 5-10). Asking how something WORKS, or anything conceptual → leave `doc_type` unset; the `agents` filter measurably HURTS prose queries (P@1 0.151 → 0.068, R@10 0.575 → 0.205). Reproduce: `tsx packages/kb/eval/run-fixtures.ts`.
-
-**Per-file record = directory `AGENTS.md` tree.** Every file (incl. `docker/ scripts/ .pi/skills/ public/ qa/ tests/ .github/`) has a row in its directory's `AGENTS.md`. `docs/` topic docs + root config (`biome.json`, `playwright.config.ts`, `.pi-test-harness.json`) → `docs/AGENTS.md`. `kb agents <path>` returns the root→nearest chain; `kb_search --doc-type agents` ranks rows by symbol/topic. Tree files are tiny — no subagent needed. The `docs/file-index*.md` splits are RETIRED.
-
-**Fall-through:** if the kb call returns nothing relevant, `rg`/source read is allowed — then add the missing directory-`AGENTS.md` row per the Documentation Update Protocol. kb does NOT replace grep; it goes first. For "how do I X"/build/run/setup, grep `README.md` + `docs/` (incl. `docs/faq.md`) before reading source.
+- build / run / install / setup / release / "how do I X" → `grep -i <kw> docs/faq.md README.md docs/` — then quote.
+- reproduce the kb retrieval-quality numbers → `tsx packages/kb/eval/run-fixtures.ts`.
 
 ## Code Instructions (per-turn doctrine)
 
@@ -35,30 +20,13 @@ Behavioral guidelines to reduce common LLM mistakes. Bias toward caution over sp
 4. **Goal-driven (TDD).** Turn tasks into verifiable goals. Write/update tests first, verify they fail, then minimal implementation to pass. State a brief plan for multi-step tasks (step → verify).
 5. **Communication.** High-level summary of what changed each step. Use `ask_user` (not plain text) for clarification/choices.
 
-## Investigation Protocol — Index First
+## Docs delegation (project-specific)
 
-Before reading source, consult the per-file record (directory `AGENTS.md` tree, above). Workflow for "where is X"/"how does Y work": (1) `kb_search` first (FTS5+BM25 over repo markdown); (2) `kb agents <path>` for the root→nearest chain of a known file; (3) receive ≤~10 candidates, then open source; (4) if the tree misses, fall back to `rg`/`Explore`, then add the missing row. Do NOT grep source before the kb call; do NOT recreate `docs/file-index*.md`.
+The generic WRITE discipline (doc routing, the `| File | Purpose |` row schema,
+the size-split rule, root-lean) is injected per turn. Repo-specific additions:
 
-## Documentation Update Protocol
-
-**Default: your update does NOT belong in AGENTS.md** — it loads every turn, every byte costs tokens. Route by kind:
-
-| Kind of update | Goes in |
-|---|---|
-| New file in ANY directory, or its per-file detail / change-history / `See change:` | Nearest directory `AGENTS.md`. Row `| \`<basename>\` | <purpose> |`, path-alphabetical. New dir → `kb dox init`. |
-| New root config file or `docs/` file | `docs/AGENTS.md`, same row schema. |
-| New top-level source area / directory | Scaffold its `AGENTS.md` via `kb dox init`. |
-| Data flow, persistence, reconnection, protocol, config reference | `docs/architecture.md` |
-| End-user/dev setup, prerequisites, CI, project structure | `README.md` |
-| Cross-cutting rule EVERY agent needs EVERY turn (rare) | AGENTS.md, ≤200 chars/row, no inline change history |
-| Source-of-truth change the doctor skill derives | `doctor --regenerate <module>` — never hand-maintain version/name tables |
-
-Rules (full rationale + caveman-style spec: [docs/architecture.md](docs/architecture.md)):
-- **The ROOT AGENTS.md MUST NOT contain a per-file index** — no Key Files table, no per-file rows. Per-file records live in the directory `AGENTS.md` tree.
-- **Purpose row** carries everything per-file: one-line summary, key exports, contracts, `See change:`. Update in place if present, else insert alphabetically.
-- **File tables use the exact header `| File | Purpose |`** — `kb dox lint` recognizes rows by table header, not heading state; prose tables keep other headers.
-- **Tree files stay small** (~1 row/file, cap 30 KB `AGENTS_BYTE_CAP`). Flat dirs with many files split file-based: rows >200 chars promote to a pull-only `<File>.AGENTS.md` sidecar; dir row keeps a summary + `→ see`. Run `node scripts/split-large-agents.mjs <path> --write`. `kb dox lint` flags `over-threshold`.
-- **Every write under `docs/`** (prose AND `docs/AGENTS.md`) is delegated to a general-purpose subagent (DocScribe) with the **caveman-style** rule passed verbatim — short declarative fragments, drop articles/copulas, subject→verb→object, one fact per line, concrete tokens (paths/fns/env/ports) over prose, symbols verbatim. Main agent orchestrates, never edits `docs/` directly. Source-tree rows under `packages/`+non-source areas: main agent edits directly.
+- **Every write under `docs/`** (prose AND `docs/AGENTS.md`) is delegated to a general-purpose subagent (DocScribe) with the **caveman-style** rule passed verbatim — short declarative fragments, drop articles/copulas, subject→verb→object, one fact per line, concrete tokens (paths/fns/env/ports) over prose, symbols verbatim. Main agent orchestrates, never edits `docs/` directly. Source-tree rows under `packages/` + non-source areas: main agent edits directly.
+- Source-of-truth change the doctor skill derives → `doctor --regenerate <module>` — never hand-maintain version/name tables.
 
 ## Architecture
 

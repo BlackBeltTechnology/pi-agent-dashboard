@@ -1,83 +1,46 @@
 /**
  * DOX-doctrine seeding for the `project-init` skill.
  *
- * The canonical doctrine ships ONCE as `<skill>/dox-doctrine.md` (kb-indexed,
- * so `kb_search "dox doctrine"` retrieves it). It carries three delimited
- * sections:
- *   WRITE            — maintaining the per-directory AGENTS.md tree (incl. the
- *                      large-AGENTS.md split rule).
- *   READ (kb)        — retrieval via `kb agents` / `kb_search` before grep.
- *   READ (manual)    — upstream manual chain-walk wording; NO kb references.
+ * Doctrine is no longer copied into a project's `AGENTS.md`: the kb extension
+ * (`pi-dashboard-kb-extension`) injects it into the system prompt per turn,
+ * governed by the layered `doctrine` config group. The seed is therefore a
+ * fixed marker + pointer block naming the extension and the project settings
+ * file — no doctrine text, no drift (change: inject-dox-doctrine-and-describe).
  *
- * The seeded block = WRITE + one READ variant, chosen by whether the profile
- * wires the kb toolset. Marker-gated + idempotent: a target `AGENTS.md` that
- * already carries the `<!-- dox-doctrine -->` marker is left untouched.
- *
- * See change: project-init-skill-and-profiles.
+ * Marker-gated + idempotent: a target `AGENTS.md` that already carries the
+ * `<!-- dox-doctrine -->` marker is left untouched.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 
-/** Stable sentinel that marks an AGENTS.md as already carrying the doctrine. */
+/** Stable sentinel that marks an AGENTS.md as already carrying the pointer. */
 export const DOX_MARKER = "<!-- dox-doctrine -->";
 
-const WRITE_START = "<!-- dox:write:start -->";
-const WRITE_END = "<!-- dox:write:end -->";
-const READ_KB_START = "<!-- dox:read:kb:start -->";
-const READ_KB_END = "<!-- dox:read:kb:end -->";
-const READ_MANUAL_START = "<!-- dox:read:manual:start -->";
-const READ_MANUAL_END = "<!-- dox:read:manual:end -->";
+const POINTER_BLOCK = `${DOX_MARKER}
 
-/** Absolute path to the shipped canonical doctrine file. */
-export function doctrinePath(): string {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const pkgRoot = path.resolve(here, "..", "..");
-  return path.join(pkgRoot, ".pi", "skills", "project-init", "dox-doctrine.md");
-}
+## DOX doctrine
 
-/** Extract the text between two delimiter lines (exclusive), trimmed. */
-function section(source: string, start: string, end: string): string {
-  const s = source.indexOf(start);
-  const e = source.indexOf(end);
-  if (s === -1 || e === -1 || e < s) return "";
-  return source.slice(s + start.length, e).trim();
-}
+Per-turn DOX doctrine — the kb-first READ discipline and the directory \`AGENTS.md\`
+WRITE discipline — is injected by the \`pi-dashboard-kb-extension\`. Tune it in
+\`.pi/dashboard/knowledge_base.json\` under the \`doctrine\` key (\`inject\`, \`write\`).
+`;
 
-export interface BuildDoctrineOptions {
-  /** True when the profile wires the kb toolset (indexAgentsFiles etc.). */
-  kbWired: boolean;
-  /** Override the doctrine source text (tests). Defaults to the shipped file. */
-  source?: string;
-}
-
-/**
- * Compose the seeded doctrine block for an AGENTS.md: the marker followed by
- * the WRITE discipline and the kb-appropriate READ discipline.
- */
-export function buildDoctrineBlock(opts: BuildDoctrineOptions): string {
-  const raw = opts.source ?? fs.readFileSync(doctrinePath(), "utf8");
-  const write = section(raw, WRITE_START, WRITE_END);
-  const read = opts.kbWired
-    ? section(raw, READ_KB_START, READ_KB_END)
-    : section(raw, READ_MANUAL_START, READ_MANUAL_END);
-  return `${DOX_MARKER}\n\n${write}\n\n${read}\n`;
+/** The fixed pointer block (marker + pointer). Never contains doctrine text. */
+export function buildDoctrineBlock(): string {
+  return POINTER_BLOCK;
 }
 
 export interface SeedResult {
-  /** True when the doctrine was appended; false when it was already present. */
+  /** True when the pointer was appended; false when it was already present. */
   seeded: boolean;
 }
 
 /**
- * Append the doctrine block to `agentsMdPath` only when the file does not
- * already carry the marker. Idempotent: a present marker is a no-op.
- * Creates the file when absent.
+ * Append the pointer block to `agentsMdPath` only when the file does not already
+ * carry the marker. Idempotent: a present marker is a no-op. Creates the file
+ * when absent.
  */
-export function seedDoctrine(
-  agentsMdPath: string,
-  opts: BuildDoctrineOptions,
-): SeedResult {
+export function seedDoctrine(agentsMdPath: string): SeedResult {
   let existing = "";
   try {
     existing = fs.readFileSync(agentsMdPath, "utf8");
@@ -86,7 +49,7 @@ export function seedDoctrine(
   }
   if (existing.includes(DOX_MARKER)) return { seeded: false };
 
-  const block = buildDoctrineBlock(opts);
+  const block = buildDoctrineBlock();
   const sep = existing.length === 0 || existing.endsWith("\n") ? "" : "\n";
   const joiner = existing.length === 0 ? "" : "\n";
   fs.mkdirSync(path.dirname(agentsMdPath), { recursive: true });

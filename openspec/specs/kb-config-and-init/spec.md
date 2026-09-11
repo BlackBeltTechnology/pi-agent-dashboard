@@ -2,9 +2,11 @@
 
 ## Purpose
 Provide a layered `knowledge_base.json` configuration for the KB — built-in defaults overridden by a global file, then by a project file, with deep-merge fill-in of nested option groups and shape validation. Scaffold and gitignore that config on `kb init`.
+
 ## Requirements
+
 ### Requirement: Layered configuration resolution
-The KB SHALL resolve its effective configuration by layering three sources in precedence order: built-in defaults (lowest), the global file `~/.pi/dashboard/knowledge_base.json`, then the project file `.pi/dashboard/knowledge_base.json` (highest). The resolved config SHALL record its origin as `project`, `global`, or `defaults` based on the highest layer that supplied a file.
+The KB SHALL resolve its effective configuration by layering three sources in precedence order: built-in defaults (lowest), the global file `~/.pi/dashboard/knowledge_base.json`, then the project file `.pi/dashboard/knowledge_base.json` (highest). The resolved config SHALL record its origin as `project`, `global`, or `defaults` based on the highest layer that supplied a file. The resolved config SHALL additionally record `doctrineSource` as `project`, `global`, or `none` — the highest layer that supplied a `doctrine` key — so callers can distinguish an explicit choice from defaults.
 
 #### Scenario: No config files present
 - **WHEN** neither the project file nor the global file exists
@@ -25,8 +27,17 @@ The KB SHALL resolve its effective configuration by layering three sources in pr
 - **WHEN** an explicit config path is supplied
 - **THEN** that file is read as the project layer instead of `.pi/dashboard/knowledge_base.json`
 
+#### Scenario: Doctrine key unset in every layer
+- **WHEN** neither file supplies a `doctrine` key
+- **THEN** `doctrine` resolves to `{ inject: "kb", write: false }`
+- **AND** `doctrineSource` is `none`
+
+#### Scenario: Doctrine key supplied by the global file only
+- **WHEN** only the global file supplies `doctrine`
+- **THEN** `doctrineSource` is `global`
+
 ### Requirement: Deep-merge of nested option groups
-The KB SHALL merge layers left-to-right, and for the known nested option groups (`chunking`, `dedup`, `graph`, `directoryLevelAgents`, `ranking`, `expand`, `rerank`, `queryExpansion`) SHALL fill in fields one level deep rather than replacing the whole group. All other keys SHALL be replaced wholesale by a later layer.
+The KB SHALL merge layers left-to-right, and for the known nested option groups (`chunking`, `dedup`, `graph`, `directoryLevelAgents`, `ranking`, `expand`, `rerank`, `queryExpansion`, `doctrine`) SHALL fill in fields one level deep rather than replacing the whole group. All other keys SHALL be replaced wholesale by a later layer.
 
 #### Scenario: Partial nested group keeps sibling defaults
 - **WHEN** a layer sets only `ranking.proximityBoost` to false
@@ -36,8 +47,12 @@ The KB SHALL merge layers left-to-right, and for the known nested option groups 
 - **WHEN** a later layer supplies a top-level array or scalar key (e.g. `exclude`)
 - **THEN** that value replaces the earlier layer's value entirely rather than merging
 
+#### Scenario: Project sets only doctrine.write
+- **WHEN** the global file sets `doctrine.inject: "kb"` and the project file sets only `doctrine.write: true`
+- **THEN** the resolved `doctrine` is `{ inject: "kb", write: true }`
+
 ### Requirement: Configuration validation
-The KB SHALL validate the merged configuration shape and throw a precise error when a constraint is violated. The validated constraints SHALL be: `sources` is an array; each source has a string `ref`; each source `kind` is one of `filesystem`, `npm`, `git`, `https` (defaulting to `filesystem` when omitted); `maxFileCount` is a number or null; `dbPath` is a non-empty string; and `queryExpansion.mode` is one of `off`, `prf`, `synonym`, `agent`.
+The KB SHALL validate the merged configuration shape and throw a precise error when a constraint is violated. The validated constraints SHALL be: `sources` is an array; each source has a string `ref`; each source `kind` is one of `filesystem`, `npm`, `git`, `https` (defaulting to `filesystem` when omitted); `maxFileCount` is a number or null; `dbPath` is a non-empty string; `queryExpansion.mode` is one of `off`, `prf`, `synonym`, `agent`; `doctrine.inject` is one of `kb`, `off`; and `doctrine.write` is a boolean.
 
 #### Scenario: Source missing ref
 - **WHEN** a source entry lacks a string `ref`
@@ -54,6 +69,10 @@ The KB SHALL validate the merged configuration shape and throw a precise error w
 #### Scenario: Malformed JSON in a config file
 - **WHEN** a config file exists but contains invalid JSON
 - **THEN** loading throws an error identifying the offending file path
+
+#### Scenario: Unknown doctrine inject mode
+- **WHEN** `doctrine.inject` is a value outside `kb`/`off`
+- **THEN** validation throws an error naming the unknown mode
 
 ### Requirement: Source resolution
 The KB SHALL derive filesystem sources from both the legacy `roots[]` alias and the `sources[]` list, resolving each relative `ref` against the working directory, applying any `subdir`, and defaulting priority to 0. It SHALL also resolve `dbPath` and `sourceCacheDir` to absolute paths, expanding a leading `~/` in the cache dir to the home directory.
@@ -125,4 +144,3 @@ SHALL be validated like other config groups.
 #### Scenario: Invalid frontmatter config rejected
 - **WHEN** the frontmatter config declares an unknown type or a malformed key list
 - **THEN** configuration validation fails with a descriptive error
-

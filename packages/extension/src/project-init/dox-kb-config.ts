@@ -22,6 +22,9 @@ export const DOX_KB_CONFIG = {
   sources: [{ kind: "filesystem" as const, ref: "." }],
   indexAgentsFiles: true,
   directoryLevelAgents: { enabled: true },
+  // A DOX-opted project records the choice: inject READ + WRITE per turn. The
+  // READ-only default still applies to projects that never opt in.
+  doctrine: { inject: "kb" as const, write: true },
 };
 
 /** Absolute path to a project's kb config file. */

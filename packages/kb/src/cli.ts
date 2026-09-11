@@ -5,7 +5,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { frontmatterConfigHash, loadConfig, type ResolvedConfig, type ResolvedSource } from "./config.js";
-import { agentsChain, doxInit, doxLint } from "./dox.js";
+import { agentsChain, doxInit, doxLint, listEmptyPurposeRows } from "./dox.js";
 import { ackTargets, applyDecisions, buildWorkItems } from "./dox-triage.js";
 import { evaluate, loadGolden } from "./eval.js";
 import { runIndexAtomic } from "./index-run.js";
@@ -123,6 +123,7 @@ Usage:
                                     (--source-rows also reports undocumented .ts/.tsx)
   kb dox triage [--json] [--limit N]  triage STALE rows vs the git diff since ack
               [--apply <d.json> [--write]] [--ack <targets.json>]
+  kb dox describe --list [--json] [--dir <path>]   list rows with an empty Purpose cell
   kb eval    --golden <file.json> [--limit N] [--doc-type ...] [--no-reindex]
              [--allow-zero] [--verbose] [--json]
              (--golden accepts a bare array of {q, expect} or an {"items": [...]} object;
@@ -213,6 +214,24 @@ function main() {
       console.log(`  with a recoverable diff : ${items.length - noBase.length}`);
       console.log(`  no baseline (needs eyes): ${noBase.length}`);
       for (const i of items) console.log(`  ${i.baselineFound ? "diff" : "????"}\t${i.agentsFile}\t${i.row}`);
+      return;
+    }
+    if (sub === "describe") {
+      // --list is the only v1 op; accept it (and its absence) uniformly.
+      const r = listEmptyPurposeRows({ cwd, dir: typeof flags.dir === "string" ? flags.dir : undefined });
+      if (flags.json) {
+        console.log(JSON.stringify(r, null, 2));
+        return;
+      }
+      if (r.total === 0) {
+        console.log("no empty-purpose rows");
+        return;
+      }
+      console.log(`${r.total} empty-purpose row(s) across ${r.groups.length} AGENTS.md file(s)`);
+      for (const g of r.groups) {
+        console.log(g.agentsPath);
+        for (const s of g.subjects) console.log(`  ${s}`);
+      }
       return;
     }
     console.error(`unknown dox subcommand: ${sub}`); process.exit(2);

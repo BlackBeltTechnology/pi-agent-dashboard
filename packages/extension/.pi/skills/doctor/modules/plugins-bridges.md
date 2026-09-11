@@ -1,6 +1,6 @@
 ---
 name: plugins-bridges
-scope: Surface bridge registration (packages[] vs dashboardPluginBridges) + activation.
+scope: Surface bridge registration (packages[] vs dashboardPluginBridges) + activation, and kb-extension presence for DOX doctrine injection.
 symptoms:
   - flow wont show
   - bridge not registered
@@ -8,6 +8,9 @@ symptoms:
   - bridge misregistered
   - plugin not loading
   - bridge degraded
+  - doctrine not injected
+  - dox doctrine missing
+  - first-contact nudge keeps firing
 depends-on:
   - peers
 derives-from:
@@ -41,6 +44,13 @@ partial load. A disabled dashboard plugin auto-deregisters its bridge entirely.
   `packages[]`, not `dashboardPluginBridges`-only or missing.
 - Anthropic bridge not active → report status + the per-peer probe result from
   the `peers` module.
+- **doctrine configured but kb extension not loaded**: when the project's
+  `.pi/dashboard/knowledge_base.json` supplies a `doctrine` key but
+  `pi-dashboard-kb-extension` is ABSENT from `settings.json#packages[]`, report
+  FAIL: "doctrine configured but kb extension not loaded" — the project recorded
+  a doctrine choice, yet nothing injects the text. A pointer-only `AGENTS.md`
+  (`<!-- dox-doctrine -->`, no `doctrine` key) is the supported opt-out — the
+  project may never install the extension — so it is NOT a finding.
 
 ## FIX ROUTING
 - misregistered (dashboardPluginBridges-only) → dashboard ≥ 0.5.4 writes both;
@@ -48,6 +58,9 @@ partial load. A disabled dashboard plugin auto-deregisters its bridge entirely.
 - `waiting_peers` → fix the failed peer (peers module), then respawn the session
   (bridges wire hooks once per process).
 - plugin disabled → enable it → the bridge auto-registers.
+- doctrine configured but kb extension not loaded → add
+  `@blackbelt-technology/pi-dashboard-kb-extension` to `settings.json#packages[]`
+  (or `pi install` it), then reload the session.
 
 ## DERIVES-FROM
 Live: `settings.json` packages[]/dashboardPluginBridges. Server-enriched:

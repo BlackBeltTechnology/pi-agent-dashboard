@@ -197,7 +197,14 @@ export function scheduleReindex(state: ReindexState, cwd: string, _path: string,
   if (existing) clearTimeout(existing);
   state.timers.set(key, setTimeout(() => {
     state.timers.delete(key);
-    reindexNow(state, cwd).catch((e) => console.warn(`[kb] reindex failed: ${(e as Error).message}`));
+    reindexNow(state, cwd).catch((e) => {
+      const msg = (e as Error)?.message ?? String(e);
+      // A concurrent writer (another dox-describe subagent) can hold the write
+      // lock. Tolerate it: log + drop — a later scheduled reindex or the
+      // parent's final reindex is authoritative (design D8).
+      if (/SQLITE_BUSY|database is locked/i.test(msg)) console.warn(`[kb] reindex deferred (index busy): ${msg}`);
+      else console.warn(`[kb] reindex failed: ${msg}`);
+    });
   }, debounceMs));
 }
 

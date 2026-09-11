@@ -54,7 +54,6 @@ pi-dashboard bridge extension; ship inside the published package. Rows relocated
 | `pi-dashboard/references/slash-commands.md` | Reference catalog of every `/dashboard:*` slash command with args and LLM-free vs LLM-bound classification. Naming grammar `/dashboard:<resource>-<verb>[-<modifier>]`. |
 | `pi-dashboard/scripts/dashboard-api.sh` | Helper script with port auto-detection + auth |
 | `pi-dashboard/SKILL.md` | Bundled skill: monitor + control dashboard from any pi session. → see `pi-dashboard/SKILL.md.AGENTS.md` |
-| `project-init/dox-doctrine.md` | Canonical DOX doctrine; seeds one block into project AGENTS.md (marker `<!-- dox-doctrine -->`). → see `project-init/dox-doctrine.md.AGENTS.md` |
 | `project-init/profiles/coding/prompts/plan-change.md` | Coding-profile prompt. Draft focused implementation plan: state assumptions, list files to touch, define verify step per task. Minimal — surgical changes only. Confirm before implementing. |
 | `project-init/profiles/coding/prompts/tdd-loop.md` | Coding-profile prompt. TDD loop: write/update test → run, confirm fails for right reason → minimal implementation → re-run until green; refactor only with tests green. |
 | `project-init/profiles/docs/prompts/draft-page.md` | Docs-profile prompt. Draft/revise doc page: lead with answer, one idea per section, scannable headings, present tense, active voice, concrete examples/commands/paths, surgical edits. |

@@ -121,8 +121,8 @@ confirm). The writes for profile `<p>` are:
 
 When `DOX_ENABLED` is true, ALSO name in the preview:
 
-- the DOX doctrine seed appended to `./AGENTS.md` (see Step 5)
-- the kb toolset flip written to `./.pi/dashboard/knowledge_base.json`
+- the DOX pointer block appended to `./AGENTS.md` (see Step 5)
+- the `doctrine` choice + kb toolset flip written to `./.pi/dashboard/knowledge_base.json`
 
 When `OPENSPEC_INIT` is true, ALSO disclose the side effect (see Step 6) — NOT a
 plain file write:
@@ -200,48 +200,61 @@ branch, never on the present/installed path (so a successfully-wired project
 never carries a false "not detected" line). The install is always user-global
 and never forced.
 
-## Step 5 — DOX doctrine seed (only when `DOX_ENABLED` is true)
+## Step 5 — DOX pointer seed (only when `DOX_ENABLED` is true)
 
 > Gated on the user's Step 3a answer (`DOX_ENABLED`), NOT the raw `profile.json`
 > `dox` flag — the flag only supplied the default. Skip this step entirely when
 > the user declined DOX.
 
+Do NOT copy any doctrine text. The per-turn DOX doctrine (READ + WRITE) is
+injected by the `pi-dashboard-kb-extension`; the project's `AGENTS.md` carries
+only a marker + pointer block. Tune it via `.pi/dashboard/knowledge_base.json`.
 
-The canonical doctrine ships once at `<skill>/dox-doctrine.md`. Do NOT copy the
-whole file. Seed a single block into `./AGENTS.md` **only when it does not
-already carry the marker** `<!-- dox-doctrine -->` (idempotent — if the marker
-is present, skip this step entirely).
+**1. Seed the pointer block.** Append it to `./AGENTS.md` **only when it does
+not already carry the marker** `<!-- dox-doctrine -->` (idempotent — if the
+marker is present, skip this step entirely):
 
-Compose the seeded block as:
+```markdown
+<!-- dox-doctrine -->
 
-1. The marker line `<!-- dox-doctrine -->`
-2. The WRITE discipline — the text between `<!-- dox:write:start -->` and
-   `<!-- dox:write:end -->` in `dox-doctrine.md`.
-3. ONE READ discipline variant — **skip this item entirely when the chosen
-   profile's `AGENTS.md.tmpl` already embeds a `## Finding docs (READ
-   discipline)` section** (the shipped `coding` profile does; seeding it again
-   would duplicate the gate). Seed only the WRITE discipline in that case.
-   Otherwise:
-   - If the kb toolset is wired (this profile writes
-     `knowledge_base.json` with `indexAgentsFiles`/`directoryLevelAgents`),
-     use the text between `<!-- dox:read:kb:start -->` and
-     `<!-- dox:read:kb:end -->` (references `kb agents` / `kb_search`).
-   - Otherwise use the text between `<!-- dox:read:manual:start -->` and
-     `<!-- dox:read:manual:end -->` (manual chain-walk; no kb references).
+## DOX doctrine
 
-Strip the delimiter comments from the seeded text. Append the block to
-`./AGENTS.md`.
+Per-turn DOX doctrine — the kb-first READ discipline and the directory `AGENTS.md`
+WRITE discipline — is injected by the `pi-dashboard-kb-extension`. Tune it in
+`.pi/dashboard/knowledge_base.json` under the `doctrine` key (`inject`, `write`).
+```
 
-Then write `./.pi/dashboard/knowledge_base.json` (when absent) enabling the
-directory-level AGENTS.md toolset:
+**2. Record the doctrine choice.** Read-merge-write
+`./.pi/dashboard/knowledge_base.json` — read the file if present, set ONLY the
+`doctrine` key, preserve every other key, write valid JSON. Since `DOX_ENABLED`
+is true here, write:
+
+```json
+"doctrine": { "inject": "kb", "write": true }
+```
+
+When the file is absent, also enable the directory-level AGENTS.md toolset:
 
 ```json
 {
   "sources": [{ "kind": "filesystem", "ref": "." }],
   "indexAgentsFiles": true,
-  "directoryLevelAgents": { "enabled": true }
+  "directoryLevelAgents": { "enabled": true },
+  "doctrine": { "inject": "kb", "write": true }
 }
 ```
+
+**3. Scaffold the directory `AGENTS.md` tree** (path-only rows):
+
+```bash
+kb dox init
+```
+
+**4. Offer `dox-describe`.** After the tree is scaffolded, ask the user
+(`ask_user` confirm): "Fill the empty Purpose cells now with `dox-describe`?
+(one subagent per `AGENTS.md`, plan-then-confirm, ≤50 rows per run)". On yes,
+invoke the `dox-describe` skill (ships with `packages/kb-extension`); on no,
+tell the user they can run it later.
 
 ## Step 6 — Run OpenSpec init (only when `OPENSPEC_INIT` is true)
 
