@@ -105,7 +105,7 @@ describe("X5 / F6: the floor-pi synthesis and its version gate are retired", () 
 	it("bridge.ts carries no synthesis or version-gate reference", () => {
 		const src = fs.readFileSync(bridgeSrc, "utf8");
 		for (const needle of [
-			"agent-settled",
+			"./agent-settled",
 			"settleFollowUp",
 			"markFloorSettle",
 			"piEmitsNativeSettled",
@@ -118,10 +118,34 @@ describe("X5 / F6: the floor-pi synthesis and its version gate are retired", () 
 		}
 	});
 
-	it("no version-string gate remains anywhere in the extension source", () => {
-		const src = fs.readFileSync(path.join(here, "..", "retry-tracker.ts"), "utf8");
-		// The tracker closes on the native settle, never on a pi-version probe.
-		expect(src).not.toContain("parseVersion");
-		expect(src).not.toContain("0.80.4");
+	it("the retired version-gate API appears nowhere in the extension source tree", () => {
+		// Walk the WHOLE extension source tree (not one file) for the removed
+		// synthesis API names. These tokens never appear in comments, so a
+		// reintroduction fails here rather than passing vacuously.
+		const srcRoot = path.join(here, "..");
+		const offenders: string[] = [];
+		const walk = (dir: string): void => {
+			for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+				if (entry.name === "__tests__" || entry.name === "node_modules") continue;
+				const full = path.join(dir, entry.name);
+				if (entry.isDirectory()) {
+					walk(full);
+					continue;
+				}
+				if (!entry.name.endsWith(".ts")) continue;
+				const src = fs.readFileSync(full, "utf8");
+				for (const needle of [
+					"NATIVE_AGENT_SETTLED",
+					"nativeAgentSettledSupported",
+					"settleFollowUp",
+					"synthesizeAgentSettledEvent",
+					"markFloorSettle",
+				]) {
+					if (src.includes(needle)) offenders.push(`${entry.name}: ${needle}`);
+				}
+			}
+		};
+		walk(srcRoot);
+		expect(offenders).toEqual([]);
 	});
 });

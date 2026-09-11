@@ -2110,12 +2110,12 @@ function initBridge(pi: ExtensionAPI) {
         }
       }
       if (eventType === "agent_settled") {
-        // Terminal settle (native pi ≥ 0.80.4, fires once after the run loop).
-        // Clear streaming. This is the SOLE terminal signal for a retry chain:
-        // close it with auto_retry_end BEFORE forwarding the settle. On floor
-        // pi this branch never fires from a real event — the synth path below
-        // fires it after agent_end, and this handler re-runs for that synth.
-        // See changes: adopt-pi-074-080-features (A.1), retry-forever-with-stop-control.
+        // Terminal settle (native pi, guaranteed at the 0.85.1 lockstep floor;
+        // fires once after the run loop). Clear streaming. This is the SOLE
+        // terminal signal for a retry chain: close it with auto_retry_end
+        // BEFORE forwarding the settle. The floor-pi synthesis path was
+        // retired with agent-settled.ts. See changes: adopt-pi-074-080-features
+        // (A.1), retry-forever-with-stop-control, update-pi-core-0-85-adopt-apis.
         getBridgeState().isAgentStreaming = false;
         abortLatch.clear(sessionId);
         const retryEnd = retryTracker.observeAgentSettled(sessionId);
