@@ -205,11 +205,10 @@
     "fix-kb-card-refresh-and-shared-stats": "ui",
     "contention-harden-real-process-tests": "ui",
     "verify-windows-credential-acls": "ui",
-    "asciidoc-support": "ui",
-    "diagram-rendering": "ui",
     "replay-compaction-boundary": "ui",
-    "fix-submodule-checkout-root": "ui",
-    "add-git-checkout-root-resolver": "ui"
+    "widen-containment-to-resolved-checkout": "ui",
+    "apply-checkout-root-to-worktree-ops": "ui",
+    "add-speaker-id-enrollment": "ui"
   },
   "changeOrder": {
     "__ungrouped__": [
@@ -223,7 +222,7 @@
       "add-grammar-correction-eval",
       "add-native-pi-tui-view",
       "add-voice-assistant-dashboard-plugin",
-      "add-speaker-id-enrollment"
+      "relocate-goal-product-to-plugin"
     ],
     "kowledge-base": [
       "consolidate-retrieval-planes",
@@ -234,13 +233,12 @@
       "memory-retrieval-injection"
     ],
     "ui": [
-      "fix-openspec-board-worktree-button-gating",
+      "add-speaker-id-enrollment",
       "replay-compaction-boundary",
       "contention-harden-real-process-tests",
       "verify-windows-credential-acls",
-      "asciidoc-support",
-      "diagram-rendering",
-      "add-git-checkout-root-resolver"
+      "widen-containment-to-resolved-checkout",
+      "apply-checkout-root-to-worktree-ops"
     ],
     "next-phase": [
       "add-session-trajectory-view",
