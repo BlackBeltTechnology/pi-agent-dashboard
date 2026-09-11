@@ -86,5 +86,5 @@ pi turn.
 - [x] 8.1 Re-run the 1.1 repro against the built change and verify the card returns to idle — both on reconnect AND on a socket that stays open
 - [x] 8.2 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and verify no regressions
 - [x] 8.3 Rebuild + restart per the `implement` skill (shared/server → `POST /api/restart`; extension → `npm run reload`) — live-instance deploy step, the prerequisite of 8.4 and verified with it post-merge (test-plan: manual-only)
-- [x] 8.4 Confirm on the live instance that status transitions look correct through a real multi-tool turn — no premature settle, no stuck `Thinking…`, no card flicker (test-plan #M1) (test-plan: manual-only)
+- [x] 8.4 Confirm on the live instance that status transitions look correct through a real multi-tool turn — no premature settle, no stuck `Thinking…`, no card flicker (test-plan #M1) (test-plan: manual-only) — DEFERRED TO POST-MERGE: checked per the `ship-change` manual-defer convention (manual-only rows ship checked and are validated after merge), NOT because it has been run
 - [x] 8.5 Run `review-code` over the full diff (protocol + bridge + connection + server wiring) before commit

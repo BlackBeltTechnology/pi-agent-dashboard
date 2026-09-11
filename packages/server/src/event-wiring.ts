@@ -1153,7 +1153,12 @@ export function wireEvents(deps: EventWiringDeps): void {
     //
     // See change: fix-stuck-streaming-status-latch.
     if (msg.type === "session_heartbeat") {
-      if (msg.agentRunning !== undefined && !replayingSessions.has(sessionId)) {
+      // `typeof === "boolean"`, not `!== undefined`: this arrives off a socket,
+      // so a `null` would falsely settle a streaming session and a truthy
+      // `"false"` string would falsely set an idle one to `streaming`. Anything
+      // that is not a real boolean carries no liveness truth and is ignored,
+      // which is exactly the old-bridge degradation path (D5).
+      if (typeof msg.agentRunning === "boolean" && !replayingSessions.has(sessionId)) {
         const session = sessionManager.get(sessionId);
         if (session) {
           const updates = reconcileAgentLiveness(session.status, msg.agentRunning);

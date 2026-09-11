@@ -143,6 +143,31 @@ describe("heartbeat agent-liveness reconcile — server wiring", () => {
     browser.close();
   });
 
+  it("ignores a non-boolean agentRunning (#E9, malformed frame)", async () => {
+    const piWs = await connectSession(piPort, "hb");
+
+    sendEvent(piWs, "hb", "agent_start");
+    await wait(60);
+    expect(server.sessionManager.get("hb")?.status).toBe("streaming");
+
+    // Off a socket, so the field is not guaranteed to be a boolean. `null`
+    // must not settle a streaming session, and a truthy `"false"` string must
+    // not be read as liveness truth at all.
+    for (const bad of [null, "false", 0, 1]) {
+      piWs.send(JSON.stringify({ type: "session_heartbeat", sessionId: "hb", agentRunning: bad }));
+    }
+    await wait(180);
+
+    expect(server.sessionManager.get("hb")?.status).toBe("streaming");
+
+    // A real boolean still heals it, so the guard is not simply inert.
+    sendBeat(piWs, "hb", false);
+    await wait(150);
+    expect(server.sessionManager.get("hb")?.status).toBe("idle");
+
+    piWs.close();
+  });
+
   it("does not stamp unread (#F4)", async () => {
     const piWs = await connectSession(piPort, "h3");
     const { ws: browser, broadcasts } = await connectBrowser(browserPort, "h3");
