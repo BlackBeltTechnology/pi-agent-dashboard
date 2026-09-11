@@ -3,22 +3,23 @@
  *
  * See change: unified-bootstrap-install \u00a79.
  */
-import { describe, it, expect, beforeEach } from "vitest";
+
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import {
-  parseVersion,
-  compareVersions,
-  isBelow,
-  isAbove,
-  readPiCompatibility,
-  readCurrentPiVersion,
-  computeCompatibility,
-} from "../pi/pi-version-skew.js";
-import type { ToolRegistry, Resolution } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import type { Resolution, ToolRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import { beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error -- .mjs release gate, no type declarations; exported for fixture-driven tests.
-import { collectFailures, checkPiPinCoherence } from "../../../../scripts/verify-release-deps.mjs";
+import { checkPiPinCoherence, collectFailures } from "../../../../scripts/verify-release-deps.mjs";
+import {
+  compareVersions,
+  computeCompatibility,
+  isAbove,
+  isBelow,
+  parseVersion,
+  readCurrentPiVersion,
+  readPiCompatibility,
+} from "../pi/pi-version-skew.js";
 
 const REPO_ROOT = path.resolve(__dirname, "../../../..");
 const PINNED_PI = "0.85.1";
