@@ -385,4 +385,5 @@ clipping boundary.
 - **THEN** the composer and every row below it SHALL remain fully visible within
   the chat pane
 - **AND** below that floor sum, where no arrangement can fit every row, the
-  clipping SHALL degrade proportionally rather than removing a row outright
+  shortfall SHALL be clipped from the bottom-most rows, growing with the deficit
+  rather than removing a row in one step
