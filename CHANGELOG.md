@@ -12,6 +12,18 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **pi is now pinned at `0.85.1`, and `piCompatibility.minimum` moved with it —
+  a HARD BREAK for pi < 0.85.1.** Every user on pi 0.78.x–0.84.x flips from
+  working to hard-blocked: the dashboard shows the red "below minimum" advisory
+  and a below-floor install becomes unselectable in the runtime picker.
+  **Upgrade action:** `npm install -g @earendil-works/pi-coding-agent@0.85.1`.
+  Why: 0.85.1 raises pi's Anthropic client `user-agent` to `claude-cli/2.1.251`,
+  which unblocks `claude-fable-5-1` on Claude Pro/Max OAuth subscriptions (the
+  older UA returned HTTP 400 `claude_code_version_too_old`); the 0.85 line
+  carries zero upstream breaking changes and does not move the Node floor.
+  Because exactly one pi runtime is now supported, the bridge drops its dead
+  floor-pi `agent_settled` synthesis path and the now-unreachable client
+  fallback. See change: update-pi-core-0-85-adopt-apis.
 - **Custom chat entries are now gated per group, not by one switch.** The
   single "Custom entries in chat" toggle is replaced by `customEventGroups`:
   one toggle per group in Settings ▸ Chat display and the session View popover,

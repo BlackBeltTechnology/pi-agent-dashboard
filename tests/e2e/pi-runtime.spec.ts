@@ -1,23 +1,39 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { expect, test } from "./fixtures.js";
 
 /**
- * pi 0.84.4 runtime verification against the docker harness.
+ * pi runtime verification against the docker harness — VERSION-NEUTRAL.
  *
  * The design's standing risk is that a pi-ai symbol break hides behind mocked
  * unit tests: `provider-register.ts` can pass every L1 suite and still fail on
  * a live spawn. These specs therefore assert against a REAL container running
  * the bumped runtime, not a stub.
  *
+ * The governed version is READ from `packages/server/package.json` at test
+ * time — no version literal lives in this file, so the next pi bump needs no
+ * spec edit (design §6: a test that merely NEEDS the pinned version derives it;
+ * only the coherence test keeps literals).
+ *
  * F2 (streaming integrity) and F3 (replay equivalence) are NOT re-implemented
  * here: `chat-transcript-virtualization.spec.ts` and `chat-render-fx.spec.ts`
  * already drive a 120-turn streaming transcript, tail mounting, scroll-lock and
  * switch-away-and-restore against this same harness, which is strictly stronger
- * coverage of the same paths. Both suites were run green against pi 0.84.1.
+ * coverage of the same paths.
  *
- * See change: update-pi-core-0-84-adopt-apis (test-plan #F1, #F4, #X12).
+ * See change: update-pi-core-0-85-adopt-apis (test-plan #F1, #F2, #F3, #F4, #X12).
  */
 
-const PINNED_PI = "0.84.4";
+const here = path.dirname(fileURLToPath(import.meta.url));
+const serverPkg = JSON.parse(
+  fs.readFileSync(path.join(here, "..", "..", "packages", "server", "package.json"), "utf-8"),
+) as { piCompatibility: { minimum: string; recommended: string } };
+
+const PINNED_PI = serverPkg.piCompatibility.recommended;
+// The 0.85.1 lockstep policy makes minimum === recommended; read both so the
+// spec also catches a future re-divergence rather than assuming it.
+const MIN_PI = serverPkg.piCompatibility.minimum;
 
 interface Health {
   piVersion?: string;
@@ -38,7 +54,7 @@ async function health(request: import("@playwright/test").APIRequestContext): Pr
   return (await res.json()) as Health;
 }
 
-test.describe("pi 0.84.4 runtime (L3)", () => {
+test.describe("pi runtime (L3)", () => {
   // Guard the post-boot server-stabilization race: a session spawned while the
   // server is still settling never reaches a usable state, and the spec then
   // fails on a symptom far from the cause. Mirrors the sibling faux specs.
@@ -85,9 +101,10 @@ test.describe("pi 0.84.4 runtime (L3)", () => {
 
     expect(compat.current).toBe(PINNED_PI);
     expect(compat.recommended).toBe(PINNED_PI);
-    // The floor is an INDEPENDENT broad-support value and must NOT have moved
-    // with the runtime pin. See change design D2.
-    expect(compat.minimum).toBe("0.78.0");
+    // Lockstep policy (design §2): the floor moves WITH the pin, so it must
+    // equal the governed recommended version — read from the manifest, never
+    // restated here.
+    expect(compat.minimum).toBe(MIN_PI);
     expect(compat.maximum ?? null).toBeNull();
 
     // Running exactly AT recommended → neither a block nor a hint.
@@ -96,8 +113,8 @@ test.describe("pi 0.84.4 runtime (L3)", () => {
   });
 
   test("X12: the harness comes up on the moved Dockerfile pin", async ({ request }) => {
-    // The Dockerfile's global pi install moved to @0.84.4 in this change. If the
-    // image still carried the old pin, the probed version would disagree.
+    // The Dockerfile's global pi install tracks the governed pin. If the image
+    // still carried an older pin, the probed version would disagree.
     const body = await health(request);
     expect(body.compatibility?.current).toBe(PINNED_PI);
     // A server that booted far enough to serve /api/health with a resolved pi
@@ -109,16 +126,16 @@ test.describe("pi 0.84.4 runtime (L3)", () => {
     request,
   }) => {
     // Regression guard for the bug this harness caught: several workspaces
-    // declare a broad `>=0.80.10` pi range while the server pins `^0.84.4`.
-    // Under `nodeLinker: hoisted` that resolved TWO copies, and the probe read
-    // the HOISTED one -- so health advertised a pi the dashboard was not
-    // running and raised a spurious upgrade hint.
+    // declare a broad `>=0.80.10` pi range while the server pins the governed
+    // exact-ish range. Under `nodeLinker: hoisted` that resolved TWO copies, and
+    // the probe read the HOISTED one -- so health advertised a pi the dashboard
+    // was not running and raised a spurious upgrade hint.
     //
     // SCOPE: this asserts probe/pin AGREEMENT, which is the user-visible
     // symptom. It does NOT prove the tree holds a single copy -- a
-    // multi-copy tree still passes whenever the probe happens to select
-    // 0.84.4. The single-copy invariant itself is enforced upstream by the
-    // `overrides` entry in `pnpm-workspace.yaml` (design D8).
+    // multi-copy tree still passes whenever the probe happens to select the
+    // pinned version. The single-copy invariant itself is enforced upstream by
+    // the `overrides` entry in `pnpm-workspace.yaml` (design D8/D9).
     const compat = (await health(request)).compatibility;
     expect(compat?.current).toBe(PINNED_PI);
     expect(compat?.recommended).toBe(PINNED_PI);

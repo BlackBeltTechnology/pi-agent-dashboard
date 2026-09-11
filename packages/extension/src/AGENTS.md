@@ -5,7 +5,6 @@ Files in this directory. One row per source file.
 | File | Purpose |
 |------|---------|
 | `abort-latch.ts` | Pure class `AbortLatch`. Keeps user abort latched so provider backoff (5–60s) outliving 2s persistent-abort… → see `abort-latch.ts.AGENTS.md` |
-| `agent-settled.ts` | Bridge `agent_settled` normalization (pure). `nativeAgentSettledSupported(piVersion)` → pi ≥ 0.80.4 emits… → see `agent-settled.ts.AGENTS.md` |
 | `artifact-roots.ts` | Artifact-root allowlist for Fix B bridge image inlining. `resolveArtifactRoots({homedir,env,realpathSync})` →… → see `artifact-roots.ts.AGENTS.md` |
 | `ask-user-attachments.ts` | Persist image attachments for ask_user input responses. Exports `attachmentDirForSession`,… → see `ask-user-attachments.ts.AGENTS.md` |
 | `ask-user-tool.ts` | Register `ask_user` pi tool at `session_start` (avoids static-name conflict). Exports `registerAskUserTool`. → see `ask-user-tool.ts.AGENTS.md` |

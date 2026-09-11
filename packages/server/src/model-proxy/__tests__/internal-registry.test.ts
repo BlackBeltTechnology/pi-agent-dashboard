@@ -146,6 +146,66 @@ describe("InternalRegistry.getAllAnnotated — excluded reasons", () => {
   });
 });
 
+// ── GPT-6 Astra provider-key routing (E9, X6) ────────────────────────────
+//
+// The 0.85.1 catalog publishes `gpt-6-astra` once per channel, each entry
+// carrying its OWN provider (verified against the installed catalog):
+//   openai / openai-codex / github-copilot / azure-openai-responses
+// The registry keys credentials on `model.provider` EQUALITY, so an
+// `openai-codex`-only credential routes the `openai-codex` entry and nothing
+// else — no provider-key remap.
+describe("GPT-6 Astra provider-key routing (E9, X6)", () => {
+  const ASTRA = [
+    { id: "gpt-6-astra", provider: "openai" },
+    { id: "gpt-6-astra", provider: "openai-codex" },
+    { id: "gpt-6-astra", provider: "github-copilot" },
+    { id: "gpt-6-astra", provider: "azure-openai-responses" },
+  ];
+
+  function astraRegistry(auth: Record<string, any>): InternalRegistry {
+    return makeRegistry({
+      builtins: {
+        openai: [ASTRA[0]],
+        "openai-codex": [ASTRA[1]],
+        "github-copilot": [ASTRA[2]],
+        "azure-openai-responses": [ASTRA[3]],
+      },
+      auth,
+    });
+  }
+
+  it("E9: an openai-codex-only credential lists ONLY the openai-codex entry", async () => {
+    const reg = astraRegistry({ "openai-codex": OAUTH });
+    const available = await reg.getAvailable();
+    expect(available.map((m) => `${m.provider}/${m.id}`)).toEqual([
+      "openai-codex/gpt-6-astra",
+    ]);
+    expect(await reg.find("openai", "gpt-6-astra")).toBeNull();
+    expect(await reg.find("github-copilot", "gpt-6-astra")).toBeNull();
+    expect(await reg.find("azure-openai-responses", "gpt-6-astra")).toBeNull();
+  });
+
+  it("X6: provider matching is EQUALITY, not prefix/substring", async () => {
+    // A prefix/substring matcher (`openai` matched by an `openai-codex` cred)
+    // would over-grant the credential across providers. The `openai` entry of
+    // the SAME model id must stay uncovered.
+    const reg = astraRegistry({ "openai-codex": OAUTH });
+    const annotated = new Map(
+      reg.getAllAnnotated().map((e) => [`${e.model.provider}/${e.model.id}`, e.excludedReason]),
+    );
+    expect(annotated.get("openai-codex/gpt-6-astra")).toBeNull();
+    expect(annotated.get("openai/gpt-6-astra")).toBe("no-credential");
+    expect(annotated.get("github-copilot/gpt-6-astra")).toBe("no-credential");
+    expect(annotated.get("azure-openai-responses/gpt-6-astra")).toBe("no-credential");
+  });
+
+  it("an openai API key lists only the openai entry of the same id", async () => {
+    const reg = astraRegistry({ openai: API_KEY });
+    const available = await reg.getAvailable();
+    expect(available.map((m) => `${m.provider}/${m.id}`)).toEqual(["openai/gpt-6-astra"]);
+  });
+});
+
 describe("OAUTH_INCOMPATIBLE regression — current Claude-Code allowlist stays routable", () => {
   // Pin the live allowlist so a future edit never accidentally adds one here.
   const allowlist = ["claude-sonnet-4-5", "claude-opus-4-5", "claude-haiku-4-5", "claude-sonnet-4-6", "claude-haiku-4-6"];

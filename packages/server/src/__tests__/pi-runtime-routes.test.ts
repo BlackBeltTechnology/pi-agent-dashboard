@@ -254,6 +254,69 @@ describe("GET /api/pi/installs", () => {
 	});
 });
 
+describe("E8: below-floor candidates are enumerated but unselectable", () => {
+	const PI_DIR = path.join("node_modules", "@earendil-works", "pi-coding-agent");
+
+	function writePiPkg(pkgDir: string, version: string | null): void {
+		fs.mkdirSync(pkgDir, { recursive: true });
+		const pkg: Record<string, unknown> = { name: "@earendil-works/pi-coding-agent" };
+		if (version !== null) pkg.version = version;
+		fs.writeFileSync(path.join(pkgDir, "package.json"), JSON.stringify(pkg));
+	}
+
+	it("0.84.4 is floor-failing, 0.85.1 selectable, unknown-version exempt", async () => {
+		writePiPkg(path.join(root, PI_DIR), "0.84.4"); // bare-import
+		writePiPkg(path.join(root, "repo", PI_DIR), "0.85.1"); // repo-root
+		writePiPkg(path.join(root, "managed", PI_DIR), null); // managed, version unknown
+		const floorPkg = path.join(root, "server-package.json");
+		fs.writeFileSync(
+			floorPkg,
+			JSON.stringify({
+				piCompatibility: { minimum: "0.85.1", recommended: "0.85.1", maximum: null },
+			}),
+		);
+		invalidatePiCandidatesCache();
+
+		const fastify = Fastify();
+		registerPiRuntimeRoutes(fastify, {
+			registry: buildRegistry(),
+			networkGuard: noGuard() as NetworkGuard,
+			runtimeDeps: {
+				managedDir: path.join(root, "managed"),
+				repoRoot: path.join(root, "repo"),
+				anchorDir: path.join(root, "anchor"),
+				npmRootGlobal: () => "",
+				which: () => null,
+				floorPath: floorPkg,
+			},
+		});
+
+		const body = (
+			await fastify.inject({ method: "GET", url: "/api/pi/installs" })
+		).json().data;
+		const byKey: Record<
+			string,
+			{ version: string | null; meetsFloor: boolean; floorUnknown: boolean }
+		> = Object.fromEntries(body.installs.map((i: { key: string }) => [i.key, i]));
+
+		// The previously-supported 0.84.4 install is still ENUMERATED (not omitted)
+		// but is floor-failing — the picker disables it on this flag.
+		expect(byKey["bare-import"].version).toBe("0.84.4");
+		expect(byKey["bare-import"].meetsFloor).toBe(false);
+		expect(byKey["bare-import"].floorUnknown).toBe(false);
+
+		expect(byKey["repo-root"].version).toBe("0.85.1");
+		expect(byKey["repo-root"].meetsFloor).toBe(true);
+
+		// Unknown-version candidates are never floor-gated (E8 / D6).
+		expect(byKey["managed"].version).toBeFalsy();
+		expect(byKey["managed"].meetsFloor).toBe(true);
+		expect(byKey["managed"].floorUnknown).toBe(true);
+
+		await fastify.close();
+	});
+});
+
 describe("E22: both endpoints are network-guarded", () => {
 	it("the discovery and selection endpoints are rejected by the same guard", async () => {
 		const fastify = buildServer(buildRegistry(), denyGuard);
