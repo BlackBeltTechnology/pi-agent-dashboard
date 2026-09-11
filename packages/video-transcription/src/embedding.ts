@@ -37,7 +37,12 @@ async function importSherpa(): Promise<{
   SpeakerEmbeddingExtractor: new (config: Record<string, unknown>) => SherpaExtractor;
 }> {
   try {
-    const mod = (await import("sherpa-onnx-node")) as unknown as {
+    // Import through a NON-literal specifier: the optional native package ships
+    // no types, and this keeps TypeScript from trying to resolve them in every
+    // tsconfig that includes this file (package-local or root). Whether the
+    // binding is installed is a runtime concern handled by the catch below.
+    const moduleId: string = "sherpa-onnx-node";
+    const mod = (await import(moduleId)) as unknown as {
       default?: { SpeakerEmbeddingExtractor?: unknown };
       SpeakerEmbeddingExtractor?: unknown;
     };
