@@ -1185,6 +1185,9 @@ importers:
       ffmpeg-static:
         specifier: ^5.3.0
         version: 5.3.0(supports-color@8.1.1)
+      sherpa-onnx-node:
+        specifier: ^1.13.6
+        version: 1.13.7
 
 packages:
 
@@ -9139,6 +9142,39 @@ packages:
   shebang-regex@3.0.0:
     resolution: {integrity: sha512-7++dFhtcx3353uBaq8DDR4NuxBetBzC7ZQOhmTQInHEd6bSrXdiEyzCvG07Z44UYdLShWUyXt5M/yhz8ekcb1A==}
     engines: {node: '>=8'}
+
+  sherpa-onnx-darwin-arm64@1.13.7:
+    resolution: {integrity: sha512-5NCE50hAvr3n2pdett0SgfPBJXaFZE0bqHwbHyiq+IKZ8Ids0l4M0VrG+ImGYIafCwie+oC3uAJ+pKj9xg/k+w==}
+    cpu: [arm64]
+    os: [darwin]
+
+  sherpa-onnx-darwin-x64@1.13.7:
+    resolution: {integrity: sha512-N3o+T+wn9WaQmsKV5DD8bTHdo+WN2+sXwmZcGJZiDjtOMR2zFz7uVCZnYCmEAMgvChC+oHcF5RvEEKcRCAu6Pw==}
+    cpu: [x64]
+    os: [darwin]
+
+  sherpa-onnx-linux-arm64@1.13.7:
+    resolution: {integrity: sha512-TFCVpXyTh69buhOtTS8KIfkRXOVKY4Y1qjAktSItrKS4A0chnnrlXO5bKWoNAPeI6fMxTF/uvMYbYgcvjEMfNg==}
+    cpu: [arm64]
+    os: [linux]
+
+  sherpa-onnx-linux-x64@1.13.7:
+    resolution: {integrity: sha512-npmxn5WwmAmlthgBhmbZ33t3i2j4mJwQt46dMEb3j7d41y1/uJrjrVAfa/DkvV+vn49ZWfcQ2UEWDipaZBVhuw==}
+    cpu: [x64]
+    os: [linux]
+
+  sherpa-onnx-node@1.13.7:
+    resolution: {integrity: sha512-0XGV7arGngBCnol0m8OLyqlnaUm19Q1KmetVj1DDBdymXa1upmAHZDwNdN47gjsEhqE5hXUEyc1vRQoXrNhNVg==}
+
+  sherpa-onnx-win-ia32@1.13.7:
+    resolution: {integrity: sha512-sTwtpxPQ76XLn0giAbvknIDEDKD3XXi2mo2AVROEucf1pIK1DjQl+LjLkalTeFoQqbC4J3xGx/g+xgcHQD1dsw==}
+    cpu: [ia32]
+    os: [win32]
+
+  sherpa-onnx-win-x64@1.13.7:
+    resolution: {integrity: sha512-wBV1o+/zgsMrOjfCFIgGrH6S28xq6CqRCLSavCOjTZ6cqr80yGc07DUHxqsHFPZvfoJU+2JF5L2l3gyWFWoWdQ==}
+    cpu: [x64]
+    os: [win32]
 
   side-channel-list@1.0.1:
     resolution: {integrity: sha512-mjn/0bi/oUURjc5Xl7IaWi/OJJJumuoJFQJfDDyO46+hBWsfaVM65TBHq2eoZBhzl9EchxOijpkbRC8SVBQU0w==}
@@ -19720,6 +19756,34 @@ snapshots:
   shebang-regex@1.0.0: {}
 
   shebang-regex@3.0.0: {}
+
+  sherpa-onnx-darwin-arm64@1.13.7:
+    optional: true
+
+  sherpa-onnx-darwin-x64@1.13.7:
+    optional: true
+
+  sherpa-onnx-linux-arm64@1.13.7:
+    optional: true
+
+  sherpa-onnx-linux-x64@1.13.7:
+    optional: true
+
+  sherpa-onnx-node@1.13.7:
+    optionalDependencies:
+      sherpa-onnx-darwin-arm64: 1.13.7
+      sherpa-onnx-darwin-x64: 1.13.7
+      sherpa-onnx-linux-arm64: 1.13.7
+      sherpa-onnx-linux-x64: 1.13.7
+      sherpa-onnx-win-ia32: 1.13.7
+      sherpa-onnx-win-x64: 1.13.7
+    optional: true
+
+  sherpa-onnx-win-ia32@1.13.7:
+    optional: true
+
+  sherpa-onnx-win-x64@1.13.7:
+    optional: true
 
   side-channel-list@1.0.1:
     dependencies:

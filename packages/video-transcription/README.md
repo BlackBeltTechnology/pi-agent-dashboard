@@ -13,6 +13,11 @@ Exposed two ways:
 - **pi skill** — `.pi/skills/video-transcription` (triggers like `/transcribe`).
 - **CLI bin** — `pi-transcribe [directory | file ...]`.
 
+It also ships a second, additive CLI — `pi-voiceid` (skill
+`.pi/skills/speaker-id`) — which puts **real names** on the anonymous speaker
+labels a diarizer produces, using a persistent local voiceprint library, and
+repairs speaker drift on long recordings. See [Speaker ID](#speaker-id-pi-voiceid).
+
 ## Prerequisites
 
 - **`ffmpeg`** and **`ffprobe`** on `PATH` — used for audio extraction from
@@ -109,6 +114,43 @@ independent of file size. Recordings over the limit are split into
 `MAX_CHUNK_HOURS`-sized chunks, transcribed separately, and merged into a single
 SRT with correct absolute timestamps — full coverage, no truncation. Duration is
 probed via `ffprobe` since the limit is on duration, not megabytes.
+
+## Speaker ID (`pi-voiceid`)
+
+Give diarized transcripts real names and repair the drift that clustering
+diarizers produce on long recordings. Post-hoc relabeling — it does **not**
+create diarization. Fully local, CPU-only, no API key; no audio or embedding
+leaves the machine.
+
+```bash
+pi-voiceid analyze --srt talk.srt                         # drift report, no enrollment
+pi-voiceid enroll  --name "Alice" --srt talk.srt --label "Speaker 1"
+pi-voiceid label   --srt talk.srt --dry-run               # read the decision table
+pi-voiceid label   --srt talk.srt                         # writes talk.named.srt
+pi-voiceid list                                           # library + cohort state
+pi-voiceid forget  --name "Alice"                         # biometric erasure
+```
+
+The source SRT is never overwritten. Full procedure, thresholds and limitations
+are in [`.pi/skills/speaker-id/SKILL.md`](.pi/skills/speaker-id/SKILL.md); the
+model comparison behind the default is in
+[`.pi/skills/speaker-id/BENCHMARK.md`](.pi/skills/speaker-id/BENCHMARK.md).
+
+**Native dependency.** Speaker embeddings come from `sherpa-onnx-node`, declared
+as an **optionalDependency** so a platform without a prebuilt binary still
+installs and the existing transcription path keeps working. When it is absent,
+`pi-voiceid` fails with a message naming the dependency and the install command
+rather than a raw module-resolution error.
+
+**Model.** A 28 MB ONNX model, downloaded on demand into
+`~/.pi/models/speaker/`. It is **not** vendored into the npm package.
+
+**Voiceprint store.** Default `~/.pi/voiceprints/voiceprints.json`, overridable
+with `--store` or `PI_VOICEPRINT_STORE`. This is **biometric-derived data about
+identifiable people**: it lives outside the repo by default and must never be
+committed. `enroll` also stores embeddings of the source recording's *other*
+speakers so the centering mean stays multi-speaker; `forget --recording <id>` is
+the instrument that erases those.
 
 ## Development
 
