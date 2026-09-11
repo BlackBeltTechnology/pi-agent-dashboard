@@ -1,6 +1,6 @@
 ---
 name: speaker-id
-description: Put real names on the anonymous speaker labels ("[1]", "[Speaker 2]") in a diarized SRT using a persistent library of local voiceprints, and detect or repair speaker drift (one person split across several clusters) in long recordings. Fully local, CPU-only, no API key. Use for "who is speaker 2", "put names on the transcript", "label the meeting SRT", "the diarization split one person into three", "enroll my voice". Backed by the `pi-voiceid` CLI.
+description: "Name anonymous diarized SRT speakers from a persistent local voiceprint library and repair speaker drift; local, CPU-only, no API key. Triggers \"who is speaker 2\", \"put names on the transcript\", \"label the meeting SRT\", \"the diarization split one person into three\", \"enroll my voice\". Backed by the pi-voiceid CLI."
 ---
 
 # Speaker ID enrollment
