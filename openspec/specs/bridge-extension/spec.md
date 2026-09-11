@@ -688,7 +688,7 @@ The model-tracker's equality check that gates `model_update` pushes SHALL consid
 - **WHEN** `thinking_level_select` fires twice with the same value
 - **THEN** the bridge SHALL push at most one `model_update` for that value (the second is suppressed by the existing debouncer)
 
-#### Scenario: Pre-0.71 pi (unlikely under 0.73 floor)
+#### Scenario: No version gate on the thinking-level listener
 - **WHEN** the bridge runs against a pi that does NOT emit `thinking_level_select`
 - **THEN** the listener registration SHALL be a no-op and the bridge SHALL still operate (no crash, no error)
 
@@ -764,7 +764,7 @@ The bridge SHALL subscribe to pi's `agent_settled` event (pi 0.80.4+) and forwar
 - **THEN** the bridge SHALL forward one `event_forward{eventType:"agent_settled"}` and set `isAgentStreaming=false`
 - **AND** SHALL NOT synthesize an additional `agent_settled`
 
-#### Scenario: Floor pi gets a synthesized settle after agent_end
+#### Scenario: agent_end alone does not produce a settle
 - **WHEN** the bridge runs against pi < 0.80.4 (no native `agent_settled`)
 - **THEN** the bridge SHALL synthesize one `agent_settled` synchronously after each forwarded `agent_end`
 - **AND** SHALL set `isAgentStreaming=false` on that synthesized settle

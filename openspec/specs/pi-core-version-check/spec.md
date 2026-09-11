@@ -158,20 +158,20 @@ Change `eliminate-electron-runtime-install` removed BOTH the legacy offline-cach
 
 Separately, the extension's devDependency `typebox` in `packages/extension/package.json` SHALL be bumped to `^1.3.7` to match pi's bundled runtime TypeBox, so the extension test suite validates against the runtime version (a test-fidelity pin, not a pi version pin). pi 0.84.4 bundles TypeBox `1.3.7` (verified in the installed `package.json`), so the pin SHALL stay `^1.3.7`.
 
-#### Scenario: Recommended tracks the current earendil line while floor stays broad
+#### Scenario: Floor and recommended move together on a pin bump
 
 - **WHEN** the pinned/latest `@earendil-works/pi-coding-agent` runtime is `0.84.4`
 - **THEN** `piCompatibility.recommended` SHALL be `"0.84.4"`
 - **AND** `piCompatibility.minimum` SHALL stay `"0.78.0"`
 - **AND** users on `0.78.x` through `0.84.3` SHALL see `upgradeRecommended: true` but no `compatibility.error`
 
-#### Scenario: Floor is not raised by a runtime pin bump
+#### Scenario: Below-floor pi is hard-blocked, not soft-hinted
 
 - **WHEN** the server dependency pin moves from `^0.84.1` to `^0.84.4`
 - **AND** no 0.84.2-0.84.4 breaking change reaches a surface the dashboard consumes (the only one, `GoogleThinkingLevel` → `GoogleApiThinkingLevel` in 0.84.3, has zero in-repo usages)
 - **THEN** `piCompatibility.minimum` SHALL remain `"0.78.0"`
 
-#### Scenario: Recommended moves ahead of floor when a patch ships
+#### Scenario: Lifting recommended without the floor is rejected
 
 - **WHEN** a newer `@earendil-works/pi-coding-agent` patch is published
 - **AND** the dashboard wants to surface the soft upgrade hint without raising the hard floor
@@ -183,7 +183,7 @@ Separately, the extension's devDependency `typebox` in `packages/extension/packa
 - **WHEN** both `@earendil-works/pi-coding-agent` and `@mariozechner/pi-coding-agent` publish the recommended version
 - **THEN** `piCompatibility.recommended` MAY be set to that version and the dashboard SHALL accept either fork at that version
 
-#### Scenario: Recommended version drives the upgrade hint
+#### Scenario: Upgrade-hint band is empty under lockstep
 
 - **WHEN** the running pi-coding-agent version is below `piCompatibility.recommended`
 - **THEN** `bootstrapState.compatibility.upgradeRecommended` is `true`
@@ -195,7 +195,7 @@ Separately, the extension's devDependency `typebox` in `packages/extension/packa
 - **THEN** `bootstrapState.compatibility` includes a 503-blocking `error` message
 - **AND** the bootstrap banner renders in the red "below minimum" state
 
-#### Scenario: Pi 0.75 / 0.76 / 0.77 user sees blocking error after bump
+#### Scenario: Upgrade hint names the required version
 
 - **WHEN** `piCompatibility.minimum` is `"0.78.0"`
 - **AND** the running pi-coding-agent reports a version in the `0.75.x` / `0.76.x` / `0.77.x` range

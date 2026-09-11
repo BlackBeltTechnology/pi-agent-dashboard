@@ -7,12 +7,12 @@ TBD - created by archiving change update-pi-core-0-83-adopt-apis. Update Purpose
 
 The dashboard SHALL adopt every new pi runtime API (introduced above the compatibility `minimum`) behind runtime feature-detection of the concrete surface, and SHALL NOT gate behavior on the pi version string. Detection SHALL test the surface in the form that is actually load-bearing for the adoption — for a value surface, that includes its meaningful shape (e.g. `ctx.scopedModels` is detected as a **non-empty array**, because it is present-but-empty on a default unscoped 0.83.0 session), not mere presence. Each detected surface SHALL have an explicit fallback path that reproduces the pre-adoption behavior. A session running on any pi at or above the compatibility `minimum` SHALL continue to function with no crash and no behavior regression when a newer surface is absent (or present in its no-op shape).
 
-#### Scenario: New surface present is used
+#### Scenario: Surface guaranteed by the pinned version is consumed unconditionally
 
 - **WHEN** a new pi API surface is detected at runtime in its load-bearing shape
 - **THEN** the dashboard SHALL use the enhanced path
 
-#### Scenario: New surface absent or no-op-shaped falls back cleanly
+#### Scenario: Optional-at-pin surface is still feature-detected
 
 - **GIVEN** a pi runtime at or above `minimum` that lacks a newer surface, or exposes it only in a no-op shape (e.g. an empty scope array)
 - **WHEN** the dashboard reaches the corresponding code path
