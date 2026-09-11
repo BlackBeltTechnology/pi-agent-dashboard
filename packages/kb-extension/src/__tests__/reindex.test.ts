@@ -1,11 +1,19 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { indexSource } from "@blackbelt-technology/pi-dashboard-kb";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {acknowledgeRows, closeKb,
   closeKbForCwd, 
   createReindexState, decideNudge, ensurePopulated,getKb, nudgeText, reindexNow, scheduleReindex,
 } from "../reindex.js";
+
+// Passthrough mock so X4 can make `indexSource` throw SQLITE_BUSY exactly once
+// without a real cross-process SQLite lock (which would burn busy_timeout).
+vi.mock("@blackbelt-technology/pi-dashboard-kb", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@blackbelt-technology/pi-dashboard-kb")>();
+  return { ...actual, indexSource: vi.fn(actual.indexSource) };
+});
 
 // Build a temp project with a KB config so reindex logic can open a real store.
 function setupProject(): string {
@@ -292,6 +300,34 @@ describe("Job 1 debounce for AsciiDoc edits (test-plan #E18, #X2)", () => {
       scheduleReindex(state, dir, join(dir, "docs", "x.adoc"), 10);
       await new Promise((r) => setTimeout(r, 150)); // debounce fires → reindexNow rejects
       expect(warn.mock.calls.some((c) => String(c[0]).includes("reindex failed"))).toBe(true);
+      closeKb(state);
+    } finally {
+      warn.mockRestore();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ── D8 / X4: debounced reindex tolerates SQLITE_BUSY (log + drop) ───────
+describe("X4: SQLITE_BUSY on the debounced reindex", () => {
+  it("logs a [kb] deferral, does not throw, and the next run succeeds", async () => {
+    const dir = setupProject();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const mocked = vi.mocked(indexSource);
+      mocked.mockRejectedValueOnce(new Error("SQLITE_BUSY: database is locked"));
+      const state = createReindexState();
+      scheduleReindex(state, dir, join(dir, "docs", "guide.md"), 10);
+      await new Promise((r) => setTimeout(r, 250));
+      expect(
+        warn.mock.calls.some((c) => String(c[0]).startsWith("[kb]") && String(c[0]).includes("index busy")),
+      ).toBe(true);
+
+      // Not rethrown + state not poisoned: the next scheduled reindex indexes.
+      scheduleReindex(state, dir, join(dir, "docs", "guide.md"), 10);
+      await new Promise((r) => setTimeout(r, 400));
+      const { store } = getKb(state, dir);
+      expect(store.search("initial content padded", { limit: 3 }).length).toBeGreaterThan(0);
       closeKb(state);
     } finally {
       warn.mockRestore();

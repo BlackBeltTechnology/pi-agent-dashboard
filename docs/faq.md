@@ -2889,3 +2889,15 @@ Cross-refs:
 - scripts/check-fixed-tick-waits.mjs
 - vitest.workers.ts
 - packages/client/src/__tests__/fixed-tick-conversion-equivalence.test.ts
+
+## Doctrine not injected / first-contact nudge keeps firing?
+
+Check in order:
+
+- kb extension not loaded → no hook runs, nothing injected. Add `@blackbelt-technology/pi-dashboard-kb-extension` to `settings.json#packages[]`. Doctor flags "doctrine configured but kb extension not loaded".
+- project config has no `doctrine` key → first-contact nudge fires once per session until a choice is recorded. Record in `.pi/dashboard/knowledge_base.json`: `"doctrine": {"inject":"kb","write":true}`. `ask later` writes nothing → nudge re-fires next session.
+- root `AGENTS.md` carries legacy `dox:*:start` delimiters → injection skipped (no double-load) + migration nudge. Replace legacy block with pointer block.
+- malformed config → built-in defaults for that turn (READ on, WRITE off) + one `[kb]` `console.warn` per session. No first-contact nudge.
+- WRITE discipline missing → `"write": true` required. `inject: "off"` injects nothing and makes `write` inert.
+
+See change: inject-dox-doctrine-and-describe.

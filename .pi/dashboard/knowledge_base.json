@@ -59,6 +59,10 @@
     "fallbackManifest": true
   },
   "doxEnforcement": false,
+  "doctrine": {
+    "inject": "kb",
+    "write": true
+  },
   "ranking": {
     "fieldWeights": {
       "headingPath": 10,

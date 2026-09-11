@@ -35,8 +35,6 @@ export interface ScaffoldOptions {
    * `PROJECT_NAME` is always merged in. See change: project-init-skill-and-profiles.
    */
   substitutions?: Record<string, string>;
-  /** Whether the kb toolset is wired (selects the doctrine READ variant). Defaults to profile.dox. */
-  kbWired?: boolean;
   /** Overwrite existing files. Default false (throws on conflict). */
   overwrite?: boolean;
 }
@@ -132,7 +130,6 @@ export function scaffoldProfile(opts: ScaffoldOptions): ScaffoldResult {
   const { profile, targetDir } = opts;
   const projectName = opts.projectName ?? path.basename(targetDir);
   const overwrite = opts.overwrite ?? false;
-  const kbWired = opts.kbWired ?? profile.dox;
   const subs = { PROJECT_NAME: projectName, ...(opts.substitutions ?? {}) };
   const leftover: string[] = [];
 
@@ -182,7 +179,7 @@ export function scaffoldProfile(opts: ScaffoldOptions): ScaffoldResult {
   // DOX: seed doctrine + kb toolset.
   let doctrineSeeded = false;
   if (profile.dox) {
-    doctrineSeeded = seedDoctrine(agentsMd, { kbWired }).seeded;
+    doctrineSeeded = seedDoctrine(agentsMd).seeded;
     // Honor overwrite for the kb config too, so the plan/conflict UX (which
     // lists knowledge_base.json as a conflict) matches actual write behavior.
     writeDoxKbConfig(targetDir, { overwrite });

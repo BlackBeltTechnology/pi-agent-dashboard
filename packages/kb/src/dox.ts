@@ -315,6 +315,57 @@ export function parseRowPaths(agentsFile: string): string[] {
   return scanDoxRows(readFileSync(agentsFile, "utf8")).rows.map((r) => r.path);
 }
 
+// --- dox describe --list (change: inject-dox-doctrine-and-describe) ---
+
+const ROW_PURPOSE = /^\|\s*`([^`]+)`\s*\|\s*(.*?)\s*\|\s*$/;
+
+export interface EmptyPurposeList {
+  groups: Array<{ agentsPath: string; subjects: string[] }>;
+  total: number;
+}
+
+/** Enumerate every `| File | Purpose |` row whose Purpose is empty or
+ *  whitespace-only, grouped by owning `AGENTS.md`. `dir` restricts the walk to
+ *  one subtree. Read-only: no model, no writes (design D8). Rows are recognized
+ *  by the table header (`scanDoxRows`), so a prose-only file is skipped. */
+export function listEmptyPurposeRows(opts: { cwd: string; dir?: string }): EmptyPurposeList {
+  const cwd = opts.cwd;
+  const start = opts.dir ? resolve(cwd, opts.dir) : cwd;
+  const gi = loadGitignoreMatcher(cwd, { cwd, prune: (rel) => DEFAULT_EXCLUDE.test(rel) });
+  const agentsFiles: string[] = [];
+  const walk = (dir: string) => {
+    if (!existsSync(dir)) return;
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const abs = join(dir, e.name);
+      if (DEFAULT_EXCLUDE.test(relative(cwd, abs))) continue;
+      if (e.isDirectory()) {
+        if (e.name === "__tests__") continue; // skipped during descent, as in the `dox init` source walk
+        const rel = relative(cwd, abs);
+        if (gi.isIgnoredDir(rel) && !gi.hasDeeperGitignore(rel)) continue;
+        walk(abs);
+      } else if (e.name === "AGENTS.md" && !gi.isIgnored(relative(cwd, abs))) {
+        agentsFiles.push(abs);
+      }
+    }
+  };
+  walk(start);
+
+  const groups: Array<{ agentsPath: string; subjects: string[] }> = [];
+  let total = 0;
+  for (const af of agentsFiles.sort()) {
+    const subjects: string[] = [];
+    for (const row of scanDoxRows(readFileSync(af, "utf8")).rows) {
+      const m = row.line.match(ROW_PURPOSE);
+      if (m && m[2].trim() === "") subjects.push(row.path);
+    }
+    if (subjects.length > 0) {
+      groups.push({ agentsPath: relative(cwd, af), subjects });
+      total += subjects.length;
+    }
+  }
+  return { groups, total };
+}
+
 /** Source-file walk (delta ①②), exported for the file-index migration. */
 export function sourceFiles(cwd: string, ignore?: GitignoreMatcher): string[] {
   return walkSource(cwd, [], ignore);
