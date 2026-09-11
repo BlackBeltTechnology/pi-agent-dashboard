@@ -4,7 +4,7 @@
  * an absolute path outside every session cwd is rejected exactly as a
  * traversal attempt. See change: unify-file-link-openability.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, afterAll, afterEach, beforeAll, beforeEach } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import fsp from "node:fs/promises";
 import path from "node:path";
@@ -13,6 +13,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 import { registerFileRoutes } from "../routes/file-routes.js";
+import { buildGitFixtures, type GitFixtures } from "@blackbelt-technology/pi-dashboard-shared/test-support/git-fixtures.js";
 
 const execFileAsync = promisify(execFile);
 async function git(cwd: string, ...args: string[]): Promise<void> {
@@ -220,5 +221,127 @@ describe("GET /api/file/exists — pinned-dir anchor + strings preserved", () =>
     });
     expect(res.statusCode).toBe(403);
     expect(res.json()).toEqual({ success: false, error: "path outside cwd" });
+  });
+
+  // E23 — layer ② is PER ANCHOR, so a pinned directory keeps the widening it
+  // already had: its own checkout root becomes reachable even though no session
+  // cwd sits there. See change: widen-containment-to-resolved-checkout.
+  it("E23: widens through a PINNED dir's checkout root (anchors stay per-site)", async () => {
+    const repo = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "file-e23-")));
+    try {
+      await git(repo, "init", "-q");
+      await git(repo, "config", "user.email", "t@t.t");
+      await git(repo, "config", "user.name", "t");
+      await fsp.writeFile(path.join(repo, "README.md"), "root\n");
+      await git(repo, "add", ".");
+      await git(repo, "commit", "-q", "-m", "init");
+      const pinned = path.join(repo, "packages", "x");
+      await fsp.mkdir(pinned, { recursive: true });
+      const other = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "file-e23-other-")));
+
+      const pinnedApp = makeApp([other], [pinned]);
+      await pinnedApp.ready();
+      const res = await pinnedApp.inject({
+        method: "GET",
+        url: `/api/file/exists?cwd=${encodeURIComponent(pinned)}&path=${encodeURIComponent(path.join(repo, "README.md"))}`,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ success: true, data: { exists: true } });
+      await pinnedApp.close();
+      await fsp.rm(other, { recursive: true, force: true });
+    } finally {
+      await fsp.rm(repo, { recursive: true, force: true });
+    }
+  });
+});
+
+// E24 — the widening this change exists for: a submodule session reaches its OWN
+// checkout but never its superproject. See change: widen-containment-to-resolved-checkout.
+describe("GET /api/file — submodule session vs superproject (E24)", () => {
+  let fx: GitFixtures;
+  let app: FastifyInstance;
+
+  beforeAll(() => {
+    fx = buildGitFixtures();
+  });
+
+  afterAll(async () => {
+    await app?.close();
+    fx.cleanup();
+  });
+
+  it("allows the submodule's own checkout root and 403s the superproject", async () => {
+    const cwd = path.join(fx.submodule, "deep");
+    await fsp.mkdir(cwd, { recursive: true });
+    await fsp.writeFile(path.join(fx.submodule, "README.md"), "sub\n");
+    app = makeApp([cwd]);
+    await app.ready();
+
+    const allowed = await app.inject({
+      method: "GET",
+      url: `/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path.join(fx.submodule, "README.md"))}`,
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(allowed.json().data).toMatchObject({ type: "file", kind: "markdown", content: "sub\n" });
+
+    const denied = await app.inject({
+      method: "GET",
+      url: `/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path.join(fx.superproject, ".env"))}`,
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json()).toEqual({ success: false, error: "path outside working directory" });
+  });
+});
+
+// E26 — the site-specific `~/.pi` anchor is carried over verbatim: read, raw and
+// render still admit it while `exists` (which never had it) still refuses.
+// See change: widen-containment-to-resolved-checkout.
+describe("GET /api/file — `~/.pi` anchor preserved on read/raw/render (E26)", () => {
+  let app: FastifyInstance;
+  let cwd: string;
+  let home: string;
+  let savedHome: string | undefined;
+
+  beforeEach(async () => {
+    savedHome = process.env.HOME;
+    home = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "file-e26-home-")));
+    process.env.HOME = home;
+    await fsp.mkdir(path.join(home, ".pi"), { recursive: true });
+    await fsp.writeFile(path.join(home, ".pi", "note.md"), "# note\n");
+    await fsp.writeFile(path.join(home, ".pi", "note.adoc"), "= note\n");
+    cwd = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "file-e26-cwd-")));
+    app = makeApp([cwd]);
+    await app.ready();
+  });
+
+  afterEach(async () => {
+    await app.close();
+    await fsp.rm(cwd, { recursive: true, force: true });
+    await fsp.rm(home, { recursive: true, force: true });
+    if (savedHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHome;
+  });
+
+  it("admits the ~/.pi path on read, raw and render, but not on exists", async () => {
+    const target = path.join(home, ".pi", "note.md");
+    const q = `cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(target)}`;
+
+    expect((await app.inject({ method: "GET", url: `/api/file?${q}` })).statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: `/api/file/raw?${q}` })).statusCode).toBe(200);
+
+    // `/render` only handles `.adoc`/`.docx`/`.pptx`, and only the `.adoc` path
+    // passes the `homePiAnchor()` anchor — so that is the extension that
+    // exercises this anchor. Containment is what is under test, not the
+    // renderer: a renderer failure is 500, a containment failure is 403.
+    const adoc = path.join(home, ".pi", "note.adoc");
+    const render = await app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(adoc)}`,
+    });
+    expect(render.statusCode).not.toBe(403);
+
+    const exists = await app.inject({ method: "GET", url: `/api/file/exists?${q}` });
+    expect(exists.statusCode).toBe(403);
+    expect(exists.json()).toEqual({ success: false, error: "path outside cwd" });
   });
 });

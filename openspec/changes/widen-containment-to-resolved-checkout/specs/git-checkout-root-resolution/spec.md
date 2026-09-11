@@ -119,7 +119,17 @@ using a resolved checkout as a trust anchor. A candidate path is BOUND to the re
 2. resolving the candidate itself as a cwd yields a result whose `commonDir` is the same
    path as the `commonDir` resolved for the original `cwd`;
 3. that result's `thisCheckout` is the same path as the candidate — the candidate is a
-   checkout ROOT of that repository, not a subdirectory of one and not a git-internal path.
+   checkout ROOT of that repository, not a subdirectory of one;
+4. the candidate is NOT the repository's `commonDir` and NOT under it — a git-internal
+   path is never a checkout root.
+
+Rule 4 SHALL NOT be folded into rule 3. With a repository-local `core.worktree` aimed at a
+path inside the git dir, git honors that value on re-resolution and DOES report the path as
+its own `--show-toplevel`, so rule 3 PASSES there; the rule-1 `.git`-segment test is the
+first line of defence and rule 4 is the second, which is what keeps the rejection true even
+when rule 1 is bypassed. Rule 4 is also load-bearing for a git dir NOT named `.git`: a
+`--separate-git-dir` checkout whose `core.worktree` aims into `<elsewhere>/app.git/x` passes
+rules 1-3, and only rule 4 rejects it.
 
 The candidate SHALL be canonicalized (symlinks followed) BEFORE it is re-resolved and
 before every comparison, and comparisons SHALL use the platform-aware path helpers. A
@@ -166,7 +176,7 @@ repository owns this path" means.
 - **GIVEN** a linked worktree whose repository-local `core.worktree` names a path inside the repository's own git directory
 - **WHEN** the binding check runs for the resolved `mainCheckout`
 - **THEN** it SHALL be reported as unbound by the `.git`-segment test
-- **AND** SHALL remain unbound even if that test were skipped, because a git-internal path has no checkout root of its own
+- **AND** SHALL remain unbound even if that test were skipped, because the candidate is under the repository's own common dir (rule 4) — MEASURED: git reports the configured path as its own toplevel, so rule 3 alone does NOT reject it
 
 #### Scenario: A subdirectory of the true checkout never widens past that checkout
 
