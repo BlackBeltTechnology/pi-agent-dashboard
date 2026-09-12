@@ -14,6 +14,8 @@
  * See change: add-blackhole-plugin, add-blackhole-session-pipeline.
  */
 
+import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+
 export interface FieldView {
   value: unknown;
   default: unknown;
@@ -38,6 +40,7 @@ export type ConfigResult = ConfigOk | ConfigParseError;
 
 const ROUTE = "/api/plugins/blackhole/config";
 const STATUS_ROUTE = "/api/plugins/blackhole/status";
+const MODELS_ROUTE = "/api/models";
 
 async function parseJson<T>(res: Response): Promise<T> {
   const ct = res.headers.get("content-type") ?? "";
@@ -94,4 +97,88 @@ export async function isExtensionInstalled(apiBase = "", signal?: AbortSignal): 
     // network failure — unknown, fail open
   }
   return true;
+}
+
+export type ModelsResult =
+  | { kind: "ok"; models: ModelInfo[] }
+  | { kind: "unavailable"; reason: string };
+
+function extractProviderAndId(row: Record<string, unknown>): { provider: string; id: string } | null {
+  if (typeof row.id !== "string" || !row.id.trim()) return null;
+  const rawId = row.id.trim();
+  const rawProvider = typeof row.provider === "string" ? row.provider.trim() : "";
+
+  if (!rawProvider) {
+    if (!rawId.includes("/")) return null;
+    const slashIdx = rawId.indexOf("/");
+    return { provider: rawId.slice(0, slashIdx), id: rawId.slice(slashIdx + 1) };
+  }
+
+  const id = rawId.startsWith(`${rawProvider}/`)
+    ? rawId.slice(rawProvider.length + 1)
+    : rawId;
+
+  return id ? { provider: rawProvider, id } : null;
+}
+
+function parseModelRow(raw: unknown): ModelInfo | null {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as Record<string, unknown>;
+  const pair = extractProviderAndId(row);
+  if (!pair) return null;
+
+  const model: ModelInfo = { provider: pair.provider, id: pair.id };
+  if (typeof row.name === "string" && row.name.trim()) {
+    model.name = row.name.trim();
+  }
+  if (typeof row.reasoning === "boolean") {
+    model.reasoning = row.reasoning;
+  }
+  if (typeof row.vision === "boolean") {
+    model.vision = row.vision;
+  }
+  if (typeof row.contextWindow === "number" && !Number.isNaN(row.contextWindow)) {
+    model.contextWindow = row.contextWindow;
+  }
+
+  return model;
+}
+
+/**
+ * Fetch available models from `GET /api/models` (design D1).
+ *
+ * Resolves to `{ kind: "ok", models }` or `{ kind: "unavailable", reason }` (never rejects).
+ *
+ * Write direction note:
+ * Consumers picking from this list MUST resolve the picked row by exact match against
+ * the fetched list (`models.find(m => `${m.provider}/${m.id}` === label)`), NEVER by
+ * splitting `label` on `/`, as model ids may contain slashes (e.g. meta/llama-3).
+ */
+export async function getModels(apiBase = "", signal?: AbortSignal): Promise<ModelsResult> {
+  try {
+    const res = await fetch(`${apiBase}${MODELS_ROUTE}`, { signal });
+    if (!res.ok) {
+      return {
+        kind: "unavailable",
+        reason: `HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}`,
+      };
+    }
+    const body = await parseJson<{ object?: string; data?: unknown[] }>(res);
+    if (!body || !Array.isArray(body.data)) {
+      return { kind: "unavailable", reason: "Invalid model list response format" };
+    }
+
+    const models: ModelInfo[] = [];
+    for (const raw of body.data) {
+      const parsed = parseModelRow(raw);
+      if (parsed) models.push(parsed);
+    }
+
+    return { kind: "ok", models };
+  } catch (err) {
+    return {
+      kind: "unavailable",
+      reason: err instanceof Error ? err.message : String(err),
+    };
+  }
 }

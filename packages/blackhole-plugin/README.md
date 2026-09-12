@@ -11,11 +11,17 @@ One `settings-section` claim, mounted at `/settings/plugins/blackhole`:
    observational-memory switches, the trigger thresholds, the token budgets, and
    the runtime/diagnostic knobs.
 2. **Model fallback chains** — a ranked, keyboard-operable editor for the
-   `observer` / `reflector` / `dropper` chains. List position *is* resolution
-   order: index 0 is `<worker>Model`, the rest are `<worker>FallbackModels`. The
-   shared resolution tail (`base model → session model`) is displayed but is not
-   an entry of any chain, and renders the session model as excluded when
-   `sessionFallback` is `false`.
+   `observer` / `reflector` / `dropper` chains, integrated with the shell's
+   model selector and thinking level picker primitives. List position *is*
+   resolution order: index 0 is `<worker>Model`, the rest are
+   `<worker>FallbackModels`. Includes a shared base model picker row above the
+   chains with clear action, a "Use recommended defaults" action that stages
+   resilient flash-class fallback chains across distinct providers with
+   confirmation gating, an add-model flow for empty and populated chains,
+   per-entry thinking override controls, and 4-state registry gating
+   (`pending|ok|empty|unavailable` + retry). The shared resolution tail
+   (`base model → session model`) is displayed dynamically and renders the
+   session model as excluded when `sessionFallback` is `false`.
 
 The per-session pipeline surface is **not** part of this package; it lives in the
 `add-blackhole-session-pipeline` change.

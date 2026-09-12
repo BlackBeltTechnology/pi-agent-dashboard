@@ -8,7 +8,18 @@
  *
  * See change: add-blackhole-plugin.
  */
-import { cleanup, render, waitFor } from "@testing-library/react";
+import {
+  type RegisteredSource,
+  SettingsDraftProvider,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
+import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
+import type {
+  UiConfirmDialogProps,
+  UiModelSelectorProps,
+  UiThinkingLevelSelectorProps,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULTS, KNOWN_KEYS, validateBlackholeConfig } from "../../shared/blackhole-config.js";
 import { BlackholeSettings, buildPayload, toDraft } from "../BlackholeSettings.js";
@@ -17,6 +28,76 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
+
+function MockModelSelector(props: UiModelSelectorProps) {
+  return (
+    <div data-testid="mock-model-selector" data-current={props.current}>
+      <button data-testid="mock-model-trigger">{props.current ?? "select model"}</button>
+      {(props.models ?? []).map((m) => {
+        const label = `${m.provider}/${m.id}`;
+        return (
+          <button
+            key={label}
+            data-testid={`model-opt-${label}`}
+            onClick={() => props.onSelect(label)}
+          >
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function MockThinkingLevelSelector(props: UiThinkingLevelSelectorProps) {
+  return (
+    <div data-testid="mock-thinking-level-selector" data-current={props.current}>
+      {(props.supportedLevels ?? []).map((lvl) => (
+        <button key={lvl} data-testid={`level-opt-${lvl}`} onClick={() => props.onSelect(lvl)}>
+          {lvl}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function MockConfirmDialog(props: UiConfirmDialogProps) {
+  return (
+    <div data-testid="mock-confirm-dialog">
+      <p data-testid="confirm-dialog-message">{props.message}</p>
+      <button data-testid="confirm-dialog-confirm" onClick={props.onConfirm}>
+        {props.confirmLabel ?? "Confirm"}
+      </button>
+      <button data-testid="confirm-dialog-cancel" onClick={props.onCancel}>
+        Cancel
+      </button>
+    </div>
+  );
+}
+
+function renderSettings(sources?: Map<string, RegisteredSource>) {
+  const draftRegistry = {
+    upsert: (id: string, s: RegisteredSource) => {
+      sources?.set(id, s);
+    },
+    remove: (id: string) => {
+      sources?.delete(id);
+    },
+  };
+
+  return render(
+    withUiPrimitiveProvider(
+      {
+        [UI_PRIMITIVE_KEYS.modelSelector]: MockModelSelector,
+        [UI_PRIMITIVE_KEYS.thinkingLevelSelector]: MockThinkingLevelSelector,
+        [UI_PRIMITIVE_KEYS.confirmDialog]: MockConfirmDialog,
+      },
+      <SettingsDraftProvider registry={draftRegistry}>
+        <BlackholeSettings />
+      </SettingsDraftProvider>,
+    ),
+  );
+}
 
 function jsonRes(body: unknown, ok = true, status = 200): Response {
   return {
@@ -45,14 +126,46 @@ function allDefaultConfig(over: Record<string, unknown> = {}) {
 }
 
 /** Wire `fetch` for the endpoints the component reads (config + status). */
-function mockFetch(opts: { installed?: boolean; config?: unknown; configStatus?: number }) {
-  return vi.fn(async (url: string) => {
+function handleConfigRoute(
+  opts: {
+    config?: unknown;
+    configStatus?: number;
+    putStatus?: number;
+    putBody?: unknown;
+    onPut?: (body: Record<string, unknown>) => void;
+  },
+  init?: RequestInit,
+): Response {
+  if (init?.method === "PUT") {
+    const body = JSON.parse(init.body as string);
+    opts.onPut?.(body);
+    const status = opts.putStatus ?? 200;
+    return jsonRes(opts.putBody ?? allDefaultConfig(), status < 400, status);
+  }
+  const status = opts.configStatus ?? 200;
+  return jsonRes(opts.config ?? allDefaultConfig(), status < 400, status);
+}
+
+function mockFetch(opts: {
+  installed?: boolean;
+  config?: unknown;
+  configStatus?: number;
+  models?: unknown;
+  modelsStatus?: number;
+  onPut?: (body: Record<string, unknown>) => void;
+  putStatus?: number;
+  putBody?: unknown;
+}) {
+  return vi.fn(async (url: string, init?: RequestInit) => {
     if (url.includes("/api/plugins/blackhole/config")) {
-      const status = opts.configStatus ?? 200;
-      return jsonRes(opts.config ?? allDefaultConfig(), status < 400, status);
+      return handleConfigRoute(opts, init);
     }
     if (url.includes("/api/plugins/blackhole/status")) {
       return jsonRes({ installed: opts.installed ?? true });
+    }
+    if (url.includes("/api/models")) {
+      const status = opts.modelsStatus ?? 200;
+      return jsonRes(opts.models ?? { object: "list", data: [] }, status < 400, status);
     }
     throw new Error(`unexpected fetch url: ${url}`);
   });
@@ -61,7 +174,7 @@ function mockFetch(opts: { installed?: boolean; config?: unknown; configStatus?:
 describe("not-installed state (E23, F6)", () => {
   it("renders the install command and no config control when the registry reports it missing", async () => {
     (globalThis as { fetch?: unknown }).fetch = mockFetch({ installed: false });
-    const { getByTestId, container } = render(<BlackholeSettings />);
+    const { getByTestId, container } = renderSettings();
     await waitFor(() => expect(getByTestId("blackhole-not-installed")).toBeTruthy());
     expect(getByTestId("blackhole-install-command").textContent).toBe("pi install npm:pi-blackhole");
     expect(container.querySelectorAll("input, select, textarea").length).toBe(0);
@@ -71,14 +184,14 @@ describe("not-installed state (E23, F6)", () => {
     // The component is mounted unconditionally; the not-installed branch is its
     // own output. If the host had withheld it, nothing would render at all.
     (globalThis as { fetch?: unknown }).fetch = mockFetch({ installed: false });
-    const { getByTestId } = render(<BlackholeSettings />);
+    const { getByTestId } = renderSettings();
     await waitFor(() => expect(getByTestId("blackhole-not-installed")).toBeTruthy());
   });
 
   it("answers from the plugin's own /status route, not the host plugin list (repoint, 3.1a)", async () => {
     const fetchMock = mockFetch({ installed: false });
     (globalThis as { fetch?: unknown }).fetch = fetchMock;
-    const { getByTestId } = render(<BlackholeSettings />);
+    const { getByTestId } = renderSettings();
     await waitFor(() => expect(getByTestId("blackhole-not-installed")).toBeTruthy());
     const urls = fetchMock.mock.calls.map((c) => String(c[0]));
     expect(urls.some((u) => u.includes("/api/plugins/blackhole/status"))).toBe(true);
@@ -89,7 +202,7 @@ describe("not-installed state (E23, F6)", () => {
 describe("installed but never run (E22)", () => {
   it("renders the defaults form rather than the not-installed state", async () => {
     (globalThis as { fetch?: unknown }).fetch = mockFetch({ installed: true });
-    const { getByTestId, queryByTestId } = render(<BlackholeSettings />);
+    const { getByTestId, queryByTestId } = renderSettings();
     await waitFor(() => expect(getByTestId("blackhole-settings")).toBeTruthy());
     expect(queryByTestId("blackhole-not-installed")).toBeNull();
     expect((getByTestId("blackhole-input-observeAfterTokens") as HTMLInputElement).value).toBe("15000");
@@ -99,9 +212,11 @@ describe("installed but never run (E22)", () => {
   it("does not fabricate a not-installed state when the probe has not reported yet", async () => {
     (globalThis as { fetch?: unknown }).fetch = vi.fn(async (url: string) => {
       if (url.includes("/config")) return jsonRes(allDefaultConfig());
+      if (url.includes("/status")) return jsonRes({ installed: true });
+      if (url.includes("/api/models")) return jsonRes({ object: "list", data: [] });
       return jsonRes({ plugins: [{ id: "blackhole", status: null }] });
     });
-    const { getByTestId, queryByTestId } = render(<BlackholeSettings />);
+    const { getByTestId, queryByTestId } = renderSettings();
     await waitFor(() => expect(getByTestId("blackhole-settings")).toBeTruthy());
     expect(queryByTestId("blackhole-not-installed")).toBeNull();
   });
@@ -117,7 +232,7 @@ describe("parse-error state renders no form (X1, X3)", () => {
         message: "Unexpected token } in JSON at position 34",
       },
     });
-    const { getByTestId, container } = render(<BlackholeSettings />);
+    const { getByTestId, container } = renderSettings();
     await waitFor(() => expect(getByTestId("blackhole-parse-error")).toBeTruthy());
 
     expect(getByTestId("blackhole-parse-message").textContent).toContain("Unexpected token");
@@ -132,7 +247,7 @@ describe("parse-error state renders no form (X1, X3)", () => {
 describe("apply semantics (F7)", () => {
   it("never demands a restart and attributes immediate apply to the extension", async () => {
     (globalThis as { fetch?: unknown }).fetch = mockFetch({ installed: true });
-    const { getByTestId } = render(<BlackholeSettings />);
+    const { getByTestId } = renderSettings();
     await waitFor(() => expect(getByTestId("blackhole-settings")).toBeTruthy());
 
     const page = (getByTestId("blackhole-settings") as HTMLElement).textContent ?? "";
@@ -201,10 +316,289 @@ describe("chains render from the config (E18)", () => {
         ],
       }),
     });
-    const { getByTestId } = render(<BlackholeSettings />);
+    const { getByTestId } = renderSettings();
     await waitFor(() => expect(getByTestId("blackhole-chain-observer")).toBeTruthy());
     expect(getByTestId("blackhole-chain-observer-entry-0").textContent).toContain("A");
     expect(getByTestId("blackhole-chain-observer-entry-1").textContent).toContain("B");
     expect(getByTestId("blackhole-chain-observer-entry-2").textContent).toContain("C");
+  });
+});
+
+describe("Base model and recommended defaults (4.1-4.10)", () => {
+  it("4.1 base model set: sets model in PUT, updates every tail before save (E14)", async () => {
+    let putBody: any = null;
+    const sources = new Map<string, RegisteredSource>();
+    (globalThis as { fetch?: unknown }).fetch = mockFetch({
+      installed: true,
+      models: {
+        object: "list",
+        data: [{ id: "g/x-flash", provider: "g", reasoning: true }],
+      },
+      onPut: (body) => {
+        putBody = body;
+      },
+    });
+
+    const { getByTestId } = renderSettings(sources);
+    await waitFor(() => expect(getByTestId("blackhole-settings")).toBeTruthy());
+
+    // Base model card should have model selector
+    const baseCard = getByTestId("blackhole-base-model-card");
+    fireEvent.click(within(baseCard).getByTestId("model-opt-g/x-flash"));
+
+    // Check every tail contains x-flash before Save
+    expect(getByTestId("blackhole-chain-observer-tail-base").textContent).toContain("x-flash");
+    expect(getByTestId("blackhole-chain-reflector-tail-base").textContent).toContain("x-flash");
+    expect(getByTestId("blackhole-chain-dropper-tail-base").textContent).toContain("x-flash");
+
+    // Commit draft
+    await act(async () => {
+      await sources.get("plugin:blackhole")?.commit();
+    });
+
+    expect(putBody?.model).toEqual({ provider: "g", id: "x-flash" });
+  });
+
+  it("4.2 base model clear (file-set): emits model: null and passes validator (E15)", async () => {
+    let putBody: any = null;
+    const sources = new Map<string, RegisteredSource>();
+    (globalThis as { fetch?: unknown }).fetch = mockFetch({
+      installed: true,
+      config: allDefaultConfig({ model: { provider: "g", id: "x" } }),
+      onPut: (body) => {
+        putBody = body;
+      },
+    });
+
+    const { getByTestId } = renderSettings(sources);
+    await waitFor(() => expect(getByTestId("blackhole-settings")).toBeTruthy());
+
+    fireEvent.click(getByTestId("blackhole-base-model-clear"));
+
+    await act(async () => {
+      await sources.get("plugin:blackhole")?.commit();
+    });
+
+    expect(putBody?.model).toBeNull();
+    expect(validateBlackholeConfig(putBody!).errors).toEqual([]);
+  });
+
+  it("4.3 base model clear (never-set) is a no-op: save stays un-dirtied, no model key (E16)", async () => {
+    let putCalled = false;
+    const sources = new Map<string, RegisteredSource>();
+    (globalThis as { fetch?: unknown }).fetch = mockFetch({
+      installed: true,
+      onPut: () => {
+        putCalled = true;
+      },
+    });
+
+    const { getByTestId } = renderSettings(sources);
+    await waitFor(() => expect(getByTestId("blackhole-settings")).toBeTruthy());
+
+    const clearBtn = getByTestId("blackhole-base-model-clear") as HTMLButtonElement;
+    expect(clearBtn.disabled).toBe(true);
+    expect(sources.get("plugin:blackhole")?.isDirty).toBe(false);
+    expect(putCalled).toBe(false);
+  });
+
+  it("4.4 staged content: stages flash rows, debug:true, debugLog:true, untouched omitted (E17)", async () => {
+    let putBody: any = null;
+    const sources = new Map<string, RegisteredSource>();
+    (globalThis as { fetch?: unknown }).fetch = mockFetch({
+      installed: true,
+      config: allDefaultConfig(),
+      models: {
+        object: "list",
+        data: [
+          { id: "g/first-flash", provider: "g", reasoning: true },
+          { id: "openrouter/second-flash", provider: "openrouter", reasoning: true },
+        ],
+      },
+      onPut: (body) => {
+        putBody = body;
+      },
+    });
+
+    const { getByTestId } = renderSettings(sources);
+    await waitFor(() => expect(getByTestId("blackhole-settings")).toBeTruthy());
+
+    fireEvent.click(getByTestId("blackhole-recommended-defaults-btn"));
+
+    await act(async () => {
+      await sources.get("plugin:blackhole")?.commit();
+    });
+
+    expect(putBody?.observerModel).toEqual({ provider: "g", id: "first-flash", cooldownHours: 1 });
+    expect(putBody?.observerFallbackModels).toEqual([
+      { provider: "openrouter", id: "second-flash", cooldownHours: 1 },
+    ]);
+    expect(putBody?.reflectorModel).toEqual({ provider: "g", id: "first-flash", cooldownHours: 1 });
+    expect(putBody?.reflectorFallbackModels).toEqual([
+      { provider: "openrouter", id: "second-flash", cooldownHours: 1 },
+    ]);
+    expect(putBody?.dropperModel).toEqual({ provider: "g", id: "first-flash", cooldownHours: 1 });
+    expect(putBody?.dropperFallbackModels).toEqual([
+      { provider: "openrouter", id: "second-flash", cooldownHours: 1 },
+    ]);
+    expect(putBody?.debug).toBe(true);
+    expect(putBody?.debugLog).toBe(true);
+    expect(Object.hasOwn(putBody!, "observeAfterTokens")).toBe(false);
+  });
+
+  it("4.5 defaults staged but not written: PUT not called, host save dirty (E18)", async () => {
+    let putCalled = false;
+    const sources = new Map<string, RegisteredSource>();
+    (globalThis as { fetch?: unknown }).fetch = mockFetch({
+      installed: true,
+      models: {
+        object: "list",
+        data: [{ id: "g/x-flash", provider: "g", reasoning: true }],
+      },
+      onPut: () => {
+        putCalled = true;
+      },
+    });
+
+    const { getByTestId } = renderSettings(sources);
+    await waitFor(() => expect(getByTestId("blackhole-settings")).toBeTruthy());
+
+    fireEvent.click(getByTestId("blackhole-recommended-defaults-btn"));
+    expect(putCalled).toBe(false);
+    expect(sources.get("plugin:blackhole")?.isDirty).toBe(true);
+  });
+
+  it("4.6 no candidate available: defaults disabled with explanation, no dialog (E19)", async () => {
+    const { getByTestId, queryByTestId } = renderSettings();
+    (globalThis as { fetch?: unknown }).fetch = mockFetch({
+      installed: true,
+      models: {
+        object: "list",
+        data: [{ id: "a/b-pro", provider: "a", reasoning: true }],
+      },
+    });
+
+    await waitFor(() => expect(getByTestId("blackhole-settings")).toBeTruthy());
+
+    const btn = getByTestId("blackhole-recommended-defaults-btn") as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    expect(getByTestId("blackhole-recommended-defaults-card").textContent).toMatch(
+      /flash|haiku|mini/i,
+    );
+    fireEvent.click(btn);
+    expect(queryByTestId("mock-confirm-dialog")).toBeNull();
+  });
+
+  it("4.7 confirm matrix: empty chain no dialog; non-empty chain requires confirm (E20)", async () => {
+    const sources = new Map<string, RegisteredSource>();
+    (globalThis as { fetch?: unknown }).fetch = mockFetch({
+      installed: true,
+      config: allDefaultConfig({
+        observerModel: { provider: "openrouter", id: "existing-a" },
+      }),
+      models: {
+        object: "list",
+        data: [{ id: "g/x-flash", provider: "g", reasoning: true }],
+      },
+    });
+
+    const { getByTestId, queryByTestId } = renderSettings(sources);
+    await waitFor(() => expect(getByTestId("blackhole-settings")).toBeTruthy());
+
+    // Non-empty chain: click defaults opens confirm dialog
+    fireEvent.click(getByTestId("blackhole-recommended-defaults-btn"));
+    expect(getByTestId("mock-confirm-dialog")).toBeTruthy();
+
+    // Cancel: draft remains unchanged
+    fireEvent.click(getByTestId("confirm-dialog-cancel"));
+    expect(queryByTestId("mock-confirm-dialog")).toBeNull();
+    expect(sources.get("plugin:blackhole")?.isDirty).toBe(false);
+
+    // Confirm: stages defaults
+    fireEvent.click(getByTestId("blackhole-recommended-defaults-btn"));
+    fireEvent.click(getByTestId("confirm-dialog-confirm"));
+    expect(queryByTestId("mock-confirm-dialog")).toBeNull();
+    expect(sources.get("plugin:blackhole")?.isDirty).toBe(true);
+  });
+
+  it("4.8 fewer than 3 candidates: copy states fewer than 3 staged (E21)", async () => {
+    (globalThis as { fetch?: unknown }).fetch = mockFetch({
+      installed: true,
+      models: {
+        object: "list",
+        data: [{ id: "g/only-flash", provider: "g", reasoning: true }],
+      },
+    });
+
+    const { getByTestId } = renderSettings();
+    await waitFor(() => expect(getByTestId("blackhole-settings")).toBeTruthy());
+
+    fireEvent.click(getByTestId("blackhole-recommended-defaults-btn"));
+    expect(getByTestId("blackhole-recommended-defaults-card").textContent).toMatch(
+      /1 of 3/i,
+    );
+  });
+
+  it("4.9 PUT 400 surfaces server error message, keeps draft and save available (X1)", async () => {
+    const sources = new Map<string, RegisteredSource>();
+    (globalThis as { fetch?: unknown }).fetch = mockFetch({
+      installed: true,
+      models: {
+        object: "list",
+        data: [{ id: "g/x-flash", provider: "g", reasoning: true }],
+      },
+      putStatus: 400,
+      putBody: { error: "observerModel.thinking must be one of..." },
+    });
+
+    const { getByTestId } = renderSettings(sources);
+    await waitFor(() => expect(getByTestId("blackhole-settings")).toBeTruthy());
+
+    fireEvent.click(getByTestId("blackhole-recommended-defaults-btn"));
+    expect(sources.get("plugin:blackhole")?.isDirty).toBe(true);
+
+    await act(async () => {
+      try {
+        await sources.get("plugin:blackhole")?.commit();
+      } catch {
+        // expected rethrow
+      }
+    });
+
+    expect(getByTestId("blackhole-save-error").textContent).toContain("observerModel.thinking must be one of");
+    expect(sources.get("plugin:blackhole")?.isDirty).toBe(true);
+  });
+
+  it("4.10 registry ok -> empty before defaults click: button disabled, nothing staged (X4)", async () => {
+    let modelsCallCount = 0;
+    (globalThis as { fetch?: unknown }).fetch = vi.fn(async (url: string) => {
+      if (url.includes("/config")) return jsonRes(allDefaultConfig());
+      if (url.includes("/status")) return jsonRes({ installed: true });
+      if (url.includes("/api/models")) {
+        modelsCallCount++;
+        if (modelsCallCount === 1) {
+          return jsonRes({
+            object: "list",
+            data: [{ id: "g/x-flash", provider: "g", reasoning: true }],
+          });
+        }
+        return jsonRes({ object: "list", data: [] });
+      }
+      throw new Error(`unexpected fetch url: ${url}`);
+    });
+
+    const sources = new Map<string, RegisteredSource>();
+    const { getByTestId } = renderSettings(sources);
+    await waitFor(() => expect(getByTestId("blackhole-settings")).toBeTruthy());
+
+    const btn = getByTestId("blackhole-recommended-defaults-btn") as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+
+    // Click retry which re-fetches and gets empty data
+    fireEvent.click(getByTestId("blackhole-registry-retry"));
+    await waitFor(() => expect(btn.disabled).toBe(true));
+
+    fireEvent.click(btn);
+    expect(sources.get("plugin:blackhole")?.isDirty).toBe(false);
   });
 });

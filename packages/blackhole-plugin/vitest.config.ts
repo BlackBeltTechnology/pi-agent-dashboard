@@ -28,6 +28,10 @@ export default defineConfig({
         __dirname,
         "../dashboard-plugin-runtime/src/plugin-context.tsx",
       ),
+      "@blackbelt-technology/dashboard-plugin-runtime/test-support": path.resolve(
+        __dirname,
+        "../dashboard-plugin-runtime/src/test-support/index.ts",
+      ),
       "@blackbelt-technology/dashboard-plugin-runtime": path.resolve(
         __dirname,
         "../dashboard-plugin-runtime/src/index.ts",

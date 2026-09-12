@@ -103,13 +103,16 @@ function renderInput(props: Partial<React.ComponentProps<typeof CommandInput>> =
 // always left a share. jsdom computes no layout, so the declared contract is what
 // is asserted here; the geometric behaviour is covered by browser verification.
 describe("CommandInput — chat-pane height budget", () => {
-  it("bounds the composer to a fraction of the pane", () => {
+  it("bounds the composer to a fraction of the pane and sets min-height bound", () => {
     const { container } = renderInput();
-    const cls = container.querySelector('[data-testid="composer-root"]')!.className;
+    const root = container.querySelector('[data-testid="composer-root"]') as HTMLElement;
+    const cls = root.className;
     // Pane-relative ceiling, not a fixed px height.
     expect(cls).toContain("max-h-[40%]");
     // Allowed to yield below its content height.
     expect(cls).toContain("min-h-0");
+    // Explicit lower bound (72px) for below-floor allocation
+    expect(root.style.minHeight).toBe("72px");
   });
 
   it("scrolls the card, not the root, so the dropdown is not clipped", () => {

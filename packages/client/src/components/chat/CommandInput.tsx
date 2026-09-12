@@ -8,6 +8,9 @@ import { useImagePaste } from "../../hooks/useImagePaste.js";
 import { LIST_POPOVER_MIN_HEIGHT, usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import type { ChatMessage, PendingPrompt } from "../../lib/chat/event-reducer.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import {
+  CHAT_COMPOSER_BOUND,
+} from "../../lib/layout/chat-pane-row-class.js";
 import { extractRecentUrls } from "../../lib/preview/extract-urls.js";
 import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 import { ImagePreviewStrip } from "../preview/ImagePreviewStrip.js";
@@ -860,16 +863,15 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     <div
       ref={composerRef}
       data-testid="composer-root"
-      /* Height budget (fix-quota-widget-clipping): the chat pane is
-         `flex-col overflow-hidden`, so once ChatView's grow allocation hits 0 any
-         further furniture growth overflows the pane and the LAST row gets clipped.
-         Bound the composer to a share of the PANE (not a fixed px), so rows below
-         us stay visible and ChatView keeps a share. `min-h-0` lets us yield.
-         Overflow MUST stay visible here: this element is `relative`, so it is the
-         containing block for the autocomplete dropdowns below, which render ABOVE
-         the composer and would be clipped away by a scrollport. The scrolling is
-         delegated to `composer-card` instead — flex-column + `min-h-0` there. */
-      className="border-t border-[var(--border-primary)] p-3 relative flex flex-col min-h-0 max-h-[40%]"
+      style={{ minHeight: `${CHAT_COMPOSER_BOUND}px` }}
+      /* Height budget (fix-quota-widget-clipping, define-chat-pane-below-floor-allocation):
+         the chat pane is `flex-col overflow-hidden`. Below the floor sum, height deficit is shared
+         between ChatView and the composer. Because composer-root has overflow: visible (for autocomplete
+         dropdowns), its min-height: auto would freeze it from shrinking in flexbox.
+         An explicit min-height: 72px (CHAT_COMPOSER_BOUND) and shrink allow it to participate in
+         below-floor allocation down to its bound.
+         The scrolling is delegated to `composer-card` instead — flex-column + `min-h-0` there. */
+      className="border-t border-[var(--border-primary)] p-3 relative flex flex-col shrink min-h-0 max-h-[40%]"
     >
       {/* Autocomplete dropdown — grouped by source with badges + arg hints.
           `left-3 right-3` pins BOTH composer edges, so it stays immune to the

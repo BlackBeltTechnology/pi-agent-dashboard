@@ -1,15 +1,22 @@
 /**
  * L1 component tests for the chain editor: ordering, promotion, keyboard
- * operability, boundary disabling, accessible names, and the implicit tail
- * (test-plan E19, E21, F1-F5 at component level; the browser versions live in
- * the L3 Playwright spec).
+ * operability, boundary disabling, accessible names, the implicit tail,
+ * and the registry-backed model selector and thinking override
+ * (test-plan E10-E13, E22-E26, X2; F1-F5).
  *
- * See change: add-blackhole-plugin.
+ * See change: add-blackhole-plugin, blackhole-model-picker-chains.
  */
-import { cleanup, fireEvent, render } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
+import type {
+  UiModelSelectorProps,
+  UiThinkingLevelSelectorProps,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { cleanup, fireEvent, render, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type ModelRef, validateBlackholeConfig } from "../../shared/blackhole-config.js";
-import { ChainEditor } from "../ChainEditor.js";
+import { ChainEditor, type RegistryState } from "../ChainEditor.js";
 
 afterEach(cleanup);
 
@@ -17,18 +24,80 @@ const A: ModelRef = { provider: "openrouter", id: "model-a" };
 const B: ModelRef = { provider: "ollama", id: "model-b" };
 const C: ModelRef = { provider: "cerebras", id: "model-c" };
 
-function renderChain(entries: ModelRef[], sessionFallback = true) {
+let lastThinkingProps: UiThinkingLevelSelectorProps | null = null;
+
+function MockModelSelector(props: UiModelSelectorProps) {
+  return (
+    <div data-testid="mock-model-selector" data-current={props.current}>
+      <button data-testid="mock-model-trigger">{props.current ?? "select model"}</button>
+      {(props.models ?? []).map((m) => {
+        const label = `${m.provider}/${m.id}`;
+        return (
+          <button
+            key={label}
+            data-testid={`model-opt-${label}`}
+            onClick={() => props.onSelect(label)}
+          >
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function MockThinkingLevelSelector(props: UiThinkingLevelSelectorProps) {
+  lastThinkingProps = props;
+  return (
+    <div data-testid="mock-thinking-level-selector" data-current={props.current}>
+      {(props.supportedLevels ?? []).map((lvl) => (
+        <button
+          key={lvl}
+          data-testid={`level-opt-${lvl}`}
+          onClick={() => props.onSelect(lvl)}
+        >
+          {lvl}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function renderChain(
+  entries: ModelRef[],
+  sessionFallback = true,
+  options?: {
+    models?: ModelInfo[];
+    registry?: RegistryState;
+    onRetryRegistry?: () => void;
+  },
+) {
   const onChange = vi.fn();
   const utils = render(
-    <ChainEditor
-      worker="observer"
-      name="Observer"
-      role="Extracts facts"
-      entries={entries}
-      onChange={onChange}
-      baseModel={{ provider: "openrouter", id: "base-model" }}
-      sessionFallback={sessionFallback}
-    />,
+    withUiPrimitiveProvider(
+      {
+        [UI_PRIMITIVE_KEYS.modelSelector]: MockModelSelector,
+        [UI_PRIMITIVE_KEYS.thinkingLevelSelector]: MockThinkingLevelSelector,
+      },
+      <ChainEditor
+        worker="observer"
+        name="Observer"
+        role="Extracts facts"
+        entries={entries}
+        onChange={onChange}
+        baseModel={{ provider: "openrouter", id: "base-model" }}
+        sessionFallback={sessionFallback}
+        models={
+          options?.models ?? [
+            { provider: "openrouter", id: "model-a", reasoning: true },
+            { provider: "ollama", id: "model-b", reasoning: true },
+            { provider: "cerebras", id: "model-c", reasoning: true },
+          ]
+        }
+        registry={options?.registry ?? "ok"}
+        onRetryRegistry={options?.onRetryRegistry}
+      />,
+    ),
   );
   return { ...utils, onChange };
 }
@@ -159,7 +228,8 @@ describe("per-model fields (E20)", () => {
 
   it("omits thinking entirely when the (inherit) option is selected", () => {
     const { getByLabelText, onChange } = renderChain([{ ...A, thinking: "high" }, B]);
-    fireEvent.change(getByLabelText(`Thinking level for ${A.id}`), { target: { value: "" } });
+    const override = getByLabelText(`Override thinking level for ${A.id}`);
+    fireEvent.click(override); // toggle off
     const next = onChange.mock.calls[0][0] as ModelRef[];
     expect(Object.hasOwn(next[0], "thinking")).toBe(false);
   });
@@ -173,12 +243,152 @@ describe("per-model fields (E20)", () => {
     expect(validateBlackholeConfig({ observerFallbackModels: next }).errors).toEqual([]);
   });
 
-  it("exposes provider, id, thinking, cooldownHours and contextWindow", () => {
-    const { getByLabelText } = renderChain([A, B]);
-    expect(getByLabelText(`Provider for ${A.id}`)).toBeTruthy();
-    expect(getByLabelText(`Model ID for ${A.id}`)).toBeTruthy();
-    expect(getByLabelText(`Thinking level for ${A.id}`)).toBeTruthy();
+  it("exposes model group, thinking override, cooldownHours and contextWindow (no free text inputs)", () => {
+    const { getByRole, getByLabelText, queryByLabelText } = renderChain([A, B]);
+    expect(getByRole("group", { name: /Model for observer entry 1/i })).toBeTruthy();
+    expect(queryByLabelText(`Provider for ${A.id}`)).toBeNull();
+    expect(queryByLabelText(`Model ID for ${A.id}`)).toBeNull();
+    expect(getByLabelText(`Override thinking level for ${A.id}`)).toBeTruthy();
     expect(getByLabelText(`Cooldown hours for ${A.id}`)).toBeTruthy();
     expect(getByLabelText(`Context window for ${A.id}`)).toBeTruthy();
+  });
+});
+
+describe("Model selector and thinking level integrations (3.1-3.10)", () => {
+  beforeEach(() => {
+    lastThinkingProps = null;
+  });
+
+  it("3.1 exact-match pick with slash id (E10)", () => {
+    const models: ModelInfo[] = [
+      { provider: "openrouter", id: "meta/llama-3", reasoning: true },
+      { provider: "openrouter", id: "meta", reasoning: true },
+    ];
+    const { getByTestId, onChange } = renderChain([A], true, { models });
+    fireEvent.click(getByTestId("model-opt-openrouter/meta/llama-3"));
+    expect(onChange).toHaveBeenCalledWith([
+      { provider: "openrouter", id: "meta/llama-3" },
+    ]);
+  });
+
+  it("3.2 level clamp: reasoning model passes blackhole's 6 levels, never max (E11)", () => {
+    const models: ModelInfo[] = [{ provider: "openrouter", id: "model-a", reasoning: true }];
+    const { getByLabelText } = renderChain([{ ...A, thinking: "low" }], true, { models });
+    const checkbox = getByLabelText(`Override thinking level for ${A.id}`) as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+    expect(lastThinkingProps?.supportedLevels).toEqual([
+      "off",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+    ]);
+  });
+
+  it("3.3 non-reasoning model provides supportedLevels: ['off'] (E12)", () => {
+    const models: ModelInfo[] = [{ provider: "openrouter", id: "model-a", reasoning: false }];
+    renderChain([{ ...A, thinking: "off" }], true, { models });
+    expect(lastThinkingProps?.supportedLevels).toEqual(["off"]);
+  });
+
+  it("3.4 inherit vs off: unchecked has no primitive and inherit text; checked has thinking:'off' (E13)", () => {
+    const { getByLabelText, getByText, queryByTestId, onChange } = renderChain([A]);
+    const checkbox = getByLabelText(`Override thinking level for ${A.id}`) as HTMLInputElement;
+    expect(checkbox.checked).toBe(false);
+    expect(queryByTestId("mock-thinking-level-selector")).toBeNull();
+    expect(getByText(/inherit/i)).toBeTruthy();
+
+    fireEvent.click(checkbox);
+    expect(onChange).toHaveBeenCalledWith([{ ...A, thinking: "off" }]);
+  });
+
+  it("3.5 model pick clears contextWindow and preserves cooldown and thinking (E22)", () => {
+    const models: ModelInfo[] = [
+      { provider: "c", id: "d", reasoning: true },
+    ];
+    const entry = {
+      provider: "a",
+      id: "b",
+      contextWindow: 200000,
+      cooldownHours: 2,
+      thinking: "high" as const,
+    };
+    const { getByTestId, onChange } = renderChain([entry], true, { models });
+    fireEvent.click(getByTestId("model-opt-c/d"));
+    expect(onChange).toHaveBeenCalledWith([
+      { provider: "c", id: "d", cooldownHours: 2, thinking: "high" },
+    ]);
+  });
+
+  it("3.6 picking a non-reasoning model drops incompatible level and shows notice (E23)", () => {
+    const models: ModelInfo[] = [
+      { provider: "c", id: "d", reasoning: false },
+    ];
+    const entry = { provider: "a", id: "b", thinking: "high" as const };
+    const { getByTestId, onChange } = renderChain([entry], true, { models });
+    fireEvent.click(getByTestId("model-opt-c/d"));
+    expect(onChange).toHaveBeenCalledWith([{ provider: "c", id: "d" }]);
+    expect(getByTestId("blackhole-chain-observer-0-level-drop").textContent).toContain("high");
+  });
+
+  it("3.7 thinking:'off' survives non-reasoning pick without drop notice (E24)", () => {
+    const models: ModelInfo[] = [
+      { provider: "c", id: "d", reasoning: false },
+    ];
+    const entry = { provider: "a", id: "b", thinking: "off" as const };
+    const { getByTestId, queryByTestId, onChange } = renderChain([entry], true, { models });
+    fireEvent.click(getByTestId("model-opt-c/d"));
+    expect(onChange).toHaveBeenCalledWith([{ provider: "c", id: "d", thinking: "off" }]);
+    expect(queryByTestId("blackhole-chain-observer-0-level-drop")).toBeNull();
+  });
+
+  it("3.8 add cancel leaves chain unchanged (E25)", () => {
+    const { getByTestId, queryByTestId, onChange } = renderChain([A]);
+    fireEvent.click(getByTestId("blackhole-chain-observer-add"));
+    expect(getByTestId("blackhole-chain-observer-adding")).toBeTruthy();
+
+    fireEvent.keyDown(getByTestId("blackhole-chain-observer-adding"), { key: "Escape" });
+    expect(queryByTestId("blackhole-chain-observer-adding")).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("3.9 add appends {provider, id} only (E26)", () => {
+    const models: ModelInfo[] = [{ provider: "g", id: "x-flash" }];
+    const { getByTestId, queryByTestId, onChange } = renderChain([A], true, { models });
+    fireEvent.click(getByTestId("blackhole-chain-observer-add"));
+    const addingRow = getByTestId("blackhole-chain-observer-adding");
+    fireEvent.click(within(addingRow).getByTestId("model-opt-g/x-flash"));
+
+    expect(onChange).toHaveBeenCalledWith([A, { provider: "g", id: "x-flash" }]);
+    expect(queryByTestId("blackhole-chain-observer-adding")).toBeNull();
+  });
+
+  it("3.10 registry ok -> unavailable: stored id rendered in plain-text span, picker unmounted (X2)", () => {
+    const { getByTestId, queryByTestId, rerender } = renderChain([A], true, { registry: "ok" });
+    expect(getByTestId("mock-model-selector")).toBeTruthy();
+
+    rerender(
+      withUiPrimitiveProvider(
+        {
+          [UI_PRIMITIVE_KEYS.modelSelector]: MockModelSelector,
+          [UI_PRIMITIVE_KEYS.thinkingLevelSelector]: MockThinkingLevelSelector,
+        },
+        <ChainEditor
+          worker="observer"
+          name="Observer"
+          role="Extracts facts"
+          entries={[A]}
+          onChange={vi.fn()}
+          baseModel={{ provider: "openrouter", id: "base-model" }}
+          sessionFallback={true}
+          registry="unavailable"
+        />,
+      ),
+    );
+
+    expect(queryByTestId("mock-model-selector")).toBeNull();
+    const span = getByTestId("blackhole-chain-observer-0-model");
+    expect(span.textContent).toBe("openrouter/model-a");
   });
 });

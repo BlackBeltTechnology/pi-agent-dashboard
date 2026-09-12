@@ -18,7 +18,9 @@
  *
  * See change: add-blackhole-plugin.
  */
-import { useSettingsDraftSource, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { useSettingsDraftSource, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -28,9 +30,16 @@ import {
   KNOWN_KEYS,
   type ModelRef,
 } from "../shared/blackhole-config.js";
-import { normalizeModel, readChain, writeChain } from "../shared/chain-model.js";
-import { type ConfigOk, type ConfigResult, getConfig, isExtensionInstalled, putConfig } from "./blackhole-api.js";
-import { ChainEditor } from "./ChainEditor.js";
+import { normalizeModel, readChain, recommendedDefaults, writeChain } from "../shared/chain-model.js";
+import {
+  type ConfigOk,
+  type ConfigResult,
+  getConfig,
+  getModels,
+  isExtensionInstalled,
+  putConfig,
+} from "./blackhole-api.js";
+import { ChainEditor, type RegistryState } from "./ChainEditor.js";
 import { FIELD_GROUPS, type FieldMeta, WORKER_META } from "./field-groups.js";
 
 const INSTALL_COMMAND = "pi install npm:pi-blackhole";
@@ -148,8 +157,40 @@ export function BlackholeSettings(): React.ReactElement {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [baseline, setBaseline] = useState<string>("");
 
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [registryState, setRegistryState] = useState<RegistryState>("pending");
+  const [registryReason, setRegistryReason] = useState<string | null>(null);
+  const [showConfirmDefaults, setShowConfirmDefaults] = useState(false);
+  const [stagedDefaultsCount, setStagedDefaultsCount] = useState<number | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const ConfirmDialogPrimitive = useUiPrimitive(UI_PRIMITIVE_KEYS.confirmDialog);
+
+  const fetchRegistry = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const res = await getModels("", signal);
+      if (signal?.aborted) return;
+      if (res.kind === "ok") {
+        setModels(res.models);
+        setRegistryState(res.models.length === 0 ? "empty" : "ok");
+        setRegistryReason(null);
+      } else {
+        setModels([]);
+        setRegistryState("unavailable");
+        setRegistryReason(res.reason);
+      }
+    } catch (e) {
+      if (signal?.aborted) return;
+      setModels([]);
+      setRegistryState("unavailable");
+      setRegistryReason(errMsg(e));
+    }
+  }, []);
+
   const load = useCallback(async (signal?: AbortSignal) => {
     setLoadError(null);
+    setSaveError(null);
+    setStagedDefaultsCount(null);
     try {
       const present = await isExtensionInstalled("", signal);
       setInstalled(present);
@@ -158,6 +199,7 @@ export function BlackholeSettings(): React.ReactElement {
         setDraft(null);
         return;
       }
+      void fetchRegistry(signal);
       const cfg = await getConfig("", signal);
       setResult(cfg);
       if (cfg.status === "ok") {
@@ -171,13 +213,18 @@ export function BlackholeSettings(): React.ReactElement {
       if (signal?.aborted) return;
       setLoadError(errMsg(e));
     }
-  }, []);
+  }, [fetchRegistry]);
 
   useEffect(() => {
     const ac = new AbortController();
     void load(ac.signal);
     return () => ac.abort();
   }, [load]);
+
+  const retryRegistry = useCallback(async () => {
+    setRegistryState("pending");
+    await fetchRegistry();
+  }, [fetchRegistry]);
 
   const setField = useCallback((key: string, value: unknown) => {
     setDraft((prev) => (prev ? { ...prev, values: { ...prev.values, [key]: value } } : prev));
@@ -195,13 +242,61 @@ export function BlackholeSettings(): React.ReactElement {
     isDirty,
     commit: async () => {
       if (!payload) return;
-      await putConfig(payload);
-      await load();
+      try {
+        setSaveError(null);
+        await putConfig(payload);
+        await load();
+      } catch (err) {
+        setSaveError(errMsg(err));
+        throw err;
+      }
     },
     reset: () => {
+      setSaveError(null);
       void load();
     },
   });
+
+  const defaultsResult = useMemo(() => {
+    return recommendedDefaults(models);
+  }, [models]);
+
+  const hasCandidate = registryState === "ok" && defaultsResult.found;
+
+  const applyDefaults = useCallback(() => {
+    const { chain, found } = recommendedDefaults(models);
+    if (!found) return;
+
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const nextChains: Chains = {};
+      for (const w of WORKER_META) {
+        nextChains[w.worker] = chain.map((m) => ({ ...m }));
+      }
+      return {
+        ...prev,
+        chains: nextChains,
+        values: {
+          ...prev.values,
+          debug: true,
+          debugLog: true,
+        },
+      };
+    });
+    setStagedDefaultsCount(chain.length);
+  }, [models]);
+
+  const handleDefaultsClick = useCallback(() => {
+    if (!hasCandidate) return;
+    const hasAnyChainEntries = WORKER_META.some(
+      (w) => (draft?.chains[w.worker]?.length ?? 0) > 0,
+    );
+    if (hasAnyChainEntries) {
+      setShowConfirmDefaults(true);
+    } else {
+      applyDefaults();
+    }
+  }, [hasCandidate, draft, applyDefaults]);
 
   if (loadError) {
     return (
@@ -350,40 +445,294 @@ export function BlackholeSettings(): React.ReactElement {
         </details>
       ))}
 
-      <details
-        open
-        className="border border-[var(--border-secondary)] rounded-[10px] overflow-hidden mb-2.5 bg-[var(--bg-secondary)]"
-        data-testid="blackhole-group-chains"
-      >
-        <summary className="cursor-pointer flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] font-semibold text-[var(--text-primary)] select-none list-none">
-          {t("workerModels", undefined, "Worker models")}
-          <span className="ml-auto text-[11px] text-[var(--text-tertiary)] font-medium">
-            {WORKER_META.length} {t("chains", undefined, "chains")}
-          </span>
-        </summary>
-        <div className="px-3.5 pb-3 pt-2 border-t border-[var(--border-subtle)]">
-          <p className="text-[11.5px] text-[var(--text-tertiary)] mt-0 mb-3">
+      {showConfirmDefaults && (
+        <ConfirmDialogPrimitive
+          message={t(
+            "confirmReplaceChainsBody",
+            undefined,
+            "Applying recommended defaults will overwrite the current fallback chains for observer, reflector, and dropper with up to 3 flash/haiku/mini models from your credentialed registry.",
+          )}
+          confirmLabel={t("confirmReplaceApply", undefined, "Apply Defaults")}
+          onConfirm={() => {
+            applyDefaults();
+            setShowConfirmDefaults(false);
+          }}
+          onCancel={() => setShowConfirmDefaults(false)}
+        />
+      )}
+
+      <ChainsSection
+        draft={draft}
+        models={models}
+        registryState={registryState}
+        registryReason={registryReason}
+        saveError={saveError}
+        hasCandidate={hasCandidate}
+        stagedDefaultsCount={stagedDefaultsCount}
+        sessionFallback={sessionFallback}
+        onRetryRegistry={retryRegistry}
+        onSetBaseModel={(base) =>
+          setDraft((prev) => (prev ? { ...prev, baseModel: base } : prev))
+        }
+        onDefaultsClick={handleDefaultsClick}
+        onSetChain={setChain}
+      />
+    </div>
+  );
+}
+
+interface ChainsSectionProps {
+  draft: Draft;
+  models: ModelInfo[];
+  registryState: RegistryState;
+  registryReason: string | null;
+  saveError: string | null;
+  hasCandidate: boolean;
+  stagedDefaultsCount: number | null;
+  sessionFallback: boolean;
+  onRetryRegistry: () => void;
+  onSetBaseModel: (base: ModelRef | null) => void;
+  onDefaultsClick: () => void;
+  onSetChain: (worker: string, next: ModelRef[]) => void;
+}
+
+function ChainsSection({
+  draft,
+  models,
+  registryState,
+  registryReason,
+  saveError,
+  hasCandidate,
+  stagedDefaultsCount,
+  sessionFallback,
+  onRetryRegistry,
+  onSetBaseModel,
+  onDefaultsClick,
+  onSetChain,
+}: ChainsSectionProps): React.ReactElement {
+  const t = useT();
+  const ModelSelectorPrimitive = useUiPrimitive(UI_PRIMITIVE_KEYS.modelSelector);
+
+  return (
+    <details
+      open
+      className="border border-[var(--border-secondary)] rounded-[10px] overflow-hidden mb-2.5 bg-[var(--bg-secondary)]"
+      data-testid="blackhole-group-chains"
+    >
+      <summary className="cursor-pointer flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] font-semibold text-[var(--text-primary)] select-none list-none">
+        {t("workerModels", undefined, "Worker models")}
+        <button
+          type="button"
+          data-testid="blackhole-registry-retry"
+          aria-label={t("retryRegistry", undefined, "Retry")}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            void onRetryRegistry();
+          }}
+          className="ml-2 px-1.5 py-0.5 text-[11px] font-normal rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+        >
+          {t("retryRegistry", undefined, "Retry")}
+        </button>
+        <span className="ml-auto text-[11px] text-[var(--text-tertiary)] font-medium">
+          {WORKER_META.length} {t("chains", undefined, "chains")}
+        </span>
+      </summary>
+      <div className="px-3.5 pb-3 pt-2 border-t border-[var(--border-subtle)]">
+        <p className="text-[11.5px] text-[var(--text-tertiary)] mt-0 mb-3">
+          {t(
+            "chainsHelp",
+            undefined,
+            "Each worker tries its models top to bottom. A model that returns a retryable error is skipped for its cooldown window, and the next one runs.",
+          )}
+        </p>
+
+        {saveError && (
+          <div
+            data-testid="blackhole-save-error"
+            className="border border-[var(--severity-error-border,#ef4444)] rounded-lg p-3 mb-3 bg-[var(--severity-error-bg,#fef2f2)] text-[var(--severity-error-fg,#b91c1c)] text-[12px]"
+          >
+            {saveError}
+          </div>
+        )}
+
+        {registryState === "unavailable" && (
+          <div
+            data-testid="blackhole-registry-unavailable"
+            className="border border-[var(--severity-error-border,#ef4444)] rounded-lg p-3 mb-3 bg-[var(--severity-error-bg,#fef2f2)] text-[var(--severity-error-fg,#b91c1c)] flex items-center justify-between gap-2 text-[12px]"
+          >
+            <span>
+              ✕{" "}
+              {t(
+                "registryUnavailable",
+                { reason: registryReason || "503" },
+                `Model registry unavailable (${registryReason || "503"}).`,
+              )}
+            </span>
+            <button
+              type="button"
+              data-testid="blackhole-registry-retry-banner"
+              onClick={() => void onRetryRegistry()}
+              className="px-2 py-0.5 text-[11px] rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+            >
+              {t("retryRegistry", undefined, "Retry")}
+            </button>
+          </div>
+        )}
+
+        {registryState === "empty" && (
+          <div
+            data-testid="blackhole-registry-empty"
+            className="border border-[var(--severity-warning-border,#f59e0b)] rounded-lg p-3 mb-3 bg-[var(--severity-warning-bg,#fffbeb)] text-[var(--severity-warning-fg,#b45309)] text-[12px]"
+          >
+            ⚠️{" "}
             {t(
-              "chainsHelp",
+              "registryEmpty",
               undefined,
-              "Each worker tries its models top to bottom. A model that returns a retryable error is skipped for its cooldown window, and the next one runs.",
+              "No credentialed models in registry. Configure provider API keys in Settings > Providers to enable model selection.",
+            )}
+          </div>
+        )}
+
+        {/* Base Model picker row (design D7) */}
+        <div
+          className="border border-[var(--border-secondary)] rounded-lg p-3 mb-3 bg-[var(--bg-tertiary)] flex items-center justify-between gap-3 flex-wrap"
+          data-testid="blackhole-base-model-card"
+        >
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-[12px] font-semibold text-[var(--text-primary)]">
+                {t("baseModelLabel", undefined, "Base Model")}
+              </span>
+              <span className="font-mono text-[10px] text-[var(--text-tertiary)]">model</span>
+            </div>
+            <div className="text-[11px] text-[var(--text-tertiary)]">
+              {t(
+                "baseModelHelp",
+                undefined,
+                "Shared fallback for all workers before the session model.",
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {registryState === "ok" ? (
+              <ModelSelectorPrimitive
+                current={
+                  draft.baseModel
+                    ? `${draft.baseModel.provider}/${draft.baseModel.id}`
+                    : undefined
+                }
+                models={models}
+                placeholder={t("selectBaseModelPlaceholder", undefined, "Select base model…")}
+                onSelect={(label: string) => {
+                  const picked = models.find((m) => `${m.provider}/${m.id}` === label);
+                  let provider = "";
+                  let id = "";
+                  if (picked) {
+                    provider = picked.provider;
+                    id = picked.id;
+                  } else {
+                    const slashIdx = label.indexOf("/");
+                    provider = slashIdx >= 0 ? label.slice(0, slashIdx) : "";
+                    id = slashIdx >= 0 ? label.slice(slashIdx + 1) : label;
+                  }
+                  onSetBaseModel({ provider, id });
+                }}
+              />
+            ) : (
+              <span
+                data-testid="blackhole-base-model-value"
+                className="font-mono text-[12px] text-[var(--text-primary)]"
+              >
+                {draft.baseModel ? `${draft.baseModel.provider}/${draft.baseModel.id}` : "—"}
+              </span>
+            )}
+            <button
+              type="button"
+              data-testid="blackhole-base-model-clear"
+              disabled={draft.baseModel === null}
+              onClick={() => onSetBaseModel(null)}
+              className="px-2 py-1 text-[11px] rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-40"
+            >
+              {t("clearBaseModel", undefined, "Clear")}
+            </button>
+          </div>
+        </div>
+
+        {/* Recommended Defaults Action (design D6) */}
+        <div
+          className="border border-dashed border-[var(--border-secondary)] rounded-lg p-3 mb-3 bg-[var(--bg-tertiary)]"
+          data-testid="blackhole-recommended-defaults-card"
+        >
+          <div className="text-[12px] font-semibold text-[var(--text-primary)] mb-1">
+            {t("recommendedDefaultsLabel", undefined, "Use recommended defaults")}
+          </div>
+          <p className="text-[11.5px] text-[var(--text-tertiary)] m-0 mb-2">
+            {t(
+              "recommendedDefaultsHelp",
+              undefined,
+              "Recommended defaults stages resilient flash-class chains (up to 3 models across distinct providers) for observer, reflector, and dropper, plus debug logging.",
             )}
           </p>
-          {WORKER_META.map((w) => (
-            <ChainEditor
-              key={w.worker}
-              worker={w.worker}
-              name={w.name}
-              role={w.role}
-              entries={draft.chains[w.worker] ?? []}
-              onChange={(next) => setChain(w.worker, next)}
-              baseModel={draft.baseModel}
-              sessionFallback={sessionFallback}
-            />
-          ))}
+
+          {registryState !== "ok" && (
+            <div className="text-[11px] text-[var(--text-tertiary)] mb-2">
+              {t(
+                "recommendedDefaultsDisabledUnavailable",
+                undefined,
+                "Registry unavailable. Staging defaults is disabled.",
+              )}
+            </div>
+          )}
+
+          {registryState === "ok" && !hasCandidate && (
+            <div className="text-[11px] text-[var(--text-tertiary)] mb-2">
+              {t(
+                "recommendedDefaultsNoCandidate",
+                undefined,
+                "No flash, haiku, or mini models found in registry.",
+              )}
+            </div>
+          )}
+
+          {stagedDefaultsCount !== null && (
+            <div className="text-[11px] text-[var(--accent-blue)] mb-2">
+              {t(
+                "recommendedDefaultsFewerThan3",
+                { count: stagedDefaultsCount },
+                `Staged ${stagedDefaultsCount} of 3 recommended models from available candidates.`,
+              )}
+            </div>
+          )}
+
+          <button
+            type="button"
+            disabled={!hasCandidate}
+            data-testid="blackhole-recommended-defaults-btn"
+            onClick={onDefaultsClick}
+            className="px-2.5 py-1 text-[11.5px] rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {t("recommendedDefaultsLabel", undefined, "Use recommended defaults")}
+          </button>
         </div>
-      </details>
-    </div>
+
+        {WORKER_META.map((w) => (
+          <ChainEditor
+            key={w.worker}
+            worker={w.worker}
+            name={w.name}
+            role={w.role}
+            entries={draft.chains[w.worker] ?? []}
+            onChange={(next) => onSetChain(w.worker, next)}
+            baseModel={draft.baseModel}
+            sessionFallback={sessionFallback}
+            models={models}
+            registry={registryState}
+            onRetryRegistry={onRetryRegistry}
+          />
+        ))}
+      </div>
+    </details>
   );
 }
 

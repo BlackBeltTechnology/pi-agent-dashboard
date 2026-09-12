@@ -5,6 +5,11 @@ import {
   isNotifyRowVisible,
   toolCallPrefKey,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import {
+  CHAT_TRANSCRIPT_BOUND,
+  CHAT_TRANSCRIPT_FLOOR,
+  CHAT_TRANSCRIPT_WEIGHT,
+} from "../../lib/layout/chat-pane-row-class.js";
 import { mdiAlertCircleOutline, mdiCheck, mdiChevronDown, mdiChevronUp, mdiClose, mdiCommentQuestionOutline, mdiContentCopy, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
@@ -1586,7 +1591,13 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     // Key by sessionId so switching sessions (ChatView is reused, not remounted)
     // resets the hoisted preview — a preview open in session A never leaks into B.
     <FilePreviewProvider key={sessionId}>
-    <div className="flex-1 relative overflow-hidden flex flex-col">
+    <div
+      style={{
+        flex: `${CHAT_TRANSCRIPT_WEIGHT} ${CHAT_TRANSCRIPT_WEIGHT} ${CHAT_TRANSCRIPT_FLOOR}px`,
+        minHeight: `${CHAT_TRANSCRIPT_BOUND}px`,
+      }}
+      className="relative overflow-hidden flex flex-col"
+    >
     {/* overflowAnchor:"none" is load-bearing: TanStack's built-in above-viewport
         correction (resizeItem) drives scroll compensation itself, so browser
         scroll-anchoring must stay OFF (it would double-move). Do NOT add

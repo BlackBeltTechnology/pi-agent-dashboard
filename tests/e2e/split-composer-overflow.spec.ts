@@ -29,7 +29,7 @@ test.describe("split composer overflow", () => {
     await expect(sendBtn).toBeVisible({ timeout: 30_000 });
 
     // Open the editor split from the session header.
-    await page.getByTestId("split-toggle").click();
+    await page.getByTestId("layout-mode-split").click();
     const chatPane = page.getByTestId("split-chat-pane");
     await expect(chatPane).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("split-editor-pane")).toBeVisible({ timeout: 15_000 });
