@@ -331,7 +331,13 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
       .then((updated) => {
         if (!updated) return;
         // Clear any persisted in-flight respawn now the new driver registered.
-        if (updated.inFlightSpawn) void store.setInFlightSpawn(cwd, goalId, null);
+        if (updated.inFlightSpawn) {
+          store.setInFlightSpawn(cwd, goalId, null).catch((err) => {
+            // The goal may have been deleted between replaceDriver and this
+            // write (GoalNotFoundError) — the respawn stamp is moot then.
+            logger.warn(`[goal-link] in-flight clear lost for ${goalId}:`, err);
+          });
+        }
         ctx.assignSessionRef(sessionId, { goalId });
         primeGoalSessionImpl(sessionId, updated);
       })

@@ -17,7 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
-import { installFakePlugin, pluginCtx } from "./helpers/plugin-host-harness.js";
+import { installFakePlugin, pluginCtx, resetPluginHostHarness } from "./helpers/plugin-host-harness.js";
 
 // Stop-marker: records when the pi gateway is torn down so the shutdown-sub
 // dispatch ORDER can be asserted behaviorally (subs must run BEFORE it).
@@ -149,6 +149,7 @@ describe("ctx.renameSession (D1-#4)", () => {
   });
 
   beforeEach(async () => {
+    resetPluginHostHarness();
     warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     h = await setupHarness();
   });
@@ -207,6 +208,7 @@ describe("ctx.assignSessionRef (D1-#5)", () => {
   });
 
   beforeEach(async () => {
+    resetPluginHostHarness();
     warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     h = await setupHarness();
   });
@@ -300,6 +302,7 @@ describe("ctx.onShutdown dispatch (D1-#8)", () => {
   });
 
   beforeEach(async () => {
+    resetPluginHostHarness();
     g.markers.length = 0;
     server = await createServer({
       port: 0,

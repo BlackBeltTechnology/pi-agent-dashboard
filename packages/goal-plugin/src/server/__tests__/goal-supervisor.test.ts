@@ -55,7 +55,10 @@ describe("goal-supervisor", () => {
   function makeSup(): GoalSupervisor {
     return createGoalSupervisor({
       store,
-      mintSpawnToken: () => `tok-${clock}`,
+      mintSpawnToken: (() => {
+        let n = 0;
+        return () => `tok-${++n}`;
+      })(),
       now: () => clock,
       isSessionLive: (s) => liveSessions.has(s),
       resolveSessionFile: (s) => sessionFiles.get(s),

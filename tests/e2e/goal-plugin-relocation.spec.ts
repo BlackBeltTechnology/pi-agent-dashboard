@@ -169,6 +169,7 @@ test.describe("goal product hosted by goal-plugin (relocation L3)", () => {
   });
 
   test("#F2 supervisor respawn replaces a dead driver under the same goalId", async () => {
+    let respWs: WebSocket | undefined;
     const client = new BusClient({ host: "localhost", port: DASHBOARD_PORT });
     await client.connect();
     await ensureKnownCwd(client, FIXTURE_GIT);
@@ -227,13 +228,14 @@ test.describe("goal product hosted by goal-plugin (relocation L3)", () => {
       // driver's in-memory goalId cleared (C2e).
       const container = harnessContainer();
       const ticket = mintBridgeTicket(container);
-      const respWs = new WebSocket(`ws://127.0.0.1:${PI_GATEWAY_PORT}/?ticket=${encodeURIComponent(ticket)}`);
+      const ws = new WebSocket(`ws://127.0.0.1:${PI_GATEWAY_PORT}/?ticket=${encodeURIComponent(ticket)}`);
+      respWs = ws;
       await new Promise<void>((resolve, reject) => {
-        respWs.on("open", () => resolve());
-        respWs.on("error", reject);
+        ws.on("open", () => resolve());
+        ws.on("error", reject);
       });
       const respFrames: Array<Record<string, unknown>> = [];
-      respWs.on("message", (raw) => {
+      ws.on("message", (raw) => {
         try {
           respFrames.push(JSON.parse(String(raw)) as Record<string, unknown>);
         } catch { /* non-JSON */ }
@@ -275,9 +277,10 @@ test.describe("goal product hosted by goal-plugin (relocation L3)", () => {
       const respPrimes = respFrames.filter(
         (f) => f.type === "send_prompt" && String(f.text ?? "").startsWith("/goal"),
       );
+      expect(ws.readyState).toBe(WebSocket.OPEN);
       expect(respPrimes).toHaveLength(1);
-      respWs.close();
     } finally {
+      respWs?.close();
       await api("DELETE", `/api/folders/goals/${goalId}?cwd=${encodeURIComponent(FIXTURE_GIT)}`);
       client.close();
     }
@@ -311,10 +314,11 @@ test.describe("goal product hosted by goal-plugin (relocation L3)", () => {
     );
     await new Promise((r) => setTimeout(r, 400));
 
+    let goalId = "";
     try {
       const created = await api("POST", GOALS(FIXTURE_GIT), { objective: "relocation F5: verdict" });
       expect(created.status).toBe(201);
-      const goalId = created.json.data.id as string;
+      goalId = created.json.data.id as string;
 
       // Link the synthetic session (in-memory + .meta.json + broadcast).
       const link = await api("POST", `/api/folders/goals/${goalId}/sessions?cwd=${encodeURIComponent(FIXTURE_GIT)}`, {

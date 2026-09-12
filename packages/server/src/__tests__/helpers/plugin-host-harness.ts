@@ -23,6 +23,11 @@ declare global {
   var __pluginHostHarness: Record<string, ServerPluginContext | undefined> | undefined;
 }
 
+/** Drop stashed contexts from a previous server boot (stale-wiring guard). */
+export function resetPluginHostHarness(): void {
+  globalThis.__pluginHostHarness = undefined;
+}
+
 /** The ServerPluginContext a fake plugin received at registerPlugin time. */
 export function pluginCtx(pluginId: string): ServerPluginContext {
   const ctx = globalThis.__pluginHostHarness?.[pluginId];

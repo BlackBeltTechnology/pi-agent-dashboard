@@ -200,10 +200,14 @@ describe("plugin spawnSession host hook (relocate-goal-product-to-plugin)", () =
     const token = "11111111-1111-4111-8111-111111111111";
     let ownerAtSpawn: string | undefined;
     let hasAtSpawn = false;
+    const fileSpy = vi.spyOn(h.pluginRefRegistry.current!, "file");
     h.spawnPiSessionMock.mockImplementation(async (_cwd, opts) => {
       // Runs BEFORE the hook's await resolves: the ref must already be filed.
+      // Non-destructive observation only — the production entry must survive
+      // until session registration, so the test never consumes it here.
       hasAtSpawn = h.pluginRefRegistry.current!.has(token);
-      ownerAtSpawn = h.pluginRefRegistry.current!.resolve(token)?.ownerId ?? undefined;
+      const filed = fileSpy.mock.calls.find((c) => c[0] === token);
+      ownerAtSpawn = (filed?.[2] as string | undefined) ?? undefined;
       return { success: true, spawnToken: opts.spawnToken };
     });
     const result = await pluginCtx(TRUSTED_ID).spawnSession({
