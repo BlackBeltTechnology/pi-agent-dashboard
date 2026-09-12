@@ -1339,11 +1339,19 @@ export function createMemoryEventStore(
     // No retained tail, or the retained event IS the pinned creating tick —
     // D7's pin is never a collapse candidate.
     if (prevSeq === undefined || prevSeq === entry.creatingSeq) return;
-    // D3 resident-pin guard: an AGENT-shaped tail with no resident pin would be
+    // D3 resident-pin guard: an AGENT-shaped tail with no RESIDENT pin would be
     // the FIRST hydrating event, seeding the reducer's first-wins
     // `type`/`description`; dropping it would lose those values. Non-Agent
     // tails carry no `agentId`, so the guard does not apply to them.
-    const gate = entry.creatingSeq === undefined ? endSubsumesUnlessAgentTail : endSubsumes;
+    //
+    // Residency is checked against the BUFFER, not `creatingSeq !== undefined`.
+    // `trimBufferToLimit` drops oldest non-essential first while older
+    // ESSENTIALS survive, so it can hole out the pin while `minSeq` stays below
+    // it — `pruneCollapseIndex`'s `creatingSeq < minSeq` release then never
+    // fires, and a `defined`-only guard would drop with no resident pin.
+    const pinResident =
+      entry.creatingSeq !== undefined && findIndexBySeq(buf, entry.creatingSeq) !== -1;
+    const gate = pinResident ? endSubsumes : endSubsumesUnlessAgentTail;
     // Only re-point the index when the drop ACTUALLY happened: a non-subsuming
     // end must leave `newestSeq` on the retained tail (a later update still
     // collapses against it — X7).

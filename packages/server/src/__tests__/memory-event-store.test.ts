@@ -2039,6 +2039,25 @@ describe("end-triggered tail drop — collapseOnEnd (D3/D4)", () => {
     expect(store.getTrimStats().collapsedUpdates).toBe(0);
   });
 
+  it("S4b: a pin holed out of the buffer while `creatingSeq` is unreleased still counts as absent", () => {
+    // `trimBufferToLimit` drops oldest NON-essential first but keeps older
+    // ESSENTIALS, so the pin seq can fall below the buffer floor while `minSeq`
+    // stays under it ⇒ `pruneCollapseIndex` never releases `creatingSeq`. The
+    // residency check must consult the BUFFER, else an Agent-shaped tail drops
+    // with no resident pin (design D3 "without a pin, retain").
+    const store = createMemoryEventStore(neverPinnedFn, 100, 10);
+    store.insertEvent("s", mkTyped("message_start")); // seq1 essential (keeps minSeq low)
+    store.insertEvent("s", mkUpdate("tc1")); // seq2 pin (trimmed out)
+    store.insertEvent("s", mkUpdate("other")); // seq3 intervening non-essential
+    const tail = store.insertEvent("s", mkUpdate("tc1")); // seq4 tail
+    for (let i = 0; i < 7; i++) store.insertEvent("s", mkTyped("message_start")); // trims seq2
+
+    const end = store.insertEvent("s", mkSubsumingEnd("tc1"));
+    expect(updatesFor(store, "s", "tc1").map((e) => e.seq)).toEqual([tail]);
+    expect(store.getEvent("s", end)?.eventType).toBe("tool_execution_end");
+    expect(store.getTrimStats().collapsedUpdates).toBe(0);
+  });
+
   it("S5: an end with no toolCallId is a no-op", () => {
     const store = createMemoryEventStore(neverPinnedFn);
     store.insertEvent("s", mkUpdate("tc1"));
