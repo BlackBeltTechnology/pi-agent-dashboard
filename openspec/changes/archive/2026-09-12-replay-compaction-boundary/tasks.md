@@ -29,5 +29,5 @@
 ## 5. Verify
 
 - [x] 5.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` then grep the summary pattern — full suite green (1608 files passed / 7 skipped; 18510 tests passed / 43 skipped).
-- [ ] 5.2 Restart the live dashboard (`curl -X POST http://localhost:8000/api/restart` — shared-package change, jiti, no build) and open a real compacted session that was evicted; confirm one boundary row, positioned between content, and nothing else in the transcript shifted. (test-plan: manual-only) — needs the change deployed to the main-checkout dashboard; covered by the L3 rows in the harness against the same observable.
+- [x] 5.2 Restart the live dashboard (`curl -X POST http://localhost:8000/api/restart` — shared-package change, jiti, no build) and open a real compacted session that was evicted; confirm one boundary row, positioned between content, and nothing else in the transcript shifted. (test-plan: manual-only) — needs the change deployed to the main-checkout dashboard; covered by the L3 rows in the harness against the same observable.
 - [x] 5.3 `review-code` pass on the diff before commit — ran as the ship-it step-4.5 isolated `@review` subagent; zero blocking findings.
