@@ -101,6 +101,23 @@ see [`docs/release-process.md`](docs/release-process.md).
   upstream breaking change in the range (0.84.3 renamed the pi-ai-internal
   `GoogleThinkingLevel` type) has no consumer in this repo.
 
+### Removed
+
+- **The dashboard stops recommending the upstream
+  `@blackbelt-technology/pi-model-proxy` extension.** It is gone from the
+  recommended-extensions manifest, the pi-core package list (Update All /
+  `GET /api/pi-core/status`), and the Settings ▸ Model Proxy coexistence
+  banner; the `docs/migration/from-pi-model-proxy.md` guide is deleted.
+  **Breaking for plugin manifests:** the closed service-probe name
+  `pi-model-proxy` is renamed to `model-proxy` and now reports whether the
+  dashboard's own `/v1/*` routes were mounted at boot (no HTTP), instead of
+  probing the upstream's `:9876`. A manifest still declaring
+  `pi-model-proxy` reports `error: "unknown service name"`. The
+  `dashboard-plugin-runtime` server barrel drops `detectPiModelProxy`,
+  `ProxyDetection`, `PROXY_MODEL_PREFERENCE`, `pickProxyDefaultModel`,
+  `PROXY_MODELS_URL`, and `RequirementProbeDeps.fetchImpl` — none had
+  callers. See change: remove-pi-model-proxy-upstream-references.
+
 ### Fixed
 
 - **OpenSpec data no longer comes up empty on a fresh `HOME`.** `openspec`

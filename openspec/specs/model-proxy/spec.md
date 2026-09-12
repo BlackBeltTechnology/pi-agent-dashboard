@@ -2,7 +2,7 @@
 
 ## Purpose
 
-OpenAI- and Anthropic-compatible HTTP proxy hosted by the dashboard server. Exposes `/v1/models`, `/v1/chat/completions`, and `/v1/messages` backed by the dashboard's effective model catalog (built-in providers, custom providers from `~/.pi/agent/providers.json`, custom models from `~/.pi/agent/models.json`, and OAuth state from `~/.pi/agent/auth.json`). Always-on lifetime tied to the dashboard process; authenticated uniformly via per-key proxy API keys (`pi-proxy-...`); coexists with upstream `@blackbelt-technology/pi-model-proxy`.
+OpenAI- and Anthropic-compatible HTTP proxy hosted by the dashboard server. Exposes `/v1/models`, `/v1/chat/completions`, and `/v1/messages` backed by the dashboard's effective model catalog (built-in providers, custom providers from `~/.pi/agent/providers.json`, custom models from `~/.pi/agent/models.json`, and OAuth state from `~/.pi/agent/auth.json`). Always-on lifetime tied to the dashboard process; authenticated uniformly via per-key proxy API keys (`pi-proxy-...`).
 
 ## Requirements
 
@@ -409,25 +409,6 @@ When `modelProxy.logRequests === true`, the proxy SHALL append one JSONL entry p
 - **WHEN** the next entry is about to be written
 - **THEN** the existing file is renamed to `model-proxy.jsonl.<ISO-date>` and a fresh file is started
 
-### Requirement: Coexistence with upstream pi-model-proxy
-
-The dashboard's model proxy SHALL coexist with the upstream `@blackbelt-technology/pi-model-proxy` extension running inside any pi session, with no enforced mutual exclusion.
-
-#### Scenario: Both active simultaneously
-
-- **GIVEN** the dashboard proxy is enabled on `:8000/v1`
-- **AND** at least one connected pi session has the upstream extension loaded on `:9876`
-- **WHEN** an external client uses either endpoint
-- **THEN** that endpoint serves the request normally
-- **AND** neither endpoint interferes with the other
-
-#### Scenario: Coexistence advisory in UI
-
-- **GIVEN** the dashboard detects `npm:@blackbelt-technology/pi-model-proxy` in `~/.pi/agent/settings.json#packages`
-- **WHEN** the user opens the Model Proxy section in settings
-- **THEN** a non-blocking advisory banner is rendered explaining both are active and linking to the disable instructions
-- **AND** the advisory does NOT prevent the dashboard proxy from operating
-
 ### Requirement: Tunnel passthrough
 
 When the dashboard's zrok tunnel is active, `/v1/*` SHALL be reachable via the tunnel hostname using the same auth rules with the tunnel-API-key restriction enforced.
@@ -567,4 +548,3 @@ The dashboard Settings panel SHALL persist changes to `modelProxy` configuration
 - **WHEN** the user clicks Save
 - **THEN** a single `PUT /api/config` request SHALL be sent
 - **AND** the request body SHALL include both `defaultModel` (top-level string) and `modelProxy` (sub-object)
-

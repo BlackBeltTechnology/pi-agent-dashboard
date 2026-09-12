@@ -1,7 +1,9 @@
 ## Purpose
 
 Define the curated recommended-extensions manifest (`RECOMMENDED_EXTENSIONS`) and the subset bundled inside the Electron installer (`BUNDLED_EXTENSION_IDS`): membership rules, entry `source`/`requires` contract with live probing, the build-time bundling script, ExtraResource inclusion, first-run activation via pi's package manager, and the installer size budget.
+
 ## Requirements
+
 ### Requirement: Bundled extension manifest
 The system SHALL declare the set of pi extensions that ship inside the Electron installer via a single exported constant `BUNDLED_EXTENSION_IDS` in `packages/shared/src/recommended-extensions.ts`. Every id in this list MUST also appear in `RECOMMENDED_EXTENSIONS`.
 
@@ -90,11 +92,12 @@ CI SHALL fail when the combined size of `resources/bundled-extensions/` exceeds 
 - **THEN** CI SHALL fail the build with a message naming each bundled id and its size contribution
 
 ### Requirement: Recommended manifest membership reflects first-party defaults
-The `RECOMMENDED_EXTENSIONS` constant in `packages/shared/src/recommended-extensions.ts` SHALL enumerate the pi extensions the dashboard team promotes as defaults, and each entry's `source` SHALL match the published/installable artifact that satisfies it.
+The `RECOMMENDED_EXTENSIONS` constant in `packages/shared/src/recommended-extensions.ts` SHALL enumerate the pi extensions the dashboard team promotes as defaults, and each entry's `source` SHALL match the published/installable artifact that satisfies it. The manifest SHALL NOT recommend `@blackbelt-technology/pi-model-proxy`; the dashboard's built-in model proxy supersedes it.
 
 #### Scenario: Curated additions present
 - **WHEN** the manifest is evaluated at release time
-- **THEN** it SHALL contain entries for `context-mode` (status `strongly-suggested`), `pi-hermes-memory`, `@ricoyudog/pi-goal-hermes`, `@blackbelt-technology/pi-model-proxy`, and `pi-simplify`, in addition to the pre-existing required/strongly-suggested entries
+- **THEN** it SHALL contain entries for `context-mode` (status `strongly-suggested`), `pi-hermes-memory`, `@ricoyudog/pi-goal-hermes`, and `pi-simplify`, in addition to the pre-existing required/strongly-suggested entries
+- **AND** it SHALL NOT contain an entry whose `id` or `source` names `@blackbelt-technology/pi-model-proxy`
 
 #### Scenario: Source field matches the satisfying artifact
 - **WHEN** an entry declares a `source`
@@ -105,7 +108,7 @@ The `RECOMMENDED_EXTENSIONS` constant in `packages/shared/src/recommended-extens
 - **THEN** `pi-flows` SHALL NOT be added to `BUNDLED_EXTENSION_IDS` until upstream declares an SPDX-conformant license
 
 #### Scenario: Manifest-shape test updated
-- **WHEN** entries are added or their `source` changes
+- **WHEN** entries are added, removed, or their `source` changes
 - **THEN** the manifest-shape test(s) in `packages/shared/src/__tests__/` SHALL assert the new membership and pass
 
 ### Requirement: Recommended-extension external requirements are declared and probed
@@ -122,4 +125,3 @@ The `RECOMMENDED_EXTENSIONS` constant in `packages/shared/src/recommended-extens
 #### Scenario: unknown service names are not declared
 - **WHEN** an extension's external requirement is a service absent from the closed probe registry (e.g. a self-hosted analytics server)
 - **THEN** it SHALL NOT declare that name under `requires.services` (it would always report unsatisfied); the need is surfaced via the companion dashboard plugin instead
-

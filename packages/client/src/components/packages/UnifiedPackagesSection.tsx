@@ -40,13 +40,13 @@ import {
 	isSourceOverride,
 } from "../../lib/package/package-classifier.js";
 import { piCoreSource } from "../../lib/package/package-queue.js";
+import { logRejection } from "../../lib/report-error.js";
+import { PinDirectoryDialog } from "../workspace/PinDirectoryDialog.js";
 import { PackagePartialSuccessBanner } from "./PackagePartialSuccessBanner.js";
 import { PackageReadmeDialog } from "./PackageReadmeDialog.js";
 import { PackageRow, type PackageRowProps } from "./PackageRow.js";
-import { PinDirectoryDialog } from "../workspace/PinDirectoryDialog.js";
 import { WhatsNewDialog } from "./WhatsNewDialog.js";
 import { WhatsNewPackageRow } from "./WhatsNewPackageRow.js";
-import { logRejection } from "../../lib/report-error.js";
 
 /** Single core package the breaking-change icon is wired for. v1 scope. */
 const PI_CORE_PKG = "@earendil-works/pi-coding-agent";
@@ -96,7 +96,7 @@ export function UnifiedPackagesSection() {
 	const launchSource = useLaunchSource();
 	const hideCoreGroup = launchSource === "electron";
 
-	// ── Core data (Pi Ecosystem core: pi, pi-dashboard, pi-model-proxy) ──
+	// ── Core data (Pi Ecosystem core: pi, pi-dashboard) ──
 	const { status, isLoading, error, refresh } = usePiCoreVersions();
 
 	// Live tick for "last checked N min ago"

@@ -10,7 +10,7 @@
  *     the server package).
  *   - binaries     → caller-supplied tool registry (reuses the shared
  *     `ToolRegistry` instance from `@blackbelt-technology/pi-dashboard-shared`).
- *   - services     → closed built-in registry; in V1 only `pi-model-proxy`
+ *   - services     → closed built-in registry; in V1 only `model-proxy`
  *     is recognised.
  *
  * Reports are cached for 30 seconds per plugin id to keep the cost low when
@@ -26,7 +26,7 @@ import type {
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import type { PluginRequirementReport } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/plugin-status.js";
 import { sourcesMatch } from "@blackbelt-technology/pi-dashboard-shared/source-matching.js";
-import { probePiModelProxy } from "./service-probes/pi-model-proxy.js";
+import { probeModelProxy } from "./service-probes/model-proxy.js";
 
 /** Minimal installed-package record we read for the piExtensions probe. */
 export interface InstalledPackageRecord {
@@ -50,8 +50,13 @@ export interface RequirementProbeDeps {
   listInstalled?: () => Promise<InstalledPackageRecord[]>;
   /** Optional tool registry adaptor for binary probes. */
   toolRegistry?: ToolRegistryLike;
-  /** Optional fetch impl for service probes (tests inject). */
-  fetchImpl?: typeof fetch;
+  /**
+   * Boot-time `modelProxy.enabled` accessor for the `model-proxy` service
+   * probe. Passed by the server at every `RequirementProbeDeps` site; when
+   * absent the probe reports `probe not wired`. See change:
+   * remove-pi-model-proxy-upstream-references (D1).
+   */
+  isModelProxyEnabled?: () => boolean;
   /**
    * Declaring plugin's validated config (schema defaults already applied),
    * used to resolve a `${configKey}` placeholder in a `paths` requirement.
@@ -75,7 +80,9 @@ const KNOWN_SERVICES: Record<
   string,
   (deps: RequirementProbeDeps) => Promise<{ satisfied: boolean; error?: string }>
 > = {
-  "pi-model-proxy": (deps) => probePiModelProxy({ fetchImpl: deps.fetchImpl }),
+  // The only service name in the closed registry: the dashboard's own proxy.
+  // See change: remove-pi-model-proxy-upstream-references (D1, D2).
+  "model-proxy": async (deps) => probeModelProxy(deps),
 };
 
 /** Match an installed entry to a requirement name. Reuses the recommended-extensions matcher.

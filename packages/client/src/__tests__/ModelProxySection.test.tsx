@@ -7,9 +7,13 @@
  * - revoke removes a row via the API
  * - second-port validation rejects out-of-range values
  */
-import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, fireEvent, cleanup, act, waitFor } from "@testing-library/react";
-import { ModelProxySection, type ModelProxyConfig } from "../components/settings/ModelProxySection.js";
+
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { type ModelProxyConfig, ModelProxySection } from "../components/settings/ModelProxySection.js";
 
 // ── Mock model-proxy-api ──────────────────────────────────────────────────
 
@@ -208,5 +212,54 @@ describe("ModelProxySection — second port validation (task 13.4)", () => {
     });
 
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ secondPort: undefined }));
+  });
+});
+
+// ── Coexistence advisory removal (change: remove-pi-model-proxy-upstream-references) ──
+
+describe("ModelProxySection — upstream advisory removed (E14, E15)", () => {
+  it("E14: no upstream text and no :9876 Note when enabled", async () => {
+    const { container } = render(
+      <ModelProxySection config={{ enabled: true }} onChange={noop} availableModels={[]} />,
+    );
+    await act(async () => {});
+    expect(container.textContent ?? "").not.toMatch(/upstream/i);
+    const codes = Array.from(container.querySelectorAll("code"));
+    expect(codes.some((c) => c.textContent === ":9876")).toBe(false);
+
+    // The removed prop is rejected at compile time.
+    // @ts-expect-error upstreamExtensionDetected was removed
+    render(<ModelProxySection config={{ enabled: true }} onChange={noop} upstreamExtensionDetected={true} />);
+  });
+
+  it("E15: secondPort stays editable and the e.g. 9876 placeholder survives", async () => {
+    const onChange = vi.fn();
+    const { getByTestId } = renderSection({ enabled: true, secondPort: 9876 }, onChange);
+    await act(async () => {});
+
+    const portInput = getByTestId("second-port-input") as HTMLInputElement;
+    expect(portInput.placeholder).toBe("e.g. 9876");
+
+    await act(async () => {
+      fireEvent.change(portInput, { target: { value: "9877" } });
+      fireEvent.blur(portInput);
+    });
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ secondPort: 9877 }));
+  });
+});
+
+// ── SettingsPanel advisory hook removal (F1) ───────────────────────────────
+
+describe("SettingsPanel — advisory hook removal (F1)", () => {
+  it("F1: one useInstalledPackages(\"global\") call; no upstreamPiModelProxyInstalled", () => {
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    const source = fs.readFileSync(
+      path.resolve(__dirname, "..", "components", "settings", "SettingsPanel.tsx"),
+      "utf8",
+    );
+    const calls = source.match(/useInstalledPackages\("global"\)/g) ?? [];
+    expect(calls).toHaveLength(1);
+    expect(source.includes("upstreamPiModelProxyInstalled")).toBe(false);
   });
 });
