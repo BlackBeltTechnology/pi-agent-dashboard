@@ -341,10 +341,7 @@ test.describe("goal product hosted by goal-plugin (relocation L3)", () => {
         async () => (await goals(FIXTURE_GIT)).find((g) => g.id === goalId),
         (g) => Array.isArray(g?.verdicts) && g.verdicts.length >= 2,
         30_000,
-      ).catch((err) => {
-        console.log("DBG f5 frames:", JSON.stringify(frames).slice(0, 600));
-        throw err;
-      });
+      );
       // Wire keys byte-identical to the pre-relocation consumer contract.
       expect(record!.status).toBe("pursuing");
       expect(record!.totalTurnsUsed).toBe(3);
