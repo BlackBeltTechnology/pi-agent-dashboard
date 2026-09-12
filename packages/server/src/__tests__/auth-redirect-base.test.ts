@@ -529,10 +529,19 @@ describe("buildRedirectUri — cost", () => {
     const started = performance.now();
     for (let i = 0; i < 100_000; i++) buildRedirectUri("github", PORT, OVERRIDE);
     const elapsed = performance.now() - started;
-    // Advisory, with an order of magnitude of headroom: the added work is one
-    // truthiness check plus one regex on a short string. A failure here means
-    // someone moved real work (I/O, URL parsing, validation) into the builder.
-    expect(elapsed).toBeLessThan(100);
+    // Contention budget, not a machine-speed encoding. Measured: ~10 ms
+    // isolated, 22 ms with every core saturated by an unrelated load, and
+    // 101 ms inside the fully saturated 8-fork full-suite run — the old 100 ms
+    // ceiling sat exactly on that boundary and flaked. 1000 ms is ~10x the
+    // worst observed contention and ~100x the isolated cost, while still
+    // failing on a regression that moves real work into the builder: I/O or
+    // per-op allocation would push 100k builds into whole seconds. The failure
+    // message names the observed value so the next tuning step is measured.
+    // See change: contention-harden-real-process-tests (poll-or-budget rule).
+    expect(
+      elapsed,
+      `100k buildRedirectUri calls took ${elapsed.toFixed(1)}ms (budget 1000ms)`,
+    ).toBeLessThan(1000);
   });
 });
 

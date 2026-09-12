@@ -267,15 +267,28 @@ describe("inbound drop reporting — hot-path overhead", () => {
       withReports.push(withReport);
       ratios.push(withReport / baseline);
     }
-    const medianRatio = median(ratios);
-    const absoluteOverhead = median(withReports) - median(baselines);
+    // Noise-robust estimator. A scheduler preemption or GC pause can only
+    // INFLATE a round's elapsed time, never deflate it, so the MINIMUM of each
+    // arm is the least-contended sample and their ratio is the robust estimate
+    // of the true overhead. The median-of-ratios this replaces still failed when
+    // the majority of rounds caught load (measured medianRatio=1.729 at load
+    // ~76): pairing cancels a UNIFORM slowdown, not a bursty one. A real
+    // regression inflates every round, so the minimum still fires.
+    const cleanBaseline = Math.min(...baselines);
+    const cleanWithReport = Math.min(...withReports);
+    const cleanRatio = cleanWithReport / cleanBaseline;
+    const cleanOverhead = cleanWithReport - cleanBaseline;
 
     // The per-window bound caps reporting at 10 sends; the rest is one clock
     // read and a counter bump. Budget unchanged from the single-sample era:
     // under 10 % relative overhead, or under +5 ms absolute (protects the
     // assertion at tiny baselines where ratios are noisy).
-    const budgetOk = medianRatio < 1.1 || absoluteOverhead < 5;
-    expect(budgetOk, `medianRatio=${medianRatio.toFixed(3)} absoluteOverhead=${absoluteOverhead.toFixed(2)}ms`).toBe(true);
+    const budgetOk = cleanRatio < 1.1 || cleanOverhead < 5;
+    expect(
+      budgetOk,
+      `minRatio=${cleanRatio.toFixed(3)} minOverhead=${cleanOverhead.toFixed(2)}ms ` +
+        `medianRatio=${median(ratios).toFixed(3)}`,
+    ).toBe(true);
   });
 });
 

@@ -8,11 +8,12 @@ export default defineConfig({
     environment: "jsdom",
     pool: "forks",
     maxWorkers: PARALLEL_MAX_WORKERS,
-    // Headroom for `waitFor`-based assertions (asyncUtilTimeout raised to 5s in
-    // the setup) so a slow-under-contention poll finishes inside the test
-    // budget instead of tripping the 5s default. A genuine hang still fails at
-    // 15s; fast tests finish immediately, unaffected.
-    // See change: fix-flaky-full-suite-tests.
+    // Headroom for `waitFor`-based assertions (asyncUtilTimeout raised to 10s
+    // in the setup) so a slow-under-contention poll finishes inside the test
+    // budget instead of tripping Testing-Library's 1s default. The 5s margin
+    // between that poll ceiling and this 15s test timeout is deliberate: a
+    // genuine hang still fails, fast tests finish immediately.
+    // See changes: fix-flaky-full-suite-tests, contention-harden-real-process-tests.
     testTimeout: 15_000,
     globalSetup: ["@blackbelt-technology/pi-dashboard-shared/test-support/setup-home.ts"],
     // jsdom has no layout/ResizeObserver → TanStack Virtual renders 0 rows.

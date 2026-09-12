@@ -34,4 +34,4 @@ See change: add-dashboard-bus-client-scripting.
 | `package.json` | `@blackbelt-technology/pi-dashboard-bus-client`. Deps: shared, ws. Scripts: build (tsc), codegen, test (vitest). |
 | `tsconfig.json` | NodeNext, emits dist, excludes `src/__tests__`. |
 | `tsconfig.fixtures.json` | noEmit typecheck over `src/__tests__/fixtures/**` for S1. |
-| `vitest.config.ts` | node env, forks pool, include `src/**/__tests__/**/*.test.ts`. |
+| `vitest.config.ts` | node env, forks pool, include `src/**/__tests__/**/*.test.ts`, `testTimeout` 30_000 (subprocess codegen/typecheck tests blew the 5s default under fork contention). See change: contention-harden-real-process-tests. |

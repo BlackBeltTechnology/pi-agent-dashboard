@@ -65,6 +65,20 @@ function seed(ctx: BrowserHandlerContext, n: number) {
 
 const settle = () => new Promise((r) => setTimeout(r, 50));
 
+/**
+ * Poll a bounded observable instead of trusting a fixed settle window. The
+ * replay is delivered in scheduled batches; under fork contention `settle()`'s
+ * 50 ms elapsed before the last batch landed (E15 saw 4000 of 4100 events).
+ * See change: contention-harden-real-process-tests.
+ */
+async function waitForAtLeast(read: () => number, expected: number, timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (read() < expected) {
+    if (Date.now() >= deadline) return;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
+
 describe("handleSubscribe — windowing is keyed on CONTENT, not call site (E14, E15, E16)", () => {
   it("E14: a WARM session subscribed with lastSeq=0 is windowed, even though the delta branch serves it", async () => {
     // `:260` is dual-purpose: `lastSeq = msg.lastSeq ?? 0`, so a browser reload
@@ -88,6 +102,7 @@ describe("handleSubscribe — windowing is keyed on CONTENT, not call site (E14,
     seed(ctx, 5000);
     handleSubscribe({ type: "subscribe", sessionId: "s1", lastSeq: 900 }, new Set(), ctx);
     await settle();
+    await waitForAtLeast(() => replayedEvents(ctx).length, 4100);
 
     const events = replayedEvents(ctx);
     expect(events).toHaveLength(4100);

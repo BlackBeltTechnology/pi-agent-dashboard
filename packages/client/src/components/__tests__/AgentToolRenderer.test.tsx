@@ -172,8 +172,13 @@ describe("AgentToolRenderer — expand + popout", () => {
     ));
     fireEvent.click(screen.getByTitle(/Open subagent detail/i));
     expect(await screen.findByRole("dialog")).toBeTruthy();
+    // Assert the OPEN-path guard this test documents, not "no resync at all":
+    // the cadence hook fires its own `reason: "cadence"` resync 2 s after the
+    // view opens, so a slow `findByRole` under load made a broader assertion
+    // fail on a legitimate cadence tick. See change:
+    // contention-harden-real-process-tests.
     expect(send).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: "subagent_resync_request" }),
+      expect.objectContaining({ type: "subagent_resync_request", reason: "open" }),
     );
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());

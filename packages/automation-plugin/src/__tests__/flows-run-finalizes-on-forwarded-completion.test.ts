@@ -24,6 +24,22 @@ import { listRuns, readChildRuns } from "../server/run-store.js";
 const ENGINE_INIT_WAIT_MS = 1400;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Poll a bounded observable instead of sleeping a fixed interval. `fire()`'s
+ * fixed `sleep(300)` returned before the engine had started the run under fork
+ * contention, yielding an empty runId (observed failure:
+ * `expect(runId).toBeTruthy()`). See change: contention-harden-real-process-tests.
+ */
+async function waitFor<T>(read: () => T | undefined, timeoutMs = 20_000): Promise<T | undefined> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const value = read();
+    if (value !== undefined) return value;
+    if (Date.now() >= deadline) return undefined;
+    await sleep(25);
+  }
+}
+
 type RawEvent = { eventType?: string; data?: Record<string, unknown> };
 
 interface Harness {
@@ -120,7 +136,8 @@ async function boot(
     fire: async (name) => {
       lastRunId = "";
       browserHandler?.({ pluginId: "automation", action: "run", payload: { scope: "folder", cwd: repo, name } });
-      await sleep(300);
+      // Poll the logged run id instead of sleeping a fixed 300 ms.
+      await waitFor(() => (lastRunId ? lastRunId : undefined));
       return lastRunId;
     },
     runs: () => listRuns(repo),

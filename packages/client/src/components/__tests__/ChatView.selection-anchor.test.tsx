@@ -49,15 +49,17 @@ function getScrollContainer(container: HTMLElement): HTMLElement {
  * fix `scrollHeight`/`clientHeight` so the sticky-bottom machinery sees a
  * mid-transcript (NOT near-bottom) position and stays disarmed.
  */
-function instrumentScroll(el: HTMLElement, initial: number) {
+function instrumentScroll(el: HTMLElement, initial: number, onWrite?: (delta: number) => void) {
   const writes: number[] = [];
   let value = initial;
   Object.defineProperty(el, "scrollTop", {
     configurable: true,
     get: () => value,
     set: (v: number) => {
+      const delta = v - value;
       value = v;
       writes.push(v);
+      onWrite?.(delta);
     },
   });
   Object.defineProperty(el, "scrollHeight", { value: 100_000, writable: true, configurable: true });
@@ -66,8 +68,7 @@ function instrumentScroll(el: HTMLElement, initial: number) {
 }
 
 /** Pin a row's viewport-relative `top`, and count how often it is measured. */
-function stubRect(el: HTMLElement) {
-  const state = { top: 0, reads: 0 };
+function stubRect(el: HTMLElement, state: { top: number; reads: number } = { top: 0, reads: 0 }) {
   el.getBoundingClientRect = () => {
     state.reads++;
     return { top: state.top, bottom: state.top + 50, left: 0, right: 100, width: 100, height: 50, x: 0, y: state.top, toJSON: () => ({}) } as DOMRect;
@@ -121,13 +122,25 @@ async function mountAnchored(messageCount = 30) {
   );
   await flushRaf();
   const scrollEl = getScrollContainer(view.container);
-  const writes = instrumentScroll(scrollEl, 5_000);
+  // Created BEFORE the scroll commit because that commit can replace the first
+  // row; `stubRect` below fills in the same object once the post-commit row is
+  // known, so the write hook and the test drive one shared rect state.
+  const rect = { top: 0, reads: 0 };
+  // Keep the stubbed rect physically consistent with any scrollTop the
+  // compensator writes: in a real DOM the row's viewport top moves by −applied
+  // on the next read. Without this, a second commit (which contention can
+  // introduce) re-reads the UNMOVED top and corrects the same growth again, so
+  // "exactly one write" silently became "one write per commit". Tests that
+  // override the accessor (user scroll, clamped write) keep their own driver.
+  const writes = instrumentScroll(scrollEl, 5_000, (delta) => {
+    rect.top -= delta;
+  });
   // A mid-transcript scroll disarms stickToBottomRef, so nothing else in
   // ChatView writes scrollTop during these tests.
   fireEvent.scroll(scrollEl);
 
   const row = firstRow(scrollEl);
-  const rect = stubRect(row);
+  stubRect(row, rect);
 
   const rerender = async (mutate?: (s: ReturnType<typeof stateWith>) => void) => {
     const next = stateWith(messageCount);
