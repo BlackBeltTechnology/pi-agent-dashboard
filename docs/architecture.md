@@ -1712,7 +1712,7 @@ kb guard is STRICTER, not looser, in every state except a submodule admitted on 
 
 Fixtures: `packages/shared/src/test-support/git-fixtures.ts`. Needs `GIT_CONFIG_GLOBAL=/dev/null` + `GIT_CONFIG_SYSTEM=/dev/null` and `-c protocol.file.allow=always`.
 
-NOT converted by this change: `resolveMainPath` + its twelve consumers (follow-up `apply-checkout-root-to-worktree-ops`); `listWorktrees()` reports the gitdir as main worktree for submodule/bare/`--separate-git-dir`. `path-containment.ts` converted by `widen-containment-to-resolved-checkout` — see File Read API.
+Converted by `apply-checkout-root-to-worktree-ops`: `resolveMainPath` + its consumers (see "Worktree operations conversion" above); `listWorktrees()` resolves `isMain` via `samePath` against the resolved main checkout. `path-containment.ts` converted by `widen-containment-to-resolved-checkout` — see File Read API.
 See change: add-git-checkout-root-resolver.
 
 ### Child Process Scanning

@@ -1612,7 +1612,10 @@ export function orphanCleanup(
   }
 
   // ── (v) The remaining guards IN THEIR EXISTING RELATIVE ORDER (D6): an
-  // input matching several keeps the code it returns today.
+  // input matching several keeps the code it returns today. Every guard from
+  // here on — and the delete — operates on `realTarget` (the path that was
+  // just containment-validated): an ancestor symlink repointed after (iv)
+  // must not relocate what the guards inspected away from what gets deleted.
 
   // Must NOT be a registered worktree.
   let isOrphan = false;
@@ -1621,7 +1624,7 @@ export function orphanCleanup(
     // not resolve the same cwd a second time.
     const list = listWorktrees(cwd, { mainPath: repoRoot });
     isOrphan = isOrphanWorktreePath({
-      path: absTarget,
+      path: realTarget,
       worktreeList: list,
       exists: () => true, // we already confirmed via statSync above
     });
@@ -1629,13 +1632,13 @@ export function orphanCleanup(
     return { ok: false, error: "fs_failed", message: "failed to list worktrees" };
   }
   if (!isOrphan) {
-    return { ok: false, error: "not_orphan", message: `path is a registered worktree: ${absTarget}` };
+    return { ok: false, error: "not_orphan", message: `path is a registered worktree: ${realTarget}` };
   }
 
   // Must NOT contain a top-level `.git` entry of any kind.
   let topEntries: fs.Dirent[];
   try {
-    topEntries = fs.readdirSync(absTarget, { withFileTypes: true });
+    topEntries = fs.readdirSync(realTarget, { withFileTypes: true });
   } catch {
     return { ok: false, error: "fs_failed", message: "failed to read directory" };
   }
@@ -1646,7 +1649,7 @@ export function orphanCleanup(
   // Walk the tree: count files + check each file size. Bound by maxFiles.
   // We do this recursively so a sneaky `subdir/big.bin` is also caught.
   let fileCount = 0;
-  const stack: string[] = [absTarget];
+  const stack: string[] = [realTarget];
   while (stack.length > 0) {
     const dir = stack.pop()!;
     let entries: fs.Dirent[];

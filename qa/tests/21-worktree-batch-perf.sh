@@ -77,7 +77,7 @@ fi
 echo "Effective configured cap: ${CAP} items"
 
 # ── Measure REPS batches, each filled to the cap with REAL worktrees ───────
-MEANS_FILE="/tmp/batch-perf-means-$$"
+MEANS_FILE="$(mktemp -t batch-perf-means.XXXXXX)"
 : > "$MEANS_FILE"
 
 for rep in $(seq 1 "$REPS"); do
