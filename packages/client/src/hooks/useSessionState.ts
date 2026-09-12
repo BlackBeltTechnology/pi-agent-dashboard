@@ -33,9 +33,9 @@ import {
   carryInteractiveRequests,
   carryPendingPrompt,
   createInitialState,
-  retailPendingInteractiveRows,
   dismissInteractiveRequest,
   reduceEvent,
+  retailPendingInteractiveRows,
   type SessionState,
 } from "../lib/chat/event-reducer.js";
 

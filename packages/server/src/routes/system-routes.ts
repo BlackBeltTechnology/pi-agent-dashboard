@@ -37,9 +37,9 @@ import { computeEffectiveLaunchSource } from "../lifecycle/launch-source-effecti
 import type { EventLoopSpikeMetrics } from "../metrics/eventloop-spike-metrics.js";
 import type { HydrationMetrics } from "../metrics/hydration-metrics.js";
 import { getModelProxyStatus } from "../model-proxy/registry-singleton.js";
+import { type DroppedFrameStats, EMPTY_DROPPED_FRAME_STATS } from "../pairing/browser-gateway.js";
 import { recordExitIntent } from "../persistence/boot-state.js";
 import { EMPTY_TRIM_STATS, type TrimStats } from "../persistence/memory-event-store.js";
-import { EMPTY_DROPPED_FRAME_STATS, type DroppedFrameStats } from "../pairing/browser-gateway.js";
 import type { MetaPersistence } from "../persistence/meta-persistence.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { PiGateway } from "../pi/pi-gateway.js";

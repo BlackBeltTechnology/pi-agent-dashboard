@@ -1,6 +1,6 @@
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
-import { addInteractiveRequest, applyPromptReceived, applyPromptTimeout, carryInteractiveRequests, carryPendingPrompt, type ChatMessage, createInitialState, deriveBannerState, dismissInteractiveRequest, extractAgentEndError, findLastUserPrompt, isCleanAgentEnd, type PendingPrompt, reduceEvent, resolveInteractiveRequest, retailPendingInteractiveRows, type SessionState, toDisplayString } from "../chat/event-reducer.js";
+import { addInteractiveRequest, applyPromptReceived, applyPromptTimeout, type ChatMessage, carryInteractiveRequests, carryPendingPrompt, createInitialState, deriveBannerState, dismissInteractiveRequest, extractAgentEndError, findLastUserPrompt, isCleanAgentEnd, type PendingPrompt, reduceEvent, resolveInteractiveRequest, retailPendingInteractiveRows, type SessionState, toDisplayString } from "../chat/event-reducer.js";
 import { derivePendingFreeFloating } from "../chat/pending-free-floating.js";
 
 function applyEvents(events: DashboardEvent[]): SessionState {

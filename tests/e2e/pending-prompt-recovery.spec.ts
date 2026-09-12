@@ -1,4 +1,4 @@
-import { connectBus, expect, shutdownSession, type Page, test } from "./fixtures.js";
+import { connectBus, expect, type Page, shutdownSession, test } from "./fixtures.js";
 import { byTestId, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 import { BASE_URL } from "./lifecycle.js";
 
@@ -208,6 +208,7 @@ async function stallAndRecord(page: Page, gapMs: number, box: StallRecorderBox):
       server.send(m);
     });
     let chain = Promise.resolve();
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: recording + stalling a WebSocket frame stream is an intentionally branchy test helper.
     server.onMessage((m) => {
       const text = typeof m === "string" ? m : m.toString("utf8");
       let kind: StallRecorder["events"][number] | undefined;
@@ -528,6 +529,7 @@ test.describe("pending-prompt recovery (fix-pending-prompt-lost-on-replay)", () 
         }
         window.WebSocket = ObservedWS as unknown as typeof WebSocket;
         const start = () => {
+          // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: frame-observer install with several message-kind branches.
           new MutationObserver((records) => {
             for (const r of records) {
               for (const n of Array.from(r.addedNodes)) {
@@ -786,8 +788,9 @@ test.describe("pending-prompt recovery (fix-pending-prompt-lost-on-replay)", () 
 
   test("F7: no affordance on an ended session with lingering ask_user", async ({ page }) => {
     test.setTimeout(180_000);
-    const drop = await dropPromptFrames(page);
-    const { sessionId, card } = await parkOnAsk(page, "ask-select", "card");
+    // Installs the prompt-frame drop; the handle is not needed in this test.
+    await dropPromptFrames(page);
+    const { sessionId } = await parkOnAsk(page, "ask-select", "card");
 
     // While alive, the detector genuinely fires — the strongest non-vacuity
     // proof available for the suppression that follows.

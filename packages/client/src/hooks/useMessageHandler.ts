@@ -22,8 +22,8 @@ import {
   createHistoryGapRow,
   createHistoryGapState,
   HISTORY_GAP_ROW_ID,
-  isHeadFree,
   type HistoryGapState,
+  isHeadFree,
 } from "../lib/chat/history-gap.js";
 import { dispatchInitEvent } from "../lib/git/worktree-init-bus.js";
 import { t } from "../lib/i18n/i18n.js";

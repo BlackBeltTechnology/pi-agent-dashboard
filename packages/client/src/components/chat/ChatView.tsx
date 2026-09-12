@@ -12,7 +12,6 @@ import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useLayo
 import { useActiveChatSelection } from "../../hooks/useActiveChatSelection.js";
 import { isDebugTool } from "../../hooks/useDebugToolsVisible.js";
 import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";
-import { promptDesyncGatesFromState, usePromptDesync } from "../../lib/session/prompt-desync.js";
 import { useFxVisibility } from "../../hooks/useFxVisibility.js";
 import { useMobile } from "../../hooks/useMobile.js";
 import { attachmentOriginalUrl } from "../../lib/chat/attachment-original-url.js";
@@ -26,22 +25,22 @@ import type { ChatImage, InteractiveUiRequest, SessionState } from "../../lib/ch
 import { type BurstItem, groupToolBursts, type ToolBurstGroup as ToolBurstGroupData } from "../../lib/chat/group-tool-bursts.js";
 import type { ToolCallGroup } from "../../lib/chat/group-tool-calls.js";
 import {
-  type HistoryGapState,
   HISTORY_GAP_ROW_ID,
+  type HistoryGapState,
   isHeadFree,
   SETTLE_MS,
   shouldAutoLoadHistory,
 } from "../../lib/chat/history-gap.js";
+import { derivePendingFreeFloating } from "../../lib/chat/pending-free-floating.js";
 import { computeAnchorCorrection } from "../../lib/chat/selection-anchor.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { REPLAY_PILL_DELAY_MS } from "../../lib/replay/loading-history.js";
+import { promptDesyncGatesFromState, usePromptDesync } from "../../lib/session/prompt-desync.js";
 import { formatMessageTime } from "../../lib/util/format.js";
 import { buildTurnSummaries, type TurnSummary } from "../../lib/util/lineDelta.js";
 import { isOutOfCwd, normalizeUnderCwd } from "../../lib/util/normalize-path.js";
 import { ChangeSummaryBlock } from "../diff/ChangeSummaryBlock.js";
 import { getInteractiveRenderer } from "../interactive-renderers/registry.js";
-import { derivePendingFreeFloating } from "../../lib/chat/pending-free-floating.js";
-import { MultiAskPanel } from "./MultiAskPanel.js";
 import { FilePreviewHost, FilePreviewProvider } from "../preview/FilePreviewContext.js";
 import { ImageLightbox } from "../preview/ImageLightbox.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
@@ -54,10 +53,11 @@ import { withDefaultFileLink } from "../tool-renderers/make-tool-context.js";
 import { BashOutputCard } from "./BashOutputCard.js";
 import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
 import { CommandFeedbackCard } from "./CommandFeedbackCard.js";
+import { CustomEntryCard } from "./CustomEntryCard.js";
 import { HistoryGapDivider } from "./HistoryGapDivider.js";
 import { MissingToolInlineError } from "./MissingToolInlineError.js";
+import { MultiAskPanel } from "./MultiAskPanel.js";
 import { RawEventCard } from "./RawEventCard.js";
-import { CustomEntryCard } from "./CustomEntryCard.js";
 import { SkillInvocationCard } from "./SkillInvocationCard.js";
 import { ThinkingBlock } from "./ThinkingBlock.js";
 import { ToolBurstGroup } from "./ToolBurstGroup.js";
@@ -2121,7 +2121,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         onClick={() => {
           if (sessionId) onPromptResync(sessionId);
         }}
-        className="absolute bottom-16 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 rounded-full bg-[var(--bg-surface)] border border-[var(--border-strong)] px-3 py-1 shadow-lg hover:bg-[var(--bg-tertiary)] transition-colors"
+        className="absolute bottom-16 left-1/2 -translate-x-1/2 z-overlay flex items-center gap-1.5 rounded-full bg-[var(--bg-surface)] border border-[var(--border-strong)] px-3 py-1 shadow-lg hover:bg-[var(--bg-tertiary)] transition-colors"
       >
         {/* Pending-prompt desync affordance (design D10): the agent is blocked
             on an answer this view does not render. Activation fires the SAME
