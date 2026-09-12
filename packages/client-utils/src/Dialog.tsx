@@ -1,12 +1,15 @@
-import React, {
-  useId,
-  useRef,
-  type ReactNode,
-} from "react";
 import { mdiClose } from "@mdi/js";
 import { Icon } from "@mdi/react";
+import React, {
+  type ReactNode,
+  useCallback,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { DialogPortal } from "./DialogPortal.js";
 import { useEscapeDismiss } from "./escape-stack.js";
+import { LayerHostProvider } from "./LayerPortal.js";
 import { useFocusTrap } from "./useFocusTrap.js";
 
 export type DialogSize = "sm" | "md" | "lg" | "full";
@@ -75,6 +78,16 @@ export function Dialog({
 }: DialogProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  // The panel doubles as the layer host for any `LayerPortal` overlay a child
+  // opens (e.g. the run-config ModelSelector): portaling to `document.body`
+  // would land it at `z-popover`, BELOW this dialog's `z-dialog` backdrop. State
+  // (not just the ref) so children re-render once the element exists.
+  // See change: fix-composer-popover-layering.
+  const [panelEl, setPanelEl] = useState<HTMLDivElement | null>(null);
+  const setPanel = useCallback((el: HTMLDivElement | null) => {
+    containerRef.current = el;
+    setPanelEl(el);
+  }, []);
 
   useFocusTrap(containerRef, open);
 
@@ -101,7 +114,7 @@ export function Dialog({
           data-testid={testId ? `${testId}-overlay` : undefined}
         />
         <div
-          ref={containerRef}
+          ref={setPanel}
           role="dialog"
           aria-modal="true"
           aria-labelledby={title ? titleId : undefined}
@@ -142,7 +155,7 @@ export function Dialog({
               )}
             </div>
           )}
-          {children}
+          <LayerHostProvider host={panelEl}>{children}</LayerHostProvider>
         </div>
       </div>
     </DialogPortal>

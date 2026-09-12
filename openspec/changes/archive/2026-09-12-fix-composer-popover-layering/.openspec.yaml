@@ -1,0 +1,6 @@
+schema: spec-driven
+created: 2026-09-11
+# No spec-level behavior change: the overlay-layering spec already REQUIRES
+# box-escaping overlays to portal, and explicitly allows the frozen inline-popover
+# allowlist to shrink. This change executes that existing backlog for two entries.
+skip_specs: true
