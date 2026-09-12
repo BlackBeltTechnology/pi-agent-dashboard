@@ -234,6 +234,18 @@ function endSubsumes(tail: DashboardEvent, end: DashboardEvent): boolean {
   return subsumesDetails(pd ?? {}, sd ?? {}, setsResult(tail), endSetsResult(end));
 }
 
+/**
+ * D3 resident-pin guard, mirror side: an Agent-shaped tail drops only with a
+ * resident pinned creating tick. This mirror never trims, so a defined
+ * `creating` IS resident — `endSubsumesUnlessAgentTail` is exactly the store's
+ * `creatingSeq === undefined` branch.
+ */
+function endSubsumesUnlessAgentTail(tail: DashboardEvent, end: DashboardEvent): boolean {
+  const pd = detailsOf(tail);
+  if (pd && typeof pd.agentId === "string") return false;
+  return endSubsumes(tail, end);
+}
+
 /** Retained subsequence under the collapse policy, with optional mutations. */
 function selectRetained(
   events: DashboardEvent[],
@@ -257,7 +269,10 @@ function selectRetained(
       newest = e;
       if (pin && !creating && typeof detailsOf(e)?.agentId === "string") creating = e;
     } else if (e.eventType === "tool_execution_end") {
-      if (gate && newest && newest !== creating && endSubsumes(newest, e)) {
+      // The store gates on a RESIDENT pin; a defined `creating` is always
+      // resident here (this mirror never trims), so it picks the same gate.
+      const endGate = creating ? endSubsumes : endSubsumesUnlessAgentTail;
+      if (gate && newest && newest !== creating && endGate(newest, e)) {
         removeNewest();
         newest = creating;
       }
