@@ -104,15 +104,25 @@ describe("replayEntriesAsEvents", () => {
     // render-inline-reasoning-and-custom-entries: a generic `type: "custom"`
     // entry is NO LONGER skipped — it synthesizes the `custom_entry` protocol
     // event so the chat renders it (the bug being fixed is invisibility).
-    // Genuinely unknown entry types (compaction, label, …) stay skipped.
+    // Genuinely unknown entry types (label, …) stay skipped.
     const entries = [
       { type: "custom", id: "e1", customType: "foo", data: {} },
-      { type: "compaction", id: "e2", summary: "..." },
+      { type: "label", id: "e2", entryId: "e1", label: "bookmark" },
     ];
     const events = replayEntriesAsEvents("sess-1", entries);
     expect(events).toHaveLength(1);
     expect(events[0].event.eventType).toBe("custom_entry");
     expect(events[0].event.data).toMatchObject({ customType: "foo", entryId: "e1" });
+  });
+
+  it("replays a compaction entry as session_compact (no longer an unknown type)", () => {
+    // replay-compaction-boundary: `compaction` used to be the exemplar of a
+    // skipped unknown type; it now synthesizes the live divider event.
+    const events = replayEntriesAsEvents("sess-1", [
+      { type: "compaction", id: "e1", timestamp: "2026-04-27T07:26:26.000Z", summary: "..." },
+    ]);
+    expect(events).toHaveLength(1);
+    expect(events[0].event.eventType).toBe("session_compact");
   });
 
   it("should generate stats_update event from assistant message with usage data", () => {

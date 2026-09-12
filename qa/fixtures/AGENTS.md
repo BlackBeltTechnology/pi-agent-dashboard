@@ -4,6 +4,7 @@ Files in this directory. One row per file. Non-source area. See change: migrate-
 
 | File | Purpose |
 |------|---------|
+| `e2e-custom.ext.ts` | pi extension fixture (change: render-inline-reasoning-and-custom-entries): `e2e_custom_message` → `pi.sendMessage`, `e2e_custom_entry` → `pi.appendEntry`. Also returns a canned `session_before_compact` result so `/compact` persists a real `compaction` entry with NO model round-trip (change: replay-compaction-boundary). |
 | `e2e-notify.ext.ts` | pi extension fixture: the only L3 lever on `ctx.ui.notify`. → see `e2e-notify.ext.ts.AGENTS.md` |
 | `faux-agent-ticks.ext.ts` | pi extension fixture (change: reduce-bridge-tick-bandwidth). → see `faux-agent-ticks.ext.ts.AGENTS.md` |
 | `faux-provider.ext.ts` | pi extension fixture. Registers faux provider via pi-ai `registerFauxProvider({api:"faux"})`. → see `faux-provider.ext.ts.AGENTS.md` |

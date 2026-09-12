@@ -185,6 +185,18 @@ export function replayEntriesAsEvents(
       }
     }
 
+    // Persisted compaction entry — change: replay-compaction-boundary.
+    // Synthesizes the same `session_compact` event the bridge forwards live, so
+    // a cold replay renders the divider the live path rendered. Metadata is
+    // deliberately NOT fabricated: the entry carries no `reason`/`willRetry`,
+    // and the reducer's existing guard renders a metadata-free (legacy)
+    // divider. `summary` is LLM-context text, not transcript content, so it is
+    // never emitted. Positioned by iteration order (the entry's own place in
+    // the branch), like every other arm.
+    if (entry.type === "compaction") {
+      messages.push(makeEvent(sessionId, "session_compact", ts, {}));
+    }
+
     if (entry.type === "model_change") {
       messages.push(makeEvent(sessionId, "model_select", ts, {
         type: "model_select",

@@ -8,6 +8,7 @@
  * See change: adopt-pi-074-080-features (C.1 — E6, E7).
  */
 import { describe, expect, it } from "vitest";
+import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
 import {
   abbreviateTokens,
   compactionReasonLabel,
@@ -68,6 +69,43 @@ describe("abbreviateTokens (pure)", () => {
     expect(abbreviateTokens(8000)).toBe("8k");
     expect(abbreviateTokens(800)).toBe("800");
     expect(abbreviateTokens(1500)).toBe("1.5k");
+  });
+});
+
+// ── E8: replayed vs live parity (change: replay-compaction-boundary) ──
+// The event synthesized by `replayEntriesAsEvents` from a persisted
+// `compaction` entry must reduce to exactly the row a metadata-free LIVE
+// `session_compact` produces — same divider row, no compaction metadata in
+// either. This is the cold/warm parity the change exists to guarantee.
+describe("E8: replayed and live session_compact reduce identically", () => {
+  it("the synthesized event matches a metadata-free live event", () => {
+    const [replayed] = replayEntriesAsEvents("sess-1", [
+      {
+        type: "compaction",
+        id: "c1",
+        parentId: "a1",
+        timestamp: "2026-04-27T07:26:26.000Z",
+        summary: "SUMMARY: earlier turns collapsed",
+        tokensBefore: 41000,
+        firstKeptEntryId: "a1",
+        fromHook: true,
+        details: { readFiles: [], modifiedFiles: [] },
+      },
+    ]);
+    const live = {
+      eventType: "session_compact",
+      timestamp: replayed.event.timestamp,
+      data: { type: "session_compact" },
+    } as DashboardEvent;
+
+    const fromReplay = reduceEvent(createInitialState(), replayed.event as DashboardEvent);
+    const fromLive = reduceEvent(createInitialState(), live);
+
+    expect(fromReplay.messages).toEqual(fromLive.messages);
+    expect(fromReplay.messages).toHaveLength(1);
+    expect(fromReplay.messages[0].content).toContain("compacted");
+    expect(fromReplay.compaction).toBeUndefined();
+    expect(fromLive.compaction).toBeUndefined();
   });
 });
 

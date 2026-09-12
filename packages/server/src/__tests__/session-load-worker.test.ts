@@ -100,6 +100,47 @@ describe("session-load-worker — parity with in-process replay", () => {
   });
 });
 
+// ── Disk cold load of a persisted compaction boundary ────────────────────────
+// The SERVER producer of `replayEntriesAsEvents`: a real session JSONL read by
+// `loadSessionEntries` and replayed by the worker. Gated here (L2) because the
+// browser harness cannot reach a live disk cold load — `POST /api/restart`
+// exits the container's main process and `restart: unless-stopped` respawns it,
+// wiping the RAM-backed `pi-state` tmpfs that holds session JSONL before the
+// server can read it. See change: replay-compaction-boundary (R1, F1).
+describe("session-load-worker — persisted compaction boundary (disk producer)", () => {
+  beforeEach(() => { tmpDir = mkdtempSync(join(tmpdir(), "session-load-compaction-")); });
+  afterEach(() => { try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ } });
+
+  it("replays a compaction entry as one session_compact between its neighbours", () => {
+    const file = writeSession("compaction.jsonl", [
+      { type: "session", id: "sess-c", timestamp: "2026-04-27T07:26:20Z", cwd: "/tmp" },
+      { type: "message", id: "u1", parentId: null, timestamp: "2026-04-27T07:26:21Z", message: { role: "user", content: [{ type: "text", text: "A" }] } },
+      { type: "message", id: "a1", parentId: "u1", timestamp: "2026-04-27T07:26:22Z", message: { role: "assistant", content: [{ type: "text", text: "ok" }] } },
+      {
+        type: "compaction", id: "c1", parentId: "a1", timestamp: "2026-04-27T07:26:23Z",
+        summary: "SUMMARY: collapsed", tokensBefore: 41000, firstKeptEntryId: "u1",
+        fromHook: true, details: { readFiles: [], modifiedFiles: [] },
+      },
+      { type: "message", id: "u2", parentId: "c1", timestamp: "2026-04-27T07:26:24Z", message: { role: "user", content: [{ type: "text", text: "B" }] } },
+    ]);
+
+    const out = loadAndReplay({ jobId: 7, sessionId: "sess-c", sessionFile: file });
+    expect(out.success).toBe(true);
+
+    const { events } = out;
+    expect(events.filter((e) => e.eventType === "session_compact")).toHaveLength(1);
+    const beforeIdx = events.findIndex((e) => e.eventType === "message_start" && e.data.entryId === "u1");
+    const afterIdx = events.findIndex((e) => e.eventType === "message_start" && e.data.entryId === "u2");
+    const boundary = events.findIndex((e) => e.eventType === "session_compact");
+    expect(boundary).toBeGreaterThan(beforeIdx);
+    expect(boundary).toBeLessThan(afterIdx);
+    expect(events[boundary].timestamp).toBe(Date.parse("2026-04-27T07:26:23Z"));
+    // Absent metadata is not fabricated, and the summary is context, not content.
+    expect(events[boundary].data).not.toHaveProperty("reason");
+    expect(JSON.stringify(out.events)).not.toContain("SUMMARY: collapsed");
+  });
+});
+
 describe("session-load-worker-pool — fallback + parity", () => {
   beforeEach(() => { tmpDir = mkdtempSync(join(tmpdir(), "session-load-pool-")); });
   afterEach(() => { try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ } });
