@@ -599,6 +599,13 @@ export interface PromptRequestMessage {
     props: Record<string, unknown>;
   };
   placement: string;
+  /**
+   * Correlation token echoed by the bridge on a `prompt_resync_request` reply,
+   * so the server routes the re-emitted prompt to the requesting socket as a
+   * blocking frame instead of the guarded fan-out. Absent on a live prompt.
+   * See change: fix-pending-prompt-lost-on-replay (D4).
+   */
+  __resyncRequestId?: string;
 }
 
 /**
@@ -1333,7 +1340,8 @@ export type ServerToExtensionMessage =
   | PluginEmitEventExtensionMessage
   | PreferencesUpdateExtensionMessage
   | GitCommitDraftMessage
-  | SubagentResyncRequestExtensionMessage;
+  | SubagentResyncRequestExtensionMessage
+  | PromptResyncRequestExtensionMessage;
 
 /**
  * Server → extension: request an AI-drafted commit message. The bridge builds
@@ -1385,6 +1393,25 @@ export interface SubagentResyncRequestExtensionMessage {
    * See change: reduce-subagent-details-payload (D6, task 9.4).
    */
   reason?: "open" | "cadence";
+}
+
+/**
+ * Server → extension: ask the session's bridge to re-emit every prompt it is
+ * still awaiting an answer for, so a dialog lost to transcript back-pressure or
+ * a client state reset can be rebuilt without a page reload. The bridge replies
+ * with ordinary `prompt_request` frames carrying `__resyncRequestId` = the
+ * echoed token. See change: fix-pending-prompt-lost-on-replay (B).
+ */
+export interface PromptResyncRequestExtensionMessage {
+  type: "prompt_resync_request";
+  sessionId: string;
+  /**
+   * Correlation token from the requesting browser, echoed by the bridge onto
+   * each re-emitted `prompt_request` (`__resyncRequestId`) so the server can
+   * route the reply back to that one connection. Optional: an older browser
+   * omits it and every reply falls back to the ordinary fan-out.
+   */
+  requestId?: string;
 }
 
 

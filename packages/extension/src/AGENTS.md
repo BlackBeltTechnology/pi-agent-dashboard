@@ -49,6 +49,7 @@ Files in this directory. One row per source file.
 | `process-metrics.ts` | Lightweight process metrics collector for bridge heartbeats. → see `process-metrics.ts.AGENTS.md` |
 | `process-scanner.ts` | Detect child processes of a pi session. Exports `getOwnPgid`, `captureChildPgids`, `scanTrackedProcesses`,… → see `process-scanner.ts.AGENTS.md` |
 | `project-trust.ts` | `project_trust` auto-decision (pure gate + defensive cwd read). → see `project-trust.ts.AGENTS.md` |
+| `pending-prompt-emitter.ts` | ONE emitter for re-sending every PromptBus prompt still awaiting an answer — shared by `onReconnect` replay (no token) and the `prompt_resync_request` handler (echoes `__resyncRequestId` on every frame). `emitPendingPrompts(bus, send, sessionId, token?)` → count; empty pending set → zero frames, no error. See change: fix-pending-prompt-lost-on-replay (D6/D7). |
 | `prompt-bus.ts` | Prompt dispatch bus — first-response-wins adapter routing + cross-adapter dismissal. → see `prompt-bus.ts.AGENTS.md` |
 | `prompt-expander.ts` | Expand prompt templates from disk for dashboard slash commands (`pi.sendUserMessage` skips expansion). → see `prompt-expander.ts.AGENTS.md` |
 | `provider-register.ts` | Register custom LLM providers + auto-discovered models from `~/.pi/agent/providers.json`. → see `provider-register.ts.AGENTS.md` |

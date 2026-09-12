@@ -72,7 +72,7 @@ import { EMPTY_CANVAS_STATE } from "./lib/canvas/canvas-gate.js";
 // SubagentPopoutPage no longer imported by the shell — it's registered via
 // the subagents-plugin's `shell-overlay-route` claim and mounted through
 // `<ShellOverlayRouteSlot>` below. See change: add-flow-agent-popout.
-import { applyPromptTimeout, createInitialState, deriveBannerState, reduceEvent, resolveInteractiveRequest, type SessionState } from "./lib/chat/event-reducer.js";
+import { applyPromptTimeout, carryInteractiveRequests, createInitialState, deriveBannerState, reduceEvent, resolveInteractiveRequest, type SessionState } from "./lib/chat/event-reducer.js";
 import { normalizeFollowUpEntries } from "./lib/chat/followup-entries.js";
 import { nextBackfillRange } from "./lib/chat/history-gap.js";
 import { refreshChat } from "./lib/chat/refresh-chat.js";
@@ -840,6 +840,26 @@ export default function App() {
     );
   }, []);
 
+  // Single send point for the pending-prompt resync (`prompt_resync_request`,
+  // design D9 of fix-pending-prompt-lost-on-replay): the refresh coordinator
+  // AND the desync affordance both fire it, so exactly one request goes out per
+  // refresh / affordance activation. `requestId` correlates the reply so the
+  // server delivers it requester-scoped as a critical frame.
+  // Declared BEFORE `handleRefreshChat`, which lists it as a dependency.
+  const requestPromptResync = useCallback((id: string) => {
+    send({
+      type: "prompt_resync_request",
+      sessionId: id,
+      // Guarded like the sibling subagent-resync sender: `crypto.randomUUID`
+      // is secure-context-only, and the dashboard is legitimately served over
+      // plain HTTP on LAN IPs. A bare call would throw there — silently making
+      // the refresh resync inert and killing the desync pill's click.
+      requestId:
+        globalThis.crypto?.randomUUID?.() ??
+        `pr-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    });
+  }, [send]);
+
   // Chat refresh: invalidate the durable entry BEFORE resetting in-memory state,
   // so an interrupted refresh can't leave a reset view paired with a surviving
   // cache entry (which rehydrates as authoritative on the next load). One shared
@@ -848,10 +868,15 @@ export default function App() {
   const handleRefreshChat = useCallback((sid: string) => {
     void refreshChat(sid, {
       dropPersisted: (id) => replayPersisterRef.current.drop(id),
+      // The refresh reset carries unanswered interactive requests + their
+      // `ui-<requestId>` rows, exactly like the four reducer-side reset sites,
+      // so the dialog a resync restores cannot be erased by the reset the
+      // refresh itself performs (design D8/D9).
+      // See change: fix-pending-prompt-lost-on-replay.
       resetSessionState: (id) =>
         setSessionStates((prev) => {
           const next = new Map(prev);
-          next.set(id, createInitialState());
+          next.set(id, { ...createInitialState(), ...carryInteractiveRequests(prev.get(id)) });
           return next;
         }),
       resetCursor: (id) => {
@@ -864,8 +889,9 @@ export default function App() {
       subscribe: (id) => send({ type: "subscribe", sessionId: id, lastSeq: 0 }),
       beginLoadingHistory: (id) => beginLoadingHistory(id),
       beginReplayInFlight: (id) => beginReplayInFlight(id),
+      requestPromptResync,
     }).catch(logRejection("App.handleRefreshChat"));
-  }, [send, beginLoadingHistory, beginReplayInFlight]);
+  }, [send, beginLoadingHistory, beginReplayInFlight, requestPromptResync]);
 
   /**
    * Request the gap slice adjacent to the head. Single-flight is enforced
@@ -1982,7 +2008,7 @@ export default function App() {
             </div>
           }>
             <SessionAssetsProvider assets={selectedSession?.assets}>
-            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? handleForkFromMessage : undefined} onCloseInlineTerminal={selectedId ? handleCloseInlineTerminalForSelected : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? EMPTY_STEERING} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} replayInFlight={selectedId ? replayInFlight.get(selectedId) ?? false : false} historyGap={selectedId ? historyGaps.get(selectedId) : undefined} onLoadEarlier={selectedId ? handleLoadEarlier : undefined} historySpliceRev={historySpliceRev} onCollapseStreamingThinking={selectedId ? handleCollapseStreamingThinking : undefined} />
+            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onPromptResync={requestPromptResync} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? handleForkFromMessage : undefined} onCloseInlineTerminal={selectedId ? handleCloseInlineTerminalForSelected : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? EMPTY_STEERING} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} replayInFlight={selectedId ? replayInFlight.get(selectedId) ?? false : false} historyGap={selectedId ? historyGaps.get(selectedId) : undefined} onLoadEarlier={selectedId ? handleLoadEarlier : undefined} historySpliceRev={historySpliceRev} onCollapseStreamingThinking={selectedId ? handleCollapseStreamingThinking : undefined} />
             </SessionAssetsProvider>
           </ErrorBoundary>
           {/* Single-card error-lifecycle surface. Sticky above the command

@@ -39,6 +39,7 @@ import type { HydrationMetrics } from "../metrics/hydration-metrics.js";
 import { getModelProxyStatus } from "../model-proxy/registry-singleton.js";
 import { recordExitIntent } from "../persistence/boot-state.js";
 import { EMPTY_TRIM_STATS, type TrimStats } from "../persistence/memory-event-store.js";
+import { EMPTY_DROPPED_FRAME_STATS, type DroppedFrameStats } from "../pairing/browser-gateway.js";
 import type { MetaPersistence } from "../persistence/meta-persistence.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { PiGateway } from "../pi/pi-gateway.js";
@@ -140,8 +141,12 @@ export function registerSystemRoutes(
     browserGateway?: {
       broadcastToAll: (msg: ServerToBrowserMessage) => void;
       // Per-hop dropped-frame counters for the diagnostics surface.
-      // See change: fix-stuck-tool-card-on-dropped-event.
-      getDroppedFrameStats?: () => { total: number; bySession: Record<string, number> };
+      // DERIVED from the gateway's exported type — an inline structural type
+      // would silently rot when the stats gain a field (same rule as the
+      // `TrimStats` derivation below).
+      // See changes: fix-stuck-tool-card-on-dropped-event,
+      // fix-pending-prompt-lost-on-replay (blocking-class split).
+      getDroppedFrameStats?: () => DroppedFrameStats;
       getNotifyLogStats?: () => { evictedEntries: number; bySession: Record<string, number> };
     };
     // Shared hydration-timing recorder; `/api/health` reads its snapshot.
@@ -891,11 +896,15 @@ export function registerSystemRoutes(
       piRuntime: readPiDivergence(),
       // Per-hop dropped-frame counters (observability for silently-dropped
       // WS frames). `serverToBrowser` = frames the fanout skipped under
-      // back-pressure; `bridgeToServer` = the max bridge ring-buffer eviction
-      // count reported across active sessions' heartbeats. See change:
-      // fix-stuck-tool-card-on-dropped-event.
+      // back-pressure, split transcript vs blocking; `bridgeToServer` = the max
+      // bridge ring-buffer eviction count reported across active sessions'
+      // heartbeats. The fallback is TYPED (EMPTY_DROPPED_FRAME_STATS), not an
+      // inline literal — `a ?? b` does not check `b`, and an untyped literal
+      // missing `blocking` would typecheck while reporting a stale shape.
+      // See changes: fix-stuck-tool-card-on-dropped-event,
+      // fix-pending-prompt-lost-on-replay.
       droppedFrames: {
-        serverToBrowser: browserGateway?.getDroppedFrameStats?.() ?? { total: 0, bySession: {} },
+        serverToBrowser: browserGateway?.getDroppedFrameStats?.() ?? EMPTY_DROPPED_FRAME_STATS,
         bridgeToServer: activeSessions.reduce(
           (max, s) => Math.max(max, (s.processMetrics as { droppedBufferedFrames?: number } | undefined)?.droppedBufferedFrames ?? 0),
           0,

@@ -793,4 +793,62 @@ describe("prompt-derived currentTool (integration)", () => {
     expect(stats.evictedEntries).toBeGreaterThan(0);
     expect(stats.bySession.s1).toBe(stats.evictedEntries);
   }, 30000);
+
+  // ── Prompt resync: requester-scoped replies keep the tracking side effects (D4) ──
+
+  it("#E7-resync a token-carrying reply is unicast to its requester AND still re-tracks", async () => {
+    await boot();
+    const bridge = await openBridge();
+    await registerLive(bridge, "s1");
+    const requester = await connectBrowser("s1");
+    const bystander = await connectBrowser("s1");
+    requester.messages.length = 0;
+    bystander.messages.length = 0;
+
+    // The browser half: record the requester, forward to the bridge.
+    requester.ws.send(JSON.stringify({ type: "prompt_resync_request", sessionId: "s1", requestId: "tok-1" }));
+    await wait(100);
+
+    // The bridge half: re-emit two pending prompts with the token echo. The
+    // prompt_request branch must keep every side effect (tracking, currentTool)
+    // and swap ONLY the final delivery (requester-scoped unicast).
+    promptRequest(bridge, "s1", "p1", { __resyncRequestId: "tok-1" });
+    promptRequest(bridge, "s1", "p2", { __resyncRequestId: "tok-1" });
+    await wait(150);
+
+    // Requester-scoped: both prompts reached the requester only.
+    const got = (m: any[]) => m.filter((x) => x.type === "prompt_request").map((x) => x.promptId);
+    expect(got(requester.messages)).toEqual(["p1", "p2"]);
+    expect(got(bystander.messages)).toEqual([]);
+
+    // Re-tracking + derived state survived the requester-scoped path.
+    await expectCurrentTool("s1", "ask_user");
+    // Both prompts were tracked (not just delivered): dismissing p1 leaves p2
+    // pending, so currentTool stays ask_user.
+    send(bridge, { type: "prompt_dismiss", sessionId: "s1", promptId: "p1" });
+    await wait(150);
+    await expectCurrentTool("s1", "ask_user");
+    send(bridge, { type: "prompt_dismiss", sessionId: "s1", promptId: "p2" });
+    await wait(150);
+    await expectCurrentTool("s1", null);
+  });
+
+  it("#X3-resync a reply whose token was never recorded fans out to every subscriber", async () => {
+    await boot();
+    const bridge = await openBridge();
+    await registerLive(bridge, "s1");
+    const a = await connectBrowser("s1");
+    const b = await connectBrowser("s1");
+    a.messages.length = 0;
+    b.messages.length = 0;
+
+    // No prompt_resync_request was ever sent: the token is unknown.
+    promptRequest(bridge, "s1", "p1", { __resyncRequestId: "never-recorded" });
+    await wait(150);
+
+    const got = (m: any[]) => m.filter((x) => x.type === "prompt_request").map((x) => x.promptId);
+    expect(got(a.messages)).toEqual(["p1"]);
+    expect(got(b.messages)).toEqual(["p1"]);
+    await expectCurrentTool("s1", "ask_user");
+  });
 });

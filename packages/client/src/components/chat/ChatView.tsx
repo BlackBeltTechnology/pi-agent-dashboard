@@ -5,13 +5,14 @@ import {
   isNotifyRowVisible,
   toolCallPrefKey,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
-import { mdiAlertCircleOutline, mdiCheck, mdiChevronDown, mdiChevronUp, mdiClose, mdiContentCopy, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
+import { mdiAlertCircleOutline, mdiCheck, mdiChevronDown, mdiChevronUp, mdiClose, mdiCommentQuestionOutline, mdiContentCopy, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useActiveChatSelection } from "../../hooks/useActiveChatSelection.js";
 import { isDebugTool } from "../../hooks/useDebugToolsVisible.js";
 import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";
+import { promptDesyncGatesFromState, usePromptDesync } from "../../lib/session/prompt-desync.js";
 import { useFxVisibility } from "../../hooks/useFxVisibility.js";
 import { useMobile } from "../../hooks/useMobile.js";
 import { attachmentOriginalUrl } from "../../lib/chat/attachment-original-url.js";
@@ -70,6 +71,14 @@ interface Props {
   // cancel-pending callback was always a shadow-only lie. See change:
   // honest-mid-turn-queue-surface.
   onRespondToUi?: (requestId: string, result?: unknown, cancelled?: boolean) => void;
+  /**
+   * Fire a pending-prompt resync (`prompt_resync_request`) for this session.
+   * Provided by the shell; the same single callback the refresh coordinator
+   * uses. When omitted (embedded surface), the desync affordance never
+   * renders — no dead button.
+   * See change: fix-pending-prompt-lost-on-replay (D10).
+   */
+  onPromptResync?: (sessionId: string) => void;
   onAbort?: () => void;
   onForceKill?: () => void;
   onForkFromMessage?: (entryId: string) => void;
@@ -348,7 +357,7 @@ export interface ChatViewHandle {
   scrollToTurn: (turnIndex: number) => void;
 }
 
-const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, replayInFlight, historyGap, onLoadEarlier, historySpliceRev, onCollapseStreamingThinking }, ref) {
+const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onPromptResync, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, replayInFlight, historyGap, onLoadEarlier, historySpliceRev, onCollapseStreamingThinking }, ref) {
   // `ToolContext` is a published surface (re-exported from `chat-embed`), so an
   // external embedder builds one by hand and would carry no `fileLink` —
   // silently losing file-mention linkification with no type error. Merge a
@@ -398,6 +407,14 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   }, [replayInFlight, sessionId]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Pending-prompt desync affordance (design D10): the session reports
+  // `ask_user` but no dialog renders, not ended, no replay in flight, held
+  // past the 5 s grace. Disappears the moment a dialog renders — a `pending`
+  // interactive request flips the selector off.
+  // See change: fix-pending-prompt-lost-on-replay.
+  const promptDesync = usePromptDesync(promptDesyncGatesFromState(state, !!replayInFlight), sessionId);
+  // Embedded surfaces without the shell's resync sender never see the pill.
+  const showPromptDesyncAffordance = promptDesync && onPromptResync !== undefined;
   /**
    * ONE suppression window shared by EVERY programmatic `scrollTop` /
    * `scrollToIndex` writer in this file, rather than a list of per-writer refs.
@@ -2096,6 +2113,28 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           </span>
         </div>
       </>
+    )}
+    {showPromptDesyncAffordance && (
+      <button
+        type="button"
+        data-testid="prompt-desync-resync"
+        onClick={() => {
+          if (sessionId) onPromptResync(sessionId);
+        }}
+        className="absolute bottom-16 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 rounded-full bg-[var(--bg-surface)] border border-[var(--border-strong)] px-3 py-1 shadow-lg hover:bg-[var(--bg-tertiary)] transition-colors"
+      >
+        {/* Pending-prompt desync affordance (design D10): the agent is blocked
+            on an answer this view does not render. Activation fires the SAME
+            single resync callback the refresh uses — no duplicate send path.
+            Never coexists with the replay pill: the selector requires no
+            replay in flight, so it safely claims the pill's `bottom-16` slot
+            (the scroll-to-bottom button stays at `bottom-4`, layout-separated).
+            See change: fix-pending-prompt-lost-on-replay. */}
+        <Icon path={mdiCommentQuestionOutline} size={0.7} className="text-[var(--text-primary)]" />
+        <span className="text-[11px] text-[var(--text-primary)]">
+          {i18nT("status.promptDesyncResync", undefined, "Waiting for your answer — resync")}
+        </span>
+      </button>
     )}
     {showScrollTopButton && (
       <button

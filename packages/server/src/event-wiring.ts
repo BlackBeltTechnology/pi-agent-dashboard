@@ -2022,7 +2022,15 @@ export function wireEvents(deps: EventWiringDeps): void {
           moveSessionToFrontAndBroadcast(sessionId, sessionAfter);
         }
       }
-      browserGateway.sendToSubscribers(sessionId, msg as any);
+      // Requester-scoped delivery of a resync reply (D4): a token-carrying
+      // re-emission goes to the ONE browser that asked, as a critical frame —
+      // the guarded fan-out is exactly what shed the original prompt frame.
+      // Every side effect above already ran; only the final delivery swaps.
+      // No/expired token → deliverPromptResyncReply returns false → fan-out.
+      // See change: fix-pending-prompt-lost-on-replay (task 2.4).
+      if (!browserGateway.deliverPromptResyncReply(msg as any, sessionId)) {
+        browserGateway.sendToSubscribers(sessionId, msg as any);
+      }
     }
 
     // Notify: render + log only. Deliberately no `trackPromptRequest`, no
