@@ -41,7 +41,10 @@ export function StatusBar({ status, currentTool, streamingText }: Props) {
 
   return (
     <div
-      className="flex items-center px-4 py-1 border-t border-[var(--border-primary)] text-xs"
+      /* `shrink-0`: thin furniture row in the chat pane's flex column — floored so a
+         height deficit is charged to the composer (which scrolls) instead of
+         clipping this row. See change: fix-quota-widget-clipping. */
+      className="flex items-center px-4 py-1 border-t border-[var(--border-primary)] text-xs shrink-0"
       data-testid="status-bar"
     >
       <div className="flex items-center gap-1.5 text-[var(--text-secondary)]" data-testid="working-status">

@@ -21,7 +21,6 @@ import type { FlowInfo, ImageContent } from "@blackbelt-technology/pi-dashboard-
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Loader } from "@earendil-works/pi-tui";
 import { AbortLatch } from "./abort-latch.js";
-import { floorRetryReconcileDelay, markFloorSettle, nativeAgentSettledSupported, settleFollowUp, synthesizeAgentSettledEvent } from "./agent-settled.js";
 import { isUnderArtifactRoot, resolveArtifactRoots } from "./artifact-roots.js";
 import {
   MAX_PER_MESSAGE_BYTES as ATTACH_MAX_PER_MESSAGE_BYTES,
@@ -66,7 +65,7 @@ import { healthUrlForInstance, probeEndpointReachability, verifyInstanceIdentity
 import { localTokenHeaders } from "./local-token-header.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
 import { reportRefresh } from "./model-refresh.js";
-import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged, defaultReadPiVersion } from "./model-tracker.js";
+import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged } from "./model-tracker.js";
 import { decodeMultiselectAnswer } from "./multiselect-decode.js";
 import { createNotifyProxy } from "./notify-proxy.js";
 import { provisionOpenspecCli } from "./openspec-cli-shim.js";
@@ -346,16 +345,6 @@ function initBridge(pi: ExtensionAPI) {
   // when the trust handler runs. For a fresh headless spawn this IS the
   // dashboard-provided spawn cwd. See change: adopt-pi-074-080-features (A.3).
   const activationCwd = process.cwd();
-
-  // Does the running pi emit `agent_settled` natively (≥ 0.80.4)? Read once at
-  // activation. Floor pi → the bridge synthesizes a settle after each
-  // `agent_end`. Read failure → false → synthesize (safe default: the
-  // dashboard still gets exactly one terminal settle). See change:
-  // adopt-pi-074-080-features (A.1).
-  let piEmitsNativeSettled = false;
-  try {
-    piEmitsNativeSettled = nativeAgentSettledSupported(defaultReadPiVersion());
-  } catch { /* unknown version → synthesize */ }
 
   let promptBus: PromptBus | undefined;
 
@@ -2074,7 +2063,8 @@ function initBridge(pi: ExtensionAPI) {
     "session_compact_failed",
     // pi >= 0.84.4. Brackets a BLOCKING `ctx.ui` prompt so the dashboard can
     // tell "agent working" apart from "pi parked waiting on a user prompt".
-    // Subscribing below the floor is inert: older pi simply never emits them.
+    // The 0.85.1 lockstep floor guarantees both events; the subscription is
+    // unconditional (no version gate, not merely inert below an old floor).
     "ui_prompt_start",
     "ui_prompt_end",
   ] as const;
@@ -2096,7 +2086,6 @@ function initBridge(pi: ExtensionAPI) {
       cachedCtx = ctx;
       // Don't send events before session_start has established the correct session ID
       if (!sessionReady) return;
-      let floorRetryWaiting: { attempt: number; delayMs: number } | undefined;
       // Track agent streaming state (survives reconnect/reload)
       if (eventType === "agent_start") {
         getBridgeState().isAgentStreaming = true;
@@ -2123,12 +2112,12 @@ function initBridge(pi: ExtensionAPI) {
         }
       }
       if (eventType === "agent_settled") {
-        // Terminal settle (native pi ≥ 0.80.4, fires once after the run loop).
-        // Clear streaming. This is the SOLE terminal signal for a retry chain:
-        // close it with auto_retry_end BEFORE forwarding the settle. On floor
-        // pi this branch never fires from a real event — the synth path below
-        // fires it after agent_end, and this handler re-runs for that synth.
-        // See changes: adopt-pi-074-080-features (A.1), retry-forever-with-stop-control.
+        // Terminal settle (native pi, guaranteed at the 0.85.1 lockstep floor;
+        // fires once after the run loop). Clear streaming. This is the SOLE
+        // terminal signal for a retry chain: close it with auto_retry_end
+        // BEFORE forwarding the settle. The floor-pi synthesis path was
+        // retired with agent-settled.ts. See changes: adopt-pi-074-080-features
+        // (A.1), retry-forever-with-stop-control, update-pi-core-0-85-adopt-apis.
         getBridgeState().isAgentStreaming = false;
         abortLatch.clear(sessionId);
         const retryEnd = retryTracker.observeAgentSettled(sessionId);
@@ -2147,15 +2136,6 @@ function initBridge(pi: ExtensionAPI) {
         const trackerSynth = retryTracker.observeAgentEnd(sessionId, event as any);
         if (trackerSynth) {
           sendSyntheticRetryEvent(trackerSynth.eventType, trackerSynth.data);
-          if (
-            trackerSynth.eventType === "auto_retry_waiting" &&
-            typeof trackerSynth.data.attempt === "number"
-          ) {
-            floorRetryWaiting = {
-              attempt: trackerSynth.data.attempt,
-              delayMs: typeof trackerSynth.data.delayMs === "number" ? trackerSynth.data.delayMs : 0,
-            };
-          }
         }
         // Automatic session topic-naming: attempt on each terminal turn until
         // the first success (or a permanent lockout). Non-blocking; all errors
@@ -2518,49 +2498,11 @@ function initBridge(pi: ExtensionAPI) {
       }
       if (!heldByThrottle) connection.send(msg);
 
-      // Floor-pi settle synthesis: pi < 0.80.4 never emits `agent_settled`.
-      // Per-attempt agent_end gets retryPending compatibility state; exhaustion,
-      // disabled/non-retryable timeout, success, or abort gets terminal state.
-      // Native pi returns null here and forwards its real settle above.
-      // See changes: adopt-pi-074-080-features, fix-retry-error-lifecycle.
-      const synthSettle = settleFollowUp(eventType, piEmitsNativeSettled, Date.now());
-      if (synthSettle) {
-        if (floorRetryWaiting) {
-          // A typed waiting signal is the floor-pi proof that this agent_end is
-          // per-attempt. Keep the client lifecycle pending immediately.
-          connection.send({
-            type: "event_forward",
-            sessionId,
-            event: markFloorSettle(synthSettle, false),
-          });
-
-          // A non-retryable provider error can look waiting because extensions
-          // cannot call pi's private classifier. If the matching agent_start
-          // never arrives by the observed delay plus grace, converge terminal.
-          const expected = floorRetryWaiting;
-          setTimeout(() => {
-            if (!isActive() || !sessionReady) return;
-            if (!retryTracker.isAwaitingRetry(sessionId, expected.attempt)) return;
-            abortLatch.clear(sessionId);
-            const retryEnd = retryTracker.observeAgentSettled(sessionId);
-            if (retryEnd) {
-              sendSyntheticRetryEvent(retryEnd.eventType, retryEnd.data);
-            }
-            connection.send({
-              type: "event_forward",
-              sessionId,
-              event: synthesizeAgentSettledEvent(Date.now()),
-            });
-          }, floorRetryReconcileDelay(expected.delayMs));
-        } else {
-          abortLatch.clear(sessionId);
-          const retryEnd = retryTracker.observeAgentSettled(sessionId);
-          if (retryEnd) {
-            sendSyntheticRetryEvent(retryEnd.eventType, retryEnd.data);
-          }
-          connection.send({ type: "event_forward", sessionId, event: synthSettle });
-        }
-      }
+      // Native `agent_settled` (pi ≥ 0.80.4, guaranteed at the 0.85.1 floor) is
+      // the single terminal signal; the bridge forwards it above and the
+      // `agent_settled` handler closes the retry chain. The floor-pi synthesis
+      // path was retired once `piCompatibility.minimum` reached a version that
+      // emits natively. See change: update-pi-core-0-85-adopt-apis.
     }));
   }
 

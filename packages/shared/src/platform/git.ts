@@ -14,6 +14,8 @@
  *
  * See change: platform-command-executor.
  */
+import { realpathSync } from "node:fs";
+import { realpath as realpathAsync } from "node:fs/promises";
 import path from "node:path";
 import type { GitStatus } from "../types.js";
 import { normalizePath, samePath } from "./paths.js";
@@ -328,6 +330,14 @@ export interface GitCheckoutRoots {
   isLinkedWorktree: boolean;
   /** The repository's primary working tree; `null` when it has none. */
   mainCheckout: string | null;
+  /**
+   * The canonical absolute `--git-common-dir` of the cwd — the repository's
+   * IDENTITY, never a checkout anchor. It names a git directory, so it SHALL
+   * NOT be used as a trust anchor, containment root, or admission path. It is
+   * exposed so a consumer can run {@link isBoundCheckout} on
+   * `thisCheckout` / `mainCheckout` without re-probing the cwd.
+   */
+  commonDir: string;
 }
 
 /**
@@ -388,6 +398,33 @@ function readBareness(probes: GitCheckoutRootProbes, commonDir: string): GitBare
 }
 
 /**
+ * Whether the per-worktree git dir differs from the shared common dir.
+ *
+ * This IS the linked-worktree classifier. NOT common-dir-outside-toplevel (it
+ * calls a submodule a worktree) and NOT `basename(commonDir) === ".git"` (it
+ * calls a worktree-of-submodule and a worktree-of-bare non-worktrees).
+ *
+ * Shared by the sync core AND the async wiring so a pre-check cannot disagree
+ * with the core about whether `core.worktree` is needed.
+ */
+function isLinked(
+  gitDirRaw: string,
+  commonDirRaw: string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return !samePath(normalizePath(gitDirRaw, platform), normalizePath(commonDirRaw, platform), platform);
+}
+
+/**
+ * Whether the common dir is named `.git` — i.e. whether the `core.bare` probe
+ * is worth issuing at all. Shared by the sync core and the async wiring, so the
+ * async pre-check cannot disagree with the core about whether bareness matters.
+ */
+function wantsBareness(commonDirRaw: string, platform: NodeJS.Platform = process.platform): boolean {
+  return path.basename(normalizePath(commonDirRaw, platform)) === ".git";
+}
+
+/**
  * Resolve a cwd's checkout roots from injected probes.
  *
  * `--git-dir` and `--git-common-dir` are REQUIRED: both succeeding is what
@@ -423,8 +460,8 @@ export function resolveCheckoutRootsFrom(
   const topLevelRaw = tryProbe(probes.topLevel);
   const thisCheckout = topLevelRaw ? normalizePath(topLevelRaw, platform) : null;
 
-  const isLinkedWorktree = !samePath(gitDir, commonDir, platform);
-  if (!isLinkedWorktree) return { thisCheckout, isLinkedWorktree, mainCheckout: thisCheckout };
+  const isLinkedWorktree = isLinked(gitDir, commonDir, platform);
+  if (!isLinkedWorktree) return { thisCheckout, isLinkedWorktree, mainCheckout: thisCheckout, commonDir };
 
   // Rule 1 — repository-local `core.worktree`, resolved against the common dir.
   const configured = tryProbe(() => probes.localCoreWorktree(commonDir));
@@ -433,6 +470,7 @@ export function resolveCheckoutRootsFrom(
       thisCheckout,
       isLinkedWorktree,
       mainCheckout: normalizePath(path.resolve(commonDir, configured), platform),
+      commonDir,
     };
   }
   // Rule 2 — the parent of the common dir, when the common dir is named `.git`
@@ -441,12 +479,17 @@ export function resolveCheckoutRootsFrom(
   // it; naming it would hand an authorization consumer an anchor the repo never
   // owned. The fallback requires a POSITIVE `"not-bare"`: an unanswerable probe
   // falls through to rule 3 (`null`) rather than silently re-opening the rule.
-  const bare = path.basename(commonDir) === ".git" ? readBareness(probes, commonDir) : "unknown";
+  const bare = wantsBareness(commonDir, platform) ? readBareness(probes, commonDir) : "unknown";
   if (bare === "not-bare") {
-    return { thisCheckout, isLinkedWorktree, mainCheckout: normalizePath(path.dirname(commonDir), platform) };
+    return {
+      thisCheckout,
+      isLinkedWorktree,
+      mainCheckout: normalizePath(path.dirname(commonDir), platform),
+      commonDir,
+    };
   }
   // Rule 3 — a bare hub has no working tree to name.
-  return { thisCheckout, isLinkedWorktree, mainCheckout: null };
+  return { thisCheckout, isLinkedWorktree, mainCheckout: null, commonDir };
 }
 
 /**
@@ -474,6 +517,267 @@ export function checkoutRoots(input: WithCwd & { timeout?: number }): GitCheckou
       return r.value === "true" ? "bare" : "not-bare";
     },
   });
+}
+
+/**
+ * Async twin of {@link GitCheckoutRootProbes}: the same reads, awaited.
+ *
+ * Exists so the async RESOLUTION logic is testable with injected probes — the
+ * canonical wiring below is a thin adapter over it — and so the sync core and
+ * the async form can be compared over identical degraded probes.
+ */
+export interface GitCheckoutRootAsyncProbes {
+  gitDir: () => Promise<string | undefined>;
+  commonDir: () => Promise<string | undefined>;
+  topLevel: () => Promise<string | undefined>;
+  localCoreWorktree: (commonDir: string) => Promise<string | undefined>;
+  localCoreBare: (commonDir: string) => Promise<GitBareness>;
+}
+
+/** Await a probe, mapping any throw (timeout, missing binary) to `undefined`. */
+async function tryProbeAsync(read: () => Promise<string | undefined>): Promise<string | undefined> {
+  try {
+    return await read();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Resolve a cwd's checkout roots from injected ASYNC probes.
+ *
+ * Classification is NOT re-implemented here: phases 1 and 2 only RESOLVE the
+ * probe answers, gated by the same {@link isLinked} / {@link wantsBareness}
+ * predicates the sync core uses, and then hand them to
+ * {@link resolveCheckoutRootsFrom} as memoized value thunks. One classification
+ * lives in one place, so the two wirings cannot drift.
+ *
+ * A thunk for a probe that was not pre-run THROWS, which the core maps to
+ * "failed" exactly as a real probe failure would — a wiring drift therefore
+ * degrades to the fail-closed branch, never to a fabricated value.
+ */
+export async function resolveCheckoutRootsFromAsync(
+  probes: GitCheckoutRootAsyncProbes,
+  platform: NodeJS.Platform = process.platform,
+): Promise<GitCheckoutRoots | null> {
+  // Phase 1 — the required pair, plus the non-required toplevel.
+  const [gitDir, commonDir, topLevel] = await Promise.all([
+    tryProbeAsync(probes.gitDir),
+    tryProbeAsync(probes.commonDir),
+    tryProbeAsync(probes.topLevel),
+  ]);
+  if (!gitDir || !commonDir) return null;
+
+  // Phase 2 — only what the core will actually consume, decided by the SAME
+  // predicates the core applies, so the pre-check cannot disagree with it.
+  let worktree: string | undefined;
+  let bare: GitBareness | undefined;
+  if (isLinked(gitDir, commonDir, platform)) {
+    worktree = await tryProbeAsync(() => probes.localCoreWorktree(commonDir));
+    if (!worktree && wantsBareness(commonDir, platform)) {
+      try {
+        bare = await probes.localCoreBare(commonDir);
+      } catch {
+        bare = "unknown";
+      }
+    }
+  }
+
+  return resolveCheckoutRootsFrom(
+    {
+      gitDir: () => gitDir,
+      commonDir: () => commonDir,
+      topLevel: () => topLevel,
+      localCoreWorktree: () => worktree,
+      localCoreBare: () => {
+        if (bare === undefined) throw new Error("bareness probe was not pre-run");
+        return bare;
+      },
+    },
+    platform,
+  );
+}
+
+/**
+ * Async twin of {@link checkoutRoots} — same resolution, `runAsync` probes.
+ *
+ * The file-read route calls this: a remote caller can force layer 2 at will by
+ * requesting an out-of-cwd path, so a slow `git` on the synchronous path would
+ * be an event-loop DoS.
+ */
+export async function checkoutRootsAsync(
+  input: WithCwd & { timeout?: number },
+): Promise<GitCheckoutRoots | null> {
+  const ctx = { cwd: input.cwd, timeout: input.timeout };
+  return resolveCheckoutRootsFromAsync({
+    gitDir: async () => unwrap(await runAsync(GIT_DIR_ABS, input, ctx), undefined),
+    commonDir: async () => unwrap(await runAsync(GIT_COMMON_DIR_ABS, input, ctx), undefined),
+    topLevel: async () => unwrap(await runAsync(GIT_TOPLEVEL, input, ctx), undefined),
+    localCoreWorktree: async (commonDir) =>
+      unwrap(await runAsync(GIT_CONFIG_LOCAL_CORE_WORKTREE, { cwd: input.cwd, gitDir: commonDir }, ctx), undefined),
+    localCoreBare: async (commonDir) => {
+      const r = await runAsync(GIT_CONFIG_LOCAL_CORE_BARE, { cwd: input.cwd, gitDir: commonDir }, ctx);
+      if (!r.ok) return "unknown";
+      return r.value === "true" ? "bare" : "not-bare";
+    },
+  });
+}
+
+/** Options for the repository-binding check. */
+export interface BindCheckoutOptions {
+  /** Per-probe timeout for re-resolving the candidate (up to five probes). */
+  timeout?: number;
+}
+
+/** `realpathSync`, or `null` when the path does not exist. */
+function realpathOrNull(p: string): string | null {
+  try {
+    return realpathSync(p);
+  } catch {
+    return null;
+  }
+}
+
+/** `fs.promises.realpath`, or `null` when the path does not exist. */
+async function realpathOrNullAsync(p: string): Promise<string | null> {
+  try {
+    return await realpathAsync(p);
+  } catch {
+    return null;
+  }
+}
+
+/** Canonicalize for a binding compare: follow symlinks when possible, else normalize. */
+function canonical(p: string, platform: NodeJS.Platform): string {
+  return normalizePath(realpathOrNull(p) ?? p, platform);
+}
+
+/**
+ * Async twin of {@link canonical}.
+ *
+ * The async binding path MUST NOT call `realpathSync`: a remote caller can force
+ * layer 2 of containment at will, so a slow filesystem would block the event
+ * loop outside every git probe timeout — the same DoS the async PROBES exist to
+ * avoid. `fs.promises.realpath` keeps the whole path non-blocking.
+ */
+async function canonicalAsync(p: string, platform: NodeJS.Platform): Promise<string> {
+  return normalizePath((await realpathOrNullAsync(p)) ?? p, platform);
+}
+
+/** Whether `p` is `base` itself or sits under it (native separators). */
+function isUnder(p: string, base: string): boolean {
+  const rel = path.relative(base, p);
+  return rel === "" || (!rel.startsWith(".." + path.sep) && rel !== ".." && !path.isAbsolute(rel));
+}
+
+/**
+ * The binding decision over paths ALREADY canonicalized to real form. Signals
+ * only; it re-canonicalizes the resolver's two fields through `canonicalize`,
+ * which the caller supplies (sync or async), so the decision itself is written
+ * once.
+ */
+function bindDecision(
+  candidateCanon: string,
+  commonCanon: string,
+  reResolved: GitCheckoutRoots | null,
+  reCommonCanon: string | null,
+  reThisCanon: string | null,
+  platform: NodeJS.Platform,
+): boolean {
+  if (!reResolved) return false;
+  if (!reCommonCanon || !samePath(reCommonCanon, commonCanon, platform)) return false;
+  if (!reThisCanon) return false;
+  if (!samePath(reThisCanon, candidateCanon, platform)) return false;
+  return !isUnder(candidateCanon, commonCanon);
+}
+
+/**
+ * Pure binding decision — rules 2 and 3 of the repository-binding check, given
+ * an already-realpath'd candidate and its ALREADY-RESOLVED checkout roots.
+ *
+ * Exported for tests, and so both consumers share one definition: the candidate
+ * is bound when its re-resolution reports the same `commonDir` as the cwd AND
+ * that result's `thisCheckout` IS the candidate (a checkout ROOT of that
+ * repository, not a subdirectory of one and not a git-internal path).
+ *
+ * Rule 4 additionally rejects a candidate INSIDE the repository's own git
+ * directory. MEASURED, not assumed: with a repository-local `core.worktree`
+ * aimed at `<repo>/.git/x`, git DOES report that path as its `--show-toplevel`
+ * (the configured worktree is what it calls the checkout), so rule 1's segment
+ * test cannot be the only line of defence. The path comparison makes the
+ * rejection structural instead of relying on a probe that does not fail there.
+ * It is load-bearing for common dirs NOT named `.git` (a `--separate-git-dir`
+ * checkout whose `core.worktree` aims into `elsewhere/app.git/x` passes rules
+ * 1-3). Failure direction is narrowing, never over-reach.
+ *
+ * Rules implemented here: 2 (same common dir), 3 (candidate is its own
+ * `thisCheckout`), 4 (not under the common dir). Rule 1 (the `.git`-segment
+ * rejection) lives in {@link isBoundCheckout} / {@link isBoundCheckoutAsync}
+ * because it must run BEFORE the re-resolution to save the probes.
+ */
+export function isBoundCheckoutFromRoots(
+  candidate: string,
+  commonDir: string,
+  reResolved: GitCheckoutRoots | null,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return bindDecision(
+    canonical(candidate, platform),
+    canonical(commonDir, platform),
+    reResolved,
+    reResolved ? canonical(reResolved.commonDir, platform) : null,
+    reResolved?.thisCheckout ? canonical(reResolved.thisCheckout, platform) : null,
+    platform,
+  );
+}
+
+/**
+ * Whether `candidate` is BOUND to `commonDir`'s repository — the shared check
+ * both containment and the kb cwd guard apply before using a resolved checkout
+ * as a trust anchor.
+ *
+ * Because `mainCheckout` (and, under a repository-local `core.worktree`,
+ * `thisCheckout`) is a user-controlled path the resolver returns VERBATIM, a
+ * consumer must not trust it on the resolver's word. Re-resolving the candidate
+ * and requiring it to point back at the same repository is that check.
+ *
+ * Fails closed: a nonexistent candidate, a `.git`-segment candidate, a
+ * candidate inside the repository's own git dir, and any probe failure or
+ * timeout all report unbound.
+ */
+export function isBoundCheckout(
+  candidate: string,
+  commonDir: string,
+  opts: BindCheckoutOptions = {},
+): boolean {
+  const candidateReal = realpathOrNull(candidate);
+  if (!candidateReal || hasGitPathSegment(candidateReal)) return false;
+  return isBoundCheckoutFromRoots(
+    candidateReal,
+    commonDir,
+    checkoutRoots({ cwd: candidateReal, timeout: opts.timeout }),
+  );
+}
+
+/** Async twin of {@link isBoundCheckout}, for event-loop-sensitive consumers. */
+export async function isBoundCheckoutAsync(
+  candidate: string,
+  commonDir: string,
+  opts: BindCheckoutOptions = {},
+): Promise<boolean> {
+  const platform = process.platform;
+  const candidateReal = await realpathOrNullAsync(candidate);
+  if (!candidateReal || hasGitPathSegment(candidateReal)) return false;
+  const reResolved = await checkoutRootsAsync({ cwd: candidateReal, timeout: opts.timeout });
+  // Fully async canonicalization: see {@link canonicalAsync} for why the async
+  // path must not reach `realpathSync`.
+  const [candidateCanon, commonCanon, reCommonCanon, reThisCanon] = await Promise.all([
+    canonicalAsync(candidateReal, platform),
+    canonicalAsync(commonDir, platform),
+    reResolved ? canonicalAsync(reResolved.commonDir, platform) : Promise.resolve(null),
+    reResolved?.thisCheckout ? canonicalAsync(reResolved.thisCheckout, platform) : Promise.resolve(null),
+  ]);
+  return bindDecision(candidateCanon, commonCanon, reResolved, reCommonCanon, reThisCanon, platform);
 }
 
 export function diff(input: WithCwd & { path: string; ref?: string }): Result<string> {

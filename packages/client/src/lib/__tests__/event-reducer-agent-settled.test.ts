@@ -2,15 +2,16 @@
  * Reducer idle-transition on `agent_settled` (the single terminal signal).
  *
  * `agent_end` sets the intermediate `"ended"`; only `agent_settled` (real on
- * pi ≥ 0.80.4, or bridge-synthesized on floor pi) resolves `"idle"`. The
+ * pi ≥ 0.80.4, guaranteed at the 0.85.1 floor) resolves `"idle"`. The
  * existing `agent_end` side-effects (last-error extraction, retry / pending
  * clearing) are preserved; only the `status:"idle"` assignment moved.
  *
  * See change: adopt-pi-074-080-features (A.1 — F1, F2, F3, X2).
  */
+
+import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
 import { createInitialState, deriveBannerState, reduceEvent, type SessionState } from "../chat/event-reducer.js";
-import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 let clock = 1000;
 function ev(eventType: string, data: Record<string, unknown> = {}): DashboardEvent {
@@ -54,9 +55,9 @@ describe("F1: no idle flicker across a retry (modern pi)", () => {
   });
 });
 
-describe("F2: floor pi resolves idle equivalently to today", () => {
-  it("agent_end + synthesized agent_settled in the same batch → idle", () => {
-    // The bridge synthesizes the settle synchronously right after agent_end.
+describe("F2: a native settle resolves idle equivalently to today", () => {
+  it("agent_end + agent_settled in the same batch → idle", () => {
+    // pi forwards its native settle right after the final agent_end.
     const s = fold([ev("agent_start"), ev("agent_end", { messages: [] }), ev("agent_settled")]);
     expect(s.status).toBe("idle");
     expect(s.isStreaming).toBe(false);
@@ -84,32 +85,23 @@ describe("F3: agent_end side-effects preserved (deferred only status:idle)", () 
   });
 });
 
-describe("X9: floor-pi per-attempt compatibility settle", () => {
-  it("preserves pending retry through compatibility settle, then converges on success", () => {
+describe("F6: the removed per-attempt compatibility fallback has no producer", () => {
+  it("a native agent_settled converges to the terminal state", () => {
+    // The only producer of the per-attempt compatibility flag was the deleted
+    // floor-pi synthesis, so the reducer branch is unreachable and removed. A
+    // native settle — carrying no payload — must still resolve the terminal
+    // idle state and clear the chain.
     let s = createInitialState();
-    s.status = "ended";
-    s.lastError = { message: "503", timestamp: 1 };
     s.retryState = { attempt: 1, maxAttempts: 3, delayMs: 2000, waiting: true, reason: "503", startedAt: 1 };
-
-    s = reduceEvent(s, ev("agent_settled", { retryPending: true }));
-    expect(s.status).toBe("ended");
-    expect(s.retryState?.waiting).toBe(true);
-    expect(deriveBannerState(s)).toMatchObject({ error: { message: "503" }, retry: { attempt: 1 } });
-
-    s = reduceEvent(s, ev("auto_retry_start", { attempt: 1, maxAttempts: 3, delayMs: 2000, errorMessage: "503" }));
-    s = reduceEvent(s, ev("agent_start"));
-    s = reduceEvent(s, ev("message_end", { message: { role: "assistant", stopReason: "stop", content: [] } }));
-    s = reduceEvent(s, ev("agent_settled"));
-    expect(s.status).toBe("idle");
-    expect(deriveBannerState(s)).toEqual({ variant: "hidden" });
-  });
-
-  it("preserves abort suppression across a nonterminal compatibility settle", () => {
-    let s = createInitialState();
     s.retryCancelled = true;
-    s = reduceEvent(s, ev("agent_settled", { retryPending: true }));
-    expect(s.retryCancelled).toBe(true);
-    expect(deriveBannerState(s)).toEqual({ variant: "hidden" });
+    s.status = "ended";
+
+    s = reduceEvent(s, ev("agent_settled"));
+
+    expect(s.status).toBe("idle");
+    expect(s.isStreaming).toBe(false);
+    expect(s.retryState).toBeUndefined();
+    expect(s.retryCancelled).toBeUndefined();
   });
 });
 

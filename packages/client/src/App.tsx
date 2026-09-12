@@ -2050,7 +2050,10 @@ export default function App() {
               StatusBar model row). See change: redesign-prompt-input. */}
           {selectedSession && (
             <div
-              className="flex items-center gap-2 flex-wrap px-3 pt-2 text-xs"
+              /* `shrink-0`: thin furniture row — cannot compress below its content,
+                 so absorbing a pane height deficit here would clip it rather than
+                 shrink it. See change: fix-quota-widget-clipping. */
+              className="flex items-center gap-2 flex-wrap px-3 pt-2 text-xs shrink-0"
               data-testid="composer-context-strip"
             >
               {selectedCwd && (
@@ -2155,8 +2158,15 @@ export default function App() {
             modelRefreshErrors={modelRefreshErrorsMap.get(selectedId)}
             contextUsage={selectedContextUsage}
           />
-          {/* Plugin slot: content-inline-footer — contributions from flows-plugin (per-session inline footer) and other plugins. */}
-          {selectedSession && <ContentInlineFooterSlot session={selectedSession} />}
+          {/* Plugin slot: content-inline-footer — contributions from flows-plugin (per-session inline footer) and other plugins.
+              Host-owned `shrink-0` wrapper so EVERY contribution in this slot is
+              protected from the chat pane's bottom clip, without each plugin having
+              to know it renders into a flex column. See change: fix-quota-widget-clipping. */}
+          {selectedSession && (
+            <div className="shrink-0">
+              <ContentInlineFooterSlot session={selectedSession} />
+            </div>
+          )}
           {/* Extension UI System (Phase 1): module picker + generic modal. */}
           {/* See change: add-extension-ui-modal. */}
           {extensionModulePickerOpen && selectedId && (() => {

@@ -317,11 +317,4 @@ export class RetryTracker {
   isRetrying(sessionId: string): boolean {
     return this.chains.has(sessionId);
   }
-
-  /** Floor-pi reconciliation: true only while the specified attempt is still
-   * armed and has not produced its matching agent_start. */
-  isAwaitingRetry(sessionId: string, attempt: number): boolean {
-    const chain = this.chains.get(sessionId);
-    return chain?.armed === true && chain.attempt === attempt;
-  }
 }
