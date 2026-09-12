@@ -53,7 +53,8 @@ export const catalog = {
     scanFolderLabel: "扫描每个文件夹的自动化",
     scanGlobalLabel: "扫描全局自动化",
     defaultModelLabel: "默认模型（用于无法解析的",
-    defaultModelPlaceholder: "provider/model-id",
+    defaultModelPlaceholder: "选择模型…",
+    defaultModelClear: "清除默认模型",
     // Folder section
     openBoardTitle: "打开自动化看板",
     invalidTitle: "{count} 个无效",
@@ -169,7 +170,8 @@ export const catalog = {
     scanFolderLabel: "Mappánkénti automatizálások vizsgálata",
     scanGlobalLabel: "Globális automatizálások vizsgálata",
     defaultModelLabel: "Alapértelmezett modell (tartalék a feloldatlan",
-    defaultModelPlaceholder: "provider/model-id",
+    defaultModelPlaceholder: "Válassz modellt…",
+    defaultModelClear: "Alapértelmezett modell törlése",
     // Folder section
     openBoardTitle: "Automatizálási tábla megnyitása",
     invalidTitle: "{count} érvénytelen",

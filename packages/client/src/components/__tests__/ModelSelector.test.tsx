@@ -6,7 +6,12 @@
 
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  ModelConfigProvider,
+  type ModelConfigValue,
+} from "../../lib/state/ModelConfigContext.js";
 import { ModelSelector } from "../settings/ModelSelector.js";
 
 const models: ModelInfo[] = [
@@ -286,6 +291,132 @@ describe("ModelSelector provider filter persistence", () => {
     open();
     expect((screen.getByTestId("model-filter") as HTMLInputElement).value).toBe("");
     expect((screen.getByTestId("provider-filter") as HTMLSelectElement).value).toBe("anthropic");
+  });
+});
+
+// ── Context fallback + ownership + no-source gating ───────────────────────
+//
+// Favorites become the `ModelSelector` default when a caller passes neither
+// `favorites` nor `onToggleFavorite`: the pair is read from
+// `useModelConfigOptional()`. Partial props (either one alone) mean the caller
+// owns the pair — nothing is mixed with context. With no resolvable toggle the
+// ★ buttons and ★ Favs filter disappear and a persisted favs-only state is
+// ignored. See change: model-picker-everywhere-favorites (design D1).
+describe("ModelSelector favorites context fallback (D1)", () => {
+  const ab: ModelInfo[] = [
+    { provider: "anthropic", id: "a" },
+    { provider: "anthropic", id: "b" },
+  ];
+
+  function ctxValue(over: Partial<ModelConfigValue> = {}): ModelConfigValue {
+    return {
+      setModel: () => {},
+      setThinkingLevel: () => {},
+      toggleFavorite: () => {},
+      refreshModels: () => {},
+      openProviderSettings: () => {},
+      notify: () => {},
+      ...over,
+    };
+  }
+
+  function wrapCtx(node: React.ReactElement, value: ModelConfigValue) {
+    return <ModelConfigProvider value={value}>{node}</ModelConfigProvider>;
+  }
+
+  /** Row whose label is exactly `anthropic/<id>`. */
+  function rowOf(id: string): HTMLElement {
+    return screen
+      .getAllByTestId("model-row")
+      .find((r) => r.textContent?.trim() === `anthropic/${id}`)!;
+  }
+
+  it("E1: reads favorites + toggle from context when neither prop is passed", () => {
+    const toggle = vi.fn();
+    render(wrapCtx(
+      <ModelSelector models={ab} onSelect={() => {}} />,
+      ctxValue({ favorites: ["anthropic/a"], toggleFavorite: toggle }),
+    ));
+    open();
+    expect(within(rowOf("a")).getByTestId("model-fav-toggle").getAttribute("aria-pressed")).toBe("true");
+    expect(within(rowOf("b")).getByTestId("model-fav-toggle").getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByTestId("favs-only-toggle")).toBeTruthy();
+    fireEvent.click(within(rowOf("a")).getByTestId("model-fav-toggle"));
+    expect(toggle).toHaveBeenCalledWith("anthropic/a", false);
+  });
+
+  it("E2: explicit props win the whole pair; context is never used", () => {
+    const ctxToggle = vi.fn();
+    const propToggle = vi.fn();
+    render(wrapCtx(
+      <ModelSelector
+        models={ab}
+        onSelect={() => {}}
+        favorites={["anthropic/b"]}
+        onToggleFavorite={propToggle}
+      />,
+      ctxValue({ favorites: ["anthropic/a"], toggleFavorite: ctxToggle }),
+    ));
+    open();
+    expect(within(rowOf("a")).getByTestId("model-fav-toggle").getAttribute("aria-pressed")).toBe("false");
+    expect(within(rowOf("b")).getByTestId("model-fav-toggle").getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(within(rowOf("b")).getByTestId("model-fav-toggle"));
+    expect(propToggle).toHaveBeenCalledTimes(1);
+    expect(ctxToggle).not.toHaveBeenCalled();
+  });
+
+  it("E3: favorites prop alone owns the pair — no stars, no Favs filter, context untouched", () => {
+    const ctxToggle = vi.fn();
+    render(wrapCtx(
+      <ModelSelector models={ab} onSelect={() => {}} favorites={["anthropic/a"]} />,
+      ctxValue({ favorites: ["anthropic/b"], toggleFavorite: ctxToggle }),
+    ));
+    open();
+    expect(screen.queryAllByTestId("model-fav-toggle")).toHaveLength(0);
+    expect(screen.queryByTestId("favs-only-toggle")).toBeNull();
+    expect(ctxToggle).not.toHaveBeenCalled();
+  });
+
+  it("E4: handler prop alone owns the pair — stars render unpressed, prop fired", () => {
+    const propToggle = vi.fn();
+    render(wrapCtx(
+      <ModelSelector models={ab} onSelect={() => {}} onToggleFavorite={propToggle} />,
+      ctxValue({ favorites: ["anthropic/a"], toggleFavorite: vi.fn() }),
+    ));
+    open();
+    const stars = screen.getAllByTestId("model-fav-toggle");
+    expect(stars).toHaveLength(2);
+    expect(stars.every((s) => s.getAttribute("aria-pressed") === "false")).toBe(true);
+    fireEvent.click(within(rowOf("a")).getByTestId("model-fav-toggle"));
+    expect(propToggle).toHaveBeenCalledWith("anthropic/a", true);
+  });
+
+  it("E5: no props and no provider — zero stars, no Favs toggle, both rows listed", () => {
+    render(<ModelSelector models={ab} onSelect={() => {}} />);
+    open();
+    expect(screen.queryAllByTestId("model-fav-toggle")).toHaveLength(0);
+    expect(screen.queryByTestId("favs-only-toggle")).toBeNull();
+    expect(screen.getAllByTestId("model-row")).toHaveLength(2);
+  });
+
+  it("E6: persisted favs-only with no favorites source lists every model", () => {
+    localStorage.setItem("modelselector.favOnly", "1");
+    render(<ModelSelector models={ab} onSelect={() => {}} />);
+    open();
+    expect(screen.getAllByTestId("model-row")).toHaveLength(2);
+    expect(screen.queryByText("No models match")).toBeNull();
+  });
+
+  it("E7: persisted favs-only with a zero-favorite source IS honoured (empty result)", () => {
+    localStorage.setItem("modelselector.favOnly", "1");
+    render(wrapCtx(
+      <ModelSelector models={ab} onSelect={() => {}} />,
+      ctxValue({ favorites: [], toggleFavorite: vi.fn() }),
+    ));
+    open();
+    expect(screen.getByTestId("favs-only-toggle").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryAllByTestId("model-row")).toHaveLength(0);
+    expect(screen.getByText("No models match")).toBeTruthy();
   });
 });
 

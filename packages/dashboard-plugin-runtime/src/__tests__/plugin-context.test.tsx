@@ -5,6 +5,7 @@ import {
   PluginContextProvider,
   CurrentPluginLayer,
   usePluginConfig,
+  usePluginConfigOf,
   useAllSessions,
   usePluginLogger,
   applyPluginConfigUpdate,
@@ -192,5 +193,63 @@ describe("useAllSessions", () => {
     );
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe("s1");
+  });
+});
+
+// Reactive read of ANOTHER plugin's config (module store, no provider, never
+// throws) — needed because the roles catalogue lives in the roles plugin's
+// config and only a non-reactive getPluginConfig is public.
+// See change: model-picker-everywhere-favorites (design D3, test-plan E13/E14).
+describe("usePluginConfigOf", () => {
+  it("E13: a never-set plugin id yields one stable frozen empty object across re-renders", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const snapshots: unknown[] = [];
+      let forceRender: (() => void) | undefined;
+      function Comp() {
+        const [, setTick] = React.useState(0);
+        forceRender = () => setTick((t) => t + 1);
+        snapshots.push(usePluginConfigOf("nope-never-set"));
+        return null;
+      }
+      render(<Comp />);
+      act(() => { forceRender?.(); });
+      act(() => { forceRender?.(); });
+      expect(snapshots.length).toBeGreaterThanOrEqual(3);
+      // Same identity every render — a fresh `{}` would loop/​warn.
+      expect(Object.is(snapshots[0], snapshots[1])).toBe(true);
+      expect(Object.is(snapshots[1], snapshots[2])).toBe(true);
+      expect(snapshots[0]).toEqual({});
+      expect(
+        errorSpy.mock.calls.some((c) => String(c[0]).includes("getSnapshot")),
+      ).toBe(false);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it("E14: updates when the plugin's config arrives after mount", async () => {
+    const snapshots: Record<string, unknown>[] = [];
+    let forceRender: (() => void) | undefined;
+    function Comp() {
+      const [, setTick] = React.useState(0);
+      forceRender = () => setTick((t) => t + 1);
+      snapshots.push(usePluginConfigOf("reactive-hook-plugin"));
+      return null;
+    }
+    // No PluginContextProvider here — the hook reads the module store directly.
+    render(<Comp />);
+    expect(snapshots.at(-1)).toEqual({});
+    void forceRender;
+
+    await act(async () => {
+      applyPluginConfigUpdate({
+        type: "plugin_config_update",
+        id: "reactive-hook-plugin",
+        config: { models: [{ provider: "anthropic", id: "x" }] },
+      });
+    });
+
+    expect(snapshots.at(-1)).toEqual({ models: [{ provider: "anthropic", id: "x" }] });
   });
 });

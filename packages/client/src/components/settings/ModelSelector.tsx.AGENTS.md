@@ -17,3 +17,10 @@ See change: fix-popover-container-clip — ModelSelector opts into the horizonta
 - Outside-click now checks `panelRef` BEFORE `triggerRef` (a portaled panel is no longer a DOM descendant of the trigger container, so every in-panel click read as "outside"); `touchstart` added beside `mousedown`.
 - Inside a `Dialog` the portal target is the dialog panel, not `body` — see `LayerPortal`'s `LayerHostContext`.
 - Portaling moves the panel OUT of the component container: tests must query it via `screen`/`baseElement`, not `within(container)`.
+
+## model-picker-everywhere-favorites
+
+- Favorites default: caller passes NEITHER `favorites` NOR `onToggleFavorite` → read both from `useModelConfigOptional()`. Caller passes EITHER → caller owns BOTH (explicit props win; never mixed with context).
+- `favoritesEnabled = resolvedToggle !== undefined` gates the per-row ★ button, the `favs-only-toggle`, and the `favOnly` filter. No resolvable source → stars/toggle absent, persisted `modelselector.favOnly` ignored (no empty-list stranding).
+- `PopulatedCatalogueBody` gains `favoritesEnabled` prop for the toggle gate.
+- Core Settings pickers (Sessions Default Model, Model Proxy add-model + alias target) gain working favorites with no call-site edits. `ModelSelectorPrimitive` unchanged (injects both props, so owns the pair).
