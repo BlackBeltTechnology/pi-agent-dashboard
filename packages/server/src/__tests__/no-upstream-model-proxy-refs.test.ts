@@ -2,8 +2,8 @@
  * Repo-surface guard: no product-facing reference to the upstream
  * npm extension may survive.
  *
- * Runs the task-6.1 `rg` from the repo root with identical globs, then asserts
- * every remaining match is one of:
+ * Runs a repo-wide tracked-file search (task 6.1 semantics) and asserts every
+ * remaining match is one of:
  *   - attribution/provenance text under `packages/server/src/model-proxy/convert/`
  *   - the historical `add-package-health-cleanup` proposal
  *   - a test fixture (negative assertions live in `__tests__/` + `*.test.*`)
@@ -11,7 +11,10 @@
  *   - this change's own tracking reference (the change id EMBEDS the upstream
  *     name, so every `See change: <id>` echo necessarily matches)
  *
- * The build-from-pieces needle keeps THIS file out of its own match set.
+ * Uses `git grep` (git is a hard dependency of this repo, unlike `rg`, which is
+ * absent on the CI runner) over TRACKED files only — the same practical surface
+ * the task-6.1 `rg` globs covered. The build-from-pieces needle keeps THIS file
+ * out of its own match set.
  *
  * See change: remove-pi-model-proxy-upstream-references (E18).
  */
@@ -33,29 +36,21 @@ const REPO_ROOT = path.resolve(
 const UPSTREAM = ["pi", "model", "proxy"].join("-");
 const CHANGE_ID = ["remove", UPSTREAM, "upstream", "references"].join("-");
 
-const RG_ARGS = [
+const GIT_ARGS = [
+	"grep",
 	"-n",
+	"--no-color",
 	UPSTREAM,
-	"--glob",
-	"!node_modules",
-	"--glob",
-	"!pnpm-lock.yaml",
-	"--glob",
-	"!openspec/changes/archive/**",
-	"--glob",
-	"!openspec/specs/**",
-	"--glob",
-	"!openspec/groups/**",
-	"--glob",
-	"!docs/qa/**",
-	"--glob",
-	"!Prompt stories/**",
-	"--glob",
-	"!CHANGELOG.md",
-	"--glob",
-	`!openspec/changes/${CHANGE_ID}/**`,
-	// Explicit search root: with a piped stdin rg would otherwise search stdin.
-	".",
+	"--",
+	// Same exclusions as the task-6.1 command. `git grep` already skips
+	// untracked/ignored paths (node_modules, dist, .git).
+	":(exclude)pnpm-lock.yaml",
+	":(exclude)openspec/changes/archive",
+	":(exclude)openspec/specs",
+	":(exclude)openspec/groups",
+	":(exclude)docs/qa",
+	":(exclude)Prompt stories",
+	":(exclude)CHANGELOG.md",
 ];
 
 interface Match {
@@ -63,12 +58,12 @@ interface Match {
 	line: string;
 }
 
-function runRg(): Match[] {
+function runSearch(): Match[] {
 	let out = "";
 	try {
-		out = execFileSync("rg", RG_ARGS, { cwd: REPO_ROOT, encoding: "utf8" });
+		out = execFileSync("git", GIT_ARGS, { cwd: REPO_ROOT, encoding: "utf8" });
 	} catch (e) {
-		if ((e as { status?: number }).status === 1) return []; // rg "no matches"
+		if ((e as { status?: number }).status === 1) return []; // git grep "no matches"
 		throw e;
 	}
 	return out
@@ -77,8 +72,7 @@ function runRg(): Match[] {
 		.map((l) => {
 			const i = l.indexOf(":");
 			const j = l.indexOf(":", i + 1);
-			// `.` search root prefixes every path with `./`.
-			return { path: l.slice(0, i).replace(/^\.\//, ""), line: l.slice(j + 1) };
+			return { path: l.slice(0, i), line: l.slice(j + 1) };
 		});
 }
 
@@ -101,7 +95,7 @@ function isAllowed(m: Match): boolean {
 
 describe("no upstream model-proxy references (E18)", () => {
 	it("every remaining match is attribution, history, a test fixture, or change tracking", () => {
-		const matches = runRg();
+		const matches = runSearch();
 		// Non-vacuous: the lifted-code attribution headers must still be found.
 		expect(matches.some((m) => m.path.startsWith(ATTRIBUTION_PREFIX))).toBe(true);
 		const unexpected = matches.filter((m) => !isAllowed(m));
