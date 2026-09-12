@@ -1227,6 +1227,27 @@ export function createMemoryEventStore(
   }
 
   /**
+   * Is `seq` resident in the seq-ascending buffer? Binary search — O(log n),
+   * unlike `findIndexBySeq`'s tail-ward scan, whose cost is the distance from
+   * the tail. The D3 pin-residency check looks for a typically OLD pin, where
+   * that distance can be the whole buffer; this keeps one end insertion from
+   * examining ~20 000 events. Does not touch the collapse probes.
+   * See change: drop-final-update-on-tool-execution-end.
+   */
+  function isSeqResident(buf: SessionBuffer, seq: number): boolean {
+    let lo = 0;
+    let hi = buf.events.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >>> 1;
+      const s = buf.events[mid].seq;
+      if (s === seq) return true;
+      if (s < seq) lo = mid + 1;
+      else hi = mid - 1;
+    }
+    return false;
+  }
+
+  /**
    * D6.2 VERIFIED removal: resolve `prevSeq`, confirm the located entry is
    * still a `tool_execution_update` carrying `toolCallId`, and only then test
    * subsumption (`gate`, defaulting to the update-path gate) and splice. An
@@ -1350,7 +1371,7 @@ export function createMemoryEventStore(
     // it — `pruneCollapseIndex`'s `creatingSeq < minSeq` release then never
     // fires, and a `defined`-only guard would drop with no resident pin.
     const pinResident =
-      entry.creatingSeq !== undefined && findIndexBySeq(buf, entry.creatingSeq) !== -1;
+      entry.creatingSeq !== undefined && isSeqResident(buf, entry.creatingSeq);
     const gate = pinResident ? endSubsumes : endSubsumesUnlessAgentTail;
     // Only re-point the index when the drop ACTUALLY happened: a non-subsuming
     // end must leave `newestSeq` on the retained tail (a later update still

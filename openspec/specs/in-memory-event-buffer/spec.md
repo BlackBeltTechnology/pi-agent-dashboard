@@ -785,6 +785,16 @@ it (top-level `data.details`, `data.result`). A tail that carries `details`
 (even empty) SHALL NOT be dropped by an end that carries none. Absent verified
 subsumption the tail SHALL be retained.
 
+Two further conditions SHALL hold before a drop:
+
+- **Identity.** When the tail resolves a string `details.agentId`, the end SHALL
+  carry `toolName === "Agent"` AND the SAME `agentId` AND, when the tail carries
+  an `agentSessionId`, the SAME `agentSessionId`.
+- **Resident pin.** When the tail carries a string `details.agentId`, its
+  creating tick — the first update carrying that `agentId`, whose values seed the
+  reducer's first-wins `type`/`description` — SHALL still be resident in the
+  buffer. A trimmed or absent pin SHALL retain the tail.
+
 Rationale: updates resolve `details` from `data.partialResult.details`, ends from
 top-level `data.details`, and the client reducer treats them as distinct
 branches. Equivalence is therefore a claim about a specific producer version, not
@@ -805,6 +815,20 @@ a property of the protocol.
 - **WHEN** the `tool_execution_end` arrives
 - **THEN** the tail SHALL be RETAINED
 - **AND** the rendered subagent state SHALL be unchanged by the arrival
+
+#### Scenario: A mismatched end identity retains the tail
+
+- **GIVEN** a retained tail update carrying a string `details.agentId`
+- **WHEN** a `tool_execution_end` arrives whose `toolName` is not `Agent`, or
+  whose `details.agentId`/`details.agentSessionId` differ from the tail's
+- **THEN** the tail SHALL be RETAINED
+
+#### Scenario: A trimmed creating pin retains an Agent-shaped tail
+
+- **GIVEN** a retained Agent-shaped tail update whose creating pin is no longer
+  resident in the buffer
+- **WHEN** a subsuming `tool_execution_end` arrives
+- **THEN** the tail SHALL be RETAINED
 
 #### Scenario: Cross-version equivalence is verified before any drop is enabled
 
