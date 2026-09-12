@@ -1,7 +1,9 @@
 # Relocate the goal product from core into goal-plugin
 
-> **Status: request for scoping.** Proposal only — no specs/tasks yet
-> (`skip_specs: true`). This is the deferred **Change B** follow-up explicitly
+> **Status: planned — ready to build.** `design.md`, `tasks.md`, and
+> `test-plan.md` are drafted; requirement deltas are carried by `design.md`
+> rather than `specs/**` (`skip_specs: true`). This is the deferred **Change B**
+> follow-up explicitly
 > carved out of `detach-automation-goal-from-core` (Change A), whose non-goals
 > read: *"relocating the ten `packages/server/src/goal/*.ts` product files into
 > `goal-plugin` (a separate follow-up change)."* This document is that change.

@@ -6,7 +6,7 @@
  */
 import type { SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { SessionFlags } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { PluginLogger } from "../plugin-context.js";
 
 // ── Logger ───────────────────────────────────────────────────────────────────
@@ -218,6 +218,36 @@ export interface PluginSpawnOptions {
      */
     extensionConfig?: Record<string, Record<string, string | string[]>>;
   };
+
+  /**
+   * Caller-supplied spawn correlation token, used VERBATIM instead of a
+   * host-minted one. The goal supervisor pre-mints the token and persists it
+   * in `GoalRecord.inFlightSpawn` BEFORE the spawn so a crash mid-spawn is
+   * reconcilable by token after restart — a host-minted token would only be
+   * learnable after `spawnSession` resolves, too late. Trusted-only (same
+   * gate as the spawn itself): the host REJECTS the spawn with
+   * `{ success: false }` when the token is already pending for another
+   * owner. A NUL-bearing token is REJECTED, not substituted. Format: a bare
+   * `randomUUID()`. See change: relocate-goal-product-to-plugin (D1-#1).
+   */
+  spawnToken?: string;
+  /**
+   * Resume a prior pi session instead of creating a fresh one. Mapped by
+   * `pluginSpawnToSessionOptions` to the SESSION-level
+   * `{ sessionFile, mode: "continue" }` pair (the resume respawn path);
+   * the caller-level `mode` run-isolation field above is a different `mode`
+   * on a different type and is untouched. See change:
+   * relocate-goal-product-to-plugin (D1-#2).
+   */
+  resume?: { sessionFile: string };
+  /**
+   * First prompt to dispatch to the spawned session on register (e.g. the
+   * goal supervisor's `/goal …` reprime). Core enqueues it in the per-cwd
+   * pending-initial-prompt FIFO BEFORE the spawn await and consumes it on
+   * spawn failure/throw — the same path a fresh respawn uses today. See
+   * change: relocate-goal-product-to-plugin (D1-#3).
+   */
+  initialPrompt?: string;
 }
 
 /**
@@ -319,6 +349,17 @@ export function pluginSpawnToSessionOptions(opts: PluginSpawnOptions): MappedSpa
   const input: Record<string, unknown> = isRecord(opts) ? opts : {};
   if (isSafeArgvString(input.model)) result.model = input.model;
   if (isSafeArgvString(input.name)) result.name = input.name;
+  // Resume → SESSION-level { sessionFile, mode: "continue" } (the argv
+  // builder's resume pair — SessionFlags.mode, NOT the caller's run-isolation
+  // `mode` field, which lives only on PluginSpawnOptions). Sanitized like
+  // every other untrusted field: a malformed container or a non-string /
+  // empty / NUL-bearing sessionFile maps to nothing (design D7). See change:
+  // relocate-goal-product-to-plugin (D1-#2).
+  const resume: unknown = input.resume;
+  if (isRecord(resume) && isSafeArgvString(resume.sessionFile)) {
+    result.sessionFile = resume.sessionFile;
+    result.mode = "continue";
+  }
 
   const scope: unknown = input.scope;
   if (isRecord(scope)) {
@@ -373,6 +414,65 @@ export type RegisterCwdPolicyFn = (cwd: string, policy: PluginCwdPolicy) => void
  * No-op for untrusted plugins. See change: add-plugin-spawn-scope (Part B).
  */
 export type UnregisterCwdPolicyFn = (cwd: string) => void;
+
+/**
+ * Mint a fresh spawn-correlation token (`randomUUID()`), for a trusted plugin
+ * that must KNOW the token before calling {@link ServerPluginContext.spawnSession}
+ * (e.g. to persist it as crash-recovery state). Gated to first-party / trusted
+ * plugins (same gate as `spawnSession`): an ungated minter would hand out
+ * tokens useless to an untrusted caller (its own spawns are rejected) and
+ * merely widen the surface — so an untrusted plugin's hook THROWS. See
+ * change: relocate-goal-product-to-plugin (D1-#1).
+ */
+export type MintSpawnTokenFn = () => string;
+
+/**
+ * Rename a live session: in-memory name update + `session_updated` broadcast
+ * + `rename_session` dispatch to the pi session. Gated to first-party /
+ * trusted plugins; returns `false` for an untrusted caller, an unknown
+ * session, or an empty name — empty names are REJECTED rather than
+ * normalized to `undefined` (an intentional stricter-than-core divergence
+ * pinned by test-plan #E9). See change:
+ * relocate-goal-product-to-plugin (D1-#4).
+ */
+export type RenameSessionFn = (sessionId: string, name: string) => boolean;
+
+/**
+ * Merge a plugin-owned identity/config ref onto a session — the post-spawn
+ * sibling of the `pluginRef` merge that happens at register. The ref runs
+ * through the same sanitization as the register path (core-reserved keys
+ * dropped, keys owned by a DIFFERENT plugin dropped, first-writer-wins per
+ * key, warn-once). `opts.persist` defaults `true`: in-memory + `.meta.json`
+ * + `session_updated` broadcast; `false` = in-memory ONLY (`.meta.json` keeps
+ * the old value so a restart rehydrates it). An `undefined` value clears the
+ * key at each layer touched. Returns `false` for an untrusted caller or an
+ * unknown session. See change: relocate-goal-product-to-plugin (D1-#5).
+ */
+export type AssignSessionRefFn = (
+  sessionId: string,
+  ref: Record<string, unknown | undefined>,
+  opts?: { persist?: boolean },
+) => boolean;
+
+/**
+ * Subscribe to server shutdown. Core dispatches every subscriber at the
+ * exact point where pre-gateway teardown happens today — BEFORE the pi
+ * gateway stops tearing bridges down — so a plugin's backoff timers /
+ * supervisors are disposed before bridge-teardown deaths can reach them.
+ * Each sub runs under try/catch (a throwing sub never blocks the rest or
+ * the shutdown). Returns an unsubscribe fn. Not trust-gated. See change:
+ * relocate-goal-product-to-plugin (D1-#8).
+ */
+export type OnShutdownFn = (fn: () => void) => () => void;
+
+/**
+ * Structural mirror of the server's `NetworkGuard` fastify `preHandler`
+ * (cookie / token / loopback auth) so plugin-registered routes can mount the
+ * SAME guard core mounts on its own route groups — attaching a guard only
+ * tightens, so this is NOT trust-gated. See change:
+ * relocate-goal-product-to-plugin (D1-#7).
+ */
+export type PluginNetworkGuard = (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 
 /** Result of a plugin session-spawn request. */
 export interface PluginSpawnResult {
@@ -593,6 +693,31 @@ export interface ServerPluginContext {
    * See change: publish-quota-plugin.
    */
   providerAuth?: PluginProviderAuth;
+  /**
+   * Mint a fresh spawn-correlation token (trusted-gated). See change:
+   * relocate-goal-product-to-plugin (D1-#1).
+   */
+  mintSpawnToken: MintSpawnTokenFn;
+  /**
+   * Rename a live session (trusted-gated). See change:
+   * relocate-goal-product-to-plugin (D1-#4).
+   */
+  renameSession: RenameSessionFn;
+  /**
+   * Merge a plugin-owned ref onto a session (trusted-gated). See change:
+   * relocate-goal-product-to-plugin (D1-#5).
+   */
+  assignSessionRef: AssignSessionRefFn;
+  /**
+   * The host's network-access guard for plugin-registered routes (not
+   * trust-gated). See change: relocate-goal-product-to-plugin (D1-#7).
+   */
+  networkGuard: PluginNetworkGuard;
+  /**
+   * Subscribe to server shutdown (not trust-gated). See change:
+   * relocate-goal-product-to-plugin (D1-#8).
+   */
+  onShutdown: OnShutdownFn;
   logger: PluginLogger;
 }
 
@@ -625,6 +750,16 @@ export interface ServerContextDeps {
   providerAuth?: PluginProviderAuth;
   /** Installed-extension probe (optional). See change: add-blackhole-session-pipeline. */
   isPiExtensionInstalled?: IsPiExtensionInstalledFn;
+  /** Mint a fresh spawn-correlation token (trusted-gated). See change: relocate-goal-product-to-plugin. */
+  mintSpawnToken: MintSpawnTokenFn;
+  /** Rename a live session (trusted-gated). See change: relocate-goal-product-to-plugin. */
+  renameSession: RenameSessionFn;
+  /** Merge a plugin-owned ref onto a session (trusted-gated). See change: relocate-goal-product-to-plugin. */
+  assignSessionRef: AssignSessionRefFn;
+  /** Network-access guard for plugin-registered routes. See change: relocate-goal-product-to-plugin. */
+  networkGuard: PluginNetworkGuard;
+  /** Subscribe to server shutdown. See change: relocate-goal-product-to-plugin. */
+  onShutdown: OnShutdownFn;
 }
 
 /**
@@ -668,6 +803,11 @@ export function createServerPluginContext(
     modelRuntime: deps.modelRuntime,
     providerAuth: deps.providerAuth,
     isPiExtensionInstalled: deps.isPiExtensionInstalled,
+    mintSpawnToken: deps.mintSpawnToken,
+    renameSession: deps.renameSession,
+    assignSessionRef: deps.assignSessionRef,
+    networkGuard: deps.networkGuard,
+    onShutdown: deps.onShutdown,
     logger,
   };
 }

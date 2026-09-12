@@ -21,7 +21,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createGoalStore, type GoalStore } from "../goal/goal-store.js";
+import { createGoalStore, type GoalStore } from "../goal-store.js";
 import {
   BREAKER_COUNT,
   BREAKER_WINDOW_MS,
@@ -29,7 +29,7 @@ import {
   type GoalDriverSpawnRequest,
   type GoalSupervisor,
   POISON_K,
-} from "../goal/goal-supervisor.js";
+} from "../goal-supervisor.js";
 
 interface FakeTimer {
   fn: () => void | Promise<void>;
@@ -55,6 +55,10 @@ describe("goal-supervisor", () => {
   function makeSup(): GoalSupervisor {
     return createGoalSupervisor({
       store,
+      mintSpawnToken: (() => {
+        let n = 0;
+        return () => `tok-${++n}`;
+      })(),
       now: () => clock,
       isSessionLive: (s) => liveSessions.has(s),
       resolveSessionFile: (s) => sessionFiles.get(s),

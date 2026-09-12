@@ -35,6 +35,11 @@ function makeFakeContext(): ServerPluginContext {
     registerBrowserHandler: () => {},
     getPluginConfig: () => ({} as never),
     updatePluginConfig: async () => {},
+    mintSpawnToken: () => "tok-test",
+    renameSession: () => false,
+    assignSessionRef: () => false,
+    networkGuard: async () => {},
+    onShutdown: () => () => {},
     logger: { info: () => {}, warn: () => {}, error: () => {} },
   };
 }
