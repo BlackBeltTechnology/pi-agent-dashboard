@@ -163,23 +163,6 @@ export interface EventWiringDeps {
     pluginRef: Record<string, unknown>,
   ) => void;
   /**
-   * Optional goal store. When provided, the co-located (in-core) goal product
-   * reads the core-owned `session.goalId` merged by the generic seam and links
-   * the new sessionId into its `GoalRecord` (replaceDriver + prime). Core does
-   * not parse the ref interior; goal reads its own now-populated field.
-   * See change: detach-automation-goal-from-core.
-   */
-  goalStore?: import("./goal/goal-store.js").GoalStore;
-  /**
-   * Optional goal-session primer. When provided, a session linked to a goal on
-   * `session_register` is renamed to the objective and dispatched `/goal …` so
-   * the pi-goal-hermes loop actually starts. See change: prime-goal-linked-sessions.
-   */
-  primeGoalSession?: (
-    sessionId: string,
-    goal: { objective: string; criteria?: import("@blackbelt-technology/pi-dashboard-shared/types.js").GoalCriterion[] },
-  ) => void;
-  /**
    * Optional viewed-session tracker. When provided, the wiring evaluates
    * `isUnreadTrigger(...)` on each forwarded event and stamps
    * `session.unread = true` for sessions no browser is currently viewing.
@@ -275,8 +258,6 @@ export function wireEvents(deps: EventWiringDeps): void {
     pendingWorktreeBaseRegistry,
     pendingPluginRefRegistry,
     dispatchPluginSessionResolved,
-    goalStore,
-    primeGoalSession,
     viewedSessionTracker,
     pendingClientCorrelations,
     pendingPromptAcks,
@@ -487,48 +468,6 @@ export function wireEvents(deps: EventWiringDeps): void {
     // add-goal-session-supervisor (Correlation).
   };
 
-  // Link a goal-driver session to its GoalRecord: stamp in-memory + .meta.json
-  // `goalId`, broadcast, and prime the pursuit. Invoked by the co-located goal
-  // product once the generic plugin-ref seam has merged the core-owned
-  // `session.goalId`. See change: detach-automation-goal-from-core.
-  function linkGoalDriver(sessionId: string, cwd: string, goalId: string): void {
-    if (!goalStore) return;
-    const gs = goalStore;
-    // Replace the driver so a supervisor RESPAWN (dead driver still set) takes
-    // over as the live driver; for a first link this behaves like linkSession.
-    // See change: add-goal-session-supervisor (S5).
-    gs.list(cwd)
-      .then((goals) => {
-        // C2e: clear the OUTGOING driver's in-memory goalId so a late snapshot
-        // from the replaced session can't project onto the goal after handover.
-        const prevDriver = goals.find((g) => g.id === goalId)?.driverSessionId;
-        if (prevDriver && prevDriver !== sessionId) {
-          sessionManager.update(prevDriver, { goalId: undefined });
-        }
-        return gs.replaceDriver(cwd, goalId, sessionId);
-      })
-      .then((updated) => {
-        // Clear any persisted in-flight respawn now the new driver registered.
-        if (updated.inFlightSpawn) void gs.setInFlightSpawn(cwd, goalId, null);
-        sessionManager.update(sessionId, { goalId });
-        const session = sessionManager.get(sessionId);
-        if (session?.sessionFile) {
-          try {
-            mergeSessionMeta(session.sessionFile, { goalId });
-          } catch (err) {
-            console.warn(
-              `[event-wiring] failed to persist goalId to .meta.json for ${sessionId}:`,
-              err,
-            );
-          }
-        }
-        browserGateway.broadcastSessionUpdated(sessionId, { goalId });
-        primeGoalSession?.(sessionId, updated);
-      })
-      .catch((err) => {
-        console.warn(`[event-wiring] failed to link session ${sessionId} to goal ${goalId}:`, err);
-      });
-  }
 
   // Broadcast session ended to browsers when sessions are unregistered
   sessionManager.onUnregister = (sessionId) => {
@@ -1384,7 +1323,6 @@ export function wireEvents(deps: EventWiringDeps): void {
       // forwarding / pending-prompt dispatch (task 3.1). Core carries the blob;
       // it never parses the interior. cwd never confers ownership (task 3.3).
       // See change: detach-automation-goal-from-core.
-      const priorGoalId = sessionManager.get(sessionId)?.goalId;
       {
         const reg = browserGateway.headlessPidRegistry;
         let ref: Record<string, unknown> | undefined;
@@ -1447,19 +1385,6 @@ export function wireEvents(deps: EventWiringDeps): void {
         if (ownerId && ref) dispatchPluginSessionResolved?.(ownerId, sessionId, ref);
       }
 
-      // ── goal-driver link (co-located core product) ───────────────────
-      // The goal product stays in core (Q1 scope). It reads the core-owned
-      // `session.goalId` the generic seam just merged and runs the
-      // goal-specific work: replaceDriver (supervisor handover), clear the
-      // in-flight spawn, prime `/goal`. Fires only on a genuine handover (first
-      // link or a different goalId), so a bridge reconnect / cold-start restore
-      // does not re-prime a live pursuit. See change: detach-automation-goal-from-core.
-      if (goalStore) {
-        const goalId = sessionManager.get(sessionId)?.goalId;
-        if (typeof goalId === "string" && goalId && priorGoalId !== goalId) {
-          linkGoalDriver(sessionId, msg.cwd, goalId);
-        }
-      }
 
       // ── initial-prompt arm ──────────────────────────────────────────
       // Consume any pending initial-prompt intent queued by the no-hook

@@ -36,7 +36,6 @@ import type {
   GoalRecordStatus,
   GoalRespawn,
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mintSpawnToken } from "../auth/spawn-token.js";
 import type { GoalStore } from "./goal-store.js";
 
 // ── Tunables (design Decision 2; scales match automation's 60s rhythm) ──────
@@ -75,6 +74,11 @@ export interface GoalSupervisorDeps {
   resolveSessionFile: (sessionId: string) => string | undefined;
   /** Ask the host to spawn a goal driver (headless, goalId stamped to token). */
   spawnDriver: (req: GoalDriverSpawnRequest) => Promise<{ success: boolean; message?: string }>;
+  /** Mint a fresh spawn-correlation token (host: `ctx.mintSpawnToken`).
+   *  Injected — the supervisor must KNOW the token before spawn so it can
+   *  persist it as crash-recovery state (`inFlightSpawn`). See change:
+   *  relocate-goal-product-to-plugin (D1-#1). */
+  mintSpawnToken: () => string;
   /** Host kill by spawn token (spawn→register window). */
   killByToken: (spawnToken: string) => Promise<boolean>;
   /** Host kill by linked session id. */
@@ -301,7 +305,7 @@ export function createGoalSupervisor(deps: GoalSupervisorDeps): GoalSupervisor {
     }
     if (TERMINAL.has(goal.status) || goal.status === "paused") return;
 
-    const spawnToken = mintSpawnToken();
+    const spawnToken = deps.mintSpawnToken();
     // Persist the in-flight spawn BEFORE launch so a restart mid-respawn does
     // not double-spawn (reconcile checks it) and a stale completion can kill it.
     await store.setInFlightSpawn(cwd, goalId, {

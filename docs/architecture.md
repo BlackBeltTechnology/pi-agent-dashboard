@@ -811,7 +811,9 @@ Generic channel. Any plugin routes pi events bridge→server→browser + request
 
 Goal feature = session supervisor over host's existing session-lifecycle mechanism. Clean split: host owns mechanism (spawn + spawn-token correlation via `linkByToken` + death signal via `dispatchPluginSessionEnded`/`sessionManager.onUnregister` + kill via `abortSpawnedRun` + resume via `spawnPiSession` continue-mode). Goal plugin/server adds pursuit policy only.
 
-Supervisor lives in main server: `packages/server/src/goal-supervisor.ts`. NOT the goal plugin — plugin cannot reach `GoalStore`. Rides existing death fanout.
+**Relocated.** Goal product (store, supervisor, routes, goal_status peers, primer, link handover) now lives in `packages/goal-plugin/src/server/` — `index.ts` is the composition root. Core is goal-agnostic: no `goal/` dir, no goal wiring in `server.ts`/`event-wiring.ts`. Plugin reaches host services via `ServerPluginContext` capabilities (`spawnSession`/`mintSpawnToken`/`renameSession`/`assignSessionRef`/`networkGuard`/`onShutdown`/`onSessionEnded`/`onSessionResolved`/`consume("host.knownFolderCwds")`). REST paths `/api/folders/goals*`, wire types, and data dir `~/.pi/dashboard/goals` unchanged. Manifest id `goal` = owner id for spawn-token refs. Reaches parity with automation-plugin self-containment. See change: relocate-goal-product-to-plugin.
+
+Supervisor lives in goal-plugin: `packages/goal-plugin/src/server/goal-supervisor.ts`. Rides plugin death fanout (`onSessionEnded`).
 
 - Policy: progress-gated auto-respawn. Progress = strict cumulative `totalTurnsUsed` increase past per-driver baseline.
 - Died-after-progress → resume conversation (continue-mode).

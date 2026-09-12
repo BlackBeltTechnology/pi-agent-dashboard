@@ -37,6 +37,11 @@ function depsWithSharedRegistry(): ServerContextDeps {
     consume: <T = unknown>(name: string) => registry.get(name) as T | undefined,
     getPluginConfig: () => ({}),
     updatePluginConfig: async () => {},
+    mintSpawnToken: () => "tok-test",
+    renameSession: () => false,
+    assignSessionRef: () => false,
+    networkGuard: async () => {},
+    onShutdown: () => () => {},
   };
 }
 

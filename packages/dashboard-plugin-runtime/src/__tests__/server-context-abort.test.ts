@@ -32,6 +32,11 @@ function deps(abortSession: ServerContextDeps["abortSession"]): ServerContextDep
     consume: () => undefined,
     getPluginConfig: () => ({}),
     updatePluginConfig: async () => {},
+    mintSpawnToken: () => "tok-test",
+    renameSession: () => false,
+    assignSessionRef: () => false,
+    networkGuard: async () => {},
+    onShutdown: () => () => {},
   };
 }
 

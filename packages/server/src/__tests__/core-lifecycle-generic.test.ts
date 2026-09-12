@@ -35,9 +35,11 @@ describe("core lifecycle branches are plugin-agnostic", () => {
     // automation declares its lifecycle in the engine spawn call.
     const engine = read("packages/automation-plugin/src/server/engine.ts");
     expect(engine).toMatch(/lifecycle:\s*\{\s*recover:\s*false/);
-    // goal declares the same flag when filing its ref in core.
-    const server = read("packages/server/src/server.ts");
-    const goalFiles = [...server.matchAll(/GOAL_REF_OWNER,\s*\{\s*recover:\s*false\s*\}/g)];
-    expect(goalFiles.length).toBeGreaterThanOrEqual(2); // spawnGoalSession + spawnGoalDriver
+    // goal declares the same flag at its plugin composition root (route spawn
+    // + supervisor respawn) — the product relocated out of core in
+    // relocate-goal-product-to-plugin (D3), so the declaration moved with it.
+    const goalEntry = read("packages/goal-plugin/src/server/index.ts");
+    const goalFiles = [...goalEntry.matchAll(/lifecycle:\s*\{\s*recover:\s*false\s*\}/g)];
+    expect(goalFiles.length).toBeGreaterThanOrEqual(2); // spawnGoalSession + spawnDriver
   });
 });
