@@ -50,7 +50,9 @@ Files in this directory. One row per file. Non-source area. See change: migrate-
 | `windows-nsis-no-permachine.ps1` | Asserts NSIS installer is per-user only (design D2). No HKLM Add/Remove entry (32- or 64-bit view), install dir not under Program Files. Assumes `windows-nsis-install.ps1` already ran. |
 | `windows-nsis-uninstall.ps1` | NSIS uninstall preserves user data (design D4). Seeds `~/.pi/qa-preserve-marker.txt`, runs uninstaller `/S`… → see `windows-nsis-uninstall.ps1.AGENTS.md` |
 | `22-worktree-separator.ps1` | Windows `\`-separator worktree smoke (test-plan X14). `git init` temp repo + `git worktree add… → see `22-worktree-separator.ps1.AGENTS.md` |
+| `32-origin-gate.ps1` | Windows twin of `32-origin-gate.sh` (#X5). See change: fix-ws-origin-cswsh. |
 | `28-gateway-windows.ps1` | Windows gateway transport + identity (tasks 5.1/5.5/5.7/12.53). → see `28-gateway-windows.ps1.AGENTS.md` |
 | `29-gateway-posix-no-tcp.sh` | A POSIX DEFAULT start binds no bridge TCP port at all (task 13.8, #X16). → see `29-gateway-posix-no-tcp.sh.AGENTS.md` |
+| `32-origin-gate.sh` | L2 (#X5 → task 5.1). Throwaway `$HOME` dashboard: header-less `POST /api/ws-ticket` → 200, same call with `Origin: http://attacker.example` → 403. BOTH halves on purpose — a refusal-only smoke passes against a gate that refuses everything. Uses `/api/ws-ticket` because it is side-effect-free. SKIPs without `pi-dashboard` on PATH. See change: fix-ws-origin-cswsh. |
 | `31-roles-read-api.sh` | L2 (#X8 → task 9.1). Starts a dashboard in a throwaway `$HOME` with NO pi session spawned, GETs `/api/roles`,… → see `31-roles-read-api.sh.AGENTS.md` |
 | `30-gateway-instance-mismatch.sh` | A record naming one instance while another answers (task 5.4b, D14). → see `30-gateway-instance-mismatch.sh.AGENTS.md` |

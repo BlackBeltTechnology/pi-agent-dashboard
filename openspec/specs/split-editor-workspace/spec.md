@@ -352,7 +352,7 @@ clipping boundary.
   and remain entirely visible within the pane
 - **AND** no row SHALL be cut off by the pane's bottom edge
 
-#### Scenario: Below the floor sum the shortfall clips the bottom rows
+#### Scenario: Below the floor sum the deficit is shared by the shrinkable rows
 
 - **GIVEN** a pane shorter than the sum of its rows' minimum heights
 - **WHEN** the chat pane is rendered

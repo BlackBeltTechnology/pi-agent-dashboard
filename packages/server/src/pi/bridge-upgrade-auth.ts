@@ -60,7 +60,11 @@ export interface BridgeUpgradeInput {
 }
 
 /** Distinct refusal causes — "no credential" ≠ "bad credential" (tasks 5.4/10.3). */
-type BridgeRefusalCause = "local-token-missing" | "local-token-invalid" | "no-ticket";
+type BridgeRefusalCause =
+  | "local-token-missing"
+  | "local-token-invalid"
+  | "no-ticket"
+  | "browser-origin";
 
 export type BridgeUpgradeVerdict =
   | { allow: true; reason: string; deprecated?: boolean; deviceId?: string }
@@ -99,6 +103,20 @@ function ticketFrom(input: BridgeUpgradeInput): string | null {
 export function decideBridgeUpgrade(input: BridgeUpgradeInput): BridgeUpgradeVerdict {
   if (input.transport === "unix") {
     return { allow: true, reason: "unix socket: authorised by file mode (D5)" };
+  }
+
+  // A bridge never sends `Origin`; a browser always does. So on TCP the mere
+  // PRESENCE of the header is refusal — no allow-list, because there is no
+  // legitimate browser peer here, and that keeps the gate independent of the
+  // dashboard's CORS state. Placed BEFORE local-token / ticket / grace so a
+  // page on the victim's own origin cannot ride the loopback grace.
+  // See change: fix-ws-origin-cswsh (D4b).
+  if (input.headers?.origin !== undefined) {
+    return {
+      allow: false,
+      cause: "browser-origin",
+      reason: "tcp: refused bridge upgrade (browser-origin); bridges never send an Origin header",
+    };
   }
 
   // "Genuinely local", not merely "says 127.0.0.1": zrok/ngrok, `ssh -L`,

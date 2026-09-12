@@ -325,3 +325,71 @@ describe("an unauthenticated peer cannot register an arbitrary sessionId (tasks 
     expect(sessions.listAll()).toHaveLength(0);
   });
 });
+
+/**
+ * A bridge never sends `Origin`; a browser always does. So on TCP the mere
+ * PRESENCE of the header is refusal — no allow-list needed, because there is
+ * no legitimate browser peer on the pi gateway (#E10, #X4, design D4b).
+ * See change: fix-ws-origin-cswsh.
+ */
+describe("browser Origin on the pi gateway (#E10)", () => {
+  const ORIGINS = ["http://attacker.example", "http://localhost:8000", "null", ""];
+
+  for (const origin of ORIGINS) {
+    it(`refuses tcp loopback carrying origin=${JSON.stringify(origin)} with no ticket`, () => {
+      const v = decideBridgeUpgrade({
+        transport: "tcp",
+        remoteAddress: "127.0.0.1",
+        headers: { origin },
+        consumeTicket: () => ({ ok: false, reason: "missing" }),
+      });
+      expect(v).toMatchObject({ allow: false, cause: "browser-origin" });
+    });
+
+    it(`refuses tcp loopback carrying origin=${JSON.stringify(origin)} EVEN with a valid ticket`, () => {
+      const s = store();
+      const ticket = s.mint("bridge");
+      const v = decideBridgeUpgrade({
+        transport: "tcp",
+        remoteAddress: "127.0.0.1",
+        headers: { origin },
+        url: `/ws/bridge?ticket=${ticket}`,
+        consumeTicket: consumeWith(s),
+      });
+      expect(v).toMatchObject({ allow: false, cause: "browser-origin" });
+    });
+  }
+
+  it("refuses a REMOTE tcp peer carrying an Origin even with a valid ticket", () => {
+    const s = store();
+    const ticket = s.mint("bridge");
+    const v = decideBridgeUpgrade({
+      transport: "tcp",
+      remoteAddress: "10.1.2.3",
+      headers: { origin: "http://attacker.example" },
+      url: `/ws/bridge?ticket=${ticket}`,
+      consumeTicket: consumeWith(s),
+    });
+    expect(v).toMatchObject({ allow: false, cause: "browser-origin" });
+  });
+
+  it("leaves rows WITHOUT an origin header untouched", () => {
+    const grace = decideBridgeUpgrade({
+      transport: "tcp",
+      remoteAddress: "127.0.0.1",
+      headers: {},
+      consumeTicket: () => ({ ok: false, reason: "missing" }),
+    });
+    expect(grace).toMatchObject({ allow: true, deprecated: true });
+  });
+
+  // #X4 — unix peers are kernel-authorised and bypass the rule entirely.
+  it("#X4 a unix upgrade carrying an Origin is unaffected", () => {
+    const v = decideBridgeUpgrade({
+      transport: "unix",
+      headers: { origin: "http://x" },
+      consumeTicket: () => ({ ok: false, reason: "missing" }),
+    });
+    expect(v.allow).toBe(true);
+  });
+});

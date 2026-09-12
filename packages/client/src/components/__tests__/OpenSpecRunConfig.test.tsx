@@ -1,3 +1,4 @@
+import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import { cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -280,5 +281,59 @@ describe("run-config row — bounded popover height (9th consumer surface)", () 
     expect(levelScroll).not.toBeNull();
     expect(levelScroll?.style.maxHeight).not.toBe("");
     expect(levelScroll?.style.minHeight).not.toBe("");
+  });
+});
+/**
+ * Layering of the row's popovers when the host is the REAL `Dialog` (not the
+ * `role="dialog"` stand-in above, which only exercises boundary resolution).
+ *
+ * `Dialog` paints at `z-dialog` (50) and lays a `bg-black/60` backdrop over the
+ * whole viewport; a popover portaled to `document.body` lands at `z-popover`
+ * (40) as its SIBLING, so it sinks behind that backdrop and every click on it
+ * hits the backdrop and dismisses the dialog. The fix is to portal to the
+ * nearest layer host — the dialog panel — rather than always to `body`.
+ *
+ * See change: fix-composer-popover-layering.
+ */
+describe("run-config row — popover layering inside a real Dialog", () => {
+  function renderInRealDialog() {
+    render(
+      <RunConfigHarness value={makeRunConfig()}>
+        <Dialog open onClose={vi.fn()} title="Run config" testId="real-dialog">
+          <Host onSend={vi.fn()} />
+        </Dialog>
+      </RunConfigHarness>,
+    );
+    return screen.getByTestId("real-dialog");
+  }
+
+  it("renders the model dropdown inside the dialog panel, not behind it", () => {
+    const dialogPanel = renderInRealDialog();
+    fireEvent.click(screen.getByTestId("model-selector-button"));
+
+    const dropdown = screen.getByTestId("model-dropdown");
+    expect(dialogPanel.contains(dropdown)).toBe(true);
+    // The failure mode being locked out: a body-level sibling of the dialog.
+    expect(dropdown.parentElement).not.toBe(document.body);
+  });
+
+  it("renders the thinking-level dropdown inside the dialog panel", () => {
+    const dialogPanel = renderInRealDialog();
+    fireEvent.click(screen.getByTestId("thinking-level-button"));
+
+    expect(dialogPanel.contains(screen.getByTestId("thinking-level-dropdown"))).toBe(true);
+  });
+
+  it("contrast: with no dialog host the dropdown still portals to the layer root", () => {
+    // Proves the assertions above are load-bearing: the composer case — the bug
+    // this change fixes — must keep escaping to `body`.
+    render(
+      <RunConfigHarness value={makeRunConfig()}>
+        <Host onSend={vi.fn()} />
+      </RunConfigHarness>,
+    );
+    fireEvent.click(screen.getByTestId("model-selector-button"));
+
+    expect(screen.getByTestId("model-dropdown").parentElement).toBe(document.body);
   });
 });

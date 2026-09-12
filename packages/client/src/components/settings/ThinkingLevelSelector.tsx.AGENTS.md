@@ -9,3 +9,9 @@ See change: honor-native-models-json-metadata — `THINKING_LEVELS` extended to 
 ## fix-popover-pane-bounded-height
 
 - `usePopoverFlip` now returns `minHeight` (floor, capped by `maxHeight`) alongside `maxHeight` (bound, never floor-inflated). This file applies BOTH as inline styles — applying only `maxHeight` would silently lose the floor.
+
+## fix-composer-popover-layering
+
+- Same port as `ModelSelector`: `LayerPortal` + `fixed z-popover`, `triggerRect`-driven positioning, `panelRef`-first outside-click (+ `touchstart`).
+- Keeps the fixed `w-32` and does NOT destructure `maxWidth` — width is not pane-derived here.
+- Portaling moves the panel OUT of the component container: tests must query it via `screen`/`baseElement`, not `within(container)`.

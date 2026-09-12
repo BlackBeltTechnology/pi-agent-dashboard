@@ -3054,7 +3054,39 @@ The Fastify CORS callback in `server.ts` allows:
 - Any `*.share.zrok.io` host (covers stale tabs, new reservations, and the brief window before `activeTunnelUrl` is populated on startup).
 - Explicitly-configured `corsAllowedOrigins` from config.
 
-On a mismatch the callback returns `cb(null, false)` — **not** `cb(new Error(…), false)`. The `Error` form causes `@fastify/cors` to surface the error as HTTP 500 on every asset response, which is exactly what caused the long-running “zrok returns 500 on assets” debugging saga: Vite emits `<script type="module" crossorigin>` entry tags, which per HTML spec browsers always fetch in CORS mode (even same-origin), so the tunnel URL appearing in `Origin` is unavoidable. Returning `cb(null, false)` simply omits CORS headers; the browser enforces same-origin policy on its own.
+On a mismatch the callback returns `cb(null, false)` — **not** `cb(new Error(…), false)`. The `Error` form causes `@fastify/cors` to surface the error as HTTP 500 on every asset response, which is exactly what caused the long-running “zrok returns 500 on assets” debugging saga: Vite emits `<script type="module" crossorigin>` entry tags, which per HTML spec browsers always fetch in CORS mode (even same-origin), so the tunnel URL appearing in `Origin` is unavoidable. Returning `cb(null, false)` simply omits CORS headers; the browser enforces same-origin policy on its own. CORS answers READ-authority only (may this origin see the response); ADMISSION — may this origin open a socket or mutate state — is decided by the next subsection.
+
+### Cross-Site Request Gate
+
+Issue #625. CORS hides a response, never blocks the request. Gate blocks the act, not the read.
+
+**Shared decision** — `packages/server/src/auth/cors-origin.ts`, `isOriginAdmitted(origin, hostHeader, opts)` = `isCorsOriginAllowed` plus 2 deltas.
+
+- Delta 1, Host match: Origin `host[:port]` equals request `Host` → admit. Both normalized with `new URL()`; origin scheme applied to Host so default ports elide. Covers mDNS `http://mac.local:8000` + plain-LAN pages. `isBypassedHost` matches IP literals only; without this rule hostname-addressed clients 403.
+- Delta 2, no zrok wildcard: `isCorsOriginAllowed` gains `allowZrokWildcard` — default `true` for CORS, `false` for admission. `*.share.zrok.io` / `*.shares.zrok.io` skipped for admission. Zrok shares are free + self-service, so a stranger share is likely same-site to the victim tunnel. Dashboard-run tunnels are live tunnel origins, still admitted.
+- Absent `Origin` → admit. Bridge, `pi-dashboard` CLI, `curl`, skill send none. Browsers cannot omit it. Empty `""`, whitespace-padded, malformed → deny.
+
+**WebSocket gate** — `server.ts`, `fastify.server.on("upgrade")`, `isWsOriginTrusted(origin, host, scope, corsOpts())`.
+
+- FIRST statement after `scope`, ahead of the `bridge` 400 early-return and the `authConfig.secret` branch.
+- Untrusted → `HTTP/1.1 403 Forbidden` + `socket.destroy()`. Refused dial never consumes a ws-ticket.
+- Cannot distinguish routed from unrouted path.
+- `live` scope admits `Origin: null` — sandboxed live-preview iframe is the only intended client; refusal breaks HMR. `browser`, `terminal`, `bridge`, unrouted scopes stay strict.
+
+**REST gate** — `packages/server/src/auth/mutation-origin-gate.ts`, `createMutationOriginGate(getOpts)` returns a Fastify `onRequest` hook, registered in `server.ts` after the CORS plugin.
+
+- Gates `req.routeOptions.url` starting `/api/` or equal `/auth/logout`.
+- Skips GET/HEAD/OPTIONS; OPTIONS is safe, so preflights still get CORS headers.
+- Refuses `403 {"error":"untrusted origin"}`.
+- Matches the post-routing route PATTERN, never raw `req.url`; `//api/x` either fails to route or resolves to the gated pattern.
+
+**pi-gateway** — `packages/server/src/pi/bridge-upgrade-auth.ts`. TCP upgrade carrying any `headers.origin` refused, cause `browser-origin`. Sits after the `transport === "unix"` allow, before local-token / ticket / grace. No allow-list; bridges never send Origin.
+
+**One config source** — a single `corsOpts()` closure in `server.ts` feeds the CORS plugin + WS gate + REST gate. Live thunks, built per decision. Tunnel rotation + runtime `cors.allowedOrigins` edits are seen by all three, no restart.
+
+**Logs** — `[ws-gate] rejected upgrade origin=… scope=… peer=…`; `[csrf-gate] rejected <method> <path> origin=…`; `[pi-gateway] … browser-origin`. Fields are attacker-controlled; `sanitizeHeaderForLog` strips control chars, caps 256.
+
+**Escape hatch** — a hand-run `zrok share public` (not the dashboard tunnel feature) needs its origin in `cors.allowedOrigins` (`~/.pi/dashboard/config.json`).
 
 ### HTTP Compression
 
