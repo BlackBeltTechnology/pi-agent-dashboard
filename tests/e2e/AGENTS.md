@@ -15,6 +15,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `bridge-contention-health.spec.ts` | L3 (test-plan #F6). Asserts `/api/health` always carries `bridgeContentionCount` + `contendedSessionIds`,… → see `bridge-contention-health.spec.ts.AGENTS.md` |
 | `bus-client-goal-plugin-action.spec.ts` | L3/P1 (change: add-dashboard-bus-client-scripting). Drives `BusClient` from host against the harness (port… → see `bus-client-goal-plugin-action.spec.ts.AGENTS.md` |
 | `chat-attachment-two-phase.spec.ts` | Two-phase attachment render E2E (change: fit-attachments-for-display)… → see `chat-attachment-two-phase.spec.ts.AGENTS.md` |
+| `chat-pane-below-floor-allocation.spec.ts` | Browser E2E for below-floor chat pane allocation (change: define-chat-pane-below-floor-allocation). Verifies shrinkable rows, deficit sharing, and fixed row preservation. |
 | `chat-render-fx.spec.ts` | Browser E2E gate for `reduce-chat-render-cpu-umbrella` (umbrella-own surface not gated by… → see `chat-render-fx.spec.ts.AGENTS.md` |
 | `chat-render-perf.spec.ts` | ADVISORY opt-in perf probe for `reduce-chat-render-cpu-umbrella` (tasks 2.8/4.4/5.1). → see `chat-render-perf.spec.ts.AGENTS.md` |
 | `chat-transcript-virtualization.spec.ts` | Browser E2E gate for `virtualize-chat-transcript-tanstack` (Phase 2 Step B) + preserved `chat-scroll-lock`. → see `chat-transcript-virtualization.spec.ts.AGENTS.md` |

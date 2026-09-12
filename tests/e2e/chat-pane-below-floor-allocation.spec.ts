@@ -81,10 +81,9 @@ test.describe("chat-pane below-floor allocation", () => {
 
     // Fixed row (composer-context-strip) holds its content height
     const strip = page.getByTestId("composer-context-strip");
-    if (await strip.isVisible()) {
-      const stripBox = await strip.boundingBox();
-      expect(stripBox!.height).toBeGreaterThan(20);
-    }
+    await expect(strip).toBeVisible();
+    const stripBox = await strip.boundingBox();
+    expect(stripBox!.height).toBeGreaterThan(20);
   });
 
   test("3.7 min-height beats max-h-[40%] below floor sum (#E9)", async ({ page }) => {
