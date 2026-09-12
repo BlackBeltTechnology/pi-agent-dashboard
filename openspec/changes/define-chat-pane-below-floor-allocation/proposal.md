@@ -26,10 +26,23 @@ proportional degradation, but describing it is not the same as endorsing it.
 
 ## What Changes
 
-- Define the shrinkable rows of `split-chat-pane`, their shrink weights, and each
-  row's lower bound.
-- Specify below-floor behavior as a deliberate allocation rather than an artifact
-  of child order — no row should be the designated victim purely for being last.
+- Classify every row of `split-chat-pane` as **shrinkable** (owns a scrollport, so
+  losing height hides content behind a scrollbar) or **fixed** (would paint over
+  its neighbour instead), and give the shrinkable rows declared weights and lower
+  bounds. This covers the conditional rows the current layout never accounted for:
+  the `content-header-sticky` slot wrapper, `SessionBanner`, `QueuePanel`, the
+  transcript's error-boundary fallback, and `StatusBar` (which is itself null when
+  idle) — each inflates the floor sum whenever it renders.
+- Declare the transcript floor explicitly. `ChatView` carries no `min-height`
+  today; the `16px` floor observed in the measurements is emergent, so any rule
+  written against "the transcript floor" is currently written against nothing.
+- Specify below-floor behavior as a deliberate ordering rather than an artifact of
+  child order: nothing is clipped while a scrollable row still has height to give.
+  The original symptom — the quota bar clipped while the transcript sat comfortably
+  — is exactly what that forbids. Residual clipping after the scrollable rows
+  bottom out remains, declared rather than accidental; removing it entirely needs a
+  JS allocator this change deliberately does not take on (see `design.md`
+  Decision 1).
 - Add height-based regression coverage at each boundary (at the floor sum, just
   below it, and far below it). Today's `tests/e2e/split-composer-overflow.spec.ts`
   only covers horizontal overflow.
@@ -42,9 +55,13 @@ proportional degradation, but describing it is not the same as endorsing it.
 
 ## Priority
 
-**Low.** The band is not reachable in practice — a stacked mobile split on an
-`844px` screen gives the chat pane roughly `400px`, against a `~145px` threshold.
-This is correctness hygiene for the layout contract, not a user-facing defect.
+**Medium.** The band is reachable, contrary to the original read. The default
+stacked mobile split on an `844px` screen gives the chat pane roughly `400px`,
+but `RATIO_MIN = 0.25` (`packages/client/src/lib/layout/split-state.ts:18`) lets
+the user drag the divider down to a quarter of the content area — about `140px`
+on a `667px` phone, inside the measured clipping band. Every conditional row that
+renders (banner, queue panel, sticky header contribution) raises the floor sum and
+widens the band further. Not a default-state defect, but not unreachable either.
 
 ## Discipline Skills
 
