@@ -61,16 +61,16 @@ describe("PluginStatusStore.recordBridgeProbe", () => {
       requirements: {
         piExtensions: [{ name: "pi-web-access", satisfied: false }],
         binaries: [{ name: "zrok", satisfied: true, resolvedPath: "/usr/bin/zrok" }],
-        services: [{ name: "pi-model-proxy", satisfied: false, error: "unreachable" }],
+        services: [{ name: "model-proxy", satisfied: false, error: "unreachable" }],
         paths: [],
       },
-      missingRequirements: ["pi-web-access", "pi-model-proxy"],
+      missingRequirements: ["pi-web-access", "model-proxy"],
     });
     const got = store.getStatus("with-req");
     expect(got?.requirements?.piExtensions[0].satisfied).toBe(false);
     expect(got?.requirements?.binaries[0].resolvedPath).toBe("/usr/bin/zrok");
     expect(got?.requirements?.services[0].error).toBe("unreachable");
-    expect(got?.missingRequirements).toEqual(["pi-web-access", "pi-model-proxy"]);
+    expect(got?.missingRequirements).toEqual(["pi-web-access", "model-proxy"]);
   });
 
   it("recordBridgeProbe for unknown pluginId is silently dropped at listAll time", () => {

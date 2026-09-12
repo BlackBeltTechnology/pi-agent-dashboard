@@ -2,8 +2,8 @@
  * Pi core version checker.
  *
  * Discovers installed pi-ecosystem CORE packages (pi-coding-agent itself,
- * pi-agent-dashboard, pi-model-proxy, and similar globally-installed CLI
- * tooling) and compares their versions against the npm registry.
+ * pi-agent-dashboard, and similar globally-installed CLI tooling) and
+ * compares their versions against the npm registry.
  *
  * Complements the existing PackageManagerWrapper, which only manages
  * packages listed in `settings.json packages[]` (extensions, skills,
@@ -39,7 +39,6 @@ export const CORE_PACKAGE_NAMES: readonly string[] = [
 	"@earendil-works/pi-coding-agent",
 	"@mariozechner/pi-coding-agent",
 	"@blackbelt-technology/pi-agent-dashboard",
-	"@blackbelt-technology/pi-model-proxy",
 ];
 
 /** Display name mapping for known packages. Falls back to package name. */
@@ -47,7 +46,6 @@ const DISPLAY_NAMES: Readonly<Record<string, string>> = {
 	"@earendil-works/pi-coding-agent": "pi (core agent)",
 	"@mariozechner/pi-coding-agent": "pi (core agent — legacy fork)",
 	"@blackbelt-technology/pi-agent-dashboard": "pi-dashboard",
-	"@blackbelt-technology/pi-model-proxy": "pi-model-proxy",
 };
 
 export interface PiCorePackage {

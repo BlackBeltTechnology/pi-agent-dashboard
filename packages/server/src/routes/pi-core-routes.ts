@@ -6,7 +6,7 @@
  *
  * Complements /api/packages/* (extension management): this endpoint covers
  * globally-installed pi CLI packages like @earendil-works/pi-coding-agent,
- * pi-dashboard itself, pi-model-proxy, etc.
+ * pi-dashboard itself, etc.
  */
 import type { FastifyInstance } from "fastify";
 import type {

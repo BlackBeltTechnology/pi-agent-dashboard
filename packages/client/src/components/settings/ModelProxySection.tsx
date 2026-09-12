@@ -42,8 +42,6 @@ export interface ModelProxyConfig {
 interface Props {
   config: ModelProxyConfig;
   onChange: (patch: ModelProxyConfig) => void;
-  /** Set to true when bridge reports @blackbelt-technology/pi-model-proxy is installed in pi settings.json */
-  upstreamExtensionDetected?: boolean;
   /** Registry-available models (`provider/id`), for the ModelSelector + availability pills. */
   availableModels?: Array<{ provider: string; id: string }>;
 }
@@ -397,7 +395,7 @@ function KeyRow({ entry, onRevoke, onDelete }: KeyRowProps) {
 
 // ── Main section component ────────────────────────────────────────────────
 
-export function ModelProxySection({ config, onChange, upstreamExtensionDetected, availableModels }: Props) {
+export function ModelProxySection({ config, onChange, availableModels }: Props) {
   const models = availableModels ?? [];
   const availableSet = React.useMemo(
     () => new Set(models.map((m) => `${m.provider}/${m.id}`)),
@@ -507,22 +505,6 @@ export function ModelProxySection({ config, onChange, upstreamExtensionDetected,
           />
         </button>
       </div>
-
-      {/* Task 14.1: coexistence warning — non-blocking, user-initiated disable only */}
-      {config.enabled && upstreamExtensionDetected && (
-        <div className="rounded border border-amber-700/50 bg-amber-950/30 px-3 py-2 text-xs text-amber-300">
-          <strong>{i18nT("common.note", undefined, "Note:")}</strong> {i18nT("common.theUpstream", undefined, "The upstream")} <code>@blackbelt-technology/pi-model-proxy</code> {i18nT("packages.extensionIsAlsoActiveInOne", undefined, "extension is also active in one or more pi sessions.\n          Both will work; the dashboard proxy runs on")} <code>:8000/v1</code> {i18nT("common.whileTheUpstreamUses", undefined, "while the upstream uses")} <code>:9876</code>{i18nT("common.consider", undefined, ".\n          Consider")}{" "}
-          <a
-            href="https://github.com/BlackBeltTechnology/pi-model-proxy#disable"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline hover:text-amber-100"
-          >
-            {i18nT("packages.disablingTheUpstreamExtension", undefined, "disabling the upstream extension")}
-          </a>{" "}
-          {i18nT("common.toAvoidDuplicateListeners", undefined, "to avoid duplicate listeners.")}
-        </div>
-      )}
 
       {config.enabled && (
         <>

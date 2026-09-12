@@ -17,7 +17,6 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 				"pi-agent-browser",
 				"@blackbelt-technology/pi-dashboard-subagents",
 				"@blackbelt-technology/pi-image-fit-extension",
-				"@blackbelt-technology/pi-model-proxy",
 				"@ricoyudog/pi-goal-hermes",
 				"context-mode",
 				"pi-flows",
@@ -121,14 +120,35 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 
 	it("requires, when present, only names binaries/services/piExtensions that are probeable", () => {
 		// Guard against shipping always-red requirements: a declared `services`
-		// entry must be a known service probe (V1 closed registry: pi-model-proxy).
-		const KNOWN_SERVICES = new Set(["pi-model-proxy"]);
+		// entry must be a known service probe (V1 closed registry: model-proxy).
+		const KNOWN_SERVICES = new Set(["model-proxy"]);
 		for (const e of RECOMMENDED_EXTENSIONS) {
 			if (!e.requires) continue;
 			for (const svc of e.requires.services ?? []) {
 				expect(KNOWN_SERVICES.has(svc)).toBe(true);
 			}
 		}
+	});
+
+	it("E10: no entry references the upstream @blackbelt-technology/pi-model-proxy", () => {
+		// See change: remove-pi-model-proxy-upstream-references.
+		const upstream = RECOMMENDED_EXTENSIONS.filter(
+			(e) =>
+				e.id.includes("@blackbelt-technology/pi-model-proxy") ||
+				e.source.includes("@blackbelt-technology/pi-model-proxy"),
+		);
+		expect(upstream).toEqual([]);
+		for (const e of RECOMMENDED_EXTENSIONS) {
+			expect(e.fallbackDescription.includes("pi-model-proxy")).toBe(false);
+		}
+	});
+
+	it("E11: every declared service is in the closed registry {model-proxy}", () => {
+		// See change: remove-pi-model-proxy-upstream-references.
+		const services = new Set(
+			RECOMMENDED_EXTENSIONS.flatMap((e) => e.requires?.services ?? []),
+		);
+		for (const svc of services) expect(["model-proxy"]).toContain(svc);
 	});
 });
 
@@ -168,7 +188,6 @@ describe("getRecommendedByStatus", () => {
 				"pi-agent-browser",
 				"@blackbelt-technology/pi-dashboard-subagents",
 				"@blackbelt-technology/pi-image-fit-extension",
-				"@blackbelt-technology/pi-model-proxy",
 				"@ricoyudog/pi-goal-hermes",
 				"pi-hermes-memory",
 				"pi-simplify",

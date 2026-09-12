@@ -317,7 +317,16 @@ async function enrichEntry(
 
 export function registerRecommendedRoutes(
 	fastify: FastifyInstance,
-	deps: { packageManagerWrapper: PackageManagerWrapper },
+	deps: {
+		packageManagerWrapper: PackageManagerWrapper;
+		/**
+		 * Boot-time `modelProxy.enabled` accessor, forwarded to the `model-proxy`
+		 * service probe. Optional so existing test call sites keep compiling; a
+		 * host that omits it reports `probe not wired`. See change:
+		 * remove-pi-model-proxy-upstream-references.
+		 */
+		isModelProxyEnabled?: () => boolean;
+	},
 ): void {
 	fastify.get("/api/packages/recommended", async () => {
 		const now = Date.now();
@@ -348,6 +357,7 @@ export function registerRecommendedRoutes(
 		const reqDeps: RequirementProbeDeps = {
 			listInstalled: async () => [...installedGlobal, ...installedLocal],
 			toolRegistry: getDefaultRegistry(),
+			isModelProxyEnabled: deps.isModelProxyEnabled,
 		};
 
 		// One memoized package.json parse per path for this request, shared by

@@ -412,12 +412,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
   // Cached per-provider health from GET /api/providers (`health[name]`), used to
   // seed each row's pill. See change: surface-provider-health-in-settings.
   const [providerHealth, setProviderHealth] = useState<Record<string, ProviderHealth>>({});
-  // Detect upstream pi-model-proxy extension for ModelProxySection coexistence advisory.
-  // See change: add-dashboard-model-proxy task 14.1.
-  const installedTopLevel = useInstalledPackages("global");
-  const upstreamPiModelProxyInstalled = installedTopLevel.packages.some(
-    (p) => p.source === "npm:@blackbelt-technology/pi-model-proxy",
-  );
   const [originalLlmProviders, setOriginalLlmProviders] = useState<LlmProvider[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1956,7 +1950,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   <ModelProxySection
                     config={config.modelProxy ?? {}}
                     onChange={(patch) => update((c) => { c.modelProxy = { ...c.modelProxy, ...patch }; })}
-                    upstreamExtensionDetected={upstreamPiModelProxyInstalled}
                     availableModels={catalogueModels}
                   />
                 </Section>

@@ -19,13 +19,13 @@ describe("manifest validator — requires", () => {
       requires: {
         piExtensions: ["pi-web-access"],
         binaries: ["zrok"],
-        services: ["pi-model-proxy"],
+        services: ["model-proxy"],
       },
     });
     expect(m.requires).toEqual({
       piExtensions: ["pi-web-access"],
       binaries: ["zrok"],
-      services: ["pi-model-proxy"],
+      services: ["model-proxy"],
     });
   });
 

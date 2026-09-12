@@ -96,7 +96,7 @@ export function UnifiedPackagesSection() {
 	const launchSource = useLaunchSource();
 	const hideCoreGroup = launchSource === "electron";
 
-	// ── Core data (Pi Ecosystem core: pi, pi-dashboard, pi-model-proxy) ──
+	// ── Core data (Pi Ecosystem core: pi, pi-dashboard) ──
 	const { status, isLoading, error, refresh } = usePiCoreVersions();
 
 	// Live tick for "last checked N min ago"

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-OpenAI- and Anthropic-compatible HTTP proxy hosted by the dashboard server. Exposes `/v1/models`, `/v1/chat/completions`, and `/v1/messages` backed by the dashboard's effective model catalog (built-in providers, custom providers from `~/.pi/agent/providers.json`, custom models from `~/.pi/agent/models.json`, and OAuth state from `~/.pi/agent/auth.json`). Always-on lifetime tied to the dashboard process; authenticated uniformly via per-key proxy API keys (`pi-proxy-...`); coexists with upstream `@blackbelt-technology/pi-model-proxy`.
+OpenAI- and Anthropic-compatible HTTP proxy hosted by the dashboard server. Exposes `/v1/models`, `/v1/chat/completions`, and `/v1/messages` backed by the dashboard's effective model catalog (built-in providers, custom providers from `~/.pi/agent/providers.json`, custom models from `~/.pi/agent/models.json`, and OAuth state from `~/.pi/agent/auth.json`). Always-on lifetime tied to the dashboard process; authenticated uniformly via per-key proxy API keys (`pi-proxy-...`).
 
 ## Requirements
 

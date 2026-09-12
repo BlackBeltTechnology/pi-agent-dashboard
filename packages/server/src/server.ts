@@ -1724,6 +1724,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     } as any);
   });
 
+  // Boot-time `modelProxy.enabled`, captured once inside the Model Proxy block
+  // below. The `model-proxy` service probe reports this value, not a live
+  // `loadConfig()` read: `/v1/*` route registration is itself boot-frozen, so a
+  // config save without a restart must not move the probe. Declared here (at
+  // `createServer` scope) because the injection sites precede the block.
+  // See change: remove-pi-model-proxy-upstream-references (D1).
+  let modelProxyMounted = false;
+
   // On completion: broadcast to browsers + invalidate the recommended cache
   packageManagerWrapper.setCompleteListener((result) => {
     browserGateway.broadcastToAll({
@@ -1749,6 +1757,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         null,
         {
           listInstalled: () => packageManagerWrapper.listInstalled("global"),
+          isModelProxyEnabled: () => modelProxyMounted,
         },
         (id) => getPluginConfigFromFile(loadConfig(), id) as Record<string, unknown>,
       ).then((changed) => {
@@ -1788,7 +1797,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         .listSessions()
         .map((e) => ({ sessionId: e.sessionId, cwd: e.cwd })),
   });
-  registerRecommendedRoutes(fastify, { packageManagerWrapper });
+  registerRecommendedRoutes(fastify, {
+    packageManagerWrapper,
+    isModelProxyEnabled: () => modelProxyMounted,
+  });
 
   // Pi core version check + update (complements the extension package manager).
   const piCoreChecker = new PiCoreChecker();
@@ -1939,6 +1951,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // ── Model Proxy ───────────────────────────────────────────────────
   {
     const fullCfg = loadConfig();
+    modelProxyMounted = fullCfg.modelProxy.enabled;
     if (fullCfg.modelProxy.enabled) {
       // Register proxy auth gate (runs BEFORE JWT hook for /v1/* routes)
       const proxyAuthGate = createModelProxyAuthGate({
@@ -2285,6 +2298,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           },
           requirementDeps: {
             listInstalled: () => packageManagerWrapper.listInstalled("global"),
+            isModelProxyEnabled: () => modelProxyMounted,
           },
           // Supplies the validated config a `requires.paths` ${configKey}
           // placeholder resolves against. See change: add-apple-tools-imcp-plugin.

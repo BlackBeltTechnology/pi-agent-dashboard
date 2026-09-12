@@ -32,6 +32,17 @@ describe("PiCoreChecker._internal.looksLikePiEcosystem", () => {
 	});
 });
 
+describe("pi-core whitelist excludes the upstream pi-model-proxy (E12)", () => {
+	it("CORE_PACKAGE_NAMES has 3 entries; DISPLAY_NAMES has no pi-model-proxy key", () => {
+		// See change: remove-pi-model-proxy-upstream-references.
+		expect(CORE_PACKAGE_NAMES).toHaveLength(3);
+		expect(CORE_PACKAGE_NAMES).not.toContain("@blackbelt-technology/pi-model-proxy");
+		expect(Object.keys(_internal.DISPLAY_NAMES)).not.toContain(
+			"@blackbelt-technology/pi-model-proxy",
+		);
+	});
+});
+
 describe("PiCoreChecker.getStatus", () => {
 	let tmpManagedDir: string;
 	let originalOffline: string | undefined;
@@ -113,6 +124,28 @@ describe("PiCoreChecker.getStatus", () => {
 		});
 		const status = await checker.getStatus();
 		expect(status.packages).toEqual([]);
+	});
+
+	it("E13: installed-but-not-core upstream pi-model-proxy is omitted from status", async () => {
+		// See change: remove-pi-model-proxy-upstream-references.
+		const checker = new PiCoreChecker({
+			npmList: async () =>
+				JSON.stringify({
+					dependencies: {
+						"@earendil-works/pi-coding-agent": { version: "0.85.1" },
+						"@mariozechner/pi-coding-agent": { version: "0.70.6" },
+						"@blackbelt-technology/pi-agent-dashboard": { version: "0.5.0" },
+						"@blackbelt-technology/pi-model-proxy": { version: "0.2.0" },
+					},
+				}),
+			fetchLatest: async () => null,
+			managedDir: path.join(tmpManagedDir, "nope"),
+		});
+		const status = await checker.getStatus();
+		expect(status.packages).toHaveLength(3);
+		expect(
+			status.packages.some((p) => p.name === "@blackbelt-technology/pi-model-proxy"),
+		).toBe(false);
 	});
 
 	it("discovers managed packages and prefers them over global duplicates", async () => {

@@ -2,7 +2,7 @@
  * Tests for requirement-probes (probePiExtension / probeBinary / probeService /
  * runRequirementProbes / TTL cache). See change: add-plugin-activation-ui.
  */
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   probePiExtension,
   probeBinary,
@@ -14,9 +14,12 @@ import {
   getCachedReport,
   setCachedReport,
   clearRequirementCache,
+  type RequirementProbeDeps,
 } from "../server/requirement-probes.js";
+import * as srv from "../server/index.js";
 
 beforeEach(() => clearRequirementCache());
+afterEach(() => vi.restoreAllMocks());
 
 describe("probePiExtension", () => {
   it("satisfied when listInstalled has matching name", async () => {
@@ -83,12 +86,84 @@ describe("probeService", () => {
       error: "unknown service name",
     });
   });
+});
 
-  it("dispatches to pi-model-proxy probe", async () => {
-    const fetchImpl = (async () =>
-      new Response(JSON.stringify({ data: [{ id: "anthropic/claude" }] }), { status: 200 })) as any;
-    const r = await probeService("pi-model-proxy", { fetchImpl });
-    expect(r.satisfied).toBe(true);
+// See change: remove-pi-model-proxy-upstream-references (E1–E6).
+describe("probeService — model-proxy (closed registry)", () => {
+  it("E1: dep true → satisfied, no HTTP performed", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const report = await runRequirementProbesFor(
+      { services: ["model-proxy"] },
+      { isModelProxyEnabled: () => true },
+    );
+    expect(report.services[0]).toEqual({ name: "model-proxy", satisfied: true });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("E2: dep false → disabled + flows to missingRequirements", async () => {
+    const report = await runRequirementProbesFor(
+      { services: ["model-proxy"] },
+      { isModelProxyEnabled: () => false },
+    );
+    expect(report.services[0]).toEqual({
+      name: "model-proxy",
+      satisfied: false,
+      error: "model proxy disabled",
+    });
+    expect(missingFromReport(report)).toContain("model-proxy");
+  });
+
+  it("E3: dep key absent → probe not wired", async () => {
+    const report = await runRequirementProbesFor({ services: ["model-proxy"] }, {});
+    expect(report.services[0]).toEqual({
+      name: "model-proxy",
+      satisfied: false,
+      error: "probe not wired",
+    });
+  });
+
+  it("E4: former name is not an alias → unknown service name", async () => {
+    const r = await probeService("pi-model-proxy", { isModelProxyEnabled: () => true });
+    expect(r).toEqual({
+      name: "pi-model-proxy",
+      satisfied: false,
+      error: "unknown service name",
+    });
+  });
+
+  it("E5: mixed list → only the former name is missing", async () => {
+    const report = await runRequirementProbesFor(
+      { services: ["model-proxy", "pi-model-proxy"] },
+      { isModelProxyEnabled: () => true },
+    );
+    expect(missingFromReport(report)).toEqual(["pi-model-proxy"]);
+  });
+
+  it("E6: reads the dep per call (no build-time snapshot)", async () => {
+    let v = true;
+    const deps: RequirementProbeDeps = { isModelProxyEnabled: () => v };
+    const first = await runRequirementProbesFor({ services: ["model-proxy"] }, deps);
+    v = false;
+    const second = await runRequirementProbesFor({ services: ["model-proxy"] }, deps);
+    expect(first.services[0].satisfied).toBe(true);
+    expect(second.services[0].satisfied).toBe(false);
+  });
+});
+
+// See change: remove-pi-model-proxy-upstream-references (E9).
+describe("dashboard-plugin-runtime server barrel API", () => {
+  it("E9: removed proxy-detection exports are gone; RequirementProbeDeps has no fetchImpl", () => {
+    expect(srv.detectPiModelProxy).toBeUndefined();
+    expect(srv.pickProxyDefaultModel).toBeUndefined();
+    expect(srv.PROXY_MODEL_PREFERENCE).toBeUndefined();
+    expect(srv.PROXY_MODELS_URL).toBeUndefined();
+
+    const deps: RequirementProbeDeps = {
+      listInstalled: async () => [],
+      // @ts-expect-error fetchImpl was removed (no shipped probe performs HTTP)
+      fetchImpl: async () => new Response(),
+    };
+    expect(deps).toBeDefined();
   });
 });
 
@@ -103,12 +178,6 @@ describe("runRequirementProbes", () => {
   });
 
   it("reports mixed satisfied/unsatisfied", async () => {
-    const fetchImpl = (async (url: string) => {
-      if (typeof url === "string" && url.includes("/v1/models")) {
-        return new Response(JSON.stringify({ data: [{ id: "m" }] }), { status: 200 });
-      }
-      return new Response("{}", { status: 500 });
-    }) as any;
     const report = await runRequirementProbes(
       {
         id: "x",
@@ -117,7 +186,7 @@ describe("runRequirementProbes", () => {
         requires: {
           piExtensions: ["foo-ext"],
           binaries: ["rg", "nonexistent-binary"],
-          services: ["pi-model-proxy"],
+          services: ["model-proxy"],
         },
       },
       {
@@ -126,7 +195,7 @@ describe("runRequirementProbes", () => {
           resolve: (n: string) =>
             n === "rg" ? { ok: true, resolvedPath: "/usr/bin/rg" } : { ok: false },
         },
-        fetchImpl,
+        isModelProxyEnabled: () => true,
       },
     );
 
