@@ -413,8 +413,10 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   // interactive request flips the selector off.
   // See change: fix-pending-prompt-lost-on-replay.
   const promptDesync = usePromptDesync(promptDesyncGatesFromState(state, !!replayInFlight), sessionId);
-  // Embedded surfaces without the shell's resync sender never see the pill.
-  const showPromptDesyncAffordance = promptDesync && onPromptResync !== undefined;
+  // Embedded surfaces without the shell's resync sender (or without a session
+  // id to target) never see the pill — no dead control.
+  const showPromptDesyncAffordance =
+    promptDesync && onPromptResync !== undefined && sessionId !== undefined;
   /**
    * ONE suppression window shared by EVERY programmatic `scrollTop` /
    * `scrollToIndex` writer in this file, rather than a list of per-writer refs.

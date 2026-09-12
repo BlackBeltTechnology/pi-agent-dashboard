@@ -22,7 +22,7 @@
  * very large sessions — the grace period, not that flag alone, carries the
  * guarantee.
  */
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useReducer, useState } from "react";
 
 /** How long the desync condition must hold before the affordance surfaces. */
 export const PROMPT_DESYNC_GRACE_MS = 5000;
@@ -94,27 +94,34 @@ export function isPromptDesync(input: PromptDesyncInput): boolean {
 export function usePromptDesync(gates: PromptDesyncGates, scope?: string): boolean {
   const conditionHolds = promptDesyncCondition(gates);
   const [heldSince, setHeldSince] = useState<number | null>(null);
-  const scopeRef = useRef(scope);
-  // Re-render on timer ticks while the condition holds, so the grace boundary
-  // crosses without any input change.
+  const [trackedScope, setTrackedScope] = useState(scope);
+  // Re-render when the grace boundary is crossed, so the affordance appears
+  // without any input change.
   const [, tick] = useReducer((n: number) => n + 1, 0);
 
+  // Adopt a changed scope DURING RENDER (React's adjust-state-on-prop-change
+  // pattern), not in an effect. An effect runs post-paint, so one committed
+  // frame could still report session A's earned grace for session B. The new
+  // session's grace starts FRESH at the switch.
+  if (scope !== trackedScope) {
+    setTrackedScope(scope);
+    setHeldSince(conditionHolds ? Date.now() : null);
+  }
+
+  // Reset on every failing gate; start the clock once on the rising edge.
   useEffect(() => {
-    if (scopeRef.current !== scope) {
-      scopeRef.current = scope;
-      // Fresh scope: start a FRESH clock (now), not merely zero it — the new
-      // session's grace period begins at the switch.
-      setHeldSince(conditionHolds ? Date.now() : null);
-      return;
-    }
-    // Reset on every failing gate; start the clock once on the rising edge.
     setHeldSince((prev) => (conditionHolds ? (prev ?? Date.now()) : null));
-  }, [conditionHolds, scope]);
+  }, [conditionHolds]);
 
   useEffect(() => {
     if (heldSince === null) return;
-    const id = setInterval(tick, 250);
-    return () => clearInterval(id);
+    const remaining = PROMPT_DESYNC_GRACE_MS - (Date.now() - heldSince);
+    if (remaining <= 0) return;
+    // ONE timeout for the grace boundary, not a repeating 250 ms interval:
+    // after the boundary the value is true and stays true until a gate drops,
+    // so a tick would burn renders for nothing.
+    const id = setTimeout(() => tick(), remaining + 1);
+    return () => clearTimeout(id);
   }, [heldSince]);
 
   if (!conditionHolds || heldSince === null) return false;
