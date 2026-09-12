@@ -8,7 +8,7 @@ Gives the user an explicit way to re-fetch a session's full event history when t
 
 ### Requirement: Refresh button in session header
 
-A refresh icon button SHALL be displayed in the session header, re-fetching all events for the current session when activated.
+A refresh icon button SHALL be displayed in the session header, re-fetching all events for the current session when activated. Refreshing SHALL also restore any prompt the session is still awaiting an answer for, so the refresh affordance repairs a chat view that is missing a blocking dialog. The restored prompt SHALL survive the state reset that refreshing performs.
 
 #### Scenario: Desktop refresh button visible
 - **WHEN** a session is selected on desktop
@@ -19,6 +19,17 @@ A refresh icon button SHALL be displayed in the session header, re-fetching all 
 - **THEN** the local session state is reset to initial state
 - **AND** a subscribe message with `lastSeq: 0` is sent to the server
 - **AND** the chat view repopulates with replayed events
+
+#### Scenario: Refresh restores an unanswered prompt
+- **GIVEN** a session is blocked on an unanswered prompt that the chat view does not render
+- **WHEN** the user clicks the refresh button
+- **THEN** a pending-prompt resync SHALL be requested for that session
+- **AND** the dialog SHALL be rendered once the prompt is re-emitted
+- **AND** the dialog SHALL NOT be erased by the replay the refresh triggered
+
+#### Scenario: Resync failure does not break the refresh
+- **WHEN** the pending-prompt resync cannot be delivered
+- **THEN** the transcript refresh SHALL still complete normally
 
 #### Scenario: Loading indicator while refreshing
 - **WHEN** the refresh button is clicked

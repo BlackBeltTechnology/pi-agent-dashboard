@@ -38,6 +38,9 @@ function deps(over: Partial<RefreshChatDeps> = {}) {
     beginReplayInFlight: vi.fn((id: string) => {
       calls.push(`inflight:${id}`);
     }),
+    requestPromptResync: vi.fn((id: string) => {
+      calls.push(`resync:${id}`);
+    }),
     ...over,
   };
   return { d, calls };
@@ -152,5 +155,59 @@ describe("refreshChat", () => {
     // that does propagate.
     expect(d.resetSessionState).toHaveBeenCalledWith("s1");
     expect(d.subscribe).toHaveBeenCalledWith("s1");
+  });
+});
+
+describe("refreshChat pending-prompt resync (fix-pending-prompt-lost-on-replay)", () => {
+  it("requests a pending-prompt resync exactly ONCE per refresh, after the reset (D9, task 4.4)", async () => {
+    // One refresh — one `prompt_resync_request` send. App funnels the header
+    // and mobile refresh buttons through this single coordinator, so the
+    // send count here is the wire-visible contract.
+    const { d, calls } = deps();
+    await refreshChat("s1", d);
+
+    expect(d.requestPromptResync).toHaveBeenCalledTimes(1);
+    expect(d.requestPromptResync).toHaveBeenCalledWith("s1");
+    // Sequenced after the reset + resubscribe so the reply cannot be erased
+    // by the reset refresh itself performs (design D9) — the carry (D8) then
+    // keeps the restored dialog through the replay the resubscribe triggers.
+    expect(calls.indexOf("reset:s1")).toBeLessThan(calls.indexOf("resync:s1"));
+    expect(calls.indexOf("subscribe:s1")).toBeLessThan(calls.indexOf("resync:s1"));
+  });
+
+  it("X1: a synchronously throwing resync send does not abort the refresh (test-plan #X1)", async () => {
+    const { d } = deps({
+      requestPromptResync: vi.fn(() => {
+        throw new Error("WebSocket is already in CLOSING state");
+      }),
+    });
+
+    await expect(refreshChat("s1", d)).resolves.toBeUndefined();
+
+    // The transcript refresh still completes.
+    expect(d.resetSessionState).toHaveBeenCalledWith("s1");
+    expect(d.subscribe).toHaveBeenCalledWith("s1");
+    expect(d.beginLoadingHistory).toHaveBeenCalledWith("s1");
+  });
+
+  it("X1: a rejecting resync send does not abort the refresh and produces no unhandled rejection (test-plan #X1)", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const { d } = deps({
+        requestPromptResync: vi.fn(() => Promise.reject(new Error("socket closed")) as unknown as void),
+      });
+
+      await expect(refreshChat("s1", d)).resolves.toBeUndefined();
+      // Let any would-be unhandled rejection surface.
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(unhandled).toEqual([]);
+      expect(d.resetSessionState).toHaveBeenCalledWith("s1");
+      expect(d.subscribe).toHaveBeenCalledWith("s1");
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
   });
 });

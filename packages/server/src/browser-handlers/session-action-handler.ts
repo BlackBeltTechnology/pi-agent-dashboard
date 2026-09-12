@@ -1112,6 +1112,36 @@ export function handleSubagentResyncRequest(
 }
 
 /**
+ * Forward a browser prompt-resync request to the owning bridge: the bridge
+ * re-emits every prompt its PromptBus is still holding, each carrying the
+ * echoed `__resyncRequestId` token, and event-wiring delivers those replies to
+ * the REQUESTER via `deliverPromptResyncReply` (D4/D5).
+ * E16 discipline: the requester is recorded ONLY when a bridge was actually
+ * reachable (`sendToSession` returns true) — recording against a dead bridge
+ * would pin a token whose reply can never come, and worse, a reply arriving
+ * under that token from a LATE reconnect would unicast to a stale context.
+ * A bridge with no pending prompts simply never replies (E10).
+ * See change: fix-pending-prompt-lost-on-replay (task 2.3, design D5/D6).
+ */
+export function handlePromptResyncRequest(
+  msg: Extract<BrowserToServerMessage, { type: "prompt_resync_request" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  // The WS path casts parsed JSON straight to the message union, so the token
+  // is untrusted: validate its RUNTIME shape before it reaches the registry
+  // (same rule as handleSubagentResyncRequest). A malformed token degrades to
+  // a tokenless request whose reply takes the ordinary fan-out.
+  const requestId =
+    typeof msg.requestId === "string" && msg.requestId.length > 0 ? msg.requestId : undefined;
+  const delivered = ctx.piGateway.sendToSession(msg.sessionId, {
+    type: "prompt_resync_request",
+    sessionId: msg.sessionId,
+    ...(requestId ? { requestId } : {}),
+  });
+  if (delivered && requestId) ctx.recordResyncRequester?.(requestId, ctx.ws);
+}
+
+/**
  * Pure predicate: does a `ps`/cmdline output string look like a pi/node process?
  * Re-exported from `platform/process-identify.ts` for backwards compat with
  * any external consumer of this handler.

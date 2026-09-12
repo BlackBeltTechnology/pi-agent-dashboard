@@ -277,6 +277,62 @@ export function carryPendingPrompt(prompt: PendingPrompt | undefined): PendingPr
 }
 
 /**
+ * The `interactiveRequests` (and their paired `ui-<requestId>` message rows) a
+ * state reset may carry across a rebuild — the sibling of `carryPendingPrompt`
+ * for bridge asks. An interactive request is TWO pieces of state (design D8):
+ * the `interactiveRequests` entry AND the `role:"interactiveUi"` row pushed
+ * with it (`addInteractiveRequest`); carrying the entry alone renders
+ * nothing. Only UNANSWERED (`status === "pending"`) asks survive — answered /
+ * dismissed / cancelled ones are discarded, never resurrected. Carried rows
+ * keep their `toolCallId` and are appended at the TAIL of the rebuilt
+ * `messages` (AFTER any replay fold — the fold's `toolCallId` idempotency
+ * scans must never see them), where the assistant `message_end` reorder
+ * already places trailing `interactiveUi` rows; a later reorder re-claims a
+ * tool-paired row via its `toolCallId`.
+ * See change: fix-pending-prompt-lost-on-replay (design D8).
+ */
+export function carryInteractiveRequests(
+  state: SessionState | undefined,
+): Pick<SessionState, "interactiveRequests" | "messages"> {
+  const pending = state?.interactiveRequests.filter((r) => r.status === "pending") ?? [];
+  if (pending.length === 0) return { interactiveRequests: [], messages: [] };
+  const rowIds = new Set(pending.map((r) => `ui-${r.requestId}`));
+  const messages = (state?.messages ?? []).filter((m) => rowIds.has(m.id));
+  return { interactiveRequests: pending, messages };
+}
+
+/**
+ * Move the rows of the still-pending interactive requests back to the TAIL of
+ * `messages`.
+ *
+ * Why this is required, and not cosmetic: a full replay spans MULTIPLE
+ * `event_replay` batches. The carry lands the rows at the tail of the RESET
+ * batch, but every LATER batch folds transcript events AFTER them — burying the
+ * live dialog mid-transcript (and under virtualization, off-screen entirely)
+ * while its `interactiveRequests` entry survives and keeps the desync detector
+ * suppressed. The user then sees neither the dialog NOR the recovery pill. This
+ * is exactly the resync-reply-mid-replay shape the change targets, so the rows
+ * must be re-tailed for the whole sweep, not only at the reset batch.
+ *
+ * Idempotent and a no-op when nothing is pending or the rows are already last.
+ * See change: fix-pending-prompt-lost-on-replay (design D8).
+ */
+export function retailPendingInteractiveRows(state: SessionState): SessionState {
+  const rowIds = new Set(
+    state.interactiveRequests
+      .filter((r) => r.status === "pending")
+      .map((r) => `ui-${r.requestId}`),
+  );
+  if (rowIds.size === 0) return state;
+  const rows = state.messages.filter((m) => rowIds.has(m.id));
+  if (rows.length === 0) return state;
+  const tail = state.messages.slice(-rows.length);
+  if (tail.length === rows.length && tail.every((m) => rowIds.has(m.id))) return state;
+  const rest = state.messages.filter((m) => !rowIds.has(m.id));
+  return { ...state, messages: [...rest, ...rows] };
+}
+
+/**
  * Settle a pending prompt whose safety timeout expired: the bubble stays, with
  * the user's text, marked `failed`, and `lastError` is set (two deliberate
  * surfaces). No-op unless the prompt is still `sending`, so a `failed` bubble

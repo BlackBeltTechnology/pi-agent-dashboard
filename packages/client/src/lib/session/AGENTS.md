@@ -4,6 +4,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 
 | File | Purpose |
 |------|---------|
+| `prompt-desync.ts` | Pending-prompt desync detector (D10): pure `isPromptDesync(gates+heldMs)` + `promptDesyncCondition` + `promptDesyncGatesFromState(state, replayInFlight)` over 5 gates (`ask_user` · no pending request · not ended · no replay · held ≥ `PROMPT_DESYNC_GRACE_MS` 5000 ms); `usePromptDesync(gates, scope?)` owns the held-duration timer — resets on every failing gate AND on `scope` (session) switch. See change: fix-pending-prompt-lost-on-replay. |
 | `retry-projection.ts` | Pure projection of per-session `retryState` into the card-side pair `{ retrySessionIds, retryAttemptMap }`. Exports `deriveRetryProjection(sessionStates)`, `RetryProjection`. Membership is `retryState` alone — NOT gated on `!lastError`, which excluded the common retry-while-errored case. See change: unify-retry-visibility. |
 | `selectedSessionId.ts` | Pure derivation of selected session id from wouter route matches. → see `selectedSessionId.ts.AGENTS.md` |
 | `selectViewedSessionId.ts` | Pure selector for currently-viewed session id from `/session/:id` route. → see `selectViewedSessionId.ts.AGENTS.md` |

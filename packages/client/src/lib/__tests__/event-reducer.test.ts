@@ -1,6 +1,7 @@
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
-import { addInteractiveRequest, applyPromptReceived, applyPromptTimeout, carryPendingPrompt, type ChatMessage, createInitialState, deriveBannerState, dismissInteractiveRequest, extractAgentEndError, findLastUserPrompt, isCleanAgentEnd, type PendingPrompt, reduceEvent, resolveInteractiveRequest, type SessionState, toDisplayString } from "../chat/event-reducer.js";
+import { addInteractiveRequest, applyPromptReceived, applyPromptTimeout, type ChatMessage, carryInteractiveRequests, carryPendingPrompt, createInitialState, deriveBannerState, dismissInteractiveRequest, extractAgentEndError, findLastUserPrompt, isCleanAgentEnd, type PendingPrompt, reduceEvent, resolveInteractiveRequest, retailPendingInteractiveRows, type SessionState, toDisplayString } from "../chat/event-reducer.js";
+import { derivePendingFreeFloating } from "../chat/pending-free-floating.js";
 
 function applyEvents(events: DashboardEvent[]): SessionState {
   return events.reduce((s, e) => reduceEvent(s, e), createInitialState());
@@ -3713,5 +3714,172 @@ describe("manual retry visual-dedup (ChatMessage.retriedFrom)", () => {
       data: { message: { role: "user", content: "hello" }, entryId: "u1" },
     });
     expect(state.messages[0]!.retriedFrom).toBeUndefined();
+  });
+});
+
+describe("carryInteractiveRequests (fix-pending-prompt-lost-on-replay)", () => {
+  // An interactive request is TWO pieces of state (design D8): an
+  // `interactiveRequests` entry AND a paired `ui-<requestId>` messages row.
+  // A reset may only keep UNANSWERED (pending) asks — both halves together.
+
+  function seedAllStatuses(): SessionState {
+    let s = createInitialState();
+    s = addInteractiveRequest(s, "p-pending", "select", { title: "Pick one" });
+    s = addInteractiveRequest(s, "p-answered", "select", { title: "Answered" });
+    s = resolveInteractiveRequest(s, "p-answered", { value: "yes" });
+    s = addInteractiveRequest(s, "p-dismissed", "select", { title: "Dismissed" });
+    s = dismissInteractiveRequest(s, "p-dismissed");
+    s = addInteractiveRequest(s, "p-cancelled", "select", { title: "Cancelled" });
+    s = resolveInteractiveRequest(s, "p-cancelled", undefined, true);
+    return s;
+  }
+
+  it("E11: only pending entries and their ui rows survive a carry", () => {
+    const carried = carryInteractiveRequests(seedAllStatuses());
+
+    expect(carried.interactiveRequests.map((r) => r.requestId)).toEqual(["p-pending"]);
+    expect(carried.interactiveRequests[0].status).toBe("pending");
+    // Both halves: the paired `ui-<requestId>` row is carried with the entry.
+    expect(carried.messages.map((m) => m.id)).toEqual(["ui-p-pending"]);
+    expect(carried.messages[0].role).toBe("interactiveUi");
+    // Answered / dismissed / cancelled rows are NOT carried.
+    expect(carried.messages.map((m) => m.id)).not.toContain("ui-p-answered");
+    expect(carried.messages.map((m) => m.id)).not.toContain("ui-p-dismissed");
+    expect(carried.messages.map((m) => m.id)).not.toContain("ui-p-cancelled");
+  });
+
+  it("E11: returns empty slices for undefined state and nothing pending", () => {
+    expect(carryInteractiveRequests(undefined)).toEqual({
+      interactiveRequests: [],
+      messages: [],
+    });
+    const allSettled = seedAllStatuses();
+    const settled = {
+      ...allSettled,
+      interactiveRequests: allSettled.interactiveRequests.filter((r) => r.requestId !== "p-pending"),
+      messages: allSettled.messages.filter((m) => m.id !== "ui-p-pending"),
+    };
+    expect(carryInteractiveRequests(settled)).toEqual({
+      interactiveRequests: [],
+      messages: [],
+    });
+  });
+
+  it("E12 (reducer shape): carried row lands at the TAIL of the rebuilt messages", () => {
+    // The event_replay reset shape: createInitialState() → fold replay events
+    // → carry merged AFTER the fold, so the fold's toolCallId scans never see
+    // the carried row and the row lands at the tail (design D8).
+    let state0 = createInitialState();
+    state0 = addInteractiveRequest(state0, "p1", "select", { title: "Pick" });
+    const carried = carryInteractiveRequests(state0);
+
+    let rebuilt = createInitialState();
+    // Fold one replay event that produces a row, so tail placement is
+    // observable (the carried row must come AFTER folded rows).
+    rebuilt = reduceEvent(rebuilt, {
+      eventType: "tool_execution_start",
+      timestamp: 100,
+      data: { toolCallId: "t9", toolName: "bash", args: { command: "ls" } },
+    });
+    rebuilt = {
+      ...rebuilt,
+      interactiveRequests: carried.interactiveRequests,
+      messages: [...rebuilt.messages, ...carried.messages],
+    };
+
+    expect(rebuilt.interactiveRequests.map((r) => r.requestId)).toEqual(["p1"]);
+    expect(rebuilt.messages[rebuilt.messages.length - 1].id).toBe("ui-p1");
+
+    // No duplicate row when the server re-emits the same prompt after the
+    // reset (reconnect replay / resync reply): dedup is requestId-keyed.
+    const reemitted = addInteractiveRequest(rebuilt, "p1", "select", { title: "Pick" });
+    expect(reemitted).toBe(rebuilt);
+    expect(rebuilt.messages.filter((m) => m.id === "ui-p1")).toHaveLength(1);
+  });
+
+  it("E13: carried row keeps its toolCallId so pairing survives a rebuild + reorder", () => {
+    let state0 = createInitialState();
+    state0 = addInteractiveRequest(state0, "p1", "select", { title: "Pick" }, "tc-1");
+    const carried = carryInteractiveRequests(state0);
+
+    // Replay rebuilds the tool card for tc-1 and runs the assistant
+    // message_end reorder during the fold — the carried row is merged after,
+    // at the tail, keeping its toolCallId.
+    let rebuilt = createInitialState();
+    rebuilt = reduceEvent(rebuilt, {
+      eventType: "tool_execution_start",
+      timestamp: 100,
+      data: { toolCallId: "tc-1", toolName: "ask_user", args: { question: "Pick" } },
+    });
+    rebuilt = reduceEvent(rebuilt, {
+      eventType: "message_end",
+      timestamp: 200,
+      data: {
+        message: {
+          role: "assistant",
+          content: [{ type: "toolCall", id: "tc-1", name: "ask_user", arguments: {} }],
+        },
+      },
+    });
+    rebuilt = {
+      ...rebuilt,
+      interactiveRequests: carried.interactiveRequests,
+      messages: [...rebuilt.messages, ...carried.messages],
+    };
+
+    const uiRows = rebuilt.messages.filter((m) => m.id === "ui-p1");
+    expect(uiRows).toHaveLength(1);
+    expect(uiRows[0].toolCallId).toBe("tc-1");
+    // The pairing resolves: the request is NOT free-floating because its row
+    // still carries the toolCallId the reorder re-claims.
+    expect(derivePendingFreeFloating(rebuilt.messages, rebuilt.interactiveRequests)).toEqual([]);
+  });
+
+  it("retail keeps the carried dialog visible across a MULTI-batch replay", () => {
+    // Regression: a full replay spans several `event_replay` batches. The
+    // carry lands the row at the tail of the RESET batch; later batches fold
+    // transcript rows AFTER it, burying the dialog mid-transcript while its
+    // entry suppresses the desync pill — the user sees neither.
+    let state = createInitialState();
+    state = addInteractiveRequest(state, "p1", "select", { title: "Pick" });
+    // Batch 1 (reset): carry → row at tail.
+    const carried = carryInteractiveRequests(state);
+    let rebuilt = { ...createInitialState(), ...carried };
+    // Batch 2 (delta): a transcript row lands AFTER the carried dialog.
+    rebuilt = reduceEvent(rebuilt, {
+      eventType: "tool_execution_start",
+      timestamp: 200,
+      data: { toolCallId: "t2", toolName: "bash", args: { command: "ls" } },
+    });
+    expect(rebuilt.messages[rebuilt.messages.length - 1].id).not.toBe("ui-p1");
+
+    const retailed = retailPendingInteractiveRows(rebuilt);
+    expect(retailed.interactiveRequests.map((r) => r.requestId)).toEqual(["p1"]);
+    expect(retailed.messages.filter((m) => m.id === "ui-p1")).toHaveLength(1);
+    expect(retailed.messages[retailed.messages.length - 1].id).toBe("ui-p1");
+
+    // Idempotent, and a no-op with nothing pending.
+    expect(retailPendingInteractiveRows(retailed)).toBe(retailed);
+    expect(retailPendingInteractiveRows(createInitialState())).toEqual(createInitialState());
+  });
+
+  it("carried dialog remains interactive: answering resolves the ORIGINAL requestId", () => {
+    // Spec: "Carried dialog remains interactive" — the answer must be
+    // deliverable for the original prompt id. `handleRespondToUi` sends
+    // `promptId: requestId` and resolves local state via
+    // `resolveInteractiveRequest(state, requestId)`; the carry must preserve
+    // both the id on the entry and on the row.
+    let state0 = createInitialState();
+    state0 = addInteractiveRequest(state0, "p1", "input", { title: "Name?" });
+    const fresh = { ...createInitialState(), ...carryInteractiveRequests(state0) };
+
+    const answered = resolveInteractiveRequest(fresh, "p1", { value: "robson" });
+    const entry = answered.interactiveRequests.find((r) => r.requestId === "p1");
+    expect(entry?.status).toBe("resolved");
+    const rowArgs = answered.messages.find((m) => m.id === "ui-p1")?.args as
+      | { requestId?: string; status?: string }
+      | undefined;
+    expect(rowArgs?.requestId).toBe("p1");
+    expect(rowArgs?.status).toBe("resolved");
   });
 });

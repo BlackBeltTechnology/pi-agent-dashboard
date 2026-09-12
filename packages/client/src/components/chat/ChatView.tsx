@@ -5,7 +5,7 @@ import {
   isNotifyRowVisible,
   toolCallPrefKey,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
-import { mdiAlertCircleOutline, mdiCheck, mdiChevronDown, mdiChevronUp, mdiClose, mdiContentCopy, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
+import { mdiAlertCircleOutline, mdiCheck, mdiChevronDown, mdiChevronUp, mdiClose, mdiCommentQuestionOutline, mdiContentCopy, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -25,22 +25,22 @@ import type { ChatImage, InteractiveUiRequest, SessionState } from "../../lib/ch
 import { type BurstItem, groupToolBursts, type ToolBurstGroup as ToolBurstGroupData } from "../../lib/chat/group-tool-bursts.js";
 import type { ToolCallGroup } from "../../lib/chat/group-tool-calls.js";
 import {
-  type HistoryGapState,
   HISTORY_GAP_ROW_ID,
+  type HistoryGapState,
   isHeadFree,
   SETTLE_MS,
   shouldAutoLoadHistory,
 } from "../../lib/chat/history-gap.js";
+import { derivePendingFreeFloating } from "../../lib/chat/pending-free-floating.js";
 import { computeAnchorCorrection } from "../../lib/chat/selection-anchor.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { REPLAY_PILL_DELAY_MS } from "../../lib/replay/loading-history.js";
+import { promptDesyncGatesFromState, usePromptDesync } from "../../lib/session/prompt-desync.js";
 import { formatMessageTime } from "../../lib/util/format.js";
 import { buildTurnSummaries, type TurnSummary } from "../../lib/util/lineDelta.js";
 import { isOutOfCwd, normalizeUnderCwd } from "../../lib/util/normalize-path.js";
 import { ChangeSummaryBlock } from "../diff/ChangeSummaryBlock.js";
 import { getInteractiveRenderer } from "../interactive-renderers/registry.js";
-import { derivePendingFreeFloating } from "../../lib/chat/pending-free-floating.js";
-import { MultiAskPanel } from "./MultiAskPanel.js";
 import { FilePreviewHost, FilePreviewProvider } from "../preview/FilePreviewContext.js";
 import { ImageLightbox } from "../preview/ImageLightbox.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
@@ -53,10 +53,11 @@ import { withDefaultFileLink } from "../tool-renderers/make-tool-context.js";
 import { BashOutputCard } from "./BashOutputCard.js";
 import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
 import { CommandFeedbackCard } from "./CommandFeedbackCard.js";
+import { CustomEntryCard } from "./CustomEntryCard.js";
 import { HistoryGapDivider } from "./HistoryGapDivider.js";
 import { MissingToolInlineError } from "./MissingToolInlineError.js";
+import { MultiAskPanel } from "./MultiAskPanel.js";
 import { RawEventCard } from "./RawEventCard.js";
-import { CustomEntryCard } from "./CustomEntryCard.js";
 import { SkillInvocationCard } from "./SkillInvocationCard.js";
 import { ThinkingBlock } from "./ThinkingBlock.js";
 import { ToolBurstGroup } from "./ToolBurstGroup.js";
@@ -70,6 +71,14 @@ interface Props {
   // cancel-pending callback was always a shadow-only lie. See change:
   // honest-mid-turn-queue-surface.
   onRespondToUi?: (requestId: string, result?: unknown, cancelled?: boolean) => void;
+  /**
+   * Fire a pending-prompt resync (`prompt_resync_request`) for this session.
+   * Provided by the shell; the same single callback the refresh coordinator
+   * uses. When omitted (embedded surface), the desync affordance never
+   * renders — no dead button.
+   * See change: fix-pending-prompt-lost-on-replay (D10).
+   */
+  onPromptResync?: (sessionId: string) => void;
   onAbort?: () => void;
   onForceKill?: () => void;
   onForkFromMessage?: (entryId: string) => void;
@@ -348,7 +357,7 @@ export interface ChatViewHandle {
   scrollToTurn: (turnIndex: number) => void;
 }
 
-const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, replayInFlight, historyGap, onLoadEarlier, historySpliceRev, onCollapseStreamingThinking }, ref) {
+const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onPromptResync, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, replayInFlight, historyGap, onLoadEarlier, historySpliceRev, onCollapseStreamingThinking }, ref) {
   // `ToolContext` is a published surface (re-exported from `chat-embed`), so an
   // external embedder builds one by hand and would carry no `fileLink` —
   // silently losing file-mention linkification with no type error. Merge a
@@ -398,6 +407,16 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   }, [replayInFlight, sessionId]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Pending-prompt desync affordance (design D10): the session reports
+  // `ask_user` but no dialog renders, not ended, no replay in flight, held
+  // past the 5 s grace. Disappears the moment a dialog renders — a `pending`
+  // interactive request flips the selector off.
+  // See change: fix-pending-prompt-lost-on-replay.
+  const promptDesync = usePromptDesync(promptDesyncGatesFromState(state, !!replayInFlight), sessionId);
+  // Embedded surfaces without the shell's resync sender (or without a session
+  // id to target) never see the pill — no dead control.
+  const showPromptDesyncAffordance =
+    promptDesync && onPromptResync !== undefined && sessionId !== undefined;
   /**
    * ONE suppression window shared by EVERY programmatic `scrollTop` /
    * `scrollToIndex` writer in this file, rather than a list of per-writer refs.
@@ -2096,6 +2115,28 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           </span>
         </div>
       </>
+    )}
+    {showPromptDesyncAffordance && (
+      <button
+        type="button"
+        data-testid="prompt-desync-resync"
+        onClick={() => {
+          if (sessionId) onPromptResync(sessionId);
+        }}
+        className="absolute bottom-16 left-1/2 -translate-x-1/2 z-overlay flex items-center gap-1.5 rounded-full bg-[var(--bg-surface)] border border-[var(--border-strong)] px-3 py-1 shadow-lg hover:bg-[var(--bg-tertiary)] transition-colors"
+      >
+        {/* Pending-prompt desync affordance (design D10): the agent is blocked
+            on an answer this view does not render. Activation fires the SAME
+            single resync callback the refresh uses — no duplicate send path.
+            Never coexists with the replay pill: the selector requires no
+            replay in flight, so it safely claims the pill's `bottom-16` slot
+            (the scroll-to-bottom button stays at `bottom-4`, layout-separated).
+            See change: fix-pending-prompt-lost-on-replay. */}
+        <Icon path={mdiCommentQuestionOutline} size={0.7} className="text-[var(--text-primary)]" />
+        <span className="text-[11px] text-[var(--text-primary)]">
+          {i18nT("status.promptDesyncResync", undefined, "Waiting for your answer — resync")}
+        </span>
+      </button>
     )}
     {showScrollTopButton && (
       <button
