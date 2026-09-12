@@ -4,8 +4,12 @@
 
 When `tool_execution_end` arrives for a `toolCallId`, the store MAY drop that
 call's retained tail `tool_execution_update` — but ONLY when the end event's
-`details` subsume the tail's `details` under the SAME superset gate the collapse
-already uses. Absent verified subsumption the tail SHALL be retained.
+`details` subsume the tail's `details` under the SAME superset predicates the
+collapse already uses (key survival, entries survival, rendered-result
+implication), resolved from the end event the way the client reducer resolves
+it (top-level `data.details`, `data.result`). A tail that carries `details`
+(even empty) SHALL NOT be dropped by an end that carries none. Absent verified
+subsumption the tail SHALL be retained.
 
 Rationale: updates resolve `details` from `data.partialResult.details`, ends from
 top-level `data.details`, and the client reducer treats them as distinct
