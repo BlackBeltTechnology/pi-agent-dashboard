@@ -2876,16 +2876,28 @@ Root cause class: fixed-tick test barriers. Pattern: `await new Promise((r) => s
 - CI step `Fixed-tick wait guard` in `.github/workflows/ci.yml`.
 - Vitest wrapper `scripts/__tests__/fixed-tick-waits.test.mjs`.
 
-Converted tests poll via `waitFor` (5s `asyncUtilTimeout`).
+Converted tests poll via `waitFor` (10s `asyncUtilTimeout`; 5s margin under the 15s client `testTimeout`).
 
 Deliberate timer yields opt out PER OCCURRENCE. Comment on line directly above awaited timer: `// fixed-tick-waits: opt-out — <reason>`. Never file-level waiver. Exemplar: `packages/client/src/components/__tests__/PairLanding.test.tsx` postJson mock yield.
 
 Worker target single source: `vitest.workers.ts` at repo root (`PARALLEL_MAX_WORKERS = "50%"`). Imported by all parallel vitest configs. 7 serial projects keep `maxWorkers: 1`: electron, image-fit-extension, kb-extension, mockup-loop, nano-banana, video-production, video-transcription.
 
+Second root-cause class: real-process, wall-clock-budgeted tests. Server signal forwarding, log rotation, subprocess probes, advisory perf budgets. Plus isolated client `waitFor`-budget starvation. ~1 fires per loaded run. Green CI on same commit confirms the class, not a regression.
+
+Poll-or-budget rule. A test asserting a wall-clock outcome must either poll a bounded observable condition (`waitFor`, or a bounded poll loop on a process-recorded file/state), or carry a justified budget with documented fork-contention headroom. A budget red under a loaded 8-fork run, green in isolation = budget defect, not machine defect.
+
+Hardened members:
+- `packages/server/src/__tests__/cli-signal-forwarding.test.ts` — one-shot `boot-state.json` `exitIntent` read after SIGTERM → bounded poll.
+- `packages/server/src/__tests__/auth-redirect-base.test.ts` P1 — 100k-build budget 100ms → 1000ms (measured ~10ms isolated, 101ms saturated).
+- client global `asyncUtilTimeout` 5s → 10s.
+- `testTimeout: 30000` added where the 5s default applied: `packages/shared`, `packages/bus-client`, `packages/extension`, root `scripts`.
+- `packages/client/src/lib/__tests__/linkify-tool-output.perf.test.ts` 250ms → 1000ms. `packages/mcp-server-plugin/src/server/__tests__/performance.test.ts` P1 p95 1ms → 10ms.
+
 Worktree trap: `.worktrees/<name>` checkout WITHOUT root `node_modules` resolves deps from parent checkout. Misleading failures (pi-version-skew, published-imports). Fix: `pnpm install` inside worktree before `npm test`.
 
 Cross-refs:
 - openspec/changes/make-test-suite-deterministic/
+- openspec/changes/contention-harden-real-process-tests/
 - scripts/check-fixed-tick-waits.mjs
 - vitest.workers.ts
 - packages/client/src/__tests__/fixed-tick-conversion-equivalence.test.ts

@@ -18,6 +18,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveMainPath } from "../git-worktree/git-operations.js";
 import { hookDefHash, type WorktreeInitHook } from "../git-worktree/worktree-init.js";
+import * as worktreeInit from "../git-worktree/worktree-init.js";
 import { createWorktreeInitRegistry } from "../git-worktree/worktree-init-registry.js";
 import { recordTrust } from "../git-worktree/worktree-init-trust.js";
 import { registerGitRoutes } from "../routes/git-routes.js";
@@ -548,5 +549,38 @@ describe("worktree-init endpoints — off-loopback", () => {
     const res = await app.inject({ method: "GET", url: "/api/git/worktree/init-status?cwd=/x" });
     expect(res.statusCode).toBe(403);
     await app.close();
+  });
+});
+
+describe("apply-checkout-root-to-worktree-ops — E20: null config root skips the probe", () => {
+  it("bare repo with a declared hook → hasHook:false; the hook is never read (no probe under cwd)", async () => {
+    const normal = makePlainRepo();
+    const bare = `${normal}-bare.git`;
+    execSync(`git clone -q --bare "${normal}" "${bare}"`, { stdio: "pipe" });
+    // The bare hub carries `.pi/settings.json` declaring a hook. A config
+    // root coerced to cwd would read and report it; the fail-closed null
+    // must not.
+    mkdirSync(join(bare, ".pi"), { recursive: true });
+    const hook = scriptHook("file-exists .git", "true");
+    writeFileSync(join(bare, ".pi", "settings.json"), JSON.stringify({ worktreeInit: hook }));
+    const app = await makeApp();
+    // Spy the consumer seam: init-status must return at the null-config-root
+    // branch WITHOUT ever reading the hook.
+    const readSpy = vi.spyOn(worktreeInit, "readInitHook");
+    try {
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/git/worktree/init-status?cwd=${encodeURIComponent(bare)}`,
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.data.hasHook).toBe(false);
+      expect(body.data.configured).toBe(false);
+      expect(readSpy).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+      rmSync(normal, { recursive: true, force: true });
+      rmSync(bare, { recursive: true, force: true });
+    }
   });
 });

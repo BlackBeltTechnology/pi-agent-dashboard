@@ -363,7 +363,7 @@ describe("DirectoryService — readiness fold wiring (add-openspec-init-affordan
     expect(out.readiness).toEqual({ state: "READY" });
   });
 
-  it("E15/X11: unresolvable config root falls back to cwd, no throw, readiness still emitted", async () => {
+  it("apply-checkout-root E20: a null config root is NOT coerced to cwd — the probe is skipped", async () => {
     const { runOpenSpecList } = await import("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js");
     (runOpenSpecList as any).mockResolvedValue({ changes: [] });
     const repo = path.join(tmpRoot, "repo");
@@ -376,9 +376,9 @@ describe("DirectoryService — readiness fold wiring (add-openspec-init-affordan
       { currentGlobalSignature: vi.fn(async () => "sig") },
     );
     const out = await service.refreshOpenSpec(repo);
-    // Fallback stat found the skills AT the cwd — proves the fallback ran.
-    expect(out.hasOpenSpecSkills).toBe(true);
-    expect(out.readiness).toEqual({ state: "READY" }); // no recorded sig → never stale
+    // Skills sit AT cwd, but a null config root must never probe under cwd
+    // (D5): the coercion would adopt whatever `.pi/` tree lives there.
+    expect(out.hasOpenSpecSkills).toBe(false);
   });
 
   it("P1: 20 cwds polled in one tick → signature provider called exactly once", async () => {

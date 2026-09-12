@@ -354,9 +354,10 @@ export function createDirectoryService(
   // Memoized per-cwd config-root resolution. `resolveConfigRoot` spawns git;
   // calling it per cwd per TICK would blow the stat-pass budget (P4), so each
   // cwd resolves at most once per process (a cwd does not stop being a
-  // worktree). `null` (unresolvable) falls back to the cwd itself (E15/X11).
+  // worktree). `null` (bare hub / unresolved) is a REFUSAL the callers skip —
+  // never coerced to cwd. See change: apply-checkout-root-to-worktree-ops (D5).
   const readinessConfigRoots = new Map<string, string | null>();
-  function configRootFor(cwd: string): string {
+  function configRootFor(cwd: string): string | null {
     if (!readinessConfigRoots.has(cwd)) {
       let root: string | null = null;
       try {
@@ -366,12 +367,16 @@ export function createDirectoryService(
       }
       readinessConfigRoots.set(cwd, root);
     }
-    return readinessConfigRoots.get(cwd) ?? cwd;
+    return readinessConfigRoots.get(cwd) ?? null;
   }
 
   /** `.pi/skills/openspec-explore/` exists at the resolved config root. */
   function hasOpenSpecSkillsFor(cwd: string): boolean {
     const root = configRootFor(cwd);
+    // `null` (bare hub / worktree-of-bare / unresolved probe) is a REFUSAL,
+    // never coerced to cwd (D5): probing under cwd would adopt whatever
+    // `.pi/` tree happens to live there.
+    if (root === null) return false;
     return statMtimeOr(path.join(root, ".pi", "skills", "openspec-explore")) !== undefined;
   }
 

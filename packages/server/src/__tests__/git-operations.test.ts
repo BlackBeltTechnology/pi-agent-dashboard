@@ -1,8 +1,15 @@
 import { execSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, afterAll, describe, expect, it, vi } from "vitest";
+import * as sharedGit from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
+import {
+  buildGitFixtures,
+  fixtureGit,
+  type GitFixtures,
+  restoreEnv,
+} from "@blackbelt-technology/pi-dashboard-shared/test-support/git-fixtures.js";
 import * as gitOps from "../git-worktree/git-operations.js";
 import {
   checkoutBranch,
@@ -86,15 +93,21 @@ describe("git-operations", () => {
       }
     });
 
-    it("degenerate git (isGitRepo true, resolveMainPath null) → null, no cwd/.pi fallthrough", () => {
+    it("degenerate git (repo, mainCheckout null) → null, no cwd/.pi fallthrough", () => {
       const plain = mkdtempSync(join(tmpdir(), "cfg-root-"));
       try {
         // .pi/settings.json present so a fallthrough to the non-git branch
         // would wrongly return `plain`; assert it does NOT.
         mkdirSync(join(plain, ".pi"), { recursive: true });
         writeFileSync(join(plain, ".pi", "settings.json"), "{}");
-        vi.spyOn(gitOps, "isGitRepo").mockReturnValue(true);
-        vi.spyOn(gitOps, "resolveMainPath").mockReturnValue(null);
+        // In a repository (non-null result) whose mainCheckout is null
+        // (degenerate git state) → null, and the non-git branch is unreachable.
+        vi.spyOn(sharedGit, "checkoutRoots").mockReturnValue({
+          thisCheckout: plain,
+          isLinkedWorktree: false,
+          mainCheckout: null,
+          commonDir: join(plain, ".git"),
+        });
         expect(gitOps.resolveConfigRoot(plain)).toBeNull();
       } finally {
         rmSync(plain, { recursive: true, force: true });
@@ -286,6 +299,145 @@ describe("git-operations", () => {
     });
   });
 
+  // ── apply-checkout-root-to-worktree-ops: resolveMainPath / resolveConfigRoot ──
+
+  describe("resolveMainPath — fixture matrix (E1)", () => {
+    const savedEnv = { global: process.env.GIT_CONFIG_GLOBAL, system: process.env.GIT_CONFIG_SYSTEM };
+    let fx: GitFixtures;
+
+    beforeAll(() => {
+      // The resolver spawns git with the ambient env; isolate it so a
+      // developer's own `core.worktree` cannot leak into the assertions.
+      process.env.GIT_CONFIG_GLOBAL = "/dev/null";
+      process.env.GIT_CONFIG_SYSTEM = "/dev/null";
+      fx = buildGitFixtures();
+    });
+
+    afterAll(() => {
+      fx.cleanup();
+      restoreEnv("GIT_CONFIG_GLOBAL", savedEnv.global);
+      restoreEnv("GIT_CONFIG_SYSTEM", savedEnv.system);
+    });
+
+    // Exactly the D1 "new" column.
+    const cases: Array<[string, keyof GitFixtures, keyof GitFixtures | null]> = [
+      ["normal checkout", "normal", "normal"],
+      ["deep subdir", "normalSubdir", "normal"],
+      ["linked worktree", "worktree", "normal"],
+      ["submodule", "submodule", "submodule"],
+      ["worktree of submodule", "submoduleWorktree", "submodule"],
+      ["--separate-git-dir checkout", "separateGitDir", "separateGitDir"],
+      ["bare hub", "bare", null],
+      ["worktree of bare hub", "bareWorktree", null],
+      ["non-repo", "nonRepo", null],
+    ];
+
+    it.each(cases)("%s → %s", (_name, cwdKey, mainKey) => {
+      const cwd = fx[cwdKey] as string;
+      const expected = mainKey === null ? null : (fx[mainKey] as string);
+      expect(resolveMainPath(cwd)).toBe(expected);
+    });
+  });
+
+  describe("resolveMainPath — .git-segment rejection is exact-component (E2)", () => {
+    const savedEnv = { global: process.env.GIT_CONFIG_GLOBAL, system: process.env.GIT_CONFIG_SYSTEM };
+    let fx: GitFixtures;
+    let base: string;
+    let wt: string;
+
+    beforeAll(() => {
+      process.env.GIT_CONFIG_GLOBAL = "/dev/null";
+      process.env.GIT_CONFIG_SYSTEM = "/dev/null";
+      fx = buildGitFixtures();
+      base = realpathSync(mkdtempSync(join(tmpdir(), "gitops-gitseg-")));
+      fixtureGit(base, ["init", "-q"]);
+      writeFileSync(join(base, "seed.txt"), "seed\n");
+      fixtureGit(base, ["add", "."]);
+      fixtureGit(base, ["commit", "-q", "-m", "seed"]);
+      wt = join(base, "wt");
+      fixtureGit(base, ["worktree", "add", "-q", "-b", "segwt", wt]);
+      // Repo-local `core.worktree` pointing INSIDE the git dir. mainCheckout
+      // resolves to `<base>/.git` — a path carrying a `.git` COMPONENT.
+      fixtureGit(base, ["config", "core.worktree", ".git"]);
+    });
+
+    afterAll(() => {
+      fx.cleanup();
+      rmSync(base, { recursive: true, force: true });
+      restoreEnv("GIT_CONFIG_GLOBAL", savedEnv.global);
+      restoreEnv("GIT_CONFIG_SYSTEM", savedEnv.system);
+    });
+
+    it("returns null when mainCheckout sits inside .git/ (resolved against commonDir)", () => {
+      expect(resolveMainPath(wt)).toBeNull();
+    });
+
+    it("returns a real path for the app.git fixture (a `.git`-NAMED dir is not a `.git` component)", () => {
+      expect(resolveMainPath(fx.dotGitNamedCheckout)).toBe(fx.dotGitNamedCheckout);
+    });
+  });
+
+  describe("resolveMainPath — request-budgeted resolver call (E3)", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it("the spy receives timeout: 400, never undefined or the 15s batch default", () => {
+      const repo = makeRepo();
+      try {
+        const spy = vi.spyOn(sharedGit, "checkoutRoots");
+        resolveMainPath(repo);
+        expect(spy).toHaveBeenCalledWith({ cwd: repo, timeout: 400 });
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe("resolveConfigRoot — per git state (E19)", () => {
+    const savedEnv = { global: process.env.GIT_CONFIG_GLOBAL, system: process.env.GIT_CONFIG_SYSTEM };
+    let fx: GitFixtures;
+
+    beforeAll(() => {
+      process.env.GIT_CONFIG_GLOBAL = "/dev/null";
+      process.env.GIT_CONFIG_SYSTEM = "/dev/null";
+      fx = buildGitFixtures();
+      // Bare hub WITH a `.pi/settings.json` — a fall-through would adopt it.
+      mkdirSync(join(fx.bare, ".pi"), { recursive: true });
+      writeFileSync(join(fx.bare, ".pi", "settings.json"), "{}");
+    });
+
+    afterAll(() => {
+      fx.cleanup();
+      restoreEnv("GIT_CONFIG_GLOBAL", savedEnv.global);
+      restoreEnv("GIT_CONFIG_SYSTEM", savedEnv.system);
+    });
+
+    const cases: Array<[string, keyof GitFixtures, keyof GitFixtures | null]> = [
+      ["submodule → its own working tree", "submodule", "submodule"],
+      ["worktree of submodule → the submodule tree", "submoduleWorktree", "submodule"],
+      ["--separate-git-dir → the checkout", "separateGitDir", "separateGitDir"],
+      ["bare with .pi/settings.json → null (no fall-through)", "bare", null],
+      ["non-git without settings → null", "nonRepo", null],
+    ];
+
+    it.each(cases)("%s", (_name, cwdKey, rootKey) => {
+      const cwd = fx[cwdKey] as string;
+      const expected = rootKey === null ? null : (fx[rootKey] as string);
+      expect(resolveConfigRoot(cwd)).toBe(expected);
+    });
+
+    it("non-git dir with .pi/settings.json → cwd itself", () => {
+      mkdirSync(join(fx.nonRepo, ".pi"), { recursive: true });
+      writeFileSync(join(fx.nonRepo, ".pi", "settings.json"), "{}");
+      expect(resolveConfigRoot(fx.nonRepo)).toBe(fx.nonRepo);
+    });
+
+    it("nested non-git child does not inherit the parent's settings (no upward walk)", () => {
+      const child = join(fx.nonRepo, "child");
+      mkdirSync(child, { recursive: true });
+      expect(resolveConfigRoot(child)).toBeNull();
+    });
+  });
+
   describe("stashPop", () => {
     it("pops stash cleanly", () => {
       writeFileSync(join(repo, "README.md"), "stashed-content");
@@ -308,5 +460,38 @@ describe("git-operations", () => {
       const result = stashPop(repo);
       expect(result.conflicts).toBe(true);
     });
+  });
+});
+
+describe("classifyWorktreeRemoval — tri-state classifier (E4)", () => {
+  it.each<[string, Parameters<typeof gitOps.classifyWorktreeRemoval>[0], string]>([
+    ["no resolver result → unresolved", null, "unresolved"],
+    [
+      "not a linked worktree → main",
+      { thisCheckout: "/r", isLinkedWorktree: false, mainCheckout: "/r", commonDir: "/r/.git" },
+      "main",
+    ],
+    [
+      "linked + thisCheckout null (inconclusive --show-toplevel) → unresolved",
+      { thisCheckout: null, isLinkedWorktree: true, mainCheckout: "/r", commonDir: "/r/.git" },
+      "unresolved",
+    ],
+    [
+      "linked + mainCheckout null (worktree of bare hub) → unresolved",
+      { thisCheckout: "/wt", isLinkedWorktree: true, mainCheckout: null, commonDir: "/r/.git" },
+      "unresolved",
+    ],
+    [
+      "linked + mainCheckout with a .git segment → unresolved",
+      { thisCheckout: "/wt", isLinkedWorktree: true, mainCheckout: "/r/.git/x", commonDir: "/r/.git" },
+      "unresolved",
+    ],
+    [
+      "linked + plausible mainCheckout → removable",
+      { thisCheckout: "/wt", isLinkedWorktree: true, mainCheckout: "/r", commonDir: "/r/.git" },
+      "removable",
+    ],
+  ])("%s", (_name, roots, verdict) => {
+    expect(gitOps.classifyWorktreeRemoval(roots)).toBe(verdict);
   });
 });

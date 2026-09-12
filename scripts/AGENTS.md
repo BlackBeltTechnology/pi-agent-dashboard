@@ -82,7 +82,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `verify-published-imports.mjs` | Publish-correctness checker, run by ci.yml. For every non-private `packages/*`, asserts every module… → see `verify-published-imports.mjs.AGENTS.md` |
 | `verify-lockfile-versions.mjs` | Sanity gate after `pnpm install --lockfile-only` in `publish.yml` (`tag-and-push`) + `_electron-build.yml`. → see `verify-lockfile-versions.mjs.AGENTS.md` |
 | `verify-release-deps.mjs` | Pre-release dependency-shape gate. RULES assert server declares jiti, node-pty (>=1.2.0-beta.13),… → see `verify-release-deps.mjs.AGENTS.md` |
-| `vitest.config.ts` | Vitest config for repo-root /scripts project. Includes scripts/__tests__/**/*.test.mjs, node env, forks pool, maxWorkers 50%. |
+| `vitest.config.ts` | Vitest config for repo-root /scripts project. Includes scripts/__tests__/**/*.test.mjs, node env, forks pool, maxWorkers 50%, `testTimeout` 30_000 — harness-scoping/spec-repair tests shell out and blew the 5s default under fork contention. See change: contention-harden-real-process-tests. |
 | `windows-job-object-smoke.ts` | Windows Job Object kill-on-close smoke (task 7.4a; CI: `ci-e2e-electron.yml` job `job-object-windows`). → see `windows-job-object-smoke.ts.AGENTS.md` |
 | `windows-liveness-smoke.ts` | Windows boot-parent-liveness smoke (CI: `_smoke.yml` standalone-install-smoke-windows). → see `windows-liveness-smoke.ts.AGENTS.md` |
 | `windows-introspection-smoke.ts` | Windows introspection smoke driver (CI: `_smoke.yml` standalone-install-smoke-windows). → see `windows-introspection-smoke.ts.AGENTS.md` |

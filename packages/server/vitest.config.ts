@@ -20,6 +20,11 @@ export default defineConfig({
     // tests stop tripping; a genuine hang still fails, just at 30s. Fast tests
     // finish immediately, unaffected.
     testTimeout: 30_000,
+    // `hookTimeout` defaults to 10s INDEPENDENTLY of `testTimeout`, and four
+    // server specs boot a full server in `beforeEach` — under 8-fork
+    // contention those hooks blew 10s while the test budget was already 30s.
+    // Match the test budget. See change: contention-harden-real-process-tests.
+    hookTimeout: 30_000,
     globalSetup: ["@blackbelt-technology/pi-dashboard-shared/test-support/setup-home.ts"],
     // Config-relative path (not the package name) so the worktree-local source
     // wins over the hoisted-workspace node_modules symlink, mirroring the

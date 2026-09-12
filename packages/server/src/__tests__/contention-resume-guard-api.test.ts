@@ -9,7 +9,7 @@
  * See change: fix-duplicate-bridge-registration (D4, D5).
  */
 
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -37,6 +37,18 @@ vi.mock("../spawn-process/process-manager.js", async (importOriginal) => {
   };
 });
 
+/**
+ * Temp-backed session-file paths. The resume guard keys on the sessionFile
+ * STRING, so the value only has to be stable and unique — it need not be a real
+ * transcript. Fake absolute paths (`/t/shared.jsonl`) made the server's
+ * debounced meta-persistence timer fire `mkdir('/t')` after the test, surfacing
+ * as suite-level unhandled ENOENT errors under load. Rooting them in a per-file
+ * temp dir keeps every assertion and lets the write succeed.
+ * See change: contention-harden-real-process-tests.
+ */
+const SESSION_ROOT = mkdtempSync(join(tmpdir(), "contention-guard-"));
+const sessionPath = (name: string) => join(SESSION_ROOT, name);
+
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function url(path: string) {
@@ -52,7 +64,7 @@ async function postJson(path: string, body?: Record<string, unknown>) {
 }
 
 const sockets: WebSocket[] = [];
-/** The bridge that owns `/t/shared.jsonl`; X12 sets it, X14 closes it. */
+/** The bridge that owns the shared session file; X12 sets it, X14 closes it. */
 let holderSocket: WebSocket | undefined;
 
 /** Connect a bridge socket and register `sessionId`, waiting until it routes. */
@@ -85,33 +97,39 @@ async function bridgeCount(): Promise<number> {
   return ((await res.json()) as any).activeBridgeCount as number;
 }
 
-describe("session-file resume guard (REST)", () => {
-  beforeAll(async () => {
-    server = await createServer({
-      port: 0,
-      piPort: 0,
-      host: "127.0.0.1",
-      dev: true,
-      autoShutdown: false,
-      shutdownIdleSeconds: 999,
-      tunnel: false,
-    });
-    await server.start();
-    httpPort = server.httpPort()!;
-    piPort = server.piPort()!;
+beforeAll(async () => {
+  server = await createServer({
+    port: 0,
+    piPort: 0,
+    host: "127.0.0.1",
+    dev: true,
+    autoShutdown: false,
+    shutdownIdleSeconds: 999,
+    tunnel: false,
   });
+  await server.start();
+  httpPort = server.httpPort()!;
+  piPort = server.piPort()!;
+});
 
-  afterAll(async () => {
-    for (const ws of sockets) ws.terminate();
-    if (server) {
-      try {
-        await server.stop();
-      } catch {
-        /* */
-      }
+// File-scoped teardown: BOTH describes below drive this one server, so the
+// lifecycle cannot live inside the first `describe` — Vitest began that
+// suite's `afterAll` while tests that still needed the server were running,
+// which tore it down under `/api/session-file`'s test (ECONNREFUSED). See
+// change: contention-harden-real-process-tests.
+afterAll(async () => {
+  for (const ws of sockets) ws.terminate();
+  if (server) {
+    try {
+      await server.stop();
+    } catch {
+      /* */
     }
-  });
+  }
+  rmSync(SESSION_ROOT, { recursive: true, force: true });
+});
 
+describe("session-file resume guard (REST)", () => {
   afterEach(() => {
     spawnCalls.length = 0;
   });
@@ -120,14 +138,14 @@ describe("session-file resume guard (REST)", () => {
   it("X12: refuses a continue whose session file a live bridge serves under another id", async () => {
     // B is live and owns the file. Held in a named binding so X14 closes THIS
     // socket rather than whichever one happens to be open at the time.
-    holderSocket = await connectBridge("live-B", { sessionFile: "/t/shared.jsonl", pid: 4242 });
+    holderSocket = await connectBridge("live-B", { sessionFile: sessionPath("shared.jsonl"), pid: 4242 });
 
     // A is a separate, ended session recorded against the SAME file.
     server.sessionManager.register({
       id: "ended-A",
       cwd: "/tmp/test",
       source: "tui" as const,
-      sessionFile: "/t/shared.jsonl",
+      sessionFile: sessionPath("shared.jsonl"),
       startedAt: Date.now(),
     });
     server.sessionManager.update("ended-A", { status: "ended", endedAt: Date.now() });
@@ -183,7 +201,7 @@ describe("session-file resume guard (REST)", () => {
       id: "other",
       cwd: "/tmp/test",
       source: "tui" as const,
-      sessionFile: "/t/other.jsonl",
+      sessionFile: sessionPath("other.jsonl"),
       startedAt: Date.now(),
     });
     server.sessionManager.update("other", { status: "ended", endedAt: Date.now() });
@@ -198,7 +216,7 @@ describe("session-file resume guard (REST)", () => {
   // a bare `{success:true}` left "written but unacknowledged" with no field to
   // land in. See change: fix-spawn-correlation-ttl-coupling (D7).
   it("F3: an uncontended prompt reports transmission and a prompt handle", async () => {
-    await connectBridge("plain", { pid: 11, sessionFile: "/t/plain.jsonl" });
+    await connectBridge("plain", { pid: 11, sessionFile: sessionPath("plain.jsonl") });
 
     const res = await postJson("/api/session/plain/prompt", { text: "hi" });
     const body = (await res.json()) as any;
@@ -215,7 +233,7 @@ describe("session-file resume guard (REST)", () => {
   // annotation and the non-plain-success shape are unchanged.
   // See change: fix-spawn-correlation-ttl-coupling (D7).
   it("F1: a contended prompt is annotated, names the bridge state, and reports transmission", async () => {
-    await connectBridge("contended", { pid: 37660, sessionFile: "/t/c.jsonl" });
+    await connectBridge("contended", { pid: 37660, sessionFile: sessionPath("c.jsonl") });
 
     // A second bridge claims the same id and loses.
     const dup = new WebSocket(`ws://127.0.0.1:${piPort}`);
@@ -230,7 +248,7 @@ describe("session-file resume guard (REST)", () => {
         cwd: "/tmp/test",
         source: "tui",
         pid: 17579,
-        sessionFile: "/t/c.jsonl",
+        sessionFile: sessionPath("c.jsonl"),
       }),
     );
     await closed;
@@ -273,7 +291,7 @@ describe("session-file resume guard (REST)", () => {
       id: "remote-ended",
       cwd: "/tmp/test",
       source: "tui" as const,
-      sessionFile: "/Users/robson/.pi/agent/sessions/collides.jsonl",
+      sessionFile: sessionPath("collides.jsonl"),
       startedAt: Date.now(),
     });
     server.sessionManager.update("remote-ended", {
@@ -298,7 +316,7 @@ describe("session-file resume guard (REST)", () => {
       id: "remote-live",
       cwd: "/tmp/test",
       source: "tui" as const,
-      sessionFile: "/Users/robson/.pi/agent/sessions/collides.jsonl",
+      sessionFile: sessionPath("collides.jsonl"),
       startedAt: Date.now(),
     });
     server.sessionManager.update("remote-live", { originDeviceId: "device-7" });
@@ -314,7 +332,7 @@ describe("session-file resume guard (REST)", () => {
       id: "local-ended",
       cwd: "/tmp/test",
       source: "tui" as const,
-      sessionFile: "/t/local-only.jsonl",
+      sessionFile: sessionPath("local-only.jsonl"),
       startedAt: Date.now(),
     });
     server.sessionManager.update("local-ended", { status: "ended", endedAt: Date.now() });

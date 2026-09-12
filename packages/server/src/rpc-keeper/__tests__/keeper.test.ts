@@ -842,8 +842,8 @@ describe.skipIf(process.platform === "win32")("keeper-log rotation (real keeper)
     await waitFor(() => {
       if (!existsSync(keeperLogIn(home, sessionId))) return false;
       return statSync(keeperLogIn(home, sessionId)).size >= 8192;
-    }, 30_000);
-    const size = await waitForStableSize(home, sessionId, { stableMs: 800, timeoutMs: 30_000 });
+    }, 60_000);
+    const size = await waitForStableSize(home, sessionId, { stableMs: 800, timeoutMs: 60_000 });
     expect(size).toBeLessThan(2 * 65_536);
     // The writer emits only 'a' bytes (no newlines). Any keeper-originated
     // line after the child's first byte would introduce a timestamp bracket.
@@ -852,12 +852,16 @@ describe.skipIf(process.platform === "win32")("keeper-log rotation (real keeper)
     // (`indexOf("a") === -1`), so poll (bounded) for the child to re-populate
     // the post-rotation file, THEN assert purity.
     // See change: make-test-suite-deterministic.
-    await waitFor(() => readFileSync(keeperLogIn(home, sessionId), "utf8").includes("a"), 30_000);
+    await waitFor(() => readFileSync(keeperLogIn(home, sessionId), "utf8").includes("a"), 60_000);
     const content = readFileSync(keeperLogIn(home, sessionId), "utf8");
     const firstChildByte = content.indexOf("a");
     expect(content.slice(firstChildByte)).toMatch(/^a+$/); // pure child bytes, no keeper lines
     await killAndAwait(k);
-  }, 90_000);
+    // 60 s per poll step, 3 steps: the mock-pi boot + 1 MiB of child writes +
+    // the rotation timer all stretch under fork contention, and the old 30 s
+    // window timed out while the keeper was healthy. See change:
+    // contention-harden-real-process-tests.
+  }, 240_000);
 
   it("X1: ftruncate refused → path fallback truncates the same inode (keeper stays up)", async () => {
     const sessionId = makeSessionId();

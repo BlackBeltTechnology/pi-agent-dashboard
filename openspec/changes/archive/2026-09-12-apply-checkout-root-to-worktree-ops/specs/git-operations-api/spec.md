@@ -164,8 +164,6 @@ batch, and SHALL be reported in the item's `code` field in input order.
 - **THEN** the response SHALL contain three results in input order
 - **AND** their codes SHALL be success, `is_main_worktree`, and `main_checkout_unresolved` respectively
 
-## MODIFIED Requirements
-
 ### Requirement: Batch removal cap is configurable
 
 The maximum number of items `POST /api/git/worktree/remove-batch` accepts SHALL
@@ -211,6 +209,9 @@ classification, input ordering, and the no-abort rule are unchanged.
 - **WHEN** an oversized batch is rejected
 - **THEN** the error message SHALL state the effective cap
 - **AND** it SHALL NOT state a stale hardcoded number
+
+
+## MODIFIED Requirements
 
 ### Requirement: Create worktree endpoint
 
@@ -361,11 +362,11 @@ This narrows `isMain` from "exactly one" to "at most one" and is therefore NOT a
 - **THEN** the bare hub entry SHALL have `isMain: false` and `bare: true`
 - **AND** no entry SHALL have `isMain: true`
 
-#### Scenario: Submodule lists its own checkout as main
+#### Scenario: Submodule never stamps a git-dir row main
 - **GIVEN** `cwd` is inside a submodule
 - **WHEN** the endpoint is called
-- **THEN** the entry whose path is the submodule working tree SHALL have `isMain: true`
-- **AND** no entry under `<super>/.git/` SHALL have `isMain: true`
+- **THEN** no entry under `<super>/.git/` SHALL have `isMain: true`
+- **AND** when the submodule's working tree appears as a record, that record SHALL be the main entry; git reports the main registration at the module git-dir path, so typically NO entry is main (the shape is "at most one", not "exactly one")
 
 ### Requirement: Orphan worktree path cleanup endpoint
 The server SHALL expose `POST /api/git/worktree/orphan-cleanup` (localhost-gated) accepting `{ cwd: string, path: string }`. The endpoint SHALL delete `path` from disk if and only if ALL of the following hold:

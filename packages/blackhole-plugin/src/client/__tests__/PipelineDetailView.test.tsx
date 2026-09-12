@@ -10,7 +10,7 @@
  *
  * See change: add-blackhole-session-pipeline.
  */
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -75,7 +75,7 @@ describe("activation is explicit only (F8)", () => {
 describe("provenance and at-rest-only content (F11)", () => {
   it("cursors attributed to the pending file", async () => {
     const { getByTestId } = mountDetail();
-    await new Promise((r) => setTimeout(r, 0));
+    await screen.findByTestId("bh-detail-workers");
     expect(getByTestId("bh-detail-workers").textContent).toContain("-pending.json");
     expect(getByTestId("bh-detail-worker-observer").textContent).toContain("aabb1122");
     expect(getByTestId("bh-detail-worker-observer").textContent).toContain("recorded");
@@ -83,7 +83,7 @@ describe("provenance and at-rest-only content (F11)", () => {
 
   it("resolved model + reason attributed to the cooldown file", async () => {
     const { getByTestId } = mountDetail();
-    await new Promise((r) => setTimeout(r, 0));
+    await screen.findByTestId("bh-detail-cooldown-source");
     expect(getByTestId("bh-detail-cooldown-source").textContent).toContain(
       "pi-blackhole-cooldown.json",
     );
@@ -92,7 +92,7 @@ describe("provenance and at-rest-only content (F11)", () => {
 
   it("proximity attributed to dashboard accounting with the non-convertibility caveat", async () => {
     const { getByTestId } = mountDetail();
-    await new Promise((r) => setTimeout(r, 0));
+    await screen.findByTestId("bh-detail-proximity-caveat");
     const caveat = getByTestId("bh-detail-proximity-caveat");
     expect(caveat.textContent).toMatch(/dashboard/i);
     expect(caveat.textContent).toMatch(/not convertible|not persisted/i);
@@ -100,7 +100,7 @@ describe("provenance and at-rest-only content (F11)", () => {
 
   it("in-memory-only values are absent; transcript pointer present", async () => {
     const { getByTestId, queryByText } = mountDetail();
-    await new Promise((r) => setTimeout(r, 0));
+    await screen.findByTestId("bh-detail-transcript-note");
     expect(getByTestId("bh-detail-transcript-note").textContent).toMatch(/transcript/i);
     expect(queryByText(/consolidationInFlight/)).toBeNull();
     expect(queryByText(/compactInFlight/)).toBeNull();
@@ -115,7 +115,7 @@ describe("provenance and at-rest-only content (F11)", () => {
     const { getByTestId } = render(
       <PipelineDetailView session={session} routeParams={{}} onClose={() => (closed = true)} />,
     );
-    await new Promise((r) => setTimeout(r, 0));
+    await screen.findByTestId("bh-detail-back");
     getByTestId("bh-detail-back").click();
     expect(closed).toBe(true);
     expect(isPipelineDetailActive(session)).toBe(false);
@@ -126,13 +126,21 @@ describe("session-scoping (6.3)", () => {
   it("the global settings surface renders no per-session pipeline state", async () => {
     const jsonRes = (body: unknown, status = 200) =>
       ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
-    (globalThis as { fetch?: unknown }).fetch = vi.fn(async (url: string) => {
+    const fetchMock = vi.fn(async (url: string) => {
       if (String(url).includes("/api/plugins/blackhole/status")) return jsonRes({ installed: true });
       if (String(url).includes("/api/plugins/blackhole/config")) return jsonRes({ status: "ok", filePath: "/x", exists: false, fields: {}, unmanagedKeys: [] });
       throw new Error(`unexpected url ${url}`);
     });
+    (globalThis as { fetch?: unknown }).fetch = fetchMock;
     const { queryByTestId, queryAllByTestId } = render(<BlackholeSettings />);
-    await new Promise((r) => setTimeout(r, 0));
+    // Wait for the config load to settle (observable) rather than a fixed tick:
+    // the assertions below are NEGATIVE, so they must run AFTER the load.
+    // See change: contention-harden-real-process-tests.
+    await vi.waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((c) => String(c[0]).includes("/blackhole/config")),
+      ).toBe(true),
+    );
     expect(queryByTestId("bh-detail-view")).toBeNull();
     expect(queryAllByTestId("bh-memory-subcard")).toEqual([]);
     expect(queryAllByTestId("bh-detail-worker-observer")).toEqual([]);

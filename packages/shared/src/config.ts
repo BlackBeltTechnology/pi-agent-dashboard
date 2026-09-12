@@ -419,6 +419,22 @@ export interface DashboardConfig {
    * See change: reduce-bridge-tick-bandwidth (D2/D3/D4).
    */
   subagentTickThrottleMs: number;
+  /**
+   * Max items per `POST /api/git/worktree/remove-batch` request. Each item is
+   * a synchronous, blocking removal on the event loop (D7), so the item count
+   * is the knob that bounds one HTTP request's worst-case stall.
+   *
+   * A positive integer is clamped into [`REMOVE_BATCH_CAP_MIN`,
+   * `REMOVE_BATCH_CAP_MAX`]; anything else — non-numeric, non-positive,
+   * non-integer — falls back to the default (50, so an unset config is
+   * byte-identical to the previous hard-coded cap). The bounds are failure
+   * modes, not preferences: a cap of 0 would disable the batch endpoint the
+   * manage-worktrees UI depends on, and an unbounded cap turns one request
+   * into an unbounded run of blocking removals.
+   *
+   * See change: apply-checkout-root-to-worktree-ops (D8).
+   */
+  removeBatchCap: number;
   spawnStrategy: SpawnStrategy;
   tunnel: {
     enabled: boolean;
@@ -738,6 +754,18 @@ export const HEALTH_CHECK_TIMEOUT_MS = 10_000;
 export const SPAWN_READINESS_BUDGET_MS = HEALTH_CHECK_TIMEOUT_MS * 3;
 export const SERVER_STARTUP_DEADLINE_MS = SPAWN_READINESS_BUDGET_MS * 4;
 
+/**
+ * Default + clamp bounds for `removeBatchCap`. See change:
+ * apply-checkout-root-to-worktree-ops (D8).
+ */
+export const DEFAULT_REMOVE_BATCH_CAP = 50;
+export const REMOVE_BATCH_CAP_MIN = 1;
+export const REMOVE_BATCH_CAP_MAX = 500;
+export function clampRemoveBatchCap(v: unknown): number {
+  if (typeof v !== "number" || !Number.isInteger(v) || v <= 0) return DEFAULT_REMOVE_BATCH_CAP;
+  return Math.min(REMOVE_BATCH_CAP_MAX, Math.max(REMOVE_BATCH_CAP_MIN, v));
+}
+
 /** Clamp bounds for `readinessTimeoutMs` (see the field's doc comment). */
 export const READINESS_TIMEOUT_MIN_MS = 1_000;
 export const READINESS_TIMEOUT_MAX_MS = 600_000;
@@ -833,6 +861,7 @@ const DEFAULTS: DashboardConfig = {
   // Rollout default `0` (off). Flipped to 500 once the throttle's suites are
   // green. See change: reduce-bridge-tick-bandwidth (D4, task 6.1).
   subagentTickThrottleMs: 0,
+  removeBatchCap: DEFAULT_REMOVE_BATCH_CAP,
   spawnStrategy: "headless",
   tunnel: {
     enabled: true,
@@ -1379,6 +1408,7 @@ export function loadConfig(): DashboardConfig {
         parsed.subagentTickThrottleMs >= 0
           ? parsed.subagentTickThrottleMs
           : defaults.subagentTickThrottleMs,
+      removeBatchCap: clampRemoveBatchCap(parsed.removeBatchCap),
       spawnStrategy,
       tunnel: normalizeTunnelConfig(parsed.tunnel, defaults.tunnel),
       devBuildOnReload: parsed.devBuildOnReload ?? defaults.devBuildOnReload,
@@ -1474,6 +1504,7 @@ export function ensureConfig(): void {
     shutdownIdleSeconds: DEFAULTS.shutdownIdleSeconds,
     readinessTimeoutMs: DEFAULTS.readinessTimeoutMs,
     subagentTickThrottleMs: DEFAULTS.subagentTickThrottleMs,
+    removeBatchCap: DEFAULTS.removeBatchCap,
     spawnStrategy: DEFAULTS.spawnStrategy,
     tunnel: DEFAULTS.tunnel,
     devBuildOnReload: DEFAULTS.devBuildOnReload,

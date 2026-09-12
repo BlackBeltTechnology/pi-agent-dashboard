@@ -177,12 +177,22 @@ describe("P1: the per-event bookkeeping cost stays negligible", () => {
     state.timer = setTimeout(() => {}, SETTLE_MS);
   }
 
-  function timed(fn: () => void, iterations: number): number {
-    // One warm-up pass so JIT compilation is not attributed to the measurement.
-    for (let i = 0; i < iterations; i++) fn();
-    const start = performance.now();
-    for (let i = 0; i < iterations; i++) fn();
-    return performance.now() - start;
+  function timed(fn: () => void, iterations: number, rounds = 7): number {
+    // Best-of-rounds: a scheduler preemption or GC pause can only INFLATE a
+    // round's elapsed time, so the minimum is the least-contended sample. The
+    // single-sample version was decided by whichever run caught a preemption —
+    // under fork contention `measured` reached 77 ms against a 34 ms ceiling
+    // while the work was unchanged. A real regression inflates every round, so
+    // the minimum still fires. See change: contention-harden-real-process-tests.
+    let best = Infinity;
+    for (let r = 0; r < rounds; r++) {
+      // Warm-up each round so JIT compilation is not attributed to the measurement.
+      for (let i = 0; i < iterations; i++) fn();
+      const start = performance.now();
+      for (let i = 0; i < iterations; i++) fn();
+      best = Math.min(best, performance.now() - start);
+    }
+    return best;
   }
 
   it("P1: adds well under 1ms per event, and stays close to a no-op baseline", () => {

@@ -12,12 +12,19 @@ import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { type ChildProcess, execFileSync, execSync, spawn, spawnSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
-import { gitStatusV2 } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
+import {
+  checkoutRoots,
+  type GitCheckoutRoots,
+  gitStatusV2,
+  hasGitPathSegment,
+} from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
+import { samePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
 import type { GitChangedFile, GitCommitResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { GitStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-// Self-namespace import so `resolveConfigRoot` calls `isGitRepo`/`resolveMainPath`
-// through the module's live exports — lets tests stub them (internal lexical
-// references are otherwise un-spyable). See change: support-non-git-init-hook.
+// Self-namespace import so internal callers reach these helpers through the
+// module's live exports — lets tests stub them (internal lexical references
+// are otherwise un-spyable). `pruneWorktrees` calls `self.resolveMainPath`.
+// See change: support-non-git-init-hook.
 import * as self from "./git-operations.js";
 import {
   ensureWorktreeExcludeLine,
@@ -520,14 +527,27 @@ export function resolveGitDir(cwd: string): string | null {
   return path.isAbsolute(out) ? out : path.join(cwd, out);
 }
 
-/** List all worktrees of the repository containing `cwd`. */
-export function listWorktrees(cwd: string): WorktreeEntry[] {
+/**
+ * List all worktrees of the repository containing `cwd`.
+ *
+ * `opts.mainPath` threads an already-resolved main checkout (D7: at most ONE
+ * resolution per distinct `cwd` per request — a caller that resolved for its
+ * own guard MUST pass it here rather than let this function re-resolve).
+ */
+export function listWorktrees(cwd: string, opts?: { mainPath?: string | null }): WorktreeEntry[] {
+  // D4: `isMain` is RESOLVED, not positional. One `resolveMainPath` per CALL
+  // (D7 — not per entry). Reusing the wrapper (not a raw `checkoutRoots`
+  // call) means the `.git`-segment rejection cannot be forgotten here: a
+  // crafted `core.worktree` equal to a git-dir path must never stamp that
+  // record main. When no main resolves (bare hub), NO entry is main.
+  const mainPath = opts && "mainPath" in opts ? opts.mainPath : resolveMainPath(cwd);
   const stdout = run("git worktree list --porcelain", cwd);
   // `exists` reports whether the registration still has a directory on disk.
   // One `statSync` per entry; the cost is noise next to the `execSync` above.
   // See change: manage-worktrees-filter-cleanup.
   return parsePorcelainWorktrees(stdout).map((entry) => ({
     ...entry,
+    isMain: mainPath != null && samePath(entry.path, mainPath),
     exists: fs.existsSync(entry.path),
   }));
 }
@@ -629,7 +649,12 @@ export function addWorktree(opts: AddWorktreeOptions): AddWorktreeSuccess | AddW
   // Checkout mode = no newBranch. `base` is the existing branch ref to
   // check out. See change: worktree-checkout-existing-branch.
   const checkoutMode = newBranch === undefined;
-  if (!isGitRepo(cwd)) {
+  // Resolve the MAIN checkout (D2). Proves repo-ness AND anchors the derived
+  // path in one call: the condition is wider than the old `isGitRepo` +
+  // `--git-common-dir` pair (a bare hub, a worktree of one, an unresolved
+  // probe now refuse too) but the `not_a_repo` code is preserved.
+  const repoRoot = resolveMainPath(cwd);
+  if (!repoRoot) {
     return { ok: false, error: "not_a_repo", message: "not a git repository" };
   }
   // Resolve the local branch name + commit-ish for checkout mode.
@@ -649,20 +674,6 @@ export function addWorktree(opts: AddWorktreeOptions): AddWorktreeSuccess | AddW
   // branch name (bare name triggers DWIM for remote-only refs); fork mode
   // forks from `base`.
   const checkoutCommitish = resolvedBranch;
-  // Resolve to the parent repo root (works whether cwd is the main checkout
-  // or any sibling worktree). `git rev-parse --show-toplevel` from a
-  // worktree returns the worktree's own root, NOT the main repo. We want
-  // the MAIN repo so `.worktrees/<slug>` lands consistently regardless of
-  // which worktree opened the dialog. Read `--git-common-dir` and walk up.
-  const commonDirRaw = tryRun("git rev-parse --git-common-dir", cwd);
-  if (!commonDirRaw) {
-    return { ok: false, error: "not_a_repo", message: "unable to resolve git common-dir" };
-  }
-  const commonDirAbs = path.isAbsolute(commonDirRaw)
-    ? commonDirRaw
-    : path.resolve(cwd, commonDirRaw);
-  const repoRoot = path.dirname(commonDirAbs);
-
   // Derive worktree path when not supplied. Fork mode slugs the new
   // branch name; checkout mode slugs the local name of the base ref so
   // `origin/foo` lands at `.worktrees/foo`, not `.worktrees/origin-foo`.
@@ -685,7 +696,7 @@ export function addWorktree(opts: AddWorktreeOptions): AddWorktreeSuccess | AddW
       try { return fs.readdirSync(worktreePath).length === 0; } catch { return false; }
     })();
     if (!isEmpty) {
-      const orphanLikely = computeOrphanLikely(cwd, worktreePath);
+      const orphanLikely = computeOrphanLikely(cwd, worktreePath, repoRoot);
       return {
         ok: false,
         error: "path_exists",
@@ -731,7 +742,7 @@ export function addWorktree(opts: AddWorktreeOptions): AddWorktreeSuccess | AddW
       return { ok: false, error: "base_not_found", message: `base ref not found: ${base}`, stderr };
     }
     if (/'.*' already exists/i.test(stderr)) {
-      const orphanLikely = computeOrphanLikely(cwd, worktreePath);
+      const orphanLikely = computeOrphanLikely(cwd, worktreePath, repoRoot);
       return { ok: false, error: "path_exists", message: `target path already exists: ${worktreePath}`, stderr, orphanLikely };
     }
     return { ok: false, error: "git_failed", message: "git worktree add failed", stderr };
@@ -742,18 +753,29 @@ export function addWorktree(opts: AddWorktreeOptions): AddWorktreeSuccess | AddW
   // they're opting out of the convention.
   let excludeAppended = false;
   if (!opts.path) {
-    const excludePath = path.join(commonDirAbs, "info", "exclude");
-    try {
-      const existing = fs.existsSync(excludePath) ? fs.readFileSync(excludePath, "utf-8") : "";
-      const result = ensureWorktreeExcludeLine(existing);
-      if (result.appended) {
-        fs.mkdirSync(path.dirname(excludePath), { recursive: true });
-        fs.writeFileSync(excludePath, result.content);
-        excludeAppended = true;
+    // Housekeeping anchor: `info/exclude` lives in the repository's COMMON
+    // GIT DIR — NOT under the resolved main checkout (`<checkout>/.git` does
+    // not exist for a submodule or `--separate-git-dir` checkout).
+    // Non-fatal on null (spec, create step 5: the exclude-write SHALL NOT
+    // fail the request) — the worktree already exists on disk; a failure
+    // here must not strand an unreported orphan registration.
+    const commonDir = resolveCommonDirAbs(cwd);
+    if (!commonDir) {
+      console.error("[git-worktree] unable to resolve git common-dir; skipping .git/info/exclude housekeeping");
+    } else {
+      const excludePath = path.join(commonDir, "info", "exclude");
+      try {
+        const existing = fs.existsSync(excludePath) ? fs.readFileSync(excludePath, "utf-8") : "";
+        const result = ensureWorktreeExcludeLine(existing);
+        if (result.appended) {
+          fs.mkdirSync(path.dirname(excludePath), { recursive: true });
+          fs.writeFileSync(excludePath, result.content);
+          excludeAppended = true;
+        }
+      } catch (err) {
+        // Non-fatal: the worktree is created; exclude write is housekeeping.
+        console.error(`[git-worktree] failed to update .git/info/exclude:`, err);
       }
-    } catch (err) {
-      // Non-fatal: the worktree is created; exclude write is housekeeping.
-      console.error(`[git-worktree] failed to update .git/info/exclude:`, err);
     }
   }
 
@@ -881,16 +903,48 @@ export interface LifecycleFailure<C extends string = string> {
 }
 
 /**
- * Resolve the main checkout (parent repo root) for any `cwd`. Returns
- * `null` when the cwd isn't a git work tree.
+ * Absolute common git dir for `cwd`, or `null`. Housekeeping-only anchor
+ * (the `info/exclude` write) — the AUTHORIZATION anchor is
+ * `resolveMainPath`.
+ */
+function resolveCommonDirAbs(cwd: string): string | null {
+  const raw = tryRun("git rev-parse --path-format=absolute --git-common-dir", cwd);
+  if (!raw) return null;
+  return path.isAbsolute(raw) ? raw : path.resolve(cwd, raw);
+}
+
+/**
+ * Request-budget timeout for checkout-root resolution. A request-path guard
+ * must not inherit the recipes' batch-job budget (15s per probe) — on a hung
+ * filesystem that is a multi-minute synchronous stall. Same value
+ * `kb-routes` uses for its request-path `checkoutRoots` call. Exported so
+ * the routes' classification guard shares ONE budget with this wrapper and
+ * the two cannot drift.
+ * See change: apply-checkout-root-to-worktree-ops (D7).
+ */
+export const CHECKOUT_ROOTS_TIMEOUT_MS = 400;
+
+/**
+ * Resolve the main checkout for any `cwd`: a thin wrapper over
+ * `checkoutRoots({ cwd, timeout: 400 })?.mainCheckout`, plus the consumer-side
+ * `.git`-segment rejection (`hasGitPathSegment`) the resolver deliberately
+ * leaves to consumers. Returns `null` when the cwd isn't a git work tree, the
+ * repo has no main checkout (bare hub / worktree of one), or the resolved
+ * main checkout carries a `.git` path COMPONENT (user-controlled
+ * `core.worktree` pointing inside a git dir — never a checkout anchor).
+ *
+ * This REPLACES the `dirname(git rev-parse --git-common-dir)` derivation,
+ * which was wrong whenever the git dir sits outside its checkout (submodule,
+ * worktree-of-submodule, `--separate-git-dir`) and named a bare hub's PARENT
+ * as the main checkout.
+ * See change: apply-checkout-root-to-worktree-ops (D1).
  */
 export function resolveMainPath(cwd: string): string | null {
-  const commonDirRaw = tryRun("git rev-parse --git-common-dir", cwd);
-  if (!commonDirRaw) return null;
-  const commonDirAbs = path.isAbsolute(commonDirRaw)
-    ? commonDirRaw
-    : path.resolve(cwd, commonDirRaw);
-  return path.dirname(commonDirAbs);
+  const roots = checkoutRoots({ cwd, timeout: CHECKOUT_ROOTS_TIMEOUT_MS });
+  const main = roots?.mainCheckout ?? null;
+  if (main === null) return null;
+  if (hasGitPathSegment(main)) return null;
+  return main;
 }
 
 /**
@@ -907,8 +961,56 @@ export function resolveMainPath(cwd: string): string | null {
  * See change: support-non-git-init-hook.
  */
 export function resolveConfigRoot(cwd: string): string | null {
-  if (self.isGitRepo(cwd)) return self.resolveMainPath(cwd);
+  // One probe call decides both questions (D5) — the `isGitRepo` probe is
+  // gone. A non-null result means the cwd IS inside a repository, so the
+  // answer is `mainCheckout` even when that is `null`: a bare hub has no
+  // config root and does NOT fall through to the non-git branch (today
+  // `isGitRepo` is false inside a bare repo, so it could adopt
+  // `<bare>/.pi/settings.json`). A null RESULT means not a repository.
+  const roots = checkoutRoots({ cwd, timeout: CHECKOUT_ROOTS_TIMEOUT_MS });
+  if (roots) return roots.mainCheckout;
   return fs.existsSync(path.join(cwd, ".pi", "settings.json")) ? cwd : null;
+}
+
+/**
+ * Verdict of the removal guard (D3): a boolean would have to collapse the two
+ * refusal reasons — "this is the main checkout" and "the anchor could not be
+ * resolved" — which are different messages to a user and different truths
+ * about the state.
+ */
+export type WorktreeRemovalVerdict = "main" | "removable" | "unresolved";
+
+/**
+ * Classify whether `cwd` may be removed, from the resolver's own signals —
+ * never a path-equality guess. `unresolved` REFUSES: an inconclusive probe is
+ * a refusal (`main_checkout_unresolved`), never "not main, proceed".
+ *
+ * | resolver result                                   | verdict      |
+ * |---------------------------------------------------|--------------|
+ * | `null` (probe failure / non-repo)                 | `unresolved` |
+ * | `isLinkedWorktree === false`                      | `main`       |
+ * | linked, `thisCheckout === null`                   | `unresolved` |
+ * | linked, `mainCheckout === null`                   | `unresolved` |
+ * | linked, `mainCheckout` has a `.git` segment        | `unresolved` |
+ * | linked, plausible `mainCheckout`                  | `removable`  |
+ *
+ * `isLinkedWorktree === false` covers the main checkout AND every
+ * non-worktree repo state — a subdirectory of the main checkout, a submodule,
+ * a `--separate-git-dir` checkout, a bare repo — all `main`, all refused.
+ *
+ * The `thisCheckout === null` row is NOT redundant with the
+ * `mainCheckout === null` row: the resolver can return a plausible
+ * `mainCheckout` while `--show-toplevel` failed or timed out — fail closed.
+ *
+ * See change: apply-checkout-root-to-worktree-ops (D3).
+ */
+export function classifyWorktreeRemoval(roots: GitCheckoutRoots | null): WorktreeRemovalVerdict {
+  if (!roots) return "unresolved";
+  if (!roots.isLinkedWorktree) return "main";
+  if (roots.thisCheckout === null) return "unresolved";
+  if (roots.mainCheckout === null) return "unresolved";
+  if (hasGitPathSegment(roots.mainCheckout)) return "unresolved";
+  return "removable";
 }
 
 /**
@@ -970,11 +1072,20 @@ export function removeWorktree(opts: {
   force?: boolean;
   /** Also `git branch -d <branch>` after a successful removal (never `-D`). */
   deleteBranch?: boolean;
+  /**
+   * Pre-resolved main checkout — the threaded single resolution (D7): the
+   * route classifies once and threads the anchor here, so one request costs
+   * ONE resolution. When omitted the function resolves itself (direct
+   * callers). The `not_a_worktree` branch is a defence-in-depth backstop —
+   * unreachable once the route classifies first, whose codes are the
+   * truthful ones.
+   */
+  mainPath?: string;
 }):
   | LifecycleSuccess<{ removed: true; branchDeleted: boolean; branchDeleteCode?: BranchDeleteCode }>
   | LifecycleFailure<RemoveCode> {
   const { cwd, force, deleteBranch } = opts;
-  const mainPath = resolveMainPath(cwd);
+  const mainPath = opts.mainPath ?? resolveMainPath(cwd);
   if (!mainPath) return { ok: false, code: "not_a_worktree" };
   // Capture the branch BEFORE removal — it is unrecoverable afterwards.
   const branch = deleteBranch ? branchOfWorktree(mainPath, cwd) : null;
@@ -1115,7 +1226,9 @@ export function mergeWorktree(opts: {
 }): LifecycleSuccess<{ mergeSha: string; branchDeleted: boolean }> | LifecycleFailure<MergeCode | "dirty_main"> {
   const { cwd, baseHint, deleteBranch } = opts;
   const mainPath = resolveMainPath(cwd);
-  if (!mainPath) return { ok: false, code: "git_failed", stderr: "unable to resolve main checkout" };
+  // D2: an unresolvable checkout is a REFUSAL (4xx), not a server error —
+  // the old `git_failed` mapped to HTTP 500.
+  if (!mainPath) return { ok: false, code: "not_a_worktree" };
   const branch = tryRun("git rev-parse --abbrev-ref HEAD", cwd);
   if (!branch || branch === "HEAD") {
     return { ok: false, code: "git_failed", stderr: "worktree is in a detached HEAD state" };
@@ -1197,7 +1310,7 @@ export function worktreeDiffStat(opts: {
 }): LifecycleSuccess<{ summary: string; filesChanged: number; insertions: number; deletions: number; base: string; branch: string }> | LifecycleFailure<MergeCode> {
   const { cwd, baseHint } = opts;
   const mainPath = resolveMainPath(cwd);
-  if (!mainPath) return { ok: false, code: "git_failed" };
+  if (!mainPath) return { ok: false, code: "not_a_worktree" };
   const branch = tryRun("git rev-parse --abbrev-ref HEAD", cwd);
   if (!branch || branch === "HEAD") return { ok: false, code: "git_failed" };
   const base = resolveDefaultBase(mainPath, baseHint);
@@ -1279,7 +1392,11 @@ export function createPullRequest(opts: {
     if (!pushResult.ok) return pushResult;
     pushed = true;
   }
-  const mainPath = resolveMainPath(cwd);
+  // D2: the old `const mainPath = resolveMainPath(cwd)` here was DEAD (never
+  // read) — deleted, not converted. `gh pr create` runs in `cwd` and needs no
+  // main checkout; refusing on an unresolvable one would newly break PR
+  // creation from a worktree of a bare hub, which works today. Same for
+  // `pushBranch`, which never resolved a main checkout.
   // Resolve base AGAINST `origin/` because `gh pr create` needs a remote
   // branch (it diffs origin/<base>..<head> to populate --fill or to
   // validate the PR). Falls back to `origin/{develop,main,master}` when
@@ -1370,9 +1487,11 @@ export function stashPop(cwd: string): StashPopResult {
  *
  * See change: openspec-worktree-spawn-button.
  */
-function computeOrphanLikely(cwd: string, worktreePath: string): boolean {
+function computeOrphanLikely(cwd: string, worktreePath: string, mainPath?: string | null): boolean {
   try {
-    const list = listWorktrees(cwd);
+    // D7: the caller has already resolved this cwd — thread the anchor so
+    // this request never resolves the same cwd twice.
+    const list = listWorktrees(cwd, { mainPath });
     return isOrphanWorktreePath({
       path: worktreePath,
       worktreeList: list,
@@ -1440,19 +1559,16 @@ export function orphanCleanup(
   const maxFiles = opts.maxFiles ?? 20;
   const maxFileSize = opts.maxFileSize ?? 1_048_576; // 1 MB
 
-  // Resolve repo root via git common-dir (works from any worktree).
-  const commonDirRaw = tryRun("git rev-parse --git-common-dir", cwd);
-  if (!commonDirRaw) {
+  // ── (i) Resolve the anchor: the RESOLVED main checkout (D6) — an orphan
+  // can be cleaned from any worktree of the repo. `null` is a refusal.
+  const repoRoot = resolveMainPath(cwd);
+  if (!repoRoot) {
     return { ok: false, error: "outside_repo", message: "cwd is not inside a git repository" };
   }
-  const commonDirAbs = path.isAbsolute(commonDirRaw)
-    ? commonDirRaw
-    : path.resolve(cwd, commonDirRaw);
-  const repoRoot = path.dirname(commonDirAbs);
 
-  // Anti-traversal: `targetPath` MUST be inside repoRoot. We resolve both
-  // and compare prefixes (with separator) to avoid `/repo` matching
-  // `/repository`.
+  // ── (ii) Logical containment: `targetPath` MUST be inside repoRoot. We
+  // resolve both and compare prefixes (with separator) to avoid `/repo`
+  // matching `/repository`.
   const absTarget = path.resolve(targetPath);
   const absRoot = path.resolve(repoRoot);
   const rootWithSep = absRoot.endsWith(path.sep) ? absRoot : absRoot + path.sep;
@@ -1460,7 +1576,9 @@ export function orphanCleanup(
     return { ok: false, error: "outside_repo", message: `path is not inside repo root: ${absTarget}` };
   }
 
-  // Path must exist and be a directory.
+  // ── (iii) Existence check BEFORE realpath: `realpathSync` throws ENOENT on
+  // a missing path and would otherwise convert a clean `not_a_directory`
+  // refusal into an unspecified error. Pinned order (D6).
   let stat;
   try {
     stat = fs.statSync(absTarget);
@@ -1471,12 +1589,42 @@ export function orphanCleanup(
     return { ok: false, error: "not_a_directory", message: `path is not a directory: ${absTarget}` };
   }
 
+  // ── (iv) Realpath BOTH sides and re-apply containment (D6, matching the
+  // sibling `sweepResidualWorktreeDir`): a symlink inside the repo root that
+  // points OUTSIDE it must not pass containment. A realpath ENOENT here is a
+  // TOCTOU race (target deleted between (iii) and now) → `not_a_directory`;
+  // any other realpath failure (EACCES, ELOOP) is a failure to read, never a
+  // pass → `fs_failed`.
+  let realTarget: string;
+  let realRoot: string;
+  try {
+    realTarget = fs.realpathSync(absTarget);
+    realRoot = fs.realpathSync(absRoot);
+  } catch (err: any) {
+    if (err?.code === "ENOENT") {
+      return { ok: false, error: "not_a_directory", message: `path disappeared: ${absTarget}` };
+    }
+    return { ok: false, error: "fs_failed", message: `failed to resolve path: ${err?.message ?? String(err)}` };
+  }
+  const realRootWithSep = realRoot.endsWith(path.sep) ? realRoot : realRoot + path.sep;
+  if (realTarget !== realRoot && !realTarget.startsWith(realRootWithSep)) {
+    return { ok: false, error: "outside_repo", message: `path resolves outside repo root: ${absTarget}` };
+  }
+
+  // ── (v) The remaining guards IN THEIR EXISTING RELATIVE ORDER (D6): an
+  // input matching several keeps the code it returns today. Every guard from
+  // here on — and the delete — operates on `realTarget` (the path that was
+  // just containment-validated): an ancestor symlink repointed after (iv)
+  // must not relocate what the guards inspected away from what gets deleted.
+
   // Must NOT be a registered worktree.
   let isOrphan = false;
   try {
-    const list = listWorktrees(cwd);
+    // D7: the anchor is already resolved — thread it so this request does
+    // not resolve the same cwd a second time.
+    const list = listWorktrees(cwd, { mainPath: repoRoot });
     isOrphan = isOrphanWorktreePath({
-      path: absTarget,
+      path: realTarget,
       worktreeList: list,
       exists: () => true, // we already confirmed via statSync above
     });
@@ -1484,13 +1632,13 @@ export function orphanCleanup(
     return { ok: false, error: "fs_failed", message: "failed to list worktrees" };
   }
   if (!isOrphan) {
-    return { ok: false, error: "not_orphan", message: `path is a registered worktree: ${absTarget}` };
+    return { ok: false, error: "not_orphan", message: `path is a registered worktree: ${realTarget}` };
   }
 
   // Must NOT contain a top-level `.git` entry of any kind.
   let topEntries: fs.Dirent[];
   try {
-    topEntries = fs.readdirSync(absTarget, { withFileTypes: true });
+    topEntries = fs.readdirSync(realTarget, { withFileTypes: true });
   } catch {
     return { ok: false, error: "fs_failed", message: "failed to read directory" };
   }
@@ -1501,7 +1649,7 @@ export function orphanCleanup(
   // Walk the tree: count files + check each file size. Bound by maxFiles.
   // We do this recursively so a sneaky `subdir/big.bin` is also caught.
   let fileCount = 0;
-  const stack: string[] = [absTarget];
+  const stack: string[] = [realTarget];
   while (stack.length > 0) {
     const dir = stack.pop()!;
     let entries: fs.Dirent[];
@@ -1531,9 +1679,12 @@ export function orphanCleanup(
     }
   }
 
-  // All checks pass. Delete.
+  // All checks pass. Delete the REALPATH-VALIDATED path — `rmSync` follows
+  // intermediate symlinks, so deleting `absTarget` would let an ancestor
+  // symlink repointed between (iv) and now escape containment (same approach
+  // as `sweepResidualWorktreeDir`).
   try {
-    fs.rmSync(absTarget, { recursive: true, force: true });
+    fs.rmSync(realTarget, { recursive: true, force: true });
   } catch (err: any) {
     return { ok: false, error: "fs_failed", message: `rm failed: ${err?.message ?? String(err)}` };
   }
@@ -1703,19 +1854,13 @@ export function addWorktreeFromPr(opts: {
   path?: string;
 }): AddWorktreeFromPrSuccess | AddWorktreeFromPrFailure {
   const { cwd, prNumber } = opts;
-  if (!isGitRepo(cwd)) {
+  // D2: one resolution proves repo-ness and anchors the derived path. The
+  // refusal happens BEFORE any fetch — an unresolvable checkout never
+  // touches the network.
+  const repoRoot = resolveMainPath(cwd);
+  if (!repoRoot) {
     return { ok: false, error: "not_a_repo", message: "not a git repository" };
   }
-
-  // Resolve repo root (same as addWorktree).
-  const commonDirRaw = tryRun("git rev-parse --git-common-dir", cwd);
-  if (!commonDirRaw) {
-    return { ok: false, error: "not_a_repo", message: "unable to resolve git common-dir" };
-  }
-  const commonDirAbs = path.isAbsolute(commonDirRaw)
-    ? commonDirRaw
-    : path.resolve(cwd, commonDirRaw);
-  const repoRoot = path.dirname(commonDirAbs);
 
   const localRef = `refs/pr/${prNumber}`;
   const localBranch = `pr-${prNumber}`;
@@ -1751,7 +1896,7 @@ export function addWorktreeFromPr(opts: {
       try { return fs.readdirSync(worktreePath).length === 0; } catch { return false; }
     })();
     if (!isEmpty) {
-      const orphanLikely = computeOrphanLikely(cwd, worktreePath);
+      const orphanLikely = computeOrphanLikely(cwd, worktreePath, repoRoot);
       return {
         ok: false,
         error: "path_exists",
@@ -1779,7 +1924,7 @@ export function addWorktreeFromPr(opts: {
       return { ok: false, error: "branch_exists", message: `branch "${localBranch}" already exists`, stderr };
     }
     if (/'.*' already exists/i.test(stderr)) {
-      const orphanLikely = computeOrphanLikely(cwd, worktreePath);
+      const orphanLikely = computeOrphanLikely(cwd, worktreePath, repoRoot);
       return { ok: false, error: "path_exists", message: `target path already exists: ${worktreePath}`, stderr, orphanLikely };
     }
     return { ok: false, error: "git_failed", message: "git worktree add failed", stderr };
@@ -1787,16 +1932,19 @@ export function addWorktreeFromPr(opts: {
 
   // Housekeeping: append .worktrees/ to .git/info/exclude (same as addWorktree).
   if (!opts.path) {
-    const excludePath = path.join(commonDirAbs, "info", "exclude");
-    try {
-      const existing = fs.existsSync(excludePath) ? fs.readFileSync(excludePath, "utf-8") : "";
-      const result = ensureWorktreeExcludeLine(existing);
-      if (result.appended) {
-        fs.mkdirSync(path.dirname(excludePath), { recursive: true });
-        fs.writeFileSync(excludePath, result.content);
+    const commonDir = resolveCommonDirAbs(cwd);
+    if (commonDir) {
+      const excludePath = path.join(commonDir, "info", "exclude");
+      try {
+        const existing = fs.existsSync(excludePath) ? fs.readFileSync(excludePath, "utf-8") : "";
+        const result = ensureWorktreeExcludeLine(existing);
+        if (result.appended) {
+          fs.mkdirSync(path.dirname(excludePath), { recursive: true });
+          fs.writeFileSync(excludePath, result.content);
+        }
+      } catch {
+        // Non-fatal.
       }
-    } catch {
-      // Non-fatal.
     }
   }
 
