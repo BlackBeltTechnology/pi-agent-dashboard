@@ -717,6 +717,7 @@ describe("POST /api/git/worktree/remove — tri-state guard (D3)", () => {
       thisCheckout: null,
       isLinkedWorktree: true,
       mainCheckout: fx.normal,
+      commonDir: join(fx.normal, ".git"),
     });
     const res = await remove(fx.worktree);
     expect(res.statusCode).toBe(400);

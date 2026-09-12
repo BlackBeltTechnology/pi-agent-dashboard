@@ -106,6 +106,7 @@ describe("git-operations", () => {
           thisCheckout: plain,
           isLinkedWorktree: false,
           mainCheckout: null,
+          commonDir: join(plain, ".git"),
         });
         expect(gitOps.resolveConfigRoot(plain)).toBeNull();
       } finally {
@@ -467,27 +468,27 @@ describe("classifyWorktreeRemoval — tri-state classifier (E4)", () => {
     ["no resolver result → unresolved", null, "unresolved"],
     [
       "not a linked worktree → main",
-      { thisCheckout: "/r", isLinkedWorktree: false, mainCheckout: "/r" },
+      { thisCheckout: "/r", isLinkedWorktree: false, mainCheckout: "/r", commonDir: "/r/.git" },
       "main",
     ],
     [
       "linked + thisCheckout null (inconclusive --show-toplevel) → unresolved",
-      { thisCheckout: null, isLinkedWorktree: true, mainCheckout: "/r" },
+      { thisCheckout: null, isLinkedWorktree: true, mainCheckout: "/r", commonDir: "/r/.git" },
       "unresolved",
     ],
     [
       "linked + mainCheckout null (worktree of bare hub) → unresolved",
-      { thisCheckout: "/wt", isLinkedWorktree: true, mainCheckout: null },
+      { thisCheckout: "/wt", isLinkedWorktree: true, mainCheckout: null, commonDir: "/r/.git" },
       "unresolved",
     ],
     [
       "linked + mainCheckout with a .git segment → unresolved",
-      { thisCheckout: "/wt", isLinkedWorktree: true, mainCheckout: "/r/.git/x" },
+      { thisCheckout: "/wt", isLinkedWorktree: true, mainCheckout: "/r/.git/x", commonDir: "/r/.git" },
       "unresolved",
     ],
     [
       "linked + plausible mainCheckout → removable",
-      { thisCheckout: "/wt", isLinkedWorktree: true, mainCheckout: "/r" },
+      { thisCheckout: "/wt", isLinkedWorktree: true, mainCheckout: "/r", commonDir: "/r/.git" },
       "removable",
     ],
   ])("%s", (_name, roots, verdict) => {
