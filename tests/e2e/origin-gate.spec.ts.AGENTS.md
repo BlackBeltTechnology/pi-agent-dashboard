@@ -1,0 +1,3 @@
+# origin-gate.spec.ts — index
+
+L3 cross-site gates in browser reality (#F1-#F3). Attacker origin served by `page.route("http://attacker.test/**")` — no second server, never the reporter's remote PoC URL. Hostile `new WebSocket(ws://localhost:<dashboardPort>/ws)` never opens and logs `[ws-gate]`; blind `fetch POST /api/tunnel-connect` leaves `/api/tunnel-status` unchanged and logs `[csrf-gate]`; the dashboard's own inline terminal still echoes with NO `[ws-gate]` line. Harness log read from BOTH `server.log` and `docker logs` (launch path decides which carries it). See change: fix-ws-origin-cswsh.

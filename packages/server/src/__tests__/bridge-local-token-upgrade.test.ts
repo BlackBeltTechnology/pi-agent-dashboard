@@ -15,7 +15,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { WebSocket } from "ws";
+import { createTestServer } from "../test-support/test-server.js";
 import { ensureLocalToken, LOCAL_TOKEN_HEADER, verifyLocalToken } from "../auth/local-token.js";
 import { decideBridgeUpgrade } from "../pi/bridge-upgrade-auth.js";
 
@@ -103,4 +105,40 @@ describe("the token file itself", () => {
     expect(fs.statSync(path.join(tokenDir, "token")).mode & 0o777).toBe(0o600);
     expect(fs.statSync(tokenDir).mode & 0o777).toBe(0o700);
   });
+});
+
+/**
+ * #E11 — the same refusal through the REAL pi-gateway TCP listener: a browser
+ * page dialling `ws://127.0.0.1:<piPort>` gets 401 and registers nothing.
+ * See change: fix-ws-origin-cswsh.
+ */
+describe("pi-gateway TCP listener refuses a browser Origin (#E11)", () => {
+  it("401s an origin-bearing dial, registers no session, and names the cause in the log", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const handle = await createTestServer();
+    try {
+      const before = handle.server.sessionManager.listAll().length;
+      const status = await new Promise<number | "open">((resolve) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${handle.piPort}/`, {
+          headers: { origin: "http://attacker.example" },
+        });
+        ws.on("open", () => {
+          ws.close();
+          resolve("open");
+        });
+        ws.on("unexpected-response", (_req, res) => resolve(res.statusCode ?? 0));
+        ws.on("error", () => resolve(0));
+        setTimeout(() => resolve(0), 5000);
+      });
+
+      expect(status).toBe(401);
+      expect(handle.server.sessionManager.listAll().length).toBe(before);
+      const logged = warn.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(logged).toContain("[pi-gateway]");
+      expect(logged).toContain("browser-origin");
+    } finally {
+      await handle.stop();
+      warn.mockRestore();
+    }
+  }, 20000);
 });

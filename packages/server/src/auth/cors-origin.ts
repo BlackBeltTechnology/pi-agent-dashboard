@@ -10,6 +10,7 @@
  * See change: fix-remote-connect-cors-gates.
  */
 import { isBypassedHost } from "./localhost-guard.js";
+import type { WsRouteScope } from "./ws-ticket.js";
 
 export interface CorsOriginOptions {
   /** Explicitly configured allowed origins (`cors.allowedOrigins`). */
@@ -30,6 +31,18 @@ export interface CorsOriginOptions {
    * widen the second. See change: add-zrok-custom-reserved-name (D4).
    */
   getLiveTunnelOrigins?: () => string[];
+  /**
+   * Allow ANY `*.share.zrok.io` / `*.shares.zrok.io` host (branch 5).
+   *
+   * `true` (default) for CORS readability, where the allowance shipped and is
+   * load-bearing for tunnel-URL rotation. `false` for ADMISSION (WS upgrade,
+   * mutating REST): zrok shares are free and self-service, so a stranger share
+   * is very likely same-site to the victim's tunnel and the wildcard would let
+   * it defeat even the OAuth'd gate. Tunnels the dashboard itself runs are live
+   * tunnel origins (branch 4/4b) and stay admitted.
+   * See change: fix-ws-origin-cswsh (D1 rule 2).
+   */
+  allowZrokWildcard?: boolean;
 }
 
 /**
@@ -81,7 +94,12 @@ export function isCorsOriginAllowed(
       if (candidate === u.origin) return true;
     }
     // 5. Any *.share.zrok.io (v1) or *.shares.zrok.io (v2) host.
-    if (host.endsWith(".share.zrok.io") || host.endsWith(".shares.zrok.io")) return true;
+    if (
+      opts.allowZrokWildcard !== false &&
+      (host.endsWith(".share.zrok.io") || host.endsWith(".shares.zrok.io"))
+    ) {
+      return true;
+    }
     // 6. Neutral static PWA shell (D1/D8).
     if (origin === "https://pi-dashboard.dev") return true;
     // 8. Trusted-network origin — LAN-to-LAN switching. Same matcher the WS
@@ -97,4 +115,91 @@ export function isCorsOriginAllowed(
   if (opts.configuredOrigins.includes(origin)) return true;
   // 9. Unknown cross-origin request — no CORS headers.
   return false;
+}
+
+// ─── Admission: who may OPEN a socket / MUTATE state ────────────────────────
+//
+// CORS answers "may this origin READ a response". Admission answers "may this
+// origin ACT". They share one decision so they cannot drift, with two deltas
+// (design D1): a same-origin-by-Host rule, and no blanket zrok wildcard.
+// See change: fix-ws-origin-cswsh.
+
+/** Control characters and over-long values never reach a log line (D5). */
+export function sanitizeHeaderForLog(value: string | undefined, max = 256): string {
+  if (!value) return "-";
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping them is the point.
+  return value.replace(/[\u0000-\u001f\u007f]/g, "").slice(0, max);
+}
+
+/**
+ * Is the Origin's `host[:port]` the same as the request's `Host` header?
+ *
+ * True means the calling page was served by THIS dashboard at whatever name
+ * the user typed — an mDNS hostname (`http://mac.local:8000`), a plain-LAN
+ * address — neither of which `isBypassedHost` (IP literals only) matches.
+ * Compared after `new URL()` normalization on both sides, using the ORIGIN's
+ * scheme for the Host so default ports elide identically.
+ */
+function isSameOriginByHost(origin: string, hostHeader: string | undefined): boolean {
+  if (!hostHeader) return false;
+  // Positive allowlist, not a reject-list: a `Host` is only ever host[:port]
+  // (letters, digits, `.`, `-`, IPv6 `[]:`). `new URL()` would happily
+  // normalize `evil.com#`, `evil.com?x` or `user@evil.com` into a bare host, so
+  // fail-closed here is structural rather than emergent from parser quirks.
+  if (!/^[A-Za-z0-9.\-[\]:]+$/.test(hostHeader)) return false;
+  try {
+    const o = new URL(origin);
+    const h = new URL(`${o.protocol}//${hostHeader}`);
+    return h.host !== "" && o.host === h.host;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The shared admission decision for WS upgrades and mutating REST requests.
+ *
+ * Absent Origin → allow: every non-browser local client (bridge, CLI, curl,
+ * the `pi-dashboard` skill) sends none, and browsers cannot omit it. An EMPTY
+ * Origin header is not an absent one — no browser sends it, so it denies.
+ */
+export function isOriginAdmitted(
+  origin: string | undefined,
+  hostHeader: string | undefined,
+  opts: CorsOriginOptions,
+): boolean {
+  if (origin === undefined) return true;
+  if (origin === "") return false;
+  // `new URL()` silently trims surrounding whitespace, so ` http://localhost:8000`
+  // would normalize into a loopback match. No browser sends padding — deny it
+  // rather than normalize an attacker-shaped value into a trusted one.
+  if (origin !== origin.trim()) return false;
+  if (isSameOriginByHost(origin, hostHeader)) return true;
+  return isCorsOriginAllowed(origin, { ...opts, allowZrokWildcard: false });
+}
+
+/**
+ * WS upgrade admission, per route scope.
+ *
+ * `live` admits the opaque `Origin: null` — the sandboxed preview iframe is its
+ * only intended client and rejecting it would silently break HMR (D3). Every
+ * other scope (including `bridge` and the unrouted `null` scope) is strict.
+ */
+export function isWsOriginTrusted(
+  origin: string | undefined,
+  hostHeader: string | undefined,
+  scope: WsRouteScope | null,
+  opts: CorsOriginOptions,
+): boolean {
+  if (scope === "live" && origin === "null") return true;
+  return isOriginAdmitted(origin, hostHeader, opts);
+}
+
+/** Mutating-REST admission (`/api/*` + `POST /auth/logout`). No `null` carve-out. */
+export function isMutationOriginTrusted(
+  origin: string | undefined,
+  hostHeader: string | undefined,
+  opts: CorsOriginOptions,
+): boolean {
+  return isOriginAdmitted(origin, hostHeader, opts);
 }

@@ -36,7 +36,13 @@ import {
   initBindReachability,
 } from "./auth/bind-reachability-service.js";
 import { decideBridgeTicketMint } from "./auth/bridge-ticket-eligibility.js";
-import { isCorsOriginAllowed } from "./auth/cors-origin.js";
+import {
+  type CorsOriginOptions,
+  isCorsOriginAllowed,
+  isWsOriginTrusted,
+  sanitizeHeaderForLog,
+} from "./auth/cors-origin.js";
+import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
 import { registerCsp, resolveCspMode } from "./auth/csp.js";
 import { ensureServerIdentity } from "./auth/identity.js";
 import { ensureLocalToken, verifyLocalToken } from "./auth/local-token.js";
@@ -1314,6 +1320,24 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   //     config-override-oauth-redirect-base (D15).
   const corsAllowedOrigins = () => liveCorsAllowedOrigins(config.corsAllowedOrigins ?? []);
   const corsTrustedNetworks = () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []);
+  /**
+   * The ONE origin-policy input, shared by the CORS plugin, the WS upgrade gate
+   * and the mutating-REST gate. Built per decision (never captured) so tunnel
+   * rotation and runtime config edits are seen identically by all three — a
+   * second, hand-mirrored options object is exactly how admission and
+   * readability drift apart. See change: fix-ws-origin-cswsh (D1).
+   */
+  const corsOpts = (): CorsOriginOptions => ({
+    configuredOrigins: corsAllowedOrigins(),
+    trustedNetworks: corsTrustedNetworks(),
+    // The PRIMARY's URL, which is also what mints OAuth redirect URIs.
+    getTunnelUrl,
+    // Every OTHER live tunnel. Deliberately a separate input from
+    // `getTunnelUrl`: widening who may READ a response must never widen
+    // which single origin we mint OAuth URIs and set cookies for.
+    // See change: add-zrok-custom-reserved-name (D4).
+    getLiveTunnelOrigins: liveTunnelOrigins,
+  });
   await fastify.register(cors, {
     // Decision extracted to a pure, unit-tested helper (cors-origin.ts) so the
     // security-critical allow/deny logic is tested against the REAL code, not a
@@ -1323,21 +1347,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // Error — the latter makes @fastify/cors 500 same-origin module-script
     // requests. See change: fix-remote-connect-cors-gates.
     origin: (origin, cb) => {
-      const allowed = isCorsOriginAllowed(origin ?? undefined, {
-        configuredOrigins: corsAllowedOrigins(),
-        trustedNetworks: corsTrustedNetworks(),
-        // The PRIMARY's URL, which is also what mints OAuth redirect URIs.
-        getTunnelUrl,
-        // Every OTHER live tunnel. Deliberately a separate input from
-        // `getTunnelUrl`: widening who may READ a response must never widen
-        // which single origin we mint OAuth URIs and set cookies for.
-        // See change: add-zrok-custom-reserved-name (D4).
-        getLiveTunnelOrigins: liveTunnelOrigins,
-      });
-      cb(null, allowed);
+      cb(null, isCorsOriginAllowed(origin ?? undefined, corsOpts()));
     },
     credentials: true,
   });
+
+  // Cross-site MUTATION gate (issue #625). CORS stops an attacker page from
+  // READING a response; it does nothing to stop the request from happening, so
+  // a blind `fetch("/api/…", {method:"POST", mode:"no-cors"})` from any site
+  // reached every dashboard route. Registered AFTER the CORS plugin so a
+  // refused cross-site request still carries no ACAO.
+  // See change: fix-ws-origin-cswsh (D4).
+  fastify.addHook("onRequest", createMutationOriginGate(corsOpts));
 
   // Baseline CSP (defense in depth). Report-only by default (non-breaking);
   // `PI_DASHBOARD_CSP=enforce` flips to enforcing once report-only is clean.
@@ -2563,9 +2584,23 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         const trusted = config.resolvedTrustedNetworks ?? [];
         const secWsProtocol = request.headers["sec-websocket-protocol"] as string | undefined;
         // Ephemeral single-use ticket (D11) bound to the requested WS route
-        // scope. Origin check is defense-in-depth only (absent-Origin exists),
-        // never the sole gate.
+        // scope.
         const scope = routeScopeForUrl(request.url);
+
+        // Cross-site upgrade gate (issue #625). FIRST statement after `scope`,
+        // ahead of the `bridge` early-return and the auth branches, so an
+        // untrusted Origin can never consume a ticket and cannot tell a routed
+        // path from an unrouted one. A browser cannot omit or forge `Origin` on
+        // a handshake; every non-browser client sends none and is unaffected.
+        // See change: fix-ws-origin-cswsh (D1).
+        if (!isWsOriginTrusted(request.headers.origin, request.headers.host, scope, corsOpts())) {
+          console.error(
+            `[ws-gate] rejected upgrade origin=${sanitizeHeaderForLog(request.headers.origin)} scope=${scope ?? "none"} peer=${sanitizeHeaderForLog(remoteAddress)}`,
+          );
+          socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+          socket.destroy();
+          return;
+        }
         // `bridge` belongs to the pi-gateway listener, not to this one. Letting
         // it through would CONSUME the single-use ticket here and then fall to
         // the routing `default:` and destroy the socket — a bridge that dialled

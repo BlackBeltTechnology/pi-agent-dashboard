@@ -10,6 +10,32 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ## [Unreleased]
 
+### Security
+
+- **Cross-site requests can no longer reach the dashboard (issue #625).** Any
+  web page you visited could open `ws://127.0.0.1:8000/ws`, receive the session
+  snapshot broadcast and spawn a terminal, and could blind-POST every
+  `/api/*` route with your ambient trust (CORS hid the *response*, never the
+  *request*). Three gates now close that: the WebSocket upgrade handler refuses
+  an untrusted `Origin` before any other admission branch (so a refused dial
+  cannot even consume a ticket), a `onRequest` hook refuses untrusted-`Origin`
+  mutations on `/api/*` and `POST /auth/logout` with `403 {"error":"untrusted
+  origin"}`, and the pi gateway refuses any TCP upgrade that carries an
+  `Origin` at all (bridges never send one). Refusals log one line each:
+  `[ws-gate]`, `[csrf-gate]`, `[pi-gateway]`.
+  **Unaffected:** header-less local clients (the `pi-dashboard` CLI, `curl`, the
+  bridge, the skill), loopback and tunnel browser origins, pages served at a
+  hostname/LAN address the dashboard itself answers on, `pi-dashboard.dev`
+  pairing, and live-preview HMR (the sandboxed `Origin: null` iframe keeps its
+  `/live/:id` carve-out).
+  **Action required in one case:** a zrok share you started BY HAND (`zrok share
+  public`, not the dashboard's own tunnel) is no longer covered by the
+  `*.share.zrok.io` wildcard for admission — zrok shares are free and
+  self-service, so a stranger's share would otherwise be same-site to yours.
+  Add that share's origin to `cors.allowedOrigins` in
+  `~/.pi/dashboard/config.json`; it applies without a restart.
+  See change: fix-ws-origin-cswsh.
+
 ### Changed
 
 - **pi is now pinned at `0.85.1`, and `piCompatibility.minimum` moved with it —
