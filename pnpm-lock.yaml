@@ -702,6 +702,9 @@ importers:
       '@mdi/react':
         specifier: ^1.6.1
         version: 1.6.1
+      fastify:
+        specifier: ^5.0.0
+        version: 5.12.1
     devDependencies:
       '@types/react':
         specifier: ^19.0.0

@@ -30,6 +30,13 @@ The loader awaits the function (if async) before proceeding to the next plugin.
 | `updatePluginConfig<T>(partial)` | Validated write; broadcasts `plugin_config_update` |
 | `logger` | Pino-style logger namespaced to the plugin id |
 | `isPiExtensionInstalled?(name)` | Boolean-only installed-check vs pi's package registry (global+local union, ~30s cached). OPTIONAL — absent on older hosts/injected test contexts; plugin owns the fallback. Scan failure REJECTS (never resolves `false`). See change: add-blackhole-session-pipeline |
+| `mintSpawnToken()` | Trusted-gated (priority ≤ 100); untrusted plugin's hook THROWS. Mints a spawn-correlation token BEFORE `spawnSession` — pass it as `opts.spawnToken` so the plugin can persist it as crash-recovery state. Host rejects a token already pending (`{success:false}`). |
+| `renameSession(sessionId, name)` | Trusted-gated. Returns `false` for unknown session or empty name. In-memory rename + `session_updated` broadcast + `rename_session` dispatch to pi. |
+| `assignSessionRef(sessionId, ref, opts?)` | Trusted-gated. Merge plugin-owned ref onto a session — same sanitization as the register path (core-reserved keys dropped, cross-owner keys dropped, first-writer-wins per key, warn-once). `opts.persist` defaults `true`: memory + `.meta.json` + broadcast. `persist:false` = memory only. `undefined` value clears the key at each layer. Returns `false` for unknown session / untrusted. |
+| `networkGuard` | Host's fastify `preHandler` (cookie/token/loopback auth) for plugin-registered routes. NOT trust-gated — attaching a guard only tightens. Mount as `{ preHandler: ctx.networkGuard }`. |
+| `onShutdown(fn)` | NOT trust-gated. Runs at server stop BEFORE the pi gateway tears bridges down. try/catch per subscriber. Returns unsubscribe. |
+
+Spawn options (`PluginSpawnOptions`) additions: `spawnToken?: string` (caller-supplied correlation token, used verbatim, trusted-only), `resume?: { sessionFile: string }` (maps to session-level resume/continue), `initialPrompt?: string` (dispatched to the session on register; consumed on spawn failure). See change: relocate-goal-product-to-plugin
 
 ## Failure isolation
 

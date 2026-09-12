@@ -9,7 +9,7 @@
  */
 import type { GoalRecord } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
-import { decorateGoalsWithSpend, type SpendSessionLookup } from "../goal/decorate-goals-spend.js";
+import { decorateGoalsWithSpend, type SpendSessionLookup } from "../decorate-goals-spend.js";
 
 function goal(over: Partial<GoalRecord> & { sessionIds: string[] }): GoalRecord {
   return {

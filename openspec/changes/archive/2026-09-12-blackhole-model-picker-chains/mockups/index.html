@@ -1,0 +1,1770 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blackhole Settings — Model Picker Fallback Chains Mockup</title>
+<style>
+  :root {
+    --bg-primary: #0c0e12;
+    --bg-secondary: #14171f;
+    --bg-tertiary: #1c212c;
+    --bg-surface: #222836;
+    --bg-hover: rgba(255, 255, 255, 0.06);
+    --bg-overlay: rgba(0, 0, 0, 0.65);
+    --border-primary: #384257;
+    --border-secondary: #28303f;
+    --border-subtle: #1c222e;
+    --text-primary: #f0f3f6;
+    --text-secondary: #9aa4b2;
+    --text-tertiary: #636d7e;
+    --text-muted: #515a67;
+    --accent-primary: #3b82f6;
+    --accent-blue: #3b82f6;
+    --accent-green: #22c55e;
+    --accent-yellow: #eab308;
+    --accent-red: #ef4444;
+    --accent-purple: #a855f7;
+    --severity-info-bg: rgba(59, 130, 246, 0.12);
+    --severity-info-border: rgba(59, 130, 246, 0.35);
+    --severity-info-fg: #60a5fa;
+    --severity-warning-bg: rgba(234, 179, 8, 0.12);
+    --severity-warning-border: rgba(234, 179, 8, 0.35);
+    --severity-warning-fg: #facc15;
+    --severity-error-bg: rgba(239, 68, 68, 0.12);
+    --severity-error-border: rgba(239, 68, 68, 0.35);
+    --severity-error-fg: #f87171;
+    --focus-ring: rgba(59, 130, 246, 0.6);
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 10px;
+    --radius-xl: 14px;
+    --elevation-rim: rgba(255, 255, 255, 0.07);
+    --shadow-card: rgba(0, 0, 0, 0.4);
+  }
+
+  [data-theme="light"] {
+    --bg-primary: #f6f8fa;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #eef1f5;
+    --bg-surface: #e4e8ef;
+    --bg-hover: rgba(0, 0, 0, 0.04);
+    --bg-overlay: rgba(0, 0, 0, 0.4);
+    --border-primary: #cbd5e1;
+    --border-secondary: #d0d7de;
+    --border-subtle: #eaeef2;
+    --text-primary: #1f2328;
+    --text-secondary: #59636e;
+    --text-tertiary: #8c959f;
+    --text-muted: #9aa4b2;
+    --accent-primary: #0969da;
+    --accent-blue: #0969da;
+    --accent-green: #1a7f37;
+    --accent-yellow: #9a6700;
+    --accent-red: #cf222e;
+    --accent-purple: #8250df;
+    --severity-info-bg: rgba(9, 105, 218, 0.08);
+    --severity-info-border: rgba(9, 105, 218, 0.28);
+    --severity-info-fg: #0969da;
+    --severity-warning-bg: rgba(154, 103, 0, 0.08);
+    --severity-warning-border: rgba(154, 103, 0, 0.28);
+    --severity-warning-fg: #9a6700;
+    --severity-error-bg: rgba(207, 34, 46, 0.08);
+    --severity-error-border: rgba(207, 34, 46, 0.28);
+    --severity-error-fg: #cf222e;
+    --focus-ring: rgba(9, 105, 218, 0.4);
+    --elevation-rim: rgba(0, 0, 0, 0.03);
+    --shadow-card: rgba(0, 0, 0, 0.06);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 13px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+  }
+
+  /* ── Testbench Control Bar ── */
+  .testbench-bar {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-secondary);
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    box-shadow: 0 2px 8px var(--shadow-card);
+  }
+  .testbench-title {
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-primary);
+  }
+  .testbench-badge {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-secondary);
+    color: var(--accent-primary);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    font-family: monospace;
+    font-size: 11px;
+  }
+  .testbench-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .tb-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .tb-label {
+    color: var(--text-tertiary);
+    font-size: 11.5px;
+  }
+  .tb-select, .tb-btn {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-md);
+    padding: 4px 8px;
+    font-size: 11.5px;
+    cursor: pointer;
+  }
+  .tb-btn:hover, .tb-select:hover {
+    background: var(--bg-hover);
+  }
+
+  /* ── Page Layout ── */
+  .container {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 24px 20px 100px;
+  }
+
+  .header-area {
+    margin-bottom: 20px;
+  }
+  .page-title {
+    font-size: 17px;
+    font-weight: 600;
+    margin: 0 0 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .page-desc {
+    color: var(--text-secondary);
+    font-size: 12.5px;
+    margin: 0 0 12px;
+  }
+  .meta-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11.5px;
+    color: var(--text-tertiary);
+    font-family: monospace;
+    margin-bottom: 14px;
+  }
+  .meta-tag {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-secondary);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    color: var(--accent-green);
+  }
+
+  /* ── Notices / Callouts ── */
+  .notice {
+    padding: 10px 14px;
+    border-radius: var(--radius-lg);
+    font-size: 12px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    line-height: 1.4;
+  }
+  .notice.info {
+    background: var(--severity-info-bg);
+    border: 1px solid var(--severity-info-border);
+    color: var(--text-primary);
+  }
+  .notice.warning {
+    background: var(--severity-warning-bg);
+    border: 1px solid var(--severity-warning-border);
+    color: var(--text-primary);
+  }
+  .notice.error {
+    background: var(--severity-error-bg);
+    border: 1px solid var(--severity-error-border);
+    color: var(--text-primary);
+  }
+  .notice-icon {
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .notice-content {
+    flex: 1;
+  }
+  .notice-btn {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    color: var(--text-primary);
+    border-radius: var(--radius-sm);
+    padding: 3px 8px;
+    font-size: 11px;
+    margin-left: 8px;
+    cursor: pointer;
+  }
+  .notice-btn:hover {
+    background: var(--bg-hover);
+  }
+
+  /* ── Collapsible Card Section ── */
+  .card-section {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-lg);
+    margin-bottom: 14px;
+    overflow: hidden;
+    box-shadow: inset 0 1px 0 var(--elevation-rim), 0 2px 4px var(--shadow-card);
+  }
+  .section-summary {
+    padding: 12px 16px;
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    font-size: 13px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid transparent;
+  }
+  .card-section[open] .section-summary {
+    border-bottom-color: var(--border-subtle);
+  }
+  .section-summary:hover {
+    background: var(--bg-hover);
+  }
+  .chevron {
+    width: 14px;
+    height: 14px;
+    transition: transform 0.15s ease;
+    color: var(--text-tertiary);
+  }
+  .card-section[open] .chevron {
+    transform: rotate(90deg);
+  }
+  .summary-badge {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--text-tertiary);
+    font-weight: normal;
+  }
+  .section-body {
+    padding: 14px 16px;
+  }
+
+  /* ── Base Model Row ── */
+  .base-model-box {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .base-model-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .base-model-title {
+    font-weight: 600;
+    font-size: 12.5px;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .base-model-help {
+    font-size: 11.5px;
+    color: var(--text-tertiary);
+  }
+  .base-model-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* ── Defaults Action Strip ── */
+  .defaults-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    background: var(--bg-tertiary);
+    border: 1px dashed var(--border-primary);
+    border-radius: var(--radius-md);
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+  }
+  .defaults-text {
+    font-size: 12px;
+    color: var(--text-secondary);
+    max-width: 500px;
+  }
+  .defaults-btn {
+    background: var(--bg-secondary);
+    color: var(--accent-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .defaults-btn:hover:not(:disabled) {
+    background: var(--bg-hover);
+    border-color: var(--accent-primary);
+  }
+  .defaults-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    color: var(--text-muted);
+  }
+
+  /* ── Worker Section ── */
+  .worker-section {
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .worker-section:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+  }
+  .worker-header {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .worker-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .worker-role {
+    font-size: 11.5px;
+    color: var(--text-tertiary);
+  }
+  .worker-count {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--text-tertiary);
+  }
+
+  /* ── Chain List & Entries ── */
+  .chain-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .chain-entry {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+  .entry-summary {
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+    font-size: 12px;
+  }
+  .entry-summary:hover {
+    background: var(--bg-hover);
+  }
+  .entry-rank {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    width: 16px;
+    text-align: center;
+  }
+  .primary-pill {
+    font-size: 9.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+    border: 1px solid var(--border-secondary);
+    padding: 1px 4px;
+    border-radius: var(--radius-sm);
+    letter-spacing: 0.03em;
+  }
+  .entry-model-id {
+    font-family: monospace;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+  .entry-provider {
+    font-size: 11px;
+    color: var(--text-tertiary);
+  }
+  .entry-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .icon-btn {
+    background: none;
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    width: 24px;
+    height: 24px;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    font-size: 11px;
+  }
+  .icon-btn:hover:not(:disabled) {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+  .icon-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+  .icon-btn.danger {
+    color: var(--accent-red);
+  }
+  .icon-btn.danger:hover:not(:disabled) {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: var(--accent-red);
+  }
+
+  /* ── Entry Details Form ── */
+  .entry-details {
+    padding: 10px 14px 14px;
+    border-top: 1px solid var(--border-subtle);
+    background: var(--bg-tertiary);
+    display: grid;
+    gap: 10px;
+    font-size: 12px;
+  }
+  .form-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .form-label {
+    width: 130px;
+    color: var(--text-secondary);
+    font-size: 11.5px;
+    flex-shrink: 0;
+  }
+  .form-input {
+    font-family: monospace;
+    font-size: 12px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-sm);
+    padding: 4px 8px;
+    width: 140px;
+  }
+  .form-input:focus {
+    border-color: var(--accent-primary);
+    outline: none;
+  }
+
+  /* ── Model Selector Trigger Component ── */
+  .model-selector-trigger {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-sm);
+    padding: 4px 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    color: var(--text-primary);
+    font-family: monospace;
+    font-size: 12px;
+    min-height: 28px;
+  }
+  .model-selector-trigger:hover:not(:disabled) {
+    border-color: var(--border-primary);
+    background: var(--bg-hover);
+  }
+  .model-selector-trigger:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background: var(--bg-tertiary);
+  }
+  .trigger-model-name {
+    font-weight: 500;
+  }
+  .trigger-chevron {
+    color: var(--text-tertiary);
+    font-size: 10px;
+  }
+
+  /* ── Thinking Override Row ── */
+  .thinking-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .thinking-checkbox-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    user-select: none;
+    font-size: 11.5px;
+    color: var(--text-secondary);
+  }
+  .level-selector-trigger {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-sm);
+    padding: 3px 8px;
+    font-size: 11.5px;
+    font-family: monospace;
+    color: var(--text-primary);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .level-selector-trigger:hover {
+    background: var(--bg-hover);
+  }
+  .inherit-text {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+  .level-drop-notice {
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    background: var(--severity-warning-bg);
+    border: 1px solid var(--severity-warning-border);
+    color: var(--severity-warning-fg);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* ── Add Entry & Empty States ── */
+  .empty-chain-box {
+    padding: 10px 12px;
+    border: 1px dashed var(--border-secondary);
+    border-radius: var(--radius-md);
+    color: var(--text-tertiary);
+    font-size: 11.5px;
+    background: var(--bg-secondary);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .add-control-bar {
+    margin-top: 8px;
+  }
+  .btn-add-model {
+    background: none;
+    border: 1px dashed var(--border-secondary);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    padding: 6px 12px;
+    font-size: 11.5px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s ease;
+  }
+  .btn-add-model:hover:not(:disabled) {
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+    background: var(--bg-hover);
+  }
+  .btn-add-model:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .adding-row {
+    margin-top: 8px;
+    padding: 10px 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--accent-primary);
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    animation: fadeIn 0.15s ease;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-3px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── Chain Tail ── */
+  .chain-tail {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-top: 8px;
+    padding-left: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .tail-tag {
+    font-family: monospace;
+    color: var(--text-secondary);
+  }
+  .tail-excluded {
+    text-decoration: line-through;
+    opacity: 0.6;
+  }
+
+  /* ── Model Selector Popover Mockup ── */
+  .popover-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    background: transparent;
+  }
+  .popover-panel {
+    position: absolute;
+    z-index: 210;
+    width: 320px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 10px 25px var(--shadow-card);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    animation: popIn 0.12s ease;
+  }
+  @keyframes popIn {
+    from { opacity: 0; transform: scale(0.97); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  .popover-search-box {
+    padding: 8px;
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    gap: 6px;
+  }
+  .popover-input {
+    flex: 1;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-sm);
+    padding: 5px 8px;
+    color: var(--text-primary);
+    font-size: 12px;
+  }
+  .popover-provider-filter {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-sm);
+    padding: 4px 6px;
+    color: var(--text-secondary);
+    font-size: 11px;
+  }
+  .popover-list {
+    max-height: 240px;
+    overflow-y: auto;
+    padding: 4px 0;
+  }
+  .popover-item {
+    padding: 6px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .popover-item:hover, .popover-item.selected {
+    background: var(--bg-hover);
+  }
+  .popover-item.active-model {
+    color: var(--accent-primary);
+    font-weight: 500;
+  }
+  .popover-item-id {
+    font-family: monospace;
+    font-size: 11.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .popover-item-meta {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+  }
+  .cap-chip {
+    padding: 1px 4px;
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+    color: var(--text-muted);
+  }
+  .cap-chip.reasoning {
+    color: var(--accent-purple);
+  }
+
+  /* ── Thinking Level Popover ── */
+  .level-popover-panel {
+    position: absolute;
+    z-index: 210;
+    width: 140px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    box-shadow: 0 8px 20px var(--shadow-card);
+    padding: 4px 0;
+  }
+  .level-option {
+    padding: 5px 12px;
+    font-size: 12px;
+    font-family: monospace;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .level-option:hover {
+    background: var(--bg-hover);
+  }
+  .level-option.selected {
+    color: var(--accent-primary);
+    font-weight: 600;
+  }
+
+  /* ── Confirm Dialog Modal ── */
+  .modal-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+    background: var(--bg-overlay);
+    backdrop-filter: blur(2px);
+    display: grid;
+    place-items: center;
+    padding: 16px;
+  }
+  .modal-dialog {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-xl);
+    width: 100%;
+    max-width: 440px;
+    padding: 20px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  }
+  .modal-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0 0 8px;
+    color: var(--text-primary);
+  }
+  .modal-desc {
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    line-height: 1.45;
+    margin: 0 0 20px;
+  }
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .btn-secondary {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-secondary);
+    color: var(--text-primary);
+    border-radius: var(--radius-md);
+    padding: 6px 14px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .btn-primary {
+    background: var(--accent-primary);
+    border: none;
+    color: #ffffff;
+    border-radius: var(--radius-md);
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .btn-primary:hover {
+    opacity: 0.9;
+  }
+
+  /* ── Bottom Save Bar ── */
+  .save-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 90;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-secondary);
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 -4px 16px var(--shadow-card);
+  }
+  .save-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+  }
+  .dirty-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent-yellow);
+  }
+  .save-actions {
+    display: flex;
+    gap: 8px;
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Testbench Control Header ── -->
+<header class="testbench-bar">
+  <div class="testbench-title">
+    <span>Blackhole Model Picker Chains</span>
+    <span class="testbench-badge">Interactive Mockup</span>
+  </div>
+  <div class="testbench-controls">
+    <div class="tb-group">
+      <span class="tb-label">Theme:</span>
+      <select id="themeSelector" class="tb-select" aria-label="Select color theme">
+        <option value="dark">Dark</option>
+        <option value="light">Light</option>
+      </select>
+    </div>
+    <div class="tb-group">
+      <span class="tb-label">Registry State:</span>
+      <select id="registryStateSelector" class="tb-select" aria-label="Select registry simulation state">
+        <option value="ok">ok (Available models)</option>
+        <option value="pending">pending (Loading)</option>
+        <option value="empty">empty (0 models credentialed)</option>
+        <option value="unavailable">unavailable (503 error)</option>
+      </select>
+    </div>
+    <button id="resetDemoBtn" class="tb-btn" title="Reset mockup data to initial draft">Reset Demo</button>
+  </div>
+</header>
+
+<main class="container">
+  <div class="header-area">
+    <h1 class="page-title">
+      <span>Blackhole Settings</span>
+      <span style="font-size:12px; font-weight:normal; color:var(--text-tertiary);">(General Tab)</span>
+    </h1>
+    <p class="page-desc">Configure observational memory, trigger thresholds, and resilient model fallback chains.</p>
+    <div class="meta-row">
+      <span>File:</span>
+      <span class="meta-tag">~/.pi/agent/pi-blackhole/pi-blackhole-config.json</span>
+      <span>· 14 unmanaged keys preserved</span>
+    </div>
+  </div>
+
+  <!-- ── Registry Banner Callouts ── -->
+  <div id="registryBanner"></div>
+
+  <!-- ── Accordion: Worker Models & Fallback Chains ── -->
+  <details class="card-section" open id="workerModelsSection">
+    <summary class="section-summary">
+      <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg>
+      <span>Worker models &amp; Fallback chains</span>
+      <span class="summary-badge">3 workers</span>
+    </summary>
+
+    <div class="section-body">
+      <!-- ── Base Model Control ── -->
+      <div class="base-model-box" data-testid="blackhole-base-model-box">
+        <div class="base-model-info">
+          <div class="base-model-title">
+            <span>Base Model</span>
+            <code style="font-size:10px; color:var(--text-muted); background:none;">model</code>
+          </div>
+          <div class="base-model-help">Shared fallback for all workers before the session model.</div>
+        </div>
+        <div class="base-model-controls">
+          <div id="baseModelPickerContainer" role="group" aria-label="Base model selector"></div>
+          <button id="clearBaseModelBtn" class="notice-btn" title="Clear base model (writes model: null)">Clear</button>
+        </div>
+      </div>
+
+      <!-- ── Recommended Defaults Action ── -->
+      <div class="defaults-strip">
+        <div class="defaults-text">
+          <strong>Recommended defaults</strong> stages resilient flash-class chains (up to 3 models across distinct providers) for observer, reflector, and dropper, plus debug logging.
+          <div id="defaultsSubtext" style="font-size:11px; color:var(--text-tertiary); margin-top:2px;"></div>
+        </div>
+        <button id="useDefaultsBtn" class="defaults-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+          <span>Use recommended defaults</span>
+        </button>
+      </div>
+
+      <!-- ── Worker Chains Container ── -->
+      <div id="workerChainsList"></div>
+    </div>
+  </details>
+</main>
+
+<!-- ── Confirm Defaults Modal (ui:confirm-dialog) ── -->
+<div id="confirmModal" class="modal-scrim" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div class="modal-dialog">
+    <h3 id="modalTitle" class="modal-title">Replace existing chains?</h3>
+    <p class="modal-desc">
+      Applying recommended defaults will overwrite the current fallback chains for <strong>observer</strong>, <strong>reflector</strong>, and <strong>dropper</strong> with up to 3 flash/haiku/mini models from your credentialed registry.
+    </p>
+    <div class="modal-actions">
+      <button id="cancelModalBtn" class="btn-secondary">Cancel</button>
+      <button id="confirmDefaultsActionBtn" class="btn-primary">Apply Defaults</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Save Bar (Bottom) ── -->
+<div id="saveBar" class="save-bar" style="display:none;">
+  <div class="save-status">
+    <span class="dirty-dot"></span>
+    <span>Unsaved configuration changes</span>
+  </div>
+  <div class="save-actions">
+    <button id="resetDraftBtn" class="btn-secondary">Discard</button>
+    <button id="saveDraftBtn" class="btn-primary">Save to File</button>
+  </div>
+</div>
+
+<!-- ── Dynamic Popovers Floating Anchor ── -->
+<div id="popoverMount"></div>
+
+<script>
+// ── Registry Database (Mocked from GET /api/models) ──
+const ALL_MOCK_MODELS = [
+  { provider: "google", id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", reasoning: true, contextWindow: 1048576 },
+  { provider: "anthropic", id: "claude-3-5-haiku-20241022", name: "Claude 3.5 Haiku", reasoning: true, contextWindow: 200000 },
+  { provider: "openrouter", id: "meta-llama/llama-3.3-70b-instruct", name: "Llama 3.3 70B", reasoning: false, contextWindow: 131072 },
+  { provider: "openrouter", id: "google/gemini-2.0-flash-001", name: "Gemini 2.0 Flash (OpenRouter)", reasoning: true, contextWindow: 1048576 },
+  { provider: "openai", id: "gpt-4o-mini", name: "GPT-4o Mini", reasoning: true, contextWindow: 128000 },
+  { provider: "mistral", id: "mistral-small-latest", name: "Mistral Small", reasoning: false, contextWindow: 32768 },
+  { provider: "google", id: "gemma-4-31b-it", name: "Gemma 4 31B IT", reasoning: false, contextWindow: 32768 }
+];
+
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
+
+const WORKER_DEFS = [
+  { worker: "observer", name: "Observer", role: "Extracts durable facts & observations" },
+  { worker: "reflector", name: "Reflector", role: "Synthesizes patterns & memories" },
+  { worker: "dropper", name: "Dropper", role: "Prunes obsolete and expired context" }
+];
+
+// Initial state
+const INITIAL_STATE = {
+  baseModel: { provider: "google", id: "gemma-4-31b-it" },
+  sessionFallback: true,
+  chains: {
+    observer: [
+      { provider: "google", id: "gemini-2.5-flash", thinking: "low", cooldownHours: 1, contextWindow: 1048576 },
+      { provider: "anthropic", id: "claude-3-5-haiku-20241022", thinking: "minimal", cooldownHours: 2 }
+    ],
+    reflector: [
+      { provider: "anthropic", id: "claude-3-5-haiku-20241022", thinking: "medium", cooldownHours: 2 }
+    ],
+    dropper: [] // empty chain to showcase empty-state!
+  }
+};
+
+let appState = JSON.parse(JSON.stringify(INITIAL_STATE));
+let baselineState = JSON.parse(JSON.stringify(INITIAL_STATE));
+let registryState = "ok"; // ok | pending | empty | unavailable
+let activePopover = null; // { type, targetEl, onSelect }
+
+// ── Helpers ──
+function isDirty() {
+  return JSON.stringify(appState) !== JSON.stringify(baselineState);
+}
+
+function updateDirtyIndicator() {
+  const saveBar = document.getElementById("saveBar");
+  saveBar.style.display = isDirty() ? "flex" : "none";
+}
+
+function getAvailableModels() {
+  if (registryState === "ok") return ALL_MOCK_MODELS;
+  return [];
+}
+
+// ── Recommended Defaults Pure Algorithm (Design D6) ──
+function computeRecommendedDefaults(models) {
+  if (!models || models.length === 0) return { chain: [], found: false };
+
+  // Rank /flash/i -> 0, /haiku/i -> 1, /mini/i -> 2
+  const ranked = [];
+  for (const m of models) {
+    let rank = -1;
+    if (/flash/i.test(m.id)) rank = 0;
+    else if (/haiku/i.test(m.id)) rank = 1;
+    else if (/mini/i.test(m.id)) rank = 2;
+    if (rank >= 0) ranked.push({ model: m, rank });
+  }
+
+  if (ranked.length === 0) return { chain: [], found: false };
+
+  // Stable sort by rank
+  ranked.sort((a, b) => a.rank - b.rank);
+
+  // Greedy pick preferring distinct providers
+  const selected = [];
+  const usedProviders = new Set();
+  const remaining = [];
+
+  for (const item of ranked) {
+    if (!usedProviders.has(item.model.provider) && selected.length < 3) {
+      selected.push({ provider: item.model.provider, id: item.model.id, cooldownHours: 1 });
+      usedProviders.add(item.model.provider);
+    } else {
+      remaining.push(item);
+    }
+  }
+
+  // Fill up to 3
+  while (selected.length < 3 && remaining.length > 0) {
+    const next = remaining.shift();
+    selected.push({ provider: next.model.provider, id: next.model.id, cooldownHours: 1 });
+  }
+
+  return { chain: selected, found: true };
+}
+
+// ── Rendering Functions ──
+
+function renderRegistryBanner() {
+  const bannerEl = document.getElementById("registryBanner");
+  bannerEl.innerHTML = "";
+
+  if (registryState === "pending") {
+    bannerEl.innerHTML = `
+      <div class="notice info">
+        <span class="notice-icon">⏳</span>
+        <div class="notice-content">
+          <strong>Connecting to model registry...</strong> Fetching available credentialed models from pi-ai.
+        </div>
+      </div>
+    `;
+  } else if (registryState === "empty") {
+    bannerEl.innerHTML = `
+      <div class="notice warning">
+        <span class="notice-icon">⚠️</span>
+        <div class="notice-content">
+          <strong>No credentialed models in registry.</strong> Configure provider API keys in <em>Settings &gt; Providers</em> to enable model selection. Existing configured models will still be used.
+        </div>
+      </div>
+    `;
+  } else if (registryState === "unavailable") {
+    bannerEl.innerHTML = `
+      <div class="notice error">
+        <span class="notice-icon">✕</span>
+        <div class="notice-content">
+          <strong>Model registry unavailable (503).</strong> Failed to introspect pi-ai model catalogue.
+          <button class="notice-btn" onclick="retryRegistry()">Retry</button>
+        </div>
+      </div>
+    `;
+  }
+}
+
+function retryRegistry() {
+  registryState = "pending";
+  renderAll();
+  setTimeout(() => {
+    registryState = "ok";
+    document.getElementById("registryStateSelector").value = "ok";
+    renderAll();
+  }, 600);
+}
+
+function renderBaseModel() {
+  const container = document.getElementById("baseModelPickerContainer");
+  const clearBtn = document.getElementById("clearBaseModelBtn");
+  const isRegistryOk = registryState === "ok";
+
+  const currentLabel = appState.baseModel
+    ? `${appState.baseModel.provider}/${appState.baseModel.id}`
+    : "Unset (no base model)";
+
+  container.innerHTML = "";
+
+  if (isRegistryOk) {
+    const btn = document.createElement("button");
+    btn.className = "model-selector-trigger";
+    btn.innerHTML = `
+      <span class="trigger-model-name">${currentLabel}</span>
+      <span class="trigger-chevron">▼</span>
+    `;
+    btn.onclick = (e) => openModelPopover(e.currentTarget, currentLabel, (picked) => {
+      appState.baseModel = { provider: picked.provider, id: picked.id };
+      renderAll();
+    });
+    container.appendChild(btn);
+  } else {
+    // Non-mounted primitive: plain text span per Design D2
+    const span = document.createElement("span");
+    span.style.fontFamily = "monospace";
+    span.style.fontSize = "12px";
+    span.style.padding = "4px 8px";
+    span.style.color = "var(--text-secondary)";
+    span.textContent = currentLabel;
+    container.appendChild(span);
+  }
+
+  clearBtn.disabled = !appState.baseModel;
+  clearBtn.onclick = () => {
+    appState.baseModel = null;
+    renderAll();
+  };
+}
+
+function renderDefaultsStrip() {
+  const btn = document.getElementById("useDefaultsBtn");
+  const subtextEl = document.getElementById("defaultsSubtext");
+  const isRegistryOk = registryState === "ok";
+
+  if (!isRegistryOk) {
+    btn.disabled = true;
+    subtextEl.textContent = "Registry unavailable. Staging defaults is disabled.";
+    return;
+  }
+
+  const { chain, found } = computeRecommendedDefaults(getAvailableModels());
+  if (!found || chain.length === 0) {
+    btn.disabled = true;
+    subtextEl.textContent = "No flash, haiku, or mini models found in credentialed registry.";
+  } else {
+    btn.disabled = false;
+    if (chain.length < 3) {
+      subtextEl.textContent = `Note: Only ${chain.length} candidate model(s) available in registry.`;
+    } else {
+      subtextEl.textContent = `Candidate models: ${chain.map(c => c.provider + '/' + c.id).join(', ')}`;
+    }
+  }
+
+  btn.onclick = () => {
+    // Check if any chain is non-empty
+    const hasExisting = Object.values(appState.chains).some(c => c.length > 0);
+    if (hasExisting) {
+      document.getElementById("confirmModal").style.display = "grid";
+    } else {
+      applyDefaultsDirectly();
+    }
+  };
+}
+
+function applyDefaultsDirectly() {
+  const { chain } = computeRecommendedDefaults(getAvailableModels());
+  appState.chains.observer = JSON.parse(JSON.stringify(chain));
+  appState.chains.reflector = JSON.parse(JSON.stringify(chain));
+  appState.chains.dropper = JSON.parse(JSON.stringify(chain));
+  document.getElementById("confirmModal").style.display = "none";
+  renderAll();
+}
+
+function renderWorkerChains() {
+  const listEl = document.getElementById("workerChainsList");
+  listEl.innerHTML = "";
+  const isRegistryOk = registryState === "ok";
+
+  WORKER_DEFS.forEach((w) => {
+    const entries = appState.chains[w.worker] || [];
+    const workerSection = document.createElement("section");
+    workerSection.className = "worker-section";
+    workerSection.setAttribute("aria-labelledby", `worker-heading-${w.worker}`);
+
+    // Header
+    const header = document.createElement("div");
+    header.className = "worker-header";
+    header.innerHTML = `
+      <span id="worker-heading-${w.worker}" class="worker-name">${w.name}</span>
+      <span class="worker-role">${w.role}</span>
+      <span class="worker-count">${entries.length} ${entries.length === 1 ? "model" : "models"}</span>
+    `;
+    workerSection.appendChild(header);
+
+    // If chain is empty -> Render Empty State (Design D5)
+    if (entries.length === 0) {
+      const emptyBox = document.createElement("div");
+      emptyBox.className = "empty-chain-box";
+      emptyBox.setAttribute("data-testid", `blackhole-chain-${w.worker}-empty`);
+      emptyBox.innerHTML = `
+        <span>ℹ️</span>
+        <span>Worker currently resolves to <strong>base / session tail</strong> only.</span>
+      `;
+      workerSection.appendChild(emptyBox);
+    } else {
+      // Ordered list of entries
+      const ol = document.createElement("ol");
+      ol.className = "chain-list";
+
+      entries.forEach((entry, idx) => {
+        const li = document.createElement("li");
+        li.className = "chain-entry";
+
+        const details = document.createElement("details");
+        details.open = (idx === 0); // Keep first open for preview
+
+        // Summary row
+        const summary = document.createElement("summary");
+        summary.className = "entry-summary";
+
+        const rankSpan = document.createElement("span");
+        rankSpan.className = "entry-rank";
+        rankSpan.textContent = idx + 1;
+        summary.appendChild(rankSpan);
+
+        if (idx === 0) {
+          const primPill = document.createElement("span");
+          primPill.className = "primary-pill";
+          primPill.textContent = "Primary";
+          summary.appendChild(primPill);
+        }
+
+        const modelSpan = document.createElement("span");
+        modelSpan.className = "entry-model-id";
+        modelSpan.textContent = entry.id;
+        summary.appendChild(modelSpan);
+
+        const provSpan = document.createElement("span");
+        provSpan.className = "entry-provider";
+        provSpan.textContent = entry.provider;
+        summary.appendChild(provSpan);
+
+        // Actions: Up, Down, Remove
+        const actions = document.createElement("div");
+        actions.className = "entry-actions";
+
+        const upBtn = document.createElement("button");
+        upBtn.className = "icon-btn";
+        upBtn.textContent = "↑";
+        upBtn.title = `Move up`;
+        upBtn.disabled = idx === 0;
+        upBtn.onclick = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const temp = entries[idx];
+          entries[idx] = entries[idx - 1];
+          entries[idx - 1] = temp;
+          renderAll();
+        };
+
+        const downBtn = document.createElement("button");
+        downBtn.className = "icon-btn";
+        downBtn.textContent = "↓";
+        downBtn.title = `Move down`;
+        downBtn.disabled = idx === entries.length - 1;
+        downBtn.onclick = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const temp = entries[idx];
+          entries[idx] = entries[idx + 1];
+          entries[idx + 1] = temp;
+          renderAll();
+        };
+
+        const removeBtn = document.createElement("button");
+        removeBtn.className = "icon-btn danger";
+        removeBtn.textContent = "✕";
+        removeBtn.title = `Remove entry`;
+        removeBtn.onclick = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          entries.splice(idx, 1);
+          renderAll();
+        };
+
+        actions.appendChild(upBtn);
+        actions.appendChild(downBtn);
+        actions.appendChild(removeBtn);
+        summary.appendChild(actions);
+        details.appendChild(summary);
+
+        // Details form
+        const detailsBody = document.createElement("div");
+        detailsBody.className = "entry-details";
+
+        // Row 1: Model Picker
+        const modelRow = document.createElement("div");
+        modelRow.className = "form-row";
+        modelRow.setAttribute("role", "group");
+        modelRow.setAttribute("aria-label", `Model for ${w.worker} entry ${idx + 1}`);
+
+        const modelLabel = document.createElement("span");
+        modelLabel.className = "form-label";
+        modelLabel.textContent = "Model";
+        modelRow.appendChild(modelLabel);
+
+        const curLabel = `${entry.provider}/${entry.id}`;
+        if (isRegistryOk) {
+          const pickerBtn = document.createElement("button");
+          pickerBtn.className = "model-selector-trigger";
+          pickerBtn.innerHTML = `
+            <span class="trigger-model-name">${curLabel}</span>
+            <span class="trigger-chevron">▼</span>
+          `;
+          pickerBtn.onclick = (e) => {
+            openModelPopover(e.currentTarget, curLabel, (picked) => {
+              const oldThinking = entry.thinking;
+              entry.provider = picked.provider;
+              entry.id = picked.id;
+              entry.contextWindow = undefined; // Cleared on model pick (D4)
+
+              // If non-reasoning model picked and thinking was active -> drop thinking to off and notify (D4)
+              if (!picked.reasoning && oldThinking && oldThinking !== "off") {
+                entry.thinking = "off";
+                entry._droppedThinkingLevel = oldThinking;
+              } else {
+                delete entry._droppedThinkingLevel;
+              }
+              renderAll();
+            });
+          };
+          modelRow.appendChild(pickerBtn);
+        } else {
+          const plainSpan = document.createElement("span");
+          plainSpan.style.fontFamily = "monospace";
+          plainSpan.style.fontSize = "12px";
+          plainSpan.textContent = curLabel;
+          modelRow.appendChild(plainSpan);
+        }
+        detailsBody.appendChild(modelRow);
+
+        // If level drop notice exists
+        if (entry._droppedThinkingLevel) {
+          const dropNotice = document.createElement("div");
+          dropNotice.className = "level-drop-notice";
+          dropNotice.setAttribute("data-testid", `blackhole-chain-${w.worker}-${idx}-level-drop`);
+          dropNotice.innerHTML = `
+            <span>⚠️</span>
+            <span>Thinking level override '<strong>${entry._droppedThinkingLevel}</strong>' dropped: selected model does not support reasoning.</span>
+          `;
+          detailsBody.appendChild(dropNotice);
+        }
+
+        // Row 2: Thinking Level Override Toggle
+        const thinkingRow = document.createElement("div");
+        thinkingRow.className = "form-row";
+
+        const thinkingLabel = document.createElement("span");
+        thinkingLabel.className = "form-label";
+        thinkingLabel.textContent = "Thinking level";
+        thinkingRow.appendChild(thinkingLabel);
+
+        const thinkingContent = document.createElement("div");
+        thinkingContent.className = "thinking-row";
+
+        const chkLabel = document.createElement("label");
+        chkLabel.className = "thinking-checkbox-label";
+        const chk = document.createElement("input");
+        chk.type = "checkbox";
+        chk.checked = !!entry.thinking;
+        chk.onchange = () => {
+          if (chk.checked) {
+            entry.thinking = "off";
+          } else {
+            delete entry.thinking;
+            delete entry._droppedThinkingLevel;
+          }
+          renderAll();
+        };
+        chkLabel.appendChild(chk);
+        chkLabel.appendChild(document.createTextNode("Override thinking level"));
+        thinkingContent.appendChild(chkLabel);
+
+        if (entry.thinking) {
+          const curLevel = entry.thinking;
+          const levelBtn = document.createElement("button");
+          levelBtn.className = "level-selector-trigger";
+          levelBtn.innerHTML = `<span>💡 ${curLevel}</span><span style="font-size:9px;color:var(--text-tertiary)">▼</span>`;
+
+          // Find if picked model has reasoning
+          const matchedModel = ALL_MOCK_MODELS.find(m => m.provider === entry.provider && m.id === entry.id);
+          const supported = (matchedModel && matchedModel.reasoning === false) ? ["off"] : THINKING_LEVELS;
+
+          levelBtn.onclick = (e) => {
+            openLevelPopover(e.currentTarget, curLevel, supported, (newLevel) => {
+              entry.thinking = newLevel;
+              delete entry._droppedThinkingLevel;
+              renderAll();
+            });
+          };
+          thinkingContent.appendChild(levelBtn);
+        } else {
+          const inheritSpan = document.createElement("span");
+          inheritSpan.className = "inherit-text";
+          inheritSpan.textContent = "(inherit)";
+          thinkingContent.appendChild(inheritSpan);
+        }
+
+        thinkingRow.appendChild(thinkingContent);
+        detailsBody.appendChild(thinkingRow);
+
+        // Row 3: Cooldown Hours
+        const cdRow = document.createElement("div");
+        cdRow.className = "form-row";
+        cdRow.innerHTML = `
+          <span class="form-label">Cooldown (hours)</span>
+          <input type="number" class="form-input" value="${entry.cooldownHours ?? 1}">
+        `;
+        const cdInput = cdRow.querySelector("input");
+        cdInput.onchange = (e) => {
+          entry.cooldownHours = parseFloat(e.target.value) || 1;
+          updateDirtyIndicator();
+        };
+        detailsBody.appendChild(cdRow);
+
+        // Row 4: Context Window
+        const cwRow = document.createElement("div");
+        cwRow.className = "form-row";
+        cwRow.innerHTML = `
+          <span class="form-label">Context window</span>
+          <input type="number" class="form-input" placeholder="inherit from pi" value="${entry.contextWindow ?? ''}">
+        `;
+        const cwInput = cwRow.querySelector("input");
+        cwInput.onchange = (e) => {
+          entry.contextWindow = e.target.value ? parseInt(e.target.value, 10) : undefined;
+          updateDirtyIndicator();
+        };
+        detailsBody.appendChild(cwRow);
+
+        details.appendChild(detailsBody);
+        li.appendChild(details);
+        ol.appendChild(li);
+      });
+
+      workerSection.appendChild(ol);
+    }
+
+    // Add model control bar (Design D5)
+    const addBar = document.createElement("div");
+    addBar.className = "add-control-bar";
+
+    const addBtn = document.createElement("button");
+    addBtn.className = "btn-add-model";
+    addBtn.setAttribute("aria-label", `Add model to ${w.worker} chain`);
+    addBtn.disabled = !isRegistryOk;
+    addBtn.innerHTML = `<span>+</span><span>Add model to ${w.worker} chain</span>`;
+
+    // Inline adding row container
+    const addingRow = document.createElement("div");
+    addingRow.className = "adding-row";
+    addingRow.style.display = "none";
+    addingRow.innerHTML = `
+      <span style="font-size:12px; color:var(--text-secondary);">Select model to add:</span>
+      <div class="inline-picker-slot"></div>
+      <button class="notice-btn" style="margin-left:auto;">Cancel</button>
+    `;
+
+    const cancelAddBtn = addingRow.querySelector("button");
+    cancelAddBtn.onclick = () => {
+      addingRow.style.display = "none";
+      addBtn.style.display = "inline-flex";
+    };
+
+    addBtn.onclick = () => {
+      addBtn.style.display = "none";
+      addingRow.style.display = "flex";
+
+      const slot = addingRow.querySelector(".inline-picker-slot");
+      slot.innerHTML = "";
+
+      const pickTrigger = document.createElement("button");
+      pickTrigger.className = "model-selector-trigger";
+      pickTrigger.innerHTML = `<span>Select model...</span><span class="trigger-chevron">▼</span>`;
+      pickTrigger.onclick = (e) => {
+        openModelPopover(e.currentTarget, "", (picked) => {
+          entries.push({
+            provider: picked.provider,
+            id: picked.id,
+            cooldownHours: 1
+          });
+          renderAll();
+        });
+      };
+      slot.appendChild(pickTrigger);
+    };
+
+    addBar.appendChild(addBtn);
+    addBar.appendChild(addingRow);
+    workerSection.appendChild(addBar);
+
+    // Shared Resolution Tail (Design D7)
+    const tailP = document.createElement("p");
+    tailP.className = "chain-tail";
+    tailP.setAttribute("data-testid", `blackhole-chain-${w.worker}-tail`);
+
+    const baseModelText = appState.baseModel
+      ? `${appState.baseModel.provider}/${appState.baseModel.id}`
+      : "(unset)";
+
+    tailP.innerHTML = `
+      <span>then</span>
+      <span class="tail-tag" data-testid="blackhole-chain-${w.worker}-tail-base">base model · ${baseModelText}</span>
+      <span>→</span>
+      <span class="tail-tag ${appState.sessionFallback ? '' : 'tail-excluded'}" data-testid="blackhole-chain-${w.worker}-tail-session">
+        session model${appState.sessionFallback ? '' : ' (excluded)'}
+      </span>
+    `;
+    workerSection.appendChild(tailP);
+
+    listEl.appendChild(workerSection);
+  });
+}
+
+// ── Model Selector Popover Component Simulation ──
+function openModelPopover(targetEl, currentModel, onSelect) {
+  closeActivePopover();
+
+  const rect = targetEl.getBoundingClientRect();
+  const mount = document.getElementById("popoverMount");
+
+  const backdrop = document.createElement("div");
+  backdrop.className = "popover-backdrop";
+  backdrop.onclick = closeActivePopover;
+
+  const panel = document.createElement("div");
+  panel.className = "popover-panel";
+  panel.style.top = `${rect.bottom + window.scrollY + 4}px`;
+  panel.style.left = `${Math.min(rect.left + window.scrollX, window.innerWidth - 330)}px`;
+
+  let filterText = "";
+  let providerFilter = "all";
+
+  const renderList = () => {
+    const listContainer = panel.querySelector(".popover-list");
+    listContainer.innerHTML = "";
+
+    const models = getAvailableModels().filter(m => {
+      const matchText = (m.id + " " + m.provider + " " + (m.name || "")).toLowerCase().includes(filterText.toLowerCase());
+      const matchProvider = providerFilter === "all" || m.provider === providerFilter;
+      return matchText && matchProvider;
+    });
+
+    if (models.length === 0) {
+      listContainer.innerHTML = `<div style="padding:12px;text-align:center;color:var(--text-muted);font-size:11.5px;">No matching models</div>`;
+      return;
+    }
+
+    models.forEach(m => {
+      const itemEl = document.createElement("div");
+      const label = `${m.provider}/${m.id}`;
+      itemEl.className = `popover-item ${label === currentModel ? "active-model" : ""}`;
+      itemEl.innerHTML = `
+        <div style="min-width:0;flex:1;">
+          <div class="popover-item-id">${m.name || m.id}</div>
+          <div style="font-size:10px;color:var(--text-muted);">${m.provider}/${m.id}</div>
+        </div>
+        <div class="popover-item-meta">
+          ${m.reasoning ? '<span class="cap-chip reasoning">🧠 reasoning</span>' : ''}
+          <span class="cap-chip">${Math.round(m.contextWindow / 1024)}k</span>
+        </div>
+      `;
+      itemEl.onclick = () => {
+        onSelect(m);
+        closeActivePopover();
+      };
+      listContainer.appendChild(itemEl);
+    });
+  };
+
+  const providers = ["all", ...new Set(getAvailableModels().map(m => m.provider))];
+
+  panel.innerHTML = `
+    <div class="popover-search-box">
+      <input type="text" class="popover-input" placeholder="Search models..." autofocus>
+      <select class="popover-provider-filter">
+        ${providers.map(p => `<option value="${p}">${p === 'all' ? 'All Providers' : p}</option>`).join('')}
+      </select>
+    </div>
+    <div class="popover-list"></div>
+  `;
+
+  const searchInput = panel.querySelector(".popover-input");
+  searchInput.oninput = (e) => {
+    filterText = e.target.value;
+    renderList();
+  };
+
+  const provSelect = panel.querySelector(".popover-provider-filter");
+  provSelect.onchange = (e) => {
+    providerFilter = e.target.value;
+    renderList();
+  };
+
+  mount.appendChild(backdrop);
+  mount.appendChild(panel);
+  activePopover = { backdrop, panel };
+
+  renderList();
+  searchInput.focus();
+}
+
+// ── Thinking Level Popover Simulation ──
+function openLevelPopover(targetEl, currentLevel, supportedLevels, onSelect) {
+  closeActivePopover();
+
+  const rect = targetEl.getBoundingClientRect();
+  const mount = document.getElementById("popoverMount");
+
+  const backdrop = document.createElement("div");
+  backdrop.className = "popover-backdrop";
+  backdrop.onclick = closeActivePopover;
+
+  const panel = document.createElement("div");
+  panel.className = "level-popover-panel";
+  panel.style.top = `${rect.bottom + window.scrollY + 4}px`;
+  panel.style.left = `${rect.left + window.scrollX}px`;
+
+  supportedLevels.forEach(lvl => {
+    const opt = document.createElement("div");
+    opt.className = `level-option ${lvl === currentLevel ? "selected" : ""}`;
+    opt.innerHTML = `<span>${lvl}</span>${lvl === currentLevel ? '<span>✓</span>' : ''}`;
+    opt.onclick = () => {
+      onSelect(lvl);
+      closeActivePopover();
+    };
+    panel.appendChild(opt);
+  });
+
+  mount.appendChild(backdrop);
+  mount.appendChild(panel);
+  activePopover = { backdrop, panel };
+}
+
+function closeActivePopover() {
+  if (activePopover) {
+    if (activePopover.backdrop.parentNode) activePopover.backdrop.parentNode.removeChild(activePopover.backdrop);
+    if (activePopover.panel.parentNode) activePopover.panel.parentNode.removeChild(activePopover.panel);
+    activePopover = null;
+  }
+}
+
+function renderAll() {
+  renderRegistryBanner();
+  renderBaseModel();
+  renderDefaultsStrip();
+  renderWorkerChains();
+  updateDirtyIndicator();
+}
+
+// ── Global Event Handlers ──
+
+document.getElementById("themeSelector").onchange = (e) => {
+  document.documentElement.setAttribute("data-theme", e.target.value);
+};
+
+document.getElementById("registryStateSelector").onchange = (e) => {
+  registryState = e.target.value;
+  renderAll();
+};
+
+document.getElementById("resetDemoBtn").onclick = () => {
+  appState = JSON.parse(JSON.stringify(INITIAL_STATE));
+  baselineState = JSON.parse(JSON.stringify(INITIAL_STATE));
+  registryState = "ok";
+  document.getElementById("registryStateSelector").value = "ok";
+  renderAll();
+};
+
+document.getElementById("cancelModalBtn").onclick = () => {
+  document.getElementById("confirmModal").style.display = "none";
+};
+
+document.getElementById("confirmDefaultsActionBtn").onclick = () => {
+  applyDefaultsDirectly();
+};
+
+document.getElementById("resetDraftBtn").onclick = () => {
+  appState = JSON.parse(JSON.stringify(baselineState));
+  renderAll();
+};
+
+document.getElementById("saveDraftBtn").onclick = () => {
+  baselineState = JSON.parse(JSON.stringify(appState));
+  alert("Settings saved successfully! pi-blackhole config updated.");
+  renderAll();
+};
+
+// Keydown listeners (Escape closes popovers / modals)
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    closeActivePopover();
+    document.getElementById("confirmModal").style.display = "none";
+  }
+});
+
+// Initial boot
+renderAll();
+</script>
+</body>
+</html>

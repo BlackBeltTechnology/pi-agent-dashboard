@@ -118,6 +118,23 @@ export interface PendingPluginRefRegistry {
   ): boolean;
   /** Consuming resolve by token; `null` when absent or past TTL. */
   resolve(token: string): ResolvedPluginRef | null;
+  /**
+   * Non-destructive presence probe: `true` while a live (unexpired) entry
+   * exists for `token`. Unlike {@link resolve} it consumes nothing, so a
+   * caller can reject a duplicate caller-supplied `spawnToken` without
+   * destroying the prior owner's entry. See change:
+   * relocate-goal-product-to-plugin (D1-#1).
+   */
+  has(token: string): boolean;
+  /**
+   * Sanitize a ref for `ownerId` against THIS store's shared key-ownership
+   * state (core-reserved keys dropped, keys owned by a different plugin
+   * dropped, first-writer-wins per key, warn-once) and CLAIM newly-unowned
+   * keys for `ownerId` — exactly the register path's boundary, applied to
+   * post-spawn ref merges. Never throws. See change:
+   * relocate-goal-product-to-plugin (D1-#5).
+   */
+  sanitize(ref: unknown, ownerId: string): Record<string, unknown>;
   /** Idempotent, token-keyed rollback: removes only this token's entry. */
   remove(token: string): void;
   /** Live entry count (post-sweep). For tests/observability. */
@@ -182,6 +199,16 @@ export function createPendingPluginRefRegistry(
       if (!entry) return null;
       store.delete(token);
       return { ref: entry.ref, ownerId: entry.ownerId, ...(entry.lifecycle ? { lifecycle: entry.lifecycle } : {}) };
+    },
+
+    has(token): boolean {
+      if (!token) return false;
+      sweep();
+      return store.has(token);
+    },
+
+    sanitize(ref, ownerId): Record<string, unknown> {
+      return sanitizePluginRef(ref, ownerId, keyOwners, warnOnceForKey);
     },
 
     remove(token): void {

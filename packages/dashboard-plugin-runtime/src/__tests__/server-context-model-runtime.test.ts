@@ -37,6 +37,11 @@ function baseDeps(): ServerContextDeps {
     consume: () => undefined,
     getPluginConfig: () => ({}),
     updatePluginConfig: async () => {},
+    mintSpawnToken: () => "tok-test",
+    renameSession: () => false,
+    assignSessionRef: () => false,
+    networkGuard: async () => {},
+    onShutdown: () => () => {},
   };
 }
 

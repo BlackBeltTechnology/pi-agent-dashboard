@@ -20,7 +20,7 @@ import {
   registerAllPluginBridges,
 } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
 import { RECOVERY_REATTACH_GRACE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
-import { isRecoveryCandidate, mergeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import { isRecoveryCandidate, mergeSessionMeta, type SessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import compress from "@fastify/compress";
@@ -64,13 +64,6 @@ import { createEmbedLifecycleController } from "./embed-lifecycle/embed-lifecycl
 import { wireEvents } from "./event-wiring.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
 import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
-import { decorateGoalsWithSpend } from "./goal/decorate-goals-spend.js";
-import { decideBudgetHalt } from "./goal/goal-budget-guard.js";
-import { buildGoalReprime, primeGoalSession } from "./goal/goal-session-primer.js";
-import { createGoalStatusProjector } from "./goal/goal-status-projector.js";
-import { createGoalStore } from "./goal/goal-store.js";
-import { createGoalSupervisor, type GoalDriverSpawnRequest, type GoalSupervisor } from "./goal/goal-supervisor.js";
-import { createGoalVerdictAccumulator } from "./goal/goal-verdict-accumulator.js";
 import { runBoundedStartup } from "./lifecycle/bounded-startup.js";
 import { ensureInstanceId } from "./lifecycle/instance-id.js";
 import { createLiveServerManager } from "./live-server/live-server-manager.js";
@@ -113,7 +106,6 @@ import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
 import { registerDoctorRoutes } from "./routes/doctor-routes.js";
 import { registerFileRoutes } from "./routes/file-routes.js";
 import { registerGitRoutes } from "./routes/git-routes.js";
-import { registerGoalRoutes } from "./routes/goal-routes.js";
 import { registerGrepRoutes } from "./routes/grep-routes.js";
 import { registerKnownServersRoutes } from "./routes/known-servers-routes.js";
 import { registerLiveServerRoutes } from "./routes/live-server-routes.js";
@@ -706,21 +698,6 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // See change: add-openspec-change-grouping (task 4.2).
   const openspecGroupStore = createOpenSpecGroupStore();
 
-  // Folder-scoped goal store + pending-link registry. The store owns durable
-  // GoalRecords (objective, criteria, linked sessions); the pending registry
-  // correlates spawn-from-goal sessions to their goalId at session_register.
-  // See change: add-goals-folder-page.
-  const goalStore = createGoalStore();
-  // Owner id under which core files the goal identity ref into the unified
-  // token store. Goal spawns in core (its plugin entry never spawns), so core
-  // is the filer; the goal product reads the resolved `goalId` field.
-  // See change: detach-automation-goal-from-core.
-  const GOAL_REF_OWNER = "goal";
-  // Goal session supervisor (main-server; owns GoalStore). Assigned below once
-  // browserGateway/spawn deps exist, then rides `dispatchPluginSessionEnded`.
-  // See change: add-goal-session-supervisor.
-  let goalSupervisor: GoalSupervisor | undefined;
-
   // Process-local instrumentation for session hydration. The same instance is
   // shared with the directory-service (records per `loadSessionEvents`) and the
   // `/api/health` route (reads `snapshot()`). See change:
@@ -1032,6 +1009,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // death signal, even when no terminal pi event was forwarded.
   // See change: finalize-automation-run-on-session-death.
   const pluginSessionEndSubs = new Set<(sessionId: string) => void>();
+  // Plugin shutdown subscribers (ServerPluginContext.onShutdown). Dispatched
+  // in server stop() at the exact point the goal supervisor disposes today —
+  // BEFORE piGateway.stop() tears bridges down — so plugin backoff timers /
+  // supervisors are disposed before bridge-teardown deaths can reach them.
+  // See change: relocate-goal-product-to-plugin (D1-#8).
+  const pluginShutdownSubs = new Set<() => void>();
   // Plugin session-ownership-resolution subscribers, keyed by owning plugin id
   // so a plugin is notified ONLY for its own resolved sessions
   // (ServerPluginContext.onSessionResolved). Fired by wireEvents on register,
@@ -1098,11 +1081,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       try { h(sessionId, event); } catch (err) { console.error("[plugin-onEvent]", err); }
     }
   }
+  // Fan session deaths to plugin subscribers (ServerPluginContext.onSessionEnded)
+  // — including the goal plugin's supervisor, now the goal product's own sub.
   function dispatchPluginSessionEnded(sessionId: string): void {
-    // Ride the existing death fanout for the goal supervisor (main-server; it
-    // owns GoalStore, unlike the goal plugin). C2a: subscribe here, never
-    // reassign sessionManager.onUnregister. See change: add-goal-session-supervisor.
-    if (goalSupervisor) void goalSupervisor.onDriverDeath(sessionId);
     for (const h of pluginSessionEndSubs) {
       try { h(sessionId); } catch (err) { console.error("[plugin-onSessionEnded]", err); }
     }
@@ -1121,107 +1102,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     }
   }
 
-  // Main-server consumer of goal_status snapshots: accumulates bounded judge
-  // verdict history onto the owning GoalRecord. The goal-plugin server can't
-  // reach the GoalStore, so retention lives here. Registered as a peer of the
-  // plugin's own goal_status handler (both fire via dispatchPluginPiMessage).
-  // See change: sophisticate-goal-authoring-and-control (task 2.2).
-  {
-    const accumulator = createGoalVerdictAccumulator({
-      store: goalStore,
-      lookupSession: (sessionId) => {
-        const s = sessionManager.get(sessionId);
-        return s ? { goalId: s.goalId, cwd: s.cwd } : null;
-      },
-    });
-    // Protocol message type mirrored by the goal-plugin bridge → server.
-    // Kept as a literal to avoid a server→goal-plugin package dependency.
-    const GOAL_STATUS_MESSAGE = "goal_status";
-    const arr = pluginPiHandlers.get(GOAL_STATUS_MESSAGE) ?? [];
-    arr.push((msg) => accumulator.handle(msg));
 
-    // Peer consumer: project the live snapshot onto the GoalRecord's durable
-    // status + turn fields so the board/budget survive a reload/restart.
-    // See change: persist-goal-status-and-progress.
-    const statusProjector = createGoalStatusProjector({
-      store: goalStore,
-      lookupSession: (sessionId) => {
-        const s = sessionManager.get(sessionId);
-        return s ? { goalId: s.goalId, cwd: s.cwd } : null;
-      },
-    });
-    arr.push((msg) => statusProjector.handle(msg));
-
-    // Dashboard-side budget enforcement (degraded tier): once a linked goal's
-    // live turnsUsed reaches GoalRecord.budget.maxTurns, dispatch /goal pause.
-    // Deduped per session so an already-capped loop isn't re-paused every
-    // snapshot. See change: sophisticate-goal-authoring-and-control (task 3.2).
-    const budgetPaused = new Set<string>();
-    arr.push((msg) => {
-      const m = msg as { sessionId?: string; payload?: { status?: string; turnsUsed?: unknown } };
-      if (!m.sessionId || !m.payload || typeof m.payload.status !== "string") return;
-      const sessionId = m.sessionId;
-      if (m.payload.status !== "active") {
-        budgetPaused.delete(sessionId);
-        return;
-      }
-      const turnsUsed = m.payload.turnsUsed;
-      if (typeof turnsUsed !== "number" || !Number.isFinite(turnsUsed)) return;
-      // Add to dedup set BEFORE the async lookup to close the race window.
-      // Removed again if the lookup shows no halt.
-      if (budgetPaused.has(sessionId)) return;
-      budgetPaused.add(sessionId);
-      const sess = sessionManager.get(sessionId);
-      if (!sess?.goalId || !sess.cwd) { budgetPaused.delete(sessionId); return; }
-      const cwd = sess.cwd;
-      const goalId = sess.goalId;
-      void goalStore
-        .list(cwd)
-        .then((goals) => {
-          const goal = goals.find((g) => g.id === goalId);
-          // Budget on CUMULATIVE turns (design D3): respawns accumulate onto
-          // `totalTurnsUsed`, so a fresh driver's low per-session count cannot
-          // reset/defeat the cap. Fall back to the live per-session count for a
-          // legacy record with no cumulative yet, and take the max to be robust
-          // against a projector write that lags this same snapshot.
-          // See change: add-goal-session-supervisor.
-          const cumulativeTurns = Math.max(goal?.totalTurnsUsed ?? 0, turnsUsed);
-          const decision = decideBudgetHalt(
-            { status: "active", turnsUsed: cumulativeTurns },
-            goal?.budget,
-          );
-          if (decision.halt && decision.command) {
-            piGateway.sendToSession(sessionId, { type: "send_prompt", sessionId, text: decision.command });
-          } else {
-            budgetPaused.delete(sessionId); // no halt → allow future checks
-          }
-        })
-        .catch((err) => { budgetPaused.delete(sessionId); console.warn(`[goal-budget-guard] budget check failed for ${goalId}:`, err); });
-    });
-    pluginPiHandlers.set(GOAL_STATUS_MESSAGE, arr);
-  }
-
-  // Rename a session card + dispatch the goal kickoff so a goal-linked session
-  // actually pursues its objective. Shared by the spawn path (event-wiring
-  // goal-link arm) and the explicit link path (goal-routes).
-  const primeGoalSessionImpl = (
-    sessionId: string,
-    goal: { objective: string; criteria?: import("@blackbelt-technology/pi-dashboard-shared/types.js").GoalCriterion[] },
-  ): void => {
-    primeGoalSession(
-      {
-        sendPrompt: (sid, text) => piGateway.sendToSession(sid, { type: "send_prompt", sessionId: sid, text }),
-        renameSession: (sid, name) => {
-          const updates = { name: name || undefined };
-          sessionManager.update(sid, updates);
-          browserGateway.broadcastSessionUpdated(sid, updates);
-          piGateway.sendToSession(sid, { type: "rename_session", sessionId: sid, name });
-        },
-      },
-      sessionId,
-      goal,
-    );
-  };
 
   // Wire up event forwarding from pi gateway to browser gateway
   wireEvents({
@@ -1243,8 +1124,6 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pendingWorktreeBaseRegistry,
     pendingPluginRefRegistry,
     dispatchPluginSessionResolved,
-    goalStore,
-    primeGoalSession: primeGoalSessionImpl,
     pendingInitialPromptRegistry,
     viewedSessionTracker: browserGateway.viewedSessionTracker,
     pendingClientCorrelations,
@@ -1530,143 +1409,6 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     store: openspecGroupStore,
   });
 
-  // Folder-scoped goals: broadcast on mutation + REST surface.
-  // See change: add-goals-folder-page.
-  goalStore.subscribe((cwd, payload) => {
-    // Decorate with read-time spend so the WS path is not a raw second delivery
-    // path. See change: fix-goal-detail-turns-and-spend.
-    browserGateway.broadcastToAll({ type: "goals_update", cwd, goals: decorateGoalsWithSpend(payload.goals, sessionManager) });
-  });
-  // Stamp/clear goalId on a session: in-memory + .meta.json + broadcast.
-  const applyGoalIdToSession = (sessionId: string, goalId: string | null): void => {
-    const next = goalId ?? undefined;
-    sessionManager.update(sessionId, { goalId: next });
-    const session = sessionManager.get(sessionId);
-    if (session?.sessionFile) {
-      try {
-        mergeSessionMeta(session.sessionFile, { goalId: next });
-      } catch (err) {
-        console.warn(`[goal-routes] failed to persist goalId to .meta.json for ${sessionId}:`, err);
-      }
-    }
-    browserGateway.broadcastSessionUpdated(sessionId, { goalId: next });
-  };
-  registerGoalRoutes(fastify, {
-    sessionManager,
-    preferencesStore,
-    networkGuard,
-    store: goalStore,
-    applyGoalIdToSession,
-    primeGoalSession: primeGoalSessionImpl,
-    // Route clear/pause/delete through the supervisor (assigned just below,
-    // before the server listens). See change: add-goal-session-supervisor.
-    abortGoalSupervision: (cwd, goalId, terminal) =>
-      goalSupervisor ? goalSupervisor.abort(cwd, goalId, terminal) : Promise.resolve(),
-    spawnGoalSession: async (cwd, goalId, opts) => {
-      // Mint the spawn token up front and file the goal identity ref against it
-      // in the unified token store, so `session_register` resolves ownership
-      // strictly by token (cwd never confers goal ownership).
-      // See change: detach-automation-goal-from-core.
-      const spawnToken = mintSpawnToken();
-      // File the goal identity ref against the token BEFORE the await (Q5),
-      // opting the driver out of cold-start recovery symmetrically with
-      // automation. See change: detach-automation-goal-from-core.
-      pendingPluginRefRegistry.file(spawnToken, { goalId }, GOAL_REF_OWNER, { recover: false });
-      try {
-        const result = await spawnPiSession(cwd, {
-          strategy: "headless",
-          spawnToken,
-          ...(opts?.model ? { model: opts.model } : {}),
-        });
-        // REST/goal spawn has no browser socket; the reclaim must run anyway.
-        // See change: fix-duplicate-bridge-registration (D0/D2).
-        armSpawnWatchdog(cwd, "headless", result);
-        if (result.process && result.pid) {
-          browserGateway.headlessPidRegistry.register(
-            result.pid,
-            cwd,
-            result.process,
-            result.spawnToken ?? spawnToken,
-            keeperOptsFromSpawnResult(result),
-          );
-        }
-        // Idempotent token-keyed rollback on spawn failure.
-        if (!result.success) pendingPluginRefRegistry.remove(spawnToken);
-        return { success: result.success, ...(result.message ? { message: result.message } : {}) };
-      } catch (err) {
-        pendingPluginRefRegistry.remove(spawnToken);
-        return { success: false, message: err instanceof Error ? err.message : String(err) };
-      }
-    },
-  });
-
-  // ── Goal session supervisor ─────────────────────────────────────
-  // Rides the death fanout (dispatchPluginSessionEnded, wired above) and adds
-  // goal PURSUIT policy: progress-gated auto-respawn, crash-loop breaker,
-  // cumulative budget. Host owns the mechanism (spawn/token-correlate/kill/
-  // resume). See change: add-goal-session-supervisor.
-  const spawnGoalDriver = async (req: GoalDriverSpawnRequest): Promise<{ success: boolean; message?: string }> => {
-    // Fresh spawns re-prime with a verdict summary dispatched on register.
-    if (req.reason === "fresh" && req.reprime) {
-      pendingInitialPromptRegistry.enqueue(req.cwd, req.reprime);
-    }
-    pendingPluginRefRegistry.file(req.spawnToken, { goalId: req.goalId }, GOAL_REF_OWNER, { recover: false });
-    try {
-      const result = await spawnPiSession(req.cwd, {
-        strategy: "headless",
-        spawnToken: req.spawnToken,
-        ...(req.reason === "resume" && req.sessionFile
-          ? { sessionFile: req.sessionFile, mode: "continue" as const }
-          : {}),
-      });
-      // REST resume — the path that minted the incident's duplicate.
-      armSpawnWatchdog(req.cwd, "headless", result);
-      if (result.process && result.pid) {
-        browserGateway.headlessPidRegistry.register(
-          result.pid,
-          req.cwd,
-          result.process,
-          result.spawnToken ?? req.spawnToken,
-          keeperOptsFromSpawnResult(result),
-        );
-      }
-      if (!result.success) {
-        pendingPluginRefRegistry.remove(req.spawnToken);
-        if (req.reason === "fresh" && req.reprime) pendingInitialPromptRegistry.consume(req.cwd);
-      }
-      return { success: result.success, ...(result.message ? { message: result.message } : {}) };
-    } catch (err) {
-      pendingPluginRefRegistry.remove(req.spawnToken);
-      if (req.reason === "fresh" && req.reprime) pendingInitialPromptRegistry.consume(req.cwd);
-      return { success: false, message: err instanceof Error ? err.message : String(err) };
-    }
-  };
-  goalSupervisor = createGoalSupervisor({
-    store: goalStore,
-    isSessionLive: (sessionId) => {
-      const s = sessionManager.get(sessionId);
-      return !!s && s.status !== "ended";
-    },
-    resolveSessionFile: (sessionId) => sessionManager.get(sessionId)?.sessionFile,
-    spawnDriver: spawnGoalDriver,
-    killByToken: (token) => browserGateway.headlessPidRegistry.killByToken(token),
-    killBySession: (sessionId) => browserGateway.headlessPidRegistry.killBySessionId(sessionId),
-    buildReprime: (goal) => buildGoalReprime(goal),
-    // Respawn spawns force strategy:"headless" (spawnGoalDriver); the dashboard
-    // always spawns headless, so RPC control is available. See change:
-    // add-goal-session-supervisor (C2j).
-    headlessAvailable: () => true,
-    log: (msg, meta) => console.error(msg, meta ?? ""),
-  });
-  // Boot-time reconcile: classify any pursuing/respawning goal whose driver did
-  // not re-register after a restart. DEFERRED past a reconnect grace window so
-  // live drivers re-register first (else every restart would falsely see all
-  // drivers dead and respawn them). See change: add-goal-session-supervisor (S10).
-  const GOAL_BOOT_RECONCILE_DELAY_MS = 30_000;
-  const bootReconcileTimer = setTimeout(() => {
-    goalSupervisor?.reconcileOnBoot().catch((err) => console.error("[goal-supervisor] boot reconcile failed", err));
-  }, GOAL_BOOT_RECONCILE_DELAY_MS);
-  bootReconcileTimer.unref?.();
 
   // Embed-session-lifecycle: construct the reaper + observability metrics wired
   // to the live server components. Dormant unless config.embedLifecycle.enabled
@@ -2383,17 +2125,46 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 // sanitizes untrusted plugin input. See change:
                 // add-plugin-spawn-scope (D7).
                 const sessionOptions = pluginSpawnToSessionOptions(opts);
-                // Mint the spawn token UP FRONT so the ownership ref is filed
-                // against it BEFORE the `spawnPiSession` await, closing the
-                // register-in-the-gap miss. See change:
-                // detach-automation-goal-from-core.
-                const spawnToken = mintSpawnToken();
+                // Honour a caller-supplied spawn token VERBATIM (trusted-only
+                // — this code only runs past the trusted gate). A token
+                // already pending for ANY owner is rejected via the
+                // non-destructive `has()` probe, leaving the prior owner's
+                // entry untouched. Otherwise mint up front so the ownership
+                // ref is filed against it BEFORE the `spawnPiSession` await
+                // (unchanged), closing the register-in-the-gap miss. See
+                // change: detach-automation-goal-from-core,
+                // relocate-goal-product-to-plugin (D1-#1).
+                const requested = typeof opts.spawnToken === "string" ? opts.spawnToken : "";
+                if (requested && requested.includes("\0")) {
+                  // A NUL cannot survive argv/registry round-trips — honouring
+                  // "used verbatim" means refusing, not silently re-minting a
+                  // token the caller's persisted state would never match.
+                  return { success: false, message: "spawnToken must not contain NUL" };
+                }
+                const spawnToken = requested || mintSpawnToken();
+                if (requested && pendingPluginRefRegistry.has(spawnToken)) {
+                  return {
+                    success: false,
+                    message: `spawnToken "${spawnToken}" is already pending for another spawn`,
+                  };
+                }
                 pendingPluginRefRegistry.file(
                   spawnToken,
                   opts.pluginRef,
                   plugin.manifest.id,
                   opts.lifecycle,
                 );
+                // Fresh-spawn reprime rides the per-cwd pending-initial-prompt
+                // FIFO exactly as core's own respawn path does: enqueue BEFORE
+                // the spawn await, consume on failure/throw so a dead spawn
+                // leaves no stale intent for an unrelated later register in
+                // the same cwd. See change:
+                // relocate-goal-product-to-plugin (D1-#3).
+                const initialPrompt =
+                  typeof opts.initialPrompt === "string" && opts.initialPrompt.length > 0
+                    ? opts.initialPrompt
+                    : undefined;
+                if (initialPrompt) pendingInitialPromptRegistry.enqueue(opts.cwd, initialPrompt);
                 // mode/sandbox threading (change: redesign-automation-editor-and-board).
                 // DOCUMENTED LIMITATION (task 4.2): the host hook does not yet
                 // enforce these. `worktree` would need ephemeral worktree
@@ -2421,8 +2192,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                     );
                   }
                   // Token-keyed, idempotent rollback on failure so no later
-                  // session resolves a stale ref.
-                  if (!result.success) pendingPluginRefRegistry.remove(spawnToken);
+                  // session resolves a stale ref; the queued initial prompt
+                  // is consumed with it.
+                  if (!result.success) {
+                    pendingPluginRefRegistry.remove(spawnToken);
+                    if (initialPrompt) pendingInitialPromptRegistry.consume(opts.cwd);
+                  }
                   return {
                     success: result.success,
                     message: result.message,
@@ -2430,6 +2205,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   };
                 } catch (err) {
                   pendingPluginRefRegistry.remove(spawnToken);
+                  if (initialPrompt) pendingInitialPromptRegistry.consume(opts.cwd);
                   return { success: false, message: err instanceof Error ? err.message : String(err) };
                 }
               },
@@ -2485,6 +2261,87 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 if (!trusted) return;
                 cwdPolicyRegistry.unregister(plugin.manifest.id, cwd);
               },
+              // Mint a fresh spawn-correlation token for a caller that must
+              // KNOW it before spawnSession (persisting it as crash-recovery
+              // state). Trusted-gated: an untrusted plugin's spawns are
+              // rejected anyway, so a minter would only widen the surface —
+              // its hook THROWS instead. See change:
+              // relocate-goal-product-to-plugin (D1-#1).
+              mintSpawnToken: () => {
+                const trusted = (plugin.manifest.priority ?? 1000) <= 100;
+                if (!trusted) {
+                  throw new Error(`mintSpawnToken not permitted for plugin "${plugin.manifest.id}"`);
+                }
+                return mintSpawnToken();
+              },
+              // Rename a live session: in-memory + `session_updated` broadcast
+              // + `rename_session` to pi — the host's own rename block, lifted
+              // verbatim (the broadcast carries `{ name: name || undefined }`).
+              // Trusted-gated; false for unknown session / non-string or empty
+              // name. See change: relocate-goal-product-to-plugin (D1-#4).
+              renameSession: (sessionId, name) => {
+                const trusted = (plugin.manifest.priority ?? 1000) <= 100;
+                if (!trusted) return false;
+                if (typeof name !== "string" || name.length === 0) return false;
+                if (!sessionManager.get(sessionId)) return false;
+                // Empty names never reach here (rejected above, E9) — the
+                // host's old `name || undefined` normalization is dead by
+                // design; see relocate-goal-product-to-plugin (D1-#4 note).
+                const updates = { name };
+                sessionManager.update(sessionId, updates);
+                browserGateway.broadcastSessionUpdated(sessionId, updates);
+                piGateway.sendToSession(sessionId, { type: "rename_session", sessionId, name });
+                return true;
+              },
+              // Merge a plugin-owned ref onto a session — post-spawn sibling
+              // of the register-time pluginRef merge. Same sanitization
+              // boundary (reserved keys, cross-owner keys, first-writer-wins,
+              // warn-once) via the shared registry instance, so spawn-filed
+              // and assign-merged keys claim ownership in ONE map.
+              // `persist !== false` = memory + .meta.json + broadcast
+              // (warn-only on meta failure, same posture as the goal routes);
+              // `persist: false` = memory only (C2e). See change:
+              // relocate-goal-product-to-plugin (D1-#5).
+              assignSessionRef: (sessionId, ref, opts) => {
+                const trusted = (plugin.manifest.priority ?? 1000) <= 100;
+                if (!trusted) return false;
+                if (typeof sessionId !== "string" || !sessionManager.get(sessionId)) return false;
+                const sanitized = pendingPluginRefRegistry.sanitize(ref, plugin.manifest.id);
+                sessionManager.update(sessionId, sanitized as Partial<DashboardSession>);
+                if (opts?.persist !== false) {
+                  const session = sessionManager.get(sessionId);
+                  if (session?.sessionFile) {
+                    try {
+                      mergeSessionMeta(session.sessionFile, sanitized as Partial<SessionMeta>);
+                    } catch (err) {
+                      console.warn(
+                        `[plugin-assignSessionRef] failed to persist ref to .meta.json for ${sessionId}:`,
+                        err,
+                      );
+                    }
+                  }
+                  browserGateway.broadcastSessionUpdated(
+                    sessionId,
+                    sanitized as Partial<DashboardSession>,
+                  );
+                }
+                return true;
+              },
+              // Subscribe to server shutdown. Dispatched in stop() at the
+              // goal-supervisor dispose point (before piGateway.stop()),
+              // try/catch per sub. Not trust-gated. See change:
+              // relocate-goal-product-to-plugin (D1-#8).
+              onShutdown: (fn) => {
+                pluginShutdownSubs.add(fn);
+                return () => {
+                  pluginShutdownSubs.delete(fn);
+                };
+              },
+              // The host's network guard — the SAME instance core mounts on
+              // its own route groups. Attaching a guard only tightens, so
+              // this is NOT trust-gated. See change:
+              // relocate-goal-product-to-plugin (D1-#7).
+              networkGuard,
               // Emit a configured pi event into a session (relayed as a
               // `plugin_emit_event` control message; the in-session bridge
               // re-emits it on pi.events). Same trust gate as abortSession.
@@ -3013,15 +2870,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       recordExitIntent(opts.exitIntent ?? "idle");
       metaPersistence.flushAll();
       metaPersistence.dispose();
-      // Cancel the deferred boot reconcile + dispose supervisor (pending backoff
-      // timers) so a create/stop cycle in one process leaves no stale timer.
-      // See change: add-goal-session-supervisor.
-      clearTimeout(bootReconcileTimer);
       // Cancel the recovery grace timer (ask: finalize-clear; auto: deferred
       // resume) so a create/stop cycle leaves no stale timer / late spawn.
       // See change: fix-recovery-offer-bridge-liveness-gate.
       if (recoveryGraceTimer) clearTimeout(recoveryGraceTimer);
-      goalSupervisor?.dispose();
+      // Dispatch plugin onShutdown subs (ServerPluginContext.onShutdown) at
+      // the exact point the goal supervisor disposes — BEFORE piGateway.stop()
+      // tears bridges down, so plugin supervisors / backoff timers are disposed
+      // before bridge-teardown deaths can reach them. try/catch per sub: a
+      // throwing sub never blocks the others or the shutdown.
+      // See change: relocate-goal-product-to-plugin (D1-#8).
+      for (const sub of pluginShutdownSubs) {
+        try { sub(); } catch (err) { console.error("[plugin-onShutdown]", err); }
+      }
       pendingForkRegistry.dispose();
       // Every pending ack holds a timer; a create/stop cycle must not leak them.
       // See change: fix-spawn-correlation-ttl-coupling (D7).

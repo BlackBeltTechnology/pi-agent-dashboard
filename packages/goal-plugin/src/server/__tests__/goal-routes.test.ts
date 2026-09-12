@@ -14,9 +14,9 @@ import os from "node:os";
 import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { decorateGoalsWithSpend } from "../goal/decorate-goals-spend.js";
-import { createGoalStore, type GoalStore } from "../goal/goal-store.js";
-import { registerGoalRoutes } from "../routes/goal-routes.js";
+import { decorateGoalsWithSpend } from "../decorate-goals-spend.js";
+import { createGoalStore, type GoalStore } from "../goal-store.js";
+import { registerGoalRoutes } from "../routes.js";
 
 const PASSTHRU_GUARD = async () => {};
 
@@ -25,12 +25,16 @@ function makeSessionManager(cwd: string, costs: Record<string, number> = {}): an
   const sessions = [...ids].map((id) => ({ id, cwd, source: "tui", cost: costs[id] }));
   return {
     listAll: () => sessions,
+    // PluginSessionManager surface (unknown-typed getSession) — the routes'
+    // spend adapter reads through it. `get` stays for decorateGoalsWithSpend's
+    // SpendSessionLookup, which this suite also drives directly.
+    // See change: relocate-goal-product-to-plugin.
+    getSession: (id: string) => sessions.find((s) => s.id === id),
     get: (id: string) => sessions.find((s) => s.id === id),
   };
 }
-function makePreferencesStore(): any {
-  return { getPinnedDirectories: () => [] };
-}
+/** Known-cwd set the routes validate against (host.knownFolderCwds stand-in). */
+const knownCwds = new Set<string>();
 
 describe("goal REST routes", () => {
   let dataDir: string;
@@ -43,6 +47,8 @@ describe("goal REST routes", () => {
   beforeEach(async () => {
     dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "goal-routes-"));
     cwd = dataDir; // any path in the known-cwd set
+    knownCwds.clear();
+    knownCwds.add(cwd);
     store = createGoalStore({ dataDir, debounceMs: 5 });
     applied = [];
     primed = [];
@@ -58,7 +64,7 @@ describe("goal REST routes", () => {
     fastify = Fastify();
     registerGoalRoutes(fastify, {
       sessionManager: sessionManager ?? makeSessionManager(cwd),
-      preferencesStore: makePreferencesStore(),
+      knownFolderCwds: () => [...knownCwds],
       networkGuard: PASSTHRU_GUARD,
       store,
       applyGoalIdToSession: (sessionId, goalId) => applied.push({ sessionId, goalId }),
@@ -298,5 +304,145 @@ describe("goal REST routes", () => {
       payload: { spawn: true },
     });
     expect(res.statusCode).toBe(404);
+  });
+});
+
+
+/** The exact REST surface today (test-plan #E19) — method+path pairs. */
+const EXPECTED_ROUTES: Array<[string, string]> = [
+  ["GET", "/api/folders/goals"],
+  ["POST", "/api/folders/goals"],
+  ["PATCH", "/api/folders/goals/:id"],
+  ["DELETE", "/api/folders/goals/:id"],
+  ["POST", "/api/folders/goals/:id/sessions"],
+  ["DELETE", "/api/folders/goals/:id/sessions/:sid"],
+];
+
+/** A network guard that rejects any non-loopback remote (mirrors the host guard's posture). */
+const LOOPBACK_GUARD = async (
+  request: { ip: string },
+  reply: { code: (n: number) => void; send: (body: unknown) => void },
+) => {
+  const loopback = ["127.0.0.1", "::1", "::ffff:127.0.0.1"];
+  if (!loopback.includes(request.ip)) {
+    reply.code(403);
+    reply.send({ success: false, error: "localhost only" });
+  }
+};
+
+describe("goal routes on the plugin surface (relocate-goal-product-to-plugin)", () => {
+  let dataDir: string;
+  let fastify: FastifyInstance;
+  let store: GoalStore;
+  let cwd: string;
+  let knownCwds: Set<string>;
+
+  beforeEach(async () => {
+    dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "goal-routes-reloc-"));
+    cwd = dataDir;
+    knownCwds = new Set([cwd]);
+    store = createGoalStore({ dataDir, debounceMs: 5 });
+  });
+
+  afterEach(async () => {
+    if (fastify) await fastify.close();
+    store.dispose();
+    await fs.rm(dataDir, { recursive: true, force: true });
+  });
+
+  const q = () => `cwd=${encodeURIComponent(cwd)}`;
+
+  function setupRelocated(): void {
+    fastify = Fastify();
+    registerGoalRoutes(fastify, {
+      sessionManager: makeSessionManager(cwd),
+      knownFolderCwds: () => [...knownCwds],
+      networkGuard: LOOPBACK_GUARD as unknown as Parameters<typeof registerGoalRoutes>[1]["networkGuard"],
+      store,
+      applyGoalIdToSession: () => {},
+    });
+  }
+
+  it("E19: route table is exactly today's six /api/folders/goals* pairs; nothing under /api/plugins/goal/", async () => {
+    const onRoute: Array<{ method: string; url: string }> = [];
+    fastify = Fastify();
+    // onRoute fires at REGISTRATION time — the hook must precede the routes.
+    fastify.addHook("onRoute", (r) => {
+      onRoute.push({ method: r.method as string, url: r.url });
+    });
+    registerGoalRoutes(fastify, {
+      sessionManager: makeSessionManager(cwd),
+      knownFolderCwds: () => [...knownCwds],
+      networkGuard: LOOPBACK_GUARD as unknown as Parameters<typeof registerGoalRoutes>[1]["networkGuard"],
+      store,
+      applyGoalIdToSession: () => {},
+    });
+    await fastify.ready();
+    const pairs = onRoute
+      .filter((r) => r.method !== "HEAD")
+      .map((r) => `${r.method} ${r.url}`)
+      .sort();
+    expect(pairs).toEqual(EXPECTED_ROUTES.map(([m, u]) => `${m} ${u}`).sort());
+    expect(pairs.some((p) => p.includes("/api/plugins/goal"))).toBe(false);
+  });
+
+  it("E18: every route mounts the networkGuard preHandler; non-loopback inject → 403", async () => {
+    const onRoute: Array<{ method: string; url: string; preHandler: unknown }> = [];
+    fastify = Fastify();
+    // onRoute fires at REGISTRATION time — hook before the routes.
+    fastify.addHook("onRoute", (r) => {
+      onRoute.push({
+        method: r.method as string,
+        url: r.url,
+        preHandler: r.preHandler,
+      });
+    });
+    registerGoalRoutes(fastify, {
+      sessionManager: makeSessionManager(cwd),
+      knownFolderCwds: () => [...knownCwds],
+      networkGuard: LOOPBACK_GUARD as unknown as Parameters<typeof registerGoalRoutes>[1]["networkGuard"],
+      store,
+      applyGoalIdToSession: () => {},
+    });
+    await fastify.ready();
+
+    // The six method+path pairs (auto-derived HEAD twins excluded), each with
+    // the guard mounted as its preHandler.
+    const goalRoutes = onRoute.filter((r) => r.url.startsWith("/api/folders/goals") && r.method !== "HEAD");
+    expect(goalRoutes).toHaveLength(EXPECTED_ROUTES.length);
+    const pairs = new Set(goalRoutes.map((r) => `${r.method} ${r.url}`));
+    for (const [method, url] of EXPECTED_ROUTES) {
+      expect(pairs.has(`${method} ${url}`), `${method} ${url} mounted`).toBe(true);
+    }
+    for (const r of goalRoutes) expect(r.preHandler, `preHandler on ${r.method} ${r.url}`).toBeDefined();
+
+    // Non-loopback remote, no auth → the guard rejects.
+    const res = await fastify.inject({
+      method: "GET",
+      url: `/api/folders/goals?${q()}`,
+      remoteAddress: "10.1.2.3",
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("E20: known-cwd decision table — active, pinned-inactive, neither", async () => {
+    // active-unpinned: session cwd in the known set → 200.
+    setupRelocated();
+    await fastify.ready();
+    let res = await fastify.inject({ method: "GET", url: `/api/folders/goals?${q()}` });
+    expect(res.statusCode).toBe(200);
+
+    // pinned-inactive: in the known set without any session → 200 (empty).
+    const other = await fs.mkdtemp(path.join(os.tmpdir(), "goal-routes-pinned-"));
+    knownCwds.add(other);
+    res = await fastify.inject({ method: "GET", url: `/api/folders/goals?cwd=${encodeURIComponent(other)}` });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.payload).data).toEqual([]);
+
+    // neither: unknown cwd → today's rejectInvalidCwd 403 body.
+    res = await fastify.inject({ method: "GET", url: "/api/folders/goals?cwd=/elsewhere" });
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.payload).error).toBe("cwd not allowed");
+    await fs.rm(other, { recursive: true, force: true });
   });
 });

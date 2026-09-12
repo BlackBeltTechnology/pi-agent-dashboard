@@ -5,10 +5,9 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | File | Purpose |
 |------|---------|
 | `pending-attach-registry.ts` | In-memory FIFO queue of pending `attachProposal` intents per cwd. → see `pending-attach-registry.ts.AGENTS.md` |
-| `pending-automation-run-registry.ts` | FIFO-per-cwd registry of automation-run stamps {name,runId,visibility}. → see `pending-automation-run-registry.ts.AGENTS.md` |
 | `pending-client-correlations.ts` | Maps server-minted `spawnToken` → client-minted `requestId`; per-record TTL derived from the arming timeout. → see `pending-client-correlations.ts.AGENTS.md`. See change: fix-spawn-correlation-ttl-coupling. |
 | `pending-fork-registry.ts` | Tracks pending fork operations keyed by `spawnToken` to place forked sessions after parent; per-entry TTL derived from the arming timeout. → see `pending-fork-registry.ts.AGENTS.md`. See change: fix-spawn-correlation-ttl-coupling. |
-| `pending-goal-link-registry.ts` | In-memory FIFO queue of pending `goalId` link intents per cwd. → see `pending-goal-link-registry.ts.AGENTS.md` |
+| `pending-plugin-ref-registry.ts` | Unified token-keyed pending store for the generic session-ownership seam. `file(token, ref, ownerId, lifecycle)` files a sanitized ref BEFORE the spawn await; consuming `resolve(token)` (60s TTL swept on touch); non-destructive `has(token)` probe for caller-supplied `spawnToken` duplicate rejection; `sanitize(ref, ownerId)` re-runs the register-path boundary (core-reserved keys, cross-owner keys, first-writer-wins, warn-once) and claims keys for post-spawn `assignSessionRef` merges; `sanitizePluginRef` + `CORE_RESERVED_REF_KEYS` exported. See change: detach-automation-goal-from-core, relocate-goal-product-to-plugin. |
 | `pending-initial-prompt-registry.ts` | In-memory FIFO queue of pending initial-prompt intents per cwd. → see `pending-initial-prompt-registry.ts.AGENTS.md` |
 | `pending-load-manager.ts` | Tracks in-flight on-demand session-load requests from bridge extensions. → see `pending-load-manager.ts.AGENTS.md` |
 | `pending-prompt-acks.ts` | Prompts transmitted to a bridge and awaiting its acknowledgement; keyed by server-minted `promptId`. → see `pending-prompt-acks.ts.AGENTS.md`. See change: fix-spawn-correlation-ttl-coupling. |

@@ -15,18 +15,20 @@
  * extension, associated by `goalId`. See change: add-goals-folder-page (design.md).
  */
 
+import type { PluginSessionManager, ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { ApiResponse, GoalBudget, GoalCriterion, GoalJudge, GoalRecord, GoalRecordStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { decorateGoalsWithSpend } from "../goal/decorate-goals-spend.js";
-import { GoalNotFoundError, type GoalStore } from "../goal/goal-store.js";
-import type { PreferencesStore } from "../persistence/preferences-store.js";
-import type { SessionManager } from "../session/memory-session-manager.js";
-import type { NetworkGuard } from "./route-deps.js";
+import { decorateGoalsWithSpend } from "./decorate-goals-spend.js";
+import { GoalNotFoundError, type GoalStore } from "./goal-store.js";
 
 export interface GoalRoutesDeps {
-  sessionManager: SessionManager;
-  preferencesStore: PreferencesStore;
-  networkGuard: NetworkGuard;
+  /** Host session surface (unknown-typed; route bodies cast to shared types). */
+  sessionManager: PluginSessionManager;
+  /** Known-cwd set for folder validation — `ctx.consume("host.knownFolderCwds")`
+   *  (session cwds ∪ pinned dirs), replacing the old direct core reads. */
+  knownFolderCwds: () => string[];
+  /** The host's network guard — the SAME instance core mounts on its own routes. */
+  networkGuard: ServerPluginContext["networkGuard"];
   store: GoalStore;
   /** Stamp (goalId) or clear (null) goalId on a session: in-memory + meta + broadcast. */
   applyGoalIdToSession: (sessionId: string, goalId: string | null) => void;
@@ -68,11 +70,12 @@ const ABORT_REASON: Record<string, string> = {
 const VALID_STATUS: ReadonlySet<string> = new Set(["pursuing", "paused", "achieved", "cleared"]);
 
 export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDeps): void {
-  const { sessionManager, preferencesStore, networkGuard, store, applyGoalIdToSession, primeGoalSession, spawnGoalSession, abortGoalSupervision } = deps;
+  const { sessionManager, knownFolderCwds, networkGuard, store, applyGoalIdToSession, primeGoalSession, spawnGoalSession, abortGoalSupervision } = deps;
 
   // Server-derived read-time spend join. Single choke point for every
   // goal-record response. See change: fix-goal-detail-turns-and-spend.
-  const withSpend = (record: GoalRecord): GoalRecord => decorateGoalsWithSpend([record], sessionManager)[0]!;
+  const spendLookup = { get: (id: string) => sessionManager.getSession(id) as { cost?: number } | undefined };
+  const withSpend = (record: GoalRecord): GoalRecord => decorateGoalsWithSpend([record], spendLookup)[0]!;
 
   function rejectInvalidCwd(reply: FastifyReply, cwd: string | undefined): cwd is undefined {
     if (!cwd) {
@@ -80,9 +83,7 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
       reply.send({ success: false, error: "Missing cwd" } satisfies ApiResponse);
       return true;
     }
-    const known = new Set<string>();
-    for (const s of sessionManager.listAll()) known.add(s.cwd);
-    for (const d of preferencesStore.getPinnedDirectories()) known.add(d);
+    const known = new Set<string>(knownFolderCwds());
     if (!known.has(cwd)) {
       reply.code(403);
       reply.send({ success: false, error: "cwd not allowed" } satisfies ApiResponse);
@@ -105,7 +106,10 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
 
   /** True when `sessionId` is a known session in the same folder. */
   function sessionInCwd(sessionId: string, cwd: string): boolean {
-    return sessionManager.listAll().some((s) => s.id === sessionId && s.cwd === cwd);
+    return sessionManager.listAll().some((s) => {
+      const session = s as { id?: string; cwd?: string };
+      return session.id === sessionId && session.cwd === cwd;
+    });
   }
 
   /** Returns `undefined` when absent, a validated array, or `null` when present-but-malformed. */
@@ -160,7 +164,7 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
       const { cwd } = request.query;
       if (rejectInvalidCwd(reply, cwd)) return;
       try {
-        const data = decorateGoalsWithSpend(await store.list(cwd!), sessionManager);
+        const data = decorateGoalsWithSpend(await store.list(cwd!), spendLookup);
         return { success: true, data } satisfies ApiResponse;
       } catch (err) {
         return handleError(reply, err);
