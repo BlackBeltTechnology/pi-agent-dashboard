@@ -3,7 +3,13 @@ import os from "node:os";
 import path from "node:path";
 import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { isCorsOriginAllowed } from "../auth/cors-origin.js";
+import {
+  isCorsOriginAllowed,
+  isMutationOriginTrusted,
+  isOriginAdmitted,
+  isWsOriginTrusted,
+  sanitizeHeaderForLog,
+} from "../auth/cors-origin.js";
 import { createNetworkGuard } from "../auth/localhost-guard.js";
 import {
   configSnapshotParseCount,
@@ -340,5 +346,158 @@ describe("live tunnel origins (E25/E26)", () => {
     expect(isCorsOriginAllowed("https://pi-dashboard.dev", withLive)).toBe(true);
     expect(isCorsOriginAllowed("https://ok.example", withLive)).toBe(true);
     expect(isCorsOriginAllowed("https://nope.example", withLive)).toBe(false);
+  });
+});
+
+/**
+ * Admission (WS upgrade + mutating REST), as distinct from CORS readability.
+ *
+ * Two deltas from `isCorsOriginAllowed` (design D1): a same-origin-by-Host rule
+ * and NO blanket zrok wildcard. Folds test-plan #E1, #E2, #E3, #X2.
+ * See change: fix-ws-origin-cswsh.
+ */
+describe("origin admission (fix-ws-origin-cswsh)", () => {
+  const LIVE_ZROK = "https://abc.share.zrok.io";
+  const admissionOpts = {
+    configuredOrigins: ["https://dash.example"],
+    trustedNetworks: ["10.0.0.0/8"],
+    getTunnelUrl: () => null,
+    getLiveTunnelOrigins: () => [LIVE_ZROK],
+  };
+
+  // #E1 — origin × scope decision table for the WS gate.
+  describe("#E1 isWsOriginTrusted", () => {
+    const scopes = ["browser", "terminal", "live", "bridge", null] as const;
+    const rows: Array<[string, string | undefined, boolean]> = [
+      ["absent Origin (non-browser client)", undefined, true],
+      ["loopback", "http://localhost:8000", true],
+      ["loopback IP, any port", "http://127.0.0.1:1", true],
+      ["IPv6 loopback", "http://[::1]:8000", true],
+      ["attacker", "http://attacker.example", false],
+      ["stranger zrok share", "https://xyz.share.zrok.io", false],
+      ["live tunnel zrok share", LIVE_ZROK, true],
+      ["static PWA shell", "https://pi-dashboard.dev", true],
+      ["configured origin", "https://dash.example", true],
+      ["trusted-network origin", "http://10.0.0.5:8000", true],
+    ];
+
+    for (const [label, origin, expected] of rows) {
+      it(`${label} → ${expected} for every scope`, () => {
+        for (const scope of scopes) {
+          expect(isWsOriginTrusted(origin, undefined, scope, admissionOpts)).toBe(expected);
+        }
+      });
+    }
+
+    it("`null` is admitted ONLY for the live scope (opaque preview iframe, D3)", () => {
+      expect(isWsOriginTrusted("null", undefined, "live", admissionOpts)).toBe(true);
+      for (const scope of ["browser", "terminal", "bridge", null] as const) {
+        expect(isWsOriginTrusted("null", undefined, scope, admissionOpts)).toBe(false);
+      }
+    });
+
+    it("mutations use the same admission, with no `null` carve-out", () => {
+      expect(isMutationOriginTrusted(undefined, undefined, admissionOpts)).toBe(true);
+      expect(isMutationOriginTrusted("null", undefined, admissionOpts)).toBe(false);
+      expect(isMutationOriginTrusted("http://attacker.example", undefined, admissionOpts)).toBe(false);
+      expect(isMutationOriginTrusted("http://localhost:8000", undefined, admissionOpts)).toBe(true);
+    });
+
+    it("an empty Origin header is NOT an absent one — deny (#X3)", () => {
+      expect(isMutationOriginTrusted("", undefined, admissionOpts)).toBe(false);
+      expect(isWsOriginTrusted("", undefined, "browser", admissionOpts)).toBe(false);
+    });
+  });
+
+  // #E2 — Host-match normalization: the page was served by THIS dashboard at
+  // whatever name the user typed (mDNS hostname, plain-LAN IP).
+  describe("#E2 isOriginAdmitted Host match", () => {
+    const bare = { configuredOrigins: [], trustedNetworks: [] };
+    const rows: Array<[string, string | undefined, boolean]> = [
+      ["http://mac.local:8000", "mac.local:8000", true],
+      ["http://MAC.local:8000", "mac.local:8000", true],
+      ["http://mac.local", "mac.local", true],
+      ["http://mac.local", "mac.local:80", true],
+      ["http://[::1]:8000", "[::1]:8000", true],
+      ["http://mac.local:8000", "mac.local:8001", false],
+      ["http://mac.local:8000", undefined, false],
+      ["https://mac.local:8000", "mac.local:8000", true],
+    ];
+
+    for (const [origin, host, expected] of rows) {
+      it(`(${origin}, Host: ${host}) → ${expected}`, () => {
+        expect(isOriginAdmitted(origin, host, bare)).toBe(expected);
+      });
+    }
+
+    it("a Host that is not bare host[:port] is never a match", () => {
+      // `new URL()` normalizes every one of these to the bare host, so the
+      // allowlist — not the parser — has to be what refuses them.
+      for (const host of [
+        "evil.example/x",
+        "evil.example#",
+        "evil.example?x",
+        "user@evil.example",
+        "evil.example ",
+        "evil.example\\x",
+      ]) {
+        expect(isOriginAdmitted("http://evil.example", host, bare), host).toBe(false);
+      }
+    });
+
+    // #X2 — malformed origins deny without throwing.
+    it("#X2 malformed origins deny and do not throw", () => {
+      for (const origin of [
+        "not a url",
+        "http://",
+        "http://localhost:8000, http://evil.example",
+        " http://localhost:8000",
+      ]) {
+        expect(isOriginAdmitted(origin, "localhost:8000", bare)).toBe(false);
+      }
+    });
+  });
+
+  // #E3 — the zrok wildcard stays for CORS reads, is skipped for admission.
+  describe("#E3 allowZrokWildcard", () => {
+    const bare = { configuredOrigins: [], trustedNetworks: [] };
+
+    it("defaults to true — CORS behavior is unchanged", () => {
+      expect(isCorsOriginAllowed("https://xyz.share.zrok.io", bare)).toBe(true);
+      expect(isCorsOriginAllowed("https://xyz.shares.zrok.io", bare)).toBe(true);
+    });
+
+    it("false denies a stranger share on both zrok host shapes", () => {
+      const opts = { ...bare, allowZrokWildcard: false };
+      expect(isCorsOriginAllowed("https://xyz.share.zrok.io", opts)).toBe(false);
+      expect(isCorsOriginAllowed("https://xyz.shares.zrok.io", opts)).toBe(false);
+    });
+
+    it("a LIVE tunnel origin is allowed with the wildcard either way", () => {
+      const live = { ...bare, getLiveTunnelOrigins: () => [LIVE_ZROK] };
+      expect(isCorsOriginAllowed(LIVE_ZROK, live)).toBe(true);
+      expect(isCorsOriginAllowed(LIVE_ZROK, { ...live, allowZrokWildcard: false })).toBe(true);
+    });
+
+    it("admission never consults the wildcard", () => {
+      expect(isOriginAdmitted("https://xyz.share.zrok.io", undefined, bare)).toBe(false);
+    });
+  });
+});
+
+/** #X1 — the log sanitizer itself (D5): attacker-controlled, so never verbatim. */
+describe("sanitizeHeaderForLog (#X1)", () => {
+  it("strips control characters, including a forged newline", () => {
+    expect(sanitizeHeaderForLog("http://a.example\u001b[31m\n[fake] line")).toBe(
+      "http://a.example[31m[fake] line",
+    );
+  });
+
+  it("caps the value at 256 characters", () => {
+    expect(sanitizeHeaderForLog(`http://${"a".repeat(600)}`)).toHaveLength(256);
+  });
+
+  it("renders an absent value as a placeholder, never as `undefined`", () => {
+    expect(sanitizeHeaderForLog(undefined)).toBe("-");
   });
 });

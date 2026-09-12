@@ -2,7 +2,9 @@
 
 ## Purpose
 HTTP / WebSocket surface exposed by the dashboard server process: REST routes, WebSocket gateways, lifecycle (startup, shutdown, restart), spawn / launch contracts for child processes, and the loader / TypeScript-runtime resolution that backs the entry-script invocation.
+
 ## Requirements
+
 ### Requirement: Shutdown REST endpoint
 The dashboard server SHALL expose a `POST /api/shutdown` endpoint that gracefully stops the server process. When called, it SHALL invoke the server's `stop()` method and then exit the process with code 0.
 
@@ -37,7 +39,7 @@ The server SHALL register the auth module as a Fastify plugin only when `auth` i
 - **THEN** the server SHALL not register any auth plugin, hooks, or routes
 
 ### Requirement: WebSocket upgrade auth check
-The server's `upgrade` handler SHALL validate authentication for non-localhost WebSocket upgrade requests when auth is enabled. The check SHALL parse the `cookie` header from the upgrade request and validate the JWT.
+The server's `upgrade` handler SHALL validate authentication for non-localhost WebSocket upgrade requests when auth is enabled. The check SHALL parse the `cookie` header from the upgrade request and validate the JWT. Independently of auth configuration, the handler SHALL first apply the cross-site Origin gate (see `cross-site-request-gate`): an upgrade carrying an untrusted `Origin` header is rejected with HTTP 403 even when the peer is localhost.
 
 #### Scenario: External WebSocket upgrade with valid cookie
 - **WHEN** a non-localhost WebSocket upgrade request includes a valid `pi_dash_token` cookie
@@ -48,8 +50,12 @@ The server's `upgrade` handler SHALL validate authentication for non-localhost W
 - **THEN** the server SHALL destroy the socket with HTTP 401
 
 #### Scenario: Localhost WebSocket upgrade — no check
-- **WHEN** a localhost WebSocket upgrade request arrives (regardless of auth config)
+- **WHEN** a localhost WebSocket upgrade request arrives with no `Origin` header or with a trusted `Origin` (regardless of auth config)
 - **THEN** the upgrade SHALL proceed without cookie validation
+
+#### Scenario: Localhost WebSocket upgrade with untrusted Origin is rejected
+- **WHEN** a localhost WebSocket upgrade request arrives with an `Origin` header the dashboard does not trust (regardless of auth config)
+- **THEN** the server SHALL destroy the socket with HTTP 403 before any cookie, ticket, or local-token check
 
 ### Requirement: Auth routes excluded from localhost guard
 The auth routes (`/auth/*`) SHALL NOT be subject to the localhost guard. They MUST be accessible from external IPs so that OAuth callbacks and login flows work through the tunnel.
@@ -591,4 +597,3 @@ The route SHALL be guarded by the same network guard used by other session route
 #### Scenario: Tool call evicted from memory buffer
 - **WHEN** the per-session ring buffer has evicted the `tool_execution_end` event under memory pressure
 - **THEN** the response SHALL be `404` (same body as in-flight case)
-

@@ -29,6 +29,7 @@ TESTS=(
   "24-gateway-where.sh"         # /dashboard-where reports endpoint + instance id + pinned (#F7); skips when pi absent. See change: add-pi-gateway-transport-identity.
   "30-gateway-instance-mismatch.sh" # a record naming one instance, another answering: refused, both ids named, no substitute (D14, task 5.4b); skips when pi absent. See change: add-pi-gateway-transport-identity.
   "31-roles-read-api.sh"        # GET /api/roles answerable with ZERO sessions (#X8). See change: add-roles-read-api.
+  "32-origin-gate.sh"           # header-less mutation allowed, cross-site mutation 403 (#X5). See change: fix-ws-origin-cswsh.
   # 25-gateway-remote-join-perf.sh and 26-gateway-promotion-soak.sh are OPT-IN:
   # one moves ~1 GB through a socket, the other soaks for ten minutes.
 )
