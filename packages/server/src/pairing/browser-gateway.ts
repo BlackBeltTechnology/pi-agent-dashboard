@@ -75,7 +75,7 @@ export function buildOpenSpecConnectSnapshot(
 
 import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleMoveFolderToWorkspace, handleOpenSpecBulkArchive, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
-import { handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handleRemoveFollowupEntry, handleResumeSession, handleRetrySession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest, shutdownSession as shutdownSessionImpl } from "../browser-handlers/session-action-handler.js";
+import { handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handlePromptResyncRequest, handleRemoveFollowupEntry, handleResumeSession, handleRetrySession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest, shutdownSession as shutdownSessionImpl } from "../browser-handlers/session-action-handler.js";
 import { handleAcceptReplaceProposal, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleHideSession, handleListSessions, handleRemoveTagGlobally, handleRenameSession, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnhideSession } from "../browser-handlers/session-meta-handler.js";
 import { clearGapState, handleHistoryBackfill, handleSubscribe } from "../browser-handlers/subscription-handler.js";
 import { handleCloseInlineTerminal, handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "../browser-handlers/terminal-handler.js";
@@ -85,6 +85,32 @@ import type { TerminalManager } from "../terminal/terminal-manager.js";
 import { ResyncRequesterRegistry, resyncRequestIdOf } from "./subagent-resync-routing.js";
 
 
+
+/**
+ * Per-delivery cap on exempted critical frames (fix-pending-prompt-lost-on-replay,
+ * D2): one pending-prompt replay (or one resync delivery) may bypass the
+ * MAX_WS_BUFFER shed for at most this many frames. Fixed, not configurable.
+ */
+const CRITICAL_FRAMES_PER_DELIVERY = 4;
+
+/** Slack added to MAX_WS_BUFFER to form the absolute critical-frame ceiling. */
+const CRITICAL_FRAME_SLACK_BYTES = 1 * 1024 * 1024; // 1 MB
+
+/** Wire shape of `/api/health#droppedFrames.serverToBrowser`, split by frame class. */
+export interface DroppedFrameStats {
+  /** Transcript-class drops (ordinary frames shed under back-pressure). */
+  total: number;
+  bySession: Record<string, number>;
+  /** Blocking-class drops (critical frames past the cap or the ceiling). */
+  blocking: { total: number; bySession: Record<string, number> };
+}
+
+/** Zero-value `DroppedFrameStats`, so route fallbacks stay TYPED, not inline literals. */
+export const EMPTY_DROPPED_FRAME_STATS: DroppedFrameStats = {
+  total: 0,
+  bySession: {},
+  blocking: { total: 0, bySession: {} },
+};
 
 export interface BrowserGateway {
   wss: WebSocketServer;
@@ -133,10 +159,25 @@ export interface BrowserGateway {
   /**
    * Per-hop dropped-frame counters for the diagnostics/health surface. A
    * server→browser frame is dropped when a browser socket's send buffer
-   * crosses MAX_WS_BUFFER under back-pressure. See change:
-   * fix-stuck-tool-card-on-dropped-event.
+   * crosses MAX_WS_BUFFER under back-pressure. `total`/`bySession` carry the
+   * TRANSCRIPT class (back-compat shape); `blocking` carries critical frames
+   * dropped past the exemption bounds. See changes:
+   * fix-stuck-tool-card-on-dropped-event, fix-pending-prompt-lost-on-replay.
    */
-  getDroppedFrameStats(): { total: number; bySession: Record<string, number> };
+  getDroppedFrameStats(): DroppedFrameStats;
+  /**
+   * Requester-scoped delivery of a prompt-resync reply (fix B, server half).
+   * `msg` is an ordinary bridge `prompt_request` that may carry the echoed
+   * `__resyncRequestId` token of a `prompt_resync_request` this gateway
+   * recorded. Resolution is NON-CONSUMING (peek, D5): every re-emitted prompt
+   * of one reply routes to the same requester, as a critical frame under the
+   * same bounded exemption as the replay path. Returns true when delivered;
+   * false (no/expired token, requester gone or no longer a subscriber) means
+   * the caller keeps the ordinary fan-out. Mid-replay requesters are NOT
+   * suppressed — mid-replay arrival is the expected timing for refresh.
+   * See change: fix-pending-prompt-lost-on-replay (D4/D5).
+   */
+  deliverPromptResyncReply(msg: ServerToBrowserMessage, sessionId: string): boolean;
   /** Track a pending interactive UI request for replay on reconnect */
   trackUiRequest(sessionId: string, requestId: string, method: string, params: Record<string, unknown>): boolean | void;
   /** Clear a pending interactive UI request (resolved or cancelled) */
@@ -347,11 +388,17 @@ export function createBrowserGateway(
         });
       }
     }
-    // Also replay pending PromptBus requests
+    // Also replay pending PromptBus requests. These frames are BLOCKING (the
+    // agent is awaiting an answer), so this leg — and only this leg — is sent
+    // under the critical-frame exemption: bounded by a per-delivery cap and
+    // the absolute ceiling. The dead extension_ui_request leg above and
+    // replayNotifyLog stay fully guarded (D3).
+    // See change: fix-pending-prompt-lost-on-replay (D1/D2/D3).
     const sessionPrompts = pendingPromptRequests.get(sessionId);
     if (sessionPrompts) {
+      const criticalBudget = { remaining: CRITICAL_FRAMES_PER_DELIVERY };
       for (const msg of sessionPrompts.values()) {
-        sendTo(ws, msg as any);
+        sendTo(ws, msg as any, { sessionId, critical: true, criticalBudget });
       }
     }
   }
@@ -458,35 +505,76 @@ export function createBrowserGateway(
   /** Max buffered bytes per browser WebSocket before dropping messages (0 = no limit) */
   const MAX_WS_BUFFER = maxWsBufferBytes ?? 4 * 1024 * 1024; // 4MB default
 
+  // ── Critical-frame exemption bounds (change: fix-pending-prompt-lost-on-replay, D2) ──
+  // A blocking frame (a pending-prompt replay / resync reply) bypasses the
+  // MAX_WS_BUFFER shed ONLY while the socket stays under an ABSOLUTE ceiling
+  // of MAX_WS_BUFFER + 1 MB — so repeated resyncs on a stalled socket can pin
+  // at most 1 extra MB, never unbounded memory. Both bounds are fixed, not
+  // configurable; the ceiling derives from the same maxWsBufferBytes arg as
+  // the threshold itself.
+  const CRITICAL_FRAME_CEILING = MAX_WS_BUFFER + CRITICAL_FRAME_SLACK_BYTES;
+
   // ── Drop-site instrumentation (change: fix-stuck-tool-card-on-dropped-event) ──
   // The server→browser hop silently drops a frame when the send buffer crosses
   // MAX_WS_BUFFER (browser not draining under back-pressure / a stall). Count
   // every drop and emit a rate-limited warning so the next stuck-card incident
   // is attributable. Logging is rate-limited because drops cluster during a
-  // stall (a log-storm would itself add load).
+  // stall (a log-storm would itself add load). Counters are SPLIT by frame
+  // class (fix-pending-prompt-lost-on-replay, D1): `transcript` = ordinary
+  // frames shed under back-pressure; `blocking` = exempt-eligible frames that
+  // exceeded a bound (cap or ceiling) — a future regression is attributable to
+  // the exemption, not to transcript shedding.
   let droppedFramesTotal = 0;
   const droppedFramesBySession = new Map<string, number>();
+  let droppedBlockingTotal = 0;
+  const droppedBlockingBySession = new Map<string, number>();
   const DROP_WARN_WINDOW_MS = 5_000;
   let lastDropWarnAt = 0;
 
-  function recordDroppedFrame(sessionId: string | undefined, seq: number | undefined, bufferedAmount: number) {
-    droppedFramesTotal++;
-    if (sessionId) droppedFramesBySession.set(sessionId, (droppedFramesBySession.get(sessionId) ?? 0) + 1);
+  function recordDroppedFrame(
+    sessionId: string | undefined,
+    seq: number | undefined,
+    bufferedAmount: number,
+    frameClass: "transcript" | "blocking",
+  ) {
+    if (frameClass === "blocking") {
+      droppedBlockingTotal++;
+      if (sessionId) droppedBlockingBySession.set(sessionId, (droppedBlockingBySession.get(sessionId) ?? 0) + 1);
+    } else {
+      droppedFramesTotal++;
+      if (sessionId) droppedFramesBySession.set(sessionId, (droppedFramesBySession.get(sessionId) ?? 0) + 1);
+    }
     const now = Date.now();
     if (now - lastDropWarnAt >= DROP_WARN_WINDOW_MS) {
       lastDropWarnAt = now;
       console.warn(
-        `[browser-gw] dropped frame (back-pressure) hop=server→browser sessionId=${sessionId ?? "n/a"} seq=${seq ?? "n/a"} bufferedAmount=${bufferedAmount} > MAX_WS_BUFFER=${MAX_WS_BUFFER} (total dropped=${droppedFramesTotal})`,
+        `[browser-gw] dropped frame (back-pressure) class=${frameClass} hop=server→browser sessionId=${sessionId ?? "n/a"} seq=${seq ?? "n/a"} bufferedAmount=${bufferedAmount} > MAX_WS_BUFFER=${MAX_WS_BUFFER} (total dropped=${droppedFramesTotal}, blocking=${droppedBlockingTotal})`,
       );
     }
   }
 
-  function sendTo(ws: WebSocket, msg: ServerToBrowserMessage, ctx?: { sessionId?: string; seq?: number }) {
+  function sendTo(
+    ws: WebSocket,
+    msg: ServerToBrowserMessage,
+    ctx?: { sessionId?: string; seq?: number; critical?: boolean; criticalBudget?: { remaining: number } },
+  ) {
     if (ws.readyState === WebSocket.OPEN) {
-      // Drop messages if the send buffer is full (browser not consuming)
+      // Drop messages if the send buffer is full (browser not consuming).
+      // A `critical` frame (pending-prompt replay / resync reply) is exempt
+      // from the shed while under the absolute ceiling and within its
+      // per-delivery budget — the one carve-out that keeps a blocking prompt
+      // deliverable on a socket a full replay just saturated.
+      // See change: fix-pending-prompt-lost-on-replay (D1/D2).
       if (MAX_WS_BUFFER > 0 && ws.bufferedAmount > MAX_WS_BUFFER) {
-        recordDroppedFrame(ctx?.sessionId, ctx?.seq, ws.bufferedAmount);
-        return;
+        const exempt =
+          ctx?.critical === true &&
+          ws.bufferedAmount <= CRITICAL_FRAME_CEILING &&
+          (ctx.criticalBudget === undefined || ctx.criticalBudget.remaining > 0);
+        if (!exempt) {
+          recordDroppedFrame(ctx?.sessionId, ctx?.seq, ws.bufferedAmount, ctx?.critical === true ? "blocking" : "transcript");
+          return;
+        }
+        if (ctx.criticalBudget !== undefined) ctx.criticalBudget.remaining--;
       }
       ws.send(JSON.stringify(msg));
     }
@@ -506,7 +594,7 @@ export function createBrowserGateway(
     for (const [ws] of subscriptions) {
       if (ws.readyState !== WebSocket.OPEN) continue;
       if (MAX_WS_BUFFER > 0 && ws.bufferedAmount > MAX_WS_BUFFER) {
-        recordDroppedFrame(undefined, undefined, ws.bufferedAmount);
+        recordDroppedFrame(undefined, undefined, ws.bufferedAmount, "transcript");
         continue;
       }
       ws.send(serialized);
@@ -754,6 +842,9 @@ export function createBrowserGateway(
             break;
           case "subagent_resync_request":
             handleSubagentResyncRequest(msg, ctx);
+            break;
+          case "prompt_resync_request":
+            handlePromptResyncRequest(msg, ctx);
             break;
           case "shutdown":
             // Awaited like every other async case in this switch, so a rejection
@@ -1208,11 +1299,29 @@ export function createBrowserGateway(
       return sessionMap !== undefined && sessionMap.size > 0;
     },
 
-    getDroppedFrameStats() {
+    getDroppedFrameStats(): DroppedFrameStats {
       return {
         total: droppedFramesTotal,
         bySession: Object.fromEntries(droppedFramesBySession),
+        blocking: {
+          total: droppedBlockingTotal,
+          bySession: Object.fromEntries(droppedBlockingBySession),
+        },
       };
+    },
+
+    deliverPromptResyncReply(msg: ServerToBrowserMessage, sessionId: string): boolean {
+      const requestId = resyncRequestIdOf(msg as unknown as Record<string, unknown>);
+      if (!requestId) return false;
+      const requester = resyncRequesters.peek(requestId);
+      if (!requester || requester.readyState !== WebSocket.OPEN) return false;
+      if (!getSubscribers(sessionId).includes(requester)) return false;
+      sendTo(requester, msg, {
+        sessionId,
+        critical: true,
+        criticalBudget: { remaining: CRITICAL_FRAMES_PER_DELIVERY },
+      });
+      return true;
     },
 
     trackUiRequest,

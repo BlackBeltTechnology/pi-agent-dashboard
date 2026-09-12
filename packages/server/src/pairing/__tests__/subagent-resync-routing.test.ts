@@ -91,3 +91,54 @@ describe("ResyncRequesterRegistry", () => {
     now.mockRestore();
   });
 });
+
+describe("ResyncRequesterRegistry.peek — non-consuming lookup (prompt-resync replies)", () => {
+  /**
+   * Prompt-resync replies (fix-pending-prompt-lost-on-replay, design D5): a
+   * bridge re-emits EVERY pending prompt under one token, so the prompt path
+   * must resolve the requester repeatedly. `take` stays take-once for
+   * subagent event replies — the two semantics live side by side.
+   */
+  const ws1 = { id: 1 };
+  let registry: ResyncRequesterRegistry<typeof ws1>;
+
+  beforeEach(() => {
+    registry = new ResyncRequesterRegistry<typeof ws1>();
+  });
+
+  it("E7: one token serves two (or more) replies without consuming the token", () => {
+    registry.record("r1", ws1, 1_000);
+    expect(registry.peek("r1", 1_100)).toBe(ws1);
+    expect(registry.peek("r1", 1_200)).toBe(ws1);
+    expect(registry.size).toBe(1);
+    // `take` is untouched for subagent events: still consume-once.
+    expect(registry.take("r1", 1_300)).toBe(ws1);
+    expect(registry.peek("r1", 1_300)).toBeUndefined();
+  });
+
+  it("E8: TTL boundary — live at t0+29.9 s, expired at t0+30.1 s", () => {
+    registry.record("r1", ws1, 1_000);
+    expect(registry.peek("r1", 1_000 + 29_900)).toBe(ws1);
+    expect(registry.peek("r1", 1_000 + 30_100)).toBeUndefined();
+  });
+
+  it("E9: a forgotten connection is no longer resolvable and the size returns to 0", () => {
+    registry.record("r1", ws1, 1_000);
+    registry.forget(ws1);
+    expect(registry.size).toBe(0);
+    expect(registry.peek("r1", 1_000)).toBeUndefined();
+  });
+
+  it("X3: an unknown token peeks undefined (caller falls back to fan-out)", () => {
+    expect(registry.peek("never-seen", Date.now())).toBeUndefined();
+  });
+
+  it("peek never deletes: an expired peek leaves the entry for the pruners", () => {
+    registry.record("r1", ws1, 1_000);
+    // Expired → undefined, but the entry itself stays until record()/forget()
+    // prune it — peek must not mutate the map.
+    expect(registry.peek("r1", 1_000 + RESYNC_REQUEST_TTL_MS + 100)).toBeUndefined();
+    expect(registry.size).toBe(1);
+    expect(registry.take("r1", 1_000)).toBe(ws1); // still there for take
+  });
+});

@@ -17,13 +17,13 @@ import type { DiscoveredServerInfo } from "../components/connectivity/ServerSele
 import type { ToastVariant } from "../components/primitives/Toast.js";
 import { EMPTY_CANVAS_STATE, reduceCanvasChip, reduceCanvasIntent } from "../lib/canvas/canvas-gate.js";
 import { foldLiveEvents, type QueuedLiveEvent } from "../lib/chat/coalesce-live-events.js";
-import { addInteractiveRequest, addNotify, applyPromptReceived, carryPendingPrompt, createInitialState, dismissInteractiveRequest, finalizeBackfillSegment, reduceEvent, type SessionState } from "../lib/chat/event-reducer.js";
+import { addInteractiveRequest, addNotify, applyPromptReceived, carryInteractiveRequests, carryPendingPrompt, createInitialState, dismissInteractiveRequest, finalizeBackfillSegment, reduceEvent, retailPendingInteractiveRows, type SessionState } from "../lib/chat/event-reducer.js";
 import {
   createHistoryGapRow,
   createHistoryGapState,
   HISTORY_GAP_ROW_ID,
-  isHeadFree,
   type HistoryGapState,
+  isHeadFree,
 } from "../lib/chat/history-gap.js";
 import { dispatchInitEvent } from "../lib/git/worktree-init-bus.js";
 import { t } from "../lib/i18n/i18n.js";
@@ -33,6 +33,26 @@ import { inferPlatform, pathKey } from "../lib/session/session-grouping.js";
 import { clearRecoveryOffer, setRecoveryOffer } from "../lib/state/recovery-offer-bus.js";
 import { pushSpawnErrorToast } from "../lib/state/spawn-error-toast-bus.js";
 import { isVisibleCwd } from "../lib/util/cwd-visibility.js";
+
+/**
+ * Merge `carryInteractiveRequests` output into a rebuilt state: pending
+ * entries + their `ui-<requestId>` rows appended at the TAIL. Returns the
+ * input unchanged when nothing is pending. Used by both reset arms here —
+ * a rebuild must not erase a rendered dialog (design D8 of
+ * fix-pending-prompt-lost-on-replay).
+ */
+function withCarriedInteractiveRequests(
+  rebuilt: SessionState,
+  prev: SessionState | undefined,
+): SessionState {
+  const carried = carryInteractiveRequests(prev);
+  if (carried.interactiveRequests.length === 0) return rebuilt;
+  return {
+    ...rebuilt,
+    interactiveRequests: carried.interactiveRequests,
+    messages: [...rebuilt.messages, ...carried.messages],
+  };
+}
 
 /**
  * Rich spawn error detail stored per cwd.
@@ -465,7 +485,13 @@ export function useMessageHandler(
           // …but a `sending` bubble is NOT carried: nothing in the rebuilt
           // state can settle it. See change: fix-optimistic-prompt-stuck-sending.
           const carry = carryPendingPrompt(next.get(msg.sessionId)?.pendingPrompt);
-          const fresh = createInitialState();
+          // Unanswered interactive requests + their `ui-<requestId>` rows carry
+          // the same way — a server-signalled reset must not erase a rendered
+          // dialog (design D8 of fix-pending-prompt-lost-on-replay).
+          const fresh = withCarriedInteractiveRequests(
+            createInitialState(),
+            next.get(msg.sessionId),
+          );
           if (carry) fresh.pendingPrompt = carry;
           next.set(msg.sessionId, fresh);
           return next;
@@ -951,6 +977,17 @@ export function useMessageHandler(
             }
             current = reduceEvent(current, event);
           }
+          // Unanswered interactive requests + their `ui-<requestId>` rows carry
+          // across the full-sweep reset — merged AFTER the fold, at the tail, so
+          // the fold's toolCallId scans never see the carried rows (design D8
+          // of fix-pending-prompt-lost-on-replay).
+          if (shouldReset) current = withCarriedInteractiveRequests(current, next.get(msg.sessionId));
+          // Re-tail the pending rows after EVERY batch, not only the reset one:
+          // a multi-batch full replay appends later transcript rows AFTER the
+          // carried dialog, burying it mid-transcript (virtualized off-screen)
+          // while its entry keeps the desync detector suppressed. See change:
+          // fix-pending-prompt-lost-on-replay (design D8).
+          current = retailPendingInteractiveRows(current);
           next.set(msg.sessionId, current);
           return next;
         });

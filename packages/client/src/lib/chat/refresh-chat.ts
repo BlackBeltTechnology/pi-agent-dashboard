@@ -37,6 +37,17 @@ export interface RefreshChatDeps {
    * See change: show-replay-in-flight-indicator.
    */
   beginReplayInFlight: (sessionId: string) => void;
+  /**
+   * Ask the bridge to re-emit prompts the session still awaits an answer for
+   * (`prompt_resync_request`). Fired UNCONDITIONALLY on every refresh (design
+   * D9): the round trip is cheap, and gating it on "is the view desynced"
+   * would read exactly the state known to be wrong. Sequenced AFTER the reset
+   * + resubscribe so the reply cannot be erased by the reset this refresh
+   * performs — the interactive-request carry (D8) then keeps the restored
+   * dialog through the replay the resubscribe triggers.
+   * See change: fix-pending-prompt-lost-on-replay.
+   */
+  requestPromptResync: (sessionId: string) => void;
 }
 
 /**
@@ -63,4 +74,12 @@ export async function refreshChat(sessionId: string, deps: RefreshChatDeps): Pro
   // in-flight pill reports. Armed here rather than at the two call sites so the
   // header and mobile paths cannot drift.
   deps.beginReplayInFlight(sessionId);
+  // Best-effort, failure-isolated from the transcript refresh: a throwing or
+  // rejecting resync send must neither abort the reset+subscribe above nor
+  // surface as an unhandled rejection (test-plan #X1).
+  try {
+    void Promise.resolve(deps.requestPromptResync(sessionId)).catch(() => {});
+  } catch {
+    // Synchronous throw — same isolation as a rejected send.
+  }
 }

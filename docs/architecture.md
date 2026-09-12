@@ -405,6 +405,41 @@ Pi owns the retry loop. Dashboard configures + observes + renders it. Attempts f
 - **Page refresh**: Server replays pending `prompt_request` messages when a browser subscribes. Client deduplicates by `requestId` or pending title match.
 - **Bridge reconnect**: Bridge replays pending PromptBus requests on WebSocket reconnect so dashboard dialogs survive server restarts.
 
+### Pending-Prompt Recovery (change: fix-pending-prompt-lost-on-replay)
+
+A live `ask_user` prompt could go permanently invisible: the server held it, the browser never rendered it, and neither Refresh nor reload recovered it. Two independent defects — a frame shed on a saturated socket, and client state wiped by a replay rebuild.
+
+**Critical-frame delivery (server).** `replayPendingUiRequests` runs in the replay-completion callback, so the tiny `prompt_request` frame lands on a socket the just-finished full replay saturated; `sendTo` silently drops any frame while `ws.bufferedAmount > MAX_WS_BUFFER` (4 MB default). The pending-*prompt* leg now sends under a `critical` frame class, exempt from that shed, bounded twice (`packages/server/src/pairing/browser-gateway.ts`):
+- per-delivery cap: **4 frames** (`CRITICAL_FRAMES_PER_DELIVERY`)
+- absolute ceiling: **`MAX_WS_BUFFER` + 1 MB**
+
+Past either bound the frame is dropped and counted as a **blocking** drop; the dead `extension_ui_request` leg and `replayNotifyLog` stay fully guarded. `getDroppedFrameStats()` reports transcript drops under `total`/`bySession` (back-compat) and blocking drops under `blocking: { total, bySession }` → `/api/health#droppedFrames.serverToBrowser`.
+
+**Resync round trip.** `prompt_resync_request` asks the bridge to re-emit every prompt its PromptBus still holds — the bridge's pending set, never the server's derived registry.
+
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant S as Server
+  participant X as Bridge (PromptBus)
+  B->>S: prompt_resync_request {sessionId, requestId}
+  S->>S: record requester (ResyncRequesterRegistry, TTL 30s)
+  S->>X: prompt_resync_request {sessionId, requestId}
+  X->>S: prompt_request ×N, each with __resyncRequestId
+  S->>S: keep all prompt side effects (track, currentTool, unread, order)
+  S->>B: critical prompt_request to the recorded socket (non-consuming peek)
+```
+
+- Requester lookup is **non-consuming** (`peek`) so every prompt of a multi-prompt reply routes to the same socket, not just the first.
+- `deliverPromptResyncReply` unicasts to the requester as a critical frame; unknown/expired token, requester gone, or no bridge → ordinary fan-out (or drop). Mid-replay requesters are NOT suppressed.
+- Bridge: `emitPendingPrompts` (`packages/extension/src/pending-prompt-emitter.ts`) is the ONE emitter shared by `onReconnect` and the resync handler.
+
+**Client state carry.** `carryInteractiveRequests` (`packages/client/src/lib/chat/event-reducer.ts`) preserves `pending` interactive requests **and** their paired `ui-<requestId>` rows across all FIVE reset sites: `useMessageHandler` `event_replay` + `session_state_reset`; `useSessionState` `applyReplay` + `session_state_reset`; the refresh reset in `App.tsx`. `retailPendingInteractiveRows` re-appends those rows at the tail after EVERY replay batch — a multi-batch full replay otherwise folds later transcript rows after the carried dialog, burying it mid-transcript (virtualized off-screen) while its entry keeps the desync detector suppressed.
+
+**Refresh + desync affordance.** `refreshChat` fires `prompt_resync_request` unconditionally, failure-isolated from the transcript refresh. When the session reports `currentTool === "ask_user"` but the client holds no pending request — not ended, no replay in flight, held ≥ `PROMPT_DESYNC_GRACE_MS` (5 s) — the `prompt-desync-resync` pill (`packages/client/src/lib/session/prompt-desync.ts`, rendered in `ChatView`) surfaces and fires the same resync.
+
+See change: `fix-pending-prompt-lost-on-replay`.
+
 ### Notify Flow (`ctx.ui.notify` → browser, split from prompt_request)
 
 Change: `split-notify-from-prompt-request`. `ctx.ui.notify` used to ship over `prompt_request`. Every consumer treated it as an unanswered ask → `trackPromptRequest` → `currentTool="ask_user"` re-armed on every quiescent moment → permanent "Needs you", false unread, `questionFirst` reorder, and a session the embed-lifecycle reaper could never reclaim. Now a dedicated `notify` message type end to end.

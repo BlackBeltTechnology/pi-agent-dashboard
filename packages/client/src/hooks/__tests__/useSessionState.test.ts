@@ -216,3 +216,75 @@ describe("useSessionState (imperative hook)", () => {
     expect(result.current.state.messages).toEqual([]);
   });
 });
+
+describe("interactive request carry across resets (fix-pending-prompt-lost-on-replay)", () => {
+  function promptRequestMsg(promptId: string): ServerToBrowserMessage {
+    return {
+      type: "prompt_request",
+      sessionId: SID,
+      promptId,
+      prompt: { question: "Pick", type: "select", options: ["a", "b"] },
+      component: { type: "select", props: {} },
+      placement: "inline",
+    } as ServerToBrowserMessage;
+  }
+
+  it("E12 site: event_replay full reset carries the pending request AND its ui row", () => {
+    let acc = createSessionAccumulator();
+    acc = applySessionMessage(acc, promptRequestMsg("p1"));
+    acc = { ...acc, maxSeq: 9 };
+    expect(acc.state.interactiveRequests).toHaveLength(1);
+
+    const out = applySessionMessage(acc, replayMsg([{ seq: 1, event: ev("__noop_test_event__") }]));
+    expect(out.state.interactiveRequests.map((r) => r.requestId)).toEqual(["p1"]);
+    expect(out.state.interactiveRequests[0].status).toBe("pending");
+    const rows = out.state.messages.filter((m) => m.id === "ui-p1");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].role).toBe("interactiveUi");
+    // The carried row lands at the tail of the rebuilt messages.
+    expect(out.state.messages[out.state.messages.length - 1].id).toBe("ui-p1");
+  });
+
+  it("E12 site: a re-emitted prompt after the reset does not duplicate the row", () => {
+    let acc = createSessionAccumulator();
+    acc = applySessionMessage(acc, promptRequestMsg("p1"));
+    acc = applySessionMessage(acc, replayMsg([{ seq: 1, event: ev("__noop_test_event__") }]));
+    // The server re-emits the pending prompt after the replay (reconnect
+    // replay / resync reply) — requestId-keyed dedup must hold.
+    const out = applySessionMessage(acc, promptRequestMsg("p1"));
+    expect(out).toBe(acc);
+    expect(out.state.messages.filter((m) => m.id === "ui-p1")).toHaveLength(1);
+  });
+
+  it("E12 site: session_state_reset carries the pending request AND its ui row", () => {
+    let acc = createSessionAccumulator();
+    acc = applySessionMessage(acc, promptRequestMsg("p1"));
+    acc = { ...acc, maxSeq: 7 };
+
+    const out = applySessionMessage(acc, {
+      type: "session_state_reset",
+      sessionId: SID,
+    } as ServerToBrowserMessage);
+    expect(out.maxSeq).toBe(0);
+    expect(out.state.interactiveRequests.map((r) => r.requestId)).toEqual(["p1"]);
+    const rows = out.state.messages.filter((m) => m.id === "ui-p1");
+    expect(rows).toHaveLength(1);
+  });
+
+  it("E11 site: answered requests are NOT carried across session_state_reset", () => {
+    let acc = createSessionAccumulator();
+    acc = applySessionMessage(acc, promptRequestMsg("p1"));
+    acc = applySessionMessage(acc, {
+      type: "prompt_dismiss",
+      sessionId: SID,
+      promptId: "p1",
+    } as ServerToBrowserMessage);
+
+    const out = applySessionMessage(acc, {
+      type: "session_state_reset",
+      sessionId: SID,
+    } as ServerToBrowserMessage);
+    expect(out.state.interactiveRequests).toEqual([]);
+    expect(out.state.messages).toEqual([]);
+  });
+});

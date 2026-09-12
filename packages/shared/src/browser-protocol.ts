@@ -608,6 +608,13 @@ export interface BrowserPromptRequestMessage {
     props: Record<string, unknown>;
   };
   placement: string;
+  /**
+   * Correlation token echoed by the bridge on a `prompt_resync_request` reply,
+   * so the server routes the re-emitted prompt to the requesting socket as a
+   * blocking frame instead of the guarded fan-out. Absent on a live prompt.
+   * See change: fix-pending-prompt-lost-on-replay (D4).
+   */
+  __resyncRequestId?: string;
 }
 
 /**
@@ -1849,6 +1856,7 @@ export type BrowserToServerMessage =
   | RemoveTagGloballyBrowserMessage
   | RecoveryDismissMessage
   | SubagentResyncRequestBrowserMessage
+  | PromptResyncRequestBrowserMessage
   | WatchFilesBrowserMessage;
 
 /**
@@ -1877,6 +1885,25 @@ export interface SubagentResyncRequestBrowserMessage {
    * See change: reduce-subagent-details-payload (D6, task 9.4).
    */
   reason?: "open" | "cadence";
+}
+
+/**
+ * Browser → server → bridge: ask a session's bridge to re-emit every prompt it
+ * is still awaiting an answer for, so a dialog lost to transcript back-pressure
+ * or a client state reset can be rebuilt without a page reload. The server
+ * forwards it to the session's bridge and records the requesting socket against
+ * `requestId`, so the replies are delivered requester-scoped.
+ * See change: fix-pending-prompt-lost-on-replay (B).
+ */
+export interface PromptResyncRequestBrowserMessage {
+  type: "prompt_resync_request";
+  sessionId: string;
+  /**
+   * Correlation token; the bridge echoes it as `__resyncRequestId` on each
+   * re-emitted prompt. Optional: an older client omits it and replies fall back
+   * to the ordinary fan-out.
+   */
+  requestId?: string;
 }
 
 /**

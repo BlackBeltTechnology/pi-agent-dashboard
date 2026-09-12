@@ -30,10 +30,12 @@ import {
   addInteractiveRequest,
   addNotify,
   applyPromptReceived,
+  carryInteractiveRequests,
   carryPendingPrompt,
   createInitialState,
   dismissInteractiveRequest,
   reduceEvent,
+  retailPendingInteractiveRows,
   type SessionState,
 } from "../lib/chat/event-reducer.js";
 
@@ -61,6 +63,9 @@ function settle(acc: SessionStateAccumulator, state: SessionState): SessionState
  * Fold an `event_replay` batch. Mirrors `useMessageHandler`: computes the
  * reset decision from `maxSeq` BEFORE folding, resets carrying `pendingPrompt`,
  * then folds each event via `reduceEvent` (no isLive) and re-tracks `maxSeq`.
+ * Unanswered interactive requests + their `ui-<requestId>` rows carry too —
+ * merged AFTER the fold so the rows land at the tail of the rebuilt messages
+ * (design D8 of fix-pending-prompt-lost-on-replay).
  */
 function applyReplay(
   acc: SessionStateAccumulator,
@@ -74,6 +79,20 @@ function applyReplay(
   for (const { event } of events) {
     current = reduceEvent(current, event);
   }
+  if (shouldReset) {
+    const carriedRequests = carryInteractiveRequests(acc.state);
+    if (carriedRequests.interactiveRequests.length > 0) {
+      current = {
+        ...current,
+        interactiveRequests: carriedRequests.interactiveRequests,
+        messages: [...current.messages, ...carriedRequests.messages],
+      };
+    }
+  }
+  // Keep the pending rows at the tail across a MULTI-batch replay: later
+  // batches otherwise fold transcript rows after the carried dialog, burying
+  // it mid-transcript. See change: fix-pending-prompt-lost-on-replay (D8).
+  current = retailPendingInteractiveRows(current);
   let maxSeq = shouldReset ? 0 : acc.maxSeq;
   if (events.length > 0) {
     maxSeq = Math.max(maxSeq, events[events.length - 1].seq);
@@ -100,7 +119,9 @@ export function applySessionMessage(
       return applyReplay(acc, msg.events);
 
     case "session_state_reset": {
-      const fresh = createInitialState();
+      // Reset carrying `pendingPrompt` AND unanswered interactive requests
+      // with their rows (design D8 of fix-pending-prompt-lost-on-replay).
+      const fresh = { ...createInitialState(), ...carryInteractiveRequests(acc.state) };
       const carried = carryPendingPrompt(acc.state.pendingPrompt);
       if (carried) fresh.pendingPrompt = carried;
       return { state: fresh, maxSeq: 0 };

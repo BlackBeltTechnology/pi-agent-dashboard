@@ -69,6 +69,7 @@ import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged 
 import { decodeMultiselectAnswer } from "./multiselect-decode.js";
 import { createNotifyProxy } from "./notify-proxy.js";
 import { provisionOpenspecCli } from "./openspec-cli-shim.js";
+import { emitPendingPrompts } from "./pending-prompt-emitter.js";
 import { readPiRetrySettings } from "./pi-retry-settings.js";
 import { collectMetrics, startMetricsMonitor, stopMetricsMonitor } from "./process-metrics.js";
 import { getOwnPgid, scanChildProcesses } from "./process-scanner.js";
@@ -1347,6 +1348,21 @@ function initBridge(pi: ExtensionAPI) {
         }
         return;
       }
+      // Prompt resync (fix B, extension half): a browser asked the bridge to
+      // re-emit every prompt it is still awaiting an answer for — the bus's
+      // pending set is the source of truth, NOT the server's derived registry
+      // (D6). Each frame echoes the requester token so the server unicasts it
+      // back to the asking browser as a critical frame. Empty pending set →
+      // zero frames, no error (E10); a malformed token degrades to tokenless.
+      // See change: fix-pending-prompt-lost-on-replay (design D5/D6/D7).
+      if (msg.type === "prompt_resync_request") {
+        const echoId = (msg as { requestId?: unknown }).requestId;
+        const token = typeof echoId === "string" && echoId.length > 0 ? echoId : undefined;
+        if (promptBus) {
+          emitPendingPrompts(promptBus, (m) => connection.send(m as any), sessionId, token);
+        }
+        return;
+      }
       if (msg.type === "flow_control" && pi.events) {
         if (msg.action === "abort") {
           pi.events.emit("flow:abort", {});
@@ -1445,25 +1461,11 @@ function initBridge(pi: ExtensionAPI) {
       flushPendingSubagentFrames();
       // Re-send pending PromptBus requests so dashboard dialogs survive browser refresh.
       // Synchronous within this tick to prevent TUI respond() from interleaving.
-      // Client-side dedup by requestId prevents double-rendering.
+      // Client-side dedup by requestId prevents double-rendering. Shared with the
+      // prompt_resync_request handler so the two frames cannot drift (D7).
+      // See change: fix-pending-prompt-lost-on-replay.
       if (promptBus) {
-        for (const { request, component, placement } of promptBus.getPendingRequests()) {
-          connection.send({
-            type: "prompt_request" as any,
-            sessionId,
-            promptId: request.id,
-            prompt: {
-              type: request.type,
-              question: request.question,
-              options: request.options,
-              defaultValue: request.defaultValue,
-              pipeline: request.pipeline,
-              metadata: request.metadata,
-            },
-            component,
-            placement,
-          });
-        }
+        emitPendingPrompts(promptBus, (m) => connection.send(m as any), sessionId);
       }
       connection.send({ type: "replay_complete", sessionId });
       // If agent is mid-turn, send synthetic agent_start so server sets status to "streaming"

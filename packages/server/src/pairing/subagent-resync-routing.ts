@@ -67,6 +67,19 @@ export class ResyncRequesterRegistry<C> {
     return now - entry.at > RESYNC_REQUEST_TTL_MS ? undefined : entry.connection;
   }
 
+  /**
+   * Resolve the requester WITHOUT consuming the token, so N replies under one
+   * token each route (a prompt-resync reply re-emits every pending prompt with
+   * the same echo). Expired or unknown → undefined; the entry itself is left
+   * for `take` / `forget` / TTL pruning — peek never mutates the map.
+   * See change: fix-pending-prompt-lost-on-replay (D5).
+   */
+  peek(requestId: string, now: number = Date.now()): C | undefined {
+    const entry = this.pending.get(requestId);
+    if (!entry) return undefined;
+    return now - entry.at > RESYNC_REQUEST_TTL_MS ? undefined : entry.connection;
+  }
+
   /** Drop every pending request of a connection that went away. */
   forget(connection: C): void {
     for (const [id, entry] of this.pending) {
