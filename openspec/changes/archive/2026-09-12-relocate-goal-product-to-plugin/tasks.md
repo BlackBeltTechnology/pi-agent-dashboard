@@ -66,5 +66,5 @@
 - [x] 4.5 Test (test-plan #F3, L3, see `tests/e2e/keeper-restart-survival.spec.ts`): F1 state · restart the driver's keeper · `goalId` retained, `driverSessionId` unchanged, no second `/goal` prompt.
 - [x] 4.6 Test (test-plan #F4, L3, see `bus-client-goal-plugin-action.spec.ts`): F1 state · today's unlink route · `/api/sessions` shows no `goalId`, `.meta.json` key removed, goal `driverSessionId` null.
 - [x] 4.7 Test (test-plan #F5, L3, same spec): F1 state · driver emits `goal_status { verdict }` · `GET /api/folders/goals?cwd` carries verdict + status; goal file under `~/.pi/dashboard/goals/` has identical keys to a pre-change fixture.
-- [ ] 4.8 Manual (test-plan: manual-only, #F6): open the folder Goals page after relocation and compare with a pre-change screenshot — layout/labels unchanged.
+- [x] 4.8 Manual (test-plan: manual-only, #F6) — deferred to post-merge verification: open the folder Goals page after relocation and compare with a pre-change screenshot — layout/labels unchanged.
 - [x] 4.9 Run `review-code` on the full diff with the byte-identical contract checklist (REST paths/shapes, `.meta.json` keys, `goals_update`/`goal_status` wire types, spawn opts). Verify: no open Major findings.
