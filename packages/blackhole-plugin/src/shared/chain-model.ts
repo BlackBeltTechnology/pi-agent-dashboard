@@ -6,9 +6,15 @@
  * order. Promotion is therefore just a move to index 0 — the client never
  * special-cases "primary" in its edit operations, only in its rendering.
  *
- * See change: add-blackhole-plugin.
+ * See change: add-blackhole-plugin, blackhole-model-picker-chains.
  */
 import type { ModelRef } from "./blackhole-config.js";
+
+/** Minimal model descriptor consumed by recommendedDefaults. */
+export interface ModelCandidate {
+  provider: string;
+  id: string;
+}
 
 /** Read a worker chain out of a config object as one ordered list. */
 export function readChain(
@@ -70,6 +76,88 @@ export function removeEntry(entries: readonly ModelRef[], index: number): ModelR
 /** A worker chain cannot be emptied: its last remaining entry offers no remove. */
 export function canRemove(entries: readonly ModelRef[]): boolean {
   return entries.length > 1;
+}
+
+/** Append a newly picked model entry to the end of the chain (design D5). */
+export function appendEntry(entries: readonly ModelRef[], ref: ModelRef): ModelRef[] {
+  return [...entries, ref];
+}
+
+function getRank(id: string): number | null {
+  if (/flash/i.test(id)) return 0;
+  if (/haiku/i.test(id)) return 1;
+  if (/mini/i.test(id)) return 2;
+  return null;
+}
+
+interface RankedCandidate {
+  provider: string;
+  id: string;
+  rank: number;
+}
+
+function extractRankedCandidates(models: readonly ModelCandidate[]): RankedCandidate[] {
+  const seen = new Set<string>();
+  const candidates: RankedCandidate[] = [];
+
+  for (const m of models) {
+    if (!m || typeof m.provider !== "string" || typeof m.id !== "string") continue;
+    const key = `${m.provider}/${m.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const rank = getRank(m.id);
+    if (rank !== null) {
+      candidates.push({ provider: m.provider, id: m.id, rank });
+    }
+  }
+
+  // Stable sort by rank (preserves registry order within the same rank)
+  candidates.sort((a, b) => a.rank - b.rank);
+  return candidates;
+}
+
+/**
+ * Stage recommended flash-class fallback chains from the credentialed registry (design D6).
+ *
+ * Ranks models by bare id: /flash/i (0) > /haiku/i (1) > /mini/i (2).
+ * Dedupes by provider/id, sorts stably by rank, selects greedily preferring
+ * distinct providers, then fills from remaining ranked rows up to a cap of 3.
+ */
+export function recommendedDefaults(models: readonly ModelCandidate[]): {
+  chain: ModelRef[];
+  found: boolean;
+} {
+  const candidates = extractRankedCandidates(models);
+  if (candidates.length === 0) {
+    return { chain: [], found: false };
+  }
+
+  const selected: { provider: string; id: string }[] = [];
+  const selectedProviders = new Set<string>();
+  const remaining: { provider: string; id: string }[] = [];
+
+  for (const c of candidates) {
+    if (selected.length < 3 && !selectedProviders.has(c.provider)) {
+      selected.push(c);
+      selectedProviders.add(c.provider);
+    } else {
+      remaining.push(c);
+    }
+  }
+
+  while (selected.length < 3 && remaining.length > 0) {
+    const next = remaining.shift();
+    if (next) selected.push(next);
+  }
+
+  const chain: ModelRef[] = selected.map((m) => ({
+    provider: m.provider,
+    id: m.id,
+    cooldownHours: 1,
+  }));
+
+  return { chain, found: chain.length > 0 };
 }
 
 /**

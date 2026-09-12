@@ -80,6 +80,9 @@ function configFixture(over: Record<string, unknown> = {}) {
  * row (and therefore the whole settings rail) stays authentic.
  */
 async function routeInstalled(page: Page) {
+  await page.route("**/api/plugins/blackhole/status", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ installed: true }) }),
+  );
   await page.route("**/api/plugins", async (route) => {
     const res = await route.fetch();
     const body = (await res.json()) as { plugins?: { id: string; status?: unknown }[] };
@@ -93,6 +96,25 @@ async function routeInstalled(page: Page) {
 /** Serve a config fixture (or a parse-error result) for the plugin's own route. */
 async function routeConfig(page: Page, body: unknown, status = 200) {
   await page.route("**/api/plugins/blackhole/config", (route) =>
+    route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) }),
+  );
+}
+
+const DEFAULT_MODELS_CATALOGUE = {
+  object: "list",
+  data: [
+    { id: "g/x-flash", provider: "g", reasoning: true },
+    { id: "openrouter/y-mini", provider: "openrouter", reasoning: true },
+    { id: "anthropic/z-haiku", provider: "anthropic", reasoning: true },
+    { id: "openrouter/model-alpha", provider: "openrouter", reasoning: true },
+    { id: "ollama/model-beta", provider: "ollama", reasoning: true },
+    { id: "cerebras/model-gamma", provider: "cerebras", reasoning: true },
+    { id: "openrouter/base-model", provider: "openrouter", reasoning: true },
+  ],
+};
+
+async function routeModels(page: Page, body: unknown = DEFAULT_MODELS_CATALOGUE, status = 200) {
+  await page.route("**/api/models*", (route) =>
     route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) }),
   );
 }
@@ -394,5 +416,270 @@ test.describe("blackhole settings page (L3)", () => {
     // its vocabulary may appear here.
     await expect(body).not.toContainText(/pending|observation pool fullness|session card/i);
     await expect(body.locator("[data-testid^='blackhole-session-']")).toHaveCount(0);
+  });
+
+  // ── Model picker and fallback chains (change: blackhole-model-picker-chains) ──
+
+  // 6.1 Empty state renders (test-plan #F2)
+  test("6.1 renders empty state for observer chain and accessible add button", async ({ page }) => {
+    await routeInstalled(page);
+    await routeModels(page);
+    await routeConfig(page, configFixture({ observerModel: null, observerFallbackModels: [] }));
+    await gotoBlackhole(page);
+
+    const emptyState = page.getByTestId("blackhole-chain-observer-empty");
+    await expect(emptyState).toBeVisible({ timeout: 30_000 });
+    await expect(emptyState).toContainText(/base \/ session tail/i);
+
+    const addBtn = page.getByRole("button", { name: /Add model to observer chain/i });
+    await expect(addBtn).toBeVisible();
+    await expect(addBtn).toBeEnabled();
+  });
+
+  // 6.2 Add to empty chain, keyboard-only (test-plan #F1)
+  test("6.2 adds model to empty chain via keyboard and shows Save bar", async ({ page }) => {
+    await routeInstalled(page);
+    await routeModels(page);
+    await routeConfig(page, configFixture({ observerModel: null, observerFallbackModels: [] }));
+    await gotoBlackhole(page);
+
+    const addBtn = page.getByRole("button", { name: /Add model to observer chain/i });
+    await addBtn.focus();
+    await page.keyboard.press("Enter");
+
+    const addingRow = page.getByTestId("blackhole-chain-observer-adding");
+    await expect(addingRow).toBeVisible();
+
+    const trigger = addingRow.getByRole("button", { name: /Select model/i });
+    await trigger.click();
+    await page.getByRole("option", { name: /x-flash/i }).or(page.getByText("x-flash")).first().click();
+
+    await expect(page.getByTestId("blackhole-chain-observer-empty")).toHaveCount(0);
+    await expect(page.getByTestId("blackhole-chain-observer-entry-0")).toBeVisible();
+    await expect(page.getByTestId("settings-save-bar")).toBeVisible();
+  });
+
+  // 6.3 No free-text inputs (test-plan #F3)
+  test("6.3 chain entry uses model picker within a labelled group, no free-text inputs", async ({
+    page,
+  }) => {
+    await routeInstalled(page);
+    await routeModels(page);
+    await routeConfig(page, configFixture());
+    await gotoBlackhole(page);
+    await expandGroups(page);
+
+    const group = page.getByRole("group", { name: /observer.*1|1.*observer/i });
+    await expect(group).toBeVisible();
+
+    await expect(page.getByRole("textbox", { name: /Provider/i })).toHaveCount(0);
+    await expect(page.getByRole("textbox", { name: /Model ID/i })).toHaveCount(0);
+  });
+
+  // 6.4 Off-registry entry preserved (test-plan #F4)
+  test("6.4 off-registry entry is displayed and preserved through reorder and reload", async ({
+    page,
+  }) => {
+    await routeInstalled(page);
+    await routeModels(page);
+    await routeConfig(
+      page,
+      configFixture({
+        observerModel: MODEL("gone", "legacy"),
+        observerFallbackModels: [MODEL("model-beta", "ollama")],
+      }),
+    );
+    await gotoBlackhole(page);
+
+    const entry0 = page.getByTestId("blackhole-chain-observer-entry-0");
+    await expect(entry0).toContainText("gone");
+    await expect(entry0).toContainText("legacy");
+
+    const down0 = page.getByTestId("blackhole-chain-observer-down-0");
+    await expect(down0).toBeEnabled();
+    await down0.click();
+
+    const newEntry1 = page.getByTestId("blackhole-chain-observer-entry-1");
+    await expect(newEntry1).toContainText("gone");
+
+    await page.reload();
+    await expect(page.getByTestId("blackhole-chain-observer-entry-0")).toContainText("gone");
+  });
+
+  // 6.5 Registry 503 unavailable (test-plan #F5)
+  test("6.5 registry 503 renders stored ids as text, disables controls, and shows retry", async ({
+    page,
+  }) => {
+    await routeInstalled(page);
+    await routeModels(page, { error: "Service Unavailable" }, 503);
+    await routeConfig(page, configFixture());
+    await gotoBlackhole(page);
+    await expandGroups(page);
+
+    await expect(page.getByTestId("blackhole-chain-observer-0-model")).toBeVisible();
+    await expect(page.getByTestId("blackhole-chain-observer-0-model")).toContainText("model-alpha");
+
+    await expect(page.getByRole("button", { name: /Add model to observer chain/i })).toBeDisabled();
+    await expect(page.getByTestId("blackhole-recommended-defaults-btn")).toBeDisabled();
+
+    await expect(page.getByTestId("blackhole-registry-unavailable")).toBeVisible();
+    await expect(page.getByTestId("blackhole-registry-retry")).toBeVisible();
+
+    const down0 = page.getByTestId("blackhole-chain-observer-down-0");
+    await expect(down0).toBeEnabled();
+    await down0.click();
+    await expect(page.getByTestId("blackhole-chain-observer-entry-1")).toContainText("model-alpha");
+  });
+
+  // 6.6 Retry converges (test-plan #F6)
+  test("6.6 retry after 503 recovers to active model pickers", async ({ page }) => {
+    await routeInstalled(page);
+    let shouldFail = true;
+    let retryCalls = 0;
+    await page.route("**/api/models*", async (route) => {
+      if (shouldFail) {
+        await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "err" }) });
+      } else {
+        retryCalls++;
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(DEFAULT_MODELS_CATALOGUE) });
+      }
+    });
+    await routeConfig(page, configFixture());
+    await gotoBlackhole(page);
+    await expandGroups(page);
+
+    await expect(page.getByTestId("blackhole-registry-unavailable")).toBeVisible({ timeout: 20_000 });
+
+    shouldFail = false;
+    await page.getByTestId("blackhole-registry-retry").click();
+
+    await expect(page.getByTestId("blackhole-registry-unavailable")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Add model to observer chain/i })).toBeEnabled();
+    expect(retryCalls).toBeGreaterThanOrEqual(1);
+  });
+
+  // 6.7 Pending state (test-plan #F7)
+  test("6.7 pending registry keeps controls disabled until response arrives", async ({ page }) => {
+    await routeInstalled(page);
+    let releaseResponse: () => void = () => {};
+    const deferredPromise = new Promise<void>((resolve) => {
+      releaseResponse = resolve;
+    });
+
+    await page.route("**/api/models*", async (route) => {
+      await deferredPromise;
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(DEFAULT_MODELS_CATALOGUE) });
+    });
+    await routeConfig(page, configFixture());
+    await gotoBlackhole(page);
+    await expandGroups(page);
+
+    const addBtn = page.getByRole("button", { name: /Add model to observer chain/i });
+    await expect(addBtn).toBeDisabled();
+    await expect(page.getByTestId("blackhole-registry-unavailable")).toHaveCount(0);
+
+    releaseResponse();
+    await expect(addBtn).toBeEnabled({ timeout: 20_000 });
+  });
+
+  // 6.8 Empty registry (test-plan #F8)
+  test("6.8 empty registry shows no-credentialed message without retry button", async ({ page }) => {
+    await routeInstalled(page);
+    await routeModels(page, { object: "list", data: [] });
+    await routeConfig(page, configFixture());
+    await gotoBlackhole(page);
+
+    await expect(page.getByTestId("blackhole-registry-empty")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("blackhole-registry-retry-banner")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Add model to observer chain/i })).toBeDisabled();
+    await expect(page.getByTestId("blackhole-recommended-defaults-btn")).toBeDisabled();
+  });
+
+  // 6.9 Base model updates tails before Save (test-plan #F9)
+  test("6.9 setting base model updates every chain tail immediately before save", async ({ page }) => {
+    await routeInstalled(page);
+    await routeModels(page);
+    let putCount = 0;
+    await page.route("**/api/plugins/blackhole/config", async (route) => {
+      if (route.request().method() === "PUT") {
+        putCount++;
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(configFixture()) });
+      } else {
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(configFixture({ model: null })) });
+      }
+    });
+    await gotoBlackhole(page);
+
+    const baseCard = page.getByTestId("blackhole-base-model-card");
+    await expect(baseCard).toBeVisible();
+
+    const trigger = baseCard.getByRole("button", { name: /Select base model|base-model|unset/i });
+    await trigger.click();
+    await page.getByRole("option", { name: /x-flash/i }).or(page.getByText("x-flash")).first().click();
+
+    await expect(page.getByTestId("blackhole-chain-observer-tail-base")).toContainText("x-flash");
+    await expect(page.getByTestId("blackhole-chain-reflector-tail-base")).toContainText("x-flash");
+    await expect(page.getByTestId("blackhole-chain-dropper-tail-base")).toContainText("x-flash");
+
+    await expect(page.getByTestId("settings-save-bar")).toBeVisible();
+    expect(putCount).toBe(0);
+  });
+
+  // 6.10 Defaults confirm flow (test-plan #F10)
+  test("6.10 recommended defaults requires confirm when chains exist and can be cancelled", async ({
+    page,
+  }) => {
+    await routeInstalled(page);
+    await routeModels(page);
+    await routeConfig(
+      page,
+      configFixture({
+        observerModel: MODEL("model-alpha"),
+        observerFallbackModels: [],
+      }),
+    );
+    await gotoBlackhole(page);
+    await expandGroups(page);
+
+    const defaultsBtn = page.getByTestId("blackhole-recommended-defaults-btn");
+    await defaultsBtn.click();
+
+    const dialog = page.getByTestId("confirm-dialog");
+    await expect(dialog).toBeVisible();
+
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByTestId("blackhole-chain-observer-entry-0")).toContainText("model-alpha");
+    await expect(page.getByTestId("settings-save-bar")).toHaveCount(0);
+
+    await defaultsBtn.click();
+    await expect(dialog).toBeVisible();
+    await page.getByRole("button", { name: /Apply Defaults/i }).click();
+
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByTestId("blackhole-chain-observer-entry-0")).toContainText("x-flash");
+    await expect(page.getByTestId("settings-save-bar")).toBeVisible();
+  });
+
+  // 6.11 Add flow keyboard focus (test-plan #F11)
+  test("6.11 keyboard add retains focus within chain region, not lost to body", async ({ page }) => {
+    await routeInstalled(page);
+    await routeModels(page);
+    await routeConfig(page, configFixture({ observerModel: null, observerFallbackModels: [] }));
+    await gotoBlackhole(page);
+
+    const addBtn = page.getByRole("button", { name: /Add model to observer chain/i });
+    await addBtn.focus();
+    await page.keyboard.press("Enter");
+
+    const addingRow = page.getByTestId("blackhole-chain-observer-adding");
+    await expect(addingRow).toBeVisible();
+
+    const trigger = addingRow.getByRole("button", { name: /Select model/i });
+    await trigger.click();
+    await page.getByRole("option", { name: /x-flash/i }).or(page.getByText("x-flash")).first().click();
+
+    const focusedTag = await page.evaluate(() => document.activeElement?.tagName.toLowerCase());
+    expect(focusedTag).not.toBe("body");
   });
 });

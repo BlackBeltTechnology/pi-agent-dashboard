@@ -11,6 +11,7 @@
  * See change: add-blackhole-session-pipeline.
  */
 import { cleanup, render, screen } from "@testing-library/react";
+import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -129,10 +130,20 @@ describe("session-scoping (6.3)", () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (String(url).includes("/api/plugins/blackhole/status")) return jsonRes({ installed: true });
       if (String(url).includes("/api/plugins/blackhole/config")) return jsonRes({ status: "ok", filePath: "/x", exists: false, fields: {}, unmanagedKeys: [] });
+      if (String(url).includes("/api/models")) return jsonRes({ object: "list", data: [] });
       throw new Error(`unexpected url ${url}`);
     });
     (globalThis as { fetch?: unknown }).fetch = fetchMock;
-    const { queryByTestId, queryAllByTestId } = render(<BlackholeSettings />);
+    const { queryByTestId, queryAllByTestId } = render(
+      withUiPrimitiveProvider(
+        {
+          "ui:model-selector": () => null,
+          "ui:thinking-level-selector": () => null,
+          "ui:confirm-dialog": () => null,
+        },
+        <BlackholeSettings />,
+      ),
+    );
     // Wait for the config load to settle (observable) rather than a fixed tick:
     // the assertions below are NEGATIVE, so they must run AFTER the load.
     // See change: contention-harden-real-process-tests.
