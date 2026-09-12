@@ -36,7 +36,7 @@ one synthesized event per compaction (141 across 400 sessions) to a stream of
 
 | id | requirement | technique | level | disposition | input | trigger | expected observable (invariant) |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------------------|
-| F1 | R1 cold reload | state-convergence | L3 | automated | a harness session whose file contains a `compaction` entry with messages on both sides, events evicted from the server buffer | open the session in the browser (server cold load from disk) | transcript converges to exactly one `── Session compacted ──` row, with message rows both above and below it |
+| F1 | R1 cold reload | state-convergence | L3 | automated | a harness session whose file contains a `compaction` entry with messages on both sides, events evicted from the server buffer | open the session in the browser after a register-time store wipe + bridge replay (AS BUILT: the disk cold-load producer is unreachable in this harness — a container respawn wipes the RAM-backed session file — and is gated at L2 by `loadAndReplay` in `packages/server/src/__tests__/session-load-worker.test.ts`) | transcript converges to exactly one `── Session compacted ──` row, with message rows both above and below it |
 | F2 | R3 reconnect replay | state-transition (re-entry) | L3 | automated | a session already showing one compaction boundary live | force a bridge reconnect so `replaySessionEntries()` re-forwards the branch | transcript still converges to exactly ONE boundary row — no duplicate divider after the register-time wipe/reset or skip-insert path |
 
 ### Error-handling

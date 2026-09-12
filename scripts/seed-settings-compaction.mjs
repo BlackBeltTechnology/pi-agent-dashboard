@@ -20,7 +20,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-export const E2E_KEEP_RECENT_TOKENS = 100;
+export const E2E_KEEP_RECENT_TOKENS = 1;
 
 /**
  * Pure merge: set `compaction.keepRecentTokens` when the config does not
