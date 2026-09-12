@@ -2,7 +2,7 @@
  * Tests for bridge-probe recording in PluginStatusStore — see change
  * fix-pi-flows-end-to-end (Group 2, task 2.5).
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createPluginStatusStore } from "../server/plugin-status-store.js";
 
 describe("PluginStatusStore.recordBridgeProbe", () => {

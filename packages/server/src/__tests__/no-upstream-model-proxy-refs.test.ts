@@ -93,7 +93,8 @@ function isAllowed(m: Match): boolean {
 	if (m.path === HISTORICAL_PROPOSAL) return true;
 	if (m.path.startsWith(RUNTIME_TESTS)) return true;
 	if (TEST_FILE_RE.test(m.path)) return true;
-	if (m.path.endsWith("AGENTS.md")) return true;
+	// DOX change-history rows must name the change id to qualify; a stale
+	// product mention in an AGENTS.md row without it still fails.
 	if (m.line.includes(CHANGE_ID)) return true;
 	return false;
 }

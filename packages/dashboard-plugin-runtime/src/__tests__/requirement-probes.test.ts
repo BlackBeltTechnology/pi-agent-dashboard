@@ -2,21 +2,21 @@
  * Tests for requirement-probes (probePiExtension / probeBinary / probeService /
  * runRequirementProbes / TTL cache). See change: add-plugin-activation-ui.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as srv from "../server/index.js";
 import {
-  probePiExtension,
+  clearRequirementCache,
+  getCachedReport,
+  missingFromReport,
   probeBinary,
-  probeService,
   probePath,
+  probePiExtension,
+  probeService,
+  type RequirementProbeDeps,
   runRequirementProbes,
   runRequirementProbesFor,
-  missingFromReport,
-  getCachedReport,
   setCachedReport,
-  clearRequirementCache,
-  type RequirementProbeDeps,
 } from "../server/requirement-probes.js";
-import * as srv from "../server/index.js";
 
 beforeEach(() => clearRequirementCache());
 afterEach(() => vi.restoreAllMocks());
@@ -153,10 +153,13 @@ describe("probeService — model-proxy (closed registry)", () => {
 // See change: remove-pi-model-proxy-upstream-references (E9).
 describe("dashboard-plugin-runtime server barrel API", () => {
   it("E9: removed proxy-detection exports are gone; RequirementProbeDeps has no fetchImpl", () => {
-    expect(srv.detectPiModelProxy).toBeUndefined();
-    expect(srv.pickProxyDefaultModel).toBeUndefined();
-    expect(srv.PROXY_MODEL_PREFERENCE).toBeUndefined();
-    expect(srv.PROXY_MODELS_URL).toBeUndefined();
+    // Runtime lookup via an untyped view: the exports must be ABSENT (not just
+    // untyped), so a re-add is caught at test time.
+    const barrel = srv as unknown as Record<string, unknown>;
+    expect(barrel.detectPiModelProxy).toBeUndefined();
+    expect(barrel.pickProxyDefaultModel).toBeUndefined();
+    expect(barrel.PROXY_MODEL_PREFERENCE).toBeUndefined();
+    expect(barrel.PROXY_MODELS_URL).toBeUndefined();
 
     const deps: RequirementProbeDeps = {
       listInstalled: async () => [],

@@ -17,12 +17,12 @@
  * Results are cached for 5 minutes.
  */
 import { execFile } from "node:child_process"; // ban:child_process-ok pi-core check uses execFile + promisify for `npm list -g --json` output capture; refactoring to platform/spawn's Recipe engine is tracked tech debt
-import { promisify } from "node:util";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import { fetchPackageMeta } from "../package/npm-search-proxy.js";
+import path from "node:path";
+import { promisify } from "node:util";
 import { invalidateChangelogCache } from "../changelog/changelog-parser.js";
+import { fetchPackageMeta } from "../package/npm-search-proxy.js";
 import { getLatestPiRelease, type PiDevReleaseInfo } from "./pi-dev-version-check.js";
 
 const execFileAsync = promisify(execFile);

@@ -7,12 +7,13 @@
  * - revoke removes a row via the API
  * - second-port validation rejects out-of-range values
  */
-import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { render, fireEvent, cleanup, act, waitFor } from "@testing-library/react";
-import { ModelProxySection, type ModelProxyConfig } from "../components/settings/ModelProxySection.js";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { type ModelProxyConfig, ModelProxySection } from "../components/settings/ModelProxySection.js";
 
 // ── Mock model-proxy-api ──────────────────────────────────────────────────
 

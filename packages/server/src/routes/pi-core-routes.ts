@@ -8,16 +8,17 @@
  * globally-installed pi CLI packages like @earendil-works/pi-coding-agent,
  * pi-dashboard itself, etc.
  */
-import type { FastifyInstance } from "fastify";
+
 import type {
 	ApiResponse,
 	PiCoreStatus,
 	PiCoreUpdateRequest,
 	PiCoreUpdateResponse,
 } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { FastifyInstance } from "fastify";
+import { PackageOperationBusyError } from "../package/package-manager-wrapper.js";
 import type { PiCoreChecker } from "../pi/pi-core-checker.js";
 import type { PiCoreUpdater } from "../pi/pi-core-updater.js";
-import { PackageOperationBusyError } from "../package/package-manager-wrapper.js";
 
 export interface PiCoreRouteDeps {
 	piCoreChecker: PiCoreChecker;

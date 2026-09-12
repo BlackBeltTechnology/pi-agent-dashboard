@@ -14,7 +14,6 @@
 import { mdiClipboardCheckOutline, mdiClose, mdiDragVertical, mdiPlus, mdiRefresh, mdiTrashCan } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useState } from "react";
-import { t as i18nT } from "../../lib/i18n/i18n.js";
 import {
   type CreateApiKeyResult,
   createApiKey,
@@ -24,6 +23,7 @@ import {
   refreshRegistry,
   revokeApiKey,
 } from "../../lib/api/model-proxy-api.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { ModelSelector } from "./ModelSelector.js";
 
 // ── Types ────────────────────────────────────────────────────────────────

@@ -14,8 +14,10 @@
 
 export interface ModelProxyProbeDeps {
   /**
-   * The dashboard's boot-time `modelProxy.enabled`. Absent when the host did
+   * Boot-time `modelProxy.enabled` accessor. Absent when the host did
    * not wire the dep — reported as `probe not wired`, never a silent pass.
+   * Mirrors `RequirementProbeDeps.isModelProxyEnabled`; kept standalone to
+   * avoid an import cycle (requirement-probes imports this module).
    */
   isModelProxyEnabled?: () => boolean;
 }

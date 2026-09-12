@@ -7,8 +7,9 @@
  * subpath the route imports. See change:
  * remove-pi-model-proxy-upstream-references (E7, X1).
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import Fastify from "fastify";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Pulled transitively by package-manager-wrapper.
 vi.mock("@earendil-works/pi-coding-agent", () => ({
@@ -44,8 +45,8 @@ vi.mock("../package/npm-search-proxy.js", async (importActual) => {
 });
 
 import {
-	registerRecommendedRoutes,
 	invalidateRecommendedCache,
+	registerRecommendedRoutes,
 } from "../routes/recommended-routes.js";
 
 function makeWrapper(): any {

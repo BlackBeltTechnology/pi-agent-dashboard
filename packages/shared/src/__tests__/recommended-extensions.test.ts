@@ -1,9 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
 	BUNDLED_EXTENSION_IDS,
-	RECOMMENDED_EXTENSIONS,
-	getRecommendedExtension,
 	getRecommendedByStatus,
+	getRecommendedExtension,
+	RECOMMENDED_EXTENSIONS,
 	type RecommendedExtension,
 } from "../recommended-extensions.js";
 

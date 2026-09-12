@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import fs from "node:fs";
-import { PiCoreChecker, CORE_PACKAGE_NAMES, _internal } from "../pi/pi-core-checker.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { _internal, CORE_PACKAGE_NAMES, PiCoreChecker } from "../pi/pi-core-checker.js";
 
 describe("PiCoreChecker._internal.looksLikePiEcosystem", () => {
 	it("matches every known core package", () => {
