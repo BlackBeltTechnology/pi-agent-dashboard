@@ -319,10 +319,14 @@ const EXPECTED_ROUTES: Array<[string, string]> = [
 ];
 
 /** A network guard that rejects any non-loopback remote (mirrors the host guard's posture). */
-const LOOPBACK_GUARD = async (request: { ip: string }, reply: { code: (n: number) => void }) => {
+const LOOPBACK_GUARD = async (
+  request: { ip: string },
+  reply: { code: (n: number) => void; send: (body: unknown) => void },
+) => {
   const loopback = ["127.0.0.1", "::1", "::ffff:127.0.0.1"];
   if (!loopback.includes(request.ip)) {
     reply.code(403);
+    reply.send({ success: false, error: "localhost only" });
   }
 };
 
