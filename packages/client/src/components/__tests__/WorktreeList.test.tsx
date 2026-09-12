@@ -326,3 +326,39 @@ describe("WorktreeList localisation", () => {
     spy.mockRestore();
   });
 });
+
+// ── apply-checkout-root-to-worktree-ops: no resolved main (D4) ────────────
+
+describe("WorktreeList — no resolved main entry (bare hub)", () => {
+  /** A bare-hub repo after D4: NO entry carries isMain. */
+  const bareHubFixture = (): WorktreeEntry[] => [
+    entry({ path: "/hub.git", branch: null, bare: true }),
+    entry({ path: "/wt", branch: "hubwt" }),
+  ];
+
+  it("F1: default view shows both registered entries; no reveal control required", () => {
+    render(<WorktreeList entries={bareHubFixture()} mode="manage" />);
+    expect(rowIds()).toHaveLength(2);
+    // The rows are visible by default — no out-of-tree reveal chip needed.
+    expect(screen.queryByTestId("worktree-chip-outOfTree")).toBeNull();
+  });
+
+  it("F2: the bare hub row exposes neither checkbox nor Remove; the worktree row exposes both", () => {
+    render(<WorktreeList entries={bareHubFixture()} mode="manage" />);
+    expect(screen.queryByTestId(`worktree-select-${encodeURIComponent("/hub.git")}`)).toBeNull();
+    expect(screen.queryByTestId(`worktree-remove-${encodeURIComponent("/hub.git")}`)).toBeNull();
+    expect(screen.getByTestId(`worktree-select-${encodeURIComponent("/wt")}`)).toBeTruthy();
+    expect(screen.getByTestId(`worktree-remove-${encodeURIComponent("/wt")}`)).toBeTruthy();
+  });
+
+  it("F3: the set the batch bar counts equals the set of rendered checkboxes", () => {
+    render(<WorktreeList entries={bareHubFixture()} mode="manage" onRemoveSelected={() => {}} />);
+    fireEvent.click(screen.getByTestId("worktree-select-all"));
+    const checkboxes = Array.from(document.querySelectorAll("[data-testid^='worktree-select-']")).filter(
+      (el) => el.getAttribute("data-testid") !== "worktree-select-all",
+    );
+    // select-all selects `selectable`; the batch bar counts the same set.
+    expect(screen.getByTestId("worktree-remove-selected").textContent).toContain("1");
+    expect(checkboxes).toHaveLength(1);
+  });
+});

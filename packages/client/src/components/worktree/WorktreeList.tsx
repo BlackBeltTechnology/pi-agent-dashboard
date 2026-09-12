@@ -112,9 +112,28 @@ function buildRows(entries: WorktreeEntry[]): { rows: RowModel[]; mainPath: stri
   return { rows, mainPath };
 }
 
-/** Default predicate: `isMain || (!detached && inTree)` (design D2). */
-function matchesDefault(row: RowModel): boolean {
-  return row.entry.isMain || (!row.entry.detached && row.inTree);
+/**
+ * ONE removable predicate, consumed by the row checkbox, the batch
+ * `selectable` set AND the per-row Remove button, so the three cannot
+ * disagree (D4). After `listWorktrees` stopped stamping positionally, a bare
+ * hub's record is `isMain: false` — `bare` is what keeps it unremovable.
+ */
+function isRemovable(entry: WorktreeEntry, missing: boolean): boolean {
+  return !entry.isMain && !entry.bare && !missing;
+}
+
+/**
+ * Default predicate: `isMain || (!detached && inTree)` (design D2).
+ *
+ * With NO resolved main (bare hub), `inTree` is unresolvable for every row —
+ * filtering on it would collapse the list to EMPTY, a worse outcome than any
+ * wrong `isMain`. The default view falls back to every NON-DETACHED
+ * registered entry (D4).
+ */
+function matchesDefault(row: RowModel, hasMain: boolean): boolean {
+  if (row.entry.isMain) return true;
+  if (!hasMain) return !row.entry.detached;
+  return !row.entry.detached && row.inTree;
 }
 
 interface Reveal {
@@ -122,7 +141,7 @@ interface Reveal {
   outOfTree: boolean;
 }
 
-function isVisible(row: RowModel, reveal: Reveal, query: string): boolean {
+function isVisible(row: RowModel, reveal: Reveal, query: string, hasMain: boolean): boolean {
   // An explicit text query searches EVERY entry and overrides the default
   // predicate — otherwise searching for a hidden row silently returns nothing.
   if (query.trim() !== "") {
@@ -132,18 +151,18 @@ function isVisible(row: RowModel, reveal: Reveal, query: string): boolean {
     const haystack = `${row.entry.path} ${row.entry.branch ?? ""}`.toLowerCase();
     return haystack.includes(q);
   }
-  if (matchesDefault(row)) return true;
+  if (matchesDefault(row, hasMain)) return true;
   if (reveal.detached && row.entry.detached) return true;
-  if (reveal.outOfTree && !row.inTree) return true;
+  if (reveal.outOfTree && hasMain && !row.inTree) return true;
   return false;
 }
 
 /** Rows hidden by default, per axis. A dual-group row is counted by BOTH. */
-function hiddenCounts(rows: RowModel[]): { detached: number; outOfTree: number } {
-  const hidden = rows.filter((r) => !matchesDefault(r));
+function hiddenCounts(rows: RowModel[], hasMain: boolean): { detached: number; outOfTree: number } {
+  const hidden = rows.filter((r) => !matchesDefault(r, hasMain));
   return {
     detached: hidden.filter((r) => r.entry.detached).length,
-    outOfTree: hidden.filter((r) => !r.inTree).length,
+    outOfTree: hidden.filter((r) => hasMain && !r.inTree).length,
   };
 }
 
@@ -182,8 +201,9 @@ export function WorktreeList({
   const [deleteBranch, setDeleteBranch] = useState(false);
 
   const { rows, mainPath } = useMemo(() => buildRows(entries), [entries]);
-  const visible = useMemo(() => rows.filter((r) => isVisible(r, reveal, query)), [rows, reveal, query]);
-  const counts = useMemo(() => hiddenCounts(rows), [rows]);
+  const hasMain = mainPath != null;
+  const visible = useMemo(() => rows.filter((r) => isVisible(r, reveal, query, hasMain)), [rows, reveal, query, hasMain]);
+  const counts = useMemo(() => hiddenCounts(rows, hasMain), [rows, hasMain]);
 
   // Drop selected paths that no longer exist in the list. Without this, a
   // successful bulk removal leaves ghost selections: the bulk bar keeps
@@ -195,8 +215,8 @@ export function WorktreeList({
   }, [entries]);
 
   const anyMissing = rows.some((r) => r.missing);
-  /** The main row and vanished rows are never selectable or removable. */
-  const selectable = visible.filter((r) => !r.entry.isMain && !r.missing);
+  /** One predicate for checkbox + batch select + Remove (D4). */
+  const selectable = visible.filter((r) => isRemovable(r.entry, r.missing));
   const selectedSet = new Set(selected);
   const pendingSet = new Set(pending ?? []);
 
@@ -394,7 +414,7 @@ function WorktreeRow({
       data-testid={testId}
       className="flex items-start gap-2 px-3 py-2 border-b border-[var(--border-subtle)] last:border-b-0"
     >
-      {!entry.isMain && !row.missing && (
+      {isRemovable(entry, row.missing) && (
         <input
           type="checkbox"
           data-testid={`worktree-select-${encodeURIComponent(entry.path)}`}
@@ -437,7 +457,7 @@ function WorktreeRow({
         >
           {i18nT("worktree.pruneStaleRegistrations", undefined, "Prune stale registrations")}
         </button>
-      ) : entry.isMain ? null : (
+      ) : isRemovable(entry, row.missing) ? (
         <button
           type="button"
           onClick={() => onRemove?.(entry)}
@@ -448,7 +468,7 @@ function WorktreeRow({
         >
           ✕
         </button>
-      )}
+      ) : null}
     </div>
   );
 }

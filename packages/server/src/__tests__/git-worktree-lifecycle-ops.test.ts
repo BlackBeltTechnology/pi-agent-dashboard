@@ -15,7 +15,7 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as platformExec from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, afterAll, describe, expect, it, vi } from "vitest";
 import {
   addWorktree,
   mergeWorktree,
@@ -616,5 +616,390 @@ describe("pruneWorktrees", () => {
     if (!result.data) return;
     expect(result.data.pruned).toBe(0);
     expect(registrationPaths()).toEqual(before);
+  });
+});
+
+// ── apply-checkout-root-to-worktree-ops: removal guard routes (E5–E11, E10) ──
+
+import { realpathSync as rp2 } from "node:fs";
+import Fastify2, { type FastifyInstance } from "fastify";
+import * as sharedGit2 from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
+import {
+  buildGitFixtures,
+  type GitFixtures,
+  restoreEnv,
+} from "@blackbelt-technology/pi-dashboard-shared/test-support/git-fixtures.js";
+import { registerGitRoutes } from "../routes/git-routes.js";
+
+async function makeRouteApp(): Promise<FastifyInstance> {
+  const app = Fastify2({ logger: false });
+  registerGitRoutes(app, { networkGuard: async () => {} });
+  await app.ready();
+  return app;
+}
+
+describe("POST /api/git/worktree/remove — tri-state guard (D3)", () => {
+  const savedEnv = { global: process.env.GIT_CONFIG_GLOBAL, system: process.env.GIT_CONFIG_SYSTEM };
+  let fx: GitFixtures;
+  let app: FastifyInstance;
+
+  beforeAll(() => {
+    process.env.GIT_CONFIG_GLOBAL = "/dev/null";
+    process.env.GIT_CONFIG_SYSTEM = "/dev/null";
+    fx = buildGitFixtures();
+  });
+
+  afterAll(() => {
+    fx.cleanup();
+    restoreEnv("GIT_CONFIG_GLOBAL", savedEnv.global);
+    restoreEnv("GIT_CONFIG_SYSTEM", savedEnv.system);
+  });
+
+  beforeEach(async () => {
+    app = await makeRouteApp();
+  });
+
+  afterEach(async () => {
+    await app.close();
+    vi.restoreAllMocks();
+  });
+
+  const remove = (cwd: string, force = false) =>
+    app.inject({
+      method: "POST",
+      url: "/api/git/worktree/remove",
+      payload: { cwd, force },
+    });
+
+  it("E5: the main checkout is refused is_main_worktree, 400, directory intact", async () => {
+    const res = await remove(fx.normal);
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe("is_main_worktree");
+    expect(existsSync(fx.normal)).toBe(true);
+  });
+
+  it("E6: a worktree of a bare hub is refused main_checkout_unresolved, 400, still on disk", async () => {
+    const res = await remove(fx.bareWorktree);
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe("main_checkout_unresolved");
+    expect(existsSync(fx.bareWorktree)).toBe(true);
+  });
+
+  it("E7: a subdirectory of main classifies main → is_main_worktree, 400", async () => {
+    const src = join(fx.normal, "src");
+    mkdirSync(src, { recursive: true });
+    const res = await remove(src);
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe("is_main_worktree");
+  });
+
+  it("E8: a submodule classifies main → is_main_worktree, 400", async () => {
+    const res = await remove(fx.submodule);
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe("is_main_worktree");
+  });
+
+  it("E9: an ordinary linked worktree is still removable, exactly as before", async () => {
+    const add = addWorktree({ cwd: fx.normal, base: "main", newBranch: "feat/e9" });
+    expect(add.ok).toBe(true);
+    if (!add.ok) return;
+    const res = await remove(rp2(add.path));
+    expect(res.statusCode).toBe(200);
+    expect(res.json().success).toBe(true);
+    expect(existsSync(add.path)).toBe(false);
+  });
+
+  it("E11: an inconclusive --show-toplevel is refused main_checkout_unresolved — NOT removable", async () => {
+    // A linked worktree whose working-tree probe yields nothing while
+    // `core.worktree` still resolves a main checkout. Injected at the resolver
+    // seam: real git cannot produce this state on demand.
+    vi.spyOn(sharedGit2, "checkoutRoots").mockReturnValue({
+      thisCheckout: null,
+      isLinkedWorktree: true,
+      mainCheckout: fx.normal,
+      commonDir: join(fx.normal, ".git"),
+    });
+    const res = await remove(fx.worktree);
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe("main_checkout_unresolved");
+    expect(existsSync(fx.worktree)).toBe(true);
+  });
+
+  it("E10: the batch classifies per item, in input order, never aborting", async () => {
+    const add = addWorktree({ cwd: fx.normal, base: "main", newBranch: "feat/e10" });
+    expect(add.ok).toBe(true);
+    if (!add.ok) return;
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/git/worktree/remove-batch",
+      payload: {
+        items: [{ cwd: rp2(add.path) }, { cwd: fx.normal }, { cwd: fx.bareWorktree }],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const results = res.json().data.results;
+    expect(results.map((r: { code: string }) => r.code)).toEqual([
+      "ok",
+      "is_main_worktree",
+      "main_checkout_unresolved",
+    ]);
+    // Item 3 was refused but still exists; item 1 was removed.
+    expect(existsSync(add.path)).toBe(false);
+    expect(existsSync(fx.bareWorktree)).toBe(true);
+  });
+});
+
+// ── apply-checkout-root-to-worktree-ops: lifecycle refusals (E21/E22/X6) ──
+
+describe("lifecycle endpoints — unresolvable main checkout (D2)", () => {
+  const savedEnv = { global: process.env.GIT_CONFIG_GLOBAL, system: process.env.GIT_CONFIG_SYSTEM };
+  let fx: GitFixtures;
+  let app: FastifyInstance;
+
+  beforeAll(() => {
+    process.env.GIT_CONFIG_GLOBAL = "/dev/null";
+    process.env.GIT_CONFIG_SYSTEM = "/dev/null";
+    fx = buildGitFixtures();
+  });
+
+  afterAll(() => {
+    fx.cleanup();
+    restoreEnv("GIT_CONFIG_GLOBAL", savedEnv.global);
+    restoreEnv("GIT_CONFIG_SYSTEM", savedEnv.system);
+  });
+
+  beforeEach(async () => {
+    app = await makeRouteApp();
+  });
+
+  afterEach(async () => {
+    await app.close();
+    vi.restoreAllMocks();
+  });
+
+  it("E21: merge returns not_a_worktree with 400, not git_failed/500", async () => {
+    const res = await app.inject({ method: "POST", url: "/api/git/worktree/merge", payload: { cwd: fx.bareWorktree } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe("not_a_worktree");
+  });
+
+  it("E21: diff-stat returns not_a_worktree with 400, not git_failed/500", async () => {
+    const res = await app.inject({ method: "GET", url: `/api/git/worktree/diff-stat?cwd=${encodeURIComponent(fx.bareWorktree)}` });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe("not_a_worktree");
+  });
+
+  it("E22: push is exempt — proceeds against cwd, never refused not_a_worktree", async () => {
+    const res = await app.inject({ method: "POST", url: "/api/git/worktree/push", payload: { cwd: fx.bareWorktree } });
+    expect(res.json().code).not.toBe("not_a_worktree");
+  });
+
+  it("E22: pr is exempt — proceeds past validation, never refused not_a_worktree", async () => {
+    const res = await app.inject({ method: "POST", url: "/api/git/worktree/pr", payload: { cwd: fx.bareWorktree } });
+    expect(res.json().code).not.toBe("not_a_worktree");
+  });
+
+  it("X6: a dead probe refuses every endpoint with its OWN code — nothing created or deleted", async () => {
+    vi.spyOn(sharedGit2, "checkoutRoots").mockReturnValue(null);
+    const markerFile = join(fx.worktree, "marker.txt");
+    writeFileSync(markerFile, "intact\n");
+    const target = join(fx.normal, ".worktrees", "x6-orphan");
+    mkdirSync(target, { recursive: true });
+
+    const create = await app.inject({ method: "POST", url: "/api/git/worktree", payload: { cwd: fx.bare, base: "main", newBranch: "x6" } });
+    expect(create.json().code).toBe("not_a_repo");
+    const fromPr = await app.inject({ method: "POST", url: "/api/git/worktree/from-pr", payload: { cwd: fx.bare, prNumber: 1 } });
+    expect(fromPr.json().code).toBe("not_a_repo");
+    const merge = await app.inject({ method: "POST", url: "/api/git/worktree/merge", payload: { cwd: fx.worktree } });
+    expect(merge.json().code).toBe("not_a_worktree");
+    const prune = await app.inject({ method: "POST", url: "/api/git/worktree/prune", payload: { cwd: fx.worktree } });
+    expect(prune.json().code).toBe("not_a_worktree");
+    const diffStat = await app.inject({ method: "GET", url: `/api/git/worktree/diff-stat?cwd=${encodeURIComponent(fx.worktree)}` });
+    expect(diffStat.json().code).toBe("not_a_worktree");
+    const remove = await app.inject({ method: "POST", url: "/api/git/worktree/remove", payload: { cwd: fx.worktree } });
+    expect(remove.json().code).toBe("main_checkout_unresolved");
+    const orphan = await app.inject({ method: "POST", url: "/api/git/worktree/orphan-cleanup", payload: { cwd: fx.worktree, path: target } });
+    expect(orphan.json().code).toBe("outside_repo");
+
+    // Nothing created or deleted.
+    expect(existsSync(markerFile)).toBe(true);
+    expect(existsSync(target)).toBe(true);
+  });
+});
+
+// ── apply-checkout-root-to-worktree-ops: batch cap (D8) + resolver count (D7) ──
+
+async function makeRouteAppWithCap(removeBatchCap?: number): Promise<FastifyInstance> {
+  const app = Fastify2({ logger: false });
+  registerGitRoutes(app, { networkGuard: async () => {}, removeBatchCap });
+  await app.ready();
+  return app;
+}
+
+describe("POST /api/git/worktree/remove-batch — configurable cap (E26–E29)", () => {
+  const savedEnv = { global: process.env.GIT_CONFIG_GLOBAL, system: process.env.GIT_CONFIG_SYSTEM };
+  let fx: GitFixtures;
+
+  beforeAll(() => {
+    process.env.GIT_CONFIG_GLOBAL = "/dev/null";
+    process.env.GIT_CONFIG_SYSTEM = "/dev/null";
+    fx = buildGitFixtures();
+  });
+
+  afterAll(() => {
+    fx.cleanup();
+    restoreEnv("GIT_CONFIG_GLOBAL", savedEnv.global);
+    restoreEnv("GIT_CONFIG_SYSTEM", savedEnv.system);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** The cap check runs BEFORE any removal: a null resolver makes every item a fast refusal. */
+  const items = (n: number, cwd: string) =>
+    Array.from({ length: n }, () => ({ cwd }));
+
+  it("E26: an unset config keeps today's cap — 50 accepted, 51 rejected", async () => {
+    vi.spyOn(sharedGit2, "checkoutRoots").mockReturnValue(null);
+    const app = await makeRouteAppWithCap();
+    const ok = await app.inject({
+      method: "POST",
+      url: "/api/git/worktree/remove-batch",
+      payload: { items: items(50, fx.worktree) },
+    });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().data.results).toHaveLength(50);
+    const tooLarge = await app.inject({
+      method: "POST",
+      url: "/api/git/worktree/remove-batch",
+      payload: { items: items(51, fx.worktree) },
+    });
+    expect(tooLarge.statusCode).toBe(400);
+    expect(tooLarge.json().code).toBe("batch_too_large");
+    await app.close();
+  });
+
+  it("E27: a configured cap is honoured at its boundary — no git command for the rejected batch", async () => {
+    const spy = vi.spyOn(sharedGit2, "checkoutRoots").mockReturnValue(null);
+    const app = await makeRouteAppWithCap(10);
+    const ok = await app.inject({
+      method: "POST",
+      url: "/api/git/worktree/remove-batch",
+      payload: { items: items(10, fx.worktree) },
+    });
+    expect(ok.statusCode).toBe(200);
+    const rejected = await app.inject({
+      method: "POST",
+      url: "/api/git/worktree/remove-batch",
+      payload: { items: items(11, fx.worktree) },
+    });
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.json().code).toBe("batch_too_large");
+    // The rejected batch never classified an item — the cap check is first.
+    // All 10 items share one cwd → once per DISTINCT cwd = 1 call.
+    expect(spy).toHaveBeenCalledTimes(1);
+    await app.close();
+  });
+
+  it.each<[string, unknown]>([
+    ["0", 0],
+    ["-1", -1],
+    ["2.5", 2.5],
+    ['"many"', "many"],
+    ["null", null],
+  ])("E28: cap %s falls back to the default (neither all-rejected nor unbounded)", async (_name, cap) => {
+    vi.spyOn(sharedGit2, "checkoutRoots").mockReturnValue(null);
+    const app = await makeRouteAppWithCap(cap as number);
+    const atDefault = await app.inject({
+      method: "POST",
+      url: "/api/git/worktree/remove-batch",
+      payload: { items: items(50, fx.worktree) },
+    });
+    expect(atDefault.statusCode).toBe(200);
+    const above = await app.inject({
+      method: "POST",
+      url: "/api/git/worktree/remove-batch",
+      payload: { items: items(51, fx.worktree) },
+    });
+    expect(above.statusCode).toBe(400);
+    await app.close();
+  });
+
+  it("E29: the rejection message names the EFFECTIVE cap, not a hardcoded 50", async () => {
+    vi.spyOn(sharedGit2, "checkoutRoots").mockReturnValue(null);
+    const app = await makeRouteAppWithCap(10);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/git/worktree/remove-batch",
+      payload: { items: items(11, fx.worktree) },
+    });
+    expect(res.json().error).toContain("10");
+    await app.close();
+  });
+});
+
+describe("resolver invocation count (D7)", () => {
+  const savedEnv = { global: process.env.GIT_CONFIG_GLOBAL, system: process.env.GIT_CONFIG_SYSTEM };
+  let fx: GitFixtures;
+  let app: FastifyInstance;
+
+  beforeAll(() => {
+    process.env.GIT_CONFIG_GLOBAL = "/dev/null";
+    process.env.GIT_CONFIG_SYSTEM = "/dev/null";
+    fx = buildGitFixtures();
+  });
+
+  afterAll(() => {
+    fx.cleanup();
+    restoreEnv("GIT_CONFIG_GLOBAL", savedEnv.global);
+    restoreEnv("GIT_CONFIG_SYSTEM", savedEnv.system);
+  });
+
+  beforeEach(async () => {
+    app = await makeRouteApp();
+  });
+
+  afterEach(async () => {
+    await app.close();
+    vi.restoreAllMocks();
+  });
+
+  it("P1: ONE resolution for /remove; one per distinct cwd for /remove-batch", async () => {
+    const a = addWorktree({ cwd: fx.normal, base: "main", newBranch: "feat/p1a" });
+    const b = addWorktree({ cwd: fx.normal, base: "main", newBranch: "feat/p1b" });
+    const c = addWorktree({ cwd: fx.normal, base: "main", newBranch: "feat/p1c" });
+    for (const r of [a, b, c]) expect(r.ok).toBe(true);
+    if (!a.ok || !b.ok || !c.ok) return;
+    const spy = vi.spyOn(sharedGit2, "checkoutRoots");
+    // Single remove: classify (1) + threaded mainPath into removeWorktree (0)
+    // — a second internal resolution would make this 2.
+    await app.inject({ method: "POST", url: "/api/git/worktree/remove", payload: { cwd: rp2(a.path) } });
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockClear();
+    // Batch of 3 distinct cwds: classify per item = 3, never 2× per item.
+    await app.inject({
+      method: "POST",
+      url: "/api/git/worktree/remove-batch",
+      payload: { items: [{ cwd: rp2(b.path) }, { cwd: rp2(c.path) }, { cwd: fx.worktree }] },
+    });
+    expect(spy).toHaveBeenCalledTimes(3);
+    spy.mockClear();
+    // Duplicate cwds resolve ONCE per DISTINCT cwd within one request (spec:
+    // the same cwd SHALL NOT be resolved twice in one request). Refusal
+    // fixtures only (main checkout + submodule) so nothing is removed
+    // mid-batch: 3 items, 2 distinct cwds → 2 resolutions.
+    const dup = await app.inject({
+      method: "POST",
+      url: "/api/git/worktree/remove-batch",
+      payload: { items: [{ cwd: fx.normal }, { cwd: fx.submodule }, { cwd: fx.normal }] },
+    });
+    expect(spy).toHaveBeenCalledTimes(2);
+    const dupResults = dup.json().data.results;
+    expect(dupResults).toHaveLength(3);
+    // Input order preserved; the duplicated item got the same verdict twice.
+    expect(dupResults[0].cwd).toBe(fx.normal);
+    expect(dupResults[2].cwd).toBe(fx.normal);
+    expect(dupResults[0].code).toBe(dupResults[2].code);
   });
 });

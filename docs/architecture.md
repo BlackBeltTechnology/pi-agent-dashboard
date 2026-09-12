@@ -1709,6 +1709,30 @@ Null-`thisCheckout` + linked worktree = `--show-toplevel` probe FAILED, not a na
 Request cwd containing `.git` path SEGMENT rejected BEFORE both admission paths — direct known-folder match included. Stray pinned dir or session cwd of `<repo>/.git` cannot admit itself. No store opened, no disk read.
 See change: add-git-checkout-root-resolver.
 
+
+Worktree operations conversion (`apply-checkout-root-to-worktree-ops`):
+- `resolveMainPath` wraps `checkoutRoots({cwd, timeout: 400})` + `hasGitPathSegment`. Null on non-repo, bare hub, worktree-of-bare, `.git`-segment mainCheckout.
+- `resolveConfigRoot` calls `checkoutRoots` directly; `isGitRepo` probe removed; bare returns null; no non-git fall-through.
+- `directory-service.ts` `configRootFor` returns `string | null`; callers skip on null; `?? cwd` coercion removed.
+- `listWorktrees` determines `isMain` via `samePath` vs resolved main; accepts optional threaded `mainPath` param (D7); `parsePorcelainWorktrees` emits `isMain: false` always.
+- `addWorktree`/`addWorktreeFromPr` anchors on `resolveMainPath`; `not_a_repo` preserved; exclude write targets common git dir via `resolveCommonDirAbs`, non-fatal on null.
+- `removeWorktree` accepts threaded `mainPath` param; `classifyWorktreeRemoval` tri-state gates `/remove` + `/remove-batch`; error codes `is_main_worktree` and `main_checkout_unresolved`, both HTTP 400.
+- `mergeWorktree`/`worktreeDiffStat` maps `MergeCode` + `not_a_worktree` to HTTP 400 (was `git_failed`/500).
+- `createPullRequest` drops dead `mainPath`; `pushBranch` untouched (no refusal set).
+- `orphanCleanup` anchors on resolved main; guard order pinned: anchor → logical containment → statSync → realpath BOTH sides + re-containment → existing guards in order; realpath ENOENT yields `not_a_directory`; other realpath errors yield `fs_failed`; deletes realpath-validated path.
+- `/remove-batch` cap derives from `DashboardConfig.removeBatchCap` via `clampRemoveBatchCap` (default 50, clamp 1-500); git-routes uses `resolveBatchCap` defensive clamp.
+
+| resolver result | verdict | behaviour |
+|---|---|---|
+| null | unresolved | refuse (code per endpoint) |
+| not linked | main | `is_main_worktree` 400 (remove) / anchor=main (others) |
+| linked, thisCheckout null | unresolved | `main_checkout_unresolved` 400 |
+| linked, mainCheckout null | unresolved | `main_checkout_unresolved` 400 |
+| linked, `.git`-segment mainCheckout | unresolved | `main_checkout_unresolved` 400 |
+| linked plausible | removable | proceeds |
+
+See change: apply-checkout-root-to-worktree-ops.
+
 #### Persisted phantom repair
 
 Persisted repair: `gitWorktree.mainPath` is written to `.meta.json` and re-seeded at every boot; an ended session never re-probes; phantoms do not expire. Filter runs at LOAD time.
@@ -1723,7 +1747,7 @@ kb guard is STRICTER, not looser, in every state except a submodule admitted on 
 
 Fixtures: `packages/shared/src/test-support/git-fixtures.ts`. Needs `GIT_CONFIG_GLOBAL=/dev/null` + `GIT_CONFIG_SYSTEM=/dev/null` and `-c protocol.file.allow=always`.
 
-NOT converted by this change: `resolveMainPath` + its twelve consumers (follow-up `apply-checkout-root-to-worktree-ops`); `listWorktrees()` reports the gitdir as main worktree for submodule/bare/`--separate-git-dir`. `path-containment.ts` converted by `widen-containment-to-resolved-checkout` — see File Read API.
+Converted by `apply-checkout-root-to-worktree-ops`: `resolveMainPath` + its consumers (see "Worktree operations conversion" above); `listWorktrees()` resolves `isMain` via `samePath` against the resolved main checkout. `path-containment.ts` converted by `widen-containment-to-resolved-checkout` — see File Read API.
 See change: add-git-checkout-root-resolver.
 
 ### Child Process Scanning

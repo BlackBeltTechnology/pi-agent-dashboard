@@ -1041,3 +1041,18 @@ describe("WorktreeSpawnDialog — dismissal", () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("WorktreeSpawnDialog — no resolved main entry (apply-checkout-root-to-worktree-ops F4)", () => {
+  it("F4: renders without error when no worktree entry isMain (bare hub)", async () => {
+    defaultMocks({
+      worktrees: [
+        { path: "/hub.git", branch: null, bare: true, isMain: false },
+        { path: "/wt", branch: "hubwt", isMain: false },
+      ],
+    });
+    render(<WorktreeSpawnDialog cwd="/wt" onSpawn={() => {}} onCancel={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId("worktree-dialog-loading")).toBeNull());
+    // No dereference of an absent main entry — the dialog renders.
+    expect(screen.getByTestId("worktree-dialog-existing")).toBeTruthy();
+  });
+});

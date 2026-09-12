@@ -33,7 +33,17 @@ export interface WorktreeEntry {
   sha: string;
   bare: boolean;
   detached: boolean;
-  /** True for exactly one entry — the main worktree (first record). */
+  /**
+   * True for AT MOST one entry — the resolved main checkout, assigned by
+   * `listWorktrees` from `resolveMainPath` (D4). The pure porcelain parser
+   * always emits `false`: positional "first record" stamping named a bare
+   * hub's record main and mislabeled submodule entries. When no main checkout
+   * resolves (bare hub, worktree of one, crafted `core.worktree`), NO entry
+   * is main — the shape is "at most one", not "exactly one". The `bare` flag
+   * still distinguishes the hub record.
+   *
+   * See change: apply-checkout-root-to-worktree-ops (D4).
+   */
   isMain: boolean;
   /**
    * Whether the registered directory still exists on disk. Populated by
@@ -64,9 +74,11 @@ export interface WorktreeEntry {
  * Lines we don't recognize (e.g. `locked`, `prunable`) are tolerated and
  * ignored — they don't affect the fields we expose.
  *
- * The first non-empty record is flagged `isMain: true`; all subsequent
- * entries get `isMain: false`. Per git docs the porcelain output always
- * lists the main worktree first.
+ * The parser does NOT decide `isMain` (D4): every record is emitted with
+ * `isMain: false` and `listWorktrees` assigns it from the RESOLVED main
+ * checkout via `samePath`. Positional "first record is main" stamping was
+ * wrong whenever git dir and checkout disagree (bare hub, submodule,
+ * `--separate-git-dir`).
  */
 export function parsePorcelainWorktrees(stdout: string): WorktreeEntry[] {
   const records = stdout.split(/\r?\n\s*\r?\n/);
@@ -95,7 +107,9 @@ export function parsePorcelainWorktrees(stdout: string): WorktreeEntry[] {
       sha: sha ?? "",
       bare,
       detached,
-      isMain: out.length === 0,
+      // D4: the parser stops deciding. `listWorktrees` assigns `isMain` from
+      // the resolved main checkout.
+      isMain: false,
     });
   }
   return out;

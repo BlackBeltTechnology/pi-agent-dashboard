@@ -1439,6 +1439,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     networkGuard, sessionManager, browserGateway, worktreeInitRegistry,
     sendToSession: (id, msg) => piGateway.sendToSession(id, msg),
     commitDraftRelay,
+    // `removeBatchCap` is new in `DashboardConfig` (D8): a host whose shared
+    // build predates the field (a worktree dev server resolves shared through
+    // the workspace link) yields `undefined` — the route clamps to the
+    // default. The cast is dropped once the branch lands.
+    removeBatchCap: (loadConfig() as DashboardConfig & { removeBatchCap?: number }).removeBatchCap,
   });
 
   // Browser channel for worktree-init event subscriptions. The dialog

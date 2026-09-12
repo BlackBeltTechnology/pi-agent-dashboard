@@ -1,9 +1,10 @@
 # Apply Checkout-Root Resolution to Worktree Operations
 
-> **STUB — not yet designed.** Recorded ahead of implementation so change 1's
-> sequence is durable rather than living only in that proposal's prose. Requires
-> a `doubt-driven-review` pass and a `test-plan.md` before any code is written.
-> Change 2 of 3. Depends on `add-git-checkout-root-resolver` (shipped).
+> **Planned.** `design.md` (D1–D8), both spec deltas, `test-plan.md` (45
+> automated scenarios + 1 manual-only) and `tasks.md` are complete;
+> `doubt-driven-review` ran 3 cycles (single-model + cross-model) and its
+> findings are folded. Change 2 of 3. Depends on
+> `add-git-checkout-root-resolver` (shipped).
 
 ## Why
 
@@ -39,7 +40,15 @@ Also owned here:
 - **`listWorktrees()`**, which parses `git worktree list --porcelain`
   independently of the resolver and reports the GITDIR as the main worktree for
   submodule, bare and `--separate-git-dir` repos. Cause is understood and
-  recorded; the fix belongs here.
+  recorded; the fix belongs here. Its `isMain` narrows from "exactly one" to
+  "at most one", which regresses three `WorktreeList` reads (an empty default
+  view, and a removal affordance offered on a bare hub) — corrected here, not
+  deferred.
+- **the `/remove-batch` item cap**, today the module-level constant
+  `REMOVE_BATCH_CAP = 50`. The resolver work makes the cap the multiplier that
+  decides whether the per-request probe budget matters, so the number moves
+  into `DashboardConfig` (default 50, clamped, invalid → default) and the perf
+  budget is stated per ITEM rather than against a fixed 50. See design D8.
 
 ## Known regression to design for
 
@@ -70,5 +79,9 @@ the fail-closed behaviour explicitly before any consumer is converted.
 - `review-code`: standard pre-commit review, covering in particular that no
   converted call site reintroduces a shell-string interpolation of a cwd-derived
   path.
+- `performance-optimization`: D7 pins a request-path probe budget
+  (`timeout: 400`, one resolution per distinct cwd) and D8 makes the batch cap
+  configurable, so `/remove-batch` carries a measured per-item latency budget
+  (`test-plan.md` P1/P2/P3) rather than an accepted hand-wave.
 - `observability-instrumentation` not triggered: no new endpoint, job, or
   external call.
