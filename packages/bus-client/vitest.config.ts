@@ -7,5 +7,9 @@ export default defineConfig({
     environment: "node",
     pool: "forks",
     maxWorkers: PARALLEL_MAX_WORKERS,
+    // Codegen/typecheck tests spawn subprocesses (tsc, codegen) that blew the
+    // 5s default under fork contention. Contention headroom, not a hang budget.
+    // See change: contention-harden-real-process-tests.
+    testTimeout: 30_000,
   },
 });

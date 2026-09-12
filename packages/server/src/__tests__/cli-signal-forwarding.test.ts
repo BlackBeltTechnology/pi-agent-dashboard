@@ -91,7 +91,21 @@ describe("pi-dashboard wrapper signal forwarding", () => {
     }, 20_000);
     expect(down).toBe(true);
     // … and it recorded WHY it left, so the next boot offers those sessions.
+    // The boot-state write runs from the server's own SIGTERM handler, which
+    // can land after the socket has already stopped answering (the `down` poll
+    // above), so this MUST poll the file rather than read it once — a one-shot
+    // read is the exact race that flaked under fork contention. See change:
+    // contention-harden-real-process-tests (poll-or-budget rule).
     expect(existsSync(BOOT_STATE)).toBe(true);
-    expect(JSON.parse(readFileSync(BOOT_STATE, "utf-8")).exitIntent).toBe("signal");
-  }, 120_000);
+    const recorded = await waitFor(() => {
+      try {
+        return JSON.parse(readFileSync(BOOT_STATE, "utf-8")).exitIntent === "signal";
+      } catch {
+        return false;
+      }
+    }, 20_000);
+    expect(recorded, "the server never recorded exitIntent:signal after the wrapper exited").toBe(
+      true,
+    );
+  }, 150_000);
 });

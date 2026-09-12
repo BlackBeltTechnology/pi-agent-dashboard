@@ -21,7 +21,13 @@ import { describe, expect, it } from "vitest";
 import { runTestFile, verifyTeeth } from "../mutation-harness.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const PER_TARGET_TIMEOUT = 240_000;
+// Each mutation is a full vitest invocation of the target file, and a target
+// with several mutations runs them serially. Under a saturated 8-fork suite the
+// per-target budget was blown (observed: a single target exceeded the previous
+// 240 s cap), which is contention in the HARNESS, not a survived mutation.
+// Raised with documented headroom; a genuinely hung mutation still fails.
+// See change: contention-harden-real-process-tests.
+const PER_TARGET_TIMEOUT = 600_000;
 
 /**
  * The four test files this change edited, each paired with mutations to the

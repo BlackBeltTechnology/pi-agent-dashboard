@@ -72,7 +72,13 @@ afterEach(async () => {
   await new Promise((resolve) => setTimeout(resolve, 160));
 });
 
-configure({ asyncUtilTimeout: 5_000 });
+// 10s, not 5s: the client project's `testTimeout` is 15s, and a `waitFor`
+// ceiling at one third of it left no room for a fork starved by 8 concurrent
+// workers — FileLink.split, DiagnosticsSection and friends exhausted the 5s
+// poll budget while their resolve chains were merely delayed, not stuck. 10s
+// keeps a 5s margin for the assertion body before the test timeout fires.
+// See change: contention-harden-real-process-tests (poll-or-budget rule).
+configure({ asyncUtilTimeout: 10_000 });
 
 if (typeof window !== "undefined" && !window.ResizeObserver) {
   window.ResizeObserver = class {

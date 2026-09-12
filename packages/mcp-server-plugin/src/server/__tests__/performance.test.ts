@@ -5,7 +5,12 @@
  * where a REGRESSION trips it but ordinary scheduling noise does not. The
  * thresholds are deliberately far above the measured cost of the work: P1's
  * budget covers one SHA-256 over 32 bytes plus a lookup, which is microseconds,
- * so a 1 ms p95 fires only if someone makes verification do real I/O.
+ * so a 10 ms p95 fires only if someone makes verification do real I/O — and
+ * leaves room for the scheduler preemption a loaded 8-fork run injects into
+ * per-call `performance.now()` samples (measured 1.4–2.0 ms p95 under the
+ * saturated run; 10 ms is ~5x that worst observed, matching the headroom
+ * doctrine the other budgets in this change use). See change:
+ * contention-harden-real-process-tests.
  *
  * Each test also asserts the work ACTUALLY HAPPENED (a resolved caller, a
  * non-empty tool list, delivered events). Without that, a budget test passes
@@ -24,7 +29,7 @@ function p95(samples: number[]): number {
   return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))];
 }
 
-describe("P1 — token verification stays within budget (<= 1 ms p95)", () => {
+describe("P1 — token verification stays within budget (<= 10 ms p95)", () => {
   it("verifies a valid token well inside the budget", () => {
     const tokens = new McpTokenRegistry();
     // A realistic registry: many live sessions, so the linear constant-time
@@ -43,7 +48,7 @@ describe("P1 — token verification stays within budget (<= 1 ms p95)", () => {
 
     // The work happened — otherwise this measures nothing.
     expect(resolved).toBe(2000);
-    expect(p95(samples)).toBeLessThanOrEqual(1);
+    expect(p95(samples)).toBeLessThanOrEqual(10);
   });
 
   it("a MISS is also within budget (the constant-time scan is not a hazard)", () => {
@@ -57,7 +62,7 @@ describe("P1 — token verification stays within budget (<= 1 ms p95)", () => {
       samples.push(performance.now() - t0);
     }
 
-    expect(p95(samples)).toBeLessThanOrEqual(1);
+    expect(p95(samples)).toBeLessThanOrEqual(10);
   });
 });
 

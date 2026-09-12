@@ -202,8 +202,13 @@ describe("POST /api/openspec/init (add-openspec-init-affordances)", () => {
     );
     await setup({ sessionCwds: [tmpDir] });
     const first = post({ cwd: tmpDir });
-    // Give the first request time to take the lock.
-    await new Promise((r) => setTimeout(r, 10));
+    // Wait for the first request to take the lock (observable: it reached the
+    // mocked init, which is called after the lock is taken). A fixed 10 ms
+    // sleep raced it under contention and left `release` unassigned, hanging
+    // the test until its timeout. See change: contention-harden-real-process-tests.
+    for (let i = 0; i < 2000 && initAsyncMock.mock.calls.length === 0; i++) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
     const second = await post({ cwd: tmpDir });
     expect(second.statusCode).toBe(409);
     expect(initAsyncMock).toHaveBeenCalledTimes(1);

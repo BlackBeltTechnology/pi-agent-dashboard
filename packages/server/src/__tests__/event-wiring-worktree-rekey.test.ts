@@ -113,6 +113,10 @@ describe("event-wiring: deferred worktree order-key re-resolution", () => {
     sendGitInfo(sWt, "s-wt", { mainPath: PARENT, name: "feat-x" });
 
     await waitFor(() => orderMgr.getOrder(PARENT)[0] === "s-wt");
+    // The order mutation is synchronous, but `sessions_reordered` arrives over
+    // the socket; poll for delivery rather than reading `reorders` immediately.
+    // See change: contention-harden-real-process-tests.
+    await waitFor(() => reorders.some((r) => r.cwd === PARENT), 10_000);
 
     // Id moved to FRONT of parent; stale key pruned.
     expect(orderMgr.getOrder(PARENT)).toEqual(["s-wt", "s-parent"]);
@@ -143,6 +147,7 @@ describe("event-wiring: deferred worktree order-key re-resolution", () => {
     // First update → re-key to parent (one broadcast).
     sendGitInfo(sWt, "s-wt2", { mainPath: PARENT, name: "feat-y" });
     await waitFor(() => orderMgr.getOrder(PARENT)[0] === "s-wt2");
+    await waitFor(() => reorders.some((r) => r.cwd === PARENT), 10_000);
     expect(reorders.filter((r) => r.cwd === PARENT)).toHaveLength(1);
 
     // Second identical update → resolved key === current key → no-op.

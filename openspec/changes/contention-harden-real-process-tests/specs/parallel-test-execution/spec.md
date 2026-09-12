@@ -7,12 +7,19 @@ alone. The server project SHALL set a package-level `testTimeout` well above the
 5s default (30s) to cover full-server boots (`vi.resetModules()` + fresh
 `import` cold-transforms under `pool:"forks"`), git worktree spawns, and
 subprocess probes. The client project SHALL set a package-level `testTimeout`
-(15s) and SHALL raise the Testing-Library global `asyncUtilTimeout` (5s) so
+(15s) and SHALL raise the Testing-Library global `asyncUtilTimeout` (10s) so
 `waitFor`/`findBy*` polls do not expire before an effect, mock call, or state
-update lands. Tests SHALL assert on polled DOM/mock state (`waitFor`) rather
+update lands; the 10s poll ceiling leaves a 5s margin under the 15s package
+`testTimeout`. Projects whose tests scan the whole tree or shell out (the
+`shared` tree-scan lint suite, `bus-client` codegen, `extension` session/agent
+commands, the root `scripts` harness tests) SHALL set a package-level
+`testTimeout` with the same contention headroom (30s) rather than inherit the
+5s default. Tests SHALL assert on polled DOM/mock state (`waitFor`) rather
 than a fixed number of macrotask ticks, and SHALL NOT depend on shared
 module-level fixtures restored only at a test's end (skipped on throw, which
 cascades into unrelated tests).
+
+The prohibition on fixed-tick waits SHALL be machine-enforced by a guard test rather than left to review, and the client suite SHALL contain no violations when the guard lands. A client test file SHALL NOT await a bare `setTimeout` used as an async barrier before a one-shot assertion. A test that genuinely exercises timer behaviour, or that yields inside a mock implementation rather than gating an assertion, MAY opt out with an explicit inline comment naming the reason. The opt-out SHALL apply to the annotated occurrence only, never to the whole file, so a barrier added to that file later is still flagged.
 
 The prohibition extends to REAL-PROCESS outcomes: a test that spawns a process
 (keeper, mock-pi, wrapper, server) SHALL assert its observable outcomes by
@@ -20,6 +27,57 @@ polling a bounded condition, never by a one-shot read taken a fixed interval
 after an event, and SHALL NOT gate on a wall-clock budget tighter than the
 fork-count-scaled contention the suite itself creates (advisory perf budgets
 SHALL carry documented headroom for the parallel run).
+
+#### Scenario: Boot-heavy server test survives contention
+- **WHEN** a server test that boots a full server runs concurrently with the
+  rest of the suite across `"50%"` worker forks
+- **THEN** it SHALL complete within the package `testTimeout`
+- **AND** it SHALL NOT fail with "Test timed out in 5000ms"
+
+#### Scenario: Client async assertion polls instead of guessing ticks
+- **WHEN** a jsdom test triggers an async effect (FileReader decode, post-mount
+  scroll, fetch-driven render) under fork contention
+- **THEN** the assertion SHALL poll via `waitFor`/`findBy*` within
+  `asyncUtilTimeout`
+- **AND** it SHALL NOT fail with a one-shot `expected … got 0` / "Mock not
+  called" race
+
+#### Scenario: Shared fixture cannot cascade a failure
+- **WHEN** a test mutates a shared module-level fixture and a sibling test in the
+  same file depends on its canonical state
+- **THEN** the fixture SHALL be reset in `beforeEach`
+- **AND** a throw in one test SHALL NOT leave the fixture dirty for the next
+
+#### Scenario: Fixed-tick barrier is rejected
+- **GIVEN** a client test file that awaits a bare `setTimeout` as a barrier before a one-shot assertion
+- **WHEN** the guard test runs
+- **THEN** it SHALL fail and name the offending file
+
+#### Scenario: Client suite is compliant when the guard lands
+- **WHEN** the guard runs against the client suite at the moment this change lands
+- **THEN** it SHALL report zero violations
+- **AND** it SHALL hard-fail rather than warn
+
+#### Scenario: Mock-internal yield is preserved, not converted
+- **GIVEN** `PairLanding.test.tsx`, whose awaited timer sits inside a `postJson` mock so React can commit a render and gates no assertion
+- **WHEN** this change lands
+- **THEN** that timer SHALL remain in place
+- **AND** the test's assertions and coverage SHALL be unchanged
+
+#### Scenario: Deliberate timer use opts out per occurrence
+- **GIVEN** a client test that awaits a timer to exercise debounce or throttle behaviour, or that yields inside a mock implementation rather than gating an assertion, and carries an inline opt-out comment naming the reason directly above it
+- **WHEN** the guard test runs
+- **THEN** it SHALL NOT flag that occurrence
+
+#### Scenario: A file-level opt-out does not waive later violations
+- **GIVEN** a client test file containing one annotated opt-out occurrence
+- **WHEN** an un-annotated awaited-timer barrier is added elsewhere in the same file
+- **THEN** the guard SHALL flag the new occurrence
+
+#### Scenario: FileReader-backed paste assertions poll
+- **WHEN** `useImagePaste.test.ts` decodes pasted images through `FileReader`
+- **THEN** every assertion on `pendingImages` SHALL poll via `waitFor`
+- **AND** the file SHALL pass in the full parallel run across 3 consecutive runs
 
 #### Scenario: Real-process outcome is polled, not one-shot read
 
@@ -35,26 +93,3 @@ SHALL carry documented headroom for the parallel run).
 - **THEN** the budget SHALL tolerate the parallel suite's fork contention
 - **AND** a budget that fails under a loaded 8-fork run while passing in
   isolation SHALL be treated as a defect in the budget, not the machine
-
-#### Scenario: Boot-heavy server test survives contention
-
-- **WHEN** a server test that boots a full server runs concurrently with the
-  rest of the suite across `"50%"` worker forks
-- **THEN** it SHALL complete within the package `testTimeout`
-- **AND** it SHALL NOT fail with "Test timed out in 5000ms"
-
-#### Scenario: Client async assertion polls instead of guessing ticks
-
-- **WHEN** a jsdom test triggers an async effect (FileReader decode, post-mount
-  scroll, fetch-driven render) under fork contention
-- **THEN** the assertion SHALL poll via `waitFor`/`findBy*` within
-  `asyncUtilTimeout`
-- **AND** it SHALL NOT fail with a one-shot `expected … got 0` / "Mock not
-  called" race
-
-#### Scenario: Shared fixture cannot cascade a failure
-
-- **WHEN** a test mutates a shared module-level fixture and a sibling test in the
-  same file depends on its canonical state
-- **THEN** the fixture SHALL be reset in `beforeEach`
-- **AND** a throw in one test SHALL NOT leave the fixture dirty for the next
