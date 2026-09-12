@@ -13,9 +13,8 @@ The whitelist consists of:
 - `@earendil-works/pi-coding-agent` (primary fork)
 - `@mariozechner/pi-coding-agent` (legacy fork retained for backward compatibility)
 - `@blackbelt-technology/pi-agent-dashboard`
-- `@blackbelt-technology/pi-model-proxy`
 
-The whitelist SHALL NOT include `@oh-my-pi/pi-coding-agent`.
+The whitelist SHALL NOT include `@oh-my-pi/pi-coding-agent`, and SHALL NOT include `@blackbelt-technology/pi-model-proxy` (superseded by the dashboard's built-in model proxy).
 
 #### Scenario: Global npm packages discovered
 - **WHEN** the server runs `npm list -g --depth=0 --json`
@@ -26,6 +25,11 @@ The whitelist SHALL NOT include `@oh-my-pi/pi-coding-agent`.
 - **WHEN** `npm list -g` includes a package whose name starts with `pi-` (e.g., `pi-agent-browser`, `pi-web-access`) but is NOT in the whitelist
 - **THEN** the package SHALL NOT appear in the core discovery result
 - **AND** SHALL NOT appear in `GET /api/pi-core/status`
+
+#### Scenario: Installed upstream pi-model-proxy ignored
+- **WHEN** `@blackbelt-technology/pi-model-proxy` is present in either global or managed install
+- **THEN** it SHALL NOT appear in the discovery result
+- **AND** SHALL NOT appear in `GET /api/pi-core/status` or the Update All set
 
 #### Scenario: Legacy oh-my-pi install ignored
 - **WHEN** `@oh-my-pi/pi-coding-agent` is present in either global or managed install

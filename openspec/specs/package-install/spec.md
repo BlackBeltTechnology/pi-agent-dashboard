@@ -1,7 +1,9 @@
 ## Purpose
 
 Install, remove, and update pi packages (extensions, skills, themes, prompts) via REST + WebSocket. Surfaces a single-flight server contract with an FIFO client-side queue so multiple rapid clicks survive without orphaned spinners.
+
 ## Requirements
+
 ### Requirement: Server installs pi packages via PackageManager
 The server SHALL expose `POST /api/packages/install` accepting `{ source, scope, cwd? }`. It SHALL use pi's `DefaultPackageManager` to install the package. For `scope: "global"` it installs to `~/.pi/agent/settings.json`. For `scope: "local"` it installs to `<cwd>/.pi/settings.json`. The endpoint SHALL return immediately with an `operationId` and stream progress via WebSocket.
 
@@ -240,7 +242,7 @@ The default selection follows the caller's `scope` prop value.
 The client `packageQueue` SHALL distinguish between two operation kinds:
 
 - `"extension"` — install / remove / update of pi extensions, skills, prompts, or themes via `/api/packages/{install,remove,update}`. Async completion model (POST returns `202` with `operationId`; final state arrives via `package_operation_complete` WebSocket event).
-- `"pi-core"` — update of pi core packages (`pi`, `pi-dashboard`, `pi-model-proxy`, etc.) via `/api/pi-core/update`. Synchronous completion model (POST blocks until npm update finishes; final state is in the response body).
+- `"pi-core"` — update of pi core packages (`pi`, `pi-dashboard`, etc.) via `/api/pi-core/update`. Synchronous completion model (POST blocks until npm update finishes; final state is in the response body).
 
 Each entry in the queue (running, queued, error, success) SHALL carry a `kind` field. The default value when unspecified by callers SHALL be `"extension"` — every existing call site continues to work without modification.
 
@@ -322,7 +324,7 @@ The 409-retry-once policy SHALL apply only to the busy-lock shape. A package-man
 
 ### Requirement: Pi-core source key uses a `pi-core:` prefix convention
 
-Pi-core operations SHALL use a `source` string of the form `"pi-core:" + packageName`, where `packageName` is the full scoped npm name from `CORE_PACKAGE_NAMES` in `packages/server/src/pi-core-checker.ts` — e.g. `"pi-core:@mariozechner/pi-coding-agent"`, `"pi-core:@blackbelt-technology/pi-agent-dashboard"`, `"pi-core:@blackbelt-technology/pi-model-proxy"`. The prefix is a self-documenting convention; the dispatch decision is made by the `kind` field, not by source-string prefix matching.
+Pi-core operations SHALL use a `source` string of the form `"pi-core:" + packageName`, where `packageName` is the full scoped npm name from `CORE_PACKAGE_NAMES` in `packages/server/src/pi/pi-core-checker.ts` — e.g. `"pi-core:@mariozechner/pi-coding-agent"`, `"pi-core:@earendil-works/pi-coding-agent"`, `"pi-core:@blackbelt-technology/pi-agent-dashboard"`. The prefix is a self-documenting convention; the dispatch decision is made by the `kind` field, not by source-string prefix matching.
 
 The prefix SHALL appear in `running.source`, `queue[].source`, `errorBySource` keys, and `successBySource` keys for pi-core operations. Components rendering pi-core rows SHALL look up state using the prefixed source.
 
@@ -505,9 +507,8 @@ The hook's existing methods (`install`, `remove`, `update`, `move`, `statusFor`,
 
 #### Scenario: Update All splits into N enqueues
 
-- **WHEN** the user clicks "Update All" with 3 updatable Core packages (e.g. `@mariozechner/pi-coding-agent`, `@blackbelt-technology/pi-agent-dashboard`, `@blackbelt-technology/pi-model-proxy`)
+- **WHEN** the user clicks "Update All" with 3 updatable Core packages (e.g. `@earendil-works/pi-coding-agent`, `@mariozechner/pi-coding-agent`, `@blackbelt-technology/pi-agent-dashboard`)
 - **AND** the component invokes `operations.coreUpdate(name)` for each
 - **THEN** the queue contains exactly 3 pi-core ops, processed FIFO
 - **AND** each op POSTs `/api/pi-core/update` with `{packages: [oneScopedName]}`
 - **AND** they are NOT batched into a single POST
-
