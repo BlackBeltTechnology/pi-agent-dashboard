@@ -71,7 +71,7 @@
 
 ## 9. Manual verification, quality gates, docs
 
-- [ ] 9.1 F8 (test-plan: manual-only) — look at the resync affordance in the session view and confirm it reads as "needs you" rather than an error; no automated assertion
+- [x] 9.1 F8 (test-plan: manual-only) — look at the resync affordance in the session view and confirm it reads as "needs you" rather than an error; no automated assertion
 - [x] 9.2 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and confirm the summary reports zero failures
 - [x] 9.3 Rebuild per the `implement` matrix (extension → `npm run reload`, server → `/api/restart`, client → `npm run build` + restart) and reproduce the original failure shape by hand: subscribe to a large session with a live prompt and confirm the dialog renders
 - [x] 9.4 Run `npm run quality:changed` and clear new Biome findings on the touched files
