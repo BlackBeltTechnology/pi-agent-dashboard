@@ -15,7 +15,7 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { addWorktree, listWorktrees } from "../git-worktree/git-operations.js";
+import { addWorktree, listWorktrees, resolveMainPath } from "../git-worktree/git-operations.js";
 import {
   ensureWorktreeExcludeLine,
   isOrphanWorktreePath,
@@ -109,11 +109,13 @@ describe("parsePorcelainWorktrees", () => {
       `worktree /repo\nHEAD abc123\nbranch refs/heads/main\n`,
     );
     expect(out).toEqual([
-      { path: "/repo", branch: "main", sha: "abc123", bare: false, detached: false, isMain: true },
+      // D4 (apply-checkout-root-to-worktree-ops): the parser stops stamping —
+      // `listWorktrees` assigns `isMain` from the resolved main checkout.
+      { path: "/repo", branch: "main", sha: "abc123", bare: false, detached: false, isMain: false },
     ]);
   });
 
-  it("parses main + two worktrees, flags isMain only on first", () => {
+  it("parses main + two worktrees, emits isMain:false for every record (D4)", () => {
     const out = parsePorcelainWorktrees([
       "worktree /repo",
       "HEAD aaa",
@@ -128,7 +130,7 @@ describe("parsePorcelainWorktrees", () => {
       "branch refs/heads/fix/42",
     ].join("\n"));
     expect(out).toHaveLength(3);
-    expect(out[0]?.isMain).toBe(true);
+    expect(out[0]?.isMain).toBe(false);
     expect(out[0]?.branch).toBe("develop");
     expect(out[1]?.isMain).toBe(false);
     expect(out[1]?.branch).toBe("feat/x");
@@ -158,7 +160,7 @@ describe("parsePorcelainWorktrees", () => {
       "HEAD aaa",
       "branch refs/heads/main",
     ].join("\n"));
-    expect(out[0]).toMatchObject({ bare: true, branch: null, isMain: true });
+    expect(out[0]).toMatchObject({ bare: true, branch: null, isMain: false });
     expect(out[1]).toMatchObject({ bare: false, branch: "main" });
   });
 
@@ -472,8 +474,17 @@ describe("listWorktrees exists field", () => {
       }
       const entries = listWorktrees(repo);
       expect(entries.length).toBeGreaterThanOrEqual(51);
-      // The added statSync work must not double the cost of the git call.
-      expect(median(withStat)).toBeLessThan(median(gitOnly) * 2);
+      // The added per-entry work must not dominate the git calls. The per-call
+      // baseline is now `git worktree list` PLUS one `resolveMainPath` probe
+      // round (D7 accepts the extra spawns), so the composite baseline is the
+      // sum of the two measured components — listWorktrees must stay within
+      // 2× of it.
+      const resolveOnly: number[] = [];
+      for (let i = 0; i < 20; i++) {
+        resolveOnly.push(time(() => { resolveMainPath(repo); }));
+      }
+      const composite = median(gitOnly) + median(resolveOnly);
+      expect(median(withStat)).toBeLessThan(composite * 2);
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }

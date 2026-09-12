@@ -332,3 +332,32 @@ test("row text clears 4.5:1 in both themes and never uses muted/tertiary tokens"
   }
   await page.emulateMedia({ colorScheme: null });
 });
+
+// test-plan #F5 (apply-checkout-root-to-worktree-ops task 4.11) — the
+// `isMain` rederivation (resolved, not positional) did not regress the
+// common path.
+test("F5: ordinary repo — exactly one isMain row; removal succeeds and the row disappears", async ({ page }) => {
+  const path = await createWorktree(page, "f5-unregressed");
+  await pinDirectory(page, FIXTURE_GIT);
+
+  const dialog = await openManageDialog(page);
+  // Exactly ONE isMain row — the main checkout, re-derived from the resolved
+  // anchor (a positional stamp would also count one; the API check below
+  // pins WHICH entry).
+  await expect(dialog.locator('[data-testid="worktree-row-main"]')).toHaveCount(1);
+
+  const entries = (await listWorktrees(page)) as Array<{ path: string; isMain?: boolean }>;
+  const mainEntries = entries.filter((e) => e.isMain);
+  expect(mainEntries).toHaveLength(1);
+  expect(mainEntries[0].path).toBe(FIXTURE_GIT);
+
+  // Remove the linked worktree through the dialog — the common removal path.
+  await dialog.locator(`[data-testid="worktree-remove-${encodeURIComponent(path)}"]`).click();
+  const close = page.locator('[data-testid="close-worktree-dialog"]');
+  await expect(close).toBeVisible();
+  await close.getByRole("button", { name: /remove|close worktree/i }).last().click();
+
+  await expect(dialog.locator(`[data-testid="worktree-row-${encodeURIComponent(path)}"]`)).toHaveCount(0, { timeout: 15_000 });
+  // And still exactly one isMain row afterwards.
+  await expect(dialog.locator('[data-testid="worktree-row-main"]')).toHaveCount(1);
+});

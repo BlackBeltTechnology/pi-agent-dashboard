@@ -3,14 +3,16 @@
  */
 
 import fs from "node:fs";
-import { join, resolve as pathResolve } from "node:path";
+import { join } from "node:path";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import {
   addWorktree,
   addWorktreeFromPr,
+  CHECKOUT_ROOTS_TIMEOUT_MS,
   checkoutBranch,
+  classifyWorktreeRemoval,
   commitFiles,
   createPullRequest,
   GitCommitError,
@@ -28,10 +30,11 @@ import {
   readHead,
   removeWorktree,
   resolveConfigRoot,
-  resolveMainPath,
   stashPop,
+  type WorktreeRemovalVerdict,
   worktreeDiffStat,
 } from "../git-worktree/git-operations.js";
+import { checkoutRoots } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import { evaluateGate, type GateResult, hookDefHash, type InitProgress, readInitHook, runInitHook, type WorktreeInitHook } from "../git-worktree/worktree-init.js";
 import { mapInitStderrToHint } from "../git-worktree/worktree-init-errors.js";
 import type { WorktreeInitRegistry } from "../git-worktree/worktree-init-registry.js";
@@ -55,6 +58,12 @@ export interface GitRoutesDeps {
   sendToSession?: (sessionId: string, msg: any) => boolean;
   /** Optional — correlates the async draft reply. See same change. */
   commitDraftRelay?: import("../commit-draft-relay.js").CommitDraftRelay;
+  /**
+   * Optional — the configured `DashboardConfig.removeBatchCap` bounding
+   * `POST /api/git/worktree/remove-batch` (default when omitted). See change:
+   * apply-checkout-root-to-worktree-ops (D8).
+   */
+  removeBatchCap?: number;
   /**
    * Optional — enables worktree-init progress streaming to the
    * originating browser. When absent, the init hook still runs but
@@ -130,8 +139,24 @@ async function evaluateGateCached(checkoutPath: string, hook: WorktreeInitHook):
   return res;
 }
 
+/**
+ * Defensive clamp for the configured batch cap (D8). `DashboardConfig`
+ * parsing already clamps (`clampRemoveBatchCap` in shared config), so a value
+ * arriving here is either a positive integer or `undefined` (unset / a host
+ * running a shared build that predates the field — a worktree dev server
+ * resolves shared through the workspace link to the main checkout). Same
+ * semantics as the shared clamp: fall back to the default on anything
+ * non-numeric, non-positive or non-integer.
+ * See change: apply-checkout-root-to-worktree-ops (D8).
+ */
+function resolveBatchCap(v: unknown): number {
+  if (typeof v !== "number" || !Number.isInteger(v) || v <= 0) return 50;
+  return Math.min(500, Math.max(1, v));
+}
+
 export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps) {
-  const { networkGuard, sessionManager, browserGateway, worktreeInitRegistry, sendToSession, commitDraftRelay } = deps;
+  const { networkGuard, sessionManager, browserGateway, worktreeInitRegistry, sendToSession, commitDraftRelay, removeBatchCap: configuredRemoveBatchCap } = deps;
+  const removeBatchCap = resolveBatchCap(configuredRemoveBatchCap);
   fastify.get<{ Querystring: { cwd?: string } }>(
     "/api/git/branches",
     { preHandler: networkGuard },
@@ -636,10 +661,20 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
   // ── Worktree lifecycle endpoints (remove / merge / push / pr / diff-stat) ──────────────────
   // See change: add-worktree-lifecycle-actions.
 
-  /** True when `cwd` resolves to the repo's OWN main worktree (not removable). */
-  function isMainWorktree(cwd: string): boolean {
-    const mainPath = resolveMainPath(cwd);
-    return mainPath != null && pathResolve(mainPath) === pathResolve(cwd);
+  /**
+   * Tri-state removal guard (D3), replacing the old `isMainWorktree` boolean:
+   * a boolean forced "not main" to mean "proceed", which handed a
+   * worktree-of-bare-hub (unresolvable anchor) to git. `unresolved` REFUSES
+   * with `main_checkout_unresolved` — a truthful reason, not the false "this
+   * is the main worktree".
+   */
+  function classifyRemoval(cwd: string): {
+    verdict: WorktreeRemovalVerdict;
+    mainPath?: string;
+  } {
+    const roots = checkoutRoots({ cwd, timeout: CHECKOUT_ROOTS_TIMEOUT_MS });
+    const verdict = classifyWorktreeRemoval(roots);
+    return verdict === "removable" && roots?.mainCheckout ? { verdict, mainPath: roots.mainCheckout } : { verdict };
   }
 
   /**
@@ -664,13 +699,15 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         reply.code(400);
         return { success: false, code: validated.code, error: validated.message } satisfies ApiResponse;
       }
-      // Removing the main worktree is a clean rejection, not a 500 from git.
-      if (isMainWorktree(validated.cwd)) {
+      // Removing the main worktree — or one whose main checkout cannot be
+      // resolved — is a clean rejection, not a 500 from git (D3).
+      const { verdict, mainPath } = classifyRemoval(validated.cwd);
+      if (verdict !== "removable") {
         reply.code(400);
         return {
           success: false,
-          code: "is_main_worktree",
-          error: "is_main_worktree",
+          code: verdict === "main" ? "is_main_worktree" : "main_checkout_unresolved",
+          error: verdict === "main" ? "is_main_worktree" : "main_checkout_unresolved",
         } satisfies ApiResponse;
       }
       const force = body.force === true;
@@ -687,7 +724,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
           } satisfies ApiResponse;
         }
       }
-      const result = removeWorktree({ cwd: validated.cwd, force, deleteBranch });
+      const result = removeWorktree({ cwd: validated.cwd, force, deleteBranch, mainPath });
       // Trace every call so failed clicks leave a breadcrumb in
       // ~/.pi/dashboard/server.log (the request itself is not
       // otherwise logged by fastify in default config).
@@ -716,9 +753,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
   );
 
   // ── Batch removal + prune (change: manage-worktrees-filter-cleanup) ──
-
-  /** Max items per `remove-batch`; `removeWorktree` is execSync-blocking. */
-  const REMOVE_BATCH_CAP = 50;
+  // The cap (D8) is resolved once at the top of registerGitRoutes.
 
   fastify.post<{ Body: { items?: Array<{ cwd?: string; force?: boolean; deleteBranch?: boolean }> } }>(
     "/api/git/worktree/remove-batch",
@@ -729,20 +764,35 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         reply.code(400);
         return { success: false, code: "items_invalid", error: "items must be an array" } satisfies ApiResponse;
       }
-      if (items.length > REMOVE_BATCH_CAP) {
+      if (items.length > removeBatchCap) {
         reply.code(400);
         return {
           success: false,
           code: "batch_too_large",
-          error: `at most ${REMOVE_BATCH_CAP} items per batch`,
+          error: `at most ${removeBatchCap} items per batch`,
         } satisfies ApiResponse;
       }
       // Per-item containment + removal; never abort on first failure (design D4).
+      // Classification is PER ITEM (D7): each item is an independent delete
+      // decision against live git state — but AT MOST ONCE PER DISTINCT cwd
+      // per request: duplicate cwds reuse the memoized classification (the
+      // spec forbids resolving the same cwd twice within one request).
+      const classificationMemo = new Map<string, { verdict: WorktreeRemovalVerdict; mainPath?: string }>();
       const results = items.map((item) => {
         const validated = validateCwd(item?.cwd);
         if (!validated.ok) return { cwd: item?.cwd ?? "", ok: false, code: "cwd_invalid" };
-        if (isMainWorktree(validated.cwd)) {
-          return { cwd: validated.cwd, ok: false, code: "is_main_worktree" };
+        let classification = classificationMemo.get(validated.cwd);
+        if (!classification) {
+          classification = classifyRemoval(validated.cwd);
+          classificationMemo.set(validated.cwd, classification);
+        }
+        const { verdict, mainPath } = classification;
+        if (verdict !== "removable") {
+          return {
+            cwd: validated.cwd,
+            ok: false,
+            code: verdict === "main" ? "is_main_worktree" : "main_checkout_unresolved",
+          };
         }
         const force = item.force === true;
         if (sessionManager) {
@@ -755,6 +805,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
           cwd: validated.cwd,
           force,
           deleteBranch: item.deleteBranch === true,
+          mainPath,
         });
         if (!result.ok) {
           return { cwd: validated.cwd, ok: false, code: result.code, ...(result.stderr ? { stderr: result.stderr } : {}) };
@@ -804,7 +855,8 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
       });
       if (!result.ok) {
         const status =
-          result.code === "dirty_main" || result.code === "merge_conflict" ? 409
+          result.code === "not_a_worktree" ? 400
+          : result.code === "dirty_main" || result.code === "merge_conflict" ? 409
           : result.code === "base_not_found" ? 400
           : 500;
         reply.code(status);
@@ -988,7 +1040,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         : undefined;
       const result = worktreeDiffStat({ cwd: validated.cwd, baseHint });
       if (!result.ok) {
-        const status = result.code === "base_not_found" ? 400 : 500;
+        const status = result.code === "base_not_found" || result.code === "not_a_worktree" ? 400 : 500;
         reply.code(status);
         return {
           success: false,

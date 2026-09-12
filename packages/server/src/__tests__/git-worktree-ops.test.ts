@@ -8,12 +8,20 @@
  *
  * See change: add-worktree-spawn-dialog.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, afterAll, describe, expect, it, vi } from "vitest";
 import { execSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import nodeFs from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { addWorktree, listWorktrees, readHead } from "../git-worktree/git-operations.js";
+import {
+  buildGitFixtures,
+  fixtureGit,
+  type GitFixtures,
+  restoreEnv,
+} from "@blackbelt-technology/pi-dashboard-shared/test-support/git-fixtures.js";
+import { addWorktree, addWorktreeFromPr, listWorktrees, orphanCleanup, readHead, removeWorktree, resolveMainPath } from "../git-worktree/git-operations.js";
+import { parsePorcelainWorktrees } from "../git-worktree/git-worktree.js";
 
 function git(cmd: string, cwd: string): string {
   return execSync(`git ${cmd}`, { cwd, stdio: ["pipe", "pipe", "pipe"], encoding: "utf-8" }).trim();
@@ -233,8 +241,11 @@ describe("addWorktree — checkout mode", () => {
       const res = addWorktree({ cwd: clone, base: "origin/old-experiment" });
       expect(res.ok).toBe(true);
       if (!res.ok) return;
-      // Path slug is the LOCAL name, not `origin-old-experiment`.
-      expect(res.path).toBe(join(clone, ".worktrees", "old-experiment"));
+      // Path slug is the LOCAL name, not `origin-old-experiment`. The anchor
+      // is git's canonical (realpath'd) checkout root, so compare against the
+      // realpath of the clone dir. See change:
+      // apply-checkout-root-to-worktree-ops (D1).
+      expect(res.path).toBe(join(realpathSync(clone), ".worktrees", "old-experiment"));
       expect(res.branch).toBe("old-experiment");
       // git DWIM-created local `old-experiment` tracking origin.
       const head = git("rev-parse --abbrev-ref HEAD", res.path);
@@ -259,5 +270,347 @@ describe("addWorktree — checkout mode", () => {
     expect(res.error).toBe("branch_in_use");
     // Message names the worktree currently holding `foo`.
     expect(res.message).toContain(first.path);
+  });
+});
+
+// ── apply-checkout-root-to-worktree-ops: E12/E13/E14/E15 ──────────────────
+
+describe("parsePorcelainWorktrees — the parser stops stamping isMain (E14)", () => {
+  const porcelain = [
+    "worktree /repo",
+    "HEAD a".padEnd(11, "0"),
+    "branch refs/heads/main",
+    "",
+    "worktree /repo/.worktrees/wt",
+    "HEAD b".padEnd(11, "0"),
+    "branch refs/heads/wtb",
+    "",
+    "worktree /hub",
+    "bare",
+    "",
+  ].join("\n");
+
+  it("every record has isMain: false, including the first", () => {
+    const parsed = parsePorcelainWorktrees(porcelain);
+    expect(parsed).toHaveLength(3);
+    for (const entry of parsed) expect(entry.isMain).toBe(false);
+  });
+});
+
+describe("listWorktrees — isMain is resolved, not positional", () => {
+  const savedEnv = { global: process.env.GIT_CONFIG_GLOBAL, system: process.env.GIT_CONFIG_SYSTEM };
+  let fx: GitFixtures;
+
+  beforeAll(() => {
+    process.env.GIT_CONFIG_GLOBAL = "/dev/null";
+    process.env.GIT_CONFIG_SYSTEM = "/dev/null";
+    fx = buildGitFixtures();
+  });
+
+  afterAll(() => {
+    fx.cleanup();
+    restoreEnv("GIT_CONFIG_GLOBAL", savedEnv.global);
+    restoreEnv("GIT_CONFIG_SYSTEM", savedEnv.system);
+  });
+
+  it("E12: a bare hub is never main — called from the linked worktree", () => {
+    const wts = listWorktrees(fx.bareWorktree);
+    const hub = wts.find((w) => w.bare);
+    expect(hub).toBeDefined();
+    expect(hub!.isMain).toBe(false);
+    expect(wts.some((w) => w.isMain)).toBe(false);
+  });
+
+  it("E13: a submodule's git-dir row is never main (the old positional stamp marked it)", () => {
+    // git quirk: from inside a submodule, `worktree list --porcelain` reports
+    // the main-worktree registration at the MODULE GIT-DIR path
+    // (`<super>/.git/modules/...`), not at the working tree. Positional
+    // stamping therefore marked a git-dir row `isMain: true` — exactly the bug
+    // D4 removes. The resolved main checkout is the submodule WORKING TREE,
+    // which matches no row, so no entry is main ("at most one", not "exactly
+    // one") — and the git-dir row is never it.
+    const wts = listWorktrees(fx.submodule);
+    expect(resolveMainPath(fx.submodule)).toBe(fx.submodule);
+    for (const w of wts) {
+      expect(w.path.startsWith(join(fx.superproject, ".git")) || w.isMain === false).toBe(true);
+      if (w.path.startsWith(join(fx.superproject, ".git"))) {
+        expect(w.isMain).toBe(false);
+      }
+    }
+    expect(wts.some((w) => w.isMain)).toBe(false);
+  });
+
+  it("E15: a main checkout whose path carries a .git COMPONENT is never stamped isMain", () => {
+    // A repo physically located inside a directory named `.git`: its resolved
+    // main path equals the first porcelain record but carries a `.git`
+    // component — the D1 consumer-side rejection must refuse it, so no record
+    // (not even the main-registered one) is isMain. The old positional stamp
+    // marked the first record unconditionally.
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "git-wt-gitseg-")));
+    try {
+      const nested = join(root, ".git", "nested");
+      mkdirSync(nested, { recursive: true });
+      fixtureGit(nested, ["init", "-q"]);
+      writeFileSync(join(nested, "seed.txt"), "seed\n");
+      fixtureGit(nested, ["add", "."]);
+      fixtureGit(nested, ["commit", "-q", "-m", "seed"]);
+      const wt = join(root, "nested-wt");
+      fixtureGit(nested, ["worktree", "add", "-q", "-b", "nwt", wt]);
+      // The resolver refuses the anchor outright.
+      expect(resolveMainPath(wt)).toBeNull();
+      const wts = listWorktrees(wt);
+      expect(wts.length).toBeGreaterThanOrEqual(2);
+      expect(wts.some((w) => w.isMain)).toBe(false);
+      const nestedRecord = wts.find((w) => realpathSync(w.path) === nested);
+      expect(nestedRecord).toBeDefined();
+      expect(nestedRecord!.isMain).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("E12-positive control: an ordinary repo still marks exactly its main checkout", () => {
+    const wts = listWorktrees(fx.normal);
+    const mainRows = wts.filter((w) => w.isMain);
+    expect(mainRows).toHaveLength(1);
+    expect(realpathSync(mainRows[0].path)).toBe(realpathSync(fx.normal));
+  });
+});
+
+// ── apply-checkout-root-to-worktree-ops: create + from-pr (E16/E17/E18/X7) ──
+
+describe("addWorktree — refusal + anchoring (D2)", () => {
+  const savedEnv = { global: process.env.GIT_CONFIG_GLOBAL, system: process.env.GIT_CONFIG_SYSTEM };
+  let fx: GitFixtures;
+
+  beforeAll(() => {
+    process.env.GIT_CONFIG_GLOBAL = "/dev/null";
+    process.env.GIT_CONFIG_SYSTEM = "/dev/null";
+    fx = buildGitFixtures();
+  });
+
+  afterAll(() => {
+    fx.cleanup();
+    restoreEnv("GIT_CONFIG_GLOBAL", savedEnv.global);
+    restoreEnv("GIT_CONFIG_SYSTEM", savedEnv.system);
+  });
+
+  it("E17: cwd in a bare hub refuses not_a_repo — without path AND WITH an explicit path", () => {
+    const noPath = addWorktree({ cwd: fx.bare, base: "main", newBranch: "e17a" });
+    expect(noPath.ok).toBe(false);
+    if (noPath.ok) return;
+    expect(noPath.error).toBe("not_a_repo");
+    const explicit = join(fx.root, "e17-explicit");
+    const withPath = addWorktree({ cwd: fx.bare, base: "main", newBranch: "e17b", path: explicit });
+    expect(withPath.ok).toBe(false);
+    if (withPath.ok) return;
+    expect(withPath.error).toBe("not_a_repo");
+    expect(existsSync(explicit)).toBe(false);
+  });
+
+  it("E16: cwd inside the submodule anchors the derived path under the SUBMODULE tree", () => {
+    const result = addWorktree({ cwd: fx.submodule, base: "main", newBranch: "e16" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    try {
+      const inside = (p: string, root: string) => realpathSync(p).startsWith(realpathSync(root));
+      expect(inside(result.path, fx.submodule)).toBe(true);
+      expect(result.path.includes(join(fx.superproject, ".git"))).toBe(false);
+    } finally {
+      rmSync(result.path, { recursive: true, force: true });
+    }
+  });
+
+  it("E18: the exclude line lands in the COMMON GIT DIR's info/exclude, idempotently", () => {
+    // --separate-git-dir checkout: the common git dir is <root>/elsewhere.git,
+    // NOT <checkout>/.git (which does not even exist as a directory).
+    const result = addWorktree({ cwd: fx.separateGitDir, base: "main", newBranch: "e18" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    try {
+      const excludePath = join(fx.separateGitDirGitDir, "info", "exclude");
+      expect(existsSync(excludePath)).toBe(true);
+      const content = readFileSync(excludePath, "utf-8");
+      expect(content).toContain(".worktrees/");
+      expect(existsSync(join(fx.separateGitDir, ".git", "info", "exclude"))).toBe(false);
+      // Appending twice does not duplicate: run addWorktree again (a second
+      // worktree) and count the exclude lines.
+      const second = addWorktree({ cwd: fx.separateGitDir, base: "main", newBranch: "e18b" });
+      expect(second.ok).toBe(true);
+      if (second.ok) rmSync(second.path, { recursive: true, force: true });
+      const content2 = readFileSync(excludePath, "utf-8");
+      expect(content2.split(".worktrees/").length - 1).toBe(1);
+    } finally {
+      rmSync(result.path, { recursive: true, force: true });
+    }
+  });
+
+  it("X7: from-pr refuses not_a_repo when no main checkout resolves — before any fetch", () => {
+    const target = join(fx.root, "pr-999");
+    const result = addWorktreeFromPr({ cwd: fx.bareWorktree, prNumber: 999, path: target });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("not_a_repo");
+    expect(existsSync(target)).toBe(false);
+  });
+});
+
+// ── apply-checkout-root-to-worktree-ops: delete boundaries (D6/D7) ────────
+
+
+describe("orphanCleanup — resolved anchor + realpath containment (D6)", () => {
+  const savedEnv = { global: process.env.GIT_CONFIG_GLOBAL, system: process.env.GIT_CONFIG_SYSTEM };
+  let fx: GitFixtures;
+
+  beforeAll(() => {
+    process.env.GIT_CONFIG_GLOBAL = "/dev/null";
+    process.env.GIT_CONFIG_SYSTEM = "/dev/null";
+    fx = buildGitFixtures();
+  });
+
+  afterAll(() => {
+    fx.cleanup();
+    restoreEnv("GIT_CONFIG_GLOBAL", savedEnv.global);
+    restoreEnv("GIT_CONFIG_SYSTEM", savedEnv.system);
+  });
+
+  /** A small deletable orphan dir with one file. */
+  const makeOrphan = (parent: string, name: string): string => {
+    const dir = join(parent, name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "leftover.txt"), "orphan\n");
+    return dir;
+  };
+
+  it("E23: cwd inside the submodule cleans an orphan INSIDE the submodule working tree", () => {
+    const orphan = makeOrphan(fx.submodule, "orphan-e23");
+    const result = orphanCleanup({ cwd: fx.submodule, path: orphan });
+    expect(result.ok).toBe(true);
+    expect(existsSync(orphan)).toBe(false);
+  });
+
+  it("E24: an orphan under the MAIN checkout is cleanable from a linked worktree", () => {
+    const orphan = makeOrphan(fx.normal, "orphan-e24");
+    const result = orphanCleanup({ cwd: fx.worktree, path: orphan });
+    expect(result.ok).toBe(true);
+    expect(existsSync(orphan)).toBe(false);
+  });
+
+  it("X1: a symlink escape refuses outside_repo — neither link nor target deleted", () => {
+    const outside = mkdtempSync(join(tmpdir(), "orphan-outside-"));
+    const outsideTarget = join(outside, "victim");
+    mkdirSync(outsideTarget, { recursive: true });
+    writeFileSync(join(outsideTarget, "keep.txt"), "keep\n");
+    const link = join(fx.normal, "orphan-x1");
+    symlinkSync(outsideTarget, link, "dir");
+    try {
+      const result = orphanCleanup({ cwd: fx.normal, path: link });
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error).toBe("outside_repo");
+      // The LINK survives and its TARGET is untouched.
+      expect(existsSync(link)).toBe(true);
+      expect(existsSync(join(outsideTarget, "keep.txt"))).toBe(true);
+    } finally {
+      rmSync(link, { force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("X2: a missing path refuses not_a_directory — no unhandled ENOENT", () => {
+    const missing = join(fx.normal, "does-not-exist");
+    const result = orphanCleanup({ cwd: fx.normal, path: missing });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("not_a_directory");
+  });
+
+  it("X3: an unreadable (EACCES) symlink resolution refuses fs_failed — never a pass", () => {
+    const orphan = makeOrphan(fx.normal, "orphan-x3");
+    const realSpy = vi.spyOn(nodeFs, "realpathSync").mockImplementation(() => {
+      throw Object.assign(new Error("permission denied"), { code: "EACCES" });
+    });
+    try {
+      const result = orphanCleanup({ cwd: fx.normal, path: orphan });
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error).toBe("fs_failed");
+      expect(existsSync(orphan)).toBe(true);
+    } finally {
+      realSpy.mockRestore();
+      rmSync(orphan, { recursive: true, force: true });
+    }
+  });
+
+  it("X4: the target deleted between the existence check and realpath refuses not_a_directory", () => {
+    const orphan = makeOrphan(fx.normal, "orphan-x4");
+    // Simulate the TOCTOU window: statSync (iii) saw the dir, realpath (iv)
+    // finds it gone. A real race cannot be staged deterministically — inject
+    // the post-check state at the fs seam.
+    const realSpy = vi.spyOn(nodeFs, "realpathSync").mockImplementation(() => {
+      throw Object.assign(new Error("no such file"), { code: "ENOENT" });
+    });
+    try {
+      const result = orphanCleanup({ cwd: fx.normal, path: orphan });
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error).toBe("not_a_directory");
+    } finally {
+      realSpy.mockRestore();
+      rmSync(orphan, { recursive: true, force: true });
+    }
+  });
+
+  it("X5: cwd inside a bare repo (or worktree of one) refuses outside_repo — nothing deleted", () => {
+    const orphan = makeOrphan(fx.bare, "orphan-x5");
+    const fromBare = orphanCleanup({ cwd: fx.bare, path: orphan });
+    expect(fromBare.ok).toBe(false);
+    if (!fromBare.ok) expect(fromBare.error).toBe("outside_repo");
+    expect(existsSync(orphan)).toBe(true);
+    const fromWorktree = orphanCleanup({ cwd: fx.bareWorktree, path: orphan });
+    expect(fromWorktree.ok).toBe(false);
+    if (!fromWorktree.ok) expect(fromWorktree.error).toBe("outside_repo");
+    expect(existsSync(orphan)).toBe(true);
+    rmSync(orphan, { recursive: true, force: true });
+  });
+
+  it("E25: a registered worktree with a top-level .git entry returns not_orphan — guard order preserved", () => {
+    // A worktree registered under `<main>/.worktrees/` is BOTH inside the
+    // resolved anchor AND carries a top-level `.git` file. The registered
+    // check comes FIRST (D6): the code is `not_orphan`, never
+    // `looks_like_worktree`.
+    const add = addWorktree({ cwd: fx.normal, base: "main", newBranch: "e25" });
+    expect(add.ok).toBe(true);
+    if (!add.ok) return;
+    try {
+      const result = orphanCleanup({ cwd: fx.normal, path: add.path });
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error).toBe("not_orphan");
+      expect(existsSync(add.path)).toBe(true);
+    } finally {
+      removeWorktree({ cwd: add.path, force: true });
+    }
+  });
+});
+
+describe("resolveMainPath — probe budget (P3)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("makes ONE resolver call and maps a failed result to null (budget pinned by E3's timeout:400)", async () => {
+    const repo = makeRepo();
+    try {
+      const sharedGit = await import("@blackbelt-technology/pi-dashboard-shared/platform/git.js");
+      // SYNC mock — the wrapper calls checkoutRoots synchronously and never
+      // awaits; a failed/timed-out resolver result (what the 400ms budget
+      // bounds in production) maps to null with no retry loop.
+      const spy = vi.spyOn(sharedGit, "checkoutRoots").mockReturnValue(null);
+      const result = resolveMainPath(repo);
+      expect(result).toBeNull();
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.restoreAllMocks();
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 });
