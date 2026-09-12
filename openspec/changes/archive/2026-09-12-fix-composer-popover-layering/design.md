@@ -69,16 +69,42 @@ onOpenChange(false);
 
 Two notes: check `panelRef` **before** `triggerRef` (the trigger toggles, so letting a panel click fall through to it would close-then-reopen), and the reference adds `touchstart` alongside `mousedown`.
 
+## Decision 4 — `body` is the DEFAULT layer host, not the only one
+
+The OpenSpec-dialog risk below **materialised**. `Dialog` renders `fixed inset-0
+z-dialog` over a full-viewport `bg-black/60` backdrop; once the panel portals to
+`document.body` the two become siblings in the root stacking context at 40 vs
+50, so the dropdown sinks behind the backdrop and every click on it hits the
+backdrop and dismisses the dialog. Verified structurally: both nodes
+`parentElement === document.body`, tokens `z-popover` / `z-dialog`.
+
+| Option | Verdict |
+|---|---|
+| Dialog-hosted panels adopt `z-dialog` (equal rank, later in DOM order) | **Rejected.** Leans on mount order, which the spec's *"outcome does not depend on … DOM order"* scenario forbids. |
+| New token above `dialog` | **Rejected.** Contradicts the single-total-scale requirement and needs a spec delta for a purely local problem. |
+| **Portal to the NEAREST layer host** | **Chosen.** `LayerHostContext` (default `null` → `document.body`); `Dialog` publishes its panel as the host. |
+
+The popover then lives *inside* the dialog's stacking context, so it rides the
+dialog's rank against the rest of the scale instead of competing with it — no
+new token, no scale change, no spec delta. It also lands inside the dialog's
+focus trap (where the pre-change inline panel already was) and inside the
+escape-stack's notion of the dialog. The composer/card case is untouched: no
+provider above it → `null` → `body`, still escaping every ancestor context.
+
+`position: fixed` keeps the panel unclipped by the panel's `overflow-y-auto`, as
+a fixed box's containing block is the viewport (no `transform`/`filter`/
+`contain` on the chain). Confirmed in the browser.
+
 ## Risks
 
 | Risk | Mitigation |
 |---|---|
 | **Existing tests break.** `ThinkingLevelSelector.test.tsx` scopes every assertion to `container.querySelector('[data-testid="thinking-level-dropdown"]')`. A portal renders to `document.body`, *outside* `container` — these go null. | Expected and diagnostic, not incidental: a red test here proves the portal works. Re-scope to `screen` / `baseElement`. Confirmed at `ThinkingLevelSelector.test.tsx:16,27,35,45`. |
-| **OpenSpec dialogs re-mount both selectors** (`components/openspec/useOpenSpecRunConfigRow.tsx`). A popover portaled to `body` must still sit above a dialog that is itself portaled. | `z-popover` (40) is *below* `z-dialog` (50) on the scale — verify the dropdown is not occluded by its own host dialog. Covered by `OpenSpecRunConfig.test.tsx` plus a manual check. |
+| **OpenSpec dialogs re-mount both selectors** (`components/openspec/useOpenSpecRunConfigRow.tsx`). A popover portaled to `body` must still sit above a dialog that is itself portaled. | **Occurred.** `z-popover` (40) is *below* `z-dialog` (50) on the scale, and the dropdown WAS occluded by its own host dialog. Resolved by Decision 4 (nearest layer host); locked in by `OpenSpecRunConfig.test.tsx` §"popover layering inside a real Dialog" + `LayerPortal.test.tsx`. |
 | Panel detaches from trigger on scroll. | `usePopoverFlip` already re-measures on scroll/resize (capture-phase) — the behaviour the spec's trigger-rect scenario requires. No new work; verify. |
 
 ## Verification
 
 1. `z-layer-lint.mjs` passes with the 2 baseline entries deleted (proves no raw `z-` remains in either file).
 2. Unit tests green after re-scoping.
-3. Manual, at the reported breakpoint: open the model dropdown upward in the composer — no occlusion, no clipping, first row clickable; repeat for the thinking-level selector and inside an OpenSpec run-config dialog.
+3. Manual, at the reported breakpoint: open the model dropdown upward in the composer — no occlusion, no clipping, first row clickable; repeat for the thinking-level selector and inside an OpenSpec run-config dialog. Run it on an isolated stack (`isolated-ui-verification`), not the live `:8000` instance.

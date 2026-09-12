@@ -505,10 +505,14 @@ describe("SettingsPanel", () => {
     await waitFor(() => screen.getByTestId("preferred-models-editor"));
 
     // Open the "Add model" selector and pick the one available model.
+    // The TRIGGER stays inside the editor, but the open panel is portaled to
+    // the layer root — its rows are only reachable from `screen`. Exactly one
+    // dropdown is open at a time, so the query is unambiguous.
+    // See change: fix-composer-popover-layering.
     const editor = screen.getByTestId("preferred-models-editor");
     fireEvent.click(within(editor).getByTestId("model-selector-button"));
-    await waitFor(() => within(editor).getByTestId("model-row"));
-    fireEvent.click(within(editor).getByTestId("model-row"));
+    await waitFor(() => screen.getByTestId("model-row"));
+    fireEvent.click(screen.getByTestId("model-row"));
 
     fireEvent.click(screen.getAllByTestId("save-btn")[0]);
 
@@ -552,10 +556,11 @@ describe("SettingsPanel", () => {
     const editor = screen.getByTestId("model-aliases-editor");
     fireEvent.click(within(editor).getByTestId("add-alias-button"));
     fireEvent.change(within(editor).getByTestId("alias-key-0"), { target: { value: "claude" } });
-    // Pick the alias target from the ModelSelector.
+    // Pick the alias target from the ModelSelector (panel is portaled — rows
+    // resolve from `screen`). See change: fix-composer-popover-layering.
     fireEvent.click(within(editor).getByTestId("model-selector-button"));
-    await waitFor(() => within(editor).getByTestId("model-row"));
-    fireEvent.click(within(editor).getByTestId("model-row"));
+    await waitFor(() => screen.getByTestId("model-row"));
+    fireEvent.click(screen.getByTestId("model-row"));
 
     fireEvent.click(screen.getAllByTestId("save-btn")[0]);
 
@@ -719,10 +724,13 @@ describe("SettingsPanel default thinking level", () => {
     { provider: "anthropic", id: "claude", supportedThinkingLevels: ["off", "low", "medium"] },
   ];
 
+  // The trigger lives inside the selector container; the open dropdown is
+  // portaled to the layer root, so it resolves from `screen`, not `within`.
+  // See change: fix-composer-popover-layering.
   function openThinkingDropdown() {
     const selector = screen.getByTestId("thinking-level-selector");
     fireEvent.click(within(selector).getByTestId("thinking-level-button"));
-    return within(selector).getByTestId("thinking-level-dropdown");
+    return screen.getByTestId("thinking-level-dropdown");
   }
 
   beforeEach(() => {
@@ -1127,8 +1135,10 @@ describe("SettingsPanel model catalogue", () => {
     await waitFor(() => screen.getByTestId("preferred-models-editor"));
     const editor = screen.getByTestId("preferred-models-editor");
     fireEvent.click(within(editor).getByTestId("model-selector-button"));
-    await waitFor(() => within(editor).getByTestId("model-row"));
-    const proxyLabels = within(editor).getAllByTestId("model-row").map((r) => r.textContent ?? "");
+    await waitFor(() => screen.getByTestId("model-row"));
+    // Portaled panel — rows resolve from `screen`; only the proxy editor's
+    // dropdown is open. See change: fix-composer-popover-layering.
+    const proxyLabels = screen.getAllByTestId("model-row").map((r) => r.textContent ?? "");
     expect(proxyLabels.some((l) => l.includes("gpt-5"))).toBe(true);
     expect(proxyLabels.some((l) => l.includes("claude-4"))).toBe(false);
   });
@@ -1240,7 +1250,8 @@ describe("SettingsPanel model catalogue", () => {
     const editor = await screen.findByTestId("preferred-models-editor");
     fireEvent.click(within(editor).getByTestId("model-selector-button"));
     await waitFor(() => {
-      const labels = within(editor).getAllByTestId("model-row").map((r) => r.textContent ?? "");
+      // Portaled panel — see change: fix-composer-popover-layering.
+      const labels = screen.getAllByTestId("model-row").map((r) => r.textContent ?? "");
       expect(labels.some((l) => l.includes("r1-model"))).toBe(true);
       expect(labels.some((l) => l.includes("r2-model"))).toBe(false);
     });

@@ -9,3 +9,11 @@ See change: fix-popover-container-clip — ModelSelector opts into the horizonta
 - Applies BOTH `minHeight` and `maxHeight` from `usePopoverFlip` (`style={{ width, maxHeight, minHeight }}`). `maxHeight` is the pane-measured bound; `minHeight` the floor capped by it.
 - Opts into `minPopoverHeight: LIST_POPOVER_MIN_HEIGHT` (260) — the list filters as you type, so without a generous floor it collapses to a sliver.
 - Height is content-driven BY CSS: outer `flex flex-col overflow-hidden` box carries both bounds, inner list keeps `flex-1 min-h-0 overflow-y-auto`. No JS content measurement.
+
+## fix-composer-popover-layering
+
+- Open panel wrapped in `LayerPortal` (escapes ancestor stacking contexts + `overflow` clips); `absolute … z-50` + `left-0/right-0/top-full/bottom-full` classes replaced by `fixed z-popover`.
+- Panel positions itself from `usePopoverFlip`'s `triggerRect` (`GAP = 4`, `flipUp`/`anchorRight` branches). `visibility` guard hides the pre-measure `(0,0)` frame.
+- Outside-click now checks `panelRef` BEFORE `triggerRef` (a portaled panel is no longer a DOM descendant of the trigger container, so every in-panel click read as "outside"); `touchstart` added beside `mousedown`.
+- Inside a `Dialog` the portal target is the dialog panel, not `body` — see `LayerPortal`'s `LayerHostContext`.
+- Portaling moves the panel OUT of the component container: tests must query it via `screen`/`baseElement`, not `within(container)`.

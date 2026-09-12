@@ -1,3 +1,4 @@
+import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import type { ProviderRefreshError } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { ModelInfo, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiAlertOutline, mdiBrain, mdiChevronDown, mdiCog, mdiEye, mdiLoading, mdiStar, mdiStarOutline } from "@mdi/js";
@@ -84,6 +85,11 @@ interface Props {
 
 const labelOf = (m: ModelInfo) => `${m.provider}/${m.id}`;
 const ctxFmt = (n: number) => (n >= 1_000_000 ? `${n / 1_000_000}M` : `${Math.round(n / 1000)}k`);
+
+// Trigger→panel gap for the portaled `fixed` panel — replaces the `mt-1` /
+// `mb-1` the inline form got from flow (a portaled panel has no flow sibling).
+// See change: fix-composer-popover-layering.
+const GAP = 4;
 
 /**
  * One capability icon (MDI) with optional uncertainty `?` overlay.
@@ -365,6 +371,7 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const dropdownId = useId();
   // Opt into the horizontal axis, left-preserving: this `left-0` 320px dropdown
   // must flip (not silently swap to right-0) when its composer pane is too
@@ -372,7 +379,7 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
   // ~280px. `boundaryRef` is the composer/chat pane when rendered there (else
   // viewport). See change: fix-popover-container-clip.
   const boundaryRef = usePopoverBoundary();
-  const { flipUp, maxHeight, minHeight, anchorRight, maxWidth } = usePopoverFlip(triggerRef, {
+  const { flipUp, maxHeight, minHeight, anchorRight, maxWidth, triggerRect } = usePopoverFlip(triggerRef, {
     open,
     estimatedWidth: 320, // 20rem natural width
     minContentWidth: 280, // readable floor for the provider/model grid
@@ -445,14 +452,26 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
     }
   }, [open]);
 
-  // Close on outside click
+  // Close on outside click / touch. The panel is PORTALED to the layer root,
+  // so it is no longer a DOM descendant of the container — every in-panel
+  // mousedown would otherwise read as "outside" and close the menu before a
+  // selection registers. `panelRef` is checked FIRST: the trigger toggles, so
+  // letting a panel click fall through to it would close-then-reopen.
+  // See change: fix-composer-popover-layering (pattern: FolderActionsMenu).
   useEffect(() => {
     if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+    const handler = (e: Event) => {
+      const target = e.target as Node;
+      if (panelRef.current?.contains(target)) return;
+      if (triggerRef.current?.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("touchstart", handler);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("touchstart", handler);
+    };
   }, [open]);
 
   // Scroll selected item into view
@@ -566,16 +585,37 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
       </button>
 
       {open && (
-        <div
-          className={`absolute flex flex-col bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg shadow-lg z-50 overflow-hidden ${
-            anchorRight ? "right-0" : "left-0"
-          } ${flipUp ? "bottom-full mb-1" : "top-full mt-1"}`}
-          // Natural width 320px, capped by the pane-aware `maxWidth` (the hook
-          // flips before it would squish below `minContentWidth`).
-          style={{ width: Math.min(320, maxWidth), maxHeight, minHeight }}
-          data-testid="model-dropdown"
-          id={dropdownId}
-        >
+        // Portaled to the layer root (escapes the composer's stacking context
+        // + overflow clip — the underlap fix) and positioned `fixed` from the
+        // trigger's viewport rect. GAP replaces the mt-1/mb-1 a portaled panel
+        // has no flow sibling to get; `visibility` hides the pre-measure frame
+        // so the panel never flashes at (0,0). See change:
+        // fix-composer-popover-layering (pattern: FolderActionsMenu).
+        <LayerPortal>
+          <div
+            ref={panelRef}
+            className="fixed flex flex-col bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg shadow-lg z-popover overflow-hidden"
+            style={{
+              // Natural width 320px, capped by the pane-aware `maxWidth` (the
+              // hook flips before it would squish below `minContentWidth`).
+              width: Math.min(320, maxWidth),
+              maxHeight,
+              minHeight,
+              visibility: triggerRect ? "visible" : "hidden",
+              ...(triggerRect
+                ? flipUp
+                  ? { bottom: Math.round(window.innerHeight - triggerRect.top + GAP) }
+                  : { top: Math.round(triggerRect.bottom + GAP) }
+                : {}),
+              ...(triggerRect
+                ? anchorRight
+                  ? { right: Math.max(0, Math.round(window.innerWidth - triggerRect.right)) }
+                  : { left: Math.round(triggerRect.left) }
+                : {}),
+            }}
+            data-testid="model-dropdown"
+            id={dropdownId}
+          >
           {hasModels ? (
             <PopulatedCatalogueBody
               filter={filter}
@@ -598,7 +638,8 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
           ) : (
             <EmptyCatalogueBody awaitingRefresh={awaitingRefresh} failCount={failCount} onOpenProviderSettings={onOpenProviderSettings} />
           )}
-        </div>
+          </div>
+        </LayerPortal>
       )}
     </div>
   );
