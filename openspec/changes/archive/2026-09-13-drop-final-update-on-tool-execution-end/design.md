@@ -168,12 +168,15 @@ would render.
 **Choice.** Add `collapseOnEnd(buf, stored)`: return unless
 `stored.event.eventType === "tool_execution_end"`; read `toolCallId` (D5:
 absent ⇒ no-op); `entry = collapseIndex.get(id)` (absent ⇒ no-op — nothing was
-retained); if `entry.creatingSeq !== undefined && entry.newestSeq !== undefined &&
-entry.newestSeq !== entry.creatingSeq`, call `dropIfSuperseded(buf, entry.newestSeq, id,
-stored.event)` with the end-side gate; on drop set `entry.newestSeq =
-entry.creatingSeq` (the index now points at the pin; a non-subsumed middle
-update the parent retained may still sit between pin and end — the index
-never tracked those and still does not). Called from
+retained); if `entry.newestSeq === undefined || entry.newestSeq ===
+entry.creatingSeq` return; otherwise resolve pin RESIDENCY against the BUFFER
+(`entry.creatingSeq !== undefined && findIndexBySeq(buf, entry.creatingSeq) !==
+-1`), pick the end-side gate (`endSubsumes` when resident, else
+`endSubsumesUnlessAgentTail`), and call
+`dropIfSuperseded(buf, entry.newestSeq, id, stored.event, gate)`; on drop set
+`entry.newestSeq = entry.creatingSeq` (the index now points at the pin; a
+non-subsumed middle update the parent retained may still sit between pin and
+end — the index never tracked those and still does not). Called from
 `insertEvent` immediately after `collapseSuperseded` (same position:
 post-truncate so a `{__truncated}` end carries no `toolCallId` and no-ops,
 and an over-ceiling Agent end that took the `reduceSubagentEvent` path is
@@ -181,16 +184,23 @@ gated on its REDUCED stored shape — which keeps `toolCallId` and a non-empty
 sentinel `entries`, so `entriesSurvive` still holds; pre-trim so shed
 policies see the collapsed buffer).
 
-**Why require a RESIDENT pin (`creatingSeq !== undefined`).**
-`pruneCollapseIndex` releases `creatingSeq` once the pin is trimmed. With no
-retained event for the agent before the tail, the tail becomes the FIRST
-hydrating event: the reducer seeds `type`/`description` first-wins
-(`existingSub?.x ?? details.x`) from it, and the end never overrides them.
-`keysSurvive` is type-only, so a same-typed value difference would fold
-differently. A resident pin has already seeded both fields, making the
-tail's values irrelevant. Without a pin, retain. (If the call's
-`tool_execution_start` was trimmed, hydration no-ops for every update —
-`idx === -1` — so that corner needs nothing.)
+**Why require a RESIDENT pin (buffer-resident, NOT merely `creatingSeq !==
+undefined`).** `pruneCollapseIndex` releases `creatingSeq` once the pin's seq
+falls below the buffer floor — but `trimBufferToLimit` drops oldest
+NON-essential first while KEEPING older essentials, so the pin can be holed out
+while `minSeq` stays below it and the release never fires. Residency is
+therefore checked against the buffer (`findIndexBySeq`); a defined-but-absent
+pin is treated as absent (test S4b). With no retained event for the agent
+before the tail, the tail becomes the FIRST hydrating event: the reducer seeds
+`type`/`description` first-wins (`existingSub?.x ?? details.x`) from it, and the
+end never overrides them. `keysSurvive` is type-only, so a same-typed value
+difference would fold differently. A resident pin has already seeded both
+fields, making the tail's values irrelevant. The guard applies ONLY to
+Agent-shaped tails (`details.agentId` string): a non-Agent tail sets no
+`agentId`, seeds nothing first-wins, and drops freely (D2, "Non-Agent tools fall
+out correctly"). Without a resident pin, an Agent-shaped tail is RETAINED. (If
+the call's `tool_execution_start` was trimmed, hydration no-ops for every update
+— `idx === -1` — so that corner needs nothing.)
 
 **Why keep the index entry.** The pin (`creatingSeq`) must survive the end:
 the first-wins `type`/`description` live only there. Deleting the entry would

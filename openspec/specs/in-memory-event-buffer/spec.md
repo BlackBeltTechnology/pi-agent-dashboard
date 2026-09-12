@@ -3,7 +3,9 @@
 In-memory per-session event buffer for the dashboard server: stores forwarded
 `DashboardEvent`s, serves them for replay, bounds memory via a per-session event
 cap and LRU session eviction.
+
 ## Requirements
+
 ### Requirement: In-memory event storage
 The dashboard server SHALL store events in an in-memory `Map<sessionId, { events: StoredEvent[], lastAccess: number }>` instead of SQLite. The EventStore interface (`insertEvent`, `getEvents`, `getEvent`, `deleteEventsForSession`, `hasEvents`, `sessionCount`) SHALL be preserved so consumers (browser-gateway, server) remain unchanged. The EventStore SHALL additionally expose `getMaxSeq(sessionId): number` to return the highest stored sequence number for a session.
 
@@ -772,3 +774,65 @@ bytes at send) is a separate transport change; see design D9.
   buffer still retains
 - **AND** the newest update per `toolCallId` SHALL be among them
 
+### Requirement: The retained tail update SHALL be dropped on `tool_execution_end` ONLY when the end event subsumes it
+
+When `tool_execution_end` arrives for a `toolCallId`, the store MAY drop that
+call's retained tail `tool_execution_update` — but ONLY when the end event's
+`details` subsume the tail's `details` under the SAME superset predicates the
+collapse already uses (key survival, entries survival, rendered-result
+implication), resolved from the end event the way the client reducer resolves
+it (top-level `data.details`, `data.result`). A tail that carries `details`
+(even empty) SHALL NOT be dropped by an end that carries none. Absent verified
+subsumption the tail SHALL be retained.
+
+Two further conditions SHALL hold before a drop:
+
+- **Identity.** When the tail resolves a string `details.agentId`, the end SHALL
+  carry `toolName === "Agent"` AND the SAME `agentId` AND, when the tail carries
+  an `agentSessionId`, the SAME `agentSessionId`.
+- **Resident pin.** When the tail carries a string `details.agentId`, its
+  creating tick — the first update carrying that `agentId`, whose values seed the
+  reducer's first-wins `type`/`description` — SHALL still be resident in the
+  buffer. A trimmed or absent pin SHALL retain the tail.
+
+Rationale: updates resolve `details` from `data.partialResult.details`, ends from
+top-level `data.details`, and the client reducer treats them as distinct
+branches. Equivalence is therefore a claim about a specific producer version, not
+a property of the protocol.
+
+#### Scenario: A subsuming end event drops the tail
+
+- **GIVEN** a retained tail `tool_execution_update` for a `toolCallId`
+- **WHEN** a `tool_execution_end` arrives whose `details` subsume the tail's
+- **THEN** the tail SHALL be dropped
+- **AND** `storeTrim.collapsedUpdates` SHALL account for it
+- **AND** a replay SHALL fold to the same rendered state as before the drop
+
+#### Scenario: A non-subsuming end event retains the tail
+
+- **GIVEN** a retained tail update carrying a field the end event omits, or
+  holding a different JS type for a shared key
+- **WHEN** the `tool_execution_end` arrives
+- **THEN** the tail SHALL be RETAINED
+- **AND** the rendered subagent state SHALL be unchanged by the arrival
+
+#### Scenario: A mismatched end identity retains the tail
+
+- **GIVEN** a retained tail update carrying a string `details.agentId`
+- **WHEN** a `tool_execution_end` arrives whose `toolName` is not `Agent`, or
+  whose `details.agentId`/`details.agentSessionId` differ from the tail's
+- **THEN** the tail SHALL be RETAINED
+
+#### Scenario: A trimmed creating pin retains an Agent-shaped tail
+
+- **GIVEN** a retained Agent-shaped tail update whose creating pin is no longer
+  resident in the buffer
+- **WHEN** a subsuming `tool_execution_end` arrives
+- **THEN** the tail SHALL be RETAINED
+
+#### Scenario: Cross-version equivalence is verified before any drop is enabled
+
+- **GIVEN** more than one `pi-dashboard-subagents` version in the field
+- **WHEN** the drop is enabled
+- **THEN** subsumption SHALL have been verified for each version, and any version
+  failing it SHALL keep the tail rather than be assumed equivalent

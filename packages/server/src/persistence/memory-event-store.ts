@@ -113,8 +113,11 @@ export interface TrimStats {
   evictedSessions: number;
   /**
    * Cumulative count of superseded `tool_execution_update` events removed by
-   * the retention collapse. ADDITIVE `/api/health` field.
+   * the retention collapse — both the update-superseded drop and the
+   * end-triggered tail drop (`tool_execution_end` subsuming the tail).
+   * ADDITIVE `/api/health` field.
    * See change: collapse-superseded-tool-execution-updates (D9).
+   * See change: drop-final-update-on-tool-execution-end.
    */
   collapsedUpdates: number;
   /**
@@ -263,7 +266,9 @@ function trimBufferToLimit(
 }
 
 // ---- Superseded `tool_execution_update` collapse (D5/D6/D7) ----
+// ---- END-triggered tail drop (drop-final-update-on-tool-execution-end) ----
 // See change: collapse-superseded-tool-execution-updates.
+// See change: drop-final-update-on-tool-execution-end.
 
 /**
  * Resolve an update's subagent `details` as `data.partialResult.details` ONLY.
@@ -349,15 +354,87 @@ function entriesSurvive(pd: Record<string, unknown>, sd: Record<string, unknown>
   return Array.isArray(sd.entries) && sd.entries.length > 0;
 }
 
-function subsumes(p: DashboardEvent, s: DashboardEvent): boolean {
-  const dp = resolveUpdateDetails(p);
-  const ds = resolveUpdateDetails(s);
-  const pd = dp ?? {};
-  const sd = ds ?? {};
+/**
+ * Details-level gate SHARED by the update path and the end path: may
+ * predecessor details `pd` (with `pSetsResult`) be dropped in favour of
+ * successor details `sd` (with `sSetsResult`)?
+ */
+function subsumesDetails(
+  pd: Record<string, unknown>,
+  sd: Record<string, unknown>,
+  pSetsResult: boolean,
+  sSetsResult: boolean,
+): boolean {
   if (!keysSurvive(pd, sd)) return false;
   if (!entriesSurvive(pd, sd)) return false;
-  return !setsRenderedResult(p) || setsRenderedResult(s);
+  return !pSetsResult || sSetsResult;
 }
+
+function subsumes(p: DashboardEvent, s: DashboardEvent): boolean {
+  return subsumesDetails(
+    resolveUpdateDetails(p) ?? {},
+    resolveUpdateDetails(s) ?? {},
+    setsRenderedResult(p),
+    setsRenderedResult(s),
+  );
+}
+
+/**
+ * Resolve an END's subagent `details` as top-level `data.details` when it is a
+ * plain object (non-null, non-array). Mirrors the client reducer's
+ * `tool_execution_end` branch, which reads `data.details` — a DIFFERENT field
+ * from the update branch's `data.partialResult.details` (D2).
+ */
+function resolveEndDetails(event: DashboardEvent): Record<string, unknown> | undefined {
+  const details = (event.data as Record<string, unknown> | undefined)?.details;
+  if (!details || typeof details !== "object" || Array.isArray(details)) return undefined;
+  return details as Record<string, unknown>;
+}
+
+/**
+ * Is the update's raw `partialResult.details` TRUTHY (any value, even `{}` or a
+ * truthy non-object)? The D2 presence rule keys on truthiness, not on
+ * `resolveUpdateDetails`, because the reducer writes `toolDetails` wholesale for
+ * a truthy `details` regardless of its type.
+ */
+function hasTruthyUpdateDetails(event: DashboardEvent): boolean {
+  const pr = (event.data as Record<string, unknown> | undefined)?.partialResult;
+  if (!pr || typeof pr !== "object") return false;
+  return Boolean((pr as Record<string, unknown>).details);
+}
+
+/** The reducer's end-side rendered-result predicate: `result ? set : keep`. */
+function endSetsRenderedResult(event: DashboardEvent): boolean {
+  return Boolean((event.data as Record<string, unknown> | undefined)?.result);
+}
+
+/**
+ * D2 END-side gate: may the retained tail `tool_execution_update` be dropped in
+ * favour of the `tool_execution_end` `end`? Reuses the SAME `subsumesDetails`
+ * predicates, resolved from the consumer's END-side fields (`data.details`,
+ * `data.result`), plus two additive fail-closed rules the update path needs not:
+ *  - presence: a truthy tail `details` the end does not replace as a plain
+ *    object would leak the pin's `toolDetails` into the folded end state (the
+ *    tail REPLACES `toolDetails`; an end without `data.details` MERGES it);
+ *  - identity: the `subagents` map is dual-indexed by VALUE and its end backfill
+ *    only runs when `toolName === "Agent"` — `keysSurvive` is type-only.
+ * See change: drop-final-update-on-tool-execution-end.
+ */
+function endSubsumes(tail: DashboardEvent, end: DashboardEvent): boolean {
+  const pd = resolveUpdateDetails(tail);
+  const sd = resolveEndDetails(end);
+  if (hasTruthyUpdateDetails(tail) && sd === undefined) return false;
+  if (pd && typeof pd.agentId === "string") {
+    const toolName = (end.data as Record<string, unknown> | undefined)?.toolName;
+    if (toolName !== "Agent") return false;
+    if (sd?.agentId !== pd.agentId) return false;
+    if (pd.agentSessionId !== undefined && sd?.agentSessionId !== pd.agentSessionId) return false;
+  }
+  return subsumesDetails(pd ?? {}, sd ?? {}, setsRenderedResult(tail), endSetsRenderedResult(end));
+}
+
+/** Test-only alias for the end-side gate. See change: drop-final-update-on-tool-execution-end. */
+export const __testEndSubsumes = endSubsumes;
 
 /** `data.toolCallId` when it is a string — else undefined (D5 fail-open). */
 function readToolCallId(event: DashboardEvent): string | undefined {
@@ -1150,26 +1227,50 @@ export function createMemoryEventStore(
   }
 
   /**
+   * Is `seq` resident in the seq-ascending buffer? Binary search — O(log n),
+   * unlike `findIndexBySeq`'s tail-ward scan, whose cost is the distance from
+   * the tail. The D3 pin-residency check looks for a typically OLD pin, where
+   * that distance can be the whole buffer; this keeps one end insertion from
+   * examining ~20 000 events. Does not touch the collapse probes.
+   * See change: drop-final-update-on-tool-execution-end.
+   */
+  function isSeqResident(buf: SessionBuffer, seq: number): boolean {
+    let lo = 0;
+    let hi = buf.events.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >>> 1;
+      const s = buf.events[mid].seq;
+      if (s === seq) return true;
+      if (s < seq) lo = mid + 1;
+      else hi = mid - 1;
+    }
+    return false;
+  }
+
+  /**
    * D6.2 VERIFIED removal: resolve `prevSeq`, confirm the located entry is
    * still a `tool_execution_update` carrying `toolCallId`, and only then test
-   * subsumption and splice. An unresolved lookup (trim already dropped it) is a
-   * no-op — a negative index must NEVER reach `splice`, which would delete the
-   * buffer's LAST element (the max-seq event).
+   * subsumption (`gate`, defaulting to the update-path gate) and splice. An
+   * unresolved lookup (trim already dropped it) is a no-op — a negative index
+   * must NEVER reach `splice`, which would delete the buffer's LAST element
+   * (the max-seq event). Returns whether a drop happened.
    */
   function dropIfSuperseded(
     buf: SessionBuffer,
     prevSeq: number,
     toolCallId: string,
     successor: DashboardEvent,
-  ): void {
+    gate: (candidate: DashboardEvent, successor: DashboardEvent) => boolean = subsumes,
+  ): boolean {
     const i = findIndexBySeq(buf, prevSeq);
-    if (i === -1) return;
+    if (i === -1) return false;
     const candidate = buf.events[i];
-    if (candidate.event.eventType !== "tool_execution_update") return;
-    if (readToolCallId(candidate.event) !== toolCallId) return;
-    if (!subsumes(candidate.event, successor)) return;
+    if (candidate.event.eventType !== "tool_execution_update") return false;
+    if (readToolCallId(candidate.event) !== toolCallId) return false;
+    if (!gate(candidate.event, successor)) return false;
     buf.events.splice(i, 1);
     collapsedUpdatesTotal++;
+    return true;
   }
 
   /**
@@ -1241,6 +1342,55 @@ export function createMemoryEventStore(
     }
   }
 
+  /**
+   * Drop the retained tail `tool_execution_update` when the just-inserted
+   * `tool_execution_end` subsumes it under the END-side gate (D2/D3). Fail-open
+   * (cost: retention only) on a missing `toolCallId` (including the truncated
+   * `{__truncated}` placeholder), an absent index entry, no distinct retained
+   * tail, and the no-resident-pin guard.
+   * See change: drop-final-update-on-tool-execution-end.
+   */
+  function collapseOnEnd(buf: SessionBuffer, stored: StoredEvent): void {
+    if (stored.event.eventType !== "tool_execution_end") return;
+    const toolCallId = readToolCallId(stored.event);
+    if (toolCallId === undefined) return;
+    const entry = buf.collapseIndex.get(toolCallId);
+    if (!entry) return;
+    const prevSeq = entry.newestSeq;
+    // No retained tail, or the retained event IS the pinned creating tick —
+    // D7's pin is never a collapse candidate.
+    if (prevSeq === undefined || prevSeq === entry.creatingSeq) return;
+    // D3 resident-pin guard: an AGENT-shaped tail with no RESIDENT pin would be
+    // the FIRST hydrating event, seeding the reducer's first-wins
+    // `type`/`description`; dropping it would lose those values. Non-Agent
+    // tails carry no `agentId`, so the guard does not apply to them.
+    //
+    // Residency is checked against the BUFFER, not `creatingSeq !== undefined`.
+    // `trimBufferToLimit` drops oldest non-essential first while older
+    // ESSENTIALS survive, so it can hole out the pin while `minSeq` stays below
+    // it — `pruneCollapseIndex`'s `creatingSeq < minSeq` release then never
+    // fires, and a `defined`-only guard would drop with no resident pin.
+    const pinResident =
+      entry.creatingSeq !== undefined && isSeqResident(buf, entry.creatingSeq);
+    const gate = pinResident ? endSubsumes : endSubsumesUnlessAgentTail;
+    // Only re-point the index when the drop ACTUALLY happened: a non-subsuming
+    // end must leave `newestSeq` on the retained tail (a later update still
+    // collapses against it — X7).
+    if (dropIfSuperseded(buf, prevSeq, toolCallId, stored.event, gate)) {
+      // Point the index at the pin. `undefined` would make `pruneCollapseIndex`
+      // delete the entry at the next trim, voiding the pin; the pin is the
+      // degenerate single-update state the index already represents.
+      entry.newestSeq = entry.creatingSeq;
+    }
+  }
+
+  /** D3 resident-pin guard: refuse an Agent-shaped tail when no pin is resident. */
+  function endSubsumesUnlessAgentTail(tail: DashboardEvent, end: DashboardEvent): boolean {
+    const pd = resolveUpdateDetails(tail);
+    if (pd && typeof pd.agentId === "string") return false;
+    return endSubsumes(tail, end);
+  }
+
   return {
     insertEvent(sessionId: string, event: DashboardEvent): number {
       const buf = getOrCreate(sessionId);
@@ -1254,6 +1404,11 @@ export function createMemoryEventStore(
       // policies see the already-collapsed buffer.
       // See change: collapse-superseded-tool-execution-updates (D1, task 2.3).
       collapseSuperseded(buf, stored);
+      // Drop the retained tail when this `tool_execution_end` subsumes it, at
+      // the SAME position (post-truncate so a `{__truncated}` end no-ops;
+      // pre-trim so shed policies see the collapsed buffer).
+      // See change: drop-final-update-on-tool-execution-end (D3).
+      collapseOnEnd(buf, stored);
       // Trim over the per-session limit (0 = unlimited). Hysteresis: only
       // reclaim once the buffer overshoots the cap by TRIM_SLACK, then trim
       // back to the cap in one O(n) pass. This amortizes the trim cost to O(1)
