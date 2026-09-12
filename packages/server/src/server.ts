@@ -2121,8 +2121,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 // change: detach-automation-goal-from-core,
                 // relocate-goal-product-to-plugin (D1-#1).
                 const requested = typeof opts.spawnToken === "string" ? opts.spawnToken : "";
-                const spawnToken =
-                  requested && !requested.includes("\0") ? requested : mintSpawnToken();
+                if (requested && requested.includes("\0")) {
+                  // A NUL cannot survive argv/registry round-trips — honouring
+                  // "used verbatim" means refusing, not silently re-minting a
+                  // token the caller's persisted state would never match.
+                  return { success: false, message: "spawnToken must not contain NUL" };
+                }
+                const spawnToken = requested || mintSpawnToken();
                 if (requested && pendingPluginRefRegistry.has(spawnToken)) {
                   return {
                     success: false,
@@ -2265,7 +2270,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 if (!trusted) return false;
                 if (typeof name !== "string" || name.length === 0) return false;
                 if (!sessionManager.get(sessionId)) return false;
-                const updates = { name: name || undefined };
+                // Empty names never reach here (rejected above, E9) — the
+                // host's old `name || undefined` normalization is dead by
+                // design; see relocate-goal-product-to-plugin (D1-#4 note).
+                const updates = { name };
                 sessionManager.update(sessionId, updates);
                 browserGateway.broadcastSessionUpdated(sessionId, updates);
                 piGateway.sendToSession(sessionId, { type: "rename_session", sessionId, name });

@@ -194,35 +194,6 @@ export interface PluginSpawnOptions {
    * (`PI_EXT_<NAME>_<KEY>`) rather than argv. See change:
    * add-plugin-spawn-scope.
    */
-  /**
-   * Caller-supplied spawn correlation token, used VERBATIM instead of a
-   * host-minted one. The goal supervisor pre-mints the token and persists it
-   * in `GoalRecord.inFlightSpawn` BEFORE the spawn so a crash mid-spawn is
-   * reconcilable by token after restart — a host-minted token would only be
-   * learnable after `spawnSession` resolves, too late. Trusted-only (same
-   * gate as the spawn itself): the host REJECTS the spawn with
-   * `{ success: false }` when the token is already pending for another
-   * owner. Format: a bare `randomUUID()`. See change:
-   * relocate-goal-product-to-plugin (D1-#1).
-   */
-  spawnToken?: string;
-  /**
-   * Resume a prior pi session instead of creating a fresh one. Mapped by
-   * `pluginSpawnToSessionOptions` to the SESSION-level
-   * `{ sessionFile, mode: "continue" }` pair (the resume respawn path);
-   * the caller-level `mode` run-isolation field above is a different `mode`
-   * on a different type and is untouched. See change:
-   * relocate-goal-product-to-plugin (D1-#2).
-   */
-  resume?: { sessionFile: string };
-  /**
-   * First prompt to dispatch to the spawned session on register (e.g. the
-   * goal supervisor's `/goal …` reprime). Core enqueues it in the per-cwd
-   * pending-initial-prompt FIFO BEFORE the spawn await and consumes it on
-   * spawn failure/throw — the same path a fresh respawn uses today. See
-   * change: relocate-goal-product-to-plugin (D1-#3).
-   */
-  initialPrompt?: string;
   scope?: {
     /** Allowlist → `--tools a,b,c` (comma-joined single arg). */
     tools?: string[];
@@ -247,6 +218,36 @@ export interface PluginSpawnOptions {
      */
     extensionConfig?: Record<string, Record<string, string | string[]>>;
   };
+
+  /**
+   * Caller-supplied spawn correlation token, used VERBATIM instead of a
+   * host-minted one. The goal supervisor pre-mints the token and persists it
+   * in `GoalRecord.inFlightSpawn` BEFORE the spawn so a crash mid-spawn is
+   * reconcilable by token after restart — a host-minted token would only be
+   * learnable after `spawnSession` resolves, too late. Trusted-only (same
+   * gate as the spawn itself): the host REJECTS the spawn with
+   * `{ success: false }` when the token is already pending for another
+   * owner. A NUL-bearing token is REJECTED, not substituted. Format: a bare
+   * `randomUUID()`. See change: relocate-goal-product-to-plugin (D1-#1).
+   */
+  spawnToken?: string;
+  /**
+   * Resume a prior pi session instead of creating a fresh one. Mapped by
+   * `pluginSpawnToSessionOptions` to the SESSION-level
+   * `{ sessionFile, mode: "continue" }` pair (the resume respawn path);
+   * the caller-level `mode` run-isolation field above is a different `mode`
+   * on a different type and is untouched. See change:
+   * relocate-goal-product-to-plugin (D1-#2).
+   */
+  resume?: { sessionFile: string };
+  /**
+   * First prompt to dispatch to the spawned session on register (e.g. the
+   * goal supervisor's `/goal …` reprime). Core enqueues it in the per-cwd
+   * pending-initial-prompt FIFO BEFORE the spawn await and consumes it on
+   * spawn failure/throw — the same path a fresh respawn uses today. See
+   * change: relocate-goal-product-to-plugin (D1-#3).
+   */
+  initialPrompt?: string;
 }
 
 /**
@@ -429,9 +430,10 @@ export type MintSpawnTokenFn = () => string;
  * Rename a live session: in-memory name update + `session_updated` broadcast
  * + `rename_session` dispatch to the pi session. Gated to first-party /
  * trusted plugins; returns `false` for an untrusted caller, an unknown
- * session, or an empty name. The broadcast carries
- * `{ name: name || undefined }` — exactly the normalization the host's own
- * rename path applies. See change: relocate-goal-product-to-plugin (D1-#4).
+ * session, or an empty name — empty names are REJECTED rather than
+ * normalized to `undefined` (an intentional stricter-than-core divergence
+ * pinned by test-plan #E9). See change:
+ * relocate-goal-product-to-plugin (D1-#4).
  */
 export type RenameSessionFn = (sessionId: string, name: string) => boolean;
 

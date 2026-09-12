@@ -202,7 +202,7 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     );
   };
 
-  // ── 6. Supervisor (created below; routes + abort close over it). ──────
+  // ── 6a. Supervisor (created below; routes + abort close over it). ────
   let goalSupervisor: GoalSupervisor | undefined;
 
   // ── 5. REST surface — unchanged `/api/folders/goals*` paths on the host
