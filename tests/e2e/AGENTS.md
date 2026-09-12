@@ -19,7 +19,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `chat-render-perf.spec.ts` | ADVISORY opt-in perf probe for `reduce-chat-render-cpu-umbrella` (tasks 2.8/4.4/5.1). → see `chat-render-perf.spec.ts.AGENTS.md` |
 | `chat-transcript-virtualization.spec.ts` | Browser E2E gate for `virtualize-chat-transcript-tanstack` (Phase 2 Step B) + preserved `chat-scroll-lock`. → see `chat-transcript-virtualization.spec.ts.AGENTS.md` |
 | `compaction-boundary-replay.spec.ts` | L3 for change replay-compaction-boundary (F1/F2). Real `/compact` (canned `session_before_compact` +… → see `compaction-boundary-replay.spec.ts.AGENTS.md` |
-| `origin-gate.spec.ts` | L3 cross-site gates in browser reality (#F1-#F3). Attacker origin served by… → see `origin-gate.spec.ts.AGENTS.md` |
+| `origin-gate.spec.ts` | L3 cross-site gates in browser reality (#F1-#F3): hostile origin refused on `/ws` + `/api/*`,… → see `origin-gate.spec.ts.AGENTS.md` |
 | `csp.spec.ts` | Baseline CSP e2e (§7). Asserts a CSP header (report-only or enforce) present on `/` with… → see `csp.spec.ts.AGENTS.md` |
 | `ctx-running-render.spec.ts` | Browser E2E for `fix-ctx-running-render`. Drives `[[faux:ctx-batch-running]]` (single `ctx_batch_execute`… → see `ctx-running-render.spec.ts.AGENTS.md` |
 | `custom-entry-fallback.spec.ts` | L3 (change: render-inline-reasoning-and-custom-entries, E11). → see `custom-entry-fallback.spec.ts.AGENTS.md` |
