@@ -860,7 +860,16 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     <div
       ref={composerRef}
       data-testid="composer-root"
-      className="border-t border-[var(--border-primary)] p-3 relative"
+      /* Height budget (fix-quota-widget-clipping): the chat pane is
+         `flex-col overflow-hidden`, so once ChatView's grow allocation hits 0 any
+         further furniture growth overflows the pane and the LAST row gets clipped.
+         Bound the composer to a share of the PANE (not a fixed px), so rows below
+         us stay visible and ChatView keeps a share. `min-h-0` lets us yield.
+         Overflow MUST stay visible here: this element is `relative`, so it is the
+         containing block for the autocomplete dropdowns below, which render ABOVE
+         the composer and would be clipped away by a scrollport. The scrolling is
+         delegated to `composer-card` instead — flex-column + `min-h-0` there. */
+      className="border-t border-[var(--border-primary)] p-3 relative flex flex-col min-h-0 max-h-[40%]"
     >
       {/* Autocomplete dropdown — grouped by source with badges + arg hints.
           `left-3 right-3` pins BOTH composer edges, so it stays immune to the
@@ -978,7 +987,10 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
       {/* One unified bordered card: attachments → textarea → inner toolbar. */}
       <div
         data-testid="composer-card"
-        className={`@container bg-[var(--bg-tertiary)] border rounded-xl px-2.5 pt-2 pb-1.5 transition-colors ${
+        /* `min-h-0 overflow-y-auto`: absorbs the pane's height deficit by scrolling
+           its own content, so the composer honours its `max-h-[40%]` bound without
+           clipping the rows below it. See change: fix-quota-widget-clipping. */
+        className={`@container min-h-0 overflow-y-auto bg-[var(--bg-tertiary)] border rounded-xl px-2.5 pt-2 pb-1.5 transition-colors ${
           focused ? "border-[color-mix(in_srgb,var(--accent-primary)_60%,transparent)]" : "border-[var(--border-secondary)]"
         }`}
       >

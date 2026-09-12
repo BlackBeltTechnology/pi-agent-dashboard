@@ -1408,8 +1408,8 @@ export function reduceEvent(
     case "agent_end": {
       // agent_end fires per agent-run iteration (retries / queued follow-ups
       // still pending). It sets the INTERMEDIATE `"ended"` state and clears
-      // streaming; only `agent_settled` (real ≥ 0.80.4, or bridge-synthesized
-      // on floor pi — see bridge agent-settled.ts) resolves `"idle"`. All the
+      // streaming; only `agent_settled` (real ≥ 0.80.4, guaranteed at the
+      // 0.85.1 floor) resolves `"idle"`. All the
       // existing side-effects (last-error extraction, retry/pendingPrompt
       // clearing) stay here; only the `status:"idle"` line moved to the settle
       // arm. See change: adopt-pi-074-080-features (A.1).
@@ -1436,21 +1436,13 @@ export function reduceEvent(
     }
 
     case "agent_settled": {
-      // Floor-pi emits a compatibility settle after every agent_end. While the
-      // bridge still observes pi as busy, this is not terminal: preserve retry
-      // and abort suppression so Retry cannot overlap an automatic attempt.
-      if (data.retryPending === true) {
-        next.isStreaming = false;
-        next.status = "ended";
-        break;
-      }
-      // The single terminal signal that resolves `"idle"`. The bridge
-      // guarantees exactly one per run (real on pi ≥ 0.80.4, synthesized
-      // synchronously after `agent_end` on floor pi), so this arm needs no
-      // version / capability branch and no timer. Defensive on an illegal
-      // settle with no preceding `agent_end` (X2): still resolves idle and
-      // clears streaming without crashing. See change:
-      // adopt-pi-074-080-features (A.1).
+      // The single terminal signal that resolves `"idle"`. pi emits it
+      // exactly once per run (≥ 0.80.4, guaranteed at the 0.85.1 floor), so
+      // this arm needs no version / capability branch and no timer, and no
+      // per-attempt compatibility branch — the bridge no longer synthesizes a
+      // floor-pi settle. Defensive on an illegal settle with no
+      // preceding `agent_end` (X2): still resolves idle and clears streaming
+      // without crashing. See change: update-pi-core-0-85-adopt-apis.
       next.isStreaming = false;
       next.status = "idle";
       // Sole terminal signal for a retry chain — clear the retry state. The

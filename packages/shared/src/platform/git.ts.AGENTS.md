@@ -16,7 +16,7 @@ Recipe-based git API. Thin wrappers over `run()` / `runAsync()` (runner.ts). No 
 
 ## Checkout-root resolution
 
-`GitCheckoutRoots` = `{thisCheckout, isLinkedWorktree, mainCheckout}`. Three fields, never one path. Replaces `dirname(--git-common-dir)`, wrong whenever git dir sits outside its checkout (submodule, worktree-of-submodule, `--separate-git-dir`, bare, worktree-of-bare).
+`GitCheckoutRoots` = `{thisCheckout, isLinkedWorktree, mainCheckout, commonDir}`. Four fields, never one path. Replaces `dirname(--git-common-dir)`, wrong whenever git dir sits outside its checkout (submodule, worktree-of-submodule, `--separate-git-dir`, bare, worktree-of-bare).
 
 `resolveCheckoutRootsFrom(probes, platform?)` — pure, injected thunks. `checkoutRoots({cwd, timeout?})` — canonical wiring over the recipes; every consumer SHOULD use it.
 
@@ -28,7 +28,13 @@ Required probes `GIT_DIR_ABS` + `GIT_COMMON_DIR_ABS`, both `--path-format=absolu
 
 Returned VERBATIM. `core.worktree` is user-controlled and git does not validate it — CONSUMERS validate. `hasGitPathSegment(p, platform?)` = exact path-COMPONENT equality (`/work/app.git` is not rejected).
 
-Fixtures: `test-support/git-fixtures.ts`. Tests: `__tests__/git-checkout-roots.test.ts`. See change: add-git-checkout-root-resolver.
+Fixtures: `test-support/git-fixtures.ts`. Tests: `__tests__/git-checkout-roots.test.ts`. See changes: add-git-checkout-root-resolver, widen-containment-to-resolved-checkout.
+
+`commonDir` = canonical absolute `--git-common-dir`. Repository IDENTITY. NEVER a trust anchor / containment root / admission path. Exists so consumers bind without re-probing cwd.
+
+Async: `resolveCheckoutRootsFromAsync(probes, platform?)` + `checkoutRootsAsync({cwd, timeout?})`. Same pure core, `runAsync` probes. Phases resolve probe VALUES only; gating uses the SAME `isLinked` / `wantsBareness` predicates as the sync core, so wirings cannot drift. Un-run thunk throws → core maps to `"unknown"`. Use on event-loop-sensitive routes.
+
+Binding: `isBoundCheckout(candidate, commonDir, {timeout?})`, `isBoundCheckoutAsync` (same), pure core `isBoundCheckoutFromRoots(candidate, commonDir, roots, platform?)`. Candidate realpath'd, then re-resolved. Bound iff no `.git` segment AND candidate NOT under `commonDir` AND re-resolved `commonDir` samePath AND re-resolved `thisCheckout` samePath candidate. Fail closed: nonexistent / not-a-repo / different repo / probe failure-timeout → false. Shared by file-read containment + kb cwd guard, so "the repository owns this path" has ONE definition. See change: widen-containment-to-resolved-checkout.
 
 ## Parser
 

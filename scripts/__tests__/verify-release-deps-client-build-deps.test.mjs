@@ -31,6 +31,8 @@ const CARRIED = [
   "packages/server/package.json",
   "packages/extension/package.json",
   "docker/Dockerfile",
+  // The pi-pin coherence gate also reads the pinned workspace override.
+  "pnpm-workspace.yaml",
 ];
 
 const tmpDirs = [];

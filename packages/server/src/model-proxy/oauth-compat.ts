@@ -32,10 +32,16 @@ export const OAUTH_INCOMPATIBLE: Record<string, ReadonlySet<string>> = {
     "claude-3-sonnet-20240229",
   ]),
   // openai: new Set([...]) // Codex-token-incompatible ids, populated when needed.
-  // NOTE: Codex OAuth is stored under auth.json key `openai-codex`, while pi-ai
-  // models carry provider `openai`. The registry filter keys on `model.provider`,
-  // so a raw `openai` slot will not see the `openai-codex` cred without a
-  // provider-key remap.
+  // NOTE: the Codex OAuth credential is stored under the auth.json key
+  // `openai-codex`, and the 0.85.1 catalog publishes the Codex-channel models
+  // under `provider: "openai-codex"` — a first-class catalog entry, NOT a
+  // remapped `openai` one (verified: `gpt-6-astra` ships once per channel, each
+  // entry carrying its own provider). The registry filters on `model.provider`
+  // EQUALITY, so the `openai-codex` credential routes the `openai-codex`
+  // entries natively. No provider-key remap is needed, and one MUST NOT be
+  // added: it would make a Codex subscription credential appear to route every
+  // `openai`-provider model, widening credential scope to solve nothing.
+  // See change: update-pi-core-0-85-adopt-apis.
 };
 
 /**
