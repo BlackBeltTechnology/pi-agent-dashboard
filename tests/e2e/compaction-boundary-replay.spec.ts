@@ -119,8 +119,24 @@ async function forceBridgeReplay(page: Page, sessionId: string): Promise<void> {
       intervals: [1_000],
     })
     .toBe(true);
-  // Let the replayed branch land and the client re-reduce it.
-  await page.waitForTimeout(8_000);
+
+  // Terminal condition for the register-wipe → replay cycle: the client clears
+  // the transcript on `session_state_reset` and the replayed frames rebuild it.
+  // The replay ends when frames stop arriving, so poll until the rendered row
+  // count is non-zero and unchanged across samples. A fixed sleep either races
+  // a slow replay or (worse) samples before a late duplicate lands.
+  let previousRows = -1;
+  await expect
+    .poll(
+      async () => {
+        const rows = await page.getByText(/done thinking/).count();
+        const settled = rows > 0 && rows === previousRows;
+        previousRows = rows;
+        return settled;
+      },
+      { timeout: 60_000, intervals: [500] },
+    )
+    .toBe(true);
 }
 
 /** y-order of the first visible match for each text, top to bottom. */
