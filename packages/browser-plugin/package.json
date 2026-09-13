@@ -1,0 +1,79 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-browser-plugin",
+  "version": "0.8.0",
+  "description": "Dashboard plugin relaying CDP from the user's real logged-in Chrome (Playwright Chrome Extension, Apache-2.0 vendored relay) to pi sessions: per-profile connect/disconnect, SSO pairing tokens (write-only), navigation guardrails, screencast live-view tiles. Server vendors playwright-core's CDP relay under relay/vendor/ (see NOTICE). Disabled by default (defaultEnabled: false) — opt in via settings.",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/browser-plugin"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/client/index.tsx",
+      "default": "./src/client/index.tsx"
+    },
+    "./client": {
+      "types": "./src/client/index.tsx",
+      "default": "./src/client/index.tsx"
+    },
+    "./server": {
+      "types": "./src/server/index.ts",
+      "default": "./src/server/index.ts"
+    }
+  },
+  "files": [
+    "src/",
+    "configSchema.json",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
+  ],
+  "pi-dashboard-plugin": {
+    "id": "browser",
+    "displayName": "Browser Relay",
+    "i18nCatalog": "catalog",
+    "priority": 500,
+    "client": "./src/client/index.tsx",
+    "server": "./src/server/index.ts",
+    "configSchema": "./configSchema.json",
+    "defaultEnabled": false,
+    "claims": [
+      {
+        "slot": "settings-section",
+        "component": "BrowserSettings"
+      },
+      {
+        "slot": "content-view",
+        "component": "LiveViewTile",
+        "predicate": "isLiveViewActive"
+      }
+    ]
+  },
+  "peerDependencies": {
+    "fastify": "^5.0.0",
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "dependencies": {
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
+    "debug": "^4.4.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/debug": "^4.1.12",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/ws": "^8.18.1",
+    "fastify": "^5.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

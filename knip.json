@@ -9,7 +9,8 @@
     "docker/fixtures/**",
     "examples/**",
     "**/__tests__/fixtures/**",
-    "packages/pi-forms-bpmn/.pi/skills/**"
+    "packages/pi-forms-bpmn/.pi/skills/**",
+    "packages/browser-plugin/src/server/relay/vendor/**"
   ],
   "rules": {
     "unlisted": "off",
@@ -186,7 +187,8 @@
         "src/manifest-validator.ts",
         "src/test-support/index.ts",
         "**/vitest.config.ts",
-        "**/__tests__/**/*.test.{ts,tsx}"
+        "**/__tests__/**/*.test.{ts,tsx}",
+        "src/__tests__/fixtures/ws-route-plugins/**"
       ],
       "project": [
         "src/**/*.{ts,tsx,mjs}"
@@ -368,6 +370,17 @@
       ]
     },
     "packages/kb-plugin": {
+      "entry": [
+        "src/client/index.tsx",
+        "src/server/index.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/browser-plugin": {
       "entry": [
         "src/client/index.tsx",
         "src/server/index.ts",

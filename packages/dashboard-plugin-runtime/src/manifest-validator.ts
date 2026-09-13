@@ -289,6 +289,12 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
     if (normalised.length > 0) dependsOn = normalised;
   }
 
+  // defaultEnabled: optional boolean. When false the plugin ships disabled
+  // (fresh install / no config entry). See change: add-browser-relay (GAP B).
+  if (m.defaultEnabled !== undefined && typeof m.defaultEnabled !== "boolean") {
+    throw new ManifestValidationError(pluginId, "manifest.defaultEnabled must be a boolean if provided");
+  }
+
   // claims: required array
   if (!Array.isArray(m.claims)) {
     throw new ManifestValidationError(pluginId, "manifest.claims must be an array");
@@ -347,6 +353,7 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
     ...(typeof m.server === "string" ? { server: m.server } : {}),
     ...(typeof m.bridge === "string" ? { bridge: m.bridge } : {}),
     ...(typeof m.configSchema === "string" ? { configSchema: m.configSchema } : {}),
+    ...(m.defaultEnabled === true || m.defaultEnabled === false ? { defaultEnabled: m.defaultEnabled } : {}),
     ...(typeof m.i18nCatalog === "string" ? { i18nCatalog: m.i18nCatalog } : {}),
     ...(m.fixture === true ? { fixture: true } : {}),
     ...(requires ? { requires } : {}),

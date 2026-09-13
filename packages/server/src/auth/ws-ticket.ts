@@ -19,7 +19,7 @@
 import crypto from "node:crypto";
 
 /** Core WS route scopes — the only scopes a ticket may ever be bound to. */
-export const CORE_WS_ROUTE_SCOPES = ["browser", "terminal", "live", "bridge"] as const;
+const CORE_WS_ROUTE_SCOPES = ["browser", "terminal", "live", "bridge"] as const;
 export type CoreWsRouteScope = (typeof CORE_WS_ROUTE_SCOPES)[number];
 
 /**

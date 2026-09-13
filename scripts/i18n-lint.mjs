@@ -44,8 +44,14 @@ function walk(dir) {
       // nothing. Its strings are JSON-RPC protocol messages sent to MCP
       // clients, i.e. an API contract that MUST NOT be translated: a client
       // parses them. See change: add-dashboard-mcp-server.
+      //
+      // browser-plugin's relay/vendor/ is VERBATIM upstream playwright-core
+      // code (Apache-2.0, see vendor/NOTICE) — never edited, and its
+      // `throw new Error(...)` strings are a wire protocol the CDP client
+      // parses (task 2.3 asserts the exact upstream reason strings). Not UI.
+      // See change: add-browser-relay.
       if (
-        /node_modules|__tests__|\.test\.|dist|templates|demo-plugin|dashboard-plugin-skill|mcp-server-plugin/.test(
+        /node_modules|__tests__|\.test\.|dist|templates|demo-plugin|dashboard-plugin-skill|mcp-server-plugin|browser-plugin\/src\/server\/relay\/vendor/.test(
           p,
         )
       )

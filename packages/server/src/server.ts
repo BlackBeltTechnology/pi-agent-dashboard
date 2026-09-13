@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginSpawnToSessionOptions, refreshRequirementProbesFor } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, resolvePluginEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { ExitIntent } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
@@ -2128,7 +2128,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           isEnabled: (pluginId) => {
             const cfg = loadConfig();
             const pluginCfg = getPluginConfigFromFile(cfg, pluginId) as Record<string, unknown>;
-            return pluginCfg.enabled !== false;
+            // defaultEnabled (add-browser-relay GAP B): an explicit config
+            // `enabled` wins; else the manifest default (false = opt-in
+            // plugin, e.g. `browser`); else the historical default-allow.
+            const manifest = discoverPlugins().find((p) => p.manifest.id === pluginId)?.manifest;
+            return resolvePluginEnabled(pluginCfg, manifest?.defaultEnabled);
           },
           requirementDeps: {
             listInstalled: () => packageManagerWrapper.listInstalled("global"),
@@ -2491,7 +2495,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 const tmpFile = CONFIG_FILE + '.tmp.' + process.pid;
                 fs.writeFileSync(tmpFile, JSON.stringify(rawConfig, null, 2) + '\n');
                 fs.renameSync(tmpFile, CONFIG_FILE);
-                browserGateway.broadcast({ type: 'plugin_config_update', id, config: merged } as any);
+                browserGateway.broadcast({
+                  type: 'plugin_config_update',
+                  // writeOnly fields (e.g. the browser plugin's per-profile SSO
+                  // tokens) never cross to a client — spec add-browser-relay
+                  // browser-plugin-settings F2 / GAP A.
+                  config: redactPluginConfigForClient(id, merged),
+                } as any);
               },
               // In-process model runtime seam for plugin server entries (e.g. the
               // grammar plugin's llm backend) — mirrors the grammar-route wiring

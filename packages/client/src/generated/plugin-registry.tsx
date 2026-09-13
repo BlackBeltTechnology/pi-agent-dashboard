@@ -11,6 +11,7 @@ import { FolderKbSection, KbSettingsClaim, catalog as kb_catalog } from "@blackb
 import { BuiltInRolesSettings, catalog as roles_catalog } from "@blackbelt-technology/pi-dashboard-roles-plugin";
 import { SubagentsSettings, SubagentPopoutClaim, catalog as subagents_catalog } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
 import { BlackholeSettings, MemorySubcard, shouldRenderMemorySubcard, PipelineDetailView, isPipelineDetailActive, catalog as blackhole_catalog } from "@blackbelt-technology/pi-dashboard-blackhole-plugin";
+import { BrowserSettings, LiveViewTile, isLiveViewActive, catalog as browser_catalog } from "@blackbelt-technology/pi-dashboard-browser-plugin";
 import { FlowsAnthropicBridgeSettings, catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
 import { QuotaWidget, QuotaSettings, catalog as quota_catalog } from "@blackbelt-technology/pi-dashboard-quota-plugin";
 
@@ -436,6 +437,34 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
+        "id": "browser",
+        "displayName": "Browser Relay",
+        "priority": 500,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "BrowserSettings"
+            },
+            {
+                "slot": "content-view",
+                "component": "LiveViewTile",
+                "predicate": "isLiveViewActive"
+            }
+        ],
+        "client": "./src/client/index.tsx",
+        "server": "./src/server/index.ts",
+        "configSchema": "./configSchema.json",
+        "defaultEnabled": false,
+        "i18nCatalog": "catalog"
+    },
+    claims: [
+      { pluginId: "browser", priority: 500, slot: "settings-section", Component: BrowserSettings },
+      { pluginId: "browser", priority: 500, slot: "content-view", Component: LiveViewTile, predicate: isLiveViewActive },
+    ],
+    catalog: browser_catalog,
+  },
+  {
+    manifest: {
         "id": "flows-anthropic-bridge",
         "displayName": "Anthropic Messages Bridge",
         "priority": 500,
@@ -486,4 +515,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "225b0926506e5ffed78b9633f5529c0b9c02aec2fd0e6a2907d28b70f4a4c8c0";
+export const PLUGIN_REGISTRY_HASH = "5b3a02a53759489ee2ce150a5e1361d2e15c7ddd410289d788f0f4cfa7e1f75d";

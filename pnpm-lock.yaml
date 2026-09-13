@@ -190,6 +190,43 @@ importers:
         specifier: ^3.9.0
         version: 3.10.0(react@19.2.8)
 
+  packages/browser-plugin:
+    dependencies:
+      '@blackbelt-technology/dashboard-plugin-runtime':
+        specifier: ^0.8.0
+        version: link:../dashboard-plugin-runtime
+      '@blackbelt-technology/pi-dashboard-shared':
+        specifier: ^0.8.0
+        version: link:../shared
+      debug:
+        specifier: ^4.4.0
+        version: 4.4.3(supports-color@8.1.1)
+      ws:
+        specifier: ^8.18.0
+        version: 8.21.3
+    devDependencies:
+      '@types/debug':
+        specifier: ^4.1.12
+        version: 4.1.13
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.18
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.5(@types/react@19.2.18)
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
+      fastify:
+        specifier: ^5.0.0
+        version: 5.12.1
+      react:
+        specifier: ^19.0.0
+        version: 19.2.8
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.8(react@19.2.8)
+
   packages/bus-client:
     dependencies:
       '@blackbelt-technology/pi-dashboard-shared':
@@ -220,6 +257,9 @@ importers:
       '@blackbelt-technology/pi-dashboard-blackhole-plugin':
         specifier: ^0.8.0
         version: link:../blackhole-plugin
+      '@blackbelt-technology/pi-dashboard-browser-plugin':
+        specifier: ^0.8.0
+        version: link:../browser-plugin
       '@blackbelt-technology/pi-dashboard-client-utils':
         specifier: ^0.8.0
         version: link:../client-utils

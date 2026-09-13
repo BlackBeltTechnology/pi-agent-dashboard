@@ -19,6 +19,8 @@ import {
   discoverPlugins,
   getPluginStatusStore,
   getWsRouteRegistry,
+  redactPluginConfigForClient,
+  resolvePluginEnabled,
   transitiveDependents,
 } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
@@ -138,7 +140,10 @@ export function registerPluginActivationRoutes(
 
       function isEnabled(pid: string): boolean {
         const cfg = existingPlugins[pid] as Record<string, unknown> | undefined;
-        return cfg?.enabled !== false;
+        // defaultEnabled (add-browser-relay GAP B): explicit config wins, else
+        // the manifest default (false = opt-in plugin), else default-allow.
+        const defaultEnabled = plugins.find((p) => p.manifest.id === pid)?.manifest.defaultEnabled;
+        return resolvePluginEnabled(cfg, defaultEnabled);
       }
 
       const graph = buildGraph(
@@ -179,7 +184,14 @@ export function registerPluginActivationRoutes(
       writeRawConfig({ ...existing, plugins: nextPlugins });
 
       for (const [flipId, merged] of mergedPerId) {
-        broadcast({ type: "plugin_config_update", id: flipId, config: merged });
+        // writeOnly fields (e.g. browser SSO tokens) never cross to a client
+        // — the merged config here carries the plugin's FULL previous block.
+        // Spec add-browser-relay, browser-plugin-settings F2 / GAP A.
+        broadcast({
+          type: "plugin_config_update",
+          id: flipId,
+          config: redactPluginConfigForClient(flipId, merged, repoRoot),
+        });
       }
 
       // Live teardown of WS routes on disable (spec add-browser-relay /

@@ -71,7 +71,7 @@ export function isGenuinelyLocal(ip: string, headers: HeaderBag): boolean {
  * unparseable (no port stripping unless the suffix is all digits, so
  * `127.0.0.1.evil` stays whole and is refused).
  */
-export function isLoopbackHostHeader(host: string | undefined): boolean {
+function isLoopbackHostHeader(host: string | undefined): boolean {
   if (!host) return false;
   let name = host.trim().toLowerCase();
   if (name.startsWith("[")) {
