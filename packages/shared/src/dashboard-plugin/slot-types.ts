@@ -16,6 +16,7 @@ export type SlotId =
   | "worktree-card-section"
   | "session-card-action-bar"
   | "workspace-action-bar"
+  | "composer-context-group"
   | "composer-panel"
   | "shell-overlay-route"
   // (session-card-memory and session-card-flows are also react-only; declared below for ordering)
@@ -93,6 +94,12 @@ export const SLOT_DEFINITIONS: Record<SlotId, SlotDefinition> = {
     multiplicity: "many",
     payloadTier: "react-only",
     description: "Action buttons inside the WORKSPACE subcard of a session card (git workspace tooling)",
+  },
+  "composer-context-group": {
+    multiplicity: "many",
+    payloadTier: "react-only",
+    description:
+      "Labelled context group inside the chat composer's session-action strip, after the Git group and before the Status group. Contributions render read-only and are NOT disabled while streaming. Pair with the runtime's `ComposerContextGroup` primitive. See change: move-quota-to-context-strip.",
   },
   "composer-panel": {
     multiplicity: "many",
@@ -234,6 +241,7 @@ type SessionScopedSlot =
   | "content-view"
   | "content-header-sticky"
   | "content-inline-footer"
+  | "composer-context-group"
   | "command-route"
   | "shell-overlay-route";
 

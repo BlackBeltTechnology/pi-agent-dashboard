@@ -64,16 +64,37 @@ describe("blackhole session-surface manifest discoverability", () => {
   });
 });
 
-describe("shared slot definitions are untouched by this change (E13)", () => {
-  const FROZEN = [
-    "packages/shared/src/dashboard-plugin/slot-types.ts",
-    "packages/shared/src/dashboard-plugin/slot-props.ts",
-  ];
+describe("shared slot definitions stay additive (E13)", () => {
+  const SLOT_TYPES = "packages/shared/src/dashboard-plugin/slot-types.ts";
+  const stripComments = (s: string) =>
+    s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
 
-  it("neither file appears in the change's diff vs origin/develop", (ctx) => {
-    // CI checkouts are depth-1 without an origin/develop ref — the scenario
-    // cannot be verified there. SKIP with an explicit reason (never a silent
-    // green, never a loud red): the dev worktree and local runs enforce it.
+  /**
+   * Parse the `SlotId` union's string-literal members out of slot-types.ts.
+   * Strip line comments FIRST: the union carries an inline comment containing a
+   * `;`, which would otherwise terminate the lazy `([\s\S]*?);` match after only
+   * the first few ids and silently shrink the guard to a subset.
+   */
+  function slotIds(source: string): Set<string> {
+    const union = /type SlotId =([\s\S]*?);/.exec(stripComments(source))?.[1] ?? "";
+    return new Set([...union.matchAll(/"([^"]+)"/g)].map((m) => m[1]));
+  }
+
+  /** Parse `SLOT_DEFINITIONS` → `${multiplicity}/${payloadTier}` per slot id. */
+  function slotDefinitions(source: string): Map<string, string> {
+    const block =
+      /const SLOT_DEFINITIONS[\s\S]*?= \{([\s\S]*?)\n\};/.exec(stripComments(source))?.[1] ?? "";
+    const map = new Map<string, string>();
+    for (const m of block.matchAll(
+      /"([^"]+)":\s*\{\s*multiplicity:\s*"([^"]+)",\s*payloadTier:\s*"([^"]+)"/g,
+    )) {
+      map.set(m[1], `${m[2]}/${m[3]}`);
+    }
+    return map;
+  }
+
+  /** Resolve origin/develop + working-tree slot-types.ts, or skip on a shallow checkout. */
+  function loadSlotTypes(ctx: { skip: (b: boolean, reason: string) => void }) {
     let hasBase = false;
     try {
       execSync("git rev-parse --verify origin/develop", { stdio: "ignore" });
@@ -82,15 +103,43 @@ describe("shared slot definitions are untouched by this change (E13)", () => {
       hasBase = false;
     }
     ctx.skip(!hasBase, "E13 cannot be verified: no origin/develop ref (shallow checkout)");
-    // Committed diff (three-dot: the develop merge is not attributed here)…
-    const committed = execSync("git diff --name-only origin/develop...HEAD", {
-      encoding: "utf-8",
-    });
-    // …plus everything still uncommitted in the working tree.
-    const worktree = execSync("git diff --name-only HEAD", { encoding: "utf-8" });
-    const changed = `${committed}\n${worktree}`.split("\n").map((s) => s.trim()).filter(Boolean);
-    for (const f of FROZEN) {
-      expect(changed, f).not.toContain(f);
-    }
+    return {
+      baseSrc: execSync(`git show origin/develop:${SLOT_TYPES}`, { encoding: "utf-8" }),
+      headSrc: readFileSync(
+        resolve(here, "../../../shared/src/dashboard-plugin/slot-types.ts"),
+        "utf-8",
+      ),
+    };
+  }
+
+  // The blackhole change did not modify the frozen slot taxonomy. Since then
+  // other changes legitimately ADD slot ids — an additive, minor change (see
+  // the `dashboard-shell-slots` spec). The durable invariant E13 guards is
+  // therefore "no slot is removed, renamed, or has its multiplicity/tier
+  // changed" (a major, breaking change), NOT "the file never appears in a
+  // branch diff": the latter red-flags every future additive slot change.
+  it("no slot id is removed or renamed vs origin/develop", (ctx) => {
+    const { baseSrc, headSrc } = loadSlotTypes(ctx);
+    const base = slotIds(baseSrc);
+    const head = slotIds(headSrc);
+    // Sentinels: the first union member and the LAST one. A parse that
+    // truncates (e.g. a future inline comment carrying a `;`) fails loudly here
+    // instead of silently covering a subset of the taxonomy.
+    expect(base.has("sidebar-folder-section")).toBe(true);
+    expect(base.has("rjsf-form")).toBe(true);
+    const removed = [...base].filter((id) => !head.has(id));
+    expect(removed, `slot id(s) removed or renamed: ${removed.join(", ")}`).toEqual([]);
+  });
+
+  it("no slot changes multiplicity/payloadTier vs origin/develop", (ctx) => {
+    const { baseSrc, headSrc } = loadSlotTypes(ctx);
+    const baseDefs = slotDefinitions(baseSrc);
+    const headDefs = slotDefinitions(headSrc);
+    // Non-vacuity guard: a regex miss must not pass as "no flips".
+    expect(baseDefs.size).toBeGreaterThan(10);
+    const flipped = [...baseDefs]
+      .filter(([id, def]) => headDefs.get(id) !== def)
+      .map(([id]) => id);
+    expect(flipped, `slot tier/multiplicity changed: ${flipped.join(", ")}`).toEqual([]);
   });
 });

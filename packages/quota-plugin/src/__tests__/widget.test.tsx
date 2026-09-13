@@ -1,7 +1,8 @@
 import { act, cleanup, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { QuotaWidget, useQuota } from "../client.js";
-import type { ApiQuotaResponse, ProviderQuota } from "../types.js";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { providerForModel, QuotaWidget, useQuota } from "../client.js";
+import type { ApiQuotaResponse, ProviderQuota, QuotaWindowDto } from "../types.js";
 
 const WINDOW = 5 * 3600;
 function resetIn(fraction: number): string {
@@ -9,8 +10,30 @@ function resetIn(fraction: number): string {
   return new Date(Date.now() + WINDOW * fraction * 1000).toISOString();
 }
 
+function win(label: string, usedPercent: number, extra: Partial<QuotaWindowDto> = {}): QuotaWindowDto {
+  return { label, usedPercent, resetsAt: resetIn(0.4), windowSeconds: WINDOW, ...extra };
+}
+
+function makeSession(over: Partial<DashboardSession> = {}): DashboardSession {
+  return {
+    id: "s1",
+    cwd: "/repo",
+    source: "pi",
+    status: "active",
+    startedAt: 0,
+    ...over,
+  } as DashboardSession;
+}
+
 function mockQuota(body: ApiQuotaResponse) {
   global.fetch = vi.fn(async () => ({ json: async () => body })) as unknown as typeof fetch;
+}
+
+/** All chip testids in document order. */
+function chipIds(container: HTMLElement): string[] {
+  return Array.from(container.querySelectorAll<HTMLElement>('[data-testid^="quota-chip-"]')).map(
+    (el) => el.dataset.testid ?? "",
+  );
 }
 
 afterEach(() => {
@@ -18,63 +41,176 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("QuotaWidget", () => {
-  it("renders a mini-slider per provider from /api/quota with a now tick", async () => {
-    mockQuota({
-      providers: [
-        { provider: "openai-codex", windows: [{ label: "7d", usedPercent: 70, resetsAt: resetIn(0.4), windowSeconds: WINDOW }] },
-      ],
-    });
-    render(<QuotaWidget />);
-    await waitFor(() => expect(screen.getByTestId("quota-widget")).toBeTruthy());
-    expect(screen.getByTestId("quota-slider-openai-codex")).toBeTruthy();
-    expect(screen.getByText("Codex")).toBeTruthy();
-    // The compact one-line row shows NO percentage number (dialog owns exact figures).
-    expect(screen.queryByText("70%")).toBeNull();
-    // `now` tick rendered when pace is available.
-    expect(screen.getAllByTestId("quota-now-tick").length).toBeGreaterThan(0);
+describe("providerForModel", () => {
+  it("E9: takes the prefix before the first slash; undefined without a slash", () => {
+    expect(providerForModel("anthropic/x")).toBe("anthropic");
+    expect(providerForModel("openai-codex/x")).toBe("openai-codex");
+    expect(providerForModel(undefined)).toBe(undefined);
+    expect(providerForModel("my-alias")).toBe(undefined);
+    expect(providerForModel("a/b/c")).toBe("a");
   });
+});
 
-  it("colours the bar fill by pace severity (over pace → orange)", async () => {
-    mockQuota({
-      providers: [
-        { provider: "openai-codex", windows: [{ label: "7d", usedPercent: 70, resetsAt: resetIn(0.4), windowSeconds: WINDOW }] },
-      ],
-    });
-    render(<QuotaWidget />);
-    const row = await screen.findByTestId("quota-slider-openai-codex");
-    // 60% elapsed, 70% used → projected ~117 → orange (#fbbf24) on the fill.
-    const fill = row.querySelector<HTMLElement>('div[style*="width: 70%"]');
-    expect(fill?.style.background).toBe("rgb(251, 191, 36)");
-  });
-
-  it("renders Anthropic (no longer excluded)", async () => {
-    mockQuota({
-      providers: [
-        { provider: "anthropic", windows: [{ label: "5h", usedPercent: 30, resetsAt: resetIn(0.4), windowSeconds: WINDOW }] },
-      ],
-    });
-    render(<QuotaWidget />);
-    expect(await screen.findByTestId("quota-slider-anthropic")).toBeTruthy();
-    expect(screen.getByText("Anthropic")).toBeTruthy();
-  });
-
-  it("renders nothing when /api/quota returns no providers", async () => {
+describe("QuotaWidget context-strip chip", () => {
+  it("E1: no providers → renders nothing, no error", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     mockQuota({ providers: [] });
-    const { container } = render(<QuotaWidget />);
-    // Give the async load a tick; widget must never mount.
+    const { container } = render(<QuotaWidget session={makeSession({ model: "anthropic/claude-x" })} />);
     await new Promise((r) => setTimeout(r, 0));
-    expect(screen.queryByTestId("quota-widget")).toBeNull();
-    expect(container.textContent).toBe("");
+    expect(screen.queryByTestId("quota-context-group")).toBe(null);
+    expect(screen.queryByTestId("quota-no-adapter-note")).toBe(null);
+    expect(container.childElementCount).toBe(0);
+    expect(consoleSpy).not.toHaveBeenCalled();
   });
 
-  it("renders nothing when the fetch fails (honest degradation, no error UI)", async () => {
+  it("E2: a provider with zero windows is filtered out (no group)", async () => {
+    mockQuota({ providers: [{ provider: "anthropic", windows: [] }] });
+    const { container } = render(<QuotaWidget session={makeSession()} />);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByTestId("quota-context-group")).toBe(null);
+    expect(container.childElementCount).toBe(0);
+  });
+
+  it("E3: every window renders inline with a bar each", async () => {
+    mockQuota({
+      providers: [
+        { provider: "anthropic", windows: [win("5h", 14), win("7d", 32)] },
+      ],
+    });
+    render(<QuotaWidget session={makeSession()} />);
+    const chip = await screen.findByTestId("quota-chip-anthropic");
+    expect(chip.textContent).toContain("5h");
+    expect(chip.textContent).toContain("14%");
+    expect(chip.textContent).toContain("7d");
+    expect(chip.textContent).toContain("32%");
+    expect(chip.querySelectorAll('[data-testid="quota-bar"]').length).toBe(2);
+  });
+
+  it("E4: the session provider's chip leads and is ringed; others dim", async () => {
+    mockQuota({
+      providers: [
+        { provider: "openai-codex", windows: [win("7d", 40)] },
+        { provider: "anthropic", windows: [win("5h", 14)] },
+      ],
+    });
+    const { container } = render(
+      <QuotaWidget session={makeSession({ model: "anthropic/claude-x" })} />,
+    );
+    await screen.findByTestId("quota-chip-anthropic");
+    expect(chipIds(container)).toEqual(["quota-chip-anthropic", "quota-chip-openai-codex"]);
+    expect(screen.getByTestId("quota-chip-anthropic").getAttribute("data-session-provider")).toBe("true");
+    expect(screen.getByTestId("quota-chip-openai-codex").getAttribute("data-dimmed")).toBe("true");
+    expect(screen.queryByTestId("quota-no-adapter-note")).toBe(null);
+  });
+
+  it("E5: a defined provider with no quota gets a dashed note ahead of dimmed chips", async () => {
+    mockQuota({ providers: [{ provider: "anthropic", windows: [win("5h", 14)] }] });
+    render(<QuotaWidget session={makeSession({ model: "google-vertex/gemini-x" })} />);
+    const note = await screen.findByTestId("quota-no-adapter-note");
+    expect(note.textContent).toBe("gemini-x · no quota");
+    expect(note.tagName).not.toBe("BUTTON");
+    const chip = screen.getByTestId("quota-chip-anthropic");
+    expect(note.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(chip.getAttribute("data-dimmed")).toBe("true");
+    expect(chip.getAttribute("data-session-provider")).toBe(null);
+  });
+
+  it("E6: an undefined model yields no ring, no dim and no note", async () => {
+    mockQuota({
+      providers: [
+        { provider: "anthropic", windows: [win("5h", 14)] },
+        { provider: "openai-codex", windows: [win("7d", 40)] },
+      ],
+    });
+    render(<QuotaWidget session={makeSession()} />);
+    await screen.findByTestId("quota-chip-anthropic");
+    for (const id of ["quota-chip-anthropic", "quota-chip-openai-codex"]) {
+      expect(screen.getByTestId(id).getAttribute("data-session-provider")).toBe(null);
+      expect(screen.getByTestId(id).getAttribute("data-dimmed")).toBe(null);
+    }
+    expect(screen.queryByTestId("quota-no-adapter-note")).toBe(null);
+  });
+
+  it("E7: a model without a slash is treated as undefined", async () => {
+    mockQuota({ providers: [{ provider: "anthropic", windows: [win("5h", 14)] }] });
+    render(<QuotaWidget session={makeSession({ model: "my-alias" })} />);
+    const chip = await screen.findByTestId("quota-chip-anthropic");
+    expect(chip.getAttribute("data-session-provider")).toBe(null);
+    expect(chip.getAttribute("data-dimmed")).toBe(null);
+    expect(screen.queryByTestId("quota-no-adapter-note")).toBe(null);
+  });
+
+  it("E8: the note uses the model id after the first slash", async () => {
+    mockQuota({ providers: [{ provider: "anthropic", windows: [win("5h", 14)] }] });
+    render(
+      <QuotaWidget
+        session={makeSession({ model: "google-vertex/publishers/google/models/gemini-x" })}
+      />,
+    );
+    const note = await screen.findByTestId("quota-no-adapter-note");
+    expect(note.textContent).toBe("publishers/google/models/gemini-x · no quota");
+  });
+
+  it("E10: a stale provider is tagged and its bars are muted", async () => {
+    mockQuota({
+      providers: [{ provider: "anthropic", windows: [win("5h", 14)], stale: true }],
+    });
+    render(<QuotaWidget session={makeSession()} />);
+    const chip = await screen.findByTestId("quota-chip-anthropic");
+    expect(chip.getAttribute("data-stale")).toBe("true");
+    expect(chip.textContent).toContain("not live");
+    const fill = chip.querySelector<HTMLElement>('[data-testid="quota-bar"] > div');
+    expect(fill?.getAttribute("data-severity")).toBe("muted");
+  });
+
+  it("E11: the chip never repeats the model id", async () => {
+    mockQuota({ providers: [{ provider: "anthropic", windows: [win("5h", 14)] }] });
+    render(<QuotaWidget session={makeSession({ model: "anthropic/claude-sonnet-4" })} />);
+    const chip = await screen.findByTestId("quota-chip-anthropic");
+    expect(chip.textContent).not.toContain("claude-sonnet-4");
+  });
+
+  it("F6: a model change re-derives the ring on the next render", async () => {
+    mockQuota({
+      providers: [
+        { provider: "anthropic", windows: [win("5h", 14)] },
+        { provider: "openai-codex", windows: [win("7d", 40)] },
+      ],
+    });
+    const { container, rerender } = render(
+      <QuotaWidget session={makeSession({ model: "anthropic/x" })} />,
+    );
+    await screen.findByTestId("quota-chip-anthropic");
+    rerender(<QuotaWidget session={makeSession({ model: "openai-codex/y" })} />);
+    expect(chipIds(container)).toEqual(["quota-chip-openai-codex", "quota-chip-anthropic"]);
+    expect(screen.getByTestId("quota-chip-openai-codex").getAttribute("data-session-provider")).toBe("true");
+    expect(screen.getByTestId("quota-chip-anthropic").getAttribute("data-dimmed")).toBe("true");
+  });
+
+  it("X1: a rejected fetch renders nothing and does not throw", async () => {
     global.fetch = vi.fn(async () => {
       throw new Error("network");
     }) as unknown as typeof fetch;
-    render(<QuotaWidget />);
+    const { container } = render(<QuotaWidget session={makeSession()} />);
     await new Promise((r) => setTimeout(r, 0));
-    expect(screen.queryByTestId("quota-widget")).toBeNull();
+    expect(container.childElementCount).toBe(0);
+    expect(screen.queryByTestId("quota-context-group")).toBe(null);
+  });
+
+  it("X2: a malformed body renders nothing and does not throw", async () => {
+    mockQuota({} as unknown as ApiQuotaResponse);
+    const { container } = render(<QuotaWidget session={makeSession()} />);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(container.childElementCount).toBe(0);
+    expect(screen.queryByTestId("quota-context-group")).toBe(null);
+  });
+
+  it("X2b: a provider entry with no windows array renders nothing", async () => {
+    mockQuota({ providers: [{ provider: "anthropic" }] } as unknown as ApiQuotaResponse);
+    const { container } = render(<QuotaWidget session={makeSession()} />);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(container.childElementCount).toBe(0);
+    expect(screen.queryByTestId("quota-context-group")).toBe(null);
   });
 });
 
@@ -145,7 +281,7 @@ describe("useQuota", () => {
       await Promise.resolve();
     });
     expect(result.current.providers).toEqual([]);
-    expect(result.current.lastUpdated).toBeNull();
+    expect(result.current.lastUpdated).toBe(null);
   });
 
   it("F2: refresh is a no-op while a request is already in flight", async () => {

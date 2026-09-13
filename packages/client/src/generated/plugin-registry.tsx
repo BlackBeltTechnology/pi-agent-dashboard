@@ -464,7 +464,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
         "priority": 600,
         "claims": [
             {
-                "slot": "content-inline-footer",
+                "slot": "composer-context-group",
                 "component": "QuotaWidget"
             },
             {
@@ -479,11 +479,11 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
         "i18nCatalog": "catalog"
     },
     claims: [
-      { pluginId: "quota", priority: 600, slot: "content-inline-footer", Component: QuotaWidget },
+      { pluginId: "quota", priority: 600, slot: "composer-context-group", Component: QuotaWidget },
       { pluginId: "quota", priority: 600, slot: "settings-section", tab: "general", Component: QuotaSettings },
     ],
     catalog: quota_catalog,
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "6e9c8e7ff3eba955ba974204ee9237f20a3f02e10b16ca96199d8220224a188e";
+export const PLUGIN_REGISTRY_HASH = "225b0926506e5ffed78b9633f5529c0b9c02aec2fd0e6a2907d28b70f4a4c8c0";

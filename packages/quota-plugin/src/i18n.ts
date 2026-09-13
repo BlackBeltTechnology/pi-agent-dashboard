@@ -27,6 +27,9 @@ export const catalog = {
     resetsIn: "{t} 后重置",
     retained: "非实时",
     retainedBody: "最近一次刷新失败，显示的是上次已知的数值。",
+    quota: "配额",
+    noQuota: "{modelId} · 无配额",
+    chipAria: "{provider} 配额，{windows}",
   },
   hu: {
     heading: "Szolgáltatói kvóta",
@@ -49,5 +52,8 @@ export const catalog = {
     resetsIn: "{t} múlva nullázódik",
     retained: "nem élő",
     retainedBody: "A legutóbbi frissítés sikertelen volt, az utoljára ismert értékek láthatók.",
+    quota: "Kvóta",
+    noQuota: "{modelId} · nincs kvóta",
+    chipAria: "{provider} kvóta, {windows}",
   },
 } as const;
