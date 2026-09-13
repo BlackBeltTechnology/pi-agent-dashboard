@@ -1,4 +1,5 @@
 import {
+  ComposerContextGroupSlot,
   SessionCardBadgeSlot,
   useSlotHasClaimsForSession,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -219,6 +220,11 @@ export function ComposerSessionActions({
   // Hooks must run unconditionally.
   const safeSession = session ?? (undefined as unknown as DashboardSession);
   const hasBadge = useSlotHasClaimsForSession("session-card-badge", safeSession);
+  // Read-only plugin context groups (e.g. quota) render between GIT and STATUS.
+  // The guard below must know about them so a session with no OpenSpec dir, no
+  // worktree and no badge still shows its context groups.
+  // See change: move-quota-to-context-strip (design D3b).
+  const hasContextGroup = useSlotHasClaimsForSession("composer-context-group", safeSession);
   const [tasksOpen, setTasksOpen] = useState(false);
   const [exploreOpen, setExploreOpen] = useState(false);
   const [archiveConfirm, setArchiveConfirm] = useState(false);
@@ -257,7 +263,7 @@ export function ComposerSessionActions({
   };
 
   // Nothing to render? Bail early so we don't add an empty group to StatusBar.
-  if (!showOpenSpec && !showStatus && !showGit) return null;
+  if (!showOpenSpec && !showStatus && !showGit && !hasContextGroup) return null;
 
   return (
     <div
@@ -395,6 +401,14 @@ export function ComposerSessionActions({
             />
           </span>
         </>
+      )}
+
+      {hasContextGroup && (
+        // Read-only context groups (after GIT, before STATUS). Deliberately
+        // OUTSIDE the streaming <fieldset disabled> below: usage/context must
+        // stay visible exactly while the session is running.
+        // See change: move-quota-to-context-strip (design D1/D4).
+        <ComposerContextGroupSlot session={session} />
       )}
 
       {showStatus && (

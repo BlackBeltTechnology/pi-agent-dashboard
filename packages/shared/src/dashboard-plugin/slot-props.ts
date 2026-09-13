@@ -117,6 +117,10 @@ export interface SlotPropsMap {
     session: DashboardSession;
     pluginContext: AnyPluginContext;
   };
+  "composer-context-group": {
+    session: DashboardSession;
+    pluginContext: AnyPluginContext;
+  };
   "anchored-popover": {
     anchorEl: HTMLElement;
     onDismiss: () => void;

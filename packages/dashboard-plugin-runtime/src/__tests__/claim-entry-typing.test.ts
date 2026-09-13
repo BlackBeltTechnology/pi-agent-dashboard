@@ -34,6 +34,31 @@ describe("ClaimEntry<S> typing contract", () => {
     expect(entry.slot).toBe("session-card-badge");
   });
 
+  it("classifies composer-context-group as session-scoped (DashboardSession)", () => {
+    // Adding a slot id without classifying its predicate input is a build
+    // failure via `_AssertAllSlotsPredicateClassified` in slot-types.ts; this
+    // pins the runtime-observable classification for the new slot.
+    const entry: ClaimEntry<"composer-context-group"> = {
+      pluginId: "test",
+      priority: 100,
+      slot: "composer-context-group",
+      predicate: sessionPredicate,
+    };
+    expect(entry.slot).toBe("composer-context-group");
+  });
+
+  it("rejects a folder-shaped predicate on composer-context-group", () => {
+    const entry: ClaimEntry<"composer-context-group"> = {
+      pluginId: "test",
+      priority: 100,
+      slot: "composer-context-group",
+      // @ts-expect-error — folderPredicate takes FolderDescriptor, which is not
+      // assignable to SlotPredicateInput<"composer-context-group"> = DashboardSession.
+      predicate: folderPredicate,
+    };
+    expect(entry.slot).toBe("composer-context-group");
+  });
+
   it("accepts a folder-shaped predicate on a folder-scoped slot", () => {
     const entry: ClaimEntry<"sidebar-folder-section"> = {
       pluginId: "test",

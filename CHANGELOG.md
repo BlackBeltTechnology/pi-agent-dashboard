@@ -10,6 +10,10 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ## [Unreleased]
 
+### Added
+
+- **`composer-context-group` plugin slot** (react-only, `many`) renders labelled context groups inside the chat composer's session-action strip, after the Git group and before the Status group. Contributions are read-only and stay fully visible while a session streams (unlike the gated Status group). The runtime exports a `ComposerContextGroup({ label, children, testId? })` primitive. The quota plugin is the first claimant: its meter moved out of the composer's `content-inline-footer` into the strip, showing one chip per enabled provider with every window inline and the session's model provider ringed. See change: move-quota-to-context-strip.
+
 ### Changed
 
 - **dashboard-plugin-runtime**: `ServerContextDeps` gains five REQUIRED members (`mintSpawnToken`, `renameSession`, `assignSessionRef`, `networkGuard`, `onShutdown`) and `PluginSpawnOptions` gains `spawnToken`/`resume`/`initialPrompt` — implementors of `createServerPluginContext` (custom hosts, injected test contexts) must add them. See change: relocate-goal-product-to-plugin.

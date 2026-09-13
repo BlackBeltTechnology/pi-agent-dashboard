@@ -4,6 +4,8 @@ import type React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { PluginContextProvider } from "../plugin-context.js";
 import {
+  ComposerContextGroup,
+  ComposerContextGroupSlot,
   ComposerPanelSlot,
   SessionCardBadgeSlot,
   SessionCardMemorySlot,
@@ -528,5 +530,100 @@ describe("ComposerPanelSlot", () => {
       </PluginContextProvider>,
     );
     expect(container.textContent).toBe("");
+  });
+});
+
+// ── composer-context-group (move-quota-to-context-strip) ─────────────────────
+
+describe("ComposerContextGroupSlot", () => {
+  it("E12: renders claims in ascending priority order (lower priority first)", () => {
+    // The repo-wide `many`-slot comparator is ascending priority, tie-broken by
+    // plugin id (see `compareClaims` + slot-registry.test.ts: "sorts by priority
+    // asc"). The test-plan's E12 prose listed the two claims in the opposite
+    // order; the established convention wins.
+    const registry = createSlotRegistry();
+    registry.addClaim({
+      pluginId: "b",
+      priority: 10,
+      slot: "composer-context-group",
+      Component: () => <span data-testid="ctx-b">B</span>,
+    });
+    registry.addClaim({
+      pluginId: "a",
+      priority: 20,
+      slot: "composer-context-group",
+      Component: () => <span data-testid="ctx-a">A</span>,
+    });
+    const { container } = render(
+      <PluginContextProvider registry={registry}>
+        <ComposerContextGroupSlot session={makeSession()} />
+      </PluginContextProvider>,
+    );
+    const order = Array.from(container.querySelectorAll<HTMLElement>("[data-testid^=ctx-]")).map(
+      (el) => el.dataset.testid,
+    );
+    expect(order).toEqual(["ctx-b", "ctx-a"]);
+  });
+
+  it("E13: an empty contribution leaves no divider or label behind", () => {
+    const registry = createSlotRegistry();
+    registry.addClaim({
+      pluginId: "empty",
+      priority: 100,
+      slot: "composer-context-group",
+      Component: () => null,
+    });
+    const { container } = render(
+      <PluginContextProvider registry={registry}>
+        <ComposerContextGroupSlot session={makeSession()} />
+      </PluginContextProvider>,
+    );
+    expect(container.childElementCount).toBe(0);
+  });
+
+  it("E14: shouldRender filters by session", () => {
+    const registry = createSlotRegistry();
+    registry.addClaim({
+      pluginId: "gate",
+      priority: 100,
+      slot: "composer-context-group",
+      shouldRender: (s) => !!s && "id" in s && s.id === "s2",
+      Component: () => <span data-testid="ctx-gated">gated</span>,
+    });
+    const { rerender } = render(
+      <PluginContextProvider registry={registry}>
+        <ComposerContextGroupSlot session={makeSession("s1")} />
+      </PluginContextProvider>,
+    );
+    expect(screen.queryByTestId("ctx-gated")).toBeNull();
+    rerender(
+      <PluginContextProvider registry={registry}>
+        <ComposerContextGroupSlot session={makeSession("s2")} />
+      </PluginContextProvider>,
+    );
+    expect(screen.getByTestId("ctx-gated")).toBeTruthy();
+  });
+});
+
+describe("ComposerContextGroup primitive", () => {
+  it("E15: renders a divider, an uppercase label and the children as one non-shrinking unit", () => {
+    render(
+      <ComposerContextGroup label="Quota" testId="g">
+        <span data-testid="g-child">child</span>
+      </ComposerContextGroup>,
+    );
+    const root = screen.getByTestId("g");
+    expect(root.className).toContain("inline-flex");
+    expect(root.className).toContain("shrink-0");
+    const divider = root.querySelector('[aria-hidden="true"]');
+    expect(divider).toBeTruthy();
+    const label = screen.getByTestId("g-label");
+    expect(label.textContent).toBe("Quota");
+    expect(label.className).toContain("uppercase");
+    // Order: divider → label → child.
+    const order = Array.from(root.children).map((el) => el.getAttribute("data-testid") ?? el.tagName);
+    expect(order[0]).toBe("SPAN"); // divider has no testid
+    expect(order[1]).toBe("g-label");
+    expect(order[2]).toBe("g-child");
   });
 });

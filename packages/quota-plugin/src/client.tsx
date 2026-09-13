@@ -2,23 +2,33 @@
  * Provider Quota — dashboard client entry.
  *
  * Two contributions:
- *  - `QuotaWidget` (content-inline-footer): ONE COMPACT LINE per enabled
- *    provider — label + slim bar, no percentage number (the fill and the `now`
- *    tick carry it; the exact numbers live in the dialog). Fill coloured by
- *    pace severity (worst window drives it). Click → shared Dialog primitive.
- *    Stays in `content-inline-footer`: the composer's own context slider is
- *    draft-conditional (it vanishes when the input is empty), so aligning with
- *    it would make quota disappear too.
+ *  - `QuotaWidget` (composer-context-group): a `Quota` group in the chat
+ *    composer's session-action strip, after GIT and before STATUS. One chip per
+ *    enabled provider with EVERY window inline (`5h <bar> 14%  7d <bar> 32%`),
+ *    pace colour on the fill and a `now` tick; a dashed `not live` tag when the
+ *    server marks the provider `stale`. The session's model provider leads with
+ *    an accent ring; a session provider with no adapter gets a `no quota` note.
+ *    Click → shared Dialog primitive. It used to live in `content-inline-footer`
+ *    (below the composer hints); the strip's session-conditional groups are the
+ *    right home — the footer rationale (the composer's draft-conditional context
+ *    slider) never applied to the strip.
  *  - `QuotaSettings` (settings-section): a non-blocking ToS WARNING (printed,
  *    not a gate) + master enable + per-provider toggles, committed through the
  *    host Settings panel's global Save via `useSettingsDraftSource`.
  *
  * Data comes only from `GET /api/quota` (server-computed, tokens never cross the
  * wire). Absent/empty → nothing renders (honest degradation, never an error).
+ * See change: move-quota-to-context-strip.
  */
-import { useSettingsDraftSource, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  ComposerContextGroup,
+  useSettingsDraftSource,
+  useT,
+  useUiPrimitive,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import { usePluginConfig, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { computePace, formatResetIn, type Pace, type PaceSeverity, paceLabel } from "./pace.js";
 import { SUPPORTED_PROVIDERS } from "./providers.js";
@@ -27,7 +37,6 @@ import type {
   ProviderQuota,
   QuotaPluginConfig,
   QuotaUnavailableReason,
-  QuotaWindowDto,
 } from "./types.js";
 
 export { catalog } from "./i18n.js";
@@ -49,8 +58,6 @@ const SEVERITY_COLOR: Record<PaceSeverity, string> = {
   red: "#f87171",
   muted: "#71717a",
 };
-
-const SEVERITY_RANK: Record<PaceSeverity, number> = { red: 3, orange: 2, green: 1, muted: 0 };
 
 function providerLabel(id: string): string {
   return PROVIDER_LABELS[id] ?? id;
@@ -77,26 +84,24 @@ function usePaceText(): (pace: Pace) => string {
   };
 }
 
-interface WindowPace {
-  window: QuotaWindowDto;
-  pace: Pace;
+/**
+ * The session's model provider = the prefix before the first `/`.
+ * `undefined` when the model is missing or has no `/` (custom/aliased models).
+ * Single place to extend if pi's provider ids ever drift.
+ * See change: move-quota-to-context-strip (design D5).
+ */
+export function providerForModel(model: string | undefined): string | undefined {
+  if (!model) return undefined;
+  const idx = model.indexOf("/");
+  if (idx <= 0) return undefined;
+  return model.slice(0, idx);
 }
 
-/** Worst-severity window for a provider (ties broken by higher projected). */
-function worstWindow(windows: QuotaWindowDto[], now: number): WindowPace | null {
-  let best: WindowPace | null = null;
-  for (const window of windows) {
-    const pace = computePace(window, now);
-    if (
-      !best ||
-      SEVERITY_RANK[pace.severity] > SEVERITY_RANK[best.pace.severity] ||
-      (SEVERITY_RANK[pace.severity] === SEVERITY_RANK[best.pace.severity] &&
-        (pace.projected ?? 0) > (best.pace.projected ?? 0))
-    ) {
-      best = { window, pace };
-    }
-  }
-  return best;
+/** Model id = everything after the first `/` (the whole string when absent). */
+function modelIdForModel(model: string | undefined): string {
+  if (!model) return "";
+  const idx = model.indexOf("/");
+  return idx >= 0 ? model.slice(idx + 1) : model;
 }
 
 /** Shared quota fetch/refresh state. One owner (`QuotaWidget`) instantiates it. */
@@ -254,6 +259,7 @@ function MiniBar({ pace, usedPercent, height = 4 }: { pace: Pace; usedPercent: n
   const color = SEVERITY_COLOR[pace.severity];
   return (
     <div
+      data-testid="quota-bar"
       style={{
         position: "relative",
         height,
@@ -263,6 +269,7 @@ function MiniBar({ pace, usedPercent, height = 4 }: { pace: Pace; usedPercent: n
       }}
     >
       <div
+        data-severity={pace.severity}
         style={{
           position: "absolute",
           inset: 0,
@@ -289,61 +296,132 @@ function MiniBar({ pace, usedPercent, height = 4 }: { pace: Pace; usedPercent: n
   );
 }
 
-/** content-inline-footer: per-provider mini-sliders. Renders nothing when empty. */
-export function QuotaWidget() {
+/**
+ * composer-context-group: a `Quota` group with one chip per provider that has
+ * at least one window. Every window renders inline (label · bar · %), the bar
+ * fill is paced and a stale provider is tagged. The session's model provider
+ * leads with an accent ring; a defined provider absent from `providers[]` gets
+ * a non-interactive `no quota` note. Click opens the dialog. Renders nothing
+ * when no provider has windows. See change: move-quota-to-context-strip.
+ */
+export function QuotaWidget({ session }: { session?: DashboardSession }) {
   const quota = useQuota();
   const { providers } = quota;
-  const paceText = usePaceText();
+  const t = useT();
   const now = Date.now();
   const [dialogProvider, setDialogProvider] = useState<string | null>(null);
 
-  const rows = useMemo(
-    () =>
-      providers
-        .filter((p) => p.windows.length > 0)
-        .map((p) => ({ provider: p.provider, worst: worstWindow(p.windows, now) }))
-        .filter((r): r is { provider: string; worst: WindowPace } => r.worst !== null),
-    [providers, now],
-  );
+  // Only providers carrying at least one window produce a chip.
+  const rows = useMemo(() => providers.filter((p) => p.windows.length > 0), [providers]);
 
   if (rows.length === 0) return null;
 
+  const model = session?.model;
+  const sessionProvider = providerForModel(model);
+  const matched =
+    sessionProvider !== undefined ? rows.find((p) => p.provider === sessionProvider) : undefined;
+  // Session provider first; the rest keep their payload order. Derived on every
+  // render, so a model switch re-orders the chips without any user action.
+  const ordered = matched ? [matched, ...rows.filter((p) => p.provider !== sessionProvider)] : rows;
+  const showNote = sessionProvider !== undefined && matched === undefined;
+  const modelId = modelIdForModel(model);
+
   return (
-    <div
-      data-testid="quota-widget"
-      style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12, padding: "1px 8px", fontSize: 11 }}
-    >
-      {rows.map(({ provider, worst }) => (
-        <button
-          key={provider}
-          type="button"
-          data-testid={`quota-slider-${provider}`}
-          title={paceText(worst.pace)}
-          onClick={() => setDialogProvider(provider)}
-          style={{
-            // Single compact line: label + bar side by side (no percentage).
-            display: "flex",
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 6,
-            background: "transparent",
-            border: "none",
-            padding: 0,
-            lineHeight: 1,
-            cursor: "pointer",
-            color: "var(--text-secondary, #a1a1aa)",
-          }}
-        >
-          <span style={{ whiteSpace: "nowrap" }}>{providerLabel(provider)}</span>
-          <span style={{ display: "inline-block", width: 56 }}>
-            <MiniBar pace={worst.pace} usedPercent={worst.window.usedPercent} height={3} />
+    <>
+      <ComposerContextGroup label={t("quota", undefined, "Quota")} testId="quota-context-group">
+        {showNote && (
+          <span
+            data-testid="quota-no-adapter-note"
+            aria-label={t("noQuota", { modelId }, `${modelId} · no quota`)}
+            style={{
+              fontSize: 10,
+              color: "var(--text-muted, #71717a)",
+              border: "1px dashed var(--border-subtle, rgba(82,82,91,0.6))",
+              borderRadius: 4,
+              padding: "0 4px",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {t("noQuota", { modelId }, `${modelId} · no quota`)}
           </span>
-        </button>
-      ))}
+        )}
+        {ordered.map((p) => {
+          const ringed = p.provider === sessionProvider;
+          const dimmed = sessionProvider !== undefined && !ringed;
+          const windowsText = p.windows
+            .map((w) => `${w.label} ${Math.round(w.usedPercent)}%`)
+            .join(", ");
+          return (
+            <button
+              key={p.provider}
+              type="button"
+              data-testid={`quota-chip-${p.provider}`}
+              data-session-provider={ringed ? "true" : undefined}
+              data-dimmed={dimmed ? "true" : undefined}
+              data-stale={p.stale === true ? "true" : undefined}
+              title={windowsText}
+              aria-label={t(
+                "chipAria",
+                { provider: providerLabel(p.provider), windows: windowsText },
+                `${providerLabel(p.provider)} quota, ${windowsText}`,
+              )}
+              onClick={() => setDialogProvider(p.provider)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                background: "transparent",
+                border: "1px solid var(--border-subtle, rgba(82,82,91,0.6))",
+                borderRadius: 4,
+                padding: "0 4px",
+                lineHeight: 1.4,
+                fontSize: 10,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+                color: ringed ? "var(--text-primary, #e4e4e7)" : "var(--text-secondary, #a1a1aa)",
+                opacity: dimmed ? 0.5 : 1,
+                boxShadow: ringed ? "inset 0 0 0 1px var(--accent, #3b82f6)" : undefined,
+              }}
+            >
+              <span style={{ fontWeight: 600 }}>{providerLabel(p.provider)}</span>
+              {p.stale === true && (
+                <span
+                  data-testid={`quota-chip-stale-${p.provider}`}
+                  style={{
+                    color: "var(--text-muted, #71717a)",
+                    border: "1px dashed var(--border-subtle, rgba(82,82,91,0.6))",
+                    borderRadius: 3,
+                    padding: "0 3px",
+                  }}
+                >
+                  {t("retained", undefined, "not live")}
+                </span>
+              )}
+              {p.windows.map((w, i) => {
+                const pace = computePace(w, now);
+                // A stale provider's retained figures are shown muted.
+                const severity: PaceSeverity = p.stale === true ? "muted" : pace.severity;
+                return (
+                  <span
+                    key={`${w.label}-${i}`}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 3 }}
+                  >
+                    <span>{w.label}</span>
+                    <span style={{ display: "inline-block", width: 40 }}>
+                      <MiniBar pace={{ ...pace, severity }} usedPercent={w.usedPercent} height={3} />
+                    </span>
+                    <span>{Math.round(w.usedPercent)}%</span>
+                  </span>
+                );
+              })}
+            </button>
+          );
+        })}
+      </ComposerContextGroup>
       {dialogProvider !== null && (
         <QuotaDialog quota={quota} initial={dialogProvider} onClose={() => setDialogProvider(null)} />
       )}
-    </div>
+    </>
   );
 }
 
