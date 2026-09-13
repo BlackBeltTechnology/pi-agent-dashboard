@@ -1,6 +1,6 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { NumberField, SelectField, TextField, ToggleField } from "../SettingsPanel.js";
+import { CONFIG_FIELD_PAGE, computeConfigPartial, NumberField, SelectField, TextField, ToggleField } from "../SettingsPanel.js";
 
 // Field-level name + description contract for the four shared settings field
 // components. Harness glue copied from ../../__tests__/SettingsPanel.test.tsx.
@@ -164,5 +164,45 @@ describe("shared settings field components — required hint prop", () => {
     );
 
     expect(omissions).toBeTruthy();
+  });
+});
+
+// ── Host-gate fields through the panel Save contract ────────────────────────
+// test-plan #E27 — `allowedHosts` + `hostGate` persist exactly like every other
+// Settings field: diffed whole by `computeConfigPartial`, mapped to the
+// security page for the nav-rail dirty dot. The section issues no write of
+// its own (design D8).
+// See change: add-host-allowlist-admission.
+describe("host-gate fields — Save diff + page mapping", () => {
+  // Enough of a Config for computeConfigPartial to run (it reads tunnel,
+  // memoryLimits, … unconditionally); identical in draft and original so the
+  // partial contains ONLY the host-gate delta.
+  const base = {
+    port: 8000,
+    piPort: 9999,
+    autoStart: true,
+    autoShutdown: true,
+    shutdownIdleSeconds: 300,
+    spawnStrategy: "headless",
+    tunnel: { enabled: true },
+    devBuildOnReload: false,
+    defaultModel: "",
+    defaultThinkingLevel: "",
+    memoryLimits: { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 },
+    trustedNetworks: [],
+  };
+
+  it("diffs hostGate.mode and allowedHosts into the Save partial", () => {
+    const original = { ...base, hostGate: { mode: "report" }, allowedHosts: [] };
+    const draft = { ...base, hostGate: { mode: "enforce" }, allowedHosts: ["a"] };
+
+    const partial = computeConfigPartial(draft as any, original as any);
+
+    expect(partial).toEqual({ hostGate: { mode: "enforce" }, allowedHosts: ["a"] });
+  });
+
+  it("maps both fields to the security page for the dirty dot", () => {
+    expect(CONFIG_FIELD_PAGE.allowedHosts).toBe("security");
+    expect(CONFIG_FIELD_PAGE.hostGate).toBe("security");
   });
 });

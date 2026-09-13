@@ -3089,6 +3089,33 @@ Issue #625. CORS hides a response, never blocks the request. Gate blocks the act
 
 **Escape hatch** — a hand-run `zrok share public` (not the dashboard tunnel feature) needs its origin in `cors.allowedOrigins` (`~/.pi/dashboard/config.json`).
 
+### Host Admission Gate
+
+Issue #637. Origin gates cannot see a rebinding page. It is same-origin with the dashboard: plain GETs carry no `Origin`, peer is loopback. `Host` is the only signal left.
+
+**Hook** — `packages/server/src/auth/host-gate.ts` + `host-admission.ts`. `onRequest` hook on the dashboard listener, registered BEFORE `@fastify/cors`; same check first in the `upgrade` handler. Runs on every path, Origin or none.
+
+**Admissible hostname** (first match wins, all read live):
+
+- loopback literal — `localhost`, `127.0.0.1`, `::1`.
+- any IPv4/IPv6 literal (`net.isIP`). Rebinding needs a NAME; `127.1` / `2130706433` fail closed.
+- the bind address (a name; an IP bind is covered above).
+- `<label>.local`, label non-empty. Bare `.local` refused. mDNS not public DNS — not rebindable remotely.
+- `publicBaseUrls` hosts, `cors.allowedOrigins` hosts, live tunnel hosts — derived at read time, never copied into `allowedHosts`.
+- top-level `allowedHosts` (new, bare hostnames).
+
+Match hostname only: port stripped, IPv6 brackets stripped, trailing dot stripped, case-folded. Missing/malformed `Host` fails closed.
+
+**Mode** — `hostGate.mode` (default `report`) or `PI_DASHBOARD_HOST_GATE` (env wins when recognised; unrecognised ignored + logged once at boot). `report` logs `[host-gate] would-refuse` and proceeds; `enforce` refuses.
+
+**Refusal** — `403 {error:"host_not_allowed", reason, hint}`, no CORS headers. `Accept` first media type `text/html` → static HTML page (escaped Host, `localhost:<port>`, the two config keys; no JS, no assets, no admitted-host enumeration). WS upgrade → `HTTP/1.1 403` + destroy, ticket unconsumed.
+
+**Operator UI** — `GET /api/host-gate` (`mode`, `envOverridden`, derived `admitted`, `recent` ring). Settings ▸ Security ▸ Allowed hostnames: mode control, read-only admitted list (source pills), `allowedHosts` editor, recent refusals + Allow. Auth same as `GET /api/config`.
+
+**Logs** — `[host-gate] <refused|would-refuse> host=… origin=… <method> <url>` (REST) / `scope=…` (WS). Values via `sanitizeHeaderForLog`. Rate-limited: 1/host/min, 60/min global, one `suppressed <n>` summary; 256-host map.
+
+See change: add-host-allowlist-admission.
+
 ### HTTP Compression
 
 The Fastify server registers `@fastify/compress` globally with `gzip` + `deflate` encodings (threshold 1 KB). Brotli is intentionally **not** enabled — zrok’s free public proxy has been observed to truncate/stream-reset `content-encoding: br` responses under parallel browser load (curl succeeds, Chrome reports `ERR_ABORTED 500`). gzip round-trips cleanly through zrok and is universally supported.

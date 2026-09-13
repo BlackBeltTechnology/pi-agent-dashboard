@@ -21,7 +21,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { type DashboardConfig, loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { type DashboardConfig, type HostGateMode, loadConfig, resolvePublicBaseUrls } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 
 let cached: DashboardConfig | null = null;
 /** `${mtimeMs}:${size}` of the file behind `cached`; `""` = never loaded. */
@@ -45,12 +45,50 @@ function stamp(): string {
 }
 
 /**
+ * `true` when the file is absent, empty, or parses as JSON. A `config.json`
+ * that exists but no longer parses must not silently flip every live gate back
+ * to boot defaults mid-run, so the snapshot layer keeps the last GOOD parse
+ * instead (X5 of add-host-allowlist-admission). An absent / unreadable / empty
+ * file is NOT corruption — it falls through to `loadConfig()` (defaults), the
+ * pre-existing behaviour.
+ */
+function parsesCleanly(): boolean {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(configFile(), "utf-8");
+  } catch {
+    return true; // absent / unreadable → not corruption
+  }
+  if (!raw.trim()) return true;
+  try {
+    JSON.parse(raw);
+    return true;
+  } catch {
+    return false; // present but malformed → preserve the last good snapshot
+  }
+}
+
+/**
  * The current config, reparsed only when the file changed since the last call.
- * Callers MUST NOT mutate the returned object — it is shared.
+ * Callers MUST NOT mutate the returned object — it is shared. When the file
+ * exists but no longer parses, the LAST GOOD snapshot stays in force (with a
+ * one-line error) until the operator fixes it.
  */
 export function getConfigSnapshot(): DashboardConfig {
   const current = stamp();
   if (cached && current === cachedStamp) return cached;
+  if (cached && !parsesCleanly()) {
+    console.error(
+      "[config-snapshot] config.json is unparseable — keeping the last-good snapshot",
+    );
+    cachedStamp = current;
+    return cached;
+  }
+  // First read of a corrupt file: `loadConfig()` swallows the parse error and
+  // returns defaults. Log it so the fallback is visible, not silent.
+  if (!cached && !parsesCleanly()) {
+    console.error("[config-snapshot] config.json is unparseable — using defaults");
+  }
   cached = loadConfig();
   cachedStamp = current;
   parseCount++;
@@ -69,6 +107,24 @@ export function liveCorsAllowedOrigins(fallback: string[] = []): string[] {
 /** Trusted networks as of this request (top-level ∪ `auth.bypassHosts`). */
 export function liveTrustedNetworks(fallback: string[] = []): string[] {
   return getConfigSnapshot().resolvedTrustedNetworks ?? fallback;
+}
+
+/** Top-level `allowedHosts` as of this request (bind-time field, live list). */
+export function liveAllowedHosts(fallback: string[] = []): string[] {
+  return getConfigSnapshot().allowedHosts ?? fallback;
+}
+
+/**
+ * Public base URLs as of this request, through `resolvePublicBaseUrls` so the
+ * legacy `pairing.publicBaseUrls` key is honoured (D2).
+ */
+export function livePublicBaseUrls(fallback: string[] = []): string[] {
+  return resolvePublicBaseUrls(getConfigSnapshot()) ?? fallback;
+}
+
+/** Resolved `hostGate.mode` from config alone (env override is applied by the gate). */
+export function liveHostGateMode(fallback: HostGateMode = "report"): HostGateMode {
+  return getConfigSnapshot().hostGate?.mode ?? fallback;
 }
 
 /** Drop the cache (tests, and any explicit re-read after a known write). */

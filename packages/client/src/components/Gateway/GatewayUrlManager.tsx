@@ -15,9 +15,10 @@
  */
 
 import type { GatewayAuthMode, GatewayRecord } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { hostnameFromUrl } from "@blackbelt-technology/pi-dashboard-shared/host-admission.js";
 import { mdiPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   buildGatewayAddPatch,
   buildGatewayFixPatch,
@@ -28,7 +29,7 @@ import {
   validateGatewayDraft,
 } from "../../lib/gateway/gateway-action.js";
 import { getConfig, putConfig } from "../../lib/gateway/gateway-api.js";
-import { suggestTrustEntries } from "../../lib/gateway/gateway-config-ops.js";
+import { resolvePublicBaseUrls, suggestTrustEntries } from "../../lib/gateway/gateway-config-ops.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 
 const MODE_LABEL: Record<GatewayAuthMode, string> = {
@@ -80,6 +81,17 @@ export function GatewayUrlManager() {
   const draft = { url, authModes: modes, trustedNetworks: cidr ? [cidr] : [] };
   const validation = validateGatewayDraft(draft);
   const gateways = config.gateways ?? [];
+  /** Live derived-admitted hostnames (publicBaseUrls ∪ CORS origins), so the
+   *  per-row pill answers only "is this URL's hostname derived-admitted" —
+   *  independent of the row's data-status. See change: add-host-allowlist-admission. */
+  const admittedHosts = useMemo(() => {
+    const hosts = new Set<string>();
+    for (const entry of [...resolvePublicBaseUrls(config), ...(config.cors?.allowedOrigins ?? [])]) {
+      const h = hostnameFromUrl(entry);
+      if (h) hosts.add(h);
+    }
+    return hosts;
+  }, [config]);
   // Identical-value authorship is not recoverable by provenance (D12), so the
   // add dialog says it out loud instead of guessing at removal time.
   const willClaimExistingBase =
@@ -141,6 +153,8 @@ export function GatewayUrlManager() {
         ) : (
           gateways.map((g: GatewayRecord) => {
             const { status, missing, conflictHolder } = computeGatewayStatus(config, g);
+            const rowHost = hostnameFromUrl(g.url);
+            const hostAdmitted = rowHost !== null && admittedHosts.has(rowHost);
             return (
               <div
                 key={g.url}
@@ -158,6 +172,19 @@ export function GatewayUrlManager() {
                 >
                   {STATUS_COPY[status]}
                 </span>
+                {hostAdmitted && (
+                  <span
+                    data-testid="gateway-host-admitted"
+                    title={t(
+                      "gateway.url.hostAdmittedTitle",
+                      { host: rowHost! },
+                      "{host} is an allowed Host because it is a gateway URL",
+                    )}
+                    className="rounded px-1.5 py-px text-[9.5px] text-[var(--severity-success-fg)]"
+                  >
+                    {t("gateway.url.hostAdmitted", undefined, "Host admitted")}
+                  </span>
+                )}
                 {status !== "ok" && status !== "ineligible" && (
                   <button
                     type="button"
