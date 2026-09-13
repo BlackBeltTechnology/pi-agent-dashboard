@@ -6,9 +6,9 @@ OpenAI- and Anthropic-compatible HTTP proxy hosted by the dashboard server. Expo
 
 ## Requirements
 
-### Requirement: Always-on lifetime tied to dashboard
+### Requirement: Lifetime tied to dashboard when enabled at boot
 
-The model proxy SHALL be available whenever the dashboard server is running, independently of any pi session being active or connected.
+The model proxy SHALL be available whenever the dashboard server is running with `modelProxy.enabled === true` at boot, independently of any pi session being active or connected.
 
 #### Scenario: Proxy available with zero pi sessions
 
