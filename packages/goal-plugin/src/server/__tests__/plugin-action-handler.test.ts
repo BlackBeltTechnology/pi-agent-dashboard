@@ -98,8 +98,18 @@ describe("goal-plugin composition root (fake ctx)", () => {
   // completes: `flush()` yields real macrotask turns for it. Explicit clock
   // jumps drive the 30 s boot-reconcile timer (X6) past its grace window.
   // See change: relocate-goal-product-to-plugin.
+  //
+  // A fixed turn count under-serves real fs I/O on a loaded CI runner: the
+  // goal-store write had not landed when a later assertion read it back, so
+  // E22/E25/X6 flaked in CI only, never locally. Keep the 80-turn minimum,
+  // then keep yielding until a real-time floor elapses (Date is unfaked),
+  // hard-bounded. Assertion-neutral: only the settle budget grows.
   const flush = async () => {
-    for (let i = 0; i < 80; i++) await new Promise((r) => setImmediate(r));
+    const deadline = Date.now() + 100;
+    for (let i = 0; i < 2_000; i++) {
+      await new Promise((r) => setImmediate(r));
+      if (i >= 79 && Date.now() >= deadline) break;
+    }
   };
   // Store broadcasts are TRAILING-DEBOUNCED (default 100 ms, faked clock):
   // settle = let real fs I/O land, then advance past the debounce window so
