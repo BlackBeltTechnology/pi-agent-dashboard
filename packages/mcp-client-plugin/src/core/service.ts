@@ -58,6 +58,10 @@ export function createMcpClientConfigService(deps: McpClientConfigServiceDeps): 
   return {
     adapterVerdict: (opts) => probe.adapterVerdict(opts),
 
+    targetPath(scope: Scope): string {
+      return writer.targetPath(scope);
+    },
+
     readServerEntry(name: string, scope: Scope): ServerEntry | undefined {
       const r = writer.readServerEntry(name, scope);
       return r.ok ? r.entry : undefined;

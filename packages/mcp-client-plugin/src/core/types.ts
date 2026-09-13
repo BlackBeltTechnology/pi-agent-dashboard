@@ -117,6 +117,8 @@ export interface AdapterPort {
 /** The in-process service provided as `mcp-client.config`. */
 export interface McpClientConfigService {
   adapterVerdict(opts?: { fresh?: boolean }): AdapterVerdict;
+  /** The Pi-owned target path a scope's write would land in. */
+  targetPath(scope: Scope): string;
   readServerEntry(name: string, scope: Scope): ServerEntry | undefined;
   ensureServerEntry(
     name: string,

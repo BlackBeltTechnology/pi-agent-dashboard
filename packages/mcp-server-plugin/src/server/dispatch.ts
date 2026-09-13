@@ -10,6 +10,8 @@
  * scoped to the lifetime of the single request that opened it and dies with
  * that request; nothing is shared *between* requests.
  */
+
+import { evaluateSelfTarget } from "./guard.js";
 import {
   RPC_INVALID_PARAMS,
   RPC_METHOD_NOT_FOUND,
@@ -21,13 +23,12 @@ import {
 } from "./jsonrpc.js";
 import {
   CURRENT_PROTOCOL_VERSION,
-  SUPPORTED_PROTOCOL_VERSIONS,
   type ProtocolVersionFailure,
   resolveProtocolVersion,
+  SUPPORTED_PROTOCOL_VERSIONS,
 } from "./protocol.js";
-import { type McpCaller } from "./tokens.js";
-import { MCP_TOOLS, type McpToolDef, findTool, listTools } from "./tools.js";
-import { evaluateSelfTarget } from "./guard.js";
+import type { McpCaller } from "./tokens.js";
+import { findTool, listTools, MCP_TOOLS, type McpToolDef } from "./tools.js";
 
 /** Methods reported as unsupported rather than silently accepted. */
 export const REMOVED_METHODS = [

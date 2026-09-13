@@ -9,14 +9,14 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import {
-  type DispatchDeps,
-  REMOVED_METHODS,
   buildDiscoverResult,
+  type DispatchDeps,
   dispatchRpc,
   parseSubscriptionFilter,
+  REMOVED_METHODS,
 } from "../dispatch.js";
+import { parseRpcRequest, RPC_METHOD_NOT_FOUND } from "../jsonrpc.js";
 import { META_VERSION_KEY } from "../protocol.js";
-import { RPC_METHOD_NOT_FOUND, parseRpcRequest } from "../jsonrpc.js";
 import type { McpCaller } from "../tokens.js";
 
 const V = "2026-07-28";

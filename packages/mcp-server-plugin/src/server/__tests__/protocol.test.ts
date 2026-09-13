@@ -9,8 +9,8 @@ import { describe, expect, it } from "vitest";
 import {
   CURRENT_PROTOCOL_VERSION,
   META_VERSION_KEY,
-  SUPPORTED_PROTOCOL_VERSIONS,
   resolveProtocolVersion,
+  SUPPORTED_PROTOCOL_VERSIONS,
 } from "../protocol.js";
 
 const meta = (version: unknown) => ({ _meta: { [META_VERSION_KEY]: version } });

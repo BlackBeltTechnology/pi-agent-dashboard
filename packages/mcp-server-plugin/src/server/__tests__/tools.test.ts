@@ -7,16 +7,16 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  ALLOWLISTED_CONTEXT_MEMBERS,
   ALL_CONTEXT_MEMBERS,
-  DENIED_CONTEXT_MEMBERS,
-  FORBIDDEN_VERB_NAMES,
-  MCP_TOOLS,
-  type McpToolDef,
+  ALLOWLISTED_CONTEXT_MEMBERS,
   assertContextPartitionTotal,
   checkToolCompleteness,
+  DENIED_CONTEXT_MEMBERS,
+  FORBIDDEN_VERB_NAMES,
   findTool,
   listTools,
+  MCP_TOOLS,
+  type McpToolDef,
 } from "../tools.js";
 
 /** A resolver standing in for the real handler table. */
