@@ -25,10 +25,10 @@ export interface OpenSpecGetInflight {
   timer: ReturnType<typeof setTimeout>;
 }
 
-export type OpenSpecGetInflightRef = React.MutableRefObject<Map<string, OpenSpecGetInflight>>;
+type OpenSpecGetInflightRef = React.MutableRefObject<Map<string, OpenSpecGetInflight>>;
 
 /** 15 s: a request whose final reply never lands must not wedge its cwd. */
-export const OPENSPEC_GET_TIMEOUT_MS = 15_000;
+const OPENSPEC_GET_TIMEOUT_MS = 15_000;
 
 /** Monotonic per-bundle request-id source — every attempt gets a fresh id. */
 let requestSeq = 0;

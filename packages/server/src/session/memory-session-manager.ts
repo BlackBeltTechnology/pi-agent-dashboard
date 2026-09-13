@@ -15,8 +15,8 @@ import { resolveOrderKey } from "./resolve-order-key.js";
  * every group with a non-ended session or a pin.
  * See change: fix-connect-snapshot-frame-loss.
  */
-export const SNAPSHOT_ENDED_GLOBAL = 120;
-export const SNAPSHOT_ENDED_PER_GROUP = 3;
+const SNAPSHOT_ENDED_GLOBAL = 120;
+const SNAPSHOT_ENDED_PER_GROUP = 3;
 
 /**
  * Persisted-order read surface the snapshot window needs. Structural subset
