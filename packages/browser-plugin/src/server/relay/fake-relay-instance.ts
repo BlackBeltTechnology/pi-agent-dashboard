@@ -38,13 +38,13 @@ export class FakeRelayInstance {
   readonly instanceId: string;
   readonly profileDirectory: string;
   private readonly viewers = new Map<number, Set<RelaySocket>>();
-  private readonly timer: unknown;
+  private timer: unknown = undefined;
   private closed = false;
 
   constructor(private readonly deps: FakeRelayInstanceDeps) {
     this.instanceId = deps.instanceId;
     this.profileDirectory = deps.profileDirectory ?? "Fake";
-    this.timer = deps.timers.setTimeout(() => this._tick(), FAKE_FRAME_INTERVAL_MS);
+    this._tick();
   }
 
   tabList(): RelayTabView[] {
@@ -116,7 +116,11 @@ export class FakeRelayInstance {
   }
 
   private _tick(): void {
+    if (this.closed) return;
     for (const [tabId, set] of this.viewers) this._sendFrame(tabId, set);
+    // Re-arm unconditionally: a one-shot timer would emit exactly one frame
+    // after construction and then go silent (caught by the frame-rate test).
+    this.timer = this.deps.timers.setTimeout(() => this._tick(), FAKE_FRAME_INTERVAL_MS);
   }
 
   private _sendFrame(tabId: number, set: Set<RelaySocket>): void {

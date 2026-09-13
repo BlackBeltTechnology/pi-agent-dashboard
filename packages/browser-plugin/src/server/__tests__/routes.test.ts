@@ -142,6 +142,15 @@ describe("GET /api/browser/profiles", () => {
     expect(Object.keys(json<{ profiles: object }>(res).profiles)).toEqual(["Default"]);
   });
 
+  it("surfaces a live instance on an undiscovered profile (the Fake row)", async () => {
+    h.manager.instancesList.push(new StubInstance("fake-1", "Fake"));
+    const body = json<{ profiles: Record<string, { label: string; installed: boolean; instances: unknown[] }> }>(
+      await h.app.inject({ method: "GET", url: "/api/browser/profiles" }),
+    );
+    expect(body.profiles.Fake).toMatchObject({ label: "Fake", installed: true });
+    expect(body.profiles.Fake.instances).toHaveLength(1);
+  });
+
   it("carries the synthetic-Default warning", async () => {
     h.setProfiles({ profiles: [{ profileDirectory: "Default", label: "Default", installed: true }], warning: "/x/Local State" });
     const res = await h.app.inject({ method: "GET", url: "/api/browser/profiles" });

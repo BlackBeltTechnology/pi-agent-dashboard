@@ -135,15 +135,30 @@ export function registerBrowserRoutes(fastify: FastifyInstance, deps: BrowserRou
     async (req): Promise<BrowserProfilesResponse> => {
       const { profiles, warning } = await deps.listProfiles();
       const only = req.query.profileDirectory;
+      const discovered = new Map(profiles.map((p) => [p.profileDirectory, p]));
+      // Union discovered profiles with every live instance's profile: a live
+      // instance ALWAYS renders (the `PI_BROWSER_RELAY_FAKE=1` harness profile
+      // is not discoverable on disk, and a profile could vanish from Local
+      // State mid-session).
+      const dirs = [...discovered.keys()];
+      for (const inst of manager.instances()) {
+        if (!discovered.has(inst.profileDirectory)) dirs.push(inst.profileDirectory);
+      }
       const rows: Record<string, BrowserRouteProfile> = {};
-      for (const profile of profiles) {
-        if (only !== undefined && profile.profileDirectory !== only) continue;
-        const instances = manager.instances(profile.profileDirectory);
-        rows[profile.profileDirectory] = profileRow(
-          profile,
-          instances,
-          Boolean(manager.profileConfig(profile.profileDirectory).token),
-        );
+      for (const dir of dirs) {
+        if (only !== undefined && dir !== only) continue;
+        const profile = discovered.get(dir);
+        const instances = manager.instances(dir);
+        const hasToken = Boolean(manager.profileConfig(dir).token);
+        rows[dir] = profile
+          ? profileRow(profile, instances, hasToken)
+          : {
+              profileDirectory: dir,
+              label: dir,
+              installed: true,
+              hasToken,
+              instances: instances.map(instanceRow),
+            };
       }
       return warning ? { profiles: rows, warning } : { profiles: rows };
     },

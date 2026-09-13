@@ -92,7 +92,7 @@
 - [x] 2.8 `connect.ts`: build `connect.html` URL (`protocolVersion=2`, `token` only when `zeroDialog`), open via `systemOpen` + `--profile-directory`, await handshake (60 s → 504 + guid expiry; token mismatch is indistinguishable and also 504), return `{cdpUrl, instanceId}`. Verify: unit test mocks `systemOpen`, asserts exact URL/args with and without `zeroDialog`; timeout path returns 504 and guid is gone.
 - [x] 2.9 REST routes on `ctx.fastify`: `GET /api/browser/status` (`{enabled, canOpenChrome}`), `GET /api/browser/profiles` (keyed by `profileDirectory`, with `instances[].tabs[]`), `POST /api/browser/connect`, `POST /api/browser/disconnect?instanceId=` (required), `GET /api/browser/audit`, `PUT /api/browser/enabled`; writes 403 when disabled (except the PUT); connect 409 `{reason:"not-installed"}` / `{reason:"busy", instanceId}` (busy only if 2.2b says so), 503 when `canOpenChrome:false`. Verify: `routes.test.ts` covers every status code and `reason` in the spec.
 - [x] 2.10 `canOpenChrome` detection inside the plugin (`systemOpen` available + Chrome userDataDir found per OS). Verify: unit test — true/false per mocked fs + capability; no change to `packages/server/src/routes/system-routes.ts`.
-- [ ] 2.10b `FakeRelayInstance` behind `PI_BROWSER_RELAY_FAKE=1` (one tab, 64×64 JPEG every 100 ms, input echoed to audit). Verify: unit test — env unset → no instance; env set → instance listed, ≥5 frames/s to a subscriber.
+- [x] 2.10b `FakeRelayInstance` behind `PI_BROWSER_RELAY_FAKE=1` (one tab, 64×64 JPEG every 100 ms, input echoed to audit). Verify: unit test — env unset → no instance; env set → instance listed, ≥5 frames/s to a subscriber.
 - [x] 2.11 `observability-instrumentation` pass: relay lifecycle log lines (`[browser-relay] instance <profile> open/close`, denied verbs, connect latency); `browser_relay_status` on every state change. Verify: log assertions in 2.3/2.4 tests.
 - [x] 2.12 **GAP A (plan delta, workstream 2a): `writeOnly` config redaction.** Spec `browser-plugin-settings` F2 requires the pairing token to never reach a client, but every plugin-config surface served the FULL merged config: `plugin-config-routes.ts` broadcast + POST response, `server.ts` `updatePluginConfig` broadcast, `plugin-activation-routes.ts` toggle broadcast, and `GET /api/config` (`readConfigRedacted`). Fix: pure `redactWriteOnly(config, schema)` in `dashboard-plugin-runtime/src/server/config-redact.ts` (strips every `writeOnly: true` property, recursing `properties` + `patternProperties` + object-shaped `additionalProperties` + array `items`; same-reference no-op when nothing stripped; never mutates) + `redactPluginConfigForClient(id, config, repoRoot?)` convenience (discovers + loads the plugin's schema). Applied at all four surfaces. The server-side `getPluginConfig()` a plugin calls stays UNREDACTED. Note: `server.ts:1589` also broadcasts `plugin_config_update` but its payload is the `PluginStatus` object (id/displayName/enabled/loaded/…) — verified to carry no plugin config values, so no redaction needed there. Verify: `config-redact.test.ts` (nested/patternProperties/additionalProperties/array items, non-writeOnly preserved, absent schema, purity); existing config/plugin-route tests stay green.
 - [x] 2.13 **GAP B (plan delta, workstream 2a): `defaultEnabled` — ship `browser` disabled by default.** Design Migration Plan step 2. Every enabled check was `cfg?.enabled !== false` (default-allow). Fix: optional `defaultEnabled?: boolean` on `PluginManifest` (shared `manifest-types.ts`) validated in `manifest-validator.ts` (boolean or throw); pure `resolvePluginEnabled(configValue, defaultEnabled)` in `dashboard-plugin-runtime/src/server/plugin-enabled.ts` (explicit boolean `enabled` in config wins → else manifest default → else `true`); honoured by `server.ts` loader `isEnabled` (which feeds `/api/health.plugins[].enabled`) and `plugin-activation-routes.ts`'s toggle-impact `isEnabled`. Client: NO change needed — `usePluginEnabledSet` builds its set from `/api/health` `plugins[].enabled`, so a server-reported `enabled:false` excludes the plugin from the enabled set (build-time default-allow is overridden by the explicit server report). `browser-plugin/package.json` sets `defaultEnabled: false`. Strictly additive: plugins without the field keep the historical semantics. Verify: `plugin-enabled.test.ts` (defaultEnabled:false + empty config → disabled; explicit `enabled:true` → enabled; no field → enabled; non-boolean config `enabled` falls back to default; validator accepts boolean / rejects non-boolean); full `npm test` green (core behaviour change).
@@ -175,9 +175,24 @@ Everything below is unwritten; do them in this order because each unblocks the n
    unredacted server-side and is never spread into a response). Writes 403 while
    disabled; PUT persists + kill switch. Tested via Fastify `inject` (18 tests).
    Unblocks 7.17's route half, 7.52, e2e. Still needs `server/index.ts` wiring.
-4. **`server/index.ts`** wiring + `PI_BROWSER_RELAY_FAKE=1` activation seeding
-   (task 2.10b) + teardown on plugin disable. The plugin must be loadable with
-   `defaultEnabled:false` and flip on via `PUT /api/browser/enabled`.
+4. ~~**`server/index.ts`** wiring + `PI_BROWSER_RELAY_FAKE=1` seeding +
+   teardown.~~ **DONE** — composition root builds audit+manager+status and mounts
+   all three surfaces; `PI_BROWSER_RELAY_FAKE=1` seeds the `Fake` instance;
+   `ctx.onShutdown` disposes. Plugin-disable teardown rides the WS-socket
+   tracking (loader `teardownPlugin` closes 1001 → `RelayInstance` finalizes →
+   manager entry dropped), so no new runtime hook is needed. Also fixed a real
+   `FakeRelayInstance` bug: its tick did not re-arm (one frame then silence).
+   Tested by `index.test.ts` + `fake-relay-instance.test.ts` (170 browser-plugin
+   tests green).
+
+**Plan conflict to resolve at the e2e step (task 7.53):** the plan asserts
+`/api/browser/status` → 404 after `POST /api/plugins/browser/toggle {off}`, but
+task 2.9 specifies `GET status` returning `{enabled:false}` (and 7.34's kill
+switch needs the rows to keep rendering while `enabled:false`). A toggle-off
+does NOT unregister mounted REST routes (`plugin-activation-routes.ts` keeps
+`restartRequired:true` for exactly this reason). Resolve by deciding whether GETs
+404 on config-disabled — which would make the in-session kill-switch UI unable to
+re-read status unless it relies on the `browser_relay_status` WS push alone.
 5. **Group 4 client** (`BrowserSettings`, `AuditList`, `LiveViewTile`, `i18n`)
    — spawn `react-expert` per the subagent checkpoint (≥3 components + a new
    subscription hook). Then 4.4/4.5.
@@ -258,7 +273,7 @@ Exemplars: L1 server auth/upgrade → `packages/server/src/__tests__/cors.test.t
 - [ ] 7.25 Tap command ids: client ids 1..1000, tap active · interleaved responses · tap ids ≥2^30, every client response routed with original id, none leaked (test-plan #E25)
 - [ ] 7.26 Frame filtering per session: tab A tapped, B not; extension emits frames for both · forward · client gets B only, subscribers get A; client `Page.startScreencast` A denied, B forwarded (test-plan #E26)
 - [x] 7.27 Client screencast precedence: client started screencast on A · viewer subscribes A · refused `client-screencast-active`; after client `stopScreencast` re-subscribe succeeds (test-plan #E27)
-- [ ] 7.28 Fake instance gating: env unset / `PI_BROWSER_RELAY_FAKE=1` · activation · none / one `Fake` instance tab 1, ≥5 frames in 1 s (test-plan #E28)
+- [x] 7.28 Fake instance gating: env unset / `PI_BROWSER_RELAY_FAKE=1` · activation · none / one `Fake` instance tab 1, ≥5 frames in 1 s (test-plan #E28)
 - [ ] 7.36 Tap fps + latency: fake ext 4 KB @10 fps, 1 subscriber, client 20 `Runtime.evaluate`/s · 5 s · subscriber ≥8 fps; CDP p95 ≤ baseline+100 ms (test-plan #P1)
 - [x] 7.37 Backpressure: sockets A `bufferedAmount` 600 KiB, B 0 · 2 s of frames · A 0 frames, B all; ack every frame; status skipped-count for A (test-plan #P2)
 - [x] 7.38 Status coalescing: 100 audit appends in 100 ms · 1 s · ≤1 status per 500 ms; final `auditSeq` = last (test-plan #P3)
