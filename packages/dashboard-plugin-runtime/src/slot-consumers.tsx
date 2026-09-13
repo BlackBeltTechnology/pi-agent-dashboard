@@ -352,6 +352,77 @@ export function ContentInlineFooterSlot({ session }: { session: DashboardSession
   );
 }
 
+/**
+ * `composer-context-group` — labelled context groups rendered INSIDE the chat
+ * composer's `ComposerSessionActions` strip, after the Git group and before the
+ * Status group. Passes slot components `{ session }`. Unlike the Status group,
+ * contributions are read-only context and are NOT wrapped in a streaming
+ * `<fieldset disabled>`.
+ *
+ * Each contribution owns its label and its emptiness: a component returning
+ * `null` leaves no divider/label behind. Pair with the exported
+ * `ComposerContextGroup` primitive for the strip's visual vocabulary.
+ * See change: move-quota-to-context-strip.
+ */
+export function ComposerContextGroupSlot({ session }: { session: DashboardSession }) {
+  useSlotClaimsVersion();
+  const registry = useSlotRegistryOrNull();
+  const intents = useSlotIntents("composer-context-group", session.id);
+  const legacyClaims = registry
+    ? forSessionRendered(registry.getClaims("composer-context-group"), session)
+    : [];
+  if (!legacyClaims.length && intents.size === 0) return null;
+  return (
+    <>
+      {legacyClaims.map((c) =>
+        renderClaim(c as Parameters<typeof renderClaim>[0], "composer-context-group", { session }),
+      )}
+      {Array.from(intents.entries()).map(([pluginId, intent]) =>
+        renderIntent(pluginId, "composer-context-group", intent, session.id),
+      )}
+    </>
+  );
+}
+
+/**
+ * Visual primitive for a `composer-context-group` contribution: a leading
+ * divider, an uppercase label and the children rendered as ONE non-shrinking
+ * flex item, so the strip's `flex-wrap` never orphans the label at a line end.
+ * The classes mirror the host strip's private `Divider`/`GroupLabel` (in
+ * `ComposerSessionActions`) so plugin groups are indistinguishable from
+ * `GIT`/`STATUS`.
+ *
+ * The host's own groups are deliberately NOT refactored onto this primitive —
+ * `OPENSPEC` has no leading divider, `STATUS` wraps a `<fieldset>` (flow
+ * content, illegal inside a `<span>`) and carries two test ids. See change:
+ * move-quota-to-context-strip (design D3).
+ */
+export function ComposerContextGroup({
+  label,
+  children,
+  testId,
+}: {
+  label: React.ReactNode;
+  children: React.ReactNode;
+  testId?: string;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1 shrink-0" data-testid={testId}>
+      <span
+        aria-hidden="true"
+        className="inline-block h-3 w-px bg-[var(--border-secondary)] mx-0.5 flex-shrink-0"
+      />
+      <span
+        data-testid={testId ? `${testId}-label` : undefined}
+        className="text-[9px] uppercase tracking-wider text-[var(--text-muted)] mr-0.5 flex-shrink-0"
+      >
+        {label}
+      </span>
+      {children}
+    </span>
+  );
+}
+
 export function AnchoredPopoverSlot({
   anchorEl,
   onDismiss,

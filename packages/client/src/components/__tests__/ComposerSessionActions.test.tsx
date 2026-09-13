@@ -1,6 +1,11 @@
 import React from "react";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
+import {
+  ComposerContextGroup,
+  createSlotRegistry,
+  PluginContextProvider,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import { ComposerSessionActions } from "../session/ComposerSessionActions.js";
 import type { DashboardSession, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
@@ -145,5 +150,143 @@ describe("ComposerSessionActions", () => {
     );
     expect(screen.queryByTestId("composer-git-group-label")).toBeNull();
     expect(screen.queryByTestId("composer-git-group")).toBeNull();
+  });
+});
+
+// ── composer-context-group contributions (move-quota-to-context-strip) ────────
+
+/** A registry claiming `composer-context-group` with a `ComposerContextGroup`. */
+function contextGroupRegistry(extra?: (r: ReturnType<typeof createSlotRegistry>) => void) {
+  const registry = createSlotRegistry();
+  registry.addClaim({
+    pluginId: "quota",
+    priority: 600,
+    slot: "composer-context-group",
+    Component: () => (
+      <ComposerContextGroup label="Quota" testId="quota-context-group">
+        <span data-testid="quota-chip">5h 14%</span>
+      </ComposerContextGroup>
+    ),
+  });
+  extra?.(registry);
+  return registry;
+}
+
+function badgeRegistry(extra?: (r: ReturnType<typeof createSlotRegistry>) => void) {
+  const registry = contextGroupRegistry(extra);
+  registry.addClaim({
+    pluginId: "badge",
+    priority: 100,
+    slot: "session-card-badge",
+    Component: () => <span data-testid="fake-badge">RUN</span>,
+  });
+  return registry;
+}
+
+/** `a` precedes `b` in document order. */
+function precedes(a: Element, b: Element): boolean {
+  return !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+}
+
+describe("ComposerSessionActions composer-context-group", () => {
+  it("F1: group renders between Git and Status", () => {
+    render(
+      <PluginContextProvider registry={badgeRegistry()}>
+        <ComposerSessionActions
+          session={makeSession({ gitWorktree: { mainPath: "/main", name: "feat-x" } })}
+          changes={[]}
+          openspecHasDir={true}
+          showGitInfo={true}
+        />
+      </PluginContextProvider>,
+    );
+    const git = screen.getByTestId("composer-git-group");
+    const quota = screen.getByTestId("quota-context-group");
+    const status = screen.getByTestId("composer-status-group-label");
+    expect(precedes(git, quota)).toBe(true);
+    expect(precedes(quota, status)).toBe(true);
+  });
+
+  it("F2: is not streaming-gated while host actions are disabled", () => {
+    const registry = createSlotRegistry();
+    registry.addClaim({
+      pluginId: "quota",
+      priority: 600,
+      slot: "composer-context-group",
+      Component: () => (
+        <ComposerContextGroup label="Quota" testId="quota-context-group">
+          <button type="button" data-testid="ctx-btn">open</button>
+        </ComposerContextGroup>
+      ),
+    });
+    render(
+      <PluginContextProvider registry={registry}>
+        <ComposerSessionActions
+          session={makeSession({ status: "streaming" })}
+          changes={[]}
+          openspecHasDir={true}
+        />
+      </PluginContextProvider>,
+    );
+    // Plugin contribution stays interactive...
+    expect((screen.getByTestId("ctx-btn") as HTMLButtonElement).disabled).toBe(false);
+    // ...while host actions are gated by streaming.
+    expect((screen.getByTestId("composer-explore-btn") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("composer-archive-btn") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("F3: the strip renders for a context-group claim even with no host group", () => {
+    const session = makeSession(); // no worktree
+    const { container, unmount } = render(
+      <PluginContextProvider registry={contextGroupRegistry()}>
+        <ComposerSessionActions session={session} changes={[]} openspecHasDir={false} openspecPending={false} />
+      </PluginContextProvider>,
+    );
+    expect(container.firstChild).not.toBeNull();
+    expect(screen.getByTestId("quota-context-group")).toBeTruthy();
+    unmount();
+
+    const empty = render(
+      <PluginContextProvider registry={createSlotRegistry()}>
+        <ComposerSessionActions session={session} changes={[]} openspecHasDir={false} openspecPending={false} />
+      </PluginContextProvider>,
+    );
+    expect(empty.container.firstChild).toBeNull();
+  });
+
+  it("F5: with no claim the strip carries no extra divider", () => {
+    const baseline = render(
+      <PluginContextProvider registry={createSlotRegistry()}>
+        <ComposerSessionActions
+          session={makeSession({ gitWorktree: { mainPath: "/main", name: "feat-x" } })}
+          changes={[]}
+          openspecHasDir={true}
+          showGitInfo={true}
+        />
+      </PluginContextProvider>,
+    );
+    const baselineDividers = baseline.container.querySelectorAll('[aria-hidden="true"]').length;
+    expect(screen.queryByTestId("quota-context-group")).toBeNull();
+    baseline.unmount();
+
+    // A claim whose component returns null must leave the strip identical.
+    const registry = createSlotRegistry();
+    registry.addClaim({
+      pluginId: "empty",
+      priority: 100,
+      slot: "composer-context-group",
+      Component: () => null,
+    });
+    const withEmpty = render(
+      <PluginContextProvider registry={registry}>
+        <ComposerSessionActions
+          session={makeSession({ gitWorktree: { mainPath: "/main", name: "feat-x" } })}
+          changes={[]}
+          openspecHasDir={true}
+          showGitInfo={true}
+        />
+      </PluginContextProvider>,
+    );
+    expect(withEmpty.container.querySelectorAll('[aria-hidden="true"]').length).toBe(baselineDividers);
   });
 });

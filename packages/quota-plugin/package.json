@@ -48,7 +48,7 @@
     "configSchema": "./configSchema.json",
     "claims": [
       {
-        "slot": "content-inline-footer",
+        "slot": "composer-context-group",
         "component": "QuotaWidget"
       },
       {
