@@ -1,18 +1,19 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, act } from "@testing-library/react";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { act, render } from "@testing-library/react";
 import React from "react";
+import { describe, expect, it, vi } from "vitest";
 import {
-  PluginContextProvider,
+  applyPluginConfigUpdate,
   CurrentPluginLayer,
+  initPluginConfigs,
+  PluginContextProvider,
+  useAllSessions,
   usePluginConfig,
   usePluginConfigOf,
-  useAllSessions,
   usePluginLogger,
-  applyPluginConfigUpdate,
-  initPluginConfigs,
+  usePluginMessage,
 } from "../plugin-context.js";
 import { createSlotRegistry } from "../slot-registry.js";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 // Helper: render a component that calls a hook, capture the result
 function renderHook<T>(hookFn: () => T, wrapper: React.FC<{ children: React.ReactNode }>) {
@@ -251,5 +252,62 @@ describe("usePluginConfigOf", () => {
     });
 
     expect(snapshots.at(-1)).toEqual({ models: [{ provider: "anthropic", id: "x" }] });
+  });
+});
+
+// ── usePluginMessage — the read half of the shell socket for global frames ──
+describe("usePluginMessage", () => {
+  /** Minimal EventTarget-ish shell socket. */
+  class FakeWs {
+    private listeners = new Set<(e: MessageEvent) => void>();
+    addEventListener(type: string, fn: (e: MessageEvent) => void): void {
+      if (type === "message") this.listeners.add(fn);
+    }
+    removeEventListener(type: string, fn: (e: MessageEvent) => void): void {
+      if (type === "message") this.listeners.delete(fn);
+    }
+    emit(payload: unknown): void {
+      for (const fn of this.listeners) fn({ data: JSON.stringify(payload) } as MessageEvent);
+    }
+    emitRaw(data: unknown): void {
+      for (const fn of this.listeners) fn({ data } as MessageEvent);
+    }
+  }
+
+  it("delivers only the matching type and detaches on unmount", () => {
+    const ws = new FakeWs();
+    const seen: unknown[] = [];
+    function Comp() {
+      usePluginMessage("browser_relay_status", (m) => seen.push(m));
+      return null;
+    }
+    const { unmount } = render(
+      <PluginContextProvider registry={createSlotRegistry()} ws={ws as unknown as WebSocket}>
+        <Comp />
+      </PluginContextProvider>,
+    );
+    act(() => ws.emit({ type: "other", n: 1 }));
+    act(() => ws.emit({ type: "browser_relay_status", auditSeq: 3 }));
+    expect(seen).toEqual([{ type: "browser_relay_status", auditSeq: 3 }]);
+    unmount();
+    // Detached: a later matching frame is not delivered.
+    act(() => ws.emit({ type: "browser_relay_status", auditSeq: 4 }));
+    expect(seen).toEqual([{ type: "browser_relay_status", auditSeq: 3 }]);
+  });
+
+  it("ignores a malformed frame without throwing", () => {
+    const ws = new FakeWs();
+    const seen: unknown[] = [];
+    function Comp() {
+      usePluginMessage("browser_relay_status", (m) => seen.push(m));
+      return null;
+    }
+    render(
+      <PluginContextProvider registry={createSlotRegistry()} ws={ws as unknown as WebSocket}>
+        <Comp />
+      </PluginContextProvider>,
+    );
+    expect(() => act(() => ws.emitRaw("{not json"))).not.toThrow();
+    expect(seen).toEqual([]);
   });
 });
