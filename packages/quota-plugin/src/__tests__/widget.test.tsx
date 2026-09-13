@@ -45,8 +45,8 @@ describe("providerForModel", () => {
   it("E9: takes the prefix before the first slash; undefined without a slash", () => {
     expect(providerForModel("anthropic/x")).toBe("anthropic");
     expect(providerForModel("openai-codex/x")).toBe("openai-codex");
-    expect(providerForModel(undefined)).toBeUndefined();
-    expect(providerForModel("my-alias")).toBeUndefined();
+    expect(providerForModel(undefined)).toBe(undefined);
+    expect(providerForModel("my-alias")).toBe(undefined);
     expect(providerForModel("a/b/c")).toBe("a");
   });
 });
@@ -57,8 +57,8 @@ describe("QuotaWidget context-strip chip", () => {
     mockQuota({ providers: [] });
     const { container } = render(<QuotaWidget session={makeSession({ model: "anthropic/claude-x" })} />);
     await new Promise((r) => setTimeout(r, 0));
-    expect(screen.queryByTestId("quota-context-group")).toBeNull();
-    expect(screen.queryByTestId("quota-no-adapter-note")).toBeNull();
+    expect(screen.queryByTestId("quota-context-group")).toBe(null);
+    expect(screen.queryByTestId("quota-no-adapter-note")).toBe(null);
     expect(container.childElementCount).toBe(0);
     expect(consoleSpy).not.toHaveBeenCalled();
   });
@@ -67,7 +67,7 @@ describe("QuotaWidget context-strip chip", () => {
     mockQuota({ providers: [{ provider: "anthropic", windows: [] }] });
     const { container } = render(<QuotaWidget session={makeSession()} />);
     await new Promise((r) => setTimeout(r, 0));
-    expect(screen.queryByTestId("quota-context-group")).toBeNull();
+    expect(screen.queryByTestId("quota-context-group")).toBe(null);
     expect(container.childElementCount).toBe(0);
   });
 
@@ -100,7 +100,7 @@ describe("QuotaWidget context-strip chip", () => {
     expect(chipIds(container)).toEqual(["quota-chip-anthropic", "quota-chip-openai-codex"]);
     expect(screen.getByTestId("quota-chip-anthropic").getAttribute("data-session-provider")).toBe("true");
     expect(screen.getByTestId("quota-chip-openai-codex").getAttribute("data-dimmed")).toBe("true");
-    expect(screen.queryByTestId("quota-no-adapter-note")).toBeNull();
+    expect(screen.queryByTestId("quota-no-adapter-note")).toBe(null);
   });
 
   it("E5: a defined provider with no quota gets a dashed note ahead of dimmed chips", async () => {
@@ -110,9 +110,9 @@ describe("QuotaWidget context-strip chip", () => {
     expect(note.textContent).toBe("gemini-x · no quota");
     expect(note.tagName).not.toBe("BUTTON");
     const chip = screen.getByTestId("quota-chip-anthropic");
-    expect(note.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(note.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(chip.getAttribute("data-dimmed")).toBe("true");
-    expect(chip.getAttribute("data-session-provider")).toBeNull();
+    expect(chip.getAttribute("data-session-provider")).toBe(null);
   });
 
   it("E6: an undefined model yields no ring, no dim and no note", async () => {
@@ -125,19 +125,19 @@ describe("QuotaWidget context-strip chip", () => {
     render(<QuotaWidget session={makeSession()} />);
     await screen.findByTestId("quota-chip-anthropic");
     for (const id of ["quota-chip-anthropic", "quota-chip-openai-codex"]) {
-      expect(screen.getByTestId(id).getAttribute("data-session-provider")).toBeNull();
-      expect(screen.getByTestId(id).getAttribute("data-dimmed")).toBeNull();
+      expect(screen.getByTestId(id).getAttribute("data-session-provider")).toBe(null);
+      expect(screen.getByTestId(id).getAttribute("data-dimmed")).toBe(null);
     }
-    expect(screen.queryByTestId("quota-no-adapter-note")).toBeNull();
+    expect(screen.queryByTestId("quota-no-adapter-note")).toBe(null);
   });
 
   it("E7: a model without a slash is treated as undefined", async () => {
     mockQuota({ providers: [{ provider: "anthropic", windows: [win("5h", 14)] }] });
     render(<QuotaWidget session={makeSession({ model: "my-alias" })} />);
     const chip = await screen.findByTestId("quota-chip-anthropic");
-    expect(chip.getAttribute("data-session-provider")).toBeNull();
-    expect(chip.getAttribute("data-dimmed")).toBeNull();
-    expect(screen.queryByTestId("quota-no-adapter-note")).toBeNull();
+    expect(chip.getAttribute("data-session-provider")).toBe(null);
+    expect(chip.getAttribute("data-dimmed")).toBe(null);
+    expect(screen.queryByTestId("quota-no-adapter-note")).toBe(null);
   });
 
   it("E8: the note uses the model id after the first slash", async () => {
@@ -194,7 +194,7 @@ describe("QuotaWidget context-strip chip", () => {
     const { container } = render(<QuotaWidget session={makeSession()} />);
     await new Promise((r) => setTimeout(r, 0));
     expect(container.childElementCount).toBe(0);
-    expect(screen.queryByTestId("quota-context-group")).toBeNull();
+    expect(screen.queryByTestId("quota-context-group")).toBe(null);
   });
 
   it("X2: a malformed body renders nothing and does not throw", async () => {
@@ -202,7 +202,7 @@ describe("QuotaWidget context-strip chip", () => {
     const { container } = render(<QuotaWidget session={makeSession()} />);
     await new Promise((r) => setTimeout(r, 0));
     expect(container.childElementCount).toBe(0);
-    expect(screen.queryByTestId("quota-context-group")).toBeNull();
+    expect(screen.queryByTestId("quota-context-group")).toBe(null);
   });
 });
 
@@ -273,7 +273,7 @@ describe("useQuota", () => {
       await Promise.resolve();
     });
     expect(result.current.providers).toEqual([]);
-    expect(result.current.lastUpdated).toBeNull();
+    expect(result.current.lastUpdated).toBe(null);
   });
 
   it("F2: refresh is a no-op while a request is already in flight", async () => {
