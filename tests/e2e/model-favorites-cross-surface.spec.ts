@@ -56,9 +56,13 @@ test.describe("model-picker-everywhere-favorites cross-surface (L3)", () => {
     // inert outline stars) — and they are wired to the context handler.
     const settingsStar = settingsRow.getByTestId("model-fav-toggle");
     await expect(settingsStar).toBeVisible();
-    if ((await settingsStar.getAttribute("aria-pressed")) !== "true") {
+    // Normalize to unfavorited first, then favorite — every run exercises the
+    // toggle write + persistence path regardless of prior harness state.
+    if ((await settingsStar.getAttribute("aria-pressed")) === "true") {
       await settingsStar.click();
+      await expect(settingsStar).toHaveAttribute("aria-pressed", "false");
     }
+    await settingsStar.click();
     await expect(settingsStar).toHaveAttribute("aria-pressed", "true");
 
     // ── Session composer: the same favorite reads pressed ─────────────────
