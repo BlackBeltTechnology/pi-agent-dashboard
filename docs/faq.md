@@ -332,9 +332,11 @@ Common keys:
 - `reattachPlacement` (default `"always"`) — `"always"` / `"streaming-only"` / `"preserve"`
 - `devBuildOnReload` (default `false`)
 - `askUserPromptTimeoutSeconds` (default `300`; `≤0` = wait indefinitely)
+- `allowedHosts` (default `[]`) — bare hostnames the dashboard may answer on (e.g. reverse-proxy name). No scheme/port. Applies live.
+- `hostGate.mode` (default `"report"`) — `"report"` logs `[host-gate] would-refuse` + proceeds; `"enforce"` refuses unlisted hosts. Applies live.
 
 CLI flags: `--port`, `--pi-port`, `--dev`, `--no-tunnel`.
-Env vars: `PI_DASHBOARD_PORT`, `PI_DASHBOARD_PI_PORT`, `PI_DASHBOARD_URL` (bridge → remote server).
+Env vars: `PI_DASHBOARD_PORT`, `PI_DASHBOARD_PI_PORT`, `PI_DASHBOARD_URL` (bridge → remote server), `PI_DASHBOARD_HOST_GATE` (`report`|`enforce`; overrides `hostGate.mode`; unrecognised = ignored + logged once).
 
 Live-reconfigurable via `PUT /api/config` — partial merge, secrets preserved as `***`. Port/piPort changes set `restartRequired: true`.
 
@@ -387,6 +389,19 @@ Diagnose:
 Bind host wins over trust. `trustedNetworks` only ever admits peers the socket already accepts.
 
 See change: warn-unreachable-trusted-networks.
+
+## I got 'This address is not allowed'?
+
+Host-admission gate refused the request's `Host` header (issue #637; `hostGate.mode: "enforce"` or `PI_DASHBOARD_HOST_GATE=enforce`). Gate keys on `Host`, not `Origin` — a DNS-rebinding page is same-origin and sends no `Origin`.
+
+Three ways in (the 403 page lists all):
+- open `http://localhost:<port>` from the host machine
+- add the bare name to `allowedHosts` in `~/.pi/dashboard/config.json` (applies live)
+- add the full URL to `publicBaseUrls`
+
+Before flipping to `enforce`, check what would break: Settings ▸ Security ▸ Allowed hostnames ▸ Recent refusals, or `grep '[host-gate] would-refuse' server.log`. Report-only mode logs every name.
+
+See change: add-host-allowlist-admission.
 
 ## My Tailscale device is not trusted after Add Local Network?
 

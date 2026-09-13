@@ -11,6 +11,7 @@ Files in this directory. One row per source file.
 | `file-routes.ts` | REST routes for file read/browse. `/api/file` decodes leading `file://` on `path` via `decodeFileUri`. → see `file-routes.ts.AGENTS.md` |
 | `git-routes.ts` | REST routes: git branches, checkout, init, stash-pop. Adds `GET /api/git/head`, `GET /api/git/worktrees`,… → see `git-routes.ts.AGENTS.md` |
 | `grep-routes.ts` | `GET /api/grep?cwd&q&regex`. Gates: known-session cwd, min-3 q, per-match cwd containment. See change: split-editor-workspace. |
+| `host-gate-routes.ts` | `GET /api/host-gate` → `HostGateResponse` (`mode`, `envOverridden`, derived `admitted`, `recent` refusal ring); the one read the Settings ▸ Security ▸ Allowed hostnames section consumes. Auth parity with `GET /api/config` by construction (same global onRequest chain + same `networkGuard` preHandler). `registerHostGateRoutes(fastify, {getCtx, state, networkGuard})`. See change: add-host-allowlist-admission. |
 | `known-servers-routes.ts` | Known-servers config + mDNS discovery routes. Exports `registerKnownServersRoutes`. → see `known-servers-routes.ts.AGENTS.md` |
 | `manifest-route.ts` | Dynamic `/manifest.json` route. Exports `stripPort`, `resolveManifestSource`, `buildManifestBody`,… → see `manifest-route.ts.AGENTS.md` |
 | `model-proxy-api-key-routes.ts` | Proxy API key CRUD (JWT-gated management surface). Exports `registerModelProxyApiKeyRoutes`,… → see `model-proxy-api-key-routes.ts.AGENTS.md` |

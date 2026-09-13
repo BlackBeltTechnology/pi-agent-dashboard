@@ -7,6 +7,8 @@ import {
   mergeCustomEventGroupPrefs,
   normalizeNotifyMinLevel,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+// Type-only import — erased at bundle time, so the rule above holds.
+import type { HostGateMode } from "@blackbelt-technology/pi-dashboard-shared/host-admission.js";
 // From the BROWSER-SAFE module, never `config.js`: a value import of the latter
 // pulls node:fs/os/path into the bundle and the SPA dies at boot with
 // `uv.homedir is not a function`. See change: fix-lazy-history-backfill-ux (D7).
@@ -44,8 +46,8 @@ import { fetchAutoInitWorktreePref, fetchAutoNameSessionsPref, setAutoInitWorktr
 import { t as i18nT, LANGUAGE_OPTIONS, type Language, useI18n } from "../../lib/i18n/i18n.js";
 import { buildPiResourceFileUrl } from "../../lib/nav/route-builders.js";
 import { logRejection } from "../../lib/report-error.js";
-import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
 import { useCustomEventGroups } from "../../lib/state/custom-event-groups.js";
+import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
 import { KnownServersSection } from "../connectivity/KnownServersSection.js";
 import { NetworkDiscoverySection } from "../connectivity/NetworkDiscoverySection.js";
@@ -63,14 +65,15 @@ import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 import type { ResourceType } from "../resource/ResourceCardGrid.js";
 import { RESOURCE_PAGE_TYPE, type ResourcePageId, ScopedResourceGrid } from "../resource/ScopedResourceGrid.js";
+import { AllowedHostsSection } from "./AllowedHostsSection.js";
 import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
 import { DiagnosticsSection } from "./DiagnosticsSection.js";
 import { ModelProxySection } from "./ModelProxySection.js";
 import { ModelSelector } from "./ModelSelector.js";
+import { NodeRuntimeSection } from "./NodeRuntimeSection.js";
 // Curated pi-install picker; sits directly above the raw Tools escape hatch.
 // See change: select-pi-runtime-install (design D12).
 import { PiRuntimeSection } from "./PiRuntimeSection.js";
-import { NodeRuntimeSection } from "./NodeRuntimeSection.js";
 import { PiRuntimeStatusRow } from "./PiRuntimeStatusRow.js";
 import { PluginNotFoundNotice, PluginSettingsPage } from "./PluginSettingsPage.js";
 import { ProviderAuthSection } from "./ProviderAuthSection.js";
@@ -181,6 +184,14 @@ interface Config {
   auth?: AuthConfig;
   memoryLimits: MemoryLimitsConfig;
   trustedNetworks?: string[];
+  /**
+   * Bare hostnames the Host gate additionally admits (`allowedHosts`). Bound
+   * to the Security ▸ Allowed hostnames editor; written whole by Save.
+   * See change: add-host-allowlist-admission.
+   */
+  allowedHosts?: string[];
+  /** Host-gate rollout mode; `PI_DASHBOARD_HOST_GATE` overrides it server-side. */
+  hostGate?: { mode: HostGateMode };
   openspec?: {
     enabled?: boolean;
     pollIntervalSeconds?: number;
@@ -223,14 +234,14 @@ const NEEDS_ISSUER = new Set(["keycloak", "oidc"]);
 
 // Maps each config-diff key to the settings page it renders on, so the nav
 // rail can show a per-page dirty dot. See change: unify-settings-save-contract.
-const CONFIG_FIELD_PAGE: Record<string, string> = {
+export const CONFIG_FIELD_PAGE: Record<string, string> = {
   port: "server", piPort: "server", bindHost: "server", autoShutdown: "server", shutdownIdleSeconds: "server",
   tunnel: "server", memoryLimits: "server",
   spawnStrategy: "sessions", reattachPlacement: "sessions", reopenSessionsAfterShutdown: "sessions", completedFirst: "sessions",
   questionFirst: "sessions", askUserPromptTimeoutSeconds: "sessions", spawnRegisterTimeoutMs: "sessions",
   gitWorktreeEnabled: "sessions", dashboardName: "general", defaultModel: "sessions", defaultThinkingLevel: "sessions",
   windowsGitSource: "sessions", autoStart: "sessions",
-  trustedNetworks: "security", auth: "security",
+  trustedNetworks: "security", auth: "security", allowedHosts: "security", hostGate: "security",
   modelProxy: "providers",
   openspec: "openspec",
   devBuildOnReload: "developer", keeperLog: "developer",
@@ -242,7 +253,7 @@ const CONFIG_FIELD_PAGE: Record<string, string> = {
  * dirty state and to build the Save payload. See change:
  * unify-settings-save-contract.
  */
-function computeConfigPartial(config: Config, original: Config): Record<string, any> {
+export function computeConfigPartial(config: Config, original: Config): Record<string, any> {
   const partial: Record<string, any> = {};
   if (config.port !== original.port) partial.port = config.port;
   if (config.piPort !== original.piPort) partial.piPort = config.piPort;
@@ -296,6 +307,15 @@ function computeConfigPartial(config: Config, original: Config): Record<string, 
   }
   if (JSON.stringify(config.trustedNetworks) !== JSON.stringify(original.trustedNetworks)) {
     partial.trustedNetworks = config.trustedNetworks ?? [];
+  }
+  // Host-gate fields: each written WHOLE (design D1) — `allowedHosts` is a
+  // replace-list server-side, so a partial list write would merge wrong.
+  // See change: add-host-allowlist-admission.
+  if (JSON.stringify(config.allowedHosts ?? []) !== JSON.stringify(original.allowedHosts ?? [])) {
+    partial.allowedHosts = config.allowedHosts ?? [];
+  }
+  if ((config.hostGate?.mode ?? "report") !== (original.hostGate?.mode ?? "report")) {
+    partial.hostGate = { mode: config.hostGate?.mode ?? "report" };
   }
   /**
    * FIELD-level, not whole-object. `GET /api/config` returns the PARSED config,
@@ -1874,6 +1894,17 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     if (!c.auth) c.auth = { secret: "", providers: {} };
                     c.auth.bypassHosts = nets;
                   })}
+                />
+                {/* Allowed hostnames — the Host gate's operator surface, between
+                    the two network-trust neighbours. Mode + hostnames edit the
+                    panel draft; the section itself never writes.
+                    See change: add-host-allowlist-admission. */}
+                <AllowedHostsSection
+                  mode={config.hostGate?.mode ?? "report"}
+                  allowedHosts={config.allowedHosts ?? []}
+                  onModeChange={(mode) => update((c) => { c.hostGate = { mode }; })}
+                  onAllowedHostsChange={(hosts) => update((c) => { c.allowedHosts = hosts; })}
+                  onNavigate={navigate}
                 />
                 <Section title={t("settings.pairDevice", undefined, "Pair a device")}>
                   {/* A route, not a duplicate (D2): Security keeps the words an

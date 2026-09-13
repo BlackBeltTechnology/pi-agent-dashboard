@@ -9,10 +9,12 @@ import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import { createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, getPluginStatusStore, loadServerEntries, pluginSpawnToSessionOptions, refreshRequirementProbesFor } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import type { ExitIntent } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
 import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
 import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import {
@@ -42,11 +44,19 @@ import {
   isWsOriginTrusted,
   sanitizeHeaderForLog,
 } from "./auth/cors-origin.js";
-import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
 import { registerCsp, resolveCspMode } from "./auth/csp.js";
+import {
+  createHostGate,
+  evaluateHostGate,
+  type HostGateContext,
+  HostGateState,
+  hostGateEnvWarning,
+  resolveHostGateMode,
+} from "./auth/host-gate.js";
 import { ensureServerIdentity } from "./auth/identity.js";
 import { ensureLocalToken, verifyLocalToken } from "./auth/local-token.js";
 import { createNetworkGuard, isBypassedHost, isGenuinelyLocal } from "./auth/localhost-guard.js";
+import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
 import { readAuthJson } from "./auth/provider-auth-storage.js";
 import { mintSpawnToken } from "./auth/spawn-token.js";
 import { extractTicket, routeScopeForUrl, type WsRouteScope, WsTicketStore } from "./auth/ws-ticket.js";
@@ -57,14 +67,22 @@ import {
 } from "./browser-handlers/session-action-handler.js";
 import { createCommitDraftRelay } from "./commit-draft-relay.js";
 import { writeConfigPartial } from "./config-api.js";
-import { liveCorsAllowedOrigins, liveTrustedNetworks } from "./config-snapshot.js";
+import {
+  liveAllowedHosts,
+  liveCorsAllowedOrigins,
+  liveHostGateMode,
+  livePublicBaseUrls,
+  liveTrustedNetworks,
+} from "./config-snapshot.js";
 // pending-load-manager removed — server loads sessions directly via DirectoryService
 import { createDirectoryService, type DirectoryService } from "./directory-service.js";
 import { createEmbedLifecycleController } from "./embed-lifecycle/embed-lifecycle-controller.js";
 import { wireEvents } from "./event-wiring.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
 import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
+import { bootParentPid, isBootParentProvablyDead } from "./lifecycle/boot-parent-liveness.js";
 import { runBoundedStartup } from "./lifecycle/bounded-startup.js";
+import { startEphemeralParentWatch } from "./lifecycle/ephemeral-parent-watch.js";
 import { ensureInstanceId } from "./lifecycle/instance-id.js";
 import { createLiveServerManager } from "./live-server/live-server-manager.js";
 import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
@@ -80,33 +98,31 @@ import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gat
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager } from "./pairing/pairing.js";
 import { createPendingAttachRegistry } from "./pending/pending-attach-registry.js";
-import { createPendingPluginRefRegistry } from "./pending/pending-plugin-ref-registry.js";
 import { createPendingClientCorrelations } from "./pending/pending-client-correlations.js";
 import { createPendingForkRegistry, type PendingForkRegistry } from "./pending/pending-fork-registry.js";
 import { createPendingInitialPromptRegistry } from "./pending/pending-initial-prompt-registry.js";
+import { createPendingPluginRefRegistry } from "./pending/pending-plugin-ref-registry.js";
 import { createPendingPromptAcks } from "./pending/pending-prompt-acks.js";
 import { createPendingResumeIntentRegistry } from "./pending/pending-resume-intent-registry.js";
 import { createPendingWorktreeBaseRegistry } from "./pending/pending-worktree-base-registry.js";
 import { recordExitIntent, resolveExitIntent, stampBootStart } from "./persistence/boot-state.js";
-import type { ExitIntent } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { createMemoryEventStore, DEFAULT_MAX_EVENT_DATA_SIZE, type EventStore } from "./persistence/memory-event-store.js";
 import { createMetaPersistence, type MetaPersistence } from "./persistence/meta-persistence.js";
+import { migrateCustomEntryFallbackOverrides } from "./persistence/migrate-custom-entry-fallback.js";
 import { needsMigration, runMigration } from "./persistence/migrate-persistence.js";
 import { createPreferencesStore, type PreferencesStore } from "./persistence/preferences-store.js";
-import { migrateCustomEntryFallbackOverrides } from "./persistence/migrate-custom-entry-fallback.js";
-import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
-import { CustomEventGroupMatcher } from "./session/custom-event-group-matcher.js";
-import { CustomEventGroupResolver } from "./session/custom-event-group-resolver.js";
 import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
 import { createPiGateway, type PiGateway } from "./pi/pi-gateway.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
 import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
+import { registerCustomEventGroupsRoutes } from "./routes/custom-event-groups-routes.js";
 import { registerDoctorRoutes } from "./routes/doctor-routes.js";
 import { registerFileRoutes } from "./routes/file-routes.js";
 import { registerGitRoutes } from "./routes/git-routes.js";
 import { registerGrepRoutes } from "./routes/grep-routes.js";
+import { registerHostGateRoutes } from "./routes/host-gate-routes.js";
 import { registerKnownServersRoutes } from "./routes/known-servers-routes.js";
 import { registerLiveServerRoutes } from "./routes/live-server-routes.js";
 import { registerManifestRoute } from "./routes/manifest-route.js";
@@ -115,6 +131,7 @@ import { registerModelProxyDiagnosticsRoutes } from "./routes/model-proxy-diagno
 import { registerModelProxyRefreshRoutes } from "./routes/model-proxy-refresh-routes.js";
 import { registerModelProxyRoutes } from "./routes/model-proxy-routes.js";
 import { registerModelsIntrospectionRoute } from "./routes/models-introspection-routes.js";
+import { registerNodeRuntimeRoutes } from "./routes/node-runtime-routes.js";
 import { registerOpenSpecGroupRoutes } from "./routes/openspec-group-routes.js";
 import { registerOpenSpecRoutes } from "./routes/openspec-routes.js";
 import { registerPackageRoutes } from "./routes/package-routes.js";
@@ -123,12 +140,10 @@ import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
 import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
 import { registerPiRetryRoutes } from "./routes/pi-retry-routes.js";
 import { registerPiRuntimeRoutes } from "./routes/pi-runtime-routes.js";
-import { registerNodeRuntimeRoutes } from "./routes/node-runtime-routes.js";
 import { registerPluginActivationRoutes } from "./routes/plugin-activation-routes.js";
 import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
 import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
 import { registerPreferencesDisplayRoutes } from "./routes/preferences-display-routes.js";
-import { registerCustomEventGroupsRoutes } from "./routes/custom-event-groups-routes.js";
 import { registerPreferencesWorktreeInitRoutes } from "./routes/preferences-worktree-init-routes.js";
 import { registerProviderAuthRoutes } from "./routes/provider-auth-routes.js";
 import { registerProviderRoutes } from "./routes/provider-routes.js";
@@ -141,6 +156,8 @@ import {
   dispatchReload as dispatchReloadRaw,
   reloadTargetSessionIds,
 } from "./rpc-keeper/dispatch-reload.js";
+import { CustomEventGroupMatcher } from "./session/custom-event-group-matcher.js";
+import { CustomEventGroupResolver } from "./session/custom-event-group-resolver.js";
 import { deriveEndedAt } from "./session/derive-ended-at.js";
 import { createMemorySessionManager, type SessionManager } from "./session/memory-session-manager.js";
 import { applyReattachPolicy } from "./session/reattach-placement.js";
@@ -155,8 +172,6 @@ import { sessionToMeta } from "./session/session-to-meta.js";
 import { CwdPolicyRegistry } from "./spawn-process/cwd-policy.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import { createIdleTimer } from "./spawn-process/idle-timer.js";
-import { bootParentPid, isBootParentProvablyDead } from "./lifecycle/boot-parent-liveness.js";
-import { startEphemeralParentWatch } from "./lifecycle/ephemeral-parent-watch.js";
 import { getKeeperManager, setCwdPolicyRegistry, spawnPiSession } from "./spawn-process/process-manager.js";
 import { removePid, writePid } from "./spawn-process/server-pid.js";
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
@@ -1199,12 +1214,39 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   //     config-override-oauth-redirect-base (D15).
   const corsAllowedOrigins = () => liveCorsAllowedOrigins(config.corsAllowedOrigins ?? []);
   const corsTrustedNetworks = () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []);
+  // Host-admission gate (issue #637, design D1/D4/D6) — the DNS-rebinding
+  // defence. Under rebinding the attacker page is SAME-ORIGIN with the
+  // dashboard, so its GETs carry no Origin and its peer is loopback: every
+  // Origin/peer gate passes. The `Host` header is the one signal left, so the
+  // gate keys on it — independently of Origin presence, OAuth, or network
+  // trust. One shared state (refusal ring + rate-limited log, D5) and one
+  // per-request context (mode resolved env-over-config, D4; every admission
+  // input read LIVE through the snapshot, D6).
+  const hostGateState = new HostGateState();
+  const hostGateBootWarning = hostGateEnvWarning(process.env.PI_DASHBOARD_HOST_GATE);
+  if (hostGateBootWarning) console.error(hostGateBootWarning);
+  const getHostGateCtx = (): HostGateContext => ({
+    admission: {
+      allowedHosts: liveAllowedHosts(),
+      publicBaseUrls: livePublicBaseUrls(),
+      configuredOrigins: corsAllowedOrigins(),
+      getLiveTunnelOrigins: liveTunnelOrigins,
+      // Boot-time bind address (a restart field, so captured once — D6). An
+      // IP bind is already covered by the IP-literal rule; this matters when
+      // the bind is a NAME.
+      bindHost: config.host,
+    },
+    ...resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()),
+  });
   /**
    * The ONE origin-policy input, shared by the CORS plugin, the WS upgrade gate
    * and the mutating-REST gate. Built per decision (never captured) so tunnel
    * rotation and runtime config edits are seen identically by all three — a
    * second, hand-mirrored options object is exactly how admission and
-   * readability drift apart. See change: fix-ws-origin-cswsh (D1).
+   * readability drift apart. The host-admission fields ride the same object
+   * (D6 of add-host-allowlist-admission) so `isHostAdmitted` and the tightened
+   * `isSameOriginByHost` cannot drift from CORS either.
+   * See change: fix-ws-origin-cswsh (D1).
    */
   const corsOpts = (): CorsOriginOptions => ({
     configuredOrigins: corsAllowedOrigins(),
@@ -1216,7 +1258,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // which single origin we mint OAuth URIs and set cookies for.
     // See change: add-zrok-custom-reserved-name (D4).
     getLiveTunnelOrigins: liveTunnelOrigins,
+    allowedHosts: liveAllowedHosts(),
+    publicBaseUrls: livePublicBaseUrls(),
+    bindHost: config.host,
+    // Env-over-config, resolved the SAME way as the hook (D4): a mixed state
+    // (env=report + config=enforce) must keep the Origin gate's report-only
+    // behaviour in step with the hook, else the escape hatch only half-engages.
+    hostGateMode: resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode,
   });
+  // Registered BEFORE @fastify/cors so an enforced refusal carries no ACAO
+  // (and before every Origin gate — a rebinding page's plain GETs carry no
+  // Origin at all). Report-only default; `PI_DASHBOARD_HOST_GATE=enforce`
+  // or `hostGate.mode` flips it. See change: add-host-allowlist-admission (D1).
+  fastify.addHook("onRequest", createHostGate(getHostGateCtx, hostGateState, () => config.port));
   await fastify.register(cors, {
     // Decision extracted to a pure, unit-tested helper (cors-origin.ts) so the
     // security-critical allow/deny logic is tested against the REAL code, not a
@@ -1230,6 +1284,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     },
     credentials: true,
   });
+  // Close the rate-limiter's log window on a timer so the `suppressed <n>`
+  // summary lands even when no further refusal arrives (D5). Unref'd: a
+  // quiet server must not be kept alive by its own log limiter; cleared in
+  // stop() so a create/stop cycle leaves nothing ticking.
+  const hostGateFlushTimer = setInterval(() => hostGateState.flush(), 60_000);
+  hostGateFlushTimer.unref();
 
   // Cross-site MUTATION gate (issue #625). CORS stops an attacker page from
   // READING a response; it does nothing to stop the request from happening, so
@@ -1429,6 +1489,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
 
   registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() } });
+  registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   registerDoctorRoutes(fastify);
   registerToolRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
@@ -2444,12 +2505,30 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // scope.
         const scope = routeScopeForUrl(request.url);
 
-        // Cross-site upgrade gate (issue #625). FIRST statement after `scope`,
-        // ahead of the `bridge` early-return and the auth branches, so an
-        // untrusted Origin can never consume a ticket and cannot tell a routed
-        // path from an unrouted one. A browser cannot omit or forge `Origin` on
-        // a handshake; every non-browser client sends none and is unaffected.
-        // See change: fix-ws-origin-cswsh (D1).
+        // Host-admission check (issue #637, D1). FIRST gate on the upgrade
+        // path, ahead of the Origin gate below: under rebinding the attacker's
+        // Origin equals its own Host, so only an ADMITTED Host may vouch for a
+        // matching Origin. Refused before any ticket is consumed.
+        // See change: add-host-allowlist-admission.
+        if (
+          evaluateHostGate(
+            request.headers.host,
+            getHostGateCtx(),
+            hostGateState,
+            `origin=${sanitizeHeaderForLog(request.headers.origin)} scope=${scope ?? "none"}`,
+          ) === "refuse"
+        ) {
+          socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+
+        // Cross-site upgrade gate (issue #625). Runs after the host-admission
+        // check and ahead of the `bridge` early-return and the auth branches,
+        // so an untrusted Origin can never consume a ticket and cannot tell a
+        // routed path from an unrouted one. A browser cannot omit or forge
+        // `Origin` on a handshake; every non-browser client sends none and is
+        // unaffected. See change: fix-ws-origin-cswsh (D1).
         if (!isWsOriginTrusted(request.headers.origin, request.headers.host, scope, corsOpts())) {
           console.error(
             `[ws-gate] rejected upgrade origin=${sanitizeHeaderForLog(request.headers.origin)} scope=${scope ?? "none"} peer=${sanitizeHeaderForLog(remoteAddress)}`,
@@ -2837,6 +2916,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       } catch { /* ignore mDNS cleanup errors */ }
       removePid();
       idleTimer.cancel();
+      // Disarm the host-gate rate-limiter window flush (created with the gate
+      // wiring above; unref'd, so this is leak-hygiene not liveness).
+      clearInterval(hostGateFlushTimer);
       directoryService.stopPolling();
       // SIGTERMs every dashboard-spawned pi: after this the sessions below are
       // GONE and can never reattach.

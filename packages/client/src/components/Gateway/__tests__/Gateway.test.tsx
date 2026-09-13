@@ -182,6 +182,53 @@ describe("GatewayUrlManager", () => {
     expect(await screen.findByTestId("gateway-url-manager")).toBeDefined();
   });
 
+  // test-plan #F8 — the Host admitted pill follows the live derived hosts
+  // (publicBaseUrls ∪ cors.allowedOrigins), independent of data-status: an
+  // incomplete row whose public base URL is intact still carries it, and a
+  // row whose public URL is the missing delta does not.
+  // See change: add-host-allowlist-admission.
+  it("F8: Host admitted pill follows the live derived hosts, not data-status", async () => {
+    mockConfig({
+      publicBaseUrls: ["https://pi.example.com", "https://intact.example"],
+      cors: { allowedOrigins: ["https://pi.example.com"] },
+      gateways: [
+        {
+          url: "https://pi.example.com",
+          authModes: ["pairing"],
+          wrote: { publicBaseUrls: ["https://pi.example.com"], corsAllowedOrigins: ["https://pi.example.com"] },
+        },
+        {
+          url: "https://missing.example",
+          authModes: ["pairing"],
+          wrote: { publicBaseUrls: ["https://missing.example"], corsAllowedOrigins: ["https://missing.example"] },
+        },
+        {
+          url: "https://intact.example",
+          authModes: ["trusted-network"],
+          wrote: { publicBaseUrls: ["https://intact.example"], trustedNetworks: ["10.4.0.9"] },
+        },
+      ],
+    });
+    render(<GatewayUrlManager />);
+    const rows = await screen.findAllByTestId("gateway-url-row");
+
+    expect(rows.map((r) => r.getAttribute("data-status"))).toEqual(["ok", "incomplete", "incomplete"]);
+
+    const pills = rows.map((r) => r.querySelector('[data-testid="gateway-host-admitted"]'));
+    expect(pills[0], "ok row in publicBaseUrls carries the pill").not.toBeNull();
+    expect(pills[1], "incomplete row with the public URL missing has no pill").toBeNull();
+    expect(pills[2], "incomplete row with an intact public URL still carries the pill").not.toBeNull();
+
+    // Informational only: never a control, title names the hostname.
+    for (const pill of [pills[0]!, pills[2]!]) {
+      expect(pill.getAttribute("role")).toBeNull();
+      expect(pill.closest("button")).toBeNull();
+      expect(pill.textContent).toBe("Host admitted");
+    }
+    expect(pills[0]!.getAttribute("title")).toContain("pi.example.com");
+    expect(pills[2]!.getAttribute("title")).toContain("intact.example");
+  });
+
   // The Gateway page embeds the guide AND mounts the manager itself, so the
   // guide must be suppressible or the page renders the control twice.
   it("F12: the guide suppresses its copy when the host already mounts one", () => {

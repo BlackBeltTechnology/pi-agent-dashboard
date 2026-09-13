@@ -9,6 +9,8 @@
  *
  * See change: fix-remote-connect-cors-gates.
  */
+
+import { isHostAdmitted } from "./host-admission.js";
 import { isBypassedHost } from "./localhost-guard.js";
 import type { WsRouteScope } from "./ws-ticket.js";
 
@@ -43,6 +45,20 @@ export interface CorsOriginOptions {
    * See change: fix-ws-origin-cswsh (D1 rule 2).
    */
   allowZrokWildcard?: boolean;
+  /** Top-level `allowedHosts` (live) — host-admission only. */
+  allowedHosts?: string[];
+  /** Every public base URL, legacy key included (live) — host-admission only. */
+  publicBaseUrls?: string[];
+  /** The boot-time bind address — host-admission only. */
+  bindHost?: string;
+  /**
+   * Host-gate rollout mode (live). In `enforce` the same-origin-by-Host rule
+   * additionally requires the `Host` to be admissible (D1); in `report` it is
+   * unchanged, so the report-only rollout refuses nothing the Origin gates
+   * admit today.
+   * See change: add-host-allowlist-admission.
+   */
+  hostGateMode?: "report" | "enforce";
 }
 
 /**
@@ -140,7 +156,11 @@ export function sanitizeHeaderForLog(value: string | undefined, max = 256): stri
  * Compared after `new URL()` normalization on both sides, using the ORIGIN's
  * scheme for the Host so default ports elide identically.
  */
-function isSameOriginByHost(origin: string, hostHeader: string | undefined): boolean {
+export function isSameOriginByHost(
+  origin: string,
+  hostHeader: string | undefined,
+  opts: CorsOriginOptions,
+): boolean {
   if (!hostHeader) return false;
   // Positive allowlist, not a reject-list: a `Host` is only ever host[:port]
   // (letters, digits, `.`, `-`, IPv6 `[]:`). `new URL()` would happily
@@ -150,10 +170,16 @@ function isSameOriginByHost(origin: string, hostHeader: string | undefined): boo
   try {
     const o = new URL(origin);
     const h = new URL(`${o.protocol}//${hostHeader}`);
-    return h.host !== "" && o.host === h.host;
+    if (h.host === "" || o.host !== h.host) return false;
   } catch {
     return false;
   }
+  // add-host-allowlist-admission (D1): in enforce mode a Host the dashboard
+  // cannot justify does not vouch for a matching Origin. In report mode the
+  // rule is unchanged — tightening it would hard-refuse the very population
+  // the report-only release exists to size.
+  if (opts.hostGateMode === "enforce") return isHostAdmitted(hostHeader, opts);
+  return true;
 }
 
 /**
@@ -174,7 +200,7 @@ export function isOriginAdmitted(
   // would normalize into a loopback match. No browser sends padding — deny it
   // rather than normalize an attacker-shaped value into a trusted one.
   if (origin !== origin.trim()) return false;
-  if (isSameOriginByHost(origin, hostHeader)) return true;
+  if (isSameOriginByHost(origin, hostHeader, opts)) return true;
   return isCorsOriginAllowed(origin, { ...opts, allowZrokWildcard: false });
 }
 
