@@ -9,19 +9,21 @@
  *
  * See change: add-plugin-activation-ui.
  */
-import type { FastifyInstance } from "fastify";
+
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
 import {
-  discoverPlugins,
-  getPluginStatusStore,
   buildGraph,
   computeToggleImpact,
+  discoverPlugins,
+  getPluginStatusStore,
+  getWsRouteRegistry,
   transitiveDependents,
 } from "@blackbelt-technology/dashboard-plugin-runtime/server";
-import type { NetworkGuard } from "./route-deps.js";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { FastifyInstance } from "fastify";
+import type { NetworkGuard } from "./route-deps.js";
 
 // Resolved lazily so tests that override $HOME after import still work.
 function configPaths() {
@@ -178,6 +180,16 @@ export function registerPluginActivationRoutes(
 
       for (const [flipId, merged] of mergedPerId) {
         broadcast({ type: "plugin_config_update", id: flipId, config: merged });
+      }
+
+      // Live teardown of WS routes on disable (spec add-browser-relay /
+      // plugin-ws-route: sockets close 1001, later upgrades 404) — without a
+      // restart. REST routes the plugin mounted stay until restart, which is
+      // why `restartRequired` stays true: this is the WS-scope teardown, not a
+      // full plugin unload. Idempotent — a no-op for plugins owning no routes.
+      if (!body.enabled) {
+        const registry = getWsRouteRegistry();
+        for (const flip of flips) registry.teardownPlugin(flip.id);
       }
 
       return reply.status(200).send({

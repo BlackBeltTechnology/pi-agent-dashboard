@@ -14,3 +14,4 @@ export * from "./plugin-status-store.js";
 export * from "./requirement-probes.js";
 export * from "./server-context.js";
 export * from "./service-probes/model-proxy.js";
+export * from "./ws-route-registry.js";

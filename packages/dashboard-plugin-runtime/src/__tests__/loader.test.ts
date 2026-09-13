@@ -1,15 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import {
-  discoverPlugins,
-  clearDiscoveryCache,
-  loadServerEntries,
-  getPluginStatusStore,
-  clearStatusStore,
-} from "../server/loader.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { DiscoveredPlugin } from "../server/loader.js";
+import {
+  clearDiscoveryCache,
+  clearStatusStore,
+  discoverPlugins,
+  getPluginStatusStore,
+  loadServerEntries,
+} from "../server/loader.js";
 import type { ServerPluginContext } from "../server/server-context.js";
 
 function makeFakeContext(): ServerPluginContext {
@@ -40,6 +40,7 @@ function makeFakeContext(): ServerPluginContext {
     assignSessionRef: () => false,
     networkGuard: async () => {},
     onShutdown: () => () => {},
+    registerWsRoute: () => {},
     logger: { info: () => {}, warn: () => {}, error: () => {} },
   };
 }

@@ -8,6 +8,8 @@ import type { SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/co
 import type { SessionFlags } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { PluginLogger } from "../plugin-context.js";
+import type { WsRouteRegistration } from "./ws-route-registry.js";
+import { getWsRouteRegistry } from "./ws-route-registry.js";
 
 // ── Logger ───────────────────────────────────────────────────────────────────
 
@@ -718,6 +720,14 @@ export interface ServerPluginContext {
    * relocate-goal-product-to-plugin (D1-#8).
    */
   onShutdown: OnShutdownFn;
+  /**
+   * Own a WebSocket route scope on the main HTTP listener. Only valid during
+   * the plugin's server-entry activation (the loader opens/closes the
+   * window); the core upgrade gates (host admission, origin policy,
+   * genuinely-local peer) still run before `handleUpgrade` is called. See
+   * change: add-browser-relay (D1).
+   */
+  registerWsRoute(scope: string, opts: WsRouteRegistration): void;
   logger: PluginLogger;
 }
 
@@ -808,6 +818,7 @@ export function createServerPluginContext(
     assignSessionRef: deps.assignSessionRef,
     networkGuard: deps.networkGuard,
     onShutdown: deps.onShutdown,
+    registerWsRoute: (scope, opts) => getWsRouteRegistry().register(pluginId, scope, opts),
     logger,
   };
 }

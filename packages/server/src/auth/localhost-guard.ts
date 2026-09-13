@@ -3,8 +3,8 @@
  * Supports loopback, trusted networks (CIDR/wildcard/exact), and authenticated users.
  */
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { verifyLocalToken } from "./local-token.js";
 import { blockEvents } from "../tunnel/tunnel-block-events.js";
+import { verifyLocalToken } from "./local-token.js";
 import { isLoopback } from "./loopback.js";
 
 /**
@@ -24,12 +24,33 @@ const PROXY_FORWARDING_HEADERS = [
   "forwarded",
 ] as const;
 
+/**
+ * The same list EXTENDED with `via`, `x-forwarded-server`, `x-forwarded-port`
+ * — used ONLY for plugin-registered WS scopes (change: add-browser-relay D1).
+ * Core callers keep the 5-header list above: widening the shared constant
+ * would change core admission; plugin scopes get the stricter set.
+ */
+const PLUGIN_PROXY_FORWARDING_HEADERS = [
+  ...PROXY_FORWARDING_HEADERS,
+  "via",
+  "x-forwarded-server",
+  "x-forwarded-port",
+] as const;
+
 type HeaderBag = Record<string, unknown> | undefined;
 
-/** True if the request carries any proxy/tunnel forwarding header. */
-export function hasProxyForwardingHeaders(headers: HeaderBag): boolean {
+/**
+ * True if the request carries any proxy/tunnel forwarding header. Pass
+ * `{ extended: true }` for the plugin-scope 8-header list (see
+ * {@link PLUGIN_PROXY_FORWARDING_HEADERS}); the default is the core list.
+ */
+export function hasProxyForwardingHeaders(
+  headers: HeaderBag,
+  opts?: { extended?: boolean },
+): boolean {
   if (!headers) return false;
-  for (const h of PROXY_FORWARDING_HEADERS) {
+  const list = opts?.extended ? PLUGIN_PROXY_FORWARDING_HEADERS : PROXY_FORWARDING_HEADERS;
+  for (const h of list) {
     if (headers[h] != null) return true;
   }
   return false;
@@ -42,6 +63,45 @@ export function hasProxyForwardingHeaders(headers: HeaderBag): boolean {
  */
 export function isGenuinelyLocal(ip: string, headers: HeaderBag): boolean {
   return isLoopback(ip) && !hasProxyForwardingHeaders(headers);
+}
+
+/**
+ * Is the request `Host` header a loopback host name — `localhost`,
+ * `127.0.0.1`, `[::1]` (or bare `::1`), any port? Fail-closed on anything
+ * unparseable (no port stripping unless the suffix is all digits, so
+ * `127.0.0.1.evil` stays whole and is refused).
+ */
+export function isLoopbackHostHeader(host: string | undefined): boolean {
+  if (!host) return false;
+  let name = host.trim().toLowerCase();
+  if (name.startsWith("[")) {
+    const end = name.indexOf("]");
+    if (end < 0) return false;
+    return name.slice(1, end) === "::1";
+  }
+  const colon = name.lastIndexOf(":");
+  if (colon >= 0 && /^\d+$/.test(name.slice(colon + 1))) name = name.slice(0, colon);
+  return name === "localhost" || name === "127.0.0.1" || name === "::1";
+}
+
+/**
+ * Deterministic genuinely-local predicate for plugin-registered WS scopes
+ * (change: add-browser-relay D1): loopback peer AND loopback `Host` AND none
+ * of the 8 plugin-scope forwarding headers. Stricter than
+ * {@link isGenuinelyLocal} on purpose — tunnel reachability for a plugin
+ * endpoint must not depend on whether the tunnel happens to inject markers,
+ * so the non-loopback `Host` itself is a refusal regardless of peer IP.
+ */
+export function isPluginScopePeerLocal(
+  ip: string,
+  hostHeader: string | undefined,
+  headers: HeaderBag,
+): boolean {
+  return (
+    isLoopback(ip) &&
+    isLoopbackHostHeader(hostHeader) &&
+    !hasProxyForwardingHeaders(headers, { extended: true })
+  );
 }
 
 /**

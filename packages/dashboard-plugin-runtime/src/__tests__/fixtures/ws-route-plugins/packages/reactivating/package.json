@@ -1,0 +1,4 @@
+{
+  "name": "reactivating",
+  "pi-dashboard-plugin": { "id": "reactivating", "displayName": "reactivating", "claims": [], "server": "./server.mjs" }
+}

@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, getPluginStatusStore, loadServerEntries, pluginSpawnToSessionOptions, refreshRequirementProbesFor } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginSpawnToSessionOptions, refreshRequirementProbesFor } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { ExitIntent } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
@@ -41,6 +41,7 @@ import { decideBridgeTicketMint } from "./auth/bridge-ticket-eligibility.js";
 import {
   type CorsOriginOptions,
   isCorsOriginAllowed,
+  isPluginWsOriginAdmitted,
   isWsOriginTrusted,
   sanitizeHeaderForLog,
 } from "./auth/cors-origin.js";
@@ -55,11 +56,24 @@ import {
 } from "./auth/host-gate.js";
 import { ensureServerIdentity } from "./auth/identity.js";
 import { ensureLocalToken, verifyLocalToken } from "./auth/local-token.js";
-import { createNetworkGuard, isBypassedHost, isGenuinelyLocal } from "./auth/localhost-guard.js";
+import {
+  createNetworkGuard,
+  isBypassedHost,
+  isGenuinelyLocal,
+  isPluginScopePeerLocal,
+} from "./auth/localhost-guard.js";
 import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
 import { readAuthJson } from "./auth/provider-auth-storage.js";
 import { mintSpawnToken } from "./auth/spawn-token.js";
-import { extractTicket, routeScopeForUrl, type WsRouteScope, WsTicketStore } from "./auth/ws-ticket.js";
+import {
+  type CoreWsRouteScope,
+  extractTicket,
+  isCoreWsRouteScope,
+  routeScopeForUrl,
+  setPluginScopeResolver,
+  type WsRouteScope,
+  WsTicketStore,
+} from "./auth/ws-ticket.js";
 import {
   buildDispatchReloadContext,
   type ReloadHostContext,
@@ -1695,11 +1709,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     { preHandler: networkGuard },
     async (request, reply) => {
       const scope = request.body?.scope;
+      // Core scopes only: a plugin-registered scope name is refused here —
+      // plugin scopes are structurally unticketable (add-browser-relay D1).
       // `bridge` is mintable by any authenticated caller (networkGuard: a
       // paired device's durable bearer, a cookie, or a trusted network). The
       // bearer authenticates this REST call and never rides the socket
       // (task 6.2/6.4).
-      if (scope !== "browser" && scope !== "terminal" && scope !== "live" && scope !== "bridge") {
+      if (typeof scope !== "string" || !isCoreWsRouteScope(scope)) {
         reply.code(400);
         return { success: false as const, error: "invalid scope" };
       }
@@ -2100,6 +2116,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // register routes. Fastify rejects route registration after listen().
       // Failure-isolated per-plugin via loader; awaited so all routes are
       // mounted before requests can arrive.
+      //
+      // Plugin-owned WS routes (change: add-browser-relay D1): the runtime
+      // registry resolves plugin scopes inside routeScopeForUrl, AFTER the
+      // four core prefixes. Wired BEFORE loadServerEntries so a plugin
+      // registering during its activation is immediately routable.
+      const wsRouteRegistry = getWsRouteRegistry();
+      setPluginScopeResolver((path) => wsRouteRegistry.resolveScope(path));
       try {
         await loadServerEntries({
           isEnabled: (pluginId) => {
@@ -2547,6 +2570,69 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         const trusted = config.resolvedTrustedNetworks ?? [];
         const secWsProtocol = request.headers["sec-websocket-protocol"] as string | undefined;
 
+        // ── Plugin-owned WS routes (change: add-browser-relay D1) ──────────
+        // A NON-core scope resolved from the plugin registry is gated
+        // STRICTER than core, and NONE of the credential branches below
+        // (cookie, local token, trusted-CIDR, ticket) run for it: the
+        // plugin's `handleUpgrade` owns its per-connection credential. Gate
+        // order: host admission (above, unchanged) → origin admission — a
+        // non-empty `admitOrigins` list REPLACES the dashboard policy →
+        // deterministic genuinely-local (loopback peer AND loopback `Host`
+        // AND none of the 8 forwarding headers), so tunnel reachability
+        // cannot depend on whether the tunnel injects markers.
+        if (scope !== null && !isCoreWsRouteScope(scope)) {
+          const registration = wsRouteRegistry.get(scope);
+          // Torn down between scope resolution and here (toggle raced the
+          // upgrade): same deliberate 404 as a tombstoned prefix below.
+          if (!registration) {
+            socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+            socket.destroy();
+            return;
+          }
+          const wsReqHeaders = request.headers as unknown as Record<string, unknown>;
+          if (
+            !isPluginWsOriginAdmitted(
+              request.headers.origin,
+              request.headers.host,
+              registration.admitOrigins,
+              corsOpts(),
+            ) ||
+            !isPluginScopePeerLocal(remoteAddress, request.headers.host, wsReqHeaders)
+          ) {
+            console.error(
+              `[ws-gate] rejected upgrade origin=${sanitizeHeaderForLog(request.headers.origin)} scope=${scope} peer=${sanitizeHeaderForLog(remoteAddress)}`,
+            );
+            socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+            socket.destroy();
+            return;
+          }
+          // A plugin's handleUpgrade is third-party code — a bug there must
+          // never escape the upgrade event listener (an uncaught throw here
+          // is fatal to the process). Refuse the socket, log, keep serving.
+          try {
+            registration.handleUpgrade(request, socket, head, {
+              pluginId: registration.pluginId,
+              scope,
+              trackSocket: (ws) => wsRouteRegistry.trackSocket(registration.pluginId, ws),
+            });
+          } catch (err) {
+            console.error(
+              `[ws-gate] plugin handleUpgrade threw scope=${scope} plugin=${registration.pluginId}:`,
+              err,
+            );
+            socket.destroy();
+          }
+          return;
+        }
+        // A prefix whose plugin was toggled off stays reachable-but-dead: a
+        // deliberate 404 (not the bare TCP destroy an unrouted path gets)
+        // lets a client tell "plugin disabled" from "wrong port".
+        if (scope === null && wsRouteRegistry.isTombstonedPath(request.url)) {
+          socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+
         // Cross-site upgrade gate (issue #625). Runs after the host-admission
         // check and ahead of the `bridge` early-return and the auth branches,
         // so an untrusted Origin can never consume a ticket and cannot tell a
@@ -2572,7 +2658,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           return;
         }
         const ticket = extractTicket(request.url, secWsProtocol);
-        const consumeTicket = (t: string, s: WsRouteScope) => wsTicketStore.consume(t, s);
+        const consumeTicket = (t: string, s: CoreWsRouteScope) => wsTicketStore.consume(t, s);
         const wsHeaders = request.headers as unknown as Record<string, unknown>;
         if (config.authConfig?.secret) {
           if (!validateWsUpgrade(request.headers.cookie, remoteAddress, config.authConfig.secret, trusted, { ticket, scope, consumeTicket, headers: wsHeaders, localToken })) {

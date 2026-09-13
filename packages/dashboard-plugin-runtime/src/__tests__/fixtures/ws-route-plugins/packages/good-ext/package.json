@@ -1,0 +1,10 @@
+{
+  "name": "good-ext",
+  "pi-dashboard-plugin": {
+    "id": "good-ext",
+    "displayName": "good-ext",
+    "claims": [],
+    "server": "./server.mjs",
+    "priority": 100
+  }
+}

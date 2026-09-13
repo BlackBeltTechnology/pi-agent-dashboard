@@ -7,6 +7,33 @@
 - [ ] 1.5 Teardown on plugin disable/failure: unregister scopes, close sockets 1001. Verify: test toggles a fake plugin off via `POST /api/plugins/:id/toggle`, asserts open socket receives 1001 and a new upgrade gets 404.
 - [ ] 1.6 `doubt-driven-review` pass on the `registerWsRoute` API surface before 2.x starts; record outcome in this file under 1.6.
 
+  **1.6 outcome (doubt-driven-review, group 1):** Reviewed the surface
+  adversarially: activation-window semantics, registry invariants, gate order
+  in the upgrade handler, teardown, and plugin-bug containment. Findings:
+  (1) **fixed** — a plugin `handleUpgrade` that throws synchronously escaped
+  the `upgrade` event listener (fatal to the process); now wrapped in
+  try/catch → log + `socket.destroy()`, server keeps serving. (2) **verified
+  safe** — registration window is exactly the `await mod.default(ctx)` span
+  (async continuations inside it register legally, after it they throw);
+  `admitOrigins` copied by value so post-registration mutation cannot widen
+  admission; tombstones are removed on re-registration so a prefix is never
+  permanently dead; prefix overlap is checked both directions; sockets
+  tracked only after handshake, so teardown's `close(1001)` is always legal.
+  (3) **accepted, documented** — pinned-origin match is exact string equality
+  on the raw header (an empty-string list entry would admit an empty Origin;
+  no browser sends one — plugin config error, spec says "exactly equal one
+  entry"); `Host` comparison is case-insensitive (DNS rule) but refuses
+  trailing-dot/suffixed forms (`127.0.0.1.evil` stays whole — fail-closed).
+  (4) **residual tension → candidate for design follow-up** — `POST
+  /api/plugins/:id/toggle` OFF now tears down WS routes live (sockets 1001,
+  upgrades 404) but toggle ON does NOT live-reload the plugin's server entry
+  (re-running it would double-mount its fastify REST routes — fastify cannot
+  remove routes), so `restartRequired: true` stays honest and a re-enabled
+  plugin's WS routes stay 404 until restart. The design risk note's "toggle
+  unloads the plugin" is only half-true today: WS teardown live, REST
+  teardown at restart. Full live unload needs plugin-lifecycle work beyond
+  group 1 (escape-hatch candidate if 2.x needs live re-enable).
+
 ## 2. Relay core in `packages/browser-plugin/` (spec `browser-relay`, design D2–D4)
 
 - [ ] 2.1 Scaffold `packages/browser-plugin/` (package.json `pi-dashboard-plugin` manifest id `browser`, `server`, `client`, `configSchema.json` with `enabled`, `browsers.<profileDirectory>.{token (writeOnly), zeroDialog, allowedDomains}`, `defaultBrowser`; `i18n.ts`; vitest config; `AGENTS.md`). Verify: `curl /api/health | jq '.plugins[] | select(.id=="browser")'` shows the plugin loaded, disabled by default.
