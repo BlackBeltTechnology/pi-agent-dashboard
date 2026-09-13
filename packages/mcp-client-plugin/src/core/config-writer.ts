@@ -19,6 +19,7 @@ import { dirname } from "node:path";
 import { isAllowedCwd } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import { sourcesMatch } from "@blackbelt-technology/pi-dashboard-shared/source-matching.js";
 import stripJsonComments from "strip-json-comments";
+import { isPlainObject } from "./path-utils.js";
 import type {
   AdapterPort,
   ConfigIO,
@@ -71,10 +72,6 @@ function nullProto<T extends object>(obj: T): T {
 
 function ok(): ConfigWriteResult {
   return { ok: true };
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 /**
