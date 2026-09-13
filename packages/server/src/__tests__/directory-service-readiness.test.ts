@@ -476,6 +476,129 @@ describe("DirectoryService — readiness fold wiring (add-openspec-init-affordan
 // reconfigurePolling — readiness diffing
 // ══════════════════════════════════════════════════════════════════
 
+describe("DirectoryService — getOrPollOpenSpec (fix-connect-snapshot-frame-loss)", () => {
+  let service: DirectoryService;
+  let tmpRoot: string;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    configRootCalls = 0;
+    fakeConfigRoot = (cwd) => cwd;
+    tmpRoot = mkTmpRoot();
+  });
+  afterEach(() => {
+    service?.stopPolling();
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  /** One E21 combo: build the service, drive `getOrPollOpenSpec`, assert the gate branch + spawn count. */
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: exhaustive 16-combo gate matrix; each branch is one gate outcome.
+  async function checkCombo(
+    runOpenSpecList: { mockClear: () => void } & ReturnType<typeof vi.fn>,
+    combo: { enabled: boolean; optedOut: boolean; tracked: boolean; hasRoot: boolean },
+  ): Promise<void> {
+    const { enabled, optedOut, tracked, hasRoot } = combo;
+    const label = `enabled=${enabled} optedOut=${optedOut} tracked=${tracked} hasRoot=${hasRoot}`;
+    const cwd = path.join(tmpRoot, `repo-${enabled}-${optedOut}-${tracked}-${hasRoot}`);
+    // `changes/` too, so the polled branch actually reaches the CLI.
+    if (hasRoot) mkProject(cwd);
+    service = createDirectoryService(
+      makePrefs(tracked ? { pinnedDirs: [cwd] } : {}),
+      makeSessionMgr(),
+      { ...DEFAULT_OPENSPEC_POLL, enabled, optOutDirectories: optedOut ? [cwd] : [] },
+    );
+    runOpenSpecList.mockClear();
+
+    const out = service.getOrPollOpenSpec(cwd);
+    const expectPolled = enabled && !optedOut && tracked && hasRoot;
+    if (!expectPolled) {
+      expect(out.poll, label).toBeUndefined();
+      const expected = !enabled
+        ? { state: "GLOBAL_OFF" }
+        : optedOut
+          ? { state: "OPTED_OUT" }
+          : { state: "ABSENT" };
+      expect(out.hit?.readiness, label).toEqual(expected);
+      // The untracked gate runs BEFORE any fs probe: an untracked cwd
+      // reports hasOpenspecDir:false even when openspec/ exists (X8).
+      // (The opted-out branch, like `pollDirectoryGated`, may stat.)
+      if (!tracked && hasRoot && enabled && !optedOut) {
+        expect(out.hit?.hasOpenspecDir, label).toBe(false);
+      }
+    } else {
+      expect(out.hit?.readiness, label).toEqual({ state: "PENDING" });
+      expect(out.poll, label).toBeDefined();
+      await out.poll!;
+    }
+    expect(runOpenSpecList, label).toHaveBeenCalledTimes(expectPolled ? 1 : 0);
+  }
+
+  it("E21: enabled × optedOut × tracked × hasRoot — readiness per branch; spawn only for tracked+root+enabled+not-opted-out", async () => {
+    const { runOpenSpecList } = await import("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js");
+    (runOpenSpecList as any).mockResolvedValue({ changes: [] });
+    for (const enabled of [true, false]) {
+      for (const optedOut of [true, false]) {
+        for (const tracked of [true, false]) {
+          for (const hasRoot of [true, false]) {
+            await checkCombo(runOpenSpecList as any, { enabled, optedOut, tracked, hasRoot });
+          }
+        }
+      }
+    }
+  });
+
+  it("E22: tracked cwd with openspec/ but no changes/ → PENDING placeholder (hasOpenspecDir:true), then BROKEN · missing-changes-dir", async () => {
+    const repo = path.join(tmpRoot, "repo");
+    fs.mkdirSync(path.join(repo, "openspec"), { recursive: true });
+    service = createDirectoryService(makePrefs({ pinnedDirs: [repo] }), makeSessionMgr(), {});
+
+    const out = service.getOrPollOpenSpec(repo);
+    expect(out.hit).toMatchObject({ pending: true, hasOpenspecDir: true });
+    expect(out.hit?.readiness).toEqual({ state: "PENDING" });
+    expect(out.poll).toBeDefined();
+
+    const final = await out.poll!;
+    expect(final.readiness).toEqual({ state: "BROKEN", reason: "missing-changes-dir" });
+    // The finalized payload is cached: a follow-up get is a cache hit.
+    const again = service.getOrPollOpenSpec(repo);
+    expect(again.poll).toBeUndefined();
+    expect(again.hit?.readiness).toEqual({ state: "BROKEN", reason: "missing-changes-dir" });
+  });
+
+  it("X1 (service half): a rejected poll deletes the in-flight entry; a later get starts a fresh poll", async () => {
+    const { runOpenSpecList } = await import("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js");
+    (runOpenSpecList as any).mockRejectedValue(new Error("boom"));
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo);
+    service = createDirectoryService(makePrefs({ pinnedDirs: [repo] }), makeSessionMgr(), {});
+
+    const a = service.getOrPollOpenSpec(repo);
+    await expect(a.poll).rejects.toThrow("boom");
+
+    // In-flight entry removed on REJECTION: the next get starts a fresh poll
+    // (never the poisoned one), and the cache stayed cold.
+    const b = service.getOrPollOpenSpec(repo);
+    expect(b.hit?.readiness).toEqual({ state: "PENDING" });
+    expect(b.poll).toBeDefined();
+    expect(b.poll).not.toBe(a.poll);
+    await b.poll!.catch(() => { /* owns the second rejection */ });
+  });
+
+  it("X8 (service half): hostile cwds are ABSENT before any fs probe or spawn", async () => {
+    const { runOpenSpecList } = await import("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js");
+    (runOpenSpecList as any).mockClear();
+    service = createDirectoryService(makePrefs(), makeSessionMgr(), {});
+
+    for (const hostile of ["/etc", "../../", ""]) {
+      const out = service.getOrPollOpenSpec(hostile);
+      expect(out.poll).toBeUndefined();
+      expect(out.hit?.readiness).toEqual({ state: "ABSENT" });
+      expect(out.hit?.hasOpenspecDir).toBe(false);
+    }
+    expect(runOpenSpecList).not.toHaveBeenCalled();
+  });
+});
+
 describe("DirectoryService — reconfigurePolling readiness diffing (add-openspec-init-affordances)", () => {
   let service: DirectoryService;
   let tmpRoot: string;

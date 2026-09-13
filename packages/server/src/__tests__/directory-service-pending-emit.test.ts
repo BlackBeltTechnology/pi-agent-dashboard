@@ -194,6 +194,33 @@ describe("DirectoryService — poll-path pending emit", () => {
     expect(final.pending).not.toBe(true);
   });
 
+  it("E27: openspec_get polls the gated path — transitional pending + one change-gated final; gate honoured, CLI never re-run (fix-connect-snapshot-frame-loss)", async () => {
+    mkChangesDir(tmpCwd);
+    runOpenSpecListMock.mockResolvedValue({ changes: [{ name: "demo", status: "active", completedTasks: 0, totalTasks: 1 }] });
+    build();
+
+    // Cold get: PENDING placeholder + one poll through `pollDirectoryGated`.
+    // The transitional pending:true reaches every browser (via the service's
+    // onChangeCallback) exactly as a periodic poll would.
+    const first = service.getOrPollOpenSpec(tmpCwd);
+    expect(first.hit).toMatchObject({ pending: true, hasOpenspecDir: true });
+    const final = await first.poll!;
+    expect(final.initialized).toBe(true);
+
+    // The gated-path broadcast discipline: transitional pending, then exactly
+    // ONE change-gated final (prevJson was empty → the final always fires).
+    expect(emits.map((e) => e.data.pending === true)).toEqual([true, false]);
+    expect(emits[1].data).toMatchObject({ initialized: true });
+    expect(runOpenSpecListMock).toHaveBeenCalledTimes(1);
+
+    // Gate unchanged (fs untouched): the second get is a cache hit — no poll,
+    // no CLI re-run. `openspec_get` never force-polls.
+    const second = service.getOrPollOpenSpec(tmpCwd);
+    expect(second.poll).toBeUndefined();
+    expect(second.hit?.initialized).toBe(true);
+    expect(runOpenSpecListMock).toHaveBeenCalledTimes(1);
+  });
+
   it("3.4 repeated empty/failed tick still delivers the terminal clear (diff-guard not suppressed)", async () => {
     vi.useFakeTimers();
     try {

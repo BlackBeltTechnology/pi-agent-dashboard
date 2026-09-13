@@ -155,6 +155,17 @@ export interface DirectoryService {
   refreshOpenSpec(cwd: string): Promise<OpenSpecData>;
   /** Gated poll: respects `changeDetection` config and the semaphore. Returns cached data. */
   pollDirectoryGated(cwd: string): Promise<OpenSpecData>;
+  /**
+   * On-demand fetch for the `openspec_get` browser message (D6). Gate order:
+   * `enabled:false` → GLOBAL_OFF; opted out → OPTED_OUT; untracked (no
+   * session cwd match, not pinned) → ABSENT; no `<cwd>/openspec/` → ABSENT
+   * (`hasOpenspecDir:false`). Gated answers and cache hits return `{ hit }`
+   * alone. A cold tracked cwd returns `{ hit: pendingPlaceholder, poll }`
+   * where `poll` is the shared per-cwd in-flight `pollAndBroadcastIfChanged`
+   * promise (entry deleted on settle, success or rejection).
+   * See change: fix-connect-snapshot-frame-loss (D6).
+   */
+  getOrPollOpenSpec(cwd: string): { hit?: OpenSpecData; poll?: Promise<OpenSpecData> };
   getPiResources(cwd: string): PiResourcesResult | undefined;
   refreshPiResources(cwd: string): Promise<PiResourcesResult>;
   /**
@@ -589,6 +600,18 @@ export function createDirectoryService(
       if (session.status !== "ended") dirs.add(session.cwd);
     }
     return Array.from(dirs);
+  }
+
+  /**
+   * `openspec_get` tracked-cwd gate (D6): a cwd is tracked when ANY session
+   * (any status — a rendered ended card must still reconcile its entry) holds
+   * it as cwd, or it is pinned. Wider than `computeKnownDirectories` (which
+   * drops ended sessions) by design.
+   * See change: fix-connect-snapshot-frame-loss.
+   */
+  function isTrackedCwd(cwd: string): boolean {
+    if (preferencesStore.getPinnedDirectories().includes(cwd)) return true;
+    return sessionManager.listAll().some((s) => s.cwd === cwd);
   }
 
   function discoverSessions(cwd: string): DiscoveredSession[] {
@@ -1176,6 +1199,95 @@ export function createDirectoryService(
     return pollOne(cwd, false);
   }
 
+  /**
+   * One cwd's poll + change-gated broadcast (D6): prevJson capture →
+   * `pollDirectoryGated` → nextJson compare (or a transitional-pending clear)
+   * → `onChangeCallback`. Extracted from the scheduler tick's per-cwd body so
+   * the compare-or-pending broadcast discipline has ONE implementation; the
+   * tick and `getOrPollOpenSpec`'s cold-miss poll both call it. Rejections
+   * propagate to the caller (the tick swallows; the get's in-flight promise
+   * deletes its entry). Per-turn instrumentation (`dirPollPre`/`dirPollPost`)
+   * rides along — `recordTurn` no-ops without `eventLoopSpikes`.
+   * See change: fix-connect-snapshot-frame-loss (D6; behaviour-preserving
+   * for the tick).
+   */
+  async function pollAndBroadcastIfChanged(cwd: string): Promise<OpenSpecData> {
+    // `dirPollPre` = the caller's synchronous prefix, INCLUDING `pollOne`'s
+    // synchronous run before the worker `await` (root `statMtimeOr` +
+    // list-signal `effectiveMtimeOr` stat-fan). Record BEFORE awaiting so we
+    // never time across the await.
+    // See change: attribute-openspec-poll-eventloop-stalls.
+    const dirPollPreStart = performance.now();
+    const prevCache = caches.get(cwd);
+    const prevJson = prevCache?.serialized ?? (prevCache?.data ? JSON.stringify(prevCache.data) : undefined);
+    const nextPromise = pollDirectoryGated(cwd);
+    recordTurn("dirPollPre", dirPollPreStart);
+    const next = await nextPromise;
+    // `dirPollPost` = the continuation after the worker resolves:
+    // `nextJson` compare + `JSON.stringify` fallback + broadcast.
+    const dirPollPostStart = performance.now();
+    const nextSerialized = caches.get(cwd)?.serialized;
+    const nextJson = nextSerialized ?? JSON.stringify(next);
+    // See change: emit-openspec-pending-from-poll — clear the spinner
+    // even when the final JSON equals the prior cache.
+    const pendingWasEmitted = pendingEmittedCwds.delete(cwd);
+    if (nextJson !== prevJson || pendingWasEmitted) onChangeCallback?.(cwd, next, nextSerialized);
+    recordTurn("dirPollPost", dirPollPostStart);
+    return next;
+  }
+
+  // ── openspec_get (D6) — on-demand gated fetch ──────────────────
+  const openspecGetInFlight = new Map<string, Promise<OpenSpecData>>();
+
+  function getOrPollOpenSpec(cwd: string): { hit?: OpenSpecData; poll?: Promise<OpenSpecData> } {
+    // Gates in D6 order; a gated answer is finalized and spawn-free. The
+    // untracked gate sits BEFORE any fs probe so a hostile cwd never touches
+    // the filesystem (X8).
+    if (cfg.enabled === false) {
+      return { hit: clearedDisabledPayload() };
+    }
+    if (isOptedOutCwd(cwd)) {
+      const base = caches.get(cwd)?.data;
+      return {
+        hit: {
+          initialized: false,
+          pending: false,
+          changes: [],
+          hasOpenspecDir: base?.hasOpenspecDir ?? statMtimeOr(path.join(cwd, "openspec")) !== undefined,
+          readiness: { state: "OPTED_OUT" },
+        },
+      };
+    }
+    if (!isTrackedCwd(cwd) || !hasOpenSpecRoot(cwd)) {
+      return {
+        hit: {
+          initialized: false,
+          pending: false,
+          changes: [],
+          hasOpenspecDir: false,
+          readiness: { state: "ABSENT" },
+        },
+      };
+    }
+    const cached = caches.get(cwd)?.data;
+    if (cached) return { hit: cached };
+    const placeholder: OpenSpecData = {
+      initialized: false,
+      pending: true,
+      changes: [],
+      hasOpenspecDir: true,
+      readiness: { state: "PENDING" },
+    };
+    // Per-cwd shared in-flight poll: concurrent `openspec_get`s for one cold
+    // cwd ride one spawn (E26); the entry is deleted on settle — success OR
+    // rejection — so a failed poll never poisons later requests (X1).
+    const inFlight = openspecGetInFlight.get(cwd);
+    if (inFlight) return { hit: placeholder, poll: inFlight };
+    const poll = pollAndBroadcastIfChanged(cwd).finally(() => openspecGetInFlight.delete(cwd));
+    openspecGetInFlight.set(cwd, poll);
+    return { hit: placeholder, poll };
+  }
+
   async function refreshPiResourcesInternal(cwd: string): Promise<PiResourcesResult> {
     const data = await scanPiResources(cwd);
     piResourcesCache.set(cwd, data);
@@ -1238,28 +1350,8 @@ export function createDirectoryService(
         const delay = phaseOffsetMs(cwd, cfg.jitterSeconds);
         const timer = setTimeout(async () => {
           scheduledPhaseTimers.delete(timer);
-          // `dirPollPre` = this `setTimeout` fire's synchronous prefix, INCLUDING
-          // `pollOne`'s synchronous run before the worker `await` (root
-          // `statMtimeOr` + list-signal `effectiveMtimeOr` stat-fan). We call
-          // `pollDirectoryGated(cwd)` to kick off that synchronous prefix, then
-          // record BEFORE awaiting so we never time across the await.
-          const dirPollPreStart = performance.now();
           try {
-            const prevCache = caches.get(cwd);
-            const prevJson = prevCache?.serialized ?? (prevCache?.data ? JSON.stringify(prevCache.data) : undefined);
-            const nextPromise = pollDirectoryGated(cwd);
-            recordTurn("dirPollPre", dirPollPreStart);
-            const next = await nextPromise;
-            // `dirPollPost` = the continuation after the worker resolves:
-            // `nextJson` compare + `JSON.stringify` fallback + broadcast.
-            const dirPollPostStart = performance.now();
-            const nextSerialized = caches.get(cwd)?.serialized;
-            const nextJson = nextSerialized ?? JSON.stringify(next);
-            // See change: emit-openspec-pending-from-poll — clear the spinner
-            // even when the final JSON equals the prior cache.
-            const pendingWasEmitted = pendingEmittedCwds.delete(cwd);
-            if (nextJson !== prevJson || pendingWasEmitted) onChangeCallback?.(cwd, next, nextSerialized);
-            recordTurn("dirPollPost", dirPollPostStart);
+            await pollAndBroadcastIfChanged(cwd);
           } catch (err) {
             // Swallow — the next tick will retry.
             console.error(`[openspec-poll] tick failed for ${cwd}:`, err);
@@ -1327,6 +1419,7 @@ export function createDirectoryService(
 
     refreshOpenSpec,
     pollDirectoryGated,
+    getOrPollOpenSpec,
 
     getPiResources(cwd: string): PiResourcesResult | undefined {
       return piResourcesCache.get(cwd);

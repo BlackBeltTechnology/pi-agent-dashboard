@@ -47,26 +47,26 @@
 
 ## 4. `sessions_page` handler (`packages/server/src/browser-handlers/session-meta-handler.ts`)
 
-- [ ] 4.1 Implement `sessions_page { cwd: groupKey, offset }` → `pageable(g) = endedSequence(g).filter(∉ snapshotVisibleIds())`, `PAGE_SIZE=50`, reply `sessions_page_result` via `sendTo` (state, key `sessions_page_result:<g>`) (D5).
-- [ ] 4.2 Test E30 (test-plan: automated, L1) — see `packages/server/src/browser-handlers/__tests__/session-meta-handler.test.ts`. Input: pageable 101 ids · trigger: offset ∈ {0,50,100,101,5000} · observable: 50/true, 50/true, 1/false, 0/false, 0/false no throw.
-- [ ] 4.3 Test E31 (test-plan: automated, L1) — same file. Input: window [e1,e2,e3], sequence e1..e8 · trigger: offset 0 · observable: [e4..e8].
-- [ ] 4.4 Test E32 (test-plan: automated, L1) — same file. Input: worktree ended sessions under `/p` · trigger: `cwd:"/p"` vs raw worktree cwd · observable: `/p` returns them; raw cwd → 0, `hasMore:false`.
+- [x] 4.1 Implement `sessions_page { cwd: groupKey, offset }` → `pageable(g) = endedSequence(g).filter(∉ snapshotVisibleIds())`, `PAGE_SIZE=50`, reply `sessions_page_result` via `sendTo` (state, key `sessions_page_result:<g>`) (D5).
+- [x] 4.2 Test E30 (test-plan: automated, L1) — see `packages/server/src/browser-handlers/__tests__/session-meta-handler.test.ts`. Input: pageable 101 ids · trigger: offset ∈ {0,50,100,101,5000} · observable: 50/true, 50/true, 1/false, 0/false, 0/false no throw.
+- [x] 4.3 Test E31 (test-plan: automated, L1) — same file. Input: window [e1,e2,e3], sequence e1..e8 · trigger: offset 0 · observable: [e4..e8].
+- [x] 4.4 Test E32 (test-plan: automated, L1) — same file. Input: worktree ended sessions under `/p` · trigger: `cwd:"/p"` vs raw worktree cwd · observable: `/p` returns them; raw cwd → 0, `hasMore:false`.
 
 ## 5. `openspec_get` (`directory-service.ts`, `directory-handler.ts`)
 
-- [ ] 5.1 Extract the tick's per-cwd body into `pollAndBroadcastIfChanged(cwd)` (prevJson → `pollDirectoryGated` → compare → `pendingWasEmitted` → `onChangeCallback`); the tick calls it (D6, behaviour-preserving).
-- [ ] 5.2 Add `getOrPollOpenSpec(cwd)` with gates (`enabled` → `GLOBAL_OFF`; opt-out → `OPTED_OUT`; untracked → `ABSENT`; `!hasOpenSpecRoot` → `ABSENT` `hasOpenspecDir:false`), cache hit, cold-miss placeholder (`PENDING`, readiness fold) + per-cwd shared in-flight promise deleted on settle (D6).
-- [ ] 5.3 `handleOpenSpecGet` in `directory-handler.ts`: unicast `openspec_get_result{final:!poll}`; on resolve unicast `final:true`; on reject unicast `final:true` `BROKEN · cli-failed`; never broadcasts. Register in the browser message dispatch.
-- [ ] 5.4 Test E21 (test-plan: automated, L1) — see `packages/server/src/__tests__/directory-service-readiness.test.ts`. Input: enabled × optedOut × tracked × hasRoot, 16 combos · trigger: `getOrPollOpenSpec` · observable: readiness per branch; spawn spy only for tracked+root+enabled+not-opted-out.
-- [ ] 5.5 Test E22 (test-plan: automated, L1) — same file. Input: tracked cwd, `openspec/` without `changes/` · observable: `PENDING` `hasOpenspecDir:true`, then `final:true` `BROKEN · missing-changes-dir`.
-- [ ] 5.6 Test E23 (test-plan: automated, L1) — see `packages/server/src/browser-handlers/__tests__/directory-handler.test.ts`. Input: 2 browsers, cached `/a` · trigger: browser 1 `openspec_get` · observable: browser 1 one `final:true`; browser 2 nothing; no poll.
-- [ ] 5.7 Test E24 (test-plan: automated, L1) — same file. Input: tracked cold `/b`, poll stub resolves D · trigger: `openspec_get{requestId:"r7"}` · observable: requester [`final:false` PENDING, `final:true` D] both `requestId:"r7"`; others get transitional pending + one `openspec_update` D.
-- [ ] 5.8 Test E25 (test-plan: automated, L1) — same file. Input: second get for `/b` after E24 · observable: cache hit; others receive nothing.
-- [ ] 5.9 Test E26 (test-plan: automated, L1) — same file. Input: 3 browsers get cold `/c` same tick · observable: poll stub once; each gets own placeholder+final with own `requestId`.
-- [ ] 5.10 Test E27 (test-plan: automated, L1) — see `directory-service-pending-emit.test.ts`. Input: warm mtime record, cold data · trigger: `openspec_get` · observable: `pollDirectoryGated` path; CLI spy not called when gate unchanged.
-- [ ] 5.11 Test X1 (test-plan: automated, L1) — see `directory-handler.test.ts`. Fault: poll rejects · observable: `final:true` `BROKEN cli-failed`; in-flight entry deleted; next get starts a fresh poll.
-- [ ] 5.12 Test X2 (test-plan: automated, L1) — same file. Fault: poll never resolves; requester socket closes · observable: no unhandled rejection; no send on closed socket; later request from another browser shares the promise.
-- [ ] 5.13 Test X8 (test-plan: automated, L1) — same file. Fault: `openspec_get` cwd ∈ {`/etc`, `../../`, `""`} from a paired remote socket · observable: single `final:true` `ABSENT`; spawn spy never called; no fs access outside `hasOpenSpecRoot` of tracked cwds.
+- [x] 5.1 Extract the tick's per-cwd body into `pollAndBroadcastIfChanged(cwd)` (prevJson → `pollDirectoryGated` → compare → `pendingWasEmitted` → `onChangeCallback`); the tick calls it (D6, behaviour-preserving).
+- [x] 5.2 Add `getOrPollOpenSpec(cwd)` with gates (`enabled` → `GLOBAL_OFF`; opt-out → `OPTED_OUT`; untracked → `ABSENT`; `!hasOpenSpecRoot` → `ABSENT` `hasOpenspecDir:false`), cache hit, cold-miss placeholder (`PENDING`, readiness fold) + per-cwd shared in-flight promise deleted on settle (D6).
+- [x] 5.3 `handleOpenSpecGet` in `directory-handler.ts`: unicast `openspec_get_result{final:!poll}`; on resolve unicast `final:true`; on reject unicast `final:true` `BROKEN · cli-failed`; never broadcasts. Register in the browser message dispatch.
+- [x] 5.4 Test E21 (test-plan: automated, L1) — see `packages/server/src/__tests__/directory-service-readiness.test.ts`. Input: enabled × optedOut × tracked × hasRoot, 16 combos · trigger: `getOrPollOpenSpec` · observable: readiness per branch; spawn spy only for tracked+root+enabled+not-opted-out.
+- [x] 5.5 Test E22 (test-plan: automated, L1) — same file. Input: tracked cwd, `openspec/` without `changes/` · observable: `PENDING` `hasOpenspecDir:true`, then `final:true` `BROKEN · missing-changes-dir`.
+- [x] 5.6 Test E23 (test-plan: automated, L1) — see `packages/server/src/browser-handlers/__tests__/directory-handler.test.ts`. Input: 2 browsers, cached `/a` · trigger: browser 1 `openspec_get` · observable: browser 1 one `final:true`; browser 2 nothing; no poll.
+- [x] 5.7 Test E24 (test-plan: automated, L1) — same file. Input: tracked cold `/b`, poll stub resolves D · trigger: `openspec_get{requestId:"r7"}` · observable: requester [`final:false` PENDING, `final:true` D] both `requestId:"r7"`; others get transitional pending + one `openspec_update` D.
+- [x] 5.8 Test E25 (test-plan: automated, L1) — same file. Input: second get for `/b` after E24 · observable: cache hit; others receive nothing.
+- [x] 5.9 Test E26 (test-plan: automated, L1) — same file. Input: 3 browsers get cold `/c` same tick · observable: poll stub once; each gets own placeholder+final with own `requestId`.
+- [x] 5.10 Test E27 (test-plan: automated, L1) — see `directory-service-pending-emit.test.ts`. Input: warm mtime record, cold data · trigger: `openspec_get` · observable: `pollDirectoryGated` path; CLI spy not called when gate unchanged.
+- [x] 5.11 Test X1 (test-plan: automated, L1) — see `directory-handler.test.ts`. Fault: poll rejects · observable: `final:true` `BROKEN cli-failed`; in-flight entry deleted; next get starts a fresh poll.
+- [x] 5.12 Test X2 (test-plan: automated, L1) — same file. Fault: poll never resolves; requester socket closes · observable: no unhandled rejection; no send on closed socket; later request from another browser shares the promise.
+- [x] 5.13 Test X8 (test-plan: automated, L1) — same file. Fault: `openspec_get` cwd ∈ {`/etc`, `../../`, `""`} from a paired remote socket · observable: single `final:true` `ABSENT`; spawn spy never called; no fs access outside `hasOpenSpecRoot` of tracked cwds.
 
 ## 6. Client message handling (`packages/client/src/hooks/useMessageHandler.ts`)
 

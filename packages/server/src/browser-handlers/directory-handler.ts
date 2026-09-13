@@ -242,6 +242,58 @@ export function handleOpenSpecRefresh(
   }
 }
 
+/**
+ * `openspec_get { requestId, cwd }` — unicast-only on-demand fetch (D6).
+ * A gated or cached answer replies once with `final:true`. A cold tracked cwd
+ * replies immediately with the PENDING placeholder (`final:false`), then a
+ * `final:true` reply carrying the poll outcome — or, if the poll itself
+ * rejects (an unexpected throw; `pollDirectoryGated` normally RESOLVES the
+ * fold's finalized payload even on CLI failure), a `BROKEN · cli-failed`
+ * placeholder, so the requester always receives its final reply (X1).
+ * NEVER broadcasts: the shared poll broadcasts via the service when the
+ * payload changed. Delivery rides `sendTo` (state class → `sendState`, key
+ * `openspec_get_result:<cwd>`), and `sendTo`'s readyState guard makes a
+ * closed requester socket a silent drop (X2).
+ * See change: fix-connect-snapshot-frame-loss (D6).
+ */
+export function handleOpenSpecGet(
+  msg: Extract<BrowserToServerMessage, { type: "openspec_get" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  const { ws, sendTo, directoryService } = ctx;
+  // Hand-built `DirectoryService` fakes may lack the method (see the
+  // `refreshFolderHeadsForEnteringKeys` note); absent service/method is a
+  // silent no-op like the other openspec handlers.
+  if (!directoryService?.getOrPollOpenSpec) return;
+  const { hit, poll } = directoryService.getOrPollOpenSpec(msg.cwd);
+  if (hit) {
+    sendTo(ws, { type: "openspec_get_result", requestId: msg.requestId, cwd: msg.cwd, data: hit, final: !poll });
+  }
+  if (poll !== undefined) {
+    poll.then(
+      (data) => {
+        sendTo(ws, { type: "openspec_get_result", requestId: msg.requestId, cwd: msg.cwd, data, final: true });
+      },
+      () => {
+        sendTo(ws, {
+          type: "openspec_get_result",
+          requestId: msg.requestId,
+          cwd: msg.cwd,
+          data: {
+            initialized: false,
+            pending: false,
+            changes: [],
+            // The cwd passed the root gate to have a poll at all.
+            hasOpenspecDir: true,
+            readiness: { state: "BROKEN", reason: "cli-failed" },
+          },
+          final: true,
+        });
+      },
+    );
+  }
+}
+
 export function handleOpenSpecBulkArchive(
   msg: Extract<BrowserToServerMessage, { type: "openspec_bulk_archive" }>,
   ctx: BrowserHandlerContext,

@@ -3,9 +3,10 @@
  * See change: fix-mobile-attach-proposal-display.
  */
 import { beforeEach, describe, expect, it } from "vitest";
+import type { SessionsPageResultMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { createMemorySessionManager, type SessionManager } from "../../session/memory-session-manager.js";
 import type { BrowserHandlerContext } from "../handler-context.js";
-import { handleAttachProposal, handleDetachProposal, handleRemoveTagGlobally, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, pushAttachProposalChanged } from "../session-meta-handler.js";
+import { handleAttachProposal, handleDetachProposal, handleRemoveTagGlobally, handleSessionsPage, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, pushAttachProposalChanged } from "../session-meta-handler.js";
 
 interface PiSent {
   sessionId: string;
@@ -412,6 +413,115 @@ describe("handleDetachProposal — decision matrix", () => {
       attachedProposal: null, openspecPhase: null, openspecChange: null,
       pendingReplaceProposal: null, rejectedReplaceProposals: [],
     });
+  });
+});
+
+describe("handleSessionsPage — D5 ended-session paging", () => {
+  /** Seed one ENDED session with explicit timestamps (unregister stamps `endedAt`, update overrides it). */
+  function seedEnded(mgr: SessionManager, id: string, cwd: string, startedAt: number, endedAt: number, extra: Record<string, unknown> = {}): void {
+    mgr.register({ id, cwd, source: "tui", startedAt });
+    mgr.unregister(id);
+    mgr.update(id, { endedAt, ...extra } as any);
+  }
+
+  /**
+   * 120 ended sessions elsewhere, NEWER than every group session, so the
+   * global newest-120 window fills with fillers and the group's ended ids
+   * fall outside it (the precondition for a non-empty pageable).
+   */
+  function seedFillers(mgr: SessionManager): void {
+    for (let i = 0; i < 120; i++) {
+      seedEnded(mgr, `f${String(i).padStart(3, "0")}`, "/fillers", 10_000 + i, 20_000 + i);
+    }
+  }
+
+  function makePageCtx(mgr: SessionManager) {
+    const sent: SessionsPageResultMessage[] = [];
+    const ctx = {
+      ws: {},
+      sessionManager: mgr,
+      sendTo: (_ws: unknown, msg: SessionsPageResultMessage) => sent.push(msg),
+    } as unknown as BrowserHandlerContext;
+    return { ctx, sent };
+  }
+
+  it("E30 offset boundaries over a 101-id pageable: 50/true, 50/true, 1/false, 0/false, 0/false", () => {
+    const mgr = createMemorySessionManager();
+    for (let i = 0; i < 101; i++) {
+      seedEnded(mgr, `e${String(i).padStart(3, "0")}`, "/g", 1_000 + i, 2_000 + i, i === 0 ? { notifyLog: [{ at: 1, kind: "notify" } as any] } : {});
+    }
+    seedFillers(mgr);
+    const { ctx, sent } = makePageCtx(mgr);
+    const seq = mgr.endedSequence("/g", []);
+    expect(seq).toHaveLength(101);
+
+    handleSessionsPage({ type: "sessions_page", cwd: "/g", offset: 0 } as any, ctx);
+    expect(sent[0].type).toBe("sessions_page_result");
+    expect(sent[0].cwd).toBe("/g");
+    expect(sent[0].sessions.map((s) => s.id)).toEqual(seq.slice(0, 50));
+    expect(sent[0].order).toEqual(seq.slice(0, 50));
+    expect(sent[0].hasMore).toBe(true);
+    // Rows are notifyLog-stripped (the log is replayed on subscribe).
+    expect(sent[0].sessions.every((s) => s.notifyLog === undefined)).toBe(true);
+
+    handleSessionsPage({ type: "sessions_page", cwd: "/g", offset: 50 } as any, ctx);
+    expect(sent[1].sessions.map((s) => s.id)).toEqual(seq.slice(50, 100));
+    expect(sent[1].hasMore).toBe(true);
+
+    handleSessionsPage({ type: "sessions_page", cwd: "/g", offset: 100 } as any, ctx);
+    expect(sent[2].sessions.map((s) => s.id)).toEqual(seq.slice(100));
+    expect(sent[2].hasMore).toBe(false);
+
+    handleSessionsPage({ type: "sessions_page", cwd: "/g", offset: 101 } as any, ctx);
+    expect(sent[3].sessions).toEqual([]);
+    expect(sent[3].hasMore).toBe(false);
+
+    handleSessionsPage({ type: "sessions_page", cwd: "/g", offset: 5000 } as any, ctx);
+    expect(sent[4].sessions).toEqual([]);
+    expect(sent[4].hasMore).toBe(false);
+  });
+
+  it("E31 page excludes the first-3 window ids: sequence e1..e8, window [e1,e2,e3] → returns [e4..e8]", () => {
+    const orderIds = ["e1", "e2", "e3", "e4", "e5", "e6", "e7", "e8"];
+    const mgr = createMemorySessionManager(undefined, {
+      getOrder: (g: string) => (g === "/g" ? orderIds : []),
+      getAllOrders: () => ({ "/g": orderIds }),
+    });
+    // A non-ended session gives /g its per-group first-3 window.
+    mgr.register({ id: "live", cwd: "/g", source: "tui", startedAt: 9_000 });
+    orderIds.forEach((id, i) => seedEnded(mgr, id, "/g", 1_000 + i, 2_000 + i));
+    seedFillers(mgr);
+    const { ctx, sent } = makePageCtx(mgr);
+
+    handleSessionsPage({ type: "sessions_page", cwd: "/g", offset: 0 } as any, ctx);
+
+    expect(sent[0].sessions.map((s) => s.id)).toEqual(["e4", "e5", "e6", "e7", "e8"]);
+    expect(sent[0].order).toEqual(["e4", "e5", "e6", "e7", "e8"]);
+    expect(sent[0].hasMore).toBe(false);
+  });
+
+  it("E32 cwd is the group key: /p returns worktree ended sessions; raw worktree cwd → 0, hasMore:false", () => {
+    const mgr = createMemorySessionManager();
+    // A live session at /p gives the parent group its first-3 window.
+    mgr.register({ id: "live", cwd: "/p", source: "tui", startedAt: 9_000 });
+    for (let i = 1; i <= 5; i++) {
+      seedEnded(mgr, `w${i}`, "/p/.worktrees/x", 1_000 + i, 2_000 + i, {
+        gitWorktree: { mainPath: "/p", name: "x" },
+      });
+    }
+    seedFillers(mgr);
+    const { ctx, sent } = makePageCtx(mgr);
+
+    handleSessionsPage({ type: "sessions_page", cwd: "/p", offset: 0 } as any, ctx);
+    // 5 ended under /p; the first-3 of the group's ended sequence (startedAt
+    // desc → w5,w4,w3) sit in the window → the 2 oldest remain pageable.
+    expect(sent[0].sessions.map((s) => s.id).sort()).toEqual(["w1", "w2"]);
+    expect(sent[0].hasMore).toBe(false);
+
+    sent.length = 0;
+    handleSessionsPage({ type: "sessions_page", cwd: "/p/.worktrees/x", offset: 0 } as any, ctx);
+    expect(sent[0].sessions).toEqual([]);
+    expect(sent[0].hasMore).toBe(false);
   });
 });
 
