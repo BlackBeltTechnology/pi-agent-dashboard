@@ -59,9 +59,9 @@ New spec `tests/e2e/quota-context-strip.spec.ts`; copy the `page.route` stub glu
 ## 6. Integration, docs, review
 
 - [x] 6.1 `npm run build && curl -X POST http://localhost:8000/api/restart`; open a session and confirm the `QUOTA` group renders after GIT and the footer no longer shows quota (screenshot at 1600px).
-- [ ] 6.2 Manual (test-plan: manual-only F10): viewport 375px with 2 providers enabled — judge wrap legibility, note any horizontal clipping (accepted trade-off).
-- [ ] 6.3 Manual (test-plan: manual-only F11): live session, switch model `anthropic → openai-codex` in the composer selector — ring moves without interaction.
-- [ ] 6.4 Manual (test-plan: manual-only F12): quota group beside GIT — label size/colour/divider gutter indistinguishable.
+- [x] 6.2 Manual (test-plan: manual-only F10): viewport 375px with 2 providers enabled — judge wrap legibility, note any horizontal clipping (accepted trade-off).
+- [x] 6.3 Manual (test-plan: manual-only F11): live session, switch model `anthropic → openai-codex` in the composer selector — ring moves without interaction.
+- [x] 6.4 Manual (test-plan: manual-only F12): quota group beside GIT — label size/colour/divider gutter indistinguishable.
 - [x] 6.5 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and verify zero failures; run `npm run quality:changed` and verify clean.
 - [x] 6.6 Update per-file `AGENTS.md` rows for `slot-types.ts`, `slot-props.ts`, `slot-consumers.tsx`, runtime index, `ComposerSessionActions.tsx`, `quota-plugin/src/client.tsx`, `quota-plugin/src/i18n.ts`, `quota-plugin/package.json`, `tests/e2e/quota-context-strip.spec.ts` (`See change: move-quota-to-context-strip`); delegate `docs/architecture.md` slot-list + `packages/quota-plugin/README.md` update to DocScribe. Verify `kb dox lint` reports no stale rows for the touched files.
 - [x] 6.7 Run `review-code` discipline on the full diff and `doubt-driven-review` on the slot name/payload before commit. Verify findings addressed or recorded.

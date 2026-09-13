@@ -5,7 +5,9 @@
 This capability covers the **slot taxonomy** for the dashboard — a frozen, named list of UI regions where contributions land. First-party plugins fill slots with React components (rich, trusted); third-party extensions fill descriptor-renderable slots with serialized data (sandboxed, declarative). Both adapters target the same slot contract, so the shell is contribution-agnostic.
 
 The requirements below are layered: the design-level (contract) requirements come from change `dashboard-plugin-architecture`, and the implementation-level (runtime) requirements come from change `add-dashboard-shell-slots-runtime`. The full slot taxonomy table and motivating design notes live in `openspec/changes/dashboard-plugin-architecture/design.md` §"Slot taxonomy".
+
 ## Requirements
+
 ### Requirement: Slot consumer per-claim error boundary
 
 Each contribution rendered by a slot consumer SHALL be wrapped in its own error boundary. If one contribution throws during render, the boundary SHALL catch the error, log it to the console with the offending plugin id and slot id, render nothing for that specific contribution, and SHALL NOT prevent sibling contributions for the same slot from rendering.
@@ -100,6 +102,7 @@ type SlotId =
   | "session-card-flows"
   | "session-card-memory"
   | "workspace-action-bar"
+  | "composer-context-group"
   | "content-view"
   | "content-header-sticky"
   | "content-inline-footer"
@@ -287,6 +290,7 @@ predicate — a claims-only test would strand an intent-only contribution.
 - **WHEN** plugin `flows` is disabled and a `settings-section` intent for `flows` is still present in the intent store
 - **THEN** `/settings/plugins/flows` SHALL NOT render that intent
 - **AND** the page SHALL show the disabled notice instead
+
 ### Requirement: tool-renderer slot maps a tool name to a React renderer
 
 The `tool-renderer` slot SHALL accept React-only contributions. Each claim SHALL declare a `toolName: string` (the value of `tool_call.toolName` to render) and a `component` (an exported React component implementing the existing `ToolRenderer` signature). When the dashboard chat renders a tool call whose `toolName` matches a registered claim, the slot consumer SHALL use the registered component instead of the built-in `GenericToolRenderer`.
@@ -656,6 +660,41 @@ extra renders and the composer behaves exactly as before.
 - **THEN** core SHALL pass the updated draft to the slot component without itself debouncing
 - **AND** any throttling/side-effect (e.g. a network check) SHALL be the slot component's
   responsibility (no added keystroke-path latency in core)
+
+### Requirement: `composer-context-group` slot renders inside the composer context strip
+
+The dashboard SHALL expose a `composer-context-group` slot (multiplicity `many`, payload tier `react-only`, claim `{ component }`) whose contributions render inside the chat view's composer context strip after the Git group and before the Status group, ordered by priority then plugin id. Slot components SHALL receive `{ session, pluginContext }` context props. Contributions SHALL NOT be disabled or dimmed while the session is streaming. The runtime SHALL export a `ComposerContextGroup` primitive taking `{ label, children, testId? }` that renders a divider, the uppercase label and the children as one non-shrinking unit, visually matching the strip's own groups. Claims MAY carry a `shouldRender` predicate that receives the session, as for other session-scoped slots. A contribution that renders nothing SHALL leave no divider or label behind. With no claim, the strip SHALL render exactly as before.
+
+#### Scenario: Claim renders between Git and Status with session props
+
+- **WHEN** a plugin claims `{ slot: "composer-context-group", component: "X" }` and the chat view is bound to a session
+- **THEN** `X` SHALL render in the context strip after the Git group and before the Status group
+- **AND** `X` SHALL receive the bound session in its context props
+
+#### Scenario: Group primitive keeps label and content together when the strip wraps
+
+- **WHEN** a contribution renders `ComposerContextGroup` with label `Quota` and the strip's available width forces wrapping
+- **THEN** the `QUOTA` label SHALL land on the same line as the start of its content, never orphaned at the end of the previous line
+
+#### Scenario: Streaming does not gate the contribution
+
+- **WHEN** the bound session has `status = "streaming"`
+- **THEN** the contribution SHALL render at full opacity and its interactive children SHALL remain enabled
+
+#### Scenario: Empty contribution leaves no trace
+
+- **WHEN** the claimed component returns nothing
+- **THEN** no divider or label SHALL render for that claim
+
+#### Scenario: Contribution shows even when no host group does
+
+- **WHEN** a plugin claims `composer-context-group` and the bound session has no OpenSpec directory, no worktree and no `session-card-badge` claim
+- **THEN** the strip SHALL still render and show the contribution
+
+#### Scenario: No claim leaves the strip unchanged
+
+- **WHEN** no plugin claims `composer-context-group`
+- **THEN** no extra divider or label SHALL render in the strip
 
 ## Related Capabilities
 

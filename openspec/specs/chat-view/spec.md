@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines how the dashboard's chat panel renders the live and replayed event stream for a session: optimistic user cards, bash output, command feedback, collapsed-failed retries, and pairing of running tool calls with interactive prompts.
+
 ## Requirements
+
 ### Requirement: Optimistic pending card in chat
 The chat view SHALL render an optimistic user message card at the bottom of the message list when `state.pendingPrompt` is set. The card SHALL use the same styling as a regular user message card but include an animated spinning icon to indicate processing.
 
@@ -504,6 +506,8 @@ The chat view's composer (`CommandInput`) SHALL render as a single bordered cont
 
 When and only when the chat view is bound to a session, a `ComposerSessionActions` context strip SHALL render **above** the card (not inside the StatusBar), carrying the same OpenSpec and Git groups, the same action gating (`Explore` enabled only when `!attachedProposal`; `Archive` enabled only when `attachedProposal`; all actions disabled when `status === "streaming"` except refresh; OpenSpec group hidden when `hasOpenspecDir === false && pending === false`), and the same `onSendPrompt` / `onReadArtifact` / refresh callbacks as before. Relocating the strip SHALL NOT change its behaviour or slot wiring.
 
+The strip SHALL additionally render every `composer-context-group` slot contribution between the Git group and the Status group. These contributions SHALL NOT be subject to the streaming disable that gates the strip's action buttons. The strip SHALL render whenever at least one host group or one `composer-context-group` contribution is present. Plugin groups SHALL render as one non-wrapping unit (divider + label + content) so the strip's wrapping never orphans a group label; host groups keep their existing markup.
+
 #### Scenario: Composer renders as one container with toolbar controls
 - **WHEN** the chat view is bound to a session
 - **THEN** the composer SHALL render a single card containing the textarea and an inner toolbar
@@ -523,6 +527,11 @@ When and only when the chat view is bound to a session, a `ComposerSessionAction
 #### Scenario: Firing Apply from the strip dispatches the skill prompt
 - **WHEN** the user clicks `Apply` in the strip for session `"s1"` with attached change `"add-auth"`
 - **THEN** the strip SHALL invoke `onSendPrompt` with `/skill:openspec-apply-change add-auth`
+
+#### Scenario: Plugin context group renders between Git and Status and survives streaming
+- **WHEN** a plugin claims `composer-context-group` whose component renders a `Quota` group and the bound session has `status = "streaming"`
+- **THEN** a `QUOTA` group SHALL render after the Git group and before the Status group
+- **AND** the group SHALL remain fully visible and interactive while the OpenSpec and Git action buttons are disabled
 
 ### Requirement: One morphing send/stop action button
 The composer SHALL render a single action button whose glyph and behaviour derive from session state, replacing the previous four-button cluster. WHEN idle with non-empty draft it SHALL render a send affordance (enabled). WHEN idle with an empty draft it SHALL render the send affordance disabled. WHEN the session is working (`streaming` or `retrying`) it SHALL render a stop affordance; a first activation SHALL request abort and a second activation SHALL escalate to force-stop, preserving the existing `idle → aborting → killing` escalation semantics. A `stop-after-turn` affordance SHALL render as a slim secondary control beside the action button while working, not as an additional primary icon. Every icon-only state SHALL carry an `aria-label`.
@@ -645,4 +654,3 @@ that lowering the floor re-reveals it without a reload or refetch.
 - **WHEN** the user sets `"errors"` from the chat View popover for one session
 - **THEN** only that session's transcript SHALL hide sub-error notifies
 - **AND** the popover SHALL show its modified marker for the session
-
