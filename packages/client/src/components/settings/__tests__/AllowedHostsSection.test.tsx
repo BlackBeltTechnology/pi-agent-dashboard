@@ -294,9 +294,18 @@ describe("AllowedHostsSection — Security page integration", () => {
     expect(screen.getByRole("radio", { name: "Enforce", checked: true })).toBeTruthy();
     await waitFor(() => expect(screen.getByTestId("settings-save-bar")).toBeTruthy());
     expect(screen.getByText(/403/)).toBeTruthy();
-    // Switching mode is a draft edit only — no request left the panel.
-    expect(fetchSpy.mock.calls.filter((call) => (call[1] as any)?.method === "PUT")).toHaveLength(0);
-    expect(fetchSpy.mock.calls.length).toBe(callsBefore);
+    // Switching mode is a draft edit only — no WRITE left the panel. Low
+    // total-call counts are NOT asserted: the section polls `GET /api/host-gate`
+    // on a timer, and a poll (or a late mount fetch) can land between the click
+    // and this assertion.
+    expect(
+      fetchSpy.mock.calls
+        .slice(callsBefore)
+        .filter((call) => {
+          const method = (call[1] as any)?.method;
+          return method !== undefined && method !== "GET" && method !== "HEAD";
+        }),
+    ).toHaveLength(0);
   });
 
   // test-plan #F3 — env override disables both options and names the variable.

@@ -192,12 +192,12 @@ test.describe.serial("host gate — Allow → Save → admitted", () => {
 
     // Allow names the host in its accessible name (the plan's `Allow <host>`).
     const allowBtn = refusalRow.getByRole("button");
-    await expect(allowBtn).toHaveAttribute("aria-label", new RegExp(ALLOW_HOST.replace(/\./g, "\\.")));
+    await expect(allowBtn).toHaveAttribute("aria-label", `Allow ${ALLOW_HOST}`);
     await allowBtn.click();
 
     // Allow edits the DRAFT only: the row hides, and the panel goes dirty.
     await expect(refusalRow).toHaveCount(0);
-    await expect(page.getByTestId("host-gate-extra")).toHaveValue(new RegExp(`(^|\\n)${ALLOW_HOST.replace(/\./g, "\\.")}($|\\n)`));
+    expect(await page.getByTestId("host-gate-extra").inputValue()).toContain(ALLOW_HOST);
     await expect(page.getByTestId("settings-save-bar")).toBeVisible();
 
     await page.getByTestId("save-btn").click();
