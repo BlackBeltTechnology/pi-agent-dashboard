@@ -46,6 +46,7 @@ export {
   useCurrentPluginId,
   useLanguage,
   usePluginConfig,
+  usePluginConfigOf,
   usePluginLogger,
   usePluginRouter,
   usePluginSend,

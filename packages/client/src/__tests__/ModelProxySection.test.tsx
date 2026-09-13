@@ -7,13 +7,16 @@
  * - revoke removes a row via the API
  * - second-port validation rejects out-of-range values
  */
-
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type ModelProxyConfig, ModelProxySection } from "../components/settings/ModelProxySection.js";
+import {
+  ModelConfigProvider,
+  type ModelConfigValue,
+} from "../lib/state/ModelConfigContext.js";
 
 // ── Mock model-proxy-api ──────────────────────────────────────────────────
 
@@ -261,5 +264,53 @@ describe("SettingsPanel — advisory hook removal (F1)", () => {
     const calls = source.match(/useInstalledPackages\("global"\)/g) ?? [];
     expect(calls).toHaveLength(1);
     expect(source.includes("upstreamPiModelProxyInstalled")).toBe(false);
+  });
+});
+
+// Proxy pickers inherit favorites from the model-config context with no
+// call-site wiring. See change: model-picker-everywhere-favorites (test-plan
+// F2; design D1).
+describe("ModelProxySection — proxy pickers inherit context favorites (F2)", () => {
+  const MODELS = [
+    { provider: "anthropic", id: "a" },
+    { provider: "anthropic", id: "b" },
+  ];
+
+  function ctxValue(over: Partial<ModelConfigValue> = {}): ModelConfigValue {
+    return {
+      setModel: () => {},
+      setThinkingLevel: () => {},
+      toggleFavorite: () => {},
+      refreshModels: () => {},
+      openProviderSettings: () => {},
+      notify: () => {},
+      ...over,
+    };
+  }
+
+  function assertFavoriteRow(label: string) {
+    const row = screen.getAllByTestId("model-row").find((r) => r.textContent?.trim() === label)!;
+    expect(within(row).getByTestId("model-fav-toggle").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("favs-only-toggle")).toBeTruthy();
+  }
+
+  it("add-model and alias-target pickers both show context favorites", () => {
+    render(
+      <ModelConfigProvider value={ctxValue({ favorites: ["anthropic/a"], toggleFavorite: vi.fn() })}>
+        <ModelProxySection config={{ enabled: true }} onChange={noop} availableModels={MODELS} />
+      </ModelConfigProvider>,
+    );
+
+    // Preferred-models "＋ Add model" picker.
+    const preferred = screen.getByTestId("preferred-models-editor");
+    fireEvent.click(within(preferred).getByTestId("model-selector-button"));
+    assertFavoriteRow("anthropic/a");
+    fireEvent.click(within(preferred).getByTestId("model-selector-button")); // close
+
+    // Alias-target picker (row appears only after "Add alias").
+    fireEvent.click(screen.getByTestId("add-alias-button"));
+    const aliases = screen.getByTestId("model-aliases-editor");
+    fireEvent.click(within(aliases).getByTestId("model-selector-button"));
+    assertFavoriteRow("anthropic/a");
   });
 });
