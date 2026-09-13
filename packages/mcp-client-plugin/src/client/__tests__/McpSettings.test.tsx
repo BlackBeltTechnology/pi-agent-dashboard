@@ -12,6 +12,11 @@ import { McpSettings } from "../McpSettings.js";
 
 vi.mock("@blackbelt-technology/dashboard-plugin-runtime", () => ({
   useT: () => (_key: string, _params?: unknown, fallback?: string) => fallback ?? _key,
+  // The global settings form (task 7.6) is a host draft source; these list
+  // tests only exercise the section, so its hooks are inert stubs here.
+  usePluginConfig: () => ({}),
+  usePluginSend: () => () => Promise.resolve(),
+  useSettingsDraftSource: () => {},
 }));
 
 function jsonOk(body: unknown): Response {

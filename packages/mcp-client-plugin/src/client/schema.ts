@@ -163,11 +163,16 @@ function fieldFor(
   return field;
 }
 
+/** The field list, in schema order, from one `$defs` definition. */
+export function fieldsForDef(doc: Record<string, unknown>, defName: string): FieldSchema[] {
+  const defs = defsOf(doc);
+  const props = defs[defName]?.properties ?? {};
+  return Object.entries(props).map(([name, prop]) => fieldFor(name, prop, defs, []));
+}
+
 /** The editor's field list, in schema order, from `$defs.ServerEntry`. */
 export function fieldsOf(doc: Record<string, unknown>): FieldSchema[] {
-  const defs = defsOf(doc);
-  const props = defs.ServerEntry?.properties ?? {};
-  return Object.entries(props).map(([name, prop]) => fieldFor(name, prop, defs, []));
+  return fieldsForDef(doc, "ServerEntry");
 }
 
 /** Every `x-atomic === true` field, DERIVED from the schema (never hardcoded). */
@@ -429,6 +434,25 @@ function validateField(field: FieldSchema, ctx: ValidationCtx): void {
  * Validate the visible fields of a draft. Returns dotted field name → message
  * (an empty object means the draft is writable). The server re-validates.
  */
+/**
+ * Validate every field of a draft against its widget (no transport context).
+ * Returns dotted field name → message; an empty object means writable.
+ */
+export function validateFields(
+  fields: FieldSchema[],
+  draft: Record<string, unknown>,
+  raw: RawText,
+): Record<string, string> {
+  const errors: Record<string, string> = {};
+  const ctx: ValidationCtx = { draft, raw, errors };
+  for (const field of fields) validateField(field, ctx);
+  return errors;
+}
+
+/**
+ * Validate the visible fields of a draft. Returns dotted field name → message
+ * (an empty object means the draft is writable). The server re-validates.
+ */
 export function validateDraft(
   fields: FieldSchema[],
   draft: Record<string, unknown>,
@@ -436,7 +460,6 @@ export function validateDraft(
   raw: RawText,
 ): Record<string, string> {
   const errors: Record<string, string> = {};
-  const ctx: ValidationCtx = { draft, raw, errors };
   const primary = TRANSPORT_FIELDS[tab][0] as string;
 
   const primaryField = fields.find((f) => f.name === primary);
@@ -445,6 +468,6 @@ export function validateDraft(
     errors[primary] = "Required";
   }
 
-  for (const field of fields) validateField(field, ctx);
+  Object.assign(errors, validateFields(fields, draft, raw));
   return errors;
 }

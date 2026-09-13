@@ -4,15 +4,17 @@
  * One adapter status drives the header pill, the banner, and the page-wide
  * read-only flag, so the three can never disagree. Below them: the global
  * server list (tasks 7.2/7.3), the error states (504 `adapter-timeout` with a
- * retry + a link to the timeout field; 403 `not-allowed`), and — from task 7.4 —
- * the server editor. The adapter's global settings form is task 7.6.
+ * retry + a link to the timeout field; 403 `not-allowed`), the schema-driven
+ * server editor (task 7.4), and the global settings form (task 7.6,
+ * `GlobalSettingsForm` — a host draft source, no local Save).
  *
- * See change: extract-mcp-client-plugin (tasks 7.2, 7.3).
+ * See change: extract-mcp-client-plugin (tasks 7.2-7.4, 7.6).
  */
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useState } from "react";
 import { ApiError } from "./api.js";
+import { GlobalSettingsForm } from "./GlobalSettingsForm.js";
 import { type AdapterStatus, useAdapterStatus, useEffectiveConfig } from "./hooks.js";
 import { ServerEditor } from "./ServerEditor.js";
 import { isEditable, ServerList } from "./ServerList.js";
@@ -187,6 +189,9 @@ export function McpSettings(): React.ReactElement {
         onAdd={() => setEditing("")}
         onChanged={reload}
       />
+
+      {/* Task 7.6: the global settings form is a host draft source (no local Save). */}
+      {view && <GlobalSettingsForm view={view} readOnly={status.readOnly} onChanged={reload} />}
 
       {/* Task 7.4: the schema-driven editor, keyed on `editing` ("" = add). */}
       <EditorForEditing

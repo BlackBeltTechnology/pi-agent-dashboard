@@ -14,6 +14,7 @@ import {
   computePatch,
   deepEqual,
   defsOf,
+  fieldsForDef,
   fieldsOf,
   getPath,
   isRedacted,
@@ -22,6 +23,7 @@ import {
   stripRedacted,
   type Transport,
   validateDraft,
+  validateFields,
   widgetFor,
 } from "../schema.js";
 
@@ -103,6 +105,24 @@ describe("widgetFor covers every schema property (no field is ever dropped)", ()
     expect([...atomicFieldsOf(DOC)].sort()).toEqual(
       ["env", "headers", "oauth", "requestHeadersCommand", "searchKeywords"].sort(),
     );
+  });
+});
+
+describe("fieldsForDef / validateFields", () => {
+  it("delegates fieldsOf to the ServerEntry definition", () => {
+    expect(fieldsForDef(DOC, "ServerEntry").map((f) => f.name)).toEqual(
+      fieldsOf(DOC).map((f) => f.name),
+    );
+  });
+
+  it("derives another definition's fields and validates them without a transport", () => {
+    const settings = fieldsForDef(DOC, "McpSettings");
+    expect(settings).toHaveLength(Object.keys(propertiesOf("McpSettings")).length);
+    expect(settings.map((f) => f.name)).toContain("toolPrefix");
+    expect(validateFields(settings, {}, {})).toEqual({});
+    expect(validateFields(settings, {}, { idleTimeout: "abc" })).toEqual({
+      idleTimeout: "Must be a number",
+    });
   });
 });
 
