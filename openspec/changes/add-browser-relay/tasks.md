@@ -90,7 +90,7 @@
 - [x] 2.6 Audit ring (≥500, `{ts, profileDirectory, instanceId, kind, detail}`, no payloads/guid/token) with monotonically increasing `auditSeq`. Verify: unit test fills 600 entries, asserts oldest dropped, `auditSeq` increments, and a serialized entry never contains the guid or token strings.
 - [x] 2.7 `profiles.ts`: read Chrome `Local State → profile.info_cache` per OS userDataDir; `installed` by extension dir existence; absent/corrupt `Local State` → single synthetic `Default` row + `warning`. Verify: unit test with a fixture `Local State` + fake Extensions dir on tmpfs → rows with `installed` true/false as laid out; missing file → one `Default` row + warning.
 - [x] 2.8 `connect.ts`: build `connect.html` URL (`protocolVersion=2`, `token` only when `zeroDialog`), open via `systemOpen` + `--profile-directory`, await handshake (60 s → 504 + guid expiry; token mismatch is indistinguishable and also 504), return `{cdpUrl, instanceId}`. Verify: unit test mocks `systemOpen`, asserts exact URL/args with and without `zeroDialog`; timeout path returns 504 and guid is gone.
-- [ ] 2.9 REST routes on `ctx.fastify`: `GET /api/browser/status` (`{enabled, canOpenChrome}`), `GET /api/browser/profiles` (keyed by `profileDirectory`, with `instances[].tabs[]`), `POST /api/browser/connect`, `POST /api/browser/disconnect?instanceId=` (required), `GET /api/browser/audit`, `PUT /api/browser/enabled`; writes 403 when disabled (except the PUT); connect 409 `{reason:"not-installed"}` / `{reason:"busy", instanceId}` (busy only if 2.2b says so), 503 when `canOpenChrome:false`. Verify: `routes.test.ts` covers every status code and `reason` in the spec.
+- [x] 2.9 REST routes on `ctx.fastify`: `GET /api/browser/status` (`{enabled, canOpenChrome}`), `GET /api/browser/profiles` (keyed by `profileDirectory`, with `instances[].tabs[]`), `POST /api/browser/connect`, `POST /api/browser/disconnect?instanceId=` (required), `GET /api/browser/audit`, `PUT /api/browser/enabled`; writes 403 when disabled (except the PUT); connect 409 `{reason:"not-installed"}` / `{reason:"busy", instanceId}` (busy only if 2.2b says so), 503 when `canOpenChrome:false`. Verify: `routes.test.ts` covers every status code and `reason` in the spec.
 - [x] 2.10 `canOpenChrome` detection inside the plugin (`systemOpen` available + Chrome userDataDir found per OS). Verify: unit test — true/false per mocked fs + capability; no change to `packages/server/src/routes/system-routes.ts`.
 - [ ] 2.10b `FakeRelayInstance` behind `PI_BROWSER_RELAY_FAKE=1` (one tab, 64×64 JPEG every 100 ms, input echoed to audit). Verify: unit test — env unset → no instance; env set → instance listed, ≥5 frames/s to a subscriber.
 - [x] 2.11 `observability-instrumentation` pass: relay lifecycle log lines (`[browser-relay] instance <profile> open/close`, denied verbs, connect latency); `browser_relay_status` on every state change. Verify: log assertions in 2.3/2.4 tests.
@@ -169,10 +169,12 @@ Everything below is unwritten; do them in this order because each unblocks the n
    DevTools take-over as `detached`/`reason:"devtools"` (tab-id keyed, since the
    model drops the session). Unit-tested (`status.test.ts` 16 tests). Still needs
    `server/index.ts` wiring (item 4).
-3. **`server/routes.ts`** (task 2.9) — the six `/api/browser/*` routes on
-   `ctx.fastify` with everything the manager already returns, plus
-   `redactPluginConfigForClient` for the profile rows' `hasToken`. Unblocks
-   7.17's route half, 7.52, e2e.
+3. ~~**`server/routes.ts`** (task 2.9)~~ **DONE** — the six `/api/browser/*`
+   routes (`status`/`profiles`/`connect`/`disconnect`/`audit`/`enabled`) on
+   `ctx.fastify`; rows carry `hasToken` only (the in-plugin config stays
+   unredacted server-side and is never spread into a response). Writes 403 while
+   disabled; PUT persists + kill switch. Tested via Fastify `inject` (18 tests).
+   Unblocks 7.17's route half, 7.52, e2e. Still needs `server/index.ts` wiring.
 4. **`server/index.ts`** wiring + `PI_BROWSER_RELAY_FAKE=1` activation seeding
    (task 2.10b) + teardown on plugin disable. The plugin must be loadable with
    `defaultEnabled:false` and flip on via `PUT /api/browser/enabled`.
