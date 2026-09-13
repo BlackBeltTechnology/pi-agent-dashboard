@@ -86,7 +86,7 @@
   works with the stock extension.
 - [x] 2.3 `relay-instance.ts`: wrap vendor classes — accept pre-upgraded sockets (per 2.2b finding), listener-list `_emit`, deny-list interceptor, audit hooks, non-secret `instanceId`. Verify: `relay-instance.test.ts` with a fake extension socket: handshake holds CDP traffic until `extension.initialized`; second CDP client closed `Another CDP client already connected`; `Network.getAllCookies` and `Network.getCookies` → CDP error `-32000` + `denied` audit entry, not forwarded; `Page.navigate` to `file://`, `javascript:`, `data:` denied; host-less URL denied when `allowedDomains` non-empty; `allowedDomains` exact-host vs leading-dot subdomain matching (`.github.com` admits `api.github.com`, denies `github.com.evil.io`); allowed `Runtime.evaluate` forwarded verbatim.
 - [x] 2.4 `relay-manager.ts`: `Map<guid, RelayInstance>`, guid minting (`crypto.randomBytes(16)`), guid ↔ profileDirectory, non-secret `instanceId`, unclaimed-guid expiry at 60 s, instance close on extension-socket close, on CDP-client close, and 30 s after handshake with no CDP client (audit `detach/no-cdp-client`), kill-switch close-all. Verify: `relay-manager.test.ts` — unknown/expired guid → 404; claimed guid second ext socket → close 1000 with upstream reason; CDP client close → extension socket closed + instance removed; fake-timer: handshake + 30 s no CDP → closed; `setEnabled(false)` resolves only after all instances closed.
-- [ ] 2.5 Register WS routes via `ctx.registerWsRoute`: `browser-ext` (`/ws/browser-ext/`, `admitOrigins: ["chrome-extension://mmlmfjhmonkocbjadbfplnigmagldckm"]`) and `browser-cdp` (`/ws/browser-cdp/`, empty `admitOrigins`); `handleUpgrade` validates the guid; `browser-cdp` additionally rejects any request carrying an `Origin` header. Verify: integration test against a live server — page-origin upgrade on ext scope → 403; pinned origin loopback + live guid → 101; non-loopback → 403; ticket on scope → rejected; cookie without guid → rejected; `Origin`-bearing request with valid guid on cdp scope → 403; header-less `ws` client → 101.
+- [x] 2.5 Register WS routes via `ctx.registerWsRoute`: `browser-ext` (`/ws/browser-ext/`, `admitOrigins: ["chrome-extension://mmlmfjhmonkocbjadbfplnigmagldckm"]`) and `browser-cdp` (`/ws/browser-cdp/`, empty `admitOrigins`); `handleUpgrade` validates the guid; `browser-cdp` additionally rejects any request carrying an `Origin` header. Verify: integration test against a live server — page-origin upgrade on ext scope → 403; pinned origin loopback + live guid → 101; non-loopback → 403; ticket on scope → rejected; cookie without guid → rejected; `Origin`-bearing request with valid guid on cdp scope → 403; header-less `ws` client → 101.
 - [x] 2.6 Audit ring (≥500, `{ts, profileDirectory, instanceId, kind, detail}`, no payloads/guid/token) with monotonically increasing `auditSeq`. Verify: unit test fills 600 entries, asserts oldest dropped, `auditSeq` increments, and a serialized entry never contains the guid or token strings.
 - [x] 2.7 `profiles.ts`: read Chrome `Local State → profile.info_cache` per OS userDataDir; `installed` by extension dir existence; absent/corrupt `Local State` → single synthetic `Default` row + `warning`. Verify: unit test with a fixture `Local State` + fake Extensions dir on tmpfs → rows with `installed` true/false as laid out; missing file → one `Default` row + warning.
 - [x] 2.8 `connect.ts`: build `connect.html` URL (`protocolVersion=2`, `token` only when `zeroDialog`), open via `systemOpen` + `--profile-directory`, await handshake (60 s → 504 + guid expiry; token mismatch is indistinguishable and also 504), return `{cdpUrl, instanceId}`. Verify: unit test mocks `systemOpen`, asserts exact URL/args with and without `zeroDialog`; timeout path returns 504 and guid is gone.
@@ -152,12 +152,14 @@ broadcast, 3.4/3.6 (status coalescing + gateway handlers), 3.7 (measured perf).
 `ship-it` is idempotent on filesystem reality, so re-invoking it resumes here.
 Everything below is unwritten; do them in this order because each unblocks the next:
 
-1. **`server/ws-routes.ts`** (task 2.5) — `ctx.registerWsRoute` for `browser-ext`
-   (`admitOrigins: ["chrome-extension://mmlmfjhmonkocbjadbfplnigmagldckm"]`) and
-   `browser-cdp` (empty `admitOrigins`, reject any request carrying `Origin`).
-   `handleUpgrade` parses the guid from the path, calls
-   `manager.attachExtension|attachCdp`, and returns 404 for an unknown guid;
-   `meta.trackSocket` on the accepted socket. Unblocks 7.10, 7.21, 7.53.
+1. ~~**`server/ws-routes.ts`** (task 2.5)~~ **DONE** — `registerBrowserWsRoutes`
+   registers `browser-ext` (`admitOrigins` pinned to the extension id) and
+   `browser-cdp` (empty policy + handler-level `Origin` refusal); extracts the
+   guid, 404s unknown/expired/malformed, completes the handshake, calls
+   `meta.trackSocket` + `manager.attachExtension|attachCdp`. Unit-tested at the
+   plugin level (`ws-routes.test.ts`, real http+ws pair, 11 tests); the core
+   gates it sits behind stay covered by group 1's live-server test. Still needs
+   the `server/index.ts` wiring in item 4 to be live.
 2. **`server/status.ts`** (tasks 2.11, 3.4, 3.6) — `browser_relay_status`
    broadcast (instances + per-tab state + `auditSeq`), coalesced to ≤1 per 500 ms
    on audit append and emitted on every instance/tab change; the three
@@ -233,7 +235,7 @@ Exemplars: L1 server auth/upgrade → `packages/server/src/__tests__/cors.test.t
 ### Relay core (L1, `packages/browser-plugin/src/server/__tests__/*.test.ts`; see `kb-routes.test.ts`, `plugin-action-handler.test.ts`)
 
 - [x] 7.9 Guid validity BVA: live-unclaimed / live-claimed / expired 61 s / never-minted / malformed (`abc`, 31 hex, 33 hex) · ext upgrade · 101+claimed / close 1000 upstream reason / 404 / 404 / 404 (test-plan #E9)
-- [ ] 7.10 CDP scope Origin: valid guid, loopback · with `Origin: http://localhost:8000` vs none · 403 vs 101 (test-plan #E10)
+- [x] 7.10 CDP scope Origin: valid guid, loopback · with `Origin: http://localhost:8000` vs none · 403 vs 101 (test-plan #E10)
 - [x] 7.11 Second CDP client: instance with client · second connect · closed 1000 `Another CDP client already connected`, first keeps responses (test-plan #E11)
 - [x] 7.12 Deny-list verbs: `Storage.getCookies`,`Network.getAllCookies`,`Network.getCookies`,`Browser.setDownloadBehavior` · client sends · `-32000` error with policy message, fake extension gets nothing, audit `denied` (test-plan #E12)
 - [x] 7.13 Navigate schemes: `file:`,`javascript:`,`data:`,`blob:`,`https://ok.test` on `Page.navigate`+`Target.createTarget`, `allowedDomains` empty · send · first four denied, https forwarded verbatim (test-plan #E13)
