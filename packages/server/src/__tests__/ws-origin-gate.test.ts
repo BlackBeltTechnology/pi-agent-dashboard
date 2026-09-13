@@ -36,10 +36,9 @@ type DialResult =
   | { kind: "error" };
 
 /**
- * Dial a WS URL and report HOW it ended: 101 (with the first frame, so the
- * `sessions_snapshot` assertion is possible), the refusal status code, or a
- * transport error. The status is the whole point — a gate that 403s and one
- * that 400s are different bugs.
+ * Dial a WS URL and report HOW it ended: 101 (with the first frame), the
+ * refusal status code, or a transport error. The status is the whole point —
+ * a gate that 403s and one that 400s are different bugs.
  */
 function dial(url: string, headers: Record<string, string> = {}): Promise<DialResult> {
   return new Promise((resolve) => {
@@ -168,20 +167,56 @@ describe("#E4 an untrusted Origin is refused on every WS path", () => {
 
 // ─── #E5 — header-less and loopback clients keep working ────────────────────
 describe("#E5 legitimate local clients are unaffected", () => {
+  /**
+   * Dial and collect frames until `sessions_snapshot` arrives (it is the
+   * LAST bootstrap frame since fix-connect-snapshot-frame-loss D3 — the
+   * small state frames precede it — so the first frame alone no longer
+   * proves the bootstrap ran). Resolves null on timeout.
+   */
+  function dialUntilSnapshot(url: string, headers: Record<string, string> = {}): Promise<string[] | null> {
+    return new Promise((resolve) => {
+      const frames: string[] = [];
+      const ws = new WebSocket(url, { headers });
+      const finish = (out: string[] | null) => {
+        try {
+          ws.close();
+        } catch {
+          /* best-effort */
+        }
+        resolve(out);
+      };
+      ws.on("open", () => {
+        const timer = setTimeout(() => finish(frames.length > 0 ? frames : null), 1500);
+        ws.on("message", (data) => {
+          frames.push(String(data));
+          if (String(data).includes("sessions_snapshot")) {
+            clearTimeout(timer);
+            finish(frames);
+          }
+        });
+      });
+      ws.on("unexpected-response", () => finish(null));
+      ws.on("error", () => finish(null));
+      setTimeout(() => finish(null), 5000);
+    });
+  }
+
   it("admits a dial with NO Origin header (every non-browser client)", async () => {
     handle = await createTestServer();
-    const r = await dial(`ws://127.0.0.1:${handle.httpPort}/ws`);
-    expect(r.kind).toBe("open");
-    expect(r.kind === "open" && r.first).toContain("sessions_snapshot");
+    const frames = await dialUntilSnapshot(`ws://127.0.0.1:${handle.httpPort}/ws`);
+    if (frames === null) throw new Error("bootstrap must run incl. the trailing sessions_snapshot");
+    expect(frames.some((f) => f.includes("sessions_snapshot"))).toBe(true);
+    // The snapshot is the LAST bootstrap frame — every earlier frame precedes it.
+    expect(frames.findIndex((f) => f.includes("sessions_snapshot"))).toBe(frames.length - 1);
   }, 30000);
 
   it("admits a loopback Origin", async () => {
     handle = await createTestServer();
-    const r = await dial(`ws://127.0.0.1:${handle.httpPort}/ws`, {
+    const frames = await dialUntilSnapshot(`ws://127.0.0.1:${handle.httpPort}/ws`, {
       origin: `http://127.0.0.1:${handle.httpPort}`,
     });
-    expect(r.kind).toBe("open");
-    expect(r.kind === "open" && r.first).toContain("sessions_snapshot");
+    if (frames === null) throw new Error("bootstrap must run incl. the trailing sessions_snapshot");
+    expect(frames.some((f) => f.includes("sessions_snapshot"))).toBe(true);
   }, 30000);
 });
 

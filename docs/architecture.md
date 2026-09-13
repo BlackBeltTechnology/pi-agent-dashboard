@@ -440,6 +440,38 @@ sequenceDiagram
 
 See change: `fix-pending-prompt-lost-on-replay`.
 
+### Frame delivery policy (change: fix-connect-snapshot-frame-loss)
+
+Every server→browser frame carries exactly one delivery class. `frameClassOf(msg) -> { cls, key }` (`packages/server/src/pairing/browser-gateway.ts`) — static `switch` on `msg.type`, never on socket condition. No `cls` field on the wire (server concern; old bundles untouched).
+
+- **`transcript`** — per-session event stream + session-registry broadcasts (`session_updated`, `sessions_reordered`, `session_added`, `session_removed`). Recoverable via history backfill / replay.
+- **`blocking`** — pending-prompt frames only (`ctx.critical === true`). Exempt from shed under pending-prompt-recovery bounds (4 frames/delivery, `MAX_WS_BUFFER + 1 MB` ceiling). Unchanged.
+- **`state`** — idempotent snapshots keyed by `(type, entityKey)`: `sessions_snapshot`, `pinned_dirs_updated`, `workspaces_updated`, `favorite_models_updated`, `display_prefs_updated`, `reachability_updated`, `openspec_update` / `openspec_get_result` / `git_head_update` / `sessions_page_result` (key `cwd`), `terminal_added` / `terminal_updated` / `terminal_removed` (one shared key `terminal:<id>` per terminal, later lifecycle frame supersedes earlier).
+
+**Shed rule per class.** Socket over threshold (`ws.bufferedAmount > MAX_WS_BUFFER`, 4 MB default): `transcript` frame dropped + counted (pre-change counters `total`/`bySession`); `state` frame NEVER shed — deferred; `blocking` exempt within bounds. Transcript sends first flush the socket's pending map — a flushable state frame is never overtaken by a later transcript frame.
+
+**State deferral.** Per-socket side-table `pendingState: Map<WebSocket, { map: Map<key, serialized>, bytes, timer }>` (distinct from `subscriptions`). `sendState(ws, key, serialized)` sends inline when socket under threshold + map empty, else defers. Latest-wins per type-qualified key — newer frame replaces older, superseded entry counted `coalescedState`. Map total bytes over `MAX_WS_BUFFER` → `ws.terminate()`, counted `stalledSocketsTerminated` (browser reconnect path re-bootstraps; retained bytes released). Flush in key-insertion order (FIFO; superseded key keeps its slot — state never overtakes earlier pending state), triggered BOTH by send-callback re-flush AND `setInterval(flush, STATE_FLUSH_INTERVAL_MS = 250 ms)` while map non-empty (drain without further sends still flushes). `close`/`error` clears map + timer. Every state-class send routes through `sendState` — `fanout`/`broadcast`, connect bootstrap, handler unicasts; `sendTo` dispatches on `frameClassOf`, so a handler cannot route a state frame onto the shedding path.
+
+**Connect bootstrap order.** `sessions_snapshot` last — after `terminal_added` loop and `gateway.onConnect(ws)`. Every other bootstrap frame (`pinned_dirs_updated`, `workspaces_updated`, `favorite_models_updated`, `display_prefs_updated`, `reachability_updated`, per-cwd `openspec_update`, per-cwd `git_head_update`, `terminal_added`) precedes it. No session-registry send before `sessions_snapshot`.
+
+**Health.** `/api/health#droppedFrames` gains `coalescedState` (superseded pending entries) + `stalledSocketsTerminated` beside transcript/blocking counters. No dropped-state counter — no code path drops one. Coalesce ≠ drop: `total` does not increment.
+
+### Sessions snapshot window + paging (change: fix-connect-snapshot-frame-loss)
+
+On browser connect, gateway emits ONE `sessions_snapshot { sessions, orders, endedTotals }` — replaces per-session `session_added` / per-cwd `sessions_reordered` bootstrap loops; sent LAST (see Frame delivery policy). Live updates after snapshot keep incremental `session_added` / `session_updated` / `session_removed` / `sessions_reordered`.
+
+- **Window.** `snapshotVisibleIds(pinned)` (`packages/server/src/session/memory-session-manager.ts`) = all non-ended sessions ∪ `SNAPSHOT_ENDED_GLOBAL = 120` newest ended overall (by `endedAt ?? lastActivityAt ?? startedAt` desc, id tiebreak) ∪ first `SNAPSHOT_ENDED_PER_GROUP = 3` of `endedSequence(g)` for each group with a non-ended session or pinned.
+- **Group key.** `resolveOrderKey(session)` (`packages/server/src/session/resolve-order-key.ts`): pin > `gitWorktree.mainPath` > `cwd`. Same key sidebar groups/orders by (`resolveSessionGroupPath`, `session-grouping.ts`). `orders` keys, `endedTotals` keys, `sessions_page.cwd` carry this key — worktree session counts within parent group.
+- **Ended sequence.** `endedSequence(groupKey)` = persisted order restricted to ended ids, then ended ids without persisted position by `startedAt` desc — matches client `sortSessionsByOrder` render order.
+- **`endedTotals`.** Ended count per group key regardless of window, every group with ≥1 ended session.
+- **Row slimming.** Snapshot + page rows stripped via `stripNotifyLog` — `notifyLog` replayed on subscribe (`replayNotifyLog`).
+- **Live reorder projection.** `sessions_reordered` broadcast rewritten through the window at the `broadcast()` choke point (`projectOrderThroughWindow` → `snapshotVisibleIds`); all broadcast sites covered, none touched individually.
+- **Bound.** Snapshot ≤ 400 KB at 25 live + 4,000 ended / 400 groups / 20 pinned — L1 bound test pins it; row-shape growth fails loudly.
+- **Paging.** `sessions_page { cwd: groupKey, offset }` served from in-memory registry (`packages/server/src/browser-handlers/session-meta-handler.ts`, `SESSIONS_PAGE_SIZE = 50`); `pageable(g)` = `endedSequence(g)` minus window ids; reply `sessions_page_result { cwd, sessions, order, hasMore }` unicast (state class, key `sessions_page_result:<g>`), rows `stripNotifyLog`, `order` = page ids in sequence order.
+- **Client merge semantics.** Snapshot REPLACES `sessions` + `sessionOrderMap` atomically (paged rows discarded on reconnect — documented trade-off); `sessions_page_result` merges — sessions overwrite by id, order appends after current with held ids deduped. Stub group renders for any group key with `endedTotals > 0` and no held session (header + ended expander only); expander / "more" click pages while `heldEnded < endedTotal`; one in-flight `sessions_page` per cwd (released on reply, 15 s timeout, socket open).
+
+See change: `fix-connect-snapshot-frame-loss`.
+
 ### Notify Flow (`ctx.ui.notify` → browser, split from prompt_request)
 
 Change: `split-notify-from-prompt-request`. `ctx.ui.notify` used to ship over `prompt_request`. Every consumer treated it as an unanswered ask → `trackPromptRequest` → `currentTool="ask_user"` re-armed on every quiescent moment → permanent "Needs you", false unread, `questionFirst` reorder, and a session the embed-lifecycle reaper could never reclaim. Now a dedicated `notify` message type end to end.
@@ -1825,6 +1857,7 @@ See change: add-folder-actions-menu.
 4. Browsers can request immediate refresh via `openspec_refresh { cwd }`. User-initiated refresh **bypasses the mtime gate** (force-mode) but still respects the concurrency cap — see *Refresh paths* below.
 5. New directories (pinned or from new sessions) trigger immediate discovery + polling (eager; bypasses jitter + mtime gate).
 6. Each `OpenSpecChange` carries optional `isComplete?: boolean`. Periodic/gated path re-derives `isComplete` locally from `deriveArtifactStatus` (true iff every derived artifact done). Force-refresh path takes `isComplete` from `openspec status --change <name> --json`. Indicates artifact-authoring completeness only — orthogonal to task tally — never feeds `deriveChangeState`. Dashboard uses it solely to gate **Archive anyway** escape hatch (see “OpenSpec session card”). See change: optimize-openspec-poll-derive-artifacts-locally.
+7. Browsers pull cached state on demand: `openspec_get { requestId, cwd }`. `directoryService.getOrPollOpenSpec(cwd)` gate order: `!enabled` → `GLOBAL_OFF`; opted-out → `OPTED_OUT`; untracked (cwd ∉ registry cwds ∪ pinned) → `ABSENT`; no `<cwd>/openspec/` root → `ABSENT` (`hasOpenspecDir: false`). Gated reply = single `final: true` placeholder naming the gate state, no CLI spawn. Cache hit → one `final: true` reply with cached payload, no spawn. Cold miss → immediate `final: false` `PENDING` placeholder + ONE shared per-cwd gated poll (`openspecGetInFlight: Map<cwd, Promise>`, entry deleted on settle — concurrent `openspec_get` for one cold cwd share one poll); poll = `pollAndBroadcastIfChanged(cwd)` — same function the scheduler tick calls (prev-JSON compare → `pollDirectoryGated` → broadcast only on change or emitted pending), mtime-gated, semaphore-serialized, does NOT add cwd to periodic poll set. On resolve, unicast `final: true` outcome; on reject, unicast `final: true` `BROKEN · cli-failed` placeholder — requester always receives its final reply. Reply is `openspec_get_result { requestId, cwd, data, final }` — UNICAST to requesting browser only, never broadcast; final outcome reaches other browsers only when it differs from cache (ordinary tick broadcast discipline). Delivered under `state` frame class. See change: fix-connect-snapshot-frame-loss.
 
 #### OpenSpec polling cost model
 

@@ -2,13 +2,16 @@
  * Regression suite for change: fix-stale-sessions-on-reconnect.
  *
  * Pin: on every browser WS connect, the gateway sends exactly one
- * `sessions_snapshot` message containing all sessions and all non-empty
- * per-cwd orders, AND it does NOT iterate per-session `session_added`
- * or per-cwd `sessions_reordered` for the bootstrap.
+ * `sessions_snapshot` message (windowed per fix-connect-snapshot-frame-loss)
+ * and does NOT iterate per-session `session_added` or per-cwd
+ * `sessions_reordered` for the bootstrap. Since fix-connect-snapshot-frame-loss
+ * (D3) the snapshot is the LAST bootstrap frame — every other connect state
+ * frame precedes it.
  */
 
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
+import { getLastBindReachability } from "../auth/bind-reachability-service.js";
 import { createBrowserGateway } from "../pairing/browser-gateway.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 import type { PiGateway } from "../pi/pi-gateway.js";
@@ -20,13 +23,17 @@ function makeFakeWs() {
   const ws = new EventEmitter() as EventEmitter & {
     send: ReturnType<typeof vi.fn>;
     close: ReturnType<typeof vi.fn>;
+    terminate: ReturnType<typeof vi.fn>;
+    bufferedAmount: number;
     readyState: number;
     OPEN: number;
   };
   ws.send = vi.fn();
   ws.close = vi.fn();
+  ws.terminate = vi.fn();
   ws.readyState = 1;
   ws.OPEN = 1;
+  ws.bufferedAmount = 0;
   return ws;
 }
 
@@ -87,14 +94,21 @@ describe("browser-gateway on-connect sessions_snapshot", () => {
       "/repo/a": ["alive-1"],
       "/repo/empty": [], // should be filtered out of snapshot.orders
     };
+    const stubOrders = makeStubOrderManager(orders);
+    // The snapshot window reads persisted orders through the MANAGER's
+    // collaborator (D4), so the stub is wired into both the manager and the
+    // gateway. See change: fix-connect-snapshot-frame-loss.
+    const managerWithOrders = createMemorySessionManager(undefined, stubOrders);
+    managerWithOrders.restore(sessionManager.listAll()[0] as never);
+    managerWithOrders.restore(sessionManager.listAll()[1] as never);
 
     const gateway = createBrowserGateway(
-      sessionManager,
+      managerWithOrders,
       createMemoryEventStore(() => false),
       makeStubPiGateway(),
       undefined,
       undefined,
-      makeStubOrderManager(orders),
+      stubOrders,
     );
 
     const ws = makeFakeWs();
@@ -109,13 +123,14 @@ describe("browser-gateway on-connect sessions_snapshot", () => {
     expect(sessionAddeds).toHaveLength(0);
     expect(sessionsReordereds).toHaveLength(0);
 
-    const snap = snapshots[0] as { sessions: Array<{ id: string; status: string }>; orders: Record<string, string[]> };
+    const snap = snapshots[0] as { sessions: Array<{ id: string; status: string }>; orders: Record<string, string[]>; endedTotals: Record<string, number> };
     const ids = snap.sessions.map((s) => s.id).sort();
-    expect(ids).toEqual(["alive-1", "ended-1"]); // alive AND ended both included
+    expect(ids).toEqual(["alive-1", "ended-1"]); // alive AND windowed ended included
     expect(snap.orders).toEqual({ "/repo/a": ["alive-1"] }); // empty entry filtered out
+    expect(snap.endedTotals).toEqual({ "/repo/a": 1 }); // ended counted per group
   });
 
-  it("snapshot is sent before pinned_dirs_updated and other on-connect sends", () => {
+  it("snapshot is the LAST bootstrap frame: pinned_dirs_updated and every other connect send precede it (D3)", () => {
     const sessionManager = createMemorySessionManager();
     const gateway = createBrowserGateway(
       sessionManager,
@@ -140,7 +155,10 @@ describe("browser-gateway on-connect sessions_snapshot", () => {
     const snapshotIdx = types.indexOf("sessions_snapshot");
     const pinnedIdx = types.indexOf("pinned_dirs_updated");
     expect(snapshotIdx).toBeGreaterThanOrEqual(0);
-    expect(pinnedIdx).toBeGreaterThan(snapshotIdx);
+    expect(pinnedIdx).toBeGreaterThanOrEqual(0);
+    expect(pinnedIdx).toBeLessThan(snapshotIdx);
+    // Nothing is sent after the snapshot in the same synchronous turn.
+    expect(types.length).toBe(snapshotIdx + 1);
   });
 });
 
@@ -295,5 +313,77 @@ describe("browser-gateway on-connect folder-HEAD snapshot", () => {
     expect(heads(msgs)).toHaveLength(0);
     expect(msgs.filter((m) => m.type === "sessions_snapshot")).toHaveLength(1);
     expect(msgs.filter((m) => m.type === "pinned_dirs_updated")).toHaveLength(1);
+  });
+});
+
+// ── Bootstrap frame ordering (D3, E10) — see change: fix-connect-snapshot-frame-loss ──
+//
+// Every small idempotent connect state frame (openspec, git heads, prefs,
+// pinned, reachability, terminals) reaches the browser BEFORE the one large
+// `sessions_snapshot`, and nothing follows the snapshot in the same turn —
+// so a saturated socket queues the small frames ahead of the big one.
+describe("browser-gateway on-connect bootstrap ordering (E10)", () => {
+  function connectFull() {
+    const gateway = createBrowserGateway(
+      createMemorySessionManager(),
+      createMemoryEventStore(() => false),
+      makeStubPiGateway(),
+      undefined,
+      undefined,
+      makeStubOrderManager({}),
+      {
+        getPinnedDirectories: () => ["/pinned"],
+        setPinnedDirectories: () => {},
+        getFavoriteModels: () => ["anthropic/claude-sonnet-4-5"],
+        getWorkspaces: () => [{ id: "w1", name: "Work", collapsed: false, folders: ["/pinned"] }],
+        getDisplayPrefs: () => ({ tokenStatsBar: true }),
+        getSessionOrder: () => ({}),
+        setSessionOrder: () => {},
+      } as never,
+      (() => {
+        // Fake with known cwds + the folder-HEAD accessor so both
+        // `openspec_update` (3) and `git_head_update` join the bootstrap
+        // inventory (the gateway guards the accessor with typeof).
+        const svc = makeFakeDirectoryService({ knownDirectories: ["/a", "/b", "/c"] }).service as unknown as Record<string, unknown>;
+        svc.folderHeadSnapshot = () => [{ cwd: "/a", branch: "develop" }];
+        return svc as never;
+      })(),
+      { list: () => [{ id: "t1", cwd: "/a", title: "T1", createdAt: 1 }, { id: "t2", cwd: "/b", title: "T2", createdAt: 2 }] } as never,
+    );
+    // Folder-HEAD replay needs the accessor; the fake service above lacks it.
+    const ws = makeFakeWs();
+    gateway.wss.emit("connection", ws, {});
+    return { ws, msgs: sentMessages(ws) };
+  }
+
+  it("all openspec/git/prefs/pinned/reachability/terminal frames precede the single sessions_snapshot; nothing follows", () => {
+    const { ws, msgs } = connectFull();
+    const types = msgs.map((m) => m.type as string);
+    const snapshotIdx = types.lastIndexOf("sessions_snapshot");
+
+    expect(types.filter((t) => t === "sessions_snapshot")).toHaveLength(1);
+    expect(snapshotIdx).toBeGreaterThanOrEqual(0);
+
+    // Expected bootstrap inventory — 3 known cwds, 2 terminals, pinned prefs.
+    expect(types.filter((t) => t === "openspec_update")).toHaveLength(3);
+    expect(types.filter((t) => t === "git_head_update")).toHaveLength(1);
+    expect(types.filter((t) => t === "terminal_added")).toHaveLength(2);
+    for (const t of ["pinned_dirs_updated", "display_prefs_updated", "favorite_models_updated", "workspaces_updated"]) {
+      expect(types, `${t} present`).toContain(t);
+    }
+    if (getLastBindReachability() !== null) {
+      expect(types).toContain("reachability_updated");
+    }
+
+    // EVERY non-snapshot bootstrap frame precedes the snapshot…
+    for (let i = 0; i < types.length; i++) {
+      if (i !== snapshotIdx) expect(i, `${types[i]} precedes snapshot`).toBeLessThan(snapshotIdx);
+    }
+    // …no registry frame anywhere in the bootstrap…
+    for (const t of ["session_added", "session_updated", "sessions_reordered"]) {
+      expect(types).not.toContain(t);
+    }
+    // …and nothing is sent after the snapshot in the same synchronous turn.
+    expect(ws.send.mock.calls.length).toBe(snapshotIdx + 1);
   });
 });

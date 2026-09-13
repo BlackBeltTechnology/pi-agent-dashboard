@@ -898,18 +898,26 @@ export function registerSystemRoutes(
       // WS frames). `serverToBrowser` = frames the fanout skipped under
       // back-pressure, split transcript vs blocking; `bridgeToServer` = the max
       // bridge ring-buffer eviction count reported across active sessions'
-      // heartbeats. The fallback is TYPED (EMPTY_DROPPED_FRAME_STATS), not an
+      // heartbeats. `coalescedState` / `stalledSocketsTerminated` are the
+      // pending-state map's counters, lifted beside the drops per the spec
+      // (coalescing is NOT a drop — `serverToBrowser.total` never moves for
+      // it). The fallback is TYPED (EMPTY_DROPPED_FRAME_STATS), not an
       // inline literal — `a ?? b` does not check `b`, and an untyped literal
       // missing `blocking` would typecheck while reporting a stale shape.
       // See changes: fix-stuck-tool-card-on-dropped-event,
-      // fix-pending-prompt-lost-on-replay.
-      droppedFrames: {
-        serverToBrowser: browserGateway?.getDroppedFrameStats?.() ?? EMPTY_DROPPED_FRAME_STATS,
-        bridgeToServer: activeSessions.reduce(
-          (max, s) => Math.max(max, (s.processMetrics as { droppedBufferedFrames?: number } | undefined)?.droppedBufferedFrames ?? 0),
-          0,
-        ),
-      },
+      // fix-pending-prompt-lost-on-replay, fix-connect-snapshot-frame-loss (D8).
+      droppedFrames: (() => {
+        const serverToBrowser = browserGateway?.getDroppedFrameStats?.() ?? EMPTY_DROPPED_FRAME_STATS;
+        return {
+          serverToBrowser,
+          bridgeToServer: activeSessions.reduce(
+            (max, s) => Math.max(max, (s.processMetrics as { droppedBufferedFrames?: number } | undefined)?.droppedBufferedFrames ?? 0),
+            0,
+          ),
+          coalescedState: serverToBrowser.coalescedState,
+          stalledSocketsTerminated: serverToBrowser.stalledSocketsTerminated,
+        };
+      })(),
       // Subagent-tick throttle counters, summed across active bridges. Rides
       // the heartbeat `processMetrics` transport, so the per-session breakdown
       // is already in `agents[]` above and this block is the session-agnostic

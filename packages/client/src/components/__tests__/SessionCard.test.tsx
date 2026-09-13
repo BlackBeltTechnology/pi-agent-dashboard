@@ -1724,3 +1724,29 @@ describe("SessionCard — OPENSPEC subcard readiness (add-openspec-init-affordan
     expect(screen.queryByTestId("session-openspec-disabled")).toBeNull();
   });
 });
+
+/**
+ * fix-connect-snapshot-frame-loss F5: the snapshot strips `notifyLog` from
+ * unsubscribed rows, so the active card's DOM must not depend on it — with vs
+ * without a populated log renders byte-identical markup.
+ */
+describe("SessionCard notifyLog invariance (fix-connect-snapshot-frame-loss F5)", () => {
+  it("renders identical DOM with and without a populated notifyLog", () => {
+    const withLog = render(
+      <SessionCard
+        session={makeSession({
+          notifyLog: [
+            { notifyId: "n1", message: "provider rate limited", level: "warning" },
+            { notifyId: "n2", message: "retrying in 4s" },
+          ],
+        })}
+        {...defaultProps}
+      />,
+    );
+    const htmlWithLog = withLog.container.innerHTML;
+    withLog.unmount();
+
+    const withoutLog = render(<SessionCard session={makeSession()} {...defaultProps} />);
+    expect(withoutLog.container.innerHTML).toBe(htmlWithLog);
+  });
+});

@@ -24,10 +24,11 @@ Files in this directory. One row per source file.
 | `useLaunchSource.ts` | One-shot probe of `/api/health` `launchSource` field (`"electron" | "standalone" | "bridge"`). → see `useLaunchSource.ts.AGENTS.md` |
 | `useMainSpecsReader.ts` | Reads `openspec/specs/` directory, fetches each `spec.md` in parallel, concatenates into single markdown… → see `useMainSpecsReader.ts.AGENTS.md` |
 | `useMediaQuery.ts` | Re-export shim. Forwards `useMediaQuery` from `@blackbelt-technology/pi-dashboard-client-utils/useMediaQuery`. Migration Layer 0. |
-| `useMessageHandler.ts` | New `case "view_messages_update"`: replaces `viewMessagesMap.get(sessionId)` with `msg.viewMessages.slice()`. → see `useMessageHandler.ts.AGENTS.md` |
+| `useMessageHandler.ts` | New `case "view_messages_update"`: replaces `viewMessagesMap.get(sessionId)` with `msg.viewMessages.slice()`. → see `useMessageHandler.ts.AGENTS.md` Adds `sessions_page_result` merge, `openspec_get_result` apply, snapshot `endedTotals`→`endedTotalsMap` + `snapshotGeneration`, live endedTotals, tail-keeping `sessions_reordered`. See change: fix-connect-snapshot-frame-loss. |
 | `useMobile.tsx` | Re-export shim. Forwards `useMobile` from `@blackbelt-technology/pi-dashboard-client-utils/useMobile`. Migration Layer 0. |
 | `useOpenSpecActions.ts` | OpenSpec action callbacks. `handleOpenSpecRefresh`/`handleBulkArchive` send WS… → see `useOpenSpecActions.ts.AGENTS.md` |
 | `useOpenSpecReader.ts` | Fetches OpenSpec change artifact content. `activeTab` derives from URL `initialArtifact` (single source of… → see `useOpenSpecReader.ts.AGENTS.md` |
+| `useOpenSpecReconcile.ts` | New. Reconciliation pull (D7): sends one `openspec_get` per rendered cwd with no settled OpenSpec entry and no in-flight request; 15 s per-cwd timeout; clears in-flight on socket open. See change: fix-connect-snapshot-frame-loss. |
 | `usePackageOperations.ts` | Subscriber over singleton `packageQueue`. Returns `operation`, `install`/`remove`/`update` (enqueue),… → see `usePackageOperations.ts.AGENTS.md` |
 | `usePackageSearch.ts` | Debounced npm package search via `GET /api/packages/search?q=&type=`. → see `usePackageSearch.ts.AGENTS.md` |
 | `usePendingPromptTimeout.ts` | Calls `onTimeout` after 30s if `hasPendingPrompt` stays true and `paused` is false. → see `usePendingPromptTimeout.ts.AGENTS.md` |

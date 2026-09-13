@@ -73,10 +73,57 @@ export function buildOpenSpecConnectSnapshot(
   return out;
 }
 
-import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleMoveFolderToWorkspace, handleOpenSpecBulkArchive, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
+/**
+ * D1 — a frame's delivery class is a STATIC function of its message type;
+ * it never depends on socket condition. `state` frames are idempotent
+ * snapshots of server-held state keyed by `(type, entityKey)`; everything
+ * else is `transcript` (recoverable via replay/history backfill). The third
+ * class, `blocking`, is NOT derivable from the message — it is the
+ * `ctx.critical` flag `sendTo` handles (the pending-prompt exemption).
+ * Key rules: singleton types use the bare type; cwd-keyed types carry the
+ * type in the key (openspec vs git for one cwd never collide); the terminal
+ * lifecycle frames deliberately share ONE key `terminal:<id>` so a later
+ * lifecycle frame supersedes an earlier pending one.
+ * See change: fix-connect-snapshot-frame-loss (D1).
+ */
+export function frameClassOf(
+  msg: ServerToBrowserMessage,
+): { cls: "state" | "transcript"; key: string } {
+  switch (msg.type) {
+    case "sessions_snapshot":
+    case "pinned_dirs_updated":
+    case "workspaces_updated":
+    case "favorite_models_updated":
+    case "display_prefs_updated":
+    case "reachability_updated":
+      return { cls: "state", key: msg.type };
+    case "openspec_update":
+    case "git_head_update":
+    case "sessions_page_result":
+      return { cls: "state", key: `${msg.type}:${msg.cwd}` };
+    case "openspec_get_result":
+      // The two-phase reply (placeholder then final) is NOT idempotent, so the
+      // delivery key carries requestId + phase: a final must not supersede its
+      // own queued placeholder, and a newer request for the same cwd must not
+      // coalesce over an older one. See change: fix-connect-snapshot-frame-loss.
+      return {
+        cls: "state",
+        key: `openspec_get_result:${msg.cwd}:${msg.requestId}:${msg.final ? "final" : "placeholder"}`,
+      };
+    case "terminal_added":
+      return { cls: "state", key: `terminal:${msg.terminal.id}` };
+    case "terminal_updated":
+    case "terminal_removed":
+      return { cls: "state", key: `terminal:${msg.terminalId}` };
+    default:
+      return { cls: "transcript", key: msg.type };
+  }
+}
+
+import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleMoveFolderToWorkspace, handleOpenSpecBulkArchive, handleOpenSpecGet, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
 import { handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handlePromptResyncRequest, handleRemoveFollowupEntry, handleResumeSession, handleRetrySession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest, shutdownSession as shutdownSessionImpl } from "../browser-handlers/session-action-handler.js";
-import { handleAcceptReplaceProposal, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleHideSession, handleListSessions, handleRemoveTagGlobally, handleRenameSession, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnhideSession } from "../browser-handlers/session-meta-handler.js";
+import { handleAcceptReplaceProposal, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleHideSession, handleListSessions, handleRemoveTagGlobally, handleRenameSession, handleSessionsPage, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnhideSession } from "../browser-handlers/session-meta-handler.js";
 import { clearGapState, handleHistoryBackfill, handleSubscribe } from "../browser-handlers/subscription-handler.js";
 import { handleCloseInlineTerminal, handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "../browser-handlers/terminal-handler.js";
 import { createPendingResumeRegistry, type PendingResumeRegistry } from "../pending/pending-resume-registry.js";
@@ -103,6 +150,10 @@ export interface DroppedFrameStats {
   bySession: Record<string, number>;
   /** Blocking-class drops (critical frames past the cap or the ceiling). */
   blocking: { total: number; bySession: Record<string, number> };
+  /** Pending state entries superseded before flush (latest-wins coalescing — NOT a drop). */
+  coalescedState: number;
+  /** Sockets terminated by the pending-state byte ceiling (stalled). */
+  stalledSocketsTerminated: number;
 }
 
 /** Zero-value `DroppedFrameStats`, so route fallbacks stay TYPED, not inline literals. */
@@ -110,6 +161,8 @@ export const EMPTY_DROPPED_FRAME_STATS: DroppedFrameStats = {
   total: 0,
   bySession: {},
   blocking: { total: 0, bySession: {} },
+  coalescedState: 0,
+  stalledSocketsTerminated: 0,
 };
 
 export interface BrowserGateway {
@@ -165,6 +218,12 @@ export interface BrowserGateway {
    * fix-stuck-tool-card-on-dropped-event, fix-pending-prompt-lost-on-replay.
    */
   getDroppedFrameStats(): DroppedFrameStats;
+  /**
+   * Per-socket pending-state diagnostics (D2): entry count and retained
+   * bytes for `ws`, or `undefined` when no pending map is allocated. Zero
+   * cost in steady state. See change: fix-connect-snapshot-frame-loss.
+   */
+  getPendingStateInfo(ws: WebSocket): { entries: number; bytes: number } | undefined;
   /**
    * Requester-scoped delivery of a prompt-resync reply (fix B, server half).
    * `msg` is an ordinary bridge `prompt_request` that may carry the echoed
@@ -553,13 +612,124 @@ export function createBrowserGateway(
     }
   }
 
+  // ── Per-socket pending-state map (D2) — change: fix-connect-snapshot-frame-loss ──
+  // A `state` frame is NEVER shed: over threshold it defers into this map
+  // (latest-wins per delivery key, byte-accounted, FIFO by first insertion)
+  // and is flushed by send-completion, by a 250 ms interval while non-empty,
+  // and ahead of any transcript send. The byte ceiling bounds memory on a
+  // stalled socket by terminating it (the browser reconnects; the bootstrap
+  // after reconnect is small). `blocking` (critical) frames are NOT deferred
+  // — they keep their own bounded exemption above.
+  interface PendingState {
+    map: Map<string, string /* serialized */>;
+    bytes: number;
+    timer?: NodeJS.Timeout;
+  }
+  const pendingState = new Map<WebSocket, PendingState>();
+  let coalescedState = 0;
+  let stalledSocketsTerminated = 0;
+  const STATE_FLUSH_INTERVAL_MS = 250;
+  let lastStateFlushWarnAt = 0;
+
+  /** Clear the flush timer and drop the socket's pending map (close/error/terminate). */
+  function dropPendingState(ws: WebSocket): void {
+    const pending = pendingState.get(ws);
+    if (!pending) return;
+    if (pending.timer !== undefined) clearInterval(pending.timer);
+    pendingState.delete(ws);
+  }
+
+  /** Send-callback: re-flush on success; log rate-limited on error (X3). */
+  function onStateSent(ws: WebSocket): (err?: Error | null) => void {
+    return (err) => {
+      if (err) {
+        const now = Date.now();
+        if (now - lastStateFlushWarnAt >= DROP_WARN_WINDOW_MS) {
+          lastStateFlushWarnAt = now;
+          console.warn(`[browser-gw] state flush send failed (will not retry this frame) hop=server→browser:`, err);
+        }
+        return;
+      }
+      flushPendingState(ws);
+    };
+  }
+
+  /** Drain the map in insertion order while the socket is under threshold. */
+  function flushPendingState(ws: WebSocket): void {
+    const pending = pendingState.get(ws);
+    if (!pending || pending.map.size === 0) return;
+    if (ws.readyState !== WebSocket.OPEN) return;
+    while (pending.map.size > 0 && ws.bufferedAmount <= MAX_WS_BUFFER) {
+      const next = pending.map.entries().next();
+      if (next.done) break;
+      const [key, serialized] = next.value;
+      pending.map.delete(key);
+      pending.bytes -= Buffer.byteLength(serialized);
+      ws.send(serialized, onStateSent(ws));
+    }
+    if (pending.map.size === 0) dropPendingState(ws);
+  }
+
+  /**
+   * Deliver one `state` frame (D2): immediate send while the socket is under
+   * threshold and nothing is pending; otherwise defer latest-wins per key.
+   * Over the byte ceiling the socket is terminated as stalled (counted) and
+   * the map is dropped. `MAX_WS_BUFFER === 0` (no-limit mode) always sends.
+   */
+  function sendState(ws: WebSocket, key: string, serialized: string): void {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    if (MAX_WS_BUFFER === 0) {
+      ws.send(serialized);
+      return;
+    }
+    let pending = pendingState.get(ws);
+    if (ws.bufferedAmount <= MAX_WS_BUFFER && (pending === undefined || pending.map.size === 0)) {
+      ws.send(serialized, onStateSent(ws));
+      return;
+    }
+    if (pending === undefined) {
+      pending = { map: new Map(), bytes: 0 };
+      pendingState.set(ws, pending);
+    }
+    const old = pending.map.get(key);
+    if (old !== undefined) {
+      pending.bytes -= Buffer.byteLength(old);
+      coalescedState++;
+    }
+    const len = Buffer.byteLength(serialized);
+    if (pending.bytes + len > MAX_WS_BUFFER) {
+      ws.terminate();
+      stalledSocketsTerminated++;
+      dropPendingState(ws);
+      return;
+    }
+    pending.map.set(key, serialized);
+    pending.bytes += len;
+    if (pending.timer === undefined) {
+      pending.timer = setInterval(() => flushPendingState(ws), STATE_FLUSH_INTERVAL_MS);
+    }
+  }
+
   function sendTo(
     ws: WebSocket,
     msg: ServerToBrowserMessage,
     ctx?: { sessionId?: string; seq?: number; critical?: boolean; criticalBudget?: { remaining: number } },
   ) {
     if (ws.readyState === WebSocket.OPEN) {
-      // Drop messages if the send buffer is full (browser not consuming).
+      // Dispatch on the static frame class (D1/D2): a `state` frame routes
+      // through `sendState` (deferred, never shed) so no handler can
+      // accidentally send state onto the shedding path. A `critical` ctx
+      // stays on the blocking exemption below — that flag, not the type,
+      // defines the blocking class.
+      const { cls, key } = frameClassOf(msg);
+      if (cls === "state" && ctx?.critical !== true) {
+        sendState(ws, key, JSON.stringify(msg));
+        return;
+      }
+      // Transcript/blocking: already-flushable pending state goes first, so
+      // a state frame never waits behind a later transcript frame (D2).
+      if (pendingState.get(ws)?.map.size) flushPendingState(ws);
+      // Drop transcript messages if the send buffer is full (browser not consuming).
       // A `critical` frame (pending-prompt replay / resync reply) is exempt
       // from the shed while under the absolute ceiling and within its
       // per-delivery budget — the one carve-out that keeps a blocking prompt
@@ -580,19 +750,47 @@ export function createBrowserGateway(
     }
   }
 
+  /**
+   * D4 — project a live `sessions_reordered` through a fresh snapshot window
+   * BEFORE serialization (fanout only sees strings). Filtering by the GLOBAL
+   * visible set is exactly per-group: a group's first-3 contains only that
+   * group's ids, so a group's own ids are in the global set iff they are in
+   * the group's window. Terminal ids and out-of-window ended ids drop here,
+   * at the single choke point every reorder site routes through.
+   * Guarded for lean fakes lacking the window fn (folderHeadSnapshot precedent).
+   * See change: fix-connect-snapshot-frame-loss (D4).
+   */
+  function projectOrderThroughWindow(ids: readonly string[]): string[] {
+    if (typeof sessionManager.snapshotVisibleIds !== "function") return [...ids];
+    const pinned = preferencesStore?.getPinnedDirectories?.() ?? [];
+    const visible = sessionManager.snapshotVisibleIds(pinned);
+    return ids.filter((id) => visible.has(id));
+  }
+
   function broadcast(msg: ServerToBrowserMessage) {
     // Serialize once per fan-out: O(payload) instead of O(payload ×
     // subscribers). Matters for large recurring frames such as
     // `openspec_update` on repos with many changes. Back-pressure and
     // liveness guards are preserved (mirrors `sendTo`).
     // See change: scope-openspec-poll-to-active-cwds.
+    if (msg.type === "sessions_reordered") {
+      msg = { ...msg, sessionIds: projectOrderThroughWindow(msg.sessionIds) };
+    }
+    const { cls, key } = frameClassOf(msg);
     const serialized = JSON.stringify(msg);
-    fanout(serialized);
+    fanout(serialized, cls === "state" ? key : undefined);
   }
 
-  function fanout(serialized: string) {
+  function fanout(serialized: string, stateKey?: string) {
     for (const [ws] of subscriptions) {
       if (ws.readyState !== WebSocket.OPEN) continue;
+      if (stateKey !== undefined) {
+        // State class: deferred when over threshold, never shed (D2).
+        sendState(ws, stateKey, serialized);
+        continue;
+      }
+      // Transcript class: already-flushable pending state goes first (D2).
+      if (pendingState.get(ws)?.map.size) flushPendingState(ws);
       if (MAX_WS_BUFFER > 0 && ws.bufferedAmount > MAX_WS_BUFFER) {
         recordDroppedFrame(undefined, undefined, ws.bufferedAmount, "transcript");
         continue;
@@ -610,7 +808,8 @@ export function createBrowserGateway(
   function broadcastOpenSpecUpdateImpl(cwd: string, dataSerialized: string) {
     const header = `{"type":"openspec_update","cwd":${JSON.stringify(cwd)},"data":`;
     const serialized = header + dataSerialized + "}";
-    fanout(serialized);
+    // Pre-serialized state frame: hand fanout the D1 delivery key directly.
+    fanout(serialized, `openspec_update:${cwd}`);
   }
 
   wss.on("connection", (ws, req) => {
@@ -620,23 +819,6 @@ export function createBrowserGateway(
     console.error(`[browser-gw] browser client connected from ${remoteAddr} origin=${origin} ua=${ua.slice(0, 80)} (total: ${subscriptions.size + 1})`);
     const subs = new Set<string>();
     subscriptions.set(ws, subs);
-
-    // Atomic snapshot of the full session registry + per-cwd orders.
-    // Replaces the legacy per-session `session_added` loop and per-cwd
-    // `sessions_reordered` loop. Client REPLACES (not merges) its
-    // `sessions` Map and `sessionOrderMap` on receipt so stale ids from a
-    // previous server lifetime are dropped atomically.
-    // See change: fix-stale-sessions-on-reconnect.
-    {
-      const sessionsSnapshot = sessionManager.listAll();
-      const orders: Record<string, string[]> = {};
-      if (sessionOrderManager) {
-        for (const [cwd, sessionIds] of Object.entries(sessionOrderManager.getAllOrders())) {
-          if (sessionIds.length > 0) orders[cwd] = sessionIds;
-        }
-      }
-      sendTo(ws, { type: "sessions_snapshot", sessions: sessionsSnapshot, orders });
-    }
 
     // Send pinned directories on connect
     if (preferencesStore) {
@@ -707,6 +889,24 @@ export function createBrowserGateway(
     // Notify server of new connection (for mDNS peer list etc.)
     if (gateway.onConnect) {
       gateway.onConnect(ws);
+    }
+
+    // Atomic windowed snapshot of the session registry + per-group orders,
+    // sent LAST in the bootstrap (D3): every small idempotent state frame
+    // above is already on the wire, so the one large frame never queues ahead
+    // of them on a slow socket. Still the first session-registry send. Client
+    // REPLACES (not merges) its `sessions` Map and `sessionOrderMap` on
+    // receipt. `endedTotals` counts ended per group regardless of window.
+    // See changes: fix-stale-sessions-on-reconnect,
+    //              fix-connect-snapshot-frame-loss (D3/D4).
+    {
+      const pinnedDirs = preferencesStore?.getPinnedDirectories?.() ?? [];
+      // `typeof` guard: hand-rolled fakes may predate the window API
+      // (folderHeadSnapshot precedent); they fall back to the full list.
+      const snapshot = typeof sessionManager.buildSnapshot === "function"
+        ? sessionManager.buildSnapshot(pinnedDirs)
+        : { sessions: sessionManager.listAll(), orders: {} as Record<string, string[]>, endedTotals: {} as Record<string, number> };
+      sendTo(ws, { type: "sessions_snapshot", ...snapshot });
     }
 
 
@@ -891,6 +1091,12 @@ export function createBrowserGateway(
           case "list_sessions":
             handleListSessions(msg, ctx);
             break;
+          // Explicit case (D5): the default arm would misroute `sessions_page`
+          // to the bridge forwarder. Unicast reply via `sendTo` → `sendState`.
+          // See change: fix-connect-snapshot-frame-loss.
+          case "sessions_page":
+            handleSessionsPage(msg, ctx);
+            break;
           case "resume_session":
             // Reopen resolves a pending recovery offer (null it so onConnect
             // stops replaying it) — but NOT when the resume will be refused
@@ -951,6 +1157,12 @@ export function createBrowserGateway(
             break;
           case "move_folder_to_workspace":
             handleMoveFolderToWorkspace(msg, ctx);
+            break;
+          // Explicit case (D6): the default arm would misroute `openspec_get`
+          // to the bridge forwarder. Unicast replies via `sendTo` → `sendState`.
+          // See change: fix-connect-snapshot-frame-loss.
+          case "openspec_get":
+            handleOpenSpecGet(msg, ctx);
             break;
           case "openspec_refresh":
             handleOpenSpecRefresh(msg, ctx);
@@ -1153,6 +1365,8 @@ export function createBrowserGateway(
       console.error(`[browser-gw] browser client disconnected (remaining: ${subscriptions.size - 1})`);
       subscriptions.delete(ws);
       replayingSessions.delete(ws);
+      // A closed socket can never flush; discard its pending state (D2).
+      dropPendingState(ws);
       // A disconnected requester can never receive its reply; drop its tokens
       // so the map cannot accumulate them. See change: reduce-subagent-details-payload.
       resyncRequesters.forget(ws);
@@ -1168,6 +1382,12 @@ export function createBrowserGateway(
           console.error("[browser-gw] disconnect handler error:", err);
         }
       }
+    });
+
+    // An errored socket will close, but clear the pending state immediately —
+    // its timer must not outlive the socket (D2).
+    ws.on("error", () => {
+      dropPendingState(ws);
     });
   });
 
@@ -1307,7 +1527,15 @@ export function createBrowserGateway(
           total: droppedBlockingTotal,
           bySession: Object.fromEntries(droppedBlockingBySession),
         },
+        coalescedState,
+        stalledSocketsTerminated,
       };
+    },
+
+    getPendingStateInfo(ws: WebSocket): { entries: number; bytes: number } | undefined {
+      const pending = pendingState.get(ws);
+      if (!pending) return undefined;
+      return { entries: pending.map.size, bytes: pending.bytes };
     },
 
     deliverPromptResyncReply(msg: ServerToBrowserMessage, sessionId: string): boolean {

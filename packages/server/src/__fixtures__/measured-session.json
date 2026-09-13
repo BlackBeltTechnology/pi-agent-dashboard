@@ -1,0 +1,273 @@
+{
+  "$comment": [
+    "Synthesized to the MEASURED live-registry row shapes (2026-09-12): live ≈6.7 KB with notifyLog 63.5 %, ended ≈1.0 KB with notifyLog 12.5 %.",
+    "Fake paths/ids/text — PII-scrubbed by construction. Input for E18/P1 (snapshot 400 KB bound).",
+    "See change: fix-connect-snapshot-frame-loss (task 3.4, design D4)."
+  ],
+  "live": {
+    "id": "sess-live-8f31c2a9b7d4",
+    "cwd": "/Users/dev/projects/acme-api",
+    "name": "Rate limiter headers + spec deltas",
+    "nameSource": "user",
+    "source": "tui",
+    "lifecyclePolicy": "durable",
+    "status": "active",
+    "model": "anthropic/claude-sonnet-4-5",
+    "thinkingLevel": "medium",
+    "startedAt": 1757683200000,
+    "lastActivityAt": 1757720400000,
+    "lastSettledAt": 1757720395000,
+    "lastRunStartedAt": 1757720100000,
+    "unread": true,
+    "tokensIn": 184213,
+    "tokensOut": 42987,
+    "cacheRead": 1204551,
+    "cacheWrite": 88210,
+    "cost": 4.8127,
+    "currentTool": null,
+    "gitBranch": "feature/rate-limiter-headers",
+    "gitBranchUrl": "https://github.com/acme-dev/acme-api/tree/feature/rate-limiter-headers",
+    "gitPrNumber": 412,
+    "gitPrUrl": "https://github.com/acme-dev/acme-api/pull/412",
+    "gitStatus": {
+      "dirtyCount": 7,
+      "staged": 2,
+      "unstaged": 4,
+      "untracked": 1,
+      "ahead": 3,
+      "behind": 0
+    },
+    "piVersion": "0.84.2",
+    "isGitRepo": true,
+    "gitWorktreeReported": true,
+    "openspecPhase": "implementing",
+    "openspecChange": "add-rate-limiter-headers",
+    "attachedProposal": "add-rate-limiter-headers",
+    "contextTokens": 121442,
+    "contextWindow": 200000,
+    "sessionFile": "/Users/dev/.pi/agent/sessions/2026/09/12/sess-live-8f31c2a9b7d4.jsonl",
+    "sessionDir": "/Users/dev/projects/acme-api",
+    "hidden": false,
+    "tags": [
+      "api",
+      "performance",
+      "rate-limiting",
+      "middleware"
+    ],
+    "firstMessage": "Add X-RateLimit-* response headers to the public API middleware (X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset), cover the 429 path with integration tests, update the generated OpenAPI schema, and align the OpenSpec change add-rate-limiter-headers with the final implementation before archive. Also confirm the staging deployment picks up the env-var toggle.",
+    "dataUnavailable": false,
+    "pid": 48213,
+    "processes": [
+      {
+        "pid": 48214,
+        "pgid": 48213,
+        "command": "node scripts/watch-assets.js",
+        "elapsedMs": 1841000,
+        "kind": "node",
+        "label": "asset watcher"
+      },
+      {
+        "pid": 48299,
+        "pgid": 48213,
+        "command": "docker compose up db cache",
+        "elapsedMs": 903000,
+        "kind": "docker",
+        "label": "dev stack"
+      },
+      {
+        "pid": 48377,
+        "pgid": 48213,
+        "command": "pnpm run dev:worker",
+        "elapsedMs": 412000,
+        "kind": "node",
+        "label": "queue worker"
+      }
+    ],
+    "processMetrics": {
+      "rss": 318562496,
+      "heapUsed": 152043520,
+      "heapTotal": 199229440,
+      "cpuPercent": 12.4,
+      "eventLoopMaxMs": 41,
+      "loadAvg1m": 2.11,
+      "updatedAt": 1757720399000
+    },
+    "pendingQueues": {
+      "steering": [],
+      "followUp": [
+        {
+          "id": "fu-2f91",
+          "text": "Also add Retry-After on 429 responses",
+          "addedAt": 1757719900000
+        }
+      ]
+    },
+    "processDrawerCollapsed": true,
+    "notifyLog": [
+      {
+        "notifyId": "ntf-live-0001",
+        "message": "OpenSpec change add-rate-limiter-header completed task 1 of 18 — updated packages/api/src/middleware/rate-limit.ts and spec deltas",
+        "level": "success"
+      },
+      {
+        "notifyId": "ntf-live-0002",
+        "message": "OpenSpec change add-rate-limiter-header completed task 2 of 18 — updated packages/api/src/middleware/rate-limit.ts and spec deltas",
+        "level": "info"
+      },
+      {
+        "notifyId": "ntf-live-0003",
+        "message": "OpenSpec change add-rate-limiter-header completed task 3 of 18 — updated packages/api/src/middleware/rate-limit.ts and spec deltas",
+        "level": "info"
+      },
+      {
+        "notifyId": "ntf-live-0004",
+        "message": "OpenSpec change add-rate-limiter-header completed task 4 of 18 — updated packages/api/src/middleware/rate-limit.ts and spec deltas",
+        "level": "info"
+      },
+      {
+        "notifyId": "ntf-live-0005",
+        "message": "OpenSpec change add-rate-limiter-header completed task 5 of 18 — updated packages/api/src/middleware/rate-limit.ts and spec deltas",
+        "level": "info"
+      },
+      {
+        "notifyId": "ntf-live-0006",
+        "message": "OpenSpec change add-rate-limiter-header completed task 6 of 18 — updated packages/api/src/middleware/rate-limit.ts and spec deltas",
+        "level": "info"
+      },
+      {
+        "notifyId": "ntf-live-0007",
+        "message": "OpenSpec change add-rate-limiter-header completed task 7 of 18 — updated packages/api/src/middleware/rate-limit.ts and spec deltas",
+        "level": "info"
+      },
+      {
+        "notifyId": "ntf-live-0008",
+        "message": "OpenSpec change add-rate-limiter-header completed task 8 of 18 — updated packages/api/src/middleware/rate-limit.ts and spec deltas",
+        "level": "success"
+      },
+      {
+        "notifyId": "ntf-live-0009",
+        "message": "OpenSpec change add-rate-limiter-header completed task 9 of 18 — updated packages/api/src/middleware/rate-limit.ts and spec deltas",
+        "level": "info"
+      },
+      {
+        "notifyId": "ntf-live-0010",
+        "message": "OpenSpec change add-rate-limiter-header completed task 10 of 18 — updated packages/api/src/middleware/rate-limit.ts and spec deltas",
+        "level": "info"
+      },
+      {
+        "notifyId": "ntf-live-0011",
+        "message": "OpenSpec change add-rate-limiter-header completed task 11 of 18 — updated packages/api/src/middleware/rate-limit.ts and spec deltas",
+        "level": "info"
+      },
+      {
+        "notifyId": "ntf-live-0012",
+        "message": "OpenSpec change add-rate-limiter-header completed task 12 of 18 — updated packages/api/src/middleware/rate-limit.ts and spec deltas",
+        "level": "info"
+      },
+      {
+        "notifyId": "ntf-live-0013",
+        "message": "OpenSpec change add-rate-limiter-header completed task 13 of 18 — updated packages/api/src/middleware/rate-limit.ts and spec deltas",
+        "level": "info"
+      },
+      {
+        "notifyId": "ntf-live-0014",
+        "message": "OpenSpec change add-rate-limiter-header completed task 14 of 18 — updated packages/api/src/middleware/rate-limit.ts and spec deltas",
+        "level": "info"
+      },
+      {
+        "notifyId": "ntf-live-0015",
+        "message": "OpenSpec change add-rate-limiter-header completed task 15 of 18 — updated packages/api/src/middleware/rate-limit.ts and spec deltas",
+        "level": "success"
+      },
+      {
+        "notifyId": "ntf-live-0016",
+        "message": "OpenSpec change add-rate-limiter-header completed task 16 of 18 — updated packages/api/src/middleware/rate-limit.ts and spec deltas",
+        "level": "info"
+      },
+      {
+        "notifyId": "ntf-live-0017",
+        "message": "OpenSpec change add-rate-limiter-header completed task 17 of 18 — updated packages/api/src/middleware/rate-limit.ts and spec deltas",
+        "level": "info"
+      },
+      {
+        "notifyId": "ntf-live-0018",
+        "message": "OpenSpec change add-rate-limiter-header completed task 18 of 18 — updated packages/api/src/middleware/rate-limit.ts and spec deltas",
+        "level": "info"
+      },
+      {
+        "notifyId": "ntf-live-0019",
+        "message": "OpenSpec change add-rate-limiter-header completed task 19 of 18 — updated packages/api/src/middleware/rate-limit.ts and spec deltas",
+        "level": "info"
+      },
+      {
+        "notifyId": "ntf-live-0020",
+        "message": "OpenSpec change add-rate-limiter-header completed task 20 of 18 — updated packages/api/src/middleware/rate-limit.ts and spec deltas",
+        "level": "info"
+      },
+      {
+        "notifyId": "ntf-live-0021",
+        "message": "OpenSpec change add-rate-limiter-header completed task 21 of 18 — updated packages/api/src/middleware/rate-limit.ts and spec deltas",
+        "level": "info"
+      },
+      {
+        "notifyId": "ntf-live-0022",
+        "message": "OpenSpec change add-rate-limiter-header completed task 22 of 18 — updated packages/api/src/middleware/rate-limit.ts and spec deltas",
+        "level": "success"
+      },
+      {
+        "notifyId": "ntf-live-0023",
+        "message": "OpenSpec change add-rate-limiter-header completed task 23 of 18 — updated packages/api/src/middleware/rate-limit.ts and spec deltas",
+        "level": "info"
+      }
+    ]
+  },
+  "ended": {
+    "id": "sess-ended-1a60d4e83c77",
+    "cwd": "/Users/dev/projects/acme-docs",
+    "name": "Docs link checker fix",
+    "nameSource": "auto",
+    "source": "tui",
+    "status": "ended",
+    "model": "anthropic/claude-haiku-4-5",
+    "thinkingLevel": "low",
+    "startedAt": 1757424000000,
+    "endedAt": 1757427600000,
+    "lastActivityAt": 1757427599000,
+    "lastSettledAt": 1757427598000,
+    "closedReason": "manual",
+    "tokensIn": 21044,
+    "tokensOut": 5102,
+    "cacheRead": 8420,
+    "cacheWrite": 1144,
+    "cost": 0.6123,
+    "gitBranch": "docs/link-checker",
+    "gitStatus": {
+      "dirtyCount": 2,
+      "staged": 0,
+      "unstaged": 2,
+      "untracked": 0,
+      "ahead": 1,
+      "behind": 0
+    },
+    "piVersion": "0.84.2",
+    "isGitRepo": true,
+    "contextTokens": 18240,
+    "contextWindow": 200000,
+    "sessionFile": "/Users/dev/.pi/agent/sessions/2026/09/09/sess-ended-1a60d4e83c77.jsonl",
+    "sessionDir": "/Users/dev/projects/acme-docs",
+    "hidden": false,
+    "dataUnavailable": true,
+    "notifyLog": [
+      {
+        "notifyId": "ntf-ended-0001",
+        "message": "Session ended: all tasks completed",
+        "level": "info"
+      },
+      {
+        "notifyId": "ntf-ended-0002",
+        "message": "Archived OpenSpec change fix-docs-links",
+        "level": "success"
+      }
+    ]
+  }
+}

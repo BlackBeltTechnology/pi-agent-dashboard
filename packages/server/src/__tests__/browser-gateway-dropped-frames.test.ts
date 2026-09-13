@@ -8,10 +8,18 @@
  *  - proves the counters are surfaced via `getDroppedFrameStats()` (3.3/3.4)
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { createBrowserGateway, frameClassOf } from "../pairing/browser-gateway.js";
+import { createMemoryEventStore } from "../persistence/memory-event-store.js";
+import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import { createDrainingWs } from "./helpers/draining-ws.js";
-import { buildLoadGateway, seedSessions, subscribeWs } from "./helpers/load-fixtures.js";
+import type { DrainingWs } from "./helpers/draining-ws.js";
+import { buildLoadGateway, makeStubPiGateway, seedSessions, subscribeWs } from "./helpers/load-fixtures.js";
 
 const MAX_WS_BUFFER = 4 * 1024 * 1024; // gateway default
+
+/** The draining fake satisfies the gateway's `WebSocket` surface at runtime. */
+const asWs = (w: DrainingWs) => w as unknown as import("ws").WebSocket;
 
 /** Fill a subscribed socket's send buffer past MAX_WS_BUFFER via broadcastEvent. */
 function overloadSocket(gateway: ReturnType<typeof buildLoadGateway>, sessionId: string) {
@@ -92,5 +100,125 @@ describe("server→browser dropped-frame instrumentation", () => {
     subscribeWs(gateway, ws, seed.focusedSessionId);
     gateway.broadcastEvent(seed.focusedSessionId, 1, { type: "message_update", text: "hi" });
     expect(gateway.getDroppedFrameStats().total).toBe(0);
+  });
+});
+
+// ── Frame delivery classes (D1) — see change: fix-connect-snapshot-frame-loss ──
+
+describe("frameClassOf — static class per message type (E1)", () => {
+  const asMsg = (m: unknown) => m as ServerToBrowserMessage;
+
+  it("state types without an entity key use the bare type as key", () => {
+    for (const type of [
+      "sessions_snapshot",
+      "pinned_dirs_updated",
+      "workspaces_updated",
+      "favorite_models_updated",
+      "display_prefs_updated",
+      "reachability_updated",
+    ]) {
+      expect(frameClassOf(asMsg({ type }))).toEqual({ cls: "state", key: type });
+    }
+  });
+
+  it("cwd-keyed state types carry the type in the key (openspec vs git differ)", () => {
+    expect(frameClassOf(asMsg({ type: "openspec_update", cwd: "/a" }))).toEqual({ cls: "state", key: "openspec_update:/a" });
+    expect(frameClassOf(asMsg({ type: "git_head_update", cwd: "/a", branch: "develop" }))).toEqual({ cls: "state", key: "git_head_update:/a" });
+    expect(frameClassOf(asMsg({ type: "sessions_page_result", cwd: "/a" }))).toEqual({ cls: "state", key: "sessions_page_result:/a" });
+    // Same cwd, DIFFERENT keys — the type is always part of the key.
+    expect(frameClassOf(asMsg({ type: "openspec_update", cwd: "/a" })).key).not.toBe(
+      frameClassOf(asMsg({ type: "git_head_update", cwd: "/a", branch: "develop" })).key,
+    );
+  });
+
+  it("openspec_get_result keys on requestId + phase (two-phase reply preserved)", () => {
+    const placeholder = frameClassOf(asMsg({ type: "openspec_get_result", cwd: "/a", requestId: "r1", final: false }));
+    const final = frameClassOf(asMsg({ type: "openspec_get_result", cwd: "/a", requestId: "r1", final: true }));
+    const other = frameClassOf(asMsg({ type: "openspec_get_result", cwd: "/a", requestId: "r2", final: false }));
+    expect(placeholder).toEqual({ cls: "state", key: "openspec_get_result:/a:r1:placeholder" });
+    expect(final.key).toBe("openspec_get_result:/a:r1:final");
+    // The final must NOT coalesce over its own queued placeholder…
+    expect(final.key).not.toBe(placeholder.key);
+    // …and a newer request must not coalesce over an older one.
+    expect(other.key).not.toBe(placeholder.key);
+  });
+
+  it("terminal lifecycle frames for one id share a single key", () => {
+    const added = frameClassOf(asMsg({ type: "terminal_added", terminal: { id: "t1" } }));
+    const updated = frameClassOf(asMsg({ type: "terminal_updated", terminalId: "t1" }));
+    const removed = frameClassOf(asMsg({ type: "terminal_removed", terminalId: "t1" }));
+    expect(added).toEqual({ cls: "state", key: "terminal:t1" });
+    expect(updated.key).toBe("terminal:t1");
+    expect(removed.key).toBe("terminal:t1");
+  });
+
+  it("session registry frames and per-session events are transcript-class", () => {
+    expect(frameClassOf(asMsg({ type: "session_updated", sessionId: "s", updates: {} }))).toEqual({ cls: "transcript", key: "session_updated" });
+    expect(frameClassOf(asMsg({ type: "sessions_reordered", cwd: "/a", sessionIds: [] }))).toEqual({ cls: "transcript", key: "sessions_reordered" });
+    expect(frameClassOf(asMsg({ type: "event", sessionId: "s", seq: 1, event: {} }))).toEqual({ cls: "transcript", key: "event" });
+  });
+});
+
+// ── State frames are deferred, never shed (D2) — E2 BVA on bufferedAmount ──
+
+describe("state frame survives a saturated socket (E2)", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("sendTo(openspec_update) sends at 999/1000 and defers at 1001 (no transcript drop)", () => {
+    for (const bufferedAmount of [999, 1000]) {
+      const gateway = createBrowserGateway(
+        createMemorySessionManager(),
+        createMemoryEventStore(() => false),
+        makeStubPiGateway(),
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        1000, // maxWsBufferBytes
+      );
+      const ws = createDrainingWs({ drainRateBytesPerMs: 0 });
+      ws.bufferedAmount = bufferedAmount;
+      gateway.wss.emit("connection", ws, {});
+      ws.drainFully();
+      ws.bufferedAmount = bufferedAmount;
+      const sentBefore = ws.sent.length;
+
+      gateway.sendToClient(asWs(ws), {
+        type: "openspec_update",
+        cwd: "/a",
+        data: { initialized: true, changes: [] },
+      });
+
+      expect(ws.sent.length, `bufferedAmount=${bufferedAmount} → sent immediately`).toBe(sentBefore + 1);
+      expect(gateway.getPendingStateInfo(asWs(ws))).toBeUndefined();
+    }
+
+    // 1001 > threshold → deferred, NOT dropped.
+    const gateway = createBrowserGateway(
+      createMemorySessionManager(),
+      createMemoryEventStore(() => false),
+      makeStubPiGateway(),
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      1000,
+    );
+    const ws = createDrainingWs({ drainRateBytesPerMs: 0 });
+    gateway.wss.emit("connection", ws, {});
+    ws.drainFully();
+    ws.bufferedAmount = 1001;
+    const sentBefore = ws.sent.length;
+
+    gateway.sendToClient(asWs(ws), {
+      type: "openspec_update",
+      cwd: "/a",
+      data: { initialized: true, changes: [] },
+    });
+
+    expect(ws.sent.length).toBe(sentBefore); // nothing on the wire yet
+    expect(gateway.getPendingStateInfo(asWs(ws))?.entries).toBe(1); // deferred in the pending map
+    const stats = gateway.getDroppedFrameStats();
+    expect(stats.total).toBe(0); // never counted as a transcript drop
+    expect(stats.coalescedState).toBe(0);
   });
 });

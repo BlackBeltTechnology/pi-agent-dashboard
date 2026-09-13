@@ -60,6 +60,7 @@ import { selectInflightBashTools } from "./hooks/useInflightBashTools.js";
 import { useInstallPrompt } from "./hooks/useInstallPrompt.js";
 import { useLaunchSource } from "./hooks/useLaunchSource.js";
 import { useMessageHandler } from "./hooks/useMessageHandler.js";
+import { type OpenSpecGetInflight, useOpenSpecReconcile } from "./hooks/useOpenSpecReconcile.js";
 import { useMobile } from "./hooks/useMobile.js";
 import { useOpenSpecReader } from "./hooks/useOpenSpecReader.js";
 import { usePiResourceFileFetch } from "./hooks/usePiResourceFileFetch.js";
@@ -585,6 +586,19 @@ export default function App() {
   // behavior cwd-keyed). See change: spawn-correlation-token.
   const pendingSpawnsRef = useRef<Map<string, { cwd: string; kind: "spawn" | "resume"; placeholderCwd?: string }>>(new Map());
   const [sessionOrderMap, setSessionOrderMap] = useState<Map<string, string[]>>(new Map());
+  // ── fix-connect-snapshot-frame-loss (D7/D9) ── Snapshot-window ended
+  // totals, per-group page offsets, and the snapshot generation counter that
+  // re-runs OpenSpec reconciliation after every applied snapshot.
+  const [endedTotalsMap, setEndedTotalsMap] = useState<Map<string, number>>(new Map());
+  const [pagedCount, setPagedCount] = useState<Map<string, number>>(new Map());
+  const [snapshotGeneration, setSnapshotGeneration] = useState(0);
+  // Live `sessions` mirror for useMessageHandler (order filtering + live
+  // endedTotals transitions read it synchronously outside setState updaters).
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
+  // Shared by useOpenSpecReconcile (marks) and useMessageHandler (releases on
+  // `final:true` openspec_get_result).
+  const openspecGetInflightRef = useRef<Map<string, OpenSpecGetInflight>>(new Map());
   const [pinnedDirectories, setPinnedDirectories] = useState<string[]>([]);
   // Favorite model labels ("provider/id"), server-persisted. Synced via
   // `favorite_models_updated`; cold-loaded from GET /api/favorite-models.
@@ -693,6 +707,11 @@ export default function App() {
           setFolderGitMap(new Map());
           setOpenspecGroupsMap(new Map());
           setTerminals(new Map());
+          // Snapshot-window bookkeeping is scoped to one server's registry —
+          // stale endedTotals / page offsets from server A must not render
+          // against server B. See change: fix-connect-snapshot-frame-loss.
+          setEndedTotalsMap(new Map());
+          setPagedCount(new Map());
           // Per-session refresh failures are scoped to one server's bridges;
           // a stale notice from server A must not render against server B.
           // See change: upgrade-model-selector-primitives.
@@ -919,9 +938,40 @@ export default function App() {
   }, [send, historyGaps]);
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev },
-    { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setPagedCount, setSnapshotGeneration },
+    { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast, sessionsRef, openspecGetInflightRef },
   );
+
+  // D7: rendered cwds the OpenSpec reconciliation may pull for — non-ended
+  // session cards, pinned folder cards, and the selected session's pane (any
+  // status). Deliberately over-approximates the sidebar's filter state: the
+  // pull is bounded by the settled-map / in-flight gates, not filter
+  // exactness. Ended cards and stub groups never enter the set.
+  // See change: fix-connect-snapshot-frame-loss.
+  const renderedCwds = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of sessions.values()) {
+      if (s.status !== "ended") set.add(s.cwd);
+    }
+    for (const p of pinnedDirectories) set.add(p);
+    const selected = selectedId ? sessions.get(selectedId) : undefined;
+    if (selected) set.add(selected.cwd);
+    // Active route surfaces: a direct load of an OpenSpec board/preview for an
+    // unpinned, ended-only folder renders no card, so without these the route
+    // directory would never pull and the view would stay loading.
+    if (openspecPreviewCwd) set.add(openspecPreviewCwd);
+    if (openspecBoardCwd) set.add(openspecBoardCwd);
+    return Array.from(set);
+  }, [sessions, pinnedDirectories, selectedId, openspecPreviewCwd, openspecBoardCwd]);
+
+  useOpenSpecReconcile({
+    renderedCwds,
+    openspecMap,
+    send,
+    status,
+    snapshotGeneration,
+    inflightRef: openspecGetInflightRef,
+  });
 
   useEffect(() => {
     return onMessage(handleMessage);
@@ -1620,6 +1670,10 @@ export default function App() {
       folderGitMap={folderGitMap}
       openspecGroupsMap={openspecGroupsMap}
       sessionOrderMap={sessionOrderMap}
+      endedTotalsMap={endedTotalsMap}
+      pagedCount={pagedCount}
+      connected={status === "connected"}
+      onSessionsPage={(cwd, offset) => send({ type: "sessions_page", cwd, offset })}
       onReorderSessions={(cwd, sessionIds) => {
         setSessionOrderMap((prev) => {
           const next = new Map(prev);

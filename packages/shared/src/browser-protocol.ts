@@ -295,6 +295,21 @@ export interface BrowserOpenSpecUpdateMessage {
 }
 
 /**
+ * Server → browser reply to one `openspec_get`. `final:false` is the immediate
+ * cold-cache placeholder (a final reply follows); `final:true` is the last
+ * reply for this `requestId`. `data` has the same shape as an `openspec_update`
+ * payload so the client applies it identically.
+ * See change: fix-connect-snapshot-frame-loss (D6).
+ */
+export interface OpenSpecGetResultMessage {
+  type: "openspec_get_result";
+  requestId: string;
+  cwd: string;
+  data: OpenSpecData;
+  final: boolean;
+}
+
+/**
  * Folder-HEAD branch update. Broadcast by the server folder-head poll /
  * watcher when a folder group key's git HEAD is first observed or changes.
  * `branch` is the branch name, the short SHA for detached HEAD, or `null`
@@ -507,6 +522,21 @@ export interface SessionsReorderedMessage {
 }
 
 /**
+ * Server → browser reply to one `sessions_page` request: the next batch of a
+ * session group's ended sessions that the snapshot window excluded. `order`
+ * lists the ids of `sessions` in the group's ended-sequence order; `hasMore`
+ * is true when further non-window ended sessions remain beyond this page.
+ * See change: fix-connect-snapshot-frame-loss (D5/D9).
+ */
+export interface SessionsPageResultMessage {
+  type: "sessions_page_result";
+  cwd: string;
+  sessions: DashboardSession[];
+  order: string[];
+  hasMore: boolean;
+}
+
+/**
  * Atomic on-connect snapshot of the server's full session registry and
  * per-cwd ordering. Replaces the legacy per-session `session_added` loop
  * + per-cwd `sessions_reordered` loop that the gateway used to emit on
@@ -526,6 +556,13 @@ export interface SessionsSnapshotMessage {
   sessions: DashboardSession[];
   /** cwd → ordered session ids. Only non-empty arrays are included. */
   orders: Record<string, string[]>;
+  /**
+   * Session group key → count of ended sessions for that group regardless of
+   * the snapshot window, for every group with ≥1 ended session. A group whose
+   * ended sessions all fall outside the window still renders a stub folder
+   * group from this count. See change: fix-connect-snapshot-frame-loss (D4).
+   */
+  endedTotals: Record<string, number>;
 }
 
 export interface PinnedDirsUpdatedMessage {
@@ -1017,7 +1054,9 @@ export type ServerToBrowserMessage =
   | BrowserUiDismissMessage
   | BrowserFilesListMessage
   | BrowserOpenSpecUpdateMessage
+  | OpenSpecGetResultMessage
   | BrowserGitHeadUpdateMessage
+  | SessionsPageResultMessage
   | BrowserOpenSpecGroupsUpdateMessage
   | BrowserGoalsUpdateMessage
   | BrowserModelsListMessage
@@ -1271,6 +1310,28 @@ export interface ListFilesToBrowserMessage {
 export interface OpenSpecRefreshBrowserMessage {
   type: "openspec_refresh";
   cwd: string;
+}
+
+/**
+ * Browser asks the server for one cwd's OpenSpec data, with a cold-cache pull
+ * (immediate placeholder, then one gated poll). `requestId` correlates the
+ * possibly two-phase replies. See change: fix-connect-snapshot-frame-loss (D6).
+ */
+export interface OpenSpecGetMessage {
+  type: "openspec_get";
+  requestId: string;
+  cwd: string;
+}
+
+/**
+ * Browser asks for the next batch of a session group's ended sessions that the
+ * snapshot window excluded. `offset` = number of non-window ended sessions the
+ * client already holds for the group. See change: fix-connect-snapshot-frame-loss (D5/D9).
+ */
+export interface SessionsPageMessage {
+  type: "sessions_page";
+  cwd: string;
+  offset: number;
 }
 
 export interface RenameSessionBrowserMessage {
@@ -1790,6 +1851,8 @@ export type BrowserToServerMessage =
   | FetchContentMessage
   | ListFilesToBrowserMessage
   | OpenSpecRefreshBrowserMessage
+  | OpenSpecGetMessage
+  | SessionsPageMessage
   | RenameSessionBrowserMessage
   | RequestModelsBrowserMessage
   | RequestProvidersBrowserMessage

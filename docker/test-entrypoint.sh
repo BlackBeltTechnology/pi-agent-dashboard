@@ -359,6 +359,9 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
   # summarize after a few small turns. Same standalone-module pattern as above.
   # See change: replay-compaction-boundary.
   node /app/scripts/seed-settings-compaction.mjs "${SETTINGS}"
+  # E2E-only seed: >120 ended sessions across dummy directories plus one stub dir
+  # outside the snapshot window for fix-connect-snapshot-frame-loss (task 8.1).
+  node /app/scripts/seed-sessions-window.mjs "${PI_DIR}/agent/sessions"
 
   # --- Faux role-preset: every role -> faux/faux-1 (change: add-flow-plugin-e2e-tests) ---
   # Delivery decision (design Open Question resolved): IMAGE-BAKED via this seed

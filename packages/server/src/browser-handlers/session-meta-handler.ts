@@ -1,10 +1,13 @@
 /**
- * Session metadata handlers: rename, hide, unhide, attach/detach proposal, fetch_content, list_sessions.
+ * Session metadata handlers: rename, hide, unhide, attach/detach proposal, fetch_content, list_sessions,
+ * sessions_page.
  */
 import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { normalizeTags } from "@blackbelt-technology/pi-dashboard-shared/tags.js";
 import { attachRenameTarget, detachShouldClearName } from "../openspec/proposal-attach-naming.js";
 import { resolveOrderKey } from "../session/resolve-order-key.js";
+import { stripNotifyLog } from "../session/memory-session-manager.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
 
 /**
@@ -316,6 +319,45 @@ export function handleFetchContent(
   if (event) {
     ctx.sendTo(ctx.ws, { type: "event", sessionId: msg.sessionId, seq: msg.seq, event });
   }
+}
+
+/**
+ * Rows per `sessions_page` reply (D5).
+ * See change: fix-connect-snapshot-frame-loss.
+ */
+export const SESSIONS_PAGE_SIZE = 50;
+
+/**
+ * Browser → server: the next batch of a group's ended sessions that the
+ * snapshot window excluded (D5). `pageable(g)` = `endedSequence(g)` minus a
+ * fresh `snapshotVisibleIds()` — exactly the ended sessions a fresh snapshot
+ * would NOT carry — so every window exclusion is reachable by paging and a
+ * user-reordered ended id outside the window sits at its sequence position.
+ * `cwd` is the session GROUP key (pin > worktree mainPath > cwd), matching
+ * `sessions_page_result.cwd` and `endedTotals`. Reply is unicast through
+ * `sendTo` (state class → `sendState`, key `sessions_page_result:<g>`).
+ * See change: fix-connect-snapshot-frame-loss (D5).
+ */
+export function handleSessionsPage(
+  msg: Extract<BrowserToServerMessage, { type: "sessions_page" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  const { ws, sessionManager, preferencesStore, sendTo } = ctx;
+  const pinned = preferencesStore?.getPinnedDirectories() ?? [];
+  const visible = sessionManager.snapshotVisibleIds(pinned);
+  const pageable = sessionManager.endedSequence(msg.cwd, pinned).filter((id) => !visible.has(id));
+  const slice = pageable.slice(msg.offset, msg.offset + SESSIONS_PAGE_SIZE);
+  const sessions = slice
+    .map((id) => sessionManager.get(id))
+    .filter((s): s is DashboardSession => s !== undefined)
+    .map(stripNotifyLog);
+  sendTo(ws, {
+    type: "sessions_page_result",
+    cwd: msg.cwd,
+    sessions,
+    order: sessions.map((s) => s.id),
+    hasMore: msg.offset + SESSIONS_PAGE_SIZE < pageable.length,
+  });
 }
 
 export function handleListSessions(

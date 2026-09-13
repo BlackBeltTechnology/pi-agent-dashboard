@@ -410,7 +410,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       return urls;
     },
   });
-  const sessionManager = createMemorySessionManager();
+  // Order manager FIRST: the session registry's snapshot window reads the
+  // persisted orders through it (buildSnapshot/endedSequence), so the
+  // registry takes it as a collaborator. Same underlying PreferencesStore
+  // the handlers mutate through, so both views stay live.
+  // See change: fix-connect-snapshot-frame-loss (D4).
+  const sessionOrderManager = createSessionOrderManager(preferencesStore);
+  const sessionManager = createMemorySessionManager(undefined, sessionOrderManager);
   const metaPersistence = createMetaPersistence();
   // Stable per-boot id stamped into the liveness marker so cold start can
   // attribute a `live:true` sidecar to a specific server run. A new value
@@ -425,7 +431,6 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // intent that ended the boot which owned it.
   // See change: fix-recovery-exit-intent.
   stampBootStart(liveEpoch);
-  const sessionOrderManager = createSessionOrderManager(preferencesStore);
   const pendingForkRegistry = createPendingForkRegistry();
   // Maps spawnToken → originating browser requestId. Surfaced as
   // session_added.spawnRequestId so the client can auto-select / dismiss

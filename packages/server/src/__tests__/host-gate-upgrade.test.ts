@@ -78,6 +78,43 @@ function dial(url: string, headers: Record<string, string> = {}): Promise<DialRe
   });
 }
 
+/**
+ * Dial and collect frames until `sessions_snapshot` arrives. It is the LAST
+ * bootstrap frame since change fix-connect-snapshot-frame-loss (D3) — the small
+ * state frames precede it — so the first frame alone no longer proves the
+ * bootstrap ran. Resolves null on timeout or refusal.
+ */
+function dialUntilSnapshot(url: string, headers: Record<string, string> = {}): Promise<string[] | null> {
+  return new Promise((resolve) => {
+    const frames: string[] = [];
+    const ws = new WebSocket(url, { headers });
+    let settled = false;
+    const done = (out: string[] | null) => {
+      if (settled) return;
+      settled = true;
+      try {
+        ws.close();
+      } catch {
+        /* best-effort */
+      }
+      resolve(out);
+    };
+    ws.on("open", () => {
+      const timer = setTimeout(() => done(frames.length > 0 ? frames : null), 1500);
+      ws.on("message", (data) => {
+        frames.push(String(data));
+        if (String(data).includes("sessions_snapshot")) {
+          clearTimeout(timer);
+          done(frames);
+        }
+      });
+    });
+    ws.on("unexpected-response", () => done(null));
+    ws.on("error", () => done(null));
+    setTimeout(() => done(null), 5000);
+  });
+}
+
 const isStatus = (r: DialResult, code: number) => r.kind === "status" && r.status === code;
 
 async function mintTicket(httpPort: number, scope: WsRouteScope): Promise<string> {
@@ -189,11 +226,13 @@ describe("#X7 WS enforce regression", () => {
     handle = await createTestServer();
     const port = handle.httpPort;
 
-    const r = await dial(`ws://127.0.0.1:${port}/ws`, {
+    const frames = await dialUntilSnapshot(`ws://127.0.0.1:${port}/ws`, {
       host: `mac.local:${port}`,
       origin: `http://mac.local:${port}`,
     });
-    expect(r.kind).toBe("open");
-    expect(r.kind === "open" && r.first).toContain("sessions_snapshot");
+    if (frames === null) throw new Error("bootstrap must run incl. the trailing sessions_snapshot");
+    expect(frames.some((f) => f.includes("sessions_snapshot"))).toBe(true);
+    // The snapshot is the LAST bootstrap frame — every earlier frame precedes it.
+    expect(frames.findIndex((f) => f.includes("sessions_snapshot"))).toBe(frames.length - 1);
   }, 30000);
 });
