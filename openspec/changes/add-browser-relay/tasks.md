@@ -147,6 +147,42 @@ Unchecked in groups 2–3 (each needs a module not yet written): 2.2b/8.4 (manua
 spike), 2.5 (WS routes), 2.9 (REST routes), 2.10b env wiring, 2.11 status
 broadcast, 3.4/3.6 (status coalescing + gateway handlers), 3.7 (measured perf).
 
+### Remaining work — ordered, for a resuming session
+
+`ship-it` is idempotent on filesystem reality, so re-invoking it resumes here.
+Everything below is unwritten; do them in this order because each unblocks the next:
+
+1. **`server/ws-routes.ts`** (task 2.5) — `ctx.registerWsRoute` for `browser-ext`
+   (`admitOrigins: ["chrome-extension://mmlmfjhmonkocbjadbfplnigmagldckm"]`) and
+   `browser-cdp` (empty `admitOrigins`, reject any request carrying `Origin`).
+   `handleUpgrade` parses the guid from the path, calls
+   `manager.attachExtension|attachCdp`, and returns 404 for an unknown guid;
+   `meta.trackSocket` on the accepted socket. Unblocks 7.10, 7.21, 7.53.
+2. **`server/status.ts`** (tasks 2.11, 3.4, 3.6) — `browser_relay_status`
+   broadcast (instances + per-tab state + `auditSeq`), coalesced to ≤1 per 500 ms
+   on audit append and emitted on every instance/tab change; the three
+   `registerBrowserHandler` handlers (`browser_relay_subscribe|unsubscribe|input`)
+   keyed `{instanceId, tabId}` with socket-close = unsubscribe; relay lifecycle
+   log lines. Unblocks 7.22, 7.38, 7.55 and the whole client.
+3. **`server/routes.ts`** (task 2.9) — the six `/api/browser/*` routes on
+   `ctx.fastify` with everything the manager already returns, plus
+   `redactPluginConfigForClient` for the profile rows' `hasToken`. Unblocks
+   7.17's route half, 7.52, e2e.
+4. **`server/index.ts`** wiring + `PI_BROWSER_RELAY_FAKE=1` activation seeding
+   (task 2.10b) + teardown on plugin disable. The plugin must be loadable with
+   `defaultEnabled:false` and flip on via `PUT /api/browser/enabled`.
+5. **Group 4 client** (`BrowserSettings`, `AuditList`, `LiveViewTile`, `i18n`)
+   — spawn `react-expert` per the subagent checkpoint (≥3 components + a new
+   subscription hook). Then 4.4/4.5.
+6. **Group 5 skill routing** (`references/dashboard-relay.md`, `SKILL.md`).
+7. **Group 6** — `security-hardening` pass (`Audit` subagent), docs via
+   `DocScribe`, then the ship-it enforcers (4.4) and the `@review` gate (4.5).
+8. **Group 7 remaining** — 7.25 (literal ≥2^30 tap-id assertion), 7.26 (two-tab
+   frame filtering), 7.28 (fake frame rate), 7.30/7.58 (skill docs), 7.32–7.36
+   and 7.59–7.61 (e2e), 7.39 (churn soak), 7.41–7.43 (RTL), 7.1–7.8
+   (plugin-ws-route integration, mostly already covered by group 1's committed
+   tests — verify before authoring duplicates).
+
 ## 3. Screencast tap + gateway messages (spec `browser-relay` tap requirements, design D5–D7)
 
 - [x] 3.1 Add `BrowserRelaySubscribe|Unsubscribe|InputMessage` to `BrowserToServerMessage` and `BrowserRelayFrame|StatusMessage` to `ServerToBrowserMessage` in `packages/shared/src/browser-protocol.ts`. Verify: typecheck; existing union exhaustiveness test lists the new members; a serialization test asserts no `guid`/`token` field exists on frame/status types.
