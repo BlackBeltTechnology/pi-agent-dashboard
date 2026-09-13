@@ -83,6 +83,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `openspec-board-drop-indicator.spec.ts` | L3 spec (change: fix-openspec-board-drop-targeting). Drag-time indication + cost:… → see `openspec-board-drop-indicator.spec.ts.AGENTS.md` |
 | `openspec-board-drop.spec.ts` | L3 spec (change: fix-openspec-board-drop-targeting). Drop resolution + commit:… → see `openspec-board-drop.spec.ts.AGENTS.md` |
 | `openspec-board-worktree-availability.spec.ts` | L3 spec (test-plan #F6, change: fix-openspec-board-worktree-button-gating). → see `openspec-board-worktree-availability.spec.ts.AGENTS.md` |
+| `openspec-connect-coverage.spec.ts` | L3 for F1/F2 (fix-connect-snapshot-frame-loss): 64 KB `maxWsBufferBytes` connect delivers every folder/session OPENSPEC subcard within 5 s with no transcript drops; survives `POST /api/restart` reconnect without duplicates. |
 | `openspec-init-affordances-folder.spec.ts` | L3 FOLDER-SECTION slice of add-openspec-init-affordances (#F1–F3, F12–F17, X9): ABSENT offer + switch, height… → see `openspec-init-affordances-folder.spec.ts.AGENTS.md` |
 | `openspec-locality-gate.spec.ts` | L3 spec (change: scope-openspec-auto-attach-to-session-cwd). → see `openspec-locality-gate.spec.ts.AGENTS.md` |
 | `optimistic-prompt.spec.ts` | Playwright E2E for optimistic-prompt-progress. Two faux round-trip tests. → see `optimistic-prompt.spec.ts.AGENTS.md` |
@@ -118,6 +119,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `session-reap.spec.ts` | L3 gate on the reap fixture itself, driven headless over `BusClient` (no browser page); port from… → see `session-reap.spec.ts.AGENTS.md` |
 | `session-spawn.spec.ts` | Scenario spec 5.1, authoritative WS round-trip. Clears onboarding gate, clicks `onboarding-step-2-cta` opens… → see `session-spawn.spec.ts.AGENTS.md` |
 | `session-tags.spec.ts` | E2E for change add-session-tags (task 7.2). Spawns a fresh git session (`spawnFreshGitSession`), selects it,… → see `session-tags.spec.ts.AGENTS.md` |
+| `sessions-page-stub-group.spec.ts` | L3 for F3 (fix-connect-snapshot-frame-loss): clicking the out-of-window stub group's ended expander pages <=50 more rows and hides "more" once held == label. |
 | `settings-default-model-catalogue.spec.ts` | L3 gate on the zero-session Default Model picker (test-plan #F4): stubs `GET /api/models`, asserts populate → save → reload, plus the 503 sibling callout. |
 | `severity-contrast.spec.ts` | L3 gate for `unify-message-severity-colors` + `unify-retry-visibility` (card retry-label contrast). → see `severity-contrast.spec.ts.AGENTS.md` |
 | `skill-provenance.spec.ts` | L3 for the Resources skills grid (F1-F10, X7). Fulfils `/api/pi-resources` with crafted payloads and drives the… → see `skill-provenance.spec.ts.AGENTS.md` |

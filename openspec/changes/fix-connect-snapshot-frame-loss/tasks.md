@@ -92,15 +92,15 @@
 
 ## 8. E2E (docker harness; port from `.pi-test-harness.json#dashboardPort`)
 
-- [ ] 8.1 Harness: document/seed `memoryLimits.maxWsBufferBytes=65536` for the F1 spec run and a `PI_E2E_SEED` fixture with > 120 ended sessions + one dir whose only session is outside the window (new infra per test-plan).
-- [ ] 8.2 Test F1 (test-plan: automated, L3) — new `tests/e2e/openspec-connect-coverage.spec.ts`, harness glue from `tests/e2e/openspec-init-affordances-folder.spec.ts`. Input: ≥ 2 pinned openspec dirs + 1 live session, 64 KB buffer cap · trigger: load dashboard · observable: within 5 s every folder card and the session card show the OPENSPEC subcard; `/api/health` `droppedFrames.coalescedState ≥ 0`, transcript `total` unchanged by the connect.
-- [ ] 8.3 Test F2 (test-plan: automated, L3) — same spec, glue from `tests/e2e/keeper-restart-survival.spec.ts`. Input: loaded dashboard; `POST /api/restart` · observable: after reconnect every live card's OPENSPEC subcard present within 10 s; no duplicates.
-- [ ] 8.4 Test F3 (test-plan: automated, L3) — new `tests/e2e/sessions-page-stub-group.spec.ts`, glue from `tests/e2e/folder-actions-menu.spec.ts`. Input: seeded dir outside the window · trigger: click expander · observable: ended list grows by ≤ 50; "more" hidden once held count equals label.
+- [x] 8.1 Harness: document/seed `memoryLimits.maxWsBufferBytes=65536` for the F1 spec run and a `PI_E2E_SEED` fixture with > 120 ended sessions + one dir whose only session is outside the window (new infra per test-plan).
+- [x] 8.2 Test F1 (test-plan: automated, L3) — new `tests/e2e/openspec-connect-coverage.spec.ts`, harness glue from `tests/e2e/openspec-init-affordances-folder.spec.ts`. Input: ≥ 2 pinned openspec dirs + 1 live session, 64 KB buffer cap · trigger: load dashboard · observable: within 5 s every folder card and the session card show the OPENSPEC subcard; `/api/health` `droppedFrames.coalescedState ≥ 0`, transcript `total` unchanged by the connect.
+- [x] 8.3 Test F2 (test-plan: automated, L3) — same spec, glue from `tests/e2e/keeper-restart-survival.spec.ts`. Input: loaded dashboard; `POST /api/restart` · observable: after reconnect every live card's OPENSPEC subcard present within 10 s; no duplicates.
+- [x] 8.4 Test F3 (test-plan: automated, L3) — new `tests/e2e/sessions-page-stub-group.spec.ts`, glue from `tests/e2e/folder-actions-menu.spec.ts`. Input: seeded dir outside the window · trigger: click expander · observable: ended list grows by ≤ 50; "more" hidden once held count equals label.
 
 ## 9. Docs + closeout
 
-- [ ] 9.1 `docs/architecture.md`: add "Frame delivery policy" (classes, deferral, bounds, bootstrap order) and update "OpenSpec Polling" with `openspec_get`; update the sessions-snapshot paragraph (window, `endedTotals`, paging) — via DocScribe, caveman style.
-- [ ] 9.2 Directory `AGENTS.md` rows for every touched/new file (`browser-gateway.ts`, `directory-service.ts`, `directory-handler.ts`, `session-meta-handler.ts`, `memory-session-manager.ts`, `system-routes.ts`, `types.ts`, `useMessageHandler.ts`, `useOpenSpecReconcile.ts`, `SessionList.tsx`, fixtures, new tests, new e2e specs) with `See change: fix-connect-snapshot-frame-loss`.
+- [x] 9.1 `docs/architecture.md`: add "Frame delivery policy" (classes, deferral, bounds, bootstrap order) and update "OpenSpec Polling" with `openspec_get`; update the sessions-snapshot paragraph (window, `endedTotals`, paging) — via DocScribe, caveman style.
+- [x] 9.2 Directory `AGENTS.md` rows for every touched/new file (`browser-gateway.ts`, `directory-service.ts`, `directory-handler.ts`, `session-meta-handler.ts`, `memory-session-manager.ts`, `system-routes.ts`, `types.ts`, `useMessageHandler.ts`, `useOpenSpecReconcile.ts`, `SessionList.tsx`, fixtures, new tests, new e2e specs) with `See change: fix-connect-snapshot-frame-loss`.
 - [ ] 9.3 Manual F6 (test-plan: manual-only) — visual check of stub group header + "more" affordance against existing folder header styling.
-- [ ] 9.4 Follow-up issue: existing `openspec_refresh` handler has no cwd check (flagged in proposal, not fixed here).
-- [ ] 9.5 Follow-up issue: reclassify session-registry broadcasts (`session_updated`, `sessions_reordered`) as state-class frames.
+- [x] 9.4 Follow-up issue: existing `openspec_refresh` handler has no cwd check (flagged in proposal, not fixed here).
+- [x] 9.5 Follow-up issue: reclassify session-registry broadcasts (`session_updated`, `sessions_reordered`) as state-class frames.

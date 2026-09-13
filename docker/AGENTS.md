@@ -18,7 +18,7 @@ Files in this directory. One row per file. Non-source area. Subdir files owned b
 | `README.md` | User guide. Quick-start, config table, path-identical workspace mounts, volume perf profiles, gateway access, dev mode, Electron remote mode. See change: docker-packaging. |
 | `supervise-daemon.sh` | `supervise_daemon <pidfile> [label]` — keeps PID 1 alive for a DETACHED dashboard daemon, sourced by BOTH… → see `supervise-daemon.sh.AGENTS.md` |
 | `test-down.sh` | Teardown. Re-derives `COMPOSE_PROJECT_NAME` from `$PWD` via lib-ports.sh cksum. → see `test-down.sh.AGENTS.md` |
-| `test-entrypoint.sh` | Test entrypoint wrapper. `HOST_CWD` set → mounts overlayfs (lower `/mnt/test-lower` ro, upper/work tmpfs) at… → see `test-entrypoint.sh.AGENTS.md` |
+| `test-entrypoint.sh` | Test entrypoint wrapper. `HOST_CWD` set → mounts overlayfs (lower `/mnt/test-lower` ro, upper/work tmpfs) at… → see `test-entrypoint.sh.AGENTS.md` Seeds the windowed-session fixture via `scripts/seed-sessions-window.mjs` under `PI_E2E_SEED`. See change: fix-connect-snapshot-frame-loss. |
 | `test-up.sh` | Spin-up. Sources lib-ports.sh. Exports `HOST_CWD=$PWD`. Derives stable port pair + `COMPOSE_PROJECT_NAME`… → see `test-up.sh.AGENTS.md` |
 | `TESTING.md` | Runbook for disposable isolated test harness. Quick start. → see `TESTING.md.AGENTS.md` |
 | `up.sh` | Workspace launcher. Parses `PI_WORKSPACES` path-separator list, one path-identical `-v dir:dir` RW bind per… → see `up.sh.AGENTS.md` |
