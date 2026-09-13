@@ -49,9 +49,9 @@
 
 ## 8. Client — folder surfaces (S3/S4)
 
-- [ ] 8.1 Implement `FolderMcpSection` `SlotPill` for `sidebar-folder-section` and `worktree-card-section` (count · off · error marker, loading placeholder, muted "not tracked" state on a 403 cached per cwd and invalidated when the session or pinned-folder list changes, navigates to `/folder/<encodedCwd>/mcp`, worktree uses its own cwd) and verify component tests
-- [ ] 8.2 Implement `FolderMcpPage` route (403 from the server → not-allowed empty state, no retry, nothing rendered; 504 → timeout error state with a retry action issuing exactly one request; pill shows the error marker naming the timeout on 504), inherited hints, override chips, folder-scope switches, adapter read-only banner; verify component tests
-- [ ] 8.3 Implement "Override…" showing effective values and writing only changed keys to the folder layer, and chip removal with an undo toast that re-submits the raw entry returned by `DELETE`; verify tests incl. byte-equivalent restoration of an entry with unknown keys
+- [x] 8.1 Implement `FolderMcpSection` `SlotPill` for `sidebar-folder-section` and `worktree-card-section` (count · off · error marker, loading placeholder, muted "not tracked" state on a 403 cached per cwd and invalidated when the session or pinned-folder list changes, navigates to `/folder/<encodedCwd>/mcp`, worktree uses its own cwd) and verify component tests
+- [x] 8.2 Implement `FolderMcpPage` route (403 from the server → not-allowed empty state, no retry, nothing rendered; 504 → timeout error state with a retry action issuing exactly one request; pill shows the error marker naming the timeout on 504), inherited hints, override chips, folder-scope switches, adapter read-only banner; verify component tests
+- [x] 8.3 Implement "Override…" showing effective values and writing only changed keys to the folder layer, and chip removal with an undo toast that re-submits the raw entry returned by `DELETE`; verify tests incl. byte-equivalent restoration of an entry with unknown keys
 - [ ] 8.4 Implement mobile presentation (bottom-sheet editor, display-only chips with "Remove override" in the sheet) and verify a Playwright spec at 390px
 
 ## 9. Integration + docs

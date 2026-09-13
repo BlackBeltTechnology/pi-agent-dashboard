@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AdapterVerdict } from "../core/types.js";
-import { type EffectiveResponse, fetchEffective } from "./api.js";
+import { ApiError, type EffectiveResponse, fetchEffective } from "./api.js";
 
 /**
  * Fallback floor, used ONLY when a caller has no verdict at all. The real
@@ -27,8 +27,28 @@ const FALLBACK_ADAPTER_FLOOR = "2.20.0";
 const cache = new Map<string, EffectiveResponse>();
 const inflight = new Map<string, Promise<EffectiveResponse>>();
 
+/**
+ * Per-cwd 403 cache. The server is the ONLY source of cwd admission (the slot
+ * contract passes `{cwd,label}` only), so once a cwd is refused there is no
+ * point re-asking until the client's session / pinned-folder list changes —
+ * that list is what can turn an unknown folder into a known one. A refused key
+ * therefore short-circuits `loadEffective` and re-renders the not-tracked state
+ * without touching the network.
+ */
+const notTracked = new Map<string, ApiError>();
+
 function keyOf(cwd?: string): string {
   return cwd ?? "";
+}
+
+/** The cached 403 for a cwd, when the last request was refused. */
+export function notTrackedError(cwd?: string): ApiError | undefined {
+  return notTracked.get(keyOf(cwd));
+}
+
+/** Test-only: drop every cached 403 so each test starts from a clean slate. */
+export function __resetNotTrackedCache(): void {
+  notTracked.clear();
 }
 
 /**
@@ -41,6 +61,8 @@ export function loadEffective(
 ): Promise<EffectiveResponse> {
   const key = keyOf(cwd);
   if (!opts.force) {
+    const refused = notTracked.get(key);
+    if (refused) return Promise.reject(refused);
     const pending = inflight.get(key);
     if (pending) return pending;
     const hit = cache.get(key);
@@ -53,11 +75,14 @@ export function loadEffective(
       if (inflight.get(key) === request) {
         cache.set(key, view);
         inflight.delete(key);
+        notTracked.delete(key);
       }
       return view;
     },
     (err: unknown) => {
       if (inflight.get(key) === request) inflight.delete(key);
+      // Remember a cwd refusal so a remount / sibling pill does not re-ask.
+      if (err instanceof ApiError && err.isNotAllowed) notTracked.set(key, err);
       throw err;
     },
   );
@@ -65,11 +90,12 @@ export function loadEffective(
   return request;
 }
 
-/** Drop the cached view for one key (global when omitted) after a write. */
+/** Drop the cached view — and any cached 403 — for one key after a write. */
 export function invalidateEffective(cwd?: string): void {
   const key = keyOf(cwd);
   cache.delete(key);
   inflight.delete(key);
+  notTracked.delete(key);
 }
 
 export interface EffectiveState {

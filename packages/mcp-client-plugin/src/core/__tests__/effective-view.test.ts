@@ -175,6 +175,43 @@ describe("effective view — secret redaction", () => {
     const x = view.servers.find((s) => s.name === "x") as { entry: Record<string, unknown> };
     expect(x.entry.bearerToken).toEqual({ redacted: true });
   });
+
+  // The folder surface cannot tell an override from an inheritance from the
+  // MERGED entry alone: a non-secret inherited key looks identical to an own
+  // one. `own` is what makes the override chip + per-field hint possible.
+  it("exposes the writable layer's own entry, unmerged", async () => {
+    const merged = { mcpServers: { x: { command: "/bin/x", lifecycle: "lazy", disabled: true } } };
+    const io = makeIO({
+      [GLOBAL]: JSON.stringify({ mcpServers: { x: { command: "/bin/x", lifecycle: "lazy" } } }),
+      [FOLDER]: JSON.stringify({ mcpServers: { x: { disabled: true } } }),
+    });
+    const port = makePort({
+      discovered: [d(GLOBAL), d(FOLDER)],
+      merged: merged as never,
+      prov: [
+        ["x", { path: GLOBAL, kind: "user" }],
+        ["x", { path: FOLDER, kind: "project" }],
+      ],
+    });
+    const view = await reader(io, port).getEffectiveView(PROJECT_SCOPE, { timeoutMs: 1000 });
+    const x = view.servers.find((s) => s.name === "x") as {
+      entry: Record<string, unknown>;
+      own?: Record<string, unknown>;
+    };
+    // Merged entry carries both layers …
+    expect(x.entry).toMatchObject({ command: "/bin/x", disabled: true });
+    // … while `own` is ONLY the folder layer's entry, so the client can name
+    // `disabled` as the override and `command`/`lifecycle` as inherited.
+    expect(x.own).toEqual({ disabled: true });
+  });
+
+  it("omits `own` for a server the writable layer does not define", async () => {
+    const io = makeIO({ [SHARED]: JSON.stringify({ mcpServers: { x: enriched } }) });
+    const port = makePort({ discovered: [d(SHARED)], merged: { mcpServers: { x: enriched } } });
+    const view = await reader(io, port).getEffectiveView(PROJECT_SCOPE, { timeoutMs: 1000 });
+    const x = view.servers.find((s) => s.name === "x") as { own?: unknown };
+    expect(x.own).toBeUndefined();
+  });
 });
 
 describe("effective view — global scope isolation + settings", () => {

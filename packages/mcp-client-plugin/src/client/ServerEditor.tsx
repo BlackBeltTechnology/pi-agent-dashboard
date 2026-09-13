@@ -21,6 +21,7 @@
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
+import type { Scope } from "../core/types.js";
 import { ApiError, fetchSchema, patchServer, scopeToWire } from "./api.js";
 import { invalidateEffective } from "./hooks.js";
 import { transportOf } from "./ServerList.js";
@@ -57,6 +58,7 @@ const COMMON_FIELDS = new Set([
   "idleTimeout",
 ]);
 const TABS: Transport[] = ["command", "url", "socket"];
+const EMPTY_FIELDS: ReadonlySet<string> = new Set();
 
 const MASK = "••••••••";
 const INPUT_CLS =
@@ -71,10 +73,20 @@ export interface ServerEditorProps {
   name: string | null;
   /** Baseline: the merged effective entry, redaction sentinels included. `{}` for add. */
   entry: Record<string, unknown>;
-  /** The Pi-global layer defines the server (edit); `false` → View + Override. */
+  /** The scope's writable Pi layer defines the server (edit); `false` → View + Override. */
   editable: boolean;
   /** Page-wide read-only (adapter not ok): fields render as text, Save disabled. */
   readOnly: boolean;
+  /** Write scope (default global). Folder page passes `{ kind: "project", cwd }`. */
+  scope?: Scope;
+  /** Force the initial mode; the folder page's "Override…" opens straight in edit. */
+  initialMode?: "view" | "edit";
+  /** Folder page: per-field inherited hints (omitted when unknowable). */
+  inherited?: { fields: ReadonlySet<string>; layer: string };
+  /** Folder page: render "Remove override" (deletes the folder-layer key). */
+  onRemoveOverride?: () => void;
+  /** Folder page: use `mcp-folder-editor` as the dialog testid. */
+  dialogTestId?: string;
   onClose: () => void;
   /** Called after a successful write so the page re-fetches. */
   onChanged: () => void;
@@ -90,11 +102,17 @@ interface EditorCtx {
   setRawText: (key: string, value: string) => void;
   /** Fields render as text, not inputs (View variant, or page-wide read-only). */
   viewOnly: boolean;
-  /** Overriding a server the Pi-global layer does not define. */
+  /** Overriding a server the scope's Pi layer does not define. */
   overrideMode: boolean;
   atomicNotes: ReadonlySet<string>;
   onAtomicOverride: (field: FieldSchema) => void;
   errors: Record<string, string>;
+  /** Folder page only: fields the folder entry does not define, with their layer. */
+  inheritedFields: ReadonlySet<string>;
+  inheritedLayer: string | null;
+  /** Folder page only: the `<server>.<field>` hint testid prefix. */
+  hintServer: string;
+  folderPage: boolean;
 }
 
 type Translate = ReturnType<typeof useT>;
@@ -147,6 +165,11 @@ export function ServerEditor({
   entry,
   editable,
   readOnly,
+  scope = { kind: "global" },
+  initialMode,
+  inherited,
+  onRemoveOverride,
+  dialogTestId,
   onClose,
   onChanged,
 }: ServerEditorProps): React.ReactElement {
@@ -155,7 +178,7 @@ export function ServerEditor({
   const [schemaError, setSchemaError] = useState<Error | null>(null);
   const [draft, setDraft] = useState<Record<string, unknown>>(() => clone(entry));
   const [tab, setTab] = useState<Transport>(() => transportOf(entry) ?? "command");
-  const [mode, setMode] = useState<"view" | "edit">(editable ? "edit" : "view");
+  const [mode, setMode] = useState<"view" | "edit">(initialMode ?? (editable ? "edit" : "view"));
   const [revealed, setRevealed] = useState<ReadonlySet<string>>(() => new Set());
   const [raw, setRaw] = useState<Record<string, string>>({});
   const [atomicNotes, setAtomicNotes] = useState<ReadonlySet<string>>(() => new Set());
@@ -225,8 +248,8 @@ export function ServerEditor({
     const { set, unset } = computePatch(draft, entry);
     setSaving(true);
     try {
-      await patchServer(target, { ...scopeToWire({ kind: "global" }), set, unset });
-      invalidateEffective();
+      await patchServer(target, { ...scopeToWire(scope), set, unset });
+      invalidateEffective(scope.kind === "project" ? scope.cwd : undefined);
       onChanged();
       onClose();
     } catch (e) {
@@ -248,6 +271,7 @@ export function ServerEditor({
   const summaryText = summary ?? schemaMessage;
 
   const title = editorTitle(t, mode, name);
+  const folderPage = scope.kind === "project";
 
   const ctx: EditorCtx = {
     draft,
@@ -262,6 +286,10 @@ export function ServerEditor({
     atomicNotes,
     onAtomicOverride: activateAtomicOverride,
     errors,
+    inheritedFields: inherited?.fields ?? EMPTY_FIELDS,
+    inheritedLayer: inherited?.layer ?? null,
+    hintServer: name ?? serverName,
+    folderPage,
   };
 
   return (
@@ -279,7 +307,7 @@ export function ServerEditor({
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}
-        data-testid="mcp-editor-dialog"
+        data-testid={dialogTestId ?? "mcp-editor-dialog"}
         onKeyDown={(e) => {
           if (e.key === "Escape") onClose();
         }}
@@ -287,34 +315,81 @@ export function ServerEditor({
       >
         <h2 className="text-sm font-semibold m-0 text-[var(--text-primary)]">{title}</h2>
 
-        {name === null && !viewOnly && (
-          <EditorNameField value={serverName} onChange={setServerName} error={errors.name} />
-        )}
-
-        {summaryText && <EditorSummary text={summaryText} errors={errors} />}
-
-        {!schema && <EditorSkeleton />}
-
-        {schema && (
-          <>
-            <TransportTabs tab={tab} viewOnly={viewOnly} onSelect={switchTab} />
-            <div className="space-y-2">
-              <FieldRows fields={visible.filter((f) => COMMON_FIELDS.has(f.name))} ctx={ctx} />
-            </div>
-            <AdvancedFields visible={visible} ctx={ctx} />
-          </>
-        )}
-
-        <EditorFooter
+        <EditorDialogBody
+          title={title}
+          name={name}
+          viewOnly={viewOnly}
+          serverName={serverName}
+          onServerName={setServerName}
+          errors={errors}
+          summaryText={summaryText}
+          schema={schema}
+          tab={tab}
+          onTab={switchTab}
+          visible={visible}
+          ctx={ctx}
           mode={mode}
           readOnly={readOnly}
           saving={saving}
           onSave={save}
           onOverride={() => setMode("edit")}
+          onRemoveOverride={onRemoveOverride}
           onClose={onClose}
         />
       </div>
     </div>
+  );
+}
+
+interface EditorDialogBodyProps {
+  title: string;
+  name: string | null;
+  viewOnly: boolean;
+  serverName: string;
+  onServerName: (value: string) => void;
+  errors: Record<string, string>;
+  summaryText: string | null;
+  schema: Record<string, unknown> | null;
+  tab: Transport;
+  onTab: (next: Transport) => void;
+  visible: FieldSchema[];
+  ctx: EditorCtx;
+  mode: "view" | "edit";
+  readOnly: boolean;
+  saving: boolean;
+  onSave: () => Promise<void>;
+  onOverride: () => void;
+  onRemoveOverride?: () => void;
+  onClose: () => void;
+}
+
+function EditorDialogBody(props: EditorDialogBodyProps): React.ReactElement {
+  return (
+    <>
+      {props.name === null && !props.viewOnly && (
+        <EditorNameField value={props.serverName} onChange={props.onServerName} error={props.errors.name} />
+      )}
+      {props.summaryText && <EditorSummary text={props.summaryText} errors={props.errors} />}
+      {!props.schema && <EditorSkeleton />}
+      {props.schema && (
+        <>
+          <TransportTabs tab={props.tab} viewOnly={props.viewOnly} onSelect={props.onTab} />
+          <div className="space-y-2">
+            <FieldRows fields={props.visible.filter((f) => COMMON_FIELDS.has(f.name))} ctx={props.ctx} />
+          </div>
+          <AdvancedFields visible={props.visible} ctx={props.ctx} />
+        </>
+      )}
+      <EditorFooter
+        mode={props.mode}
+        readOnly={props.readOnly}
+        saving={props.saving}
+        onSave={props.onSave}
+        onOverride={props.onOverride}
+        onRemoveOverride={props.onRemoveOverride}
+        onClose={props.onClose}
+      />
+    </>
   );
 }
 
@@ -453,6 +528,7 @@ function EditorFooter({
   saving,
   onSave,
   onOverride,
+  onRemoveOverride,
   onClose,
 }: {
   mode: "view" | "edit";
@@ -460,11 +536,23 @@ function EditorFooter({
   saving: boolean;
   onSave: () => Promise<void>;
   onOverride: () => void;
+  onRemoveOverride?: () => void;
   onClose: () => void;
 }): React.ReactElement {
   const t = useT();
   return (
     <div data-testid="mcp-editor-footer" className="flex items-center justify-end gap-2 pt-1">
+      {onRemoveOverride && (
+        <button
+          type="button"
+          onClick={onRemoveOverride}
+          disabled={readOnly}
+          data-testid="mcp-folder-remove-override"
+          className={`${BTN_CLS} mr-auto border-[var(--status-error,#f87171)] text-[var(--status-error,#f87171)]`}
+        >
+          {t("mcpFolderRemoveOverride", undefined, "Remove override")}
+        </button>
+      )}
       {mode === "view" ? (
         <button
           type="button"
@@ -496,10 +584,21 @@ function EditorFooter({
 // ─── field rendering ─────────────────────────────────────────────────────────
 
 function FieldRow({ field, ctx }: { field: FieldSchema; ctx: EditorCtx }): React.ReactElement {
+  const t = useT();
   const error = ctx.errors[field.name];
+  const inheritedLayer = ctx.inheritedLayer;
+  const inherited = ctx.folderPage && inheritedLayer !== null && ctx.inheritedFields.has(field.name);
   return (
     <div data-testid={`mcp-field-${field.name}`} className="space-y-1">
       <span className="block text-[11px] text-[var(--text-secondary)]">{field.name}</span>
+      {inherited && (
+        <span
+          data-testid={`mcp-folder-inherited-${ctx.hintServer}.${field.name}`}
+          className="block text-[10px] text-[var(--text-tertiary)]"
+        >
+          {t("mcpFolderInherited", { layer: inheritedLayer }, `inherited from ${inheritedLayer}`)}
+        </span>
+      )}
       <FieldControl field={field} ctx={ctx} />
       {ctx.atomicNotes.has(field.name) && <AtomicNote field={field} ctx={ctx} />}
       {error && (

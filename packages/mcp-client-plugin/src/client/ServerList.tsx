@@ -17,11 +17,15 @@ import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useEffect, useState } from "react";
 import type { EffectiveServerView, LayerParseError, ProvenanceLayer } from "../core/effective-view.js";
-import { ApiError, setServerDisabled } from "./api.js";
+import type { Scope } from "../core/types.js";
+import { ApiError, scopeToWire, setServerDisabled } from "./api.js";
+import { overrideFieldsOf } from "./folder-view.js";
 import { invalidateEffective } from "./hooks.js";
 import type { Transport } from "./schema.js";
 
 export type { Transport };
+
+const GLOBAL_SCOPE: Scope = { kind: "global" };
 
 /** The transport a `ServerEntry` declares, or null when it declares none. */
 export function transportOf(entry: Record<string, unknown>): Transport | null {
@@ -40,10 +44,10 @@ export interface Badge {
 
 function badgeFor(p: ProvenanceLayer): Badge {
   if (p.layer === "pi-global") return { text: "Pi global", locked: false, writable: true };
+  if (p.layer === "pi-folder") return { text: "Pi folder", locked: false, writable: true };
   if (p.layer === "shared") return { text: "Shared", locked: true, writable: false };
-  // `other` names its source kind; a project layer is also read-only here.
-  const kind = p.layer === "pi-folder" ? "project" : (p.importKind ?? p.label);
-  return { text: `Other: ${kind}`, locked: true, writable: false };
+  // `other` names its source kind (a package/agent-plugin source has no file).
+  return { text: `Other: ${p.importKind ?? p.label}`, locked: true, writable: false };
 }
 
 /** One badge per defining layer, Pi-owned layers first. */
@@ -58,9 +62,10 @@ function rank(layer: ProvenanceLayer["layer"]): number {
   return 3;
 }
 
-/** A server is editable at global scope iff the Pi-global layer defines it. */
-export function isEditable(server: EffectiveServerView): boolean {
-  return server.provenance.some((p) => p.layer === "pi-global");
+/** A server is editable at a scope iff that scope's writable Pi layer defines it. */
+export function isEditable(server: EffectiveServerView, scope: Scope = GLOBAL_SCOPE): boolean {
+  const layer = scope.kind === "project" ? "pi-folder" : "pi-global";
+  return server.provenance.some((p) => p.layer === layer);
 }
 
 function LockIcon(): React.ReactElement {
@@ -78,21 +83,77 @@ function LockIcon(): React.ReactElement {
   );
 }
 
+/** The folder page's mutating row action is locked by the adapter gate; global View stays reachable. */
+function actionDisabled(folder: boolean, readOnly: boolean): boolean {
+  return folder && readOnly;
+}
+
+/** The folder page's removable override chip (display-only when `removable` is false). */
+function OverrideChip({
+  name,
+  fields,
+  removable,
+  onRemove,
+}: {
+  name: string;
+  fields: string[];
+  removable: boolean;
+  onRemove?: (name: string) => void;
+}): React.ReactElement | null {
+  if (fields.length === 0) return null;
+  const canRemove = removable && onRemove !== undefined;
+  return (
+    <span
+      data-testid={`mcp-folder-override-chip-${name}`}
+      className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full border border-[var(--accent-primary,#60a5fa)] text-[var(--accent-primary,#60a5fa)]"
+    >
+      {`folder: ${fields.join(", ")}`}
+      {canRemove && (
+        <button
+          type="button"
+          aria-label={`Remove folder override for ${name}`}
+          data-testid={`mcp-folder-chip-remove-${name}`}
+          onClick={() => onRemove?.(name)}
+          className="px-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0"
+        >
+          ✕
+        </button>
+      )}
+    </span>
+  );
+}
+
 export interface ServerRowProps {
   server: EffectiveServerView;
   /** Page-wide adapter read-only flag (below-floor / absent / unknown). */
   readOnly: boolean;
+  /** Write scope for the enable switch (default global). */
+  scope?: Scope;
+  /** Folder page: chips are display-only on narrow viewports. */
+  chipsRemovable?: boolean;
   onOpen: (name: string) => void;
+  /** Folder page: remove the whole folder override for this server. */
+  onRemoveOverride?: (name: string) => void;
   /** Called after a successful write so the view re-fetches. */
   onChanged: () => void;
 }
 
-export function ServerRow({ server, readOnly, onOpen, onChanged }: ServerRowProps): React.ReactElement {
+export function ServerRow({
+  server,
+  readOnly,
+  scope = GLOBAL_SCOPE,
+  chipsRemovable = true,
+  onOpen,
+  onRemoveOverride,
+  onChanged,
+}: ServerRowProps): React.ReactElement {
   const { name, entry, provenance } = server;
+  const folder = scope.kind === "project";
   const badges = provenanceBadges(provenance);
-  const editable = isEditable(server);
+  const editable = isEditable(server, scope);
   const transport = transportOf(entry);
   const persistedEnabled = entry.disabled !== true;
+  const overrideFields = folder ? overrideFieldsOf(server) : [];
 
   const [optimistic, setOptimistic] = useState<boolean | null>(null);
   const [pending, setPending] = useState(false);
@@ -101,15 +162,17 @@ export function ServerRow({ server, readOnly, onOpen, onChanged }: ServerRowProp
   // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the persisted value only
   useEffect(() => setOptimistic(null), [persistedEnabled]);
   const enabled = optimistic ?? persistedEnabled;
-  const locked = readOnly || !editable;
+  // Global: a non-Pi-global server cannot be toggled. Folder: every server can
+  // gain a folder-layer `disabled` override, so only the adapter gate locks it.
+  const locked = readOnly || (!folder && !editable);
 
   async function toggle(next: boolean): Promise<void> {
     setOptimistic(next);
     setPending(true);
     setError(null);
     try {
-      await setServerDisabled(name, !next, { scope: "global" });
-      invalidateEffective();
+      await setServerDisabled(name, !next, scopeToWire(scope));
+      invalidateEffective(folder ? scope.cwd : undefined);
       onChanged();
     } catch (e) {
       setOptimistic(null);
@@ -119,9 +182,12 @@ export function ServerRow({ server, readOnly, onOpen, onChanged }: ServerRowProp
     }
   }
 
+  const actionLabel = folder ? (editable ? "Edit" : "Override…") : editable ? "Edit" : "View";
+  const actionTestId = folder ? `mcp-folder-action-${name}` : `mcp-server-action-${name}`;
+
   return (
     <li
-      data-testid={`mcp-server-row-${name}`}
+      data-testid={folder ? `mcp-folder-row-${name}` : `mcp-server-row-${name}`}
       className="flex flex-col gap-1 py-1.5 border-b border-[var(--border-secondary)] last:border-b-0"
     >
       <div className="flex items-center gap-2 min-h-11 sm:min-h-0">
@@ -153,14 +219,23 @@ export function ServerRow({ server, readOnly, onOpen, onChanged }: ServerRowProp
               {b.text}
             </span>
           ))}
+          {overrideFields.length > 0 && (
+            <OverrideChip
+              name={name}
+              fields={overrideFields}
+              removable={chipsRemovable}
+              onRemove={onRemoveOverride}
+            />
+          )}
         </span>
         <button
           type="button"
           onClick={() => onOpen(name)}
-          data-testid={`mcp-server-action-${name}`}
-          className="ml-auto text-[11px] px-2 py-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          disabled={actionDisabled(folder, readOnly)}
+          data-testid={actionTestId}
+          className="ml-auto text-[11px] px-2 py-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50"
         >
-          {editable ? "Edit" : "View"}
+          {actionLabel}
         </button>
       </div>
       {error && (
@@ -196,8 +271,13 @@ export interface ServerListProps {
   /** True until the first effective view arrives. */
   loading: boolean;
   readOnly: boolean;
+  /** Write scope for every row (default global). */
+  scope?: Scope;
+  /** Folder page: chips are display-only on narrow viewports. */
+  chipsRemovable?: boolean;
   onOpen: (name: string) => void;
   onAdd: () => void;
+  onRemoveOverride?: (name: string) => void;
   onChanged: () => void;
 }
 
@@ -206,8 +286,11 @@ export function ServerList({
   layerErrors,
   loading,
   readOnly,
+  scope,
+  chipsRemovable,
   onOpen,
   onAdd,
+  onRemoveOverride,
   onChanged,
 }: ServerListProps): React.ReactElement {
   const t = useT();
@@ -233,7 +316,10 @@ export function ServerList({
           key={s.name}
           server={s}
           readOnly={readOnly}
+          scope={scope}
+          chipsRemovable={chipsRemovable}
           onOpen={onOpen}
+          onRemoveOverride={onRemoveOverride}
           onChanged={onChanged}
         />
       ))}

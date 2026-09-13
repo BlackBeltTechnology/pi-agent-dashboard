@@ -29,6 +29,15 @@ export interface EffectiveServerView {
   name: string;
   entry: Record<string, unknown>;
   provenance: ProvenanceLayer[];
+  /**
+   * The requested scope's WRITABLE layer's own entry, unmerged. The folder
+   * surface needs it to tell an override from an inheritance (the merged
+   * `entry` cannot: a non-secret inherited key looks identical to an own one).
+   * Undefined when the writable layer does not define the server. Own-layer
+   * credentials are therefore present — same exposure as `entry`, which keeps
+   * its own-layer secrets unredacted by design (the route is networkGuard-gated).
+   */
+  own?: Record<string, unknown>;
 }
 
 export interface SettingSource {
@@ -203,11 +212,13 @@ export function createEffectiveViewReader(deps: EffectiveViewDeps): EffectiveVie
 
     const servers: EffectiveServerView[] = Object.entries(config.mcpServers ?? {}).map(([name, entry]) => {
       const merged = entry as unknown as Record<string, unknown>;
-      const own = writableServers?.[name];
+      const ownRaw = writableServers?.[name];
+      const own = isPlainObject(ownRaw) ? (ownRaw as Record<string, unknown>) : undefined;
       return {
         name,
-        entry: redactSecrets(merged, isPlainObject(own) ? (own as Record<string, unknown>) : undefined),
+        entry: redactSecrets(merged, own),
         provenance: classify(name, layers, cwd, adapter, provenance),
+        ...(own ? { own } : {}),
       };
     });
 
