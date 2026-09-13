@@ -66,7 +66,8 @@ describe("blackhole session-surface manifest discoverability", () => {
 
 describe("shared slot definitions stay additive (E13)", () => {
   const SLOT_TYPES = "packages/shared/src/dashboard-plugin/slot-types.ts";
-  const stripComments = (s: string) => s.replace(/\/\/[^\n]*/g, "");
+  const stripComments = (s: string) =>
+    s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
 
   /**
    * Parse the `SlotId` union's string-literal members out of slot-types.ts.
