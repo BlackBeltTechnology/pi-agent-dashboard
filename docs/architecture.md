@@ -4559,7 +4559,7 @@ See change: `add-dashboard-model-proxy`.
 
 ## Test execution & isolation
 
-Vitest 4. Root `vitest.config.ts` lists projects under `test.projects`. Per-project `vitest.config.ts` carries `pool: "forks"` + `maxWorkers: "50%"` (parallel; was `1`).
+Vitest 4. Root `vitest.config.ts` lists projects under `test.projects`. Parallel projects carry `pool: "forks"` + `maxWorkers: PARALLEL_MAX_WORKERS` imported from repo-root `vitest.workers.ts` (`= "50%"` of logical cores; parallel; was `1`). Deliberately serial projects retain `maxWorkers: 1`. See change: `make-test-suite-deterministic`.
 
 Per-file HOME isolation via `setupFiles` → `packages/shared/src/test-support/setup-home-perfile.ts`. Fresh `mkdtemp` HOME per test file. `globalSetup` `setup-home.ts` tripwire kept.
 
