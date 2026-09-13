@@ -14,36 +14,17 @@
  *
  * See change: open-view-command-in-editor-pane (D9/D10).
  */
-import { existsSync } from "node:fs";
 import { dirname } from "node:path";
 // Safe wrapper (uniform `windowsHide` etc.); direct node:child_process is
 // banned outside platform/exec.ts. See change: platform-command-executor.
 import { execFile } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 
-/** Best-effort container probe (Docker writes `/.dockerenv`). */
-function detectContainer(): boolean {
-  try {
-    return existsSync("/.dockerenv");
-  } catch {
-    return false;
-  }
-}
+// The capability probe itself lives in `shared` so the browser plugin can ask
+// the same question without depending on the server package. Re-exported here
+// so every existing server-side import keeps working. See change: add-browser-relay.
+import { computeSystemOpen } from "@blackbelt-technology/pi-dashboard-shared/platform/system-open.js";
 
-export function computeSystemOpen(
-  env: NodeJS.ProcessEnv = process.env,
-  platform: NodeJS.Platform = process.platform,
-  isContainer: () => boolean = detectContainer,
-): boolean {
-  const override = env.PI_DASHBOARD_SYSTEM_OPEN;
-  if (override === "0") return false;
-  if (override === "1") return true;
-  if (platform === "darwin" || platform === "win32") return true;
-  if (platform === "linux") {
-    const hasDisplay = Boolean(env.DISPLAY || env.WAYLAND_DISPLAY);
-    return hasDisplay && !isContainer();
-  }
-  return false;
-}
+export { computeSystemOpen, detectContainer } from "@blackbelt-technology/pi-dashboard-shared/platform/system-open.js";
 
 let cached: boolean | undefined;
 /** Memoized capability, computed once at first read (process lifetime). */

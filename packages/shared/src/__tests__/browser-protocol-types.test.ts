@@ -30,6 +30,13 @@ import type {
   AssetRegisterMessage,
   NotifyMessage,
 } from "../protocol.js";
+import type {
+  BrowserRelaySubscribeMessage,
+  BrowserRelayUnsubscribeMessage,
+  BrowserRelayInputMessage,
+  BrowserRelayFrameMessage,
+  BrowserRelayStatusMessage,
+} from "../browser-protocol.js";
 import type { DecoratorDescriptor } from "../types.js";
 
 // Type-level assertion: if these types are NOT in the union, this will fail to
@@ -58,6 +65,28 @@ type _NotifyInBrowserUnion   = AssertExtends<BrowserNotifyMessage, ServerToBrows
 // fix-recovery-offer-dismiss-and-phantom-reopen: recovery_dismiss must live in
 // the browser→server union so the server's switch arm survives esbuild.
 type _RecoveryDismissInBrowserToServerUnion = AssertExtends<RecoveryDismissMessage, BrowserToServerMessage>;
+// add-browser-relay (test-plan #E29): the three viewer actions must be in the
+// browser→server union and the two server pushes in the server→browser union,
+// or esbuild strips the switch arms in production builds.
+type _RelaySubscribeInBrowserToServer = AssertExtends<BrowserRelaySubscribeMessage, BrowserToServerMessage>;
+type _RelayUnsubscribeInBrowserToServer = AssertExtends<BrowserRelayUnsubscribeMessage, BrowserToServerMessage>;
+type _RelayInputInBrowserToServer = AssertExtends<BrowserRelayInputMessage, BrowserToServerMessage>;
+type _RelayFrameInServerToBrowser = AssertExtends<BrowserRelayFrameMessage, ServerToBrowserMessage>;
+type _RelayStatusInServerToBrowser = AssertExtends<BrowserRelayStatusMessage, ServerToBrowserMessage>;
+// Frame/status must NEVER carry the relay guid or a profile token — a
+// type-level `never` check makes adding one a compile error (spec F2).
+type _FrameHasNoSecretKeys = AssertTrue<
+  Extract<keyof BrowserRelayFrameMessage, "guid" | "token"> extends never ? true : never
+>;
+type _StatusHasNoSecretKeys = AssertTrue<
+  Extract<keyof BrowserRelayStatusMessage, "guid" | "token"> extends never ? true : never
+>;
+type _FrameHasNoGuidField = AssertTrue<
+  "guid" extends keyof BrowserRelayFrameMessage ? never : true
+>;
+type _StatusHasNoTokenField = AssertTrue<
+  "token" extends keyof BrowserRelayStatusMessage ? never : true
+>;
 
 // Runtime verification that the type discriminants are reachable in a switch
 function extractPromptType(msg: ServerToBrowserMessage): string | null {
@@ -365,5 +394,49 @@ describe("fix-connect-snapshot-frame-loss protocol types (E28)", () => {
     const noOffset: SessionsPageMessage = { type: "sessions_page", cwd: "/a" };
     expect(noRequestId.cwd).toBe("/a");
     expect(noOffset.cwd).toBe("/a");
+  });
+});
+
+// add-browser-relay (test-plan #E29): the relay viewer payloads are broadcast /
+// per-socket wire messages, so a leaked secret would be a real exfiltration
+// path, not a type nicety. Serialize representative payloads and assert the
+// guid and token strings never appear.
+describe("browser relay payloads never carry secrets (E29)", () => {
+  const GUID = "0123456789abcdef0123456789abcdef";
+  const TOKEN = "s3cr3t-pairing-token";
+
+  it("serialized frame holds no guid or token", () => {
+    const frame: BrowserRelayFrameMessage = {
+      type: "browser_relay_frame",
+      instanceId: "inst-1",
+      tabId: 7,
+      jpegBase64: "AAAA",
+      metadata: { deviceWidth: 1280, deviceHeight: 800, timestamp: 1 },
+    };
+    const json = JSON.stringify(frame);
+    expect(json).not.toContain(GUID);
+    expect(json).not.toContain(TOKEN);
+    expect(json).not.toContain("guid");
+    expect(json).not.toContain("token");
+  });
+
+  it("serialized status holds no guid or token", () => {
+    const status: BrowserRelayStatusMessage = {
+      type: "browser_relay_status",
+      auditSeq: 4,
+      instances: [
+        {
+          instanceId: "inst-1",
+          profileDirectory: "Default",
+          state: "connected",
+          tabs: [{ tabId: 7, title: "t", url: "https://a.test/", state: "live" }],
+        },
+      ],
+    };
+    const json = JSON.stringify(status);
+    expect(json).not.toContain(GUID);
+    expect(json).not.toContain(TOKEN);
+    expect(json).not.toContain("guid");
+    expect(json).not.toContain("token");
   });
 });

@@ -36,23 +36,70 @@
 
 ## 2. Relay core in `packages/browser-plugin/` (spec `browser-relay`, design D2–D4)
 
-- [ ] 2.1 Scaffold `packages/browser-plugin/` (package.json `pi-dashboard-plugin` manifest id `browser`, `server`, `client`, `configSchema.json` with `enabled`, `browsers.<profileDirectory>.{token (writeOnly), zeroDialog, allowedDomains}`, `defaultBrowser`; `i18n.ts`; vitest config; `AGENTS.md`). Verify: `curl /api/health | jq '.plugins[] | select(.id=="browser")'` shows the plugin loaded, disabled by default.
-- [ ] 2.2 Vendor `cdpRelay.ts`, `cdpRelayV2.ts`, `browserModel.ts`, `protocol.ts` from `microsoft/playwright` into `src/server/relay/vendor/` with `NOTICE` (Apache-2.0, upstream SHA, date). Verify: `pnpm -F browser-plugin typecheck` passes; `NOTICE` present; no edits inside `vendor/` (enforced by a test that hashes the dir against a recorded manifest).
+- [x] 2.1 Scaffold `packages/browser-plugin/` (package.json `pi-dashboard-plugin` manifest id `browser`, `server`, `client`, `configSchema.json` with `enabled`, `browsers.<profileDirectory>.{token (writeOnly), zeroDialog, allowedDomains}`, `defaultBrowser`; `i18n.ts`; vitest config; `AGENTS.md`). Verify: `curl /api/health | jq '.plugins[] | select(.id=="browser")'` shows the plugin loaded, disabled by default.
+
+  **2.1 outcome (workstream 2a):** scaffold landed. Manifest id `browser`, priority 500,
+  claims `settings-section`→`BrowserSettings` + `content-view`→`LiveViewTile`
+  (predicate `isLiveViewActive` — content-view claims MUST be predicate-gated,
+  placeholder returns false until workstream 4). Client placeholders render null;
+  real components = task 4.x. Also carries `allowMultipleInstancesPerProfile`
+  (see 2.2b) and `defaultEnabled: false` (see 2.13). Registered: root
+  `vitest.config.ts` projects, `packages/client` dep (plugin-registry import),
+  electron `BUNDLED_PLUGINS`, publish.yml PACKAGES, knip.json workspace,
+  biome vendor exclusion. i18n-lint excludes the vendor tree (upstream throw
+  strings are a CDP wire contract, not UI). The live `curl /api/health` check
+  (plugin loads, reports enabled:false) is deferred to the 2c harness run —
+  manifest validation + defaultEnabled resolution are unit-tested
+  (`src/__tests__/manifest.test.ts`, E31).
+- [x] 2.2 Vendor `cdpRelay.ts`, `cdpRelayV2.ts`, `browserModel.ts`, `protocol.ts` from `microsoft/playwright` into `src/server/relay/vendor/` with `NOTICE` (Apache-2.0, upstream SHA, date). Verify: `pnpm -F browser-plugin typecheck` passes; `NOTICE` present; no edits inside `vendor/` (enforced by a test that hashes the dir against a recorded manifest).
+
+  **2.2 outcome (workstream 2a):** vendored per the user's explicit choice
+  (“vendor all four + shims”). Upstream commit
+  `d1ead3ecca23182f2d06d761c28e3d4edafb6595` (main, 2026-09-11) — see
+  `vendor/NOTICE`. Tree: the FIVE mcp files (incl. `log.ts`, which the mcp
+  files import) + `tools/utils/extension.ts` VERBATIM (task sketch marked it
+  shim; the real upstream file is small, self-contained (fs/path only) and
+  its `isExtensionInstalledInProfile` feeds task 2.7 — vendoring beats
+  shimming), + `server/registry/index.ts` SHIM (throws `not supported —
+  browser launch is supplied by relay-instance.ts`) + `shims/wsServer.ts`
+  SHIM (constructor inert; `listen()` throws / `close()` rejects `not
+  supported — transport is supplied by relay-instance.ts`) +
+  `shims/{manualPromise,time,timeoutRunner}.ts` VERBATIM upstream isomorphic
+  helpers (real working code — `ExtensionProtocolV2` uses `ManualPromise`).
+  Bare specifiers resolve via tsconfig.base.json `paths` + the package
+  vitest `resolve.alias` (anchored regex keys — `@isomorphic/time` is a
+  prefix of `@isomorphic/timeoutRunner`). Integrity:
+  `src/server/__tests__/vendor-integrity.test.ts` (X14) hashes the whole
+  `playwright-core/` tree against `vendor-hashes.json`; also pins the shim
+  contracts (CDPRelayServer constructs inert, `start()` rejects loudly).
+  Verify via root `npx tsc --noEmit` (no per-package typecheck script exists;
+  root program covers `packages/*/src`).
 - [ ] 2.2b Spike (throwaway, not committed): with the extension in profile OSS, open two `connect.html` pages against two relay guids and confirm the single service worker holds two concurrent relay sockets with two tab groups; also confirm whether upstream `CDPRelayServer` self-listens in its constructor. Record both answers in this task; if two sockets fail, switch spec scenario "Two sessions, one profile" to the 409 `Profile busy` branch.
+
+  **2.2b decision (user, workstream 2a):** implement BOTH paths behind the
+  boolean config flag `allowMultipleInstancesPerProfile` (default `false` =
+  409 `busy`; `true` = concurrent instances on one profile).
+  `configSchema.json` carries the field now (scaffolded in 2.1); the connect
+  logic honouring it is workstream 2c (task 2.9's 409 `reason:"busy"`
+  branch keys on this flag when `false` and a live instance exists). The X17
+  spike remains manual-only and decides whether the `true` path actually
+  works with the stock extension.
 - [ ] 2.3 `relay-instance.ts`: wrap vendor classes — accept pre-upgraded sockets (per 2.2b finding), listener-list `_emit`, deny-list interceptor, audit hooks, non-secret `instanceId`. Verify: `relay-instance.test.ts` with a fake extension socket: handshake holds CDP traffic until `extension.initialized`; second CDP client closed `Another CDP client already connected`; `Network.getAllCookies` and `Network.getCookies` → CDP error `-32000` + `denied` audit entry, not forwarded; `Page.navigate` to `file://`, `javascript:`, `data:` denied; host-less URL denied when `allowedDomains` non-empty; `allowedDomains` exact-host vs leading-dot subdomain matching (`.github.com` admits `api.github.com`, denies `github.com.evil.io`); allowed `Runtime.evaluate` forwarded verbatim.
 - [ ] 2.4 `relay-manager.ts`: `Map<guid, RelayInstance>`, guid minting (`crypto.randomBytes(16)`), guid ↔ profileDirectory, non-secret `instanceId`, unclaimed-guid expiry at 60 s, instance close on extension-socket close, on CDP-client close, and 30 s after handshake with no CDP client (audit `detach/no-cdp-client`), kill-switch close-all. Verify: `relay-manager.test.ts` — unknown/expired guid → 404; claimed guid second ext socket → close 1000 with upstream reason; CDP client close → extension socket closed + instance removed; fake-timer: handshake + 30 s no CDP → closed; `setEnabled(false)` resolves only after all instances closed.
 - [ ] 2.5 Register WS routes via `ctx.registerWsRoute`: `browser-ext` (`/ws/browser-ext/`, `admitOrigins: ["chrome-extension://mmlmfjhmonkocbjadbfplnigmagldckm"]`) and `browser-cdp` (`/ws/browser-cdp/`, empty `admitOrigins`); `handleUpgrade` validates the guid; `browser-cdp` additionally rejects any request carrying an `Origin` header. Verify: integration test against a live server — page-origin upgrade on ext scope → 403; pinned origin loopback + live guid → 101; non-loopback → 403; ticket on scope → rejected; cookie without guid → rejected; `Origin`-bearing request with valid guid on cdp scope → 403; header-less `ws` client → 101.
-- [ ] 2.6 Audit ring (≥500, `{ts, profileDirectory, instanceId, kind, detail}`, no payloads/guid/token) with monotonically increasing `auditSeq`. Verify: unit test fills 600 entries, asserts oldest dropped, `auditSeq` increments, and a serialized entry never contains the guid or token strings.
-- [ ] 2.7 `profiles.ts`: read Chrome `Local State → profile.info_cache` per OS userDataDir; `installed` by extension dir existence; absent/corrupt `Local State` → single synthetic `Default` row + `warning`. Verify: unit test with a fixture `Local State` + fake Extensions dir on tmpfs → rows with `installed` true/false as laid out; missing file → one `Default` row + warning.
+- [x] 2.6 Audit ring (≥500, `{ts, profileDirectory, instanceId, kind, detail}`, no payloads/guid/token) with monotonically increasing `auditSeq`. Verify: unit test fills 600 entries, asserts oldest dropped, `auditSeq` increments, and a serialized entry never contains the guid or token strings.
+- [x] 2.7 `profiles.ts`: read Chrome `Local State → profile.info_cache` per OS userDataDir; `installed` by extension dir existence; absent/corrupt `Local State` → single synthetic `Default` row + `warning`. Verify: unit test with a fixture `Local State` + fake Extensions dir on tmpfs → rows with `installed` true/false as laid out; missing file → one `Default` row + warning.
 - [ ] 2.8 `connect.ts`: build `connect.html` URL (`protocolVersion=2`, `token` only when `zeroDialog`), open via `systemOpen` + `--profile-directory`, await handshake (60 s → 504 + guid expiry; token mismatch is indistinguishable and also 504), return `{cdpUrl, instanceId}`. Verify: unit test mocks `systemOpen`, asserts exact URL/args with and without `zeroDialog`; timeout path returns 504 and guid is gone.
 - [ ] 2.9 REST routes on `ctx.fastify`: `GET /api/browser/status` (`{enabled, canOpenChrome}`), `GET /api/browser/profiles` (keyed by `profileDirectory`, with `instances[].tabs[]`), `POST /api/browser/connect`, `POST /api/browser/disconnect?instanceId=` (required), `GET /api/browser/audit`, `PUT /api/browser/enabled`; writes 403 when disabled (except the PUT); connect 409 `{reason:"not-installed"}` / `{reason:"busy", instanceId}` (busy only if 2.2b says so), 503 when `canOpenChrome:false`. Verify: `routes.test.ts` covers every status code and `reason` in the spec.
-- [ ] 2.10 `canOpenChrome` detection inside the plugin (`systemOpen` available + Chrome userDataDir found per OS). Verify: unit test — true/false per mocked fs + capability; no change to `packages/server/src/routes/system-routes.ts`.
+- [x] 2.10 `canOpenChrome` detection inside the plugin (`systemOpen` available + Chrome userDataDir found per OS). Verify: unit test — true/false per mocked fs + capability; no change to `packages/server/src/routes/system-routes.ts`.
 - [ ] 2.10b `FakeRelayInstance` behind `PI_BROWSER_RELAY_FAKE=1` (one tab, 64×64 JPEG every 100 ms, input echoed to audit). Verify: unit test — env unset → no instance; env set → instance listed, ≥5 frames/s to a subscriber.
 - [ ] 2.11 `observability-instrumentation` pass: relay lifecycle log lines (`[browser-relay] instance <profile> open/close`, denied verbs, connect latency); `browser_relay_status` on every state change. Verify: log assertions in 2.3/2.4 tests.
+- [x] 2.12 **GAP A (plan delta, workstream 2a): `writeOnly` config redaction.** Spec `browser-plugin-settings` F2 requires the pairing token to never reach a client, but every plugin-config surface served the FULL merged config: `plugin-config-routes.ts` broadcast + POST response, `server.ts` `updatePluginConfig` broadcast, `plugin-activation-routes.ts` toggle broadcast, and `GET /api/config` (`readConfigRedacted`). Fix: pure `redactWriteOnly(config, schema)` in `dashboard-plugin-runtime/src/server/config-redact.ts` (strips every `writeOnly: true` property, recursing `properties` + `patternProperties` + object-shaped `additionalProperties` + array `items`; same-reference no-op when nothing stripped; never mutates) + `redactPluginConfigForClient(id, config, repoRoot?)` convenience (discovers + loads the plugin's schema). Applied at all four surfaces. The server-side `getPluginConfig()` a plugin calls stays UNREDACTED. Note: `server.ts:1589` also broadcasts `plugin_config_update` but its payload is the `PluginStatus` object (id/displayName/enabled/loaded/…) — verified to carry no plugin config values, so no redaction needed there. Verify: `config-redact.test.ts` (nested/patternProperties/additionalProperties/array items, non-writeOnly preserved, absent schema, purity); existing config/plugin-route tests stay green.
+- [x] 2.13 **GAP B (plan delta, workstream 2a): `defaultEnabled` — ship `browser` disabled by default.** Design Migration Plan step 2. Every enabled check was `cfg?.enabled !== false` (default-allow). Fix: optional `defaultEnabled?: boolean` on `PluginManifest` (shared `manifest-types.ts`) validated in `manifest-validator.ts` (boolean or throw); pure `resolvePluginEnabled(configValue, defaultEnabled)` in `dashboard-plugin-runtime/src/server/plugin-enabled.ts` (explicit boolean `enabled` in config wins → else manifest default → else `true`); honoured by `server.ts` loader `isEnabled` (which feeds `/api/health.plugins[].enabled`) and `plugin-activation-routes.ts`'s toggle-impact `isEnabled`. Client: NO change needed — `usePluginEnabledSet` builds its set from `/api/health` `plugins[].enabled`, so a server-reported `enabled:false` excludes the plugin from the enabled set (build-time default-allow is overridden by the explicit server report). `browser-plugin/package.json` sets `defaultEnabled: false`. Strictly additive: plugins without the field keep the historical semantics. Verify: `plugin-enabled.test.ts` (defaultEnabled:false + empty config → disabled; explicit `enabled:true` → enabled; no field → enabled; non-boolean config `enabled` falls back to default; validator accepts boolean / rejects non-boolean); full `npm test` green (core behaviour change).
 
 ## 3. Screencast tap + gateway messages (spec `browser-relay` tap requirements, design D5–D7)
 
-- [ ] 3.1 Add `BrowserRelaySubscribe|Unsubscribe|InputMessage` to `BrowserToServerMessage` and `BrowserRelayFrame|StatusMessage` to `ServerToBrowserMessage` in `packages/shared/src/browser-protocol.ts`. Verify: typecheck; existing union exhaustiveness test lists the new members; a serialization test asserts no `guid`/`token` field exists on frame/status types.
+- [x] 3.1 Add `BrowserRelaySubscribe|Unsubscribe|InputMessage` to `BrowserToServerMessage` and `BrowserRelayFrame|StatusMessage` to `ServerToBrowserMessage` in `packages/shared/src/browser-protocol.ts`. Verify: typecheck; existing union exhaustiveness test lists the new members; a serialization test asserts no `guid`/`token` field exists on frame/status types.
 - [ ] 3.2 `screencast-tap.ts`: one tap per (instance, tabId), high-range command ids (≥ 2^30), refuse subscribe with tab state `client-screencast-active` when the CDP client already runs a screencast on that session, `Page.startScreencast` on that tab's session, immediate ack, filter `Page.screencastFrame` for that sessionId only from the CDP-client stream, deny CDP-client `Page.startScreencast` on that session while active, per-socket `Set<WebSocket>` of viewers (from the `ws` arg of `registerBrowserHandler`), send frames per socket, stop on last unsubscribe / socket close. Verify: `screencast-tap.test.ts` with fake extension emitting frames: subscribed socket receives frames, a second unsubscribed socket receives none, CDP client receives none; CDP `Page.startScreencast` → denied error; stop command sent after last unsubscribe.
 - [ ] 3.3 Viewer input allowlist (`mouse`/`key`/`scroll`/`bringToFront` → `Input.*`/`Page.bringToFront`) with normalized `[0,1]` coordinates scaled by last frame `metadata.deviceWidth/Height`; other kinds or out-of-range coords dropped + audited (with remote address). Verify: test sends `{kind:"evaluate"}` → no CDP command, `denied` audit entry; `{kind:"mouse", x:0.5, y:0.5}` on a 1280×800 frame → `Input.dispatchMouseEvent {x:640, y:400}`; `x:1.2` dropped.
 - [ ] 3.4 No-frames detector (2 s no frame → tab state `no-frames`), `browser_relay_status` broadcast with instance + tab list + `auditSeq` on every instance/tab change and on audit append (coalesced 500 ms), DevTools detach (`canceled_by_user` → `detached/devtools`, CDP commands for that tab answered with error). Verify: fake-timer tests for both transitions.
@@ -102,12 +149,12 @@ Exemplars: L1 server auth/upgrade → `packages/server/src/__tests__/cors.test.t
 - [ ] 7.9 Guid validity BVA: live-unclaimed / live-claimed / expired 61 s / never-minted / malformed (`abc`, 31 hex, 33 hex) · ext upgrade · 101+claimed / close 1000 upstream reason / 404 / 404 / 404 (test-plan #E9)
 - [ ] 7.10 CDP scope Origin: valid guid, loopback · with `Origin: http://localhost:8000` vs none · 403 vs 101 (test-plan #E10)
 - [ ] 7.11 Second CDP client: instance with client · second connect · closed 1000 `Another CDP client already connected`, first keeps responses (test-plan #E11)
-- [ ] 7.12 Deny-list verbs: `Storage.getCookies`,`Network.getAllCookies`,`Network.getCookies`,`Browser.setDownloadBehavior` · client sends · `-32000` error with policy message, fake extension gets nothing, audit `denied` (test-plan #E12)
-- [ ] 7.13 Navigate schemes: `file:`,`javascript:`,`data:`,`blob:`,`https://ok.test` on `Page.navigate`+`Target.createTarget`, `allowedDomains` empty · send · first four denied, https forwarded verbatim (test-plan #E13)
-- [ ] 7.14 allowedDomains table: `["github.com"]`/`[".github.com"]`/`[]` × hosts `github.com`,`api.github.com`,`github.com.evil.io`,`GITHUB.COM:443`,`about:blank` · `Page.navigate` · outcomes per test-plan matrix (test-plan #E14)
-- [ ] 7.15 Audit ring BVA: cap 500; append 499/500/501/600 · serialize · counts 499/500/500/500, oldest dropped, `auditSeq` strictly increasing, no guid/token substring (test-plan #E15)
-- [ ] 7.16 Audit detail content: navigate URL / denied method / viewer-input kind · append · `detail` is string URL / method / kind, never payload object (test-plan #E16)
-- [ ] 7.17 Profiles listing: fixture `Local State` 3 profiles (dup label, one email), Extensions dir for 1 · `GET /api/browser/profiles` · 3 rows keyed by dir, dup labels kept, `installed` true ×1, `instances: []` (test-plan #E17)
+- [x] 7.12 Deny-list verbs: `Storage.getCookies`,`Network.getAllCookies`,`Network.getCookies`,`Browser.setDownloadBehavior` · client sends · `-32000` error with policy message, fake extension gets nothing, audit `denied` (test-plan #E12)
+- [x] 7.13 Navigate schemes: `file:`,`javascript:`,`data:`,`blob:`,`https://ok.test` on `Page.navigate`+`Target.createTarget`, `allowedDomains` empty · send · first four denied, https forwarded verbatim (test-plan #E13)
+- [x] 7.14 allowedDomains table: `["github.com"]`/`[".github.com"]`/`[]` × hosts `github.com`,`api.github.com`,`github.com.evil.io`,`GITHUB.COM:443`,`about:blank` · `Page.navigate` · outcomes per test-plan matrix (test-plan #E14)
+- [x] 7.15 Audit ring BVA: cap 500; append 499/500/501/600 · serialize · counts 499/500/500/500, oldest dropped, `auditSeq` strictly increasing, no guid/token substring (test-plan #E15)
+- [x] 7.16 Audit detail content: navigate URL / denied method / viewer-input kind · append · `detail` is string URL / method / kind, never payload object (test-plan #E16)
+- [x] 7.17 Profiles listing: fixture `Local State` 3 profiles (dup label, one email), Extensions dir for 1 · `GET /api/browser/profiles` · 3 rows keyed by dir, dup labels kept, `installed` true ×1, `instances: []` (test-plan #E17)
 - [ ] 7.18 Connect URL: `Profile 37`, `zeroDialog` false/true token `T` · connect (mocked `systemOpen`) · `--profile-directory=Profile 37`, `mcpRelayUrl=ws://127.0.0.1:<port>/ws/browser-ext/<32hex>`, `protocolVersion=2`, `token=T` only when true (test-plan #E18)
 - [ ] 7.19 Connect 409 reasons: `installed:false` · connect · 409 `{reason:"not-installed"}`; live instance + busy mode · connect · 409 `{reason:"busy", instanceId}`, first untouched (test-plan #E19)
 - [ ] 7.20 Disconnect param BVA: none / unknown / live `instanceId` · POST · 400 / 404 / 200 + ext closed + guid 404 (test-plan #E20)
@@ -135,13 +182,13 @@ Exemplars: L1 server auth/upgrade → `packages/server/src/__tests__/cors.test.t
 - [ ] 7.54 systemOpen unavailable: capability false · status, connect · `{canOpenChrome:false}`; 503 (test-plan #X10)
 - [ ] 7.55 Malformed viewer messages: subscribe missing/string `tabId`, unknown `instanceId`; 10 MB input · send · ignored + audit `denied`, socket open, no CDP command (test-plan #X12)
 - [ ] 7.56 Viewer drops mid-stream: 2 subscribers A · #1 destroyed · #2 keeps frames; after #2 unsubscribes → `Page.stopScreencast` (test-plan #X13)
-- [ ] 7.57 Vendor dir integrity: `relay/vendor/` · hash test · equals recorded manifest; `NOTICE` has upstream SHA (test-plan #X14)
+- [x] 7.57 Vendor dir integrity: `relay/vendor/` · hash test · equals recorded manifest; `NOTICE` has upstream SHA (test-plan #X14)
 
 ### Shared / skill / manifest (L1)
 
-- [ ] 7.29 Protocol union members (`packages/shared/src/__tests__/browser-protocol-types.test.ts`): unions · exhaustiveness · 3+2 new members present; frame/status have no `guid`/`token` (type-level) (test-plan #E29)
+- [x] 7.29 Protocol union members (`packages/shared/src/__tests__/browser-protocol-types.test.ts`): unions · exhaustiveness · 3+2 new members present; frame/status have no `guid`/`token` (type-level) (test-plan #E29)
 - [ ] 7.30 Skill layout + frontmatter (`packages/extension/src/__tests__/browser-skill-registered.test.ts`): packaged skill dir · structure test · `references/dashboard-relay.md` present; `allowed-tools` has all four grants (test-plan #E30)
-- [ ] 7.31 Plugin manifest (`packages/dashboard-plugin-runtime/src/__tests__/loader.test.ts` pattern): `packages/browser-plugin/package.json` · loader validation · id `browser`, claims resolve, `token` `writeOnly` (test-plan #E31)
+- [x] 7.31 Plugin manifest (`packages/dashboard-plugin-runtime/src/__tests__/loader.test.ts` pattern): `packages/browser-plugin/package.json` · loader validation · id `browser`, claims resolve, `token` `writeOnly` (test-plan #E31)
 - [ ] 7.58 Skill routing branches (`browser-skill-registered.test.ts` pattern): SKILL.md + dashboard-relay.md · text assertions · each branch (status 404/`enabled:false`/`canOpenChrome:false`/409 not-installed/409 busy/503/504) present with the specified instruction (test-plan #X15)
 
 ### Client RTL (L1, `packages/browser-plugin/src/client/__tests__/*.test.tsx`; see `HermesMemorySettings.test.tsx`)
