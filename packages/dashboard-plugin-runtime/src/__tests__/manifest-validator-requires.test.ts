@@ -2,8 +2,8 @@
  * Tests for manifest.requires validation.
  * See change: add-plugin-activation-ui.
  */
-import { describe, it, expect } from "vitest";
-import { validateManifest, ManifestValidationError } from "../manifest-validator.js";
+import { describe, expect, it } from "vitest";
+import { ManifestValidationError, validateManifest } from "../manifest-validator.js";
 
 const base = { id: "x", displayName: "X", claims: [] };
 
@@ -19,13 +19,13 @@ describe("manifest validator — requires", () => {
       requires: {
         piExtensions: ["pi-web-access"],
         binaries: ["zrok"],
-        services: ["pi-model-proxy"],
+        services: ["model-proxy"],
       },
     });
     expect(m.requires).toEqual({
       piExtensions: ["pi-web-access"],
       binaries: ["zrok"],
-      services: ["pi-model-proxy"],
+      services: ["model-proxy"],
     });
   });
 

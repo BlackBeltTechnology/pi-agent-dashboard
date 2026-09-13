@@ -9,10 +9,12 @@ import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import { createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, getPluginStatusStore, loadServerEntries, pluginSpawnToSessionOptions, refreshRequirementProbesFor } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import type { ExitIntent } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
 import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
 import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import {
@@ -42,11 +44,11 @@ import {
   isWsOriginTrusted,
   sanitizeHeaderForLog,
 } from "./auth/cors-origin.js";
-import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
 import { registerCsp, resolveCspMode } from "./auth/csp.js";
 import { ensureServerIdentity } from "./auth/identity.js";
 import { ensureLocalToken, verifyLocalToken } from "./auth/local-token.js";
 import { createNetworkGuard, isBypassedHost, isGenuinelyLocal } from "./auth/localhost-guard.js";
+import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
 import { readAuthJson } from "./auth/provider-auth-storage.js";
 import { mintSpawnToken } from "./auth/spawn-token.js";
 import { extractTicket, routeScopeForUrl, type WsRouteScope, WsTicketStore } from "./auth/ws-ticket.js";
@@ -64,7 +66,9 @@ import { createEmbedLifecycleController } from "./embed-lifecycle/embed-lifecycl
 import { wireEvents } from "./event-wiring.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
 import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
+import { bootParentPid, isBootParentProvablyDead } from "./lifecycle/boot-parent-liveness.js";
 import { runBoundedStartup } from "./lifecycle/bounded-startup.js";
+import { startEphemeralParentWatch } from "./lifecycle/ephemeral-parent-watch.js";
 import { ensureInstanceId } from "./lifecycle/instance-id.js";
 import { createLiveServerManager } from "./live-server/live-server-manager.js";
 import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
@@ -80,29 +84,26 @@ import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gat
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager } from "./pairing/pairing.js";
 import { createPendingAttachRegistry } from "./pending/pending-attach-registry.js";
-import { createPendingPluginRefRegistry } from "./pending/pending-plugin-ref-registry.js";
 import { createPendingClientCorrelations } from "./pending/pending-client-correlations.js";
 import { createPendingForkRegistry, type PendingForkRegistry } from "./pending/pending-fork-registry.js";
 import { createPendingInitialPromptRegistry } from "./pending/pending-initial-prompt-registry.js";
+import { createPendingPluginRefRegistry } from "./pending/pending-plugin-ref-registry.js";
 import { createPendingPromptAcks } from "./pending/pending-prompt-acks.js";
 import { createPendingResumeIntentRegistry } from "./pending/pending-resume-intent-registry.js";
 import { createPendingWorktreeBaseRegistry } from "./pending/pending-worktree-base-registry.js";
 import { recordExitIntent, resolveExitIntent, stampBootStart } from "./persistence/boot-state.js";
-import type { ExitIntent } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { createMemoryEventStore, DEFAULT_MAX_EVENT_DATA_SIZE, type EventStore } from "./persistence/memory-event-store.js";
 import { createMetaPersistence, type MetaPersistence } from "./persistence/meta-persistence.js";
+import { migrateCustomEntryFallbackOverrides } from "./persistence/migrate-custom-entry-fallback.js";
 import { needsMigration, runMigration } from "./persistence/migrate-persistence.js";
 import { createPreferencesStore, type PreferencesStore } from "./persistence/preferences-store.js";
-import { migrateCustomEntryFallbackOverrides } from "./persistence/migrate-custom-entry-fallback.js";
-import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
-import { CustomEventGroupMatcher } from "./session/custom-event-group-matcher.js";
-import { CustomEventGroupResolver } from "./session/custom-event-group-resolver.js";
 import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
 import { createPiGateway, type PiGateway } from "./pi/pi-gateway.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
 import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
+import { registerCustomEventGroupsRoutes } from "./routes/custom-event-groups-routes.js";
 import { registerDoctorRoutes } from "./routes/doctor-routes.js";
 import { registerFileRoutes } from "./routes/file-routes.js";
 import { registerGitRoutes } from "./routes/git-routes.js";
@@ -115,6 +116,7 @@ import { registerModelProxyDiagnosticsRoutes } from "./routes/model-proxy-diagno
 import { registerModelProxyRefreshRoutes } from "./routes/model-proxy-refresh-routes.js";
 import { registerModelProxyRoutes } from "./routes/model-proxy-routes.js";
 import { registerModelsIntrospectionRoute } from "./routes/models-introspection-routes.js";
+import { registerNodeRuntimeRoutes } from "./routes/node-runtime-routes.js";
 import { registerOpenSpecGroupRoutes } from "./routes/openspec-group-routes.js";
 import { registerOpenSpecRoutes } from "./routes/openspec-routes.js";
 import { registerPackageRoutes } from "./routes/package-routes.js";
@@ -123,12 +125,10 @@ import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
 import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
 import { registerPiRetryRoutes } from "./routes/pi-retry-routes.js";
 import { registerPiRuntimeRoutes } from "./routes/pi-runtime-routes.js";
-import { registerNodeRuntimeRoutes } from "./routes/node-runtime-routes.js";
 import { registerPluginActivationRoutes } from "./routes/plugin-activation-routes.js";
 import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
 import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
 import { registerPreferencesDisplayRoutes } from "./routes/preferences-display-routes.js";
-import { registerCustomEventGroupsRoutes } from "./routes/custom-event-groups-routes.js";
 import { registerPreferencesWorktreeInitRoutes } from "./routes/preferences-worktree-init-routes.js";
 import { registerProviderAuthRoutes } from "./routes/provider-auth-routes.js";
 import { registerProviderRoutes } from "./routes/provider-routes.js";
@@ -141,6 +141,8 @@ import {
   dispatchReload as dispatchReloadRaw,
   reloadTargetSessionIds,
 } from "./rpc-keeper/dispatch-reload.js";
+import { CustomEventGroupMatcher } from "./session/custom-event-group-matcher.js";
+import { CustomEventGroupResolver } from "./session/custom-event-group-resolver.js";
 import { deriveEndedAt } from "./session/derive-ended-at.js";
 import { createMemorySessionManager, type SessionManager } from "./session/memory-session-manager.js";
 import { applyReattachPolicy } from "./session/reattach-placement.js";
@@ -155,8 +157,6 @@ import { sessionToMeta } from "./session/session-to-meta.js";
 import { CwdPolicyRegistry } from "./spawn-process/cwd-policy.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import { createIdleTimer } from "./spawn-process/idle-timer.js";
-import { bootParentPid, isBootParentProvablyDead } from "./lifecycle/boot-parent-liveness.js";
-import { startEphemeralParentWatch } from "./lifecycle/ephemeral-parent-watch.js";
 import { getKeeperManager, setCwdPolicyRegistry, spawnPiSession } from "./spawn-process/process-manager.js";
 import { removePid, writePid } from "./spawn-process/server-pid.js";
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
@@ -1466,6 +1466,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     } as any);
   });
 
+  // Boot-time `modelProxy.enabled`, captured once inside the Model Proxy block
+  // below. The `model-proxy` service probe reports this value, not a live
+  // `loadConfig()` read: `/v1/*` route registration is itself boot-frozen, so a
+  // config save without a restart must not move the probe. Declared here (at
+  // `createServer` scope) because the injection sites precede the block.
+  // See change: remove-pi-model-proxy-upstream-references (D1).
+  let modelProxyMounted = false;
+
   // On completion: broadcast to browsers + invalidate the recommended cache
   packageManagerWrapper.setCompleteListener((result) => {
     browserGateway.broadcastToAll({
@@ -1491,6 +1499,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         null,
         {
           listInstalled: () => packageManagerWrapper.listInstalled("global"),
+          isModelProxyEnabled: () => modelProxyMounted,
         },
         (id) => getPluginConfigFromFile(loadConfig(), id) as Record<string, unknown>,
       ).then((changed) => {
@@ -1530,7 +1539,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         .listSessions()
         .map((e) => ({ sessionId: e.sessionId, cwd: e.cwd })),
   });
-  registerRecommendedRoutes(fastify, { packageManagerWrapper });
+  registerRecommendedRoutes(fastify, {
+    packageManagerWrapper,
+    isModelProxyEnabled: () => modelProxyMounted,
+  });
 
   // Pi core version check + update (complements the extension package manager).
   const piCoreChecker = new PiCoreChecker();
@@ -1681,6 +1693,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // ── Model Proxy ───────────────────────────────────────────────────
   {
     const fullCfg = loadConfig();
+    modelProxyMounted = fullCfg.modelProxy.enabled;
     if (fullCfg.modelProxy.enabled) {
       // Register proxy auth gate (runs BEFORE JWT hook for /v1/* routes)
       const proxyAuthGate = createModelProxyAuthGate({
@@ -2027,6 +2040,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           },
           requirementDeps: {
             listInstalled: () => packageManagerWrapper.listInstalled("global"),
+            isModelProxyEnabled: () => modelProxyMounted,
           },
           // Supplies the validated config a `requires.paths` ${configKey}
           // placeholder resolves against. See change: add-apple-tools-imcp-plugin.

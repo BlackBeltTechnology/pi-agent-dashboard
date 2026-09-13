@@ -148,8 +148,8 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 		fallbackDescription:
 			"Protocol bridge that makes pi's custom tools work with any " +
 			"anthropic-messages endpoint for Claude models (direct Anthropic " +
-			"OAuth/API key, 9Router cc/claude-*, pi-model-proxy, any Claude " +
-			"Code-flavored proxy). Required whenever a provider has " +
+			"OAuth/API key, 9Router cc/claude-*, the dashboard model proxy, any " +
+			"Claude Code-flavored proxy). Required whenever a provider has " +
 			'api: "anthropic-messages" with a Claude model — without it, ' +
 			"tool calls fall back to Claude Code's built-in bash_ide sandbox.",
 		status: "required",
@@ -316,20 +316,6 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 		status: "optional",
 		unlocks: [
 			"Goal-driven autonomous loop with LLM judge evaluation",
-		],
-		autowired: true,
-	},
-	{
-		id: "@blackbelt-technology/pi-model-proxy",
-		source: "npm:@blackbelt-technology/pi-model-proxy",
-		displayName: "pi-model-proxy",
-		fallbackDescription:
-			"Exposes pi's authenticated models as a local OpenAI-compatible and " +
-			"Anthropic-compatible API server, so other tools can route through " +
-			"pi's provider auth without re-entering credentials.",
-		status: "optional",
-		unlocks: [
-			"Local OpenAI-/Anthropic-compatible proxy over pi's authenticated models",
 		],
 		autowired: true,
 	},

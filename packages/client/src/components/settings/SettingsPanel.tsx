@@ -44,8 +44,8 @@ import { fetchAutoInitWorktreePref, fetchAutoNameSessionsPref, setAutoInitWorktr
 import { t as i18nT, LANGUAGE_OPTIONS, type Language, useI18n } from "../../lib/i18n/i18n.js";
 import { buildPiResourceFileUrl } from "../../lib/nav/route-builders.js";
 import { logRejection } from "../../lib/report-error.js";
-import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
 import { useCustomEventGroups } from "../../lib/state/custom-event-groups.js";
+import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
 import { KnownServersSection } from "../connectivity/KnownServersSection.js";
 import { NetworkDiscoverySection } from "../connectivity/NetworkDiscoverySection.js";
@@ -67,10 +67,10 @@ import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
 import { DiagnosticsSection } from "./DiagnosticsSection.js";
 import { ModelProxySection } from "./ModelProxySection.js";
 import { ModelSelector } from "./ModelSelector.js";
+import { NodeRuntimeSection } from "./NodeRuntimeSection.js";
 // Curated pi-install picker; sits directly above the raw Tools escape hatch.
 // See change: select-pi-runtime-install (design D12).
 import { PiRuntimeSection } from "./PiRuntimeSection.js";
-import { NodeRuntimeSection } from "./NodeRuntimeSection.js";
 import { PiRuntimeStatusRow } from "./PiRuntimeStatusRow.js";
 import { PluginNotFoundNotice, PluginSettingsPage } from "./PluginSettingsPage.js";
 import { ProviderAuthSection } from "./ProviderAuthSection.js";
@@ -412,12 +412,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
   // Cached per-provider health from GET /api/providers (`health[name]`), used to
   // seed each row's pill. See change: surface-provider-health-in-settings.
   const [providerHealth, setProviderHealth] = useState<Record<string, ProviderHealth>>({});
-  // Detect upstream pi-model-proxy extension for ModelProxySection coexistence advisory.
-  // See change: add-dashboard-model-proxy task 14.1.
-  const installedTopLevel = useInstalledPackages("global");
-  const upstreamPiModelProxyInstalled = installedTopLevel.packages.some(
-    (p) => p.source === "npm:@blackbelt-technology/pi-model-proxy",
-  );
   const [originalLlmProviders, setOriginalLlmProviders] = useState<LlmProvider[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1956,7 +1950,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   <ModelProxySection
                     config={config.modelProxy ?? {}}
                     onChange={(patch) => update((c) => { c.modelProxy = { ...c.modelProxy, ...patch }; })}
-                    upstreamExtensionDetected={upstreamPiModelProxyInstalled}
                     availableModels={catalogueModels}
                   />
                 </Section>

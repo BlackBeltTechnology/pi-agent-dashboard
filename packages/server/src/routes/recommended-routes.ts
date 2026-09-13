@@ -26,35 +26,38 @@
  * Results are cached for 60 seconds. The cache is busted when any package
  * install / remove / update operation completes successfully.
  */
-import type { FastifyInstance } from "fastify";
+
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { EnrichedRecommendedExtension } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import path from "node:path";
 import {
 	RECOMMENDED_EXTENSIONS,
 	type RecommendedExtension,
 } from "@blackbelt-technology/pi-dashboard-shared/recommended-extensions.js";
+import type { EnrichedRecommendedExtension } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import {
 	parseSourceKey,
-	sourcesMatch,
 	type SourceKey,
+	sourcesMatch,
 } from "@blackbelt-technology/pi-dashboard-shared/source-matching.js";
-export { parseSourceKey, sourcesMatch, type SourceKey };
+import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FastifyInstance } from "fastify";
+
+export { parseSourceKey, type SourceKey, sourcesMatch };
+
 import {
-	fetchPackageMeta,
-	fetchGithubPackageJson,
+	missingFromReport,
+	type RequirementProbeDeps,
+	runRequirementProbesFor,
+} from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import {
 	deriveSkillIds,
+	fetchGithubPackageJson,
+	fetchPackageMeta,
 	type PackageMeta,
 } from "../package/npm-search-proxy.js";
 import type { PackageManagerWrapper } from "../package/package-manager-wrapper.js";
-import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
-import {
-	runRequirementProbesFor,
-	missingFromReport,
-	type RequirementProbeDeps,
-} from "@blackbelt-technology/dashboard-plugin-runtime/server";
 
 const CACHE_TTL_MS = 60 * 1000;
 
@@ -317,7 +320,16 @@ async function enrichEntry(
 
 export function registerRecommendedRoutes(
 	fastify: FastifyInstance,
-	deps: { packageManagerWrapper: PackageManagerWrapper },
+	deps: {
+		packageManagerWrapper: PackageManagerWrapper;
+		/**
+		 * Boot-time `modelProxy.enabled` accessor, forwarded to the `model-proxy`
+		 * service probe. Optional so existing test call sites keep compiling; a
+		 * host that omits it reports `probe not wired`. See change:
+		 * remove-pi-model-proxy-upstream-references.
+		 */
+		isModelProxyEnabled?: () => boolean;
+	},
 ): void {
 	fastify.get("/api/packages/recommended", async () => {
 		const now = Date.now();
@@ -348,6 +360,7 @@ export function registerRecommendedRoutes(
 		const reqDeps: RequirementProbeDeps = {
 			listInstalled: async () => [...installedGlobal, ...installedLocal],
 			toolRegistry: getDefaultRegistry(),
+			isModelProxyEnabled: deps.isModelProxyEnabled,
 		};
 
 		// One memoized package.json parse per path for this request, shared by
