@@ -112,6 +112,12 @@ export interface ConfigWriter {
   ): Promise<ConfigWriteResult>;
   patchSettings(set: Partial<McpSettings>, unset: string[]): ConfigWriteResult;
   ensureAdapterPackage(): ConfigWriteResult;
+  /** Dry run: the refusal `ensureServerEntry` would return, or null when it would write. */
+  previewEnsure(
+    name: string,
+    fields: Partial<ServerEntry>,
+    scope: Scope,
+  ): ConfigRefusal | null;
   readParseStatus(path: string): ParseStatus;
   /** The settings.json path that sits beside the Pi-global mcp.json. */
   settingsJsonPath(): string;
@@ -468,6 +474,19 @@ export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
     }
   }
 
+  function previewEnsure(
+    name: string,
+    fields: Partial<ServerEntry>,
+    scope: Scope,
+  ): ConfigRefusal | null {
+    const prepared = prepareWrite(name, scope);
+    if (!prepared.ok) return prepared.refusal;
+    const existing = resolveExistingEntry(prepared.servers, name, prepared.path);
+    if (!existing.ok) return existing.refusal;
+    const next = buildEntry(existing.entry, fields as Record<string, unknown>, []);
+    return validateResultingEntry(next);
+  }
+
   return {
     targetPath,
     readServerEntry,
@@ -477,6 +496,7 @@ export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
     setServerDisabled,
     patchSettings,
     ensureAdapterPackage,
+    previewEnsure,
     readParseStatus,
     settingsJsonPath,
   };
