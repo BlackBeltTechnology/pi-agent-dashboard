@@ -58,7 +58,7 @@
 
 - [ ] 9.1 Run the docker harness E2E: enable both plugins, toggle iMCP from the MCP page, run apple-tools installer, assert `~/.pi/agent/mcp.json` keeps `disabled` and gains `command`; disable `mcp-client`, assert apple-tools row shows `missingDeps` and its panel hides Run installer; verify the spec passes
 - [ ] 9.2 Security pass (`security-hardening`): review route layer for cwd admission on every project write, schema validation before IO, secrets absent from logs; verify findings closed or filed
-- [ ] 9.3 Delegate `docs/` prose to DocScribe: `docs/architecture.md` plugin table row, `README.md` MCP section; update `packages/apple-tools/AGENTS.md`, `packages/mcp-server-plugin/AGENTS.md`, `packages/shared/src/AGENTS.md` rows; verify `kb dox lint` clean
+- [x] 9.3 Delegate `docs/` prose to DocScribe: `docs/architecture.md` plugin table row, `README.md` MCP section; update `packages/apple-tools/AGENTS.md`, `packages/mcp-server-plugin/AGENTS.md`, `packages/shared/src/AGENTS.md` rows; verify `kb dox lint` clean
 - [ ] 9.4 `npm run quality:changed` + `npm test` green; `review-code` pass on the full diff; verify no `set-disabled`/`set-direct-tools` strings remain outside archive
 
 ## 10. Tests folded from test-plan.md (one task per manifest row; ids stable)
