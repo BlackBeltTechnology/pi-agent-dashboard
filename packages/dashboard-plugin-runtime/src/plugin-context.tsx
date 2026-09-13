@@ -60,6 +60,13 @@ export type SubagentStateSnapshot = { id: string };
 
 const EMPTY_INTERACTIVE_REQUESTS: readonly InteractiveUiRequestSnapshot[] = Object.freeze([]);
 const EMPTY_SUBAGENTS: ReadonlyMap<string, SubagentStateSnapshot> = Object.freeze(new Map());
+/**
+ * Frozen empty config — the STABLE snapshot for a never-set plugin id.
+ * `getConfig` returns a fresh `{}` for an unset id, which would make
+ * `useSyncExternalStore` loop on an unstable snapshot.
+ * See change: model-picker-everywhere-favorites (design D3).
+ */
+const EMPTY_CONFIG = Object.freeze({}) as Record<string, unknown>;
 
 // ── Logger ───────────────────────────────────────────────────────────────────
 
@@ -240,6 +247,27 @@ export function usePluginConfig<T = Record<string, unknown>>(): T {
   }, [outer, pluginId]);
 
   return config as T;
+}
+
+/**
+ * @public — reactive read of ANY plugin's config by id (not just the
+ * contributing plugin). Reads the module-level store directly, so it needs no
+ * `PluginContextProvider` / `CurrentPluginLayer` and never throws, unlike
+ * {@link usePluginConfig}. The snapshot falls back to the frozen module-level
+ * `EMPTY_CONFIG` for an id that has never been set.
+ *
+ * See change: model-picker-everywhere-favorites (design D3).
+ */
+export function usePluginConfigOf<T = Record<string, unknown>>(pluginId: string): T {
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => subscribeConfig(pluginId, onStoreChange),
+    [pluginId],
+  );
+  const getSnapshot = useCallback(
+    () => pluginConfigs.get(pluginId) ?? EMPTY_CONFIG,
+    [pluginId],
+  );
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot) as T;
 }
 
 /** @public */

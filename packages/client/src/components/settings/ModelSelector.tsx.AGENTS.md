@@ -1,6 +1,6 @@
 # ModelSelector.tsx — index
 
-Variant C: grouped by provider, pinned ★ Favorites group, per-row star toggle, capability badges (🧠/👁 catalog-confirmed, 👁?/🧠? fallback, none when metadataSource absent), context badge, favs-only filter, provider filter persisted to localStorage (modelselector.providerFilter/favOnly). See change: enrich-model-selector-capabilities-favorites. See change: fix-popover-viewport-flip — replaces hand-rolled static flip with usePopoverFlip; behavior parity. See change: refresh-model-selector-models — optional onRefresh prop; footer refresh button (mdiRefresh, data-testid model-refresh) renders only when onRefresh set; refreshing state disables control, clears on models prop identity change or 10s safety timeout. See change: fix-and-prefer-model-proxy-resolution — optional `placeholder?: string` prop; trigger shows `current ?? placeholder ?? "no model"` (used by ModelProxySection "＋ Add model").
+Variant C: grouped by provider only (no separate favorites group), per-row star toggle, capability badges (🧠/👁 catalog-confirmed, 👁?/🧠? fallback, none when metadataSource absent), context badge, favs-only filter, provider filter persisted to localStorage (modelselector.providerFilter/favOnly). See change: enrich-model-selector-capabilities-favorites. See change: fix-popover-viewport-flip — replaces hand-rolled static flip with usePopoverFlip; behavior parity. See change: refresh-model-selector-models — optional onRefresh prop; footer refresh button (mdiRefresh, data-testid model-refresh) renders only when onRefresh set; refreshing state disables control, clears on models prop identity change or 10s safety timeout. See change: fix-and-prefer-model-proxy-resolution — optional `placeholder?: string` prop; trigger shows `current ?? placeholder ?? "no model"` (used by ModelProxySection "＋ Add model").
 
 See change: fix-popover-container-clip — ModelSelector opts into the horizontal axis left-preserving: `boundaryRef` + `estimatedWidth:320` + `minContentWidth:280` + `preferredAnchor:"left"`; removed hardcoded `width:20rem`, drives `width:min(320,maxWidth)` + `anchorRight` class.
 
@@ -17,3 +17,10 @@ See change: fix-popover-container-clip — ModelSelector opts into the horizonta
 - Outside-click now checks `panelRef` BEFORE `triggerRef` (a portaled panel is no longer a DOM descendant of the trigger container, so every in-panel click read as "outside"); `touchstart` added beside `mousedown`.
 - Inside a `Dialog` the portal target is the dialog panel, not `body` — see `LayerPortal`'s `LayerHostContext`.
 - Portaling moves the panel OUT of the component container: tests must query it via `screen`/`baseElement`, not `within(container)`.
+
+## model-picker-everywhere-favorites
+
+- Favorites default: caller passes NEITHER `favorites` NOR `onToggleFavorite` → read both from `useModelConfigOptional()`. Caller passes EITHER → caller owns BOTH (explicit props win; never mixed with context).
+- `favoritesEnabled = resolvedToggle !== undefined` gates the per-row ★ button, the `favs-only-toggle`, and the `favOnly` filter. No resolvable source → stars/toggle absent, persisted `modelselector.favOnly` ignored (no empty-list stranding).
+- `PopulatedCatalogueBody` gains `favoritesEnabled` prop for the toggle gate.
+- Core Settings pickers (Sessions Default Model, Model Proxy add-model + alias target) gain working favorites with no call-site edits. `ModelSelectorPrimitive` unchanged (injects both props, so owns the pair).

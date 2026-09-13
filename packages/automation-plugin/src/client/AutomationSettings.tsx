@@ -10,8 +10,11 @@
  * Settings panel's Save). See change: add-automation-plugin.
  */
 
-import { useSettingsDraftSource, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { mdiClose } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import { useSettingsDraftSource, useT, useUiPrimitive, usePluginConfigOf } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { usePluginConfig, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type React from "react";
 import { useCallback, useRef, useState } from "react";
 import type { Visibility } from "../shared/automation-types.js";
@@ -36,6 +39,15 @@ export function AutomationSettings(): React.ReactElement {
   const t = useT();
   const config = usePluginConfig<AutomationPluginConfig>();
   const send = usePluginSend();
+  const ModelSelector = useUiPrimitive(UI_PRIMITIVE_KEYS.modelSelector);
+
+  // Catalogue lives in the roles plugin's config; read reactively so the picker
+  // fills in when `models_list` / `/api/config` hydration lands after mount.
+  // See change: model-picker-everywhere-favorites (design D3).
+  const rolesConfig = usePluginConfigOf<{
+    models?: Array<{ provider: string; id: string }>;
+  }>("roles");
+  const models = rolesConfig.models ?? [];
 
   const [defaultVisibility, setDefaultVisibility] = useState<Visibility>(
     config.defaultVisibility ?? DEFAULTS.defaultVisibility,
@@ -139,17 +151,28 @@ export function AutomationSettings(): React.ReactElement {
         {t("scanGlobalLabel", undefined, "Scan global automations")} (<code>~/.pi/automation/</code>)
       </label>
 
-      <label className="block text-xs text-[var(--text-secondary)]">
+      <div className="block text-xs text-[var(--text-secondary)]">
         <span className="block mb-0.5">{t("defaultModelLabel", undefined, "Default model (fallback for unresolved")} <code>@role</code>)</span>
-        <input
-          type="text"
-          value={defaultModel}
-          onChange={(e) => setDefaultModel(e.target.value)}
-          placeholder={t("defaultModelPlaceholder", undefined, "provider/model-id")}
-          className="text-xs px-2 py-1 rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] font-mono w-full"
-          data-testid="automation-default-model"
-        />
-      </label>
+        {/* Caption + control are SIBLINGS (not wrapped in a <label>): the picker
+            trigger is a <button>, and a label click would open the dropdown. */}
+        <div className="flex items-center gap-1.5" data-testid="automation-default-model">
+          <ModelSelector
+            current={defaultModel || undefined}
+            models={models}
+            placeholder={t("defaultModelPlaceholder", undefined, "Select a model…")}
+            onSelect={(label: string) => setDefaultModel(label)}
+          />
+          <button
+            type="button"
+            onClick={() => setDefaultModel("")}
+            aria-label={t("defaultModelClear", undefined, "Clear default model")}
+            className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] flex-none"
+            data-testid="automation-default-model-clear"
+          >
+            <Icon path={mdiClose} size={0.6} />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
