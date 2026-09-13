@@ -60,9 +60,9 @@ const TABS: Transport[] = ["command", "url", "socket"];
 
 const MASK = "••••••••";
 const INPUT_CLS =
-  "w-full text-xs bg-transparent border border-[var(--border-secondary)] rounded px-1.5 py-1 text-[var(--text-primary)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary,#60a5fa)]";
+  "w-full min-h-11 sm:min-h-0 text-xs bg-transparent border border-[var(--border-secondary)] rounded px-1.5 py-1 text-[var(--text-primary)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary,#60a5fa)]";
 const BTN_CLS =
-  "text-[11px] px-2 py-1 min-h-11 sm:min-h-0 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50";
+  "text-[11px] px-2 py-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50";
 const PRIMARY_BTN_CLS = `${BTN_CLS} border-[var(--accent-primary,#60a5fa)] text-[var(--accent-primary,#60a5fa)]`;
 const ERROR_CLS = "text-[11px] text-[var(--status-error,#f87171)] m-0";
 
@@ -695,14 +695,17 @@ function BooleanControl({ field, ctx }: { field: FieldSchema; ctx: EditorCtx }):
   if (ctx.viewOnly)
     return <span className="text-xs text-[var(--text-primary)]">{String(value === true)}</span>;
   return (
-    <input
-      type="checkbox"
-      aria-label={field.name}
-      data-testid={`mcp-field-input-${field.name}`}
-      checked={value === true}
-      onChange={(e) => ctx.write(field.path, e.target.checked)}
-      className="w-4 h-4 flex-none"
-    />
+    // The label is the hit area: a 16px box cannot meet the 44px mobile floor.
+    <label className="inline-flex items-center justify-center min-h-11 min-w-11 sm:min-h-0 sm:min-w-0">
+      <input
+        type="checkbox"
+        aria-label={field.name}
+        data-testid={`mcp-field-input-${field.name}`}
+        checked={value === true}
+        onChange={(e) => ctx.write(field.path, e.target.checked)}
+        className="w-4 h-4 flex-none"
+      />
+    </label>
   );
 }
 
@@ -792,7 +795,7 @@ function ToggleListControl({ field, ctx }: { field: FieldSchema; ctx: EditorCtx 
 
   return (
     <div className="space-y-1">
-      <label className="inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)] min-h-11 sm:min-h-0">
+      <label className="inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)] min-h-11 min-w-11 sm:min-h-0 sm:min-w-0">
         <input
           type="checkbox"
           aria-label={field.name}
@@ -999,7 +1002,7 @@ function NestedGroupControl({ field, ctx }: { field: FieldSchema; ctx: EditorCtx
   return (
     <div className="space-y-2 border-l border-[var(--border-secondary)] pl-2">
       {field.unionFalse && value === false && (
-        <label className="inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)] min-h-11 sm:min-h-0">
+        <label className="inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)] min-h-11 min-w-11 sm:min-h-0 sm:min-w-0">
           <input
             type="checkbox"
             aria-label={t("mcpEnableField", { name: field.name }, `Enable ${field.name}`)}

@@ -92,7 +92,7 @@ function TimeoutNotice({
         type="button"
         onClick={onRetry}
         data-testid="mcp-timeout-retry"
-        className="px-1.5 py-0.5 min-h-11 sm:min-h-0 rounded border border-[var(--border-secondary)]"
+        className="px-1.5 py-0.5 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 rounded border border-[var(--border-secondary)]"
       >
         Retry
       </button>{" "}
@@ -154,7 +154,7 @@ export function McpSettings(): React.ReactElement {
           onClick={() => setEditing("")}
           disabled={status.readOnly}
           data-testid="mcp-add-server"
-          className="ml-auto text-[11px] px-2 py-1 min-h-11 sm:min-h-0 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50"
+          className="ml-auto text-[11px] px-2 py-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50"
         >
           Add server
         </button>

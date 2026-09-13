@@ -47,9 +47,9 @@ const TIMEOUT_ID = "mcp-adapter-timeout";
 const PLUGIN_ID = "mcp-client";
 
 const INPUT_CLS =
-  "w-full text-xs bg-transparent border border-[var(--border-secondary)] rounded px-1.5 py-1 text-[var(--text-primary)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary,#60a5fa)] disabled:opacity-50";
+  "w-full min-h-11 sm:min-h-0 text-xs bg-transparent border border-[var(--border-secondary)] rounded px-1.5 py-1 text-[var(--text-primary)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary,#60a5fa)] disabled:opacity-50";
 const BTN_CLS =
-  "text-[11px] px-2 py-1 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50";
+  "text-[11px] px-2 py-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50";
 const ERROR_CLS = "text-[11px] text-[var(--status-error,#f87171)] m-0";
 
 type Draft = Record<string, unknown>;
@@ -389,15 +389,18 @@ function SettingControl({
   switch (field.widget) {
     case "boolean":
       return (
-        <input
-          type="checkbox"
-          aria-label={key}
-          data-testid={testid}
-          checked={value === true}
-          disabled={ctx.readOnly}
-          onChange={(e) => ctx.write(key, e.target.checked)}
-          className="w-4 h-4"
-        />
+        // The label is the hit area: a 16px box cannot meet the 44px mobile floor.
+        <label className="inline-flex items-center justify-center min-h-11 min-w-11 sm:min-h-0 sm:min-w-0">
+          <input
+            type="checkbox"
+            aria-label={key}
+            data-testid={testid}
+            checked={value === true}
+            disabled={ctx.readOnly}
+            onChange={(e) => ctx.write(key, e.target.checked)}
+            className="w-4 h-4"
+          />
+        </label>
       );
     case "number":
       return <NumberSetting field={field} value={value} ctx={ctx} testid={testid} />;
@@ -535,7 +538,7 @@ function ToggleListSetting({
   const rows = Array.isArray(value) ? value.map(String) : [];
   return (
     <div className="space-y-1">
-      <label className="inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
+      <label className="inline-flex items-center gap-1.5 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 text-xs text-[var(--text-secondary)]">
         <input
           type="checkbox"
           aria-label={field.name}

@@ -125,17 +125,19 @@ export function ServerRow({ server, readOnly, onOpen, onChanged }: ServerRowProp
       className="flex flex-col gap-1 py-1.5 border-b border-[var(--border-secondary)] last:border-b-0"
     >
       <div className="flex items-center gap-2 min-h-11 sm:min-h-0">
-        <input
-          type="checkbox"
-          role="switch"
-          aria-label={`Enable ${name}`}
-          aria-busy={pending}
-          checked={enabled}
-          disabled={locked || pending}
-          onChange={(e) => void toggle(e.target.checked)}
-          data-testid={`mcp-server-toggle-${name}`}
-          className="w-4 h-4 flex-none"
-        />
+        <label className="inline-flex items-center justify-center min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 flex-none">
+          <input
+            type="checkbox"
+            role="switch"
+            aria-label={`Enable ${name}`}
+            aria-busy={pending}
+            checked={enabled}
+            disabled={locked || pending}
+            onChange={(e) => void toggle(e.target.checked)}
+            data-testid={`mcp-server-toggle-${name}`}
+            className="w-4 h-4"
+          />
+        </label>
         <span className="text-xs font-medium text-[var(--text-primary)] truncate">{name}</span>
         {transport && (
           <code className="text-[10px] text-[var(--text-tertiary)] flex-none">{transport}</code>
@@ -156,7 +158,7 @@ export function ServerRow({ server, readOnly, onOpen, onChanged }: ServerRowProp
           type="button"
           onClick={() => onOpen(name)}
           data-testid={`mcp-server-action-${name}`}
-          className="ml-auto text-[11px] px-2 py-1 min-h-11 sm:min-h-0 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          className="ml-auto text-[11px] px-2 py-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
         >
           {editable ? "Edit" : "View"}
         </button>
@@ -246,7 +248,7 @@ export function ServerList({
               onClick={onAdd}
               disabled={readOnly}
               data-testid="mcp-empty-add"
-              className="px-2 py-1 min-h-11 sm:min-h-0 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50"
+              className="px-2 py-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50"
             >
               Add server
             </button>
