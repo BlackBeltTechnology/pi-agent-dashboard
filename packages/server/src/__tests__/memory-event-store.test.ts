@@ -1,6 +1,7 @@
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it, vi } from "vitest";
 import {
+  __testEndSubsumes as endSubsumes,
   capString,
   createMemoryEventStore,
   DEFAULT_MAX_EVENT_DATA_SIZE,
@@ -1833,5 +1834,324 @@ describe("memory-event-store — getEventsEndingAt", () => {
     const examined = store.getEndingProbe().lastEntriesExamined;
     expect(examined).toBeGreaterThan(0);
     expect(examined).toBeLessThan(1000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// END-triggered tail drop.
+// See change: drop-final-update-on-tool-execution-end (design D2/D3/D4).
+// ---------------------------------------------------------------------------
+
+/**
+ * A `tool_execution_end`. `toolName` is omitted unless passed, so E10(a) can
+ * probe the identity rule's first clause. `result` defaults to a truthy string.
+ */
+function mkEnd(
+  toolCallId: string | undefined,
+  opts: {
+    details?: Record<string, unknown> | null | unknown[];
+    result?: unknown;
+    toolName?: string;
+    isError?: boolean;
+  } = {},
+): DashboardEvent {
+  const data: Record<string, unknown> = {
+    ...(toolCallId !== undefined ? { toolCallId } : {}),
+    ...(opts.toolName !== undefined ? { toolName: opts.toolName } : {}),
+    result: "result" in opts ? opts.result : "done",
+    ...(opts.details !== undefined ? { details: opts.details } : {}),
+    ...(opts.isError ? { isError: true } : {}),
+  };
+  return { eventType: "tool_execution_end", timestamp: Date.now(), data };
+}
+
+/** A subsuming end for `toolCallId` (`details` = `baseDetails`). */
+function mkSubsumingEnd(toolCallId: string, over: Record<string, unknown> = {}): DashboardEvent {
+  return mkEnd(toolCallId, { toolName: "Agent", details: baseDetails(over), result: "done" });
+}
+
+describe("end-side gate — tool_execution_end subsumption (D2)", () => {
+  it("E1: a nominal subsuming end returns true", () => {
+    const tail = mkUpdate("tc1", {
+      agentId: "a1",
+      status: "running",
+      tokensUsage: { in: 1, out: 2 },
+      activity: "x",
+      entries: [{ ts: 1 }],
+    });
+    const end = mkEnd("tc1", {
+      toolName: "Agent",
+      result: "done",
+      details: {
+        agentId: "a1",
+        status: "completed",
+        tokensUsage: { in: 1, out: 2 },
+        activity: "x",
+        entries: [{ ts: 1 }],
+      },
+    });
+    expect(endSubsumes(tail, end)).toBe(true);
+  });
+
+  it("E2: a details key missing from the end returns false", () => {
+    const tail = mkUpdate("tc1", baseDetails({ activity: "writing" }));
+    const ed = baseDetails();
+    delete ed.activity;
+    expect(endSubsumes(tail, mkEnd("tc1", { toolName: "Agent", details: ed }))).toBe(false);
+  });
+
+  it("E3: a type downgrade of a shared key returns false", () => {
+    const tail = mkUpdate("tc1", baseDetails({ tokensUsage: { in: 1 } }));
+    const end = mkEnd("tc1", { toolName: "Agent", details: baseDetails({ tokensUsage: 42 }) });
+    expect(endSubsumes(tail, end)).toBe(false);
+  });
+
+  it("E4: an end that sets no rendered result returns false", () => {
+    const tail = mkUpdate("tc1", baseDetails()); // default content sets `result`
+    const end = mkEnd("tc1", { toolName: "Agent", details: baseDetails(), result: "" });
+    expect(endSubsumes(tail, end)).toBe(false);
+  });
+
+  it("E5: a plain-string tail with an end result returns true", () => {
+    const tail = mkPlainUpdate("tc1", "chunk");
+    const end = mkEnd("tc1", { result: "out" });
+    expect(endSubsumes(tail, end)).toBe(true);
+  });
+
+  it("E6: a truthy tail `details` with an end that carries none returns false", () => {
+    const tail = mkUpdate("tc1", { agentId: "a1" });
+    expect(endSubsumes(tail, mkEnd("tc1", { result: "out" }))).toBe(false);
+  });
+
+  it("E7: a truthy-EMPTY tail `details` with an end that carries none returns false", () => {
+    const tail = mkUpdate("tc1", {});
+    expect(endSubsumes(tail, mkEnd("tc1", { result: "out" }))).toBe(false);
+  });
+
+  it("E8: a truthy NON-OBJECT tail `details` with an end that carries none returns false", () => {
+    const tail: DashboardEvent = {
+      eventType: "tool_execution_update",
+      timestamp: Date.now(),
+      data: { toolCallId: "tc1", toolName: "Agent", partialResult: { details: "text" } },
+    };
+    expect(endSubsumes(tail, mkEnd("tc1", { result: "out" }))).toBe(false);
+  });
+
+  it("E9: invalid end `details` (null / array) both return false", () => {
+    const tail = mkUpdate("tc1", baseDetails());
+    expect(endSubsumes(tail, mkEnd("tc1", { toolName: "Agent", details: null, result: "done" }))).toBe(false);
+    expect(endSubsumes(tail, mkEnd("tc1", { toolName: "Agent", details: [], result: "done" }))).toBe(false);
+  });
+
+  it("E10: identity rule — toolName absent / wrong / agentId mismatch return false", () => {
+    const tail = mkUpdate("tc1", baseDetails());
+    // (a) toolName absent
+    expect(endSubsumes(tail, mkEnd("tc1", { details: baseDetails(), result: "done" }))).toBe(false);
+    // (b) toolName not Agent
+    expect(
+      endSubsumes(tail, mkEnd("tc1", { toolName: "bash", details: baseDetails(), result: "done" })),
+    ).toBe(false);
+    // (c) agentId mismatch
+    expect(
+      endSubsumes(
+        tail,
+        mkEnd("tc1", { toolName: "Agent", details: baseDetails({ agentId: "a2" }), result: "done" }),
+      ),
+    ).toBe(false);
+  });
+
+  it("E11: identity rule — agentSessionId mismatch returns false", () => {
+    const tail = mkUpdate("tc1", baseDetails({ agentSessionId: "s1" }));
+    const end = mkEnd("tc1", {
+      toolName: "Agent",
+      details: baseDetails({ agentSessionId: "s2" }),
+      result: "done",
+    });
+    expect(endSubsumes(tail, end)).toBe(false);
+  });
+
+  it("E12: identity rule — absent-then-present agentSessionId returns true", () => {
+    const td = baseDetails();
+    delete td.agentSessionId;
+    const tail = mkUpdate("tc1", td);
+    const end = mkEnd("tc1", {
+      toolName: "Agent",
+      details: baseDetails({ agentSessionId: "s1" }),
+      result: "done",
+    });
+    expect(endSubsumes(tail, end)).toBe(true);
+  });
+
+  it("E13: a non-empty tail `entries` replaced by an empty array returns false", () => {
+    const tail = mkUpdate("tc1", baseDetails({ entries: [{ ts: 1 }] }));
+    const end = mkEnd("tc1", { toolName: "Agent", details: baseDetails({ entries: [] }), result: "done" });
+    expect(endSubsumes(tail, end)).toBe(false);
+  });
+});
+
+describe("end-triggered tail drop — collapseOnEnd (D3/D4)", () => {
+  it("S1: a subsuming end drops the retained tail", () => {
+    const store = createMemoryEventStore(neverPinnedFn);
+    const tick = store.insertEvent("s", mkUpdate("tc1")); // pinned creating tick
+    store.insertEvent("s", mkUpdate("tc1")); // retained tail
+    const end = store.insertEvent("s", mkSubsumingEnd("tc1"));
+
+    expect(updatesFor(store, "s", "tc1").map((e) => e.seq)).toEqual([tick]);
+    expect(store.getEvent("s", end)?.eventType).toBe("tool_execution_end");
+    expect(store.getTrimStats().collapsedUpdates).toBe(1);
+  });
+
+  it("S2: a non-subsuming end retains the tail", () => {
+    const store = createMemoryEventStore(neverPinnedFn);
+    store.insertEvent("s", mkUpdate("tc1"));
+    const tail = store.insertEvent("s", mkUpdate("tc1"));
+    const ed = baseDetails();
+    delete ed.activity;
+    store.insertEvent("s", mkEnd("tc1", { toolName: "Agent", details: ed, result: "done" }));
+
+    expect(updatesFor(store, "s", "tc1").map((e) => e.seq)).toEqual([1, tail]);
+    expect(store.getTrimStats().collapsedUpdates).toBe(0);
+  });
+
+  it("S3: the tail IS the pin → nothing dropped", () => {
+    const store = createMemoryEventStore(neverPinnedFn);
+    const only = store.insertEvent("s", mkUpdate("tc1")); // creating tick, also the newest
+    store.insertEvent("s", mkSubsumingEnd("tc1"));
+
+    expect(updatesFor(store, "s", "tc1").map((e) => e.seq)).toEqual([only]);
+    expect(store.getTrimStats().collapsedUpdates).toBe(0);
+  });
+
+  it("S4: a trimmed-away pin (no resident pin) retains an Agent-shaped tail", () => {
+    // cap 10 → trimSlack 0: the first over-cap insert drops exactly ONE oldest
+    // non-essential. `x` (for another call) precedes the pin, so the drop
+    // releases the pin but leaves the tail resident.
+    const store = createMemoryEventStore(neverPinnedFn, 100, 10);
+    store.insertEvent("s", mkUpdate("tc1")); // seq1 pin
+    store.insertEvent("s", mkUpdate("other")); // seq2 intervening non-essential
+    const tail = store.insertEvent("s", mkUpdate("tc1")); // seq3 tail
+    for (let i = 0; i < 8; i++) store.insertEvent("s", mkTyped("message_start")); // trims seq1
+
+    const end = store.insertEvent("s", mkSubsumingEnd("tc1"));
+    const kept = updatesFor(store, "s", "tc1");
+    expect(kept.map((e) => e.seq)).toEqual([tail]);
+    expect(store.getEvent("s", end)?.eventType).toBe("tool_execution_end");
+    expect(store.getTrimStats().collapsedUpdates).toBe(0);
+  });
+
+  it("S4b: a pin holed out of the buffer while `creatingSeq` is unreleased still counts as absent", () => {
+    // `trimBufferToLimit` drops oldest NON-essential first but keeps older
+    // ESSENTIALS, so the pin seq can fall below the buffer floor while `minSeq`
+    // stays under it ⇒ `pruneCollapseIndex` never releases `creatingSeq`. The
+    // residency check must consult the BUFFER, else an Agent-shaped tail drops
+    // with no resident pin (design D3 "without a pin, retain").
+    const store = createMemoryEventStore(neverPinnedFn, 100, 10);
+    store.insertEvent("s", mkTyped("message_start")); // seq1 essential (keeps minSeq low)
+    store.insertEvent("s", mkUpdate("tc1")); // seq2 pin (trimmed out)
+    store.insertEvent("s", mkUpdate("other")); // seq3 intervening non-essential
+    const tail = store.insertEvent("s", mkUpdate("tc1")); // seq4 tail
+    for (let i = 0; i < 7; i++) store.insertEvent("s", mkTyped("message_start")); // trims seq2
+
+    const end = store.insertEvent("s", mkSubsumingEnd("tc1"));
+    expect(updatesFor(store, "s", "tc1").map((e) => e.seq)).toEqual([tail]);
+    expect(store.getEvent("s", end)?.eventType).toBe("tool_execution_end");
+    expect(store.getTrimStats().collapsedUpdates).toBe(0);
+  });
+
+  it("S5: an end with no toolCallId is a no-op", () => {
+    const store = createMemoryEventStore(neverPinnedFn);
+    store.insertEvent("s", mkUpdate("tc1"));
+    store.insertEvent("s", mkUpdate("tc1"));
+    expect(() =>
+      store.insertEvent("s", mkEnd(undefined, { toolName: "Agent", details: baseDetails() })),
+    ).not.toThrow();
+    expect(updatesFor(store, "s", "tc1")).toHaveLength(2);
+    expect(store.getTrimStats().collapsedUpdates).toBe(0);
+  });
+
+  it("S6: an end for an unknown call is a no-op", () => {
+    const store = createMemoryEventStore(neverPinnedFn);
+    store.insertEvent("s", mkUpdate("tc1"));
+    store.insertEvent("s", mkUpdate("tc1"));
+    expect(() => store.insertEvent("s", mkSubsumingEnd("other"))).not.toThrow();
+    expect(updatesFor(store, "s", "tc1")).toHaveLength(2);
+    expect(store.getTrimStats().collapsedUpdates).toBe(0);
+  });
+
+  it("S7: an index naming trimmed events no-ops (fail-open, no throw)", () => {
+    // cap 10: the first trim drops the pin, the second drops the tail, leaving
+    // the index naming absent seqs while an older essential keeps `minSeq` low
+    // enough that `pruneCollapseIndex` does not delete the entry.
+    const store = createMemoryEventStore(neverPinnedFn, 100, 10);
+    store.insertEvent("s", mkTyped("message_start")); // seq1 essential
+    store.insertEvent("s", mkUpdate("tc1")); // seq2 pin (trimmed)
+    store.insertEvent("s", mkUpdate("tc1")); // seq3 tail (trimmed)
+    for (let i = 0; i < 9; i++) store.insertEvent("s", mkTyped("message_start"));
+
+    expect(() => store.insertEvent("s", mkSubsumingEnd("tc1"))).not.toThrow();
+    expect(updatesFor(store, "s", "tc1")).toHaveLength(0);
+    expect(store.getTrimStats().collapsedUpdates).toBe(0);
+  });
+
+  it("S9: a truncated ({__truncated}) end is a no-op", () => {
+    const store = createMemoryEventStore(neverPinnedFn, 100, 20_000, 4_000, 500);
+    store.insertEvent("s", mkUpdate("tc1"));
+    store.insertEvent("s", mkUpdate("tc1"));
+    expect(() =>
+      store.insertEvent("s", {
+        eventType: "tool_execution_end",
+        timestamp: Date.now(),
+        data: { toolCallId: "tc1", toolName: "bash", result: "x".repeat(50_000) },
+      }),
+    ).not.toThrow();
+    expect(updatesFor(store, "s", "tc1")).toHaveLength(2);
+    expect(store.getTrimStats().collapsedUpdates).toBe(0);
+  });
+
+  it("S10: the end itself is never dropped; a second subsuming end no-ops", () => {
+    const store = createMemoryEventStore(neverPinnedFn);
+    store.insertEvent("s", mkUpdate("tc1"));
+    store.insertEvent("s", mkUpdate("tc1"));
+    const end1 = store.insertEvent("s", mkSubsumingEnd("tc1"));
+    const end2 = store.insertEvent("s", mkSubsumingEnd("tc1"));
+
+    const ends = store.getEvents("s", 1).filter((e) => e.event.eventType === "tool_execution_end");
+    expect(ends.map((e) => e.seq)).toEqual([end1, end2]);
+    expect(store.getTrimStats().collapsedUpdates).toBe(1);
+  });
+
+  it("S11: the end drop folds into `collapsedUpdates` with no new counter key", () => {
+    const store = createMemoryEventStore(neverPinnedFn);
+    const before = Object.keys(store.getTrimStats()).sort();
+    store.insertEvent("s", mkUpdate("tc1"));
+    store.insertEvent("s", mkUpdate("tc1"));
+    store.insertEvent("s", mkSubsumingEnd("tc1"));
+
+    const stats = store.getTrimStats();
+    expect(stats.collapsedUpdates).toBe(1);
+    expect(Object.keys(stats).sort()).toEqual(before);
+  });
+});
+
+describe("end-triggered tail drop — post-drop index (D3)", () => {
+  it("S8: the pin survives a trim and a late update is not re-pinned", () => {
+    // Older non-essentials ahead of the pin absorb the trim's drops, so the pin
+    // stays resident and prune keeps the (pin==newest) entry alive.
+    const store = createMemoryEventStore(neverPinnedFn, 100, 20);
+    for (let i = 0; i < 4; i++) store.insertEvent("s", mkUpdate(`old${i}`)); // seq1-4
+    const tick = store.insertEvent("s", mkUpdate("tc1")); // seq5 pin
+    store.insertEvent("s", mkUpdate("tc1")); // seq6 tail
+    store.insertEvent("s", mkSubsumingEnd("tc1")); // drops seq6
+    for (let i = 0; i < 16; i++) store.insertEvent("s", mkTyped("message_start")); // trims seq1-2
+
+    const late = store.insertEvent("s", mkUpdate("tc1"));
+    expect(store.getEvent("s", tick)).toBeDefined();
+    expect(store.getEvent("s", late)).toBeDefined();
+    expect(store.getTrimStats().collapsedUpdates).toBe(1);
+
+    // Not re-pinned: a second end drops the LATE update, leaving the pin.
+    store.insertEvent("s", mkSubsumingEnd("tc1"));
+    expect(updatesFor(store, "s", "tc1").map((e) => e.seq)).toEqual([tick]);
+    expect(store.getTrimStats().collapsedUpdates).toBe(2);
   });
 });
