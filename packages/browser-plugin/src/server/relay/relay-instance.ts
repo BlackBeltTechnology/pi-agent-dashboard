@@ -70,12 +70,15 @@ export interface RelayInstanceDeps {
   cdpAttachTimeoutMs?: number;
 }
 
-/** Minimal tab view the status message needs. */
+/** Minimal tab view the status message needs. `detached` + `reason` carry the
+ * DevTools take-over; a plain `TapTabState` means "not detached". */
 export interface RelayTabView {
   tabId: number;
   title: string;
   url: string;
-  state: TapTabState;
+  state: TapTabState | "detached";
+  /** Set when `state === "detached"`. */
+  reason?: "devtools";
 }
 
 // ── Vendored-internal access (see module doc) ────────────────────────────────
@@ -127,6 +130,12 @@ export class RelayInstance {
    * lookup can no longer resolve and could never match an inbound command.
    */
   private readonly devtoolsDetachedSessions = new Set<string>();
+  /**
+   * Same take-over, keyed by TAB id for the status view: the model drops the
+   * tab session when it processes the detach, so a later tabId→session lookup
+   * cannot recover `devtoolsDetachedSessions` for `tabList()`.
+   */
+  private readonly devtoolsDetachedTabs = new Set<number>();
   /** Relay sessions where the CDP CLIENT runs its own screencast. */
   private readonly clientScreencasts = new Set<string>();
 
@@ -205,12 +214,25 @@ export class RelayInstance {
     const known = modelOf(this.protocol)._knownTabs;
     const states = this.tap.tabStates();
     const ids = known.size > 0 ? [...known.keys()] : [...this.knownTabs];
-    return ids.map((tabId) => ({
-      tabId,
-      title: known.get(tabId)?.title ?? "",
-      url: known.get(tabId)?.url ?? "",
-      state: states.get(tabId) ?? "live",
-    }));
+    return ids.map((tabId) => {
+      // Precedence: an active tap view (live / no-frames / client-screencast-
+      // active) first; then DevTools take-over; then a client-run screencast;
+      // else `live`. `tap.tabStates()` only knows tabs with viewers, so the
+      // detached/client-screencast branches must come from the instance.
+      const sessionId = this.sessionIdForTab(tabId);
+      const detached = this.devtoolsDetachedTabs.has(tabId);
+      const clientScreencast = sessionId !== undefined && this.clientScreencasts.has(sessionId);
+      const state: RelayTabView["state"] = detached
+        ? "detached"
+        : (states.get(tabId) ?? (clientScreencast ? "client-screencast-active" : "live"));
+      return {
+        tabId,
+        title: known.get(tabId)?.title ?? "",
+        url: known.get(tabId)?.url ?? "",
+        state,
+        ...(state === "detached" ? { reason: "devtools" as const } : {}),
+      };
+    });
   }
 
   statusState(): "connected" | "no-cdp-client" {
@@ -312,6 +334,7 @@ export class RelayInstance {
     if (reason !== DEVTOOLS_DETACH_REASON || typeof source?.tabId !== "number") return;
     const detachedSession = this.sessionIdForTab(source.tabId);
     if (detachedSession) this.devtoolsDetachedSessions.add(detachedSession);
+    this.devtoolsDetachedTabs.add(source.tabId);
     this.tap.markDetached(source.tabId);
     this.deps.logger.info(
       `[browser-relay] instance ${this.deps.profileDirectory} tab=${source.tabId} detached: devtools`,

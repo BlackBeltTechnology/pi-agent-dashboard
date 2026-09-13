@@ -50,11 +50,21 @@ export const AUDIT_CAPACITY = 500;
 export class AuditRing {
   private entries: AuditEntry[] = [];
   private seq = 0;
+  private onAppend?: (entry: AuditEntry) => void;
 
   constructor(
     private readonly capacity: number = AUDIT_CAPACITY,
     private readonly now: () => number = () => Date.now(),
   ) {}
+
+  /**
+   * Observe every append (the status broadcaster coalesces its refresh off
+   * this). One listener; `undefined` clears it. An observer must never break
+   * an append, so its throw is swallowed.
+   */
+  setOnAppend(listener: ((entry: AuditEntry) => void) | undefined): void {
+    this.onAppend = listener;
+  }
 
   /** Monotonic append counter — the client's audit-refresh signal. */
   get auditSeq(): number {
@@ -83,6 +93,11 @@ export class AuditRing {
     this.seq += 1;
     if (this.entries.length > this.capacity) {
       this.entries.splice(0, this.entries.length - this.capacity);
+    }
+    try {
+      this.onAppend?.(entry);
+    } catch {
+      /* an observer must not break an append */
     }
     return entry;
   }

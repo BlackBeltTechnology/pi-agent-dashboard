@@ -93,7 +93,7 @@
 - [ ] 2.9 REST routes on `ctx.fastify`: `GET /api/browser/status` (`{enabled, canOpenChrome}`), `GET /api/browser/profiles` (keyed by `profileDirectory`, with `instances[].tabs[]`), `POST /api/browser/connect`, `POST /api/browser/disconnect?instanceId=` (required), `GET /api/browser/audit`, `PUT /api/browser/enabled`; writes 403 when disabled (except the PUT); connect 409 `{reason:"not-installed"}` / `{reason:"busy", instanceId}` (busy only if 2.2b says so), 503 when `canOpenChrome:false`. Verify: `routes.test.ts` covers every status code and `reason` in the spec.
 - [x] 2.10 `canOpenChrome` detection inside the plugin (`systemOpen` available + Chrome userDataDir found per OS). Verify: unit test — true/false per mocked fs + capability; no change to `packages/server/src/routes/system-routes.ts`.
 - [ ] 2.10b `FakeRelayInstance` behind `PI_BROWSER_RELAY_FAKE=1` (one tab, 64×64 JPEG every 100 ms, input echoed to audit). Verify: unit test — env unset → no instance; env set → instance listed, ≥5 frames/s to a subscriber.
-- [ ] 2.11 `observability-instrumentation` pass: relay lifecycle log lines (`[browser-relay] instance <profile> open/close`, denied verbs, connect latency); `browser_relay_status` on every state change. Verify: log assertions in 2.3/2.4 tests.
+- [x] 2.11 `observability-instrumentation` pass: relay lifecycle log lines (`[browser-relay] instance <profile> open/close`, denied verbs, connect latency); `browser_relay_status` on every state change. Verify: log assertions in 2.3/2.4 tests.
 - [x] 2.12 **GAP A (plan delta, workstream 2a): `writeOnly` config redaction.** Spec `browser-plugin-settings` F2 requires the pairing token to never reach a client, but every plugin-config surface served the FULL merged config: `plugin-config-routes.ts` broadcast + POST response, `server.ts` `updatePluginConfig` broadcast, `plugin-activation-routes.ts` toggle broadcast, and `GET /api/config` (`readConfigRedacted`). Fix: pure `redactWriteOnly(config, schema)` in `dashboard-plugin-runtime/src/server/config-redact.ts` (strips every `writeOnly: true` property, recursing `properties` + `patternProperties` + object-shaped `additionalProperties` + array `items`; same-reference no-op when nothing stripped; never mutates) + `redactPluginConfigForClient(id, config, repoRoot?)` convenience (discovers + loads the plugin's schema). Applied at all four surfaces. The server-side `getPluginConfig()` a plugin calls stays UNREDACTED. Note: `server.ts:1589` also broadcasts `plugin_config_update` but its payload is the `PluginStatus` object (id/displayName/enabled/loaded/…) — verified to carry no plugin config values, so no redaction needed there. Verify: `config-redact.test.ts` (nested/patternProperties/additionalProperties/array items, non-writeOnly preserved, absent schema, purity); existing config/plugin-route tests stay green.
 - [x] 2.13 **GAP B (plan delta, workstream 2a): `defaultEnabled` — ship `browser` disabled by default.** Design Migration Plan step 2. Every enabled check was `cfg?.enabled !== false` (default-allow). Fix: optional `defaultEnabled?: boolean` on `PluginManifest` (shared `manifest-types.ts`) validated in `manifest-validator.ts` (boolean or throw); pure `resolvePluginEnabled(configValue, defaultEnabled)` in `dashboard-plugin-runtime/src/server/plugin-enabled.ts` (explicit boolean `enabled` in config wins → else manifest default → else `true`); honoured by `server.ts` loader `isEnabled` (which feeds `/api/health.plugins[].enabled`) and `plugin-activation-routes.ts`'s toggle-impact `isEnabled`. Client: NO change needed — `usePluginEnabledSet` builds its set from `/api/health` `plugins[].enabled`, so a server-reported `enabled:false` excludes the plugin from the enabled set (build-time default-allow is overridden by the explicit server report). `browser-plugin/package.json` sets `defaultEnabled: false`. Strictly additive: plugins without the field keep the historical semantics. Verify: `plugin-enabled.test.ts` (defaultEnabled:false + empty config → disabled; explicit `enabled:true` → enabled; no field → enabled; non-boolean config `enabled` falls back to default; validator accepts boolean / rejects non-boolean); full `npm test` green (core behaviour change).
 
@@ -143,9 +143,9 @@
    `pins the Chrome tabId → relay session mapping`. A future upstream refresh
    fails loudly there instead of silently.
 
-Unchecked in groups 2–3 (each needs a module not yet written): 2.2b/8.4 (manual
-spike), 2.5 (WS routes), 2.9 (REST routes), 2.10b env wiring, 2.11 status
-broadcast, 3.4/3.6 (status coalescing + gateway handlers), 3.7 (measured perf).
+Unchecked in groups 2–3 after 2c + 2.5 + status.ts: 2.2b/8.4 (manual spike),
+2.9 (REST routes), 2.10b env wiring, 3.7 (measured perf). (2.5, 2.11, 3.4, 3.6
+landed in later commits.)
 
 ### Remaining work — ordered, for a resuming session
 
@@ -160,12 +160,15 @@ Everything below is unwritten; do them in this order because each unblocks the n
    plugin level (`ws-routes.test.ts`, real http+ws pair, 11 tests); the core
    gates it sits behind stay covered by group 1's live-server test. Still needs
    the `server/index.ts` wiring in item 4 to be live.
-2. **`server/status.ts`** (tasks 2.11, 3.4, 3.6) — `browser_relay_status`
-   broadcast (instances + per-tab state + `auditSeq`), coalesced to ≤1 per 500 ms
-   on audit append and emitted on every instance/tab change; the three
-   `registerBrowserHandler` handlers (`browser_relay_subscribe|unsubscribe|input`)
-   keyed `{instanceId, tabId}` with socket-close = unsubscribe; relay lifecycle
-   log lines. Unblocks 7.22, 7.38, 7.55 and the whole client.
+2. ~~**`server/status.ts`** (tasks 2.11, 3.4, 3.6)~~ **DONE** — `BrowserRelayStatus`
+   composes `browser_relay_status` (instances + tabs + `auditSeq`), broadcasts
+   immediately on instance/tab change and coalesced ≤1 per 500 ms on audit append
+   (`AuditRing.setOnAppend`), and registers the three gateway handlers
+   (`subscribe|unsubscribe|input`) with malformed/unknown refs denied+audited and
+   socket-close = unsubscribe-all. `relay-instance.tabList()` now carries the
+   DevTools take-over as `detached`/`reason:"devtools"` (tab-id keyed, since the
+   model drops the session). Unit-tested (`status.test.ts` 16 tests). Still needs
+   `server/index.ts` wiring (item 4).
 3. **`server/routes.ts`** (task 2.9) — the six `/api/browser/*` routes on
    `ctx.fastify` with everything the manager already returns, plus
    `redactPluginConfigForClient` for the profile rows' `hasToken`. Unblocks
@@ -190,9 +193,9 @@ Everything below is unwritten; do them in this order because each unblocks the n
 - [x] 3.1 Add `BrowserRelaySubscribe|Unsubscribe|InputMessage` to `BrowserToServerMessage` and `BrowserRelayFrame|StatusMessage` to `ServerToBrowserMessage` in `packages/shared/src/browser-protocol.ts`. Verify: typecheck; existing union exhaustiveness test lists the new members; a serialization test asserts no `guid`/`token` field exists on frame/status types.
 - [x] 3.2 `screencast-tap.ts`: one tap per (instance, tabId), high-range command ids (≥ 2^30), refuse subscribe with tab state `client-screencast-active` when the CDP client already runs a screencast on that session, `Page.startScreencast` on that tab's session, immediate ack, filter `Page.screencastFrame` for that sessionId only from the CDP-client stream, deny CDP-client `Page.startScreencast` on that session while active, per-socket `Set<WebSocket>` of viewers (from the `ws` arg of `registerBrowserHandler`), send frames per socket, stop on last unsubscribe / socket close. Verify: `screencast-tap.test.ts` with fake extension emitting frames: subscribed socket receives frames, a second unsubscribed socket receives none, CDP client receives none; CDP `Page.startScreencast` → denied error; stop command sent after last unsubscribe.
 - [x] 3.3 Viewer input allowlist (`mouse`/`key`/`scroll`/`bringToFront` → `Input.*`/`Page.bringToFront`) with normalized `[0,1]` coordinates scaled by last frame `metadata.deviceWidth/Height`; other kinds or out-of-range coords dropped + audited (with remote address). Verify: test sends `{kind:"evaluate"}` → no CDP command, `denied` audit entry; `{kind:"mouse", x:0.5, y:0.5}` on a 1280×800 frame → `Input.dispatchMouseEvent {x:640, y:400}`; `x:1.2` dropped.
-- [ ] 3.4 No-frames detector (2 s no frame → tab state `no-frames`), `browser_relay_status` broadcast with instance + tab list + `auditSeq` on every instance/tab change and on audit append (coalesced 500 ms), DevTools detach (`canceled_by_user` → `detached/devtools`, CDP commands for that tab answered with error). Verify: fake-timer tests for both transitions.
+- [x] 3.4 No-frames detector (2 s no frame → tab state `no-frames`), `browser_relay_status` broadcast with instance + tab list + `auditSeq` on every instance/tab change and on audit append (coalesced 500 ms), DevTools detach (`canceled_by_user` → `detached/devtools`, CDP commands for that tab answered with error). Verify: fake-timer tests for both transitions.
 - [x] 3.5 Per-viewer backpressure (`bufferedAmount > 512 KiB` → skip, count in status). Verify: test with a stub socket reporting high `bufferedAmount` — frame skipped for that viewer only, other viewer still receives.
-- [ ] 3.6 Register `browser_relay_subscribe|unsubscribe|input` handlers via `ctx.registerBrowserHandler` (keyed `{instanceId, tabId}`), broadcast only `browser_relay_status` via `ctx.broadcastToSubscribers`; socket close = unsubscribe. Verify: gateway integration test — two `/ws` clients, one subscribes, only it receives frames; close → tap stops.
+- [x] 3.6 Register `browser_relay_subscribe|unsubscribe|input` handlers via `ctx.registerBrowserHandler` (keyed `{instanceId, tabId}`), broadcast only `browser_relay_status` via `ctx.broadcastToSubscribers`; socket close = unsubscribe. Verify: gateway integration test — two `/ws` clients, one subscribes, only it receives frames; close → tap stops.
 - [ ] 3.7 `performance-optimization` check: measure frames/s and bytes/s with the spike page (`/tmp/pw-ext/spike-relay.mjs` pattern) through the full gateway path; record numbers in this task. Verify: ≥8 fps at ≤50 KB/s per viewer on a repainting 800×600 page.
 
 ## 4. Client: settings section + live-view tile (spec `browser-plugin-settings`)
@@ -247,7 +250,7 @@ Exemplars: L1 server auth/upgrade → `packages/server/src/__tests__/cors.test.t
 - [x] 7.19 Connect 409 reasons: `installed:false` · connect · 409 `{reason:"not-installed"}`; live instance + busy mode · connect · 409 `{reason:"busy", instanceId}`, first untouched (test-plan #E19)
 - [x] 7.20 Disconnect param BVA: none / unknown / live `instanceId` · POST · 400 / 404 / 200 + ext closed + guid 404 (test-plan #E20)
 - [ ] 7.21 Kill switch: 2 live instances · `PUT /api/browser/enabled {false}` · resolves after both closed; upgrades 403; connect/disconnect 403; `{true}` → 200 (test-plan #E21)
-- [ ] 7.22 Status payload: instance tabs 5, 9 · broadcast · `tabs=[{tabId:5},{tabId:9}]`, no `guid`/`token` keys, `auditSeq` number (test-plan #E22)
+- [x] 7.22 Status payload: instance tabs 5, 9 · broadcast · `tabs=[{tabId:5},{tabId:9}]`, no `guid`/`token` keys, `auditSeq` number (test-plan #E22)
 - [x] 7.23 Viewer input mapping BVA: frame 1280×800; `{0,0}`,`{0.5,0.5}`,`{1,1}`,`{1.0001,0}`,`{-0.01,0}` · `mouse` input · (0,0),(640,400),(1280,800); last two dropped + audit `denied` (test-plan #E23)
 - [x] 7.24 Input kinds: `mouse`,`key`,`scroll`,`bringToFront`,`evaluate`,`""` · input · four map to `Input.*`/`Page.bringToFront`; two dropped + audit (test-plan #E24)
 - [ ] 7.25 Tap command ids: client ids 1..1000, tap active · interleaved responses · tap ids ≥2^30, every client response routed with original id, none leaked (test-plan #E25)
@@ -256,7 +259,7 @@ Exemplars: L1 server auth/upgrade → `packages/server/src/__tests__/cors.test.t
 - [ ] 7.28 Fake instance gating: env unset / `PI_BROWSER_RELAY_FAKE=1` · activation · none / one `Fake` instance tab 1, ≥5 frames in 1 s (test-plan #E28)
 - [ ] 7.36 Tap fps + latency: fake ext 4 KB @10 fps, 1 subscriber, client 20 `Runtime.evaluate`/s · 5 s · subscriber ≥8 fps; CDP p95 ≤ baseline+100 ms (test-plan #P1)
 - [x] 7.37 Backpressure: sockets A `bufferedAmount` 600 KiB, B 0 · 2 s of frames · A 0 frames, B all; ack every frame; status skipped-count for A (test-plan #P2)
-- [ ] 7.38 Status coalescing: 100 audit appends in 100 ms · 1 s · ≤1 status per 500 ms; final `auditSeq` = last (test-plan #P3)
+- [x] 7.38 Status coalescing: 100 audit appends in 100 ms · 1 s · ≤1 status per 500 ms; final `auditSeq` = last (test-plan #P3)
 - [ ] 7.39 Instance churn soak: 200 connect→claim→attach→close cycles · end · maps empty, `wss.clients.size` 0, no MaxListeners warning, RSS growth <20 MB (test-plan #P4)
 - [x] 7.44 Connect timeout: extension never dials · fake timers +60 s · 504, guid 404, map empty (test-plan #X1)
 - [x] 7.45 CDP before extension: CDP first; handshake +5 s / never · connect · held then answered; never → CDP closed at 30 s `Extension not connected` (test-plan #X2)

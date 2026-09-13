@@ -357,9 +357,21 @@ describe("lifecycle ends (X4-X7)", () => {
     // commands still reference a sessionId that no longer resolves.
     const sessionId = instance.sessionIdForTab(7);
     expect(sessionId).toBeDefined();
+    // Before the take-over the tab reports `live` (no tap view yet).
+    expect(instance.tabList().find((t) => t.tabId === 7)).toMatchObject({ state: "live" });
 
     ext.detach(7, "canceled_by_user");
     await flush();
+
+    // The status view carries the take-over so the tile renders its overlay
+    // and stops input (task 3.4).
+    expect(instance.tabList().find((t) => t.tabId === 7)).toEqual({
+      tabId: 7,
+      title: expect.any(String),
+      url: expect.any(String),
+      state: "detached",
+      reason: "devtools",
+    });
 
     cdpSide.send(JSON.stringify({ id: 11, method: "Runtime.evaluate", sessionId, params: {} }));
     await flush();

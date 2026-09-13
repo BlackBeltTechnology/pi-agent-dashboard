@@ -21,6 +21,8 @@ interface HarnessOpts {
   port?: number;
   connectTimeoutMs?: number;
   guidExpiryMs?: number;
+  /** Recording logger for the observability assertions (2.11). */
+  logger?: { info(msg: string): void; warn(msg: string): void; error(msg: string): void };
   /** Complete the extension handshake as soon as Chrome is "opened". */
   dialOnOpen?: boolean;
 }
@@ -50,7 +52,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
 
   harness.manager = new RelayManager({
     audit,
-    logger: silentLogger,
+    logger: opts.logger ?? silentLogger,
     getConfig: () => config,
     getPort: () => opts.port ?? 8000,
     canOpenChrome: () => opts.canOpenChrome ?? true,
@@ -109,6 +111,19 @@ describe("connect lifecycle", () => {
     expect(result.instanceId).toMatch(/^inst-/);
     // instanceId must not be the guid, or the status broadcast would leak the credential.
     expect(result.instanceId).not.toContain(guid);
+  });
+
+  it("logs the instance-open and connect-latency lines (2.11)", async () => {
+    const lines: string[] = [];
+    const logger = {
+      info: (m: string) => lines.push(m),
+      warn: (m: string) => lines.push(m),
+      error: (m: string) => lines.push(m),
+    };
+    const { manager } = connectedHarness({ logger });
+    expect((await manager.connect("Default")).ok).toBe(true);
+    expect(lines.some((l) => l === "[browser-relay] instance Default open (connect)")).toBe(true);
+    expect(lines.some((l) => /^\[browser-relay\] instance Default connected in \d+ms$/.test(l))).toBe(true);
   });
 
   it("409 {reason:'not-installed'} when the extension is absent from the profile (E19)", async () => {
