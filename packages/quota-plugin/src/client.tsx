@@ -311,8 +311,13 @@ export function QuotaWidget({ session }: { session?: DashboardSession }) {
   const now = Date.now();
   const [dialogProvider, setDialogProvider] = useState<string | null>(null);
 
-  // Only providers carrying at least one window produce a chip.
-  const rows = useMemo(() => providers.filter((p) => p.windows.length > 0), [providers]);
+  // Only providers carrying at least one window produce a chip. Guard the shape
+  // too: `/api/quota` is untrusted wire data, so a malformed entry ({}) must be
+  // skipped rather than throw on `p.windows.length`.
+  const rows = useMemo(
+    () => providers.filter((p) => Array.isArray(p?.windows) && p.windows.length > 0),
+    [providers],
+  );
 
   if (rows.length === 0) return null;
 

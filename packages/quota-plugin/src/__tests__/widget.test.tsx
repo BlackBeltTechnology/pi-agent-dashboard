@@ -204,6 +204,14 @@ describe("QuotaWidget context-strip chip", () => {
     expect(container.childElementCount).toBe(0);
     expect(screen.queryByTestId("quota-context-group")).toBe(null);
   });
+
+  it("X2b: a provider entry with no windows array renders nothing", async () => {
+    mockQuota({ providers: [{ provider: "anthropic" }] } as unknown as ApiQuotaResponse);
+    const { container } = render(<QuotaWidget session={makeSession()} />);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(container.childElementCount).toBe(0);
+    expect(screen.queryByTestId("quota-context-group")).toBe(null);
+  });
 });
 
 // ── add-quota-refresh-and-retry: useQuota fetch/refresh state (design D7) ──────
