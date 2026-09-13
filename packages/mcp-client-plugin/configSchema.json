@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MCP Client plugin settings",
+  "description": "Dashboard-side settings for the mcp-client plugin (distinct from schema/mcp-config.schema.json, which describes the pi-mcp-adapter config).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "adapterLoadTimeoutMs": {
+      "type": "integer",
+      "default": 10000,
+      "minimum": 1000,
+      "maximum": 120000,
+      "description": "Deadline in milliseconds for a pi-mcp-adapter config load. The load runs in a worker thread; on expiry the worker is terminated and the request fails with an adapter-timeout error."
+    }
+  }
+}

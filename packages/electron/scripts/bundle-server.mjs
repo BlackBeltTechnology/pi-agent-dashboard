@@ -132,6 +132,7 @@ const BUNDLED_PLUGINS = [
   "blackhole-plugin",
   "mcp-server-plugin",
   "apple-tools",
+  "mcp-client-plugin",
   "cost-estimator",
   "quota-plugin",
 ];

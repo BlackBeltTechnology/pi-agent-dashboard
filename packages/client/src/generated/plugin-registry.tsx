@@ -8,6 +8,7 @@ import { GoalChip, hasGoal, GoalControl, FolderGoalsSection, GoalsBoardClaim, Go
 import { GrammarSettings, GrammarComposerPanel, catalog as grammar_catalog } from "@blackbelt-technology/pi-dashboard-grammar-plugin";
 import { HermesMemorySettings, catalog as hermes_memory_catalog } from "@blackbelt-technology/pi-dashboard-hermes-memory-plugin";
 import { FolderKbSection, KbSettingsClaim, catalog as kb_catalog } from "@blackbelt-technology/pi-dashboard-kb-plugin";
+import { McpSettingsClaim, FolderMcpSection, FolderMcpPage } from "@blackbelt-technology/pi-dashboard-mcp-client-plugin";
 import { BuiltInRolesSettings, catalog as roles_catalog } from "@blackbelt-technology/pi-dashboard-roles-plugin";
 import { SubagentsSettings, SubagentPopoutClaim, catalog as subagents_catalog } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
 import { BlackholeSettings, MemorySubcard, shouldRenderMemorySubcard, PipelineDetailView, isPipelineDetailActive, catalog as blackhole_catalog } from "@blackbelt-technology/pi-dashboard-blackhole-plugin";
@@ -340,6 +341,49 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
+        "id": "mcp-client",
+        "displayName": "MCP Client",
+        "priority": 100,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "McpSettingsClaim",
+                "tab": "general"
+            },
+            {
+                "slot": "sidebar-folder-section",
+                "component": "FolderMcpSection"
+            },
+            {
+                "slot": "worktree-card-section",
+                "component": "FolderMcpSection"
+            },
+            {
+                "slot": "shell-overlay-route",
+                "component": "FolderMcpPage",
+                "path": "/folder/:encodedCwd/mcp",
+                "depth": 2,
+                "parentPath": "/folder/:encodedCwd"
+            }
+        ],
+        "client": "./src/client/index.tsx",
+        "server": "./src/server/index.ts",
+        "configSchema": "./configSchema.json",
+        "requires": {
+            "piExtensions": [
+                "pi-mcp-adapter"
+            ]
+        }
+    },
+    claims: [
+      { pluginId: "mcp-client", priority: 100, slot: "settings-section", tab: "general", Component: McpSettingsClaim },
+      { pluginId: "mcp-client", priority: 100, slot: "sidebar-folder-section", Component: FolderMcpSection },
+      { pluginId: "mcp-client", priority: 100, slot: "worktree-card-section", Component: FolderMcpSection },
+      { pluginId: "mcp-client", priority: 100, slot: "shell-overlay-route", path: "/folder/:encodedCwd/mcp", depth: 2, parentPath: "/folder/:encodedCwd", Component: FolderMcpPage },
+    ],
+  },
+  {
+    manifest: {
         "id": "roles",
         "displayName": "Roles",
         "priority": 100,
@@ -486,4 +530,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "225b0926506e5ffed78b9633f5529c0b9c02aec2fd0e6a2907d28b70f4a4c8c0";
+export const PLUGIN_REGISTRY_HASH = "23ca858edf1ae7e7d0c16e9daa0da6f3e9326f1fa4b9fd70e8e2cf2314e2ba0d";
