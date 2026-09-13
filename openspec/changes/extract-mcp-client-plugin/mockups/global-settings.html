@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MCP Servers — Settings › Plugins › mcp-client</title>
+<link rel="stylesheet" href="tokens.css">
+<script>var q=new URLSearchParams(location.search);if(q.get("theme"))document.documentElement.dataset.theme=q.get("theme");</script>
+<style>
+  .page { max-width: 1100px; margin: 0 auto; }
+  .layout { display: grid; grid-template-columns: 1fr; }
+  @media (min-width: 900px) { .layout { grid-template-columns: minmax(0,1fr) 400px; } .editor { border-left: 1px solid var(--border-primary); } }
+  header.top { padding: 12px 16px; border-bottom: 1px solid var(--border-primary); background: var(--bg-primary); position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 10px; }
+  header.top h1 { font-size: 14px; font-weight: 600; color: var(--text-primary); margin: 0; white-space: nowrap; }
+  header.top .btn { white-space: nowrap; }
+  @media (max-width: 639px) { header.top .crumb, header.top .status { display: none; } .layer-legend { flex-direction: column; gap: 2px; } }
+  header.top .crumb { font-size: 11px; color: var(--text-tertiary); }
+  .section-head { padding: 12px 16px 6px; display: flex; align-items: center; gap: 8px; }
+  .section-head .eyebrow { flex: 1; }
+  .name { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+  .meta { font-size: 11px; color: var(--text-tertiary); display: flex; gap: 8px; flex-wrap: wrap; }
+  .grow { flex: 1; min-width: 0; }
+  .actions { display: flex; gap: 6px; align-items: center; }
+  .editor { background: var(--bg-secondary); min-height: 60vh; }
+  @media (max-width: 899px) { .editor { position: fixed; inset: 8vh 0 0 0; z-index: 40; overflow-y: auto; border-top-left-radius: 12px; border-top-right-radius: 12px; box-shadow: 0 -8px 32px rgba(0,0,0,.4); border-top: 1px solid var(--border-primary); } .editor .head { position: sticky; top: 0; background: var(--bg-secondary); z-index: 1; } }
+  .editor .head { padding: 12px 16px; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; gap: 8px; }
+  .editor .body { padding: 12px 16px; }
+  .footer { position: sticky; bottom: 0; background: var(--bg-secondary); border-top: 1px solid var(--border-primary); padding: 10px 16px; display: flex; gap: 8px; align-items: center; }
+  .footer .dirty { font-size: 11px; color: var(--severity-warning-fg); flex: 1; }
+  .settings-grid { display: grid; grid-template-columns: 1fr; gap: 0 16px; padding: 0 16px 16px; }
+  @media (min-width: 640px) { .settings-grid { grid-template-columns: 1fr 1fr; } }
+  .errsum { border: 1px solid var(--severity-error-border); background: var(--severity-error-bg); border-radius: 4px; padding: 8px 10px; margin-bottom: 12px; font-size: 12px; }
+  .errsum a { color: var(--severity-error-fg); }
+  .row.disabled .name { color: var(--text-tertiary); text-decoration: line-through; text-decoration-color: var(--border-primary); }
+  .ro { font-size: 12px; color: var(--text-secondary); padding: 6px 0; border-bottom: 1px dashed var(--border-subtle); display: flex; gap: 8px; }
+  .ro .k { color: var(--text-tertiary); width: 96px; flex-shrink: 0; }
+  .empty { padding: 32px 16px; text-align: center; color: var(--text-tertiary); font-size: 12px; }
+  .secret { display: flex; gap: 6px; } .secret .input { flex: 1; }
+  .layer-legend { padding: 4px 16px 10px; font-size: 11px; color: var(--text-muted); display: flex; gap: 12px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="top">
+    <div>
+      <div class="crumb">Settings › Plugins › MCP client</div>
+      <h1>MCP servers</h1>
+    </div>
+    <div class="grow"></div>
+    <span class="status ok" title="pi-mcp-adapter 2.31.0 installed">● adapter 2.31.0</span>
+    <button class="btn primary" id="add">+ Add server</button>
+  </header>
+
+  <!-- state: adapter below floor (toggle via ?state=floor) — kept visible in the mockup as the second state -->
+  <div class="banner warn" id="floorBanner" hidden>
+    <span>⚠</span>
+    <span class="grow"><strong>pi-mcp-adapter 2.18.0 is below the required 2.20.0.</strong> Servers are listed read-only until you upgrade.</span>
+    <button class="btn">Upgrade extension</button>
+  </div>
+
+  <div class="layout">
+    <main>
+      <div class="section-head">
+        <span class="eyebrow">Servers · effective global view</span>
+        <span class="meta">4 configured · 1 off</span>
+      </div>
+      <div class="layer-legend">
+        <span>🔒 <b>Shared</b> = read from ~/.config/mcp, ~/.agents (not editable here)</span>
+        <span><b>Pi global</b> = ~/.pi/agent/mcp.json (edited on this page)</span>
+      </div>
+
+      <!-- Pi-owned, enabled, selected -->
+      <div class="row" style="background: var(--bg-hover)" aria-current="true">
+        <button class="switch" role="switch" aria-checked="true" aria-label="Enable iMCP"></button>
+        <div class="grow">
+          <div class="name">iMCP</div>
+          <div class="meta"><span class="mono">stdio · /Applications/iMCP.app/Contents/MacOS/imcp-server</span></div>
+          <div class="meta"><span class="badge">Pi global</span><span>directTools: 14 · installed by apple-tools</span></div>
+        </div>
+        <div class="actions"><button class="btn" aria-label="Edit iMCP">Edit</button></div>
+      </div>
+
+      <!-- Shared layer, with a Pi override -->
+      <div class="row">
+        <button class="switch" role="switch" aria-checked="true" aria-label="Enable github"></button>
+        <div class="grow">
+          <div class="name">github</div>
+          <div class="meta"><span class="mono">http · https://api.githubcopilot.com/mcp/</span></div>
+          <div class="meta"><span class="badge lock">Shared · ~/.config/mcp/mcp.json</span><span class="badge override">override: toolPrefix</span></div>
+        </div>
+        <div class="actions"><button class="btn" aria-label="View github">View</button></div>
+      </div>
+
+      <!-- Shared, disabled via Pi override -->
+      <div class="row disabled">
+        <button class="switch" role="switch" aria-checked="false" aria-label="Enable filesystem"></button>
+        <div class="grow">
+          <div class="name">filesystem</div>
+          <div class="meta"><span class="mono">stdio · npx -y @modelcontextprotocol/server-filesystem ~/Project</span></div>
+          <div class="meta"><span class="badge lock">Shared · ~/.agents/mcp.json</span><span class="badge override">override: disabled</span></div>
+        </div>
+        <div class="actions"><button class="btn" aria-label="View filesystem">View</button></div>
+      </div>
+
+      <!-- Parse error row -->
+      <div class="row">
+        <span class="status err" aria-label="config error">✕</span>
+        <div class="grow">
+          <div class="name">postgres</div>
+          <div class="meta"><span class="status err">Invalid JSON in ~/.pi/agent/mcp.json, line 41 — trailing comma. Fix the file or re-save this server.</span></div>
+          <div class="meta"><span class="badge">Pi global</span></div>
+        </div>
+        <div class="actions"><button class="btn">Open file</button><button class="btn" aria-label="Edit postgres">Edit</button></div>
+      </div>
+
+      <div class="section-head" style="margin-top: 16px">
+        <span class="eyebrow">Adapter settings · Pi global</span>
+        <span class="meta">from pi-mcp-adapter <span class="mono">McpSettings</span></span>
+      </div>
+      <div class="settings-grid">
+        <label class="field"><span class="lbl">Tool prefix</span><input class="input mono" value="mcp_"><span class="hint">Prepended to every tool name. Default <span class="mono">mcp_</span>.</span></label>
+        <label class="field"><span class="lbl">Idle timeout (s)</span><input class="input mono" type="number" value="300"><span class="hint">Disconnect idle stdio servers. 0 = never.</span></label>
+        <label class="field"><span class="lbl">Direct tools</span><select class="input"><option>off</option><option selected>on (expose tools directly)</option></select><span class="hint">Servers may override per entry.</span></label>
+        <label class="field"><span class="lbl">Approve tools</span><select class="input"><option selected>ask</option><option>always</option><option>never</option></select></label>
+        <details style="grid-column: 1 / -1"><summary>Advanced (script mode, output guard, sampling, elicitation, trace)</summary>
+          <div class="settings-grid" style="padding: 8px 0 0">
+            <label class="field"><span class="lbl">Script mode</span><select class="input"><option selected>auto</option><option>off</option><option>on</option></select></label>
+            <label class="field"><span class="lbl">Output guard (chars)</span><input class="input mono" type="number" value="20000"></label>
+            <label class="field"><span class="lbl">Sampling</span><select class="input"><option selected>allow</option><option>deny</option></select></label>
+            <label class="field"><span class="lbl">Trace</span><select class="input"><option selected>off</option><option>on</option></select></label>
+          </div>
+        </details>
+      </div>
+    </main>
+
+    <!-- S2: editor drawer / right column -->
+    <aside class="editor" aria-label="Edit server iMCP">
+      <div class="head">
+        <span class="name grow">Edit · iMCP</span>
+        <span class="badge">Pi global</span>
+        <button class="btn" aria-label="Close editor">✕</button>
+      </div>
+      <div class="body">
+        <div class="errsum" role="alert" id="errsum">
+          <strong>1 field needs attention</strong><br>
+          <a href="#f-command">Command — file not found at that path</a>
+        </div>
+        <label class="field"><span class="lbl">Name</span><input class="input mono" value="iMCP"><span class="hint">Key under <span class="mono">mcpServers</span>. Renaming creates a new entry.</span></label>
+        <div class="tabs" role="tablist">
+          <button class="tab" role="tab" aria-selected="true">stdio</button>
+          <button class="tab" role="tab" aria-selected="false">http</button>
+        </div>
+        <label class="field error" id="f-command"><span class="lbl">Command</span><input class="input mono" value="/Applications/iMCP.app/Contents/MacOS/imcp-srv" aria-invalid="true"><span class="err">File not found. Run the apple-tools installer or correct the path.</span></label>
+        <label class="field"><span class="lbl">Arguments</span><input class="input mono" value="" placeholder=""><span class="hint">One per line or shell-quoted.</span></label>
+        <label class="field"><span class="lbl">Environment</span><textarea class="input mono" rows="2">IMCP_LOG=warn</textarea><span class="hint">KEY=value per line. Values matching *_TOKEN / *_KEY are masked after save.</span></label>
+        <label class="field"><span class="lbl">Direct tools</span><select class="input"><option>inherit (on)</option><option selected>on</option><option>off</option></select></label>
+        <details>
+          <summary>Advanced (prefix, include/exclude, approve, lifecycle, idle timeout, debug)</summary>
+          <label class="field" style="margin-top:8px"><span class="lbl">Tool prefix</span><input class="input mono" placeholder="inherit"></label>
+          <label class="field"><span class="lbl">Include tools</span><input class="input mono" placeholder="glob, comma-separated"></label>
+          <label class="field"><span class="lbl">Exclude tools</span><input class="input mono" placeholder="glob, comma-separated"></label>
+          <label class="field"><span class="lbl">Lifecycle</span><select class="input"><option selected>lazy</option><option>eager</option></select></label>
+          <label class="field"><span class="lbl">Idle timeout (s)</span><input class="input mono" placeholder="inherit (300)"></label>
+        </details>
+        <div style="margin-top:16px; padding-top: 12px; border-top: 1px solid var(--border-subtle); display:flex; gap:8px; align-items:center">
+          <button class="btn danger">Delete server…</button>
+          <span class="hint" style="font-size:11px;color:var(--text-muted)">Removes from ~/.pi/agent/mcp.json only.</span>
+        </div>
+      </div>
+      <div class="footer">
+        <span class="dirty">● Unsaved changes</span>
+        <button class="btn">Discard</button>
+        <button class="btn primary">Save</button>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<button class="btn theme-toggle" onclick="var h=document.documentElement;h.dataset.theme=h.dataset.theme==='dark'?'light':'dark'">◐ theme</button>
+<script>
+  if (location.search.includes('state=floor')) document.getElementById('floorBanner').hidden = false;
+</script>
+</body>
+</html>

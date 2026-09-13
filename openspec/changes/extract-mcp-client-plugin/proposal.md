@@ -1,0 +1,57 @@
+## Why
+
+`packages/apple-tools` bundles two unrelated concerns under one plugin id. The Apple-specific half (`detect.ts`, `install.ts`, `env.ts`, `doctor.ts`, `bin/install.ts`, the 9-state provisioning machine) is what the plugin is named for. The other half — `mcp-config.ts` (285 lines, the largest module), the `set-disabled` / `set-direct-tools` server actions, and the `directTools` + disable controls in the settings panel — is generic `pi-mcp-adapter` configuration wearing an Apple badge. Its only Apple knowledge is the hard-coded server name `iMCP` in `readImcpEntry`.
+
+Consequences today:
+
+- A user who wants to manage **any** MCP server from the dashboard (add a `url` server, set `toolPrefix`, tune `idleTimeout`, flip `directTools`) has no surface — the only MCP UI is buried inside a macOS-only plugin that is gated off on Linux/Windows.
+- `pi-mcp-adapter` exposes ~30 per-server fields and ~27 global `McpSettings` fields; the dashboard exposes two (`disabled`, `directTools`), and only for `iMCP`.
+- The adapter's config discovery (six file layers `~/.config/mcp/mcp.json` → `~/.agents/mcp.json` → `~/.agents/mcp/mcp.json` → `~/.pi/agent/mcp.json` → `<cwd>/.mcp.json` → `<cwd>/.pi/mcp.json`, plus `imports`, `package.json#mcp`, and agent-plugin sources) is re-implemented by hand in `mcp-config.ts` instead of consumed from `pi-mcp-adapter/config` (`loadMcpConfig`, `getConfigDiscoveryPaths`, `getServerProvenance`, `writeProjectServerDisabledOverride`), so the two already drift: the adapter parses JSONC and the `mcp-servers` alias key, writes `disabled: false` on enable when a lower layer disables, and nests global settings under `settings` — `mcp-config.ts` does none of these. (`getServerProvenance` reports the adapter's *write target* per server, so layer classification must key on its `kind`, not its `path`.)
+- Both `apple-tools` and `mcp-server-plugin` independently need the `pi-mcp-adapter >= 2.20` floor (`recommended-extensions.ts:476`, `mcp-server-plugin/src/server/provisioning.ts` `probeAdapterVersion`); there is no single owner.
+
+The runtime already has every mechanism the split needs and none is exercised by a first-party plugin pair yet: `PluginManifest.dependsOn` (topological load, `missingDeps`, cascade toggle — zero consumers in `packages/*/package.json`), and the `ctx.provide` / `ctx.consume` cross-plugin service seam whose spec explicitly guarantees provider-before-dependent ordering via `dependsOn`. This change is the first real consumer of both.
+
+## What Changes
+
+- **New plugin `packages/mcp-client-plugin`** (id `mcp-client`, npm `@blackbelt-technology/pi-dashboard-mcp-client-plugin` per the package naming convention). Owns all `pi-mcp-adapter` configuration on the dashboard side.
+  - `requires.piExtensions: ["pi-mcp-adapter"]` moves here from `apple-tools`. Owns the adapter version-floor probe (`probeAdapterVersion` + `readInstalledAdapterVersion` consolidated from `mcp-server-plugin`).
+  - Server: reads effective config through `pi-mcp-adapter/config` (`loadMcpConfig(overridePath, cwd)`), never a hand-rolled discovery walk. The adapter's loaders are synchronous, so they run in a worker thread under an operator-settable `adapterLoadTimeoutMs` (plugin host config `plugins.mcp-client`, manifest `configSchema`; default 10s) — a stalled config read yields `504 adapter-timeout` instead of freezing the dashboard. Writes land ONLY in the two Pi-owned layers — global `~/.pi/agent/mcp.json`, folder `<cwd>/.pi/mcp.json`. Shared/host layers are read-only, surfaced with provenance. Secret-bearing values inherited from a layer the requested scope cannot write are redacted server-side before leaving the process.
+  - Server: `ctx.provide("mcp-client.config", api)` exposing `ensureServerEntry`, `setServerDisabled`, `setDirectTools`, `readServerEntry`, `ensureAdapterPackage`, `checkConfigFiles`, `adapterVerdict` (the generic core of today's `mcp-config.ts`, parameterised by server name and scope).
+  - Client, **global scope**: `settings-section` claim → `/settings/plugins/mcp-client`. Server list with per-server provenance + enable/disable, per-server editor covering the `ServerEntry` fields, a `McpSettings` form, and a "Dashboard plugin settings" group (`adapterLoadTimeoutMs`) in the same host draft source. Field metadata for the adapter config comes from a JSON Schema shipped by the plugin (`schema/mcp-config.schema.json`, hand-authored from `pi-mcp-adapter/dist/types.d.ts`; distinct from the manifest `configSchema`, which covers only the plugin's own dashboard-side settings).
+  - Client, **folder scope**: `sidebar-folder-section` + `worktree-card-section` pill (server count / disabled count / error) and a `shell-overlay-route` page `/folder/:encodedCwd/mcp` showing the effective merged view for that cwd with folder-layer overrides. Mirrors `kb-plugin`'s pill → page pattern; the cwd guard (`isAllowedCwd` + canonicalisation) is extracted from `kb-plugin` into `pi-dashboard-shared` so both plugins share one implementation.
+- **`apple-tools` shrinks to Apple-only.** Manifest gains `dependsOn: ["mcp-client"]`; drops `requires.piExtensions`. `mcp-config.ts`, `set-disabled`, `set-direct-tools` are removed; `install.ts` calls the service's `ensureServerEntry("iMCP", …)`, and the panel readout that used `readImcpEntry` (`server/index.ts` L77) uses `readServerEntry`. Settings panel keeps status / Run installer / iMCP path / permission handoff and links "Manage MCP servers →" to the mcp-client page. **BREAKING** for anyone calling the removed `apple-tools` `set-disabled` / `set-direct-tools` `plugin_action`s directly (no known caller outside the panel).
+- `mcp-server-plugin` consumes the adapter-floor verdict from `mcp-client` instead of probing itself, and provisions its own `pi-dashboard` entry through the mcp-client core writer (package dependency, no plugin `dependsOn`) so it stops diverging from pi on comments, alias key, and custom agent dir. One observable change: its registration-time below-floor log warning moves to the first local-pi provisioning call (no `dependsOn`, so the service may not exist at registration).
+- `recommended-extensions.ts`: a new `pi-mcp-adapter` extension row (enables the inline Install affordance on the plugins index) and a new `@blackbelt-technology/pi-dashboard-mcp-client-plugin` row that carries `dashboardPlugin: "mcp-client"` and `requires.piExtensions: ["pi-mcp-adapter"]`; the apple-tools row drops that `requires` (keeps `dashboardPlugin: "apple-tools"`); the comment pointing at `mcp-server-plugin/.../provisioning.ts probeAdapterVersion` is repointed.
+- Plugin added to the Electron `BUNDLED_PLUGINS` list (Vite discovers workspace plugins automatically).
+
+## Capabilities
+
+### New Capabilities
+
+- `mcp-client-config`: server-side ownership of `pi-mcp-adapter` configuration — layer model (read all six, write only Pi-owned two), merge-only writes with atomic tmp+rename, provenance per server, `ctx.provide("mcp-client.config")` service contract, adapter version-floor probe.
+- `mcp-client-settings`: global settings surface — server list, per-server editor, `McpSettings` form, schema-driven field rendering, save/revert, read-only rendering of shared-layer servers.
+- `mcp-client-folder-section`: folder-scope pill + `/folder/:encodedCwd/mcp` page — effective view for a cwd, folder-layer override editing, cwd guard, pending/error states.
+
+### Modified Capabilities
+
+- `apple-tools-provisioning`: "Merge-only MCP configuration write" and "Server enable/disable SHALL NOT destroy the installer's entry" are now satisfied by delegating to the `mcp-client.config` service rather than by an in-package writer; "Provisioning settings surface" loses the `directTools` / disable controls and gain the "Manage MCP servers →" affordance; plugin declares `dependsOn: ["mcp-client"]`.
+- `dashboard-mcp-server`: "Dashboard MCP entry is provisioned into the user MCP config" now writes through the mcp-client core (JSONC parse, alias key, custom agent dir, merge-only refresh); the adapter-floor consumption is an ADDED requirement (the base spec had none).
+
+## Impact
+
+- **Code**: new `packages/mcp-client-plugin/` (server, client, `schema/mcp-config.schema.json`, tests). `packages/apple-tools/src/mcp-config.ts` deleted; `install.ts`, `server/index.ts`, `client/*` trimmed; `package.json` manifest edited. `packages/mcp-server-plugin/src/server/provisioning.ts` `probeAdapterVersion` removed in favour of consume. `packages/shared/src/recommended-extensions.ts` one new row + one field removed. Vite plugin registry / Electron bundle list gain one id.
+- **Runtime contracts exercised for the first time by first-party code**: `dependsOn` load ordering + `missingDeps` + cascade-toggle confirm; `ctx.provide`/`ctx.consume` across two plugins. Tests must cover "mcp-client disabled → apple-tools shows `missingDeps`, installer refuses to run".
+- **Dependencies**: `pi-mcp-adapter` becomes a regular dependency of `mcp-client-plugin` (types + `/config` entry; a peer would not be guaranteed to resolve for the hostless CLI path); `ajv` is declared directly; `strip-json-comments` (already the adapter's own dependency) is added so the writer parses the same JSONC the adapter reads. `apple-tools` drops its `pi-mcp-adapter` dependency and gains `@blackbelt-technology/pi-dashboard-mcp-client-plugin` (for the `./core` service factory the hostless `pi-apple-tools-install` CLI uses).
+- **Files on disk**: writes only ever touch `~/.pi/agent/mcp.json`, `<cwd>/.pi/mcp.json`, and (`ensureAdapterPackage`) `~/.pi/agent/settings.json#packages` — the same files `apple-tools` writes today; no migration of existing user config.
+- **Docs**: `docs/architecture.md` plugin table, `packages/mcp-client-plugin/AGENTS.md` (new), `packages/apple-tools/AGENTS.md` rows, `README.md` MCP section. `docs/` prose via DocScribe.
+- **Session-card slot (decided)**: the S4 pill claims `worktree-card-section` as a self-titled `SlotPill` twin of the kb pill. Known seam: this slot is the only card slot the host does NOT wrap in `SessionSubcard` (no host legend, no `useSlotHasClaims` auto-hide), so kb + mcp pills stack as two self-titled panels. Accepted for self-containment; host-titled WORKSPACE wrapper deferred to a separate change.
+- **Out of scope**: OAuth flows for `url` servers (adapter handles in-session), editing shared/host layer files, a generated-from-types schema pipeline (hand-authored schema is acceptable for v1; open question in design).
+
+## Discipline Skills
+
+- `doubt-driven-review` — the plugin split is effectively a public API move (`plugin_action` ids removed from `apple-tools`, `dashboardPlugin` pointer changes, first use of `dependsOn`); stress-test before it stands.
+- `security-hardening` — the settings page writes user-supplied `command` / `args` / `env` / `headers` / `auth` values into files that pi executes, so every mutating route sits behind `ctx.networkGuard` like `goal-plugin`'s; cwd for folder writes is untrusted browser input and must pass the `knownFolderCwds` guard; secret-bearing fields (`headers.Authorization`, `env.*_TOKEN`) need masked rendering.
+- `review-code` — multi-package diff, non-trivial.
+- `scenario-design` — layer precedence × two scopes × read-only vs Pi-owned produces a real edge-case matrix.
+
+No `performance-optimization` (no latency budget or large-data path) and no `observability-instrumentation` (routes reuse existing plugin logging; no new external call) checkpoint fires.

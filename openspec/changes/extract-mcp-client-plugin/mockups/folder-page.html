@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MCP — /Users/robson/Project/pi-agent-dashboard</title>
+<link rel="stylesheet" href="tokens.css">
+<script>var q=new URLSearchParams(location.search);if(q.get("theme"))document.documentElement.dataset.theme=q.get("theme");</script>
+<style>
+  .page { max-width: 900px; margin: 0 auto; }
+  .demo-label { padding: 24px 16px 6px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .08em; }
+  /* S4 pill — sidebar folder section as it appears in the sidebar list */
+  .sidebar { width: 280px; background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 6px; margin: 0 16px; }
+  .sidebar .folder { padding: 8px 10px; border-bottom: 1px solid var(--border-subtle); }
+  .sidebar .folder .fname { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+  .pill { display: flex; align-items: baseline; gap: 6px; min-width: 0; font-size: 10px; font-weight: 600; color: var(--text-tertiary); padding: 2px 0; }
+  .pill .k { color: var(--text-tertiary); } .pill .n { font-variant-numeric: tabular-nums; }
+  .pill .warn { color: var(--severity-warning-fg); } .pill .err { color: var(--severity-error-fg); font-weight: 800; }
+  .pill .go { margin-left: auto; width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--border-subtle); background: transparent; color: var(--text-tertiary); cursor: pointer; }
+  .pill .go:hover { color: var(--accent); border-color: var(--accent); }
+  /* S3 page */
+  header.top { padding: 12px 16px; border-bottom: 1px solid var(--border-primary); background: var(--bg-primary); position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 10px; }
+  header.top h1 { font-size: 14px; font-weight: 600; color: var(--text-primary); margin: 0; }
+  header.top .btn { white-space: nowrap; }
+  @media (max-width: 639px) { header.top .link { display: none; } header.top h1 { font-size: 13px; } .layer-legend { flex-direction: column; gap: 2px; } }
+  header.top .crumb { font-size: 11px; color: var(--text-tertiary); }
+  .grow { flex: 1; min-width: 0; }
+  .section-head { padding: 12px 16px 6px; display: flex; align-items: center; gap: 8px; }
+  .section-head .eyebrow { flex: 1; }
+  .name { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+  .meta { font-size: 11px; color: var(--text-tertiary); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .actions { display: flex; gap: 6px; }
+  .row.disabled .name { color: var(--text-tertiary); text-decoration: line-through; text-decoration-color: var(--border-primary); }
+  .chip { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 600; padding: 1px 4px 1px 6px; border-radius: 4px; background: var(--indigo-bg); color: var(--indigo-fg); border: 1px solid var(--indigo-border); }
+  .chip button { border: 0; background: none; color: inherit; cursor: pointer; font-size: 11px; padding: 0 2px; min-width: 20px; min-height: 20px; }
+  .inherit { color: var(--text-muted); font-style: italic; }
+  .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 56px; background: var(--bg-surface); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 6px; padding: 8px 12px; font-size: 12px; display: flex; gap: 12px; align-items: center; box-shadow: 0 4px 16px rgba(0,0,0,.3); }
+  .toast a { color: var(--indigo-fg); font-weight: 600; text-decoration: none; }
+  .empty { padding: 32px 16px; text-align: center; color: var(--text-tertiary); font-size: 12px; }
+  .layer-legend { padding: 4px 16px 10px; font-size: 11px; color: var(--text-muted); display: flex; gap: 12px; flex-wrap: wrap; }
+  /* S5 apple-tools card */
+  .card { margin: 0 16px 24px; border: 1px solid var(--border-primary); border-radius: 6px; background: var(--bg-secondary); }
+  .card .head { padding: 10px 16px; border-bottom: 1px solid var(--border-subtle); display: flex; gap: 8px; align-items: center; }
+  .card .body { padding: 12px 16px; font-size: 12px; display: grid; gap: 8px; }
+  .kv { display: flex; gap: 8px; } .kv .k { width: 110px; color: var(--text-tertiary); flex-shrink: 0; }
+  .link { color: var(--indigo-fg); text-decoration: none; font-weight: 600; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="demo-label">S4 · folder pill (sidebar-folder-section / worktree-card-section)</div>
+  <div class="sidebar">
+    <div class="folder">
+      <div class="fname">pi-agent-dashboard</div>
+      <div class="pill" aria-label="MCP: 5 servers, 1 off">
+        <span class="k">MCP</span><span class="n">5 servers</span><span>·</span><span class="n warn">1 off</span>
+        <button class="go" aria-label="Open MCP settings for this folder">→</button>
+      </div>
+      <div class="pill" aria-label="KB: 1234 docs"><span class="k">KB</span><span class="n">1,234</span><button class="go" aria-label="Open KB">→</button></div>
+    </div>
+    <div class="folder">
+      <div class="fname">pi-agent-dashboard-wt-42</div>
+      <div class="pill" aria-label="MCP: config error">
+        <span class="k">MCP</span><span class="err">! .pi/mcp.json invalid</span>
+        <button class="go" aria-label="Open MCP settings for this folder">→</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-label">S3 · /folder/:encodedCwd/mcp</div>
+  <header class="top">
+    <div>
+      <div class="crumb mono" style="font-size:11px">~/Project/pi-agent-dashboard</div>
+      <h1>MCP servers · this folder</h1>
+    </div>
+    <div class="grow"></div>
+    <a class="link" href="global-settings.html">Global settings →</a>
+    <button class="btn primary">+ Add folder server</button>
+  </header>
+
+  <div class="section-head">
+    <span class="eyebrow">Effective for this folder</span>
+    <span class="meta">5 servers · 1 off · 2 folder overrides</span>
+  </div>
+  <div class="layer-legend">
+    <span>Inherited from global unless overridden.</span>
+    <span><b>Pi folder</b> = <span class="mono">.pi/mcp.json</span> (edited here)</span>
+    <span>🔒 <b>Shared · folder</b> = <span class="mono">.mcp.json</span> (read-only)</span>
+  </div>
+
+  <!-- global server, no override -->
+  <div class="row">
+    <button class="switch" role="switch" aria-checked="true" aria-label="Enable iMCP in this folder"></button>
+    <div class="grow">
+      <div class="name">iMCP</div>
+      <div class="meta"><span class="badge">Pi global</span><span class="inherit">inherited · no folder override</span></div>
+    </div>
+    <div class="actions"><button class="btn" aria-label="Override iMCP for this folder">Override…</button></div>
+  </div>
+
+  <!-- global server, disabled here -->
+  <div class="row disabled">
+    <button class="switch" role="switch" aria-checked="false" aria-label="Enable filesystem in this folder"></button>
+    <div class="grow">
+      <div class="name">filesystem</div>
+      <div class="meta"><span class="badge lock">Shared</span>
+        <span class="chip">folder: disabled <button aria-label="Remove folder override for filesystem">✕</button></span>
+      </div>
+    </div>
+    <div class="actions"><button class="btn" aria-label="Edit filesystem override">Edit</button></div>
+  </div>
+
+  <!-- folder-only server -->
+  <div class="row">
+    <button class="switch" role="switch" aria-checked="true" aria-label="Enable pi-dashboard in this folder"></button>
+    <div class="grow">
+      <div class="name">pi-dashboard</div>
+      <div class="meta"><span class="mono">http · http://localhost:8000/mcp</span></div>
+      <div class="meta"><span class="badge">Pi folder</span><span>only in this folder</span></div>
+    </div>
+    <div class="actions"><button class="btn" aria-label="Edit pi-dashboard">Edit</button></div>
+  </div>
+
+  <!-- shared folder layer -->
+  <div class="row">
+    <button class="switch" role="switch" aria-checked="true" aria-label="Enable playwright in this folder"></button>
+    <div class="grow">
+      <div class="name">playwright</div>
+      <div class="meta"><span class="mono">stdio · npx @playwright/mcp@latest</span></div>
+      <div class="meta"><span class="badge lock">Shared · folder · .mcp.json</span>
+        <span class="chip">folder: toolPrefix=pw_ <button aria-label="Remove folder override for playwright">✕</button></span>
+      </div>
+    </div>
+    <div class="actions"><button class="btn" aria-label="View playwright">View</button></div>
+  </div>
+
+  <div class="row">
+    <button class="switch" role="switch" aria-checked="true" aria-label="Enable github in this folder"></button>
+    <div class="grow">
+      <div class="name">github</div>
+      <div class="meta"><span class="badge lock">Shared</span><span class="inherit">inherited · global override: toolPrefix</span></div>
+    </div>
+    <div class="actions"><button class="btn" aria-label="Override github for this folder">Override…</button></div>
+  </div>
+
+  <div class="toast" role="status">
+    <span>Removed folder override for <b>filesystem</b>.</span>
+    <a href="#">Undo</a>
+  </div>
+
+  <div class="demo-label" style="margin-top: 72px">S5 · apple-tools panel after the split (handoff only)</div>
+  <div class="card">
+    <div class="head"><span class="name grow">Apple tools · iMCP</span><span class="status ok">● installed</span></div>
+    <div class="body">
+      <div class="kv"><span class="k">iMCP app</span><span class="mono">/Applications/iMCP.app</span></div>
+      <div class="kv"><span class="k">macOS</span><span>15.3 · brew ok</span></div>
+      <div class="kv"><span class="k">Permissions</span><span>Calendar ✓ Contacts ✓ Reminders ✓ Mail — <a class="link" href="#">grant in System Settings</a></span></div>
+      <div class="kv"><span class="k">MCP entry</span><span><span class="badge">Pi global</span> enabled · directTools on · <a class="link" href="global-settings.html">Manage MCP servers →</a></span></div>
+      <div style="display:flex; gap:8px; margin-top:4px"><button class="btn primary">Run installer</button><button class="btn">Check only</button></div>
+    </div>
+  </div>
+
+</div>
+<button class="btn theme-toggle" onclick="var h=document.documentElement;h.dataset.theme=h.dataset.theme==='dark'?'light':'dark'">◐ theme</button>
+</body>
+</html>
