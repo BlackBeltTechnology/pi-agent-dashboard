@@ -635,7 +635,7 @@ export function createBrowserGateway(
           if (sessionIds.length > 0) orders[cwd] = sessionIds;
         }
       }
-      sendTo(ws, { type: "sessions_snapshot", sessions: sessionsSnapshot, orders });
+      sendTo(ws, { type: "sessions_snapshot", sessions: sessionsSnapshot, orders, endedTotals: {} });
     }
 
     // Send pinned directories on connect

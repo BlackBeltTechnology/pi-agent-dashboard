@@ -16,6 +16,11 @@ import type {
   BrowserAssetRegisterMessage,
   BrowserNotifyMessage,
   RecoveryDismissMessage,
+  OpenSpecGetMessage,
+  OpenSpecGetResultMessage,
+  SessionsPageMessage,
+  SessionsPageResultMessage,
+  SessionsSnapshotMessage,
   BatchQuestion,
   BatchAnswer,
 } from "../browser-protocol.js";
@@ -285,5 +290,80 @@ describe("asset_register is a member of both protocol unions", () => {
     expect(msg.type).toBe("asset_register");
     expect(msg.hash).toBe("abc1234567890123");
     expect(msg.mimeType).toBe("image/svg+xml");
+  });
+});
+
+// fix-connect-snapshot-frame-loss: the four new messages must be members of the
+// unions (else esbuild strips the server dispatch / client reducer arms) and the
+// snapshot must carry `endedTotals`.
+type _OpenSpecGetInUnion = AssertExtends<OpenSpecGetMessage, BrowserToServerMessage>;
+type _SessionsPageInUnion = AssertExtends<SessionsPageMessage, BrowserToServerMessage>;
+type _OpenSpecGetResultInUnion = AssertExtends<OpenSpecGetResultMessage, ServerToBrowserMessage>;
+type _SessionsPageResultInUnion = AssertExtends<SessionsPageResultMessage, ServerToBrowserMessage>;
+
+function extractOpenSpecGetRequestId(msg: BrowserToServerMessage): string | null {
+  switch (msg.type) {
+    case "openspec_get": return msg.requestId;
+    default: return null;
+  }
+}
+function extractSessionsPageOffset(msg: BrowserToServerMessage): number | null {
+  switch (msg.type) {
+    case "sessions_page": return msg.offset;
+    default: return null;
+  }
+}
+function extractOpenSpecGetResultFinal(msg: ServerToBrowserMessage): boolean | null {
+  switch (msg.type) {
+    case "openspec_get_result": return msg.final;
+    default: return null;
+  }
+}
+function extractSessionsSnapshotEndedTotals(msg: ServerToBrowserMessage): Record<string, number> | null {
+  switch (msg.type) {
+    case "sessions_snapshot": return msg.endedTotals;
+    default: return null;
+  }
+}
+
+describe("fix-connect-snapshot-frame-loss protocol types (E28)", () => {
+  it("openspec_get narrows with requestId + cwd", () => {
+    const msg: OpenSpecGetMessage = { type: "openspec_get", requestId: "r1", cwd: "/a" };
+    expect(extractOpenSpecGetRequestId(msg)).toBe("r1");
+  });
+
+  it("sessions_page narrows with cwd + offset", () => {
+    const msg: SessionsPageMessage = { type: "sessions_page", cwd: "/a", offset: 50 };
+    expect(extractSessionsPageOffset(msg)).toBe(50);
+  });
+
+  it("openspec_get_result narrows with data + final", () => {
+    const msg: OpenSpecGetResultMessage = {
+      type: "openspec_get_result",
+      requestId: "r1",
+      cwd: "/a",
+      data: { initialized: false, pending: true, changes: [] },
+      final: false,
+    };
+    expect(extractOpenSpecGetResultFinal(msg)).toBe(false);
+  });
+
+  it("sessions_snapshot narrows with endedTotals", () => {
+    const msg: SessionsSnapshotMessage = {
+      type: "sessions_snapshot",
+      sessions: [],
+      orders: {},
+      endedTotals: { "/a": 3 },
+    };
+    expect(extractSessionsSnapshotEndedTotals(msg)).toEqual({ "/a": 3 });
+  });
+
+  it("rejects a missing requestId / offset at compile time", () => {
+    // @ts-expect-error requestId is required on openspec_get
+    const noRequestId: OpenSpecGetMessage = { type: "openspec_get", cwd: "/a" };
+    // @ts-expect-error offset is required on sessions_page
+    const noOffset: SessionsPageMessage = { type: "sessions_page", cwd: "/a" };
+    expect(noRequestId.cwd).toBe("/a");
+    expect(noOffset.cwd).toBe("/a");
   });
 });
