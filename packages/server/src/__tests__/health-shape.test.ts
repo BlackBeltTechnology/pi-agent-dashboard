@@ -87,13 +87,21 @@ describe("GET /api/health — shape", () => {
     const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
     const body = await res.json() as Record<string, unknown>;
     const dropped = body.droppedFrames as {
-      serverToBrowser: { total: number; bySession: Record<string, number> };
+      serverToBrowser: { total: number; bySession: Record<string, number>; coalescedState: number; stalledSocketsTerminated: number };
       bridgeToServer: number;
+      coalescedState: number;
+      stalledSocketsTerminated: number;
     };
     expect(dropped).toBeDefined();
     expect(typeof dropped.serverToBrowser.total).toBe("number");
     expect(typeof dropped.serverToBrowser.bySession).toBe("object");
     expect(typeof dropped.bridgeToServer).toBe("number");
+    // Pending-state counters (D8): numeric, lifted beside the drops.
+    // See change: fix-connect-snapshot-frame-loss.
+    expect(typeof dropped.coalescedState).toBe("number");
+    expect(typeof dropped.stalledSocketsTerminated).toBe("number");
+    expect(dropped.coalescedState).toBe(dropped.serverToBrowser.coalescedState);
+    expect(dropped.stalledSocketsTerminated).toBe(dropped.serverToBrowser.stalledSocketsTerminated);
     // Fresh server: no drops yet.
     expect(dropped.serverToBrowser.total).toBe(0);
     expect(dropped.bridgeToServer).toBe(0);

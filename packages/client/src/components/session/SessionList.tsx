@@ -32,6 +32,9 @@ import {
   filterSessions,
   groupSessionsByDirectory,
   groupSessionsByDirectoryWithWorkspaces,
+  inferPlatform,
+  pathKey,
+  resolveSessionGroupPath,
   sortSessionsByOrder,
 } from "../../lib/session/session-grouping.js";
 import { selectedCardScrollFingerprint } from "../../lib/session/session-list-scroll.js";
@@ -251,6 +254,24 @@ interface Props {
    * openspec-worktree-spawn-button.
    */
   gitWorktreeEnabled?: boolean;
+  /**
+   * Session group key → ended-session count regardless of the snapshot
+   * window (from `sessions_snapshot.endedTotals`). Drives stub groups and
+   * the ended-expander label. See change: fix-connect-snapshot-frame-loss (D9).
+   */
+  endedTotalsMap?: Map<string, number>;
+  /**
+   * Non-window ended sessions already paged per group key — the next
+   * `sessions_page` offset. See change: fix-connect-snapshot-frame-loss (D9).
+   */
+  pagedCount?: Map<string, number>;
+  /** Socket connected flag — clears per-group page in-flight marks on open. */
+  connected?: boolean;
+  /**
+   * Send `sessions_page { cwd, offset }` for a group's next ended batch.
+   * See change: fix-connect-snapshot-frame-loss (D9).
+   */
+  onSessionsPage?: (cwd: string, offset: number) => void;
 }
 
 // Re-export for backwards compatibility
@@ -271,6 +292,10 @@ export { type DirectoryGroup, filterSessions, groupSessionsByDirectory } from ".
  * item) so they cannot drift. See change: add-folder-action-banner.
  */
 const PROJECT_INIT_PROMPT = "/skill:project-init";
+
+/** Per-group page in-flight lifetime; a lost `sessions_page_result` must not
+ * wedge the expander. See change: fix-connect-snapshot-frame-loss (D9). */
+const PAGE_INFLIGHT_TIMEOUT_MS = 15_000;
 
 export function folderIsGitRepo(
   group: { cwd?: string; sessions: Array<{ cwd?: string; isGitRepo?: boolean }> },
@@ -302,7 +327,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, openspecOfferInitialization, openspecEnabled, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenDirectorySettings, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, retryAttemptMap, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, openspecOfferInitialization, openspecEnabled, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenDirectorySettings, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, retryAttemptMap, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp, endedTotalsMap, pagedCount, connected, onSessionsPage }: Props) {
   const { t } = useI18n();
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
@@ -427,6 +452,94 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     });
   }, []);
 
+  // ── Ended paging + stub groups (fix-connect-snapshot-frame-loss D9) ─────
+  // Held ended count per GROUP key (the same key space `endedTotals` uses):
+  // the “more” affordance compares it against the group's full ended count.
+  const heldEndedByCwd = useMemo(() => {
+    const m = new Map<string, number>();
+    const pinned = pinnedDirectories ?? [];
+    const platform = inferPlatform([...sessions.map((s) => s.cwd), ...pinned]);
+    const pinnedKeys = new Set(pinned.map((d) => pathKey(d, platform)));
+    for (const s of sessions) {
+      if (s.status !== "ended") continue;
+      const key = resolveSessionGroupPath(s, pinnedKeys, platform);
+      m.set(key, (m.get(key) ?? 0) + 1);
+    }
+    return m;
+  }, [sessions, pinnedDirectories]);
+
+  // Per-group page in-flight: at most one `sessions_page` per group at a
+  // time. Released when `pagedCount` for the group advances (the reply
+  // landed), on a 15 s timeout (the reply was lost), or when the socket
+  // (re)opens. State (not a bare ref) so a rapid second click sees it.
+  const [pagingInflight, setPagingInflight] = useState<Set<string>>(() => new Set());
+  const pagingTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const clearPagingInflight = useCallback((cwd: string) => {
+    const timer = pagingTimersRef.current.get(cwd);
+    if (timer) {
+      clearTimeout(timer);
+      pagingTimersRef.current.delete(cwd);
+    }
+    setPagingInflight((prev) => {
+      if (!prev.has(cwd)) return prev;
+      const next = new Set(prev);
+      next.delete(cwd);
+      return next;
+    });
+  }, []);
+  const requestEndedPage = useCallback(
+    (cwd: string) => {
+      if (!onSessionsPage || pagingInflight.has(cwd)) return;
+      const endedTotal = endedTotalsMap?.get(cwd) ?? 0;
+      if (endedTotal <= (heldEndedByCwd.get(cwd) ?? 0)) return; // everything held
+      onSessionsPage(cwd, pagedCount?.get(cwd) ?? 0);
+      setPagingInflight((prev) => new Set(prev).add(cwd));
+      pagingTimersRef.current.set(
+        cwd,
+        setTimeout(() => clearPagingInflight(cwd), PAGE_INFLIGHT_TIMEOUT_MS),
+      );
+    },
+    [onSessionsPage, pagingInflight, endedTotalsMap, pagedCount, heldEndedByCwd, clearPagingInflight],
+  );
+  // Reply landed: every in-flight group whose paged count advanced clears.
+  const prevPagedCountRef = useRef(pagedCount);
+  useEffect(() => {
+    const prev = prevPagedCountRef.current;
+    prevPagedCountRef.current = pagedCount;
+    if (prev === pagedCount || pagingInflight.size === 0) return;
+    for (const cwd of pagingInflight) {
+      if ((pagedCount?.get(cwd) ?? 0) !== (prev?.get(cwd) ?? 0)) clearPagingInflight(cwd);
+    }
+  }, [pagedCount, pagingInflight, clearPagingInflight]);
+  // Socket (re)opened: in-flight marks are void — the reply may have been
+  // lost across the disconnect.
+  const prevConnectedRef = useRef(connected);
+  useEffect(() => {
+    if (connected && !prevConnectedRef.current) {
+      for (const timer of pagingTimersRef.current.values()) clearTimeout(timer);
+      pagingTimersRef.current.clear();
+      setPagingInflight(new Set());
+    }
+    prevConnectedRef.current = connected;
+  }, [connected]);
+  // Unmount: no leaked timers.
+  useEffect(
+    () => () => {
+      for (const timer of pagingTimersRef.current.values()) clearTimeout(timer);
+    },
+    [],
+  );
+  // Stub-group keys: every group key with ended sessions the client holds no
+  // session for. Feeds the grouping path as empty groups (D9).
+  const stubGroupCwds = useMemo(() => {
+    if (!endedTotalsMap || endedTotalsMap.size === 0) return undefined;
+    const cwds: string[] = [];
+    for (const [cwd, count] of endedTotalsMap) {
+      if (count > 0) cwds.push(cwd);
+    }
+    return cwds.length > 0 ? cwds : undefined;
+  }, [endedTotalsMap]);
+
   // Collapsed groups state
   const [collapsedGroups, setCollapsedGroupsState] = useState(() => getCollapsedGroups());
 
@@ -475,8 +588,8 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
   );
 
   const { pinned: pinnedGroups, unpinned: unpinnedGroups } = useMemo(
-    () => groupSessionsByDirectory(filteredSessions, sessionOrderMap, pinnedDirectories),
-    [filteredSessions, sessionOrderMap, pinnedDirectories],
+    () => groupSessionsByDirectory(filteredSessions, sessionOrderMap, pinnedDirectories, undefined, stubGroupCwds),
+    [filteredSessions, sessionOrderMap, pinnedDirectories, stubGroupCwds],
   );
   // folder-workspaces: derive workspace tier and the top-level view that
   // EXCLUDES workspace-owned folders. The legacy `pinnedGroups` /
@@ -486,10 +599,10 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     const list = workspaces ?? [];
     if (list.length === 0) return null;
     const result = groupSessionsByDirectoryWithWorkspaces(
-      filteredSessions, list, sessionOrderMap, pinnedDirectories,
+      filteredSessions, list, sessionOrderMap, pinnedDirectories, undefined, stubGroupCwds,
     );
     return result;
-  }, [workspaces, filteredSessions, sessionOrderMap, pinnedDirectories]);
+  }, [workspaces, filteredSessions, sessionOrderMap, pinnedDirectories, stubGroupCwds]);
   // Top-level groups: when any workspace exists, strip out workspace-owned
   // folders so they don't double-render.
   const visibleTopPinned = useMemo(() => {
@@ -1313,6 +1426,13 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
         }
       : undefined;
     const folderHasSessions = group.sessions.length > 0;
+    // Ended-window bookkeeping (D9): the group's FULL ended count (snapshot
+    // `endedTotals`, live-updated) vs the ended sessions actually held. A
+    // group key with ended history but zero held sessions renders as a STUB —
+    // header + ended expander only. See change: fix-connect-snapshot-frame-loss.
+    const endedTotal = endedTotalsMap?.get(group.cwd) ?? 0;
+    const heldEnded = heldEndedByCwd.get(group.cwd) ?? 0;
+    const isStub = !folderHasSessions && endedTotal > 0;
 
     return (
       <div key={group.cwd} className="space-y-1">
@@ -1463,10 +1583,10 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
           {/* Collapsed density (variant B): when collapsed, the heavy slots
               (git · action bar · plugin sections · OpenSpec proposal state ·
               spawn buttons) are hidden — the header keeps only name + status.
-              The drag gutter/head row live ABOVE this block, so drag-reorder
-              of a collapsed folder is unaffected.
-              See change: condense-collapsed-folder-header. */}
-          {!isCollapsed && (<>
+              A STUB group never renders them at all (D9).
+              See change: condense-collapsed-folder-header,
+              fix-connect-snapshot-frame-loss. */}
+          {!isCollapsed && !isStub && (<>
           {/* Git info + folder actions share ONE compact row (variant B):
               branch/commit left, Initialize + settings gear right-grouped.
               Terminals + Editor buttons removed — that pane is reachable from
@@ -1539,7 +1659,28 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
             --bg-primary surface with one continuous border (header is border-b-0
             when expanded); no seam shading — the CREATE separator alone marks
             the header/body junction. See change: folder-card-enclosure. */}
-        {!isCollapsed && (
+        {/* Stub group body (D9): ended expander only — no Create tray, no
+            spawn buttons, no session cards, no section slots. The label
+            carries the group's full ended count; expanding pulls the first
+            page and the materialized rows turn the group into a normal card.
+            See change: fix-connect-snapshot-frame-loss. */}
+        {!isCollapsed && isStub && (
+          <div
+            className="relative bg-[var(--bg-primary)] border border-[var(--border-subtle)] border-t-0 rounded-b-[14px] px-1.5 pb-1.5 shadow-[0_2px_4px_var(--shadow-card)]"
+            style={folderTint}
+            data-testid={`folder-stub-body-${group.cwd}`}
+          >
+            <EndedExpanderRow
+              cwd={group.cwd}
+              labelCount={endedTotal}
+              heldEnded={heldEnded}
+              expanded={endedExpanded.has(group.cwd)}
+              onToggle={toggleEndedExpanded}
+              onRequestPage={requestEndedPage}
+            />
+          </div>
+        )}
+        {!isCollapsed && !isStub && (
         <div
           className="relative bg-[var(--bg-primary)] border border-[var(--border-subtle)] border-t-0 rounded-b-[14px] px-1.5 pb-1.5 shadow-[0_2px_4px_var(--shadow-card)]"
           style={folderTint}
@@ -1786,26 +1927,18 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               : group.sessions;
             if (anyTagFilterActive) matched = matched.filter(passesTagAxes);
             const endedCount = matched.filter((s) => s.status === "ended").length;
-            if (endedCount === 0) return null;
+            if (endedCount === 0 && endedTotal <= 0) return null;
             if (sessionSearch.length > 0 || anyTagFilterActive) return null; // auto-expanded
             const expanded = endedExpanded.has(group.cwd);
             return (
-              <button
-                onClick={(e) => { e.stopPropagation(); toggleEndedExpanded(group.cwd); }}
-                className="w-full text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] py-1 px-2 select-none flex items-center justify-center gap-1"
-                data-testid={`folder-ended-toggle-${group.cwd}`}
-                aria-label={expanded ? t("sessionList.hideEndedCount", { count: endedCount }, `Hide ${endedCount} ended sessions`) : t("sessionList.showEndedCount", { count: endedCount }, `Show ${endedCount} ended sessions`)}
-              >
-                {/* Bottom toggle: arrow points UP when expanded (collapse-up
-                    direction — matches where the click takes the eye) and
-                    RIGHT when collapsed (consistent with sidebar folder
-                    chevrons). The top "Hide ended" button uses mdiChevronDown
-                    deliberately because it sits ABOVE the ended group and
-                    pointing down at it would still mean "this collapses what's
-                    below me" — inverse direction is intentional. */}
-                <Icon path={expanded ? mdiChevronUp : mdiChevronRight} size={0.4} />
-                <span>{expanded ? t("sessionList.hideEnded", undefined, "Hide ended") : t("sessionList.showEnded", { count: endedCount }, `${endedCount} ended`)}</span>
-              </button>
+              <EndedExpanderRow
+                cwd={group.cwd}
+                labelCount={endedTotal > 0 ? endedTotal : endedCount}
+                heldEnded={heldEnded}
+                expanded={expanded}
+                onToggle={toggleEndedExpanded}
+                onRequestPage={requestEndedPage}
+              />
             );
           })()}
         </div>
@@ -1985,7 +2118,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
         )}
       </div>
       <div ref={listRef} data-testid="session-list-scroll" className="flex-1 overflow-y-auto">
-      {filteredSessions.length === 0 && pinnedGroups.length === 0 && (workspaces?.length ?? 0) === 0 ? (
+      {filteredSessions.length === 0 && pinnedGroups.length === 0 && (workspaces?.length ?? 0) === 0 && !stubGroupCwds ? (
         <div className="p-4 text-sm text-[var(--text-tertiary)]">{t("sessionList.noActiveSessions", undefined, "No active sessions")}</div>
       ) : (
         // `measuring.droppable.strategy = Always`: spring-load mounts folder
@@ -2100,7 +2233,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               if (anyTagFilterActive) return folderMatchesFilters(g);
               return workspaceFilter.length > 0
                 ? folderMatchesFilters(g)
-                : g.sessions.some((s) => s.status !== "ended");
+                : g.sessions.some((s) => s.status !== "ended") || (endedTotalsMap?.get(g.cwd) ?? 0) > 0;
             })
             .map((group) => renderGroupWithWorkspaceMenu(group, false))}
         </ul>
@@ -2236,6 +2369,68 @@ function FolderInitScope({
 }) {
   const { status, refetch } = useInitStatus(cwd);
   return <>{children({ status, refetch })}</>;
+}
+
+/**
+ * The per-folder "N ended" expander row plus — while the client holds fewer
+ * ended sessions than the group's full count — the "more" paging affordance.
+ * Expanding pulls the next batch (`sessions_page`) when one is due; the
+ * one-request-per-group gate lives in `onRequestPage`. A component so the
+ * stub-group body and the regular folder body render the identical
+ * affordance. See change: fix-connect-snapshot-frame-loss (D9).
+ */
+function EndedExpanderRow({
+  cwd,
+  labelCount,
+  heldEnded,
+  expanded,
+  onToggle,
+  onRequestPage,
+}: {
+  cwd: string;
+  /** Count shown in the label: the group's full ended count (endedTotals),
+   * falling back to the held count on pre-change servers. */
+  labelCount: number;
+  heldEnded: number;
+  expanded: boolean;
+  onToggle: (cwd: string) => void;
+  onRequestPage: (cwd: string) => void;
+}) {
+  const { t } = useI18n();
+  const showMore = expanded && labelCount > heldEnded;
+  return (
+    <div className="pb-0.5">
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle(cwd);
+          if (!expanded) onRequestPage(cwd);
+        }}
+        className="w-full text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] py-1 px-2 select-none flex items-center justify-center gap-1"
+        data-testid={`folder-ended-toggle-${cwd}`}
+        aria-label={expanded ? t("sessionList.hideEndedCount", { count: labelCount }, `Hide ${labelCount} ended sessions`) : t("sessionList.showEndedCount", { count: labelCount }, `Show ${labelCount} ended sessions`)}
+      >
+        {/* Bottom toggle: arrow points UP when expanded (collapse-up
+            direction — matches where the click takes the eye) and RIGHT when
+            collapsed (consistent with sidebar folder chevrons). */}
+        <Icon path={expanded ? mdiChevronUp : mdiChevronRight} size={0.4} />
+        <span>{expanded ? t("sessionList.hideEnded", undefined, "Hide ended") : t("sessionList.showEnded", { count: labelCount }, `${labelCount} ended`)}</span>
+      </button>
+      {showMore && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onRequestPage(cwd);
+          }}
+          className="w-full text-[10px] text-blue-400 hover:text-blue-300 py-0.5 px-2 select-none flex items-center justify-center gap-1"
+          data-testid={`folder-ended-more-${cwd}`}
+        >
+          <Icon path={mdiChevronDown} size={0.4} />
+          <span>{t("sessionList.moreEnded", undefined, "More")}</span>
+        </button>
+      )}
+    </div>
+  );
 }
 
 function FolderDragGutter({

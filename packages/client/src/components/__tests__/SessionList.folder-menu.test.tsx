@@ -11,7 +11,7 @@
 
 import { createFolderMenuStore, FolderMenuProvider } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { DashboardSession, OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
@@ -174,5 +174,108 @@ describe("Pi Resources keeps exactly one home (test-plan #E13)", () => {
 
     fireEvent.click(settings);
     expect(onOpenDirectorySettings).toHaveBeenCalledWith(CWD);
+  });
+});
+
+/**
+ * fix-connect-snapshot-frame-loss D9 UI: stub groups from `endedTotals`, the
+ * expander label, the "more" affordance, and per-group page in-flight with a
+ * 15 s timeout. Scenarios: test-plan E36, X6 (+ the spec's no-paging-when-held
+ * and one-request-at-a-time scenarios).
+ */
+describe("stub groups + ended paging (fix-connect-snapshot-frame-loss)", () => {
+  it("E36: a cwd with endedTotals and no held session renders a stub group inside its workspace", () => {
+    renderList({
+      sessions: [],
+      endedTotalsMap: new Map([["/old", 3]]),
+      workspaces: [{ id: "w1", name: "Work", collapsed: false, folders: ["/old"] }],
+      // An entry in the map must NOT surface a section on a stub group.
+      openspecMap: new Map([["/old", openspec]]),
+    });
+    const header = screen.getByTestId("folder-header-name-/old");
+    // The folder is a DOM descendant of the workspace CONTAINER (a sibling of
+    // the workspace header element, so containment is asserted against it).
+    expect(screen.getByTestId("sortable-workspace").contains(header)).toBe(true);
+    expect(screen.getByTestId("workspace-name-w1").textContent).toContain("Work");
+
+    const expander = screen.getByTestId("folder-ended-toggle-/old");
+    expect(expander.textContent).toContain("3");
+
+    // Stub = header + ended expander only: no cards, no Create tray / spawn
+    // buttons, no OPENSPEC/KB/GIT sections.
+    expect(document.querySelector("[data-session-id]")).toBeNull();
+    expect(screen.queryByTestId("folder-body-/old")).toBeNull();
+    expect(screen.queryByTestId("folder-spawn-session-btn")).toBeNull();
+    expect(screen.queryByTestId("folder-openspec-refresh")).toBeNull();
+  });
+
+  it("E36: an unpinned stub group renders and sorts last in recency mode", () => {
+    renderList({
+      sessions: [session], // live session under CWD
+      endedTotalsMap: new Map([["/old", 3]]),
+    });
+    const headers = Array.from(document.querySelectorAll('[data-testid^="folder-header-name-"]'));
+    expect(headers.map((h) => h.getAttribute("data-testid"))).toEqual([
+      `folder-header-name-${CWD}`,
+      "folder-header-name-/old",
+    ]);
+  });
+
+  it("expanding a stub group requests its first page at offset 0", () => {
+    const onSessionsPage = vi.fn();
+    renderList({
+      sessions: [],
+      endedTotalsMap: new Map([["/old", 5]]),
+      pagedCount: new Map(),
+      onSessionsPage,
+    });
+    fireEvent.click(screen.getByTestId("folder-ended-toggle-/old"));
+    expect(onSessionsPage).toHaveBeenCalledTimes(1);
+    expect(onSessionsPage).toHaveBeenCalledWith("/old", 0);
+  });
+
+  it("does not page when every ended session is already held", () => {
+    const onSessionsPage = vi.fn();
+    const ended = { ...session, id: "e1", status: "ended" as const, cwd: "/done" };
+    renderList({
+      sessions: [ended],
+      endedTotalsMap: new Map([["/done", 1]]),
+      onSessionsPage,
+    });
+    fireEvent.click(screen.getByTestId("folder-ended-toggle-/done"));
+    expect(onSessionsPage).not.toHaveBeenCalled();
+  });
+
+  it("X6: a lost sessions_page reply is retried with the same offset after the 15 s in-flight timeout", () => {
+    vi.useFakeTimers();
+    try {
+      const onSessionsPage = vi.fn();
+      renderList({
+        sessions: [],
+        endedTotalsMap: new Map([["/old", 5]]),
+        pagedCount: new Map(),
+        onSessionsPage,
+        connected: true,
+      });
+      fireEvent.click(screen.getByTestId("folder-ended-toggle-/old"));
+      expect(onSessionsPage).toHaveBeenCalledTimes(1);
+      expect(onSessionsPage).toHaveBeenCalledWith("/old", 0);
+
+      // Still in flight (reply not yet arrived) — a further expand must not
+      // send a second sessions_page for the same cwd.
+      fireEvent.click(screen.getByTestId("folder-ended-more-/old"));
+      expect(onSessionsPage).toHaveBeenCalledTimes(1);
+
+      // Reply lost; after 15 s the mark clears and "more" retries with the
+      // same offset (pagedCount unchanged).
+      act(() => {
+        vi.advanceTimersByTime(15_000);
+      });
+      fireEvent.click(screen.getByTestId("folder-ended-more-/old"));
+      expect(onSessionsPage).toHaveBeenCalledTimes(2);
+      expect(onSessionsPage).toHaveBeenLastCalledWith("/old", 0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

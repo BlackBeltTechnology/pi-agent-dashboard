@@ -3,7 +3,51 @@
  * Replaces SQLite-backed session-manager.ts.
  */
 import type { DashboardSession, SessionSource, SessionStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { pathKey } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
 import { deriveEndedAt, type EndedAtDeriver } from "./derive-ended-at.js";
+import { resolveOrderKey } from "./resolve-order-key.js";
+
+/**
+ * Snapshot window constants (D4). The specs state the same numbers.
+ * `SNAPSHOT_ENDED_GLOBAL` — newest ended sessions kept overall, by
+ * `endedAt ?? lastActivityAt ?? startedAt` desc.
+ * `SNAPSHOT_ENDED_PER_GROUP` — first entries of `endedSequence(g)` kept for
+ * every group with a non-ended session or a pin.
+ * See change: fix-connect-snapshot-frame-loss.
+ */
+export const SNAPSHOT_ENDED_GLOBAL = 120;
+export const SNAPSHOT_ENDED_PER_GROUP = 3;
+
+/**
+ * Persisted-order read surface the snapshot window needs. Structural subset
+ * of `SessionOrderManager`, so the real manager satisfies it directly.
+ * See change: fix-connect-snapshot-frame-loss (D4).
+ */
+export interface SnapshotOrders {
+  getOrder(groupKey: string): string[];
+  getAllOrders(): Record<string, string[]>;
+}
+
+/**
+ * Shallow copy of a session row minus `notifyLog`. Snapshot and page rows are
+ * stripped because the notify log is replayed on subscribe — carrying it in
+ * every row is what pushed `sessions_snapshot` past MAX_WS_BUFFER.
+ * See change: fix-connect-snapshot-frame-loss (D4).
+ */
+export function stripNotifyLog(session: DashboardSession): DashboardSession {
+  const { notifyLog: _dropped, ...row } = session;
+  return row;
+}
+
+/** Wire shape of `buildSnapshot` — the connect `sessions_snapshot` payload body. */
+export interface SnapshotResult {
+  /** Windowed rows, `notifyLog`-stripped. */
+  sessions: DashboardSession[];
+  /** groupKey → persisted order filtered to the window (non-empty entries only). */
+  orders: Record<string, string[]>;
+  /** groupKey → ended count regardless of window, for every group with ≥1 ended. */
+  endedTotals: Record<string, number>;
+}
 
 /**
  * How a session's ending became known. `witnessed` — the server observed it
@@ -99,6 +143,26 @@ export interface SessionManager {
   get(sessionId: string): DashboardSession | undefined;
   listActive(): DashboardSession[];
   listAll(): DashboardSession[];
+  /**
+   * Ended ids of `groupKey` in render order: the persisted order restricted
+   * to ended ids, then ended ids with no persisted position by `startedAt`
+   * desc — byte-for-byte the order the client's `sortSessionsByOrder`
+   * renders. `pinned` is the pinned-directory list the group keys resolve
+   * against. See change: fix-connect-snapshot-frame-loss (D4).
+   */
+  endedSequence(groupKey: string, pinned?: readonly string[]): string[];
+  /**
+   * The snapshot window id set, recomputed on every call: all non-ended ∪
+   * global newest-`SNAPSHOT_ENDED_GLOBAL` ended ∪ per-group first
+   * `SNAPSHOT_ENDED_PER_GROUP` of `endedSequence(g)` for groups with a
+   * non-ended session or a pin. See change: fix-connect-snapshot-frame-loss (D4).
+   */
+  snapshotVisibleIds(pinned?: readonly string[]): Set<string>;
+  /**
+   * Windowed connect snapshot: stripped rows, window-filtered orders,
+   * `endedTotals` per group. See change: fix-connect-snapshot-frame-loss (D4).
+   */
+  buildSnapshot(pinned?: readonly string[]): SnapshotResult;
   /** Called after any mutation (register, unregister, update). Receives the affected session ID and optional context. */
   onChange?: (sessionId: string, ctx?: OnChangeContext) => void;
   /** Called after a session is unregistered (status set to ended). */
@@ -107,6 +171,8 @@ export interface SessionManager {
 
 export function createMemorySessionManager(
   derive: EndedAtDeriver = deriveEndedAt,
+  /** Persisted orders the snapshot window reads; absent → empty orders. */
+  orders?: SnapshotOrders,
 ): SessionManager {
   const sessions = new Map<string, DashboardSession>();
 
@@ -127,6 +193,89 @@ export function createMemorySessionManager(
   function ensureEndedAt(session: DashboardSession): void {
     if (session.status !== "ended" || session.endedAt !== undefined) return;
     session.endedAt = derive(session);
+  }
+
+  // ── Snapshot window (D4) — see change: fix-connect-snapshot-frame-loss ──
+
+  /** Group key the sidebar groups/orders by (pin > worktree mainPath > cwd). */
+  const groupKeyOf = (s: DashboardSession, pinned: readonly string[]): string =>
+    resolveOrderKey(s, pinned);
+
+  /** Global-window sort key: `endedAt ?? lastActivityAt ?? startedAt` (startedAt is always set). */
+  const endedSortKey = (s: DashboardSession): number => s.endedAt ?? s.lastActivityAt ?? s.startedAt;
+
+  function endedSequence(groupKey: string, pinned: readonly string[] = []): string[] {
+    const ended: DashboardSession[] = [];
+    for (const s of sessions.values()) {
+      if (s.status === "ended" && groupKeyOf(s, pinned) === groupKey) ended.push(s);
+    }
+    const inGroup = new Set(ended.map((s) => s.id));
+    const persisted = (orders?.getOrder(groupKey) ?? []).filter((id) => inGroup.has(id));
+    const persistedSet = new Set(persisted);
+    const unpersisted = ended
+      .filter((s) => !persistedSet.has(s.id))
+      .sort((a, b) => b.startedAt - a.startedAt)
+      .map((s) => s.id);
+    return [...persisted, ...unpersisted];
+  }
+
+  function snapshotVisibleIds(pinned: readonly string[] = []): Set<string> {
+    const visible = new Set<string>();
+    const endedAll: DashboardSession[] = [];
+    const endedByGroup = new Map<string, DashboardSession[]>();
+    const groupsWithNonEnded = new Set<string>();
+    for (const s of sessions.values()) {
+      if (s.status === "ended") {
+        endedAll.push(s);
+        const g = groupKeyOf(s, pinned);
+        let list = endedByGroup.get(g);
+        if (!list) {
+          list = [];
+          endedByGroup.set(g, list);
+        }
+        list.push(s);
+      } else {
+        visible.add(s.id);
+        groupsWithNonEnded.add(groupKeyOf(s, pinned));
+      }
+    }
+    // Global window: newest N ended, id asc as the deterministic tiebreak.
+    const globalWindow = endedAll
+      .sort((a, b) => endedSortKey(b) - endedSortKey(a) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .slice(0, SNAPSHOT_ENDED_GLOBAL);
+    for (const s of globalWindow) visible.add(s.id);
+    // Per-group window: first N of the group's ended sequence, for groups
+    // with a non-ended session or a pin.
+    const pinnedKeys = new Set(pinned.map((d) => pathKey(d, process.platform)));
+    for (const [g, list] of endedByGroup) {
+      if (!groupsWithNonEnded.has(g) && !pinnedKeys.has(pathKey(g, process.platform))) continue;
+      for (const id of endedSequence(g, pinned).slice(0, SNAPSHOT_ENDED_PER_GROUP)) {
+        visible.add(id);
+      }
+    }
+    return visible;
+  }
+
+  function buildSnapshot(pinned: readonly string[] = []): SnapshotResult {
+    // One visible-set computation feeds BOTH rows and orders, so the snapshot
+    // stays self-consistent even if a session's status flips mid-build (X7).
+    const visible = snapshotVisibleIds(pinned);
+    const rows: DashboardSession[] = [];
+    for (const s of sessions.values()) {
+      if (visible.has(s.id)) rows.push(stripNotifyLog(s));
+    }
+    const windowedOrders: Record<string, string[]> = {};
+    for (const [g, ids] of Object.entries(orders?.getAllOrders() ?? {})) {
+      const filtered = ids.filter((id) => visible.has(id));
+      if (filtered.length > 0) windowedOrders[g] = filtered;
+    }
+    const endedTotals: Record<string, number> = {};
+    for (const s of sessions.values()) {
+      if (s.status !== "ended") continue;
+      const g = groupKeyOf(s, pinned);
+      endedTotals[g] = (endedTotals[g] ?? 0) + 1;
+    }
+    return { sessions: rows, orders: windowedOrders, endedTotals };
   }
 
   const mgr: SessionManager = {
@@ -261,6 +410,12 @@ export function createMemorySessionManager(
     listAll(): DashboardSession[] {
       return Array.from(sessions.values());
     },
+
+    endedSequence,
+
+    snapshotVisibleIds,
+
+    buildSnapshot,
   };
 
   return mgr;

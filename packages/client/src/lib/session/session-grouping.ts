@@ -87,12 +87,19 @@ export function getUnifiedOrder(sessions: DashboardSession[], terminals: Termina
  * (`sortSessionsByOrder` + the status-partition in SessionList) — NO
  * workspace-cluster adjacency.
  * See change: simplify-session-card-ordering (Decision D8).
+ *
+ * `stubGroupCwds` adds EMPTY groups for group keys the client holds no
+ * session for (snapshot `endedTotals` stubs). A stub already carrying
+ * sessions, or pinned (pinned dirs always render), is skipped; an unpinned
+ * stub joins the recency sort with no recency key, so it sorts LAST.
+ * See change: fix-connect-snapshot-frame-loss (D9).
  */
 export function groupSessionsByDirectory(
   sessions: DashboardSession[],
   orderMap?: Map<string, string[]>,
   pinnedDirectories?: string[],
   platform?: NodeJS.Platform,
+  stubGroupCwds?: ReadonlyArray<string>,
 ): { pinned: DirectoryGroup[]; unpinned: DirectoryGroup[] } {
   // Infer platform from observed paths (session cwds + pinned entries +
   // git worktree main paths) when not explicitly
@@ -130,6 +137,17 @@ export function groupSessionsByDirectory(
   // ahead of the main checkout. Grouping-under-parent (collapse) stays;
   // only cluster ordering is dropped.
   // See change: simplify-session-card-ordering (Decision D8).
+
+  // Stub groups (fix-connect-snapshot-frame-loss D9): empty group per key
+  // the client holds no session for. Groups built from sessions win; pinned
+  // dirs already render via the pinned loop below.
+  if (stubGroupCwds) {
+    for (const cwd of stubGroupCwds) {
+      const key = pathKey(cwd, plat);
+      if (groups.has(key) || pinnedKeys.has(key)) continue;
+      groups.set(key, { cwd, sessions: [] });
+    }
+  }
 
   // Build pinned groups in pinned order (including zero-session groups).
   // Uses the pinned path as the display cwd so the header matches what the
@@ -185,6 +203,7 @@ export function groupSessionsByDirectoryWithWorkspaces(
   orderMap?: Map<string, string[]>,
   pinnedDirectories?: string[],
   platform?: NodeJS.Platform,
+  stubGroupCwds?: ReadonlyArray<string>,
 ): { workspaces: WorkspaceGroup[]; topLevel: DirectoryGroup[] } {
   const plat = inferPlatform(
     [
@@ -208,9 +227,11 @@ export function groupSessionsByDirectoryWithWorkspaces(
   });
 
   // Reuse the existing grouper to compute pinned + unpinned. Then we
-  // partition each into "in a workspace" vs "top level" buckets.
+  // partition each into "in a workspace" vs "top level" buckets. Stub
+  // cwds flow through the same path so workspace placement of a stub
+  // matches a populated group exactly.
   const { pinned, unpinned } = groupSessionsByDirectory(
-    sessions, orderMap, pinnedDirectories, platform,
+    sessions, orderMap, pinnedDirectories, platform, stubGroupCwds,
   );
 
   // Build a path → DirectoryGroup index covering pinned + unpinned. Then

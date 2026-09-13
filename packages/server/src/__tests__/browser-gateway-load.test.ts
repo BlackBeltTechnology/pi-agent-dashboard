@@ -16,6 +16,8 @@
  * See change: add-ws-broadcast-load-harness.
  */
 import { describe, it, expect, vi } from "vitest";
+import { createBrowserGateway } from "../pairing/browser-gateway.js";
+import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 import {
   DRAIN_FAST,
   DRAIN_SLOW,
@@ -23,6 +25,7 @@ import {
   buildLoadGateway,
   buildLoadGatewayEx,
   makeFakeDirectoryService,
+  makeStubPiGateway,
   makeUntruncatedEventStore,
   seedReplayEvents,
   sendMessage,
@@ -32,6 +35,9 @@ import {
   subscribeWs,
 } from "./helpers/load-fixtures.js";
 import { createDrainingWs } from "./helpers/draining-ws.js";
+
+/** The draining fake satisfies the gateway's `WebSocket` surface at runtime. */
+const asWs = (w: ReturnType<typeof createDrainingWs>) => w as unknown as import("ws").WebSocket;
 
 // The bulk-archive site under test is the `pollDirectoryGated(...).then().catch()`
 // chain, NOT the synchronous `archiveCompleted` spawn that precedes it. Mock the
@@ -517,5 +523,74 @@ describe("browser-gateway load — P3 (replay path INSIDE the measured window)",
     const live = ws.sent.filter((r) => r.type === "event" && r.sessionId === seed.focusedSessionId);
     expect(live.length).toBe(1);
     errSpy.mockRestore();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// P4 — memory bound on a never-draining socket (D2).
+// See change: fix-connect-snapshot-frame-loss.
+//
+// 10,000 state frames across 50 keys (1 KB each) against a 20 KB ceiling:
+// the pending map must never retain more than the ceiling, the socket is
+// terminated exactly once, and the transient serialized strings must not
+// accumulate (RSS delta < 5 MB).
+// ─────────────────────────────────────────────────────────────────────────
+describe("browser-gateway load — P4 (pending-state memory bound under stall)", () => {
+  it("never-draining socket: retained bytes ≤ ceiling, terminated exactly once, RSS delta < 5 MB", async () => {
+    const MAX = 20 * 1024;
+    const KEYS = 50;
+    const FRAMES = 10_000;
+    const manager = seedSessions({ focusedCwd: "/repo/p4", idleCwds: [] }).manager;
+    const gateway = createBrowserGateway(
+      manager,
+      createMemoryEventStore(() => false),
+      makeStubPiGateway(),
+    undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      MAX,
+    );
+    const ws = createDrainingWs({ drainRateBytesPerMs: 0 }); // never drains
+    gateway.wss.emit("connection", ws, {});
+    ws.drainFully();
+
+    // 10,000 state sends across 50 distinct cwds, ~1 KB each, via the
+    // PRODUCTION state path for recurring frames: pre-serialized payloads on
+    // `broadcastOpenSpecUpdate` (the openspec worker's hot path). This keeps
+    // the measured RSS about the gateway's retention, not V8's transient
+    // churn from re-serializing 10 MB of message objects.
+    const serialized = Array.from({ length: KEYS }, (_, k) =>
+      JSON.stringify({ initialized: true, changes: [{ name: "c".repeat(960 + k) }] }));
+    const rssBefore = process.memoryUsage().rss;
+    let peakRetained = 0;
+    for (let i = 0; i < FRAMES; i++) {
+      gateway.broadcastOpenSpecUpdate(`/k${i % KEYS}`, serialized[i % KEYS]);
+      if (i % 500 === 0) {
+        const info = gateway.getPendingStateInfo(asWs(ws));
+        if (info) peakRetained = Math.max(peakRetained, info.bytes);
+        expect(info === undefined || info.bytes <= MAX, `retained ${info?.bytes} ≤ ceiling at frame ${i}`).toBe(true);
+      }
+      // Yield periodically so V8 can scavenge superseded strings — the
+      // metric is RETAINED memory, not a single synchronous turn's churn.
+      if (i % 250 === 249) await new Promise<void>((r) => setImmediate(r));
+    }
+
+    // The stall was detected: terminated exactly once, map gone.
+    expect(ws.terminatedCount()).toBe(1);
+    expect(gateway.getPendingStateInfo(asWs(ws))).toBeUndefined();
+    expect(gateway.getDroppedFrameStats().stalledSocketsTerminated).toBe(1);
+    // Final retained-bytes check (peak sampled mid-run must also hold).
+    expect(peakRetained).toBeLessThanOrEqual(MAX);
+
+    // Nothing accumulated: force a major GC when available, then bound RSS.
+    for (let i = 0; i < 5; i++) await new Promise<void>((r) => setImmediate(r));
+    try {
+      const v8 = await import("node:v8");
+      const vm = await import("node:vm");
+      v8.setFlagsFromString("--expose_gc");
+      vm.runInNewContext("gc()");
+    } catch {
+      /* no gc — the yields above are the best-effort collect */
+    }
+    const rssDelta = process.memoryUsage().rss - rssBefore;
+    expect(rssDelta).toBeLessThan(5 * 1024 * 1024);
   });
 });
