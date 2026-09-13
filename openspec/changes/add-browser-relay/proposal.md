@@ -1,0 +1,42 @@
+## Why
+
+Agents cannot reach the user's real logged-in Chrome today: Panerelay (the current own-browser provider) is live-broken on the host, has no CDP, and reports false success; the bundled agent-browser Chromium has no SSO/cookies. Research (`docs/research/browser-relay-playwright-extension.md`) proved that Microsoft's Playwright Chrome Extension (id `mmlmfjhmonkocbjadbfplnigmagldckm`, Apache-2.0) plus a ~900-line CDP relay gives full CDP over any Chrome profile with per-session tab-group isolation, and that `agent-browser connect <cdp-url>` runs the entire existing browser skill against it unchanged — zero new agent tools. The live spike (2026-09-13) confirmed the wire protocol, per-profile token auto-connect, `--profile-directory` reach into a running Chrome, and ~10 fps `Page.startScreencast` frames over the same relay.
+
+## What Changes
+
+- **Plugin runtime gains a WebSocket upgrade hook.** `ServerPluginContext.registerWsRoute(scope, opts)` lets a plugin own a new `WsRouteScope`. The core upgrade handler in `server.ts` runs host-gate, then origin admission — when the registration's `admitOrigins` list is non-empty it *replaces* the dashboard origin policy for that scope (exact match only; e.g. pinned `chrome-extension://<id>`), otherwise the existing policy applies — then requires a genuinely-local peer with a loopback `Host` and no forwarding headers (no cookie, no localToken, no ticket, no trusted-CIDR bypass), and delegates `handleUpgrade`; the plugin's own per-connection secret is the credential. `WsRouteScope` becomes extensible via a registry rather than a closed union.
+- **New plugin `packages/browser-plugin/`** (`id: browser`):
+  - Server: port of playwright-core's `CDPRelayServer` + `BrowserModel` + `ExtensionProtocolV2` (Apache-2.0 attribution), one `RelayInstance` per guid held in a `Map`, each with a non-secret `instanceId` for UI addressing; WS routes `/ws/browser-ext/<guid>` (extension dials in: pinned extension Origin + loopback + guid) and `/ws/browser-cdp/<guid>` (pi session's `agent-browser connect`: loopback + guid, never ticketable, never via tunnel); unclaimed guids expire with the connect timeout; relay-side CDP deny-list (`Storage.getCookies`, `Network.getAllCookies`, `Network.getCookies`, `Browser.setDownloadBehavior`, `Page.navigate`/`Target.createTarget` to `file://` or outside per-profile `allowedDomains` — a navigation guardrail, not a sandbox) — denied verb → CDP error, loud, no fallback; instance closes when its CDP client disconnects or never attaches within 30 s; `ScreencastTap` per (instance, tab) with viewers (owns `Page.startScreencast`/`screencastFrameAck` on that tab, fans `Page.screencastFrame` only to viewers, filters it from the Playwright stream, viewer input limited to `Input.dispatchMouseEvent`/`dispatchKeyEvent`/`synthesizeScrollGesture` with normalized coordinates, viewers tracked per tap as raw gateway sockets so frames are sent per-socket with `bufferedAmount` backpressure, not broadcast); audit log of attach/detach/navigate/createTarget/denied/viewer-subscribe/viewer-input (URLs + method names only, no payloads).
+  - REST: `GET /api/browser/status` (`{enabled, canOpenChrome}`), `GET /api/browser/profiles` (from Chrome `Local State → profile.info_cache`, keyed by `profileDirectory`, per-profile `installed` = extension dir exists, `hasToken`, live `instances[]` with tabs), `POST /api/browser/connect?profile=<dir>` (mints guid, opens `connect.html?mcpRelayUrl=…&protocolVersion=2[&token=]` via `systemOpen` + `--profile-directory`, returns `{cdpUrl, instanceId}` — the caller keeps `cdpUrl`; no lookup endpoint; 409 `{reason: not-installed | busy}`), `POST /api/browser/disconnect?instanceId=`, `GET /api/browser/audit`, `PUT /api/browser/enabled` (kill switch, closes instances synchronously).
+  - Browser-gateway messages: `browser_relay_subscribe {instanceId, tabId}` / `browser_relay_unsubscribe` / `browser_relay_frame` / `browser_relay_input` / `browser_relay_status` (carries per-instance tab list `{tabId, title, url, state}` and `auditSeq` so tiles and the audit viewer can be addressed/refreshed), over the existing gated `/ws` gateway (zrok-reachable); relay endpoints themselves stay loopback.
+  - Client: `settings-section` claim — profile list with installed/token/connected state, per-profile token paste, `Connect`/`Disconnect`, global kill switch, audit viewer; `content-view` live-view tile — frames from `browser_relay_frame`, allowlisted click/scroll/type, no-frames detector (screencast emits only on repaint, so idle and hidden look alike) offering "Bring to front" (`Page.bringToFront`), DevTools-conflict notice on `canceled_by_user` detach.
+  - Config: `plugins.browser.{enabled, browsers:{<profileDirectory>:{token?, zeroDialog?, allowedDomains?}}, defaultBrowser}` in `~/.pi/dashboard/config.json`. No core `/api/health` capability — Chrome detection stays inside the plugin.
+- **Browser skill** (`packages/extension/.pi/skills/browser/`): new `references/dashboard-relay.md`; routing rule "logged-in state needed → `GET /api/browser/status` → `POST /api/browser/connect?profile=<dir>` → `agent-browser connect <cdpUrl>`" with 409 `reason` branching and the note that the pi session must run on the dashboard host (the `cdpUrl` is loopback); `own-browser.md` (Panerelay) demoted to legacy fallback (its `Bash(npx @panerelay/setup:*)` grant stays).
+- **Not in scope** (documented deferrals): remote/docker Chrome and a separate agent window (both require forking the extension — `connect.tsx:61` hard-codes loopback, `chrome.windows.create` not allow-listed); Firefox.
+
+## Capabilities
+
+### New Capabilities
+- `browser-relay`: extension-dial-in CDP relay, per-guid instances, tab-group isolation, deny-list, audit, screencast tap, REST + gateway messages.
+- `browser-plugin-settings`: settings section (profiles, tokens, connect/disconnect, kill switch, audit) and live-view tile.
+- `plugin-ws-route`: plugin-registered WebSocket route scopes with pinned-origin admission and declared auth class.
+
+### Modified Capabilities
+- `shared-protocol`: `BrowserToServerMessage` gains `browser_relay_subscribe|unsubscribe|input`, `ServerToBrowserMessage` gains `browser_relay_frame|status`.
+- `default-browser-skill`: routing gains the dashboard-relay branch ahead of `own-browser.md`; Step-0 preflight probes the relay capability.
+
+## Impact
+
+- `packages/dashboard-plugin-runtime/src/server/server-context.ts` — `registerWsRoute`; `packages/server/src/server.ts:2521` upgrade handler + `auth/ws-ticket.ts` (`WsRouteScope`, `routeScopeForUrl`) + `auth/cors-origin.ts` (new plugin-scope origin check beside `isWsOriginTrusted`, which is untouched). No change to `routes/system-routes.ts`.
+- New `packages/browser-plugin/` (server, client, configSchema.json, i18n); depends on `ws`; vendors ~900 lines from `microsoft/playwright` under Apache-2.0 with NOTICE.
+- `packages/shared/` — browser-gateway message union gains `browser_relay_*`.
+- `packages/extension/.pi/skills/browser/` — SKILL.md routing table, new reference doc.
+- Security: new inbound WS surface; Chrome profile with real SSO becomes agent-drivable — mitigated by loopback-only relay endpoints, pinned extension id, per-profile token, deny-list, kill switch, audit. Accepted: `allowedDomains` is a navigation guardrail only (`Runtime.evaluate`/redirects can leave it); any authenticated dashboard client may view/steer any instance (single-operator trust model, same as terminals); `connect` passes guid (and token when `zeroDialog` is enabled) in Chrome's argv, visible to same-user `ps` — equivalent exposure to the same-user-readable local token file; guids are single-claim and expire in 60 s. `Bash(curl:*)` in `allowed-tools` is a broad grant, consistent with the `pi-dashboard` skill's existing curl usage. `docs/research/user-browser-in-editor-view.md` §6 Runtime ban applies to the viewer path only.
+- Host prerequisite: Playwright Extension installed in the target profile (user action; surfaced as `installed:false`).
+
+## Discipline Skills
+
+- `security-hardening` — new WS admission path, pairing tokens, deny-list, SSO-bearing profile under agent control.
+- `observability-instrumentation` — new REST endpoints, relay lifecycle, audit log, `browser_relay_status`.
+- `doubt-driven-review` — before `registerWsRoute` API shape stands (public plugin-runtime surface) and before the CDP deny-list is fixed.
+- `performance-optimization` — screencast fan-out backpressure (~4 KB/frame at ~10 fps per viewer).
