@@ -37,6 +37,8 @@ export type ConfigRefusalCode =
   | "invalid-name"
   | "transport-conflict"
   | "write-failed"
+  /** A new server with no transport when no lower source defines it. */
+  | "missing-transport"
   /** Admission refusal for a project scope outside the known-folder set. */
   | "not-allowed";
 

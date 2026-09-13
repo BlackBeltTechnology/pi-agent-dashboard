@@ -37,6 +37,14 @@ export {
   type ProvenanceLayer,
   type SettingSource,
 } from "./effective-view.js";
+export {
+  errorFields,
+  mcpConfigSchema,
+  type PatchValidation,
+  validateServerPatch,
+  validateSettingsPatch,
+  validateTransportPresence,
+} from "./schema-validation.js";
 export { createMcpClientConfigService, type McpClientConfigServiceDeps, type McpClientRuntime } from "./service.js";
 export type {
   AdapterPort,
