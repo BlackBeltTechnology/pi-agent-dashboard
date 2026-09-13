@@ -55,10 +55,10 @@ test.describe("quota context strip", () => {
     await expect(chip).toContainText("5h");
     await expect(chip).toContainText("7d");
 
-    // The footer no longer carries a quota chip (the old slot is gone).
-    await expect(page.locator('[data-testid="content-inline-footer"] [data-testid^="quota-chip-"]')).toHaveCount(
-      0,
-    );
+    // The chip renders ONCE, in the strip — no duplicate quota widget elsewhere
+    // (the old footer mount's wrapper carries no testid, so a `` footer``-scoped
+    // locator would be structurally unfailable).
+    await expect(page.getByTestId("quota-chip-anthropic")).toHaveCount(1);
   });
 
   test("F8: clicking the chip opens the shared dialog, Escape closes it", async ({ page }) => {

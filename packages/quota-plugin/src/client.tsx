@@ -332,7 +332,6 @@ export function QuotaWidget({ session }: { session?: DashboardSession }) {
         {showNote && (
           <span
             data-testid="quota-no-adapter-note"
-            aria-label={t("noQuota", { modelId }, `${modelId} · no quota`)}
             style={{
               fontSize: 10,
               color: "var(--text-muted, #71717a)",
@@ -351,6 +350,13 @@ export function QuotaWidget({ session }: { session?: DashboardSession }) {
           const windowsText = p.windows
             .map((w) => `${w.label} ${Math.round(w.usedPercent)}%`)
             .join(", ");
+          // The button's `aria-label` overrides its visible content, so an
+          // explicit staleness suffix is required for AT to hear it.
+          const chipAria = t(
+            "chipAria",
+            { provider: providerLabel(p.provider), windows: windowsText },
+            `${providerLabel(p.provider)} quota, ${windowsText}`,
+          );
           return (
             <button
               key={p.provider}
@@ -360,11 +366,9 @@ export function QuotaWidget({ session }: { session?: DashboardSession }) {
               data-dimmed={dimmed ? "true" : undefined}
               data-stale={p.stale === true ? "true" : undefined}
               title={windowsText}
-              aria-label={t(
-                "chipAria",
-                { provider: providerLabel(p.provider), windows: windowsText },
-                `${providerLabel(p.provider)} quota, ${windowsText}`,
-              )}
+              aria-label={
+                p.stale === true ? `${chipAria}, ${t("retained", undefined, "not live")}` : chipAria
+              }
               onClick={() => setDialogProvider(p.provider)}
               style={{
                 display: "inline-flex",
