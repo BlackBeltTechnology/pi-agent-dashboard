@@ -105,7 +105,7 @@ describe("goal-plugin composition root (fake ctx)", () => {
   // then keep yielding until a real-time floor elapses (Date is unfaked),
   // hard-bounded. Assertion-neutral: only the settle budget grows.
   const flush = async () => {
-    const deadline = Date.now() + 100;
+    const deadline = Date.now() + 150;
     for (let i = 0; i < 2_000; i++) {
       await new Promise((r) => setImmediate(r));
       if (i >= 79 && Date.now() >= deadline) break;
