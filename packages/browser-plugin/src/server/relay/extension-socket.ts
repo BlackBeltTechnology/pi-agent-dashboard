@@ -66,11 +66,20 @@ export class ExtensionSocket {
       return Promise.reject(new Error(`Unexpected WebSocket state: ${this.ws.readyState}`));
     }
     const id = ++this.lastId;
-    this.ws.send(JSON.stringify({ id, method, params }));
     const error = new Error(`Protocol error: ${method}`);
-    return new Promise((resolve, reject) => {
+    // Register the pending callback BEFORE sending. A transport that delivers a
+    // response synchronously (the in-process test pair does; a real socket does
+    // not) would otherwise race this map and lose the reply forever.
+    const pending = new Promise<unknown>((resolve, reject) => {
       this.callbacks.set(id, { resolve, reject, error });
     });
+    try {
+      this.ws.send(JSON.stringify({ id, method, params }));
+    } catch (err) {
+      this.callbacks.delete(id);
+      throw err;
+    }
+    return pending;
   }
 
   close(reason: string): void {

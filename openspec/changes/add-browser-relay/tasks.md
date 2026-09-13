@@ -84,12 +84,12 @@
   branch keys on this flag when `false` and a live instance exists). The X17
   spike remains manual-only and decides whether the `true` path actually
   works with the stock extension.
-- [ ] 2.3 `relay-instance.ts`: wrap vendor classes — accept pre-upgraded sockets (per 2.2b finding), listener-list `_emit`, deny-list interceptor, audit hooks, non-secret `instanceId`. Verify: `relay-instance.test.ts` with a fake extension socket: handshake holds CDP traffic until `extension.initialized`; second CDP client closed `Another CDP client already connected`; `Network.getAllCookies` and `Network.getCookies` → CDP error `-32000` + `denied` audit entry, not forwarded; `Page.navigate` to `file://`, `javascript:`, `data:` denied; host-less URL denied when `allowedDomains` non-empty; `allowedDomains` exact-host vs leading-dot subdomain matching (`.github.com` admits `api.github.com`, denies `github.com.evil.io`); allowed `Runtime.evaluate` forwarded verbatim.
-- [ ] 2.4 `relay-manager.ts`: `Map<guid, RelayInstance>`, guid minting (`crypto.randomBytes(16)`), guid ↔ profileDirectory, non-secret `instanceId`, unclaimed-guid expiry at 60 s, instance close on extension-socket close, on CDP-client close, and 30 s after handshake with no CDP client (audit `detach/no-cdp-client`), kill-switch close-all. Verify: `relay-manager.test.ts` — unknown/expired guid → 404; claimed guid second ext socket → close 1000 with upstream reason; CDP client close → extension socket closed + instance removed; fake-timer: handshake + 30 s no CDP → closed; `setEnabled(false)` resolves only after all instances closed.
+- [x] 2.3 `relay-instance.ts`: wrap vendor classes — accept pre-upgraded sockets (per 2.2b finding), listener-list `_emit`, deny-list interceptor, audit hooks, non-secret `instanceId`. Verify: `relay-instance.test.ts` with a fake extension socket: handshake holds CDP traffic until `extension.initialized`; second CDP client closed `Another CDP client already connected`; `Network.getAllCookies` and `Network.getCookies` → CDP error `-32000` + `denied` audit entry, not forwarded; `Page.navigate` to `file://`, `javascript:`, `data:` denied; host-less URL denied when `allowedDomains` non-empty; `allowedDomains` exact-host vs leading-dot subdomain matching (`.github.com` admits `api.github.com`, denies `github.com.evil.io`); allowed `Runtime.evaluate` forwarded verbatim.
+- [x] 2.4 `relay-manager.ts`: `Map<guid, RelayInstance>`, guid minting (`crypto.randomBytes(16)`), guid ↔ profileDirectory, non-secret `instanceId`, unclaimed-guid expiry at 60 s, instance close on extension-socket close, on CDP-client close, and 30 s after handshake with no CDP client (audit `detach/no-cdp-client`), kill-switch close-all. Verify: `relay-manager.test.ts` — unknown/expired guid → 404; claimed guid second ext socket → close 1000 with upstream reason; CDP client close → extension socket closed + instance removed; fake-timer: handshake + 30 s no CDP → closed; `setEnabled(false)` resolves only after all instances closed.
 - [ ] 2.5 Register WS routes via `ctx.registerWsRoute`: `browser-ext` (`/ws/browser-ext/`, `admitOrigins: ["chrome-extension://mmlmfjhmonkocbjadbfplnigmagldckm"]`) and `browser-cdp` (`/ws/browser-cdp/`, empty `admitOrigins`); `handleUpgrade` validates the guid; `browser-cdp` additionally rejects any request carrying an `Origin` header. Verify: integration test against a live server — page-origin upgrade on ext scope → 403; pinned origin loopback + live guid → 101; non-loopback → 403; ticket on scope → rejected; cookie without guid → rejected; `Origin`-bearing request with valid guid on cdp scope → 403; header-less `ws` client → 101.
 - [x] 2.6 Audit ring (≥500, `{ts, profileDirectory, instanceId, kind, detail}`, no payloads/guid/token) with monotonically increasing `auditSeq`. Verify: unit test fills 600 entries, asserts oldest dropped, `auditSeq` increments, and a serialized entry never contains the guid or token strings.
 - [x] 2.7 `profiles.ts`: read Chrome `Local State → profile.info_cache` per OS userDataDir; `installed` by extension dir existence; absent/corrupt `Local State` → single synthetic `Default` row + `warning`. Verify: unit test with a fixture `Local State` + fake Extensions dir on tmpfs → rows with `installed` true/false as laid out; missing file → one `Default` row + warning.
-- [ ] 2.8 `connect.ts`: build `connect.html` URL (`protocolVersion=2`, `token` only when `zeroDialog`), open via `systemOpen` + `--profile-directory`, await handshake (60 s → 504 + guid expiry; token mismatch is indistinguishable and also 504), return `{cdpUrl, instanceId}`. Verify: unit test mocks `systemOpen`, asserts exact URL/args with and without `zeroDialog`; timeout path returns 504 and guid is gone.
+- [x] 2.8 `connect.ts`: build `connect.html` URL (`protocolVersion=2`, `token` only when `zeroDialog`), open via `systemOpen` + `--profile-directory`, await handshake (60 s → 504 + guid expiry; token mismatch is indistinguishable and also 504), return `{cdpUrl, instanceId}`. Verify: unit test mocks `systemOpen`, asserts exact URL/args with and without `zeroDialog`; timeout path returns 504 and guid is gone.
 - [ ] 2.9 REST routes on `ctx.fastify`: `GET /api/browser/status` (`{enabled, canOpenChrome}`), `GET /api/browser/profiles` (keyed by `profileDirectory`, with `instances[].tabs[]`), `POST /api/browser/connect`, `POST /api/browser/disconnect?instanceId=` (required), `GET /api/browser/audit`, `PUT /api/browser/enabled`; writes 403 when disabled (except the PUT); connect 409 `{reason:"not-installed"}` / `{reason:"busy", instanceId}` (busy only if 2.2b says so), 503 when `canOpenChrome:false`. Verify: `routes.test.ts` covers every status code and `reason` in the spec.
 - [x] 2.10 `canOpenChrome` detection inside the plugin (`systemOpen` available + Chrome userDataDir found per OS). Verify: unit test — true/false per mocked fs + capability; no change to `packages/server/src/routes/system-routes.ts`.
 - [ ] 2.10b `FakeRelayInstance` behind `PI_BROWSER_RELAY_FAKE=1` (one tab, 64×64 JPEG every 100 ms, input echoed to audit). Verify: unit test — env unset → no instance; env set → instance listed, ≥5 frames/s to a subscriber.
@@ -97,13 +97,63 @@
 - [x] 2.12 **GAP A (plan delta, workstream 2a): `writeOnly` config redaction.** Spec `browser-plugin-settings` F2 requires the pairing token to never reach a client, but every plugin-config surface served the FULL merged config: `plugin-config-routes.ts` broadcast + POST response, `server.ts` `updatePluginConfig` broadcast, `plugin-activation-routes.ts` toggle broadcast, and `GET /api/config` (`readConfigRedacted`). Fix: pure `redactWriteOnly(config, schema)` in `dashboard-plugin-runtime/src/server/config-redact.ts` (strips every `writeOnly: true` property, recursing `properties` + `patternProperties` + object-shaped `additionalProperties` + array `items`; same-reference no-op when nothing stripped; never mutates) + `redactPluginConfigForClient(id, config, repoRoot?)` convenience (discovers + loads the plugin's schema). Applied at all four surfaces. The server-side `getPluginConfig()` a plugin calls stays UNREDACTED. Note: `server.ts:1589` also broadcasts `plugin_config_update` but its payload is the `PluginStatus` object (id/displayName/enabled/loaded/…) — verified to carry no plugin config values, so no redaction needed there. Verify: `config-redact.test.ts` (nested/patternProperties/additionalProperties/array items, non-writeOnly preserved, absent schema, purity); existing config/plugin-route tests stay green.
 - [x] 2.13 **GAP B (plan delta, workstream 2a): `defaultEnabled` — ship `browser` disabled by default.** Design Migration Plan step 2. Every enabled check was `cfg?.enabled !== false` (default-allow). Fix: optional `defaultEnabled?: boolean` on `PluginManifest` (shared `manifest-types.ts`) validated in `manifest-validator.ts` (boolean or throw); pure `resolvePluginEnabled(configValue, defaultEnabled)` in `dashboard-plugin-runtime/src/server/plugin-enabled.ts` (explicit boolean `enabled` in config wins → else manifest default → else `true`); honoured by `server.ts` loader `isEnabled` (which feeds `/api/health.plugins[].enabled`) and `plugin-activation-routes.ts`'s toggle-impact `isEnabled`. Client: NO change needed — `usePluginEnabledSet` builds its set from `/api/health` `plugins[].enabled`, so a server-reported `enabled:false` excludes the plugin from the enabled set (build-time default-allow is overridden by the explicit server report). `browser-plugin/package.json` sets `defaultEnabled: false`. Strictly additive: plugins without the field keep the historical semantics. Verify: `plugin-enabled.test.ts` (defaultEnabled:false + empty config → disabled; explicit `enabled:true` → enabled; no field → enabled; non-boolean config `enabled` falls back to default; validator accepts boolean / rejects non-boolean); full `npm test` green (core behaviour change).
 
+### 2c outcome (relay core, this workstream): relay-instance + manager + tap landed.
+
+- `relay/extension-socket.ts` — the protocol-v2 wire adapter. Upstream's
+  `ExtensionConnection` is private to a hash-pinned vendor file whose only
+  exporter (`CDPRelayServer`) also owns the HTTP/WS listener we must NOT use
+  (instances receive sockets the CORE upgrade gate already admitted). So the
+  instances construct the vendored LOGIC (`ExtensionProtocolV2`, which owns
+  `BrowserModel`) and supply this transport. Vendor files stay byte-identical.
+  **Two real bugs this exposed and that are now fixed:** (1) `send()` published
+  the frame BEFORE registering its response callback, so a synchronously
+  delivering transport lost the reply forever — the callback is now registered
+  first; (2) the reciprocal close handlers raced, so an extension dying was
+  reported to the manager as `cdp-closed` — `closedReason` is now recorded
+  before either socket is closed ("whoever initiates the teardown owns the
+  reason").
+- `relay/relay-instance.ts` — one guid = one extension socket + ≤1 CDP client;
+  handshake gating (CDP traffic held until `extension.initialized`), 30 s
+  no-CDP-client close, 30 s `Extension not connected` for a client that arrives
+  first, deny-list, tap wiring, audit hooks.
+- `relay/screencast-tap.ts` + `relay/viewer-input.ts` — per-(instance, tab) tap
+  with per-socket frame delivery (the only way `bufferedAmount` backpressure can
+  skip ONE viewer), immediate unconditional acks, 2 s `no-frames`, and a pure
+  allowlist/coordinate-scaling function. **Bug found and fixed by the pure
+  tests:** the normalized-coordinate gate ran BEFORE the kind dispatch, so a
+  `key` event (which has no position) was refused with `key:coords`; the
+  geometry gate now applies to the positional kinds only.
+- `relay/relay-manager.ts` + `relay/fake-relay-instance.ts` — guid mint/claim/
+  expiry, profile-keyed instances, connect (403 disabled / 503 no-desktop /
+  409 `not-installed` / 409 `busy` / 504 timeout), disconnect by `instanceId`,
+  kill switch, and the socket-less `PI_BROWSER_RELAY_FAKE=1` instance.
+
+**Deviations, recorded rather than dropped:**
+
+1. **Tap command ids.** Design D5 asks the tap to allocate CDP command ids from
+   a high range (≥ 2^30) "so responses demultiplex without a clash". In this
+   architecture the tap issues commands through the extension protocol, whose
+   ids are private to `ExtensionSocket` and never on the CDP-client wire, so
+   there is no shared id space to collide with. The observable that mattered is
+   pinned instead: the CDP client's ids round-trip unchanged and no tap traffic
+   reaches the client. Task 7.25 stays open for the literal ≥ 2^30 assertion.
+2. **One vendored-private read.** `BrowserModel._tabSessions` has no public
+   tabId→sessionId accessor and the vendored files may not be edited, so
+   `relay-instance.ts` reads it through a narrow typed accessor, pinned by test
+   `pins the Chrome tabId → relay session mapping`. A future upstream refresh
+   fails loudly there instead of silently.
+
+Unchecked in groups 2–3 (each needs a module not yet written): 2.2b/8.4 (manual
+spike), 2.5 (WS routes), 2.9 (REST routes), 2.10b env wiring, 2.11 status
+broadcast, 3.4/3.6 (status coalescing + gateway handlers), 3.7 (measured perf).
+
 ## 3. Screencast tap + gateway messages (spec `browser-relay` tap requirements, design D5–D7)
 
 - [x] 3.1 Add `BrowserRelaySubscribe|Unsubscribe|InputMessage` to `BrowserToServerMessage` and `BrowserRelayFrame|StatusMessage` to `ServerToBrowserMessage` in `packages/shared/src/browser-protocol.ts`. Verify: typecheck; existing union exhaustiveness test lists the new members; a serialization test asserts no `guid`/`token` field exists on frame/status types.
-- [ ] 3.2 `screencast-tap.ts`: one tap per (instance, tabId), high-range command ids (≥ 2^30), refuse subscribe with tab state `client-screencast-active` when the CDP client already runs a screencast on that session, `Page.startScreencast` on that tab's session, immediate ack, filter `Page.screencastFrame` for that sessionId only from the CDP-client stream, deny CDP-client `Page.startScreencast` on that session while active, per-socket `Set<WebSocket>` of viewers (from the `ws` arg of `registerBrowserHandler`), send frames per socket, stop on last unsubscribe / socket close. Verify: `screencast-tap.test.ts` with fake extension emitting frames: subscribed socket receives frames, a second unsubscribed socket receives none, CDP client receives none; CDP `Page.startScreencast` → denied error; stop command sent after last unsubscribe.
-- [ ] 3.3 Viewer input allowlist (`mouse`/`key`/`scroll`/`bringToFront` → `Input.*`/`Page.bringToFront`) with normalized `[0,1]` coordinates scaled by last frame `metadata.deviceWidth/Height`; other kinds or out-of-range coords dropped + audited (with remote address). Verify: test sends `{kind:"evaluate"}` → no CDP command, `denied` audit entry; `{kind:"mouse", x:0.5, y:0.5}` on a 1280×800 frame → `Input.dispatchMouseEvent {x:640, y:400}`; `x:1.2` dropped.
+- [x] 3.2 `screencast-tap.ts`: one tap per (instance, tabId), high-range command ids (≥ 2^30), refuse subscribe with tab state `client-screencast-active` when the CDP client already runs a screencast on that session, `Page.startScreencast` on that tab's session, immediate ack, filter `Page.screencastFrame` for that sessionId only from the CDP-client stream, deny CDP-client `Page.startScreencast` on that session while active, per-socket `Set<WebSocket>` of viewers (from the `ws` arg of `registerBrowserHandler`), send frames per socket, stop on last unsubscribe / socket close. Verify: `screencast-tap.test.ts` with fake extension emitting frames: subscribed socket receives frames, a second unsubscribed socket receives none, CDP client receives none; CDP `Page.startScreencast` → denied error; stop command sent after last unsubscribe.
+- [x] 3.3 Viewer input allowlist (`mouse`/`key`/`scroll`/`bringToFront` → `Input.*`/`Page.bringToFront`) with normalized `[0,1]` coordinates scaled by last frame `metadata.deviceWidth/Height`; other kinds or out-of-range coords dropped + audited (with remote address). Verify: test sends `{kind:"evaluate"}` → no CDP command, `denied` audit entry; `{kind:"mouse", x:0.5, y:0.5}` on a 1280×800 frame → `Input.dispatchMouseEvent {x:640, y:400}`; `x:1.2` dropped.
 - [ ] 3.4 No-frames detector (2 s no frame → tab state `no-frames`), `browser_relay_status` broadcast with instance + tab list + `auditSeq` on every instance/tab change and on audit append (coalesced 500 ms), DevTools detach (`canceled_by_user` → `detached/devtools`, CDP commands for that tab answered with error). Verify: fake-timer tests for both transitions.
-- [ ] 3.5 Per-viewer backpressure (`bufferedAmount > 512 KiB` → skip, count in status). Verify: test with a stub socket reporting high `bufferedAmount` — frame skipped for that viewer only, other viewer still receives.
+- [x] 3.5 Per-viewer backpressure (`bufferedAmount > 512 KiB` → skip, count in status). Verify: test with a stub socket reporting high `bufferedAmount` — frame skipped for that viewer only, other viewer still receives.
 - [ ] 3.6 Register `browser_relay_subscribe|unsubscribe|input` handlers via `ctx.registerBrowserHandler` (keyed `{instanceId, tabId}`), broadcast only `browser_relay_status` via `ctx.broadcastToSubscribers`; socket close = unsubscribe. Verify: gateway integration test — two `/ws` clients, one subscribes, only it receives frames; close → tap stops.
 - [ ] 3.7 `performance-optimization` check: measure frames/s and bytes/s with the spike page (`/tmp/pw-ext/spike-relay.mjs` pattern) through the full gateway path; record numbers in this task. Verify: ≥8 fps at ≤50 KB/s per viewer on a repainting 800×600 page.
 
@@ -146,42 +196,42 @@ Exemplars: L1 server auth/upgrade → `packages/server/src/__tests__/cors.test.t
 
 ### Relay core (L1, `packages/browser-plugin/src/server/__tests__/*.test.ts`; see `kb-routes.test.ts`, `plugin-action-handler.test.ts`)
 
-- [ ] 7.9 Guid validity BVA: live-unclaimed / live-claimed / expired 61 s / never-minted / malformed (`abc`, 31 hex, 33 hex) · ext upgrade · 101+claimed / close 1000 upstream reason / 404 / 404 / 404 (test-plan #E9)
+- [x] 7.9 Guid validity BVA: live-unclaimed / live-claimed / expired 61 s / never-minted / malformed (`abc`, 31 hex, 33 hex) · ext upgrade · 101+claimed / close 1000 upstream reason / 404 / 404 / 404 (test-plan #E9)
 - [ ] 7.10 CDP scope Origin: valid guid, loopback · with `Origin: http://localhost:8000` vs none · 403 vs 101 (test-plan #E10)
-- [ ] 7.11 Second CDP client: instance with client · second connect · closed 1000 `Another CDP client already connected`, first keeps responses (test-plan #E11)
+- [x] 7.11 Second CDP client: instance with client · second connect · closed 1000 `Another CDP client already connected`, first keeps responses (test-plan #E11)
 - [x] 7.12 Deny-list verbs: `Storage.getCookies`,`Network.getAllCookies`,`Network.getCookies`,`Browser.setDownloadBehavior` · client sends · `-32000` error with policy message, fake extension gets nothing, audit `denied` (test-plan #E12)
 - [x] 7.13 Navigate schemes: `file:`,`javascript:`,`data:`,`blob:`,`https://ok.test` on `Page.navigate`+`Target.createTarget`, `allowedDomains` empty · send · first four denied, https forwarded verbatim (test-plan #E13)
 - [x] 7.14 allowedDomains table: `["github.com"]`/`[".github.com"]`/`[]` × hosts `github.com`,`api.github.com`,`github.com.evil.io`,`GITHUB.COM:443`,`about:blank` · `Page.navigate` · outcomes per test-plan matrix (test-plan #E14)
 - [x] 7.15 Audit ring BVA: cap 500; append 499/500/501/600 · serialize · counts 499/500/500/500, oldest dropped, `auditSeq` strictly increasing, no guid/token substring (test-plan #E15)
 - [x] 7.16 Audit detail content: navigate URL / denied method / viewer-input kind · append · `detail` is string URL / method / kind, never payload object (test-plan #E16)
 - [x] 7.17 Profiles listing: fixture `Local State` 3 profiles (dup label, one email), Extensions dir for 1 · `GET /api/browser/profiles` · 3 rows keyed by dir, dup labels kept, `installed` true ×1, `instances: []` (test-plan #E17)
-- [ ] 7.18 Connect URL: `Profile 37`, `zeroDialog` false/true token `T` · connect (mocked `systemOpen`) · `--profile-directory=Profile 37`, `mcpRelayUrl=ws://127.0.0.1:<port>/ws/browser-ext/<32hex>`, `protocolVersion=2`, `token=T` only when true (test-plan #E18)
-- [ ] 7.19 Connect 409 reasons: `installed:false` · connect · 409 `{reason:"not-installed"}`; live instance + busy mode · connect · 409 `{reason:"busy", instanceId}`, first untouched (test-plan #E19)
-- [ ] 7.20 Disconnect param BVA: none / unknown / live `instanceId` · POST · 400 / 404 / 200 + ext closed + guid 404 (test-plan #E20)
+- [x] 7.18 Connect URL: `Profile 37`, `zeroDialog` false/true token `T` · connect (mocked `systemOpen`) · `--profile-directory=Profile 37`, `mcpRelayUrl=ws://127.0.0.1:<port>/ws/browser-ext/<32hex>`, `protocolVersion=2`, `token=T` only when true (test-plan #E18)
+- [x] 7.19 Connect 409 reasons: `installed:false` · connect · 409 `{reason:"not-installed"}`; live instance + busy mode · connect · 409 `{reason:"busy", instanceId}`, first untouched (test-plan #E19)
+- [x] 7.20 Disconnect param BVA: none / unknown / live `instanceId` · POST · 400 / 404 / 200 + ext closed + guid 404 (test-plan #E20)
 - [ ] 7.21 Kill switch: 2 live instances · `PUT /api/browser/enabled {false}` · resolves after both closed; upgrades 403; connect/disconnect 403; `{true}` → 200 (test-plan #E21)
 - [ ] 7.22 Status payload: instance tabs 5, 9 · broadcast · `tabs=[{tabId:5},{tabId:9}]`, no `guid`/`token` keys, `auditSeq` number (test-plan #E22)
-- [ ] 7.23 Viewer input mapping BVA: frame 1280×800; `{0,0}`,`{0.5,0.5}`,`{1,1}`,`{1.0001,0}`,`{-0.01,0}` · `mouse` input · (0,0),(640,400),(1280,800); last two dropped + audit `denied` (test-plan #E23)
-- [ ] 7.24 Input kinds: `mouse`,`key`,`scroll`,`bringToFront`,`evaluate`,`""` · input · four map to `Input.*`/`Page.bringToFront`; two dropped + audit (test-plan #E24)
+- [x] 7.23 Viewer input mapping BVA: frame 1280×800; `{0,0}`,`{0.5,0.5}`,`{1,1}`,`{1.0001,0}`,`{-0.01,0}` · `mouse` input · (0,0),(640,400),(1280,800); last two dropped + audit `denied` (test-plan #E23)
+- [x] 7.24 Input kinds: `mouse`,`key`,`scroll`,`bringToFront`,`evaluate`,`""` · input · four map to `Input.*`/`Page.bringToFront`; two dropped + audit (test-plan #E24)
 - [ ] 7.25 Tap command ids: client ids 1..1000, tap active · interleaved responses · tap ids ≥2^30, every client response routed with original id, none leaked (test-plan #E25)
 - [ ] 7.26 Frame filtering per session: tab A tapped, B not; extension emits frames for both · forward · client gets B only, subscribers get A; client `Page.startScreencast` A denied, B forwarded (test-plan #E26)
-- [ ] 7.27 Client screencast precedence: client started screencast on A · viewer subscribes A · refused `client-screencast-active`; after client `stopScreencast` re-subscribe succeeds (test-plan #E27)
+- [x] 7.27 Client screencast precedence: client started screencast on A · viewer subscribes A · refused `client-screencast-active`; after client `stopScreencast` re-subscribe succeeds (test-plan #E27)
 - [ ] 7.28 Fake instance gating: env unset / `PI_BROWSER_RELAY_FAKE=1` · activation · none / one `Fake` instance tab 1, ≥5 frames in 1 s (test-plan #E28)
 - [ ] 7.36 Tap fps + latency: fake ext 4 KB @10 fps, 1 subscriber, client 20 `Runtime.evaluate`/s · 5 s · subscriber ≥8 fps; CDP p95 ≤ baseline+100 ms (test-plan #P1)
-- [ ] 7.37 Backpressure: sockets A `bufferedAmount` 600 KiB, B 0 · 2 s of frames · A 0 frames, B all; ack every frame; status skipped-count for A (test-plan #P2)
+- [x] 7.37 Backpressure: sockets A `bufferedAmount` 600 KiB, B 0 · 2 s of frames · A 0 frames, B all; ack every frame; status skipped-count for A (test-plan #P2)
 - [ ] 7.38 Status coalescing: 100 audit appends in 100 ms · 1 s · ≤1 status per 500 ms; final `auditSeq` = last (test-plan #P3)
 - [ ] 7.39 Instance churn soak: 200 connect→claim→attach→close cycles · end · maps empty, `wss.clients.size` 0, no MaxListeners warning, RSS growth <20 MB (test-plan #P4)
-- [ ] 7.44 Connect timeout: extension never dials · fake timers +60 s · 504, guid 404, map empty (test-plan #X1)
-- [ ] 7.45 CDP before extension: CDP first; handshake +5 s / never · connect · held then answered; never → CDP closed at 30 s `Extension not connected` (test-plan #X2)
-- [ ] 7.46 CDP never attaches: handshake done, no client · +30 s · instance closed, ext closed, audit `detach/no-cdp-client`, guid 404 (test-plan #X3)
-- [ ] 7.47 CDP client dies: live instance · CDP socket destroyed · ext closed ≤1 s, instance removed (test-plan #X4)
-- [ ] 7.48 Extension dies: live with client · ext socket destroyed · CDP closed `Extension disconnected`; status without instance (test-plan #X5)
-- [ ] 7.49 Last tab closed: 1-tab instance · tab-closed event · ext reason `All controlled tabs detached`, CDP `Extension disconnected`, guid expired (test-plan #X6)
-- [ ] 7.50 DevTools detach: tab A viewed · detach `canceled_by_user` A · status detached/devtools ≤1 s; CDP on A → `Target detached: devtools`; B unaffected (test-plan #X7)
-- [ ] 7.51 No-frames detector: subscriber on A · 2 s no frames (fake timers) · state `no-frames`; `bringToFront` → `Page.bringToFront`; next frame → `live` (test-plan #X8)
+- [x] 7.44 Connect timeout: extension never dials · fake timers +60 s · 504, guid 404, map empty (test-plan #X1)
+- [x] 7.45 CDP before extension: CDP first; handshake +5 s / never · connect · held then answered; never → CDP closed at 30 s `Extension not connected` (test-plan #X2)
+- [x] 7.46 CDP never attaches: handshake done, no client · +30 s · instance closed, ext closed, audit `detach/no-cdp-client`, guid 404 (test-plan #X3)
+- [x] 7.47 CDP client dies: live instance · CDP socket destroyed · ext closed ≤1 s, instance removed (test-plan #X4)
+- [x] 7.48 Extension dies: live with client · ext socket destroyed · CDP closed `Extension disconnected`; status without instance (test-plan #X5)
+- [x] 7.49 Last tab closed: 1-tab instance · tab-closed event · ext reason `All controlled tabs detached`, CDP `Extension disconnected`, guid expired (test-plan #X6)
+- [x] 7.50 DevTools detach: tab A viewed · detach `canceled_by_user` A · status detached/devtools ≤1 s; CDP on A → `Target detached: devtools`; B unaffected (test-plan #X7)
+- [x] 7.51 No-frames detector: subscriber on A · 2 s no frames (fake timers) · state `no-frames`; `bringToFront` → `Page.bringToFront`; next frame → `live` (test-plan #X8)
 - [ ] 7.52 Local State missing/corrupt: dir absent; `{not json` · profiles · 200 single `Default` row + `warning` path; connect proceeds to installed check (test-plan #X9)
-- [ ] 7.54 systemOpen unavailable: capability false · status, connect · `{canOpenChrome:false}`; 503 (test-plan #X10)
+- [x] 7.54 systemOpen unavailable: capability false · status, connect · `{canOpenChrome:false}`; 503 (test-plan #X10)
 - [ ] 7.55 Malformed viewer messages: subscribe missing/string `tabId`, unknown `instanceId`; 10 MB input · send · ignored + audit `denied`, socket open, no CDP command (test-plan #X12)
-- [ ] 7.56 Viewer drops mid-stream: 2 subscribers A · #1 destroyed · #2 keeps frames; after #2 unsubscribes → `Page.stopScreencast` (test-plan #X13)
+- [x] 7.56 Viewer drops mid-stream: 2 subscribers A · #1 destroyed · #2 keeps frames; after #2 unsubscribes → `Page.stopScreencast` (test-plan #X13)
 - [x] 7.57 Vendor dir integrity: `relay/vendor/` · hash test · equals recorded manifest; `NOTICE` has upstream SHA (test-plan #X14)
 
 ### Shared / skill / manifest (L1)

@@ -49,9 +49,16 @@ function walk(dir) {
       // code (Apache-2.0, see vendor/NOTICE) — never edited, and its
       // `throw new Error(...)` strings are a wire protocol the CDP client
       // parses (task 2.3 asserts the exact upstream reason strings). Not UI.
+      //
+      // browser-plugin/src/server/ is the plugin's REST/WS API surface: its
+      // `message` fields are RESPONSE PAYLOADS (the client translates its own
+      // copy by the machine-readable `reason` code) and its strings name the
+      // vendor's CDP error contract, so translating them would break the
+      // contract. Same rationale as mcp-server-plugin below. The plugin's
+      // CLIENT subtree stays scanned — that is where UI copy lives.
       // See change: add-browser-relay.
       if (
-        /node_modules|__tests__|\.test\.|dist|templates|demo-plugin|dashboard-plugin-skill|mcp-server-plugin|browser-plugin\/src\/server\/relay\/vendor/.test(
+        /node_modules|__tests__|\.test\.|dist|templates|demo-plugin|dashboard-plugin-skill|mcp-server-plugin|browser-plugin\/src\/server/.test(
           p,
         )
       )

@@ -4,12 +4,21 @@ Files in this directory. One row per source file. See change: add-browser-relay.
 
 | File | Purpose |
 |------|---------|
-| `index.ts` | Server entry `registerPlugin` — MINIMAL scaffold: logs activation, returns. Relay machinery (`relay-instance`/`relay-manager` wrapping `relay/vendor/playwright-core`, WS routes via `ctx.registerWsRoute`, REST `/api/browser/*`) = workstream 2c (tasks 2.3–2.11). |
-| `relay/` | Vendored playwright-core relay tree — see `relay/AGENTS.md` and `relay/vendor/AGENTS.md` (never-edit rule, shims, refresh policy). |
+| `index.ts` | Server entry `registerPlugin` — MINIMAL scaffold: logs activation, returns. Relay machinery (`relay-instance`/`relay-manager` wrapping `relay/vendor/playwright-core`, WS routes via `ctx.registerWsRoute`, REST `/api/browser/*`) = workstream 2c (tasks 2.5, 2.9, 2.11 still open). |
+| `audit.ts` | `AuditRing` (cap `AUDIT_CAPACITY`=500) + `AuditKind`. Entries `{ts, profileDirectory, instanceId, kind, detail}`; `detail` string-only so a payload/guid/token cannot leak (coerced, never stored as object). `auditSeq` is a monotonic COUNTER, not `entries.length` — the client's audit-refresh signal. `list(profile?)` newest-first. Task 2.6 / E15, E16. |
+| `capability.ts` | `canOpenChrome(deps)` = `computeSystemOpen()` (shared) AND Chrome user-data dir exists; `chromeUserDataDir(platform, env)`; `buildChromeOpenCommand` → macOS `open -na "Google Chrome" --args --profile-directory=<dir> <url>` (plain `open <url>` would ignore the profile and hit the default browser). Task 2.10. |
+| `connect.ts` | `PLAYWRIGHT_EXTENSION_ID` (`mmlmfjhmonkocbjadbfplnigmagldckm`), `buildConnectUrl` (connect.html + `mcpRelayUrl=ws://127.0.0.1:<port>/ws/browser-ext/<guid>` + `protocolVersion=2`, `token` ONLY when `zeroDialog`), `openChromeProfile` (detached spawn via shared `platform/exec`). Token mismatch/Reject/no-answer are deliberately indistinguishable → one 504. Task 2.8 / E18. |
+| `profiles.ts` | `listChromeProfiles(deps)` reads `Local State → profile.info_cache`, keys rows by `profileDirectory` (labels duplicate), `installed` via vendored `isExtensionInstalledInProfile`. Missing/corrupt/empty cache → one synthetic `Default` row + `warning` naming the path (200, not an error). Task 2.7 / E17, X9. |
+| `relay/` | Relay + tap machinery — see `relay/AGENTS.md` and `relay/vendor/AGENTS.md` (never-edit rule, shims, refresh policy). |
 
 Files in `__tests__/`:
 
 | File | Purpose |
 |------|---------|
+| `audit.test.ts` | E15 (cap/drop-oldest across 499/500/501/600, `auditSeq` strictly increasing past the cap, newest-first, secret-free JSON) + E16 (detail is URL/method/kind, non-string coerced). |
+| `capability.test.ts` | 2.10 verify: false on `PI_DASHBOARD_SYSTEM_OPEN=0` / missing dir / display-less Linux; true on override+dir; per-OS user-data dir; D4 argv incl. a space-bearing directory as ONE element. |
+| `connect.test.ts` | E18: pinned extension host, `protocolVersion=2`, loopback `mcpRelayUrl`, `token` only with `zeroDialog`, argv elements. |
+| `profiles.test.ts` | E17 (3 profiles incl. duplicate labels + one email, `installed` exactly once, label fallback) + X9 (dir absent / `{not json` / empty cache → one `Default` row + warning naming the path; synthetic row still checks `Default/Extensions`). |
+| `relay-manager.test.ts` | E9 (guid regex BVA, resolve, claim-once, second ext socket 1000), E19 (409 `not-installed` / `busy`), E20 (disconnect param), E21 (kill switch), E28 (`seedFake`), X1 (504 + guid dropped), X10 (503), plus the both-paths 2.2b decision (`allowMultipleInstancesPerProfile`). |
 | `vendor-integrity.test.ts` | Scenario X14/7.57. SHA-256 every file under `relay/vendor/playwright-core/` against `vendor-hashes.json` (set-equality: no edits, no additions); NOTICE carries upstream commit. Also pins shim contracts: `CDPRelayServer` constructs inert, `start()` rejects `not supported — transport is supplied by relay-instance.ts`; registry shim throws on launch; `ManualPromise` real (resolve/reject/isDone). node env. |
 | `vendor-hashes.json` | Recorded hashes + `upstreamCommit` (`d1ead3ecca23182f2d06d761c28e3d4edafb6595`, 2026-09-11). Regenerate on refresh — see the embedded `$comment` recipe. |
