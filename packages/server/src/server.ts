@@ -45,6 +45,14 @@ import {
   sanitizeHeaderForLog,
 } from "./auth/cors-origin.js";
 import { registerCsp, resolveCspMode } from "./auth/csp.js";
+import {
+  createHostGate,
+  evaluateHostGate,
+  type HostGateContext,
+  HostGateState,
+  hostGateEnvWarning,
+  resolveHostGateMode,
+} from "./auth/host-gate.js";
 import { ensureServerIdentity } from "./auth/identity.js";
 import { ensureLocalToken, verifyLocalToken } from "./auth/local-token.js";
 import { createNetworkGuard, isBypassedHost, isGenuinelyLocal } from "./auth/localhost-guard.js";
@@ -59,7 +67,13 @@ import {
 } from "./browser-handlers/session-action-handler.js";
 import { createCommitDraftRelay } from "./commit-draft-relay.js";
 import { writeConfigPartial } from "./config-api.js";
-import { liveCorsAllowedOrigins, liveTrustedNetworks } from "./config-snapshot.js";
+import {
+  liveAllowedHosts,
+  liveCorsAllowedOrigins,
+  liveHostGateMode,
+  livePublicBaseUrls,
+  liveTrustedNetworks,
+} from "./config-snapshot.js";
 // pending-load-manager removed — server loads sessions directly via DirectoryService
 import { createDirectoryService, type DirectoryService } from "./directory-service.js";
 import { createEmbedLifecycleController } from "./embed-lifecycle/embed-lifecycle-controller.js";
@@ -108,6 +122,7 @@ import { registerDoctorRoutes } from "./routes/doctor-routes.js";
 import { registerFileRoutes } from "./routes/file-routes.js";
 import { registerGitRoutes } from "./routes/git-routes.js";
 import { registerGrepRoutes } from "./routes/grep-routes.js";
+import { registerHostGateRoutes } from "./routes/host-gate-routes.js";
 import { registerKnownServersRoutes } from "./routes/known-servers-routes.js";
 import { registerLiveServerRoutes } from "./routes/live-server-routes.js";
 import { registerManifestRoute } from "./routes/manifest-route.js";
@@ -1204,12 +1219,39 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   //     config-override-oauth-redirect-base (D15).
   const corsAllowedOrigins = () => liveCorsAllowedOrigins(config.corsAllowedOrigins ?? []);
   const corsTrustedNetworks = () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []);
+  // Host-admission gate (issue #637, design D1/D4/D6) — the DNS-rebinding
+  // defence. Under rebinding the attacker page is SAME-ORIGIN with the
+  // dashboard, so its GETs carry no Origin and its peer is loopback: every
+  // Origin/peer gate passes. The `Host` header is the one signal left, so the
+  // gate keys on it — independently of Origin presence, OAuth, or network
+  // trust. One shared state (refusal ring + rate-limited log, D5) and one
+  // per-request context (mode resolved env-over-config, D4; every admission
+  // input read LIVE through the snapshot, D6).
+  const hostGateState = new HostGateState();
+  const hostGateBootWarning = hostGateEnvWarning(process.env.PI_DASHBOARD_HOST_GATE);
+  if (hostGateBootWarning) console.error(hostGateBootWarning);
+  const getHostGateCtx = (): HostGateContext => ({
+    admission: {
+      allowedHosts: liveAllowedHosts(),
+      publicBaseUrls: livePublicBaseUrls(),
+      configuredOrigins: corsAllowedOrigins(),
+      getLiveTunnelOrigins: liveTunnelOrigins,
+      // Boot-time bind address (a restart field, so captured once — D6). An
+      // IP bind is already covered by the IP-literal rule; this matters when
+      // the bind is a NAME.
+      bindHost: config.host,
+    },
+    ...resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()),
+  });
   /**
    * The ONE origin-policy input, shared by the CORS plugin, the WS upgrade gate
    * and the mutating-REST gate. Built per decision (never captured) so tunnel
    * rotation and runtime config edits are seen identically by all three — a
    * second, hand-mirrored options object is exactly how admission and
-   * readability drift apart. See change: fix-ws-origin-cswsh (D1).
+   * readability drift apart. The host-admission fields ride the same object
+   * (D6 of add-host-allowlist-admission) so `isHostAdmitted` and the tightened
+   * `isSameOriginByHost` cannot drift from CORS either.
+   * See change: fix-ws-origin-cswsh (D1).
    */
   const corsOpts = (): CorsOriginOptions => ({
     configuredOrigins: corsAllowedOrigins(),
@@ -1221,7 +1263,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // which single origin we mint OAuth URIs and set cookies for.
     // See change: add-zrok-custom-reserved-name (D4).
     getLiveTunnelOrigins: liveTunnelOrigins,
+    allowedHosts: liveAllowedHosts(),
+    publicBaseUrls: livePublicBaseUrls(),
+    bindHost: config.host,
+    // Env-over-config, resolved the SAME way as the hook (D4): a mixed state
+    // (env=report + config=enforce) must keep the Origin gate's report-only
+    // behaviour in step with the hook, else the escape hatch only half-engages.
+    hostGateMode: resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode,
   });
+  // Registered BEFORE @fastify/cors so an enforced refusal carries no ACAO
+  // (and before every Origin gate — a rebinding page's plain GETs carry no
+  // Origin at all). Report-only default; `PI_DASHBOARD_HOST_GATE=enforce`
+  // or `hostGate.mode` flips it. See change: add-host-allowlist-admission (D1).
+  fastify.addHook("onRequest", createHostGate(getHostGateCtx, hostGateState, () => config.port));
   await fastify.register(cors, {
     // Decision extracted to a pure, unit-tested helper (cors-origin.ts) so the
     // security-critical allow/deny logic is tested against the REAL code, not a
@@ -1235,6 +1289,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     },
     credentials: true,
   });
+  // Close the rate-limiter's log window on a timer so the `suppressed <n>`
+  // summary lands even when no further refusal arrives (D5). Unref'd: a
+  // quiet server must not be kept alive by its own log limiter; cleared in
+  // stop() so a create/stop cycle leaves nothing ticking.
+  const hostGateFlushTimer = setInterval(() => hostGateState.flush(), 60_000);
+  hostGateFlushTimer.unref();
 
   // Cross-site MUTATION gate (issue #625). CORS stops an attacker page from
   // READING a response; it does nothing to stop the request from happening, so
@@ -1434,6 +1494,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
 
   registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() } });
+  registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   registerDoctorRoutes(fastify);
   registerToolRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
@@ -1906,6 +1967,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         deadlineMs: opts.deadlineMs ?? null,
         core: () => server._startCore(),
         teardown: async () => {
+          // Disarm the host-gate rate-limiter window flush (created unref'd
+          // below) so a failed/aborted startup leaves nothing ticking.
+          clearInterval(hostGateFlushTimer);
           // Gateway FIRST — it is the port bound earliest and the one the
           // captured zombie held. `stop()` also clears `pingTimer`, which is
           // what actually lets the process exit.
@@ -2455,20 +2519,40 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
 
       fastify.server.on("upgrade", (request, socket, head) => {
+        // Ephemeral single-use ticket (D11) bound to the requested WS route
+        // scope. The one cheap read BEFORE the first gate — the host-admission
+        // log line names the scope.
+        const scope = routeScopeForUrl(request.url);
+
+        // Host-admission check (issue #637, D1). FIRST gate on the upgrade
+        // path, ahead of the Origin gate below: under rebinding the attacker's
+        // Origin equals its own Host, so only an ADMITTED Host may vouch for a
+        // matching Origin. Refused before any ticket is consumed.
+        // See change: add-host-allowlist-admission.
+        if (
+          evaluateHostGate(
+            request.headers.host,
+            getHostGateCtx(),
+            hostGateState,
+            `origin=${sanitizeHeaderForLog(request.headers.origin)} scope=${scope ?? "none"}`,
+          ) === "refuse"
+        ) {
+          socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+
         // Access check for WebSocket upgrades
         const remoteAddress = request.socket.remoteAddress || "";
         const trusted = config.resolvedTrustedNetworks ?? [];
         const secWsProtocol = request.headers["sec-websocket-protocol"] as string | undefined;
-        // Ephemeral single-use ticket (D11) bound to the requested WS route
-        // scope.
-        const scope = routeScopeForUrl(request.url);
 
-        // Cross-site upgrade gate (issue #625). FIRST statement after `scope`,
-        // ahead of the `bridge` early-return and the auth branches, so an
-        // untrusted Origin can never consume a ticket and cannot tell a routed
-        // path from an unrouted one. A browser cannot omit or forge `Origin` on
-        // a handshake; every non-browser client sends none and is unaffected.
-        // See change: fix-ws-origin-cswsh (D1).
+        // Cross-site upgrade gate (issue #625). Runs after the host-admission
+        // check and ahead of the `bridge` early-return and the auth branches,
+        // so an untrusted Origin can never consume a ticket and cannot tell a
+        // routed path from an unrouted one. A browser cannot omit or forge
+        // `Origin` on a handshake; every non-browser client sends none and is
+        // unaffected. See change: fix-ws-origin-cswsh (D1).
         if (!isWsOriginTrusted(request.headers.origin, request.headers.host, scope, corsOpts())) {
           console.error(
             `[ws-gate] rejected upgrade origin=${sanitizeHeaderForLog(request.headers.origin)} scope=${scope ?? "none"} peer=${sanitizeHeaderForLog(remoteAddress)}`,
@@ -2856,6 +2940,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       } catch { /* ignore mDNS cleanup errors */ }
       removePid();
       idleTimer.cancel();
+      // Disarm the host-gate rate-limiter window flush (created with the gate
+      // wiring above; unref'd, so this is leak-hygiene not liveness).
+      clearInterval(hostGateFlushTimer);
       directoryService.stopPolling();
       // SIGTERMs every dashboard-spawned pi: after this the sessions below are
       // GONE and can never reattach.

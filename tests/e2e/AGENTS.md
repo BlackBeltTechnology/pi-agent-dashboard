@@ -59,6 +59,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `global-teardown.ts` | Playwright globalTeardown. Managed (marker present, not fast path) → run `docker/test-down.sh` with… → see `global-teardown.ts.AGENTS.md` |
 | `headless-reload-dispatch.spec.ts` | L3 for `fix-out-of-band-reload` (#F1–#F3). Bare `/reload` on a headless harness session: one terminal… → see `headless-reload-dispatch.spec.ts.AGENTS.md` |
 | `helpers/__tests__/evidence-path.test.ts` | Unit tests (vitest `tests` project, NOT Playwright) for `helpers/evidence-path.ts`. → see `helpers/__tests__/evidence-path.test.ts.AGENTS.md` |
+| `host-gate-allow.spec.ts` | L3 for the Host-gate operator flow (test-plan #F9/#F10, change: add-host-allowlist-admission). Security tab: `Allow <host>` moves a recent refusal into the draft, Save persists `allowedHosts`, Currently admitted shows it with the `allowed host` pill; keyboard-only traversal + axe on the section. |
 | `helpers/evidence-path.ts` | Resolves a change's `measurements.json` WITHOUT creating it. → see `helpers/evidence-path.ts.AGENTS.md` |
 | `helpers/index.ts` | E2E helpers. `gotoDashboard(page)` navigates `/`, waits for `header-app-bar`, and arms a one-per-page… → see `helpers/index.ts.AGENTS.md` |
 | `helpers/openspec-board.ts` | OpenSpec-board drop-targeting E2E helpers. Fixture `/fixtures/openspec-board` (64 generated `board-card-NN`… → see `helpers/openspec-board.ts.AGENTS.md` |

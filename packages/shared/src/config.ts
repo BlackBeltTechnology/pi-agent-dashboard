@@ -5,6 +5,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { HostGateMode } from "./host-admission.js";
 import { DEFAULT_MEMORY_LIMITS, type MemoryLimitsConfig, MIN_REPLAY_WINDOW, type ReplayWindowMode } from "./memory-limits.js";
 import type { WindowsGitSourceSetting } from "./platform/select-git-source.js";
 import { inferPlatform, pathKey } from "./session-group-path.js";
@@ -20,6 +21,28 @@ export const CONFIG_DIR = path.join(os.homedir(), ".pi", "dashboard");
 export const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
 
 export type SpawnStrategy = "tmux" | "headless";
+
+/**
+ * Host-admission rollout mode. `report` logs a would-refuse line and lets the
+ * request through; `enforce` refuses it. See change: add-host-allowlist-admission.
+ */
+export type { HostGateMode };
+
+export interface HostGateConfig {
+  mode: HostGateMode;
+}
+
+const HOST_GATE_MODES: HostGateMode[] = ["report", "enforce"];
+
+/**
+ * Validate a raw `hostGate.mode`. Absent / unrecognised → `report` (the
+ * non-breaking rollout default; see design D4).
+ */
+export function parseHostGateMode(raw: unknown): HostGateMode {
+  return typeof raw === "string" && (HOST_GATE_MODES as string[]).includes(raw)
+    ? (raw as HostGateMode)
+    : "report";
+}
 
 /**
  * Policy applied when a bridge re-registers a session after a dashboard
@@ -511,6 +534,22 @@ export interface DashboardConfig {
    * If the key is absent from config.json the default of 300 s applies.
    */
   askUserPromptTimeoutSeconds: number;
+  /**
+   * Hostnames the dashboard may answer on that are NOT already implied by
+   * `publicBaseUrls`, `cors.allowedOrigins`, a live tunnel, an IP literal,
+   * loopback, or `.local` — e.g. an internal reverse-proxy name. Bare
+   * hostnames only (no scheme/port); compared case-insensitively. Default `[]`;
+   * never seeded by `ensureConfig()`. Read live through the snapshot.
+   * See change: add-host-allowlist-admission.
+   */
+  allowedHosts: string[];
+  /**
+   * Host-admission rollout mode + the shape Settings ▸ Security writes. Default
+   * `{ mode: "report" }`; env `PI_DASHBOARD_HOST_GATE` overrides it at read
+   * time. Never seeded by `ensureConfig()`.
+   * See change: add-host-allowlist-admission.
+   */
+  hostGate: HostGateConfig;
   /** Networks trusted for full access without authentication (CIDR, wildcard, exact IP) */
   trustedNetworks: string[];
   /** Merged trustedNetworks + auth.bypassHosts (deduplicated). Computed at load time. */
@@ -881,6 +920,8 @@ const DEFAULTS: DashboardConfig = {
   sessions: { ...DEFAULT_SESSIONS },
   embedLifecycle: { ...DEFAULT_EMBED_LIFECYCLE },
   keeperLog: { ...DEFAULT_KEEPER_LOG },
+  allowedHosts: [],
+  hostGate: { mode: "report" },
   trustedNetworks: [],
   resolvedTrustedNetworks: [],
   cors: { allowedOrigins: [] },
@@ -1421,6 +1462,10 @@ export function loadConfig(): DashboardConfig {
       sessions: parseSessionsConfig(parsed.sessions),
       embedLifecycle: parseEmbedLifecycleConfig(parsed.embedLifecycle),
       keeperLog: parseKeeperLogConfig(parsed.keeperLog),
+      allowedHosts: Array.isArray(parsed.allowedHosts)
+        ? parsed.allowedHosts.filter((h: unknown): h is string => typeof h === "string")
+        : defaults.allowedHosts,
+      hostGate: { mode: parseHostGateMode(parsed.hostGate?.mode) },
       trustedNetworks: parseTrustedNetworks(parsed.trustedNetworks),
       resolvedTrustedNetworks: [],
       cors: {

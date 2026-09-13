@@ -20,6 +20,27 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Security
 
+- **DNS-rebinding defence for the dashboard's own origin (issue #637), report-only
+  by default.** Admission previously trusted any request whose `Origin` host
+  equalled its `Host` header; a page at a name that re-resolves to `127.0.0.1`
+  forges exactly that, and because it is same-origin with the dashboard its
+  plain GETs carry no `Origin` at all. A new `Host`-header gate on the dashboard
+  listener now checks every HTTP request and every WebSocket upgrade — including
+  `Origin`-less ones — against the hostnames the dashboard can justify answering
+  on: loopback, any IP literal, the bind address, `*.local`, `publicBaseUrls`
+  hosts (legacy `pairing.publicBaseUrls` included), `cors.allowedOrigins` hosts,
+  live tunnel hosts, and a new top-level `allowedHosts` list. Matching is on the
+  hostname only (port ignored). 
+  **Report-only first:** the gate ships in `report` mode — a refused `Host` logs
+  `[host-gate] would-refuse host=…` and the request proceeds — so nothing breaks
+  on day one. Switch it to `enforce` from **Settings ▸ Security ▸ Allowed
+  hostnames**, or with `PI_DASHBOARD_HOST_GATE=enforce` (env overrides config).
+  Before flipping, review the new section's **Recent refusals** list (or `grep
+  -F '[host-gate] would-refuse' server.log`) and add any legitimate name to
+  `allowedHosts` — typically an internal reverse-proxy name that was never
+  registered as a public base URL. In `enforce`, a refused browser navigation
+  gets a static HTML page (no JS) and a refused `fetch` gets
+  `403 {error:"host_not_allowed"}`.
 - **Cross-site requests can no longer reach the dashboard (issue #625).** Any
   web page you visited could open `ws://127.0.0.1:8000/ws`, receive the session
   snapshot broadcast and spawn a terminal, and could blind-POST every
