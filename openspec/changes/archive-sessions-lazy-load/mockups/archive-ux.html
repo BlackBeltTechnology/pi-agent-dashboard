@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mockup — Archive sessions (card + folder UX)</title>
+<link rel="stylesheet" href="tokens.css" />
+<style>
+  /* ---- page chrome (mockup only) ---- */
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg-primary); color: var(--text-primary);
+    font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .topbar {
+    position: sticky; top: 0; z-index: 10; display: flex; gap: 12px; align-items: center;
+    padding: 8px 16px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-primary);
+  }
+  .topbar h1 { font-size: 13px; margin: 0; font-weight: 600; }
+  .topbar .sp { flex: 1; }
+  .btn {
+    font: inherit; font-size: 11px; padding: 3px 9px; border-radius: 6px; cursor: pointer;
+    background: var(--bg-surface); color: var(--text-secondary); border: 1px solid var(--border-secondary);
+  }
+  .btn:hover { color: var(--text-primary); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 340px)); gap: 28px; padding: 20px 16px 60px; justify-content: center; }
+  .panel { display: flex; flex-direction: column; gap: 8px; }
+  .panel > h2 {
+    margin: 0 0 4px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-tertiary);
+  }
+  .panel > p.note { margin: 0 0 6px; font-size: 11px; color: var(--text-muted); }
+  .note code { color: var(--text-tertiary); font-size: 10.5px; }
+
+  /* ---- sidebar column (mirrors SessionList width) ---- */
+  .sidebar { width: 300px; background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 8px; padding: 6px; display: flex; flex-direction: column; gap: 6px; }
+
+  /* ---- folder header (mirrors folder-header-*) ---- */
+  .folder { border-radius: 10px; background: var(--bg-secondary); padding: 4px 4px 6px; }
+  .folder-head { display: flex; align-items: center; gap: 5px; padding: 3px 4px; font-size: 12px; }
+  .folder-head .name { display: flex; align-items: baseline; gap: 3px; min-width: 0; }
+  .folder-head .parent { color: var(--text-muted); font-size: 11px; }
+  .folder-head .leaf { color: var(--text-primary); font-weight: 600; }
+  .folder-head .cluster { margin-left: auto; display: flex; align-items: center; gap: 2px; color: var(--text-tertiary); }
+  .ico { width: 14px; height: 14px; fill: currentColor; flex: none; }
+  .ico.sm { width: 11px; height: 11px; }
+  .cards { display: flex; flex-direction: column; gap: 5px; padding: 2px 2px 0; }
+
+  /* ---- session card (mirrors compact SessionCard root classes) ---- */
+  .card {
+    position: relative; isolation: isolate; padding: 6px 8px 6px 6px; border-radius: 12px; cursor: pointer;
+    background: var(--bg-tertiary); border: 1px solid var(--border-subtle);
+    box-shadow: inset 0 1px 0 var(--elevation-rim), 0 4px 8px var(--shadow-card);
+    display: flex; flex-direction: column; gap: 3px;
+  }
+  .card:hover { border-color: var(--border-secondary); }
+  .card.ended { opacity: .78; }
+  .card.archived { opacity: .62; background: transparent; box-shadow: none; border-style: dashed; border-color: var(--border-secondary); }
+  .card .row { display: flex; align-items: center; gap: 5px; min-width: 0; }
+  .card .title { font-size: 12px; font-weight: 500; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+  .card.ended .title, .card.archived .title { color: var(--text-secondary); font-weight: 400; }
+  .card .meta { font-size: 10px; color: var(--text-muted); display: flex; gap: 6px; align-items: center; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .dot.run { background: var(--accent-green); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-green) 25%, transparent); }
+  .dot.idle { background: var(--accent-blue); }
+  .dot.end { background: var(--text-faint); }
+  .pill {
+    display: inline-flex; align-items: center; gap: 3px; padding: 0 6px; font-size: 10px; border-radius: 999px;
+    background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-subtle); flex: none;
+  }
+  .pill.ended { color: var(--text-muted); }
+  .pill.arch { color: var(--text-tertiary); border-style: dashed; }
+  .actions { display: flex; align-items: center; gap: 1px; margin-left: auto; flex: none; color: var(--text-tertiary); }
+  .actions button { all: unset; cursor: pointer; padding: 2px; border-radius: 4px; display: inline-flex; color: var(--text-tertiary); }
+  .actions button:hover { color: var(--text-primary); background: var(--bg-hover); }
+  .actions button.warn:hover { color: var(--accent-red); }
+  .actions button.restore:hover { color: var(--accent-green); }
+  .actions button.disabled { opacity: .35; cursor: not-allowed; }
+  .actions button.disabled:hover { color: var(--text-tertiary); background: none; }
+
+  /* ---- ended fold + archive fold toggles ---- */
+  .fold {
+    width: 100%; font: inherit; font-size: 10px; color: var(--text-muted); padding: 4px 8px; background: none; border: 0; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 4px; user-select: none;
+  }
+  .fold:hover { color: var(--text-secondary); }
+  .fold.arch { justify-content: flex-start; padding-left: 10px; border-top: 1px dashed var(--border-subtle); margin-top: 4px; }
+  .fold.arch .cnt { color: var(--text-tertiary); }
+  .fold.arch .age { margin-left: auto; color: var(--text-faint); font-size: 9.5px; }
+  .archived-list { display: flex; flex-direction: column; gap: 4px; padding: 2px 2px 0; }
+  .skeleton { height: 30px; border-radius: 12px; border: 1px dashed var(--border-subtle); background:
+    linear-gradient(90deg, transparent, var(--bg-hover), transparent); background-size: 200% 100%; animation: sh 1.2s linear infinite; }
+  @keyframes sh { from { background-position: 200% 0 } to { background-position: -200% 0 } }
+  .empty { font-size: 10.5px; color: var(--text-muted); padding: 6px 10px; }
+  .loadmore { align-self: center; }
+
+  /* ---- tooltip / hint ---- */
+  .hint { font-size: 10px; color: var(--text-muted); padding: 0 6px; }
+  .hint b { color: var(--text-tertiary); font-weight: 500; }
+
+  /* ---- settings row ---- */
+  .settings { background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 8px; padding: 10px 12px; width: 300px; }
+  .settings h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; }
+  .field { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 5px 0; border-top: 1px solid var(--border-subtle); }
+  .field label { font-size: 12px; color: var(--text-secondary); }
+  .field small { display: block; font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+  .field input[type=number] { width: 64px; font: inherit; font-size: 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-secondary); border-radius: 6px; padding: 3px 6px; text-align: right; }
+  .field .unit { font-size: 11px; color: var(--text-tertiary); margin-left: 4px; }
+  .field .num { display: inline-flex; align-items: center; white-space: nowrap; flex: none; }
+
+  /* ---- search bar ---- */
+  .search { display: flex; align-items: center; gap: 6px; padding: 4px 6px; background: var(--bg-tertiary); border: 1px solid var(--border-secondary); border-radius: 8px; }
+  .search input { flex: 1; min-width: 0; font: inherit; font-size: 12px; background: none; border: 0; outline: 0; color: var(--text-primary); }
+  .search .chip { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; font-size: 10px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--border-subtle); color: var(--text-muted); white-space: nowrap; }
+  .search .chip.on { color: var(--text-primary); border-color: var(--accent-blue); background: color-mix(in srgb, var(--accent-blue) 15%, transparent); }
+  .sect { font-size: 10px; color: var(--text-muted); padding: 6px 10px 2px; display: flex; gap: 4px; align-items: center; border-top: 1px dashed var(--border-subtle); margin-top: 4px; }
+  .sect .cnt { color: var(--text-tertiary); }
+  mark { background: color-mix(in srgb, var(--accent-yellow) 30%, transparent); color: inherit; border-radius: 2px; }
+
+  /* ---- callouts ---- */
+  .callout { position: absolute; left: 8px; top: -8px; background: var(--accent-orange); color: #000; font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 999px; z-index: 2; }
+  .rel { position: relative; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>Archive sessions — card + folder UX mockup</h1>
+  <span class="hint">change: <b>archive-sessions-lazy-load</b></span>
+  <span class="sp"></span>
+  <button class="btn" onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='dark'?'light':'dark'">toggle dark / light</button>
+</div>
+
+<div class="grid">
+
+  <!-- ================================================================ -->
+  <section class="panel">
+    <h2>1 · Session cards — action cluster</h2>
+    <p class="note">Eye-off (<code>session-hide-btn</code>) removed. New <code>session-archive-btn</code>. Enabled on <b>idle</b> and <b>ended</b>; hidden on running. No confirm — archive is reversible.</p>
+
+    <div class="sidebar">
+      <div class="cards">
+
+        <div class="card rel">
+          <span class="callout">running · no archive</span>
+          <div class="row">
+            <span class="dot run"></span>
+            <span class="title">Refactor session-bootstrap seeding</span>
+            <span class="actions">
+              <button title="Open terminal"><svg class="ico sm" viewBox="0 0 24 24"><path d="M20 19V7H4v12h16m0-16a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16M13 17v-2h6v2h-6m-3.42-4L5.57 9H8.4l3.3 3.3c.39.39.39 1.03 0 1.42L8.42 17H5.59l4-4z"/></svg></button>
+              <button class="warn" title="Shut down"><svg class="ico sm" viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+            </span>
+          </div>
+          <div class="meta"><span>claude-opus-4</span><span>·</span><span>2m ago</span></div>
+        </div>
+
+        <div class="card rel">
+          <span class="callout">idle · archive enabled</span>
+          <div class="row">
+            <span class="dot idle"></span>
+            <span class="title">Explore: hidden → archive rename</span>
+            <span class="actions">
+              <button title="Open terminal"><svg class="ico sm" viewBox="0 0 24 24"><path d="M20 19V7H4v12h16m0-16a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16M13 17v-2h6v2h-6m-3.42-4L5.57 9H8.4l3.3 3.3c.39.39.39 1.03 0 1.42L8.42 17H5.59l4-4z"/></svg></button>
+              <button title="Archive session" data-testid="session-archive-btn"><svg class="ico sm" viewBox="0 0 24 24"><path d="M20 21H4V10h2v9h12v-9h2v11M3 3h18v6H3V3m2 2v2h14V5H5m4 9h6v2H9v-2z"/></svg></button>
+              <button class="warn" title="Shut down"><svg class="ico sm" viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+            </span>
+          </div>
+          <div class="meta"><span>claude-sonnet-4</span><span>·</span><span>idle 40m</span></div>
+        </div>
+
+        <div class="card ended rel">
+          <span class="callout">ended · archive enabled</span>
+          <div class="row">
+            <span class="dot end"></span>
+            <span class="title">Fix bridge reconnect on mDNS hijack</span>
+            <span class="pill ended">ended</span>
+            <span class="actions">
+              <button title="Resume"><svg class="ico sm" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20m0 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16m-1 3.5l5 4.5-5 4.5v-9z"/></svg></button>
+              <button title="Archive session" data-testid="session-archive-btn"><svg class="ico sm" viewBox="0 0 24 24"><path d="M20 21H4V10h2v9h12v-9h2v11M3 3h18v6H3V3m2 2v2h14V5H5m4 9h6v2H9v-2z"/></svg></button>
+            </span>
+          </div>
+          <div class="meta"><span>ended 3d ago</span><span>·</span><span>auto-archives in 27d</span></div>
+        </div>
+
+        <div class="card archived rel">
+          <span class="callout">archived (lazy row)</span>
+          <div class="row">
+            <span class="dot end"></span>
+            <span class="title">Add host allowlist admission</span>
+            <span class="pill arch">archived</span>
+            <span class="actions">
+              <button class="restore" title="Restore to session list" data-testid="session-unarchive-btn"><svg class="ico sm" viewBox="0 0 24 24"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6a7 7 0 1 1 2.05 4.95l-1.42 1.42A9 9 0 1 0 13 3m-1 5v5l4.25 2.52.77-1.28-3.52-2.09V8H12z"/></svg></button>
+              <button class="warn" title="Delete forever"><svg class="ico sm" viewBox="0 0 24 24"><path d="M9 3v1H4v2h1v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V6h1V4h-5V3H9M7 6h10v13H7V6m2 2v9h2V8H9m4 0v9h2V8h-2z"/></svg></button>
+            </span>
+          </div>
+          <div class="meta"><span>ended Apr 12</span><span>·</span><span>archived May 12</span></div>
+        </div>
+
+      </div>
+      <p class="hint" style="margin:6px 0 2px">Archived row: dashed border, no shadow, no drag grip, click = read-only open (loads transcript on demand). Restore = <b>unarchive_session</b> → back under "ended", clock restarts.</p>
+    </div>
+  </section>
+
+  <!-- ================================================================ -->
+  <section class="panel">
+    <h2>2 · Folder — collapsed archive fold (default)</h2>
+    <p class="note">Count computed at boot from the folder's dir scan. List NOT loaded. Fold sits below the "N ended" fold, dashed separator, left-aligned to read as a "drawer".</p>
+
+    <div class="sidebar">
+      <div class="folder">
+        <div class="folder-head">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M19 20H4a2 2 0 0 1-2-2V6c0-1.11.89-2 2-2h6l2 2h7a2 2 0 0 1 2 2H4v10l2.14-8h17.07l-2.28 8.5c-.23.87-1.01 1.5-1.93 1.5z"/></svg>
+          <span class="name"><span class="parent">Project/</span><span class="leaf">pi-agent-dashboard</span></span>
+          <span class="cluster">
+            <span class="pill" title="active">2</span>
+            <svg class="ico sm" viewBox="0 0 24 24"><path d="M12 16a2 2 0 0 1 2 2 2 2 0 0 1-2 2 2 2 0 0 1-2-2 2 2 0 0 1 2-2m0-6a2 2 0 0 1 2 2 2 2 0 0 1-2 2 2 2 0 0 1-2-2 2 2 0 0 1 2-2m0-6a2 2 0 0 1 2 2 2 2 0 0 1-2 2 2 2 0 0 1-2-2 2 2 0 0 1 2-2z"/></svg>
+          </span>
+        </div>
+        <div class="cards">
+          <div class="card"><div class="row"><span class="dot run"></span><span class="title">Refactor session-bootstrap seeding</span></div><div class="meta"><span>claude-opus-4</span><span>·</span><span>2m ago</span></div></div>
+          <div class="card"><div class="row"><span class="dot idle"></span><span class="title">Explore: hidden → archive rename</span></div><div class="meta"><span>idle 40m</span></div></div>
+        </div>
+        <button class="fold"><svg class="ico sm" viewBox="0 0 24 24"><path d="M8.59 16.58 13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.42z"/></svg> 14 ended</button>
+        <button class="fold arch" data-testid="folder-archive-toggle">
+          <svg class="ico sm" viewBox="0 0 24 24"><path d="M20 21H4V10h2v9h12v-9h2v11M3 3h18v6H3V3m2 2v2h14V5H5m4 9h6v2H9v-2z"/></svg>
+          Archive <span class="cnt">(312)</span>
+          <span class="age">&gt; 30d</span>
+        </button>
+      </div>
+      <p class="hint" style="margin:6px 0 2px">Fold hidden when count = 0. Count badge is int-only in <b>sessions_snapshot</b> (<code>archivedCountByCwd</code>), never the list.</p>
+    </div>
+  </section>
+
+  <!-- ================================================================ -->
+  <section class="panel">
+    <h2>3 · Folder — archive fold expanded (lazy)</h2>
+    <p class="note">Click → <code>GET /api/sessions/archived?cwd=…&amp;limit=50</code>. Skeletons while in flight; pages of 50; "Load more" until exhausted. Rows are NOT added to the client <code>sessions</code> Map.</p>
+
+    <div class="sidebar">
+      <div class="folder">
+        <div class="folder-head">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M19 20H4a2 2 0 0 1-2-2V6c0-1.11.89-2 2-2h6l2 2h7a2 2 0 0 1 2 2H4v10l2.14-8h17.07l-2.28 8.5c-.23.87-1.01 1.5-1.93 1.5z"/></svg>
+          <span class="name"><span class="parent">Project/</span><span class="leaf">pi-agent-dashboard</span></span>
+          <span class="cluster"><span class="pill">2</span></span>
+        </div>
+        <div class="cards">
+          <div class="card"><div class="row"><span class="dot run"></span><span class="title">Refactor session-bootstrap seeding</span></div><div class="meta"><span>2m ago</span></div></div>
+        </div>
+        <button class="fold"><svg class="ico sm" viewBox="0 0 24 24"><path d="M8.59 16.58 13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.42z"/></svg> 14 ended</button>
+        <button class="fold arch" aria-expanded="true">
+          <svg class="ico sm" viewBox="0 0 24 24"><path d="M7.41 8.58 12 13.17l4.59-4.59L18 10l-6 6-6-6 1.41-1.42z"/></svg>
+          Archive <span class="cnt">(312)</span>
+          <span class="age">showing 3 of 312</span>
+        </button>
+        <div class="archived-list">
+          <div class="card archived">
+            <div class="row"><span class="dot end"></span><span class="title">Add host allowlist admission</span>
+              <span class="actions"><button class="restore" title="Restore"><svg class="ico sm" viewBox="0 0 24 24"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6a7 7 0 1 1 2.05 4.95l-1.42 1.42A9 9 0 1 0 13 3m-1 5v5l4.25 2.52.77-1.28-3.52-2.09V8H12z"/></svg></button><button class="warn" title="Delete"><svg class="ico sm" viewBox="0 0 24 24"><path d="M9 3v1H4v2h1v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V6h1V4h-5V3H9M7 6h10v13H7V6m2 2v9h2V8H9m4 0v9h2V8h-2z"/></svg></button></span>
+            </div>
+            <div class="meta"><span>ended Apr 12</span></div>
+          </div>
+          <div class="card archived">
+            <div class="row"><span class="dot end"></span><span class="title">Docker harness seed for e2e</span>
+              <span class="actions"><button class="restore" title="Restore"><svg class="ico sm" viewBox="0 0 24 24"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6a7 7 0 1 1 2.05 4.95l-1.42 1.42A9 9 0 1 0 13 3m-1 5v5l4.25 2.52.77-1.28-3.52-2.09V8H12z"/></svg></button><button class="warn" title="Delete"><svg class="ico sm" viewBox="0 0 24 24"><path d="M9 3v1H4v2h1v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V6h1V4h-5V3H9M7 6h10v13H7V6m2 2v9h2V8H9m4 0v9h2V8h-2z"/></svg></button></span>
+            </div>
+            <div class="meta"><span>ended Apr 9</span></div>
+          </div>
+          <div class="skeleton"></div>
+          <div class="skeleton"></div>
+          <button class="btn loadmore">Load 50 more</button>
+        </div>
+      </div>
+      <p class="hint" style="margin:6px 0 2px">Search box (<b>sessionSearch</b>) does <u>not</u> reach archived rows unless the fold is open — search is over resident sessions only. Sorted newest-ended first.</p>
+    </div>
+  </section>
+
+  <!-- ================================================================ -->
+  <section class="panel">
+    <h2>3b · Search — "include archive" opt-in</h2>
+    <p class="note">Chip in the search bar, off by default. On + query ≥ 3 chars → debounced 300ms <code>GET /api/sessions/archived?q=…</code> (server matches <code>name</code> / <code>firstMessage</code> from cached meta). Matches render per folder as archived rows under an <b>Archive matches</b> section. Never enters the <code>sessions</code> Map.</p>
+
+    <div class="sidebar">
+      <div class="search">
+        <svg class="ico sm" viewBox="0 0 24 24" style="color:var(--text-muted)"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5z"/></svg>
+        <input value="allowlist" />
+        <button class="chip on" title="Include archived sessions" data-testid="search-include-archive" aria-pressed="true">
+          <svg class="ico sm" style="width:9px;height:9px" viewBox="0 0 24 24"><path d="M20 21H4V10h2v9h12v-9h2v11M3 3h18v6H3V3m2 2v2h14V5H5m4 9h6v2H9v-2z"/></svg> archive
+        </button>
+      </div>
+
+      <div class="folder">
+        <div class="folder-head">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M19 20H4a2 2 0 0 1-2-2V6c0-1.11.89-2 2-2h6l2 2h7a2 2 0 0 1 2 2H4v10l2.14-8h17.07l-2.28 8.5c-.23.87-1.01 1.5-1.93 1.5z"/></svg>
+          <span class="name"><span class="parent">Project/</span><span class="leaf">pi-agent-dashboard</span></span>
+        </div>
+        <div class="cards">
+          <div class="card ended"><div class="row"><span class="dot end"></span><span class="title">Host <mark>allowlist</mark> — CodeRabbit loop</span><span class="pill ended">ended</span></div><div class="meta"><span>ended 5d ago</span></div></div>
+        </div>
+        <div class="sect"><svg class="ico sm" viewBox="0 0 24 24"><path d="M20 21H4V10h2v9h12v-9h2v11M3 3h18v6H3V3m2 2v2h14V5H5m4 9h6v2H9v-2z"/></svg> Archive matches <span class="cnt">(2)</span></div>
+        <div class="archived-list">
+          <div class="card archived"><div class="row"><span class="dot end"></span><span class="title">Add host <mark>allowlist</mark> admission</span><span class="actions"><button class="restore" title="Restore"><svg class="ico sm" viewBox="0 0 24 24"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6a7 7 0 1 1 2.05 4.95l-1.42 1.42A9 9 0 1 0 13 3m-1 5v5l4.25 2.52.77-1.28-3.52-2.09V8H12z"/></svg></button></span></div><div class="meta"><span>ended Apr 12</span></div></div>
+          <div class="card archived"><div class="row"><span class="dot end"></span><span class="title">Explore: <mark>allowlist</mark> vs blocklist</span><span class="actions"><button class="restore" title="Restore"><svg class="ico sm" viewBox="0 0 24 24"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6a7 7 0 1 1 2.05 4.95l-1.42 1.42A9 9 0 1 0 13 3m-1 5v5l4.25 2.52.77-1.28-3.52-2.09V8H12z"/></svg></button></span></div><div class="meta"><span>ended Mar 30</span></div></div>
+        </div>
+      </div>
+      <p class="hint" style="margin:6px 0 2px">Chip off (default) → only resident sessions match, as today. Chip state persists in localStorage. <b>activeOnly</b>, tag and phase axes don't apply to archived rows (all ended; tags not in meta).</p>
+    </div>
+  </section>
+
+  <!-- ================================================================ -->
+  <section class="panel">
+    <h2>4 · Settings › Session list</h2>
+    <p class="note">One new field in the existing <code>settings.sessionList</code> section. 0 = never auto-archive. Restart not required — sweeper reads config live.</p>
+
+    <div class="settings">
+      <h3>Session list</h3>
+      <div class="field">
+        <label>Show ended by default<small>Expand each folder's ended fold on load</small></label>
+        <input type="checkbox" />
+      </div>
+      <div class="field">
+        <label>Auto-archive ended sessions after<small>Ended sessions older than this leave the live list. Restoring restarts the clock.</small></label>
+        <span class="num"><input type="number" value="30" min="0" /><span class="unit">days</span></span>
+      </div>
+      <div class="field">
+        <label>Archive sweep interval<small>How often the server checks for candidates</small></label>
+        <span class="num"><input type="number" value="60" min="1" /><span class="unit">min</span></span>
+      </div>
+    </div>
+    <p class="hint" style="margin:8px 0 0">Field key: <b>sessionList.archiveAfterDays</b> (default 30), <b>sessionList.archiveSweepIntervalMinutes</b> (default 60).</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <section class="panel">
+    <h2>5 · Footer — "Show hidden" narrowed</h2>
+    <p class="note">The global "N hidden" toggle stays but now only counts auto-hidden <b>workers</b> (headless subagents). Archived sessions never appear here.</p>
+    <div class="sidebar">
+      <button class="fold" style="justify-content:flex-start"><svg class="ico sm" viewBox="0 0 24 24"><path d="M12 9a3 3 0 0 1 3 3 3 3 0 0 1-3 3 3 3 0 0 1-3-3 3 3 0 0 1 3-3m0-4.5c5 0 9.27 3.11 11 7.5-1.73 4.39-6 7.5-11 7.5S2.73 16.39 1 12c1.73-4.39 6-7.5 11-7.5z"/></svg> 6 hidden workers</button>
+    </div>
+    <p class="hint" style="margin:8px 0 0">Was: "1783 hidden". After migration: ended+hidden → archived; only running/headless workers remain "hidden".</p>
+  </section>
+
+</div>
+</body>
+</html>
