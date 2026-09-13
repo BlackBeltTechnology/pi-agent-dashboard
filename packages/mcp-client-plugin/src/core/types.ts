@@ -123,6 +123,13 @@ export interface McpClientConfigService {
     fields: Partial<ServerEntry>,
     scope: Scope,
   ): ConfigWriteResult;
+  /** A patch of `set` fields + `unset` keys over one server entry. */
+  applyServerPatch(
+    name: string,
+    set: Partial<ServerEntry>,
+    unset: string[],
+    scope: Scope,
+  ): ConfigWriteResult;
   setServerDisabled(
     name: string,
     disabled: boolean,
@@ -135,6 +142,8 @@ export interface McpClientConfigService {
     scope: Scope,
   ): ConfigWriteResult;
   removeServer(name: string, scope: Scope): RemoveResult;
+  /** Merge a patch into the top-level `settings` object of the Pi-global layer. */
+  patchSettings(set: Partial<McpSettings>, unset: string[]): ConfigWriteResult;
   ensureAdapterPackage(): ConfigWriteResult;
   checkConfigFiles(opts?: {
     serverName?: string;

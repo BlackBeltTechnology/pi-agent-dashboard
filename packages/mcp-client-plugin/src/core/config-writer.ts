@@ -102,6 +102,13 @@ export interface ConfigWriter {
     fields: Partial<ServerEntry>,
     scope: Scope,
   ): ConfigWriteResult;
+  /** A patch of `set` fields + `unset` keys over one server entry. */
+  applyServerPatch(
+    name: string,
+    set: Partial<ServerEntry>,
+    unset: string[],
+    scope: Scope,
+  ): ConfigWriteResult;
   removeServer(name: string, scope: Scope): RemoveResult;
   setDirectTools(name: string, tools: string[] | undefined, scope: Scope): ConfigWriteResult;
   setServerDisabled(
@@ -414,6 +421,16 @@ export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
     return result.ok ? ok() : result;
   }
 
+  function applyServerPatch(
+    name: string,
+    set: Partial<ServerEntry>,
+    unset: string[],
+    scope: Scope,
+  ): ConfigWriteResult {
+    const result = patchEntry(name, set as Record<string, unknown>, unset, scope);
+    return result.ok ? ok() : result;
+  }
+
   function removeServer(name: string, scope: Scope): RemoveResult {
     const result = patchEntry(name, {}, [], scope, { deleteEntry: true });
     if (!result.ok) return result;
@@ -491,6 +508,7 @@ export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
     targetPath,
     readServerEntry,
     ensureServerEntry,
+    applyServerPatch,
     removeServer,
     setDirectTools,
     setServerDisabled,

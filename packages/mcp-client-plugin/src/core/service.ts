@@ -67,12 +67,20 @@ export function createMcpClientConfigService(deps: McpClientConfigServiceDeps): 
       return writer.ensureServerEntry(name, fields, scope);
     },
 
+    applyServerPatch(name, set, unset, scope) {
+      return writer.applyServerPatch(name, set, unset, scope);
+    },
+
     setServerDisabled(name, disabled, scope, opts) {
       return writer.setServerDisabled(name, disabled, scope, opts);
     },
 
     setDirectTools(name, tools, scope) {
       return writer.setDirectTools(name, tools, scope);
+    },
+
+    patchSettings(set, unset) {
+      return writer.patchSettings(set, unset);
     },
 
     removeServer(name, scope) {
