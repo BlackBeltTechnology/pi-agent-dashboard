@@ -127,7 +127,7 @@ export interface PluginRequirements {
   piExtensions?: string[];
   /** Binaries that must resolve on PATH via the tool-registry. */
   binaries?: string[];
-  /** Named service probes (closed built-in registry; "pi-model-proxy" only in V1). */
+  /** Named service probes (closed built-in registry; "model-proxy" only in V1). */
   services?: string[];
   /**
    * Absolute filesystem paths that must exist — the "where does this live"

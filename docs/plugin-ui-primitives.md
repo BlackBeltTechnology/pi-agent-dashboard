@@ -59,7 +59,7 @@ Injects `favorites`, `onToggleFavorite`, `onRefresh` from `ModelConfigContext`.
 Plugin surface gets favorite stars.
 Plugin surface refreshes model list on dropdown open.
 No plugin wiring.
-No selected session → context absent → no favorites, no refresh.
+Favorites now `ModelSelector` default. Caller passes neither `favorites` nor `onToggleFavorite` → component reads both from `useModelConfigOptional()`. Caller passes either prop → caller owns both (explicit props win). No resolvable toggle → no per-row ★ buttons, no `★ Favs` filter, persisted favs-only ignored. Core Settings pickers (Sessions Default Model, Model Proxy add-model + alias target) gain working favorites, no call-site edits. `ModelSelectorPrimitive` unchanged — injection now redundant, harmless. `App.tsx` always provides `modelConfig`; only `models`/`setModel`/`refreshModels` session-gated; `favorites`/`toggleFavorite` GLOBAL. See change: model-picker-everywhere-favorites.
 Caller's `models` list still renders.
 
 `ui:thinking-level-selector` → `ThinkingLevelSelectorPrimitive`.
@@ -165,6 +165,15 @@ When a future plugin needs a primitive that isn't yet registered:
    props is breaking and requires a deprecation cycle — register both
    the old and new keys for one minor release with a deprecation
    warning, then remove.
+
+## Reading another plugin's config — `usePluginConfigOf`
+
+`usePluginConfigOf<T>(pluginId)` — reactive read of ANY plugin's config by id, not just the current plugin.
+Lives in `packages/dashboard-plugin-runtime/src/plugin-context.tsx`. Exported from runtime barrel.
+Built on `useSyncExternalStore` over module-level plugin-config store. No `PluginContextProvider`/`CurrentPluginLayer` needed. Never throws, unlike strict `usePluginConfig<T>()`.
+Snapshot falls back to frozen module-level `EMPTY_CONFIG` for never-set id — fresh `{}` would loop `useSyncExternalStore`.
+Consumer: `packages/automation-plugin/src/client/AutomationSettings.tsx` reads roles `models` catalogue reactively. `getPluginConfig(id)` stays for one-shot non-reactive reads.
+See change: model-picker-everywhere-favorites.
 
 ## Related changes
 

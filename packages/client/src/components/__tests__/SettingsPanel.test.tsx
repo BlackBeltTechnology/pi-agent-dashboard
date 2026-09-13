@@ -1,5 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  ModelConfigProvider,
+  type ModelConfigValue,
+} from "../../lib/state/ModelConfigContext.js";
 import { SettingsPanel } from "../settings/SettingsPanel.js";
 
 // Worktree auto-init preference is fetched/persisted through git-api, not
@@ -1295,5 +1299,53 @@ describe("SettingsPanel model catalogue", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: /Remove/ }));
     await waitFor(() => expect(catalogueCalls(fetchMock)).toBe(2));
+  });
+});
+
+// Sessions Default Model picker inherits favorites from the model-config
+// context with no call-site wiring. See change: model-picker-everywhere-favorites
+// (test-plan F1; design D1 — the Settings pickers already sit inside the provider).
+describe("SettingsPanel default model favorites (model-picker-everywhere-favorites)", () => {
+  const MODELS = [
+    { provider: "anthropic", id: "a" },
+    { provider: "anthropic", id: "b" },
+  ];
+
+  function ctxValue(over: Partial<ModelConfigValue> = {}): ModelConfigValue {
+    return {
+      setModel: () => {},
+      setThinkingLevel: () => {},
+      toggleFavorite: () => {},
+      refreshModels: () => {},
+      openProviderSettings: () => {},
+      notify: () => {},
+      ...over,
+    };
+  }
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    fetchAutoInitWorktreePref.mockResolvedValue(false);
+    setAutoInitWorktreePref.mockResolvedValue(true);
+    setPath("/settings/sessions");
+  });
+  afterEach(() => cleanup());
+
+  it("F1: Sessions Default Model picker shows + toggles context favorites with no props", async () => {
+    global.fetch = mockFetchConfig();
+    const toggle = vi.fn();
+    render(
+      <ModelConfigProvider value={ctxValue({ favorites: ["anthropic/a"], toggleFavorite: toggle })}>
+        <SettingsPanel availableModels={MODELS} />
+      </ModelConfigProvider>,
+    );
+    await waitFor(() => screen.getByText("Default model"));
+
+    fireEvent.click(screen.getByTestId("model-selector-button"));
+    const rows = screen.getAllByTestId("model-row");
+    const aRow = rows.find((r) => r.textContent?.trim() === "anthropic/a")!;
+    expect(within(aRow).getByTestId("model-fav-toggle").getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(within(aRow).getByTestId("model-fav-toggle"));
+    expect(toggle).toHaveBeenCalledWith("anthropic/a", false);
   });
 });

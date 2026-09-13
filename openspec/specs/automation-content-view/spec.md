@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-automation-plugin. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Automation UI contributed via shell slots
 
 The plugin SHALL contribute its UI exclusively through existing dashboard slots and SHALL NOT add Automation-specific conditional rendering to core shell files. It SHALL claim `sidebar-folder-section` (folder nav entry), `shell-overlay-route` (full-page board + run monitor), `session-card-badge` (optional running indicator, predicate-gated), and `settings-section` (scopes + retention + default run visibility config). The board SHALL NOT use the `command-route` slot, whose consumer is not mounted in the shell.
@@ -185,3 +187,53 @@ The board and run-monitor back controls SHALL continue to invoke the shell-provi
 - **THEN** the route SHALL resolve to `depth 2` by default and the back action SHALL navigate to `/`
 - **AND** the back control SHALL NOT be a dead no-op
 
+### Requirement: Default model is chosen through the shared model picker
+
+The automation settings section SHALL present the configured default model (the
+fallback used when an `@role` cannot be resolved) through the shared model
+picker over the dashboard's known model catalogue, not as free-text input. The
+stored value SHALL remain a `provider/model-id` string; an empty string SHALL
+continue to mean "no default model configured", and the user SHALL be able to
+return to that state. A stored value absent from the catalogue SHALL still be
+displayed as the current selection until the user picks another model or
+clears it.
+
+#### Scenario: Picking a default model
+
+- **WHEN** the user opens the default-model control on the Automation settings
+  page and selects `anthropic/claude-opus-4-7`
+- **THEN** the automation settings SHALL store `"anthropic/claude-opus-4-7"` as
+  the default model
+
+#### Scenario: Free text is not accepted
+
+- **WHEN** the user interacts with the default-model control
+- **THEN** there SHALL be no way to submit a model id that is not in the
+  catalogue
+
+#### Scenario: Default model can be cleared
+
+- **GIVEN** a default model is set
+- **WHEN** the user activates the clear affordance next to the control
+- **THEN** the automation settings SHALL store `""` as the default model
+
+#### Scenario: Stale stored value remains visible
+
+- **GIVEN** the automation config has loaded with default model `"gone/model"`
+  which is not in the catalogue
+- **WHEN** the Automation settings page renders
+- **THEN** the control SHALL display `gone/model` as the current selection
+
+#### Scenario: Catalogue arriving after mount populates the picker
+
+- **GIVEN** the Automation settings page mounted before the roles catalogue was
+  received
+- **WHEN** the catalogue arrives
+- **THEN** the default-model control SHALL list those models without a page
+  reload
+
+#### Scenario: Picker shows favorites
+
+- **GIVEN** `"anthropic/claude-opus-4-7"` is favorited
+- **WHEN** the default-model control opens
+- **THEN** that model SHALL show a filled ★ toggle

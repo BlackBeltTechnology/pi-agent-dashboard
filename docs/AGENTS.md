@@ -28,7 +28,6 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `kb-read-discipline.md` | Trust verdicts on `kb_search` agents hits (FRESH/STALE/MOVED/GONE/UNVERIFIED, cap 8, ack sidecar v2) + search guard arm B (fire 3, off/warn/block, KB_GUARD_MODE, kb_guard_pause). Code: verdict.ts, guard.ts. |
 | `knip-baseline.json` | (repo root) Knip dead-code baseline. Per-class debt counts, measured 2026-08-13. Debt ceiling, not target. → see `knip-baseline.json.AGENTS.md` |
 | `knip.json` | (repo root) Knip 6.32.2 whole-graph dead-code config. 38 workspaces. → see `knip.json.AGENTS.md` |
-| `migration/from-pi-model-proxy.md` | Migration guide `@blackbelt-technology/pi-model-proxy` → dashboard built-in proxy. → see `migration/from-pi-model-proxy.md.AGENTS.md` |
 | `migration/slot-pill-actions-to-folder-menu.md` | Plugin-author migration guide. `SlotPill.actions?: ReactNode` removed; replace with `useFolderMenuItem` + `useFolderMenuRefresher`. See change: move-slot-actions-to-menu. → see `migration/slot-pill-actions-to-folder-menu.md.AGENTS.md` |
 | `perf-ws-broadcast-load.md` | WS broadcast load harness. Measures head-of-line blocking on single browser WS. `createDrainingWs` timing-aware fake socket drives real gateway. Test-only, regression-gated. |
 | `plan/electron-app.md` | Comprehensive Electron desktop-app plan. Bundle dashboard standalone macOS/Linux/Windows, zero prereqs,… → see `plan/electron-app.md.AGENTS.md` |

@@ -29,6 +29,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `directory-home.spec.ts` | L3 for the `/folder/:encodedCwd` directory home page (change: add-directory-home-page). → see `directory-home.spec.ts.AGENTS.md` |
 | `editor-pane.spec.ts` | Playwright E2E for internal Monaco editor pane (change: add-internal-monaco-editor-pane). → see `editor-pane.spec.ts.AGENTS.md` |
 | `empty-model-selector.spec.ts` | L3 for `open-empty-model-selector`. Proves the harness-feasible slice: composer `model-selector-button` is… → see `empty-model-selector.spec.ts.AGENTS.md` |
+| `model-favorites-cross-surface.spec.ts` | L3 for model-picker-everywhere-favorites (test-plan F3): star model in Settings → Sessions Default Model picker, session composer row shows `model-fav-toggle[aria-pressed=true]`, reload still pressed (server-persisted). Stubs `GET /api/models`; needs `PI_E2E_SEED=1`. See change: model-picker-everywhere-favorites. |
 | `keeper-log-health.spec.ts` | L3 (test-plan #F1, #F2): `/api/health` carries `keeperLogs` (7 numeric fields); a sparse 2×-cap… → see `keeper-log-health.spec.ts.AGENTS.md` |
 | `ended-session-endedat.spec.ts` | L3 for the evidence-based `endedAt` invariant (test-plan #F1, #F2); plants historical transcripts in the harness via `docker exec`. → see `ended-session-endedat.spec.ts.AGENTS.md` |
 | `explicit-model-preserved.spec.ts` | L3 for `fix-default-model-clobbers-explicit-model` (test-plan #I1, #I2): launches a detached child pi process… → see `explicit-model-preserved.spec.ts.AGENTS.md` |
