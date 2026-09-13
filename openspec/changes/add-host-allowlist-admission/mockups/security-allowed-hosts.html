@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings ▸ Security ▸ Allowed hostnames — mockup</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mock.css">
+</head>
+<body>
+<button class="btn tgl" type="button" onclick="var h=document.documentElement;h.dataset.theme=h.dataset.theme==='dark'?'light':'dark'">Toggle theme</button>
+<main class="page">
+  <div class="crumb">Settings ▸ <b>Security</b> &nbsp;·&nbsp; Authentication · Trusted networks · <b>Allowed hostnames</b> · Pair a device</div>
+
+  <section class="section" aria-labelledby="ah-title">
+    <h2 id="ah-title">Allowed hostnames</h2>
+    <p class="help">The dashboard answers only to requests whose <code>Host</code> header names one of these. This stops a DNS-rebinding page from reaching it through your own browser.</p>
+
+    <div class="stack">
+      <!-- 1. Mode -->
+      <div>
+        <label class="field" id="mode-label">Mode</label>
+        <div class="mode-row">
+          <div class="seg" role="radiogroup" aria-labelledby="mode-label" id="modeSeg">
+            <button type="button" role="radio" aria-checked="true" data-mode="report">Report only</button>
+            <button type="button" role="radio" aria-checked="false" data-mode="enforce">Enforce</button>
+          </div>
+          <p class="mode-note report" id="modeNote">Unlisted hosts are logged and still served. Check <em>Recent refusals</em> below, then switch to Enforce.</p>
+        </div>
+        <p class="mode-env" id="modeEnv" hidden>Set by environment <code>PI_DASHBOARD_HOST_GATE=enforce</code>; unset it to change the mode here.</p>
+        <p style="margin:6px 0 0"><label style="font-size:11px;color:var(--text-tertiary)"><input type="checkbox" id="envSim"> mockup: simulate env override</label></p>
+      </div>
+
+      <!-- 2. Currently admitted -->
+      <div>
+        <label class="field">Currently admitted <span>(derived; edit at the source)</span></label>
+        <div class="rows">
+          <div class="grp">Always</div>
+          <div class="row"><code>localhost · 127.0.0.1 · ::1</code><span class="pill neutral">loopback</span></div>
+          <div class="row"><code>192.168.1.20</code><span class="pill neutral">bind address</span><a class="edit" href="#">Server ▸</a></div>
+          <div class="row"><code>*.local</code><span class="meta">mDNS names</span><span class="pill neutral">.local</span></div>
+
+          <div class="grp">IP addresses</div>
+          <div class="row"><code>any IP address</code><span class="meta">an IP literal cannot be rebound</span><span class="pill neutral">IP address</span></div>
+
+          <div class="grp">From gateway URLs</div>
+          <div class="row"><code>pi.example.com</code><span class="meta">https://pi.example.com</span><span class="pill neutral">public base URL</span><a class="edit" href="#">Gateway ▸</a></div>
+          <div class="row"><code>dash.example</code><span class="meta">cors.allowedOrigins</span><span class="pill neutral">CORS origin</span><a class="edit" href="#">Gateway ▸</a></div>
+          <div class="row"><code>abc.share.zrok.io</code><span class="meta">while connected</span><span class="pill info">live tunnel</span></div>
+
+          <div class="grp">Additional</div>
+          <div class="row" id="extraRow"><code>dash.home.arpa</code><span class="pill neutral">allowed host</span></div>
+        </div>
+      </div>
+
+      <!-- 3. Additional hostnames -->
+      <div>
+        <label class="field" for="extra">Additional hostnames <span>(one per line, bare hostname, no scheme or port)</span></label>
+        <textarea id="extra" rows="3" spellcheck="false" aria-describedby="extraHelp extraErr">dash.home.arpa</textarea>
+        <p class="help" id="extraHelp" style="margin:4px 0 0">For names not covered above, such as a reverse-proxy name. A gateway URL's host never needs to be repeated here.</p>
+        <p class="err" id="extraErr" hidden></p>
+      </div>
+
+      <!-- 4. Recent refusals -->
+      <div>
+        <label class="field">Recent refusals <span>(since server start)</span></label>
+        <div class="rows" id="refusals">
+          <div class="row">
+            <code>rebind.example</code>
+            <span class="meta">38× · last 2 min ago</span>
+            <span class="pill warn">would-refuse</span>
+            <button class="btn" type="button" data-allow="rebind.example" aria-label="Allow rebind.example">Allow</button>
+          </div>
+          <div class="row">
+            <code>proxy-int.corp</code>
+            <span class="meta">3× · last 1 h ago</span>
+            <span class="pill warn">would-refuse</span>
+            <button class="btn" type="button" data-allow="proxy-int.corp" aria-label="Allow proxy-int.corp">Allow</button>
+          </div>
+        </div>
+        <p class="help" style="margin:6px 0 0">Allow adds the name to <em>Additional hostnames</em>. Names you do not recognise are the reason this gate exists; leave them.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Pair a device</h2>
+    <p class="help">(existing section, unchanged)</p>
+  </section>
+</main>
+
+<script>
+// Mockup-only interaction so the human can click through the states.
+const seg = document.getElementById('modeSeg'), note = document.getElementById('modeNote');
+const copy = {
+  report: ['report', 'Unlisted hosts are logged and still served. Check <em>Recent refusals</em> below, then switch to Enforce.'],
+  enforce: ['enforce', 'Unlisted hosts get 403. Everything under <em>Currently admitted</em> keeps working.']
+};
+seg.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b || seg.getAttribute('aria-disabled') === 'true') return;
+  seg.querySelectorAll('button').forEach(x => x.setAttribute('aria-checked', x === b));
+  const [cls, html] = copy[b.dataset.mode]; note.className = 'mode-note ' + cls; note.innerHTML = html;
+  document.querySelectorAll('#refusals .pill').forEach(p => { p.className = 'pill ' + (cls === 'enforce' ? 'error' : 'warn'); p.textContent = cls === 'enforce' ? 'refused' : 'would-refuse'; });
+});
+document.getElementById('envSim').addEventListener('change', e => {
+  seg.setAttribute('aria-disabled', e.target.checked); document.getElementById('modeEnv').hidden = !e.target.checked;
+});
+const ta = document.getElementById('extra'), err = document.getElementById('extraErr');
+ta.addEventListener('blur', () => {
+  const bad = ta.value.split('\n').map(s => s.trim()).filter(Boolean).find(s => /[:\/]/.test(s));
+  if (bad) { const fix = bad.replace(/^[a-z]+:\/\//i, '').replace(/[:\/].*$/, ''); err.hidden = false; err.textContent = `"${bad}" is not a bare hostname. Enter ${fix} instead.`; ta.setAttribute('aria-invalid', 'true'); }
+  else { err.hidden = true; ta.removeAttribute('aria-invalid'); }
+});
+document.getElementById('refusals').addEventListener('click', e => {
+  const b = e.target.closest('[data-allow]'); if (!b) return;
+  ta.value = ta.value.trim() + '\n' + b.dataset.allow;
+  const row = b.closest('.row'); row.remove();
+  const n = document.createElement('div'); n.className = 'row'; n.innerHTML = `<code>${b.dataset.allow}</code><span class="pill neutral">allowed host</span>`;
+  document.getElementById('extraRow').after(n);
+  if (!document.querySelector('#refusals .row')) document.getElementById('refusals').innerHTML = '<div class="empty">No refusals since start.</div>';
+});
+</script>
+</body>
+</html>
