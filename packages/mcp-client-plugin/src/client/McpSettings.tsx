@@ -14,7 +14,8 @@ import type React from "react";
 import { useState } from "react";
 import { ApiError } from "./api.js";
 import { type AdapterStatus, useAdapterStatus, useEffectiveConfig } from "./hooks.js";
-import { ServerList } from "./ServerList.js";
+import { ServerEditor } from "./ServerEditor.js";
+import { isEditable, ServerList } from "./ServerList.js";
 
 export function McpSettingsClaim(): React.ReactElement {
   return <McpSettings />;
@@ -100,6 +101,35 @@ function TimeoutNotice({
   );
 }
 
+/** The editor for the open `editing` key: "" = add, a name = that server, null = closed. */
+function EditorForEditing({
+  editing,
+  view,
+  readOnly,
+  onClose,
+  onChanged,
+}: {
+  editing: string | null;
+  view: ReturnType<typeof useEffectiveConfig>["view"];
+  readOnly: boolean;
+  onClose: () => void;
+  onChanged: () => void;
+}): React.ReactElement | null {
+  if (editing === null) return null;
+  const server = editing === "" ? null : (view?.servers.find((s) => s.name === editing) ?? null);
+  return (
+    <ServerEditor
+      key={editing}
+      name={editing === "" ? null : editing}
+      entry={server?.entry ?? {}}
+      editable={editing === "" || (server !== null && isEditable(server))}
+      readOnly={readOnly}
+      onClose={onClose}
+      onChanged={onChanged}
+    />
+  );
+}
+
 export function McpSettings(): React.ReactElement {
   const t = useT();
   const { view, loading, error, reload } = useEffectiveConfig();
@@ -158,8 +188,14 @@ export function McpSettings(): React.ReactElement {
         onChanged={reload}
       />
 
-      {/* Task 7.4 mounts the schema-driven editor here, keyed on `editing`. */}
-      {editing !== null && <div data-testid="mcp-editor" hidden aria-hidden="true" />}
+      {/* Task 7.4: the schema-driven editor, keyed on `editing` ("" = add). */}
+      <EditorForEditing
+        editing={editing}
+        view={view}
+        readOnly={status.readOnly}
+        onClose={() => setEditing(null)}
+        onChanged={reload}
+      />
     </section>
   );
 }

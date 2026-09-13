@@ -19,8 +19,9 @@ import { useEffect, useState } from "react";
 import type { EffectiveServerView, LayerParseError, ProvenanceLayer } from "../core/effective-view.js";
 import { ApiError, setServerDisabled } from "./api.js";
 import { invalidateEffective } from "./hooks.js";
+import type { Transport } from "./schema.js";
 
-export type Transport = "command" | "url" | "socket";
+export type { Transport };
 
 /** The transport a `ServerEntry` declares, or null when it declares none. */
 export function transportOf(entry: Record<string, unknown>): Transport | null {
