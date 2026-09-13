@@ -97,6 +97,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `plugin-settings-pages.spec.ts` | L3 spec (test-plan rows F1-F14, X1-X5, X7; change: plugin-settings-pages). → see `plugin-settings-pages.spec.ts.AGENTS.md` |
 | `popover-container-clip.spec.ts` | Browser E2E gate for `fix-popover-container-clip` (F5–F8, F11–F12). → see `popover-container-clip.spec.ts.AGENTS.md` |
 | `project-trust-headless-spawn.spec.ts` | L3 spec (test-plan #X4, change: adopt-pi-074-080-features). → see `project-trust-headless-spawn.spec.ts.AGENTS.md` |
+| `quota-context-strip.spec.ts` | L3 (change: move-quota-to-context-strip; F7–F9, X3). Stubs `/api/quota`; asserts the `quota-context-group` renders inside `composer-context-strip` with every window inline, chip click opens the dialog (Esc closes), label stays on the chip line, and an aborted fetch degrades to no group with no pageerror. |
 | `real-flow-regression.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests, D5 follow-up). → see `real-flow-regression.spec.ts.AGENTS.md` |
 | `reap-core.ts` | Pure, side-effect-free reap logic, unit-tested at L1 in `scripts/__tests__/e2e-reap-core.test.mjs`:… → see `reap-core.ts.AGENTS.md` |
 | `reasoning-auto-collapse.spec.ts` | Playwright E2E for reasoning-auto-collapse-timer. Two tests. → see `reasoning-auto-collapse.spec.ts.AGENTS.md` |

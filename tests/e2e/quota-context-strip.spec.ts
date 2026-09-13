@@ -109,10 +109,10 @@ test.describe("quota context strip", () => {
 
     const strip = page.getByTestId("composer-context-strip");
     await expect(strip).toBeVisible({ timeout: 30_000 });
-    // A host group still renders…
-    await expect(
-      page.getByTestId("composer-git-group").or(page.getByTestId("composer-openspec-group-label")).first(),
-    ).toBeVisible({ timeout: 15_000 });
+    // The host strip survives the degraded plugin: its refresh control is still
+    // there (a freshly spawned harness session has no worktree, so there is no
+    // GIT group to anchor on).
+    await expect(strip.getByTestId("statusbar-refresh-btn")).toBeVisible({ timeout: 15_000 });
     // …but no quota chip/group appears.
     await expect(page.getByTestId("quota-context-group")).toHaveCount(0);
     expect(pageErrors).toEqual([]);

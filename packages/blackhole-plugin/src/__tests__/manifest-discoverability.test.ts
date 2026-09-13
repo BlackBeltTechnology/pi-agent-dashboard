@@ -64,13 +64,22 @@ describe("blackhole session-surface manifest discoverability", () => {
   });
 });
 
-describe("shared slot definitions are untouched by this change (E13)", () => {
-  const FROZEN = [
-    "packages/shared/src/dashboard-plugin/slot-types.ts",
-    "packages/shared/src/dashboard-plugin/slot-props.ts",
-  ];
+describe("shared slot definitions stay additive (E13)", () => {
+  const SLOT_TYPES = "packages/shared/src/dashboard-plugin/slot-types.ts";
 
-  it("neither file appears in the change's diff vs origin/develop", (ctx) => {
+  /** Parse the `SlotId` union's string-literal members out of slot-types.ts. */
+  function slotIds(source: string): Set<string> {
+    const union = /type SlotId =([\s\S]*?);/.exec(source)?.[1] ?? "";
+    return new Set([...union.matchAll(/"([^"]+)"/g)].map((m) => m[1]));
+  }
+
+  // The blackhole change did not modify the frozen slot taxonomy. Since then
+  // other changes legitimately ADD slot ids — an additive, minor change (see
+  // the `dashboard-shell-slots` spec). The durable invariant E13 guards is
+  // therefore "no slot id is removed or renamed" (a major, breaking change),
+  // NOT "the file never appears in a branch diff": the latter red-flags every
+  // future additive slot change, including `move-quota-to-context-strip`.
+  it("no slot id is removed or renamed vs origin/develop", (ctx) => {
     // CI checkouts are depth-1 without an origin/develop ref — the scenario
     // cannot be verified there. SKIP with an explicit reason (never a silent
     // green, never a loud red): the dev worktree and local runs enforce it.
@@ -82,15 +91,14 @@ describe("shared slot definitions are untouched by this change (E13)", () => {
       hasBase = false;
     }
     ctx.skip(!hasBase, "E13 cannot be verified: no origin/develop ref (shallow checkout)");
-    // Committed diff (three-dot: the develop merge is not attributed here)…
-    const committed = execSync("git diff --name-only origin/develop...HEAD", {
-      encoding: "utf-8",
-    });
-    // …plus everything still uncommitted in the working tree.
-    const worktree = execSync("git diff --name-only HEAD", { encoding: "utf-8" });
-    const changed = `${committed}\n${worktree}`.split("\n").map((s) => s.trim()).filter(Boolean);
-    for (const f of FROZEN) {
-      expect(changed, f).not.toContain(f);
-    }
+
+    const base = slotIds(execSync(`git show origin/develop:${SLOT_TYPES}`, { encoding: "utf-8" }));
+    const head = slotIds(
+      readFileSync(resolve(here, "../../../shared/src/dashboard-plugin/slot-types.ts"), "utf-8"),
+    );
+    // Guard against a regex that silently matches nothing (a vacuous pass).
+    expect(base.size).toBeGreaterThan(0);
+    const removed = [...base].filter((id) => !head.has(id));
+    expect(removed, `slot id(s) removed or renamed: ${removed.join(", ")}`).toEqual([]);
   });
 });

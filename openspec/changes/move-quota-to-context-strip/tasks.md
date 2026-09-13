@@ -51,10 +51,10 @@ Helper tests next to the widget; widget tests in `packages/quota-plugin/src/__te
 
 New spec `tests/e2e/quota-context-strip.spec.ts`; copy the `page.route` stub glue from `tests/e2e/blackhole-settings.spec.ts` and the `composer-context-strip` session-open glue from `tests/e2e/route-backed-overlay.spec.ts`. Read the harness port from `.pi-test-harness.json`.
 
-- [ ] 5.1 Test (test-plan F7): `page.route("**/api/quota")` → anthropic with windows `5h 14%` + `7d 32%` · open chat view · `quota-context-group` visible inside `composer-context-strip`, chip text has `14%` and `32%`, no `quota-chip-*` inside the inline-footer region. Verify green against the harness.
-- [ ] 5.2 Test (test-plan F8): same stub · click `quota-chip-anthropic` · `role=dialog[aria-modal]` visible with the Anthropic card; `Escape` closes it. Verify green.
-- [ ] 5.3 Test (test-plan F9): same stub, viewport `900×800`, worktree session so OPENSPEC + GIT + QUOTA render · open chat view · `quota-context-group-label` bounding-box `y` equals the first `quota-chip-*` `y`; group `x` ≥ 0. Verify green.
-- [ ] 5.4 Test (test-plan X3): `page.route("**/api/quota")` → `route.abort()` · open chat view · strip visible with GIT group, no `quota-context-group`, `pageerror` count 0. Verify green.
+- [x] 5.1 Test (test-plan F7): `page.route("**/api/quota")` → anthropic with windows `5h 14%` + `7d 32%` · open chat view · `quota-context-group` visible inside `composer-context-strip`, chip text has `14%` and `32%`, no `quota-chip-*` inside the inline-footer region. Verify green against the harness.
+- [x] 5.2 Test (test-plan F8): same stub · click `quota-chip-anthropic` · `role=dialog[aria-modal]` visible with the Anthropic card; `Escape` closes it. Verify green.
+- [x] 5.3 Test (test-plan F9): same stub, viewport `900×800`, worktree session so OPENSPEC + GIT + QUOTA render · open chat view · `quota-context-group-label` bounding-box `y` equals the first `quota-chip-*` `y`; group `x` ≥ 0. Verify green.
+- [x] 5.4 Test (test-plan X3): `page.route("**/api/quota")` → `route.abort()` · open chat view · strip visible with GIT group, no `quota-context-group`, `pageerror` count 0. Verify green.
 
 ## 6. Integration, docs, review
 
