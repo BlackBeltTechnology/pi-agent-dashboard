@@ -431,6 +431,39 @@ describe("pending-state map — coalescing and order (E3, E4)", () => {
       vi.useRealTimers();
     }
   });
+
+  it("a saturated socket flushes BOTH phases of one openspec_get_result (no coalesce, distinct requestIds)", () => {
+    const osGet = (cwd: string, requestId: string, final: boolean): ServerToBrowserMessage =>
+      ({ type: "openspec_get_result", requestId, cwd, data: { initialized: false, changes: [] }, final }) as ServerToBrowserMessage;
+    vi.useFakeTimers();
+    try {
+      const { gateway, ws, base } = stateRig(1000);
+      ws.bufferedAmount = 1001;
+      // Same request: placeholder then final are DISTINCT keys → both survive.
+      gateway.sendToClient(asWs(ws), osGet("/a", "r1", false));
+      gateway.sendToClient(asWs(ws), osGet("/a", "r1", true));
+      expect(gateway.getPendingStateInfo(asWs(ws))?.entries).toBe(2);
+
+      ws.bufferedAmount = 0;
+      vi.advanceTimersByTime(250); // periodic flush
+
+      const flushed = ws.frames.slice(base).map((f) => JSON.parse(f));
+      expect(flushed.map((m) => [m.type, m.requestId, m.final])).toEqual([
+        ["openspec_get_result", "r1", false],
+        ["openspec_get_result", "r1", true],
+      ]);
+      expect(gateway.getDroppedFrameStats().coalescedState).toBe(0);
+      expect(gateway.getPendingStateInfo(asWs(ws))).toBeUndefined();
+
+      // A newer request for the same cwd is a distinct key → not coalesced.
+      ws.bufferedAmount = 1001;
+      gateway.sendToClient(asWs(ws), osGet("/a", "r2", false));
+      expect(gateway.getPendingStateInfo(asWs(ws))?.entries).toBe(1);
+      expect(gateway.getDroppedFrameStats().coalescedState).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("pending-state map — byte ceiling (E5, E6, E7)", () => {

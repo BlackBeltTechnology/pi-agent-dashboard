@@ -956,8 +956,13 @@ export default function App() {
     for (const p of pinnedDirectories) set.add(p);
     const selected = selectedId ? sessions.get(selectedId) : undefined;
     if (selected) set.add(selected.cwd);
+    // Active route surfaces: a direct load of an OpenSpec board/preview for an
+    // unpinned, ended-only folder renders no card, so without these the route
+    // directory would never pull and the view would stay loading.
+    if (openspecPreviewCwd) set.add(openspecPreviewCwd);
+    if (openspecBoardCwd) set.add(openspecBoardCwd);
     return Array.from(set);
-  }, [sessions, pinnedDirectories, selectedId]);
+  }, [sessions, pinnedDirectories, selectedId, openspecPreviewCwd, openspecBoardCwd]);
 
   useOpenSpecReconcile({
     renderedCwds,

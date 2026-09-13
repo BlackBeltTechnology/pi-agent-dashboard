@@ -544,13 +544,22 @@ export function useMessageHandler(
         // See change: fix-connect-snapshot-frame-loss.
         {
           const existing = sessionsRef?.current.get(msg.sessionId);
-          if (existing && existing.status === "ended") {
+          if (existing) {
             const groupKey = endedTotalsGroupKey(
               existing,
               deps.cwdVisibilityInputsRef?.current.pinnedDirectories,
             );
             setEndedTotalsMap?.((prev) => {
               const count = prev.get(groupKey) ?? 0;
+              // A live session removed WITHOUT a prior `session_updated: ended`
+              // (e.g. the ghost-session cleanup) just became ended → +1.
+              if (existing.status !== "ended") {
+                const next = new Map(prev);
+                next.set(groupKey, count + 1);
+                return next;
+              }
+              // An already-ended session removed from the server registry
+              // shrinks the group's ended sequence → −1.
               if (count <= 0) return prev;
               const next = new Map(prev);
               next.set(groupKey, count - 1);
@@ -1416,7 +1425,11 @@ export function useMessageHandler(
         });
         break;
 
-      case "openspec_get_result":
+      case "openspec_get_result": {
+        const entry = openspecGetInflightRef?.current.get(msg.cwd);
+        // Match by requestId: a delayed reply from a timed-out earlier request
+        // must not overwrite newer data or clear the newer in-flight entry.
+        if (entry && entry.requestId !== msg.requestId) break;
         // D6/D7: applied exactly like `openspec_update`. The in-flight mark
         // releases only on `final:true` — a `final:false` placeholder is not
         // a settled entry and its final reply may still be lost.
@@ -1426,14 +1439,12 @@ export function useMessageHandler(
           next.set(msg.cwd, msg.data);
           return next;
         });
-        if (msg.final) {
-          const entry = openspecGetInflightRef?.current.get(msg.cwd);
-          if (entry) {
-            clearTimeout(entry.timer);
-            openspecGetInflightRef?.current.delete(msg.cwd);
-          }
+        if (msg.final && entry) {
+          clearTimeout(entry.timer);
+          openspecGetInflightRef?.current.delete(msg.cwd);
         }
         break;
+      }
 
       case "sessions_snapshot":
         // Atomic REPLACE — not merge. Drops stale ids from previous server

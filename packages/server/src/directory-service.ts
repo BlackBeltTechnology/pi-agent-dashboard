@@ -1231,7 +1231,16 @@ export function createDirectoryService(
     // See change: emit-openspec-pending-from-poll — clear the spinner
     // even when the final JSON equals the prior cache.
     const pendingWasEmitted = pendingEmittedCwds.delete(cwd);
-    if (nextJson !== prevJson || pendingWasEmitted) onChangeCallback?.(cwd, next, nextSerialized);
+    if (nextJson !== prevJson || pendingWasEmitted) {
+      // A throwing broadcast callback must NOT reject a poll that already
+      // produced and cached valid data — `getOrPollOpenSpec` would otherwise
+      // report `BROKEN · cli-failed` for a successful poll.
+      try {
+        onChangeCallback?.(cwd, next, nextSerialized);
+      } catch (err) {
+        console.error(`[directory-service] onChangeCallback failed for ${cwd}:`, err);
+      }
+    }
     recordTurn("dirPollPost", dirPollPostStart);
     return next;
   }

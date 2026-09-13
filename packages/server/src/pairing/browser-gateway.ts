@@ -98,10 +98,18 @@ export function frameClassOf(
     case "reachability_updated":
       return { cls: "state", key: msg.type };
     case "openspec_update":
-    case "openspec_get_result":
     case "git_head_update":
     case "sessions_page_result":
       return { cls: "state", key: `${msg.type}:${msg.cwd}` };
+    case "openspec_get_result":
+      // The two-phase reply (placeholder then final) is NOT idempotent, so the
+      // delivery key carries requestId + phase: a final must not supersede its
+      // own queued placeholder, and a newer request for the same cwd must not
+      // coalesce over an older one. See change: fix-connect-snapshot-frame-loss.
+      return {
+        cls: "state",
+        key: `openspec_get_result:${msg.cwd}:${msg.requestId}:${msg.final ? "final" : "placeholder"}`,
+      };
     case "terminal_added":
       return { cls: "state", key: `terminal:${msg.terminal.id}` };
     case "terminal_updated":

@@ -502,35 +502,41 @@ describe("DirectoryService — getOrPollOpenSpec (fix-connect-snapshot-frame-los
     const cwd = path.join(tmpRoot, `repo-${enabled}-${optedOut}-${tracked}-${hasRoot}`);
     // `changes/` too, so the polled branch actually reaches the CLI.
     if (hasRoot) mkProject(cwd);
-    service = createDirectoryService(
+    const svc = createDirectoryService(
       makePrefs(tracked ? { pinnedDirs: [cwd] } : {}),
       makeSessionMgr(),
       { ...DEFAULT_OPENSPEC_POLL, enabled, optOutDirectories: optedOut ? [cwd] : [] },
     );
-    runOpenSpecList.mockClear();
+    try {
+      runOpenSpecList.mockClear();
 
-    const out = service.getOrPollOpenSpec(cwd);
-    const expectPolled = enabled && !optedOut && tracked && hasRoot;
-    if (!expectPolled) {
-      expect(out.poll, label).toBeUndefined();
-      const expected = !enabled
-        ? { state: "GLOBAL_OFF" }
-        : optedOut
-          ? { state: "OPTED_OUT" }
-          : { state: "ABSENT" };
-      expect(out.hit?.readiness, label).toEqual(expected);
-      // The untracked gate runs BEFORE any fs probe: an untracked cwd
-      // reports hasOpenspecDir:false even when openspec/ exists (X8).
-      // (The opted-out branch, like `pollDirectoryGated`, may stat.)
-      if (!tracked && hasRoot && enabled && !optedOut) {
-        expect(out.hit?.hasOpenspecDir, label).toBe(false);
+      const out = svc.getOrPollOpenSpec(cwd);
+      const expectPolled = enabled && !optedOut && tracked && hasRoot;
+      if (!expectPolled) {
+        expect(out.poll, label).toBeUndefined();
+        const expected = !enabled
+          ? { state: "GLOBAL_OFF" }
+          : optedOut
+            ? { state: "OPTED_OUT" }
+            : { state: "ABSENT" };
+        expect(out.hit?.readiness, label).toEqual(expected);
+        // The untracked gate runs BEFORE any fs probe: an untracked cwd
+        // reports hasOpenspecDir:false even when openspec/ exists (X8).
+        // (The opted-out branch, like `pollDirectoryGated`, may stat.)
+        if (!tracked && hasRoot && enabled && !optedOut) {
+          expect(out.hit?.hasOpenspecDir, label).toBe(false);
+        }
+      } else {
+        expect(out.hit?.readiness, label).toEqual({ state: "PENDING" });
+        expect(out.poll, label).toBeDefined();
+        await out.poll!;
       }
-    } else {
-      expect(out.hit?.readiness, label).toEqual({ state: "PENDING" });
-      expect(out.poll, label).toBeDefined();
-      await out.poll!;
+      expect(runOpenSpecList, label).toHaveBeenCalledTimes(expectPolled ? 1 : 0);
+    } finally {
+      // Every combination owns a worker pool; stop it before the next one,
+      // else all but the last leak their polling service.
+      svc.stopPolling();
     }
-    expect(runOpenSpecList, label).toHaveBeenCalledTimes(expectPolled ? 1 : 0);
   }
 
   it("E21: enabled × optedOut × tracked × hasRoot — readiness per branch; spawn only for tracked+root+enabled+not-opted-out", async () => {

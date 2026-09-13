@@ -132,7 +132,7 @@ test.describe("connect snapshot & reconnect openspec coverage (F1 / F2)", () => 
     await expect(liveSessionOpenspec).toBeVisible({ timeout: 5_000 });
 
     const elapsed = Date.now() - t0;
-    expect(elapsed, "cards must converge within 5s").toBeLessThan(15_000);
+    expect(elapsed, "cards must converge within 15s of navigation (each card within 5s)").toBeLessThan(15_000);
 
     // Verify /api/health droppedFrames
     const healthAfter = (await (await page.request.get("/api/health")).json()) as {

@@ -123,13 +123,24 @@ describe("frameClassOf — static class per message type (E1)", () => {
 
   it("cwd-keyed state types carry the type in the key (openspec vs git differ)", () => {
     expect(frameClassOf(asMsg({ type: "openspec_update", cwd: "/a" }))).toEqual({ cls: "state", key: "openspec_update:/a" });
-    expect(frameClassOf(asMsg({ type: "openspec_get_result", cwd: "/a" }))).toEqual({ cls: "state", key: "openspec_get_result:/a" });
     expect(frameClassOf(asMsg({ type: "git_head_update", cwd: "/a", branch: "develop" }))).toEqual({ cls: "state", key: "git_head_update:/a" });
     expect(frameClassOf(asMsg({ type: "sessions_page_result", cwd: "/a" }))).toEqual({ cls: "state", key: "sessions_page_result:/a" });
     // Same cwd, DIFFERENT keys — the type is always part of the key.
     expect(frameClassOf(asMsg({ type: "openspec_update", cwd: "/a" })).key).not.toBe(
       frameClassOf(asMsg({ type: "git_head_update", cwd: "/a", branch: "develop" })).key,
     );
+  });
+
+  it("openspec_get_result keys on requestId + phase (two-phase reply preserved)", () => {
+    const placeholder = frameClassOf(asMsg({ type: "openspec_get_result", cwd: "/a", requestId: "r1", final: false }));
+    const final = frameClassOf(asMsg({ type: "openspec_get_result", cwd: "/a", requestId: "r1", final: true }));
+    const other = frameClassOf(asMsg({ type: "openspec_get_result", cwd: "/a", requestId: "r2", final: false }));
+    expect(placeholder).toEqual({ cls: "state", key: "openspec_get_result:/a:r1:placeholder" });
+    expect(final.key).toBe("openspec_get_result:/a:r1:final");
+    // The final must NOT coalesce over its own queued placeholder…
+    expect(final.key).not.toBe(placeholder.key);
+    // …and a newer request must not coalesce over an older one.
+    expect(other.key).not.toBe(placeholder.key);
   });
 
   it("terminal lifecycle frames for one id share a single key", () => {

@@ -16,7 +16,7 @@
 
 import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ConnectionStatus } from "./useWebSocket.js";
 
 /** One in-flight `openspec_get` per cwd; the timeout releases the mark. */
@@ -57,6 +57,9 @@ export function useOpenSpecReconcile({
 }: UseOpenSpecReconcileArgs): void {
   const connected = status === "connected";
   const prevConnectedRef = useRef(connected);
+  // Bumped when a request times out so the effect re-runs and retries a cwd
+  // whose `final:true` reply was lost, even on an otherwise idle dashboard.
+  const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
     if (connected && !prevConnectedRef.current) {
@@ -75,12 +78,17 @@ export function useOpenSpecReconcile({
       if (entry && entry.pending !== true) continue;
       const requestId = `osget-${Date.now()}-${++requestSeq}`;
       const timer = setTimeout(() => {
-        inflightRef.current.delete(cwd);
+        // Only release the entry this attempt created (a newer request may have
+        // superseded it), then bump `retryTick` so the effect retries.
+        if (inflightRef.current.get(cwd)?.requestId === requestId) {
+          inflightRef.current.delete(cwd);
+          setRetryTick((n) => n + 1);
+        }
       }, OPENSPEC_GET_TIMEOUT_MS);
       inflightRef.current.set(cwd, { requestId, timer });
       send({ type: "openspec_get", requestId, cwd });
     }
-  }, [connected, snapshotGeneration, renderedCwds, openspecMap, send, inflightRef]);
+  }, [connected, snapshotGeneration, renderedCwds, openspecMap, send, inflightRef, retryTick]);
 
   // Unmount: no leaked timers.
   useEffect(
