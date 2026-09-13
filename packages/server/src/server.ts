@@ -1962,6 +1962,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         deadlineMs: opts.deadlineMs ?? null,
         core: () => server._startCore(),
         teardown: async () => {
+          // Disarm the host-gate rate-limiter window flush (created unref'd
+          // below) so a failed/aborted startup leaves nothing ticking.
+          clearInterval(hostGateFlushTimer);
           // Gateway FIRST — it is the port bound earliest and the one the
           // captured zombie held. `stop()` also clears `pingTimer`, which is
           // what actually lets the process exit.
@@ -2511,12 +2514,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
 
       fastify.server.on("upgrade", (request, socket, head) => {
-        // Access check for WebSocket upgrades
-        const remoteAddress = request.socket.remoteAddress || "";
-        const trusted = config.resolvedTrustedNetworks ?? [];
-        const secWsProtocol = request.headers["sec-websocket-protocol"] as string | undefined;
         // Ephemeral single-use ticket (D11) bound to the requested WS route
-        // scope.
+        // scope. The one cheap read BEFORE the first gate — the host-admission
+        // log line names the scope.
         const scope = routeScopeForUrl(request.url);
 
         // Host-admission check (issue #637, D1). FIRST gate on the upgrade
@@ -2536,6 +2536,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           socket.destroy();
           return;
         }
+
+        // Access check for WebSocket upgrades
+        const remoteAddress = request.socket.remoteAddress || "";
+        const trusted = config.resolvedTrustedNetworks ?? [];
+        const secWsProtocol = request.headers["sec-websocket-protocol"] as string | undefined;
 
         // Cross-site upgrade gate (issue #625). Runs after the host-admission
         // check and ahead of the `bridge` early-return and the auth branches,

@@ -145,6 +145,21 @@ export function AllowedHostsSection({
   const [gate, setGate] = useState<HostGateResponse | null>(null);
   const [gateFailed, setGateFailed] = useState(false);
   const [extraError, setExtraError] = useState<string | null>(null);
+  // Local textarea text. The panel draft filters empty entries, so binding the
+  // textarea straight to `allowedHosts` would eat the trailing newline the
+  // operator just typed (Enter). Re-sync only when the draft changes from
+  // OUTSIDE (the Allow button), comparing parsed forms so a mid-edit trailing
+  // newline survives. (CodeRabbit review.)
+  const [extraText, setExtraText] = useState(() => allowedHosts.join("\n"));
+  const joinedDraft = allowedHosts.join("\n");
+  const parsedExtra = extraText
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join("\n");
+  useEffect(() => {
+    if (joinedDraft !== parsedExtra) setExtraText(joinedDraft);
+  }, [joinedDraft, parsedExtra]);
 
   const fetchGate = useCallback(async () => {
     try {
@@ -375,12 +390,12 @@ export function AllowedHostsSection({
               extraError ? "border-[var(--severity-error-border)]" : "border-[var(--border-secondary)]"
             }`}
             placeholder={"dash.home.arpa\nproxy-int.corp"}
-            value={allowedHosts.join("\n")}
+            value={extraText}
             onChange={(e) => {
+              const raw = e.target.value;
+              setExtraText(raw);
               setExtraError(null); // re-validated on the next blur
-              onAllowedHostsChange(
-                e.target.value.split("\n").map((s) => s.trim()).filter(Boolean),
-              );
+              onAllowedHostsChange(raw.split("\n").map((s) => s.trim()).filter(Boolean));
             }}
             onBlur={(e) => validateExtra(e.target.value)}
           />

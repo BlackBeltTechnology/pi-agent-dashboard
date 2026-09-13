@@ -40,6 +40,7 @@ describe("#E2 fail closed on missing / malformed Host", () => {
       ".local",
       "127.1",
       "2130706433",
+      "[dash.home.arpa]",
     ]) {
       expect(isHostAdmitted(host, opts), String(host)).toBe(false);
     }

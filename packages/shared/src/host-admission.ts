@@ -92,14 +92,18 @@ export function parseHostname(hostHeader: string | undefined | null): string | n
   return host || null;
 }
 
-/** `[v6]` / `[v6]:port` → lower-cased inner, or `null` when malformed. */
+/** `[v6]` / `[v6]:port` → lower-cased inner, or `null` when malformed. Only an
+ * IPv6 literal may be bracketed in a `Host` header (browsers bracket nothing
+ * else), so `[dash.home.arpa]` fails closed even when the name is otherwise
+ * admissible. */
 function parseBracketed(value: string): string | null {
   const end = value.indexOf("]");
   if (end === -1) return null;
   const rest = value.slice(end + 1);
   if (rest && !/^:\d{1,5}$/.test(rest)) return null;
   const inner = value.slice(1, end);
-  return inner ? inner.toLowerCase() : null;
+  if (!inner.includes(":")) return null; // bracketed non-IPv6 → malformed
+  return inner.toLowerCase();
 }
 
 /**

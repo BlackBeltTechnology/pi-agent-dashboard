@@ -32,7 +32,7 @@ see [`docs/release-process.md`](docs/release-process.md).
   on day one. Switch it to `enforce` from **Settings ▸ Security ▸ Allowed
   hostnames**, or with `PI_DASHBOARD_HOST_GATE=enforce` (env overrides config).
   Before flipping, review the new section's **Recent refusals** list (or `grep
-  '[host-gate] would-refuse' server.log`) and add any legitimate name to
+  -F '[host-gate] would-refuse' server.log`) and add any legitimate name to
   `allowedHosts` — typically an internal reverse-proxy name that was never
   registered as a public base URL. In `enforce`, a refused browser navigation
   gets a static HTML page (no JS) and a refused `fetch` gets

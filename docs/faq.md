@@ -399,7 +399,7 @@ Three ways in (the 403 page lists all):
 - add the bare name to `allowedHosts` in `~/.pi/dashboard/config.json` (applies live)
 - add the full URL to `publicBaseUrls`
 
-Before flipping to `enforce`, check what would break: Settings ▸ Security ▸ Allowed hostnames ▸ Recent refusals, or `grep '[host-gate] would-refuse' server.log`. Report-only mode logs every name.
+Before flipping to `enforce`, check what would break: Settings ▸ Security ▸ Allowed hostnames ▸ Recent refusals, or `grep -F '[host-gate] would-refuse' server.log`. Report-only mode logs every name.
 
 See change: add-host-allowlist-admission.
 
