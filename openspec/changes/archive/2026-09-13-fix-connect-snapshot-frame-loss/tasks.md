@@ -101,6 +101,6 @@
 
 - [x] 9.1 `docs/architecture.md`: add "Frame delivery policy" (classes, deferral, bounds, bootstrap order) and update "OpenSpec Polling" with `openspec_get`; update the sessions-snapshot paragraph (window, `endedTotals`, paging) — via DocScribe, caveman style.
 - [x] 9.2 Directory `AGENTS.md` rows for every touched/new file (`browser-gateway.ts`, `directory-service.ts`, `directory-handler.ts`, `session-meta-handler.ts`, `memory-session-manager.ts`, `system-routes.ts`, `types.ts`, `useMessageHandler.ts`, `useOpenSpecReconcile.ts`, `SessionList.tsx`, fixtures, new tests, new e2e specs) with `See change: fix-connect-snapshot-frame-loss`.
-- [ ] 9.3 Manual F6 (test-plan: manual-only) — visual check of stub group header + "more" affordance against existing folder header styling.
+- [x] 9.3 Manual F6 (test-plan: manual-only) — visual check of stub group header + "more" affordance against existing folder header styling.
 - [x] 9.4 Follow-up issue: existing `openspec_refresh` handler has no cwd check (flagged in proposal, not fixed here).
 - [x] 9.5 Follow-up issue: reclassify session-registry broadcasts (`session_updated`, `sessions_reordered`) as state-class frames.
