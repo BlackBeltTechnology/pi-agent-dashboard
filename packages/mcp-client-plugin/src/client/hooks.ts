@@ -48,12 +48,16 @@ export function loadEffective(
   }
   const request = fetchEffective(cwd).then(
     (view) => {
-      cache.set(key, view);
-      inflight.delete(key);
+      // A superseded request (invalidated, or replaced by a forced reload) must
+      // not repopulate the cache with a now-stale body.
+      if (inflight.get(key) === request) {
+        cache.set(key, view);
+        inflight.delete(key);
+      }
       return view;
     },
     (err: unknown) => {
-      inflight.delete(key);
+      if (inflight.get(key) === request) inflight.delete(key);
       throw err;
     },
   );
@@ -63,7 +67,9 @@ export function loadEffective(
 
 /** Drop the cached view for one key (global when omitted) after a write. */
 export function invalidateEffective(cwd?: string): void {
-  cache.delete(keyOf(cwd));
+  const key = keyOf(cwd);
+  cache.delete(key);
+  inflight.delete(key);
 }
 
 export interface EffectiveState {
