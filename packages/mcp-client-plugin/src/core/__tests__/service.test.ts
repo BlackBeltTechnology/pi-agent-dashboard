@@ -113,6 +113,16 @@ describe("createMcpClientConfigService", () => {
     expect(io.writes).toHaveLength(0);
   });
 
+  it("check and write agree on a malformed settings `packages` (E32)", () => {
+    const io = makeIO({ [SETTINGS]: JSON.stringify({ packages: {} }) });
+    const svc = makeService(io, makePort());
+    const check = svc.checkConfigFiles({ serverName: "x", fields: { command: "y" } });
+    expect(check.settingsJson.ok).toBe(false);
+    const write = svc.ensureAdapterPackage();
+    expect(write.ok === false && write.refusal.code).toBe("unparseable");
+    expect(io.writes).toHaveLength(0);
+  });
+
   it("removeServer returns the removed raw entry", () => {
     const removed = { command: "a", unknownKey: { n: [1] } };
     const io = makeIO({ [GLOBAL]: JSON.stringify({ mcpServers: { a: removed, b: { command: "b" } } }) });

@@ -125,6 +125,8 @@ export interface ConfigWriter {
     fields: Partial<ServerEntry>,
     scope: Scope,
   ): ConfigRefusal | null;
+  /** Dry run of `ensureAdapterPackage` — refuses a non-array `packages`, no write. */
+  previewAdapterPackage(): ConfigRefusal | null;
   readParseStatus(path: string): ParseStatus;
   /** The settings.json path that sits beside the Pi-global mcp.json. */
   settingsJsonPath(): string;
@@ -479,6 +481,16 @@ export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
     return writeOrRefuse(configIO, path, nextConfig);
   }
 
+  function previewAdapterPackage(): ConfigRefusal | null {
+    const path = settingsJsonPath();
+    const read = readConfigFile(configIO, path);
+    if (!read.ok) return read.refusal;
+    if (read.config.packages !== undefined && !Array.isArray(read.config.packages)) {
+      return { code: "unparseable", message: `${path}: "packages" must be an array`, path };
+    }
+    return null;
+  }
+
   function readParseStatus(path: string): ParseStatus {
     const raw = configIO.readFile(path);
     if (raw === null || raw.trim() === "") return { path, ok: true };
@@ -515,6 +527,7 @@ export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
     patchSettings,
     ensureAdapterPackage,
     previewEnsure,
+    previewAdapterPackage,
     readParseStatus,
     settingsJsonPath,
   };

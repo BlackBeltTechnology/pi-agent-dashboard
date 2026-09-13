@@ -41,13 +41,13 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
         "server": "./src/server/index.ts",
         "configSchema": "./config.schema.json",
         "requires": {
-            "piExtensions": [
-                "pi-mcp-adapter"
-            ],
             "paths": [
                 "${imcpServerPath}"
             ]
-        }
+        },
+        "dependsOn": [
+            "mcp-client"
+        ]
     },
     claims: [
       { pluginId: "apple-tools", priority: 100, slot: "settings-section", Component: AppleToolsSettings },

@@ -93,13 +93,19 @@ export function createMcpClientConfigService(deps: McpClientConfigServiceDeps): 
 
     checkConfigFiles(opts) {
       const mcpPath = adapter.getPiGlobalConfigPath();
-      const settingsJson = writer.readParseStatus(writer.settingsJsonPath());
+      let settingsJson = writer.readParseStatus(writer.settingsJsonPath());
       let mcpJson = writer.readParseStatus(mcpPath);
       // A dry run of the ensure the caller is about to perform, so check mode
       // and write mode agree on the refusal (E39).
       if (mcpJson.ok && opts?.serverName !== undefined) {
         const refusal = writer.previewEnsure(opts.serverName, opts.fields ?? {}, { kind: "global" });
         if (refusal) mcpJson = { path: mcpPath, ok: false, message: refusal.message };
+      }
+      // The generic `packages` array check, so check mode also refuses the
+      // settings.json shape `ensureAdapterPackage` would refuse.
+      if (settingsJson.ok) {
+        const refusal = writer.previewAdapterPackage();
+        if (refusal) settingsJson = { path: settingsJson.path, ok: false, message: refusal.message };
       }
       return { mcpJson, settingsJson };
     },

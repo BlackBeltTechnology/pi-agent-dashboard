@@ -44,8 +44,13 @@ function walk(dir) {
       // nothing. Its strings are JSON-RPC protocol messages sent to MCP
       // clients, i.e. an API contract that MUST NOT be translated: a client
       // parses them. See change: add-dashboard-mcp-server.
+      //
+      // mcp-client-plugin/src/core is host-free logic (no React) shared with
+      // the hostless apple-tools installer; its `message:` strings are
+      // diagnostics returned as data, never rendered copy. The plugin's client
+      // entry is still scanned. See change: extract-mcp-client-plugin.
       if (
-        /node_modules|__tests__|\.test\.|dist|templates|demo-plugin|dashboard-plugin-skill|mcp-server-plugin/.test(
+        /node_modules|__tests__|\.test\.|dist|templates|demo-plugin|dashboard-plugin-skill|mcp-server-plugin|mcp-client-plugin\/src\/core/.test(
           p,
         )
       )

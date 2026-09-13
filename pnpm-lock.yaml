@@ -100,12 +100,12 @@ importers:
       '@blackbelt-technology/dashboard-plugin-runtime':
         specifier: ^0.8.0
         version: link:../dashboard-plugin-runtime
+      '@blackbelt-technology/pi-dashboard-mcp-client-plugin':
+        specifier: ^0.8.0
+        version: link:../mcp-client-plugin
       '@blackbelt-technology/pi-dashboard-shared':
         specifier: ^0.8.0
         version: link:../shared
-      pi-mcp-adapter:
-        specifier: ^2.19.0
-        version: 2.30.0(@earendil-works/pi-ai@0.84.4(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1))(@earendil-works/pi-tui@0.84.4)(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typebox@1.3.20)(zod@4.5.1)
     devDependencies:
       '@types/react':
         specifier: ^19.0.0
@@ -18914,29 +18914,6 @@ snapshots:
     transitivePeerDependencies:
       - debug
     optional: true
-
-  pi-mcp-adapter@2.30.0(@earendil-works/pi-ai@0.84.4(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1))(@earendil-works/pi-tui@0.84.4)(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typebox@1.3.20)(zod@4.5.1):
-    dependencies:
-      '@modelcontextprotocol/client': 2.0.0
-      '@modelcontextprotocol/core': 2.0.0
-      '@modelcontextprotocol/ext-apps': 1.7.5(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.5.1)
-      '@napi-rs/keyring': 1.3.0
-      ajv: 8.20.0
-      ajv-formats: 3.0.1(ajv@8.20.0)
-      cross-spawn: 7.0.6
-      open: 10.2.0
-      recheck: 4.5.0
-      smol-toml: 1.8.0
-      strip-json-comments: 5.0.3
-      zod: 4.5.1
-    optionalDependencies:
-      '@earendil-works/pi-ai': 0.84.4(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1)
-      '@earendil-works/pi-tui': 0.84.4
-      typebox: 1.3.20
-    transitivePeerDependencies:
-      - '@modelcontextprotocol/sdk'
-      - react
-      - react-dom
 
   pi-mcp-adapter@2.30.0(@earendil-works/pi-ai@0.84.4(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1))(@earendil-works/pi-tui@0.85.1)(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typebox@1.3.20)(zod@4.5.1):
     dependencies:

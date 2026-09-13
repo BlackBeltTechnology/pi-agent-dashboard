@@ -3,30 +3,28 @@
  * that touches the real OS — every probe and side effect is concentrated here
  * so the state machine (`install.ts`) stays pure and Linux-testable.
  *
+ * Config paths and the hardened atomic write now live in the `mcp-client`
+ * plugin's `./core` (design D2/D3): this factory only builds the
+ * `mcp-client.config` service with the real filesystem IO and the default
+ * adapter port, so target paths resolve through the adapter's own helpers and
+ * honour `PI_CODING_AGENT_DIR` (a hard-coded `~/.pi/agent` would not).
+ *
  * Security discipline (see change: add-apple-tools-imcp-plugin, Decision 4):
  *   - `brew` is invoked with an argv array via execFileSync — never a shell,
  *     so no probed value (path, sw_vers output) can reach a shell string.
- *   - config writes are temp-file + atomic rename.
  */
 
-import { randomBytes } from "node:crypto";
-import {
-  closeSync,
-  existsSync,
-  fsyncSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  unlinkSync,
-  writeSync,
-} from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import {
+  type AdapterPort,
+  type ConfigIO,
+  createMcpClientConfigService,
+  createRealConfigIO,
+} from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
 import { execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { IMCP_BREW_CASK } from "./detect.js";
 import type { BrewResult, InstallerEnv } from "./install.js";
-import type { ConfigIO } from "./mcp-config.js";
 
 /** 10-minute cap on the brew cask install (design X4). */
 export const BREW_TIMEOUT_MS = 10 * 60 * 1000;
@@ -68,79 +66,31 @@ function runBrewCask(brew: string): BrewResult {
   }
 }
 
-/**
- * Atomic write: temp file in the target dir, fsync, then rename over the
- * destination. Hardened per the security pass:
- *  - `wx` + a random name: never follow or clobber a pre-planted symlink.
- *  - mode 0600: a rename carries the temp file's mode onto the destination, so
- *    a default-umask temp would silently widen a 0600 user config that may hold
- *    another server's credential `env` block.
- *  - fsync before rename: a rename over unflushed data can surface as a
- *    zero-length config after a crash — the truncation this exists to prevent.
- *  - unlink the temp on failure: no leftovers on ENOSPC/EACCES.
- */
-function writeFileAtomic(path: string, content: string): void {
-  const dir = dirname(path);
-  mkdirSync(dir, { recursive: true });
-  const tmp = join(dir, `.${randomBytes(8).toString("hex")}.tmp`);
-  const fd = openSync(tmp, "wx", 0o600);
-  try {
-    // writeSync may perform a partial write; loop until the buffer is drained
-    // rather than assuming one call consumes it all.
-    const buf = Buffer.from(content, "utf8");
-    let off = 0;
-    while (off < buf.length) {
-      off += writeSync(fd, buf, off, buf.length - off);
-    }
-    fsyncSync(fd);
-  } catch (e) {
-    closeSync(fd);
-    try {
-      unlinkSync(tmp);
-    } catch {
-      /* best effort */
-    }
-    throw e;
-  }
-  closeSync(fd);
-  try {
-    renameSync(tmp, path);
-  } catch (e) {
-    try {
-      unlinkSync(tmp);
-    } catch {
-      /* best effort */
-    }
-    throw e;
-  }
-}
-
-const realConfigIO: ConfigIO = {
-  readFile: (p) => (existsSync(p) ? readFileSync(p, "utf8") : null),
-  writeFileAtomic,
-};
-
 export interface CreateEnvOptions {
   /** Operator override for the imcp-server path. */
   overridePath?: string;
-  /** Override the pi agent home (defaults to ~/.pi/agent). */
-  piAgentHome?: string;
+  /** Test seam: inject config IO (defaults to the real filesystem). */
+  configIO?: ConfigIO;
+  /** Test seam: inject the adapter port (defaults to the worker-thread port). */
+  adapter?: AdapterPort;
 }
 
 /** Build a real InstallerEnv wired to the current host. */
 export function createInstallerEnv(opts: CreateEnvOptions = {}): InstallerEnv {
-  const home = homedir();
-  const agentHome = opts.piAgentHome ?? join(home, ".pi", "agent");
   return {
     platform: process.platform,
-    homedir: home,
+    homedir: homedir(),
     probeOsVersion,
     pathExists: existsSync,
     brewPath,
     runBrewCask,
     ...(opts.overridePath ? { overridePath: opts.overridePath } : {}),
-    mcpJsonPath: join(agentHome, "mcp.json"),
-    settingsJsonPath: join(agentHome, "settings.json"),
-    configIO: realConfigIO,
+    // Global scope only — the CLI never writes a project layer, so the
+    // known-cwd admission set is empty.
+    mcps: createMcpClientConfigService({
+      configIO: opts.configIO ?? createRealConfigIO(),
+      knownCwds: () => [],
+      ...(opts.adapter ? { adapter: opts.adapter } : {}),
+    }),
   };
 }

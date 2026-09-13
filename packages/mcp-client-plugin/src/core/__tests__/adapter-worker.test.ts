@@ -9,7 +9,9 @@ import { Worker } from "node:worker_threads";
 import { describe, expect, it, vi } from "vitest";
 import { AdapterTimeoutError, createDefaultAdapterPort } from "../adapter-worker.js";
 
-const FIXTURES = path.resolve(process.cwd(), "src/core/__tests__/fixtures");
+// Resolve beside this file, NOT process.cwd(): the root vitest run sets cwd to
+// the repo root, so a cwd-relative path misses the fixtures entirely.
+const FIXTURES = path.resolve(import.meta.dirname, "fixtures");
 const OK_WORKER = path.join(FIXTURES, "ok-worker.mjs");
 const HANG_WORKER = path.join(FIXTURES, "hang-worker.mjs");
 
