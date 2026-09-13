@@ -546,9 +546,9 @@ The dashboard integrates tightly with a small, curated set of pi extensions — 
 
 | Extension | Source | Status | Unlocks |
 |---|---|---|---|
-| `pi-anthropic-messages` | `git@github.com:BlackBeltTechnology/pi-anthropic-messages.git` | **required** | Tool calls on Claude-model Anthropic OAuth / 9Router `cc/*` / dashboard model proxy providers. Without it, tool calls fall back to Claude Code's built-in `bash_ide` sandbox and fail. |
-| `pi-dashboard-subagents` | `https://github.com/BlackBeltTechnology/pi-dashboard-subagents.git` | optional (bundled) | `Agent` tool card UI, subagent inspector (inline expand + popout), agent-md path display |
-| `pi-flows` | `git@github.com:BlackBeltTechnology/pi-flows.git` | strongly suggested | Flow dashboard, role aliases (`@planning`, `@coding`, …), subagent / flow_write / flow_results / agent_write / ask_user / skill_read / finish tools |
+| `pi-anthropic-messages` | `npm:@blackbelt-technology/pi-anthropic-messages` | **required** | Tool calls on Claude-model Anthropic OAuth / 9Router `cc/*` / dashboard model proxy providers. Without it, tool calls fall back to Claude Code's built-in `bash_ide` sandbox and fail. |
+| `pi-dashboard-subagents` | `npm:@blackbelt-technology/pi-dashboard-subagents` | optional | `Agent` tool card UI, subagent inspector (inline expand + popout), agent-md path display |
+| `pi-flows` | `npm:@blackbelt-technology/pi-flows` | strongly suggested | Flow dashboard, role aliases (`@planning`, `@coding`, …), subagent / flow_write / flow_results / agent_write / ask_user / skill_read / finish tools |
 | `pi-web-access` | `npm:pi-web-access` | strongly suggested | `web_search`, `code_search`, `fetch_content`, `get_search_content` |
 | `pi-agent-browser` | `npm:pi-agent-browser` | optional | `browser` tool (open, snapshot, click, screenshot) |
 
@@ -631,10 +631,6 @@ If you still see two entries for what should be one folder, the paths are likely
 ### Tool not found (pi / openspec / npm / …)
 
 Open **Settings → General → Tools**, click the chevron next to the failing tool to see the full `tried[]` trail, then either (a) install the missing tool on PATH / in the managed location shown in the trail, or (b) set an explicit override via the row's path input. Hit **Rescan** to pick up the change without a server restart.
-
-### Recommended extensions: "Permission denied (publickey)"
-
-`pi-flows` and `pi-anthropic-messages` install via SSH (`git@github.com:…`). If your system has no GitHub SSH key, set one up following [GitHub's SSH docs](https://docs.github.com/en/authentication/connecting-to-github-with-ssh), or substitute the equivalent HTTPS URL in the manifest if your fork is public.
 
 ---
 
