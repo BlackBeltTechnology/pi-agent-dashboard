@@ -8,7 +8,11 @@
  * - second-port validation rejects out-of-range values
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, fireEvent, cleanup, act, waitFor } from "@testing-library/react";
+import { render, fireEvent, cleanup, act, waitFor, within, screen } from "@testing-library/react";
+import {
+  ModelConfigProvider,
+  type ModelConfigValue,
+} from "../lib/state/ModelConfigContext.js";
 import { ModelProxySection, type ModelProxyConfig } from "../components/settings/ModelProxySection.js";
 
 // ── Mock model-proxy-api ──────────────────────────────────────────────────
@@ -208,5 +212,53 @@ describe("ModelProxySection — second port validation (task 13.4)", () => {
     });
 
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ secondPort: undefined }));
+  });
+});
+
+// Proxy pickers inherit favorites from the model-config context with no
+// call-site wiring. See change: model-picker-everywhere-favorites (test-plan
+// F2; design D1).
+describe("ModelProxySection — proxy pickers inherit context favorites (F2)", () => {
+  const MODELS = [
+    { provider: "anthropic", id: "a" },
+    { provider: "anthropic", id: "b" },
+  ];
+
+  function ctxValue(over: Partial<ModelConfigValue> = {}): ModelConfigValue {
+    return {
+      setModel: () => {},
+      setThinkingLevel: () => {},
+      toggleFavorite: () => {},
+      refreshModels: () => {},
+      openProviderSettings: () => {},
+      notify: () => {},
+      ...over,
+    };
+  }
+
+  function assertFavoriteRow(label: string) {
+    const row = screen.getAllByTestId("model-row").find((r) => r.textContent?.trim() === label)!;
+    expect(within(row).getByTestId("model-fav-toggle").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("favs-only-toggle")).toBeTruthy();
+  }
+
+  it("add-model and alias-target pickers both show context favorites", () => {
+    render(
+      <ModelConfigProvider value={ctxValue({ favorites: ["anthropic/a"], toggleFavorite: vi.fn() })}>
+        <ModelProxySection config={{ enabled: true }} onChange={noop} availableModels={MODELS} />
+      </ModelConfigProvider>,
+    );
+
+    // Preferred-models "＋ Add model" picker.
+    const preferred = screen.getByTestId("preferred-models-editor");
+    fireEvent.click(within(preferred).getByTestId("model-selector-button"));
+    assertFavoriteRow("anthropic/a");
+    fireEvent.click(within(preferred).getByTestId("model-selector-button")); // close
+
+    // Alias-target picker (row appears only after "Add alias").
+    fireEvent.click(screen.getByTestId("add-alias-button"));
+    const aliases = screen.getByTestId("model-aliases-editor");
+    fireEvent.click(within(aliases).getByTestId("model-selector-button"));
+    assertFavoriteRow("anthropic/a");
   });
 });

@@ -3,7 +3,9 @@
 ## Purpose
 
 Provides the dashboard's status-bar model and thinking-level selectors, plus the surrounding protocol for model list propagation, pending-state indicators, role assignment, and reuse of the picker as a plugin UI primitive.
+
 ## Requirements
+
 ### Requirement: Model selector in status bar
 
 The status bar SHALL display the current model name. Clicking it SHALL open an autocomplete dropdown listing all available models. The model selector component SHALL NOT contain inline roles management UI; roles management SHALL be surfaced exclusively through a `settings-section` plugin contribution (see ADDED Requirements below).
@@ -396,6 +398,13 @@ pinned favorites group), a per-row ★ toggle that dispatches `favorite_model` /
 The **★ Favs** filter state SHALL persist per-browser in `localStorage` so it
 survives reload regardless of whether it is on or off.
 
+Favorites SHALL be available by default: when a caller passes neither the
+favorites set nor the toggle handler, the selector SHALL source both from the
+surrounding model-config context. When a caller passes either one, the caller
+owns both and the context SHALL NOT be consulted. When the resolved pair has no
+toggle handler, the selector SHALL render without star toggles and without the
+**★ Favs** filter, and SHALL NOT apply a persisted favs-only state to the list.
+
 #### Scenario: Favorited model shows a filled star inline (no separate group)
 
 - **GIVEN** `"anthropic/claude-opus-4-7"` is favorited
@@ -422,6 +431,49 @@ survives reload regardless of whether it is on or off.
 - **GIVEN** favorites across `anthropic` and `proxy`, **★ Favs** enabled
 - **WHEN** the provider filter is set to `anthropic`
 - **THEN** only the `anthropic` favorites SHALL be listed
+
+#### Scenario: Settings pickers show favorites without explicit wiring
+
+- **GIVEN** `"anthropic/claude-opus-4-7"` is favorited
+- **WHEN** the Sessions → Default Model picker, the Model Proxy add-model
+  picker, or the Model Proxy alias-target picker opens and lists that model
+- **THEN** that model SHALL show a filled ★ toggle
+- **AND** the **★ Favs** filter SHALL be present
+
+#### Scenario: Star toggle from a Settings picker persists globally
+
+- **WHEN** the user toggles ★ on a model from the Sessions → Default Model
+  picker
+- **THEN** the favorite SHALL be persisted server-side and reflected in the
+  composer's selector
+
+#### Scenario: Explicit favorites override the context
+
+- **GIVEN** the context favorites contain model A
+- **WHEN** a caller renders the selector with an explicit favorites set
+  containing only model B and an explicit toggle handler
+- **THEN** only model B SHALL show a filled ★
+- **AND** toggling ★ SHALL call the explicit handler, not the context's
+
+#### Scenario: Partial explicit favorites never mix with the context
+
+- **GIVEN** the context has a toggle handler
+- **WHEN** a caller renders the selector with an explicit favorites set but no
+  toggle handler
+- **THEN** the selector SHALL render without ★ toggles and without the
+  **★ Favs** filter, and SHALL NOT dispatch to the context handler
+
+#### Scenario: No favorites source degrades to no stars
+
+- **WHEN** the selector renders outside any model-config context and without
+  an explicit favorite toggle handler
+- **THEN** no ★ toggles and no **★ Favs** filter SHALL render
+
+#### Scenario: Persisted favs-only state does not empty a favorites-less list
+
+- **GIVEN** `localStorage` holds the **★ Favs** filter as enabled
+- **WHEN** the selector renders without any favorites source
+- **THEN** the full model list SHALL be shown
 
 ### Requirement: Provider filter SHALL persist per-browser
 
@@ -762,4 +814,3 @@ Design mockup: `mockups/empty-model-selector.html` state 3; decision D5-B.
 - **AND** SHALL NOT render an inline Retry control
 - **WHEN** the user closes and reopens the selector
 - **THEN** a new open-triggered `request_models` SHALL be sent
-
