@@ -215,7 +215,7 @@ export function visibleUnderTransport(name: string, tab: Transport): boolean {
 // ─── secret masking ──────────────────────────────────────────────────────────
 
 /** Credential-name pattern — the EXACT regex the server's redaction uses. */
-export const SECRET_KEY_PATTERN = /authorization|token|key|secret/i;
+const SECRET_KEY_PATTERN = /authorization|token|key|secret/i;
 
 /** True when an `env`/`headers` key NAME looks like a credential. */
 export function isSecretKeyName(name: string): boolean {
@@ -224,7 +224,7 @@ export function isSecretKeyName(name: string): boolean {
 
 // ─── redaction sentinels ─────────────────────────────────────────────────────
 
-export interface RedactedRecord {
+interface RedactedRecord {
   redacted: true;
   keys?: Array<{ name: string; secret: boolean }>;
 }

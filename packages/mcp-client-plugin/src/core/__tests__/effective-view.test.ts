@@ -239,3 +239,22 @@ describe("effective view — global scope isolation + settings", () => {
     expect(view.settings.directTools).toMatchObject({ source: "default" });
   });
 });
+
+describe("effective view — prototype-chain safety", () => {
+  it("does not treat an inherited Object.prototype key as a defining layer", async () => {
+    const io = makeIO({
+      [GLOBAL]: JSON.stringify({ mcpServers: { toString: { command: "x" } } }),
+      [SHARED]: JSON.stringify({ mcpServers: {} }),
+    });
+    const port = makePort({
+      discovered: [d(SHARED, "shared"), d(GLOBAL, "global")],
+      merged: { mcpServers: { toString: { command: "x" } } },
+    });
+    const view = await reader(io, port).getEffectiveView(GLOBAL_SCOPE, { timeoutMs: 1000 });
+    const server = view.servers.find((s) => s.name === "toString");
+    expect(server).toBeDefined();
+    // Only the global layer defines it; the empty shared layer must not look
+    // like a definer just because `servers["toString"]` resolves up the chain.
+    expect(server?.provenance.map((p) => p.layer)).toEqual(["pi-global"]);
+  });
+});

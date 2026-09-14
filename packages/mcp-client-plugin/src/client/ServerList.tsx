@@ -35,7 +35,7 @@ export function transportOf(entry: Record<string, unknown>): Transport | null {
   return null;
 }
 
-export interface Badge {
+interface Badge {
   text: string;
   locked: boolean;
   /** True for a layer this scope can write (Pi global). */
@@ -51,7 +51,7 @@ function badgeFor(p: ProvenanceLayer): Badge {
 }
 
 /** One badge per defining layer, Pi-owned layers first. */
-export function provenanceBadges(provenance: ProvenanceLayer[]): Badge[] {
+function provenanceBadges(provenance: ProvenanceLayer[]): Badge[] {
   return [...provenance].sort((a, b) => rank(a.layer) - rank(b.layer)).map(badgeFor);
 }
 
@@ -123,7 +123,7 @@ function OverrideChip({
   );
 }
 
-export interface ServerRowProps {
+interface ServerRowProps {
   server: EffectiveServerView;
   /** Page-wide adapter read-only flag (below-floor / absent / unknown). */
   readOnly: boolean;
@@ -138,7 +138,7 @@ export interface ServerRowProps {
   onChanged: () => void;
 }
 
-export function ServerRow({
+function ServerRow({
   server,
   readOnly,
   scope = GLOBAL_SCOPE,

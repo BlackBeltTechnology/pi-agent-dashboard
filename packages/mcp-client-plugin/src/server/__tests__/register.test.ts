@@ -6,7 +6,7 @@
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
-import { registerPlugin } from "../index.js";
+import registerPlugin from "../index.js";
 
 function fakeCtx(): { ctx: ServerPluginContext; provided: Map<string, unknown>; app: ReturnType<typeof Fastify> } {
   const app = Fastify();

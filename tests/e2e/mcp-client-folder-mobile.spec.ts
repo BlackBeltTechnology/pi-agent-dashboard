@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { expect, type Page, test } from "./fixtures.js";
-import { gotoDashboard, pinDirectory } from "./helpers/index.js";
+import { assertHitAreas, gotoDashboard, pinDirectory } from "./helpers/index.js";
 import { REPO_ROOT } from "./lifecycle.js";
 
 /**
@@ -170,36 +170,16 @@ test.describe("folder MCP page — mobile presentation (L3)", () => {
     await expect(page.getByTestId("mcp-folder-editor")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("mcp-folder-remove-override")).toBeVisible();
 
-    // The inherited server's fields all carry the inherited hint.
+    // The inherited server's fields carry the "inherited from <layer>" hint in
+    // ITS editor (mcp-client-folder-section spec: "its editor fields carry the
+    // inherited hint"), not in the row summary.
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("mcp-folder-editor")).toHaveCount(0, { timeout: 15_000 });
+    await page.getByTestId("mcp-folder-action-inherited").click();
+    await expect(page.getByTestId("mcp-folder-editor")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("mcp-folder-inherited-inherited.url")).toBeVisible({ timeout: 15_000 });
 
-    // Every control on the page keeps the 44px mobile floor.
-    const undersized = await page.evaluate(() => {
-      const MIN = 44;
-      const pageRoot = document.querySelector('[data-testid="mcp-folder-page"]');
-      if (!pageRoot) return ["page not found"];
-      const out: string[] = [];
-      for (const control of Array.from(
-        pageRoot.querySelectorAll("button, [role='switch'], input, select, textarea"),
-      )) {
-        const input = control as HTMLInputElement;
-        const target =
-          input.type === "checkbox" && control.closest("label")
-            ? (control.closest("label") as HTMLElement)
-            : (control as HTMLElement);
-        const rect = target.getBoundingClientRect();
-        if (rect.width === 0 && rect.height === 0) continue;
-        if (rect.width < MIN || rect.height < MIN) {
-          out.push(
-            `${target.dataset.testid ?? target.getAttribute("aria-label") ?? target.tagName.toLowerCase()}: ${Math.round(rect.width)}x${Math.round(rect.height)}`,
-          );
-        }
-      }
-      return out;
-    });
-    expect(undersized, "controls below the 44x44 mobile floor at 390px").toEqual([]);
+    await assertHitAreas(page, '[data-testid="mcp-folder-page"]');
   });
 
   test("a 403 renders nothing but the not-allowed state, with no retry", async ({ page }) => {

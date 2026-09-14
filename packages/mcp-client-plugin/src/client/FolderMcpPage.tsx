@@ -38,7 +38,7 @@ export interface FolderMcpPageProps {
 type Translate = ReturnType<typeof useT>;
 
 /** Decode the route's `encodedCwd`; a malformed encode is not a valid cwd. */
-export function decodeFolderCwd(encoded: string | undefined): string | null {
+function decodeFolderCwd(encoded: string | undefined): string | null {
   if (!encoded) return null;
   try {
     const cwd = decodeURIComponent(encoded);

@@ -71,8 +71,8 @@ export function createMcpClientConfigService(deps: McpClientConfigServiceDeps): 
       return writer.ensureServerEntry(name, fields, scope);
     },
 
-    applyServerPatch(name, set, unset, scope) {
-      return writer.applyServerPatch(name, set, unset, scope);
+    applyServerPatch(name, set, unset, scope, opts) {
+      return writer.applyServerPatch(name, set, unset, scope, opts);
     },
 
     setServerDisabled(name, disabled, scope, opts) {

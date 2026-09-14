@@ -16,7 +16,7 @@ const SERVICE_KEY = "mcp-client.config";
 const HOST_KNOWN_FOLDERS = "host.knownFolderCwds";
 const DEFAULT_TIMEOUT_MS = 10_000;
 
-export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
+async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   ctx.logger.info("mcp-client server entry activated");
   const hostKnown = ctx.consume<() => string[]>(HOST_KNOWN_FOLDERS);
   const knownCwds = (): string[] => (hostKnown ? hostKnown() : []);

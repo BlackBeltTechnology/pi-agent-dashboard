@@ -143,7 +143,7 @@ function classify(
 ): ProvenanceLayer[] {
   const piGlobal = adapter.getPiGlobalConfigPath();
   const piFolder = adapter.getProjectPiConfigPath(cwd);
-  const defining = layers.filter((l) => l.servers !== null && l.servers[name] !== undefined);
+  const defining = layers.filter((l) => l.servers !== null && Object.hasOwn(l.servers, name));
   if (defining.length === 0) {
     const p = provenance.get(name);
     return [
@@ -178,12 +178,16 @@ function deriveSettings(
   const piGlobal = adapter.getPiGlobalConfigPath();
   const out: Record<string, SettingSource> = {};
   for (const [key, value] of Object.entries(effective ?? {})) {
-    const globalLayer = layers.find((l) => l.path === piGlobal && l.settings?.[key] !== undefined);
+    const globalLayer = layers.find(
+      (l) => l.path === piGlobal && l.settings !== null && Object.hasOwn(l.settings, key),
+    );
     if (globalLayer) {
       out[key] = { value, source: "pi-global", path: piGlobal };
       continue;
     }
-    const sharedLayer = layers.find((l) => l.path !== piGlobal && l.settings?.[key] !== undefined);
+    const sharedLayer = layers.find(
+      (l) => l.path !== piGlobal && l.settings !== null && Object.hasOwn(l.settings, key),
+    );
     if (sharedLayer) {
       out[key] = { value, source: "shared", path: sharedLayer.path };
       continue;
@@ -212,7 +216,8 @@ export function createEffectiveViewReader(deps: EffectiveViewDeps): EffectiveVie
 
     const servers: EffectiveServerView[] = Object.entries(config.mcpServers ?? {}).map(([name, entry]) => {
       const merged = entry as unknown as Record<string, unknown>;
-      const ownRaw = writableServers?.[name];
+      const ownRaw =
+        writableServers !== null && Object.hasOwn(writableServers, name) ? writableServers[name] : undefined;
       const own = isPlainObject(ownRaw) ? (ownRaw as Record<string, unknown>) : undefined;
       return {
         name,

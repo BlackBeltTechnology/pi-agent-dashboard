@@ -32,11 +32,7 @@ import {
   SqliteFtsStore,
   validateConfig,
 } from "@blackbelt-technology/pi-dashboard-kb";
-import {
-  canonPath,
-  isAllowedCwd,
-  mainCheckoutPath,
-} from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
+import { isAllowedCwd } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { KbConfigPatch, KbReindexResult, KbStats } from "../shared/kb-plugin-types.js";
 import type { KbJobRegistry } from "./job-registry.js";
@@ -52,11 +48,11 @@ export function projectConfigPath(cwd: string): string {
   return join(cwd, ".pi", "dashboard", "knowledge_base.json");
 }
 
-/** Canonicalize + cwd admission are owned by the shared module so kb-plugin
- *  and mcp-client share ONE implementation. Re-exported here for the existing
- *  kb tests and the plugin_action handler that import them from this module.
+/** cwd admission is owned by the shared module so kb-plugin and mcp-client
+ *  share ONE implementation. Re-exported here for the existing kb tests and the
+ *  plugin_action handler that import it from this module.
  *  See change: extract-mcp-client-plugin. */
-export { canonPath, isAllowedCwd, mainCheckoutPath };
+export { isAllowedCwd };
 
 /** Reject a cwd that is missing or not a known folder. Returns true when handled. */
 function rejectCwd(reply: FastifyReply, cwd: string | undefined, known: () => string[]): cwd is undefined {

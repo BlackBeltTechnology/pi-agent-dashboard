@@ -25,7 +25,7 @@ export function McpSettingsClaim(): React.ReactElement {
 
 const DOCS_HREF = "https://www.npmjs.com/package/pi-mcp-adapter";
 
-export function StatusPill({ status }: { status: AdapterStatus }): React.ReactElement {
+function StatusPill({ status }: { status: AdapterStatus }): React.ReactElement {
   return (
     <span
       data-testid="mcp-adapter-pill"
@@ -51,7 +51,7 @@ function bannerDetail(status: AdapterStatus): string {
   }
 }
 
-export function AdapterBanner({ status }: { status: AdapterStatus }): React.ReactElement {
+function AdapterBanner({ status }: { status: AdapterStatus }): React.ReactElement {
   return (
     <div
       data-testid="mcp-adapter-banner"

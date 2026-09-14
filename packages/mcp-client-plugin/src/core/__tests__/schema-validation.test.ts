@@ -5,11 +5,11 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { validateTransportPresence } from "../config-writer.js";
 import {
   errorFields,
   validateServerPatch,
   validateSettingsPatch,
-  validateTransportPresence,
 } from "../schema-validation.js";
 
 describe("schema validation", () => {

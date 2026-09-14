@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { expect, type Page, test } from "./fixtures.js";
-import { gotoDashboard } from "./helpers/index.js";
+import { assertHitAreas, gotoDashboard } from "./helpers/index.js";
 import { REPO_ROOT } from "./lifecycle.js";
 
 /**
@@ -167,35 +167,6 @@ test.describe("mcp-client settings section accessibility (L3)", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await gotoMcpClient(page);
 
-    // A 16px checkbox is a legitimate visual control; its HIT AREA is the
-    // wrapping <label>, so measure that when one exists (the code wraps every
-    // bare checkbox for exactly this reason).
-    const undersized = await page.evaluate((selector) => {
-      const MIN = 44;
-      const section = document.querySelector(selector);
-      if (!section) return ["section not found"];
-      const out: string[] = [];
-      const controls = section.querySelectorAll("button, [role='switch'], input, select, textarea");
-      for (const control of Array.from(controls)) {
-        const input = control as HTMLInputElement;
-        const target =
-          input.type === "checkbox" && control.closest("label")
-            ? (control.closest("label") as HTMLElement)
-            : (control as HTMLElement);
-        const rect = target.getBoundingClientRect();
-        // Skip controls the host has hidden (e.g. inside a collapsed group).
-        if (rect.width === 0 && rect.height === 0) continue;
-        if (rect.width < MIN || rect.height < MIN) {
-          const id =
-            target.dataset.testid ??
-            target.getAttribute("aria-label") ??
-            target.tagName.toLowerCase();
-          out.push(`${id}: ${Math.round(rect.width)}x${Math.round(rect.height)}`);
-        }
-      }
-      return out;
-    }, SECTION);
-
-    expect(undersized, "controls below the 44x44 mobile floor at 390px").toEqual([]);
+    await assertHitAreas(page, SECTION);
   });
 });

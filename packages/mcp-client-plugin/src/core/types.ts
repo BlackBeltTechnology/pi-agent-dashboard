@@ -131,6 +131,7 @@ export interface McpClientConfigService {
     set: Partial<ServerEntry>,
     unset: string[],
     scope: Scope,
+    opts?: { hasLowerDefinition?: boolean },
   ): ConfigWriteResult;
   setServerDisabled(
     name: string,

@@ -11,8 +11,6 @@
 
 import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
 import schema from "../../schema/mcp-config.schema.json";
-import { TRANSPORT_FIELDS } from "./config-writer.js";
-import type { ConfigRefusal } from "./types.js";
 
 export interface PatchValidation {
   ok: boolean;
@@ -59,25 +57,3 @@ export function errorFields(errors: ErrorObject[]): string[] {
 
 /** Exposed for the compile-contract test. */
 export const mcpConfigSchema = schema;
-
-/**
- * The "at least one transport when nothing lower defines the server" rule.
- * Needs the adapter merge to know whether a lower source defines the server, so
- * it lives in the HTTP layer, not the writer. `hasLowerDefinition` is that
- * merge result.
- */
-export function validateTransportPresence(
-  resultingEntry: Record<string, unknown>,
-  hasLowerDefinition: boolean,
-): ConfigRefusal | null {
-  if (hasLowerDefinition) return null;
-  const present = TRANSPORT_FIELDS.filter((f) => resultingEntry[f] !== undefined);
-  if (present.length === 0) {
-    return {
-      code: "missing-transport",
-      message: "server has no transport; set one of command, url, socket",
-      fields: [...TRANSPORT_FIELDS],
-    };
-  }
-  return null;
-}

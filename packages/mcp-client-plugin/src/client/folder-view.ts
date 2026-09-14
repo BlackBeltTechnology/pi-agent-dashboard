@@ -15,18 +15,18 @@
 import type { EffectiveServerView, ProvenanceLayer } from "../core/effective-view.js";
 
 /** The effective server plus the folder layer's own entry, when supplied. */
-export type FolderServerView = EffectiveServerView & {
+type FolderServerView = EffectiveServerView & {
   own?: Record<string, unknown>;
 };
 
 /** The folder-layer own entry, when the payload carries a plain object. */
-export function ownEntryOf(server: EffectiveServerView): Record<string, unknown> | undefined {
+function ownEntryOf(server: EffectiveServerView): Record<string, unknown> | undefined {
   const own = (server as FolderServerView).own;
   return own !== null && typeof own === "object" && !Array.isArray(own) ? own : undefined;
 }
 
 /** UI label for one defining layer (exactly the four-vocabulary set). */
-export function layerLabel(p: ProvenanceLayer): string {
+function layerLabel(p: ProvenanceLayer): string {
   if (p.layer === "pi-global") return "Pi global";
   if (p.layer === "pi-folder") return "Pi folder";
   if (p.layer === "shared") return "Shared";

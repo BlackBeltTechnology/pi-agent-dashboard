@@ -26,6 +26,7 @@ export {
   parseJsonc,
   TRANSPORT_FIELDS,
   validateResultingEntry,
+  validateTransportPresence,
 } from "./config-writer.js";
 export {
   createEffectiveViewReader,
@@ -43,7 +44,6 @@ export {
   type PatchValidation,
   validateServerPatch,
   validateSettingsPatch,
-  validateTransportPresence,
 } from "./schema-validation.js";
 export { createMcpClientConfigService, type McpClientConfigServiceDeps, type McpClientRuntime } from "./service.js";
 export type {

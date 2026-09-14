@@ -93,6 +93,27 @@ export function validateResultingEntry(entry: Record<string, unknown>): ConfigRe
   return null;
 }
 
+/**
+ * The "at least one transport when nothing lower defines the server" rule.
+ * `hasLowerDefinition` is the adapter-merge result for the scope, computed by
+ * the HTTP layer (the only caller that can reach the adapter port for it).
+ */
+export function validateTransportPresence(
+  resultingEntry: Record<string, unknown>,
+  hasLowerDefinition: boolean,
+): ConfigRefusal | null {
+  if (hasLowerDefinition) return null;
+  const present = TRANSPORT_FIELDS.filter((f) => resultingEntry[f] !== undefined);
+  if (present.length === 0) {
+    return {
+      code: "missing-transport",
+      message: "server has no transport; set one of command, url, socket",
+      fields: [...TRANSPORT_FIELDS],
+    };
+  }
+  return null;
+}
+
 export interface ConfigWriter {
   /** Resolve the Pi-owned target path for a scope (enforces admission). */
   targetPath(scope: Scope): string;
@@ -108,6 +129,7 @@ export interface ConfigWriter {
     set: Partial<ServerEntry>,
     unset: string[],
     scope: Scope,
+    opts?: { hasLowerDefinition?: boolean },
   ): ConfigWriteResult;
   removeServer(name: string, scope: Scope): RemoveResult;
   setDirectTools(name: string, tools: string[] | undefined, scope: Scope): ConfigWriteResult;
@@ -255,6 +277,14 @@ export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
     deleteEntry?: boolean;
     /** Delete the key when the patched entry has no remaining keys. */
     deleteWhenEmpty?: boolean;
+    /**
+     * Enforce the ">= 1 transport when nothing lower defines the server" rule.
+     * Set only by the HTTP patch route (the caller that resolves the adapter
+     * merge for the scope); writer-internal callers rely on the existing entry.
+     */
+    enforceTransport?: boolean;
+    /** The adapter merge for the scope defines this server (below the target). */
+    hasLowerDefinition?: boolean;
   }
 
   type PatchResult =
@@ -366,6 +396,10 @@ export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
 
     const refusal = validateResultingEntry(next);
     if (refusal) return { ok: false, refusal };
+    if (opts.enforceTransport) {
+      const presence = validateTransportPresence(next, opts.hasLowerDefinition === true);
+      if (presence) return { ok: false, refusal: presence };
+    }
 
     const nextServers = applyEntry(servers, name, next, opts);
     const nextConfig = nullProto({ ...config });
@@ -428,8 +462,12 @@ export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
     set: Partial<ServerEntry>,
     unset: string[],
     scope: Scope,
+    opts?: { hasLowerDefinition?: boolean },
   ): ConfigWriteResult {
-    const result = patchEntry(name, set as Record<string, unknown>, unset, scope);
+    const result = patchEntry(name, set as Record<string, unknown>, unset, scope, {
+      enforceTransport: true,
+      hasLowerDefinition: opts?.hasLowerDefinition === true,
+    });
     return result.ok ? ok() : result;
   }
 

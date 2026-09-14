@@ -34,21 +34,26 @@ export interface McpClientRouteDeps {
 
 const PREFIX = "/api/mcp-client";
 
-function sendRefusal(reply: FastifyReply, refusal: ConfigRefusal): FastifyReply {
+function refusalParts(refusal: ConfigRefusal): { status: number; body: Record<string, unknown> } {
   switch (refusal.code) {
     case "invalid-name":
-      return reply.code(400).send({ error: refusal.code, message: refusal.message });
+      return { status: 400, body: { error: refusal.code, message: refusal.message } };
     case "transport-conflict":
     case "missing-transport":
-      return reply.code(400).send({ error: refusal.code, message: refusal.message, fields: refusal.fields ?? [] });
+      return { status: 400, body: { error: refusal.code, message: refusal.message, fields: refusal.fields ?? [] } };
     case "not-allowed":
-      return reply.code(403).send({ error: refusal.code, message: refusal.message });
+      return { status: 403, body: { error: refusal.code, message: refusal.message } };
     case "unparseable":
     case "entry-not-object":
-      return reply.code(409).send({ error: refusal.code, message: refusal.message });
+      return { status: 409, body: { error: refusal.code, message: refusal.message } };
     default:
-      return reply.code(500).send({ error: refusal.code, message: refusal.message });
+      return { status: 500, body: { error: refusal.code, message: refusal.message } };
   }
+}
+
+function sendRefusal(reply: FastifyReply, refusal: ConfigRefusal): FastifyReply {
+  const { status, body } = refusalParts(refusal);
+  return reply.code(status).send(body);
 }
 
 interface ScopeBody {
@@ -78,11 +83,82 @@ function decodeName(request: FastifyRequest): string {
   }
 }
 
+interface PatchOutcome {
+  status: number;
+  body: Record<string, unknown>;
+}
+
+/**
+ * The adapter merge for the scope defines the server below the target layer.
+ * Needed by the ">= 1 transport when nothing lower defines the server" rule.
+ */
+async function resolveHasLowerDefinition(
+  deps: McpClientRouteDeps,
+  scope: Scope,
+  name: string,
+): Promise<{ ok: true; value: boolean } | { ok: false; outcome: PatchOutcome }> {
+  try {
+    const view = await deps.runtime.getEffectiveView(scope, { timeoutMs: deps.getTimeoutMs() });
+    const targetLayer = scope.kind === "global" ? "pi-global" : "pi-folder";
+    const existing = view.servers.find((s) => s.name === name);
+    return { ok: true, value: existing?.provenance.some((p) => p.layer !== targetLayer) ?? false };
+  } catch (e) {
+    if (e instanceof AdapterTimeoutError) {
+      return { ok: false, outcome: { status: 504, body: { error: "adapter-timeout", timeoutMs: e.timeoutMs } } };
+    }
+    return {
+      ok: false,
+      outcome: { status: 500, body: { error: "adapter-error", message: "could not read the effective MCP configuration" } },
+    };
+  }
+}
+
+/** Validate + apply a `PUT /servers/:name` body; returns the HTTP status + body. */
+async function handleServerPatch(
+  deps: McpClientRouteDeps,
+  name: string,
+  rawBody: unknown,
+): Promise<PatchOutcome> {
+  const body = (rawBody ?? {}) as ScopeBody & { set?: unknown; unset?: unknown };
+  if (body.set === undefined || typeof body.set !== "object" || Array.isArray(body.set)) {
+    return { status: 400, body: { error: "invalid-body", message: "body must carry a `set` patch object" } };
+  }
+  const parsed = parseScope(body);
+  if (!parsed.ok) return { status: parsed.status, body: { error: "invalid-body", message: parsed.error } };
+  // Admit the cwd BEFORE the adapter merge read (same rule as the writer,
+  // hoisted so a disallowed cwd performs no IO).
+  if (parsed.scope.kind === "project" && !isAllowedCwd(parsed.scope.cwd, deps.knownCwds)) {
+    return { status: 403, body: { error: "not-allowed", message: `cwd not allowed: ${parsed.scope.cwd}` } };
+  }
+  const validation = validateServerPatch(body.set);
+  if (!validation.ok) {
+    return {
+      status: 400,
+      body: { error: "schema", message: "server patch failed validation", fields: validationErrors(validation.errors) },
+    };
+  }
+  const lower = await resolveHasLowerDefinition(deps, parsed.scope, name);
+  if (!lower.ok) return lower.outcome;
+  const unset = Array.isArray(body.unset) ? body.unset.filter((k): k is string => typeof k === "string") : [];
+  const set = { ...(body.set as Record<string, unknown>) };
+  const result = deps.runtime.applyServerPatch(name, set as Partial<ServerEntry>, unset, parsed.scope, {
+    hasLowerDefinition: lower.value,
+  });
+  if (!result.ok) return refusalParts(result.refusal);
+  return { status: 200, body: { ok: true } };
+}
+
 export function mountMcpClientRoutes(fastify: FastifyInstance, deps: McpClientRouteDeps): void {
   const guard = { preHandler: deps.networkGuard };
 
   fastify.get(`${PREFIX}/effective`, guard, async (request, reply) => {
-    const cwd = (request.query as { cwd?: string }).cwd;
+    const rawCwd = (request.query as { cwd?: unknown }).cwd;
+    // `fast-querystring` yields an array for a repeated key; reject rather than
+    // hand a non-string to `isAllowedCwd` → `path.resolve` (which would throw).
+    if (rawCwd !== undefined && typeof rawCwd !== "string") {
+      return reply.code(400).send({ error: "invalid-cwd", message: "cwd must be a single string" });
+    }
+    const cwd = rawCwd;
     if (cwd !== undefined && !isAllowedCwd(cwd, deps.knownCwds)) {
       return reply.code(403).send({ error: "not-allowed", message: `cwd not allowed: ${cwd}` });
     }
@@ -108,21 +184,8 @@ export function mountMcpClientRoutes(fastify: FastifyInstance, deps: McpClientRo
   fastify.put(`${PREFIX}/servers/:name`, guard, async (request, reply) => {
     const name = decodeName(request);
     if (!isValidServerName(name)) return reply.code(400).send({ error: "invalid-name", message: `invalid server name` });
-    const body = (request.body ?? {}) as ScopeBody & { set?: unknown; unset?: unknown };
-    if (body.set === undefined || typeof body.set !== "object" || Array.isArray(body.set)) {
-      return reply.code(400).send({ error: "invalid-body", message: "body must carry a `set` patch object" });
-    }
-    const parsed = parseScope(body);
-    if (!parsed.ok) return reply.code(parsed.status).send({ error: "invalid-body", message: parsed.error });
-    const validation = validateServerPatch(body.set);
-    if (!validation.ok) {
-      return reply.code(400).send({ error: "schema", message: "server patch failed validation", fields: validationErrors(validation.errors) });
-    }
-    const unset = Array.isArray(body.unset) ? body.unset.filter((k): k is string => typeof k === "string") : [];
-    const set = { ...(body.set as Record<string, unknown>) };
-    const result = deps.runtime.applyServerPatch(name, set as Partial<ServerEntry>, unset, parsed.scope);
-    if (!result.ok) return sendRefusal(reply, result.refusal);
-    return { ok: true };
+    const { status, body } = await handleServerPatch(deps, name, request.body);
+    return reply.code(status).send(body);
   });
 
   fastify.delete(`${PREFIX}/servers/:name`, guard, async (request, reply) => {

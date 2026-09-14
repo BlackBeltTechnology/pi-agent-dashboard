@@ -119,6 +119,45 @@ describe("mcp-client routes", () => {
     expect(JSON.parse(h.io.files.get(GLOBAL) as string).mcpServers.b).toEqual({ command: "/bin/b" });
   });
 
+  it("E27: PUT whose resulting entry has no transport is 400 naming every transport field, no write", async () => {
+    h.io.writes.length = 0;
+    const res = await h.app.inject({
+      method: "PUT",
+      url: "/api/mcp-client/servers/no-transport",
+      payload: { scope: "global", set: {} },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe("missing-transport");
+    expect(res.json().fields).toEqual(["command", "url", "socket"]);
+    expect(h.io.writes).toHaveLength(0);
+  });
+
+  it("E27: PUT whose resulting entry has no transport is 200 when a lower source defines the server", async () => {
+    const lower = await harness({
+      port: makePort({
+        loadMcpConfig: () =>
+          Promise.resolve({ mcpServers: { a: { command: "a" }, inherited: { url: "https://u" } } }),
+        getServerProvenance: () =>
+          Promise.resolve(
+            new Map([["inherited", { kind: "import", path: "/shared/mcp.json", importKind: "file" }]]),
+          ),
+      }),
+    });
+    const res = await lower.app.inject({
+      method: "PUT",
+      url: "/api/mcp-client/servers/inherited",
+      payload: { scope: "global", set: {} },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("GET /effective rejects a repeated (array) cwd query with 400 and no read", async () => {
+    h.io.reads.length = 0;
+    const res = await h.app.inject({ method: "GET", url: "/api/mcp-client/effective?cwd=%2Fa&cwd=%2Fb" });
+    expect(res.statusCode).toBe(400);
+    expect(h.io.reads).toHaveLength(0);
+  });
+
   it("PUT rejects a whole-entry body with no `set`", async () => {
     const res = await h.app.inject({
       method: "PUT",
@@ -141,6 +180,7 @@ describe("mcp-client routes", () => {
   });
 
   it("PUT project scope with an unknown cwd is 403", async () => {
+    h.io.reads.length = 0;
     const res = await h.app.inject({
       method: "PUT",
       url: "/api/mcp-client/servers/b",
@@ -148,6 +188,7 @@ describe("mcp-client routes", () => {
     });
     expect(res.statusCode).toBe(403);
     expect(h.io.writes).toHaveLength(0);
+    expect(h.io.reads.some((p) => p.startsWith("/nope"))).toBe(false);
   });
 
   it("DELETE returns the removed raw entry", async () => {

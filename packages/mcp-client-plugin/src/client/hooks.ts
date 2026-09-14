@@ -41,11 +41,6 @@ function keyOf(cwd?: string): string {
   return cwd ?? "";
 }
 
-/** The cached 403 for a cwd, when the last request was refused. */
-export function notTrackedError(cwd?: string): ApiError | undefined {
-  return notTracked.get(keyOf(cwd));
-}
-
 /** Test-only: drop every cached 403 so each test starts from a clean slate. */
 export function __resetNotTrackedCache(): void {
   notTracked.clear();

@@ -210,7 +210,7 @@ const bundlePkg = {
 };
 writeFileSync(
   path.join(SERVER_BUNDLE, "package.json"),
-  JSON.stringify(bundlePkg, null, 2) + "\n",
+  `${JSON.stringify(bundlePkg, null, 2)}\n`,
 );
 
 // ── ship manual-launch helpers ────────────────────────────────────────
@@ -499,7 +499,7 @@ if (existsSync(BB_DIR)) {
       continue;
     }
     // Replace symlink with copy via tmp + rename for atomicity.
-    const tmpPath = linkPath + ".materializing";
+    const tmpPath = `${linkPath}.materializing`;
     rmSync(tmpPath, { recursive: true, force: true });
     cpSync(absTarget, tmpPath, {
       recursive: true,
@@ -628,7 +628,7 @@ console.log(`✓ Server bundled (${finalSize}) at ${SERVER_BUNDLE}`);
     if (r.status === 0 && r.stdout.trim()) gitSha = r.stdout.trim();
   } catch { /* git absent — keep nogit */ }
   const stamp = `${gitSha}-${Math.floor(Date.now() / 1000)}`;
-  writeFileSync(path.join(SERVER_BUNDLE, ".bundle-stamp"), stamp + "\n");
+  writeFileSync(path.join(SERVER_BUNDLE, ".bundle-stamp"), `${stamp}\n`);
   console.log(`  Wrote freshness stamp: ${stamp}`);
 }
 
@@ -668,10 +668,22 @@ function walkPaths(root, cb) {
  * directories matching `dirMatch(name)`. Mirrors the original
  * bash `find ... -delete` and `find ... -exec rm -rf {} +` logic.
  */
-function walkAndPrune(root, { fileMatch, dirMatch }) {
-  // Two-pass: first collect targets so deletions don't disturb the walk.
-  const fileTargets = [];
-  const dirTargets = [];
+/** Sort one directory entry into a prune bucket; true => descend into it. */
+function classifyPruneEntry(entry, full, { fileMatch, dirMatch }, acc) {
+  if (entry.isFile()) {
+    if (fileMatch(entry.name)) acc.fileTargets.push(full);
+    return false;
+  }
+  if (!entry.isDirectory()) return false;
+  if (dirMatch(entry.name)) {
+    acc.dirTargets.push(full);
+    return false;
+  }
+  return true;
+}
+
+function collectPruneTargets(root, matchers) {
+  const acc = { fileTargets: [], dirTargets: [] };
   const stack = [root];
   while (stack.length) {
     const cur = stack.pop();
@@ -683,17 +695,15 @@ function walkAndPrune(root, { fileMatch, dirMatch }) {
     }
     for (const e of entries) {
       const full = path.join(cur, e.name);
-      if (e.isDirectory()) {
-        if (dirMatch(e.name)) {
-          dirTargets.push(full);
-        } else {
-          stack.push(full);
-        }
-      } else if (e.isFile() && fileMatch(e.name)) {
-        fileTargets.push(full);
-      }
+      if (classifyPruneEntry(e, full, matchers, acc)) stack.push(full);
     }
   }
+  return acc;
+}
+
+function walkAndPrune(root, matchers) {
+  // Two-pass: collect targets first so deletions don't disturb the walk.
+  const { fileTargets, dirTargets } = collectPruneTargets(root, matchers);
   for (const f of fileTargets) {
     try {
       unlinkSync(f);

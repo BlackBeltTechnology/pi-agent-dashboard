@@ -12,7 +12,7 @@
 import type { EffectiveView } from "../core/effective-view.js";
 import type { AdapterVerdict, Scope, ServerEntry } from "../core/types.js";
 
-export const API_BASE = "/api/mcp-client";
+const API_BASE = "/api/mcp-client";
 
 /** `GET /effective` = the effective view plus the adapter verdict. */
 export type EffectiveResponse = EffectiveView & { adapter: AdapterVerdict };
@@ -105,12 +105,6 @@ export async function fetchEffective(cwd?: string): Promise<EffectiveResponse> {
 /** `GET /schema` — the published JSON Schema for `ServerEntry` + `McpSettings`. */
 export async function fetchSchema(): Promise<Record<string, unknown>> {
   return readJson<Record<string, unknown>>(await fetch(`${API_BASE}/schema`));
-}
-
-/** `GET /adapter` — the version verdict (`fresh=1` bypasses the 30s cache). */
-export async function fetchAdapterVerdict(fresh = false): Promise<AdapterVerdict> {
-  const qs = fresh ? "?fresh=1" : "";
-  return readJson<AdapterVerdict>(await fetch(`${API_BASE}/adapter${qs}`));
 }
 
 /** `PUT /servers/:name` — merge a patch (and unset keys) at one scope. */
