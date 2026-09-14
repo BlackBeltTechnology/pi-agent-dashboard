@@ -74,3 +74,98 @@ describe("useMessageHandler — Strategy A replay-cache invalidation", () => {
     expect(await cache.get("s1", KEY)).toBeNull();
   });
 });
+
+// ── archive-sessions-lazy-load: snapshot + eviction semantics ────────────
+// #E31: `sessions_snapshot` REPLACES `archivedCountByCwd` atomically.
+// #E32: `session_archived` DELETES the id (distinct from `session_removed`,
+// which keeps the row as ended). See change: archive-sessions-lazy-load.
+describe("useMessageHandler — archived counts (archive-sessions-lazy-load)", () => {
+  function setupArchived(initialSessions: DashboardSessionLike[]) {
+    const sessionsRef = { current: new Map(initialSessions.map((s) => [s.id, s])) };
+    const countsRef = { current: new Map<string, number>([["/repoA", 5]]) };
+    const setSessions = vi.fn((updater: any) => {
+      sessionsRef.current = typeof updater === "function" ? updater(sessionsRef.current) : updater;
+    });
+    const setArchivedCountMap = vi.fn((updater: any) => {
+      countsRef.current = typeof updater === "function" ? updater(countsRef.current) : updater;
+    });
+    const setters: any = new Proxy(
+      { setSessions, setArchivedCountMap },
+      { get: (target: any, prop: string) => (prop in target ? target[prop] : vi.fn()) },
+    );
+    const deps: any = {
+      send: vi.fn(),
+      navigate: vi.fn(),
+      clearSpawningCwd: vi.fn(),
+      spawningCwdsRef: { current: new Set() },
+      subscribedRef: { current: new Set() },
+      pendingTerminalCwdRef: { current: null },
+      lastCreatedTerminalIdRef: { current: null },
+      maxSeqMapRef: { current: new Map() },
+      selectedSessionIdRef: { current: undefined },
+      sessionsRef,
+    };
+    const { result } = renderHook(() => useMessageHandler(setters, deps));
+    return { dispatch: (msg: any) => result.current(msg), sessionsRef, countsRef };
+  }
+
+  type DashboardSessionLike = { id: string; cwd: string; status: string; [k: string]: unknown };
+
+  function archivedSession(id: string, overrides: Record<string, unknown> = {}): DashboardSessionLike {
+    return {
+      id,
+      cwd: "/repoA",
+      source: "tui",
+      status: "ended",
+      startedAt: 1,
+      tokensIn: 0,
+      tokensOut: 0,
+      cost: 0,
+      ...overrides,
+    };
+  }
+
+  it("E31: snapshot replaces archivedCountByCwd completely — stale cwd dropped", () => {
+    const { dispatch, countsRef } = setupArchived([]);
+    // Seeded with { "/repoA": 5 } above.
+    dispatch({
+      type: "sessions_snapshot",
+      sessions: [],
+      orders: {},
+      endedTotals: {},
+      archivedCountByCwd: { "/repoB": 312 },
+    });
+    expect(countsRef.current.get("/repoA")).toBeUndefined();
+    expect(countsRef.current.get("/repoB")).toBe(312);
+  });
+
+  it("E31: tolerates a snapshot from a pre-change server (missing field → empty)", () => {
+    const { dispatch, countsRef } = setupArchived([]);
+    dispatch({ type: "sessions_snapshot", sessions: [], orders: {}, endedTotals: {} });
+    expect(countsRef.current.size).toBe(0);
+  });
+
+  it("E32: session_archived deletes the id and sets the folder count", () => {
+    const oldZ = archivedSession("old-z");
+    const kept = archivedSession("kept-y");
+    const { dispatch, sessionsRef, countsRef } = setupArchived([oldZ, kept]);
+
+    dispatch({ type: "session_archived", sessionId: "old-z", cwd: "/repoA", count: 6 });
+
+    expect(sessionsRef.current.has("old-z")).toBe(false);
+    expect(countsRef.current.get("/repoA")).toBe(6);
+    // Unrelated ids are untouched.
+    expect(sessionsRef.current.has("kept-y")).toBe(true);
+  });
+
+  it("E32: session_removed still KEEPS the row (marks ended, preserves)", () => {
+    const other = archivedSession("other-w", { status: "active" });
+    const { dispatch, sessionsRef } = setupArchived([other]);
+
+    dispatch({ type: "session_removed", sessionId: "other-w" });
+
+    const row = sessionsRef.current.get("other-w");
+    expect(row).toBeDefined();
+    expect((row as any).status).toBe("ended");
+  });
+});

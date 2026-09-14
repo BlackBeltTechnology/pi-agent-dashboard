@@ -1,5 +1,6 @@
 import { SidebarFolderSectionSlot, useFolderMenuRefreshRunner } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
+import type { ArchivedSessionSummary } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { DndContext, type DragEndEvent, type DragOverEvent, type DragStartEvent, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -8,6 +9,7 @@ import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useFolderUrgencySort } from "../../hooks/useFolderUrgencySort.js";
+import { ARCHIVE_PAGE_SIZE, useArchivedSessions } from "../../hooks/useArchivedSessions.js";
 import { useInitStatus } from "../../hooks/useInitStatus.js";
 import { useInstallPrompt } from "../../hooks/useInstallPrompt.js";
 import { maybeAutoInitWorktreeOnSpawn } from "../../lib/git/auto-init-worktree.js";
@@ -20,10 +22,12 @@ import { removeOpenSpecOptOut } from "../../lib/openspec/openspec-config-api.js"
 // TerminalCard removed — terminals now in TerminalsView
 import {
   getCollapsedGroups,
+  getIncludeArchive,
   getTagAreaOpen,
   pruneStaleCollapsedGroups,
   removeLegacyHiddenSessions,
   setCollapsedGroups,
+  setIncludeArchive,
   setTagAreaOpen,
 } from "../../lib/session/session-filter-storage.js";
 import {
@@ -53,6 +57,7 @@ import { PiLogo } from "../primitives/PiLogo.js";
 import { Toast, useToast } from "../primitives/Toast.js";
 import { ThemePicker } from "../settings/ThemePicker.js";
 import { ThemeToggle } from "../settings/ThemeToggle.js";
+import { ArchivedSessionRow } from "./ArchivedSessionRow.js";
 import { allTagsInUse } from "../tags/all-tags.js";
 import { TagDeleteConfirmDialog } from "../tags/TagDeleteConfirmDialog.js";
 import { TagFilterGroup } from "../tags/TagFilterGroup.js";
@@ -158,8 +163,15 @@ interface Props {
    * See change: differentiate-resume-intent-by-trigger.
    */
   onResumeKeepPosition?: (sessionId: string) => void;
-  onHideSession?: (sessionId: string) => void;
-  onUnhideSession?: (sessionId: string) => void;
+  onArchiveSession?: (sessionId: string) => void;
+  onUnarchiveSession?: (sessionId: string) => void;
+  /**
+   * Folder group key → archived-session count (from `sessions_snapshot` /
+   * `session_archived` / `archived_count_updated`). Drives the per-folder
+   * `Archive (N)` fold; a missing/0 entry renders no fold.
+   * See change: archive-sessions-lazy-load.
+   */
+  archivedCountMap?: Map<string, number>;
   onSpawnSession?: (cwd: string, attachProposal?: string, opts?: { gitWorktreeBase?: string; placeholderCwd?: string; initialPrompt?: string }) => void;
   spawningCwds?: Set<string>;
   /**
@@ -327,7 +339,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, openspecOfferInitialization, openspecEnabled, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenDirectorySettings, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, retryAttemptMap, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp, endedTotalsMap, pagedCount, connected, onSessionsPage }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, openspecOfferInitialization, openspecEnabled, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenDirectorySettings, onRename, onShutdown, onResume, onResumeKeepPosition, onArchiveSession, onUnarchiveSession, archivedCountMap, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, retryAttemptMap, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp, endedTotalsMap, pagedCount, connected, onSessionsPage }: Props) {
   const { t } = useI18n();
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
@@ -452,6 +464,82 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     });
   }, []);
 
+  // ── Folder archive fold + include-archive search (archive-sessions-lazy-load) ──
+  // Per-key lazy cache: `<groupPath>` for folds, `q:<text>` for search.
+  // Rows NEVER enter the `sessions` map — restore re-registers server-side
+  // via `unarchive_session`; open navigates to the read-only `?archived=1` view.
+  const {
+    get: getArchivedPage,
+    loadFirst: loadArchivedFirst,
+    loadMore: loadArchivedMore,
+    retry: retryArchived,
+    invalidate: invalidateArchived,
+  } = useArchivedSessions();
+  const [archiveExpanded, setArchiveExpanded] = useState<Set<string>>(new Set());
+  const toggleArchiveExpanded = useCallback((cwd: string) => {
+    setArchiveExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(cwd)) next.delete(cwd);
+      else next.add(cwd);
+      return next;
+    });
+  }, []);
+  // Include-archive search chip — opt-in, persisted. See change:
+  // archive-sessions-lazy-load (#F13).
+  const [includeArchive, setIncludeArchiveState] = useState<boolean>(() => getIncludeArchive());
+  const toggleIncludeArchive = useCallback(() => {
+    setIncludeArchiveState((prev) => {
+      setIncludeArchive(!prev);
+      return !prev;
+    });
+  }, []);
+  const openArchivedSession = useCallback((id: string) => {
+    navigate(`/session/${id}?archived=1`);
+  }, [navigate]);
+  // Fetch-on-expand + count-change invalidation. `loadFirst` no-ops while a
+  // key is cached (collapse/re-expand serves from cache — #F7); a count
+  // change invalidates the key (open folds refetch page 1 immediately,
+  // collapsed folds refetch on their next expansion).
+  const prevArchivedCountsRef = useRef<Map<string, number> | undefined>(undefined);
+  useEffect(() => {
+    const prev = prevArchivedCountsRef.current;
+    prevArchivedCountsRef.current = archivedCountMap;
+    if (prev !== undefined && archivedCountMap && prev !== archivedCountMap) {
+      for (const [cwd, count] of archivedCountMap) {
+        if (count !== (prev.get(cwd) ?? 0)) {
+          invalidateArchived(cwd);
+          if (archiveExpanded.has(cwd)) loadArchivedFirst(cwd);
+        }
+      }
+    }
+    if (archiveExpanded.size === 0) return;
+    for (const cwd of archiveExpanded) {
+      if ((archivedCountMap?.get(cwd) ?? 0) > 0) loadArchivedFirst(cwd);
+    }
+  }, [archiveExpanded, archivedCountMap, loadArchivedFirst, invalidateArchived]);
+  // Debounced include-archive search: one request per settled query ≥ 3 chars.
+  const archiveSearchKey =
+    includeArchive && sessionSearch.trim().length >= 3 ? `q:${sessionSearch.trim()}` : null;
+  useEffect(() => {
+    if (archiveSearchKey === null) return;
+    const timer = setTimeout(() => loadArchivedFirst(archiveSearchKey), 300);
+    return () => clearTimeout(timer);
+  }, [archiveSearchKey, loadArchivedFirst]);
+  // Search results grouped by each item's `groupPath` (server resolved the
+  // pin > worktree-main > cwd precedence). None → no section rendered.
+  const archivedMatchesByGroup = useMemo(() => {
+    if (archiveSearchKey === null) return null;
+    const page = getArchivedPage(archiveSearchKey);
+    if (!page.loaded || page.items.length === 0) return null;
+    const m = new Map<string, ArchivedSessionSummary[]>();
+    for (const item of page.items) {
+      const arr = m.get(item.groupPath);
+      if (arr) arr.push(item);
+      else m.set(item.groupPath, [item]);
+    }
+    return m;
+  }, [archiveSearchKey, getArchivedPage]);
+
   // ── Ended paging + stub groups (fix-connect-snapshot-frame-loss D9) ─────
   // Held ended count per GROUP key (the same key space `endedTotals` uses):
   // the “more” affordance compares it against the group's full ended count.
@@ -553,9 +641,9 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
 
 
 
-  const handleHide = useCallback((id: string) => {
-    onHideSession?.(id);
-  }, [onHideSession]);
+  const handleArchive = useCallback((id: string) => {
+    onArchiveSession?.(id);
+  }, [onArchiveSession]);
 
   const handleToggleCollapse = useCallback((cwd: string) => {
     setCollapsedGroupsState((prev) => {
@@ -570,9 +658,9 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     });
   }, []);
 
-  const handleUnhide = useCallback((id: string) => {
-    onUnhideSession?.(id);
-  }, [onUnhideSession]);
+  const handleUnarchive = useCallback((id: string) => {
+    onUnarchiveSession?.(id);
+  }, [onUnarchiveSession]);
 
   // `filterSessions` is called with `activeOnly: false` permanently —
   // active-first ranking now happens per-folder via `rankActiveFirst`,
@@ -1381,7 +1469,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     // Broken-session cleanup — housekeeping, NOT a tier-0 banner. Hidden at zero.
     // In the DIRECTORY group by spec (does not depend on the MAINTENANCE group).
     const brokenCount = group.sessions.filter((s) => s.cwdMissing === true && s.status === "ended" && !s.hidden).length;
-    if (brokenCount > 0 && onHideSession) {
+    if (brokenCount > 0 && onArchiveSession) {
       items.push({
         id: "cleanup-broken",
         group: "directory",
@@ -1858,8 +1946,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                         now={now}
                         showGitInfo={group.sessions.length === 1}
                         isHidden={!!session.hidden}
-                        onHide={handleHide}
-                        onUnhide={handleUnhide}
+                        onArchive={handleArchive}
 
                         contextUsage={contextUsageMap?.get(session.id)}
                         openspecChanges={openspecMap?.get(session.cwd)?.changes}
@@ -1941,6 +2028,118 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               />
             );
           })()}
+          {/* Include-archive search matches (archive-sessions-lazy-load):
+              archived rows grouped by each item's server-resolved groupPath,
+              rendered beneath the folder's resident matches. The tag/phase /
+              activeOnly axes never apply to archived rows. */}
+          {(() => {
+            const matches = archivedMatchesByGroup?.get(group.cwd);
+            if (!matches || matches.length === 0) return null;
+            return (
+              <div className="mt-1 flex flex-col gap-1" data-testid={`archive-matches-${group.cwd}`}>
+                <div className="text-[10px] uppercase tracking-wide text-[var(--text-muted)] px-2 py-0.5 select-none">
+                  {t("sessionList.archiveMatches", { count: matches.length }, `Archive matches (${matches.length})`)}
+                </div>
+                {matches.map((item) => (
+                  <ArchivedSessionRow
+                    key={`am-${item.id}`}
+                    item={item}
+                    onRestore={(id) => {
+                      handleUnarchive(id);
+                      if (archiveSearchKey) retryArchived(archiveSearchKey);
+                    }}
+                    onDeleted={() => {
+                      if (archiveSearchKey) retryArchived(archiveSearchKey);
+                    }}
+                    onOpen={openArchivedSession}
+                  />
+                ))}
+              </div>
+            );
+          })()}
+          {/* Per-folder `Archive (N)` fold (archive-sessions-lazy-load): below
+              the ended fold, collapsed by default, dashed separator,
+              left-aligned (drawer read). First expand lazily fetches page 1
+              (`limit=50`); skeletons while in flight; `showing X of N` +
+              `Load M more` (M = min(page size, remaining)); inline retry on
+              error. Hidden when the folder count is 0/absent (#F5). */}
+          {(() => {
+            const archiveCount = archivedCountMap?.get(group.cwd) ?? 0;
+            if (archiveCount <= 0) return null;
+            const expanded = archiveExpanded.has(group.cwd);
+            const page = getArchivedPage(group.cwd);
+            const shown = page.items.length;
+            const remaining = Math.max(archiveCount - shown, 0);
+            const moreCount = Math.min(ARCHIVE_PAGE_SIZE, remaining);
+            const showMore = remaining > 0 && (page.nextCursor !== undefined || shown === 0);
+            return (
+              <div className="border-t border-dashed border-[var(--border-subtle)] mt-1">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleArchiveExpanded(group.cwd);
+                  }}
+                  className="w-full text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] py-1 px-2 select-none flex items-center gap-1 text-left"
+                  data-testid={`folder-archive-toggle-${group.cwd}`}
+                  aria-expanded={expanded}
+                >
+                  <Icon path={mdiArchiveOutline} size={0.4} className="flex-shrink-0" />
+                  <span>{t("sessionList.archiveFold", { count: archiveCount }, `Archive (${archiveCount})`)}</span>
+                  {expanded && !page.loading && !page.error && shown > 0 && (
+                    <span className="text-[var(--text-faint)] normal-case">
+                      {t("sessionList.archiveShowing", { shown, count: archiveCount }, `showing ${shown} of ${archiveCount}`)}
+                    </span>
+                  )}
+                  <span className="flex-1" />
+                  <Icon path={expanded ? mdiChevronDown : mdiChevronRight} size={0.4} className="flex-shrink-0" />
+                </button>
+                {expanded && (
+                  <div className="flex flex-col gap-1 pb-1">
+                    {page.loading && (
+                      <>
+                        <div data-testid="archive-skeleton-row" className="h-7 rounded-xl border border-dashed border-[var(--border-secondary)] bg-[var(--bg-tertiary)] animate-pulse opacity-40" />
+                        <div data-testid="archive-skeleton-row" className="h-7 rounded-xl border border-dashed border-[var(--border-secondary)] bg-[var(--bg-tertiary)] animate-pulse opacity-40" />
+                      </>
+                    )}
+                    {!page.loading && page.error && (
+                      <div className="flex items-center gap-2 px-2 py-1">
+                        <span className="text-[10px] text-red-400 truncate">{page.error}</span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); retryArchived(group.cwd); }}
+                          className="text-[10px] text-blue-400 hover:text-blue-300 underline flex-shrink-0"
+                          data-testid={`folder-archive-retry-${group.cwd}`}
+                        >
+                          {t("common.retry", undefined, "Retry")}
+                        </button>
+                      </div>
+                    )}
+                    {!page.loading && !page.error && page.items.map((item) => (
+                      <ArchivedSessionRow
+                        key={item.id}
+                        item={item}
+                        onRestore={(id) => {
+                          handleUnarchive(id);
+                          retryArchived(group.cwd);
+                        }}
+                        onDeleted={() => retryArchived(group.cwd)}
+                        onOpen={openArchivedSession}
+                      />
+                    ))}
+                    {showMore && !page.loading && !page.error && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); loadArchivedMore(group.cwd); }}
+                        className="w-full text-[10px] text-blue-400 hover:text-blue-300 py-0.5 px-2 select-none text-left"
+                        data-testid={`folder-archive-more-${group.cwd}`}
+                      >
+                        <Icon path={mdiChevronDown} size={0.4} className="inline mr-0.5" />
+                        {t("sessionList.loadMoreArchived", { count: moreCount }, `Load ${moreCount} more`)}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
         </div>
         </div>
@@ -2007,6 +2206,25 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
             data-testid="session-search-input"
             aria-label={t("sessionList.searchSessions", undefined, "Search sessions across folders")}
           />
+          {/* Include-archive chip (archive-sessions-lazy-load): opt-in,
+              persisted, off by default. ON + query ≥ 3 chars → debounced
+              server-side archive search rendered as `Archive matches`
+              sections. Chip off → search behaves exactly as before. */}
+          <button
+            type="button"
+            onClick={toggleIncludeArchive}
+            aria-pressed={includeArchive}
+            data-testid="search-include-archive"
+            className={`flex-shrink-0 inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded border ${
+              includeArchive
+                ? "border-blue-500/50 text-blue-400 bg-blue-500/10"
+                : "border-[var(--border-secondary)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+            }`}
+            title={t("sessionList.includeArchive", undefined, "archive")}
+          >
+            <Icon path={mdiArchiveOutline} size={0.45} />
+            <span>{t("sessionList.includeArchive", undefined, "archive")}</span>
+          </button>
           <ToggleButton active={showHidden} onClick={() => setShowHidden((p) => !p)}>
             {t("common.hidden", undefined, "Hidden")}
           </ToggleButton>
@@ -2233,7 +2451,11 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               if (anyTagFilterActive) return folderMatchesFilters(g);
               return workspaceFilter.length > 0
                 ? folderMatchesFilters(g)
-                : g.sessions.some((s) => s.status !== "ended") || (endedTotalsMap?.get(g.cwd) ?? 0) > 0;
+                : g.sessions.some((s) => s.status !== "ended") ||
+                  (endedTotalsMap?.get(g.cwd) ?? 0) > 0 ||
+                  // Archive-search matches keep an otherwise-ended folder
+                  // visible so their `Archive matches` section is reachable.
+                  (archivedMatchesByGroup?.get(g.cwd)?.length ?? 0) > 0;
             })
             .map((group) => renderGroupWithWorkspaceMenu(group, false))}
         </ul>
@@ -2269,7 +2491,9 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
       )}
       {hiddenCount > 0 && !showHidden && (
         <div className="p-2 text-center text-[11px] text-[var(--text-muted)]">
-          {t("sessionList.hiddenCount", { count: hiddenCount }, `${hiddenCount} hidden`)}
+          {/* archive-sessions-lazy-load: hidden is narrowed to auto-hidden
+              headless workers; archived sessions never count here. */}
+          {t("sessionList.hiddenWorkers", { count: hiddenCount }, `${hiddenCount} hidden workers`)}
         </div>
       )}
       {manageWorktreesCwd && (
@@ -2286,10 +2510,10 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
           <Confirm
             open
             testId="cleanup-broken-confirm"
-            title={t("session.hideBrokenSessions", undefined, "Hide broken sessions?")}
-            message={`Hide ${broken.length} session${broken.length === 1 ? "" : "s"} whose cwd no longer exists?`}
-            confirmLabel={t("common.hide", undefined, "Hide")}
-            onConfirm={() => { for (const s of broken) onHideSession?.(s.id); setCleanupCwd(null); }}
+            title={t("session.archiveBrokenSessions", undefined, "Archive broken sessions?")}
+            message={`Archive ${broken.length} session${broken.length === 1 ? "" : "s"} whose cwd no longer exists?`}
+            confirmLabel={t("session.archiveSession", undefined, "Archive session")}
+            onConfirm={() => { for (const s of broken) onArchiveSession?.(s.id); setCleanupCwd(null); }}
             onClose={() => setCleanupCwd(null)}
           />
         );

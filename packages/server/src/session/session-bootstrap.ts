@@ -4,6 +4,7 @@
  */
 import { deriveEndedAt } from "./derive-ended-at.js";
 import type { SessionManager } from "./memory-session-manager.js";
+import type { SessionArchive } from "./session-archive.js";
 import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import { isOpenSpecDataEmpty, type DirectoryService } from "../directory-service.js";
 import { extractSessionStats } from "./session-stats-reader.js";
@@ -12,6 +13,8 @@ export interface SessionBootstrapDeps {
   sessionManager: SessionManager;
   browserGateway: BrowserGateway;
   directoryService: DirectoryService;
+  /** Archive index; an id present here is never re-restored from its .jsonl header. */
+  sessionArchive?: SessionArchive;
 }
 
 /**
@@ -19,14 +22,18 @@ export interface SessionBootstrapDeps {
  * Runs async and does not block server startup.
  */
 export async function discoverAndBroadcastSessions(deps: SessionBootstrapDeps): Promise<void> {
-  const { sessionManager, browserGateway, directoryService } = deps;
+  const { sessionManager, browserGateway, directoryService, sessionArchive } = deps;
 
   try {
     const dirs = directoryService.knownDirectories();
     for (const cwd of dirs) {
       const discovered = directoryService.discoverSessions(cwd);
       for (const hist of discovered) {
-        if (!sessionManager.get(hist.id)) {
+        if (sessionManager.get(hist.id)) continue;
+        // An archived id must never be resurrected from its `.jsonl` header.
+        // See change: archive-sessions-lazy-load.
+        if (sessionArchive?.has(hist.id)) continue;
+        {
           let contextTokens: number | undefined;
           let contextWindow: number | undefined;
           let model: string | undefined;
@@ -58,7 +65,11 @@ export async function discoverAndBroadcastSessions(deps: SessionBootstrapDeps): 
             sessionFile: hist.sessionFile,
             sessionDir: hist.sessionDir,
             firstMessage: hist.firstMessage,
-            hidden: true,
+            // Discovered history that is NOT archived is seeded as a visible
+            // ended session (the old `hidden: true` literal made all TUI
+            // history an auto-hidden worker). See change:
+            // archive-sessions-lazy-load.
+            hidden: false,
             dataUnavailable: true,
             model,
             contextTokens,

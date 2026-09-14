@@ -41,7 +41,7 @@ orchestration (spawn → prompt → until idle → read → plugin) using `conne
 ### Tier split
 
 - **COMMAND verbs → bus** (`dashboard-bus.ts`): abort, send_prompt, spawn,
-  resume, flow_control, set_model, set_thinking_level, rename, hide/unhide,
+  resume, flow_control, set_model, set_thinking_level, rename, archive/unarchive,
   attach/detach_proposal, plugin goal.
 - **READ-ONLY + no-WS-twin → REST** (`dashboard-api.sh`): session / health /
   config reads, git ops, grep/browse, `plugin_config_write`, tunnel, peer scan,
@@ -101,8 +101,15 @@ curl -s -b "pi_dash_token=YOUR_JWT" "$BASE/api/sessions" | jq .
 | Abort | `curl -s -X POST "$BASE/api/session/ID/abort" -H 'Content-Type: application/json' -d '{}'` |
 | Shutdown session | `curl -s -X POST "$BASE/api/session/ID/shutdown" -H 'Content-Type: application/json' -d '{}'` |
 | Rename | `curl -s -X POST "$BASE/api/session/ID/rename" -H 'Content-Type: application/json' -d '{"name":"my-name"}'` |
-| Hide | `curl -s -X POST "$BASE/api/session/ID/hide" -H 'Content-Type: application/json' -d '{}'` |
-| Unhide | `curl -s -X POST "$BASE/api/session/ID/unhide" -H 'Content-Type: application/json' -d '{}'` |
+| Archive | `curl -s -X POST "$BASE/api/session/ID/archive" -H 'Content-Type: application/json' -d '{}'` |
+| Unarchive | `curl -s -X POST "$BASE/api/session/ID/unarchive" -H 'Content-Type: application/json' -d '{}'` |
+
+> `GET /api/sessions` lists RESIDENT sessions only — archived sessions are excluded.
+> Resolve an archived id with `GET /api/sessions/archived?q=<text>` (or
+> `?cwd=<group-path>`), or read one row with `GET /api/sessions/archived/:id`.
+> Archiving an alive-but-idle session terminates its pi process and completes on
+> the ended transition; a running or interrupted (`live:true`) session is refused
+> (WS error / REST 409).
 | Spawn new | `curl -s -X POST "$BASE/api/session/spawn" -H 'Content-Type: application/json' -d '{"cwd":"/path"}'` |
 | Resume/Fork | `curl -s -X POST "$BASE/api/session/ID/resume" -H 'Content-Type: application/json' -d '{"mode":"continue"}'` |
 

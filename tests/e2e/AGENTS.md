@@ -6,6 +6,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 |------|---------|
 | `README.md` | Docs for browser E2E. Prerequisites: Docker, `npx playwright install chromium`. Run via `npm run test:e2e`. → see `README.md.AGENTS.md` |
 | `anthropic-bridge-activation.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Asserts the flows-anthropic-bridge regression via… → see `anthropic-bridge-activation.spec.ts.AGENTS.md` |
+| `archive-fold.spec.ts` | L3 for the per-folder `Archive (N)` fold (test-plan #F4, #F8, #F9, #F10, #F14, #F15, #X8, #P3): seeds archived sidecars out-of-band via Docker exec, asserts lazy listing, restore, delete, read-only open, cross-client eviction, and worktree folding. See change: archive-sessions-lazy-load. |
 | `asciidoc-preview.spec.ts` | L3 AsciiDoc preview styling (change: asciidoc-support, test-plan #F1–#F6). → see `asciidoc-preview.spec.ts.AGENTS.md` |
 | `diagram-preview.spec.ts` | L3 diagram preview (.puml and adoc hydration) in the editor pane (change: diagram-rendering, test-plan… → see `diagram-preview.spec.ts.AGENTS.md` |
 | `automation-fanout.spec.ts` | L3 fan-out E2E (test-plan F5/F6). Creates an `actions:` fan-out automation via `page.request`, fires it, and… → see `automation-fanout.spec.ts.AGENTS.md` |

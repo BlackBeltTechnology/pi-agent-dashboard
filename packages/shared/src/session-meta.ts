@@ -35,6 +35,18 @@ export interface SessionMeta {
   hidden?: boolean;
 
   /**
+   * Archive state (ended-only), orthogonal to `hidden`. An archived session
+   * is evicted from the live set and served from the in-memory archive index
+   * on demand. `archivedAt` records the transition instant; `restoredAt`
+   * restarts the sweeper's age clock on restore. All optional — a sidecar
+   * without them reads as not archived.
+   * See change: archive-sessions-lazy-load.
+   */
+  archived?: boolean;
+  archivedAt?: number;
+  restoredAt?: number;
+
+  /**
    * User-owned, free-form tags for classifying a session. Normalized on write
    * (trim/lowercase/dedupe/cap — see `normalizeTags`). Absent field reads as
    * untagged. Bridges SHALL NOT send this — it is dashboard-owned.

@@ -31,6 +31,12 @@ export function sessionToMeta(session: DashboardSession): SessionMeta {
     displayPrefsOverride: session.displayPrefsOverride ?? undefined,
     processDrawerCollapsed: session.processDrawerCollapsed,
     hidden: session.hidden,
+    // Archive state. MUST be enumerated here for the same full-overwrite
+    // reason as `hidden` — omitting it wipes `archived` on the next routine
+    // save. See change: archive-sessions-lazy-load.
+    archived: session.archived,
+    archivedAt: session.archivedAt,
+    restoredAt: session.restoredAt,
     cwd: session.cwd,
     status: session.status,
     startedAt: session.startedAt,

@@ -22,6 +22,17 @@ After replacement, ids that were present in the previous `sessions` Map but are 
 - **WHEN** the client previously had id "live-y" with status "active"
 - **THEN** after processing, `sessions.get("live-y").status` SHALL equal `"ended"`
 
+#### Scenario: Page merges and appends order
+- **GIVEN** the client holds `sessionOrderMap.get("/repoA")` equal to `["a","b"]` and sessions `a`, `b`
+- **WHEN** a `sessions_page_result { cwd: "/repoA", sessions: [c, d, b], order: ["c","d","b"], hasMore: false }` arrives
+- **THEN** `sessions` SHALL contain `a`, `b`, `c`, `d`
+- **AND** `sessionOrderMap.get("/repoA")` SHALL equal `["a","b","c","d"]`
+
+#### Scenario: Paged sessions are discarded by the next snapshot
+- **GIVEN** the client merged paged session `old-z` for `/repoA`
+- **WHEN** a `sessions_snapshot` arrives that does not include `old-z`
+- **THEN** `sessions.has("old-z")` SHALL be `false`
+
 #### Scenario: session_archived deletes the id
 - **GIVEN** the client has `sessions` containing id "old-z"
 - **WHEN** `session_archived { sessionId: "old-z", cwd: "/repoA", count: 6 }` arrives

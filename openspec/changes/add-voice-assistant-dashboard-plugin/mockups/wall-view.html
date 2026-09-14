@@ -44,6 +44,13 @@
       </button>
     </div>
 
+    <!-- Exposure notice (task 6.4): /live/:id/* has no auth — surfaced WHERE the wall is opened, once, dismissible. -->
+    <div class="flex items-start gap-2 px-3 py-1.5 text-[11px]" role="note" style="background:var(--severity-warning-bg); color:var(--severity-warning-fg); border-bottom:1px solid var(--severity-warning-border)">
+      <span aria-hidden="true">⚠</span>
+      <span class="flex-1">This wall shows live meeting transcript. Anyone who can reach this dashboard's address can open it at <code>/live/&lt;id&gt;/</code> — no login is asked on that path. Stop the copilot to take it down.</span>
+      <button class="px-1 rounded hover:bg-[var(--bg-hover)]" title="Dismiss for this wall" aria-label="Dismiss" style="color:var(--severity-warning-fg)">✕</button>
+    </div>
+
     <!-- Sandboxed iframe placeholder: allow-scripts, NO allow-same-origin (opaque origin).
          Styled with upstream's own wall.css look, not dashboard tokens — that's the point
          of the isolation boundary, not an inconsistency. -->
@@ -63,6 +70,7 @@
 
   <p class="text-xs mt-3" style="color:var(--text-muted)">
     Click <strong>⇱ Open in system browser</strong> to pop this exact content into a real, standalone browser tab (or the OS default browser under Electron via <code>openExternal</code>) — the same affordance every <code>live-server-preview</code> tab already has. No plugin-specific popout code.
+    The yellow <strong>exposure notice</strong> sits inside the tab, above the iframe — the place the decision to share is made (Nielsen #1 visibility, #5 error prevention). Dismiss is per-wall; it comes back on the next start. It is deliberately a note, not a modal: no confirm-fatigue for a fact the operator needs to know but not re-approve.
   </p>
 
   <!-- Empty state -->

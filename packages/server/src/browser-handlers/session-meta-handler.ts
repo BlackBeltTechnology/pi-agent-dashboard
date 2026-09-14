@@ -1,35 +1,14 @@
 /**
- * Session metadata handlers: rename, hide, unhide, attach/detach proposal, fetch_content, list_sessions,
+ * Session metadata handlers: rename, archive, unarchive, attach/detach proposal, fetch_content, list_sessions,
  * sessions_page.
  */
 import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { normalizeTags } from "@blackbelt-technology/pi-dashboard-shared/tags.js";
 import { attachRenameTarget, detachShouldClearName } from "../openspec/proposal-attach-naming.js";
-import { resolveOrderKey } from "../session/resolve-order-key.js";
+import { shutdownSession } from "./session-action-handler.js";
 import { stripNotifyLog } from "../session/memory-session-manager.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
-
-/**
- * Move a session to the front of its resolved-group order list and broadcast
- * `sessions_reordered`. Used by hide/unhide so the card surfaces at the top
- * of its tier (hidden, resp. ended). No-op when the order managers are absent
- * (lean test contexts) or the session is unknown.
- * See change: simplify-session-card-ordering.
- */
-function moveSessionToFront(sessionId: string, ctx: BrowserHandlerContext): void {
-  const { sessionManager, sessionOrderManager, preferencesStore, broadcast } = ctx;
-  if (!sessionOrderManager) return;
-  const session = sessionManager.get(sessionId);
-  if (!session) return;
-  const key = resolveOrderKey(session, preferencesStore?.getPinnedDirectories() ?? []);
-  sessionOrderManager.moveToFront(key, sessionId);
-  broadcast({
-    type: "sessions_reordered",
-    cwd: key,
-    sessionIds: sessionOrderManager.getOrder(key) ?? [],
-  });
-}
 
 export function handleRenameSession(
   msg: Extract<BrowserToServerMessage, { type: "rename_session" }>,
@@ -45,25 +24,13 @@ export function handleRenameSession(
   piGateway.sendToSession(msg.sessionId, { type: "rename_session", sessionId: msg.sessionId, name: msg.name });
 }
 
-export function handleHideSession(
-  msg: Extract<BrowserToServerMessage, { type: "hide_session" }>,
-  ctx: BrowserHandlerContext,
-): void {
-  const updates = { hidden: true };
-  ctx.sessionManager.update(msg.sessionId, updates);
-  ctx.broadcast({ type: "session_updated", sessionId: msg.sessionId, updates });
-  // Surface at the top of the HIDDEN tier (stable status-partition).
-  // See change: simplify-session-card-ordering.
-  moveSessionToFront(msg.sessionId, ctx);
-}
-
 /**
- * Browser → server: replace a session's full user-owned tag list. Mirrors
- * `handleHideSession`: normalize, `sessionManager.update(id, { tags })` (which
- * triggers the debounced `onChange` full-overwrite persist), then broadcast
- * `session_updated`. Does NOT call `mergeSessionMeta` — persistence flows
- * through `onChange` (which MUST enumerate `tags`, else the next unrelated save
- * wipes it). See change: add-session-tags.
+ * Browser → server: replace a session's full user-owned tag list. Normalize,
+ * `sessionManager.update(id, { tags })` (which triggers the debounced `onChange`
+ * full-overwrite persist), then broadcast `session_updated`. Does NOT call
+ * `mergeSessionMeta` — persistence flows through `onChange` (which MUST
+ * enumerate `tags`, else the next unrelated save wipes it).
+ * See change: add-session-tags.
  */
 export function handleSetSessionTags(
   msg: Extract<BrowserToServerMessage, { type: "set_session_tags" }>,
@@ -103,16 +70,88 @@ export function handleRemoveTagGlobally(
   }
 }
 
-export function handleUnhideSession(
-  msg: Extract<BrowserToServerMessage, { type: "unhide_session" }>,
+export function handleUnarchiveSession(
+  msg: Extract<BrowserToServerMessage, { type: "unarchive_session" }>,
   ctx: BrowserHandlerContext,
 ): void {
-  const updates = { hidden: false };
-  ctx.sessionManager.update(msg.sessionId, updates);
-  ctx.broadcast({ type: "session_updated", sessionId: msg.sessionId, updates });
-  // Cleared hidden → surface at the top of the ENDED tier.
-  // See change: simplify-session-card-ordering.
-  moveSessionToFront(msg.sessionId, ctx);
+  ctx.sessionArchive?.unarchiveSession(msg.sessionId);
+}
+
+/**
+ * Classify what an archive request should do for a session. Pure so the
+ * eligibility table is testable without a live gateway.
+ * See change: archive-sessions-lazy-load.
+ */
+export type ArchiveAction =
+  | "not-found"
+  | "reject-live"
+  | "reject-running"
+  | "archive"
+  | "end-then-archive";
+
+export function decideArchiveAction(session: DashboardSession | undefined): ArchiveAction {
+  if (!session) return "not-found";
+  if (session.live === true) return "reject-live";
+  if (session.status === "ended") return "archive";
+  if (session.status === "streaming") return "reject-running";
+  return "end-then-archive";
+}
+
+/**
+ * End (if alive-idle) then archive an ended session. Ended → archive now;
+ * idle-alive → register a one-shot intent, terminate the process, and archive
+ * on the `ended` transition; running or `live:true` → error reply. Returns the
+ * outcome so the REST route can mirror it; the WS path relies on the
+ * `session_archived` / `archived_count_updated` broadcasts.
+ * See change: archive-sessions-lazy-load.
+ */
+export async function requestArchive(
+  sessionId: string,
+  ctx: Pick<
+    BrowserHandlerContext,
+    | "sessionManager"
+    | "piGateway"
+    | "headlessPidRegistry"
+    | "broadcast"
+    | "metaPersistence"
+    | "sessionArchive"
+    | "pendingArchiveIntents"
+    | "endSession"
+  >,
+): Promise<{ ok: boolean; pending?: boolean; error?: string }> {
+  const { sessionManager, sessionArchive, pendingArchiveIntents } = ctx;
+  if (!sessionArchive) return { ok: false, error: "archive unavailable" };
+  const action = decideArchiveAction(sessionManager.get(sessionId));
+  if (action === "not-found") return { ok: false, error: "session not found" };
+  if (action === "reject-live") return { ok: false, error: "session is live (interrupted)" };
+  if (action === "reject-running") return { ok: false, error: "session is running" };
+  if (action === "archive") {
+    const res = sessionArchive.archiveSession(sessionId, "manual");
+    return res.ok ? { ok: true } : { ok: false, error: res.error };
+  }
+  // Alive idle: terminate the process, then archive on the ended transition.
+  pendingArchiveIntents?.record(sessionId);
+  const endSession = ctx.endSession ?? shutdownSession;
+  try {
+    await endSession(sessionId, {
+      sessionManager,
+      piGateway: ctx.piGateway,
+      headlessPidRegistry: ctx.headlessPidRegistry,
+      broadcast: ctx.broadcast,
+      metaPersistence: ctx.metaPersistence,
+    });
+  } catch (err) {
+    pendingArchiveIntents?.clear(sessionId);
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+  return { ok: true, pending: true };
+}
+
+export async function handleArchiveSession(
+  msg: Extract<BrowserToServerMessage, { type: "archive_session" }>,
+  ctx: BrowserHandlerContext,
+): Promise<void> {
+  await requestArchive(msg.sessionId, ctx);
 }
 
 /**

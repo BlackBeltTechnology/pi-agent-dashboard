@@ -14,7 +14,7 @@ See change: add-dashboard-bus-client-scripting.
 | `src/port-discovery.ts` | `discoverPort`/`discoverHost`. Order: explicit → DASHBOARD_PORT/DASHBOARD_HOST env → ~/.pi/dashboard/config.json → 8000/localhost. |
 | `src/denylist.ts` | `CLIENT_INTERCEPTED_DENYLIST` (`plugin_config_write`), `isDenylisted`. Members intercepted to REST client-side; excluded from codegen. |
 | `src/codegen/generate-verbs.ts` | `enumerateUnion(file,name)` via TS compiler API; `generate()` writes `src/generated/verbs.ts`. Enumerates `BrowserToServerMessage` minus denylist. Run: `npm run codegen`. |
-| `src/generated/verbs.ts` | GENERATED — do not edit. `GENERATED_VERBS` (74 verb strings), `GeneratedVerb`, `VERB_INTERFACE`. |
+| `src/generated/verbs.ts` | GENERATED — do not edit. `GENERATED_VERBS` (78 verb strings including `archive_session`/`unarchive_session`), `GeneratedVerb`, `VERB_INTERFACE`. See change: archive-sessions-lazy-load. |
 | `src/__tests__/support/mock-server.ts` | L1 fixture. http `POST /api/ws-ticket` mint (or `denyMint`), WS upgrade validates+consumes ticket, sends sessions_snapshot on connect. `push`/`waitForMessage`/`setSessions`/`makeSession`. |
 | `src/__tests__/connect.test.ts` | C1 — connect mints ticket, opens WS, resolves on snapshot. |
 | `src/__tests__/ticket-expiry.test.ts` | C2 — expired ticket → TicketExpiredError (distinct from close). |

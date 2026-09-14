@@ -97,6 +97,7 @@ function makeSessionMgr(sessions: DashboardSession[] = []): SessionManager {
   return {
     register: vi.fn(),
     restore: vi.fn(),
+    remove: vi.fn(),
     unregister: vi.fn(),
     update: vi.fn(),
     get: (id: string) => map.get(id),

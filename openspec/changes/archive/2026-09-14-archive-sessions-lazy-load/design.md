@@ -20,6 +20,12 @@ See `proposal.md` — Why. Current shape that constrains the design:
 - Client search runs `filterByQuery` over the resident pool; the sidebar list is virtualised, so DOM size is not the bottleneck — the Map, reducers and snapshot bytes are.
 - Mockups + surface/token plan: `mockups/archive-ux.html`, `mockups/ui-plan.md`.
 
+### Measured (harness, change: archive-sessions-lazy-load)
+
+- Boot migration: 400 aged (>30 d) sidecars -> 0 present in `GET /api/sessions`, 0 in the first `sessions_snapshot` frame, all served from `GET /api/sessions/archived` (E2E `archive-fold.spec.ts` P3).
+- Snapshot size: the pre-existing window (`SNAPSHOT_ENDED_GLOBAL=120`, `SNAPSHOT_ENDED_PER_GROUP=3`, change `fix-connect-snapshot-frame-loss`) already bounds the ended frame, so the literal `< 25% of all-resident` ratio is not a property archive introduces; the measured contribution is eviction from the live set + per-session RAM, not raw frame bytes. P3 therefore asserts exclusion + index service instead of a ratio.
+- Boot log line `archive: N indexed, M migrated, K aged-out (X ms)` is observed at L1 with 3000 aged sidecars (`session-scanner.test.ts` P1); the listing request-timing line is observed at L1 under a 20-concurrent burst (`session-api.test.ts` P2).
+
 ## Goals / Non-Goals
 
 **Goals:**

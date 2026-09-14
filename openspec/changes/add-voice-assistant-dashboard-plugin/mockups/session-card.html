@@ -210,10 +210,86 @@
       </div>
     </section>
 
+    <!-- STATE 9: STT reconnecting (upstream soniox-rt.ts policy: unbounded backoff + audio replay; capture stays alive, NOT an error) -->
+    <section class="card p-3" aria-label="Session card — speech-to-text reconnecting">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0" style="background:var(--bg-tertiary); color:var(--status-idle)">●</span>
+        <span class="text-sm font-semibold flex-1 truncate" style="color:var(--text-primary)">acme-erp / client call</span>
+        <span class="text-[10px]" style="color:var(--text-muted)">16m ago</span>
+      </div>
+      <div class="text-xs mb-2" style="color:var(--text-tertiary)">claude-opus-4</div>
+      <div class="flex items-center gap-1.5 text-[11px] mb-3">
+        <span class="badge" style="background:var(--severity-warning-bg); color:var(--severity-warning-fg); border-color:var(--severity-warning-border)" title="STT socket dropped — audio is buffered (~15 s) and replayed on reconnect; nothing is lost">
+          <span aria-hidden="true">↻</span> Reconnecting… attempt 3
+        </span>
+      </div>
+      <div class="subcard p-2">
+        <div class="text-[10px] uppercase tracking-wide mb-1.5" style="color:var(--text-muted)">voice-assistant</div>
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <button class="btn btn-dictate-idle font-mono" disabled title="Start dictation — unavailable: meeting copilot is active">● dict-start</button>
+          <button class="btn btn-copilot-active"><span aria-hidden="true">■</span> Stop meeting copilot</button>
+          <a href="wall-view.html" class="btn" style="border-color:var(--border-primary); color:var(--text-secondary)">View live wall →</a>
+        </div>
+        <p class="text-[10px] mt-1.5" style="color:var(--text-muted)">Speech-to-text link dropped; retrying (0.5s → 8s backoff, unbounded). Audio keeps buffering and replays on reconnect — <strong>Stop</strong> is the only way to end retries. Badge clears itself on reconnect.</p>
+      </div>
+    </section>
+
+    <!-- STATE 10: browser-mic permission denied (recoverable; server source still offered) -->
+    <section class="card p-3" aria-label="Session card — browser-mic permission denied">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0" style="background:var(--bg-tertiary); color:var(--status-idle)">●</span>
+        <span class="text-sm font-semibold flex-1 truncate" style="color:var(--text-primary)">acme-erp / spec review</span>
+        <span class="text-[10px]" style="color:var(--text-muted)">just now</span>
+      </div>
+      <div class="text-xs mb-2" style="color:var(--text-tertiary)">claude-sonnet-4</div>
+      <div class="flex items-center gap-1.5 text-[11px] mb-3">
+        <span class="badge" style="background:var(--severity-error-bg); color:var(--severity-error-fg); border-color:var(--severity-error-border)">
+          <span aria-hidden="true">⚠</span> Microphone blocked
+        </span>
+      </div>
+      <div class="subcard p-2">
+        <div class="text-[10px] uppercase tracking-wide mb-1.5" style="color:var(--text-muted)">voice-assistant</div>
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <select class="text-[9px] rounded border px-1 py-0.5" title="Microphone source" style="border-color:var(--border-primary); color:var(--text-secondary); background:var(--bg-primary)">
+            <option>🌐 this browser</option>
+            <option>🖥 this server (dev-box)</option>
+          </select>
+          <button class="btn btn-dictate-idle font-mono" title="Start dictation — retry"><span aria-hidden="true">●</span> dict-start</button>
+        </div>
+        <p class="text-[10px] mt-1.5" style="color:var(--text-muted)">This browser denied microphone access. Allow it in the site permissions and try again, or switch the source to the server's mic. Nothing was recorded.</p>
+      </div>
+    </section>
+
+    <!-- STATE 11: browser-mic no input device / unsupported browser (same layout, different inline reason) -->
+    <section class="card p-3" aria-label="Session card — browser-mic no device or unsupported">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0" style="background:var(--bg-tertiary); color:var(--status-idle)">●</span>
+        <span class="text-sm font-semibold flex-1 truncate" style="color:var(--text-primary)">acme-erp / spec review</span>
+        <span class="text-[10px]" style="color:var(--text-muted)">just now</span>
+      </div>
+      <div class="text-xs mb-2" style="color:var(--text-tertiary)">claude-sonnet-4 — tablet, no mic</div>
+      <div class="flex items-center gap-1.5 text-[11px] mb-3">
+        <span class="badge" style="background:var(--severity-error-bg); color:var(--severity-error-fg); border-color:var(--severity-error-border)">
+          <span aria-hidden="true">⚠</span> No microphone found
+        </span>
+      </div>
+      <div class="subcard p-2">
+        <div class="text-[10px] uppercase tracking-wide mb-1.5" style="color:var(--text-muted)">voice-assistant</div>
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <select class="text-[9px] rounded border px-1 py-0.5" title="Microphone source" style="border-color:var(--border-primary); color:var(--text-secondary); background:var(--bg-primary)">
+            <option>🌐 this browser</option>
+            <option>🖥 this server (dev-box)</option>
+          </select>
+          <button class="btn btn-dictate-idle font-mono" title="Start dictation — retry"><span aria-hidden="true">●</span> dict-start</button>
+        </div>
+        <p class="text-[10px] mt-1.5" style="color:var(--text-muted)">No audio input device is available in this browser. Plug one in, or switch the source to the server's mic.<br><span style="color:var(--text-tertiary)">Unsupported-browser variant reads: “This browser can't stream microphone audio (no <code>AudioWorklet</code>). Use a current Chrome/Firefox/Safari, or the server's mic.”</span></p>
+      </div>
+    </section>
+
   </div>
 
   <footer class="mt-6 text-xs" style="color:var(--text-muted)">
-    Grounded in <code>SessionCard.tsx</code>'s existing Resume/Fork button family (<code>text-[9px] px-1 py-px rounded border</code>) and badge conventions. Dictation = green (matches Resume), meeting-copilot = purple (matches the existing needs-you/attention hue) — distinct hues for two independently-controllable systems (Gestalt similarity).
+    Grounded in <code>SessionCard.tsx</code>'s existing Resume/Fork button family (<code>text-[9px] px-1 py-px rounded border</code>) and badge conventions. Dictation = green (matches Resume), meeting-copilot = purple (matches the existing needs-you/attention hue) — distinct hues for two independently-controllable systems (Gestalt similarity). <strong>Reconnecting</strong> is warning-yellow (still capturing, degraded), never error-red — upstream's STT client buffers and replays, so nothing is lost; red is reserved for terminal states (delivery failed, mic blocked, no device).
   </footer>
 </div>
 </body>

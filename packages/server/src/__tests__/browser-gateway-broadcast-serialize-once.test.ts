@@ -168,8 +168,6 @@ import { wireEvents } from "../event-wiring.js";
 import { applyReattachPolicy } from "../session/reattach-placement.js";
 import { createSessionOrderManager } from "../session/session-order-manager.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
-import { handleHideSession } from "../browser-handlers/session-meta-handler.js";
 import { makeFakeDirectoryService } from "./helpers/load-fixtures.js";
 
 /** Minimal prefs store backing a REAL SessionOrderManager. */
@@ -255,16 +253,15 @@ describe("live sessions_reordered windowed at broadcast (E19, E20)", () => {
     expect(lastReorder(rig.ws)?.sessionIds).toEqual(["live1", "e1", "e2", "e3"]);
 
     // Site 1 — session-meta-handler hide path (moveSessionToFront).
-    const ctx = {
-      ws: rig.ws,
-      sessionManager: rig.manager,
-      eventStore: createMemoryEventStore(() => false),
-      piGateway: rig.piGateway,
-      sessionOrderManager: rig.orderManager,
-      preferencesStore: rig.prefs,
-      broadcast: rig.gateway.broadcast.bind(rig.gateway),
-    } as unknown as BrowserHandlerContext;
-    handleHideSession({ type: "hide_session", sessionId: "live1" }, ctx);
+    // Site 1 — a handler-path order mutation broadcast through the gateway.
+    // (Manual hide was removed; archive evicts instead of reordering, so this
+    // exercises the same `broadcast()` projection directly.)
+    rig.orderManager.moveToFront("/g", "live1");
+    rig.gateway.broadcast({
+      type: "sessions_reordered",
+      cwd: "/g",
+      sessionIds: rig.orderManager.getOrder("/g") ?? [],
+    });
     expect(lastReorder(rig.ws)?.sessionIds).toEqual(["live1", "e1", "e2", "e3"]);
 
     // Site 3 — reattach placement policy.

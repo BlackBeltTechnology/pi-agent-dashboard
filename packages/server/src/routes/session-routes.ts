@@ -7,6 +7,7 @@ import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/type
 import type { FastifyInstance } from "fastify";
 import type { EventStore } from "../persistence/memory-event-store.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
+import { decodeCursor, type SessionArchive } from "../session/session-archive.js";
 import { buildSessionDiffCached, type SessionDiffResult } from "../session/session-diff.js";
 import { SessionDiffCache } from "../session/session-diff-cache.js";
 import { findSessionToolCallPayload } from "../session/session-file-reader.js";
@@ -19,9 +20,12 @@ export function registerSessionRoutes(
     sessionManager: SessionManager;
     eventStore: EventStore;
     networkGuard: NetworkGuard;
+    /** Archive index backing the on-demand listing/search/delete endpoints.
+     *  See change: archive-sessions-lazy-load. */
+    sessionArchive?: SessionArchive;
   },
 ) {
-  const { sessionManager, eventStore, networkGuard } = deps;
+  const { sessionManager, eventStore, networkGuard, sessionArchive } = deps;
 
   // Per-server session-diff result cache + single-flight coordinator. Short TTL
   // so repeated UI polls of an unchanged session skip recompute, and concurrent
@@ -33,6 +37,67 @@ export function registerSessionRoutes(
     const sessions = sessionManager.listAll();
     return { success: true, data: sessions } satisfies ApiResponse;
   });
+
+  // On-demand listing of archived sessions, served from the in-memory index
+  // (no disk IO). Query: cwd (absolute group path), limit (1-200, default 50),
+  // cursor (opaque), q (substring, >= 3 chars). See change:
+  // archive-sessions-lazy-load.
+  fastify.get<{ Querystring: { cwd?: string; limit?: string; cursor?: string; q?: string } }>(
+    "/api/sessions/archived",
+    async (request, reply) => {
+      const startedMs = Date.now();
+      const { cwd, limit, cursor, q } = request.query;
+      if (cwd !== undefined && (cwd === "" || !isAbsolute(cwd))) {
+        reply.code(400);
+        return { success: false, error: "cwd must be an absolute path" } satisfies ApiResponse;
+      }
+      if (cursor !== undefined && cursor !== "" && decodeCursor(cursor) === null) {
+        reply.code(400);
+        return { success: false, error: "invalid cursor" } satisfies ApiResponse;
+      }
+      const parsedLimit = typeof limit === "string" ? Number.parseInt(limit, 10) : Number.NaN;
+      const effectiveLimit = Number.isFinite(parsedLimit)
+        ? Math.min(200, Math.max(1, parsedLimit))
+        : 50;
+      const result = sessionArchive?.list({
+        ...(cwd !== undefined ? { cwd } : {}),
+        limit: effectiveLimit,
+        ...(cursor !== undefined && cursor !== "" ? { cursor } : {}),
+        ...(q !== undefined ? { q } : {}),
+      }) ?? { items: [] };
+      // P2: request-timing log for the listing endpoint (no threshold).
+      console.debug(
+        `[archive] GET /api/sessions/archived cwd=${cwd ?? "*"} limit=${effectiveLimit} ` +
+          `q=${q ?? ""} → ${result.items.length} items in ${Date.now() - startedMs} ms`,
+      );
+      return { success: true, data: result } satisfies ApiResponse;
+    },
+  );
+
+  fastify.get<{ Params: { id: string } }>(
+    "/api/sessions/archived/:id",
+    async (request, reply) => {
+      const item = sessionArchive?.getById(request.params.id);
+      if (!item) {
+        reply.code(404);
+        return { success: false, error: "session is not archived" } satisfies ApiResponse;
+      }
+      return { success: true, data: { item } } satisfies ApiResponse;
+    },
+  );
+
+  fastify.delete<{ Params: { id: string } }>(
+    "/api/sessions/archived/:id",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const result = sessionArchive?.deleteArchived(request.params.id);
+      if (!result?.ok) {
+        reply.code(result?.notFound ? 404 : 500);
+        return { success: false, error: result?.error ?? "archive unavailable" } satisfies ApiResponse;
+      }
+      return { success: true } satisfies ApiResponse;
+    },
+  );
 
   fastify.get<{ Params: { sessionId: string; seq: string } }>(
     "/api/events/:sessionId/:seq",
