@@ -200,10 +200,15 @@ export class BrowserRelayStatus {
 
   /** A refused viewer message: audited with the message type (never the payload). */
   private _deny(msg: unknown, detail: string): void {
-    const instanceId = (msg as { instanceId?: unknown } | null)?.instanceId;
+    const raw = (msg as { instanceId?: unknown } | null)?.instanceId;
+    // Cap player-supplied length and reject a non-string: the audit ring is
+    // broadcast to every client and retained, so an unbounded (or spoofed)
+    // instanceId is a memory-amplification / audit-spoofing vector.
+    const instanceId =
+      typeof raw === "string" && raw.length > 0 && raw.length <= 128 ? raw : "unknown";
     this.deps.audit.append({
       profileDirectory: "unknown",
-      instanceId: typeof instanceId === "string" ? instanceId : "unknown",
+      instanceId,
       kind: "denied",
       detail,
     });

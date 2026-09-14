@@ -89,7 +89,10 @@ export function registerBrowserWsRoutes(ctx: ServerPluginContext, manager: Relay
       }
       extWss.handleUpgrade(request, socket, head, (ws) => {
         meta.trackSocket(ws);
-        manager.attachExtension(guid, ws);
+        // The guid may have expired between `resolve` and this async callback;
+        // `attachExtension` returns false then, and the socket must not linger
+        // upgraded-but-orphaned.
+        if (!manager.attachExtension(guid, ws)) ws.close(1000, "unknown guid");
       });
     },
   });
@@ -111,7 +114,7 @@ export function registerBrowserWsRoutes(ctx: ServerPluginContext, manager: Relay
       }
       cdpWss.handleUpgrade(request, socket, head, (ws) => {
         meta.trackSocket(ws);
-        manager.attachCdp(guid, ws);
+        if (!manager.attachCdp(guid, ws)) ws.close(1000, "unknown guid");
       });
     },
   });

@@ -6,8 +6,13 @@
  *
  * See change: add-browser-relay (GAP A).
  */
+
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { redactWriteOnly } from "../config-redact.js";
+import { redactPluginConfigForClient, redactWriteOnly } from "../config-redact.js";
+import { clearDiscoveryCache } from "../loader.js";
 
 const browserSchema = {
   type: "object",
@@ -106,5 +111,102 @@ describe("redactWriteOnly", () => {
     const snapshot = JSON.stringify(config);
     redactWriteOnly(config, browserSchema);
     expect(JSON.stringify(config)).toBe(snapshot);
+  });
+});
+
+// ── redactPluginConfigForClient — FAILS CLOSED ───────────────────────────────
+describe("redactPluginConfigForClient (fail-closed wrapper)", () => {
+  function fixtureRoot(
+    name: string,
+    manifest: Record<string, unknown>,
+    schema?: string,
+  ): string {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "config-redact-"));
+    const pkgDir = path.join(root, "packages", name);
+    fs.mkdirSync(pkgDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pkgDir, "package.json"),
+      JSON.stringify({ name, "pi-dashboard-plugin": manifest }),
+    );
+    if (schema !== undefined) fs.writeFileSync(path.join(pkgDir, "schema.json"), schema);
+    clearDiscoveryCache();
+    return root;
+  }
+
+  it("strips a writeOnly token when the schema loads", () => {
+    const root = fixtureRoot(
+      "fixture-ok",
+      { id: "fixture-ok", displayName: "OK", claims: [], configSchema: "./schema.json" },
+      JSON.stringify(browserSchema),
+    );
+    try {
+      const out = redactPluginConfigForClient(
+        "fixture-ok",
+        { browsers: { Default: { token: "secret", zeroDialog: true } } },
+        root,
+      ) as { browsers: Record<string, Record<string, unknown>> };
+      expect(out.browsers.Default.token).toBeUndefined();
+      expect(out.browsers.Default.zeroDialog).toBe(true);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      clearDiscoveryCache();
+    }
+  });
+
+  it("FAILS CLOSED when a declared schema cannot be loaded", () => {
+    // configSchema declared, but the file does not exist — we cannot know which
+    // fields are writeOnly, so the raw config (with its token) must NOT escape.
+    const root = fixtureRoot("fixture-broken", {
+      id: "fixture-broken",
+      displayName: "Broken",
+      claims: [],
+      configSchema: "./schema.json",
+    });
+    try {
+      const out = redactPluginConfigForClient("fixture-broken", { browsers: { Default: { token: "secret" } } }, root);
+      expect(out).toEqual({});
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      clearDiscoveryCache();
+    }
+  });
+
+  it("FAILS CLOSED for a malformed schema", () => {
+    const root = fixtureRoot(
+      "fixture-badjson",
+      { id: "fixture-badjson", displayName: "Bad", claims: [], configSchema: "./schema.json" },
+      "{not json",
+    );
+    try {
+      expect(redactPluginConfigForClient("fixture-badjson", { token: "secret" }, root)).toEqual({});
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      clearDiscoveryCache();
+    }
+  });
+
+  it("FAILS CLOSED for an unresolvable plugin id", () => {
+    const root = fixtureRoot("fixture-known", { id: "fixture-known", displayName: "K", claims: [] });
+    try {
+      expect(redactPluginConfigForClient("not-installed", { token: "secret" }, root)).toEqual({});
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      clearDiscoveryCache();
+    }
+  });
+
+  it("passes through when a resolved plugin declares NO schema", () => {
+    const root = fixtureRoot("fixture-noschema", {
+      id: "fixture-noschema",
+      displayName: "No schema",
+      claims: [],
+    });
+    try {
+      const cfg = { anything: 1 };
+      expect(redactPluginConfigForClient("fixture-noschema", cfg, root)).toBe(cfg);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      clearDiscoveryCache();
+    }
   });
 });

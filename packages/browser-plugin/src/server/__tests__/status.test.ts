@@ -246,6 +246,16 @@ describe("relay gateway handlers (#3.6)", () => {
     expect(h.audit.list()[0]?.kind).toBe("denied");
   });
 
+  it.each([
+    ["over-long", "x".repeat(500)],
+    ["empty", ""],
+  ])("caps a %s viewer-supplied instanceId to `unknown` in the denial audit", (_label, instanceId) => {
+    const h = harness();
+    const { ws } = stubWs();
+    invoke(h, "browser_relay_subscribe", { instanceId, tabId: 7 }, ws);
+    expect(h.audit.list()[0]).toMatchObject({ kind: "denied", instanceId: "unknown" });
+  });
+
   it("input forwards to the instance with the socket's remote address", async () => {
     const h = harness();
     const inst = new StubInstance("inst-1", "P");

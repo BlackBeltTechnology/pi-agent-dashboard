@@ -116,6 +116,8 @@ interface Entry {
 export class RelayManager {
   private readonly byGuid = new Map<string, Entry>();
   private readonly byInstanceId = new Map<string, Entry>();
+  /** Bumped by every `setEnabled(false)`; a connect in flight re-checks it. */
+  private disableEpoch = 0;
   private readonly timers: RelayTimers;
   private readonly connectTimeoutMs: number;
   private readonly guidExpiryMs: number;
@@ -177,11 +179,19 @@ export class RelayManager {
    */
   async connect(profileDirectory: string): Promise<ConnectResult> {
     if (!this.enabled) return { ok: false, status: 403, reason: "disabled" };
+    // Capture the disable epoch: a concurrent `setEnabled(false)` (or the config
+    // write that precedes it) must not be overtaken by a connect already past
+    // its first check — otherwise a real Chrome tab group opens on a relay the
+    // user just switched off (the kill switch iterates an empty map and reports
+    // success before this instance exists). Re-checked after every await.
+    const epoch = this.disableEpoch;
+    const disabledSince = (): boolean => !this.enabled || this.disableEpoch !== epoch;
     if (!this.deps.canOpenChrome()) {
       return { ok: false, status: 503, message: "This host cannot open a URL in a Chrome profile" };
     }
 
     const { profiles } = await this.deps.listProfiles();
+    if (disabledSince()) return { ok: false, status: 403, reason: "disabled" };
     const profile = profiles.find((p) => p.profileDirectory === profileDirectory);
     if (!profile) {
       return { ok: false, status: 409, reason: "not-installed", message: `Unknown profile ${profileDirectory}` };
@@ -252,6 +262,7 @@ export class RelayManager {
    */
   async setEnabled(enabled: boolean): Promise<void> {
     if (enabled) return;
+    this.disableEpoch += 1;
     for (const entry of [...this.byInstanceId.values()]) entry.instance.close("disabled");
   }
 

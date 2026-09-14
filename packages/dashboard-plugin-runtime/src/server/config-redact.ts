@@ -109,9 +109,15 @@ export function redactWriteOnly(config: unknown, schema: unknown): unknown {
 /**
  * Convenience wrapper for call sites that hold a plugin id (broadcasts, REST
  * responses): resolve the plugin's configSchema via discovery, load it from
- * disk, and redact. Returns the input reference unchanged when the plugin is
- * unknown or declares no (loadable) schema — same failure-isolated posture as
- * `validatePluginConfig`'s caller in plugin-config-routes.ts.
+ * disk, and redact.
+ *
+ * FAILS CLOSED. If the plugin cannot be resolved, or declares a `configSchema`
+ * that cannot be loaded/parsed, the raw config is NOT returned — an unreadable
+ * schema is exactly the case where we cannot know which fields are `writeOnly`,
+ * so returning the config verbatim would leak the secret this function exists
+ * to strip. Returns `{}` instead (with a log). Only a plugin that resolves AND
+ * declares NO schema passes through unchanged: no schema means no declared
+ * secrets.
  */
 export function redactPluginConfigForClient(
   pluginId: string,
@@ -120,12 +126,22 @@ export function redactPluginConfigForClient(
 ): unknown {
   const plugins = discoverPlugins(repoRoot);
   const plugin = plugins.find((p) => p.manifest.id === pluginId);
-  if (!plugin?.manifest.configSchema) return config;
+  if (!plugin) {
+    // An unresolvable plugin (stale config entry, discovery failure) may still
+    // declare writeOnly fields we cannot see — never ship its raw config.
+    console.warn(`[config-redact] unknown plugin "${pluginId}" — redacting config to {}`);
+    return {};
+  }
+  if (!plugin.manifest.configSchema) return config;
   const schemaPath = path.resolve(plugin.packageDir, plugin.manifest.configSchema);
   try {
     const schema = JSON.parse(fs.readFileSync(schemaPath, "utf-8"));
     return redactWriteOnly(config, schema);
-  } catch {
-    return config;
+  } catch (err) {
+    console.error(
+      `[config-redact] cannot load schema for "${pluginId}" (${schemaPath}) — redacting config to {}`,
+      err,
+    );
+    return {};
   }
 }

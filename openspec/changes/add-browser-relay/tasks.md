@@ -260,7 +260,17 @@ internal-only symbols and dropped the redundant named `registerPlugin` export.
 
 ## 6. Security, docs, closeout
 
-- [ ] 6.1 `security-hardening` pass on the full diff (`Audit` subagent): admission order, token handling (write-only, redaction), deny-list completeness, audit redaction, kill switch. Fix findings; record summary here.
+- [x] 6.1 `security-hardening` pass on the full diff (`Audit` subagent): admission order, token handling (write-only, redaction), deny-list completeness, audit redaction, kill switch. Fix findings; record summary here.
+
+  **6.1 outcome — `Audit` pass, 1 blocking + 3 non-blocking findings, all fixed:**
+
+  - **[blocking] `redactPluginConfigForClient` failed OPEN** (`dashboard-plugin-runtime/src/server/config-redact.ts`): when the plugin was not discovered, or its declared `configSchema` was missing/unreadable/unparseable, it returned the config VERBATIM — so a packaging/permission/parse failure would broadcast every profile's `writeOnly` SSO token to all clients. **Fixed: fail closed** — unresolvable plugin or unloadable schema → `{}` + a log; only a resolved plugin with NO declared schema passes through. Tests added (loads-strips, missing file, malformed JSON, unknown id, no-schema) in `config-redact.test.ts`.
+  - **[fixed] Kill-switch race** (`relay-manager.ts`): `connect()` checked `enabled` once, then awaited `listProfiles()`, so a concurrent `setEnabled(false)` (which iterates the still-empty instance map) could report success and then let the connect open a real Chrome tab group. **Fixed** with a `disableEpoch` bumped by `setEnabled(false)` and re-checked after the await; test gates `listProfiles` to land the race deterministically.
+  - **[fixed] Unbounded/spoofable `instanceId` in the denial audit** (`status.ts` `_deny`): the viewer-supplied id went into the broadcast+retained audit ring verbatim (memory amplification + audit spoofing). **Fixed**: cap at 128 chars, else `"unknown"`; tests for over-long and empty.
+  - **[fixed] Upgraded-but-orphaned socket** (`ws-routes.ts`): `attachExtension`/`attachCdp` return values were ignored, so a guid expiring between `resolve` and the async upgrade callback left a tracked orphan. **Fixed**: `if (!attach…) ws.close(1000, "unknown guid")`.
+  - **Deliberate non-fix**: the deny-list fences cookie READS + download behavior (per spec), not cookie writes/clears (`Network.setCookie` etc.). Recorded as intent; adding write verbs would exceed the spec's enumerated set and break E12's exact-verb contract.
+
+  **Verified clean by the audit:** plugin-scope WS admission returns before every credential branch (cookie/localToken/ticket/CIDR cannot admit a plugin scope); pinned-origin exact-match replaces the core policy; loopback peer+Host+8 forwarding headers enforced; guid never logged/persisted/returned to a client; token never rendered and only in PUT bodies; audit `detail` string-only at every one of 12 call sites; viewer input allowlist emits no `Runtime.*`; no new direct `node:child_process` import.
 - [ ] 6.2 `docs/` via DocScribe: `docs/architecture.md` browser-relay section (Mermaid from design D5), `docs/AGENTS.md` rows; directory `AGENTS.md` rows for `packages/browser-plugin/`, runtime, server auth files, shared, skill references. Verify: `kb dox lint` clean.
 - [ ] 6.3 Update `docs/research/browser-relay-playwright-extension.md` §8 status line to point at this change. Verify: row in `docs/AGENTS.md` updated.
 - [ ] 6.4 Full test run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` + `npm run quality:changed`; `review-code` pass. Verify: 0 failed, Biome clean.

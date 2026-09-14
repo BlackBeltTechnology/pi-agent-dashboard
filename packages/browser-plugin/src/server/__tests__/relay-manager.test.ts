@@ -23,6 +23,8 @@ interface HarnessOpts {
   guidExpiryMs?: number;
   /** Recording logger for the observability assertions (2.11). */
   logger?: { info(msg: string): void; warn(msg: string): void; error(msg: string): void };
+  /** Override profile discovery (kill-switch-race test gates it). */
+  listProfiles?: () => Promise<{ profiles: Array<{ profileDirectory: string; label: string; installed: boolean }> }>;
   /** Complete the extension handshake as soon as Chrome is "opened". */
   dialOnOpen?: boolean;
 }
@@ -56,11 +58,13 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     getConfig: () => config,
     getPort: () => opts.port ?? 8000,
     canOpenChrome: () => opts.canOpenChrome ?? true,
-    listProfiles: async () => ({
-      profiles: [
-        { profileDirectory: "Default", label: "Default", installed: opts.installed ?? true },
-      ],
-    }),
+    listProfiles: opts.listProfiles
+      ? opts.listProfiles
+      : async () => ({
+          profiles: [
+            { profileDirectory: "Default", label: "Default", installed: opts.installed ?? true },
+          ],
+        }),
     openChrome: (_profile, url) => {
       urls.push(url);
       if (!opts.dialOnOpen) return;
@@ -243,6 +247,27 @@ describe("disconnect + kill switch (E20, E21)", () => {
     await manager.setEnabled(false);
     await flush();
     expect(manager.instances()).toHaveLength(0);
+  });
+
+  it("a connect in flight when setEnabled(false) lands does NOT open a tab group (race)", async () => {
+    // Gate profile discovery so the disable lands mid-connect — the exact window
+    // where the kill switch iterates an empty map and reports success.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const h = makeHarness({
+      config: { enabled: true, browsers: { Default: {} } },
+      listProfiles: async () => {
+        await gate;
+        return { profiles: [{ profileDirectory: "Default", label: "Default", installed: true }] };
+      },
+    });
+    const pending = h.manager.connect("Default");
+    await h.manager.setEnabled(false);
+    release();
+    expect(await pending).toEqual({ ok: false, status: 403, reason: "disabled" });
+    expect(h.manager.instances()).toHaveLength(0);
   });
 });
 
