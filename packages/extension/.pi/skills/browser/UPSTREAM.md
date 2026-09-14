@@ -7,8 +7,10 @@ section in `electron.md` are project-specific and not from upstream.
 
 **Not vendored — do not overwrite on refresh:**
 `references/own-browser.md` and `scripts/check-panerelay.sh` are authored
-for this repo (the Panerelay / own-logged-in-browser recipe). They have no
-upstream counterpart.
+for this repo (the Panerelay / own-logged-in-browser recipe).
+`references/challenge.md` is authored for this repo too — the pause / resume
+discipline for interactive anti-bot challenges. None of them has an upstream
+counterpart.
 
 | Field                  | Value                                                              |
 |------------------------|--------------------------------------------------------------------|
@@ -43,7 +45,8 @@ diff <(awk 'BEGIN{n=0} /^---$/{n++; next} n>=2{print}' /tmp/electron.md) referen
 #    Preserve the Pi Dashboard addenda (after the first `---` separator
 #    in web.md, and the "Worked example: Pi Dashboard" section in
 #    electron.md). Update the LICENSE file if the upstream license text
-#    has changed. Leave own-browser.md and check-panerelay.sh untouched.
+#    has changed. Leave own-browser.md, challenge.md and
+#    check-panerelay.sh untouched.
 
 # 5. Re-verify the authored recipe against the new CLI, then bump
 #    `verifiedAgainstCli` in SKILL.md frontmatter:

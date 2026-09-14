@@ -5,7 +5,7 @@ license: Apache-2.0
 allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*), Bash(npx @panerelay/setup:*)
 metadata:
   author: pi-dashboard
-  version: "1.1"
+  version: "1.2"
   vendoredFrom: agent-browser
   vendoredVersion: "0.27.0"
   verifiedAgainstCli: "0.33.2"
@@ -105,8 +105,14 @@ whenever login state is irrelevant — it is faster and more capable.
 
 ## Step 1 — Read the matched recipe and execute
 
-Read the reference file selected above, then follow its workflow. Both
-references are self-contained; you do not need to read both.
+Read the reference file selected above, then follow its workflow. All
+references are self-contained; you do not need to read more than one.
+
+**Challenge encountered**: if at any point the page is an interactive
+anti-bot challenge (Cloudflare Turnstile, hCaptcha, reCAPTCHA, "Checking
+your browser…") that withholds the content you asked for, stop and follow
+[`references/challenge.md`](references/challenge.md). Do not retry, do not
+switch `--session`, `--profile`, or provider, and do not run `close --all`.
 
 ## Notes
 
@@ -114,8 +120,8 @@ references are self-contained; you do not need to read both.
   snapshots of upstream `agent-browser` skill content (`core` and
   `electron`) at CLI version 0.27.0. See [`UPSTREAM.md`](UPSTREAM.md) for
   refresh procedure and [`LICENSE`](LICENSE) for upstream attribution.
-  `references/own-browser.md` is **authored, not vendored** — an upstream
-  refresh must not overwrite it.
+  `references/own-browser.md` and `references/challenge.md` are
+  **authored, not vendored** — an upstream refresh must not overwrite either.
 - **Surfaces share one browser**: the `browser` MCP tool and
   `Bash: agent-browser …` drive the *same* daemon and *same* Chrome, with a
   shared active page. Probing with one mid-task can silently move the page
