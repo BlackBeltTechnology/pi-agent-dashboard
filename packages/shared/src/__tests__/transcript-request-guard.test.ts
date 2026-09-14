@@ -14,7 +14,9 @@
  *   - a foreign sessionId → the shape is fine, the subject is not (#E13)
  *
  * Tasks 11.3, 11.4; test-plan #E13, #E14.
- * See change: add-pi-gateway-transport-identity.
+ * See change: add-pi-gateway-transport-identity;
+ * serve-retained-remote-transcripts (moved here with the guard, so the rule the
+ * dashboard's read route shares is tested at its new home).
  */
 import { describe, expect, it, vi } from "vitest";
 import { decideTranscriptRequest } from "../transcript-request-guard.js";

@@ -94,7 +94,7 @@ import { stripForForward } from "./subagent-frame-strip.js";
 import { isSubagentTick, SubagentTickThrottle } from "./subagent-tick-throttle.js";
 import { inlineToolResultImages } from "./tool-result-image-inliner.js";
 import { readTranscriptChunk, type TranscriptCursor } from "./transcript-backfill.js";
-import { decideTranscriptRequest } from "./transcript-request-guard.js";
+import { decideTranscriptRequest } from "@blackbelt-technology/pi-dashboard-shared/transcript-request-guard.js";
 import { createTransportDiagnostics } from "./transport-diagnostics.js";
 import { createTuiPromptAdapter } from "./tui-prompt-adapter.js";
 import { classifyTurnActionability } from "./turn-actionability.js";

@@ -9,16 +9,20 @@
  *
  * A provider is supported ONLY when its endpoint contract is fully known.
  * Deliberately NOT supported:
- *  - `opencode-go` — needs a workspace id + session cookie from a separate
- *    config file, i.e. a credential the dashboard does not hold.
+ *  - `opencode` (the Zen pay-as-you-go gateway) — its wallet balance is reachable
+ *    only behind a browser-session cookie + a workspace id (the
+ *    `server.queryBilling` console RPC), a credential the dashboard does not
+ *    hold; and a balance is not a resetting window. The Go SUBSCRIPTION
+ *    (`opencode-go`) IS supported — it has a key-authenticated resetting-window
+ *    usage API (see `opencodeGo` below).
  *  - `deepseek` / `minimax` — expose a wallet BALANCE, not a resetting quota
  *    window; there is no reset stamp to compute pace against.
  * Shipping those as permanently-empty rows would be a worse lie than omitting
- * them. See change: publish-quota-plugin.
+ * them. See change: add-opencode-go-quota.
  */
 import type { QuotaWindowDto } from "../../types.js";
 import { fetchJson, type JsonResult } from "./http.js";
-import { parseAnthropic, parseCodex, parseCopilot, parseKimi, parseOpenRouter, parseSynthetic, parseZai } from "./parse.js";
+import { parseAnthropic, parseCodex, parseCopilot, parseKimi, parseOpencodeGo, parseOpenRouter, parseSynthetic, parseZai } from "./parse.js";
 
 /** The host-provided credential seam. Mirrors the server plugin context. */
 export interface AuthLike {
@@ -188,10 +192,54 @@ async function synthetic(auth: AuthLike, signal?: AbortSignal): Promise<FetchRes
   return get("https://api.synthetic.new/v2/quotas", bearer(token), parseSynthetic, signal);
 }
 
+/** A non-default User-Agent is REQUIRED (see `opencodeGo`). */
+const OPENCODE_GO_UA = "opencode/1.0.0";
+
+/**
+ * True when a 403 body signals a Cloudflare 1010 edge block, not an auth error.
+ * Matches ONLY the discriminating `1010` code (optionally with the `cloudflare`
+ * marker). Generic phrases like "access denied" also appear in real entitlement
+ * 403s, so matching them would mislabel a genuine "no Go plan" as an edge block
+ * — the exact misreading this detection exists to prevent, just inverted.
+ */
+function isCloudflare1010(message: string): boolean {
+  return /\b1010\b|cloudflare/i.test(message);
+}
+
+/**
+ * OpenCode **Go subscription** `/zen/go/v1/usage`: key-authenticated resetting
+ * plan windows. A non-default `User-Agent` is REQUIRED — the default Node client
+ * is rejected by Cloudflare (error 1010) with a 403 that is otherwise
+ * indistinguishable from an auth/entitlement failure, which is why this provider
+ * was long (wrongly) believed to have no usable usage API. A 403 that is really
+ * a CF-1010 edge block is annotated with a DISTINCT detail so the UI does not
+ * tell the user they lack a Go plan when the edge merely blocked the IP.
+ *
+ * The Zen gateway (`opencode`) is a different product — a cookie-gated wallet
+ * balance — and stays unsupported. See change: add-opencode-go-quota.
+ */
+async function opencodeGo(auth: AuthLike, signal?: AbortSignal): Promise<FetchResult> {
+  const token = await auth.getApiKey("opencode-go");
+  if (!token) return { failure: "no-credential" };
+  const res = await fetchJson(
+    "https://opencode.ai/zen/go/v1/usage",
+    { ...bearer(token), "User-Agent": OPENCODE_GO_UA },
+    signal,
+  );
+  if (!res.ok) {
+    if (res.kind === "http" && res.status === 403 && isCloudflare1010(res.message)) {
+      return { failure: "peer-rejected", transient: false, detail: "edge blocked (Cloudflare 1010) — not an auth failure" };
+    }
+    return classifyHttpFailure(res);
+  }
+  return toWindows(res.data, parseOpencodeGo);
+}
+
 /** Every provider this plugin can serve, and how. */
 export const PROVIDER_FETCHERS: Record<string, (auth: AuthLike, signal?: AbortSignal) => Promise<FetchResult>> = {
   anthropic,
   "openai-codex": openaiCodex,
+  "opencode-go": opencodeGo,
   "github-copilot": githubCopilot,
   openrouter,
   zai,

@@ -110,6 +110,15 @@ interface Props {
    */
   loadingHistory?: boolean;
   /**
+   * How much of a REMOTE-origin session's transcript this dashboard holds.
+   * Only `"incomplete"` renders anything: the transfer stopped early, so what
+   * is on screen is NOT the whole conversation and saying nothing would let it
+   * read as if it were. `"absent"` has nothing missing (the ordinary empty
+   * state is the truth), `"complete"` is whole, and `undefined` is every local
+   * session. See change: serve-retained-remote-transcripts (task 2.2).
+   */
+  retainedTranscript?: "complete" | "incomplete" | "absent";
+  /**
    * Selected session's "replay in flight" flag. Unlike `loadingHistory` it
    * stays true until the TERMINAL replay batch lands, so it covers the window
    * where partial history is already painted but the transcript is still
@@ -362,7 +371,7 @@ export interface ChatViewHandle {
   scrollToTurn: (turnIndex: number) => void;
 }
 
-const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onPromptResync, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, replayInFlight, historyGap, onLoadEarlier, historySpliceRev, onCollapseStreamingThinking }, ref) {
+const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onPromptResync, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, retainedTranscript, replayInFlight, historyGap, onLoadEarlier, historySpliceRev, onCollapseStreamingThinking }, ref) {
   // `ToolContext` is a published surface (re-exported from `chat-embed`), so an
   // external embedder builds one by hand and would carry no `fileLink` —
   // silently losing file-mention linkification with no type error. Merge a
@@ -2035,6 +2044,26 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/*
+        A retained REMOTE transcript that stopped mid-transfer. Rendered
+        REGARDLESS of whether the transcript is empty — a partial transfer that
+        delivered some messages is the more dangerous case, because it looks
+        complete. See change: serve-retained-remote-transcripts (task 2.2).
+      */}
+      {retainedTranscript === "incomplete" && (
+        <div
+          role="status"
+          data-testid="retained-transcript-incomplete"
+          className="mx-4 my-2 rounded-md border border-warning/40 bg-warning/20 px-3 py-2 text-xs text-warning"
+        >
+          {i18nT(
+            "session.retainedTranscriptIncomplete",
+            undefined,
+            "Only part of this remote session's history reached this dashboard. Earlier messages may be missing.",
+          )}
         </div>
       )}
 

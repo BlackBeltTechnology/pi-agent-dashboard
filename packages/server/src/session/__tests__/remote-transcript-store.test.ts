@@ -77,8 +77,39 @@ describe("createRemoteTranscriptStore", () => {
     expect(got.complete).toBe(false);
   });
 
-  it("returns an empty, incomplete result for a session it has never seen", () => {
-    expect(store().read("never-heard-of-it")).toEqual({ entries: [], complete: false });
+  it("returns an empty, incomplete, UNRETAINED result for a session it has never seen", () => {
+    expect(store().read("never-heard-of-it")).toEqual({
+      entries: [],
+      complete: false,
+      retained: false,
+    });
+  });
+
+  /**
+   * `complete:false` alone cannot answer "is this everything?" — it is also
+   * what a session with NO retained transcript reads back as. Presenting those
+   * two as one state tells a user "history may be missing" for a session that
+   * never had any, and hides a truncated transfer behind the same words. The
+   * distinguishing fact is whether a transcript FILE exists at all.
+   * See change: serve-retained-remote-transcripts (task 1.2).
+   */
+  it("separates a partially-retained transcript from one that was never captured", () => {
+    const s = store();
+    s.append("partial", [line(0)], { restarted: false, complete: false });
+    const partial = s.read("partial");
+    expect(partial.retained).toBe(true);
+    expect(partial.complete).toBe(false);
+
+    expect(s.read("never-captured").retained).toBe(false);
+  });
+
+  it("reports a retained-but-EMPTY transcript as retained, not as never-captured", () => {
+    // An origin whose transcript file was genuinely empty still produced a
+    // transfer. Reading that back as "never captured" would blame the wrong
+    // half of the system for the empty screen.
+    const s = store();
+    s.append("empty-origin", [], { restarted: true, complete: true });
+    expect(s.read("empty-origin")).toEqual({ entries: [], complete: true, retained: true });
   });
 
   it.each([

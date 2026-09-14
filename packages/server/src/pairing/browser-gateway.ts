@@ -440,6 +440,10 @@ export function createBrowserGateway(
   /** One-shot intents for idle-alive archive requests.
    *  See change: archive-sessions-lazy-load. */
   pendingArchiveIntents?: import("../pending/pending-archive-intent-registry.js").PendingArchiveIntentRegistry,
+  /** Retention store for REMOTE-origin session hydration: a remote session's
+   *  transcript is not on this filesystem, so this is where its history comes
+   *  from. See change: serve-retained-remote-transcripts. */
+  remoteTranscriptStore?: import("../session/remote-transcript-store.js").RemoteTranscriptStore,
 ): BrowserGateway {
   const wss = new WebSocketServer({ noServer: true });
 
@@ -1182,6 +1186,7 @@ export function createBrowserGateway(
           pendingWorktreeBaseRegistry,
           sessionArchive,
           pendingArchiveIntents,
+          remoteTranscriptStore,
           isRecoveryLivenessPending: gateway.isRecoveryLivenessPending,
           recordResyncRequester: (requestId, requesterWs) =>
             resyncRequesters.record(requestId, requesterWs),

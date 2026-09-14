@@ -266,6 +266,14 @@ export function createSessionArchive(deps: SessionArchiveDeps): SessionArchive {
         endedAt: session.endedAt ?? session.lastActivityAt ?? session.startedAt,
         archivedAt,
         sessionFile: session.sessionFile,
+        // Carried so ORIGIN survives archiving. An archived session is
+        // non-resident, so `sessionManager.get` misses and `originOf` has
+        // nothing to read — and a remote session whose origin is forgotten
+        // hydrates from its recorded `sessionFile`, which is a path on another
+        // host (#E15). Absent still means local, the same back-compat encoding
+        // `originDeviceId` uses everywhere.
+        // See change: serve-retained-remote-transcripts.
+        originDeviceId: session.originDeviceId,
       };
       sessionManager.remove(id);
       insertRow(captured);
@@ -287,6 +295,13 @@ export function createSessionArchive(deps: SessionArchiveDeps): SessionArchive {
         // sidecars that never persisted `ended`), so force it.
         status: "ended",
         endedAt: restored.endedAt ?? row.endedAt,
+        // Origin must survive the round trip. `sessionFromMeta` restores it
+        // from the sidecar, but the ROW is the authority here (it was captured
+        // from the live session); losing it would make an unarchived remote
+        // session local — re-enabling both the #E15 hydration read and
+        // `decideResume`, which D13 forbids.
+        // See change: serve-retained-remote-transcripts.
+        originDeviceId: restored.originDeviceId ?? row.originDeviceId,
         archived: false,
         archivedAt: undefined,
         restoredAt: now(),

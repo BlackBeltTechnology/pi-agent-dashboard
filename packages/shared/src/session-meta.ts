@@ -54,6 +54,21 @@ export interface SessionMeta {
    */
   tags?: string[];
 
+  /**
+   * Paired-device id of the host the session RAN on. Absent means local — the
+   * same encoding `DashboardSession.originDeviceId` uses, so every pre-existing
+   * sidecar keeps reading as local.
+   *
+   * Persisted because origin gates FILESYSTEM READS, and a fact that governs a
+   * read must outlive the process that derived it. Without it a restart (or an
+   * unarchive) resurrects a remote session as local, and hydration then opens
+   * its recorded `sessionFile` — a path on the ORIGIN host that a same-username
+   * machine also has (#E15). Derived from the bridge's credential, never from
+   * anything the bridge claims.
+   * See change: serve-retained-remote-transcripts.
+   */
+  originDeviceId?: string;
+
   // Cached identity & state (from .jsonl header / bridge)
   cwd?: string;
   status?: string;

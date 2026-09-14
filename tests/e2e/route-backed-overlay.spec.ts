@@ -202,6 +202,41 @@ test.describe("route-backed overlays", () => {
     expect(errors).toEqual([]);
   });
 
+  // #591 — a route-backed overlay's underlay is `absolute inset-0`, so it is
+  // contained only when its ancestor (the desktop content column) is a
+  // containing block. It was NOT, so the underlay escaped to the viewport and
+  // painted the frozen session detail from x=0 — straight over the live sidebar.
+  // Two surfaces shared those pixels, which is what users saw as garbled,
+  // doubled session-header text in the strip above the dialog card.
+  //
+  // Geometry, not a class assertion: jsdom has no layout engine, so this can
+  // only be pinned in a real browser (same reason this file exists at all).
+  test("#591: the frozen underlay is contained by the content region, not the viewport", async ({
+    page,
+  }) => {
+    await gotoDashboard(page);
+    await page.getByTestId("settings-btn").click();
+
+    const underlay = page.getByTestId("settings-overlay-underlay");
+    await expect(underlay).toBeVisible({ timeout: 20_000 });
+
+    const box = await underlay.boundingBox();
+    expect(box).not.toBeNull();
+    const viewport = page.viewportSize();
+    expect(viewport).not.toBeNull();
+    if (!box || !viewport) return;
+
+    // Contained by the content column: it must NOT start at the viewport's left
+    // edge (that is where the live sidebar lives)...
+    expect(box.x).toBeGreaterThan(0);
+    // ...and it must not span the full viewport width. Buggy shape was x=0,
+    // width=viewport width — i.e. the whole viewport.
+    expect(box.width).toBeLessThan(viewport.width - 1);
+    // Containment, not shrinkage: the content region still ends at the
+    // viewport's right edge, so the underlay reaches it.
+    expect(box.x + box.width).toBeGreaterThanOrEqual(viewport.width - 1);
+  });
+
   // Task 4.7 / design D2 — the plugin canary. Six bundled `shell-overlay-route`
   // claims (automation x2, goals x2, kb, subagent popout) all default to
   // `presentation: "dialog"`, and D2's whole claim is that ONE change at the

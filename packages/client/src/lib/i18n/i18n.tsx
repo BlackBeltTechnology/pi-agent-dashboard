@@ -721,6 +721,7 @@ const zhCN: Record<string, string> = {
   "session.nextFollowUpEntry": "下一条后续消息",
   "session.noActiveSessions": "暂无活动会话",
   "session.noMessagesYet": "暂无消息",
+  "session.retainedTranscriptIncomplete": "该远程会话只有部分历史记录传输到本仪表板，早期消息可能缺失。",
   "session.noProjectsWithActiveSessions": "没有包含活动会话的项目。",
   "session.noSessionSelected": "未选择会话",
   "session.noSpawnFailuresRecorded": "未记录到生成失败。",

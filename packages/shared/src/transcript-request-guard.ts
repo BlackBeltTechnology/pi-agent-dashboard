@@ -12,7 +12,14 @@
  * Pure and filesystem-free by construction: a refusal that touched the disk
  * would already have done the thing it is refusing.
  *
- * See change: add-pi-gateway-transport-identity (D12; tasks 11.3, 11.4).
+ * Lives in `shared` because BOTH ends need the identical rule: the bridge
+ * refuses a path-bearing `transcript_request` on the wire, and the dashboard's
+ * own retained-transcript read route refuses a path-bearing query. Two copies
+ * of a security rule drift, and the one that drifts is the one nobody is
+ * looking at.
+ *
+ * See change: add-pi-gateway-transport-identity (D12; tasks 11.3, 11.4);
+ * serve-retained-remote-transcripts (moved from `extension/src`).
  */
 
 /** Field names that would smuggle a filesystem path onto the wire. */
