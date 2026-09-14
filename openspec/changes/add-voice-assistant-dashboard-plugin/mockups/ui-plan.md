@@ -10,11 +10,11 @@ is `var(--token)`, matching what ships.
 | Surface | Slot | Tokens used | States |
 |---|---|---|---|
 | Dictation action-bar buttons | `session-card-action-bar` | `--accent-green`/`--accent-red` @ 30% border per existing Resume/Fork button convention (`border-green-500/30 text-green-400 hover:bg-green-500/10`) | idle → recording → (stopping) → idle; not-installed*; delivery-failed; stt-not-configured |
-| Dictation capture-source picker | `session-card-action-bar` (inline `<select>`) | neutral form tokens (`--bg-primary` field, `--border-primary`) — deliberately NOT hue-coded, it selects a source rather than signalling state | server (default) / browser / hidden entirely when `window.isSecureContext` is false / locked while recording |
+| Dictation capture-source picker | `session-card-action-bar` (inline `<select>`) | neutral form tokens (`--bg-primary` field, `--border-primary`) — deliberately NOT hue-coded, it selects a source rather than signalling state | server (default) / browser / hidden entirely when `window.isSecureContext` is false / locked while recording / **browser-mic failed: permission denied · no input device · unsupported (no `AudioWorklet`)** — error badge + inline reason, picker stays enabled so the user can fall back to the server mic (task 7.6) |
 | Dictation status badge | `session-card-badge` | `--status-working` (recording, reuses the existing "streaming" yellow), `--status-error` | idle (hidden) / recording / error |
 | Meeting-copilot action-bar buttons | `session-card-action-bar` | `--accent-purple` (distinct from dictation's green — two independent controls must not share a hue, Gestalt similarity) | idle → listening → idle; knowledge-required; error |
-| Meeting-copilot status badge | `session-card-badge` | `--status-needs-you` purple family for "listening" (reuses existing purple token), `--status-error` | idle (hidden) / listening / error |
-| Live wall | `session-card-action-bar` "View live wall" → core `live-server-preview` embed (no plugin claim) | dashboard chrome only (`--bg-secondary` tab bar); the embedded sandboxed iframe renders upstream's OWN `wall.css`, intentionally not dashboard tokens (opaque-origin isolation) | not-running / embedded / popped-out-to-browser |
+| Meeting-copilot status badge | `session-card-badge` | `--status-needs-you` purple family for "listening" (reuses existing purple token), `--severity-warning-*` for reconnecting, `--status-error` | idle (hidden) / listening / **reconnecting (attempt n)** / error — reconnecting is warning-yellow not red: upstream `soniox-rt.ts` buffers ~15 s and replays, capture is degraded not lost; clears on reconnect; Stop is the only bound (design 4g) |
+| Live wall | `session-card-action-bar` "View live wall" → core `live-server-preview` embed (no plugin claim) | dashboard chrome only (`--bg-secondary` tab bar); `--severity-warning-*` exposure notice strip between tab bar and iframe; the embedded sandboxed iframe renders upstream's OWN `wall.css`, intentionally not dashboard tokens (opaque-origin isolation) | not-running / embedded / popped-out-to-browser; **exposure notice** (task 6.4: `/live/:id/*` is unauthenticated) shown where the wall is opened, dismissible per wall, returns on next start — a `role=note`, not a modal |
 | Knowledge browser entry | `sidebar-folder-section` | folder-row tokens, sibling of kb-plugin's `FolderKbSection` | present per folder, independent of any running session |
 | Knowledge browser page | `shell-overlay-route` @ `/folder/:encodedCwd/voice-assistant-knowledge` | `--bg-tertiary` cards, `--text-tertiary` metadata | empty / populated / invalid-folder — full-bleed (matches `KbSettingsPanel`), NOT a dialog; back binds to `onBack` |
 | Config editor | `settings-section` | standard form field tokens (`--bg-tertiary` inputs, `--border-primary`) | no-file (offer create) / editing / saved |
@@ -37,8 +37,8 @@ Product/plugin renamed `set-copilot` → `voice-assistant` throughout (proposal,
 
 ## Screens in this mockup pass
 
-1. `session-card.html` — session card with dictation + meeting-copilot action-bar buttons and badges, all states, including the v1 browser-mic capture source (picker, active-recording, and insecure-context-hidden states).
-2. `wall-view.html` — live meeting wall, embedded via the core `live-server-preview` mechanism (editor-pane tab + sandboxed iframe + "open in system browser" popout) — not a plugin-owned view.
+1. `session-card.html` — session card with dictation + meeting-copilot action-bar buttons and badges, all states, including the v1 browser-mic capture source (picker, active-recording, insecure-context-hidden, permission-denied, no-device/unsupported) and the STT `reconnecting` badge.
+2. `wall-view.html` — live meeting wall, embedded via the core `live-server-preview` mechanism (editor-pane tab + exposure notice + sandboxed iframe + "open in system browser" popout) — not a plugin-owned view.
 3. `knowledge-browser.html` — knowledge sources/decisions, folder-scoped overlay route (design 6b), full-bleed.
 4. `config-editor.html` — settings-section config form.
 5. `index.html` — nav shell linking all four + theme toggle.

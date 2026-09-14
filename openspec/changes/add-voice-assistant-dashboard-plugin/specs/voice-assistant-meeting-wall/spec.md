@@ -1,7 +1,11 @@
 ## ADDED Requirements
 
 ### Requirement: Vendored wall server binds its own loopback port
-The system SHALL bind the vendored `WallServer` (via `runWall(cfg, { port })`) to its own loopback HTTP port per active project, serving upstream's own static wall UI (`wall/public/index.html`, `wall.js`, `wall.css`, `wall-core.mjs`) unmodified. The system SHALL NOT reimplement the wall UI as a dashboard React component.
+The system SHALL bind the vendored `WallServer` (via `runWall(cfg, { port })`) to its own loopback HTTP port per active project, serving upstream's own static wall UI (`wall/public/*`). The system SHALL NOT reimplement the wall UI as a dashboard React component. The ONLY permitted modification to the vendored assets is making their asset, `api/bootstrap`, and `events` (SSE) URLs relative to the document base so they resolve behind the path-prefixed `/live/<id>/` proxy; that deviation SHALL be recorded in the package `NOTICE`.
+
+#### Scenario: Wall assets and feed resolve behind the proxy prefix
+- **WHEN** the wall is loaded at `/live/<id>/` through the dashboard proxy
+- **THEN** its stylesheet, scripts, bootstrap request, and `EventSource` feed all resolve under `/live/<id>/`, not against the dashboard origin root
 
 #### Scenario: Wall server starts when meeting copilot starts
 - **WHEN** meeting-copilot capture starts for a project
