@@ -1,0 +1,123 @@
+# Tasks — stop-discarding-known-session-state
+
+TDD throughout: write the test, watch it fail, then implement. Scenario ids
+(`E*`, `F*`, `X*`, `Q*`, `P1`) refer to `test-plan.md`.
+
+Phases are ordered by value-per-risk. **Phase 1 alone fixes the reported
+symptom** and is independently shippable if the change must be cut short.
+
+## 1. Browser delivery verdict (fixes the reported symptom)
+
+- [ ] 1.1 Write failing tests for `send`'s verdict: open socket (E1), each
+      non-open `readyState` (E2), absent socket returns rather than throws (E3),
+      and `ws.send` throwing on a closing race (X1).
+- [ ] 1.2 Change `useWebSocket`'s `send` from `void` to a delivery verdict.
+      Vocabulary must not claim *delivery* — an open-socket write is handed to
+      the OS, nothing more.
+- [ ] 1.3 Write failing outbox tests: queue-then-flush-once (E4), bounded
+      eviction (E6), expiry just past (E7) and just inside (E8) the boundary.
+- [ ] 1.4 **Write the duplicate-trap test FIRST (E5)** — a message handed to a
+      socket that then closes un-acked must never be re-sent. `send_prompt` is
+      not idempotent and a bridge ack exists to tempt exactly this. Implementing
+      the outbox before this test exists risks baking in the bug.
+- [ ] 1.5 Implement the bounded outbox holding **only** never-sent messages,
+      popping before flush, with expiry strictly below the 30 s pending-prompt
+      deadline (backoff caps at 30 000; timeout is 30 000 — they are equal today).
+- [ ] 1.6 Update every `send` call site for the new return type; callers that
+      cannot act on failure must explicitly ignore it rather than silently.
+
+## 2. Honest prompt failure in the UI
+
+- [ ] 2.1 Write failing tests: immediate failed bubble with no 30 s wait (F5),
+      safety timeout never armed for a known-undelivered prompt (F6), and the
+      unchanged genuinely-unknown path still using the original wording (F8).
+- [ ] 2.2 Consume the verdict in the prompt path; mark the bubble failed at send
+      time when it was never transmitted.
+- [ ] 2.3 Add a connection-attributed message distinct from "the prompt may not
+      have been received", which stays reserved for the unknown case.
+- [ ] 2.4 Update the `pending-prompt-safety` spec's owning tests for the new
+      not-armed path.
+
+## 3. Server-side honest refusals
+
+- [ ] 3.1 Write failing tests: no-bridge active session (X2), ended session with
+      no `sessionFile` (X3, matching 16 real sessions), spawn failure (X4).
+- [ ] 3.2 Emit `emitCommandFeedback` at `session-action-handler.ts:417-419`
+      (`!sent`) and `:336-340` (missing `sessionFile`), matching the neighbouring
+      `liveHolder` guard that already does this.
+- [ ] 3.3 Add the spawn-failure reason to the existing rollback path.
+- [ ] 3.4 Note in the spec that `auto-resume-on-prompt` previously specified the
+      drop explicitly ("the prompt SHALL be dropped") — this is a deliberate
+      behaviour change, not a bug fix against the spec.
+
+## 4. Death attribution
+
+- [ ] 4.1 **Write the seam-coverage test FIRST (E9)** — drive every terminal path
+      and assert none yields `ended` without a reason. This is the guard against
+      a partially-labelled fleet, which is worse than no labelling.
+- [ ] 4.2 Write the re-entry test (E10): a no-op `update()` on an already-ended
+      session must not overwrite a good reason with `unknown`. This is design
+      D1's accepted risk; the test is what makes it acceptable.
+- [ ] 4.3 Extend the `closedReason` vocabulary in `packages/shared/src/types.ts`
+      with involuntary values plus an explicit `unknown`. Every field optional;
+      no `SessionStatus` change.
+- [ ] 4.4 Implement the central `→ ended` transition stamp (design D1 option B),
+      defaulting to `unknown`, with exact transition detection.
+- [ ] 4.5 Pass explicit reasons from sites that know their cause: spawn failure
+      (E11), carrier loss at grace expiry (E12).
+- [ ] 4.6 Verify manual close is untouched (E13) and cold-start reconstruction
+      does not retro-label history (E17).
+- [ ] 4.7 **Write the persistence-wipe test FIRST (E15)** — it must fail against
+      the naive implementation that sets `session.closedReason` and trusts the
+      debounced save. `session-to-meta.ts` is a FULL OVERWRITE that does not
+      enumerate the field.
+- [ ] 4.8 Route the reason through `metaPersistence.setLiveness`, alongside the
+      eager `{ live: false }` write.
+- [ ] 4.9 Confirm `isRecoveryCandidate` is untouched and new values pass through
+      it unchanged (E16). Do **not** modify the predicate.
+- [ ] 4.10 Add the pid probe at grace expiry, admitting `unknown` with no pid
+      (E14), never naming a signal, and documenting the pid-recycling caveat.
+
+## 5. Host pressure indicator
+
+- [ ] 5.1 **Resolve the open gate** in `test-plan.md`: confirm the degraded /
+      unresponsive thresholds (proposed: ≈35 s degraded, ≥60 s unresponsive,
+      aligning with the 15 s heartbeat and the 60 s watchdog). Tests are written
+      against the boundary so a different choice does not invalidate them.
+- [ ] 5.2 Write failing tests: absent metrics is unknown not healthy (F1),
+      ongoing stall visible with no heartbeat (F2), recovered stall labelled past
+      (F3), missing `eventLoopMaxMs` still functions (F4).
+- [ ] 5.3 Render the indicator from the `processMetrics` already on the session
+      row. **No endpoint, no polling, no added socket traffic.**
+- [ ] 5.4 Derive the primary signal from out-of-band elapsed silence, not from
+      self-reported `eventLoopMaxMs` (a frozen loop cannot report itself).
+- [ ] 5.5 Render the ended-session reason (F7).
+- [ ] 5.6 Review the `update()` hot path for O(1), no allocation on the
+      non-transition branch (P1) — by reading the diff, not a timing assertion.
+
+## 6. Verification and landing
+
+- [ ] 6.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and grep the
+      summary pattern.
+- [ ] 6.2 Add the E2E specs: reconnect-window prompt (Q1 — the reported
+      incident), out-of-band kill shows a reason (Q2), healthy indicator (Q3).
+- [ ] 6.3 Run E2E against the docker harness reflecting local changes.
+- [ ] 6.4 `npm run quality:changed`.
+- [ ] 6.5 Rebuild per the matrix: client changes → `npm run build` +
+      `/api/restart`; server/shared → `/api/restart`.
+- [ ] 6.6 Manually reproduce the original symptom: interrupt the dashboard
+      socket, type into a session, confirm the failure is honest and attributed
+      to the connection.
+- [ ] 6.7 `openspec validate stop-discarding-known-session-state --type change`.
+- [ ] 6.8 Re-run `doubt-driven-review` on the **implementation** before landing —
+      the `closedReason` vocabulary touches a persisted field, and two review
+      cycles have already overturned this change's design twice.
+
+## Discipline skills
+
+- `observability-instrumentation` — phases 4 and 5.
+- `security-hardening` — **not triggered**: no auth, secrets, PII, or untrusted
+  input. The outbox holds user prompts already in browser memory.
+- `performance-optimization` — only as P1's read-the-diff check on the hot path.
+- `doubt-driven-review` — 6.8, mandatory.
+- `review-code` — before commit, per project doctrine.
