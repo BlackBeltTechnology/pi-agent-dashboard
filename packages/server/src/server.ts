@@ -1760,6 +1760,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     identity: serverIdentity,
     pairing: pairingManager,
     registry: pairedDeviceRegistry,
+    localToken,
+    hostAdmission: () => getHostGateCtx().admission,
   });
   // Mint a single-use WS ticket (D11). Authenticated (networkGuard: cookie,
   // trusted network, or Authorization: Bearer). The ticket is bound to a WS

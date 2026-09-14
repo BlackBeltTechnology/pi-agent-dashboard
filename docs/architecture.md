@@ -987,17 +987,21 @@ flowchart LR
   CORE -->|"package dep, hostless"| BIN["pi-apple-tools-install CLI"]
 ```
 
-### MCP Endpoint (`add-dashboard-mcp-server`)
+### MCP Endpoint (`add-dashboard-mcp-server`, `mcp-legacy-clients-and-token-issuance`)
 
 New plugin `packages/mcp-server-plugin/`. Headless — no client entry, `claims: []`. Mounts `POST /mcp` on `ctx.fastify`, the shared Fastify instance every plugin gets. Seven other plugins register routes the same way.
 
-**Protocol.** Implements MCP revision `2026-07-28` ONLY. No legacy `2025-06-18` / `2025-11-25`. Both reintroduce `initialize` + `Mcp-Session-Id`, the two mechanisms this endpoint exists to refuse. Unsupported version → `UnsupportedProtocolVersionError`. Stateless: no `initialize` handshake. No `Mcp-Session-Id` (never minted, never echoed, ignored on input). No `Last-Event-ID` resumption.
+**Protocol.** Dual-era contract on single route (`POST /mcp`):
+- **Legacy era (`2025-03-26`, `2025-06-18`, `2025-11-25`):** Streamable-HTTP compatibility. `initialize` handshake supported; returns static `InitializeResult` with negotiated `protocolVersion` + opaque unrecorded 128-bit hex `Mcp-Session-Id` header (minted once, never recorded, never checked); `notifications/*` returns 202 (body null); `ping` returns `{}`; streaming refused (`subscriptions/listen` returns 404 + `-32601` `MethodRemoved`).
+- **Modern era (`2026-07-28`):** handshake-free, stateless. No session ids minted, echoed, or checked. `subscriptions/listen` streaming supported. No `Last-Event-ID` resumption.
 
-`MCP-Protocol-Version` header required on EVERY POST. Must agree with `params._meta["io.modelcontextprotocol/protocolVersion"]`. Disagreement → `400 HeaderMismatch`. Check order observable:
-- absent header → `MissingHeader`
-- absent `_meta` → `MissingMeta`
-- non-string body version → `UnsupportedProtocolVersion`
-- only then judged supported
+**Version resolution.** Resolved once per request in `routes.ts` before listen interceptor (single resolution site). `dispatchRpc` receives resolved `{ era, version }`. Resolution rules:
+- Repeated or comma-joined `MCP-Protocol-Version` header → 400 `AmbiguousHeader` (checked first, applies to all methods including `initialize`).
+- `initialize` handshake → version read from `params.protocolVersion`. Legacy version echoed; unknown version negotiates down to `2025-11-25`; modern `2026-07-28` on `initialize` refused (404 + `-32601`); non-string version → 400 `UnsupportedProtocolVersion`.
+- Present header → validated against supported versions (`2025-03-26`, `2025-06-18`, `2025-11-25`, `2026-07-28`). When `params._meta` declares `io.modelcontextprotocol/protocolVersion`, header and body must agree (disagreement → 400 `HeaderMismatch`). Modern revision requires `_meta` version (absent → 400 `MissingMeta`).
+- Absent header + present `_meta` version → 400 `MissingHeader`.
+- No marker at all (no header, `_meta` absent or version-less) → legacy default `2025-03-26`.
+- Unsupported version string → 400 `UnsupportedProtocolVersion`.
 
 **Method / error mapping.**
 - Unknown method → `404` + JSON-RPC `-32601`. Unknown tool → `404` + `-32601`.
@@ -1025,13 +1029,15 @@ Two credential kinds resolve to one `McpCaller`:
 
 Guarantee stated exactly: "the session this connection registered as". Not spoofable per-message — what the self-target guard needs. NOT a claim about pi-gateway port authentication. `currentSessionId` itself set from the first `register` message. Pre-existing bridge trust model. Out of scope here.
 
+**Direct device-token mint.** `POST /api/paired-devices` issues durable bearer credentials for external MCP clients (Claude Code, Cursor). Gated by `operatorGuard`: requires dashboard login session (`authVia === "session"`), valid `X-Pi-Local-Token`, or genuine local loopback (`isGenuinelyLocal`, no proxy headers). Enforces unconditional Host admission (closes DNS-rebinding). Accepts `{ label }` (1..64 UTF-8 bytes). Plaintext token returned ONCE in response, never stored or retrievable. Paired-device registry (`~/.pi/dashboard/paired-devices.json`, 0600) stores SHA-256 hash with `source: "manual"` (`source: "pairing"` for QR pairing). Revocation via `DELETE /api/paired-devices/:id`.
+
 **Self-target guard.** Refuses a session-targeting tool call (`send_prompt`, `abort`) whose target equals the caller's own resolved session. Target normalised for equality (trim, one quote pair, lowercase) — bypass-proof. Catches DIRECT self-targeting only. Indirect A→B→A loop permitted, documented out of scope. Device callers have no originating session, structurally outside the guard.
 
 **Tool surface.** Curated allowlist over `ServerPluginContext`. 5 of 19 allowlisted (`sessionManager`, `sendToSession`, `spawnSession`, `abortSession`, `onEvent`), 14 denied. Partition total — future member fails `assertContextPartitionTotal`. Tools: `list_sessions`, `send_prompt`, `spawn_session`, `abort`. `abort` maps to `abortSession` (soft-only, false on a disconnected bridge), NOT `abortSpawnedRun`. `sessionId` an ordinary required argument (revision removed protocol sessions).
 
 **Streaming.** `subscriptions/listen`, a long-lived POST-response stream. `params.sessionIds[]` required; absent/empty/non-array → `-32602`. No subscribe-to-all. Filter applied per subscription before write. Authorisation re-checked per delivery. Revoked mid-stream → terminates it. Slow consumer → subscription TERMINATED at `MAX_BUFFERED_EVENTS` (1000) buffered events. Does NOT silently drop events. Subscription dies with its request.
 
-**Provisioning.** Writes the Pi-global `mcp.json` key `pi-dashboard` on server start, THROUGH the `mcp-client` core (`createMcpClientConfigService(...).ensureServerEntry`) — path from the adapter's own helper, so `PI_CODING_AGENT_DIR` is honoured. HTTP `url` shape, not stdio `command` (iMCP writes `command`). `protocolVersion` pinned `2026-07-28` — never omitted, else legacy handshake. Merge-only, so operator-added fields (`disabled`, `headers`) now survive a refresh. JSONC parse + `mcpServers` / `mcp-servers` alias + atomic hardened write come from the core, not a local reader. Foreign shape under the reserved key → refuses the whole write, file untouched. Failure logged, never thrown — provisioning a convenience, not a precondition for serving `/mcp`.
+**Provisioning.** Writes the Pi-global `mcp.json` key `pi-dashboard` on server start, THROUGH the `mcp-client` core (`createMcpClientConfigService(...).ensureServerEntry`) — path from the adapter's own helper, so `PI_CODING_AGENT_DIR` is honoured. HTTP `url` shape, not stdio `command` (iMCP writes `command`). `protocolVersion` stays pinned to `2026-07-28` (D7) — never omitted, keeping local pi on modern path while endpoint serves foreign legacy clients. Merge-only, so operator-added fields (`disabled`, `headers`) now survive a refresh. JSONC parse + `mcpServers` / `mcp-servers` alias + atomic hardened write come from the core, not a local reader. Foreign shape under the reserved key → refuses the whole write, file untouched. Failure logged, never thrown — provisioning a convenience, not a precondition for serving `/mcp`.
 
 **Prerequisite.** `pi-mcp-adapter >= 2.20.0` for the local-pi path. Below that, "legacy remains the default", handshake silently degrades. The probe moved to `mcp-client` core; this plugin DELETED its `probeAdapterVersion` / `readInstalledAdapterVersion` and the atomic-write copy. Diagnostic is LAZY (`src/server/adapter-diagnostic.ts`): no `dependsOn`, so it consumes `mcp-client.config` at call time — absent service reads as `unknown` — and warns at most once, fired from the routes' `onMcpRequest` hook on the first `POST /mcp`, not at registration.
 
@@ -1055,7 +1061,7 @@ sequenceDiagram
 
 **Seam change.** `RegisterPiHandlerFn` widened to `(msg, sessionId)`. Gateway passes its socket key through `dispatchPluginPiMessage`. Additive — `(msg)`-only handlers still valid. `sessionId` from the socket key, never the message body — a plugin can attribute a bridge message as a trust decision.
 
-See change: add-dashboard-mcp-server.
+See change: add-dashboard-mcp-server, mcp-legacy-clients-and-token-issuance.
 
 ### Bootstrap & First Run (R3, immutable bundle)
 

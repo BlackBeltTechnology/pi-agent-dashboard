@@ -42,6 +42,10 @@ export function registerBearerAuth(
     const token = parseBearerHeader(request.headers.authorization);
     if (token && deps.registry.verify(token)) {
       (request as any).isAuthenticated = true;
+      // Additive marker: HOW the request authenticated. `operatorGuard` on the
+      // token-mint route reads it to REFUSE a device bearer (a paired device
+      // must not mint unrevocable credentials). Nothing else reads it yet.
+      (request as any).authVia = "device";
     }
   });
 }

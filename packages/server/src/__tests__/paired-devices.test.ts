@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -55,5 +56,39 @@ describe("PairedDeviceRegistry", () => {
     const { device, token } = reg.add("dev");
     const reg2 = new PairedDeviceRegistry(regPath);
     expect(reg2.verify(token)).toBe(device.id);
+  });
+});
+
+// E15 (test-plan: mcp-legacy-clients-and-token-issuance) — rows written before
+// `source` existed read as `"pairing"` and the field is added on the next write.
+describe("E15 — registry rows without a source field", () => {
+  it("list as pairing, still verify, and normalise on the next write", () => {
+    const legacyToken = "legacy-plaintext-token";
+    const legacyHash = crypto.createHash("sha256").update(legacyToken).digest("hex");
+    fs.writeFileSync(
+      regPath,
+      JSON.stringify([
+        { id: "row-1", label: "old", tokenHash: legacyHash, createdAt: "2026-01-01T00:00:00.000Z", lastSeen: null },
+      ]),
+    );
+    const reg = new PairedDeviceRegistry(regPath);
+
+    expect(reg.list()[0]).toMatchObject({ id: "row-1", label: "old", source: "pairing" });
+    // The legacy token continues to verify.
+    expect(reg.verify(legacyToken)).toBe("row-1");
+
+    // The next write back-fills `source` on the OLD row too.
+    reg.add("new-device");
+    const rows = JSON.parse(fs.readFileSync(regPath, "utf-8"));
+    expect(rows[0].source).toBe("pairing");
+    expect(rows[1].source).toBe("pairing");
+  });
+
+  it("a manual add records source manual (E16 shape)", () => {
+    const reg = new PairedDeviceRegistry(regPath);
+    const { device, token } = reg.add("cli", "manual");
+    expect(device.source).toBe("manual");
+    expect(token.length).toBeGreaterThanOrEqual(32);
+    expect(reg.list()[0].source).toBe("manual");
   });
 });
