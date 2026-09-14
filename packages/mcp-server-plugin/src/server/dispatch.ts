@@ -31,7 +31,7 @@ import {
   rpcResult,
 } from "./jsonrpc.js";
 import {
-  CURRENT_PROTOCOL_VERSION,
+  MODERN_PROTOCOL_VERSION,
   type ProtocolEra,
   type ProtocolVersionFailure,
   SUPPORTED_PROTOCOL_VERSIONS,
@@ -214,7 +214,7 @@ export async function dispatchRpc(
       404,
       id,
       RPC_METHOD_NOT_FOUND,
-      `${request.method} is not supported on protocol revision ${CURRENT_PROTOCOL_VERSION}`,
+      `${request.method} is not supported on protocol revision ${MODERN_PROTOCOL_VERSION}`,
       "MethodRemoved",
     );
   }

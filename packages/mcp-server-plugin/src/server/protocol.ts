@@ -33,10 +33,7 @@ export const SUPPORTED_PROTOCOL_VERSIONS = [
   MODERN_PROTOCOL_VERSION,
 ] as const;
 
-export type SupportedProtocolVersion = (typeof SUPPORTED_PROTOCOL_VERSIONS)[number];
-
-/** The revision advertised first by `server/discover`. */
-export const CURRENT_PROTOCOL_VERSION: SupportedProtocolVersion = MODERN_PROTOCOL_VERSION;
+type SupportedProtocolVersion = (typeof SUPPORTED_PROTOCOL_VERSIONS)[number];
 
 /** Lower-cased, because Node normalises incoming header names. */
 export const PROTOCOL_VERSION_HEADER = "mcp-protocol-version";

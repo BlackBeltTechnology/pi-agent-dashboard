@@ -1036,7 +1036,7 @@ describe("E14 — a manually minted device token reaches /mcp", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-mcp-e14-"));
     try {
       const registry = new PairedDeviceRegistry(path.join(tmp, "paired.json"));
-      const invokeTool = vi.fn(async () => ({ ok: true }));
+      const invokeTool = vi.fn(async (_inv: { caller: unknown }) => ({ ok: true }));
       await mountMcpRoutes(app, {
         tokens: new McpTokenRegistry(),
         verifyDeviceToken: (t: string) => registry.verify(t),

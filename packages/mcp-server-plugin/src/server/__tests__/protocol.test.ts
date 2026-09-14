@@ -8,7 +8,6 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  CURRENT_PROTOCOL_VERSION,
   META_VERSION_KEY,
   MODERN_PROTOCOL_VERSION,
   resolveProtocolVersion,
@@ -30,7 +29,6 @@ describe("SUPPORTED_PROTOCOL_VERSIONS", () => {
     ]);
     expect(LEGACY_PROTOCOL_VERSIONS).toEqual(["2025-03-26", "2025-06-18", "2025-11-25"]);
     expect(MODERN_PROTOCOL_VERSION).toBe("2026-07-28");
-    expect(CURRENT_PROTOCOL_VERSION).toBe("2026-07-28");
   });
 });
 
