@@ -41,7 +41,7 @@ Files in this directory. One row per file. Non-source area. See change: migrate-
 | `25-gateway-remote-join-perf.sh` | OPT-IN perf (test-plan #P2, #P3 → tasks 12.40, 12.41); not in `run-all.sh`. → see `25-gateway-remote-join-perf.sh.AGENTS.md` |
 | `26-gateway-promotion-soak.sh` | OPT-IN soak (test-plan #P5 → task 12.42); not in `run-all.sh`. → see `26-gateway-promotion-soak.sh.AGENTS.md` |
 | `27-docker-deploy-lifecycle.sh` | OPT-IN L2 (`PI_QA_DOCKER=1`), not in `run-all.sh`. Runs the DOCUMENTED `docker compose up -d` — no test… → see `27-docker-deploy-lifecycle.sh.AGENTS.md` |
-| `run-all.ps1` | Windows QA suite runner. Runs ordered test list (`01-install` … `22-worktree-separator`), tallies PASS/FAIL/SKIP, runs `pi-dashboard stop` cleanup, exits 1 on any FAIL or SKIP. |
+| `run-all.ps1` | Windows QA suite runner. Runs ordered test list (`01-install` … `32-origin-gate`), tallies PASS/FAIL/SKIP, runs `pi-dashboard stop` cleanup, exits 1 on any FAIL or SKIP. |
 | `run-all.sh` | Bash QA suite runner. Sources nvm, runs the ordered `TESTS` list (currently `01-install` …… → see `run-all.sh.AGENTS.md` |
 | `windows-nsis-branding.ps1` | NSIS installer branding check. Asserts HKCU Add/Remove `Publisher == "BlackBelt Technology"`, optionally… → see `windows-nsis-branding.ps1.AGENTS.md` |
 | `windows-nsis-install-custom-dir.ps1` | NSIS silent install to user-chosen dir (design D3 regression guard). → see `windows-nsis-install-custom-dir.ps1.AGENTS.md` |

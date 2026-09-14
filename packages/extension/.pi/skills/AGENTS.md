@@ -6,7 +6,7 @@ pi-dashboard bridge extension; ship inside the published package. Rows relocated
 
 | File | Purpose |
 |------|---------|
-| `browser/SKILL.md` | Router for the bundled `browser` skill. Step 0a preflight (`command -v agent-browser`, never auto-install);… → see `browser/SKILL.md.AGENTS.md` |
+| `browser/SKILL.md` | Router for bundled `browser` skill. Step 0a preflight (`pi-dashboard-ensure`, registry check, never auto-install);… → see `browser/SKILL.md.AGENTS.md` |
 | `browser/references/electron.md` | Vendored agent-browser Electron-app automation reference. → see `browser/references/electron.md.AGENTS.md` |
 | `browser/references/own-browser.md` | AUTHORED. Drive the user's own logged-in browser via Panerelay… → see `browser/references/own-browser.md.AGENTS.md` |
 | `browser/references/web.md` | Vendored agent-browser core reference. Core loop: `snapshot -i` → @eN refs; waits, semantic `find`, tabs,… → see `browser/references/web.md.AGENTS.md` |
