@@ -85,14 +85,6 @@ export class McpTokenRegistry {
    * only channel that can do so is the bridge WebSocket, where the sessionId is
    * the key the socket is stored under (design.md Decision 6) — never a field
    * read off the wire.
-   */
-  /**
-   * Mint a token for `sessionId`, returning the plaintext exactly once.
-   *
-   * The caller is responsible for having proven the session's identity. The
-   * only channel that can do so is the bridge WebSocket, where the sessionId is
-   * the key the socket is stored under (design.md Decision 6) — never a field
-   * read off the wire.
    *
    * REPLACES the session's existing row rather than appending: the bridge
    * re-mints on every (re)registration, and a stale row left behind would keep

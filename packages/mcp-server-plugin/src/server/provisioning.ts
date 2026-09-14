@@ -77,6 +77,10 @@ export interface DashboardMcpEntry {
    * (E9: no literal `mcp_` value at rest) and none rides in argv (spike Q1b).
    * `args` carries only a plain path: every interpolation form there resolves
    * to "" via the adapter's `Array.map` env-overload bug (spike Q1a).
+   *
+   * The path is THIS server install's `header-command.mjs`. If sessions load
+   * the dashboard from a different root (stale second install, pruned cache),
+   * the command fails closed → 401 (today's behaviour), not a wrong credential.
    */
   requestHeadersCommand: {
     command: "node";

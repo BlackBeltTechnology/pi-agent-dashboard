@@ -1094,7 +1094,6 @@ function initBridge(pi: ExtensionAPI) {
         return;
       }
       // Legacy extension_ui_response removed — now handled by prompt_response → promptBus.respond()
-      // Reload auth credentials when dashboard notifies of changes
       if (msg.type === "mcp_token_minted") {
         // D5: the minted MCP bearer arrives on the session-private lane. The
         // delivery module assigns it to this process's env and triggers the

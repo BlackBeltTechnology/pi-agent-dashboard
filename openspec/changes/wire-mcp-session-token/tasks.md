@@ -27,10 +27,10 @@ following remain.
 
 ## 5. Integration + docs
 
-- [ ] 5.1 Update `docs/architecture.md` §MCP endpoint minting sequence to describe the shipped path (delegate the prose to DocScribe, caveman style)
-- [ ] 5.2 Update `packages/mcp-server-plugin/src/server/AGENTS.md` and `packages/extension/src/AGENTS.md` rows for every touched file; verify `kb dox lint` is clean
-- [ ] 5.3 Document the accepted subprocess env-inheritance exposure in the security notes (test-plan X10 reviews it)
-- [ ] 5.4 Run `npm test` and `npm run quality:changed`; verify both green before shipping
+- [x] 5.1 Update `docs/architecture.md` §MCP endpoint minting sequence to describe the shipped path (delegate the prose to DocScribe, caveman style)
+- [x] 5.2 Update `packages/mcp-server-plugin/src/server/AGENTS.md` and `packages/extension/src/AGENTS.md` rows for every touched file; verify `kb dox lint` is clean
+- [x] 5.3 Document the accepted subprocess env-inheritance exposure in the security notes (test-plan X10 reviews it)
+- [x] 5.4 Run `npm test` and `npm run quality:changed`; verify both green before shipping (npm test: 19,780 pass / 1 fail — the PRE-EXISTING `openspec-poller-parity` failure, verified identical on develop in the main repo before this branch's code changes; quality:changed: no diagnostics in this change's files, safe-fixes applied to them, pre-existing warnings in unrelated branch files reverted rather than churned)
 
 ## 6. Folded test scenarios
 
@@ -50,9 +50,9 @@ live in `test-plan.md`; these tasks carry the harness exemplar and the Triple.
 - [x] 6.1.9 (test-plan #E9) Provisioned entry shape — see `packages/mcp-server-plugin/src/server/__tests__/provisioning.test.ts`. Triple: the serialized entry after the write · inspect it · `env` carries exactly `${PI_DASHBOARD_MCP_TOKEN}`, no `args` interpolation form, no literal `mcp_` value in the file
 - [x] 6.1.10 (test-plan #P2) Registry growth and resolve cost — see `packages/mcp-server-plugin/src/server/__tests__/performance.test.ts`. Triple: 200 re-mints for one session then 1000 rows from distinct sessions · measure · rows per session == 1, `resolve()` p95 < 1 ms at 1000 rows
 - [x] 6.1.11 (test-plan #P3) Throttle map stays bounded under fingerprint churn — see `packages/mcp-server-plugin/src/server/__tests__/rate-limit.test.ts`. Triple: 20 000 distinct fingerprints from one ip inside the window · measure · tracked sources ≤ `MAX_TRACKED_SOURCES` (10 000), the per-ip ceiling record never evicted
-- [x] 6.1.12 (test-plan #F2) Env write precedes `reconnect()` — see `packages/extension/src/__tests__/bridge-resume-disconnect.test.ts`. Triple: delivery handler with spies · mint reply arrives · env assigned before `reconnect()` is called, never while the entry is still 401ing
-- [x] 6.1.13 (test-plan #F3) `connection.status` is never a health signal — see `packages/extension/src/__tests__/bridge-resume-disconnect.test.ts`. Triple: the delivery/recovery module · any recovery decision · no branch reads `connection.status`; the mint reply is the sole trigger
-- [x] 6.1.14 (test-plan #F4) Mint reply stays off `pi.events` — see `packages/extension/src/__tests__/bridge-resume-disconnect.test.ts`. Triple: bridge receives the private mint message · handler runs · env assignment happens and `pi.events.emit` is never called with the plaintext; a subscriber spy receives nothing
+- [x] 6.1.12 (test-plan #F2) Env write precedes `reconnect()` — see `packages/extension/src/__tests__/mcp-token-delivery.test.ts`. Triple: delivery handler with spies · mint reply arrives · env assigned before `reconnect()` is called, never while the entry is still 401ing
+- [x] 6.1.13 (test-plan #F3) `connection.status` is never a health signal — see `packages/extension/src/__tests__/mcp-token-delivery.test.ts`. Triple: the delivery/recovery module · any recovery decision · no branch reads `connection.status`; the mint reply is the sole trigger
+- [x] 6.1.14 (test-plan #F4) Mint reply stays off `pi.events` — see `packages/extension/src/__tests__/mcp-token-delivery.test.ts`. Triple: bridge receives the private mint message · handler runs · env assignment happens and `pi.events.emit` is never called with the plaintext; a subscriber spy receives nothing
 - [x] 6.1.15 (test-plan #X1) Delivery abort is logged with the session id — see `packages/mcp-server-plugin/src/server/__tests__/server-index.test.ts`. Triple: extension WS closed as the mint reply is sent · mint completes server-side · a log line names the session, `/mcp` keeps serving other callers, no plaintext in the line
 - [x] 6.1.16 (test-plan #X2) Header-command failure is not invisible — see `packages/mcp-server-plugin/src/server/__tests__/adapter-diagnostic.test.ts`. Triple: the header command exits non-zero (env var unset) · a tool call is attempted · request 401s **and** the session-id-holding component records it; the discarded stderr is never the only record
 - [x] 6.1.17 (test-plan #X3) Session end revokes — see `packages/mcp-server-plugin/src/server/__tests__/tokens.test.ts`. Triple: session A holds token T · `onSessionEnded(A)` · `resolve(T)` undefined and a `/mcp` call with T → 401

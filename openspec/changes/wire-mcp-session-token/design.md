@@ -266,6 +266,15 @@ One session repeatedly presenting one stale token exhausts only its own bucket;
 an attacker rotating credentials creates a new bucket per guess but walks into
 the per-ip ceiling. The fingerprint is never logged in plaintext form.
 
+Accepted trades (review round 1): (1) `recordSuccess` clears the per-ip record
+too, so an ip holding ONE valid credential can interleave 1 success + 99
+failures indefinitely — required by the spec scenario "post-restart recovery is
+not self-blocking", where every restarting local session holds a freshly valid
+token and must not stay locked out of its own recovery. (2) A remote brute-forcer
+tunnelling to `/mcp` shares `127.0.0.1`, so its rotation can transiently 429
+valid local sessions at the ceiling — strictly narrower than the pre-change
+10/60s ip-only lockout it replaces.
+
 ## Risks / Trade-offs
 
 - **≥250 ms per HTTP request, ≥0.5 s per tool call** (Q2) — the largest cost this
