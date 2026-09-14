@@ -195,9 +195,15 @@ async function synthetic(auth: AuthLike, signal?: AbortSignal): Promise<FetchRes
 /** A non-default User-Agent is REQUIRED (see `opencodeGo`). */
 const OPENCODE_GO_UA = "opencode/1.0.0";
 
-/** True when a 403 body signals a Cloudflare 1010 edge block, not an auth error. */
+/**
+ * True when a 403 body signals a Cloudflare 1010 edge block, not an auth error.
+ * Matches ONLY the discriminating `1010` code (optionally with the `cloudflare`
+ * marker). Generic phrases like "access denied" also appear in real entitlement
+ * 403s, so matching them would mislabel a genuine "no Go plan" as an edge block
+ * — the exact misreading this detection exists to prevent, just inverted.
+ */
 function isCloudflare1010(message: string): boolean {
-  return /\b1010\b|access denied|banned|cloudflare/i.test(message);
+  return /\b1010\b|cloudflare/i.test(message);
 }
 
 /**

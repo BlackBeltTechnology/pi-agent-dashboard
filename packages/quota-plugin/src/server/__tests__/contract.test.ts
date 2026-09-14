@@ -4,7 +4,7 @@
  *
  * See change: publish-quota-plugin.
  */
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { isDirectAnthropicApiKey, PROVIDER_FETCHERS } from "../quotas/fetchers.js";
 import { scrub } from "../quotas/http.js";
 import { parseAnthropic, parseCodex, parseCopilot, parseKimi, parseOpencodeGo, parseOpenRouter, parseZai } from "../quotas/parse.js";
@@ -44,6 +44,11 @@ describe("scrub (nothing credential-shaped may reach a log)", () => {
   it("bounds the message length", () => {
     expect(scrub("x".repeat(5000)).length).toBeLessThanOrEqual(200);
   });
+});
+
+const originalFetch = globalThis.fetch;
+afterEach(() => {
+  globalThis.fetch = originalFetch;
 });
 
 const soon = new Date(Date.now() + 3_600_000).toISOString();
@@ -205,8 +210,7 @@ describe("endpoint contract", () => {
       return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
     }) as unknown as typeof fetch;
     await PROVIDER_FETCHERS["opencode-go"]({ get: () => undefined, getApiKey: async () => "tok_abc" });
-    expect(ua).toBeTruthy();
-    expect(ua).not.toBe("node");
+    expect(ua).toBe("opencode/1.0.0");
   });
 
   it("opencode-go C3: resolves the opencode-go credential id, not the Zen opencode id", async () => {
