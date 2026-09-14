@@ -22,6 +22,7 @@ function deps(abortSession: ServerContextDeps["abortSession"]): ServerContextDep
     onSessionResolved: () => () => {},
     sendToSession: () => true,
     emitEventToSession: () => true,
+    sendExtensionMessage: () => false,
     consumeAll: () => [],
     spawnSession: async () => ({ success: true }),
     abortSession,

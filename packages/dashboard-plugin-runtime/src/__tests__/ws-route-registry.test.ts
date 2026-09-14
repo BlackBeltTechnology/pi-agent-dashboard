@@ -47,6 +47,7 @@ const makeDeps = (): ServerContextDeps => ({
   onSessionResolved: () => () => {},
   sendToSession: () => true,
   emitEventToSession: () => true,
+  sendExtensionMessage: () => false,
   spawnSession: async () => ({ success: false }),
   abortSession: () => false,
   abortSpawnedRun: async () => false,

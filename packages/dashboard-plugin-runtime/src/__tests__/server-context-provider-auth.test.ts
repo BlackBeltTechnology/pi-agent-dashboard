@@ -27,6 +27,7 @@ function baseDeps(): ServerContextDeps {
     onSessionResolved: () => () => {},
     sendToSession: () => true,
     emitEventToSession: () => true,
+    sendExtensionMessage: () => false,
     consumeAll: () => [],
     spawnSession: async () => ({ success: true }),
     abortSession: () => true,
