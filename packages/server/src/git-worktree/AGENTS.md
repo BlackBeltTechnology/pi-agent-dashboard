@@ -7,7 +7,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `folder-head-poll.ts` | Exports `computeFolderGroupKeys(sessions, pinnedDirectories)` = unique resolved folder group-key display… → see `folder-head-poll.ts.AGENTS.md` |
 | `folder-head-watcher.ts` | Per-folder `fs.watch` on gitdir HEAD, modeled on `openspec-change-watcher.ts`;… → see `folder-head-watcher.ts.AGENTS.md` |
 | `git-operations.ts` | Server-side git commands: branch listing, checkout, init, stash pop. → see `git-operations.ts.AGENTS.md` |
-| `git-worktree-compose.ts` | Pure helper composing live `gitWorktree` payload. Exports `composeWorktreePayload(wire, cachedBase)` → `null`… → see `git-worktree-compose.ts.AGENTS.md` |
+| `git-worktree-compose.ts` | Pure helper composing live `gitWorktree` payload. Exports `composeWorktreePayload(wire, cachedBase, prior)` → `null`… → see `git-worktree-compose.ts.AGENTS.md` |
 | `git-worktree-lifecycle.ts` | Pure stderr→code mappers `mapRemoveStderr` / `mapMergeStderr` / `mapPushStderr` / `mapPrStderr` +… → see `git-worktree-lifecycle.ts.AGENTS.md` |
 | `git-worktree.ts` | Pure helpers for worktree handling: `slugifyBranch(branch)` (path-safe slug), `parsePorcelainWorktrees(out)`… → see `git-worktree.ts.AGENTS.md` |
 | `worktree-init-errors.ts` | Pure `mapInitStderrToHint(stderr)`. Ordered regex table. Codes: EACCES, EBADENGINE/Unsupported engine,… → see `worktree-init-errors.ts.AGENTS.md` |
