@@ -105,6 +105,7 @@
       "entry": [
         "src/chat-embed/index.ts",
         "src/main.tsx",
+        "src/test-support/*.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],
@@ -319,6 +320,7 @@
       "entry": [
         "src/index.tsx",
         "src/server/index.ts",
+        "src/test-support/*.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],
