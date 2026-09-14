@@ -37,6 +37,11 @@ export function sessionToMeta(session: DashboardSession): SessionMeta {
     archived: session.archived,
     archivedAt: session.archivedAt,
     restoredAt: session.restoredAt,
+    // Origin. MUST be enumerated here for the same full-overwrite reason as
+    // `hidden`/`archived` — omitting it wipes the field on the next routine
+    // save, and a remote session silently becomes local, which is a filesystem
+    // read gate (#E15). See change: serve-retained-remote-transcripts.
+    originDeviceId: session.originDeviceId,
     cwd: session.cwd,
     status: session.status,
     startedAt: session.startedAt,

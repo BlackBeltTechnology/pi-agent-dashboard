@@ -438,6 +438,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Archive index + one-shot idle-alive archive intents. The index is seeded
   // from the boot scan below; its broadcast emitter is wired after the browser
   // gateway exists. See change: archive-sessions-lazy-load.
+  // ONE retention store, shared by the write half (`transcript_chunk` frames
+  // land here), the read route, and remote-origin hydration. Two instances
+  // would be two views of the same directory and would drift the moment either
+  // grew per-instance state. Constructed here — ahead of the browser gateway —
+  // because hydration needs it. See change: serve-retained-remote-transcripts.
+  const remoteTranscriptStore = createRemoteTranscriptStore();
+
   const sessionArchive = createSessionArchive({
     sessionManager,
     metaPersistence,
@@ -937,7 +944,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Live-server-preview manager (loopback dev-server allowlist + proxy).
   const liveServerManager = createLiveServerManager(preferencesStore);
 
-  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents);
+  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents, remoteTranscriptStore);
   // Wire the archive broadcaster now that the gateway exists. `session_archived`
   // carries the folder count for its own transition; restore/delete/re-key use
   // `archived_count_updated`. See change: archive-sessions-lazy-load.
@@ -1184,7 +1191,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Wire up event forwarding from pi gateway to browser gateway
   wireEvents({
     sessionManager,
-    remoteTranscriptStore: createRemoteTranscriptStore(),
+    remoteTranscriptStore,
     eventStore,
     fitWorkerPool,
     piGateway,
@@ -1440,7 +1447,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       browserGateway.headlessPidRegistry,
     );
 
-  registerSessionRoutes(fastify, { sessionManager, eventStore, networkGuard, sessionArchive });
+  registerSessionRoutes(fastify, {
+    sessionManager,
+    eventStore,
+    networkGuard,
+    sessionArchive,
+    remoteTranscriptStore,
+  });
   // pi retry policy editor. Reload fan-out dispatches `/reload` to every
   // connected session so a saved policy applies without a manual restart
   // (pi reads its settings only at session construction). See change:

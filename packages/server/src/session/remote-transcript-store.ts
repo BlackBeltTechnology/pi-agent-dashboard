@@ -54,6 +54,16 @@ interface RetainedTranscript {
   entries: string[];
   /** True once a chunk reported the origin file fully read. */
   complete: boolean;
+  /**
+   * True when a transcript file exists for this session at all.
+   *
+   * `complete:false` cannot carry this: it is equally what a never-transferred
+   * session reads back as, so without this flag "the transfer stopped early"
+   * and "nothing was ever captured" are the same answer — and they call for
+   * opposite responses from whoever is looking at the empty screen.
+   * See change: serve-retained-remote-transcripts (task 1.2).
+   */
+  retained: boolean;
 }
 
 export interface RemoteTranscriptStore {
@@ -134,11 +144,14 @@ export function createRemoteTranscriptStore(
       try {
         raw = fs.readFileSync(fileFor(sessionId), "utf8");
       } catch {
-        return { entries: [], complete: false };
+        // Absent OR unreadable. Both are "we cannot show a transcript", and
+        // neither is "this transfer was truncated" — `retained:false`.
+        return { entries: [], complete: false, retained: false };
       }
       return {
         entries: raw.split("\n").filter((l) => l.length > 0),
         complete: fs.existsSync(markerFor(sessionId)),
+        retained: true,
       };
     },
 

@@ -68,3 +68,13 @@ SHIP_IT_BLOCKED.md
 # .pytest_cache/.gitignore, which `kb dox lint` does not honour — so it showed
 # up as a missing-row finding. Ignore it from the root instead.
 .pytest_cache/
+
+# `manage-flows` was deliberately retired (chore(skills): remove superseded
+# manage-flows skill), but `pnpm install` still materializes a copy from the
+# published pi-flows package into `.pi/skills/`. That untracked copy was then
+# re-committed by a stray `git add -A` in #664, and its 463-char description
+# breaks the 400-char repository budget in `check-skill-frontmatter.mjs` (which
+# discovers via `git ls-files`, so only a TRACKED copy can fail CI). Ignored
+# here rather than in `.git/info/exclude`, which is local-only and therefore
+# hid the problem on the authoring machine while CI still saw it.
+.pi/skills/manage-flows/

@@ -158,6 +158,20 @@ export interface DashboardSession {
    */
   originDeviceId?: string;
   /**
+   * How much of a REMOTE-origin session's transcript this dashboard actually
+   * holds. Set on hydration; absent for every local session.
+   *
+   *   - `complete`   — the origin's file was transferred to its end.
+   *   - `incomplete` — a transfer happened and stopped early; more existed.
+   *   - `absent`     — no transfer ever happened; nothing is missing.
+   *
+   * Three values, not a boolean, because the empty screen a user is looking at
+   * has two different causes and they call for opposite responses. A partial
+   * transfer presented as the whole conversation is the failure this prevents.
+   * See change: serve-retained-remote-transcripts (task 2.2).
+   */
+  retainedTranscript?: "complete" | "incomplete" | "absent";
+  /**
    * Set when this session left for another dashboard instance (D11, task 9.3).
    *
    * The session's `status` stays `"ended"` — it genuinely did end HERE — but a

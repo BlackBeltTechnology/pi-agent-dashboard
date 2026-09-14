@@ -394,6 +394,7 @@
   "common.noMatchingChanges": "No matching changes",
   "session.noMessagesYet": "No messages yet",
   "session.noMessagesYetBody": "Send a prompt below to start the conversation.",
+  "session.retainedTranscriptIncomplete": "Only part of this remote session's history reached this dashboard. Earlier messages may be missing.",
   "common.noModelsMatch": "No models match",
   "common.noOpenPullRequests": "No open pull requests",
   "packages.noPackagesInstalledAt": "(no packages installed at",

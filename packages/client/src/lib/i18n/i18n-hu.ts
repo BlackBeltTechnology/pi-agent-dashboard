@@ -1141,6 +1141,7 @@ export const huCatalog: Record<string, string> = {
   "session.noActiveSessions": "Nincs aktív munkamenet",
   "session.noMessagesYet": "Még nincsenek üzenetek",
   "session.noMessagesYetBody": "Küldjön egy kérést alább a beszélgetés megkezdéséhez.",
+  "session.retainedTranscriptIncomplete": "Ennek a távoli munkamenetnek csak egy része érkezett meg erre az irányítópultra. Korábbi üzenetek hiányozhatnak.",
   "session.noProjectsWithActiveSessions": "Nincs aktív munkamenettel rendelkező projekt.",
   "session.noSessionSelected": "Nincs kiválasztott munkamenet",
   "session.noSpawnFailuresRecorded": "Nincs rögzített indítási hiba.",
