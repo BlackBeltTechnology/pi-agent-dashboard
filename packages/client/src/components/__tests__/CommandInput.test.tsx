@@ -36,9 +36,12 @@ function renderInput(props: Partial<React.ComponentProps<typeof CommandInput>> =
   return { ...result, textarea, onSend };
 }
 
-function getDropdownItems(container: HTMLElement): string[] {
+function getDropdownItems(_container?: HTMLElement): string[] {
+  // The autocomplete dropdown is portaled (LayerPortal → document.body), so it
+  // is no longer inside the render container. Scan the portal root.
+  // See change: portal-composer-action-popovers.
   // Command items have font-mono text-blue-400 class and start with /
-  const buttons = container.querySelectorAll("button");
+  const buttons = document.body.querySelectorAll("button");
   const items: string[] = [];
   for (const btn of buttons) {
     const cmdSpan = btn.querySelector(".font-mono");
@@ -48,6 +51,40 @@ function getDropdownItems(container: HTMLElement): string[] {
   }
   return items;
 }
+
+describe("CommandInput popovers are portaled (portal-composer-action-popovers)", () => {
+  it("the command dropdown renders in the portal root, not inside the composer", () => {
+    const { container, textarea } = renderInput();
+    fireEvent.change(textarea, { target: { value: "/" } });
+    const dd = document.body.querySelector('[data-testid="command-dropdown"]');
+    expect(dd).toBeTruthy();
+    // Portaled: NOT a descendant of the render container (composer subtree).
+    expect(container.contains(dd)).toBe(false);
+    // Uses the layer token, never a raw z-index.
+    expect((dd as HTMLElement).className).toContain("z-popover");
+  });
+
+  it("the + attach menu portals; panelRef-first outside-click keeps an in-menu press open; the item handler then runs", () => {
+    const { container } = renderInput();
+    fireEvent.click(document.body.querySelector('[data-testid="attach-button"]')!);
+    const menu = document.body.querySelector('[data-testid="attach-menu"]') as HTMLElement;
+    expect(menu).toBeTruthy();
+    expect(container.contains(menu)).toBe(false); // portaled out of the composer
+    expect(menu.className).toContain("z-popover");
+    // panelRef-first: a mousedown INSIDE the portaled menu must NOT be read as
+    // an outside click (which would close it before the item's onClick).
+    fireEvent.mouseDown(menu.querySelector('[data-testid="attach-preview"]')!);
+    expect(document.body.querySelector('[data-testid="attach-menu"]')).toBeTruthy();
+    // The item's own click handler runs (it closes the menu via setAttachOpen).
+    fireEvent.click(menu.querySelector('[data-testid="attach-preview"]')!);
+    expect(document.body.querySelector('[data-testid="attach-menu"]')).toBeNull();
+    // And a genuine outside mousedown closes it too.
+    fireEvent.click(document.body.querySelector('[data-testid="attach-button"]')!);
+    expect(document.body.querySelector('[data-testid="attach-menu"]')).toBeTruthy();
+    fireEvent.mouseDown(document.body);
+    expect(document.body.querySelector('[data-testid="attach-menu"]')).toBeNull();
+  });
+});
 
 describe("CommandInput autocomplete", () => {
   it("should show command dropdown when typing /", () => {
@@ -130,12 +167,13 @@ describe("CommandInput autocomplete", () => {
   });
 
   it("should navigate with arrow keys", () => {
-    const { container, textarea } = renderInput();
+    const { textarea } = renderInput();
     fireEvent.change(textarea, { target: { value: "/" } });
 
-    // Get command buttons (excluding the Send button)
+    // Dropdown is portaled to document.body; scan there (excludes Send button,
+    // which has no `.font-mono` child). See change: portal-composer-action-popovers.
     const getCommandButtons = () => {
-      const buttons = Array.from(container.querySelectorAll("button"));
+      const buttons = Array.from(document.body.querySelectorAll("button"));
       return buttons.filter(b => b.querySelector(".font-mono"));
     };
 
@@ -856,11 +894,11 @@ describe("CommandInput stale-closure regression (controlled mode, prop-ref chang
   it("Mouse click invokes the CURRENT onDraftChange after prop-reference change", () => {
     const v1 = vi.fn();
     const v2 = vi.fn();
-    const { container, textarea, rerenderWith } = renderControlled({ onDraftChange: v1 });
+    const { textarea, rerenderWith } = renderControlled({ onDraftChange: v1 });
     rerenderWith({ onDraftChange: v2 });
     fireEvent.change(textarea, { target: { value: "/dep" } });
-    // Locate the `/deploy` dropdown button (font-mono text-blue-400 span starting with `/deploy`).
-    const buttons = Array.from(container.querySelectorAll("button"));
+    // Dropdown is portaled to document.body. Locate the `/deploy` button there.
+    const buttons = Array.from(document.body.querySelectorAll("button"));
     const deployBtn = buttons.find((b) =>
       b.querySelector(".font-mono")?.textContent?.startsWith("/deploy")
     );

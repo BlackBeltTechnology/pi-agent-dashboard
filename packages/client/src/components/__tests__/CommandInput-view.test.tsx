@@ -132,9 +132,10 @@ describe("CommandInput — chat-pane height budget", () => {
 
 describe("CommandInput — /view interception", () => {
   it("lists /view in command dropdown when typing /v", () => {
-    const { container, textarea } = renderInput();
+    const { textarea } = renderInput();
     fireEvent.change(textarea, { target: { value: "/v" } });
-    const text = container.textContent ?? "";
+    // Command dropdown is portaled to document.body. See change: portal-composer-action-popovers.
+    const text = document.body.textContent ?? "";
     expect(text).toContain("/view");
   });
 
@@ -198,9 +199,10 @@ describe("CommandInput — `@` URL autocomplete", () => {
       msg("a", "check https://youtu.be/abc"),
       msg("b", "and https://example.com/spec.pdf"),
     ];
-    const { container, textarea } = renderInput({ sessionMessages });
+    const { textarea } = renderInput({ sessionMessages });
     fireEvent.change(textarea, { target: { value: "@" } });
-    const text = container.textContent ?? "";
+    // @-dropdown is portaled to document.body. See change: portal-composer-action-popovers.
+    const text = document.body.textContent ?? "";
     expect(text).toContain("youtu.be");
     expect(text).toContain("example.com");
   });
@@ -210,19 +212,19 @@ describe("CommandInput — `@` URL autocomplete", () => {
       msg("a", "https://youtu.be/abc"),
       msg("b", "https://example.com/x"),
     ];
-    const { container, textarea } = renderInput({ sessionMessages });
+    const { textarea } = renderInput({ sessionMessages });
     fireEvent.change(textarea, { target: { value: "@youtu" } });
-    const text = container.textContent ?? "";
+    const text = document.body.textContent ?? "";
     expect(text).toContain("youtu.be");
     expect(text).not.toContain("example.com");
   });
 
   it("dropdown is empty when no URLs in session and no file results", () => {
-    const { container, textarea } = renderInput({ sessionMessages: [] });
+    const { textarea } = renderInput({ sessionMessages: [] });
     fireEvent.change(textarea, { target: { value: "@foo" } });
     // No URL items and no file items → dropdown should NOT render at all.
     // We assert no preview-card-style dropdown buttons appear with the
-    // cyan URL style.
-    expect(container.querySelector(".text-cyan-400")).toBeNull();
+    // cyan URL style (portaled root).
+    expect(document.body.querySelector(".text-cyan-400")).toBeNull();
   });
 });

@@ -50,6 +50,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   synthetic: "Synthetic",
   zai: "Z.ai",
   "kimi-coding": "Kimi Code",
+  "opencode-go": "OpenCode Go",
 };
 
 const SEVERITY_COLOR: Record<PaceSeverity, string> = {
