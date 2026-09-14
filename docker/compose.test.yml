@@ -100,6 +100,13 @@ services:
       # both | no-am | legacy | bad-registration. Empty => test-entrypoint skips
       # all flow-peer wiring (non-flow specs unaffected). Requires PI_E2E_SEED=1.
       PI_TEST_PEERS: "${PI_TEST_PEERS:-}"
+      # Browser-relay e2e faucet (change: add-browser-relay, task 7.61):
+      # PI_BROWSER_RELAY_FAKE=1 makes test-entrypoint enable the browser plugin
+      # (config.plugins.browser.enabled=true, seeded BEFORE boot so the server
+      # entry runs and seeds the socket-less Fake instance) and lets the plugin
+      # seed a `Fake` profile row — the docker harness has no real Chrome.
+      # Default empty => no Fake instance, no relay config.
+      PI_BROWSER_RELAY_FAKE: "${PI_BROWSER_RELAY_FAKE:-}"
       # PI_E2E_OAUTH=1 seeds a resolvable `github` OAuth provider plus
       # `bypassUrls:["/"]` BEFORE the server boots, so `/auth/*` routes exist
       # for oauth-redirect-base.spec.ts. A spec cannot arrange this itself:
@@ -124,6 +131,14 @@ services:
       # test-up. Unset = strip ON (production default).
       # See change: verify-subagent-pull-under-load.
       PI_DASHBOARD_SUBAGENT_STRIP: "${PI_DASHBOARD_SUBAGENT_STRIP:-}"
+      # Test-only back-pressure injector (change:
+      # fix-backpressure-status-and-subagent-frames). Registers
+      # `POST /api/test/force-shed`, which forces transcript-class frames to
+      # shed as if the socket were over MAX_WS_BUFFER — real saturation is a
+      # browser failing to drain its own socket, which Playwright cannot induce.
+      # Always on in the HARNESS (never in a real image): the route is inert
+      # until a spec POSTs `{enabled:true}`, so it needs no separate boot arm.
+      PI_E2E_FORCE_SHED: "1"
 
     volumes:
       # Path-parity: host CWD as the read-only overlay lower layer. The

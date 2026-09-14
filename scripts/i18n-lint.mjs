@@ -45,12 +45,25 @@ function walk(dir) {
       // clients, i.e. an API contract that MUST NOT be translated: a client
       // parses them. See change: add-dashboard-mcp-server.
       //
+      // browser-plugin's relay/vendor/ is VERBATIM upstream playwright-core
+      // code (Apache-2.0, see vendor/NOTICE) — never edited, and its
+      // `throw new Error(...)` strings are a wire protocol the CDP client
+      // parses (task 2.3 asserts the exact upstream reason strings). Not UI.
+      //
+      // browser-plugin/src/server/ is the plugin's REST/WS API surface: its
+      // `message` fields are RESPONSE PAYLOADS (the client translates its own
+      // copy by the machine-readable `reason` code) and its strings name the
+      // vendor's CDP error contract, so translating them would break the
+      // contract. Same rationale as mcp-server-plugin below. The plugin's
+      // CLIENT subtree stays scanned — that is where UI copy lives.
+      // See change: add-browser-relay.
+      //
       // mcp-client-plugin/src/core is host-free logic (no React) shared with
       // the hostless apple-tools installer; its `message:` strings are
       // diagnostics returned as data, never rendered copy. The plugin's client
       // entry is still scanned. See change: extract-mcp-client-plugin.
       if (
-        /node_modules|__tests__|\.test\.|dist|templates|demo-plugin|dashboard-plugin-skill|mcp-server-plugin|mcp-client-plugin\/src\/core/.test(
+        /node_modules|__tests__|\.test\.|dist|templates|demo-plugin|dashboard-plugin-skill|mcp-server-plugin|browser-plugin\/src\/server|mcp-client-plugin\/src\/core/.test(
           p,
         )
       )

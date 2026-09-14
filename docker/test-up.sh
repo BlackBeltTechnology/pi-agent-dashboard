@@ -82,6 +82,13 @@ export TUNNEL_ENABLED=false
 #   PI_E2E_SEED=1 PI_TEST_PEERS=no-am /path/to/docker/test-up.sh -d --build
 export PI_TEST_PEERS="${PI_TEST_PEERS:-}"
 
+# Browser-relay e2e faucet (change: add-browser-relay, task 7.61). Passed
+# through to the container (compose.test.yml -> test-entrypoint.sh) which enables
+# the browser plugin + seeds a socket-less `Fake` instance, so the L3 spec can
+# drive the settings/tile surfaces without real Chrome. Requires PI_E2E_SEED=1.
+#   PI_E2E_SEED=1 PI_BROWSER_RELAY_FAKE=1 docker/test-up.sh -d --build
+export PI_BROWSER_RELAY_FAKE="${PI_BROWSER_RELAY_FAKE:-}"
+
 # Record the resolved ports + project for teardown + the Playwright lifecycle.
 # Gitignored; harmless inside the container (read-only overlay lower).
 write_state_file() {

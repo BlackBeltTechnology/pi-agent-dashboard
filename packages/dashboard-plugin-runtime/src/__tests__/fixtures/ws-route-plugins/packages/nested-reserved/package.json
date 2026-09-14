@@ -1,0 +1,4 @@
+{
+  "name": "nested-reserved",
+  "pi-dashboard-plugin": { "id": "nested-reserved", "displayName": "nested-reserved", "claims": [], "server": "./server.mjs" }
+}

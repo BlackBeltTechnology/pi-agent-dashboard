@@ -35,7 +35,33 @@ wall, L1 timed; occupancy = `max` + `p95` + cumulative ms above threshold).
 | id | requirement | technique | level | disposition | input | trigger | expected observable (invariant) |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------------------|
 | F1 | Stale badge heals in the real UI | state-convergence | L3 | automated | Dashboard open against the docker harness (port from `.pi-test-harness.json` `dashboardPort`); a session driven to `streaming` while its socket is saturated | Saturation released | The session card converges to the working/streaming indicator within 1 s of drain, without a page reload |
-| F2 | No reload required, no flicker of a wrong state | state-convergence | L3 | automated | Same as F1, with a session that ends while saturated | Saturation released | Card converges to `ended` exactly once; no intermediate incorrect status is rendered after the reconcile |
+| F2 | No reload required, no flicker of a wrong state | state-convergence | L3 | automated | Same as F1, with a session that ends while saturated | Saturation released | The page receives EXACTLY ONE `session_updated` for that session, carrying `status: "ended"`, and none before the release; the row stops rendering as live |
+
+**F1/F2 need a test-only injector — decided at implementation time.** Both
+require a browser socket whose SERVER-side `bufferedAmount` exceeds
+`MAX_WS_BUFFER`, then drains. Real saturation is a browser failing to drain its
+own socket, which Playwright cannot induce deterministically and no existing
+harness lever can force. They are therefore driven through
+`POST /api/test/force-shed`, a route registered ONLY under
+`PI_E2E_FORCE_SHED=1` (set by `docker/compose.test.yml`, never in a real image)
+and still `networkGuard`-gated. It forces transcript-class frames to shed while
+leaving `bufferedAmount` itself untouched.
+
+The injector is process-wide, so both specs release it in `afterEach`;
+`playwright.config.ts` pins `workers: 1` / `fullyParallel: false`, so no sibling
+spec can run while it is on. Non-vacuity: the enable call asserts the route
+reported `forceShed: true`, so a harness booted without the flag fails loudly
+instead of passing as a no-op. Scenario **X6** below pins the production-default
+inertness at L1. Both land in `tests/e2e/status-reconcile.spec.ts`.
+
+**F2's observable was restated during implementation.** It was written as "the
+card converges to `ended`". An ended session leaves the live folder body for the
+per-folder ended bucket, which is collapsed by default and server-paged — so
+asserting on an `ended` BADGE measures that disclosure affordance, which this
+change does not touch, and blocks on an unmounted card. The restated observable
+asserts the delivered frame on the page's own WebSocket (exactly one, carrying
+`status: "ended"`, none before the drain) plus the row no longer rendering as
+live. That is a strictly sharper reading of "converges exactly once".
 
 ### Error-handling
 
@@ -46,15 +72,16 @@ wall, L1 timed; occupancy = `max` + `p95` + cumulative ms above threshold).
 | X3 | Teardown on error and on stalled-terminate | fault-injection (abort) | L1 | automated | Same as X2, two variants: socket `error` event; and `sendState` byte-ceiling `ws.terminate()` path | Each teardown path | Debt set removed and interval cleared in both variants; `stalledSocketsTerminated` still increments on the terminate variant |
 | X4 | Missing session at reconcile time | fault-injection (delete) | L1 | automated | Debt recorded for `s1`; `s1` removed from the session manager before the reconcile tick | Reconcile fires | No frame sent for `s1`, no throw, debt discarded, reconcile-sent counter not incremented |
 | X5 | Timer does not run when nothing is owed | state-transition | L1 | automated | Socket that sheds only transcript `event` frames (no `session_updated`) — the incident's exact shape | 10 reconcile intervals elapse | No reconcile timer was ever started; no frames sent (proves the reconcile does not depend on the pending-state timer, which is never created in this case) |
+| X6 | Test injector is inert by default | fault-injection (misconfig) | L1 | automated | Gateway built WITHOUT `PI_E2E_FORCE_SHED=1` (the production default) | `setTestForceShed(true)` | Returns `false`; an under-threshold socket still receives its frames — the injector cannot shed anything on a real instance |
 
 ---
 
 ## Coverage summary
 
 - Requirements covered: 3/3 (shed-reconcile, occupancy observability, modified health counters)
-- Scenarios by class: edge 8 · perf 2 · frontend 2 · error 5
-- Scenarios by level: L1 15 · L2 0 · L3 2
-- Scenarios by disposition: automated 17 · manual-only 0
+- Scenarios by class: edge 8 · perf 2 · frontend 2 · error 6
+- Scenarios by level: L1 16 · L2 0 · L3 2
+- Scenarios by disposition: automated 18 · manual-only 0
 
 ## New infra needed
 

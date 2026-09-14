@@ -7,6 +7,12 @@ Chrome for Testing that `agent-browser` launches by default.
 Not vendored from upstream. Authored for this repo; see
 [`UPSTREAM.md`](../UPSTREAM.md).
 
+> **Legacy path.** The Pi Dashboard browser relay
+> ([`dashboard-relay.md`](dashboard-relay.md)) is preferred whenever the pi
+> session runs on the dashboard host — it needs no native-messaging host and
+> the dashboard holds the pairing token. Use this Panerelay recipe only when
+> the agent runs elsewhere and cannot reach a loopback dashboard.
+
 ## When this recipe applies
 
 Use it when the target is behind a login the agent cannot perform: SSO /

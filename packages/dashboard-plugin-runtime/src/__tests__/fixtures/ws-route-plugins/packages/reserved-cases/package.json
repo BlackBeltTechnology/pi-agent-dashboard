@@ -1,0 +1,4 @@
+{
+  "name": "reserved-cases",
+  "pi-dashboard-plugin": { "id": "reserved-cases", "displayName": "reserved-cases", "claims": [], "server": "./server.mjs" }
+}

@@ -119,12 +119,25 @@ const entry = cliPath;
 // append the flag only when the user has not already pinned a limit, so an
 // explicit NODE_OPTIONS override still wins.
 const existingNodeOptions = process.env.NODE_OPTIONS ?? "";
-const childEnv = existingNodeOptions.includes("--max-old-space-size")
-  ? process.env
-  : {
-      ...process.env,
-      NODE_OPTIONS: `${existingNodeOptions} --max-old-space-size=8192`.trim(),
-    };
+// Enable jiti TS `paths` resolution (jiti default: off).
+//
+// The browser plugin vendors playwright-core's relay, whose files import bare
+// internal specifiers (`@isomorphic/manualPromise`, `@isomorphic/time`,
+// `@isomorphic/timeoutRunner`, `@utils/wsServer`) that do not exist on npm —
+// they are mapped to `vendor/shims/*` via `tsconfig.base.json` `paths`.
+// Vitest resolves them via `resolve.alias`; the REAL server loads
+// plugin entries through the `--import jiti` hook, whose instance is created
+// with `tsconfigPaths` off, so without this the plugin fails to load and the
+// whole relay is dead at runtime (caught by the docker harness). A caller-set
+// value wins.
+// See change: add-browser-relay.
+const childEnvBase = existingNodeOptions.includes("--max-old-space-size")
+  ? { ...process.env }
+  : { ...process.env, NODE_OPTIONS: `${existingNodeOptions} --max-old-space-size=8192`.trim() };
+const childEnv = {
+  ...childEnvBase,
+  JITI_TSCONFIG_PATHS: process.env.JITI_TSCONFIG_PATHS ?? "true",
+};
 
 const child = spawn(
   process.execPath,
