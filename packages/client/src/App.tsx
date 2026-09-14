@@ -2711,7 +2711,15 @@ export default function App() {
         {sessionList}
       </MobileOverlay>
 
-      <div className="flex-1 flex flex-col min-w-0 min-h-0">
+      {/* `relative` is load-bearing: a route-backed overlay's frozen underlay is
+          `absolute inset-0`, and without a positioned containing block here it
+          escapes to the viewport — painting the frozen session detail from x=0,
+          straight over the live sidebar. Two surfaces then share the same
+          pixels, which rendered as garbled, doubled session-header text in the
+          strip above the dialog card (issue #591). As the containing block, the
+          underlay covers exactly the content region the launching surface
+          occupied. See change: fix-settings-overlay-header-peek. */}
+      <div className="relative flex-1 flex flex-col min-w-0 min-h-0">
         {connectionBanner}
         <RecoveryOfferHost onReopen={(ids) => { for (const id of ids) handleResumeSession(id, "continue"); }} onDismiss={(ids) => send({ type: "recovery_dismiss", sessionIds: ids })} />
         {/* Folder-scoped editor pane (hosts terminal tabs via the keep-alive
