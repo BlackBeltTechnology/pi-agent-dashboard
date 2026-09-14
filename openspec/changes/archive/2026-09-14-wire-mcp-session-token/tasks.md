@@ -75,4 +75,4 @@ live in `test-plan.md`; these tasks carry the harness exemplar and the Triple.
 
 ### 6.4 Manual (deferred post-merge by `ship-change`)
 
-- [ ] 6.4.1 (test-plan #X10) (test-plan: manual-only) Read the shipped security notes and confirm the accepted exposure — any subprocess the agent spawns can read `PI_DASHBOARD_MCP_TOKEN` — is stated plainly for the operator
+- [x] 6.4.1 (test-plan #X10) (test-plan: manual-only) Read the shipped security notes and confirm the accepted exposure — any subprocess the agent spawns can read `PI_DASHBOARD_MCP_TOKEN` — is stated plainly for the operator
