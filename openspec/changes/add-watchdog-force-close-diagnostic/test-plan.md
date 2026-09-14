@@ -19,6 +19,15 @@ Gate resolved: the "far above threshold" slot was unfillable as an adjective. Ra
 | E5 | A silent peer is distinguished from a blocked loop | equivalence partition (healthy loop) | L1 | automated | manager with timers firing on schedule | watchdog fires after 60s of peer silence | `maxTickDriftMs < 1_000` — silence attributed to the peer |
 | E6 | A blocked loop is attributed to this process | equivalence partition (starved loop) | L1 | automated | manager; wall clock advanced 90s **without** timers firing, then one tick | that delayed tick fires | `maxTickDriftMs >= 85_000` — silence attributed to local starvation |
 
+### Frontend-quirk (event-loop ordering)
+
+| id | requirement | technique | level | disposition | input | trigger | expected observable (invariant) |
+|----|-------------|-----------|-------|-------------|-------|---------|---------------------------------|
+| F1 | Observed silence is confirmed after the poll phase | state-transition (illegal edge: close on a live peer) | L1 (real timers, out-of-process peer) | automated | peer in its OWN process sending every 100 ms; `watchdogTimeout` 1 000 ms, check interval 200 ms | 1 500 ms sync block INSIDE the `onMessage` handler | 0 force-closes; peer accepts exactly 1 connection; `received > 3` |
+| F2 | Observed silence is confirmed after the poll phase | state-transition (legal edge preserved) | L1 | automated | peer that has genuinely stopped | silence passes threshold, deferred re-check runs | force-close + reconnect still occur (covered by E1/E4 after the deferral) |
+
+> F1 is deliberately NOT a fake-timer test. The defect is an event-loop **ordering** property: under `vi.advanceTimersByTime` there are no real socket reads for the watchdog to beat, so a fake-timer version passes against the broken code. The peer must also be out-of-process — an in-process peer is frozen by the same block, which makes the silence genuine and silently inverts the result.
+
 ### Error-handling
 
 | id | requirement | technique | level | disposition | fault | trigger | expected observable |
@@ -38,10 +47,10 @@ _None. The added work is one subtraction and one comparison per 15 s tick, plus 
 
 ## Coverage summary
 
-- Requirements covered: 3/3 (`Watchdog force-close is attributable`, `Every live connection reports its force-closes`, `The force-close diagnostic is durable`)
-- Scenarios by class: edge 6 · perf 0 · frontend 0 · error 2
-- Scenarios by level: L1 8 · L2 0 · L3 0
-- Disposition: automated 8 · manual-only 0
+- Requirements covered: 4/4 (`Watchdog force-close is attributable`, `Observed silence is confirmed after the poll phase`, `Every live connection reports its force-closes`, `The force-close diagnostic is durable`)
+- Scenarios by class: edge 6 · perf 0 · frontend 2 · error 2
+- Scenarios by level: L1 10 · L2 0 · L3 0
+- Disposition: automated 10 · manual-only 0
 
 ## Known coverage gap (recorded, not folded)
 

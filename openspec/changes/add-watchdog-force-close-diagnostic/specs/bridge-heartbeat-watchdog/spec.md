@@ -59,6 +59,27 @@ A blocked event loop produces the same `silentForMs` as a genuinely silent peer,
 - **WHEN** the watchdog fires
 - **THEN** the force-close and reconnect SHALL behave exactly as before this change
 
+### Requirement: Observed silence is confirmed after the poll phase
+
+When the event loop is blocked inside an I/O callback, it re-enters the timers phase BEFORE it can re-enter poll. The watchdog therefore observes a `lastMessageAt` that is stale only because the frames refreshing it are still unread in the socket buffer, and force-closes a connection the peer never stopped serving. Measured: a 1.5 s block inside an `onMessage` handler force-closed a peer that had sent 42 frames, of which 5 had been processed.
+
+On detecting silence past the threshold, the watchdog SHALL defer its decision by one event-loop turn and re-evaluate before closing. It SHALL close only if the silence still holds after pending socket reads have had the opportunity to drain. Deferral SHALL be scheduled at most once per detection, and SHALL be abandoned if the watchdog stops in the meantime.
+
+#### Scenario: A peer that never stopped sending is not closed
+
+- **GIVEN** a peer in a separate process sending every 100 ms
+- **AND** a bridge whose event loop is blocked inside an `onMessage` handler for longer than the silence threshold
+- **WHEN** the loop unblocks and the watchdog next runs
+- **THEN** no force-close SHALL occur
+- **AND** the connection SHALL be the same one throughout
+- **AND** the buffered frames SHALL be processed
+
+#### Scenario: A genuinely silent peer is still closed
+
+- **GIVEN** a peer that has stopped sending entirely
+- **WHEN** the silence passes the threshold and the deferred re-check runs
+- **THEN** the force-close and reconnect SHALL proceed as before
+
 ### Requirement: Every live connection reports its force-closes
 
 The bridge constructs a `ConnectionManager` for its primary endpoint and a second one for a `/dashboard-connect` move, then rebinds its outbound transport to the move target. Both SHALL report force-closes, because after a move the second manager IS the live connection and an unreported force-close there would silence exactly the connection under observation.
