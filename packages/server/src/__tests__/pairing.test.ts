@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { resolvePublicBaseUrls } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import Fastify from "fastify";
+import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { registerBearerAuth } from "../auth/bearer-auth.js";
 import { createNetworkGuard } from "../auth/localhost-guard.js";
@@ -225,7 +225,7 @@ describe("G7: promoted publicBaseUrls stay behind the read-time TLS gate", () =>
 
 async function mkRouteApp(
   opts: { trusted?: string[]; localToken?: string; deviceBearer?: boolean } = {},
-): Promise<{ app: Fastify; reg: PairedDeviceRegistry }> {
+): Promise<{ app: FastifyInstance; reg: PairedDeviceRegistry }> {
   const reg = new PairedDeviceRegistry(path.join(tmpDir, "paired.json"));
   const app = Fastify();
   openApps.push(app);
@@ -251,15 +251,15 @@ async function mkRouteApp(
   return { app, reg };
 }
 
-const openApps: Fastify[] = [];
+const openApps: FastifyInstance[] = [];
 
-const loopbackMint = (app: Fastify, body: unknown, extra: Record<string, unknown> = {}) =>
+const loopbackMint = (app: FastifyInstance, body: unknown, extra: Record<string, unknown> = {}) =>
   app.inject({
     method: "POST",
     url: "/api/paired-devices",
     remoteAddress: "127.0.0.1",
     headers: { "content-type": "application/json", ...extra },
-    payload: body,
+    payload: body as { label?: unknown },
   });
 
 function registryRowCount(regPath: string): number {
