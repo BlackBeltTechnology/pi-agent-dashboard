@@ -325,7 +325,6 @@ describe("E16 — mint response envelope", () => {
     expect(row).toBeTruthy();
     expect(row).not.toHaveProperty("token");
     expect(row).not.toHaveProperty("tokenHash");
-    void reg;
   });
 });
 

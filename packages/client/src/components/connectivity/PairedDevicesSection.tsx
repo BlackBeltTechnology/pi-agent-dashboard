@@ -114,7 +114,7 @@ export function PairedDevicesSection() {
         <div>
           <button
             type="button"
-            className="text-sm text-[var(--accent,#3b82f6)] hover:underline"
+            className="text-sm text-[var(--accent)] hover:underline"
             onClick={() => {
               setLabelDraft("");
               setStage("label");
@@ -128,7 +128,7 @@ export function PairedDevicesSection() {
         <div className="flex items-center gap-2">
           <input
             aria-label={i18nT("common.tokenLabel", undefined, "Token label")}
-            className="min-w-0 flex-1 rounded border border-[var(--border)] bg-transparent px-2 py-1 text-sm"
+            className="min-w-0 flex-1 rounded border border-[var(--border-primary)] bg-transparent px-2 py-1 text-sm"
             value={labelDraft}
             placeholder={i18nT("common.tokenLabelPlaceholder", undefined, "e.g. claude-code")}
             onChange={(e) => setLabelDraft(e.target.value)}
@@ -139,7 +139,7 @@ export function PairedDevicesSection() {
           />
           <button
             type="button"
-            className="text-sm text-[var(--accent,#3b82f6)] hover:underline"
+            className="text-sm text-[var(--accent)] hover:underline"
             onClick={() => void handleCreate()}
           >
             {i18nT("common.create", undefined, "Create")}
@@ -155,7 +155,7 @@ export function PairedDevicesSection() {
       )}
       {stage === "result" && minted && (
         <div
-          className="space-y-2 rounded border border-[var(--border)] bg-[var(--bg-elevated,#141414)] p-3"
+          className="space-y-2 rounded border border-[var(--border-primary)] bg-[var(--bg-tertiary)] p-3"
           data-testid="mcp-token-result"
         >
           <div className="text-xs text-[var(--text-muted)]">
@@ -165,19 +165,19 @@ export function PairedDevicesSection() {
             <code className="min-w-0 flex-1 truncate text-xs">{minted.token}</code>
             <button
               type="button"
-              className="text-xs text-[var(--accent,#3b82f6)] hover:underline"
+              className="text-xs text-[var(--accent)] hover:underline"
               onClick={() => void copyText(minted.token)}
             >
               {i18nT("common.copyToken", undefined, "Copy token")}
             </button>
           </div>
-          <code className="block overflow-x-auto rounded bg-[var(--bg,#0f0f0f)] p-2 text-xs">
+          <code className="block overflow-x-auto rounded bg-[var(--bg-primary)] p-2 text-xs">
             {`claude mcp add --transport http pi-dashboard ${snippetBase()}/mcp --header "Authorization: Bearer ${minted.token}"`}
           </code>
           <div className="flex items-center gap-3">
             <button
               type="button"
-              className="text-xs text-[var(--accent,#3b82f6)] hover:underline"
+              className="text-xs text-[var(--accent)] hover:underline"
               onClick={() =>
                 void copyText(
                   `claude mcp add --transport http pi-dashboard ${snippetBase()}/mcp --header "Authorization: Bearer ${minted.token}"`,
@@ -206,14 +206,14 @@ export function PairedDevicesSection() {
           {devices.map((d) => (
             <li
               key={d.id}
-              className="flex items-center gap-2 rounded border border-[var(--border)] px-3 py-2"
+              className="flex items-center gap-2 rounded border border-[var(--border-primary)] px-3 py-2"
             >
               <Icon path={mdiCellphoneKey} size={0.8} className="text-[var(--text-muted)] shrink-0" />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm">
                   {d.label}
                   {d.source === "manual" && (
-                    <span className="ml-2 rounded bg-[var(--bg-elevated,#1a1a1a)] px-1.5 py-0.5 align-middle text-[10px] uppercase text-[var(--text-muted)]">
+                    <span className="ml-2 rounded bg-[var(--bg-surface)] px-1.5 py-0.5 align-middle text-[10px] uppercase text-[var(--text-muted)]">
                       {i18nT("common.manualSource", undefined, "manual")}
                     </span>
                   )}

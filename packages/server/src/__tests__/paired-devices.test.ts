@@ -78,8 +78,7 @@ describe("E15 — registry rows without a source field", () => {
     expect(reg.verify(legacyToken)).toBe("row-1");
 
     // The next write back-fills `source` on the OLD row too.
-    const { device: _device } = reg.add("new-device");
-    void _device;
+    reg.add("new-device");
     const rows = JSON.parse(fs.readFileSync(regPath, "utf-8"));
     expect(rows[0].source).toBe("pairing");
     expect(rows[1].source).toBe("pairing");
