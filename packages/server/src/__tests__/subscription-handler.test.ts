@@ -1,8 +1,12 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
 import { handleSubscribe, replaySessionAssets, sendEventBatches } from "../browser-handlers/subscription-handler.js";
+import { createDirectoryService } from "../directory-service.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 
@@ -621,5 +625,74 @@ describe("sendEventBatches — every replay terminates exactly once", () => {
     expect(frames).toHaveLength(2);
     expect(frames[1].events).toHaveLength(200);
     expect(frames[1].isLast).toBe(true);
+  });
+});
+
+/**
+ * X5 — subscribing to an ARCHIVED id whose indexed transcript was deleted
+ * from disk. The handler resolves `sessionFile` from the archive index (the
+ * session is non-resident), the real hydration fails, and the browser gets a
+ * terminal empty replay instead of a hang or a crash.
+ *
+ * Uses the REAL `DirectoryService.loadSessionEvents` (in-process, no worker)
+ * so the fault is a genuine missing-file read, not a stubbed rejection.
+ * See change: archive-sessions-lazy-load.
+ */
+describe("handleSubscribe — archived id with a deleted transcript (X5)", () => {
+  function makeRealDirectoryService() {
+    return createDirectoryService(
+      {
+        getPinnedDirectories: () => [],
+        getSessionOrder: () => ({}),
+        setSessionOrder: () => {},
+        setPinnedDirectories: () => {},
+      } as never,
+      createMemorySessionManager(),
+      undefined,
+      { useLoadWorker: false },
+    );
+  }
+
+  it("replays a terminal empty frame, does not throw, and leaves resident sessions alone", async () => {
+    const missingFile = path.join(os.tmpdir(), `archived-gone-${Date.now()}.jsonl`);
+    expect(fs.existsSync(missingFile)).toBe(false);
+
+    const directoryService = makeRealDirectoryService();
+    const sessionArchive = {
+      getById: (id: string) =>
+        id === "arch-gone"
+          ? { id, cwd: "/repo", groupPath: "/repo", endedAt: 2, archivedAt: 3, sessionFile: missingFile }
+          : undefined,
+    } as never;
+    const ctx = createMockContext({ directoryService, sessionArchive });
+    ctx.getSubscribers = () => [ctx.ws];
+
+    // A resident, untouched neighbour.
+    ctx.sessionManager.restore({
+      id: "resident", cwd: "/repo", source: "tui", status: "ended",
+      startedAt: 1, endedAt: 2, hidden: false, dataUnavailable: false,
+    } as never);
+
+    const subs = new Set<string>();
+    expect(() => handleSubscribe({ type: "subscribe", sessionId: "arch-gone" }, subs, ctx)).not.toThrow();
+    await new Promise((r) => setTimeout(r, 200));
+
+    const calls = (ctx.sendTo as any).mock.calls as Array<[any, ServerToBrowserMessage]>;
+    const replays = calls.filter(([, m]) => m.type === "event_replay") as Array<[any, any]>;
+    // Priming (non-terminal) frame, then the terminal empty one — the error frame.
+    // The priming frame is emitted ONLY when `sessionFile` resolved from the
+    // archive index, so its presence proves the archived-hydrate branch ran.
+    expect(replays[0][1]).toMatchObject({ sessionId: "arch-gone", isLast: false });
+    expect(replays.length).toBeGreaterThanOrEqual(2);
+    const last = replays[replays.length - 1][1];
+    expect(last).toMatchObject({ sessionId: "arch-gone", isLast: true });
+    expect(last.events).toEqual([]);
+
+    // The archived id never enters the live set…
+    expect(ctx.sessionManager.get("arch-gone")).toBeUndefined();
+    // …and the resident neighbour is untouched (no dataUnavailable spill-over).
+    expect(ctx.sessionManager.get("resident")).toMatchObject({ dataUnavailable: false });
+
+    directoryService.stopPolling();
   });
 });

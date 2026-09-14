@@ -123,7 +123,7 @@ export function frameClassOf(
 import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleMoveFolderToWorkspace, handleOpenSpecBulkArchive, handleOpenSpecGet, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
 import { handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handlePromptResyncRequest, handleRemoveFollowupEntry, handleResumeSession, handleRetrySession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest, shutdownSession as shutdownSessionImpl } from "../browser-handlers/session-action-handler.js";
-import { handleAcceptReplaceProposal, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleHideSession, handleListSessions, handleRemoveTagGlobally, handleRenameSession, handleSessionsPage, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnhideSession } from "../browser-handlers/session-meta-handler.js";
+import { handleAcceptReplaceProposal, handleArchiveSession, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleListSessions, handleRemoveTagGlobally, handleRenameSession, handleSessionsPage, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnarchiveSession } from "../browser-handlers/session-meta-handler.js";
 import { clearGapState, handleHistoryBackfill, handleSubscribe } from "../browser-handlers/subscription-handler.js";
 import { handleCloseInlineTerminal, handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "../browser-handlers/terminal-handler.js";
 import { createPendingResumeRegistry, type PendingResumeRegistry } from "../pending/pending-resume-registry.js";
@@ -374,6 +374,12 @@ export function createBrowserGateway(
   /** Shape of the replay window when one applies. Absent → `head-tail`.
    *  See change: add-tail-only-replay-window (D1). */
   replayWindowMode?: import("@blackbelt-technology/pi-dashboard-shared/memory-limits.js").ReplayWindowMode,
+  /** Archive index + transition owner (snapshot counts, archive verbs).
+   *  See change: archive-sessions-lazy-load. */
+  sessionArchive?: import("../session/session-archive.js").SessionArchive,
+  /** One-shot intents for idle-alive archive requests.
+   *  See change: archive-sessions-lazy-load. */
+  pendingArchiveIntents?: import("../pending/pending-archive-intent-registry.js").PendingArchiveIntentRegistry,
 ): BrowserGateway {
   const wss = new WebSocketServer({ noServer: true });
 
@@ -906,7 +912,13 @@ export function createBrowserGateway(
       const snapshot = typeof sessionManager.buildSnapshot === "function"
         ? sessionManager.buildSnapshot(pinnedDirs)
         : { sessions: sessionManager.listAll(), orders: {} as Record<string, string[]>, endedTotals: {} as Record<string, number> };
-      sendTo(ws, { type: "sessions_snapshot", ...snapshot });
+      sendTo(ws, {
+        type: "sessions_snapshot",
+        ...snapshot,
+        // Archived counts come from the index, not the (non-resident) sessions.
+        // See change: archive-sessions-lazy-load.
+        archivedCountByCwd: sessionArchive?.countsByKey() ?? {},
+      });
     }
 
 
@@ -935,6 +947,8 @@ export function createBrowserGateway(
           pendingResumeIntents,
           pendingClientCorrelations,
           pendingWorktreeBaseRegistry,
+          sessionArchive,
+          pendingArchiveIntents,
           isRecoveryLivenessPending: gateway.isRecoveryLivenessPending,
           recordResyncRequester: (requestId, requesterWs) =>
             resyncRequesters.record(requestId, requesterWs),
@@ -1055,11 +1069,12 @@ export function createBrowserGateway(
           case "rename_session":
             handleRenameSession(msg, ctx);
             break;
-          case "hide_session":
-            handleHideSession(msg, ctx);
+          case "archive_session":
+            // Async: an idle-alive archive terminates the process first.
+            await handleArchiveSession(msg, ctx);
             break;
-          case "unhide_session":
-            handleUnhideSession(msg, ctx);
+          case "unarchive_session":
+            handleUnarchiveSession(msg, ctx);
             break;
           case "attach_proposal":
             handleAttachProposal(msg, ctx);

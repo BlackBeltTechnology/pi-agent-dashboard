@@ -3,7 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { createMetaPersistence } from "../persistence/meta-persistence.js";
-import { metaPath, readSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import { createMemorySessionManager } from "../session/memory-session-manager.js";
+import { createSessionArchive } from "../session/session-archive.js";
+import { metaPath, readSessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 
 describe("meta-persistence", () => {
   let tmpDir: string;
@@ -230,6 +232,61 @@ describe("meta-persistence", () => {
     expect(() => mp.setLiveness(sf, { live: false })).toThrow("simulated crash");
     renameSpy.mockRestore();
     expect(fs.readFileSync(metaPath(sf), "utf-8")).toBe(before);
+    mp.dispose();
+  });
+
+  // ── archive fields vs the debounced overwrite ────────────────────
+  // See change: archive-sessions-lazy-load.
+
+  it("carries restoredAt forward through a routine debounced write (E2)", () => {
+    const mp = createMetaPersistence();
+    const sf = sessionFile("restored");
+    // A resident (restored) session: the sidecar records when it came back.
+    writeSessionMeta(sf, { cwd: "/repo", status: "ended", restoredAt: 1234, startedAt: 1000, endedAt: 2000 });
+    // A routine stats save that knows nothing about the archive fields.
+    mp.save(sf, { cwd: "/repo", status: "ended", startedAt: 1000, endedAt: 2000, cost: 3 });
+    vi.advanceTimersByTime(1000);
+
+    const meta = readSessionMeta(sf);
+    expect(meta?.restoredAt).toBe(1234);
+    expect(meta?.cost).toBe(3);
+    mp.dispose();
+  });
+
+  it("archiveSession flushes a pending rename before stamping archived (E3)", () => {
+    const mp = createMetaPersistence();
+    const sf = sessionFile("archive-pending");
+    fs.writeFileSync(sf, `${JSON.stringify({ type: "session", id: "s1", cwd: "/repo" })}\n`);
+    writeSessionMeta(sf, { cwd: "/repo", name: "original", status: "ended", startedAt: 1000, endedAt: 2000 });
+
+    const manager = createMemorySessionManager();
+    manager.restore({
+      id: "s1",
+      cwd: "/repo",
+      name: "original",
+      source: "tui",
+      status: "ended",
+      startedAt: 1000,
+      endedAt: 2000,
+      sessionFile: sf,
+      hidden: false,
+    } as never);
+    const archive = createSessionArchive({
+      sessionManager: manager,
+      metaPersistence: mp,
+      getPinnedDirs: () => [],
+    });
+
+    // Rename is still sitting in the debounce queue when the archive fires.
+    mp.save(sf, { cwd: "/repo", name: "renamed", status: "ended", startedAt: 1000, endedAt: 2000 });
+    expect(archive.archiveSession("s1", "manual")).toMatchObject({ ok: true });
+
+    const meta = readSessionMeta(sf);
+    expect(meta?.name).toBe("renamed");
+    expect(meta?.archived).toBe(true);
+    // Pending entry consumed: no debounce timer is left for this file, so no
+    // later write can resurrect the pre-archive sidecar.
+    expect(vi.getTimerCount()).toBe(0);
     mp.dispose();
   });
 

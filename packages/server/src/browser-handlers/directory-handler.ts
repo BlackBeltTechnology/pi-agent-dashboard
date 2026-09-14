@@ -44,6 +44,10 @@ export function pinDirectorySideEffects(
 ): void {
   const { preferencesStore, directoryService, sessionManager, broadcast } = ctx;
   if (!preferencesStore) return;
+  // Pin change re-keys the archive index (worktree sessions move to/from their
+  // parent repo) and broadcasts the changed folder counts.
+  // See change: archive-sessions-lazy-load.
+  ctx.sessionArchive?.rekey();
   broadcast({ type: "pinned_dirs_updated", paths: preferencesStore.getPinnedDirectories() });
   if (directoryService) {
     directoryService.onDirectoryAdded(resolved).then(({ sessions, openspecData }) => {
@@ -64,7 +68,9 @@ export function pinDirectorySideEffects(
           // the evidence-derived time rather than the moment the directory was
           // added. See change: fix-ended-session-missing-endedat.
           sessionManager.unregister(hist.id, { witnessed: false });
-          sessionManager.update(hist.id, { hidden: true });
+          // Discovered history is a visible ended session — `hidden` now means
+          // "auto-hidden headless worker" only. See change:
+          // archive-sessions-lazy-load.
           const s = sessionManager.get(hist.id);
           if (s) broadcast({ type: "session_added", session: s });
         }
@@ -80,6 +86,7 @@ export function handleUnpinDirectory(
 ): void {
   if (ctx.preferencesStore) {
     ctx.preferencesStore.unpinDirectory(canonicalizePath(msg.path));
+    ctx.sessionArchive?.rekey();
     ctx.broadcast({ type: "pinned_dirs_updated", paths: ctx.preferencesStore.getPinnedDirectories() });
   }
 }

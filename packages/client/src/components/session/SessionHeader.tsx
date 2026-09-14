@@ -61,8 +61,7 @@ interface Props {
   /** Mobile action menu props (only used on mobile) */
   mobileActions?: {
     openspecChanges?: OpenSpecChange[];
-    onHide?: () => void;
-    onUnhide?: () => void;
+    onArchive?: () => void;
     onResume?: (mode: "continue" | "fork") => void;
     onShutdown?: () => void;
     onAttachProposal?: (changeName: string) => void;
@@ -215,8 +214,7 @@ function MobileHeader({ session, showBack, onBack, isRenaming, onConfirmRename, 
           session={session}
           openspecChanges={mobileActions.openspecChanges}
           onRename={canRename ? onStartRename : undefined}
-          onHide={mobileActions.onHide}
-          onUnhide={mobileActions.onUnhide}
+          onArchive={mobileActions.onArchive}
           onResume={mobileActions.onResume}
           onShutdown={mobileActions.onShutdown}
           onAttachProposal={mobileActions.onAttachProposal}

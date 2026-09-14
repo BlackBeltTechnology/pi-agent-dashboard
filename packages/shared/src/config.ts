@@ -210,6 +210,29 @@ export const DEFAULT_SESSIONS: SessionsConfig = {
   useLoadWorker: true,
 };
 
+/**
+ * Session-list archival policy. Drives the boot scan's ended+hidden migration
+ * and the runtime auto-archive sweeper. `archiveAfterDays = 0` disables
+ * auto-archive; values are read live (no restart). See change:
+ * archive-sessions-lazy-load.
+ */
+export interface SessionListConfig {
+  /** Ended sessions whose reference age exceeds this many days are archived. `0` = never. */
+  archiveAfterDays: number;
+  /** Runtime sweep cadence in minutes. */
+  archiveSweepIntervalMinutes: number;
+}
+
+export const DEFAULT_SESSION_LIST: SessionListConfig = {
+  archiveAfterDays: 30,
+  archiveSweepIntervalMinutes: 60,
+};
+
+export const SESSION_LIST_LIMITS = {
+  archiveAfterDays: { min: 0, max: 3650 },
+  archiveSweepIntervalMinutes: { min: 1, max: 1440 },
+} as const;
+
 export interface KeeperLogConfig {
   /**
    * When `true`, per-session keepers archive pi's stdout/stderr (including full
@@ -523,6 +546,8 @@ export interface DashboardConfig {
   openspec: OpenSpecPollConfig;
   /** Session behavior — hydration worker offload toggle. */
   sessions: SessionsConfig;
+  /** Session-list archival policy (age threshold + sweep interval). */
+  sessionList: SessionListConfig;
   /** Embed/ephemeral session lifecycle controls (reaper, caps, acquire). Off by default. */
   embedLifecycle: EmbedLifecycleConfig;
   /** Keeper log behavior — gates capture of pi stdout/stderr into keeper-<id>.log. */
@@ -918,6 +943,7 @@ const DEFAULTS: DashboardConfig = {
   memoryLimits: { ...DEFAULT_MEMORY_LIMITS },
   openspec: { ...DEFAULT_OPENSPEC_POLL },
   sessions: { ...DEFAULT_SESSIONS },
+  sessionList: { ...DEFAULT_SESSION_LIST },
   embedLifecycle: { ...DEFAULT_EMBED_LIFECYCLE },
   keeperLog: { ...DEFAULT_KEEPER_LOG },
   allowedHosts: [],
@@ -1042,6 +1068,61 @@ function parseSessionsConfig(raw: any): SessionsConfig {
     useLoadWorker:
       typeof raw.useLoadWorker === "boolean" ? raw.useLoadWorker : DEFAULT_SESSIONS.useLoadWorker,
   };
+}
+
+/**
+ * Effective session-list archival policy. Out-of-range / non-integer values
+ * fall back to the default (never clamp a negative into a valid `0`, which
+ * would silently turn an invalid setting into "disabled"). Never throws —
+ * `loadConfig` must survive a hand-edited config.
+ * See change: archive-sessions-lazy-load.
+ */
+export function parseSessionListConfig(raw: any): SessionListConfig {
+  if (!raw || typeof raw !== "object") return { ...DEFAULT_SESSION_LIST };
+  const days = raw.archiveAfterDays;
+  const interval = raw.archiveSweepIntervalMinutes;
+  return {
+    archiveAfterDays:
+      Number.isInteger(days) && days >= SESSION_LIST_LIMITS.archiveAfterDays.min && days <= SESSION_LIST_LIMITS.archiveAfterDays.max
+        ? days
+        : DEFAULT_SESSION_LIST.archiveAfterDays,
+    archiveSweepIntervalMinutes:
+      Number.isInteger(interval) &&
+      interval >= SESSION_LIST_LIMITS.archiveSweepIntervalMinutes.min &&
+      interval <= SESSION_LIST_LIMITS.archiveSweepIntervalMinutes.max
+        ? interval
+        : DEFAULT_SESSION_LIST.archiveSweepIntervalMinutes,
+  };
+}
+
+/**
+ * Validate a raw `sessionList` patch for the config write path. An absent
+ * section is valid (defaults apply). Returns human-readable errors so the
+ * write endpoint can answer 400 without persisting an out-of-range value.
+ * See change: archive-sessions-lazy-load.
+ */
+export function validateSessionListConfig(raw: unknown): { ok: boolean; errors: string[] } {
+  if (raw === undefined || raw === null) return { ok: true, errors: [] };
+  if (typeof raw !== "object") return { ok: false, errors: ["sessionList must be an object"] };
+  const errors: string[] = [];
+  const { archiveAfterDays, archiveSweepIntervalMinutes } = raw as Record<string, unknown>;
+  if (archiveAfterDays !== undefined) {
+    const { min, max } = SESSION_LIST_LIMITS.archiveAfterDays;
+    if (!Number.isInteger(archiveAfterDays) || (archiveAfterDays as number) < min || (archiveAfterDays as number) > max) {
+      errors.push(`sessionList.archiveAfterDays must be an integer between ${min} and ${max}`);
+    }
+  }
+  if (archiveSweepIntervalMinutes !== undefined) {
+    const { min, max } = SESSION_LIST_LIMITS.archiveSweepIntervalMinutes;
+    if (
+      !Number.isInteger(archiveSweepIntervalMinutes) ||
+      (archiveSweepIntervalMinutes as number) < min ||
+      (archiveSweepIntervalMinutes as number) > max
+    ) {
+      errors.push(`sessionList.archiveSweepIntervalMinutes must be an integer between ${min} and ${max}`);
+    }
+  }
+  return { ok: errors.length === 0, errors };
 }
 
 function parseOpenSpecPollConfig(raw: any): OpenSpecPollConfig {
@@ -1460,6 +1541,7 @@ export function loadConfig(): DashboardConfig {
       memoryLimits: parseMemoryLimits(parsed.memoryLimits),
       openspec: parseOpenSpecPollConfig(parsed.openspec),
       sessions: parseSessionsConfig(parsed.sessions),
+      sessionList: parseSessionListConfig(parsed.sessionList),
       embedLifecycle: parseEmbedLifecycleConfig(parsed.embedLifecycle),
       keeperLog: parseKeeperLogConfig(parsed.keeperLog),
       allowedHosts: Array.isArray(parsed.allowedHosts)

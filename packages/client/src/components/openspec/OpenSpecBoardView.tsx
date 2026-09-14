@@ -48,8 +48,6 @@ import {
   mdiCog,
   mdiDotsHorizontal,
   mdiDragVertical,
-  mdiEyeOffOutline,
-  mdiEyeOutline,
   mdiFileDocumentOutline,
   mdiPlay,
   mdiPlayCircleOutline,
@@ -112,8 +110,7 @@ export interface OpenSpecBoardViewProps {
   onSpawnSession: (cwd: string, attachProposal?: string, opts?: { gitWorktreeBase?: string; placeholderCwd?: string }) => void;
   onSpawnAttachedWorktree: (cwd: string, changeName: string) => void;
   onResumeSession: (sessionId: string, mode: "continue" | "fork") => void;
-  onHideSession: (sessionId: string) => void;
-  onUnhideSession: (sessionId: string) => void;
+  onArchiveSession: (sessionId: string) => void;
   onSendPrompt: (sessionId: string, text: string) => void;
   onAttachProposal: (sessionId: string, changeName: string) => void;
   onDetachProposal: (sessionId: string) => void;
@@ -196,7 +193,7 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
   const {
     cwd, data, sessions, openspecMap, groupsState, onBack, onRefresh, onReadArtifact,
     onNavigateToSession, onOpenSpecs, onOpenArchive, onSpawnSession, onSpawnAttachedWorktree,
-    onResumeSession, onHideSession, onUnhideSession, onSendPrompt, onAttachProposal,
+    onResumeSession, onArchiveSession, onSendPrompt, onAttachProposal,
     onDetachProposal, onReplaceProposal, onBulkArchive, worktreeAvailability, selectedId,
   } = props;
 
@@ -560,8 +557,7 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
                     onSpawnSession={onSpawnSession}
                     onSpawnAttachedWorktree={onSpawnAttachedWorktree}
                     onResumeSession={onResumeSession}
-                    onHideSession={onHideSession}
-                    onUnhideSession={onUnhideSession}
+                    onArchiveSession={onArchiveSession}
                     onSendPrompt={onSendPrompt}
                     onAttachProposal={onAttachProposal}
                     onDetachProposal={onDetachProposal}
@@ -1051,8 +1047,7 @@ function ProposalCard(props: {
   onSpawnSession: (cwd: string, attachProposal?: string, opts?: { gitWorktreeBase?: string; placeholderCwd?: string }) => void;
   onSpawnAttachedWorktree: (cwd: string, changeName: string) => void;
   onResumeSession: (id: string, mode: "continue" | "fork") => void;
-  onHideSession: (id: string) => void;
-  onUnhideSession: (id: string) => void;
+  onArchiveSession: (id: string) => void;
   onSendPrompt: (sessionId: string, text: string) => void;
   onAttachProposal: (sessionId: string, changeName: string) => void;
   onDetachProposal: (sessionId: string) => void;
@@ -1151,7 +1146,7 @@ function ProposalCard(props: {
 // ── Session row ───────────────────────────────────────────────────
 function BoardSessionRow({
   session: s, change: c, cwd, openspecMap, selectedId, lastClickedRef, onNavigateToSession,
-  onResumeSession, onHideSession, onUnhideSession, onSendPrompt, onReadArtifact,
+  onResumeSession, onArchiveSession, onSendPrompt, onReadArtifact,
   onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, allChanges, groups, assignments, openspecConfig,
 }: {
   session: DashboardSession;
@@ -1194,9 +1189,11 @@ function BoardSessionRow({
           {hasFile && (
             <button title={i18nT("session.forkSession", undefined, "Fork session")} onClick={() => onResumeSession(s.id, "fork")} className="text-[var(--text-muted)] hover:text-blue-400"><Icon path={mdiSourceFork} size={0.42} /></button>
           )}
-          {isHidden
-            ? <button title={i18nT("session.showSession", undefined, "Show session")} onClick={() => onUnhideSession(s.id)} className="text-[var(--text-muted)] hover:text-green-400"><Icon path={mdiEyeOutline} size={0.42} /></button>
-            : <button title={i18nT("session.hideSession", undefined, "Hide session")} onClick={() => onHideSession(s.id)} className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]"><Icon path={mdiEyeOffOutline} size={0.42} /></button>}
+          {/* Archive (archive-sessions-lazy-load) — replaces hide/unhide:
+              ended or idle-alive only, never while running. */}
+          {(s.status === "ended" || (isAlive && s.status !== "streaming" && !s.currentTool)) && (
+            <button title={i18nT("session.archiveSession", undefined, "Archive session")} onClick={() => onArchiveSession(s.id)} className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]"><Icon path={mdiArchiveOutline} size={0.42} /></button>
+          )}
           <span className="relative">
             <button title={i18nT("openspec.openspecCommands", undefined, "OpenSpec commands")} onClick={() => setMenuOpen((v) => !v)} className="text-[var(--text-muted)] hover:text-purple-400" data-testid={`session-os-menu-${s.id}`}><Icon path={mdiDotsHorizontal} size={0.5} /></button>
             {menuOpen && (

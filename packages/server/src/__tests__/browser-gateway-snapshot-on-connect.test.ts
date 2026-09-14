@@ -10,12 +10,18 @@
  */
 
 import { EventEmitter } from "node:events";
-import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getLastBindReachability } from "../auth/bind-reachability-service.js";
 import { createBrowserGateway } from "../pairing/browser-gateway.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
+import { createMetaPersistence } from "../persistence/meta-persistence.js";
 import type { PiGateway } from "../pi/pi-gateway.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
+import { createSessionArchive } from "../session/session-archive.js";
 import type { SessionOrderManager } from "../session/session-order-manager.js";
 import { makeFakeDirectoryService } from "./helpers/load-fixtures.js";
 
@@ -385,5 +391,94 @@ describe("browser-gateway on-connect bootstrap ordering (E10)", () => {
     }
     // …and nothing is sent after the snapshot in the same synchronous turn.
     expect(ws.send.mock.calls.length).toBe(snapshotIdx + 1);
+  });
+});
+
+// ── E7: archived sessions are non-resident in the connect snapshot ──────────
+//
+// A session that was archived leaves the live set entirely; the browser learns
+// about it only through the per-folder `archivedCountByCwd` count.
+// See change: archive-sessions-lazy-load.
+describe("browser-gateway on-connect snapshot excludes archived sessions (E7)", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "snapshot-archived-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  /** Real sidecar on disk so `archiveSession` can perform its eager write. */
+  function seedFile(id: string): string {
+    const dir = path.join(tmpDir, "--repo-a--");
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `2026-01-01T00-00-00-000Z_${id}.jsonl`);
+    fs.writeFileSync(file, `${JSON.stringify({ type: "session", id, cwd: "/repo/a" })}\n`);
+    writeSessionMeta(file, { cwd: "/repo/a", status: "ended", startedAt: 1, endedAt: 2 });
+    return file;
+  }
+
+  it("snapshot carries the 2 resident sessions and counts the archived one per folder", () => {
+    const sessionManager = createMemorySessionManager();
+    const archive = createSessionArchive({
+      sessionManager,
+      metaPersistence: createMetaPersistence(),
+      getPinnedDirs: () => [],
+    });
+
+    sessionManager.restore({
+      id: "active-1", cwd: "/repo/a", source: "tui", status: "active",
+      startedAt: 1, hidden: false, dataUnavailable: false,
+    } as never);
+    sessionManager.restore({
+      id: "ended-1", cwd: "/repo/a", source: "tui", status: "ended",
+      startedAt: 2, endedAt: 3, hidden: false, dataUnavailable: true,
+    } as never);
+    sessionManager.restore({
+      id: "archived-1", cwd: "/repo/a", source: "tui", status: "ended",
+      startedAt: 4, endedAt: 5, hidden: false, dataUnavailable: true,
+      sessionFile: seedFile("archived-1"),
+    } as never);
+
+    // Genuine transition: archiveSession evicts from the manager AND indexes.
+    expect(archive.archiveSession("archived-1", "manual")).toMatchObject({ ok: true });
+
+    const gateway = createBrowserGateway(
+      sessionManager,
+      createMemoryEventStore(() => false),
+      makeStubPiGateway(),
+      undefined,
+      undefined,
+      makeStubOrderManager({ "/repo/a": ["active-1", "ended-1", "archived-1"] }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      archive,
+    );
+
+    const ws = makeFakeWs();
+    gateway.wss.emit("connection", ws, {});
+
+    const snap = sentMessages(ws).find((m) => m.type === "sessions_snapshot") as {
+      sessions: Array<{ id: string }>;
+      archivedCountByCwd: Record<string, number>;
+    };
+
+    expect(snap.sessions).toHaveLength(2);
+    expect(snap.sessions.map((s) => s.id).sort()).toEqual(["active-1", "ended-1"]);
+    expect(snap.archivedCountByCwd).toEqual({ "/repo/a": 1 });
   });
 });

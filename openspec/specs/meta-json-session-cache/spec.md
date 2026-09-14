@@ -1,7 +1,9 @@
 ## Purpose
 
 Persist dashboard-owned per-session state and cached stats in a `.meta.json` sidecar next to each session's `.jsonl`, so the dashboard restores sessions on cold start without re-parsing `.jsonl`. All fields optional and backward-compatible.
+
 ## Requirements
+
 ### Requirement: Per-session sidecar stores dashboard state
 The system SHALL store all dashboard-owned per-session state in a `.meta.json` sidecar file next to the session's `.jsonl` file. The `.meta.json` filename SHALL match the `.jsonl` filename with the extension replaced.
 
@@ -51,11 +53,19 @@ The system SHALL use atomic write operations (write-to-temp + rename) for `.meta
 - **THEN** the previous valid version SHALL remain intact
 
 ### Requirement: Session discovery by filesystem scan
-The system SHALL discover sessions at startup by scanning all subdirectories under `~/.pi/agent/sessions/`. For each `.meta.json` file with a corresponding `.jsonl` file, the system SHALL restore the session from cached data.
+The system SHALL discover sessions at startup by scanning all subdirectories under `~/.pi/agent/sessions/`. For each `.meta.json` file with a corresponding `.jsonl` file, the system SHALL restore the session from cached data — unless the meta carries `archived: true`, in which case the system SHALL only add the session to the in-memory archive index (keyed by its resolved group path) and SHALL NOT restore it into the live set nor read its `.jsonl`. The pinned-directory `.jsonl` header discovery SHALL likewise skip any id present in the archive index.
 
 #### Scenario: Startup with cached meta files
 - **WHEN** the server starts and `.meta.json` files exist with cached stats
 - **THEN** sessions SHALL be restored from `.meta.json` without parsing `.jsonl` files
+
+#### Scenario: Archived meta is counted, not restored
+- **WHEN** the server starts and a `.meta.json` has `archived: true`
+- **THEN** the session SHALL NOT be restored into the live set, its `.jsonl` SHALL NOT be opened, and it SHALL be present in the archive index under its group path
+
+#### Scenario: Pinned-dir discovery does not resurrect archived sessions
+- **WHEN** a pinned directory's `.jsonl` header scan finds a session id that is in the archive index
+- **THEN** that session SHALL NOT be restored into the live set
 
 #### Scenario: Session file without meta file
 - **WHEN** a `.jsonl` file exists without a corresponding `.meta.json`
@@ -187,3 +197,9 @@ The liveness marker (`live` / `liveEpoch`) and any concurrent `closedReason` upd
 - **WHEN** a session has never been named
 - **THEN** `nameSource` SHALL be absent from `.meta.json`
 
+### Requirement: Sidecar persists archive fields
+The sidecar SHALL accept optional `archived: boolean`, `archivedAt: number` and `restoredAt: number` fields, written through the eager, synchronous atomic write path (the one the liveness marker uses), bypassing the debounced meta cache so the sidecar is durable before the session leaves the live set.
+
+#### Scenario: Archive fields round-trip
+- **WHEN** a session is archived and the server restarts
+- **THEN** the sidecar read at boot SHALL contain `archived: true` and the original `archivedAt`

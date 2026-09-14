@@ -841,7 +841,11 @@ export function handleSubscribe(
     }
   } else if (directoryService) {
     const session = sessionManager.get(msg.sessionId);
-    if (session?.sessionFile) {
+    // Archived sessions are non-resident: resolve the transcript file from the
+    // archive index by id. The client NEVER supplies a path, so this is the
+    // only way to open one read-only. See change: archive-sessions-lazy-load.
+    const sessionFile = session?.sessionFile ?? ctx.sessionArchive?.getById(msg.sessionId)?.sessionFile;
+    if (sessionFile) {
       sendTo(ws, {
         type: "event_replay",
         sessionId: msg.sessionId,
@@ -866,7 +870,7 @@ export function handleSubscribe(
           heartbeat = null;
         }
       };
-      directoryService.loadSessionEvents(msg.sessionId, session.sessionFile, session.contextWindow).then(async (result) => {
+      directoryService.loadSessionEvents(msg.sessionId, sessionFile, session?.contextWindow).then(async (result) => {
         stopHeartbeat();
         if (result.success) {
           // Hydration admits full-resolution inline images straight from the

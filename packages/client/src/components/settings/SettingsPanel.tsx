@@ -203,6 +203,12 @@ interface Config {
   modelProxy?: Record<string, any>;
   /** UI preference: show worktree spawn buttons in folder + OpenSpec rows. Default true. See change: openspec-worktree-spawn-button. */
   gitWorktreeEnabled?: boolean;
+  /** Session-list archive policy (archive-sessions-lazy-load). Optional —
+   * server defaults archiveAfterDays=30, archiveSweepIntervalMinutes=60. */
+  sessionList?: {
+    archiveAfterDays?: number;
+    archiveSweepIntervalMinutes?: number;
+  };
   /** Windows-only git/bash source. See change: embed-git-bash-on-windows. */
   windowsGitSource?: "auto" | "host" | "bundled";
   /** Keeper log behavior — gates capture of pi stdout/stderr into keeper-<id>.log. Default off. See change: add-keeper-output-capture-toggle. */
@@ -238,7 +244,7 @@ export const CONFIG_FIELD_PAGE: Record<string, string> = {
   port: "server", piPort: "server", bindHost: "server", autoShutdown: "server", shutdownIdleSeconds: "server",
   tunnel: "server", memoryLimits: "server",
   spawnStrategy: "sessions", reattachPlacement: "sessions", reopenSessionsAfterShutdown: "sessions", completedFirst: "sessions",
-  questionFirst: "sessions", askUserPromptTimeoutSeconds: "sessions", spawnRegisterTimeoutMs: "sessions",
+  questionFirst: "sessions", askUserPromptTimeoutSeconds: "sessions", spawnRegisterTimeoutMs: "sessions", sessionList: "sessions",
   gitWorktreeEnabled: "sessions", dashboardName: "general", defaultModel: "sessions", defaultThinkingLevel: "sessions",
   windowsGitSource: "sessions", autoStart: "sessions",
   trustedNetworks: "security", auth: "security", allowedHosts: "security", hostGate: "security",
@@ -287,6 +293,18 @@ export function computeConfigPartial(config: Config, original: Config): Record<s
   }
   if ((config.gitWorktreeEnabled ?? true) !== (original.gitWorktreeEnabled ?? true)) {
     partial.gitWorktreeEnabled = config.gitWorktreeEnabled ?? true;
+  }
+  // archive-sessions-lazy-load: FIELD-level diff (same rationale as
+  // memoryLimits — a whole-object write would pin defaulted sibling keys).
+  {
+    const sessionListPartial: Record<string, number> = {};
+    if ((config.sessionList?.archiveAfterDays ?? 30) !== (original.sessionList?.archiveAfterDays ?? 30)) {
+      sessionListPartial.archiveAfterDays = config.sessionList?.archiveAfterDays ?? 30;
+    }
+    if ((config.sessionList?.archiveSweepIntervalMinutes ?? 60) !== (original.sessionList?.archiveSweepIntervalMinutes ?? 60)) {
+      sessionListPartial.archiveSweepIntervalMinutes = config.sessionList?.archiveSweepIntervalMinutes ?? 60;
+    }
+    if (Object.keys(sessionListPartial).length > 0) partial.sessionList = sessionListPartial;
   }
   {
     const tunnelPartial: Record<string, any> = {};
@@ -436,6 +454,10 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [spawnTimeoutInvalid, setSpawnTimeoutInvalid] = useState(false);
+  // archive-sessions-lazy-load field validation: days ≥ 0 (0 disables),
+  // sweep interval ≥ 1 min. Invalid → field error + Save disabled.
+  const [archiveDaysInvalid, setArchiveDaysInvalid] = useState(false);
+  const [archiveSweepInvalid, setArchiveSweepInvalid] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error" | "warn"; text: string } | null>(null);
   // Restart is a slow op: the HTTP ack returns immediately but the effect lands
   // when the server re-broadcasts `server_restarting` with our requestId. Hold
@@ -1670,6 +1692,72 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     onChange={(v) => update((c) => { c.questionFirst = v; })}
                     hint={i18nT("session.whenASessionAsksAQuestion", undefined, "When a session asks a question (ask_user), move its card to the top of the active tier. Off keeps the card in place.")}
                   />
+                  {/* archive-sessions-lazy-load: auto-archive policy. Buffered
+                      into the draft, saved with the shared Save bar. */}
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm text-[var(--text-secondary)]">
+                        {t("settings.archiveAfterDays", undefined, "Archive after")}
+                        <span className="ml-1.5 px-1 py-0.5 rounded text-[10px] align-middle bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]">{t("settings.daysUnit", undefined, "days")}</span>
+                      </label>
+                      <input
+                        type="number"
+                        aria-label={t("settings.archiveAfterDays", undefined, "Archive after")}
+                        className={`w-24 bg-[var(--bg-secondary)] border rounded px-2 py-1 text-sm text-[var(--text-primary)] text-right ${
+                          archiveDaysInvalid
+                            ? "border-red-500 text-red-400"
+                            : "border-[var(--border-secondary)]"
+                        }`}
+                        value={config.sessionList?.archiveAfterDays ?? 30}
+                        onChange={(e) => {
+                          const v = parseInt(e.target.value, 10);
+                          const invalid = isNaN(v) || v < 0;
+                          setArchiveDaysInvalid(invalid);
+                          if (!invalid) update((c) => { c.sessionList = { ...c.sessionList, archiveAfterDays: v }; });
+                        }}
+                      />
+                    </div>
+                    {archiveDaysInvalid && (
+                      <p className="mt-1 text-xs text-red-400" data-testid="archive-after-days-error">
+                        {i18nT("settings.archiveDaysInvalid", undefined, "Must be 0 or greater (0 disables auto-archive).")}
+                      </p>
+                    )}
+                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                      {i18nT("settings.archiveAfterDaysHint", undefined, "Ended sessions older than this are archived automatically out of the live list. 0 disables auto-archive.")}
+                    </p>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm text-[var(--text-secondary)]">
+                        {t("settings.archiveSweepInterval", undefined, "Archive sweep interval")}
+                        <span className="ml-1.5 px-1 py-0.5 rounded text-[10px] align-middle bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]">{t("settings.minUnit", undefined, "min")}</span>
+                      </label>
+                      <input
+                        type="number"
+                        aria-label={t("settings.archiveSweepInterval", undefined, "Archive sweep interval")}
+                        className={`w-24 bg-[var(--bg-secondary)] border rounded px-2 py-1 text-sm text-[var(--text-primary)] text-right ${
+                          archiveSweepInvalid
+                            ? "border-red-500 text-red-400"
+                            : "border-[var(--border-secondary)]"
+                        }`}
+                        value={config.sessionList?.archiveSweepIntervalMinutes ?? 60}
+                        onChange={(e) => {
+                          const v = parseInt(e.target.value, 10);
+                          const invalid = isNaN(v) || v < 1;
+                          setArchiveSweepInvalid(invalid);
+                          if (!invalid) update((c) => { c.sessionList = { ...c.sessionList, archiveSweepIntervalMinutes: v }; });
+                        }}
+                      />
+                    </div>
+                    {archiveSweepInvalid && (
+                      <p className="mt-1 text-xs text-red-400" data-testid="archive-sweep-interval-error">
+                        {i18nT("settings.archiveSweepInvalid", undefined, "Must be 1 or greater.")}
+                      </p>
+                    )}
+                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                      {i18nT("settings.archiveSweepIntervalHint", undefined, "How often the server checks for ended sessions past the archive age.")}
+                    </p>
+                  </div>
                 </Section>
                 <Section title={t("settings.lifecycleRecovery", undefined, "Lifecycle & recovery")}>
                   <SelectField
@@ -2130,8 +2218,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
         </div>
       </div>
 
-      {/* Save Bar — present only while dirty (dirty-gated friction). */}
-      {isDirty && (
+      {/* Save Bar — present only while dirty (dirty-gated friction) or a
+          numeric field is invalid (so the disabled Save explains why). */}
+      {(isDirty || spawnTimeoutInvalid || archiveDaysInvalid || archiveSweepInvalid) && (
         <div
           data-testid="settings-save-bar"
           className="shrink-0 flex items-center gap-3 px-4 py-3 border-t border-[var(--border-primary)] bg-[var(--bg-secondary)]"
@@ -2167,7 +2256,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || restarting || spawnTimeoutInvalid}
+            disabled={saving || restarting || spawnTimeoutInvalid || archiveDaysInvalid || archiveSweepInvalid}
             data-testid="save-btn"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium disabled:opacity-50"
           >

@@ -1,5 +1,5 @@
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router, useLocation } from "wouter";
@@ -1297,5 +1297,106 @@ describe("SessionList folder header liveness surface", () => {
     expect(
       screen.getByTestId(`folder-ended-toggle-${CWD}`).getAttribute("aria-label"),
     ).toMatch(/2 ended/i);
+  });
+});
+
+// ── archive-sessions-lazy-load: footer copy + folder archive fold ────────
+// #E29: footer counts ONLY hidden===true sessions ("N hidden workers").
+// #F5: fold hidden at zero/absent count.
+// #E22: fold label BVA — Load M more with M = min(page size, remaining).
+// See change: archive-sessions-lazy-load.
+describe("SessionList — archive fold + hidden-workers footer (archive-sessions-lazy-load)", () => {
+  function archivedItem(id: string, groupPath = "/home/user/project") {
+    return {
+      id,
+      name: `Archived ${id}`,
+      cwd: groupPath,
+      groupPath,
+      endedAt: 1000,
+      archivedAt: 2000,
+      sessionFile: `/tmp/sessions/${id}.jsonl`,
+    };
+  }
+
+  function renderWithArchive(sessions: DashboardSession[], archivedCount?: number, fetchImpl?: ReturnType<typeof vi.fn>) {
+    if (fetchImpl) vi.stubGlobal("fetch", fetchImpl);
+    return render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={sessions}
+            onSelect={() => {}}
+            archivedCountMap={archivedCount === undefined ? undefined : new Map([["/home/user/project", archivedCount]])}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+  }
+
+  it("E29: shows 'N hidden workers' counting only hidden===true sessions", () => {
+    const hidden1 = makeSession({ id: "w1", hidden: true, status: "idle" });
+    const hidden2 = makeSession({ id: "w2", hidden: true, status: "idle" });
+    const { unmount } = renderWithArchive([hidden1, hidden2, makeSession({ id: "live" })], 300);
+    expect(screen.getByText("2 hidden workers")).toBeTruthy();
+    unmount();
+  });
+
+  it("E29: archived-only folders (0 hidden) render no hidden indicator", () => {
+    // 300 archived (fold count), zero hidden → no footer indicator.
+    const { container } = renderWithArchive([makeSession({ id: "live" })], 300);
+    expect(container.textContent).not.toContain("hidden workers");
+  });
+
+  it("F5: no archive fold when the folder count is 0 or absent", () => {
+    const { container } = renderWithArchive([makeSession({ id: "live" })], 0);
+    expect(container.querySelector('[data-testid^="folder-archive-toggle-"]')).toBeNull();
+    const { container: noMap } = renderWithArchive([makeSession({ id: "live" })], undefined);
+    expect(noMap.querySelector('[data-testid^="folder-archive-toggle-"]')).toBeNull();
+  });
+
+  it("E22: expanded fold shows 'showing 300 of 312' and 'Load 12 more'", async () => {
+    const items = Array.from({ length: 300 }, (_, i) => archivedItem(`a${i}`));
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: () => Promise.resolve({ success: true, data: { items, nextCursor: "c1" } }),
+    });
+    renderWithArchive([makeSession({ id: "live" })], 312, fetchImpl);
+
+    fireEvent.click(screen.getByTestId("folder-archive-toggle-/home/user/project"));
+    await waitFor(() => {
+      expect(screen.getByText("showing 300 of 312")).toBeTruthy();
+    });
+    expect(screen.getByText("Load 12 more")).toBeTruthy();
+    // First expand hit the listing endpoint with the folder group path.
+    const archiveCalls = fetchImpl.mock.calls.filter((c) => String(c[0]).includes("/api/sessions/archived"));
+    const url = String(archiveCalls[0]?.[0]);
+    const parsed = new URL(url, "http://localhost");
+    expect(parsed.pathname).toBe("/api/sessions/archived");
+    expect(parsed.searchParams.get("cwd")).toBe("/home/user/project");
+    vi.unstubAllGlobals();
+  });
+
+  it("E22: BVA — N=30 loaded 0 offers 'Load 30 more'", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: () => Promise.resolve({ success: true, data: { items: [], nextCursor: "c1" } }),
+    });
+    renderWithArchive([makeSession({ id: "live" })], 30, fetchImpl);
+
+    fireEvent.click(screen.getByTestId("folder-archive-toggle-/home/user/project"));
+    await waitFor(() => {
+      expect(screen.getByText("Load 30 more")).toBeTruthy();
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it("collapsed fold carries the count label and does not fetch", () => {
+    const fetchImpl = vi.fn();
+    renderWithArchive([makeSession({ id: "live" })], 30, fetchImpl);
+    expect(screen.getByTestId("folder-archive-toggle-/home/user/project").textContent).toContain("Archive (30)");
+    expect(fetchImpl.mock.calls.filter((c) => String(c[0]).includes("/api/sessions/archived"))).toHaveLength(0);
+    vi.unstubAllGlobals();
   });
 });
