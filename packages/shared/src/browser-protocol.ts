@@ -144,6 +144,34 @@ export interface SessionRemovedMessage {
 }
 
 /**
+ * A session transitioned to `archived` and was evicted from the live set.
+ * Distinct from `session_removed`, whose client handler intentionally keeps
+ * the row (ended, transcript preserved). The client deletes the id from its
+ * `sessions` Map and sets the folder's archived count in one step.
+ * See change: archive-sessions-lazy-load.
+ */
+export interface SessionArchivedMessage {
+  type: "session_archived";
+  sessionId: string;
+  /** Folder group key the archived session now counts under. */
+  cwd: string;
+  /** New archived count for that folder group key. */
+  count: number;
+}
+
+/**
+ * A folder's archived count changed (restore, delete or pin re-key). Sent
+ * whenever the count changes EXCEPT the archive transition itself, which
+ * carries the count on `session_archived` instead.
+ * See change: archive-sessions-lazy-load.
+ */
+export interface ArchivedCountUpdatedMessage {
+  type: "archived_count_updated";
+  cwd: string;
+  count: number;
+}
+
+/**
  * A session's process outlived its shutdown.
  *
  * Emitted alongside `session_removed`, never instead of it: the record IS
@@ -537,6 +565,25 @@ export interface SessionsPageResultMessage {
 }
 
 /**
+ * One row of the in-memory archive index. Built at boot from a sidecar and
+ * served by the archived listing/search endpoints without disk IO. `endedAt`
+ * falls back to the sidecar mtime at build time so every row sorts.
+ * See change: archive-sessions-lazy-load.
+ */
+export interface ArchivedSessionSummary {
+  id: string;
+  name?: string;
+  firstMessage?: string;
+  cwd: string;
+  /** Display folder group path (pin > worktree main > cwd). */
+  groupPath: string;
+  gitWorktree?: { mainPath: string; name: string };
+  endedAt: number;
+  archivedAt: number;
+  sessionFile: string;
+}
+
+/**
  * Atomic on-connect snapshot of the server's full session registry and
  * per-cwd ordering. Replaces the legacy per-session `session_added` loop
  * + per-cwd `sessions_reordered` loop that the gateway used to emit on
@@ -552,7 +599,7 @@ export interface SessionsPageResultMessage {
  */
 export interface SessionsSnapshotMessage {
   type: "sessions_snapshot";
-  /** Every session known to the server at construction time, alive AND ended. */
+  /** Every non-archived session known to the server, alive AND ended. */
   sessions: DashboardSession[];
   /** cwd → ordered session ids. Only non-empty arrays are included. */
   orders: Record<string, string[]>;
@@ -563,6 +610,12 @@ export interface SessionsSnapshotMessage {
    * group from this count. See change: fix-connect-snapshot-frame-loss (D4).
    */
   endedTotals: Record<string, number>;
+  /**
+   * Folder group key → archived-session count, from the in-memory archive
+   * index. Folders with count 0 are omitted. See change:
+   * archive-sessions-lazy-load.
+   */
+  archivedCountByCwd: Record<string, number>;
 }
 
 export interface PinnedDirsUpdatedMessage {
@@ -1043,6 +1096,8 @@ export type ServerToBrowserMessage =
   | SessionAddedMessage
   | SessionUpdatedMessage
   | SessionRemovedMessage
+  | SessionArchivedMessage
+  | ArchivedCountUpdatedMessage
   | SessionOrphanedMessage
   | EventMessage
   | EventReplayMessage
@@ -1468,13 +1523,25 @@ export interface ResumeSessionBrowserMessage {
   placement?: "front" | "keep";
 }
 
-export interface HideSessionBrowserMessage {
-  type: "hide_session";
+/**
+ * Archive a session. Ended → archives immediately (reply `{success:true}`);
+ * alive-but-idle → the server registers a one-shot intent, ends it, and
+ * archives on the `ended` transition (reply `{success:true, pending:true}`);
+ * running or `live:true` → error reply. Replaces the removed hide verbs.
+ * See change: archive-sessions-lazy-load.
+ */
+export interface ArchiveSessionBrowserMessage {
+  type: "archive_session";
   sessionId: string;
 }
 
-export interface UnhideSessionBrowserMessage {
-  type: "unhide_session";
+/**
+ * Restore an archived session into the live set as ended (`restoredAt = now`,
+ * `hidden = false`). Replaces the removed unhide verb.
+ * See change: archive-sessions-lazy-load.
+ */
+export interface UnarchiveSessionBrowserMessage {
+  type: "unarchive_session";
   sessionId: string;
 }
 
@@ -1862,8 +1929,8 @@ export type BrowserToServerMessage =
   | StopAfterTurnBrowserMessage
   | ListSessionsBrowserMessage
   | ResumeSessionBrowserMessage
-  | HideSessionBrowserMessage
-  | UnhideSessionBrowserMessage
+  | ArchiveSessionBrowserMessage
+  | UnarchiveSessionBrowserMessage
   | SpawnSessionBrowserMessage
   | AttachProposalBrowserMessage
   | DetachProposalBrowserMessage

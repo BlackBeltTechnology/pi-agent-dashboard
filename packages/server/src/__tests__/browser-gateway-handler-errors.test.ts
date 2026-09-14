@@ -10,6 +10,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "node:events";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { createBrowserGateway } from "../pairing/browser-gateway.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
@@ -106,6 +107,35 @@ describe("browser-gateway handler error reporting", () => {
     );
     expect(handlerErrorCall, "expected a [browser-gw] handler error log line").toBeTruthy();
     expect(throwingTerminalManager.spawn).toHaveBeenCalledOnce();
+  });
+
+  it("E30: a legacy hide_session is rejected as unknown and mutates no session", async () => {
+    const manager = createMemorySessionManager();
+    manager.restore({
+      id: "s1",
+      cwd: "/tmp",
+      source: "tui",
+      status: "active",
+      startedAt: 1,
+      tokensIn: 0,
+      tokensOut: 0,
+      cost: 0,
+    } as DashboardSession);
+    const piGateway = makeStubPiGateway();
+    const gateway = createBrowserGateway(manager, createMemoryEventStore(() => false), piGateway);
+
+    const ws = makeFakeWs();
+    gateway.wss.emit("connection", ws, {});
+    ws.send.mockClear();
+
+    ws.emit("message", Buffer.from(JSON.stringify({ type: "hide_session", sessionId: "s1" })));
+    await new Promise((r) => setImmediate(r));
+
+    // Removed verb mutates nothing and never reaches the pi-gateway forwarder.
+    expect(manager.get("s1")?.hidden).toBeFalsy();
+    const frames = ws.send.mock.calls.map((c) => String(c[0]));
+    expect(frames.some((f) => f.includes('"session_updated"'))).toBe(false);
+    expect(piGateway.sendToSession).not.toHaveBeenCalled();
   });
 
   it("silently drops malformed JSON frames (no handler-error log)", async () => {

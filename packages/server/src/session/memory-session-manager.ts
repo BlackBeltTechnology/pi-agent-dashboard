@@ -138,6 +138,14 @@ export interface SessionManager {
   register(params: RegisterSessionParams): DashboardSession;
   /** Restore a previously persisted session (e.g. on startup). Does not trigger onChange. */
   restore(session: DashboardSession): void;
+  /**
+   * Evict a session from the live registry without marking it ended or
+   * emitting `onChange`/`onUnregister`. Used by the archive transition, which
+   * has already persisted the sidecar and does not want a further debounced
+   * write to originate for a non-resident session.
+   * See change: archive-sessions-lazy-load.
+   */
+  remove(sessionId: string): void;
   unregister(sessionId: string, opts?: UnregisterOptions): void;
   update(sessionId: string, updates: Partial<DashboardSession>): void;
   get(sessionId: string): DashboardSession | undefined;
@@ -362,6 +370,10 @@ export function createMemorySessionManager(
     restore(session: DashboardSession): void {
       ensureEndedAt(session);
       sessions.set(session.id, session);
+    },
+
+    remove(sessionId: string): void {
+      sessions.delete(sessionId);
     },
 
     unregister(sessionId: string, opts?: UnregisterOptions): void {

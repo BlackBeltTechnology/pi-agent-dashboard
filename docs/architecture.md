@@ -2912,13 +2912,36 @@ The per-message ⤘ Fork button needs each chat bubble to carry the entry id of 
 
 `queueMicrotask` was used previously but no longer works: on pi 0.69+ the microtask resolves *inside* the awaited `_emitExtensionEvent`, before persistence. See change `fix-per-message-fork`.
 
+### Session Archiving (change: archive-sessions-lazy-load)
+
+Archive evicts an ended session from the live set. Replaces manual hide. `hidden` stays — separate axis, auto-hide worker visibility only.
+
+- Sidecar flags `archived`, `archivedAt`, `restoredAt` in `.meta.json`. Optional. Absent reads not-archived.
+- Boot scan (`session-scanner.ts`) builds in-memory archive index `Map<groupKey, ArchivedSessionSummary[]>`. `groupKey = pathKey(resolveSessionGroupPath(row, pinned, platform))` — same normalised key client folders use. Migrates: legacy hidden-ended sidecar → archived; age past `sessionList.archiveAfterDays` (default 30, min 0 = disabled) → archived. Logs `archive: N indexed, M migrated, K aged-out (ms)`.
+- `session-archive.ts` owns archive/unarchive/delete/list. Archive: flush pending sidecar write → merge `{archived:true, archivedAt}` → `remove()` from manager → index insert → broadcast `session_archived { sessionId, cwd: groupKey, count }`. Restore is mirror: `archived:false, restoredAt:now, hidden:false` → `restore()` → `session_added` + `archived_count_updated`.
+- `archive-sweeper.ts` ticks every `sessionList.archiveSweepIntervalMinutes` (default 60, min 1). Predicate: ended + `live !== true` + not viewed + `max(endedAt, restoredAt)` past threshold. Cap 200 oldest per tick. Re-arms on config change. `archiveAfterDays: 0` no-op.
+- WS verbs `archive_session`/`unarchive_session` replace `hide_session`/`unhide_session`. Idle-alive archive ends the pi process first, then archives on the `ended` transition (one-shot intent registry, 60 s expiry). Frames `session_archived`, `archived_count_updated`. Snapshot carries `archivedCountByCwd`.
+- REST: `GET /api/sessions/archived` (`cwd` absolute-only, `limit` 1–200 default 50, opaque base64 `cursor`, `q` ≥ 3 chars), `GET /api/sessions/archived/:id`, `DELETE /api/sessions/archived/:id`. `GET /api/sessions` excludes archived.
+- Client: per-folder `Archive (N)` fold below the ended fold. First expand issues exactly one lazy `GET`. Rows via `ArchivedSessionRow.tsx`. Click → read-only open `/session/<id>?archived=1` — composer hidden, server resolves `sessionFile` from the index, session stays out of the live `sessions` map.
+
+```mermaid
+flowchart LR
+  Boot["boot scan"] -->|archived\nsidecar| Index["archive index\nMap<groupKey, rows>"]
+  Sweeper["archive-sweeper\ntick"] --> Arch["archiveSession"]
+  Card["card archive btn\nidle-alive: confirm"] --> WS["archive_session"] --> Arch
+  Arch --> Sidecar[".meta.json\narchived:true"] --> Index
+  Index --> List["GET /api/sessions/archived"]
+  Index --> Open["read-only open\n?archived=1"]
+  List --> Fold["Archive (N) fold"]
+```
+
 ## Persistence
 
 | Data | Storage | Details |
 |------|---------|---------|
 | Events | In-memory Map | LRU eviction, max 100 sessions. Pinned if active bridge or browser subscribers. |
-| Sessions | In-memory Map + `.meta.json` | In-memory registry. Each session's state cached in per-session `.meta.json` sidecar next to `.jsonl`. On startup, `session-scanner.ts` scans `~/.pi/agent/sessions/*/` to restore all sessions from cached meta. |
-| Session meta | `~/.pi/agent/sessions/…/<id>.meta.json` | Per-session sidecar: dashboard-owned state (name, attachedProposal, hidden, source) + cached stats (tokens, cost, model, status). Debounced per-session writes (max 1/sec). Stale cache detected via `cachedAt` vs `.jsonl` mtime. |
+| Sessions | In-memory Map + `.meta.json` | In-memory registry. Each session's state cached in per-session `.meta.json` sidecar next to `.jsonl`. On startup, `session-scanner.ts` scans `~/.pi/agent/sessions/*/` to restore all sessions from cached meta. Archived sessions evicted to the in-memory archive index (`session-archive.ts`). See Session Archiving. |
+| Session meta | `~/.pi/agent/sessions/…/<id>.meta.json` | Per-session sidecar: dashboard-owned state (name, attachedProposal, hidden, source) + cached stats (tokens, cost, model, status) + archive flags (`archived`, `archivedAt`, `restoredAt`). Debounced per-session writes (max 1/sec). Stale cache detected via `cachedAt` vs `.jsonl` mtime. |
 | Namer stop state | `~/.pi/agent/sessions/…/<id>.meta.json` (`autoNamerState`) | Auto-naming permanent stop + counters (attemptsUsed, starvedCount, waitingCount, stoppedModelRef, stopCause). Survives process restart; restored via `auto_name_state_restore` at register. Cleared on naming re-resolution or blocking-cause resolution. See change: fix-auto-naming-reasoning-model. |
 | Notify log | `~/.pi/agent/sessions/…/<id>.meta.json` (`SessionMeta.notifyLog`) | Bounded per-session notify history (cap 50, oldest-first). Not a `DashboardEvent` — `event_replay` cannot restore. Mirrored by `sessionToMeta` (full-overwrite save), restored by `sessionFromMeta` cold start, carried across bridge reattach by `memory-session-manager.register()`. See Notify Flow. |
 | Pinned directories | `~/.pi/dashboard/preferences.json` | Ordered array of cwd paths. Pinned dirs always visible in sidebar. |

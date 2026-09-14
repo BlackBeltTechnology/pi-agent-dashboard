@@ -1,4 +1,5 @@
-import { mdiAlertOutline, mdiArrowRightCircleOutline, mdiClose, mdiCommentQuestion, mdiConsoleLine, mdiEyeOffOutline, mdiEyeOutline, mdiFlash, mdiLoading, mdiPaperclip, mdiPencil, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiPlus, mdiRefresh, mdiRemoteDesktop, mdiSourceBranch, mdiSourceBranchPlus, mdiSourceFork } from "@mdi/js";
+import { mdiAlertOutline, mdiArchiveOutline, mdiArrowRightCircleOutline, mdiClose, mdiCommentQuestion, mdiConsoleLine, mdiFlash, mdiLoading, mdiPaperclip, mdiPencil, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiPlus, mdiRefresh, mdiRemoteDesktop, mdiSourceBranch, mdiSourceBranchPlus, mdiSourceFork } from "@mdi/js";
+import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useState } from "react";
 import { getApiBase } from "../../lib/api/api-context.js";
@@ -445,8 +446,7 @@ export function SessionCard({
   showGitInfo,
   isHidden,
   allSessions,
-  onHide,
-  onUnhide,
+  onArchive,
   contextUsage,
   openspecChanges,
   openspecInitialized,
@@ -489,8 +489,12 @@ export function SessionCard({
    *  so the dialog can render active-session names. Optional; safe default `[]`.
    *  See change: add-worktree-lifecycle-actions. */
   allSessions?: DashboardSession[];
-  onHide: (id: string) => void;
-  onUnhide: (id: string) => void;
+  /**
+   * Archive this session (ended → immediate; idle-alive → the card asks for
+   * confirmation first because archiving ends the pi process). Replaces the
+   * removed manual hide. See change: archive-sessions-lazy-load.
+   */
+  onArchive: (id: string) => void;
   contextUsage?: ContextUsageInfo;
   openspecChanges?: OpenSpecChange[];
   /**
@@ -613,6 +617,13 @@ export function SessionCard({
   const [isRenaming, setIsRenaming] = useState(false);
   const canRename = session.status !== "ended" && !!onRename;
   const isAlive = session.status !== "ended";
+  // Archive affordance (archive-sessions-lazy-load): ended OR idle-alive
+  // (not streaming, no tool in flight). NEVER on a running card.
+  const canArchive =
+    !!onArchive &&
+    (session.status === "ended" ||
+      (isAlive && session.status !== "streaming" && !session.currentTool));
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
   const isMobile = useMobile();
   const prefs = useDisplayPrefs(session.id);
   // Suppress purple `card-input-stripes` when a widget-bar slot owns the
@@ -880,24 +891,22 @@ export function SessionCard({
         >
           {formatRelativeTime(now - selectBadgeTimestamp(session))}
         </span>
-        {/* Hide/unhide button */}
-        {isHidden ? (
+        {/* Archive button (archive-sessions-lazy-load). Replaces the removed
+            hide/unhide pair: shown on ended and idle-alive cards, NEVER while
+            running (streaming or a tool in flight). Ended → immediate;
+            idle-alive → confirm (archiving ends the pi process). */}
+        {canArchive && (
           <button
-            onClick={(e) => { e.stopPropagation(); onUnhide(session.id); }}
-            className="text-[var(--text-tertiary)] hover:text-green-400 p-0.5 flex-shrink-0"
-            title={i18nT("session.showSession", undefined, "Show session")}
-            data-testid="session-unhide-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (session.status === "ended") onArchive(session.id);
+              else setArchiveConfirmOpen(true);
+            }}
+            className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded p-0.5 flex-shrink-0"
+            title={i18nT("session.archiveSession", undefined, "Archive session")}
+            data-testid="session-archive-btn"
           >
-            <Icon path={mdiEyeOutline} size={0.45} />
-          </button>
-        ) : (
-          <button
-            onClick={(e) => { e.stopPropagation(); onHide(session.id); }}
-            className="text-[var(--text-tertiary)] hover:text-[var(--text-muted)] p-0.5 flex-shrink-0"
-            title={i18nT("session.hideSession", undefined, "Hide session")}
-            data-testid="session-hide-btn"
-          >
-            <Icon path={mdiEyeOffOutline} size={0.45} />
+            <Icon path={mdiArchiveOutline} size={0.45} />
           </button>
         )}
         {isAlive && onShutdown && (
@@ -1146,6 +1155,26 @@ export function SessionCard({
       <SessionCardActionBarSlot session={session} />
       </div>{/* end card content */}
       </div>{/* end flex row */}
+      {/* Idle-alive archive confirmation (ended archives without a dialog).
+          Portalled by Dialog — placement in the tree is irrelevant. */}
+      {archiveConfirmOpen && (
+        <Confirm
+          open
+          onClose={() => setArchiveConfirmOpen(false)}
+          title={i18nT("session.archiveIdleTitle", undefined, "Archive session?")}
+          message={i18nT(
+            "session.archiveIdleMessage",
+            undefined,
+            "This session is still running. Archiving will end it and move it to the folder archive.",
+          )}
+          confirmLabel={i18nT("session.archiveSession", undefined, "Archive session")}
+          onConfirm={() => {
+            setArchiveConfirmOpen(false);
+            onArchive(session.id);
+          }}
+          testId="session-archive-confirm"
+        />
+      )}
     </li>
   );
 }

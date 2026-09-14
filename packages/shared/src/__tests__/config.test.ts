@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type DashboardConfig, DEFAULT_MEMORY_LIMITS, DEFAULT_DASHBOARD_PORT, DEFAULT_GATEWAY_PORT, ensureConfig, loadConfig, READINESS_TIMEOUT_MAX_MS, READINESS_TIMEOUT_MIN_MS, resolveDashboardPorts, resolvePublicBaseUrls, SPAWN_READINESS_BUDGET_MS, spawnReadinessBudgetMs } from "../config.js";
+import { type DashboardConfig, DEFAULT_MEMORY_LIMITS, DEFAULT_DASHBOARD_PORT, DEFAULT_GATEWAY_PORT, ensureConfig, loadConfig, parseSessionListConfig, validateSessionListConfig, READINESS_TIMEOUT_MAX_MS, READINESS_TIMEOUT_MIN_MS, resolveDashboardPorts, resolvePublicBaseUrls, SPAWN_READINESS_BUDGET_MS, spawnReadinessBudgetMs } from "../config.js";
 
 describe("loadConfig", () => {
   let testDir: string;
@@ -1143,3 +1143,66 @@ describe("kroki configuration (test-plan #E9, #E10)", () => {
   });
 });
 
+
+// ── sessionList archival policy (test-plan #E14) ──────────────────────────
+// Two surfaces, one policy: `loadConfig` must never throw on a hand-edited
+// value (it falls back to the default), while the write path must REJECT it
+// so an out-of-range setting is never persisted.
+// See change: archive-sessions-lazy-load.
+
+describe("sessionList config BVA (E14)", () => {
+  let testDir: string;
+  let configFile: string;
+  let origHome: string;
+
+  beforeEach(() => {
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), "test-config-session-list-"));
+    fs.mkdirSync(path.join(testDir, ".pi", "dashboard"), { recursive: true });
+    configFile = path.join(testDir, ".pi", "dashboard", "config.json");
+    origHome = process.env.HOME!;
+    process.env.HOME = testDir;
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    fs.rmSync(testDir, { recursive: true, force: true });
+  });
+
+  it("absent sessionList section yields 30 days / 60 minutes", () => {
+    fs.writeFileSync(configFile, JSON.stringify({}));
+    const cfg = loadConfig();
+    expect(cfg.sessionList.archiveAfterDays).toBe(30);
+    expect(cfg.sessionList.archiveSweepIntervalMinutes).toBe(60);
+  });
+
+  it.each<[string, unknown, boolean]>([
+    ["archiveAfterDays -1", { archiveAfterDays: -1 }, false],
+    ["archiveAfterDays 0", { archiveAfterDays: 0 }, true],
+    ["archiveAfterDays 1", { archiveAfterDays: 1 }, true],
+    ["archiveSweepIntervalMinutes 0", { archiveSweepIntervalMinutes: 0 }, false],
+    ["archiveSweepIntervalMinutes 1", { archiveSweepIntervalMinutes: 1 }, true],
+  ])("%s is validated", (_label, patch, ok) => {
+    const result = validateSessionListConfig(patch);
+    expect(result.ok).toBe(ok);
+    expect(result.errors.length > 0).toBe(!ok);
+  });
+
+  it("an out-of-range value on disk falls back to the default instead of throwing", () => {
+    // -1 must NOT be clamped to 0: that would silently DISABLE auto-archive.
+    expect(parseSessionListConfig({ archiveAfterDays: -1 })).toEqual({
+      archiveAfterDays: 30,
+      archiveSweepIntervalMinutes: 60,
+    });
+    expect(parseSessionListConfig({ archiveSweepIntervalMinutes: 0 }).archiveSweepIntervalMinutes).toBe(60);
+  });
+
+  it("in-range boundary values are preserved end-to-end", () => {
+    fs.writeFileSync(
+      configFile,
+      JSON.stringify({ sessionList: { archiveAfterDays: 0, archiveSweepIntervalMinutes: 1 } }),
+    );
+    const cfg = loadConfig();
+    expect(cfg.sessionList.archiveAfterDays).toBe(0);
+    expect(cfg.sessionList.archiveSweepIntervalMinutes).toBe(1);
+  });
+});

@@ -1,6 +1,6 @@
 /**
  * Session action callbacks extracted from App.tsx.
- * Handles send, abort, resume, spawn, hide, rename, shutdown, terminal, and selection actions.
+ * Handles send, abort, resume, spawn, archive, rename, shutdown, terminal, and selection actions.
  */
 import { useCallback } from "react";
 import { createInitialState, resolveInteractiveRequest, type SessionState } from "../lib/chat/event-reducer.js";
@@ -380,25 +380,18 @@ export function useSessionActions(deps: SessionActionDeps) {
     });
   }, [send, clearSpawningCwd, setSpawningCwds, spawnTimeoutsRef, pendingSpawnsRef]);
 
-  const handleHideSession = useCallback((sessionId: string) => {
-    setSessions((prev) => {
-      const next = new Map(prev);
-      const existing = next.get(sessionId);
-      if (existing) next.set(sessionId, { ...existing, hidden: true });
-      return next;
-    });
-    send({ type: "hide_session", sessionId });
-  }, [send, setSessions]);
+  // archive-sessions-lazy-load: manual archive replaces manual hide. The
+  // server owns eligibility (ended → immediate; idle-alive → pending intent
+  // + end; running → error), so the client just sends — the `session_archived`
+  // broadcast deletes the card and sets the folder count. No optimistic
+  // write: unlike hide, archiving removes the row entirely.
+  const handleArchiveSession = useCallback((sessionId: string) => {
+    send({ type: "archive_session", sessionId });
+  }, [send]);
 
-  const handleUnhideSession = useCallback((sessionId: string) => {
-    setSessions((prev) => {
-      const next = new Map(prev);
-      const existing = next.get(sessionId);
-      if (existing) next.set(sessionId, { ...existing, hidden: false });
-      return next;
-    });
-    send({ type: "unhide_session", sessionId });
-  }, [send, setSessions]);
+  const handleUnarchiveSession = useCallback((sessionId: string) => {
+    send({ type: "unarchive_session", sessionId });
+  }, [send]);
 
   // Optimistic tag write: mirror the new array locally, then send
   // set_session_tags (server normalizes + rebroadcasts). See change: add-session-tags.
@@ -473,7 +466,7 @@ export function useSessionActions(deps: SessionActionDeps) {
     handleAbort, handleForceKill, handleStopAfterTurn, handleCancelPending, handleRespondToUi, handleFlowAction, handleSend,
     handleSelect, handleRenameSession, handleShutdownSession, handleKillProcess,
     handleSendPromptToSession, handleRetrySession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
-    handleHideSession, handleUnhideSession, handleSetSessionTags, removeTagGlobally,
+    handleArchiveSession, handleUnarchiveSession, handleSetSessionTags, removeTagGlobally,
     handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle,
     handleOpenInlineTerminal, handleCloseInlineTerminal,
     handleListFiles,

@@ -230,6 +230,13 @@ export interface EventWiringDeps {
    * See change: add-custom-event-group-filters.
    */
   customEventGroupResolver?: import("./session/custom-event-group-resolver.js").CustomEventGroupResolver;
+  /**
+   * Archive index. Consumed in `onUnregister` to complete an idle-alive
+   * archive on the ended transition. See change: archive-sessions-lazy-load.
+   */
+  sessionArchive?: import("./session/session-archive.js").SessionArchive;
+  /** One-shot idle-alive archive intents. See change: archive-sessions-lazy-load. */
+  pendingArchiveIntents?: import("./pending/pending-archive-intent-registry.js").PendingArchiveIntentRegistry;
 }
 
 /**
@@ -266,6 +273,8 @@ export function wireEvents(deps: EventWiringDeps): void {
     metaPersistence,
     liveEpoch,
     commitDraftRelay,
+    sessionArchive,
+    pendingArchiveIntents,
     customEventGroupResolver,
   } = deps;
 
@@ -344,6 +353,10 @@ export function wireEvents(deps: EventWiringDeps): void {
   // persist it to the session's .meta.json. See change:
   // add-worktree-spawn-dialog.
   piGateway.onSessionRegistered = (sessionId, cwd) => {
+    // Registration wins over the archive: a bridge reattaching an archived id
+    // drops its index row + broadcasts the decremented count before the live
+    // registration is reflected. See change: archive-sessions-lazy-load.
+    sessionArchive?.onBridgeRegister(sessionId);
     // ── attachProposal arm ───────────────────────────────────────────────
     let attachConsumed = false;
     if (pendingAttachRegistry) {
@@ -511,6 +524,14 @@ export function wireEvents(deps: EventWiringDeps): void {
     // any run wedged by a lost terminal event.
     // See change: finalize-automation-run-on-session-death.
     dispatchPluginSessionEnded?.(sessionId);
+    // Idle-alive archive: the process was just ended, so complete the archive
+    // the user asked for. Consuming the one-shot intent here (rather than in a
+    // generic onChange) keeps "archived as a consequence of MY request"
+    // distinct from every other death path. See change:
+    // archive-sessions-lazy-load.
+    if (pendingArchiveIntents?.consume(sessionId)) {
+      sessionArchive?.archiveSession(sessionId, "manual");
+    }
   };
 
   // Per-event cap for `Session.uiDataMap[event]`. Phase-1 spec contract:
@@ -899,6 +920,10 @@ export function wireEvents(deps: EventWiringDeps): void {
       if (!replayingSessions.has(sessionId)) {
         const lifecycleTs = captureLifecycleTimestamp(msg.event.eventType, Date.now());
         if (lifecycleTs) sessionManager.update(sessionId, lifecycleTs);
+        // A turn started: the session is alive, so a pending idle-alive archive
+        // intent must be discarded (spec: turn start clears the intent).
+        // See change: archive-sessions-lazy-load.
+        if (msg.event.eventType === "agent_start") pendingArchiveIntents?.clear(sessionId);
       }
 
       // Auto-canvas accumulation (change: auto-canvas). Mirrors the replay +

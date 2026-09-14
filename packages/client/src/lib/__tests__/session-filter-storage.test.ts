@@ -4,6 +4,8 @@ import {
   setActiveOnly,
   getCollapsedGroups,
   setCollapsedGroups,
+  getIncludeArchive,
+  setIncludeArchive,
   pruneStaleCollapsedGroups,
   removeLegacyHiddenSessions,
 } from "../session/session-filter-storage.js";
@@ -93,5 +95,31 @@ describe("session-filter-storage", () => {
       const result = pruneStaleCollapsedGroups(new Set(["/a"]));
       expect(result).toEqual(new Set());
     });
+  });
+});
+
+// #F13: the include-archive search chip persists in localStorage.
+// See change: archive-sessions-lazy-load.
+describe("getIncludeArchive / setIncludeArchive", () => {
+  it("should default to false when nothing stored", () => {
+    expect(getIncludeArchive()).toBe(false);
+  });
+
+  it("should round-trip true", () => {
+    setIncludeArchive(true);
+    expect(getIncludeArchive()).toBe(true);
+  });
+
+  it("should round-trip false", () => {
+    setIncludeArchive(true);
+    setIncludeArchive(false);
+    expect(getIncludeArchive()).toBe(false);
+  });
+
+  it("should not throw when storage access fails", () => {
+    const throwing = { ...mockStorage, getItem: () => { throw new Error("denied"); } };
+    Object.defineProperty(window, "localStorage", { value: throwing, writable: true });
+    expect(getIncludeArchive()).toBe(false);
+    Object.defineProperty(window, "localStorage", { value: mockStorage, writable: true });
   });
 });

@@ -187,6 +187,13 @@ export interface MessageHandlerSetters {
    */
   setEndedTotalsMap?: React.Dispatch<React.SetStateAction<Map<string, number>>>;
   /**
+   * Folder group key → archived-session count from `sessions_snapshot` +
+   * `session_archived` / `archived_count_updated`. Drives the per-folder
+   * `Archive (N)` fold. Optional for lean test contexts.
+   * See change: archive-sessions-lazy-load.
+   */
+  setArchivedCountMap?: React.Dispatch<React.SetStateAction<Map<string, number>>>;
+  /**
    * Non-window ended sessions already paged per group key — the next
    * `sessions_page` offset. Reset by every snapshot.
    * See change: fix-connect-snapshot-frame-loss (D9).
@@ -273,7 +280,7 @@ export function useMessageHandler(
     setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals,
     setDiscoveredServers, setSpawnErrors, setResumeErrors,
     setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev,
-    setEndedTotalsMap, setPagedCount, setSnapshotGeneration,
+    setEndedTotalsMap, setArchivedCountMap, setPagedCount, setSnapshotGeneration,
   } = setters;
   const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, showToast, sessionsRef, openspecGetInflightRef } = deps;
   // One-shot per session: suppress a repeat auto-name toast for the same
@@ -567,6 +574,52 @@ export function useMessageHandler(
             });
           }
         }
+        break;
+
+      case "session_archived":
+        // archive-sessions-lazy-load: DELETE the id (distinct from
+        // `session_removed`, which keeps the row as ended — the archived
+        // session left the live set entirely and lives in the folder fold).
+        {
+          const existing = sessionsRef?.current.get(msg.sessionId);
+          setSessions((prev) => {
+            if (!prev.has(msg.sessionId)) return prev;
+            const next = new Map(prev);
+            next.delete(msg.sessionId);
+            return next;
+          });
+          setArchivedCountMap?.((prev) => {
+            const next = new Map(prev);
+            next.set(msg.cwd, msg.count);
+            return next;
+          });
+          // An archived session was ended and counted in `endedTotals`; it
+          // just left the live set, so shrink its group's ended count the
+          // same way `session_removed` does for registry removals.
+          if (existing && existing.status === "ended") {
+            const groupKey = endedTotalsGroupKey(
+              existing,
+              deps.cwdVisibilityInputsRef?.current.pinnedDirectories,
+            );
+            setEndedTotalsMap?.((prev) => {
+              const count = prev.get(groupKey) ?? 0;
+              if (count <= 0) return prev;
+              const next = new Map(prev);
+              next.set(groupKey, count - 1);
+              return next;
+            });
+          }
+        }
+        break;
+
+      case "archived_count_updated":
+        // Restore / delete / pin re-key — the count is authoritative.
+        setArchivedCountMap?.((prev) => {
+          if ((prev.get(msg.cwd) ?? 0) === msg.count) return prev;
+          const next = new Map(prev);
+          next.set(msg.cwd, msg.count);
+          return next;
+        });
         break;
 
       case "session_state_reset":
@@ -1458,6 +1511,10 @@ export function useMessageHandler(
         // reconciliation. `?? {}` tolerates a pre-change server omitting it.
         // See change: fix-connect-snapshot-frame-loss.
         setEndedTotalsMap?.(new Map(Object.entries(msg.endedTotals ?? {})));
+        // archive-sessions-lazy-load: archived counts replace wholesale with
+        // the rest of the snapshot. `?? {}` tolerates a pre-change server
+        // omitting the field at runtime.
+        setArchivedCountMap?.(new Map(Object.entries(msg.archivedCountByCwd ?? {})));
         setPagedCount?.(new Map());
         setSnapshotGeneration?.((n) => n + 1);
         break;

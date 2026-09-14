@@ -37,7 +37,7 @@ browser-gateway.ts SHALL delegate action messages (`send_prompt`, `abort`, `resu
 - **THEN** the session action handler queues the prompt and spawns a pi process to continue
 
 ### Requirement: Session meta handler extraction
-browser-gateway.ts SHALL delegate metadata messages (`rename_session`, `hide_session`, `unhide_session`, `attach_proposal`, `detach_proposal`, `fetch_content`, `list_sessions`) to a session meta handler module.
+browser-gateway.ts SHALL delegate metadata messages (`rename_session`, `archive_session`, `unarchive_session`, `attach_proposal`, `detach_proposal`, `fetch_content`, `list_sessions`) to a session meta handler module.
 
 #### Scenario: Rename broadcasts update
 - **WHEN** browser sends rename_session
