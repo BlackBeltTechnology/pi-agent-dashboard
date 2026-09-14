@@ -87,7 +87,20 @@ export function registerSessionRoutes(
         reply.code(404);
         return { success: false, error: "session is not archived" } satisfies ApiResponse;
       }
-      return { success: true, data: { item } } satisfies ApiResponse;
+      // Read-only open of an ARCHIVED REMOTE session. Its completeness cannot
+      // arrive the usual way: hydration broadcasts `session_updated`, and the
+      // client drops that for a session absent from its live map — which an
+      // archived one is by construction. Stamped here instead, on the
+      // single-row reseed the read-only open already performs, so an
+      // incomplete transfer still cannot render as the whole conversation.
+      // Deliberately NOT on the LISTING route: that would cost a store read per
+      // row per page for a state only the opened session displays.
+      // See change: serve-retained-remote-transcripts (task 2.2).
+      const enriched =
+        remoteTranscriptStore && !originOf(item).local
+          ? { ...item, retainedTranscript: readRetainedTranscript(remoteTranscriptStore, item.id).state }
+          : item;
+      return { success: true, data: { item: enriched } } satisfies ApiResponse;
     },
   );
 

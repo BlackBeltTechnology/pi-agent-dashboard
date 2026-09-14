@@ -176,6 +176,32 @@ describe("GET /api/sessions/:sessionId/retained-transcript", () => {
     expect(JSON.parse(res.payload).data.entries).toEqual(TRANSCRIPT);
   });
 
+  /**
+   * An archived REMOTE session's completeness cannot reach the client the usual
+   * way: hydration broadcasts `session_updated`, and `useMessageHandler` drops
+   * that for any session absent from the live map — which an archived one is by
+   * construction. So the single-row reseed the read-only open performs has to
+   * carry it, or a truncated transfer renders as the whole conversation on
+   * exactly the sessions whose origin host is gone.
+   * See CodeRabbit #663, thread 2.
+   */
+  it("stamps retained state onto the single archived row a read-only open reseeds from", async () => {
+    createRemoteTranscriptStore({ homedir: home }).append(ARCHIVED_REMOTE_ID, TRANSCRIPT, {
+      restarted: true,
+      complete: false,
+    });
+    const res = await get(`/api/sessions/archived/${ARCHIVED_REMOTE_ID}`);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.payload).data.item.retainedTranscript).toBe("incomplete");
+  });
+
+  it("leaves a LOCAL archived row unstamped rather than claiming a retained state", async () => {
+    // `undefined` is the local encoding everywhere else; `"absent"` here would
+    // read as "a transfer was expected and never happened".
+    const res = await get("/api/sessions/archived/who-dis");
+    expect(res.statusCode).toBe(404);
+  });
+
   it("reports 503 rather than 200-with-nothing when retention is not wired", async () => {
     const bare = Fastify();
     registerSessionRoutes(bare, {

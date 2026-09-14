@@ -252,8 +252,14 @@ describe("readRetainedTranscript", () => {
 
     const got = readRetainedTranscript(s, "cyclic");
     expect(got.state).toBe("complete");
-    // Degrades to an order it can defend, rather than looping forever.
+    // Degrades to an order it can defend, rather than looping forever — and
+    // specifically to the LINEAR fallback, not to an arbitrary prefix of the
+    // walk that failed. Both entries survive; a returned partial branch would
+    // have dropped one. (CodeRabbit #663, thread 4.)
     expect(got.events.length).toBeGreaterThan(0);
+    const text = JSON.stringify(got.events);
+    expect(text).toContain("ping");
+    expect(text).toContain("pong");
   });
 
   /**

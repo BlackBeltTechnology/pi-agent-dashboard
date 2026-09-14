@@ -348,6 +348,13 @@ function archivedSummaryToSession(item: ArchivedSessionSummary): DashboardSessio
     cost: 0,
     sessionFile: item.sessionFile,
     gitWorktree: item.gitWorktree,
+    // Origin + retained completeness carried through, so a read-only open of an
+    // ARCHIVED REMOTE session still distinguishes a truncated transfer from a
+    // whole one. Dropping them here would silently present a partial
+    // conversation as complete on exactly the sessions whose origin host is
+    // gone. See change: serve-retained-remote-transcripts (task 2.2).
+    originDeviceId: item.originDeviceId,
+    retainedTranscript: item.retainedTranscript,
   };
 }
 

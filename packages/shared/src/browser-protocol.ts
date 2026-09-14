@@ -592,6 +592,18 @@ export interface ArchivedSessionSummary {
    * See change: serve-retained-remote-transcripts.
    */
   originDeviceId?: string;
+  /**
+   * How much of this REMOTE session's transcript the dashboard retained.
+   * Stamped ONLY by the single-row read (`GET /api/sessions/archived/:id`),
+   * never by the listing — the listing would pay a store read per row for a
+   * state only the opened session renders.
+   *
+   * It cannot ride the usual path: completeness reaches live sessions via a
+   * `session_updated` broadcast, which the client drops for any session absent
+   * from its live map — and an archived session is absent by construction.
+   * See change: serve-retained-remote-transcripts (task 2.2).
+   */
+  retainedTranscript?: "complete" | "incomplete" | "absent";
 }
 
 /**

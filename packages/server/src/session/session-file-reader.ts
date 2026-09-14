@@ -88,17 +88,26 @@ export function parseSessionEntries(lines: string[]): SessionEntry[] {
     // linear fallback below serve an order that can be defended.
     // See change: serve-retained-remote-transcripts.
     const seen = new Set<string>();
+    let cyclic = false;
     let current = byId.get(leafId);
     while (current) {
       const id = current.id;
       if (id !== undefined) {
-        if (seen.has(id)) break;
+        if (seen.has(id)) {
+          cyclic = true;
+          break;
+        }
         seen.add(id);
       }
       branch.unshift(current);
       current = current.parentId ? byId.get(current.parentId) : undefined;
     }
-    if (branch.length > 0) return branch;
+    // The flag is load-bearing: `break` alone leaves a NON-EMPTY partial branch,
+    // which the length check below would happily return as if it were a
+    // resolved chain. A cycle means the parentage is not a branch at all, so
+    // the honest answer is the linear fallback — not an arbitrary prefix of a
+    // walk that never terminated on its own.
+    if (!cyclic && branch.length > 0) return branch;
   }
 
   // Fallback: return all entries except header in order
