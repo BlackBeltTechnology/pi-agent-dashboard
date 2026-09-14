@@ -204,8 +204,10 @@ describe("bridge liveness heal", () => {
     cm.send({ type: "session_heartbeat", sessionId: "s4", agentRunning: true });
 
     // Server silent for 60s → force-close + reconnect on the next check.
+    // The force-close is deferred one loop turn (poll-phase re-check), so the
+    // reconnect backoff starts a turn later than it used to.
     vi.advanceTimersByTime(60_000);
-    vi.advanceTimersByTime(1000);
+    vi.advanceTimersByTime(2000);
     expect(FakeWebSocket.instances.length).toBeGreaterThan(1);
 
     cm.disconnect();

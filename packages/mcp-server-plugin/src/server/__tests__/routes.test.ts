@@ -6,8 +6,12 @@
  * E17 (malformed bodies), A1-A4/A7/A9 (auth), A8 (the negative control), X7
  * (concurrency) and X11 (oversized bodies).
  */
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PairedDeviceRegistry } from "../../../../server/src/pairing/paired-devices.js";
 import { META_VERSION_KEY } from "../protocol.js";
 import { MCP_BODY_LIMIT_BYTES, mountMcpRoutes, REJECTED_METHODS } from "../routes.js";
 import { SubscriptionRegistry } from "../streaming.js";
@@ -629,6 +633,436 @@ describe("the throttle is wired into the route", () => {
       });
     }
     expect(invokeTool).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The dual-era contract (change: mcp-legacy-clients-and-token-issuance).
+ *
+ * Legacy requests declare a 2025-era revision: `initialize` opens with
+ * `params.protocolVersion` (no header), later requests carry only the
+ * `MCP-Protocol-Version` header. Modern requests keep the strict
+ * header + `_meta` contract.
+ */
+describe("dual era — legacy initialize handshake (E2/E3/E4)", () => {
+  const legacyInit = (protocolVersion?: unknown) => ({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: protocolVersion === undefined ? {} : { protocolVersion },
+  });
+  const legacyHeaders = (token: string) => ({
+    authorization: `Bearer ${token}`,
+    "content-type": "application/json",
+  });
+
+  it.each(["2025-03-26", "2025-06-18", "2025-11-25"])(
+    "E2 — initialize %s is answered and mints a session id",
+    async (version) => {
+      const { app, tokens } = await harness();
+      const res = await app.inject({
+        method: "POST",
+        url: "/mcp",
+        headers: legacyHeaders(tokens.mintForSession("session-a")),
+        payload: legacyInit(version),
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.error).toBeUndefined();
+      expect(body.result.protocolVersion).toBe(version);
+      expect(body.result.capabilities).toEqual({ tools: { listChanged: false } });
+      expect(body.result.serverInfo.name.length).toBeGreaterThan(0);
+      expect(res.headers["mcp-session-id"]).toMatch(/^[0-9a-f]{32}$/);
+    },
+  );
+
+  it("E3 — an unknown version negotiates down to 2025-11-25, never an error", async () => {
+    const { app, tokens } = await harness();
+    const res = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: legacyHeaders(tokens.mintForSession("session-a")),
+      payload: legacyInit("2027-01-01"),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().error).toBeUndefined();
+    expect(res.json().result.protocolVersion).toBe("2025-11-25");
+    expect(res.headers["mcp-session-id"]).toBeTruthy();
+  });
+
+  it.each([
+    ["params: {}", {}],
+    ["protocolVersion: 42", { protocolVersion: 42 }],
+  ])("E4 — initialize %s is refused with all four revisions named", async (_l, params) => {
+    const { app, tokens } = await harness();
+    const res = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: legacyHeaders(tokens.mintForSession("session-a")),
+      payload: { ...legacyInit(), params },
+    });
+    expect(res.statusCode).toBe(400);
+    const err = res.json().error;
+    expect(err.data.type).toBe("UnsupportedProtocolVersionError");
+    for (const v of ["2025-03-26", "2025-06-18", "2025-11-25", "2026-07-28"]) {
+      expect(err.message).toContain(v);
+    }
+    expect(res.headers["mcp-session-id"]).toBeUndefined();
+  });
+
+  it("E5 — the modern era still refuses the handshake", async () => {
+    const { app, tokens } = await harness();
+    const t = tokens.mintForSession("session-a");
+    const init = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: authed(t),
+      payload: { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2026-07-28" } },
+    });
+    expect(init.statusCode).toBe(404);
+    expect(init.json().error.code).toBe(-32601);
+    expect(init.headers["mcp-session-id"]).toBeUndefined();
+
+    for (const method of ["ping", "notifications/initialized"]) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/mcp",
+        headers: authed(t),
+        payload: rpc(method),
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().error.code).toBe(-32601);
+      expect(res.headers["mcp-session-id"]).toBeUndefined();
+    }
+  });
+});
+
+describe("dual era — legacy notifications, ping, tools (E6/E7/E8/E10)", () => {
+  /** POST one legacy-era request on a fresh harness with the given payload. */
+  async function injectLegacy(payload: Record<string, unknown>, extraHeaders: Record<string, string> = {}) {
+    const h = await harness();
+    return h.app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: {
+        authorization: `Bearer ${h.tokens.mintForSession("session-a")}`,
+        "mcp-protocol-version": "2025-06-18",
+        "content-type": "application/json",
+        ...extraHeaders,
+      },
+      payload,
+    });
+  }
+
+  it.each([
+    ["notifications/initialized", "notifications/initialized", {}],
+    ["notifications/cancelled", "notifications/cancelled", {}],
+    ["notifications/zzz", "notifications/zzz", {}],
+    ["notifications/initialized with a stray id", "notifications/initialized", { id: 7 }],
+  ])("E6 — %s is accepted with 202 and an empty body", async (_label, method, extra) => {
+    const { app, tokens } = await harness();
+    const t = tokens.mintForSession("session-a");
+    const res = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: {
+        authorization: `Bearer ${t}`,
+        "mcp-protocol-version": "2025-06-18",
+        "content-type": "application/json",
+      },
+      payload: { jsonrpc: "2.0", method, params: {}, ...extra },
+    });
+    expect(res.statusCode).toBe(202);
+    expect(res.body).toHaveLength(0);
+  });
+
+  it("E7 — legacy ping answers an empty result object", async () => {
+    const res = await injectLegacy({ jsonrpc: "2.0", id: 1, method: "ping", params: {} });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().result).toEqual({});
+  });
+
+  it("E8 — legacy and modern tool calls return identical bodies", async () => {
+    const { app, tokens } = await harness();
+    const t = tokens.mintForSession("session-a");
+    const legacyHeaders = {
+      authorization: `Bearer ${t}`,
+      "mcp-protocol-version": "2025-06-18",
+      "content-type": "application/json",
+    };
+    const legacy = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: legacyHeaders,
+      payload: { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+    });
+    const modern = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: authed(t),
+      payload: rpc("tools/list"),
+    });
+    expect(legacy.statusCode).toBe(200);
+    expect(legacy.json()).toEqual(modern.json());
+    expect(legacy.headers["mcp-session-id"]).toBeUndefined();
+
+    const legacyCall = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: legacyHeaders,
+      payload: { jsonrpc: "2.0", id: 2, method: "server/discover", params: {} },
+    });
+    const modernCall = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: authed(t),
+      payload: rpc("server/discover"),
+    });
+    expect(legacyCall.json().result).toEqual(modernCall.json().result);
+  });
+
+  it("E10 — an unknown Mcp-Session-Id still dispatches (never 404)", async () => {
+    const res = await injectLegacy(
+      { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+      { "mcp-session-id": "deadbeef" },
+    );
+    expect(res.statusCode).toBe(200);
+    expect(Array.isArray(res.json().result.tools)).toBe(true);
+  });
+});
+
+describe("dual era — session id and version markers", () => {
+  it("E11 — the modern era ignores an inbound Mcp-Session-Id", async () => {
+    const { app, tokens } = await harness();
+    const res = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: { ...authed(tokens.mintForSession("session-a")), "mcp-session-id": "deadbeef" },
+      payload: rpc("tools/list"),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["mcp-session-id"]).toBeUndefined();
+  });
+
+  it("X3 — a repeated MCP-Protocol-Version header is refused on every method", async () => {
+    const { app, tokens } = await harness();
+    const t = tokens.mintForSession("session-a");
+    const toolsList = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: {
+        authorization: `Bearer ${t}`,
+        // light-my-request forwards array header values as distinct headers.
+        "mcp-protocol-version": ["2025-06-18", "2026-07-28"] as unknown as string,
+        "content-type": "application/json",
+      },
+      payload: { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+    });
+    expect(toolsList.statusCode).toBe(400);
+    expect(toolsList.json().error.data.type).toBe("AmbiguousHeader");
+
+    const init = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: {
+        authorization: `Bearer ${t}`,
+        "mcp-protocol-version": ["2025-06-18", "2026-07-28"] as unknown as string,
+        "content-type": "application/json",
+      },
+      payload: { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } },
+    });
+    expect(init.statusCode).toBe(400);
+    expect(init.json().error.data.type).toBe("AmbiguousHeader");
+    expect(init.headers["mcp-session-id"]).toBeUndefined();
+  });
+});
+
+describe("dual era — subscriptions/listen is subject to version resolution (E12)", () => {
+  function listenHarness() {
+    const app = Fastify();
+    open.push(app);
+    const tokens = new McpTokenRegistry();
+    const handlers = new Set<(sessionId: string, payload: unknown) => void>();
+    const registry = new SubscriptionRegistry();
+    const openSpy = vi.spyOn(registry, "open");
+    const ready = mountMcpRoutes(app, {
+      tokens,
+      verifyDeviceToken: () => null,
+      invokeTool: async () => ({}),
+      serverInfo: { name: "pi-dashboard", version: "0.7.0" },
+      log: { info: () => {}, warn: () => {}, error: () => {} },
+      streaming: {
+        registry,
+        source: {
+          onEvent(handler) {
+            handlers.add(handler);
+            return () => handlers.delete(handler);
+          },
+        },
+      },
+    });
+    return { app, tokens, open: openSpy, ready };
+  }
+
+  it.each([
+    ["header 2026-07-28 with no _meta", "2026-07-28", { _meta: {} } as Record<string, unknown>, 400, "MissingProtocolVersion"],
+    ["unsupported header 1999-01-01", "1999-01-01", { _meta: {} } as Record<string, unknown>, 400, "UnsupportedProtocolVersionError"],
+  ])("refuses with the version error any other method receives (%s)", async (_l, header, params, status, type) => {
+    const h = listenHarness();
+    await h.ready;
+    await h.app.ready();
+    const res = await h.app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: { authorization: `Bearer ${h.tokens.mintForSession("s")}`, "mcp-protocol-version": header },
+      payload: { jsonrpc: "2.0", id: 1, method: "subscriptions/listen", params },
+    });
+    expect(res.statusCode).toBe(status);
+    expect(res.json().error.data.type).toBe(type);
+    expect(h.open).not.toHaveBeenCalled();
+  });
+
+  it("a header/body mismatch is a 400 HeaderMismatch", async () => {
+    const h = listenHarness();
+    await h.ready;
+    await h.app.ready();
+    const res = await h.app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: { authorization: `Bearer ${h.tokens.mintForSession("s")}`, "mcp-protocol-version": "2026-07-28" },
+      payload: {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "subscriptions/listen",
+        params: { _meta: { [META_VERSION_KEY]: "2025-06-18" }, sessionIds: ["s1"] },
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.data.type).toBe("HeaderMismatch");
+    expect(h.open).not.toHaveBeenCalled();
+  });
+
+  it("a legacy-era listen is the removed-method shape, and no stream opens (D3)", async () => {
+    const h = listenHarness();
+    await h.ready;
+    await h.app.ready();
+    const res = await h.app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: { authorization: `Bearer ${h.tokens.mintForSession("s")}`, "mcp-protocol-version": "2025-06-18" },
+      payload: { jsonrpc: "2.0", id: 1, method: "subscriptions/listen", params: { sessionIds: ["s1"] } },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe(-32601);
+    expect(h.open).not.toHaveBeenCalled();
+  });
+});
+
+describe("dual era — legacy authentication parity (X1/X2)", () => {
+  it("X1 — legacy requests are authenticated identically", async () => {
+    const { app } = await harness();
+    for (const payload of [
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } },
+      { jsonrpc: "2.0", id: 1, method: "ping", params: {} },
+      { jsonrpc: "2.0", method: "notifications/initialized", params: {} },
+    ] as const) {
+      for (const headers of [
+        { "mcp-protocol-version": "2025-06-18" },
+        { "mcp-protocol-version": "2025-06-18", authorization: "Bearer not-a-real-token" },
+      ]) {
+        const res = await app.inject({ method: "POST", url: "/mcp", headers, payload });
+        expect(res.statusCode).toBe(401);
+        expect(res.headers["www-authenticate"]).toBe("Bearer");
+        expect(res.headers["mcp-session-id"]).toBeUndefined();
+      }
+    }
+  });
+
+  it("X2 — a minted Mcp-Session-Id never substitutes for the credential", async () => {
+    const { app, tokens } = await harness();
+    const init = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: { authorization: `Bearer ${tokens.mintForSession("session-a")}` },
+      payload: { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } },
+    });
+    expect(init.statusCode).toBe(200);
+    const sessionId = init.headers["mcp-session-id"] as string;
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: { "mcp-protocol-version": "2025-06-18", "mcp-session-id": sessionId },
+      payload: { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+});
+
+describe("dual era — malformed legacy payloads (X10)", () => {
+  it("never produce a 500 or an unhandled rejection", async () => {
+    const rejections: unknown[] = [];
+    const handler = (err: unknown) => rejections.push(err);
+    process.on("unhandledRejection", handler);
+    try {
+      const { app, tokens } = await harness();
+      const t = tokens.mintForSession("session-a");
+      const headers = {
+        authorization: `Bearer ${t}`,
+        "mcp-protocol-version": "2025-06-18",
+        "content-type": "application/json",
+      };
+      for (const payload of ["not json", [], { jsonrpc: "2.0" }]) {
+        const res = await app.inject({ method: "POST", url: "/mcp", headers, payload: payload as never });
+        expect(res.statusCode).toBeGreaterThanOrEqual(400);
+        expect(res.statusCode).not.toBe(500);
+        expect(res.statusCode).toBeLessThan(500);
+        expect(res.json().error).toBeDefined();
+      }
+    } finally {
+      process.off("unhandledRejection", handler);
+    }
+    expect(rejections).toEqual([]);
+  });
+});
+
+
+// E14 (test-plan: mcp-legacy-clients-and-token-issuance) — a token minted by
+// the direct-issuance route reaches /mcp as an indistinguishable device caller.
+describe("E14 — a manually minted device token reaches /mcp", () => {
+  it("authenticates as a device caller with no originating session", async () => {
+    const app = Fastify();
+    open.push(app);
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-mcp-e14-"));
+    try {
+      const registry = new PairedDeviceRegistry(path.join(tmp, "paired.json"));
+      const invokeTool = vi.fn(async (_inv: { caller: unknown }) => ({ ok: true }));
+      await mountMcpRoutes(app, {
+        tokens: new McpTokenRegistry(),
+        verifyDeviceToken: (t: string) => registry.verify(t),
+        invokeTool,
+        serverInfo: { name: "pi-dashboard", version: "0.7.0" },
+        log: { info: () => {}, warn: () => {}, error: () => {} },
+      });
+      await app.ready();
+
+      const { device, token } = registry.add("cli", "manual");
+      const res = await app.inject({
+        method: "POST",
+        url: "/mcp",
+        headers: authed(token),
+        payload: rpc("tools/call", { name: "abort", arguments: { sessionId: "anything" } }),
+      });
+      expect(res.statusCode).toBe(200);
+      expect(invokeTool).toHaveBeenCalledOnce();
+      // Device caller: no originating session, so any session target is allowed.
+      expect(invokeTool.mock.calls[0][0].caller).toEqual({
+        kind: "device",
+        deviceId: device.id,
+      });
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
 

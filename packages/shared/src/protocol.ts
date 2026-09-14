@@ -76,7 +76,17 @@ export interface InboundDropReportMessage {
 }
 
 /** Which transport fact a bridge is reporting. */
-export type BridgeDiagnosticEvent = "endpoint_resolved" | "retarget_refused" | "retarget_accepted";
+export type BridgeDiagnosticEvent =
+  | "endpoint_resolved"
+  | "retarget_refused"
+  | "retarget_accepted"
+  /**
+   * The bridge's liveness watchdog force-closed a socket. Without this, a
+   * client-initiated close is indistinguishable in server.log from a network
+   * drop or a server reap — all three read as `connection closed` followed by
+   * a re-register, so a reconnect storm cannot be attributed.
+   */
+  | "watchdog_force_close";
 
 /**
  * Bridge -> server: how this bridge chose its endpoint, and every refusal to

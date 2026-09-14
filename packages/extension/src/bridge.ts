@@ -44,7 +44,7 @@ import {
   validateImages,
 } from "./command-handler.js";
 import { buildSessionContextText, runForkSubagentDraft } from "./commit-draft-agent.js";
-import { ConnectionManager } from "./connection.js";
+import { ConnectionManager, type WatchdogFireInfo } from "./connection.js";
 import { toCustomEntryForward, toCustomMessageForward } from "./custom-entry-forward.js";
 import { registerDashboardContextInjector } from "./dashboard-context-injector.js";
 import { DashboardDefaultAdapter } from "./dashboard-default-adapter.js";
@@ -104,6 +104,21 @@ import { detectIsGitRepo } from "./vcs-info.js";
 import { buildVisibilityRegisterFields } from "./visibility-intent.js";
 
 const HEARTBEAT_INTERVAL = 15_000;
+
+/**
+ * Formats the state behind a watchdog force-close for `server.log`.
+ *
+ * Shared by the primary connection and the `/dashboard-connect` move target:
+ * after a move the target IS the live connection, so omitting it there would
+ * silence exactly the socket under observation.
+ */
+function formatWatchdogFire(w: WatchdogFireInfo): string {
+  return (
+    `silent=${w.silentForMs}ms threshold=${w.watchdogTimeout}ms ` +
+    `readyState=${w.readyState} inboundQueue=${w.inboundQueueDepth} ` +
+    `refusedInbound=${w.refusedInbound} maxTickDrift=${w.maxTickDriftMs}ms`
+  );
+}
 const GIT_POLL_INTERVAL = 30_000;
 // Platform-aware process scan cadence. Windows keeps the original 10 s /
 // 30 s floor because PowerShell Get-CimInstance is expensive and can flash consoles;
@@ -1024,6 +1039,14 @@ function initBridge(pi: ExtensionAPI) {
     // by file mode or the local token and mint nothing.
     // See change: add-pi-gateway-transport-identity (D10b).
     prepareConnect: () => prepareRemoteUpgrade(dashboardUrl),
+    // Attribute every force-close. `record` flushes through the live socket
+    // when one is still OPEN (the callback runs BEFORE teardown) and falls
+    // back to the buffer otherwise, so the report survives either way.
+    onWatchdogFire: (w) => {
+      const detail = formatWatchdogFire(w);
+      console.log(`[dashboard] watchdog force-close ${detail}`);
+      transportDiagnostics.record({ event: "watchdog_force_close", detail });
+    },
     // Routing field for a drop report — the reporting bridge's OWN session,
     // never the id the dropped message named.
     // See change: fix-spawn-correlation-ttl-coupling (D6).
@@ -1846,6 +1869,13 @@ function initBridge(pi: ExtensionAPI) {
             headers: localTokenHeaders(url),
             getSessionId: () => sessionId,
             onMessage: (data) => handler(data),
+            // The move REBINDS `connection` to this manager, so without this
+            // every post-move force-close would be silent again.
+            onWatchdogFire: (w) => {
+              const detail = formatWatchdogFire(w);
+              console.log(`[dashboard] watchdog force-close (move target) ${detail}`);
+              transportDiagnostics.record({ event: "watchdog_force_close", detail });
+            },
             // On the FIRST open, not just reconnects: this is where the
             // provisional registration is announced, and a send before the
             // socket is live would be silently dropped.

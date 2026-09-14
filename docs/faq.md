@@ -2962,3 +2962,32 @@ Check in order:
 - WRITE discipline missing → `"write": true` required. `inject: "off"` injects nothing and makes `write` inert.
 
 See change: inject-dox-doctrine-and-describe.
+
+## How do I connect Claude Code / Cursor to the dashboard MCP?
+
+Connect external MCP client via HTTP transport with bearer authentication.
+
+Mint token:
+1. Navigate Settings → Security → Paired Devices.
+2. Click "Create token for an MCP client".
+3. Enter label (e.g. `claude-code`). Click Create.
+4. Token shown once. Copy snippet:
+   `claude mcp add --transport http pi-dashboard <base>/mcp --header "Authorization: Bearer <token>"`
+
+Caveats + configuration:
+- Tunnel / reverse-proxy: snippet uses current browser origin. Substitute URL client actually reaches.
+- Revoke: open Settings → Security → Paired Devices, delete device row. Token invalidated immediately.
+- Shell history hazard: pasting snippet writes bearer token into terminal history. Revoke + re-mint if machine shared.
+- Legacy revisions: clients speaking `2025-03-26`, `2025-06-18`, `2025-11-25` get tool calls + discovery. NO event streaming (`subscriptions/listen` requires `2026-07-28`; legacy callers get 404 `MethodRemoved`).
+- Client shutdown: client sends `DELETE /mcp` on exit. Server returns `405 Method Not Allowed` (`Allow: POST`). Expected; ignore error.
+
+Details: `docs/architecture.md` §MCP Endpoint.
+
+See change: mcp-legacy-clients-and-token-issuance.
+
+Cross-refs:
+- docs/architecture.md
+- packages/mcp-server-plugin/README.md
+- packages/client/src/components/connectivity/PairedDevicesSection.tsx
+- packages/server/src/routes/pairing-routes.ts
+

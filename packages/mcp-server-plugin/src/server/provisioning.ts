@@ -12,10 +12,12 @@
  *
  * 1. **The legacy-default trap.** Per the `pi-mcp-adapter` 2.20.0 changelog,
  *    "Legacy remains the default." An entry written WITHOUT `protocolVersion`
- *    gets the legacy handshake — `initialize` plus `Mcp-Session-Id` — against a
- *    server that is spec-bound to ignore both. The failure would look like a
- *    handshake timeout rather than a config mistake, so `protocolVersion` is
- *    never omitted (J2).
+ *    gets the legacy handshake — `initialize` plus `Mcp-Session-Id`. The
+ *    dashboard's `/mcp` DOES answer the legacy handshake now, but pi's own
+ *    adapter must stay on the strict modern path: without the pin the entry
+ *    would silently downgrade, and the failure would look like a config
+ *    mistake rather than a deliberate choice, so `protocolVersion` is never
+ *    omitted (J2). See change: mcp-legacy-clients-and-token-issuance (D7).
  *
  * 2. **The wrong-shape trap.** `ensureMcpEntry` writes a stdio `command` entry
  *    for iMCP. This endpoint is HTTP and must be declared by `url` (J1).
@@ -38,7 +40,8 @@ export type { ConfigIO };
  */
 export const DASHBOARD_MCP_KEY = "pi-dashboard";
 
-/** Pinned rather than "auto": this server serves exactly one revision. */
+/** Pinned rather than "auto": the modern revision, while `/mcp` also serves
+ * the legacy era for foreign clients (D7). */
 export const PROVISIONED_PROTOCOL_VERSION = "2026-07-28";
 
 /**
