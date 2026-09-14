@@ -8,10 +8,10 @@
  */
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { McpTokenRegistry } from "../tokens.js";
 import { META_VERSION_KEY } from "../protocol.js";
-import { MCP_BODY_LIMIT_BYTES, REJECTED_METHODS, mountMcpRoutes } from "../routes.js";
+import { MCP_BODY_LIMIT_BYTES, mountMcpRoutes, REJECTED_METHODS } from "../routes.js";
 import { SubscriptionRegistry } from "../streaming.js";
+import { McpTokenRegistry } from "../tokens.js";
 
 const V = "2026-07-28";
 const meta = { _meta: { [META_VERSION_KEY]: V } };

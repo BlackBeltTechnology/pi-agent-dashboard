@@ -17,10 +17,10 @@
  * fastest when the code under test does nothing — the classic vacuous perf test.
  */
 import { describe, expect, it } from "vitest";
-import { McpTokenRegistry } from "../tokens.js";
-import { MCP_TOOLS, listTools } from "../tools.js";
-import { SubscriptionRegistry, type EventSource, type StreamSink } from "../streaming.js";
+import { type EventSource, type StreamSink, SubscriptionRegistry } from "../streaming.js";
 import type { McpCaller } from "../tokens.js";
+import { McpTokenRegistry } from "../tokens.js";
+import { listTools, MCP_TOOLS } from "../tools.js";
 
 const caller: McpCaller = { kind: "device", deviceId: "d1" };
 

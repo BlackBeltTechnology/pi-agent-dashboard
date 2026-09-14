@@ -10,21 +10,20 @@
  * keeps E1-E4 honest in both modes.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { authenticate, type AuthDeps } from "./auth.js";
+import { type AuthDeps, authenticate } from "./auth.js";
+import { type DispatchDeps, dispatchRpc, parseSubscriptionFilter } from "./dispatch.js";
 import {
-  RPC_INTERNAL_ERROR,
-  RPC_PARSE_ERROR,
-  type RpcHttpResponse,
   extractId,
   parseRpcRequest,
-  rpcError,
+  RPC_INTERNAL_ERROR,RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND, 
+  RPC_PARSE_ERROR,
+  type RpcHttpResponse,
+  rpcError
 } from "./jsonrpc.js";
 import { PROTOCOL_VERSION_HEADER } from "./protocol.js";
-import { type DispatchDeps, dispatchRpc, parseSubscriptionFilter } from "./dispatch.js";
-import { RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND } from "./jsonrpc.js";
+import { AuthFailureThrottle } from "./rate-limit.js";
 import type { EventSource, StreamSink, SubscriptionRegistry } from "./streaming.js";
 import type { McpCaller } from "./tokens.js";
-import { AuthFailureThrottle } from "./rate-limit.js";
 
 /**
  * Methods that must answer 405 rather than reaching the SPA fallback.
@@ -61,6 +60,12 @@ export interface McpRouteDeps extends AuthDeps, DispatchDeps {
   streaming?: { registry: SubscriptionRegistry; source: EventSource };
   /** Injectable for tests; a default instance is created when absent. */
   throttle?: AuthFailureThrottle;
+  /**
+   * Fired at the top of every POST /mcp request. The plugin wires a
+   * once-guarded lazy adapter-version diagnostic here, so the check runs on
+   * first use rather than at registration.
+   */
+  onMcpRequest?: () => void;
 }
 
 /**
@@ -192,6 +197,9 @@ function mountMcpRoutesInScope(fastify: FastifyInstance, deps: McpRouteDeps): vo
     url: "/mcp",
     bodyLimit: MCP_BODY_LIMIT_BYTES,
     handler: async (request: FastifyRequest, reply: FastifyReply) => {
+      // Lazy, once-per-process diagnostics (e.g. the adapter-version floor)
+      // belong to first use, not registration.
+      deps.onMcpRequest?.();
       // Throttle BEFORE the comparison, so a locked-out source cannot keep
       // spending server CPU on `timingSafeEqual` scans.
       const source = request.ip;

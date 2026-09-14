@@ -447,6 +447,52 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 		],
 	},
 	{
+		// The pi-server MCP client the dashboard's MCP surface depends on. Named
+		// as a recommended extension so the mcp-client plugin row's
+		// `requires.piExtensions` renders an INLINE Install (the affordance
+		// matches on recommended ids, else it falls back to the Packages tab).
+		// See change: extract-mcp-client-plugin.
+		id: "pi-mcp-adapter",
+		source: "npm:pi-mcp-adapter",
+		displayName: "pi-mcp-adapter",
+		fallbackDescription:
+			"Connects pi to MCP servers (stdio/HTTP/SSE), merges the layered " +
+			"mcp.json config, and exposes MCP tools. Backs the dashboard's " +
+			"mcp-client plugin and iMCP (Apple Tools) provisioning.",
+		status: "strongly-suggested",
+		unlocks: [
+			"MCP server connections + tools in pi",
+			"Dashboard mcp-client plugin (server manager, effective config)",
+			"iMCP (Apple Tools) provisioning",
+		],
+		autowired: true,
+	},
+	{
+		// Generic MCP server manager plugin. Requires the adapter above, so the
+		// plugins index renders an inline Install for that missing requirement.
+		// See change: extract-mcp-client-plugin.
+		id: "@blackbelt-technology/pi-dashboard-mcp-client-plugin",
+		source: "npm:@blackbelt-technology/pi-dashboard-mcp-client-plugin",
+		displayName: "pi-dashboard-mcp-client-plugin",
+		fallbackDescription:
+			"Dashboard plugin for MCP configuration: the effective merged view, " +
+			"server create/edit/enable/disable, directTools, and the published " +
+			"config schema. Companion to the pi-mcp-adapter extension.",
+		status: "optional",
+		unlocks: [
+			"MCP server manager (create/edit/enable/disable + directTools)",
+			"Effective MCP config view with layer provenance",
+		],
+		dashboardPlugin: "mcp-client",
+		// The adapter needs >= 2.20.0 (below that the 2026-07-28 handshake
+		// silently degrades). The floor stays a runtime probe — see
+		// packages/mcp-client-plugin/src/core/adapter-verdict.ts — not a manifest
+		// field: `PluginRequirements` cannot express a version floor, and adding
+		// one would change the manifest schema for every plugin.
+		// See change: extract-mcp-client-plugin.
+		requires: { piExtensions: ["pi-mcp-adapter"] },
+	},
+	{
 		// Apple PIM (iMCP) integration. See change: add-apple-tools-imcp-plugin.
 		id: "@blackbelt-technology/pi-dashboard-apple-tools",
 		source: "npm:@blackbelt-technology/pi-dashboard-apple-tools",
@@ -461,19 +507,6 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 			"Provisioning panel + one-command installer",
 		],
 		dashboardPlugin: "apple-tools",
-		// NOTE: `piExtensions` names an extension but cannot express a VERSION
-		// floor, and `PluginRequirements` has no field for one. The dashboard MCP
-		// endpoint needs pi-mcp-adapter >= 2.20.0 (below that, "legacy remains the
-		// default" and the 2026-07-28 handshake silently degrades).
-		//
-		// Decision (task 11.4): the floor stays a DOCUMENTED prerequisite enforced
-		// by a runtime probe (`mcp-server-plugin/src/server/provisioning.ts`
-		// `probeAdapterVersion`), not a new manifest field. Adding one would change
-		// the manifest schema for every plugin and needs enforcement semantics
-		// nobody has specified — speculative for a single consumer, while the probe
-		// already reports at the moment the mismatch matters.
-		// See change: add-dashboard-mcp-server.
-		requires: { piExtensions: ["pi-mcp-adapter"] },
 	},
 	{
 		id: "@blackbelt-technology/pi-dashboard-video-transcription",

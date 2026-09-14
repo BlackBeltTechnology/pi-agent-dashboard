@@ -754,3 +754,44 @@ export async function folderHeaderBranch(page: Page, cwd: string): Promise<strin
     .evaluate((el) => (el.nextElementSibling?.textContent ?? "").trim())
     .catch(() => "");
 }
+
+/**
+ * Assert every interactive control inside `selector` meets the repo's 44×44px
+ * mobile hit-area floor. A checkbox's hit area is its wrapping `<label>` when
+ * one exists — the client wraps every bare checkbox for exactly this reason —
+ * and a zero-size control (collapsed/hidden group) is skipped.
+ * See change: extract-mcp-client-plugin (tasks 7.7, 8.4).
+ */
+export async function assertHitAreas(page: Page, selector: string, min = 44): Promise<void> {
+  const undersized = await page.evaluate(
+    ({ sel, floor }) => {
+      const root = document.querySelector(sel);
+      if (!root) return [`${sel}: not found`];
+
+      function hitTarget(control: Element): Element {
+        if ((control as HTMLInputElement).type !== "checkbox") return control;
+        return control.closest("label") ?? control;
+      }
+      function nameOf(el: Element): string {
+        const testid = el.getAttribute("data-testid");
+        if (testid) return testid;
+        const aria = el.getAttribute("aria-label");
+        if (aria) return aria;
+        return el.tagName.toLowerCase();
+      }
+
+      const out: string[] = [];
+      const controls = root.querySelectorAll("button, [role='switch'], input, select, textarea");
+      for (const control of Array.from(controls)) {
+        const target = hitTarget(control);
+        const rect = target.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) continue;
+        if (rect.width >= floor && rect.height >= floor) continue;
+        out.push(`${nameOf(target)}: ${Math.round(rect.width)}x${Math.round(rect.height)}`);
+      }
+      return out;
+    },
+    { sel: selector, floor: min },
+  );
+  expect(undersized, `controls below the ${min}×${min} hit-area floor in ${selector}`).toEqual([]);
+}

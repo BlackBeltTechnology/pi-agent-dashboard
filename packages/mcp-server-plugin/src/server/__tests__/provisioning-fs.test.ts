@@ -11,15 +11,28 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type {
+  AdapterPort,
+  ConfigIO,
+  McpConfig,
+  ServerProvenance,
+} from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  type ConfigIO,
-  DASHBOARD_MCP_KEY,
-  provisionDashboardEntry,
-} from "../provisioning.js";
+import { DASHBOARD_MCP_KEY, provisionDashboardEntry } from "../provisioning.js";
 
 let dir: string;
 let target: string;
+
+/** Adapter port pointing the global layer at the temp target. */
+function fakePort(globalPath: string): AdapterPort {
+  return {
+    loadMcpConfig: () => Promise.resolve({} as McpConfig),
+    getServerProvenance: () => Promise.resolve(new Map<string, ServerProvenance>()),
+    getConfigDiscoveryPaths: () => [],
+    getPiGlobalConfigPath: () => globalPath,
+    getProjectPiConfigPath: (cwd) => `${cwd}/.pi/mcp.json`,
+  };
+}
 
 /** The real write path used by the plugin entry: temp file + rename. */
 const realIO: ConfigIO = {
@@ -43,7 +56,7 @@ afterEach(() => {
 
 describe("J8 — first run against a real filesystem", () => {
   it("creates the file and its parent directory", () => {
-    const r = provisionDashboardEntry(realIO, target, "http://127.0.0.1:8000/mcp");
+    const r = provisionDashboardEntry(realIO, { url: "http://127.0.0.1:8000/mcp", adapter: fakePort(target) });
     expect(r).toEqual({ ok: true, action: "created" });
     expect(fs.existsSync(target)).toBe(true);
     expect(JSON.parse(fs.readFileSync(target, "utf8")).mcpServers[DASHBOARD_MCP_KEY].url).toBe(
@@ -52,7 +65,7 @@ describe("J8 — first run against a real filesystem", () => {
   });
 
   it("writes with owner-only permissions", () => {
-    provisionDashboardEntry(realIO, target, "http://127.0.0.1:8000/mcp");
+    provisionDashboardEntry(realIO, { url: "http://127.0.0.1:8000/mcp", adapter: fakePort(target) });
     const mode = fs.statSync(target).mode & 0o777;
     // The file records a local endpoint; 0600 matches paired-devices.json.
     expect(mode).toBe(0o600);
@@ -74,19 +87,19 @@ describe("J3 — siblings survive a real read-modify-write", () => {
   });
 
   it("preserves both sibling entries byte-identically", () => {
-    provisionDashboardEntry(realIO, target, "http://127.0.0.1:8000/mcp");
+    provisionDashboardEntry(realIO, { url: "http://127.0.0.1:8000/mcp", adapter: fakePort(target) });
     const after = JSON.parse(fs.readFileSync(target, "utf8"));
     expect(after.mcpServers.iMCP).toEqual(siblings.mcpServers.iMCP);
     expect(after.mcpServers.unrelated).toEqual(siblings.mcpServers.unrelated);
   });
 
   it("preserves unrelated nested top-level structure", () => {
-    provisionDashboardEntry(realIO, target, "http://127.0.0.1:8000/mcp");
+    provisionDashboardEntry(realIO, { url: "http://127.0.0.1:8000/mcp", adapter: fakePort(target) });
     expect(JSON.parse(fs.readFileSync(target, "utf8")).topLevel).toEqual(siblings.topLevel);
   });
 
   it("adds exactly one key and leaves the file parseable", () => {
-    provisionDashboardEntry(realIO, target, "http://127.0.0.1:8000/mcp");
+    provisionDashboardEntry(realIO, { url: "http://127.0.0.1:8000/mcp", adapter: fakePort(target) });
     const after = JSON.parse(fs.readFileSync(target, "utf8"));
     expect(Object.keys(after.mcpServers).sort()).toEqual(
       ["iMCP", "unrelated", DASHBOARD_MCP_KEY].sort(),
@@ -94,16 +107,16 @@ describe("J3 — siblings survive a real read-modify-write", () => {
   });
 
   it("is idempotent across repeated runs", () => {
-    provisionDashboardEntry(realIO, target, "http://127.0.0.1:8000/mcp");
+    provisionDashboardEntry(realIO, { url: "http://127.0.0.1:8000/mcp", adapter: fakePort(target) });
     const first = fs.readFileSync(target, "utf8");
-    provisionDashboardEntry(realIO, target, "http://127.0.0.1:8000/mcp");
+    provisionDashboardEntry(realIO, { url: "http://127.0.0.1:8000/mcp", adapter: fakePort(target) });
     expect(fs.readFileSync(target, "utf8")).toBe(first);
   });
 });
 
 describe("J4 — atomicity leaves no observable partial file", () => {
   it("leaves no temp-file residue after a successful write", () => {
-    provisionDashboardEntry(realIO, target, "http://127.0.0.1:8000/mcp");
+    provisionDashboardEntry(realIO, { url: "http://127.0.0.1:8000/mcp", adapter: fakePort(target) });
     const stray = fs.readdirSync(path.dirname(target)).filter((f) => f.endsWith(".tmp"));
     expect(stray).toEqual([]);
   });
@@ -123,7 +136,7 @@ describe("J4 — atomicity leaves no observable partial file", () => {
       },
     };
 
-    const r = provisionDashboardEntry(interrupted, target, "http://127.0.0.1:8000/mcp");
+    const r = provisionDashboardEntry(interrupted, { url: "http://127.0.0.1:8000/mcp", adapter: fakePort(target) });
 
     expect(r.ok).toBe(false);
     // The destination still holds the ORIGINAL bytes: a reader at any instant
@@ -140,7 +153,7 @@ describe("J7 — an unwritable destination fails cleanly on a real filesystem", 
     fs.chmodSync(path.dirname(target), 0o500); // r-x: no writes permitted
 
     try {
-      const r = provisionDashboardEntry(realIO, target, "http://127.0.0.1:8000/mcp");
+      const r = provisionDashboardEntry(realIO, { url: "http://127.0.0.1:8000/mcp", adapter: fakePort(target) });
       // Running as root defeats the permission bits; skip rather than assert a
       // false guarantee.
       if (r.ok) {

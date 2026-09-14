@@ -12,7 +12,7 @@
  * the parent key immediately, so the later re-assert is a no-op (no mutation,
  * no broadcast).
  */
-import { describe, it, expect, afterEach } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer, type ServerConfig } from "../server.js";
 
@@ -43,21 +43,28 @@ async function connectSession(
   return ws;
 }
 
-async function connectBrowser(browserPort: number): Promise<{ ws: WebSocket; reorders: any[] }> {
+async function connectBrowser(browserPort: number): Promise<{ ws: WebSocket; reorders: any[]; updates: any[] }> {
   const reorders: any[] = [];
+  const updates: any[] = [];
   const ws = new WebSocket(`ws://127.0.0.1:${browserPort}/ws`);
   ws.on("message", (raw) => {
     try {
       const m = JSON.parse(String(raw));
       if (m.type === "sessions_reordered") reorders.push(m);
+      if (m.type === "session_updated") updates.push(m);
     } catch { /* ignore */ }
   });
   await new Promise<void>((resolve) => ws.on("open", () => setTimeout(resolve, 50)));
-  return { ws, reorders };
+  return { ws, reorders, updates };
 }
 
-function sendGitInfo(ws: WebSocket, sessionId: string, gitWorktree: unknown) {
-  ws.send(JSON.stringify({ type: "git_info_update", sessionId, gitWorktree }));
+function sendGitInfo(
+  ws: WebSocket,
+  sessionId: string,
+  gitWorktree: unknown,
+  extra: Record<string, unknown> = {},
+) {
+  ws.send(JSON.stringify({ type: "git_info_update", sessionId, gitWorktree, ...extra }));
 }
 
 const baseConfig: ServerConfig = {
@@ -158,5 +165,77 @@ describe("event-wiring: deferred worktree order-key re-resolution", () => {
     expect(orderMgr.getAllOrders()).not.toHaveProperty(WORKTREE);
     // Still exactly one parent broadcast — the second update added none.
     expect(reorders.filter((r) => r.cwd === PARENT)).toHaveLength(1);
+  });
+
+  it("keeps parentage when the bridge clears after it was set (E5)", async () => {
+    await boot();
+    const PARENT = "/repo";
+    const WORKTREE = "/repo/.worktrees/feat-x";
+    const prior = { mainPath: PARENT, name: "feat-x" };
+
+    const ws = await connectSession(piPort, "s-wt-e5", WORKTREE);
+    sockets.push(ws);
+
+    const { ws: browser, updates } = await connectBrowser(browserPort);
+    sockets.push(browser);
+
+    // Establish parentage via a first git_info_update.
+    sendGitInfo(ws, "s-wt-e5", prior);
+    await waitFor(() => server.sessionManager.get("s-wt-e5")?.gitWorktree?.mainPath === PARENT);
+    const seenBefore = updates.length;
+
+    // The bridge now clears (worktree removed underneath) while the session
+    // stays alive — parentage MUST NOT be dropped.
+    sendGitInfo(ws, "s-wt-e5", null, { gitBranch: "x" });
+    await waitFor(() => updates.length > seenBefore);
+
+    expect(server.sessionManager.get("s-wt-e5")?.gitWorktree).toEqual(prior);
+    expect(server.sessionManager.get("s-wt-e5")?.gitWorktreeReported).toBe(true);
+    const clearUpdate = updates[updates.length - 1];
+    expect(clearUpdate.sessionId).toBe("s-wt-e5");
+    expect(clearUpdate.updates.gitWorktree).toEqual(prior);
+  });
+
+  it("still clears on null when no parentage was set (E6)", async () => {
+    await boot();
+    const ws = await connectSession(piPort, "s-plain-e6", "/repo");
+    sockets.push(ws);
+
+    const { ws: browser, updates } = await connectBrowser(browserPort);
+    sockets.push(browser);
+
+    sendGitInfo(ws, "s-plain-e6", null);
+    await waitFor(() => updates.some((u) => u.sessionId === "s-plain-e6"));
+
+    expect(server.sessionManager.get("s-plain-e6")?.gitWorktree).toBeUndefined();
+    expect(server.sessionManager.get("s-plain-e6")?.gitWorktreeReported).toBe(true);
+  });
+
+  it("reattach keeps parentage across a re-register + clear (E9)", async () => {
+    await boot();
+    const PARENT = "/repo";
+    const WORKTREE = "/repo/.worktrees/feat-e9";
+    const prior = { mainPath: PARENT, name: "feat-e9" };
+
+    const ws = await connectSession(piPort, "s-wt-e9", WORKTREE);
+    sockets.push(ws);
+
+    // Establish parentage via the initial handshake update.
+    sendGitInfo(ws, "s-wt-e9", prior);
+    await waitFor(() => server.sessionManager.get("s-wt-e9")?.gitWorktree?.mainPath === PARENT);
+
+    // Bridge reconnects: re-register the SAME cwd. `register()` must carry
+    // parentage over (D2b) — otherwise the guard has no prior to protect.
+    ws.send(JSON.stringify({
+      type: "session_register", sessionId: "s-wt-e9", cwd: WORKTREE, source: "cli", registerReason: "reattach",
+    }));
+    ws.send(JSON.stringify({ type: "replay_complete", sessionId: "s-wt-e9" }));
+    await waitFor(() => server.sessionManager.get("s-wt-e9")?.status === "active");
+    expect(server.sessionManager.get("s-wt-e9")?.gitWorktree).toEqual(prior);
+
+    // The reconnect cache reset forces a fresh `null` re-send; still ignored.
+    sendGitInfo(ws, "s-wt-e9", null);
+    await wait(200);
+    expect(server.sessionManager.get("s-wt-e9")?.gitWorktree).toEqual(prior);
   });
 });
