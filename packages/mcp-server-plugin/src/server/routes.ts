@@ -15,7 +15,6 @@ import {
   type DispatchDeps,
   dispatchRpc,
   parseSubscriptionFilter,
-  type ResolvedVersion,
   versionFailureResponse,
 } from "./dispatch.js";
 import {

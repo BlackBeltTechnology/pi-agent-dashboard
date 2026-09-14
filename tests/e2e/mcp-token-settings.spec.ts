@@ -187,15 +187,18 @@ test.describe("MCP client token — Settings flow", () => {
 
     // Revoke the claude-code row(s) (confirm step, same as pairing rows).
     // F1/F2 minted rows earlier in this run, so drain all of them.
+    const rows = page.locator("li", { hasText: "claude-code" });
     for (;;) {
-      const row = page.locator("li", { hasText: "claude-code" }).first();
-      if ((await row.count()) === 0) break;
+      const row = rows.first();
+      const n = await rows.count();
+      if (n === 0) break;
       await row.getByTitle(REVOKE).click();
       await row.getByText("Confirm revoke").click();
-      // Assert THIS row detaches, not a count computed from the DOM.
-      await expect(row).toHaveCount(0, { timeout: 20_000 });
+      // Assert the count DROPS by one — toHaveCount retries, so this is
+      // race-free and correct for any remaining row count.
+      await expect(rows).toHaveCount(n - 1, { timeout: 20_000 });
     }
-    await expect(page.locator("li", { hasText: "claude-code" })).toHaveCount(0, { timeout: 20_000 });
+    await expect(rows).toHaveCount(0, { timeout: 20_000 });
 
     // The token no longer authenticates on /mcp.
     const after = await request.post("/mcp", {
