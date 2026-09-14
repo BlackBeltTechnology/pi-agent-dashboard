@@ -21,7 +21,18 @@ alone.
 #### Scenario: Windows local bridge presents the local token
 - **WHEN** a bridge connects to the loopback bridge listener on Windows
 - **THEN** it SHALL present the local token in the `X-Pi-Local-Token` header
-- **AND** a connection without a valid token SHALL be refused
+- **AND** that credential SHALL be read from the HOME-derived location
+- **AND** the server SHALL verify it with a constant-time comparison
+
+#### Scenario: Windows local bridge without the token is refused
+- **WHEN** a process connects to the loopback bridge listener without a valid local token
+- **THEN** the connection SHALL be refused
+- **AND** it SHALL NOT be able to register any session id
+
+#### Scenario: Local credential is not readable by other users
+- **WHEN** the local token file is created
+- **THEN** it SHALL be readable only by the owning operating system user
+- **AND** on platforms where filesystem modes are not enforced, the guarantee SHALL be verified against the platform's own access control rather than assumed from the requested mode
 
 #### Scenario: A second Windows user is refused the credential by the OS
 - **WHEN** a second standard (non-administrator) OS user attempts to read

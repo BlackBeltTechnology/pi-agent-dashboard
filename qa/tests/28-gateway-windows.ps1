@@ -12,11 +12,21 @@
 #   2. a bridge connects, drops, and reconnects   (task 5.7)
 #   3. a stale record is not adopted              (tasks 5.7, 2.0h)
 #   4. a second OS user cannot read the credentials (tasks 5.5 / 12.53)
+#      — all THREE of them: local/token, identity.key and paired-devices.json.
+#        They share the tree and the inherited ACL, but one file's answer is not
+#        evidence for its neighbours', so each is inspected AND read-attempted
+#        separately.
 #
-# Section 4 is the one that may prove infeasible on a hosted runner rather than
-# false: `chmod` is a documented no-op on Windows, so the guarantee rests
+#        A run that yields no read verdict FAILS. windows-latest demonstrably
+#        can yield one — observed READ-DENIED for all three on 2026-09-14 — so a
+#        silent pass here would only ever hide a broken harness.
+#
+# Section 4 is the one that used to prove infeasible on a hosted runner rather
+# than false: `chmod` is a documented no-op on Windows, so the guarantee rests
 # entirely on inherited NTFS ACLs, and observing that honestly needs a real
-# second user. It is written to say WHICH of those two it hit.
+# second user. It turned out the hosted runner COULD do it — the probe had been
+# writing its verdict where the second user could not reach it — so §4 now
+# requires a verdict and fails without one.
 #
 # tasks 5.1, 5.4b, 5.5, 5.7, 12.53, 13.8 · test-plan #F8, #X17
 # See change: add-pi-gateway-transport-identity.
@@ -43,6 +53,9 @@ function Cleanup {
   }
   if ($script:otherUserCreated) {
     Remove-LocalUser -Name $script:otherUser -ErrorAction SilentlyContinue
+  }
+  if ($script:probeDir -and (Test-Path $script:probeDir)) {
+    Remove-Item -Recurse -Force $script:probeDir -ErrorAction SilentlyContinue
   }
   foreach ($leftover in @("qa-reconnect-probe.cjs", "qa-mint-token.ts")) {
     $lp = Join-Path $script:repo $leftover
@@ -219,51 +232,92 @@ const register = (ws) => ws.send(JSON.stringify({
   # runner cannot create a user — an untested claim must not read as a pass.
   $env:USERPROFILE = $realHome
   $env:HOME = $realHome
-  $credDir = Join-Path $realHome ".pi\dashboard\local"
-  $tokenPath = Join-Path $credDir "token"
+  $dashboardDir = Join-Path $realHome ".pi\dashboard"
+  # All THREE files task 1.3 names. They share this tree and the ACL it
+  # inherits, so one file's answer is not the other two's: each gets its own
+  # DACL inspection and its own read attempt. Until now only `local/token` was
+  # ever examined, and the unexamined pair is the more sensitive one — a
+  # private signing key and every paired device's bearer.
+  $credTargets = @(
+    [pscustomobject]@{ Name = "local/token";         Path = (Join-Path $dashboardDir "local\token") }
+    [pscustomobject]@{ Name = "identity.key";        Path = (Join-Path $dashboardDir "identity.key") }
+    [pscustomobject]@{ Name = "paired-devices.json"; Path = (Join-Path $dashboardDir "paired-devices.json") }
+  )
 
-  if (-not (Test-Path $tokenPath)) {
-    # Through the PRODUCT's own code path, not Set-Content. The question 5.5
-    # asks is what permissions `ensureLocalToken` leaves behind on Windows,
-    # where its chmod is a no-op — a file this script creates by hand would
-    # answer a question nobody asked.
+  # Mint whatever is absent THROUGH THE PRODUCT's own writers, not Set-Content.
+  # The question 5.5 asks is what permissions `ensureLocalToken`,
+  # `ensureServerIdentity` and `PairedDeviceRegistry` leave behind on Windows,
+  # where their chmod is a no-op — a file this script wrote by hand would answer
+  # a question nobody asked.
+  $missing = @($credTargets | Where-Object { -not (Test-Path $_.Path) })
+  if ($missing.Count -gt 0) {
     $mintPath = Join-Path $repo "qa-mint-token.ts"
-    Set-Content -Path $mintPath -Encoding UTF8 -Value @"
+    Set-Content -Path $mintPath -Encoding UTF8 -Value @'
 import { ensureLocalToken } from "./packages/server/src/auth/local-token.js";
+import { ensureServerIdentity } from "./packages/server/src/auth/identity.js";
+import { PairedDeviceRegistry } from "./packages/server/src/pairing/paired-devices.js";
 const t = ensureLocalToken();
-console.log("minted " + (t ? "ok" : "empty"));
-"@
+ensureServerIdentity();
+// Touched, then revoked. Creating the registry through its own writer is what
+// puts a real ACL on the file; the revoke leaves the operator's paired devices
+// exactly as they were, so observing the ACL costs them nothing.
+const reg = new PairedDeviceRegistry();
+const added = reg.add("qa-acl-probe");
+reg.revoke(added.device.id);
+console.log("minted token=" + (t ? "ok" : "empty") + " identity=ok paired=ok");
+'@
     Push-Location $repo
     $mintOut = & npx tsx $mintPath 2>&1
     $mintCode = $LASTEXITCODE
     Pop-Location
     Remove-Item $mintPath -Force -ErrorAction SilentlyContinue
-    if ($mintCode -ne 0 -or -not (Test-Path $tokenPath)) {
-      Write-Error "FAIL: could not mint the local token through ensureLocalToken: $mintOut"
+    if ($mintCode -ne 0) {
+      Write-Error "FAIL: could not mint the credentials through the product's own writers: $mintOut"
       exit 1
     }
-    Write-Host "  token minted by the product's own ensureLocalToken()"
+    foreach ($target in $credTargets) {
+      if (-not (Test-Path $target.Path)) {
+        Write-Error "FAIL: $($target.Name) is still absent after the product's writer ran — its ACL cannot be observed"
+        exit 1
+      }
+    }
+    Write-Host "  credentials minted by the product's own writers ($($missing.Count) of 3 were absent)"
   } else {
-    Write-Host "  token already existed (product-created); observing it as found"
+    Write-Host "  all three credential files already existed (product-created); observing them as found"
   }
 
-  $acl = Get-Acl $tokenPath
-  Write-Host "  token ACL owner: $($acl.Owner)"
-  $broad = $acl.Access | Where-Object {
-    $_.IdentityReference -match "Everyone|BUILTIN\\Users|Authenticated Users" -and
-    $_.AccessControlType -eq "Allow"
+  # The ACL CLAIMS; only a real read by a real standard user says what the OS
+  # ENFORCES. Report the two separately AND per file — the whole point of this
+  # change is that the first is not evidence for the second.
+  $broadByFile = @{}
+  foreach ($target in $credTargets) {
+    $acl = Get-Acl $target.Path
+    $broad = $acl.Access | Where-Object {
+      $_.IdentityReference -match "Everyone|BUILTIN\\Users|Authenticated Users" -and
+      $_.AccessControlType -eq "Allow"
+    }
+    if ($broad) {
+      Write-Host "  OBSERVED: the $($target.Name) DACL grants a broad principal (owner $($acl.Owner)):"
+      $broad | ForEach-Object { Write-Host "    $($_.IdentityReference) : $($_.FileSystemRights)" }
+      $broadByFile[$target.Name] = $true
+    } else {
+      Write-Host "  OBSERVED: no broad principal (Everyone/Users/Authenticated Users) in the $($target.Name) DACL (owner $($acl.Owner))"
+      $broadByFile[$target.Name] = $false
+    }
   }
-  if ($broad) {
-    Write-Host "  OBSERVED: the DACL grants read to a broad principal:"
-    $broad | ForEach-Object { Write-Host "    $($_.IdentityReference) : $($_.FileSystemRights)" }
-  } else {
-    Write-Host "  OBSERVED: no broad principal (Everyone/Users/Authenticated Users) in the DACL"
-  }
+  $broadFiles = @($credTargets | Where-Object { $broadByFile[$_.Name] } | ForEach-Object { $_.Name })
 
   # The empirical half. `Get-Acl` says what the ACL CLAIMS; only a real read
   # attempt by a real standard user says what the OS ENFORCES.
-  $aclVerdict = if ($broad) { "READABLE-BY-BROAD-PRINCIPAL" } else { "restricted" }
+  $aclVerdict = if ($broadFiles.Count -gt 0) { "READABLE-BY-BROAD-PRINCIPAL: " + ($broadFiles -join ", ") } else { "restricted" }
   $readVerdict = "not-attempted"
+  $readByFile = @{}
+  # The exception type the probe caught, kept for DISPLAY only. A locked file
+  # raises an IOException that the read attempt cannot tell apart from a denial,
+  # so the M1 host run must be able to SEE it — otherwise an "unavailable" file
+  # gets recorded in docs/architecture.md as an OBSERVED ACL denial. It never
+  # feeds the pass/fail partition, which stays on the exact verdict string.
+  $readDetailByFile = @{}
   try {
     $pw = ConvertTo-SecureString ("Qa!" + [guid]::NewGuid().ToString("N").Substring(0, 12) + "#9") -AsPlainText -Force
     New-LocalUser -Name $otherUser -Password $pw -AccountNeverExpires -UserMayNotChangePassword -ErrorAction Stop | Out-Null
@@ -279,21 +333,43 @@ console.log("minted " + (t ? "ok" : "empty"));
     }
 
     $cred = New-Object System.Management.Automation.PSCredential($otherUser, $pw)
-    $probeOut = Join-Path $env:TEMP "qa-acl-probe-$PID.txt"
-    $probeScript = Join-Path $env:TEMP "qa-acl-probe-$PID.ps1"
-    Set-Content -Path $probeScript -Encoding UTF8 -Value @"
-try { Get-Content -Path '$tokenPath' -ErrorAction Stop | Out-Null; 'READ-SUCCEEDED' } catch { 'READ-DENIED: ' + `$_.Exception.GetType().Name } | Set-Content -Path '$probeOut'
-"@
-    # The probe must be readable BY the other user, or we would measure our own
-    # ACL on the script instead of the ACL on the credential.
-    icacls $probeScript /grant "${otherUser}:(RX)" | Out-Null
-    icacls $env:TEMP /grant "${otherUser}:(RX)" | Out-Null
+    # The probe and its verdict live in a directory the SECOND USER may read AND
+    # write. The previous revision put both in this user's %TEMP% and granted the
+    # second user only (RX) — and a standard user cannot traverse another user's
+    # profile at all, so even a SUCCESSFUL impersonation could not have produced
+    # output. "produced no output" is therefore indistinguishable from a logon
+    # that never happened, which is exactly the ambiguity `infeasible` hid.
+    # C:\ProgramData sits outside every profile and is traversable by Users.
+    $probeDir = Join-Path $env:ProgramData "qa-acl-$PID"
+    $script:probeDir = $probeDir
+    New-Item -ItemType Directory -Force -Path $probeDir | Out-Null
+    icacls $probeDir /grant "${otherUser}:(M)" | Out-Null
+    $probeOut = Join-Path $probeDir "verdict.json"
+    $probeScript = Join-Path $probeDir "probe.ps1"
+
+    # One impersonated run, one verdict per file. Stopping at the first surprise
+    # would leave the other two unexamined — the exact gap task 1.3 closes.
+    $probePaths = ($credTargets | ForEach-Object { "'" + $_.Path.Replace("'", "''") + "'" }) -join ", "
+    $probeBody = @'
+$out = @()
+foreach ($p in @(__PATHS__)) {
+  try { Get-Content -Path $p -ErrorAction Stop | Out-Null; $out += [pscustomobject]@{ Path = $p; Verdict = "READ-SUCCEEDED" } }
+  catch { $out += [pscustomobject]@{ Path = $p; Verdict = "READ-DENIED"; Error = $_.Exception.GetType().Name } }
+}
+$out | ConvertTo-Json -Compress | Set-Content -Path '__OUT__'
+'@
+    $probeBody = $probeBody.Replace("__PATHS__", $probePaths).Replace("__OUT__", $probeOut.Replace("'", "''"))
+    Set-Content -Path $probeScript -Encoding UTF8 -Value $probeBody
 
     Start-Process -FilePath "powershell.exe" `
       -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $probeScript) `
       -Credential $cred -WindowStyle Hidden -Wait -ErrorAction Stop
-    if (Test-Path $probeOut) {
-      $readVerdict = (Get-Content $probeOut -Raw).Trim()
+    if ((Test-Path $probeOut) -and (Get-Item $probeOut).Length -gt 0) {
+      foreach ($row in @(Get-Content $probeOut -Raw | ConvertFrom-Json)) {
+        $readByFile["$($row.Path)"] = "$($row.Verdict)"
+        $readDetailByFile["$($row.Path)"] = "$($row.Error)"
+      }
+      $readVerdict = "attempted"
     } else {
       $readVerdict = "infeasible: the impersonated process produced no output"
     }
@@ -302,32 +378,57 @@ try { Get-Content -Path '$tokenPath' -ErrorAction Stop | Out-Null; 'READ-SUCCEED
   }
 
   Write-Host "  ACL inspection : $aclVerdict"
-  Write-Host "  read attempt   : $readVerdict"
+  if ($readVerdict -eq "attempted") {
+    Write-Host "  read attempt   :"
+    foreach ($target in $credTargets) {
+      $verdict = if ($readByFile.ContainsKey($target.Path)) { $readByFile[$target.Path] } else { "NO-VERDICT" }
+      $detail = if ($readDetailByFile[$target.Path]) { " ($($readDetailByFile[$target.Path]))" } else { "" }
+      Write-Host "    $($target.Name): $verdict$detail"
+    }
+  } else {
+    Write-Host "  read attempt   : $readVerdict"
+  }
 
-  if ($readVerdict -match "^READ-SUCCEEDED") {
+  $leaked = @($credTargets | Where-Object { $readByFile[$_.Path] -eq "READ-SUCCEEDED" } | ForEach-Object { $_.Name })
+  $unanswered = @($credTargets | Where-Object { -not $readByFile.ContainsKey($_.Path) } | ForEach-Object { $_.Name })
+
+  if ($leaked.Count -gt 0) {
     Write-Error @"
-FAIL: a second STANDARD OS user read $tokenPath
+FAIL: a second STANDARD OS user read $($leaked -join ', ')
 
 This is task 5.6's trigger, not a test bug: chmod is a no-op on Windows, so
-the local-token secret rests on inherited NTFS ACLs, and they did not hold.
-identity.key and paired-devices.json sit in the same tree under the same
-inheritance, so treat this as pre-existing and file it as its own change.
+these secrets rest on inherited NTFS ACLs, and they did not hold. All three
+files share that tree and that inheritance, so treat it as PRE-EXISTING across
+them and file it as its own change rather than patching it here.
 "@
     exit 1
   }
-  if ($readVerdict -match "^READ-DENIED") {
-    Write-Host "  the OS refused the read by a real standard user"
-  } else {
-    Write-Host "  NOTE: the empirical read could not be performed on this host."
-    Write-Host "        The ACL inspection above stands on its own, but 12.53 stays"
-    Write-Host "        OPEN until a real Windows host runs this section."
-    if ($aclVerdict -eq "READABLE-BY-BROAD-PRINCIPAL") {
-      Write-Error "FAIL: no empirical read was possible AND the DACL grants a broad principal — that combination cannot be called safe"
-      exit 1
-    }
+  if ($unanswered.Count -gt 0) {
+    # No verdict is an EVIDENCE failure, never a pass. An ACL that merely names
+    # no broad principal describes configuration, not enforced behaviour, and
+    # distinguishing the two is the entire reason this arm exists. It used to
+    # print a NOTE here and pass; windows-latest proved on 2026-09-14 that the
+    # read IS performable there, so that pass was only ever hiding a harness
+    # that could not write its own verdict. Say "evidence", loudly, so a red run
+    # is never mistaken for a leak.
+    Write-Error @"
+FAIL: the arm could not establish that a second STANDARD OS user is refused
+
+No read verdict was produced for: $($unanswered -join ', ')
+
+This is NOT a finding that the credentials leaked — nothing was read. It is a
+finding that the claim went UNTESTED, which this arm exists to refuse to call
+safe. ACL inspection said: $aclVerdict
+
+Check, in order: the Secondary Logon (seclogon) service is running; New-LocalUser
+succeeded; and the second user can both READ and WRITE in the probe directory
+(Start-Process -Credential yields no output at all if it cannot).
+"@
+    exit 1
   }
 
-  Write-Host "PASS: Windows resolves to loopback, reconnects as one session, and the credential ACL held"
+  Write-Host "  the OS refused the read of all three credentials by a real standard user"
+  Write-Host "PASS: Windows resolves to loopback, reconnects as one session, and all three credential ACLs were observed to hold"
 } finally {
   Cleanup
 }

@@ -2,13 +2,17 @@
 
 ## Purpose
 TBD - created by archiving change add-pi-gateway-transport-identity. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Local bridge authorisation restricts access to the owning user
 A bridge connecting over the local endpoint SHALL be authorised such that only
 the owning operating system user can connect. On POSIX this SHALL be enforced by
 ownership of the socket, and no additional token SHALL be required. On Windows,
 where filesystem modes do not apply, it SHALL be enforced by a local credential
-readable only by the owning user.
+readable only by the owning user, and that restriction SHALL be established by
+an OBSERVED read attempt rather than by inspecting the access control list
+alone.
 
 #### Scenario: Socket is owner-only on POSIX
 - **WHEN** the dashboard binds the local bridge socket
@@ -21,7 +25,8 @@ readable only by the owning user.
 
 #### Scenario: Windows local bridge presents the local token
 - **WHEN** a bridge connects to the loopback bridge listener on Windows
-- **THEN** it SHALL present the local token credential read from the HOME-derived location
+- **THEN** it SHALL present the local token in the `X-Pi-Local-Token` header
+- **AND** that credential SHALL be read from the HOME-derived location
 - **AND** the server SHALL verify it with a constant-time comparison
 
 #### Scenario: Windows local bridge without the token is refused
@@ -33,6 +38,14 @@ readable only by the owning user.
 - **WHEN** the local token file is created
 - **THEN** it SHALL be readable only by the owning operating system user
 - **AND** on platforms where filesystem modes are not enforced, the guarantee SHALL be verified against the platform's own access control rather than assumed from the requested mode
+
+#### Scenario: A second Windows user is refused the credential by the OS
+- **WHEN** a second standard (non-administrator) OS user attempts to read
+  `~/.pi/dashboard/local/token`, `identity.key`, or `paired-devices.json`
+- **THEN** the read SHALL be denied by the operating system
+- **AND** the denial SHALL be recorded from an actual read attempt, since an
+  access control list that merely names no broad principal describes
+  configuration rather than enforced behaviour
 
 ### Requirement: A local bridge verifies the instance identity, not just the credential
 The local credential answers whether a client may connect; it SHALL NOT be
@@ -109,4 +122,3 @@ ticket, a revoked device, and an identity mismatch.
 - **WHEN** a bridge connection is refused
 - **THEN** the log record SHALL identify which of the refusal causes applied
 - **AND** it SHALL NOT report a generic connection error
-
