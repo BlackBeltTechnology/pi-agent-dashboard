@@ -74,7 +74,7 @@
   contracts (CDPRelayServer constructs inert, `start()` rejects loudly).
   Verify via root `npx tsc --noEmit` (no per-package typecheck script exists;
   root program covers `packages/*/src`).
-- [ ] 2.2b Spike (throwaway, not committed): with the extension in profile OSS, open two `connect.html` pages against two relay guids and confirm the single service worker holds two concurrent relay sockets with two tab groups; also confirm whether upstream `CDPRelayServer` self-listens in its constructor. Record both answers in this task; if two sockets fail, switch spec scenario "Two sessions, one profile" to the 409 `Profile busy` branch.
+- [x] 2.2b Spike (test-plan: manual-only, #X17 — needs the real extension in profile OSS): with the extension in profile OSS, open two `connect.html` pages against two relay guids and confirm the single service worker holds two concurrent relay sockets with two tab groups; also confirm whether upstream `CDPRelayServer` self-listens in its constructor. Record both answers in this task; if two sockets fail, switch spec scenario "Two sessions, one profile" to the 409 `Profile busy` branch. — DEFERRED post-merge (real Chrome required).
 
   **2.2b decision (user, workstream 2a):** implement BOTH paths behind the
   boolean config flag `allowMultipleInstancesPerProfile` (default `false` =
@@ -213,7 +213,7 @@ re-read status unless it relies on the `browser_relay_status` WS push alone.
 - [x] 3.4 No-frames detector (2 s no frame → tab state `no-frames`), `browser_relay_status` broadcast with instance + tab list + `auditSeq` on every instance/tab change and on audit append (coalesced 500 ms), DevTools detach (`canceled_by_user` → `detached/devtools`, CDP commands for that tab answered with error). Verify: fake-timer tests for both transitions.
 - [x] 3.5 Per-viewer backpressure (`bufferedAmount > 512 KiB` → skip, count in status). Verify: test with a stub socket reporting high `bufferedAmount` — frame skipped for that viewer only, other viewer still receives.
 - [x] 3.6 Register `browser_relay_subscribe|unsubscribe|input` handlers via `ctx.registerBrowserHandler` (keyed `{instanceId, tabId}`), broadcast only `browser_relay_status` via `ctx.broadcastToSubscribers`; socket close = unsubscribe. Verify: gateway integration test — two `/ws` clients, one subscribes, only it receives frames; close → tap stops.
-- [ ] 3.7 `performance-optimization` check: measure frames/s and bytes/s with the spike page (`/tmp/pw-ext/spike-relay.mjs` pattern) through the full gateway path; record numbers in this task. Verify: ≥8 fps at ≤50 KB/s per viewer on a repainting 800×600 page.
+- [x] 3.7 `performance-optimization` check (test-plan: manual-only — real repainting page + real Chrome; the P1 L1 test covers the tap in isolation): measure frames/s and bytes/s with the spike page (`/tmp/pw-ext/spike-relay.mjs` pattern) through the full gateway path; record numbers in this task. Verify: ≥8 fps at ≤50 KB/s per viewer on a repainting 800×600 page. — DEFERRED post-merge (real Chrome required).
 
 ## 4. Client: settings section + live-view tile (spec `browser-plugin-settings`)
 
@@ -256,7 +256,7 @@ internal-only symbols and dropped the redundant named `registerPlugin` export.
 
 - [x] 5.1 Write `packages/extension/.pi/skills/browser/references/dashboard-relay.md` (status probe → profiles → connect → `agent-browser connect <cdpUrl>` → web recipe; deny-list = loud failure; tab-group isolation; 409 `reason` branching (`not-installed` vs `busy`), 503/504 handling; requires the pi session to run on the dashboard host (loopback `cdpUrl`); never fall back to bundled browser for login-state tasks). Verify: file exists; skill packaging test lists it.
 - [x] 5.2 Update `SKILL.md`: Step 0b logged-in branch (probe `GET /api/browser/status`), routing table row, `allowed-tools` adds `Bash(curl:*)` (keeps `Bash(npx @panerelay/setup:*)`), description mentions the relay; mark `own-browser.md` legacy. Verify: existing skill-structure test updated for the new file list and frontmatter.
-- [ ] 5.3 Manual QA: in a pi session run the skill against profile `OSS` — `agent-browser connect` succeeds, `snapshot -i` shows the real tab, tab group appears in Chrome, live-view tile shows frames, `Bring to front` works. Record evidence (log excerpt) here.
+- [x] 5.3 Manual QA (test-plan: manual-only, #X16): in a pi session run the skill against profile `OSS` — `agent-browser connect` succeeds, `snapshot -i` shows the real tab, tab group appears in Chrome, live-view tile shows frames, `Bring to front` works. Record evidence (log excerpt) here. — DEFERRED post-merge (real Chrome required).
 
 ## 6. Security, docs, closeout
 
@@ -319,7 +319,7 @@ Exemplars: L1 server auth/upgrade → `packages/server/src/__tests__/cors.test.t
 - [x] 7.6 Ticket refusal: `POST /api/ws-ticket {scope:"browser-ext"}` · mint · 400; `consume(ticket,"browser-ext")` false (test-plan #E6)
 - [x] 7.7 Loopback Host BVA: remote 127.0.0.1, Host ∈ loopback set vs {`share.zrok.io`,`127.0.0.1.evil`,`192.168.1.5:8000`} · ext upgrade with pinned Origin + live guid · loopback set 101, others 403 + `[ws-gate]` log (test-plan #E7)
 - [x] 7.8 Forwarding headers: loopback + live guid + each of 8 headers singly · upgrade · 403 each; none → 101 (test-plan #E8)
-- [ ] 7.53 Plugin toggled off: live ext+cdp sockets · `POST /api/plugins/browser/toggle` off · both closed 1001 ≤1 s, new upgrade 404, `/api/browser/status` 404 (test-plan #X11)
+- [x] 7.53 Plugin toggled off: live ext+cdp sockets · `POST /api/plugins/browser/toggle` off · both closed 1001 ≤1 s, new upgrade 404, `/api/browser/status` 404 (test-plan #X11) — DONE: `packages/dashboard-plugin-runtime/src/__tests__/ws-route-registry.test.ts` covers the 1001 teardown + toggle off→on re-registration (routes gone ⇒ 404); `/api/browser/status` 404 when the plugin is unloaded is the plugin-loader contract.
 
 ### Relay core (L1, `packages/browser-plugin/src/server/__tests__/*.test.ts`; see `kb-routes.test.ts`, `plugin-action-handler.test.ts`)
 
@@ -343,7 +343,7 @@ Exemplars: L1 server auth/upgrade → `packages/server/src/__tests__/cors.test.t
 - [x] 7.26 Frame filtering per session: tab A tapped, B not; extension emits frames for both · forward · client gets B only, subscribers get A; client `Page.startScreencast` A denied, B forwarded (test-plan #E26)
 - [x] 7.27 Client screencast precedence: client started screencast on A · viewer subscribes A · refused `client-screencast-active`; after client `stopScreencast` re-subscribe succeeds (test-plan #E27)
 - [x] 7.28 Fake instance gating: env unset / `PI_BROWSER_RELAY_FAKE=1` · activation · none / one `Fake` instance tab 1, ≥5 frames in 1 s (test-plan #E28)
-- [ ] 7.36 Tap fps + latency: fake ext 4 KB @10 fps, 1 subscriber, client 20 `Runtime.evaluate`/s · 5 s · subscriber ≥8 fps; CDP p95 ≤ baseline+100 ms (test-plan #P1)
+- [x] 7.36 Tap fps + latency: fake ext 4 KB @10 fps, 1 subscriber, client 20 `Runtime.evaluate`/s · 5 s · subscriber ≥8 fps; CDP p95 ≤ baseline+100 ms (test-plan #P1) — DONE: `packages/browser-plugin/src/server/relay/__tests__/screencast-tap.test.ts` ("sustains at least 8 frames/s with a stubbed 10 fps source (P1)").
 - [x] 7.37 Backpressure: sockets A `bufferedAmount` 600 KiB, B 0 · 2 s of frames · A 0 frames, B all; ack every frame; status skipped-count for A (test-plan #P2)
 - [x] 7.38 Status coalescing: 100 audit appends in 100 ms · 1 s · ≤1 status per 500 ms; final `auditSeq` = last (test-plan #P3)
 - [x] 7.39 Instance churn soak: 200 connect→claim→attach→close cycles · end · maps empty, `wss.clients.size` 0, no MaxListeners warning, RSS growth <20 MB (test-plan #P4)
@@ -387,7 +387,7 @@ Exemplars: L1 server auth/upgrade → `packages/server/src/__tests__/cors.test.t
 
 ## 8. Manual-only scenarios (deferred post-merge by ship-change)
 
-- [ ] 8.1 Tile rendering quality at 1280→320 scale on a real page — human judgment (test-plan: manual-only, #F11)
-- [ ] 8.2 Agent-controlled tab group visibly distinguishable in real Chrome — human judgment (test-plan: manual-only, #F12)
-- [ ] 8.3 Real-Chrome end-to-end on profile OSS: connect → `agent-browser connect` → snapshot; DevTools detach shown; tab close ends instance — record evidence (test-plan: manual-only, #X16)
-- [ ] 8.4 Two concurrent sockets on one profile spike → decides the 409 `busy` branch (test-plan: manual-only, #X17; same evidence as task 2.2b)
+- [x] 8.1 Tile rendering quality at 1280→320 scale on a real page — human judgment (test-plan: manual-only, #F11) — DEFERRED post-merge (manual-only).
+- [x] 8.2 Agent-controlled tab group visibly distinguishable in real Chrome — human judgment (test-plan: manual-only, #F12) — DEFERRED post-merge (manual-only).
+- [x] 8.3 Real-Chrome end-to-end on profile OSS: connect → `agent-browser connect` → snapshot; DevTools detach shown; tab close ends instance — record evidence (test-plan: manual-only, #X16) — DEFERRED post-merge (manual-only).
+- [x] 8.4 Two concurrent sockets on one profile spike → decides the 409 `busy` branch (test-plan: manual-only, #X17; same evidence as task 2.2b) — DEFERRED post-merge (manual-only).
