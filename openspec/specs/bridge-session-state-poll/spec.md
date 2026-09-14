@@ -152,7 +152,7 @@ The bridge SHALL forward a git_info_update ONLY when branch, PR number, worktree
 
 #### Scenario: Worktree present→absent and inconclusive status are encoded explicitly
 - **WHEN** worktree state transitions from present to absent
-- **THEN** the wire message sets `gitWorktree` to explicit `null` so the server clears its cached value
+- **THEN** the wire message sets `gitWorktree` to explicit `null` (distinct from omission) so the server can distinguish "not a worktree" from "no change"; how the server applies it is owned by `git-context` (already-resolved parentage is retained)
 - **AND** when the git-status probe is inconclusive this tick the `gitStatus` field is omitted so the server keeps its last known status rather than clearing to a false all-clean
 
 #### Scenario: Reconnect cache reset re-sends non-persisted git fields

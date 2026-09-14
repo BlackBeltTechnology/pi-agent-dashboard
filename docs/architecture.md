@@ -1686,6 +1686,8 @@ See change: add-session-uncommitted-indicator-and-commit.
 ### Git worktree convention (`.worktrees/`)
 Dashboard derives new worktree path as `<repoRoot>/.worktrees/<slugifyBranch(branch)>` when `POST /api/git/worktree` body omits `path`. `addWorktree` calls `ensureWorktreeExcludeLine(cwd)` first — idempotently appends `.worktrees/` to `<repoRoot>/.git/info/exclude` so parent repo ignores nested checkouts (untouched if line already present). Bridge `detectWorktree` populates `GitInfo.gitWorktree.mainPath`; `resolveSessionGroupPath` collapses worktree sessions under parent repo's pinned-directory group. See change: add-worktree-spawn-dialog.
 
+Worktree parentage immutable once resolved (cwd unchanged). `git_info_update { gitWorktree: null }` after parentage set means worktree removed underneath a live session — server keeps prior value; `gitWorktreeReported` stays true. `null` with no prior parentage clears as before. Same-cwd re-register carries `gitWorktree` over (server restart / bridge reconnect / resume); different cwd resets to unresolved. Wire shape unchanged — narrows documented meaning of wire `null`. See change: fix-worktree-grouping-lost-on-remove.
+
 ### Git worktree lifecycle (push / PR / merge / close)
 Dashboard exposes 7 endpoints under `/api/git/worktree/*`: `remove`, `remove-batch`, `prune`, `merge`, `push`, `pr`, `diff-stat`. Localhost-gated. Each forwards stable `{code, stderr}` errors (`active_sessions`, `dirty_worktree`, `branch_not_merged`, `dirty_main`, `merge_conflict`, `base_not_found`, `no_remote`, `auth_failed`, `non_fast_forward`, `gh_not_found`, `gh_not_authed`, `pr_exists`, `pushed_but_pr_failed`, `cwd_invalid`, `is_main_worktree`) produced by pure stderr→code mappers in `git-worktree-lifecycle.ts`.
 `/remove-batch` body `{ items: Array<{cwd, force?, deleteBranch?}> }`. Cap 50 items enforced before any git runs — `batch_too_large` 400; non-array `items` → `items_invalid` 400. Returns `{ results }` in INPUT ORDER, one per item. Never aborts on first failure. Item result: `{ cwd, ok, code, sessionIds?, branchDeleted?, branchDeleteCode? }`. `code` widens `RemoveCode` with `active_sessions | cwd_invalid | is_main_worktree`. Sits behind `networkGuard` + `validateCwd`.
@@ -1813,6 +1815,8 @@ Plausible = no `.git` path segment AND `statSync(<mainPath>/.git)` succeeds. One
 `.git`-entry condition is load-bearing: `--separate-git-dir`/bare phantoms are real, existing, unrelated dirs.
 
 KNOWN LIMITATION: phantom landing on a real working tree survives (bare hub `$HOME/bare.git` → phantom `$HOME`, `$HOME` a dotfiles repo). Shape test, not identity test.
+
+Worktree parentage inference runs when persisted parentage absent (key absent or `null`) or implausible. Requires ABSOLUTE cwd shape `<X>/.worktrees/<name>[/<sub>...]`. Split at FIRST `.worktrees` segment. `<X>` non-empty, absolute. `<X>/.git` must stat; reuse `isPlausibleWorktreeMainPath` for that one stat. Decline with NO stat for relative cwd or leading `.worktrees` — would resolve `.git` against server cwd. Read-time only; `.meta.json` never rewritten. One stat per record, zero subprocesses. Heals records the removed-worktree race cleared. See change: fix-worktree-grouping-lost-on-remove.
 
 kb guard is STRICTER, not looser, in every state except a submodule admitted on its own cwd. Submodule does not inherit superproject trust.
 
