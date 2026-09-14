@@ -112,6 +112,26 @@ export const ALLOWLIST = [
     reason:
       "Declared in the nested .pi/skills/openforms-mui/tools/package.json (a self-contained Vite library) and installed at runtime by scripts/ensure-openforms-deps.mjs; the workspace-root manifest deliberately omits it.",
   })),
+  // browser-plugin VENDORS playwright-core's relay, and vendored files import
+  // bare INTERNAL specifiers that do not exist on npm. They are aliases, not
+  // dependencies: `tsconfig.base.json` `paths` maps each one to a local shim
+  // under packages/browser-plugin/src/server/relay/vendor/shims/, vitest
+  // resolves them via `resolve.alias`, and the real server enables jiti
+  // `tsconfigPaths` for them at runtime (packages/server/bin/pi-dashboard.mjs).
+  // Declaring them would write unresolvable dependencies into a published
+  // manifest, which is strictly worse than the import. Adding a vendored
+  // dependency here is also the signal to re-check the shim mapping.
+  ...[
+    "@isomorphic/manualPromise",
+    "@isomorphic/time",
+    "@isomorphic/timeoutRunner",
+    "@utils/wsServer",
+  ].map((specifier) => ({
+    workspace: "packages/browser-plugin",
+    specifier,
+    reason:
+      "Vendored playwright-core internal alias mapped to packages/browser-plugin/src/server/relay/vendor/shims/ by tsconfig.base.json paths; not an npm package, so declaring it would be unresolvable for a consumer.",
+  })),
 ];
 
 const finding = (severity, rule, workspace, file, specifier, message) => ({
