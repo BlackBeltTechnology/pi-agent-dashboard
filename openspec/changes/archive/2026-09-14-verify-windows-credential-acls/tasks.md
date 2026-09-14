@@ -35,7 +35,7 @@ Manifest: `test-plan.md`.
 - [x] 2.1 Every read is DENIED: record it in `docs/architecture.md`, and drop the `infeasible` branch from the arm's skip path
   - **Recorded** in `docs/architecture.md` § *Genuine-local trust — D10, narrowed*: Windows trust rests on inherited NTFS ACLs, **OBSERVED** on `windows-latest` (run 34823022229, 2026-09-14) via `qa/tests/28-gateway-windows.ps1` §4.
   - **`infeasible` branch DROPPED.** It used to print a `NOTE` and PASS when no verdict was produced. A hosted runner demonstrably CAN produce one, so that pass could only ever hide a broken harness. A missing verdict is now a **hard FAIL** naming the untested claim — and deliberately worded as an *evidence* failure, not a leak, so a red run is never mistaken for a security finding. The message names the three things to check: `seclogon` running, `New-LocalUser` succeeded, and the second user being able to READ and WRITE the probe directory.
-- [x] 2.2 Any read succeeds: pre-existing across all three files; explicit ACLs where the files are CREATED, never at read time
+- [x] 2.2 Any read succeeds: scope the fix PER FILE; explicit ACLs where the files are CREATED, never at read time
   - **NOT APPLICABLE — no read succeeded.** No ACL fix authored, and none is owed.
 - [x] 2.3 If 2.2 applies, add a regression arm that fails on a broad-principal DACL
   - **NOT APPLICABLE (2.2 did not apply).** The guard anyway exists and now covers ALL THREE files: a broad-principal DACL is reported per file, and the arm fails outright when every file must be read and none could be.

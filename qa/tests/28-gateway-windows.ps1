@@ -353,8 +353,20 @@ console.log("minted token=" + (t ? "ok" : "empty") + " identity=ok paired=ok");
     $probeBody = @'
 $out = @()
 foreach ($p in @(__PATHS__)) {
-  try { Get-Content -Path $p -ErrorAction Stop | Out-Null; $out += [pscustomobject]@{ Path = $p; Verdict = "READ-SUCCEEDED" } }
-  catch { $out += [pscustomobject]@{ Path = $p; Verdict = "READ-DENIED"; Error = $_.Exception.GetType().Name } }
+  try {
+    Get-Content -Path $p -ErrorAction Stop | Out-Null
+    $out += [pscustomobject]@{ Path = $p; Verdict = "READ-SUCCEEDED" }
+  } catch [System.UnauthorizedAccessException] {
+    $out += [pscustomobject]@{ Path = $p; Verdict = "READ-DENIED"; Error = $_.Exception.GetType().Name }
+  } catch [System.Security.SecurityException] {
+    $out += [pscustomobject]@{ Path = $p; Verdict = "READ-DENIED"; Error = $_.Exception.GetType().Name }
+  } catch {
+    # Anything ELSE — IOException, sharing violation, locked file, missing file
+    # — is NOT a permission denial. Only an access-denied exception tests the
+    # claim; calling the rest "denied" would let a locked file manufacture a
+    # green. READ-ERROR counts as UNANSWERED, and unanswered fails the arm.
+    $out += [pscustomobject]@{ Path = $p; Verdict = "READ-ERROR"; Error = $_.Exception.GetType().Name }
+  }
 }
 $out | ConvertTo-Json -Compress | Set-Content -Path '__OUT__'
 '@
@@ -390,40 +402,56 @@ $out | ConvertTo-Json -Compress | Set-Content -Path '__OUT__'
   }
 
   $leaked = @($credTargets | Where-Object { $readByFile[$_.Path] -eq "READ-SUCCEEDED" } | ForEach-Object { $_.Name })
-  $unanswered = @($credTargets | Where-Object { -not $readByFile.ContainsKey($_.Path) } | ForEach-Object { $_.Name })
+  # Answered ONLY by an exact READ-DENIED. A missing key and a READ-ERROR are
+  # both unanswered: the first never ran, the second failed for a reason that is
+  # not a permission decision (see the probe's catch blocks).
+  $unanswered = @($credTargets | Where-Object { $readByFile[$_.Path] -ne "READ-DENIED" } | ForEach-Object { $_.Name })
 
   if ($leaked.Count -gt 0) {
+    # Scope, deliberately: a successful read proves THIS file exposed. Do not
+    # assert a shared cause — `local/token` sits in a `local` SUBdirectory while
+    # the other two sit directly under `.pi\dashboard`, so they do not even
+    # inherit from the same parent, and any file may carry explicit ACEs. Say
+    # what was observed per file and let the per-file DACL lines above say the
+    # rest; a shared credential-directory ACL fix is only owed once per-file
+    # evidence shows a common cause.
     Write-Error @"
 FAIL: a second STANDARD OS user read $($leaked -join ', ')
 
 This is task 5.6's trigger, not a test bug: chmod is a no-op on Windows, so
-these secrets rest on inherited NTFS ACLs, and they did not hold. All three
-files share that tree and that inheritance, so treat it as PRE-EXISTING across
-them and file it as its own change rather than patching it here.
+whatever protects these secrets is an NTFS ACL, and for the file(s) named above
+it did not hold. Each target was read separately and is reported separately —
+treat the finding as PER-FILE unless the per-file DACL observations above show
+the three actually share a cause.
 "@
     exit 1
   }
   if ($unanswered.Count -gt 0) {
-    # No verdict is an EVIDENCE failure, never a pass. An ACL that merely names
-    # no broad principal describes configuration, not enforced behaviour, and
-    # distinguishing the two is the entire reason this arm exists. It used to
-    # print a NOTE here and pass; windows-latest proved on 2026-09-14 that the
-    # read IS performable there, so that pass was only ever hiding a harness
-    # that could not write its own verdict. Say "evidence", loudly, so a red run
-    # is never mistaken for a leak.
-    Write-Error @"
-FAIL: the arm could not establish that a second STANDARD OS user is refused
-
-No read verdict was produced for: $($unanswered -join ', ')
-
-This is NOT a finding that the credentials leaked — nothing was read. It is a
-finding that the claim went UNTESTED, which this arm exists to refuse to call
-safe. ACL inspection said: $aclVerdict
-
-Check, in order: the Secondary Logon (seclogon) service is running; New-LocalUser
-succeeded; and the second user can both READ and WRITE in the probe directory
-(Start-Process -Credential yields no output at all if it cannot).
-"@
+    # No verdict — or a non-permission read failure — is an EVIDENCE failure,
+    # never a pass. An ACL that merely names no broad principal describes
+    # configuration, not enforced behaviour, and distinguishing the two is the
+    # entire reason this arm exists. It used to print a NOTE here and pass;
+    # windows-latest proved on 2026-09-14 that the read IS performable there, so
+    # that pass was only ever hiding a harness that could not write its own
+    # verdict. Say "evidence", loudly, so a red run is never mistaken for a leak.
+    $unansweredWhy = @($unanswered | ForEach-Object {
+      $name = $_
+      $target = $credTargets | Where-Object { $_.Name -eq $name } | Select-Object -First 1
+      $v = $readByFile[$target.Path]
+      $d = $readDetailByFile[$target.Path]
+      if (-not $v) { "  $name : no verdict (the read never produced one)" }
+      elseif ($d) { "  $name : $v ($d) - not a permission denial, so the claim is untested" }
+      else { "  $name : $v" }
+    })
+    $evidenceFail = "FAIL: the arm could not establish that a second STANDARD OS user is refused`n`n" +
+      "Not answered by an access-denied verdict:`n" + ($unansweredWhy -join "`n") + "`n`n" +
+      "This is NOT a finding that the credentials leaked - nothing was read. It is a`n" +
+      "finding that the claim went UNTESTED, which this arm exists to refuse to call`n" +
+      "safe. ACL inspection said: $aclVerdict`n`n" +
+      "Check, in order: the Secondary Logon (seclogon) service is running; New-LocalUser`n" +
+      "succeeded; and the second user can both READ and WRITE in the probe directory`n" +
+      "(Start-Process -Credential yields no output at all if it cannot)."
+    Write-Error $evidenceFail
     exit 1
   }
 
