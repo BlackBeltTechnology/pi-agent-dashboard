@@ -7,8 +7,6 @@ import {
   mdiClose,
   mdiCompassOutline,
   mdiDotsVertical,
-  mdiEyeOffOutline,
-  mdiEyeOutline,
   mdiFastForward,
   mdiLinkVariant,
   mdiPencilOutline,
@@ -30,8 +28,7 @@ interface Props {
   session: DashboardSession;
   openspecChanges?: OpenSpecChange[];
   onRename?: () => void;
-  onHide?: () => void;
-  onUnhide?: () => void;
+  onArchive?: () => void;
   onResume?: (mode: "continue" | "fork") => void;
   onShutdown?: () => void;
   onAttachProposal?: (changeName: string) => void;
@@ -66,7 +63,7 @@ function MenuRow({ icon, label, onClick, danger, disabled }: {
   );
 }
 
-export function MobileActionMenu({ session, openspecChanges, onRename, onHide, onUnhide, onResume, onShutdown, onAttachProposal, onDetachProposal, onSendPrompt, onReadArtifact, onRefresh }: Props) {
+export function MobileActionMenu({ session, openspecChanges, onRename, onArchive, onResume, onShutdown, onAttachProposal, onDetachProposal, onSendPrompt, onReadArtifact, onRefresh }: Props) {
   const [open, setOpen] = useState(false);
   const [exploreOpen, setExploreOpen] = useState(false);
   const [newChangeOpen, setNewChangeOpen] = useState(false);
@@ -142,11 +139,10 @@ export function MobileActionMenu({ session, openspecChanges, onRename, onHide, o
             <MenuRow icon={mdiPencilOutline} label={i18nT("common.rename", undefined, "Rename")} onClick={() => act(onRename)} />
           )}
 
-          {/* Hide / Unhide */}
-          {isHidden ? (
-            onUnhide && <MenuRow icon={mdiEyeOutline} label={i18nT("session.showSession", undefined, "Show session")} onClick={() => act(onUnhide)} />
-          ) : (
-            onHide && <MenuRow icon={mdiEyeOffOutline} label={i18nT("session.hideSession", undefined, "Hide session")} onClick={() => act(onHide)} />
+          {/* Archive (archive-sessions-lazy-load) — replaces hide/unhide:
+              ended or idle-alive only, never while running. */}
+          {onArchive && (session.status === "ended" || (isAlive && session.status !== "streaming" && !session.currentTool)) && (
+            <MenuRow icon={mdiArchiveOutline} label={i18nT("session.archiveSession", undefined, "Archive session")} onClick={() => act(onArchive)} />
           )}
 
           {/* Resume / Fork */}

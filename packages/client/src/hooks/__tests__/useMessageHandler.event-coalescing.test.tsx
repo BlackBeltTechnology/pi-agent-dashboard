@@ -247,6 +247,7 @@ describe("useMessageHandler — ended paging + endedTotals + openspec_get (fix-c
       sessions: [makeSession("g1", "/g", "active"), makeSession("g2", "/g", "ended")],
       orders: { "/g": ["g1", "g2"] },
       endedTotals: { "/g": 2 },
+      archivedCountByCwd: {},
     });
     expect(h.endedTotals.get().get("/g")).toBe(2);
     expect(h.getSnapshotGeneration()).toBe(1);
@@ -296,7 +297,7 @@ describe("useMessageHandler — ended paging + endedTotals + openspec_get (fix-c
       h.handle({ type: "openspec_update", cwd: "/g", data });
       h.handle({ type: "git_head_update", cwd: "/g", branch: "main" });
       // …then the one large windowed snapshot frame.
-      h.handle({ type: "sessions_snapshot", sessions: windowed, orders: { "/g": ["live1", "e1", "e2", "e3"] }, endedTotals: { "/g": 10 } });
+      h.handle({ type: "sessions_snapshot", sessions: windowed, orders: { "/g": ["live1", "e1", "e2", "e3"] }, endedTotals: { "/g": 10 }, archivedCountByCwd: {} });
       h.handle({ type: "openspec_get_result", requestId: "r9", cwd: "/g", data, final: true });
       h.handle({ type: "sessions_page_result", cwd: "/g", sessions: [makeSession("e4", "/g", "ended")], order: ["e4"], hasMore: true });
       // A future server frame an old bundle has no case for.

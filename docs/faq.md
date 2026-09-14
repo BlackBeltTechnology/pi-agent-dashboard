@@ -1304,6 +1304,40 @@ Measured (#399-shaped window, 140 messages × ~150 snapshot updates):
 
 See change: `compact-warm-replay-stream`. See also `docs/architecture.md` § "Reconnection Flow".
 
+## Where did my old sessions go? (archived sessions)
+
+Symptom:
+- Old ended sessions vanish from the sidebar.
+- Folder shows an `Archive (N)` fold instead.
+
+Explanation (change: `archive-sessions-lazy-load`):
+- Ended sessions past `sessionList.archiveAfterDays` (default 30) auto-archive.
+- Legacy hidden-ended sessions migrate to archived at boot.
+- Archived != deleted. Sidecar + transcript stay on disk.
+- Archived sessions leave the live set: not in `GET /api/sessions`, not in the connect snapshot, no RAM cost.
+
+Restore one:
+- Expand the folder `Archive (N)` fold (`GET /api/sessions/archived` on first expand).
+- Click Restore on the row -> session returns as an ended card.
+- Or click the row -> read-only transcript at `/session/<id>?archived=1`.
+
+## How do I stop sessions being auto-archived?
+
+Settings -> Sessions -> `Archive after` -> `0`. Disables auto-archive. Or raise the day count.
+- Config key `sessionList.archiveAfterDays` (days, min 0).
+- Sweeper cadence `sessionList.archiveSweepIntervalMinutes` (min 1, default 60).
+- Sweep skips live, viewed, running sessions. Cap 200 oldest per tick.
+- Manual archive button still works with auto-archive off.
+
+## Why did a session disappear from the sidebar?
+
+Check in order:
+1. Archived? Folder `Archive (N)` fold holds it. See above.
+2. Hidden worker? Footer `N hidden workers` counts auto-hidden sessions. Toggle Show hidden.
+3. Ended + collapsed? Ended fold is collapsed by default.
+
+Manual hide is gone. `hide_session`/`unhide_session` removed. Use archive (`archive_session`).
+
 ## Session stuck after Stop or Shutdown — how to recover?
 
 Symptom: Stop / abort / Shutdown clicked. Card stays "running". `ps` shows pi PID alive. Server restart clears it.

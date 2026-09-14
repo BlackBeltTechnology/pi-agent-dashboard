@@ -88,7 +88,7 @@ Exemplars for the fold: server L1 → `packages/server/src/__tests__/session-sca
 | X1 | session-archive / write failure | fault-injection (abort) | L1 | automated | `writeSessionMeta` throws EACCES | `archiveSession` | error reply; session still resident; no broadcast; index unchanged |
 | X2 | session-archive / bridge re-register | state-transition | L1 | automated | id in index (archived) | bridge `register` same id | index row removed, `archived_count_updated{count-1}`, session live in manager with `archived:false` |
 | X3 | session-archive / end fails | fault-injection | L1 | automated | idle-alive, end action rejects | `archive_session` | reply error; no intent left; not archived |
-| X4 | listing / bad cursor | EP invalid | L1 | automated | `cursor=%%%` / cursor from another folder | GET | 400 / 200 page from start (cursor ignored) |
+| X4 | listing / bad cursor | EP invalid | L1 | automated | `cursor=%%%` / cursor from another folder | GET | 400 / 200 empty end-of-list page (cursor is a sort position, not a folder token; a foreign cursor can only under-read, never duplicate) |
 | X5 | subscription / archived hydrate | fault | L1 | automated | archived id; index row `sessionFile` deleted on disk | subscribe | replay error frame, no crash; resident sessions unaffected |
 | X6 | delete / partial | fault-injection | L1 | automated | `.jsonl` unlink ok, `.meta.json` unlink throws | DELETE | 500; index row kept; count unchanged; log line |
 | X7 | boot / corrupt sidecar | fault | L1 | automated | `.meta.json` invalid JSON next to valid `.jsonl` | `scanAllSessions` | session restored via `.jsonl` header path; not archived; no throw |

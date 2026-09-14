@@ -7,6 +7,7 @@ import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-
 import type { WebSocket } from "ws";
 import type { DirectoryService } from "../directory-service.js";
 import type { PendingAttachRegistry } from "../pending/pending-attach-registry.js";
+import type { PendingArchiveIntentRegistry } from "../pending/pending-archive-intent-registry.js";
 import type { PendingClientCorrelations } from "../pending/pending-client-correlations.js";
 import type { PendingForkRegistry } from "../pending/pending-fork-registry.js";
 import type { PendingInitialPromptRegistry } from "../pending/pending-initial-prompt-registry.js";
@@ -65,6 +66,22 @@ export interface BrowserHandlerContext {
   headlessPidRegistry: HeadlessPidRegistry;
   pendingResumeRegistry: PendingResumeRegistry;
   pendingDashboardSpawns?: Map<string, number>;
+  /**
+   * Archive index + transition owner. Required for `archive_session` /
+   * `unarchive_session`. See change: archive-sessions-lazy-load.
+   */
+  sessionArchive?: import("../session/session-archive.js").SessionArchive;
+  /**
+   * One-shot intents for idle-alive archive requests.
+   * See change: archive-sessions-lazy-load.
+   */
+  pendingArchiveIntents?: PendingArchiveIntentRegistry;
+  /**
+   * Injectable session-end action for the idle-alive archive path (tests force
+   * a rejection). Production omits it and `requestArchive` uses the real
+   * `shutdownSession`. See change: archive-sessions-lazy-load.
+   */
+  endSession?: (sessionId: string, deps: any) => Promise<void>;
   /**
    * Optional pending-attach registry for spawn-with-attach flow.
    * See change: add-folder-task-checker-and-spawn-attach.

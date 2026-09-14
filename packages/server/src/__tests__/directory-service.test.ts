@@ -100,6 +100,7 @@ function createMockSessionManager(sessions: DashboardSession[] = []): SessionMan
       return session;
     }),
     restore: vi.fn(),
+    remove: vi.fn(),
     unregister: vi.fn((id) => {
       const s = map.get(id);
       if (s) { s.status = "ended"; s.endedAt = Date.now(); }
