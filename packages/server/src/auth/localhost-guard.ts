@@ -115,7 +115,12 @@ export function isBypassedHost(sourceIp: string, bypassHosts: string[]): boolean
     if (entry.includes("/")) {
       if (matchCidr(ip, entry)) return true;
     } else if (entry.includes("*")) {
-      const pattern = new RegExp(`^${entry.replace(/\./g, "\\.").replace(/\*/g, "\\d+")}$`);
+      // Escape ALL regex metacharacters (including backslash — a config-supplied
+      // entry is data, not a pattern), then map `*` to a digit run. Escaping
+      // only `.` let `\` and the other metacharacters through (CodeQL
+      // "incomplete string escaping").
+      const escaped = entry.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+      const pattern = new RegExp(`^${escaped.replace(/\*/g, "\\d+")}$`);
       if (pattern.test(ip)) return true;
     } else {
       if (ip === entry) return true;

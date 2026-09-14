@@ -35,7 +35,7 @@ export const ALWAYS_DENIED_METHODS: readonly string[] = [
 const URL_POLICY_METHODS: readonly string[] = ["Page.navigate", "Target.createTarget"];
 
 /** Schemes with no host-bearing navigation semantics. Always refused. */
-const DENIED_SCHEMES: readonly string[] = ["file:", "javascript:", "data:", "blob:"];
+const DENIED_SCHEMES: readonly string[] = ["file:", "javascript:", "data:", "blob:", "vbscript:"];
 
 const DENY_ERROR_CODE = -32000;
 

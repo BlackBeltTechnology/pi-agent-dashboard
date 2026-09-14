@@ -41,12 +41,13 @@ describe("always-denied verbs (E12)", () => {
 });
 
 describe("navigation schemes (E13)", () => {
-  it("denies file/javascript/data/blob on both URL-policy verbs", () => {
+  it("denies file/javascript/data/blob/vbscript on both URL-policy verbs", () => {
     const hostile = [
       "file:///etc/passwd",
       "javascript:alert(1)",
       "data:text/html,x",
       "blob:https://a/b",
+      "vbscript:msgbox(1)",
     ];
     for (const verb of ["Page.navigate", "Target.createTarget"]) {
       for (const url of hostile) {
