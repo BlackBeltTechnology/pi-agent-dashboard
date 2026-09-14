@@ -140,7 +140,17 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     // representation on the wire (M4).
     const token = tokens.mintForSession(sessionId);
     ctx.logger.info(`mcp-server: minted a token for session ${sessionId}`);
-    return { token };
+    // D5: the plaintext travels back on the session-private extension lane —
+    // registerPiHandler return values are DISCARDED by the dispatcher, so a
+    // `return { token }` here was dead code and the delivery path never had a
+    // wire. X1: a closed bridge socket surfaces as `false` — logged with the
+    // session id, never a throw, and /mcp keeps serving other callers.
+    const delivered = ctx.sendExtensionMessage(sessionId, { type: "mcp_token_minted", token });
+    if (!delivered) {
+      ctx.logger.warn(
+        `mcp-server: could not deliver the minted token to session ${sessionId} (bridge unreachable)`,
+      );
+    }
   });
 
   ctx.registerPiHandler(REVOKE_MESSAGE, (msg: unknown, sessionId: string) => {

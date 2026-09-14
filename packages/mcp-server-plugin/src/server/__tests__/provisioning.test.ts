@@ -14,7 +14,9 @@ import type {
 import { describe, expect, it, vi } from "vitest";
 import {
   DASHBOARD_MCP_KEY,
+  MCP_TOKEN_ENV_VAR,
   PROVISIONED_PROTOCOL_VERSION,
+  headerCommandPath,
   provisionDashboardEntry,
 } from "../provisioning.js";
 
@@ -141,11 +143,20 @@ describe("J6 — the reserved key collision", () => {
   });
 
   it("reports unchanged without rewriting when the entry already matches", () => {
+    // The full dashboard-owned shape (D2): url + protocolVersion + the
+    // requestHeadersCommand transport. A byte-identical entry is a no-op.
+    const entry = {
+      url: URL,
+      protocolVersion: PROVISIONED_PROTOCOL_VERSION,
+      requestHeadersCommand: {
+        command: "node",
+        args: [headerCommandPath()],
+        env: { [MCP_TOKEN_ENV_VAR]: `\${${MCP_TOKEN_ENV_VAR}}` },
+      },
+    };
     const fs = io(
       JSON.stringify({
-        mcpServers: {
-          [DASHBOARD_MCP_KEY]: { url: URL, protocolVersion: PROVISIONED_PROTOCOL_VERSION },
-        },
+        mcpServers: { [DASHBOARD_MCP_KEY]: entry },
       }),
     );
     const before = fs.written;
@@ -268,7 +279,7 @@ describe("PI_CODING_AGENT_DIR — paths come from the port, not a hard-coded hom
 });
 
 describe("merge-only — operator-set fields on our entry survive a refresh", () => {
-  it("preserves disabled + headers while refreshing url", () => {
+  it("E2 — preserves disabled + headers while refreshing url and (re)stamping the auth field", () => {
     const fs = io(
       JSON.stringify({
         mcpServers: {
@@ -285,12 +296,29 @@ describe("merge-only — operator-set fields on our entry survive a refresh", ()
       ok: true,
       action: "updated",
     });
-    expect(parse(fs).mcpServers[DASHBOARD_MCP_KEY]).toEqual({
-      url: URL,
-      protocolVersion: PROVISIONED_PROTOCOL_VERSION,
-      disabled: true,
-      headers: { "x-op": "1" },
+    const entry = parse(fs).mcpServers[DASHBOARD_MCP_KEY];
+    // Operator fields survive verbatim...
+    expect(entry.disabled).toBe(true);
+    expect(entry.headers).toEqual({ "x-op": "1" });
+    // ...while the dashboard-owned fields are refreshed in full.
+    expect(entry.url).toBe(URL);
+    expect(entry.protocolVersion).toBe(PROVISIONED_PROTOCOL_VERSION);
+    expect(entry.requestHeadersCommand.env).toEqual({ [MCP_TOKEN_ENV_VAR]: `\${${MCP_TOKEN_ENV_VAR}}` });
+  });
+
+  it("E2 — an entry in the pre-change shape gains the auth field on refresh", () => {
+    const fs = io(
+      JSON.stringify({
+        mcpServers: {
+          [DASHBOARD_MCP_KEY]: { url: URL, protocolVersion: PROVISIONED_PROTOCOL_VERSION },
+        },
+      }),
+    );
+    expect(provisionDashboardEntry(fs, { url: URL, adapter: fakePort() })).toEqual({
+      ok: true,
+      action: "updated",
     });
+    expect(parse(fs).mcpServers[DASHBOARD_MCP_KEY].requestHeadersCommand).toBeDefined();
   });
 });
 
@@ -302,5 +330,48 @@ describe("J6 — the foreign-entry refusal names the file", () => {
     if (r.ok) throw new Error("unreachable");
     expect(r.message).toContain(PATH);
     expect(r.message).toContain(DASHBOARD_MCP_KEY);
+  });
+});
+
+describe("E9/D2 — the provisioned auth transport shape", () => {
+  it("E9 — env carries exactly the interpolation form; args carry no interpolation; no literal mcp_ anywhere", () => {
+    const fs = io(null);
+    provisionDashboardEntry(fs, { url: URL, adapter: fakePort() });
+    const raw = fs.written as string;
+    const entry = parse(fs).mcpServers[DASHBOARD_MCP_KEY];
+
+    // The env slot re-declares the token var as the interpolation form —
+    // the adapter resolves it against the LIVE parent env per request (Q2).
+    expect(entry.requestHeadersCommand.env).toEqual({
+      [MCP_TOKEN_ENV_VAR]: `\${${MCP_TOKEN_ENV_VAR}}`,
+    });
+    expect(Object.keys(entry.requestHeadersCommand.env)).toEqual([MCP_TOKEN_ENV_VAR]);
+
+    // args carries only a plain path — every interpolation form there
+    // resolves to "" via the adapter's `Array.map` env-overload bug (Q1a).
+    for (const arg of entry.requestHeadersCommand.args) {
+      expect(arg).not.toMatch(/\$\{/);
+    }
+    expect(entry.requestHeadersCommand.args[0].endsWith("header-command.mjs")).toBe(true);
+
+    // No credential ever lands in the file.
+    expect(raw).not.toContain("mcp_");
+    expect(raw).not.toMatch(/mcp_[A-Za-z0-9_-]{20,}/);
+  });
+
+  it("the header command this entry points at exists on disk next to this module", () => {
+    // The path is resolved from provisioning.ts's own URL, so the shipped
+    // package is self-contained; a missing file would 401 every request.
+    expect(() => require("node:fs").accessSync(headerCommandPath())).not.toThrow();
+  });
+
+  it("the top-level entry stays an HTTP url entry — the transport lives NESTED (J1 holds)", () => {
+    const fs = io(null);
+    provisionDashboardEntry(fs, { url: URL, adapter: fakePort() });
+    const entry = parse(fs).mcpServers[DASHBOARD_MCP_KEY];
+    expect(entry.url).toBe(URL);
+    expect(entry).not.toHaveProperty("command");
+    expect(entry).not.toHaveProperty("args");
+    expect(entry).not.toHaveProperty("headers");
   });
 });

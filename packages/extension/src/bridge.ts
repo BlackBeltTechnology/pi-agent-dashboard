@@ -33,6 +33,7 @@ import type { BridgeContext } from "./bridge-context.js";
 import { extractFirstMessage, extractLatestTurnWindow, filterHiddenCommands, getCurrentModelString, isHeadlessRpcSession, safeCwd } from "./bridge-context.js";
 import { hasExplicitModelArg, shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
 import { mintBridgeTicket, readDeviceToken, withTicket } from "./bridge-ticket-client.js";
+import { MCP_TOKEN_ENV_VAR, handleMcpTokenMinted } from "./mcp-token-delivery.js";
 import { registerCanvasTool } from "./canvas-tool.js";
 import {
   buildUserMessageContent,
@@ -1093,6 +1094,27 @@ function initBridge(pi: ExtensionAPI) {
         return;
       }
       // Legacy extension_ui_response removed — now handled by prompt_response → promptBus.respond()
+      // Reload auth credentials when dashboard notifies of changes
+      if (msg.type === "mcp_token_minted") {
+        // D5: the minted MCP bearer arrives on the session-private lane. The
+        // delivery module assigns it to this process's env and triggers the
+        // D6 recovery seam; it has NO pi dependency, so the plaintext can
+        // never reach pi.events (F4) or a log line (X5).
+        handleMcpTokenMinted(msg as { type: "mcp_token_minted"; token?: unknown }, {
+          assignEnv: (token) => {
+            process.env[MCP_TOKEN_ENV_VAR] = token;
+          },
+          reconnect: () => {
+            // D6 recovery trigger. Shipped pi-mcp-adapter (≤ 2.31) exposes no
+            // programmatic reconnect for a config-defined entry; recovery
+            // completes via the adapter's lazyConnect on the entry's next
+            // use, presenting the fresh env per request. See
+            // mcp-token-delivery.ts and the change's design record.
+          },
+          log: console,
+        });
+        return;
+      }
       // Reload auth credentials when dashboard notifies of changes
       if (msg.type === "credentials_updated") {
         try {
@@ -3174,6 +3196,22 @@ function initBridge(pi: ExtensionAPI) {
 
     // Allow event forwarding now that session_register is buffered
     sessionReady = true;
+
+    // D3: mint-on-registration. Ask the mcp-server plugin for this session's
+    // /mcp credential now that the socket is (re)registered — the reply
+    // arrives on the session-private lane (mcp_token_minted) and lands in
+    // process.env before the first MCP use, and re-lands after every
+    // reconnect, which is what makes a dashboard restart self-heal. Ordered
+    // after session_register on the SAME socket, so the server's
+    // connection-key attribution is already established when it arrives.
+    // See change: wire-mcp-session-token (D3/D5).
+    connection.send({
+      type: "plugin_pi_message",
+      sessionId,
+      pluginId: "mcp-server",
+      messageType: "mcp/mint-token",
+      payload: {},
+    });
 
     // Flush any subagent frames buffered during the not-ready window (D1) so a
     // reconnect/discovery/reload gap self-heals instead of leaving a running

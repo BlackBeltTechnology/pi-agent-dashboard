@@ -1072,6 +1072,22 @@ export interface CredentialsUpdatedMessage {
   type: "credentials_updated";
 }
 
+/**
+ * Server → extension: the plaintext MCP bearer minted for THIS session, sent
+ * only on the session's own bridge socket (the `credentials_updated` lane).
+ *
+ * The bridge assigns it to its own `process.env.PI_DASHBOARD_MCP_TOKEN` so the
+ * provisioned `pi-dashboard` entry's `requestHeadersCommand` can echo it per
+ * HTTP request. NEVER re-emitted onto `pi.events` — that bus is shared with
+ * every extension, and `plugin_emit_event` was measured to deliver payloads to
+ * unrelated subscribers (see change: wire-mcp-session-token, design D5).
+ */
+export interface McpTokenMintedExtensionMessage {
+  type: "mcp_token_minted";
+  /** Plaintext `mcp_`-prefixed bearer. Held in memory only — never logged. */
+  token: string;
+}
+
 export interface FlowManagementExtensionMessage {
   type: "flow_management";
   sessionId: string;
@@ -1324,6 +1340,7 @@ export type ServerToExtensionMessage =
   | RegisterRejectedExtensionMessage
   | RequestFlowsRefreshMessage
   | CredentialsUpdatedMessage
+  | McpTokenMintedExtensionMessage
   | FlowManagementExtensionMessage
   | ArchitectPromptResponseExtensionMessage
   | PromptResponseServerMessage

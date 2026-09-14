@@ -97,6 +97,17 @@ export type OnSessionResolvedFn = (
 export type SendToSessionFn = (sessionId: string, text: string) => boolean;
 
 /**
+ * Send a raw server→extension control message to ONE session's bridge socket
+ * (the lane `credentials_updated` rides). Unlike `emitEventToSession`, the
+ * bridge does NOT re-emit it on `pi.events` — the payload stays private to the
+ * bridge handler. Gated to first-party / trusted plugins (same gate as
+ * `emitEventToSession`): untrusted plugins get a hook returning `false`
+ * without sending. Returns `true` when dispatched to a connected session.
+ * See change: wire-mcp-session-token (D5).
+ */
+export type SendExtensionMessageFn = (sessionId: string, msg: unknown) => boolean;
+
+/**
  * Emit a configured pi event INTO a running session's in-process event bus
  * (relayed over the bridge as a `plugin_emit_event` control message; the
  * in-session bridge does `pi.events.emit(eventType, data)`). Decoupled: the
@@ -635,6 +646,12 @@ export interface ServerPluginContext {
    */
   emitEventToSession: EmitEventToSessionFn;
   /**
+   * Send a raw server→extension control message to one session's bridge
+   * socket, WITHOUT the `pi.events` re-emit `plugin_emit_event` does.
+   * Trusted-gated. See change: wire-mcp-session-token (D5).
+   */
+  sendExtensionMessage: SendExtensionMessageFn;
+  /**
    * Spawn a new pi session. Gated to first-party/trusted plugins; untrusted
    * plugins get a hook that always resolves `{ success: false }`.
    * See change: add-automation-plugin.
@@ -744,6 +761,7 @@ export interface ServerContextDeps {
   onSessionResolved: OnSessionResolvedFn;
   sendToSession: SendToSessionFn;
   emitEventToSession: EmitEventToSessionFn;
+  sendExtensionMessage: SendExtensionMessageFn;
   spawnSession: SpawnSessionFn;
   abortSession: AbortSessionFn;
   abortSpawnedRun: AbortSpawnedRunFn;
@@ -793,6 +811,7 @@ export function createServerPluginContext(
     onSessionResolved: deps.onSessionResolved,
     sendToSession: deps.sendToSession,
     emitEventToSession: deps.emitEventToSession,
+    sendExtensionMessage: deps.sendExtensionMessage,
     spawnSession: deps.spawnSession,
     abortSession: deps.abortSession,
     abortSpawnedRun: deps.abortSpawnedRun,

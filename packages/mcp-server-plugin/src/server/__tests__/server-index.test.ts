@@ -18,17 +18,26 @@ interface CtxHandle {
   ctx: ServerPluginContext;
   app: ReturnType<typeof Fastify>;
   warnings: string[];
+  infos: string[];
+  piHandlers: Map<string, (msg: unknown, sessionId: string) => void>;
+  /** Flip to `false` to simulate a closed bridge socket at delivery time. */
+  setDeliverable: (ok: boolean) => void;
+  sentMessages: Array<{ sessionId: string; msg: unknown }>;
 }
 
 function makeCtx(config: { adapterVerdict: () => unknown } | undefined): CtxHandle {
   const warnings: string[] = [];
+  const infos: string[] = [];
+  const piHandlers = new Map<string, (msg: unknown, sessionId: string) => void>();
+  const sentMessages: Array<{ sessionId: string; msg: unknown }> = [];
+  let deliverable = true;
   const app = Fastify();
   const consumed: Record<string, unknown> = {
     "mcp-client.config": config,
   };
   const ctx = {
     logger: {
-      info: () => {},
+      info: (m: string) => infos.push(m),
       warn: (m: string) => warnings.push(m),
       error: () => {},
     },
@@ -40,10 +49,17 @@ function makeCtx(config: { adapterVerdict: () => unknown } | undefined): CtxHand
     spawnSession: async () => ({}),
     abortSession: async () => false,
     onEvent: () => () => {},
-    registerPiHandler: () => {},
+    registerPiHandler: (type: string, handler: (msg: unknown, sessionId: string) => void) => {
+      piHandlers.set(type, handler);
+    },
+    sendExtensionMessage: (sessionId: string, msg: unknown) => {
+      if (!deliverable) return false;
+      sentMessages.push({ sessionId, msg });
+      return true;
+    },
     onSessionEnded: () => {},
   } as unknown as ServerPluginContext;
-  return { ctx, app, warnings };
+  return { ctx, app, warnings, infos, piHandlers, setDeliverable: (ok: boolean) => { deliverable = ok; }, sentMessages };
 }
 
 const ADAPTER_MSG = "upgrade now";
@@ -109,5 +125,53 @@ describe("manifest (task 6.1)", () => {
     };
     expect(pkg["pi-dashboard-plugin"]?.dependsOn).toBeUndefined();
     expect(pkg.dependencies?.["@blackbelt-technology/pi-dashboard-mcp-client-plugin"]).toBeTruthy();
+  });
+});
+
+describe("X1/X5 — the mint reply rides the session-private lane", () => {
+  it("X5 — mint → deliver logs the session id but NEVER the plaintext", async () => {
+    const { ctx, app, piHandlers, infos, warnings, sentMessages } = makeCtx(undefined);
+    await registerPlugin(ctx);
+    await app.ready();
+
+    const handler = piHandlers.get("mcp/mint-token");
+    expect(handler).toBeDefined();
+    handler?.({}, "session-x");
+
+    // The plaintext was delivered exactly once, on the private lane.
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0].sessionId).toBe("session-x");
+    const token = (sentMessages[0].msg as { token: string }).token;
+    expect(token.startsWith("mcp_")).toBe(true);
+    expect((sentMessages[0].msg as { type: string }).type).toBe("mcp_token_minted");
+
+    // Every log line, across both sinks: no plaintext, no mcp_ prefix.
+    for (const line of [...infos, ...warnings]) {
+      expect(line).not.toContain(token);
+      expect(line).not.toContain("mcp_");
+    }
+    await app.close();
+  });
+
+  it("X1 — a closed bridge socket at delivery time is logged with the session id; /mcp keeps serving", async () => {
+    const { ctx, app, piHandlers, warnings, infos, setDeliverable, sentMessages } = makeCtx(undefined);
+    await registerPlugin(ctx);
+    await app.ready();
+
+    // The bridge WS dies just as the mint reply is sent.
+    setDeliverable(false);
+    expect(() => piHandlers.get("mcp/mint-token")?.({}, "session-gone")).not.toThrow();
+
+    // The failure is surfaced, with the affected session id — never silent,
+    // never a plaintext leak.
+    const failureLines = warnings.filter((w) => w.includes("session-gone"));
+    expect(failureLines.length).toBeGreaterThan(0);
+    for (const line of [...infos, ...warnings]) expect(line).not.toContain("mcp_");
+    expect(sentMessages).toHaveLength(0);
+
+    // The endpoint still serves other callers (401 = alive and guarding).
+    const res = await app.inject({ method: "POST", url: "/mcp", payload: {} });
+    expect(res.statusCode).toBe(401);
+    await app.close();
   });
 });

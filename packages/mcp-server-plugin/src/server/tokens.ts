@@ -86,9 +86,26 @@ export class McpTokenRegistry {
    * the key the socket is stored under (design.md Decision 6) — never a field
    * read off the wire.
    */
+  /**
+   * Mint a token for `sessionId`, returning the plaintext exactly once.
+   *
+   * The caller is responsible for having proven the session's identity. The
+   * only channel that can do so is the bridge WebSocket, where the sessionId is
+   * the key the socket is stored under (design.md Decision 6) — never a field
+   * read off the wire.
+   *
+   * REPLACES the session's existing row rather than appending: the bridge
+   * re-mints on every (re)registration, and a stale row left behind would keep
+   * the previous token valid until session end — failing "credential is revoked
+   * → presenting it SHALL be refused" — while growing a registry whose
+   * `resolve()` linear-scans (design.md D4).
+   */
   mintForSession(sessionId: string): string {
     const token = TOKEN_PREFIX + crypto.randomBytes(TOKEN_BYTES).toString("base64url");
-    this.rows.push({ tokenHash: hashToken(token), sessionId, mintedAt: Date.now() });
+    const row: TokenRow = { tokenHash: hashToken(token), sessionId, mintedAt: Date.now() };
+    const existing = this.rows.findIndex((r) => r.sessionId === sessionId);
+    if (existing >= 0) this.rows[existing] = row;
+    else this.rows.push(row);
     return token;
   }
 

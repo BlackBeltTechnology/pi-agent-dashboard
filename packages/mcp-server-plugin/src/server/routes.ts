@@ -10,7 +10,7 @@
  * keeps E1-E4 honest in both modes.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { type AuthDeps, authenticate } from "./auth.js";
+import { type AuthDeps, authenticate, credentialFingerprint } from "./auth.js";
 import { type DispatchDeps, dispatchRpc, parseSubscriptionFilter } from "./dispatch.js";
 import {
   extractId,
@@ -201,9 +201,14 @@ function mountMcpRoutesInScope(fastify: FastifyInstance, deps: McpRouteDeps): vo
       // belong to first use, not registration.
       deps.onMcpRequest?.();
       // Throttle BEFORE the comparison, so a locked-out source cannot keep
-      // spending server CPU on `timingSafeEqual` scans.
+      // spending server CPU on `timingSafeEqual` scans. Keyed on
+      // `(ip, credential fingerprint)` — every local session shares `request.ip`,
+      // so an ip-only key let one session's stale token deny all the others
+      // (design.md D7). The fingerprint is a SHA-256 digest of the presented
+      // value and is never logged (X6).
       const source = request.ip;
-      const verdict = throttle.check(source);
+      const fingerprint = credentialFingerprint(request.headers.authorization);
+      const verdict = throttle.check(source, fingerprint);
       if (!verdict.allowed) {
         deps.log.warn(`mcp: throttled ${source} after repeated authentication failures`);
         reply
@@ -218,7 +223,7 @@ function mountMcpRoutesInScope(fastify: FastifyInstance, deps: McpRouteDeps): vo
       // deliberately never consulted here (A4).
       const caller = authenticate(request.headers.authorization, deps);
       if (!caller) {
-        throttle.recordFailure(source);
+        throttle.recordFailure(source, fingerprint);
         deps.log.warn("mcp: refused an unauthenticated request");
         reply.code(401).header("www-authenticate", "Bearer").type("application/json").send({
           error: "Unauthorized",
@@ -239,7 +244,7 @@ function mountMcpRoutesInScope(fastify: FastifyInstance, deps: McpRouteDeps): vo
       // A valid credential clears any accumulated failures, so an operator who
       // rotates a stale token recovers immediately instead of serving out a
       // penalty earned by the old one.
-      throttle.recordSuccess(source);
+      throttle.recordSuccess(source, fingerprint);
 
       // `subscriptions/listen` is a long-lived response stream, so it cannot go
       // through the single-response path below. Handled here, where the reply

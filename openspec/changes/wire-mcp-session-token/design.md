@@ -334,6 +334,39 @@ Every cycle-2 finding is now resolved by measurement or by a decision above.
   the transport as `requestHeadersCommand` for this change, so a positive result
   seeds a follow-up change rather than re-opening D2. Probed in Task 1.2; record
   the answer here.
+
+  **ANSWERED (implementation phase, Task 1.2).** YES — with a boundary. Against
+  the shipped adapter 2.31.0 (`server-manager.ts:910` + `utils.ts:200`):
+  `resolveBearerToken` reads the env var at CONNECT time, and the resolved
+  header is fixed onto the transport ("so every attempted transport receives
+  the same headers"). A `reconnect()` (close + connect) therefore re-reads the
+  live env and presents the rotated value; a mid-connection rotation is NOT
+  picked up until a reconnect. It also requires `auth: "bearer"` on the entry.
+  Combined with D6's explicit reconnect trigger this removes the per-request
+  header-command cost — recorded as the seed of a FOLLOW-UP change; the
+  transport stays `requestHeadersCommand` here.
 - Should a dashboard-spawned session prefer a spawn-time env injection (no
   runtime delivery at all) while hand-started sessions take the bridge path?
   Deferrable — a refinement inside D2 that changes no spec.
+- **D6 implementation deviation (approved by the human operator of the ship-it
+  run).** D6 as planned has the extension "explicitly reconnect the
+  `pi-dashboard` entry". Shipped pi-mcp-adapter 2.31.0 exposes NO programmatic
+  reconnect for a config-defined entry: the only public `pi.events` request ops
+  are runtime-register/runtime-snapshot, pi's ExtensionAPI has no MCP surface,
+  there is no config watcher, and transient retry classifies only HTTP 503.
+  What the shipped stack does instead: `lazyConnect` runs on the entry's next
+  USE, re-connecting a dead/failed entry once its 60 s failure backoff
+  (`FAILURE_BACKOFF_MS`) expires, and the per-request header command then reads
+  the freshly-assigned env (spike Q2). The mint reply therefore remains the
+  sole recovery trigger (env assignment), recovery needs no operator action,
+  and `connection.status` is read nowhere (F2/F3/F4 test the module); recovery
+  completes on next use instead of immediately. The bridge keeps an injected
+  `reconnect` seam so a future adapter reconnect op slots in without touching
+  the delivery module (`mcp-token-delivery.ts`).
+- **P1 measured baseline (implementation phase).** The delivery leg (one full
+  header-command spawn+answer) measured **median 57.8 ms, p95 61.3 ms** over 20
+  sequential runs on the implementation host — the spike's ≥250 ms figure
+  included the adapter's own process-discovery machinery; our delivery leg is
+  the smaller share. The standing qa measurement lives in
+  `qa/tests/33-mcp-session-token.sh` (P1 leg) and prints the number on every
+  VM run.
