@@ -1065,3 +1065,54 @@ describe("E14 — a manually minted device token reaches /mcp", () => {
     }
   });
 });
+
+describe("E8 — one session's stale token never denies a healthy one (route level)", () => {
+  it("A's throttled fingerprint does not stop B's valid credential from the same ip", async () => {
+    const { app, tokens } = await harness();
+
+    // Session B holds a VALID token.
+    const bToken = tokens.mintForSession("session-b");
+
+    // Session A presents its stale token past the per-credential threshold.
+    for (let i = 0; i < 15; i += 1) {
+      await app.inject({
+        method: "POST",
+        url: "/mcp",
+        headers: { authorization: "Bearer stale-token-A", "mcp-protocol-version": V },
+        payload: rpc("tools/list"),
+      });
+    }
+
+    // A's credential bucket is exhausted — A gets 429...
+    const aRes = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: { authorization: "Bearer stale-token-A", "mcp-protocol-version": V },
+      payload: rpc("tools/list"),
+    });
+    expect(aRes.statusCode).toBe(429);
+
+    // ...while B, from the SAME 127.0.0.1, is served.
+    const bRes = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: authed(bToken),
+      payload: rpc("tools/list"),
+    });
+    expect(bRes.statusCode).toBe(200);
+  });
+
+  it("E5 — an unminted well-formed mcp_ bearer is refused and creates no row", async () => {
+    const { app, tokens } = await harness();
+    const before = tokens.size;
+    const forged = `mcp_${"A".repeat(43)}`;
+    const res = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: { authorization: `Bearer ${forged}`, "mcp-protocol-version": V },
+      payload: rpc("tools/list"),
+    });
+    expect(res.statusCode).toBe(401);
+    expect(tokens.size).toBe(before);
+  });
+});

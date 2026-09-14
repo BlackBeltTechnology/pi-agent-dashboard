@@ -19,6 +19,7 @@ import type {
 } from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DASHBOARD_MCP_KEY, provisionDashboardEntry } from "../provisioning.js";
+import { McpTokenRegistry } from "../tokens.js";
 
 let dir: string;
 let target: string;
@@ -165,5 +166,30 @@ describe("J7 — an unwritable destination fails cleanly on a real filesystem", 
     } finally {
       fs.chmodSync(path.dirname(target), 0o700);
     }
+  });
+});
+
+describe("X4 — no plaintext credential at rest, ever", () => {
+  it("scans the config dir before, during and after mint→write→revoke: zero mcp_ values", () => {
+    // A session mints, the provisioning write runs, the session is revoked.
+    const tokens = new McpTokenRegistry();
+    const token = tokens.mintForSession("session-a");
+    provisionDashboardEntry(realIO, { url: "http://127.0.0.1:8000/mcp", adapter: fakePort(target) });
+    const midFlight = fs.readFileSync(target, "utf8");
+    tokens.revokeSession("session-a");
+
+    // Scan EVERYTHING the flow touched on disk — before/during/after are the
+    // same single artifact, and it never carried a credential.
+    const files = fs.readdirSync(dir, { recursive: true }).map(String);
+    expect(files.length).toBeGreaterThan(0);
+    for (const f of files) {
+      const p = path.join(dir, f);
+      if (fs.statSync(p).isFile()) {
+        expect(fs.readFileSync(p, "utf8")).not.toMatch(/mcp_[A-Za-z0-9_-]{10,}/);
+      }
+    }
+    // Sanity: the minted token WOULD have matched that scan had it leaked.
+    expect(token).toMatch(/mcp_[A-Za-z0-9_-]{10,}/);
+    expect(midFlight).not.toContain(token);
   });
 });

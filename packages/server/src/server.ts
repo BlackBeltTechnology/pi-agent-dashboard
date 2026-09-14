@@ -2515,6 +2515,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   data: data ?? {},
                 });
               },
+              // Raw server→extension control message to one session's bridge
+              // socket — the `credentials_updated` lane, WITHOUT the
+              // `pi.events` re-emit `plugin_emit_event` does. mcp-server-plugin
+              // delivers the minted session token over this; a credential must
+              // never ride the shared bus. Same trust gate as
+              // emitEventToSession. See change: wire-mcp-session-token (D5).
+              sendExtensionMessage: (sessionId, msg) => {
+                const trusted = (plugin.manifest.priority ?? 1000) <= 100;
+                if (!trusted) return false;
+                return piGateway.sendToSession(sessionId, msg as Parameters<typeof piGateway.sendToSession>[1]);
+              },
               provide: (name, value) => { pluginServiceRegistry.set(name, value); },
               consume: <T = unknown>(name: string) =>
                 pluginServiceRegistry.get(name) as T | undefined,

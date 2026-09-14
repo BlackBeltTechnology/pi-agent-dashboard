@@ -26,8 +26,8 @@ const resolverFor = (names: readonly string[]) => (name: string) =>
 const allNames = MCP_TOOLS.map((t) => t.name);
 
 describe("context partition (design.md Decision 1)", () => {
-  it("accounts for all 19 members exactly once", () => {
-    expect(ALL_CONTEXT_MEMBERS).toHaveLength(19);
+  it("accounts for all 20 members exactly once", () => {
+    expect(ALL_CONTEXT_MEMBERS).toHaveLength(20);
     expect(assertContextPartitionTotal()).toEqual({
       ok: true,
       unclassified: [],
@@ -35,9 +35,9 @@ describe("context partition (design.md Decision 1)", () => {
     });
   });
 
-  it("splits 5 allowlisted / 14 denied", () => {
+  it("splits 5 allowlisted / 15 denied", () => {
     expect(ALLOWLISTED_CONTEXT_MEMBERS).toHaveLength(5);
-    expect(DENIED_CONTEXT_MEMBERS).toHaveLength(14);
+    expect(DENIED_CONTEXT_MEMBERS).toHaveLength(15);
     expect(ALLOWLISTED_CONTEXT_MEMBERS.length + DENIED_CONTEXT_MEMBERS.length).toBe(
       ALL_CONTEXT_MEMBERS.length,
     );
