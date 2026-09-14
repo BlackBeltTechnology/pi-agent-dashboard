@@ -847,6 +847,40 @@ describe("SessionList add-to-workspace button", () => {
     expect(menu.textContent).not.toMatch(/pin to dashboard/i);
   });
 
+  // Nested-overlay regression (migrate-workspace-menus-to-portal-layer): the
+  // flyout is portaled INTO the FolderActionsMenu panel as a `fixed` box (not an
+  // `absolute` z-50 child). It must (a) escape the panel's `overflow` via
+  // `fixed`+`z-popover`, and (b) stay in the panel's `panelRef.contains()`
+  // outside-click scope so a click on a flyout item fires its handler WITHOUT the
+  // host menu closing the flyout first.
+  it("the workspace flyout is a portaled fixed z-popover panel, never absolute/z-50", () => {
+    renderList({
+      workspaces: [{ id: "w1", name: "WS", collapsed: false, folders: [] }],
+      onAddFolderToWorkspace: () => {},
+    });
+    openMenu();
+    fireEvent.click(screen.getByTestId(`add-to-workspace-btn-${CWD}`));
+    const panel = screen.getByTestId("add-to-workspace-menu");
+    expect(panel.className).toContain("fixed");
+    expect(panel.className).toContain("z-popover");
+    expect(panel.className).not.toContain("absolute");
+    expect(panel.className).not.toContain("z-50");
+  });
+
+  it("clicking a flyout workspace fires onAddFolderToWorkspace with (wsId, cwd)", () => {
+    const onAddFolderToWorkspace = vi.fn();
+    renderList({
+      workspaces: [{ id: "w1", name: "WS", collapsed: false, folders: [] }],
+      onAddFolderToWorkspace,
+    });
+    openMenu();
+    fireEvent.click(screen.getByTestId(`add-to-workspace-btn-${CWD}`));
+    // The flyout is open (the host menu did not close it): its pick item exists.
+    fireEvent.click(screen.getByTestId("add-to-workspace-pick-w1"));
+    expect(onAddFolderToWorkspace).toHaveBeenCalledTimes(1);
+    expect(onAddFolderToWorkspace).toHaveBeenCalledWith("w1", CWD);
+  });
+
   // E1 (migrated) — the cluster used to be exactly
   // `[folder-urgency-sort, add-to-workspace-btn, folder-open-home, unpin-dir-btn]`.
   // add-folder-actions-menu collapses all four into ONE trigger.
@@ -1134,6 +1168,7 @@ describe("SessionList folder actions menu", () => {
         <AddToWorkspaceMenu
           workspaces={[{ id: "w1", name: "WS", collapsed: false, folders: [CWD] }]}
           currentWorkspaceId="w1"
+          triggerRef={{ current: null }}
           onPick={() => {}}
           onNewWorkspace={() => {}}
           onRemoveFromWorkspace={onRemoveFromWorkspace}
