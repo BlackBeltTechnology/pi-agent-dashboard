@@ -7,7 +7,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { isDirectAnthropicApiKey, PROVIDER_FETCHERS } from "../quotas/fetchers.js";
 import { scrub } from "../quotas/http.js";
-import { parseAnthropic, parseCodex, parseCopilot, parseKimi, parseOpenRouter, parseZai } from "../quotas/parse.js";
+import { parseAnthropic, parseCodex, parseCopilot, parseKimi, parseOpencodeGo, parseOpenRouter, parseZai } from "../quotas/parse.js";
 
 describe("Anthropic token classification (the peer's root-cause bug)", () => {
   it("treats sk-ant-api… as a DIRECT api key (no subscription usage)", () => {
@@ -122,6 +122,46 @@ describe("payload parsing", () => {
   it("clamps a nonsense percentage into range", () => {
     expect(parseAnthropic({ five_hour: { utilization: 900, resets_at: soon } })[0].usedPercent).toBe(100);
   });
+
+  const ocgWin = (percent: unknown, status = "ok", resetsAt: unknown = soon) => ({ status, percent, resetsAt });
+
+  it("opencode-go E1: three Go windows as percent-USED with the right lengths", () => {
+    const windows = parseOpencodeGo({ usage: { rolling: ocgWin(1), weekly: ocgWin(0), monthly: ocgWin(3) } });
+    expect(windows.map((w) => [w.label, w.usedPercent, w.windowSeconds])).toEqual([
+      ["5h", 1, 18000],
+      ["7d", 0, 604800],
+      ["30d", 3, 2592000],
+    ]);
+  });
+
+  it("opencode-go E3/E4: clamps percent above the max", () => {
+    expect(parseOpencodeGo({ usage: { rolling: ocgWin(140) } })[0].usedPercent).toBe(100);
+  });
+
+  it("opencode-go E5: clamps percent below the min", () => {
+    expect(parseOpencodeGo({ usage: { rolling: ocgWin(-5) } })[0].usedPercent).toBe(0);
+  });
+
+  it("opencode-go E6: drops a window whose percent is non-finite (no misleading 0%)", () => {
+    const windows = parseOpencodeGo({ usage: { rolling: ocgWin("n/a"), weekly: ocgWin(4), monthly: ocgWin(9) } });
+    expect(windows.map((w) => w.label)).toEqual(["7d", "30d"]);
+  });
+
+  it("opencode-go E7: drops a window with no reset stamp (pace needs it)", () => {
+    const windows = parseOpencodeGo({ usage: { rolling: { status: "ok", percent: 5 }, weekly: ocgWin(4) } });
+    expect(windows.map((w) => w.label)).toEqual(["7d"]);
+  });
+
+  it("opencode-go E8: a non-ok window is STILL emitted with its real percent", () => {
+    const windows = parseOpencodeGo({ usage: { rolling: ocgWin(100, "exceeded") } });
+    expect(windows).toHaveLength(1);
+    expect(windows[0].usedPercent).toBe(100);
+  });
+
+  it("opencode-go E9: a partial body yields only the present window, no throw", () => {
+    const windows = parseOpencodeGo({ usage: { monthly: ocgWin(3) } });
+    expect(windows.map((w) => w.label)).toEqual(["30d"]);
+  });
 });
 
 describe("endpoint contract", () => {
@@ -134,6 +174,7 @@ describe("endpoint contract", () => {
       zai: "api.z.ai",
       "kimi-coding": "api.kimi.com",
       synthetic: "api.synthetic.new",
+      "opencode-go": "opencode.ai",
     };
     const auth = {
       get: (p: string) => (p === "openai-codex" ? { accountId: "a" } : p === "github-copilot" ? { type: "oauth", refresh: "gh_tok" } : undefined),
@@ -154,5 +195,33 @@ describe("endpoint contract", () => {
       await PROVIDER_FETCHERS[provider](auth);
       expect(seen[0]).toContain(host);
     }
+  });
+
+  it("opencode-go C2: sends a non-default User-Agent (Cloudflare gate)", async () => {
+    let ua: string | undefined;
+    globalThis.fetch = vi.fn(async (_url: unknown, init: unknown) => {
+      const headers = (init as { headers?: Record<string, string> }).headers ?? {};
+      ua = headers["User-Agent"] ?? headers["user-agent"];
+      return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+    await PROVIDER_FETCHERS["opencode-go"]({ get: () => undefined, getApiKey: async () => "tok_abc" });
+    expect(ua).toBeTruthy();
+    expect(ua).not.toBe("node");
+  });
+
+  it("opencode-go C3: resolves the opencode-go credential id, not the Zen opencode id", async () => {
+    const asked: string[] = [];
+    globalThis.fetch = vi.fn(async () => new Response("{}", { status: 200, headers: { "content-type": "application/json" } })) as unknown as typeof fetch;
+    await PROVIDER_FETCHERS["opencode-go"]({ get: () => undefined, getApiKey: async (p: string) => (asked.push(p), "tok_abc") });
+    expect(asked).toContain("opencode-go");
+    expect(asked).not.toContain("opencode");
+  });
+
+  it("opencode-go C4: a token-shaped failure body never reaches the detail", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ error: { message: "Bearer sk-OCG-TESTKEY0123456789 rejected" } }), { status: 403, headers: { "content-type": "application/json" } }),
+    ) as unknown as typeof fetch;
+    const result = await PROVIDER_FETCHERS["opencode-go"]({ get: () => undefined, getApiKey: async () => "sk-OCG-TESTKEY0123456789" });
+    expect(JSON.stringify(result)).not.toContain("sk-OCG-TESTKEY0123456789");
   });
 });

@@ -323,3 +323,34 @@ export function parseSynthetic(data: unknown): QuotaWindowDto[] {
 
   return compact(out);
 }
+
+/**
+ * OpenCode **Go subscription** `/zen/go/v1/usage`: three resetting plan windows
+ * (`rolling`/`weekly`/`monthly`), each already a used-percent with its own reset
+ * stamp. A window is emitted whenever `percent` is finite and the reset stamp is
+ * usable, REGARDLESS of `status` — an `exceeded`/throttled cadence is exactly the
+ * state the user needs to see, so dropping non-`ok` would hide it. A non-finite
+ * `percent` is dropped rather than rendered as a misleading 0% bar.
+ *
+ * This is the Go plan ONLY. The Zen pay-as-you-go gateway (`opencode`) exposes a
+ * wallet balance behind a browser-session cookie + workspace id and stays
+ * unsupported — a balance has no resetting window to compute pace against.
+ *
+ * See change: add-opencode-go-quota.
+ */
+export function parseOpencodeGo(data: unknown): QuotaWindowDto[] {
+  const usage = obj(obj(data).usage);
+  const out: Array<QuotaWindowDto | null> = [];
+  for (const [key, label, seconds] of [
+    ["rolling", "5h", 5 * HOUR],
+    ["weekly", "7d", 7 * DAY],
+    ["monthly", "30d", 30 * DAY],
+  ] as const) {
+    const entry = obj(usage[key]);
+    if (!Object.keys(entry).length) continue;
+    const pct = num(entry.percent);
+    if (!Number.isFinite(pct)) continue;
+    out.push(win(label, pct, entry.resetsAt, seconds, { usedValue: pct, limitValue: 100 }));
+  }
+  return compact(out);
+}

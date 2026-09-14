@@ -48,11 +48,13 @@ describe("registry integrity", () => {
   });
 
   it("does NOT advertise providers whose contract we cannot honour", () => {
-    // opencode-go has no usage API at all (only a cookie-authenticated HTML
-    // scrape); deepseek/minimax expose a balance, not a resetting window.
-    for (const unsupported of ["opencode-go", "deepseek", "minimax"]) {
+    // The Zen gateway `opencode` is a cookie-gated wallet; deepseek/minimax
+    // expose a balance, not a resetting window. The Go subscription
+    // `opencode-go` IS supported and must stay in the list.
+    for (const unsupported of ["opencode", "deepseek", "minimax"]) {
       expect(SUPPORTED_PROVIDERS).not.toContain(unsupported);
     }
+    expect(SUPPORTED_PROVIDERS).toContain("opencode-go");
   });
 });
 
@@ -123,8 +125,9 @@ describe("unavailability reasons", () => {
   });
 
   it("no-adapter when config names a provider we do not support", async () => {
-    const res = await computeQuota({ enabled: true, providers: { "opencode-go": { enabled: true } } }, auth);
-    // Not even offered → never reaches the fetch stage.
+    // `deepseek` stays unsupported, so this never reaches the fetch stage and
+    // issues NO real network call (unlike opencode-go, now supported).
+    const res = await computeQuota({ enabled: true, providers: { deepseek: { enabled: true } } }, auth);
     expect(res.providers).toEqual([]);
   });
 
@@ -312,6 +315,97 @@ describe("config clamp + gates (E8, E9)", () => {
     );
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(res.providers).toEqual([]);
+  });
+});
+
+// ── add-opencode-go-quota ───────────────────────────────────────────────
+
+const ocgOk = (r: number, w: number, m: number) => ({
+  usage: {
+    rolling: { status: "ok", percent: r, resetsAt: new Date(Date.now() + 3_600_000).toISOString() },
+    weekly: { status: "ok", percent: w, resetsAt: new Date(Date.now() + 7 * 86_400_000).toISOString() },
+    monthly: { status: "ok", percent: m, resetsAt: new Date(Date.now() + 30 * 86_400_000).toISOString() },
+  },
+});
+const onlyOcg = { enabled: true, providers: { "opencode-go": { enabled: true } } };
+
+describe("opencode-go engine (add-opencode-go-quota)", () => {
+  it("E1: exposes three Go windows with the right lengths", async () => {
+    respond(ocgOk(1, 0, 3));
+    const res = await computeQuota(onlyOcg, auth);
+    const ocg = res.providers.find((p) => p.provider === "opencode-go");
+    expect(ocg?.windows.map((w) => [w.label, w.usedPercent, w.windowSeconds])).toEqual([
+      ["5h", 1, 18000],
+      ["7d", 0, 604800],
+      ["30d", 3, 2592000],
+    ]);
+  });
+
+  it("E10: an empty 200 body is terminal no-data", async () => {
+    respond({});
+    const res = await computeQuota(onlyOcg, auth);
+    expect(res.unavailable).toEqual([{ provider: "opencode-go", reason: "no-data" }]);
+  });
+
+  it("F1: no credential → no-credential, zero network calls", async () => {
+    const fetchSpy = respond(ocgOk(1, 0, 3));
+    const res = await computeQuota(onlyOcg, noAuth);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(res.unavailable).toEqual([{ provider: "opencode-go", reason: "no-credential" }]);
+  });
+
+  it("F2: a rejected key (401) is terminal — not retried", async () => {
+    const fetchSpy = respond({ error: { message: "bad key" } }, 401);
+    const res = await computeQuota({ ...onlyOcg, retry: { enabled: true, maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 10 } }, auth);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(res.unavailable).toEqual([{ provider: "opencode-go", reason: "peer-rejected" }]);
+  });
+
+  it("F3: 403 EntitlementError (no Go plan) is terminal", async () => {
+    const fetchSpy = respond({ error: { type: "EntitlementError", message: "no subscription" } }, 403);
+    const res = await computeQuota(onlyOcg, auth);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(res.unavailable).toEqual([{ provider: "opencode-go", reason: "peer-rejected" }]);
+  });
+
+  it("F4: a Cloudflare 1010 403 carries a distinct edge-block detail", async () => {
+    globalThis.fetch = vi.fn(async () => new Response("Error 1010: Access denied", { status: 403 })) as unknown as typeof fetch;
+    const fetcher = PROVIDER_FETCHERS["opencode-go"];
+    const result = await fetcher({ get: () => undefined, getApiKey: async () => TOKEN });
+    expect(result).toMatchObject({ failure: "peer-rejected", transient: false });
+    expect("detail" in result && result.detail).toMatch(/1010|edge/i);
+    expect("detail" in result && result.detail).not.toMatch(/subscription|entitlement/i);
+  });
+
+  it("F7: a network failure is transient (retried when enabled)", async () => {
+    let calls = 0;
+    globalThis.fetch = vi.fn(async () => {
+      calls++;
+      throw new Error("boom");
+    }) as unknown as typeof fetch;
+    const res = await computeQuota({ ...onlyOcg, retry: { enabled: true, maxAttempts: 1, baseDelayMs: 1, maxDelayMs: 10 } }, auth);
+    expect(calls).toBe(2); // initial + 1 retry (transient)
+    expect(res.unavailable).toEqual([{ provider: "opencode-go", reason: "peer-rejected" }]);
+  });
+
+  it("R4: a disabled opencode-go is never fetched", async () => {
+    const fetchSpy = respond(ocgOk(1, 0, 3));
+    const res = await computeQuota({ enabled: true, providers: { "opencode-go": { enabled: false } } }, auth);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(res.providers).toEqual([]);
+  });
+});
+
+describe("opencode-go transient retry (F5)", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("F5: retries a transient 429 then succeeds — exactly 2 invocations, live", async () => {
+    const fetchSpy = respondSequence([{ body: { error: { message: "rate limited" } }, status: 429 }, { body: ocgOk(1, 0, 3) }]);
+    const res = await runWithTimers(computeQuota({ ...onlyOcg, retry: retryOn() }, auth));
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(res.providers.map((p) => p.provider)).toEqual(["opencode-go"]);
+    expect(res.providers[0].stale).toBeUndefined();
   });
 });
 
