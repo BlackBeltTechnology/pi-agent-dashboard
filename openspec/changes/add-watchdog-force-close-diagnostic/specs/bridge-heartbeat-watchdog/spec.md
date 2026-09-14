@@ -1,0 +1,88 @@
+# bridge-heartbeat-watchdog Specification
+
+## ADDED Requirements
+
+### Requirement: Watchdog force-close is attributable
+
+A watchdog force-close is indistinguishable from a network drop or a server reap in `server.log` — all three surface as `connection closed` followed by a re-register. The `ConnectionManager` SHALL therefore report the state that triggered the force-close BEFORE tearing the socket down, through an optional `onWatchdogFire(info)` callback.
+
+The report SHALL carry `silentForMs` (age of the last received frame), `watchdogTimeout` (the configured threshold), `readyState` (the socket's state captured before close), `inboundQueueDepth` (parsed frames awaiting handler dispatch), `refusedInbound` (cumulative frames refused for a full queue) and `maxTickDriftMs` (worst observed lateness of the watchdog's own check tick).
+
+The report SHALL NOT change the liveness decision: the 15-second check interval, the 60-second silence threshold and the force-close-and-reconnect action are unchanged. An exception thrown by the callback SHALL NOT prevent the teardown or the reconnect.
+
+#### Scenario: Force-close reports the state that caused it
+
+- **GIVEN** a `ConnectionManager` with `watchdogTimeout` 60 000 ms and an `onWatchdogFire` callback
+- **AND** a connection that received a message and then went silent
+- **WHEN** the watchdog fires and force-closes the socket
+- **THEN** `onWatchdogFire` SHALL be called exactly once
+- **AND** `silentForMs` SHALL be at least `watchdogTimeout`
+
+#### Scenario: A silent peer is distinguished from a blocked loop
+
+A blocked event loop produces the same `silentForMs` as a genuinely silent peer, so silence alone cannot attribute the force-close. The watchdog SHALL measure the lateness of its own check tick against its schedule and report the worst value observed.
+
+- **GIVEN** a watchdog whose check ticks fired on schedule
+- **WHEN** the watchdog force-closes after the silence threshold
+- **THEN** the reported `maxTickDriftMs` SHALL be near zero, attributing the silence to the peer
+
+#### Scenario: A blocked loop is attributed to this process
+
+- **GIVEN** a watchdog whose check tick was delayed well beyond its interval
+- **WHEN** the watchdog force-closes
+- **THEN** the reported `maxTickDriftMs` SHALL reflect that delay, attributing the silence to local starvation rather than the peer
+
+#### Scenario: A responsive server produces no report
+
+- **GIVEN** a `ConnectionManager` with an `onWatchdogFire` callback
+- **WHEN** messages arrive at an interval shorter than `watchdogTimeout`
+- **THEN** `onWatchdogFire` SHALL NOT be called
+- **AND** the connection SHALL remain open
+
+#### Scenario: Reported readyState predates the teardown
+
+- **GIVEN** a `ConnectionManager` whose socket is OPEN
+- **WHEN** the watchdog fires
+- **THEN** the reported `readyState` SHALL equal the OPEN value
+- **AND** the underlying socket SHALL be CLOSED once teardown completes
+
+#### Scenario: A throwing reporter does not block the reconnect
+
+- **GIVEN** an `onWatchdogFire` callback that throws
+- **WHEN** the watchdog fires
+- **THEN** the force-close SHALL still occur
+- **AND** the reconnect SHALL still be scheduled
+
+#### Scenario: Watchdog without a reporter is unchanged
+
+- **GIVEN** a `ConnectionManager` with no `onWatchdogFire` option
+- **WHEN** the watchdog fires
+- **THEN** the force-close and reconnect SHALL behave exactly as before this change
+
+### Requirement: Every live connection reports its force-closes
+
+The bridge constructs a `ConnectionManager` for its primary endpoint and a second one for a `/dashboard-connect` move, then rebinds its outbound transport to the move target. Both SHALL report force-closes, because after a move the second manager IS the live connection and an unreported force-close there would silence exactly the connection under observation.
+
+#### Scenario: The move target reports
+
+- **GIVEN** a bridge that has moved to another dashboard via `/dashboard-connect`
+- **WHEN** the moved-to connection's watchdog force-closes
+- **THEN** a `watchdog_force_close` diagnostic SHALL be produced
+
+### Requirement: The force-close diagnostic is durable
+
+pi's stdout is discarded under the default `keeperLog.capturePiOutput: false`, so a `console.log` record of a force-close does not survive. The diagnostic SHALL travel to the server as a `bridge_diagnostic` message carrying the `watchdog_force_close` event, so the server writes it to its own log.
+
+Because the report is produced BEFORE teardown, the socket is normally still OPEN and the diagnostic flushes immediately; when it is not, the diagnostic SHALL be buffered and flushed on the next successful registration, so a force-close on an already-dead socket is still recorded.
+
+#### Scenario: Reported while the socket is still open
+
+- **GIVEN** a watchdog force-close on a socket that is still OPEN at report time
+- **WHEN** the diagnostic is recorded
+- **THEN** it SHALL be sent without waiting for a reconnect
+
+#### Scenario: Survives a socket that is already down
+
+- **GIVEN** a watchdog force-close where the diagnostic cannot be sent
+- **WHEN** the bridge reconnects and re-registers
+- **THEN** the buffered `watchdog_force_close` diagnostic SHALL be flushed to the server

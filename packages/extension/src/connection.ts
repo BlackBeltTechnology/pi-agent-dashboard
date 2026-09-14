@@ -20,6 +20,42 @@ export interface ConnectionMigrationRecord {
   reason: string;
 }
 
+/**
+ * State captured at the instant the liveness watchdog decided to force-close.
+ * See `ConnectionManagerOptions.onWatchdogFire`.
+ */
+export interface WatchdogFireInfo {
+  /** Age of the last received frame. At threshold = true silence; far above = late timer. */
+  silentForMs: number;
+  /** The configured threshold, so the ratio is readable without knowing config. */
+  watchdogTimeout: number;
+  /** Socket readyState before teardown — 1 (OPEN) means we hung up on a live socket. */
+  readyState: number;
+  /**
+   * Depth of the PARSED-frame dispatch queue. Non-zero means frames were read
+   * and parsed but their handlers had not run — slow dispatch. NOT a probe for
+   * a blocked event loop: a blocked loop never parses, so this stays 0 while
+   * `silentForMs` overshoots.
+   */
+  inboundQueueDepth: number;
+  /**
+   * Worst observed lateness of the watchdog's OWN 15s check tick, since the
+   * watchdog started. This is a DIRECT measurement of event-loop blocking,
+   * not an inference from `silentForMs`:
+   *
+   *   drift ~0 + silence at threshold  → the server really stopped sending
+   *   drift large                      → our loop was blocked; the silence is
+   *                                      partly our own starvation, and acks
+   *                                      may have been pending unread
+   *
+   * Without it the two are indistinguishable, because a blocked loop produces
+   * the same `silentForMs` as a silent peer.
+   */
+  maxTickDriftMs: number;
+  /** Cumulative inbound frames refused for a full queue. */
+  refusedInbound: number;
+}
+
 export interface ConnectionManagerOptions {
   url: string;
   WebSocketImpl?: any;
@@ -65,6 +101,21 @@ export interface ConnectionManagerOptions {
   maxInboundQueue?: number;
   /** Server liveness watchdog: force reconnect after this many ms without any received message. Default 60000. Set 0 to disable. */
   watchdogTimeout?: number;
+  /**
+   * Fired immediately BEFORE the watchdog force-closes a socket.
+   *
+   * A watchdog close is indistinguishable from a network drop in server.log —
+   * both surface as `connection closed` followed by a re-register — so a
+   * reconnect storm cannot be attributed without this. `silentForMs` is the
+   * load-bearing field: a value at the threshold means the server really did
+   * go quiet, while a value far ABOVE it means this timer callback ran ahead
+   * of socket reads that were already queued (a blocked event loop), which is
+   * a different failure with a different fix.
+   *
+   * Runs synchronously before teardown: an exception is swallowed, but a slow
+   * callback delays the close by its own runtime. Keep it cheap.
+   */
+  onWatchdogFire?: (info: WatchdogFireInfo) => void;
   onMessage?: (data: unknown) => void | Promise<void>;
   /**
    * Fired on EVERY open, including the first — unlike `onReconnect`, which
@@ -278,6 +329,9 @@ export class ConnectionManager {
 
   private lastMessageAt = 0;
   private watchdogTimer: ReturnType<typeof setInterval> | null = null;
+  private onWatchdogFire?: (info: WatchdogFireInfo) => void;
+  private watchdogLastTickAt = 0;
+  private watchdogMaxTickDrift = 0;
   private watchdogTimeout: number;
 
   /**
@@ -344,6 +398,7 @@ export class ConnectionManager {
       "watchdogTimeout",
       0,
     );
+    this.onWatchdogFire = options.onWatchdogFire;
     this.onMessage = options.onMessage;
     this.onOpen = options.onOpen;
     this.onReconnect = options.onReconnect;
@@ -880,8 +935,32 @@ export class ConnectionManager {
   private startWatchdog(): void {
     this.stopWatchdog();
     if (this.watchdogTimeout <= 0) return;
+    this.watchdogLastTickAt = Date.now();
+    this.watchdogMaxTickDrift = 0;
     this.watchdogTimer = setInterval(() => {
+      // Lateness of THIS tick against its own schedule. A starved loop cannot
+      // report its own starvation any other way — every other signal here is
+      // downstream of the same blocked loop.
+      const now = Date.now();
+      const drift = now - this.watchdogLastTickAt - ConnectionManager.WATCHDOG_CHECK_INTERVAL;
+      this.watchdogLastTickAt = now;
+      if (drift > this.watchdogMaxTickDrift) this.watchdogMaxTickDrift = drift;
+
       if (this.ws && this.lastMessageAt > 0 && Date.now() - this.lastMessageAt >= this.watchdogTimeout) {
+        // Report BEFORE tearing down: `this.ws` is nulled by handleDisconnect,
+        // so readyState is only observable here.
+        try {
+          this.onWatchdogFire?.({
+            silentForMs: Date.now() - this.lastMessageAt,
+            watchdogTimeout: this.watchdogTimeout,
+            readyState: this.ws.readyState,
+            inboundQueueDepth: this.inboundQueue.length,
+            refusedInbound: this.droppedInboundCount,
+            maxTickDriftMs: this.watchdogMaxTickDrift,
+          });
+        } catch {
+          // Diagnostics are best-effort; never block the reconnect they explain.
+        }
         // Server has gone silent — force close to trigger reconnect
         this.handleDisconnect();
       }

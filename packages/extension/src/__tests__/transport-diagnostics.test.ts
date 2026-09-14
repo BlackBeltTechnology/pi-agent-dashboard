@@ -72,6 +72,28 @@ describe("createTransportDiagnostics", () => {
     expect(sent.map((m) => m.detail)).toEqual(["r7", "r8", "r9"]);
   });
 
+  it("buffers a watchdog_force_close recorded before a sink exists, and flushes it on attach", () => {
+    // A force-close can happen on the only socket the bridge has, i.e. with
+    // nothing able to carry the report. Buffering is what stops the outage
+    // from erasing its own explanation.
+    const d = createTransportDiagnostics();
+    d.record({
+      event: "watchdog_force_close",
+      detail: "silent=70000ms threshold=60000ms readyState=1 maxTickDrift=12ms",
+    });
+
+    const sent: any[] = [];
+    d.attach({ send: (m) => sent.push(m), getSessionId: () => "sess-1" });
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      type: "bridge_diagnostic",
+      sessionId: "sess-1",
+      event: "watchdog_force_close",
+    });
+    expect(sent[0].detail).toContain("maxTickDrift=12ms");
+  });
+
   it("survives a send that throws, without losing the rest of the buffer", () => {
     const d = createTransportDiagnostics();
     d.record({ event: "endpoint_resolved", detail: "a" });
