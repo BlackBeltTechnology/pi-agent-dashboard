@@ -98,13 +98,22 @@ describe("create-token flow", () => {
   });
 
   it("the token is not retrievable after dismissal", async () => {
+    // The dismissal triggers a reload; make the assertion DISCRIMINATING:
+    // the first list call returns only the pairing row, the reload call
+    // brings the minted manual row.
+    listPairedDevices
+      .mockReset()
+      .mockResolvedValueOnce([PAIRING_ROW])
+      .mockResolvedValueOnce([PAIRING_ROW, MANUAL_ROW]);
     await openCreateFlow();
+    expect(listPairedDevices).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     // Panel gone, token gone from the document.
     expect(screen.queryByText(MINTED_TOKEN)).toBeNull();
     expect(document.body.textContent).not.toContain(MINTED_TOKEN);
     // The list has refreshed with the new manual row.
     await waitFor(() => expect(screen.getAllByText("manual")).toHaveLength(1));
+    expect(listPairedDevices).toHaveBeenCalledTimes(2);
   });
 
   it("an API failure surfaces as an error, not a token panel", async () => {

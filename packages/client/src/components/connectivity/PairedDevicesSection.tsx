@@ -50,6 +50,13 @@ export function PairedDevicesSection() {
   const [labelDraft, setLabelDraft] = useState("");
   const [minting, setMinting] = useState(false);
   const [minted, setMinted] = useState<MintedDeviceToken | null>(null);
+  // Copy feedback for the plaintext-once panel: a silent clipboard failure is
+  // how the ONLY copy of the token gets lost, so the outcome is always shown.
+  const [copyOutcome, setCopyOutcome] = useState<"idle" | "ok" | "failed">("idle");
+
+  const copyOnce = useCallback((text: string) => {
+    void copyText(text).then((ok) => setCopyOutcome(ok ? "ok" : "failed"));
+  }, []);
 
   const reload = useCallback(async () => {
     try {
@@ -166,7 +173,7 @@ export function PairedDevicesSection() {
             <button
               type="button"
               className="text-xs text-[var(--accent)] hover:underline"
-              onClick={() => void copyText(minted.token)}
+              onClick={() => copyOnce(minted.token)}
             >
               {i18nT("common.copyToken", undefined, "Copy token")}
             </button>
@@ -179,13 +186,21 @@ export function PairedDevicesSection() {
               type="button"
               className="text-xs text-[var(--accent)] hover:underline"
               onClick={() =>
-                void copyText(
+                copyOnce(
                   `claude mcp add --transport http pi-dashboard ${snippetBase()}/mcp --header "Authorization: Bearer ${minted.token}"`,
                 )
               }
             >
               {i18nT("common.copySnippet", undefined, "Copy snippet")}
             </button>
+            {copyOutcome === "ok" && (
+              <span className="text-xs text-[var(--text-muted)]">{i18nT("common.copied", undefined, "Copied")}</span>
+            )}
+            {copyOutcome === "failed" && (
+              <span className="text-xs text-[var(--status-error)]">
+                {i18nT("common.copyFailed", undefined, "Copy failed — select and copy manually.")}
+              </span>
+            )}
             <span className="flex-1" />
             <button
               type="button"

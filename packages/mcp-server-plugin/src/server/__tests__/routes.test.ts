@@ -755,11 +755,11 @@ describe("dual era — legacy notifications, ping, tools (E6/E7/E8/E10)", () => 
   }
 
   it.each([
-    ["notifications/initialized", {}],
-    ["notifications/cancelled", {}],
-    ["notifications/zzz", {}],
-    ["notifications/initialized with a stray id", { id: 7 }],
-  ])("E6 — %s is accepted with 202 and an empty body", async (_label, extra) => {
+    ["notifications/initialized", "notifications/initialized", {}],
+    ["notifications/cancelled", "notifications/cancelled", {}],
+    ["notifications/zzz", "notifications/zzz", {}],
+    ["notifications/initialized with a stray id", "notifications/initialized", { id: 7 }],
+  ])("E6 — %s is accepted with 202 and an empty body", async (_label, method, extra) => {
     const { app, tokens } = await harness();
     const t = tokens.mintForSession("session-a");
     const res = await app.inject({
@@ -770,7 +770,7 @@ describe("dual era — legacy notifications, ping, tools (E6/E7/E8/E10)", () => 
         "mcp-protocol-version": "2025-06-18",
         "content-type": "application/json",
       },
-      payload: { jsonrpc: "2.0", method: "notifications/initialized", params: {}, ...extra },
+      payload: { jsonrpc: "2.0", method, params: {}, ...extra },
     });
     expect(res.statusCode).toBe(202);
     expect(res.body).toHaveLength(0);

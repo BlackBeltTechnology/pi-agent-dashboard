@@ -75,7 +75,7 @@ bound on `subscriptions/listen` is pre-existing and unchanged. None.
 
 - Requirements covered: 6/6 (Dual-era endpoint · Legacy auth parity · Event streaming (modified) · Long-lived tokens (modified) · Direct issuance · Settings flow)
 - Scenarios by class: edge 16 · perf 0 · frontend 6 · error 11
-- Scenarios by level: L1 28 · L2 0 · L3 3 · — 1
+- Scenarios by level: L1 29 · L2 0 · L3 3 · — 1
 - Scenarios by disposition: automated 32 · manual-only 1
 
 ## New infra needed

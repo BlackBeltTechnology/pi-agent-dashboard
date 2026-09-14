@@ -29,10 +29,12 @@ import { BASE_URL } from "./lifecycle.js";
  */
 const E2E_AUTH_SECRET = "e2e-auth-secret-32-chars-longxxxx";
 const SESSION_USER = { sub: "e2e@example.com", name: "e2e operator", username: "e2e", provider: "github" };
-/** The seed value written by docker/test-entrypoint.sh (PI_E2E_SEED=1). */
-const SEEDED_TRUSTED_NETWORKS = ["0.0.0.0/0"];
 
 let sessionToken = "";
+/** SNAPSHOT of the harness config taken BEFORE the first mutation; afterAll
+ * restores exactly what was captured (a reused, differently-seeded harness
+ * must never be left with our narrowed trust-any values). */
+let preTestConfig: { trustedNetworks?: unknown; auth?: Record<string, unknown> } | null = null;
 
 function authedHeaders() {
   return { cookie: `${COOKIE_NAME}=${sessionToken}` };
@@ -40,7 +42,7 @@ function authedHeaders() {
 
 async function readConfig(request: import("@playwright/test").APIRequestContext) {
   return (await (await request.get("/api/config", { headers: authedHeaders() })).json()) as {
-    data?: { auth?: Record<string, unknown> };
+    data?: { trustedNetworks?: unknown; auth?: Record<string, unknown> };
   };
 }
 
@@ -48,11 +50,16 @@ async function readConfig(request: import("@playwright/test").APIRequestContext)
  * Narrow the harness's trust-any seed so the auth hook actually runs the
  * cookie branch for the browser (`bypassHosts` from trust-any trustedNetworks
  * otherwise returns BEFORE the cookie validation, so `authVia` never lands).
- * Restored verbatim in afterAll. Safe against racing: `workers: 1`.
+ * Snapshots the harness config BEFORE the first mutation and restores it
+ * verbatim in afterAll. Safe against racing: `workers: 1`.
  */
 async function armOperatorSession(request: import("@playwright/test").APIRequestContext): Promise<void> {
   sessionToken = signToken(SESSION_USER, E2E_AUTH_SECRET);
   const cur = await readConfig(request);
+  preTestConfig = {
+    trustedNetworks: cur.data?.trustedNetworks,
+    auth: cur.data?.auth,
+  };
   await request.put("/api/config", {
     headers: authedHeaders(),
     data: {
@@ -63,17 +70,41 @@ async function armOperatorSession(request: import("@playwright/test").APIRequest
 }
 
 async function restoreOperatorSession(request: import("@playwright/test").APIRequestContext): Promise<void> {
+  if (!preTestConfig) return;
   const cur = await readConfig(request);
   await request.put("/api/config", {
     headers: authedHeaders(),
     data: {
-      trustedNetworks: SEEDED_TRUSTED_NETWORKS,
-      auth: { ...(cur.data?.auth ?? {}), bypassUrls: ["/"] },
+      trustedNetworks: preTestConfig.trustedNetworks,
+      auth: { ...(cur.data?.auth ?? {}), bypassUrls: preTestConfig.auth?.bypassUrls ?? ["/"] },
     },
   });
+  preTestConfig = null;
 }
 
 const SECTION_TITLE = "Paired Devices";
+
+/** Poll the registry until the minted device id disappears (revoke round-trip
+ * is async through the UI reload). */
+async function waitForRegistryDrain(
+  request: import("@playwright/test").APIRequestContext,
+  goneId: string,
+  preMintIds: Set<string>,
+): Promise<void> {
+  for (let i = 0; i < 40; i++) {
+    const list = (await (await request.get("/api/paired-devices", { headers: authedHeaders() })).json())
+      .data as Array<{ id: string; label: string }>;
+    if (!list.some((d) => d.id === goneId)) return;
+    // The pre-existing rows must still be there the whole time.
+    for (const id of preMintIds) {
+      if (list.some((d) => d.id === id) === false && preMintIds.has(id)) {
+        throw new Error(`pre-existing device ${id} was revoked by the spec`);
+      }
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error(`device ${goneId} was never revoked`);
+}
 const CREATE_BUTTON = "Create token for an MCP client";
 const LABEL = "Token label";
 const CREATE = "Create";
@@ -165,6 +196,9 @@ test.describe("MCP client token — Settings flow", () => {
     await gotoPairedDevices(page);
 
     // Mint through the UI (the same flow F1 exercises).
+    const preMintList = (await (await request.get("/api/paired-devices", { headers: authedHeaders() })).json())
+      .data as Array<{ id: string; label: string }>;
+    const preMintIds = new Set(preMintList.map((d) => d.id));
     await page.getByText(CREATE_BUTTON).click();
     await page.getByLabel(LABEL).fill("claude-code");
     await page.getByRole("button", { name: CREATE }).click();
@@ -173,14 +207,17 @@ test.describe("MCP client token — Settings flow", () => {
     const token = (await snippet.textContent())?.match(/Bearer ([A-Za-z0-9_-]+)/)?.[1] ?? "";
     await page.getByRole("button", { name: DISMISS }).click();
 
-    // The dismissal triggers a list reload; settle the DOM to the server's
-    // truth BEFORE draining, or the loop below races the in-flight reload and
-    // reads a pre-mint row count.
+    // Identify the row THIS test minted by diffing the registry against the
+    // pre-mint snapshot — a pre-existing `claude-code` device must survive.
     const rows = page.locator("li", { hasText: "claude-code" });
-    const listed = (await (await request.get("/api/paired-devices", { headers: authedHeaders() })).json())
-      .data as Array<{ label: string }>;
-    const listedCount = listed.filter((d) => d.label === "claude-code").length;
-    await expect(rows).toHaveCount(listedCount, { timeout: 20_000 });
+    const postList = (await (await request.get("/api/paired-devices", { headers: authedHeaders() })).json())
+      .data as Array<{ id: string; label: string }>;
+    const mintedIds = postList.filter((d) => d.label === "claude-code" && !preMintIds.has(d.id)).map((d) => d.id);
+    expect(mintedIds).toHaveLength(1);
+    const mintedId = mintedIds[0] as string;
+    // The dismissal reload may still be in flight — settle the DOM to the
+    // server's truth before interacting with the rows.
+    await expect(rows).toHaveCount(postList.filter((d) => d.label === "claude-code").length, { timeout: 20_000 });
 
     // The token WORKS on /mcp before revoke (legacy era, header only).
     const before = await request.post("/mcp", {
@@ -194,19 +231,18 @@ test.describe("MCP client token — Settings flow", () => {
     });
     expect(before.status()).toBe(200);
 
-    // Revoke the claude-code row(s) (confirm step, same as pairing rows).
-    // F1/F2 minted rows earlier in this run, so drain all of them.
-    for (;;) {
-      const row = rows.first();
-      const n = await rows.count();
-      if (n === 0) break;
+    // Revoke the row this test minted (confirm step, same as pairing rows).
+    // The minted row is the LAST claude-code row (registry append order).
+    {
+      const row = rows.last();
       await row.getByTitle(REVOKE).click();
       await row.getByText("Confirm revoke").click();
-      // Assert the count DROPS by one — toHaveCount retries, so this is
-      // race-free and correct for any remaining row count.
-      await expect(rows).toHaveCount(n - 1, { timeout: 20_000 });
     }
-    await expect(rows).toHaveCount(0, { timeout: 20_000 });
+    // The minted row is gone from the REAL registry; pre-existing rows survive.
+    await waitForRegistryDrain(request, mintedId, preMintIds);
+    const afterList = (await (await request.get("/api/paired-devices", { headers: authedHeaders() })).json())
+      .data as Array<{ id: string; label: string }>;
+    expect(afterList.some((d) => d.id === mintedId)).toBe(false);
 
     // The token no longer authenticates on /mcp.
     const after = await request.post("/mcp", {
