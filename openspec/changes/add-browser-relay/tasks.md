@@ -1,11 +1,11 @@
 ## 1. Plugin runtime WebSocket route hook (spec `plugin-ws-route`, design D1)
 
-- [ ] 1.1 Add `WsRouteRegistration` type (`pathPrefix`, `admitOrigins`, `handleUpgrade`) + `registerWsRoute` to `ServerPluginContext` in `packages/dashboard-plugin-runtime/src/server/server-context.ts`; reject registration after the current activation completes, duplicate scope/prefix, reserved core scopes; re-activation registers afresh. Verify: unit tests in `packages/dashboard-plugin-runtime/src/server/__tests__/ws-route-registry.test.ts` (accept / duplicate throws / reserved throws / late throws / off→on re-registers).
-- [ ] 1.2 Split `WsRouteScope` into `CoreWsRouteScope` + plugin string in `packages/server/src/auth/ws-ticket.ts`; `routeScopeForUrl` consults the registry after core prefixes; `wsTicketStore.consume` and `POST /api/ws-ticket` accept only core scopes. Verify: `ws-ticket.test.ts` — plugin scope resolves from prefix; ticket mint for plugin scope → 400; existing core cases unchanged.
-- [ ] 1.3 Add a plugin-scope origin check beside `isWsOriginTrusted` in `packages/server/src/auth/cors-origin.ts`: non-empty `admitOrigins` → exact match only (core policy not consulted), empty → core policy. Verify: `cors-origin.test.ts` — `chrome-extension://x` admitted only when listed; `http://localhost:5173` rejected on a pinned scope; core-scope behaviour byte-identical against existing fixtures.
-- [ ] 1.4 Wire the registry into the upgrade handler at `packages/server/src/server.ts:2521`: host-gate → plugin origin check → `isGenuinelyLocal` + loopback `Host` + no forwarding headers (extend `localhost-guard.ts` list with `via`, `x-forwarded-server`, `x-forwarded-port` for plugin scopes only) (skip both the secret and no-secret auth branches: no cookie, no localToken, no ticket, no CIDR) → `registration.handleUpgrade`. Verify: `server-ws-plugin-route.test.ts` spins the server, registers a fake scope, asserts gate order via ordered spies and the 403/404 outcomes from the spec scenarios including cookie-holder-rejected, no-secret-CIDR-rejected, and tunnel-Host / `x-forwarded-for` rejected.
-- [ ] 1.5 Teardown on plugin disable/failure: unregister scopes, close sockets 1001. Verify: test toggles a fake plugin off via `POST /api/plugins/:id/toggle`, asserts open socket receives 1001 and a new upgrade gets 404.
-- [ ] 1.6 `doubt-driven-review` pass on the `registerWsRoute` API surface before 2.x starts; record outcome in this file under 1.6.
+- [x] 1.1 Add `WsRouteRegistration` type (`pathPrefix`, `admitOrigins`, `handleUpgrade`) + `registerWsRoute` to `ServerPluginContext` in `packages/dashboard-plugin-runtime/src/server/server-context.ts`; reject registration after the current activation completes, duplicate scope/prefix, reserved core scopes; re-activation registers afresh. Verify: unit tests in `packages/dashboard-plugin-runtime/src/server/__tests__/ws-route-registry.test.ts` (accept / duplicate throws / reserved throws / late throws / off→on re-registers).
+- [x] 1.2 Split `WsRouteScope` into `CoreWsRouteScope` + plugin string in `packages/server/src/auth/ws-ticket.ts`; `routeScopeForUrl` consults the registry after core prefixes; `wsTicketStore.consume` and `POST /api/ws-ticket` accept only core scopes. Verify: `ws-ticket.test.ts` — plugin scope resolves from prefix; ticket mint for plugin scope → 400; existing core cases unchanged.
+- [x] 1.3 Add a plugin-scope origin check beside `isWsOriginTrusted` in `packages/server/src/auth/cors-origin.ts`: non-empty `admitOrigins` → exact match only (core policy not consulted), empty → core policy. Verify: `cors-origin.test.ts` — `chrome-extension://x` admitted only when listed; `http://localhost:5173` rejected on a pinned scope; core-scope behaviour byte-identical against existing fixtures.
+- [x] 1.4 Wire the registry into the upgrade handler at `packages/server/src/server.ts:2521`: host-gate → plugin origin check → `isGenuinelyLocal` + loopback `Host` + no forwarding headers (extend `localhost-guard.ts` list with `via`, `x-forwarded-server`, `x-forwarded-port` for plugin scopes only) (skip both the secret and no-secret auth branches: no cookie, no localToken, no ticket, no CIDR) → `registration.handleUpgrade`. Verify: `server-ws-plugin-route.test.ts` spins the server, registers a fake scope, asserts gate order via ordered spies and the 403/404 outcomes from the spec scenarios including cookie-holder-rejected, no-secret-CIDR-rejected, and tunnel-Host / `x-forwarded-for` rejected.
+- [x] 1.5 Teardown on plugin disable/failure: unregister scopes, close sockets 1001. Verify: test toggles a fake plugin off via `POST /api/plugins/:id/toggle`, asserts open socket receives 1001 and a new upgrade gets 404.
+- [x] 1.6 `doubt-driven-review` pass on the `registerWsRoute` API surface before 2.x starts; record outcome in this file under 1.6.
 
   **1.6 outcome (doubt-driven-review, group 1):** Reviewed the surface
   adversarially: activation-window semantics, registry invariants, gate order
@@ -295,14 +295,14 @@ Exemplars: L1 server auth/upgrade → `packages/server/src/__tests__/cors.test.t
 
 ### Plugin WS route hook (L1, `packages/dashboard-plugin-runtime/src/__tests__/ws-route-registry.test.ts` + `packages/server/src/__tests__/plugin-ws-route.test.ts`; see `loader.test.ts`, `bridge-upgrade-auth.test.ts`)
 
-- [ ] 7.1 Registry decision table: plugin A registers `browser-ext`/`/ws/browser-ext/` · B registers same scope, C registers nested prefix · both throw, A still resolves `/ws/browser-ext/abc` (test-plan #E1)
-- [ ] 7.2 Reserved scopes/prefixes: `browser`,`terminal`,`live`,`bridge`, `/ws`,`/ws/terminal/`,`/live/`,`/ws/bridge` · `registerWsRoute` · throws for all 8, registry unchanged (test-plan #E2)
-- [ ] 7.3 Late registration + re-activation: activation complete · register late, then toggle off→on and register in 2nd activation · first throws, second resolves to new handler (test-plan #E3)
-- [ ] 7.4 Origin admission table: pinned scope vs empty scope · Origins `chrome-extension://abc`, `://xyz`, `http://localhost:5173`, absent · pinned: only abc passes; empty: byte-identical to `isWsOriginTrusted` fixtures (test-plan #E4)
-- [ ] 7.5 Core-scope golden regression: existing `cors.test.ts`/`ws-ticket.test.ts` fixtures · run with a plugin scope registered · all pass; `routeScopeForUrl("/ws?ticket=x")` still `browser` (test-plan #E5)
-- [ ] 7.6 Ticket refusal: `POST /api/ws-ticket {scope:"browser-ext"}` · mint · 400; `consume(ticket,"browser-ext")` false (test-plan #E6)
-- [ ] 7.7 Loopback Host BVA: remote 127.0.0.1, Host ∈ loopback set vs {`share.zrok.io`,`127.0.0.1.evil`,`192.168.1.5:8000`} · ext upgrade with pinned Origin + live guid · loopback set 101, others 403 + `[ws-gate]` log (test-plan #E7)
-- [ ] 7.8 Forwarding headers: loopback + live guid + each of 8 headers singly · upgrade · 403 each; none → 101 (test-plan #E8)
+- [x] 7.1 Registry decision table: plugin A registers `browser-ext`/`/ws/browser-ext/` · B registers same scope, C registers nested prefix · both throw, A still resolves `/ws/browser-ext/abc` (test-plan #E1)
+- [x] 7.2 Reserved scopes/prefixes: `browser`,`terminal`,`live`,`bridge`, `/ws`,`/ws/terminal/`,`/live/`,`/ws/bridge` · `registerWsRoute` · throws for all 8, registry unchanged (test-plan #E2)
+- [x] 7.3 Late registration + re-activation: activation complete · register late, then toggle off→on and register in 2nd activation · first throws, second resolves to new handler (test-plan #E3)
+- [x] 7.4 Origin admission table: pinned scope vs empty scope · Origins `chrome-extension://abc`, `://xyz`, `http://localhost:5173`, absent · pinned: only abc passes; empty: byte-identical to `isWsOriginTrusted` fixtures (test-plan #E4)
+- [x] 7.5 Core-scope golden regression: existing `cors.test.ts`/`ws-ticket.test.ts` fixtures · run with a plugin scope registered · all pass; `routeScopeForUrl("/ws?ticket=x")` still `browser` (test-plan #E5)
+- [x] 7.6 Ticket refusal: `POST /api/ws-ticket {scope:"browser-ext"}` · mint · 400; `consume(ticket,"browser-ext")` false (test-plan #E6)
+- [x] 7.7 Loopback Host BVA: remote 127.0.0.1, Host ∈ loopback set vs {`share.zrok.io`,`127.0.0.1.evil`,`192.168.1.5:8000`} · ext upgrade with pinned Origin + live guid · loopback set 101, others 403 + `[ws-gate]` log (test-plan #E7)
+- [x] 7.8 Forwarding headers: loopback + live guid + each of 8 headers singly · upgrade · 403 each; none → 101 (test-plan #E8)
 - [ ] 7.53 Plugin toggled off: live ext+cdp sockets · `POST /api/plugins/browser/toggle` off · both closed 1001 ≤1 s, new upgrade 404, `/api/browser/status` 404 (test-plan #X11)
 
 ### Relay core (L1, `packages/browser-plugin/src/server/__tests__/*.test.ts`; see `kb-routes.test.ts`, `plugin-action-handler.test.ts`)
@@ -319,18 +319,18 @@ Exemplars: L1 server auth/upgrade → `packages/server/src/__tests__/cors.test.t
 - [x] 7.18 Connect URL: `Profile 37`, `zeroDialog` false/true token `T` · connect (mocked `systemOpen`) · `--profile-directory=Profile 37`, `mcpRelayUrl=ws://127.0.0.1:<port>/ws/browser-ext/<32hex>`, `protocolVersion=2`, `token=T` only when true (test-plan #E18)
 - [x] 7.19 Connect 409 reasons: `installed:false` · connect · 409 `{reason:"not-installed"}`; live instance + busy mode · connect · 409 `{reason:"busy", instanceId}`, first untouched (test-plan #E19)
 - [x] 7.20 Disconnect param BVA: none / unknown / live `instanceId` · POST · 400 / 404 / 200 + ext closed + guid 404 (test-plan #E20)
-- [ ] 7.21 Kill switch: 2 live instances · `PUT /api/browser/enabled {false}` · resolves after both closed; upgrades 403; connect/disconnect 403; `{true}` → 200 (test-plan #E21)
+- [x] 7.21 Kill switch: 2 live instances · `PUT /api/browser/enabled {false}` · resolves after both closed; upgrades 403; connect/disconnect 403; `{true}` → 200 (test-plan #E21)
 - [x] 7.22 Status payload: instance tabs 5, 9 · broadcast · `tabs=[{tabId:5},{tabId:9}]`, no `guid`/`token` keys, `auditSeq` number (test-plan #E22)
 - [x] 7.23 Viewer input mapping BVA: frame 1280×800; `{0,0}`,`{0.5,0.5}`,`{1,1}`,`{1.0001,0}`,`{-0.01,0}` · `mouse` input · (0,0),(640,400),(1280,800); last two dropped + audit `denied` (test-plan #E23)
 - [x] 7.24 Input kinds: `mouse`,`key`,`scroll`,`bringToFront`,`evaluate`,`""` · input · four map to `Input.*`/`Page.bringToFront`; two dropped + audit (test-plan #E24)
-- [ ] 7.25 Tap command ids: client ids 1..1000, tap active · interleaved responses · tap ids ≥2^30, every client response routed with original id, none leaked (test-plan #E25)
-- [ ] 7.26 Frame filtering per session: tab A tapped, B not; extension emits frames for both · forward · client gets B only, subscribers get A; client `Page.startScreencast` A denied, B forwarded (test-plan #E26)
+- [x] 7.25 Tap command ids: client ids 1..1000, tap active · interleaved responses · tap ids ≥2^30, every client response routed with original id, none leaked (test-plan #E25)
+- [x] 7.26 Frame filtering per session: tab A tapped, B not; extension emits frames for both · forward · client gets B only, subscribers get A; client `Page.startScreencast` A denied, B forwarded (test-plan #E26)
 - [x] 7.27 Client screencast precedence: client started screencast on A · viewer subscribes A · refused `client-screencast-active`; after client `stopScreencast` re-subscribe succeeds (test-plan #E27)
 - [x] 7.28 Fake instance gating: env unset / `PI_BROWSER_RELAY_FAKE=1` · activation · none / one `Fake` instance tab 1, ≥5 frames in 1 s (test-plan #E28)
 - [ ] 7.36 Tap fps + latency: fake ext 4 KB @10 fps, 1 subscriber, client 20 `Runtime.evaluate`/s · 5 s · subscriber ≥8 fps; CDP p95 ≤ baseline+100 ms (test-plan #P1)
 - [x] 7.37 Backpressure: sockets A `bufferedAmount` 600 KiB, B 0 · 2 s of frames · A 0 frames, B all; ack every frame; status skipped-count for A (test-plan #P2)
 - [x] 7.38 Status coalescing: 100 audit appends in 100 ms · 1 s · ≤1 status per 500 ms; final `auditSeq` = last (test-plan #P3)
-- [ ] 7.39 Instance churn soak: 200 connect→claim→attach→close cycles · end · maps empty, `wss.clients.size` 0, no MaxListeners warning, RSS growth <20 MB (test-plan #P4)
+- [x] 7.39 Instance churn soak: 200 connect→claim→attach→close cycles · end · maps empty, `wss.clients.size` 0, no MaxListeners warning, RSS growth <20 MB (test-plan #P4)
 - [x] 7.44 Connect timeout: extension never dials · fake timers +60 s · 504, guid 404, map empty (test-plan #X1)
 - [x] 7.45 CDP before extension: CDP first; handshake +5 s / never · connect · held then answered; never → CDP closed at 30 s `Extension not connected` (test-plan #X2)
 - [x] 7.46 CDP never attaches: handshake done, no client · +30 s · instance closed, ext closed, audit `detach/no-cdp-client`, guid 404 (test-plan #X3)
@@ -339,9 +339,9 @@ Exemplars: L1 server auth/upgrade → `packages/server/src/__tests__/cors.test.t
 - [x] 7.49 Last tab closed: 1-tab instance · tab-closed event · ext reason `All controlled tabs detached`, CDP `Extension disconnected`, guid expired (test-plan #X6)
 - [x] 7.50 DevTools detach: tab A viewed · detach `canceled_by_user` A · status detached/devtools ≤1 s; CDP on A → `Target detached: devtools`; B unaffected (test-plan #X7)
 - [x] 7.51 No-frames detector: subscriber on A · 2 s no frames (fake timers) · state `no-frames`; `bringToFront` → `Page.bringToFront`; next frame → `live` (test-plan #X8)
-- [ ] 7.52 Local State missing/corrupt: dir absent; `{not json` · profiles · 200 single `Default` row + `warning` path; connect proceeds to installed check (test-plan #X9)
+- [x] 7.52 Local State missing/corrupt: dir absent; `{not json` · profiles · 200 single `Default` row + `warning` path; connect proceeds to installed check (test-plan #X9)
 - [x] 7.54 systemOpen unavailable: capability false · status, connect · `{canOpenChrome:false}`; 503 (test-plan #X10)
-- [ ] 7.55 Malformed viewer messages: subscribe missing/string `tabId`, unknown `instanceId`; 10 MB input · send · ignored + audit `denied`, socket open, no CDP command (test-plan #X12)
+- [x] 7.55 Malformed viewer messages: subscribe missing/string `tabId`, unknown `instanceId`; 10 MB input · send · ignored + audit `denied`, socket open, no CDP command (test-plan #X12)
 - [x] 7.56 Viewer drops mid-stream: 2 subscribers A · #1 destroyed · #2 keeps frames; after #2 unsubscribes → `Page.stopScreencast` (test-plan #X13)
 - [x] 7.57 Vendor dir integrity: `relay/vendor/` · hash test · equals recorded manifest; `NOTICE` has upstream SHA (test-plan #X14)
 

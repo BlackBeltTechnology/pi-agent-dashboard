@@ -287,3 +287,22 @@ describe("fake instance gating (E28)", () => {
     expect(manager.instances()).toHaveLength(1);
   });
 });
+
+describe("instance churn soak (P4)", () => {
+  it("200 connect→disconnect cycles leave no instance or guid behind", async () => {
+    const h = connectedHarness({ port: 8000 });
+    for (let i = 0; i < 200; i++) {
+      const result = await h.manager.connect("Default");
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      // Capture the guid from the connect URL, then prove it is gone after.
+      const guid = h.guidAt(i);
+      expect(h.manager.resolve(guid)).toBeDefined();
+      expect(h.manager.disconnect(result.instanceId)).toBe(true);
+      expect(h.manager.resolve(guid)).toBeUndefined();
+    }
+    await flush();
+    expect(h.manager.instances()).toHaveLength(0);
+    expect(h.manager.instances("Default")).toHaveLength(0);
+  });
+});

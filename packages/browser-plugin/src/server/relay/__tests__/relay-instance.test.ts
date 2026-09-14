@@ -239,6 +239,46 @@ describe("screencast tap", () => {
     expect(cdpSide.receivedJson().some((m) => m.method === "Page.screencastFrame")).toBe(false);
   });
 
+  it("filters per session across two tabs — subscriber gets only the tapped tab (7.26)", async () => {
+    const { instance, ext, cdpSide } = await boot({
+      tabs: [
+        { id: 7, title: "A", url: "https://a.test/" },
+        { id: 9, title: "B", url: "https://b.test/" },
+      ],
+    });
+    const viewer = viewerSocket();
+    expect(instance.subscribe(viewer, 7).ok).toBe(true);
+    await flush();
+
+    // Frames for BOTH tabs arrive. Tab 7 is tapped; tab 9 is the client's.
+    ext.emitFrame(9, { data: "B-FRAME" });
+    ext.emitFrame(7, { data: "A-FRAME" });
+    await flush();
+
+    expect(viewer.frames().map((f) => (f as { jpegBase64: string }).jpegBase64)).toEqual(["A-FRAME"]);
+    const clientFrames = cdpSide
+      .receivedJson()
+      .filter((m) => m.method === "Page.screencastFrame")
+      .map((m) => (m.params as { data?: string })?.data);
+    expect(clientFrames).toEqual(["B-FRAME"]);
+
+    // Client startScreencast: denied on the tapped session, forwarded on the other.
+    const sessionA = instance.sessionIdForTab(7);
+    const sessionB = instance.sessionIdForTab(9);
+    expect(sessionA).toBeDefined();
+    expect(sessionB).toBeDefined();
+    cdpSide.send(JSON.stringify({ id: 21, method: "Page.startScreencast", sessionId: sessionA, params: {} }));
+    await flush();
+    expect(cdpError(cdpSide, 21).message).toContain("Denied");
+
+    cdpSide.send(JSON.stringify({ id: 22, method: "Page.startScreencast", sessionId: sessionB, params: {} }));
+    await flush();
+    // Not tapped → the client's own screencast is NOT denied (the vendored
+    // model may answer it in-process, so the observable is "no error").
+    expect(instance.tapState.handlesSession(sessionB as string)).toBe(false);
+    expect(cdpResponses(cdpSide).find((m) => m.id === 22)?.error).toBeUndefined();
+  });
+
   it("acks every frame immediately (the extension throttles on acks)", async () => {
     const { instance, ext } = await boot();
     instance.subscribe(viewerSocket(), 7);
