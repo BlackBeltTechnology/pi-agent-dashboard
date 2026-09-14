@@ -14,9 +14,9 @@ import type {
 import { describe, expect, it, vi } from "vitest";
 import {
   DASHBOARD_MCP_KEY,
+  headerCommandPath,
   MCP_TOKEN_ENV_VAR,
   PROVISIONED_PROTOCOL_VERSION,
-  headerCommandPath,
   provisionDashboardEntry,
 } from "../provisioning.js";
 

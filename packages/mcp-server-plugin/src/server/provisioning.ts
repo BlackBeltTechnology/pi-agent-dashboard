@@ -22,12 +22,13 @@
  *
  * See change: extract-mcp-client-plugin (task 6.2).
  */
+
+import { fileURLToPath } from "node:url";
 import {
   type AdapterPort,
   type ConfigIO,
   createMcpClientConfigService,
 } from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
-import { fileURLToPath } from "node:url";
 
 export type { ConfigIO };
 

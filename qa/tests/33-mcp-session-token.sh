@@ -26,7 +26,7 @@ echo "=== Test: MCP session token delivery (P1 baseline, X8 degradation, X9 surf
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 
-BASE="http://localhost:8000"
+BASE="${PI_QA_BASE:-http://localhost:8000}"
 PLUGIN_DIR="${PI_DASHBOARD_PLUGIN_DIR:-}"
 
 # Locate the shipped header command. The qa VM installs the dashboard globally;
@@ -128,7 +128,15 @@ env PI_DASHBOARD_MCP_TOKEN='mcp_x9-secret-value' node "$CMD_SCRIPT" < <(sleep 8)
 CHILD=$!
 sleep 1
 
-ARGS=$(ps -ww -o args= -p "$CHILD" || true)
+# argv via ps when available, else /proc/<pid>/cmdline (NUL-separated). The
+# check must FAIL CLOSED when neither surface is readable — an unreadable
+# surface is not a clean surface.
+ARGS="$(ps -ww -o args= -p "$CHILD" 2>/dev/null || tr '\0' ' ' < "/proc/$CHILD/cmdline" 2>/dev/null || true)"
+if [ -z "$ARGS" ]; then
+  echo "FAIL: could not read the child's argv (no ps, no /proc) — refusing to pass vacuously"
+  kill "$CHILD" 2>/dev/null || true
+  exit 1
+fi
 if echo "$ARGS" | grep -q 'mcp_x9-secret-value'; then
   echo "FAIL: token visible in argv: $ARGS"
   kill "$CHILD" 2>/dev/null || true

@@ -20,8 +20,8 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import {
-  MCP_TOKEN_ENV_VAR,
   handleMcpTokenMinted,
+  MCP_TOKEN_ENV_VAR,
   type McpTokenDeliveryDeps,
 } from "../mcp-token-delivery.js";
 

@@ -63,15 +63,15 @@ live in `test-plan.md`; these tasks carry the harness exemplar and the Triple.
 
 ### 6.2 L2 — qa smoke (`qa/tests/*.sh`)
 
-- [ ] 6.2.1 (test-plan #P1) Per-request header-command baseline — see `qa/tests/33-mcp-session-token.sh` (P1 leg). Triple: 20 sequential `tools/list` round trips through the real provisioned entry · run once · median + p95 ms per request printed to the qa log as a recorded baseline (no pass/fail threshold). If the VM cannot host a real adapter child, record the number in design.md instead of dropping it
-- [ ] 6.2.2 (test-plan #X8) Unbridged session degrades cleanly — see `qa/tests/33-mcp-session-token.sh` (X8 leg). Triple: pi session started while the dashboard is down, Pi-global entry already present · the session attempts an MCP call · one clean 401 surfaced once, no retry storm, no crash, no loopback lockout
-- [ ] 6.2.3 (test-plan #X9) Linux process-surface probe — see `qa/tests/33-mcp-session-token.sh` (X9 leg). Triple: a live adapter child on a Linux qa VM · `ps -ww -o args=` on that pid and `stat /proc/<pid>/environ` · argv carries no token, `environ` is owner-only
+- [x] 6.2.1 (test-plan #P1) Per-request header-command baseline — see `qa/tests/33-mcp-session-token.sh` (P1 leg). Triple: 20 sequential `tools/list` round trips through the real provisioned entry · run once · median + p95 ms per request printed to the qa log as a recorded baseline (no pass/fail threshold). If the VM cannot host a real adapter child, record the number in design.md instead of dropping it
+- [x] 6.2.2 (test-plan #X8) Unbridged session degrades cleanly — see `qa/tests/33-mcp-session-token.sh` (X8 leg). Triple: pi session started while the dashboard is down, Pi-global entry already present · the session attempts an MCP call · one clean 401 surfaced once, no retry storm, no crash, no loopback lockout
+- [x] 6.2.3 (test-plan #X9) Linux process-surface probe — see `qa/tests/33-mcp-session-token.sh` (X9 leg). Triple: a live adapter child on a Linux qa VM · `ps -ww -o args=` on that pid and `stat /proc/<pid>/environ` · argv carries no token, `environ` is owner-only
 
 ### 6.3 L3 — Playwright e2e (`tests/e2e/*.spec.ts`, docker harness)
 
-- [ ] 6.3.1 (test-plan #F1) Restart re-delivers — see `tests/e2e/mcp-session-token.spec.ts`. Triple: a live pi session authenticated to `/mcp` · `POST /api/restart`, bridge reconnects · a fresh token is minted and `tools/list` succeeds with no operator action; the pre-restart token is refused
-- [ ] 6.3.2 (test-plan #F5) Two sessions in one cwd stay distinct — see `tests/e2e/mcp-session-token.spec.ts`. Triple: sessions A and B started in the same directory behind one identical Pi-global command line · each invokes a tool · A resolves A, B resolves B, the two bearers differ
-- [ ] 6.3.3 (test-plan #F6) Works out of the box — see `tests/e2e/mcp-session-token.spec.ts`. Triple: fresh harness, no operator-edited MCP config · a session connects `pi-dashboard` and calls `tools/list` · the 4 advertised tools are returned and `mcp.json` was never hand-edited
+- [x] 6.3.1 (test-plan #F1) Restart re-delivers — see `tests/e2e/mcp-session-token.spec.ts`. Triple: a live pi session authenticated to `/mcp` · `POST /api/restart`, bridge reconnects · a fresh token is minted and `tools/list` succeeds with no operator action; the pre-restart token is refused
+- [x] 6.3.2 (test-plan #F5) Two sessions in one cwd stay distinct — see `tests/e2e/mcp-session-token.spec.ts`. Triple: sessions A and B started in the same directory behind one identical Pi-global command line · each invokes a tool · A resolves A, B resolves B, the two bearers differ
+- [x] 6.3.3 (test-plan #F6) Works out of the box — see `tests/e2e/mcp-session-token.spec.ts`. Triple: fresh harness, no operator-edited MCP config · a session connects `pi-dashboard` and calls `tools/list` · the 4 advertised tools are returned and `mcp.json` was never hand-edited
 
 ### 6.4 Manual (deferred post-merge by `ship-change`)
 

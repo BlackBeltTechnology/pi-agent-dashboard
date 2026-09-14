@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures.js";
-import { pairDeviceBearer, gatewayUrlWithTicket } from "./helpers/bridge-credential.js";
+import { gatewayUrlWithTicket, pairDeviceBearer } from "./helpers/bridge-credential.js";
 import { BASE_URL } from "./lifecycle.js";
 
 // L3 — the wired per-session MCP credential (test-plan #F1, #F5, #F6;
@@ -159,9 +159,14 @@ test.describe("wired per-session MCP credential (wire-mcp-session-token)", () =>
     // The harness container's mcp.json is NEVER hand-edited. The dashboard's
     // own provisioning wrote the entry on boot; the effective view proves the
     // auth transport is present and carries no credential at rest.
-    const effective = (await request.get("/api/mcp-client/effective")).json() as {
+    // Host-side fetch (the bridge-credential helper's pattern): the specs dial
+    // the published dashboard port directly.
+    const raw = (await (
+      await fetch(`${BASE_URL}/api/mcp-client/effective`)
+    ).json()) as {
       servers?: Array<{ name: string; entry: Record<string, unknown> }>;
     };
+    const effective = raw;
     const entry = effective.servers?.find((s) => s.name === "pi-dashboard")?.entry;
     expect(entry, "pi-dashboard entry must be provisioned out of the box").toBeTruthy();
     const cmd = entry?.requestHeadersCommand as
