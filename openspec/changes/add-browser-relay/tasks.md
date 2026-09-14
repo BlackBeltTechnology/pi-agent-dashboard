@@ -254,8 +254,8 @@ internal-only symbols and dropped the redundant named `registerPlugin` export.
 
 ## 5. Browser skill routing (spec `default-browser-skill`, design D8)
 
-- [ ] 5.1 Write `packages/extension/.pi/skills/browser/references/dashboard-relay.md` (status probe → profiles → connect → `agent-browser connect <cdpUrl>` → web recipe; deny-list = loud failure; tab-group isolation; 409 `reason` branching (`not-installed` vs `busy`), 503/504 handling; requires the pi session to run on the dashboard host (loopback `cdpUrl`); never fall back to bundled browser for login-state tasks). Verify: file exists; skill packaging test lists it.
-- [ ] 5.2 Update `SKILL.md`: Step 0b logged-in branch (probe `GET /api/browser/status`), routing table row, `allowed-tools` adds `Bash(curl:*)` (keeps `Bash(npx @panerelay/setup:*)`), description mentions the relay; mark `own-browser.md` legacy. Verify: existing skill-structure test updated for the new file list and frontmatter.
+- [x] 5.1 Write `packages/extension/.pi/skills/browser/references/dashboard-relay.md` (status probe → profiles → connect → `agent-browser connect <cdpUrl>` → web recipe; deny-list = loud failure; tab-group isolation; 409 `reason` branching (`not-installed` vs `busy`), 503/504 handling; requires the pi session to run on the dashboard host (loopback `cdpUrl`); never fall back to bundled browser for login-state tasks). Verify: file exists; skill packaging test lists it.
+- [x] 5.2 Update `SKILL.md`: Step 0b logged-in branch (probe `GET /api/browser/status`), routing table row, `allowed-tools` adds `Bash(curl:*)` (keeps `Bash(npx @panerelay/setup:*)`), description mentions the relay; mark `own-browser.md` legacy. Verify: existing skill-structure test updated for the new file list and frontmatter.
 - [ ] 5.3 Manual QA: in a pi session run the skill against profile `OSS` — `agent-browser connect` succeeds, `snapshot -i` shows the real tab, tab group appears in Chrome, live-view tile shows frames, `Bring to front` works. Record evidence (log excerpt) here.
 
 ## 6. Security, docs, closeout
@@ -324,9 +324,9 @@ Exemplars: L1 server auth/upgrade → `packages/server/src/__tests__/cors.test.t
 ### Shared / skill / manifest (L1)
 
 - [x] 7.29 Protocol union members (`packages/shared/src/__tests__/browser-protocol-types.test.ts`): unions · exhaustiveness · 3+2 new members present; frame/status have no `guid`/`token` (type-level) (test-plan #E29)
-- [ ] 7.30 Skill layout + frontmatter (`packages/extension/src/__tests__/browser-skill-registered.test.ts`): packaged skill dir · structure test · `references/dashboard-relay.md` present; `allowed-tools` has all four grants (test-plan #E30)
+- [x] 7.30 Skill layout + frontmatter (`packages/extension/src/__tests__/browser-skill-registered.test.ts`): packaged skill dir · structure test · `references/dashboard-relay.md` present; `allowed-tools` has all four grants (test-plan #E30)
 - [x] 7.31 Plugin manifest (`packages/dashboard-plugin-runtime/src/__tests__/loader.test.ts` pattern): `packages/browser-plugin/package.json` · loader validation · id `browser`, claims resolve, `token` `writeOnly` (test-plan #E31)
-- [ ] 7.58 Skill routing branches (`browser-skill-registered.test.ts` pattern): SKILL.md + dashboard-relay.md · text assertions · each branch (status 404/`enabled:false`/`canOpenChrome:false`/409 not-installed/409 busy/503/504) present with the specified instruction (test-plan #X15)
+- [x] 7.58 Skill routing branches (`browser-skill-registered.test.ts` pattern): SKILL.md + dashboard-relay.md · text assertions · each branch (status 404/`enabled:false`/`canOpenChrome:false`/409 not-installed/409 busy/503/504) present with the specified instruction (test-plan #X15)
 
 ### Client RTL (L1, `packages/browser-plugin/src/client/__tests__/*.test.tsx`; see `HermesMemorySettings.test.tsx`)
 
