@@ -210,12 +210,27 @@ buffered-amount occupancy — the observed maximum, the p95, and the cumulative
 milliseconds spent above the threshold since boot — so a saturation claim can be
 measured rather than inferred.
 
+These values are **observation-based, not continuous wall-clock**. Occupancy is
+sampled when the server makes a send decision for a socket, so a crossing that
+begins and ends entirely between two such decisions is not observed, and a
+reported duration is bounded by the samples that delimit it. The metric SHALL
+NOT report an unbounded duration for a socket that has drained: a span whose
+socket is no longer above the threshold SHALL be settled at its next reading
+rather than continuing to accrue.
+
 #### Scenario: Occupancy is reported
 
 - **WHEN** `/api/health` is fetched while at least one browser socket is connected
 - **THEN** the response SHALL report buffered-amount occupancy for browser sockets
 - **AND** the reported values SHALL include `max`, `p95`, and cumulative
-  milliseconds above the threshold
+  milliseconds above the threshold, each derived from observed samples
+
+#### Scenario: A drained socket stops accruing duration
+
+- **GIVEN** a socket observed above the threshold
+- **WHEN** it drains below the threshold without a further send decision
+- **AND** `/api/health` is fetched repeatedly
+- **THEN** the reported cumulative milliseconds SHALL NOT grow with each fetch
 
 #### Scenario: Occupancy is reported without a saturation event
 

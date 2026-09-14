@@ -845,7 +845,16 @@ export function createBrowserGateway(
       if (!session) continue;
       const delivered = sendTo(
         ws,
-        { type: "session_updated", sessionId: id, updates: { status: session.status, currentTool: session.currentTool } },
+        {
+          type: "session_updated",
+          sessionId: id,
+          // `?? null` is load-bearing. `currentTool` is optional, and the client
+          // merges with `{ ...existing, ...updates }` — an `undefined` here is
+          // dropped by `JSON.stringify`, so the merge would PRESERVE the stale
+          // tool name. `null` is the established clearing value, so a session
+          // that finished its tool reconciles to "no tool", not to the old one.
+          updates: { status: session.status, currentTool: session.currentTool ?? null },
+        },
         { sessionId: id },
       );
       // Only a frame that reached the wire counts. `sendTo` re-checks the
@@ -1801,12 +1810,24 @@ export function createBrowserGateway(
     },
 
     getSocketBufferOccupancy(): SocketBufferOccupancy {
-      // Add spans that are still OPEN. Accrual otherwise happens only on the
-      // above→below transition, so during an active stall — the exact case this
-      // metric exists to size — every sample is above and the reported duration
-      // would stay 0 for the whole incident. Read-only: the map is not mutated,
-      // so a later transition still accrues the full span exactly once.
+      // Accrual otherwise happens only on the above→below transition, so during
+      // an active stall — the exact case this metric exists to size — every
+      // sample is above and the reported duration would stay 0 for the whole
+      // incident. So open spans are added here too.
+      //
+      // First SETTLE spans whose socket has since drained (or closed) without
+      // another sampled send. Sampling is event-driven, so such a span would
+      // otherwise stay open forever and grow on EVERY health read — an
+      // unbounded over-report. Settling is idempotent: the entry is deleted, so
+      // a later exit cannot accrue it twice.
       const now = Date.now();
+      for (const [ws, since] of [...occupancyAboveSince]) {
+        const stillAbove =
+          ws.readyState === WebSocket.OPEN && MAX_WS_BUFFER > 0 && ws.bufferedAmount > MAX_WS_BUFFER;
+        if (stillAbove) continue;
+        occupancyMsAboveThreshold += now - since;
+        occupancyAboveSince.delete(ws);
+      }
       let msAboveThreshold = occupancyMsAboveThreshold;
       for (const since of occupancyAboveSince.values()) msAboveThreshold += now - since;
       if (occupancySamples.length === 0) return { max: occupancyMax, p95: 0, msAboveThreshold };

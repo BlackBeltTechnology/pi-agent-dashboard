@@ -527,3 +527,57 @@ describe("reconcile + occupancy counters report reality", () => {
     expect(after.msAboveThreshold).toBeLessThan(120_000);
   });
 });
+
+// ── CodeRabbit round 1 (PR #657): two counter/merge correctness gaps ────
+// See change: fix-backpressure-status-and-subagent-frames.
+
+describe("reconcile clears a finished tool, and occupancy cannot over-report", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("sends currentTool: null rather than omitting it, so the client cannot keep a stale tool", () => {
+    const { gateway, manager } = buildDebtGateway(["s1"]);
+    // The tool FINISHED: the record carries no `currentTool` at all.
+    manager.update("s1", { status: "idle" });
+    const client = attachCapturedWs(gateway);
+    client.saturate();
+    gateway.broadcastSessionUpdated("s1", { status: "idle" });
+
+    client.drain();
+    vi.advanceTimersByTime(250);
+
+    const delivered = client.statusFrames();
+    expect(delivered).toHaveLength(1);
+    // `undefined` would be dropped by JSON.stringify, and the client merges with
+    // `{ ...existing, ...updates }` — so an omitted key PRESERVES the old tool.
+    expect("currentTool" in delivered[0].updates).toBe(true);
+    expect(delivered[0].updates.currentTool).toBeNull();
+  });
+
+  it("settles the occupancy span of a socket that drained without another send", () => {
+    const { gateway } = buildDebtGateway(["s1"]);
+    const client = attachCapturedWs(gateway);
+
+    client.saturate();
+    gateway.broadcastSessionUpdated("s1", { status: "streaming" }); // opens the span
+    vi.advanceTimersByTime(10_000);
+
+    // Socket drains, and NOTHING samples it again (no further sends).
+    client.drain();
+    const first = gateway.getSocketBufferOccupancy().msAboveThreshold;
+    expect(first).toBeGreaterThanOrEqual(10_000);
+
+    // Repeated health reads must not keep growing the span: sampling is
+    // event-driven, so an unsettled span would add elapsed time on every read.
+    vi.advanceTimersByTime(60_000);
+    expect(gateway.getSocketBufferOccupancy().msAboveThreshold).toBe(first);
+    vi.advanceTimersByTime(60_000);
+    expect(gateway.getSocketBufferOccupancy().msAboveThreshold).toBe(first);
+  });
+});

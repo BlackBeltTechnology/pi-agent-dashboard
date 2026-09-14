@@ -168,6 +168,7 @@ test.describe("shed session_updated is reconciled in the rendered UI", () => {
     await card.click();
     await expect.poll(() => statusShape(page, sessionId), { timeout: 30_000 }).toBe("idle");
 
+    const before = await reconcileCounters(page);
     await setForceShed(page, true);
     received.seen.length = 0; // only frames from here on are under test
 
@@ -181,8 +182,15 @@ test.describe("shed session_updated is reconciled in the rendered UI", () => {
     );
     expect(shutdown).toBe(200);
 
+    // The edge was SHED AND OWED — not merely absent. Without this the
+    // "no frame arrived" assertion below would also pass if the server had
+    // never emitted the `ended` update at all, making the release step's
+    // delivery unattributable to the reconcile.
+    await expect
+      .poll(async () => (await reconcileCounters(page)).queued, { timeout: 30_000 })
+      .toBeGreaterThan(before.queued);
+
     // The edge did NOT land, and the card is still rendering as live.
-    await page.waitForTimeout(3_000);
     expect(received.forSession(sessionId)).toHaveLength(0);
     expect(await statusShape(page, sessionId)).toBe("idle");
 
