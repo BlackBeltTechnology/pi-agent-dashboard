@@ -173,6 +173,15 @@ test.describe("MCP client token — Settings flow", () => {
     const token = (await snippet.textContent())?.match(/Bearer ([A-Za-z0-9_-]+)/)?.[1] ?? "";
     await page.getByRole("button", { name: DISMISS }).click();
 
+    // The dismissal triggers a list reload; settle the DOM to the server's
+    // truth BEFORE draining, or the loop below races the in-flight reload and
+    // reads a pre-mint row count.
+    const rows = page.locator("li", { hasText: "claude-code" });
+    const listed = (await (await request.get("/api/paired-devices", { headers: authedHeaders() })).json())
+      .data as Array<{ label: string }>;
+    const listedCount = listed.filter((d) => d.label === "claude-code").length;
+    await expect(rows).toHaveCount(listedCount, { timeout: 20_000 });
+
     // The token WORKS on /mcp before revoke (legacy era, header only).
     const before = await request.post("/mcp", {
       headers: {
@@ -187,7 +196,6 @@ test.describe("MCP client token — Settings flow", () => {
 
     // Revoke the claude-code row(s) (confirm step, same as pairing rows).
     // F1/F2 minted rows earlier in this run, so drain all of them.
-    const rows = page.locator("li", { hasText: "claude-code" });
     for (;;) {
       const row = rows.first();
       const n = await rows.count();
