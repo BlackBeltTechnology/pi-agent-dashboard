@@ -5,38 +5,36 @@
  * in switch statements were dead-code eliminated by esbuild because the message
  * types were not in the ServerToBrowserMessage union.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import type {
-  ServerToBrowserMessage,
-  BrowserToServerMessage,
-  BrowserPromptRequestMessage,
-  BrowserPromptDismissMessage,
-  BrowserPromptCancelMessage,
-  BrowserExtUiDecoratorMessage,
+  BatchAnswer,
+  BatchQuestion,
   BrowserAssetRegisterMessage,
+  BrowserExtUiDecoratorMessage,
   BrowserNotifyMessage,
-  RecoveryDismissMessage,
+  BrowserPromptCancelMessage,
+  BrowserPromptDismissMessage,
+  BrowserPromptRequestMessage,
+  BrowserRelayFrameMessage,
+  BrowserRelayInputMessage,
+  BrowserRelayStatusMessage,
+  BrowserRelaySubscribeMessage,
+  BrowserRelayUnsubscribeMessage,
+  BrowserToServerMessage,
   OpenSpecGetMessage,
   OpenSpecGetResultMessage,
+  RecoveryDismissMessage,
+  ServerToBrowserMessage,
   SessionsPageMessage,
   SessionsPageResultMessage,
   SessionsSnapshotMessage,
-  BatchQuestion,
-  BatchAnswer,
 } from "../browser-protocol.js";
 import type {
+  AssetRegisterMessage,
   ExtensionToServerMessage,
   ExtUiDecoratorMessage,
-  AssetRegisterMessage,
   NotifyMessage,
 } from "../protocol.js";
-import type {
-  BrowserRelaySubscribeMessage,
-  BrowserRelayUnsubscribeMessage,
-  BrowserRelayInputMessage,
-  BrowserRelayFrameMessage,
-  BrowserRelayStatusMessage,
-} from "../browser-protocol.js";
 import type { DecoratorDescriptor } from "../types.js";
 
 // Type-level assertion: if these types are NOT in the union, this will fail to
