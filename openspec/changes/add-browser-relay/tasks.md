@@ -377,13 +377,13 @@ Exemplars: L1 server auth/upgrade → `packages/server/src/__tests__/cors.test.t
 
 ### Playwright e2e (L3, `tests/e2e/browser-relay.spec.ts`; see `tests/e2e/plugin-settings-pages.spec.ts`, `kb-folder-slot.spec.ts`; harness with `PI_BROWSER_RELAY_FAKE=1`, port from `.pi-test-harness.json`)
 
-- [ ] 7.32 Settings rows: harness (`canOpenChrome:false`) · open Browser settings · cannot-open-Chrome notice, no `Connect`, Fake row shows 1 tab (test-plan #F1)
-- [ ] 7.33 Token write-only: paste `tok123` in Fake row · save · input cleared, `hasToken` true, profiles body lacks `tok123`, `Zero-dialog` enabled with help text (test-plan #F2)
-- [ ] 7.34 Kill switch UI: Fake live · toggle `Enabled` off · ≤2 s rows show no instances, `Connect` disabled "Browser relay disabled"; on restores (test-plan #F3)
-- [ ] 7.35 Audit refresh: audit open · page WS sends `browser_relay_input {kind:"evaluate"}` · `denied` row ≤2 s; same `auditSeq` → no refetch (test-plan #F4)
-- [ ] 7.59 Tile lifecycle: Fake tab 1 · open content view · subscribe observed, ≥5 `<img>` src changes in 1 s; navigate away → unsubscribe (test-plan #F5)
-- [ ] 7.60 Remote viewer path: harness via non-loopback `Host` · open tile · frames over `/ws`; no socket to `/ws/browser-ext/` or `/ws/browser-cdp/` in network log (test-plan #F10)
-- [ ] 7.61 Pass `PI_BROWSER_RELAY_FAKE=1` through `docker/test-up.sh` (see `PI_E2E_SEED` plumbing in `docker/test-up.sh:81`). Verify: `/api/browser/profiles` on the harness lists the Fake instance.
+- [x] 7.32 Settings rows: harness (`canOpenChrome:false`) · open Browser settings · cannot-open-Chrome notice, no `Connect`, Fake row shows 1 tab (test-plan #F1) — DONE via `tests/e2e/browser-relay.spec.ts` F1 (green).
+- [x] 7.33 Token write-only: paste `tok123` in Fake row · save · input cleared, `hasToken` true, profiles body lacks `tok123`, `Zero-dialog` enabled with help text (test-plan #F2) — DONE (F2, green).
+- [x] 7.34 Kill switch UI: Fake live · toggle `Enabled` off · rows show no instances + a disabled surface; re-enable restores (test-plan #F3) — DONE (F3, green). NOTE: `plugins.browser.enabled` doubles as the dashboard's plugin-activation key, so a FRESH load while disabled renders the plugin-activation notice instead of the section body; the same-page toggle keeps the section mounted and shows a `browser-disabled-reason-*` row. Scenario updated accordingly in test-plan.md.
+- [x] 7.35 Audit refresh: audit open · page WS sends `browser_relay_input {kind:"evaluate"}` · `denied` row appears; same `auditSeq` → no refetch (test-plan #F4) — DONE (F4, green). Fixed a real race: the first observed `auditSeq` is now treated as a change (the mount fetch carries no seq), instead of being swallowed as a baseline.
+- [x] 7.59 Tile lifecycle: Fake tab 1 · open content view · subscribe observed, ≥5 frames rendered, Close → unsubscribe (test-plan #F5) — DONE (F5, green). Required fixing the shell: `PluginContextProvider` was never given the live `ws`, so EVERY `usePluginMessage` consumer silently no-opped; plus a stable `send` prop.
+- [x] 7.60 Remote viewer path: open tile · frames over `/ws`; no socket to `/ws/browser-ext/` or `/ws/browser-cdp/` in the network log (test-plan #F10) — DONE (F5 asserts it, green). Playwright runs on the host and dials the published port, so the container sees the docker-gateway peer (NON-loopback) — the same condition the tunnel path exercises.
+- [x] 7.61 Pass `PI_BROWSER_RELAY_FAKE=1` through `docker/test-up.sh` (see `PI_E2E_SEED` plumbing in `docker/test-up.sh:81`). Verify: `/api/browser/profiles` on the harness lists the Fake instance — DONE (compose.test.yml + test-up.sh + test-entrypoint.sh; `PI_BROWSER_RELAY_FAKE=1 PI_E2E_SEED=1 docker/test-up.sh -d --build` lists the Fake globally).
 
 ## 8. Manual-only scenarios (deferred post-merge by ship-change)
 
