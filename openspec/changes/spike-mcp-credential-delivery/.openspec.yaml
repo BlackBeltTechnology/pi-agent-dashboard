@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-09-14
+# Investigation only — the deliverable is findings.md, no shipped behaviour and
+# no capability deltas. `wire-mcp-session-token` owns the eventual spec changes.
+skip_specs: true
