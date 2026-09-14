@@ -37,9 +37,14 @@ defect, older than the parent change, not something it introduced.
   empirical read produces `READ-DENIED` or `READ-SUCCEEDED` rather than
   `infeasible`.
 - Extend the same observation to `identity.key` and `paired-devices.json`.
-- **If any read succeeds**: treat it as a pre-existing defect across all three
-  files and fix it where the files are created — explicit ACLs on the credential
-  directory rather than reliance on inheritance.
+- **If any read succeeds**: treat the exposed file(s) as a defect and fix where
+  the files are created — but establish the SCOPE per file first. `local/token`
+  sits in a `local` subdirectory while `identity.key` and `paired-devices.json`
+  sit directly under `.pi\dashboard`, so they do not inherit from the same
+  parent and any file may carry explicit ACEs. A successful read proves that
+  target is exposed; a shared credential-directory ACL fix is owed only once
+  per-file DACL evidence shows a common cause. (Corrected after review; the
+  original wording inferred a shared cause from a single successful read.)
 - Record the verdict in `docs/architecture.md` so the Windows trust story stops
   being an inference.
 
