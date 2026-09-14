@@ -18,7 +18,7 @@ import {
   topologicalSort,
   transitiveDependents,
 } from "../dependency-graph.js";
-import { ManifestValidationError, validateManifest } from "../manifest-validator.js";
+import { validateManifest } from "../manifest-validator.js";
 import { createPluginStatusStore, type PluginStatusStore } from "./plugin-status-store.js";
 import {
   missingFromReport,

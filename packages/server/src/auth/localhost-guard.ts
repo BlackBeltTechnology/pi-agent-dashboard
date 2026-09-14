@@ -115,7 +115,7 @@ export function isBypassedHost(sourceIp: string, bypassHosts: string[]): boolean
     if (entry.includes("/")) {
       if (matchCidr(ip, entry)) return true;
     } else if (entry.includes("*")) {
-      const pattern = new RegExp("^" + entry.replace(/\./g, "\\.").replace(/\*/g, "\\d+") + "$");
+      const pattern = new RegExp(`^${entry.replace(/\./g, "\\.").replace(/\*/g, "\\d+")}$`);
       if (pattern.test(ip)) return true;
     } else {
       if (ip === entry) return true;

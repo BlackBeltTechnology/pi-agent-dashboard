@@ -16,7 +16,7 @@ import {
 import { createSlotRegistry } from "../slot-registry.js";
 
 // Helper: render a component that calls a hook, capture the result
-function renderHook<T>(hookFn: () => T, wrapper: React.FC<{ children: React.ReactNode }>) {
+function _renderHook<T>(hookFn: () => T, wrapper: React.FC<{ children: React.ReactNode }>) {
   let result: T;
   function TestComponent() {
     result = hookFn();

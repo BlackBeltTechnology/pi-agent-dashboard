@@ -91,6 +91,31 @@ export const RESERVED_WS_PATH_PREFIXES = ["/ws", "/ws/terminal/", "/live/", "/ws
 const KEBAB_SCOPE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const PATH_PREFIX = /^\/ws\/[a-z0-9-]+(\/[a-z0-9-]+)*\/$/;
 
+/** The reserved core prefix `pathPrefix` equals or nests under, or null. */
+function reservedCollision(pathPrefix: string): string | null {
+  for (const reserved of RESERVED_WS_ROUTES) {
+    const nested = reserved.exact
+      ? pathPrefix === reserved.prefix
+      : pathPrefix === reserved.prefix ||
+        pathPrefix.startsWith(reserved.prefix.endsWith("/") ? reserved.prefix : `${reserved.prefix}/`);
+    if (nested) return reserved.prefix;
+  }
+  return null;
+}
+
+/** The first existing registration whose prefix overlaps `pathPrefix`, or null. */
+function prefixOverlap(
+  pathPrefix: string,
+  registrations: Iterable<ActiveRegistration>,
+): ActiveRegistration | null {
+  for (const existing of registrations) {
+    if (pathPrefix.startsWith(existing.pathPrefix) || existing.pathPrefix.startsWith(pathPrefix)) {
+      return existing;
+    }
+  }
+  return null;
+}
+
 export class WsRouteRegistry {
   private byScope = new Map<string, ActiveRegistration>();
   /** Prefixes of torn-down registrations: later upgrades 404, deterministically. */
@@ -145,25 +170,20 @@ export class WsRouteRegistry {
     if (!Array.isArray(opts?.admitOrigins)) {
       throw new Error(`registerWsRoute(${scope}): admitOrigins must be an array of strings`);
     }
-    for (const reserved of RESERVED_WS_ROUTES) {
-      const nested = reserved.exact
-        ? pathPrefix === reserved.prefix
-        : pathPrefix === reserved.prefix || pathPrefix.startsWith(reserved.prefix.endsWith("/") ? reserved.prefix : reserved.prefix + "/");
-      if (nested) {
-        throw new Error(
-          `registerWsRoute(${scope}): pathPrefix "${pathPrefix}" collides with reserved core prefix "${reserved.prefix}"`,
-        );
-      }
+    const reserved = reservedCollision(pathPrefix);
+    if (reserved) {
+      throw new Error(
+        `registerWsRoute(${scope}): pathPrefix "${pathPrefix}" collides with reserved core prefix "${reserved}"`,
+      );
     }
     if (this.byScope.has(scope)) {
       throw new Error(`registerWsRoute: scope "${scope}" is already registered`);
     }
-    for (const existing of this.byScope.values()) {
-      if (pathPrefix.startsWith(existing.pathPrefix) || existing.pathPrefix.startsWith(pathPrefix)) {
-        throw new Error(
-          `registerWsRoute(${scope}): pathPrefix "${pathPrefix}" overlaps "${existing.pathPrefix}" (scope "${existing.scope}")`,
-        );
-      }
+    const overlap = prefixOverlap(pathPrefix, this.byScope.values());
+    if (overlap) {
+      throw new Error(
+        `registerWsRoute(${scope}): pathPrefix "${pathPrefix}" overlaps "${overlap.pathPrefix}" (scope "${overlap.scope}")`,
+      );
     }
     this.byScope.set(scope, {
       pluginId,

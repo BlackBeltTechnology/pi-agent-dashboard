@@ -44,8 +44,8 @@ function readRawConfig(): Record<string, unknown> {
 function writeRawConfig(merged: Record<string, unknown>): void {
   const { dir, file } = configPaths();
   fs.mkdirSync(dir, { recursive: true });
-  const tmp = file + ".tmp." + process.pid;
-  fs.writeFileSync(tmp, JSON.stringify(merged, null, 2) + "\n");
+  const tmp = `${file}.tmp.${process.pid}`;
+  fs.writeFileSync(tmp, `${JSON.stringify(merged, null, 2)}\n`);
   fs.renameSync(tmp, file);
 }
 

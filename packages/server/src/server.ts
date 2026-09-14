@@ -113,7 +113,7 @@ import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager } from "./pairing/pairing.js";
 import { createPendingAttachRegistry } from "./pending/pending-attach-registry.js";
 import { createPendingClientCorrelations } from "./pending/pending-client-correlations.js";
-import { createPendingForkRegistry, type PendingForkRegistry } from "./pending/pending-fork-registry.js";
+import { createPendingForkRegistry } from "./pending/pending-fork-registry.js";
 import { createPendingInitialPromptRegistry } from "./pending/pending-initial-prompt-registry.js";
 import { createPendingPluginRefRegistry } from "./pending/pending-plugin-ref-registry.js";
 import { createPendingPromptAcks } from "./pending/pending-prompt-acks.js";
@@ -121,13 +121,13 @@ import { createPendingResumeIntentRegistry } from "./pending/pending-resume-inte
 import { createPendingWorktreeBaseRegistry } from "./pending/pending-worktree-base-registry.js";
 import { recordExitIntent, resolveExitIntent, stampBootStart } from "./persistence/boot-state.js";
 import { createMemoryEventStore, DEFAULT_MAX_EVENT_DATA_SIZE, type EventStore } from "./persistence/memory-event-store.js";
-import { createMetaPersistence, type MetaPersistence } from "./persistence/meta-persistence.js";
+import { createMetaPersistence } from "./persistence/meta-persistence.js";
 import { migrateCustomEntryFallbackOverrides } from "./persistence/migrate-custom-entry-fallback.js";
 import { needsMigration, runMigration } from "./persistence/migrate-persistence.js";
-import { createPreferencesStore, type PreferencesStore } from "./persistence/preferences-store.js";
+import { createPreferencesStore } from "./persistence/preferences-store.js";
 import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
-import { createPiGateway, type PiGateway } from "./pi/pi-gateway.js";
+import { createPiGateway } from "./pi/pi-gateway.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
 import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
@@ -189,8 +189,8 @@ import { createIdleTimer } from "./spawn-process/idle-timer.js";
 import { getKeeperManager, setCwdPolicyRegistry, spawnPiSession } from "./spawn-process/process-manager.js";
 import { removePid, writePid } from "./spawn-process/server-pid.js";
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
-import { createTerminalGateway, type TerminalGateway } from "./terminal/terminal-gateway.js";
-import { createTerminalManager, deriveTranscriptCapBytes, type TerminalManager } from "./terminal/terminal-manager.js";
+import { createTerminalGateway } from "./terminal/terminal-gateway.js";
+import { createTerminalManager, deriveTranscriptCapBytes } from "./terminal/terminal-manager.js";
 import { cleanupStaleZrok, createTunnel, deleteTunnel, detectZrokBinary, ensureReservedName, getTunnelUrl, liveTunnelOrigins, scavengeOrphanZrokProcesses } from "./tunnel/tunnel.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "./tunnel/tunnel-watchdog.js";
 
@@ -2231,7 +2231,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 // change: detach-automation-goal-from-core,
                 // relocate-goal-product-to-plugin (D1-#1).
                 const requested = typeof opts.spawnToken === "string" ? opts.spawnToken : "";
-                if (requested && requested.includes("\0")) {
+                if (requested?.includes("\0")) {
                   // A NUL cannot survive argv/registry round-trips — honouring
                   // "used verbatim" means refusing, not silently re-minting a
                   // token the caller's persisted state would never match.
@@ -2492,8 +2492,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 } catch { /* start fresh */ }
                 rawConfig.plugins = { ...(rawConfig.plugins as Record<string, unknown> ?? {}), [id]: merged };
                 const fs = (await import('node:fs')).default;
-                const tmpFile = CONFIG_FILE + '.tmp.' + process.pid;
-                fs.writeFileSync(tmpFile, JSON.stringify(rawConfig, null, 2) + '\n');
+                const tmpFile = `${CONFIG_FILE}.tmp.${process.pid}`;
+                fs.writeFileSync(tmpFile, `${JSON.stringify(rawConfig, null, 2)}\n`);
                 fs.renameSync(tmpFile, CONFIG_FILE);
                 browserGateway.broadcast({
                   type: 'plugin_config_update',

@@ -273,7 +273,7 @@ export function writeConfigPartial(partial: Record<string, any>): WriteConfigRes
 
     // Write
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(merged, null, 2) + "\n");
+    fs.writeFileSync(file, `${JSON.stringify(merged, null, 2)}\n`);
 
     // Eager-refresh model proxy registry (config may affect proxy settings).
     refreshModelRegistry().catch(() => {});
