@@ -107,7 +107,7 @@ same daemon and session, so Bash is the relaunch surface either way):
    you launched with — never `close --all`:
 
    ```bash
-   agent-browser --session <name> close
+   agent-browser --session <name> [--namespace <namespace>] close
    ```
 
    Tolerate failure: if the daemon already idled out, `close` errors.
