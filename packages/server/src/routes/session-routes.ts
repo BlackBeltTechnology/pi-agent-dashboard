@@ -10,6 +10,8 @@ import type { SessionManager } from "../session/memory-session-manager.js";
 import { decodeCursor, type SessionArchive } from "../session/session-archive.js";
 import { buildSessionDiffCached, type SessionDiffResult } from "../session/session-diff.js";
 import { SessionDiffCache } from "../session/session-diff-cache.js";
+import type { RemoteTranscriptStore } from "../session/remote-transcript-store.js";
+import { decideRetainedRead, readRetainedTranscript } from "../session/retained-transcript.js";
 import { findSessionToolCallPayload } from "../session/session-file-reader.js";
 import { originOf } from "../session/session-origin.js";
 import type { NetworkGuard } from "./route-deps.js";
@@ -23,9 +25,12 @@ export function registerSessionRoutes(
     /** Archive index backing the on-demand listing/search/delete endpoints.
      *  See change: archive-sessions-lazy-load. */
     sessionArchive?: SessionArchive;
+    /** Retention store backing `GET /api/sessions/:id/retained-transcript`.
+     *  See change: serve-retained-remote-transcripts. */
+    remoteTranscriptStore?: RemoteTranscriptStore;
   },
 ) {
-  const { sessionManager, eventStore, networkGuard, sessionArchive } = deps;
+  const { sessionManager, eventStore, networkGuard, sessionArchive, remoteTranscriptStore } = deps;
 
   // Per-server session-diff result cache + single-flight coordinator. Short TTL
   // so repeated UI polls of an unchanged session skip recompute, and concurrent
@@ -185,6 +190,75 @@ export function registerSessionRoutes(
           totalAdditions: result.totalAdditions,
           totalDeletions: result.totalDeletions,
         },
+      } satisfies ApiResponse;
+    },
+  );
+
+  // The retained transcript of a REMOTE-origin session (D12 read half).
+  //
+  // Addressed by the route parameter alone. Any path-bearing query field is a
+  // refusal, not a sanitisation target — the same rule, from the same module,
+  // that the bridge applies to an inbound `transcript_request`.
+  // See change: serve-retained-remote-transcripts (tasks 1.1, 1.2, 1.3).
+  // `networkGuard`d like every other content-bearing session read in this file
+  // (`session-file`, `session-change`, `session-diff`, `tool-result`). The
+  // browser does not need this route — it gets retained history through
+  // subscribe-time hydration over the authenticated WebSocket — so the route's
+  // consumers are local, and a full-fidelity transcript is not a thing to hand
+  // to any client that can merely reach the port.
+  fastify.get<{ Params: { sessionId: string }; Querystring: Record<string, unknown> }>(
+    "/api/sessions/:sessionId/retained-transcript",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const { sessionId } = request.params;
+      // SHAPE first, and BEFORE the session lookup. Answering a path-bearing
+      // probe 404 for an unknown id and 400 for a known one would difference
+      // two refusals into exactly the oracle the guard's ordering exists to
+      // deny — the check has to run before anything observes the subject.
+      const shape = decideRetainedRead({
+        sessionId,
+        query: request.query ?? {},
+        // Not yet resolved; the origin arm is re-decided below once it is. This
+        // call is here for its shape half only, and `remote` is the value that
+        // lets the shape half be the only thing that can refuse.
+        origin: { local: false },
+      });
+      if (!shape.allow) {
+        reply.code(400);
+        return { success: false, error: shape.reason } satisfies ApiResponse;
+      }
+      // Archived sessions are non-resident, so `sessionManager.get` misses —
+      // and an archived remote session is exactly the case where the retained
+      // copy is the ONLY copy, its origin host being long gone. Resolve origin
+      // the same way cold hydration does. See change:
+      // serve-retained-remote-transcripts.
+      const session = sessionManager.get(sessionId);
+      const archived = sessionArchive?.getById(sessionId);
+      if (!session && !archived) {
+        reply.code(404);
+        return { success: false, error: "session not found" } satisfies ApiResponse;
+      }
+      const verdict = decideRetainedRead({
+        sessionId,
+        query: request.query ?? {},
+        origin: originOf(session ?? { originDeviceId: archived?.originDeviceId }),
+      });
+      if (!verdict.allow) {
+        // A legitimate shape aimed at a subject this route does not serve.
+        reply.code(403);
+        return { success: false, error: verdict.reason } satisfies ApiResponse;
+      }
+      if (!remoteTranscriptStore) {
+        reply.code(503);
+        return { success: false, error: "remote transcript retention is not enabled" } satisfies ApiResponse;
+      }
+      const retained = readRetainedTranscript(remoteTranscriptStore, sessionId, session?.contextWindow);
+      // `state` rides alongside the entries rather than being inferred from
+      // their emptiness: an empty COMPLETE transfer and a never-started one are
+      // both zero entries and are not the same fact (task 1.2).
+      return {
+        success: true,
+        data: { entries: retained.entries, state: retained.state },
       } satisfies ApiResponse;
     },
   );

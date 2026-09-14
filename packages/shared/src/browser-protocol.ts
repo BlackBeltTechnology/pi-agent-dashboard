@@ -581,6 +581,17 @@ export interface ArchivedSessionSummary {
   endedAt: number;
   archivedAt: number;
   sessionFile: string;
+  /**
+   * Paired-device id of the host the session RAN on, carried through archiving.
+   * Absent means local (same encoding as `DashboardSession.originDeviceId`).
+   *
+   * Without it an archived session's origin is unknowable — and `sessionFile`
+   * here is a path on the ORIGIN host, which on a same-username machine names a
+   * real but unrelated local file (#E15). Old rows lack it and read as local,
+   * which is what they were before remote origins existed.
+   * See change: serve-retained-remote-transcripts.
+   */
+  originDeviceId?: string;
 }
 
 /**

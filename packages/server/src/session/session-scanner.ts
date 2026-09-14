@@ -112,6 +112,12 @@ export function sessionFromMeta(
     id: sessionId,
     cwd: meta.cwd ?? "",
     name: meta.name,
+    // Restore ORIGIN, or a restart resurrects a remote session as local and
+    // hydration opens its recorded `sessionFile` — a path on the origin host
+    // that a same-username machine also has (#E15). Absent ⇒ local, which is
+    // what every pre-existing sidecar correctly was.
+    // See change: serve-retained-remote-transcripts.
+    originDeviceId: meta.originDeviceId,
     // Restore name provenance so the auto-naming lockout survives restarts.
     // See change: add-auto-session-naming.
     nameSource: meta.nameSource,
@@ -256,6 +262,11 @@ function archivedRowFromMeta(
     endedAt,
     archivedAt: meta.archivedAt ?? endedAt,
     sessionFile,
+    // Same reason as `sessionFromMeta` above: the boot re-seed rebuilds archive
+    // rows from sidecars, and a row that forgets its origin hydrates from the
+    // origin host's path on THIS disk (#E15).
+    // See change: serve-retained-remote-transcripts.
+    originDeviceId: meta.originDeviceId,
   };
 }
 

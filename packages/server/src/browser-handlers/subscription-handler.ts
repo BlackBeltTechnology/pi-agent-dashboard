@@ -20,7 +20,24 @@ import { pluginIntentCache } from "../plugin-intent-cache.js";
 import { extractStatsFromEvents } from "../session/event-status-extraction.js";
 import { compactEventsForReplay } from "../session/replay-compaction.js";
 import { truncateToolResultForReplay } from "../session/replay-truncate.js";
+import {
+  chooseHydrationSource,
+  readRetainedTranscript,
+  type RetainedTranscriptState,
+} from "../session/retained-transcript.js";
+import { originOf } from "../session/session-origin.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
+
+/**
+ * The shape both hydration sources settle to. The retained path produces it
+ * synchronously; the disk path returns it from the load-worker pool.
+ * See change: serve-retained-remote-transcripts.
+ */
+interface LoadResultLike {
+  success: boolean;
+  events: Array<{ eventType: string; timestamp: number; data: Record<string, unknown> }>;
+  error?: string;
+}
 
 /**
  * Raised 50 → 200. Each batch is one client React commit, so a large warm
@@ -844,8 +861,30 @@ export function handleSubscribe(
     // Archived sessions are non-resident: resolve the transcript file from the
     // archive index by id. The client NEVER supplies a path, so this is the
     // only way to open one read-only. See change: archive-sessions-lazy-load.
-    const sessionFile = session?.sessionFile ?? ctx.sessionArchive?.getById(msg.sessionId)?.sessionFile;
-    if (sessionFile) {
+    const archived = ctx.sessionArchive?.getById(msg.sessionId);
+    const sessionFile = session?.sessionFile ?? archived?.sessionFile;
+    // A REMOTE-origin session's transcript is NOT on this filesystem. Its
+    // recorded `sessionFile` is a path on another host, and two machines with
+    // the same username produce the same path — so hydrating from it would
+    // serve an unrelated local transcript as the remote session's own (#E15).
+    // It hydrates from what this dashboard retained instead, which is also the
+    // only way its history predating the attach can render at all.
+    //
+    // Origin falls back to the ARCHIVE row: an archived session is non-resident,
+    // so `sessionManager.get` misses and an origin read only off `session` would
+    // silently treat every archived remote session as local — reopening #E15 on
+    // exactly the sessions most likely to need the retained read, since their
+    // origin host is long gone.
+    // See change: serve-retained-remote-transcripts (task 2.1).
+    const origin = originOf(session ?? { originDeviceId: archived?.originDeviceId });
+    const hydrationSource = chooseHydrationSource({
+      origin,
+      sessionFile,
+      hasRetentionStore: ctx.remoteTranscriptStore !== undefined,
+    });
+    /** Set only on the retained path; drives the session's `retainedTranscript` meta. */
+    let retainedState: RetainedTranscriptState | undefined;
+    if (hydrationSource !== "none") {
       sendTo(ws, {
         type: "event_replay",
         sessionId: msg.sessionId,
@@ -870,7 +909,36 @@ export function handleSubscribe(
           heartbeat = null;
         }
       };
-      directoryService.loadSessionEvents(msg.sessionId, sessionFile, session?.contextWindow).then(async (result) => {
+      // The retained read is synchronous, so it is lifted into the same promise
+      // the disk path returns rather than forking the ~60 lines of
+      // ingest/broadcast below. Wrapped, because an escaping throw here would
+      // run BEFORE `stopHeartbeat` and strand the subscriber: a live 10 s
+      // interval and no terminal frame.
+      const loaded: Promise<LoadResultLike> =
+        hydrationSource === "retained"
+          ? Promise.resolve(
+              (() => {
+                try {
+                  const read = readRetainedTranscript(
+                    // Non-null by construction: `chooseHydrationSource` only
+                    // answers "retained" when the store is present.
+                    ctx.remoteTranscriptStore as NonNullable<typeof ctx.remoteTranscriptStore>,
+                    msg.sessionId,
+                    session?.contextWindow,
+                  );
+                  retainedState = read.state;
+                  return { success: true, events: read.events };
+                } catch (err) {
+                  return {
+                    success: false,
+                    events: [],
+                    error: err instanceof Error ? err.message : "retained_read_failed",
+                  };
+                }
+              })(),
+            )
+          : directoryService.loadSessionEvents(msg.sessionId, sessionFile as string, session?.contextWindow);
+      loaded.then(async (result) => {
         stopHeartbeat();
         if (result.success) {
           // Hydration admits full-resolution inline images straight from the
@@ -891,7 +959,15 @@ export function handleSubscribe(
             eventStore.insertEvent(msg.sessionId, prepared.event);
           }
           const statsUpdates = extractStatsFromEvents(result.events);
-          const metaUpdates: Record<string, unknown> = { dataUnavailable: false, ...statsUpdates };
+          const metaUpdates: Record<string, unknown> = {
+            dataUnavailable: false,
+            ...statsUpdates,
+            // Only a retained hydration can say anything here, and it always
+            // says something — including `absent`, which clears a stale
+            // `incomplete` once a later transfer finishes.
+            // See change: serve-retained-remote-transcripts (task 2.2).
+            ...(retainedState ? { retainedTranscript: retainedState } : {}),
+          };
           sessionManager.update(msg.sessionId, metaUpdates);
           broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: metaUpdates });
           const stored = eventStore.getEvents(msg.sessionId, 1);

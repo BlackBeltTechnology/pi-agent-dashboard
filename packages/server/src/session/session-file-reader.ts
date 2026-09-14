@@ -24,11 +24,26 @@ export interface SessionEntry {
  */
 export function loadSessionEntries(filePath: string): SessionEntry[] {
   if (!existsSync(filePath)) return [];
+  return parseSessionEntries(readFileSync(filePath, "utf-8").trim().split("\n"));
+}
 
-  const content = readFileSync(filePath, "utf-8");
+/**
+ * The parse half of `loadSessionEntries`, over LINES rather than a path.
+ *
+ * A retained REMOTE transcript is the same `.jsonl` content with no local file
+ * to read it from, and it must resolve the same branch as the local path would
+ * — a second, simpler ordering rule would make a remote session render a
+ * different conversation than the machine it came from.
+ *
+ * Those lines are UNTRUSTED. A retained remote transcript is verbatim
+ * bridge-controlled input, so the leaf→root walk below is bounded: see the
+ * comment on `seen`.
+ * See change: serve-retained-remote-transcripts.
+ */
+export function parseSessionEntries(lines: string[]): SessionEntry[] {
   const entries: SessionEntry[] = [];
 
-  for (const line of content.trim().split("\n")) {
+  for (const line of lines) {
     if (!line.trim()) continue;
     try {
       entries.push(JSON.parse(line));
@@ -65,8 +80,21 @@ export function loadSessionEntries(filePath: string): SessionEntry[] {
   // If entries have tree structure (parentId), walk from leaf to root
   if (leafId && byId.size > 0) {
     const branch: SessionEntry[] = [];
+    // A `parentId` cycle (`a→b→a`, or `a→a`) is two well-formed lines. pi never
+    // writes one, but a REMOTE transcript is bytes a bridge sent, and this walk
+    // runs on the event loop — unbounded, it hangs the whole dashboard, HTTP and
+    // WebSocket alike, including the hydration heartbeat that shares the loop.
+    // Revisiting an id means the chain is not a branch, so stop and let the
+    // linear fallback below serve an order that can be defended.
+    // See change: serve-retained-remote-transcripts.
+    const seen = new Set<string>();
     let current = byId.get(leafId);
     while (current) {
+      const id = current.id;
+      if (id !== undefined) {
+        if (seen.has(id)) break;
+        seen.add(id);
+      }
       branch.unshift(current);
       current = current.parentId ? byId.get(current.parentId) : undefined;
     }

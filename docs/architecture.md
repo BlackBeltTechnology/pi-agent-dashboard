@@ -4883,7 +4883,7 @@ flowchart TD
 
 ### Remote transcripts + read-only boundary (D12, D13)
 
-- Sessions addressed by id ONLY. `decideTranscriptRequest` (`packages/extension/src/transcript-request-guard.ts`) refuses any path-bearing field: `path`, `file`, `filePath`, `filepath`, `sessionFile`, `sessionDir`, `dir`, `cwd`. Refusal on field presence, never value validation — validating values is a traversal-parsing contest.
+- Sessions addressed by id ONLY. `decideTranscriptRequest` (`packages/shared/src/transcript-request-guard.ts`) refuses any path-bearing field: `path`, `file`, `filePath`, `filepath`, `sessionFile`, `sessionDir`, `dir`, `cwd`. Refusal on field presence, never value validation — validating values is a traversal-parsing contest.
 - Shape checked before subject: two refusals cannot be differenced into an existence check. Foreign `sessionId` refused — bridge serves only its own session.
 - Backfill: lazy, interruptible, background after registration. Live events forward eagerly. Cursor = offset + length + hash of last consumed line; mismatch → re-read from start, never resume (append-only is measured, not provable over time).
 - Retention: `<dashboardConfigDir>/remote-transcripts/<sessionId>.jsonl` (`~/.pi/dashboard/remote-transcripts/`). File `0600`, dir `0700`. `sessionId` validated `^[A-Za-z0-9_-]{1,64}$` — rejected, never sanitised (write-anywhere guard).
@@ -4891,3 +4891,27 @@ flowchart TD
 - Origin derived from the authenticated bridge credential, never bridge-claimed (`attributeOrigin`, `packages/server/src/session/session-origin.ts`). unix / loopback → local. Remote + `deviceId` → remote. Unattributable remote → remote, fail closed. Claimed fields (`claimedDeviceId`, `claimedLocal`, …) ignored.
 - Remote-origin sessions refuse local file reads (`mayReadLocalSessionFile`: `remote-origin` | `no-session-file`) — same-username path collision would serve an unrelated host's transcript.
 - Remote-origin sessions refuse resume (`decideResume`: `remote-origin-ended` | `remote-origin-live`) — local resume would attach a writer to another host's transcript. Read-only after bridge ends (D13).
+
+**Read half** (change: `serve-retained-remote-transcripts`). Acquisition shipped first; `read()` had no caller and no route, so retained bytes rendered as an empty session.
+
+- `RemoteTranscriptStore.read()` → `{entries, complete, retained}`. `retained` = transcript FILE exists. `complete:false` alone conflates "transfer truncated" with "never transferred".
+- Three states: `complete` | `incomplete` | `absent`. Surfaced as `DashboardSession.retainedTranscript` (`packages/shared/src/types.ts`). Absent on local sessions.
+- `packages/server/src/session/retained-transcript.ts` exports `decideRetainedRead({sessionId, query, origin})` + `readRetainedTranscript(store, sessionId, knownContextWindow?)`.
+- Refusal order: path-bearing field FIRST (`path-on-the-wire`), local-origin SECOND (`local-origin`). Shape before subject — reverse order differences two refusals into an origin oracle.
+- Path refusal delegates to `decideTranscriptRequest`. Guard MOVED `packages/extension/src/` → `packages/shared/src/`. Bridge wire check and dashboard route check are ONE function.
+- Route `GET /api/sessions/:sessionId/retained-transcript` → `{entries, state}`. `networkGuard`ed like every content-bearing session read (`session-file`, `session-change`, `session-diff`, `tool-result`) — loopback, `x-pi-local-token`, or a trusted network. Browser never calls it; consumers are local + the L3 gate.
+- Guard wiring pinned at L1 (spy preHandler), NOT at L3: docker publishes through a proxy, so the server sees a host request as loopback and exempts it — identically for `/api/session-file`. An L3 "guard refuses" arm would assert what that harness cannot produce.
+- Refusal order: 400 path-bearing query field (shape, checked BEFORE the session lookup so an unknown/known id cannot be differenced), 404 unknown session, 403 local-origin session, 503 no store wired.
+- Route resolves the subject from `sessionManager.get(id) ?? sessionArchive.getById(id)` — an archived remote session is the case where the retained copy is the ONLY copy.
+- Browser gets retained history via SUBSCRIBE-TIME HYDRATION, not a client fetch. No `packages/client/src` caller of the route; the route is the addressable surface for non-browser clients and the L3 gate.
+- Cold hydration (`subscription-handler.ts`) picks a source via `chooseHydrationSource({origin, sessionFile, hasRetentionStore})`. Remote origin → retention store, NEVER `sessionFile`; the remote arm has no branch returning `local-file`, so the property holds by construction. Remote + no store → `none` (fail closed), never a `sessionFile` fallback.
+- Closes the #E15 hydration hole — same username on two hosts yields the same path, so the local file could be an unrelated transcript.
+- Origin falls back to the ARCHIVE row. `ArchivedSessionSummary.originDeviceId` captured at archive time; archived sessions are non-resident, so origin read only off `sessionManager.get` would treat every archived remote session as local. Absent = local (back-compat).
+- Origin is DURABLE. `SessionMeta.originDeviceId` persisted; enumerated in `sessionToMeta` (full-overwrite projection — an unenumerated field is wiped on the next save), restored by `sessionFromMeta` + `archivedRowFromMeta` on boot, and carried through `unarchiveSession`. Origin gates filesystem reads, so it must outlive the process that derived it; forgetting it resurrects a remote session as local and reopens #E15 — and re-enables `decideResume`, which D13 forbids.
+- `parseSessionEntries` bounds the leaf→root walk with a `seen` set. A `parentId` cycle is two well-formed lines, and retained bytes are bridge-controlled: unbounded, the walk hangs the event loop — HTTP, WS, and the hydration heartbeat alike.
+- `state-replay` orphan-close indexes `tool_execution_start` by `toolCallId` instead of `messages.find` per orphan. The former O(orphans × messages) measured 175 ms / 785 ms / 2.8 s at 5k / 10k / 20k orphans — the same stall class over the same untrusted input.
+- `readRetainedTranscript` never throws, PARSE included: a crafted `message.content: [null]` line crashes the replay, and the read degrades to zero events while KEEPING the state (the bytes really were transferred).
+- Retained lines parse via `parseSessionEntries(lines)` (`session-file-reader.ts`) — same branch-order resolution as the local path, so a remote session renders what the origin machine renders.
+- `server.ts` hoists ONE `createRemoteTranscriptStore()`. Shared by `wireEvents` (write), the read route, and hydration.
+- `ChatView` renders the `retained-transcript-incomplete` notice for `incomplete` ONLY. `absent` keeps the ordinary "No messages yet" empty state.
+- L3 gate `tests/e2e/remote-transcript-read.spec.ts` — task 12.52 of `add-pi-gateway-transport-identity`, deferred there for want of a read path to drive.
