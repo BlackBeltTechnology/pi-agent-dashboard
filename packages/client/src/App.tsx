@@ -348,6 +348,13 @@ function archivedSummaryToSession(item: ArchivedSessionSummary): DashboardSessio
     cost: 0,
     sessionFile: item.sessionFile,
     gitWorktree: item.gitWorktree,
+    // Origin + retained completeness carried through, so a read-only open of an
+    // ARCHIVED REMOTE session still distinguishes a truncated transfer from a
+    // whole one. Dropping them here would silently present a partial
+    // conversation as complete on exactly the sessions whose origin host is
+    // gone. See change: serve-retained-remote-transcripts (task 2.2).
+    originDeviceId: item.originDeviceId,
+    retainedTranscript: item.retainedTranscript,
   };
 }
 
@@ -2141,7 +2148,7 @@ export default function App() {
             </div>
           }>
             <SessionAssetsProvider assets={selectedSession?.assets}>
-            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onPromptResync={requestPromptResync} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? handleForkFromMessage : undefined} onCloseInlineTerminal={selectedId ? handleCloseInlineTerminalForSelected : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? EMPTY_STEERING} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} replayInFlight={selectedId ? replayInFlight.get(selectedId) ?? false : false} historyGap={selectedId ? historyGaps.get(selectedId) : undefined} onLoadEarlier={selectedId ? handleLoadEarlier : undefined} historySpliceRev={historySpliceRev} onCollapseStreamingThinking={selectedId ? handleCollapseStreamingThinking : undefined} />
+            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onPromptResync={requestPromptResync} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? handleForkFromMessage : undefined} onCloseInlineTerminal={selectedId ? handleCloseInlineTerminalForSelected : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? EMPTY_STEERING} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} retainedTranscript={selectedSession?.retainedTranscript} replayInFlight={selectedId ? replayInFlight.get(selectedId) ?? false : false} historyGap={selectedId ? historyGaps.get(selectedId) : undefined} onLoadEarlier={selectedId ? handleLoadEarlier : undefined} historySpliceRev={historySpliceRev} onCollapseStreamingThinking={selectedId ? handleCollapseStreamingThinking : undefined} />
             </SessionAssetsProvider>
           </ErrorBoundary>
           {/* Single-card error-lifecycle surface. Sticky above the command
@@ -2711,7 +2718,15 @@ export default function App() {
         {sessionList}
       </MobileOverlay>
 
-      <div className="flex-1 flex flex-col min-w-0 min-h-0">
+      {/* `relative` is load-bearing: a route-backed overlay's frozen underlay is
+          `absolute inset-0`, and without a positioned containing block here it
+          escapes to the viewport — painting the frozen session detail from x=0,
+          straight over the live sidebar. Two surfaces then share the same
+          pixels, which rendered as garbled, doubled session-header text in the
+          strip above the dialog card (issue #591). As the containing block, the
+          underlay covers exactly the content region the launching surface
+          occupied. See change: fix-settings-overlay-header-peek. */}
+      <div className="relative flex-1 flex flex-col min-w-0 min-h-0">
         {connectionBanner}
         <RecoveryOfferHost onReopen={(ids) => { for (const id of ids) handleResumeSession(id, "continue"); }} onDismiss={(ids) => send({ type: "recovery_dismiss", sessionIds: ids })} />
         {/* Folder-scoped editor pane (hosts terminal tabs via the keep-alive

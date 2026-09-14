@@ -323,6 +323,52 @@ describe("ChatView", () => {
     });
   });
 
+  /**
+   * A remote session's transcript is transferred to this dashboard, and a
+   * transfer can stop early. Showing what arrived as if it were the whole
+   * conversation is the failure: the user reads a truncated record and has no
+   * way to know it is truncated. Equally, a session that was never transferred
+   * has nothing missing and must not be warned about.
+   * See change: serve-retained-remote-transcripts (task 2.2).
+   */
+  describe("retained remote transcript completeness", () => {
+    const notice = (c: HTMLElement) => c.querySelector("[data-testid='retained-transcript-incomplete']");
+
+    it("warns that an INCOMPLETE retained transcript is not the whole conversation", () => {
+      const state = stateWithMessages([{ id: "1", role: "user", content: "hi" }]);
+      const { container } = render(
+        <ThemeProvider><ChatView state={state} toolContext={defaultToolContext} retainedTranscript="incomplete" /></ThemeProvider>,
+      );
+      expect(notice(container)).not.toBeNull();
+    });
+
+    it.each(["complete", "absent", undefined] as const)(
+      "stays silent when the retained state is %s",
+      (retainedTranscript) => {
+        const state = stateWithMessages([{ id: "1", role: "user", content: "hi" }]);
+        const { container } = render(
+          <ThemeProvider><ChatView state={state} toolContext={defaultToolContext} retainedTranscript={retainedTranscript} /></ThemeProvider>,
+        );
+        expect(notice(container)).toBeNull();
+      },
+    );
+
+    it("distinguishes an incomplete transfer from a session with no history at all", () => {
+      // Both are empty transcripts. Only one of them is missing something, and
+      // they must not read as the same screen.
+      const incomplete = render(
+        <ThemeProvider><ChatView state={createInitialState()} toolContext={defaultToolContext} loadingHistory={false} retainedTranscript="incomplete" /></ThemeProvider>,
+      );
+      expect(notice(incomplete.container)).not.toBeNull();
+
+      const absent = render(
+        <ThemeProvider><ChatView state={createInitialState()} toolContext={defaultToolContext} loadingHistory={false} retainedTranscript="absent" /></ThemeProvider>,
+      );
+      expect(notice(absent.container)).toBeNull();
+      expect(absent.container.textContent).toContain("No messages yet");
+    });
+  });
+
   describe("scroll lock", () => {
     let scrollToSpy: ReturnType<typeof vi.fn>;
 

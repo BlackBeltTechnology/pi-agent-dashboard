@@ -213,11 +213,26 @@ export function replayEntriesAsEvents(
     }
   }
 
-  // Close any orphaned tool calls (agent killed mid-execution)
+  // Close any orphaned tool calls (agent killed mid-execution).
+  //
+  // Indexed rather than re-scanned per orphan. The previous `messages.find`
+  // inside this loop was O(orphans × messages): measured 175 ms at 5k orphans,
+  // 785 ms at 10k, 2.8 s at 20k — clean quadratic. That was tolerable while the
+  // only input was a pi-written local file parsed inside the load worker; a
+  // RETAINED REMOTE transcript is bridge-controlled bytes replayed on the event
+  // loop, where the same curve is a whole-dashboard stall. Output is unchanged
+  // — `find` returns the FIRST match and a Map keyed on first-write does too.
+  // See change: serve-retained-remote-transcripts.
+  const startByToolCallId = new Map<string, (typeof messages)[number]>();
+  if (openToolCalls.size > 0) {
+    for (const m of messages) {
+      if (m.event.eventType !== "tool_execution_start") continue;
+      const id = (m.event.data as any)?.toolCallId;
+      if (typeof id === "string" && !startByToolCallId.has(id)) startByToolCallId.set(id, m);
+    }
+  }
   for (const toolCallId of openToolCalls) {
-    const startEvent = messages.find(
-      (m) => m.event.eventType === "tool_execution_start" && (m.event.data as any).toolCallId === toolCallId,
-    );
+    const startEvent = startByToolCallId.get(toolCallId);
     const ts = startEvent ? startEvent.event.timestamp : Date.now();
     messages.push(makeEvent(sessionId, "tool_execution_end", ts, {
       toolCallId,

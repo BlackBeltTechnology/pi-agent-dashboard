@@ -581,6 +581,29 @@ export interface ArchivedSessionSummary {
   endedAt: number;
   archivedAt: number;
   sessionFile: string;
+  /**
+   * Paired-device id of the host the session RAN on, carried through archiving.
+   * Absent means local (same encoding as `DashboardSession.originDeviceId`).
+   *
+   * Without it an archived session's origin is unknowable — and `sessionFile`
+   * here is a path on the ORIGIN host, which on a same-username machine names a
+   * real but unrelated local file (#E15). Old rows lack it and read as local,
+   * which is what they were before remote origins existed.
+   * See change: serve-retained-remote-transcripts.
+   */
+  originDeviceId?: string;
+  /**
+   * How much of this REMOTE session's transcript the dashboard retained.
+   * Stamped ONLY by the single-row read (`GET /api/sessions/archived/:id`),
+   * never by the listing — the listing would pay a store read per row for a
+   * state only the opened session renders.
+   *
+   * It cannot ride the usual path: completeness reaches live sessions via a
+   * `session_updated` broadcast, which the client drops for any session absent
+   * from its live map — and an archived session is absent by construction.
+   * See change: serve-retained-remote-transcripts (task 2.2).
+   */
+  retainedTranscript?: "complete" | "incomplete" | "absent";
 }
 
 /**

@@ -112,6 +112,27 @@ export const ALLOWLIST = [
     reason:
       "Declared in the nested .pi/skills/openforms-mui/tools/package.json (a self-contained Vite library) and installed at runtime by scripts/ensure-openforms-deps.mjs; the workspace-root manifest deliberately omits it.",
   })),
+  // browser-plugin vendors playwright-core's CDP relay VERBATIM (Apache-2.0,
+  // per-file SHA-256 in relay/vendor/NOTICE, byte-integrity-gated by
+  // vendor-integrity.test.ts). Upstream addresses its own helpers through
+  // playwright's internal aliases, and `playwright-core/**` is under a
+  // never-edit rule precisely so a refresh stays a re-copy — so these cannot be
+  // rewritten to relative specifiers without breaking the integrity manifest.
+  // They are not third-party packages at all: tsconfig.base.json `paths` (plus
+  // the package's vitest resolve.alias) map each one INTO the vendored
+  // relay/vendor/shims/ that ship in the same package. Declaring them as
+  // dependencies would write four unresolvable names into a published manifest.
+  ...[
+    "@isomorphic/manualPromise",
+    "@isomorphic/time",
+    "@isomorphic/timeoutRunner",
+    "@utils/wsServer",
+  ].map((specifier) => ({
+    workspace: "packages/browser-plugin",
+    specifier,
+    reason:
+      "Playwright-internal alias resolved by tsconfig.base.json `paths` to the vendored relay/vendor/shims/ that ship in this same package; not a registry package. The importing files are verbatim upstream under a never-edit + SHA-256 integrity rule, so the specifier cannot be rewritten.",
+  })),
 ];
 
 const finding = (severity, rule, workspace, file, specifier, message) => ({

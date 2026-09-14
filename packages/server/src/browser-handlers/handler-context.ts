@@ -72,6 +72,13 @@ export interface BrowserHandlerContext {
    */
   sessionArchive?: import("../session/session-archive.js").SessionArchive;
   /**
+   * Retained transcripts of REMOTE-origin sessions. Their `.jsonl` lives on
+   * another host, so hydration reads from here instead — and NEVER from the
+   * recorded `sessionFile`, which on this host names an unrelated file (#E15).
+   * See change: serve-retained-remote-transcripts.
+   */
+  remoteTranscriptStore?: import("../session/remote-transcript-store.js").RemoteTranscriptStore;
+  /**
    * One-shot intents for idle-alive archive requests.
    * See change: archive-sessions-lazy-load.
    */
