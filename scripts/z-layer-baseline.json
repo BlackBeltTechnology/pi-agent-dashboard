@@ -4,8 +4,6 @@
   "packages/client/src/components/chat/ChatView.tsx|z-10": 2,
   "packages/client/src/components/chat/ChatView.tsx|z-20": 1,
   "packages/client/src/components/chat/ChatViewMenu.tsx|z-30": 1,
-  "packages/client/src/components/chat/CommandInput.tsx|z-10": 2,
-  "packages/client/src/components/chat/CommandInput.tsx|z-20": 2,
   "packages/client/src/components/connectivity/ServerSelector.tsx|z-50": 1,
   "packages/client/src/components/editor-pane/EditorFileTree.tsx|z-20": 1,
   "packages/client/src/components/openspec/OpenSpecBoardView.tsx|z-10": 1,
