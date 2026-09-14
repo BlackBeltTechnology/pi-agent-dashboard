@@ -5,8 +5,12 @@
  * Fed by `GET /api/browser/audit?profile=<dir>` (already newest-first). The
  * refetch signal is `browser_relay_status.auditSeq`: a monotonic counter that
  * only moves when an entry is appended, so a repeated status carrying the SAME
- * seq must NOT cause a fetch. The first observed seq establishes a baseline
- * (the mount fetch already returned the current entries).
+ * seq must NOT cause a fetch.
+ *
+ * The mount fetch carries no seq of its own, so the FIRST status is treated as
+ * a change (at worst one redundant fetch on mount). Treating it as a baseline
+ * instead swallowed a real change whenever it arrived after the mutation but
+ * before any other status — the new row never appeared (e2e F4).
  *
  * See change: add-browser-relay (task 4.2).
  */
@@ -56,11 +60,8 @@ export function AuditList({ profileDirectory }: AuditListProps): React.ReactElem
   }, [fetchAudit]);
 
   usePluginMessage<BrowserRelayStatusMessage>("browser_relay_status", (msg) => {
-    if (lastSeq.current === null) {
-      // Baseline: the mount fetch already served this seq's entries.
-      lastSeq.current = msg.auditSeq;
-      return;
-    }
+    // Same seq → no new entries → no fetch. A different seq (including the
+    // very first one observed) → refetch.
     if (lastSeq.current === msg.auditSeq) return;
     lastSeq.current = msg.auditSeq;
     void fetchAudit();

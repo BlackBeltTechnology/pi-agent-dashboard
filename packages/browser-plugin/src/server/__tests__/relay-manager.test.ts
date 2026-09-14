@@ -286,6 +286,23 @@ describe("fake instance gating (E28)", () => {
     ]);
     expect(manager.instances()).toHaveLength(1);
   });
+
+  it("the kill switch drops the seeded Fake, and re-enable re-seeds it (E21/E28 e2e F3+F5)", async () => {
+    // Regression: `seedFake` originally wired no `onClosed`, so disable left a
+    // CLOSED Fake listed as "Connected" (F3) and a later re-enable had no live
+    // instance to stream from (F5).
+    const { manager } = connectedHarness({ config: { enabled: true, browsers: {} } });
+    const fake = manager.seedFake();
+    expect(manager.instances()).toHaveLength(1);
+
+    await manager.setEnabled(false);
+    expect(manager.instances()).toHaveLength(0);
+    expect(manager.find(fake.instanceId)).toBeUndefined();
+
+    await manager.setEnabled(true);
+    expect(manager.instances()).toHaveLength(1);
+    expect(manager.instances("Fake")).toHaveLength(1);
+  });
 });
 
 describe("instance churn soak (P4)", () => {

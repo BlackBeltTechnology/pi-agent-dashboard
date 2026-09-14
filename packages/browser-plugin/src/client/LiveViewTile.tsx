@@ -29,7 +29,7 @@ import type {
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { setRelayStatus, useRelayStatus } from "./relay-store.js";
+import { dismissLiveView, setRelayStatus, useRelayStatus } from "./relay-store.js";
 
 export interface LiveViewTileProps {
   session: DashboardSession;
@@ -85,7 +85,13 @@ export function LiveViewTile({ onClose }: LiveViewTileProps): React.ReactElement
         <button
           type="button"
           data-testid="browser-live-view-close"
-          onClick={onClose}
+          onClick={() => {
+            // The shell's `onClose` is a no-op by design — a `content-view` claim
+            // clears its OWN gate state, which unmounts the tile and fires the
+            // cleanup unsubscribe.
+            dismissLiveView();
+            onClose();
+          }}
           className="text-xs px-2 py-1 rounded border border-[var(--border-secondary)] hover:bg-[var(--bg-secondary)]"
         >
           {t("close", undefined, "Close")}

@@ -118,6 +118,8 @@ export class RelayManager {
   private readonly byInstanceId = new Map<string, Entry>();
   /** Bumped by every `setEnabled(false)`; a connect in flight re-checks it. */
   private disableEpoch = 0;
+  /** True once `seedFake()` ran — re-enable must restore the harness instance. */
+  private fakeSeeded = false;
   private readonly timers: RelayTimers;
   private readonly connectTimeoutMs: number;
   private readonly guidExpiryMs: number;
@@ -261,7 +263,16 @@ export class RelayManager {
    * {enabled:false}` response is a real guarantee that no tab group is left.
    */
   async setEnabled(enabled: boolean): Promise<void> {
-    if (enabled) return;
+    if (enabled) {
+      // The kill switch closes every instance, including the harness Fake. A
+      // later live-view scenario re-enables the relay and needs an instance to
+      // stream from, so re-seed when one was seeded before (F5 after F3).
+      if (this.fakeSeeded && this.instances("Fake").length === 0) {
+        this.seedFake();
+        this.deps.onStatusChange();
+      }
+      return;
+    }
     this.disableEpoch += 1;
     for (const entry of [...this.byInstanceId.values()]) entry.instance.close("disabled");
   }
@@ -279,10 +290,15 @@ export class RelayManager {
       audit: this.deps.audit,
       logger: this.deps.logger,
       timers: this.timers,
+      onClosed: () => {
+        const entry = this.byInstanceId.get(instance.instanceId);
+        if (entry) this._remove(entry);
+      },
     });
     const entry: Entry = { guid: this.randomGuid(), instance, claimed: true };
     this.byGuid.set(entry.guid, entry);
     this.byInstanceId.set(instance.instanceId, entry);
+    this.fakeSeeded = true;
     return instance;
   }
 

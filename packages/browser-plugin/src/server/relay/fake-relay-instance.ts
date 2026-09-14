@@ -32,6 +32,12 @@ export interface FakeRelayInstanceDeps {
   audit: AuditRing;
   logger: RelayLogger;
   timers: RelayTimers;
+  /**
+   * Fired once when `close()` runs, mirroring `RelayInstance`'s contract so
+   * the manager can drop the entry (e2e F3: the kill switch must leave the
+   * Fake row showing "Not connected", not a stale "Connected").
+   */
+  onClosed?(reason: string): void;
 }
 
 export class FakeRelayInstance {
@@ -86,33 +92,45 @@ export class FakeRelayInstance {
     for (const tabId of [...this.viewers.keys()]) this.unsubscribe(viewer, tabId);
   }
 
+  /** The same kinds the real relay's viewer-input allowlist accepts. */
+  private static readonly ALLOWED_INPUT_KINDS = new Set([
+    "mouse",
+    "key",
+    "scroll",
+    "bringToFront",
+  ]);
+
   async input(_viewer: RelaySocket, tabId: number, msg: unknown): Promise<void> {
     const kind = (msg as { kind?: unknown } | undefined)?.kind;
-    if (typeof kind !== "string") {
+    // Mirror the real allowlist: an unknown kind (e.g. `evaluate`) is DENIED,
+    // not echoed as viewer-input, so the e2e audit-refresh scenario (F4) has a
+    // deterministic `denied` row to observe.
+    if (typeof kind !== "string" || !FakeRelayInstance.ALLOWED_INPUT_KINDS.has(kind)) {
       this.deps.audit.append({
         profileDirectory: this.profileDirectory,
         instanceId: this.instanceId,
         kind: "denied",
-        detail: "unknown",
+        detail: typeof kind === "string" ? kind : "unknown",
       });
       return;
     }
     // Echoed into the audit ring so the e2e audit-refresh scenario has a
-    // deterministic `denied` row to observe (spec F4).
+    // deterministic row to observe (spec F4).
     this.deps.audit.append({
       profileDirectory: this.profileDirectory,
       instanceId: this.instanceId,
-      kind: kind === "bringToFront" ? "viewer-input" : "viewer-input",
+      kind: "viewer-input",
       detail: kind,
     });
     this._sendFrame(tabId, this.viewers.get(tabId) ?? new Set());
   }
 
-  close(_reason: string): void {
+  close(reason: string): void {
     if (this.closed) return;
     this.closed = true;
     this.deps.timers.clearTimeout(this.timer);
     this.viewers.clear();
+    this.deps.onClosed?.(reason);
   }
 
   private _tick(): void {

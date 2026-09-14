@@ -38,9 +38,10 @@ describe("AuditList", () => {
 		await waitFor(() => expect(getByTestId("browser-audit-empty-OSS")).toBeTruthy());
 		expect(auditCalls).toHaveLength(1);
 
-		// Baseline seq: establishes the ref, no refetch.
+		// First seq: no prior baseline, so it is treated as a change and refetches
+		// once (at worst a redundant fetch; swallowing it lost real changes).
 		act(() => ws.emit({ type: "browser_relay_status", instances: [], auditSeq: 5 }));
-		expect(auditCalls).toHaveLength(1);
+		await waitFor(() => expect(auditCalls).toHaveLength(2));
 
 		// A denial lands: higher seq -> refetch -> the new row appears.
 		entries = [
@@ -56,11 +57,11 @@ describe("AuditList", () => {
 		await waitFor(() => expect(getByTestId("browser-audit-row-OSS-0")).toBeTruthy());
 		expect(getByTestId("browser-audit-row-OSS-0").textContent).toContain("denied");
 		expect(getByTestId("browser-audit-row-OSS-0").textContent).toContain("Network.getAllCookies");
-		expect(auditCalls).toHaveLength(2);
+		expect(auditCalls).toHaveLength(3);
 
 		// Same seq again: no refetch.
 		act(() => ws.emit({ type: "browser_relay_status", instances: [], auditSeq: 6 }));
-		expect(auditCalls).toHaveLength(2);
+		expect(auditCalls).toHaveLength(3);
 		expect(queryByTestId("browser-audit-row-OSS-0")).toBeTruthy();
 	});
 });

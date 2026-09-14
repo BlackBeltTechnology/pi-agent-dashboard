@@ -25,6 +25,14 @@ import { useSyncExternalStore } from "react";
 
 let status: BrowserRelayStatusMessage | null = null;
 const subscribers = new Set<() => void>();
+/**
+ * Set when the user dismisses the live view. The `content-view` predicate reads
+ * it via `hasLiveInstance()`, so the shell's no-op `onClose` is complemented by
+ * the CLAIM clearing its own state (the shell contract: "Plugin claim clears its
+ * own UI state on dismiss"). Cleared by the next MATERIAL change, so a new
+ * instance/tab brings the view back.
+ */
+let dismissed = false;
 
 /**
  * The material shape of a status snapshot — which instances exist, which tabs
@@ -47,7 +55,11 @@ function signature(msg: BrowserRelayStatusMessage | null): string {
 export function setRelayStatus(msg: BrowserRelayStatusMessage): void {
   const previous = signature(status);
   status = msg;
-  if (signature(msg) !== previous) bumpSlotClaimsVersion();
+  if (signature(msg) !== previous) {
+    // A material change (new/removed instance or tab) re-arms the live view.
+    dismissed = false;
+    bumpSlotClaimsVersion();
+  }
   for (const listener of subscribers) listener();
 }
 
@@ -56,9 +68,18 @@ export function getRelayStatus(): BrowserRelayStatusMessage | null {
   return status;
 }
 
-/** True when ≥1 live instance has ≥1 tab — the content-view gate. */
+/** True when ≥1 live instance has ≥1 tab AND the user has not dismissed it. */
 export function hasLiveInstance(): boolean {
+  if (dismissed) return false;
   return (status?.instances ?? []).some((instance) => instance.tabs.length > 0);
+}
+
+/** Dismiss the live view (the tile's Close button); re-armed by a material change. */
+export function dismissLiveView(): void {
+  if (dismissed) return;
+  dismissed = true;
+  bumpSlotClaimsVersion();
+  for (const listener of subscribers) listener();
 }
 
 /** Subscribe to store changes. Returns the unsubscribe fn. */
@@ -77,5 +98,6 @@ export function useRelayStatus(): BrowserRelayStatusMessage | null {
 /** Test-only: reset the store between cases. */
 export function __resetRelayStoreForTests(): void {
   status = null;
+  dismissed = false;
   subscribers.clear();
 }
