@@ -154,7 +154,38 @@ export interface DroppedFrameStats {
   coalescedState: number;
   /** Sockets terminated by the pending-state byte ceiling (stalled). */
   stalledSocketsTerminated: number;
+  /**
+   * Shed `session_updated` CAPTURES — not distinct ids. A re-entry of an
+   * already-owed id counts again, as does a shed reconcile. `queued - sent` is
+   * therefore NOT the outstanding debt; read `getStatusReconcileInfo(ws)` for that.
+   */
+  statusReconcileQueued: number;
+  /** Reconcile `session_updated` frames actually PUT ON THE WIRE after drain. */
+  statusReconcileSent: number;
 }
+
+/**
+ * Wire shape of `/api/health#socketBufferOccupancy` — browser-socket
+ * `bufferedAmount` occupancy, sampled at the send-decision sites (never on a
+ * timer). Makes a back-pressure claim measurable instead of inferred from
+ * cumulative drop counters. `p95` is pooled across sockets, over a bounded
+ * reservoir. See change: fix-backpressure-status-and-subagent-frames.
+ */
+export interface SocketBufferOccupancy {
+  /** Highest `bufferedAmount` observed on any browser socket since boot. */
+  max: number;
+  /** 95th percentile over the bounded sample reservoir. */
+  p95: number;
+  /** Cumulative ms any socket was sampled above `MAX_WS_BUFFER`. */
+  msAboveThreshold: number;
+}
+
+/** Zero-value `SocketBufferOccupancy`, so route fallbacks stay TYPED. */
+export const EMPTY_SOCKET_BUFFER_OCCUPANCY: SocketBufferOccupancy = {
+  max: 0,
+  p95: 0,
+  msAboveThreshold: 0,
+};
 
 /** Zero-value `DroppedFrameStats`, so route fallbacks stay TYPED, not inline literals. */
 export const EMPTY_DROPPED_FRAME_STATS: DroppedFrameStats = {
@@ -163,6 +194,8 @@ export const EMPTY_DROPPED_FRAME_STATS: DroppedFrameStats = {
   blocking: { total: 0, bySession: {} },
   coalescedState: 0,
   stalledSocketsTerminated: 0,
+  statusReconcileQueued: 0,
+  statusReconcileSent: 0,
 };
 
 export interface BrowserGateway {
@@ -224,6 +257,33 @@ export interface BrowserGateway {
    * cost in steady state. See change: fix-connect-snapshot-frame-loss.
    */
   getPendingStateInfo(ws: WebSocket): { entries: number; bytes: number } | undefined;
+  /**
+   * Per-socket status-reconcile diagnostics: the session ids currently owed to
+   * `ws` after a shed `session_updated`, and whether the reconcile timer is
+   * live. `undefined` when nothing is owed (zero cost in steady state).
+   * See change: fix-backpressure-status-and-subagent-frames.
+   */
+  getStatusReconcileInfo(ws: WebSocket): { owed: string[]; timerActive: boolean } | undefined;
+  /**
+   * Browser-socket buffered-amount occupancy for the health surface.
+   * See change: fix-backpressure-status-and-subagent-frames.
+   */
+  getSocketBufferOccupancy(): SocketBufferOccupancy;
+  /**
+   * TEST-ONLY back-pressure injector. Real saturation is caused by a browser
+   * failing to drain its own socket, which a browser automation driver cannot
+   * induce deterministically — so the L3 convergence specs have no way to
+   * observe a shed without one. Forces every transcript-class frame to shed as
+   * if the socket were over `MAX_WS_BUFFER`, leaving `bufferedAmount` itself
+   * untouched.
+   *
+   * INERT unless `PI_E2E_FORCE_SHED=1` was set in the server's environment at
+   * gateway construction. Returns the effective state, so a caller that is not
+   * running under the flag learns the request was refused instead of silently
+   * believing it took.
+   * See change: fix-backpressure-status-and-subagent-frames.
+   */
+  setTestForceShed(enabled: boolean): boolean;
   /**
    * Requester-scoped delivery of a prompt-resync reply (fix B, server half).
    * `msg` is an ordinary bridge `prompt_request` that may carry the echoed
@@ -707,6 +767,9 @@ export function createBrowserGateway(
       ws.terminate();
       stalledSocketsTerminated++;
       dropPendingState(ws);
+      // A terminated socket can never receive its reconcile either.
+      dropStatusDebt(ws);
+      closeOccupancySpan(ws);
       return;
     }
     pending.map.set(key, serialized);
@@ -716,11 +779,158 @@ export function createBrowserGateway(
     }
   }
 
+  // ── Status-reconcile debt register (change: fix-backpressure-status-and-subagent-frames) ──
+  // `session_updated` is transcript-class and has NO recovery path: no seq, no
+  // backfill, no guaranteed successor. A session that changes status once and
+  // then runs quiet for minutes (a long tool call) therefore shows the stale
+  // value until a reconnect. A shed `session_updated` is recorded here as a
+  // DEBT owed to that socket — ids only, never a queued payload, so it cannot
+  // contribute to the pending-state byte ceiling. On flush the frame is REBUILT
+  // from `sessionManager.get(id)`, so nothing stale is ever queued and two
+  // partial `updates` never have to be merged (D1).
+  interface StatusDebt {
+    ids: Set<string>;
+    timer?: NodeJS.Timeout;
+  }
+  const statusDebt = new Map<WebSocket, StatusDebt>();
+  let statusReconcileQueued = 0;
+  let statusReconcileSent = 0;
+  // Own interval, deliberately NOT the pending-state one: that timer exists only
+  // when a STATE frame defers, and a socket saturated purely by transcript
+  // traffic — the incident's exact shape — never creates it (D3).
+  const STATUS_RECONCILE_INTERVAL_MS = 250;
+
+  /** Clear the reconcile timer and drop the socket's debt (close/error/terminate). */
+  function dropStatusDebt(ws: WebSocket): void {
+    const debt = statusDebt.get(ws);
+    if (!debt) return;
+    if (debt.timer !== undefined) clearInterval(debt.timer);
+    statusDebt.delete(ws);
+  }
+
+  /** Record a shed `session_updated` as owed to `ws`; start the timer if idle. */
+  function recordStatusDebt(ws: WebSocket, sessionId: string): void {
+    let debt = statusDebt.get(ws);
+    if (debt === undefined) {
+      debt = { ids: new Set() };
+      statusDebt.set(ws, debt);
+    }
+    debt.ids.add(sessionId);
+    statusReconcileQueued++;
+    if (debt.timer === undefined) {
+      debt.timer = setInterval(() => flushStatusDebt(ws), STATUS_RECONCILE_INTERVAL_MS);
+    }
+  }
+
+  /**
+   * Re-send each owed session's CURRENT status while the socket is under
+   * threshold. The send carries `ctx.sessionId`, so a reconcile that is itself
+   * shed re-enters the debt at the drop site — delivery is eventually-consistent
+   * rather than attempted once (D4). Only the settled value is delivered; an
+   * intermediate transition inside one flood window is not recovered (D5).
+   */
+  function flushStatusDebt(ws: WebSocket): void {
+    const debt = statusDebt.get(ws);
+    if (!debt) return;
+    if (ws.readyState !== WebSocket.OPEN) {
+      dropStatusDebt(ws);
+      closeOccupancySpan(ws);
+      return;
+    }
+    for (const id of [...debt.ids]) {
+      if (shouldShed(ws.bufferedAmount)) break; // still saturated — the rest stay owed
+      debt.ids.delete(id);
+      const session = sessionManager.get(id);
+      // Session gone before its reconcile: discard the debt, send nothing.
+      if (!session) continue;
+      const delivered = sendTo(
+        ws,
+        { type: "session_updated", sessionId: id, updates: { status: session.status, currentTool: session.currentTool } },
+        { sessionId: id },
+      );
+      // Only a frame that reached the wire counts. `sendTo` re-checks the
+      // threshold and can shed this very frame (the X1 race), in which case the
+      // id was just re-recorded as owed — counting it as sent would report a
+      // delivery that never happened and corrupt the queued/sent attribution.
+      if (delivered) statusReconcileSent++;
+    }
+    if (debt.ids.size === 0) dropStatusDebt(ws);
+  }
+
+  // ── Socket buffer occupancy (lever B) ──
+  // Sampled at the send-decision sites, which ALREADY read `bufferedAmount` for
+  // the shed predicate — so the sample is free of an extra property read, and
+  // no timer is introduced. A periodic sampler was tried first and rejected: it
+  // breaks the gateway's "zero timers on an unsaturated socket" invariant
+  // (browser-gateway-critical-frames P3/E9).
+  //
+  // Time-above-threshold is measured per socket by an entry/exit span rather
+  // than by counting samples, so it stays correct under a bursty send rate.
+  // The exit branch is the HOT one, so it is gated on `size > 0` — a field read
+  // that is zero in steady state — instead of an unconditional Map lookup.
+  const OCCUPANCY_SAMPLE_CAP = 512;
+  const occupancySamples: number[] = [];
+  let occupancyWriteIdx = 0;
+  let occupancyMax = 0;
+  let occupancyMsAboveThreshold = 0;
+  const occupancyAboveSince = new Map<WebSocket, number>();
+
+  function noteOccupancy(ws: WebSocket, buffered: number, above: boolean): void {
+    if (buffered > occupancyMax) occupancyMax = buffered;
+    if (occupancySamples.length < OCCUPANCY_SAMPLE_CAP) occupancySamples.push(buffered);
+    else {
+      occupancySamples[occupancyWriteIdx] = buffered;
+      occupancyWriteIdx = (occupancyWriteIdx + 1) % OCCUPANCY_SAMPLE_CAP;
+    }
+    if (above) {
+      if (!occupancyAboveSince.has(ws)) occupancyAboveSince.set(ws, Date.now());
+    } else if (occupancyAboveSince.size > 0) {
+      const since = occupancyAboveSince.get(ws);
+      if (since !== undefined) {
+        occupancyMsAboveThreshold += Date.now() - since;
+        occupancyAboveSince.delete(ws);
+      }
+    }
+  }
+
+  // ── Test-only shed injector ──
+  // Read ONCE at construction, so the production hot path below is a single
+  // already-false boolean read that short-circuits before anything else.
+  const FORCE_SHED_AVAILABLE = process.env.PI_E2E_FORCE_SHED === "1";
+  let forceShedTranscript = false;
+
+  /**
+   * The transcript shed predicate, in ONE place: over the byte threshold, or
+   * under the test-only injector. Three sites ask (`sendTo`, `fanout`, the
+   * reconcile flush) and they must never drift apart — a flush that thought the
+   * socket was drained while `sendTo` disagreed would spin.
+   * `FORCE_SHED_AVAILABLE` is a construction-time constant, so on a production
+   * instance this short-circuits to the bare threshold compare.
+   */
+  function shouldShed(bufferedAmount: number): boolean {
+    if (FORCE_SHED_AVAILABLE && forceShedTranscript) return true;
+    return MAX_WS_BUFFER > 0 && bufferedAmount > MAX_WS_BUFFER;
+  }
+
+  /** Close an open above-threshold span when the socket goes away. */
+  function closeOccupancySpan(ws: WebSocket): void {
+    const since = occupancyAboveSince.get(ws);
+    if (since === undefined) return;
+    occupancyMsAboveThreshold += Date.now() - since;
+    occupancyAboveSince.delete(ws);
+  }
+
+  /**
+   * Deliver one frame to one socket. Returns whether it reached the wire — a
+   * `false` means shed, deferred as state, or socket not open. Most callers
+   * ignore it; the status reconcile does not (it must not count a shed frame as
+   * sent). See change: fix-backpressure-status-and-subagent-frames.
+   */
   function sendTo(
     ws: WebSocket,
     msg: ServerToBrowserMessage,
     ctx?: { sessionId?: string; seq?: number; critical?: boolean; criticalBudget?: { remaining: number } },
-  ) {
+  ): boolean {
     if (ws.readyState === WebSocket.OPEN) {
       // Dispatch on the static frame class (D1/D2): a `state` frame routes
       // through `sendState` (deferred, never shed) so no handler can
@@ -730,30 +940,37 @@ export function createBrowserGateway(
       const { cls, key } = frameClassOf(msg);
       if (cls === "state" && ctx?.critical !== true) {
         sendState(ws, key, JSON.stringify(msg));
-        return;
+        return false;
       }
       // Transcript/blocking: already-flushable pending state goes first, so
       // a state frame never waits behind a later transcript frame (D2).
       if (pendingState.get(ws)?.map.size) flushPendingState(ws);
+      const buffered = ws.bufferedAmount;
+      noteOccupancy(ws, buffered, MAX_WS_BUFFER > 0 && buffered > MAX_WS_BUFFER);
       // Drop transcript messages if the send buffer is full (browser not consuming).
       // A `critical` frame (pending-prompt replay / resync reply) is exempt
       // from the shed while under the absolute ceiling and within its
       // per-delivery budget — the one carve-out that keeps a blocking prompt
       // deliverable on a socket a full replay just saturated.
       // See change: fix-pending-prompt-lost-on-replay (D1/D2).
-      if (MAX_WS_BUFFER > 0 && ws.bufferedAmount > MAX_WS_BUFFER) {
+      if (shouldShed(buffered)) {
         const exempt =
           ctx?.critical === true &&
           ws.bufferedAmount <= CRITICAL_FRAME_CEILING &&
           (ctx.criticalBudget === undefined || ctx.criticalBudget.remaining > 0);
         if (!exempt) {
           recordDroppedFrame(ctx?.sessionId, ctx?.seq, ws.bufferedAmount, ctx?.critical === true ? "blocking" : "transcript");
-          return;
+          // A shed status frame is a debt, not a loss — including a shed
+          // RECONCILE, which re-enters here and is re-recorded (D4).
+          if (msg.type === "session_updated") recordStatusDebt(ws, msg.sessionId);
+          return false;
         }
         if (ctx.criticalBudget !== undefined) ctx.criticalBudget.remaining--;
       }
       ws.send(JSON.stringify(msg));
+      return true;
     }
+    return false;
   }
 
   /**
@@ -784,10 +1001,14 @@ export function createBrowserGateway(
     }
     const { cls, key } = frameClassOf(msg);
     const serialized = JSON.stringify(msg);
-    fanout(serialized, cls === "state" ? key : undefined);
+    // `fanout` sees only the serialized string and cannot recover the frame's
+    // type or session id without parsing it. `broadcast` still holds the TYPED
+    // message, so the shed site's debt id is derived here and passed down (D2).
+    const dirtyId = msg.type === "session_updated" ? msg.sessionId : undefined;
+    fanout(serialized, cls === "state" ? key : undefined, dirtyId);
   }
 
-  function fanout(serialized: string, stateKey?: string) {
+  function fanout(serialized: string, stateKey?: string, dirtyId?: string) {
     for (const [ws] of subscriptions) {
       if (ws.readyState !== WebSocket.OPEN) continue;
       if (stateKey !== undefined) {
@@ -797,8 +1018,11 @@ export function createBrowserGateway(
       }
       // Transcript class: already-flushable pending state goes first (D2).
       if (pendingState.get(ws)?.map.size) flushPendingState(ws);
-      if (MAX_WS_BUFFER > 0 && ws.bufferedAmount > MAX_WS_BUFFER) {
-        recordDroppedFrame(undefined, undefined, ws.bufferedAmount, "transcript");
+      const buffered = ws.bufferedAmount;
+      noteOccupancy(ws, buffered, MAX_WS_BUFFER > 0 && buffered > MAX_WS_BUFFER);
+      if (shouldShed(buffered)) {
+        recordDroppedFrame(undefined, undefined, buffered, "transcript");
+        if (dirtyId !== undefined) recordStatusDebt(ws, dirtyId);
         continue;
       }
       ws.send(serialized);
@@ -815,7 +1039,7 @@ export function createBrowserGateway(
     const header = `{"type":"openspec_update","cwd":${JSON.stringify(cwd)},"data":`;
     const serialized = header + dataSerialized + "}";
     // Pre-serialized state frame: hand fanout the D1 delivery key directly.
-    fanout(serialized, `openspec_update:${cwd}`);
+    fanout(serialized, `openspec_update:${cwd}`, undefined);
   }
 
   wss.on("connection", (ws, req) => {
@@ -1382,6 +1606,9 @@ export function createBrowserGateway(
       replayingSessions.delete(ws);
       // A closed socket can never flush; discard its pending state (D2).
       dropPendingState(ws);
+      // …nor its owed status reconciles; release the set AND its timer.
+      dropStatusDebt(ws);
+      closeOccupancySpan(ws);
       // A disconnected requester can never receive its reply; drop its tokens
       // so the map cannot accumulate them. See change: reduce-subagent-details-payload.
       resyncRequesters.forget(ws);
@@ -1403,6 +1630,8 @@ export function createBrowserGateway(
     // its timer must not outlive the socket (D2).
     ws.on("error", () => {
       dropPendingState(ws);
+      dropStatusDebt(ws);
+      closeOccupancySpan(ws);
     });
   });
 
@@ -1544,6 +1773,8 @@ export function createBrowserGateway(
         },
         coalescedState,
         stalledSocketsTerminated,
+        statusReconcileQueued,
+        statusReconcileSent,
       };
     },
 
@@ -1551,6 +1782,37 @@ export function createBrowserGateway(
       const pending = pendingState.get(ws);
       if (!pending) return undefined;
       return { entries: pending.map.size, bytes: pending.bytes };
+    },
+
+    getStatusReconcileInfo(ws: WebSocket): { owed: string[]; timerActive: boolean } | undefined {
+      const debt = statusDebt.get(ws);
+      if (!debt) return undefined;
+      return { owed: [...debt.ids], timerActive: debt.timer !== undefined };
+    },
+
+    setTestForceShed(enabled: boolean): boolean {
+      if (!FORCE_SHED_AVAILABLE) return false;
+      forceShedTranscript = enabled;
+      // Releasing the injected saturation must not wait for the next 250 ms
+      // tick to START — the timer is already running; this just makes the
+      // observed convergence window the spec's 1 s rather than 1 s + jitter.
+      if (!enabled) for (const [ws] of subscriptions) flushStatusDebt(ws);
+      return enabled;
+    },
+
+    getSocketBufferOccupancy(): SocketBufferOccupancy {
+      // Add spans that are still OPEN. Accrual otherwise happens only on the
+      // above→below transition, so during an active stall — the exact case this
+      // metric exists to size — every sample is above and the reported duration
+      // would stay 0 for the whole incident. Read-only: the map is not mutated,
+      // so a later transition still accrues the full span exactly once.
+      const now = Date.now();
+      let msAboveThreshold = occupancyMsAboveThreshold;
+      for (const since of occupancyAboveSince.values()) msAboveThreshold += now - since;
+      if (occupancySamples.length === 0) return { max: occupancyMax, p95: 0, msAboveThreshold };
+      const sorted = [...occupancySamples].sort((a, b) => a - b);
+      const idx = Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1);
+      return { max: occupancyMax, p95: sorted[Math.max(0, idx)], msAboveThreshold };
     },
 
     deliverPromptResyncReply(msg: ServerToBrowserMessage, sessionId: string): boolean {

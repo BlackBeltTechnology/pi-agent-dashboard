@@ -75,6 +75,15 @@ describe("GET /api/health", () => {
     // Existing telemetry fields still present (regression pins).
     expect(body.eventLoopDelay).toBeTypeOf("object");
     expect(Array.isArray(body.hydration)).toBe(true);
+    // Status-reconcile counters + socket-buffer occupancy must be present and
+    // numeric BEFORE any shed has happened — a back-pressure claim is otherwise
+    // only inferrable from cumulative drop totals.
+    // See change: fix-backpressure-status-and-subagent-frames (test-plan #E7).
+    expect(body.droppedFrames.statusReconcileQueued).toBe(0);
+    expect(body.droppedFrames.statusReconcileSent).toBe(0);
+    expect(body.socketBufferOccupancy.max).toBeTypeOf("number");
+    expect(body.socketBufferOccupancy.p95).toBeTypeOf("number");
+    expect(body.socketBufferOccupancy.msAboveThreshold).toBeTypeOf("number");
   });
 
   // test-plan #X2 — `/api/health` carries NO preHandler, so it must never

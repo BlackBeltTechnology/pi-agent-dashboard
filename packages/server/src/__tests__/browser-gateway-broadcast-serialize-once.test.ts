@@ -295,3 +295,71 @@ describe("live sessions_reordered windowed at broadcast (E19, E20)", () => {
     expect(lastReorder(rig.ws)?.sessionIds).toEqual(["f1", "f2", "f3", "live2"]);
   });
 });
+
+// ── P2: debt capture adds no per-frame cost to non-status frames ────────
+// The dirty-id argument threads through EVERY `fanout` call, and the occupancy
+// sample now runs at the shed site, so a regression here taxes the whole
+// broadcast hot path.
+//
+// A literal "same build without the argument" baseline is not constructible
+// in-process, so the measured control is the SAME loop over a frame type that
+// never enters the debt path: for it the added work is exactly the two guards
+// (`msg.type === "session_updated"` in `broadcast`, `dirtyId !== undefined` at
+// the shed site). The assertion is that the non-status arm is not more than 5 %
+// above a `session_updated` arm whose debt work is fully exercised — i.e. the
+// untouched frame types do NOT pay for the feature — plus an absolute
+// per-frame ceiling so a heavyweight guard (e.g. a JSON parse) fails loudly.
+//
+// KNOWN BLIND SPOT: the relative arm cannot see COMMON-MODE cost, i.e. work
+// added to both arms. `noteOccupancy` is exactly such a cost. Only the absolute
+// per-frame ceiling bounds it, so that ceiling — not the ratio — is what guards
+// the occupancy sampler.
+//
+// See change: fix-backpressure-status-and-subagent-frames (test-plan #P2).
+describe("debt capture adds no per-frame cost to the shed path (P2)", () => {
+  const ITERATIONS = 10_000;
+  /** Generous vs. the ~µs reality; catches an order-of-magnitude regression. */
+  const ABSOLUTE_PER_FRAME_BUDGET_MS = 0.05;
+
+  function timeShedLoop(build: (i: number) => ServerToBrowserMessage): number {
+    const gateway = createBrowserGateway(
+      createMemorySessionManager(),
+      createMemoryEventStore(() => false),
+      makeStubPiGateway(),
+    );
+    const ws = makeFakeWs({ bufferedAmount: 5 * 1024 * 1024 }); // permanently saturated
+    gateway.wss.emit("connection", ws, {});
+
+    const frames = Array.from({ length: ITERATIONS }, (_, i) => build(i));
+    const t0 = performance.now();
+    for (const frame of frames) gateway.broadcastToAll(frame);
+    const elapsed = performance.now() - t0;
+
+    expect(gateway.getDroppedFrameStats().total).toBeGreaterThanOrEqual(ITERATIONS);
+    return elapsed;
+  }
+
+  it("sheds non-status frames no slower than status frames that do the debt work", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // Warm-up: let the JIT settle so the comparison is not a tiering artefact.
+      timeShedLoop((i) => ({ type: "file_changed", cwd: `/repo/${i % 8}`, path: "a.ts" }) as unknown as ServerToBrowserMessage);
+      timeShedLoop((i) => ({ type: "session_updated", sessionId: `s${i % 100}`, updates: { status: "streaming" } }) as ServerToBrowserMessage);
+
+      const nonStatusMs = timeShedLoop(
+        (i) => ({ type: "file_changed", cwd: `/repo/${i % 8}`, path: "a.ts" }) as unknown as ServerToBrowserMessage,
+      );
+      const statusMs = timeShedLoop(
+        (i) => ({ type: "session_updated", sessionId: `s${i % 100}`, updates: { status: "streaming" } }) as ServerToBrowserMessage,
+      );
+
+      // The untouched frame type must not pay for the feature.
+      expect(nonStatusMs).toBeLessThan(statusMs * 1.05);
+      // …and neither arm may blow an absolute per-frame ceiling.
+      expect(nonStatusMs / ITERATIONS).toBeLessThan(ABSOLUTE_PER_FRAME_BUDGET_MS);
+      expect(statusMs / ITERATIONS).toBeLessThan(ABSOLUTE_PER_FRAME_BUDGET_MS);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+});
