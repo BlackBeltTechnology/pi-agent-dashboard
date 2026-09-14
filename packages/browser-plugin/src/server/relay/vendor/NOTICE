@@ -1,0 +1,64 @@
+# Vendored from microsoft/playwright
+
+Parts of this directory are copied VERBATIM from
+<https://github.com/microsoft/playwright> (Apache License 2.0):
+
+- Upstream commit: `d1ead3ecca23182f2d06d761c28e3d4edafb6595`
+  (branch `main`, committed 2026-09-11T23:00:20Z)
+- Fetched: 2026-09-13 (UTC)
+
+## Verbatim upstream files — `playwright-core/src/…`
+
+| Vendored path (under this dir) | Upstream path | SHA-256 |
+|---|---|---|
+| `playwright-core/src/tools/mcp/cdpRelay.ts` | `packages/playwright-core/src/tools/mcp/cdpRelay.ts` | `5f19dfb0034a2877029c36e5a4c665082ff27a1b0af22374f8f796f91d98078d` |
+| `playwright-core/src/tools/mcp/cdpRelayV2.ts` | `packages/playwright-core/src/tools/mcp/cdpRelayV2.ts` | `db32c68ffe422bfef9e477f23d062c79c79150ca9c5b3503618d26a7524e1556` |
+| `playwright-core/src/tools/mcp/browserModel.ts` | `packages/playwright-core/src/tools/mcp/browserModel.ts` | `e89261f77ef4d78935c051e42e50458e74066381cc6f071196a112e5fe96110b` |
+| `playwright-core/src/tools/mcp/protocol.ts` | `packages/playwright-core/src/tools/mcp/protocol.ts` | `041f648b328631e0cb54bd7de37f003d54b01d6701b98f3757f6e059eb1a7598` |
+| `playwright-core/src/tools/mcp/log.ts` | `packages/playwright-core/src/tools/mcp/log.ts` | `a770eaf6e1ce798d60a1ec741bc3629eafc6e912c0bd7ae2bbfe4859bab461ab` |
+| `playwright-core/src/tools/utils/extension.ts` | `packages/playwright-core/src/tools/utils/extension.ts` | `5252eedcae5890cf1402ef98bef24bc046483680700bdb04dc0794e0a4428a62` |
+
+## Verbatim upstream isomorphic helpers — `shims/`
+
+Copied unmodified from `packages/isomorphic/` (self-contained, no further
+imports; vendored here so the bare specifiers `@isomorphic/*` used by
+`cdpRelay.ts` / `cdpRelayV2.ts` resolve without editing the vendored files):
+
+| Vendored path | Upstream path | SHA-256 |
+|---|---|---|
+| `shims/manualPromise.ts` | `packages/isomorphic/manualPromise.ts` | `86c9695f31a0f5e4d3c2919d5a8d6b3eeb8118bf9a978005d85121fb0db380a3` |
+| `shims/time.ts` | `packages/isomorphic/time.ts` | `82946e2f05595deaf3d5b879e91057882e784394f6ec009b5ebbdff8aa5073bd` |
+| `shims/timeoutRunner.ts` | `packages/isomorphic/timeoutRunner.ts` | `4399b0e7b0bdd6d7c6e38db34c8f1f4e2dd4df0251e99addff6b25d90f77814d` |
+
+`shims/timeoutRunner.ts` imports `./time`, which resolves to the sibling
+`shims/time.ts` — exactly as upstream.
+
+## Authored shims — NOT upstream
+
+- `playwright-core/src/server/registry/index.ts` — replaces the ~60 KB
+  upstream registry module. Only `registry.isChromiumAlias` /
+  `registry.findExecutable` are reachable (from `cdpRelay.ts`'s
+  `_openConnectPageInBrowser`, which this plugin bypasses in favour of the
+  host `systemOpen` capability). Both throw
+  `not supported — browser launch is supplied by relay-instance.ts`.
+- `shims/wsServer.ts` — replaces upstream `packages/utils/wsServer.ts`.
+  Upstream `CDPRelayServer` constructs a `WSServer` eagerly but only
+  `listen()` binds a port. The transport is supplied by `relay-instance.ts`
+  via `ctx.registerWsRoute`, so `listen()` throws and `close()` rejects with
+  `not supported — transport is supplied by relay-instance.ts`.
+
+## License
+
+Copyright (c) Microsoft Corporation. Vendored files are licensed under the
+Apache License, Version 2.0 (each file carries its upstream license header).
+
+The rest of `packages/browser-plugin` is MIT; vendored files keep their
+upstream Apache-2.0 headers and this NOTICE travels with every distribution.
+
+## Refresh policy
+
+NEVER edit files under `playwright-core/`. A refresh is a re-copy from a new
+upstream commit, followed by regenerating
+`src/server/__tests__/vendor-hashes.json` (the integrity test hashes the
+directory and fails on any drift). Adaptation happens in `relay-instance.ts`
+via subclass/wrapper only — see design add-browser-relay D2.

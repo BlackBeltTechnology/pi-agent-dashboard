@@ -18,8 +18,21 @@
  */
 import crypto from "node:crypto";
 
+/** Core WS route scopes — the only scopes a ticket may ever be bound to. */
+const CORE_WS_ROUTE_SCOPES = ["browser", "terminal", "live", "bridge"] as const;
+export type CoreWsRouteScope = (typeof CORE_WS_ROUTE_SCOPES)[number];
+
 /**
- * WS route scopes a ticket may be bound to.
+ * A plugin-registered WS route scope (any kebab-case string owned via
+ * `ctx.registerWsRoute`). Structurally distinct from {@link CoreWsRouteScope}
+ * only in breadth — ticket minting/consumption take `CoreWsRouteScope`, so
+ * plugin scopes are structurally unticketable. See change: add-browser-relay
+ * (D1).
+ */
+export type PluginWsRouteScope = string & {};
+
+/**
+ * WS route scopes. The four core scopes plus plugin-registered ones.
  *
  * `bridge` is the pi-gateway upgrade path. It exists so a REMOTE bridge over
  * TCP authenticates the same way every other remote client does — a paired
@@ -27,13 +40,18 @@ import crypto from "node:crypto";
  * the ticket — and so a bridge ticket can never be replayed against the
  * more-privileged `terminal` or `browser` routes (D7, D10b, task 6.1).
  */
-export type WsRouteScope = "browser" | "terminal" | "live" | "bridge";
+export type WsRouteScope = CoreWsRouteScope | PluginWsRouteScope;
+
+/** Narrow a scope string to the four core scopes (plugin scopes → false). */
+export function isCoreWsRouteScope(scope: string): scope is CoreWsRouteScope {
+  return (CORE_WS_ROUTE_SCOPES as readonly string[]).includes(scope);
+}
 
 const TICKET_TTL_MS = 15_000; // seconds-scale; client mints one per connect.
 const TICKET_BYTES = 32;
 
 interface TicketEntry {
-  scope: WsRouteScope;
+  scope: CoreWsRouteScope;
   /**
    * Paired-device id of the caller that minted this ticket, for `bridge`
    * scope. Carried so a session registered over a remote bridge can be
@@ -49,6 +67,23 @@ export type TicketConsumption =
   | { ok: true; deviceId?: string }
   | { ok: false; reason: "missing" | "unknown" | "expired" | "wrong-scope" };
 
+/**
+ * Plugin-scope resolver, injected by the server (change: add-browser-relay D1).
+ *
+ * The plugin runtime owns the route registry; this auth leaf stays
+ * dependency-free and unit-testable, so the mapping is injected here rather
+ * than imported. Consulted ONLY after the four core prefixes below — a core
+ * path can never resolve to a plugin scope. Returns null for unknown paths.
+ */
+let pluginScopeResolver: ((pathOnly: string) => PluginWsRouteScope | null) | null = null;
+
+/** Wire (or clear, with null) the plugin-scope resolver. Server startup. */
+export function setPluginScopeResolver(
+  fn: ((pathOnly: string) => PluginWsRouteScope | null) | null,
+): void {
+  pluginScopeResolver = fn;
+}
+
 /** Map a WebSocket upgrade URL to its route scope, or null if not a WS route. */
 export function routeScopeForUrl(url: string | undefined): WsRouteScope | null {
   if (!url) return null;
@@ -57,7 +92,9 @@ export function routeScopeForUrl(url: string | undefined): WsRouteScope | null {
   if (pathOnly.startsWith("/ws/terminal/")) return "terminal";
   if (pathOnly.startsWith("/live/")) return "live";
   if (pathOnly === "/ws/bridge") return "bridge";
-  return null;
+  // Plugin-registered scopes resolve LAST, so the core prefixes above always
+  // win (plugin prefixes are validated to never overlap them).
+  return pluginScopeResolver ? pluginScopeResolver(pathOnly) : null;
 }
 
 const TICKET_SUBPROTOCOL_PREFIX = "pi-ticket.";
@@ -97,8 +134,8 @@ export class WsTicketStore {
     this.now = now;
   }
 
-  /** Mint a single-use ticket bound to a route scope (authenticated caller). */
-  mint(scope: WsRouteScope, deviceId?: string): string {
+  /** Mint a single-use ticket bound to a core route scope (authenticated caller). */
+  mint(scope: CoreWsRouteScope, deviceId?: string): string {
     // Lazy sweep on each mint clears abandoned (minted-but-unconsumed) tickets
     // so the map can't grow unbounded without a background timer.
     this.sweep();
@@ -112,7 +149,7 @@ export class WsTicketStore {
    * on the FIRST attempt regardless of outcome (single-use). Returns true only
    * when the ticket exists, is unexpired, and matches the requested scope.
    */
-  consume(ticket: string | null | undefined, scope: WsRouteScope): boolean {
+  consume(ticket: string | null | undefined, scope: CoreWsRouteScope): boolean {
     return this.consumeDetailed(ticket, scope).ok;
   }
 
@@ -125,7 +162,7 @@ export class WsTicketStore {
    * The causes are reported only in server-side logs, never to the client,
    * so this does not hand an attacker an oracle.
    */
-  consumeDetailed(ticket: string | null | undefined, scope: WsRouteScope): TicketConsumption {
+  consumeDetailed(ticket: string | null | undefined, scope: CoreWsRouteScope): TicketConsumption {
     if (!ticket) return { ok: false, reason: "missing" };
     const entry = this.tickets.get(ticket);
     // Delete synchronously on first attempt — no reuse.

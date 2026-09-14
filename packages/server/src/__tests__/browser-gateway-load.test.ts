@@ -15,7 +15,7 @@
  *
  * See change: add-ws-broadcast-load-harness.
  */
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { createBrowserGateway } from "../pairing/browser-gateway.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 import {
@@ -35,9 +35,9 @@ import {
   subscribeWs,
 } from "./helpers/load-fixtures.js";
 import { createDrainingWs } from "./helpers/draining-ws.js";
+import { asWs, attachCapturedWs, buildDebtGateway } from "./helpers/status-debt-fixtures.js";
 
 /** The draining fake satisfies the gateway's `WebSocket` surface at runtime. */
-const asWs = (w: ReturnType<typeof createDrainingWs>) => w as unknown as import("ws").WebSocket;
 
 // The bulk-archive site under test is the `pollDirectoryGated(...).then().catch()`
 // chain, NOT the synchronous `archiveCompleted` spawn that precedes it. Mock the
@@ -592,5 +592,64 @@ describe("browser-gateway load — P4 (pending-state memory bound under stall)",
     }
     const rssDelta = process.memoryUsage().rss - rssBefore;
     expect(rssDelta).toBeLessThan(5 * 1024 * 1024);
+  });
+});
+
+// ── P1: status-reconcile flush cost ─────────────────────────────────────
+// The reconcile runs on the browser send path, so a 100-debt flush must stay
+// off the event loop's critical budget. ABSOLUTE wall-clock, median of 20 runs
+// (median, not mean — one GC pause must not decide the verdict).
+// See change: fix-backpressure-status-and-subagent-frames (test-plan #P1).
+
+describe("browser-gateway load — P1 (status-reconcile flush stays off the hot path)", () => {
+  const BUDGET_RECONCILE_FLUSH_MS = 1;
+  const DEBT_SIZE = 100;
+  const RUNS = 20;
+
+  beforeEach(() => {
+    // Fake the INTERVAL only. vitest's default `useFakeTimers()` also fakes
+    // `performance`, which would make the measurement read back the 250 ms the
+    // clock was advanced by instead of the work's real wall time.
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it(`flushes ${DEBT_SIZE} owed reconciles in under ${BUDGET_RECONCILE_FLUSH_MS} ms (median of ${RUNS})`, () => {
+    const ids = Array.from({ length: DEBT_SIZE }, (_, i) => `s${i}`);
+    const samples: number[] = [];
+
+    for (let run = 0; run < RUNS; run++) {
+      // Headroom so all 100 reconcile sends fit under the threshold in ONE
+      // flush: the fake socket never drains, so each send is cumulative and a
+      // small threshold would make the flush break mid-loop by design.
+      const HEADROOM = 1_000_000;
+      const { gateway, manager } = buildDebtGateway(ids, HEADROOM);
+      for (const id of ids) manager.update(id, { status: "streaming", currentTool: "Agent" });
+      const client = attachCapturedWs(gateway, HEADROOM);
+
+      // Build the debt: every id shed while saturated.
+      client.saturate();
+      for (const id of ids) gateway.broadcastSessionUpdated(id, { status: "streaming" });
+      expect(gateway.getStatusReconcileInfo(asWs(client.ws))?.owed.length).toBe(DEBT_SIZE);
+
+      // Measure exactly one full flush, socket under threshold. The window is
+      // driven through the REAL reconcile timer rather than a test-only hook,
+      // so it also carries vitest's fake-timer dispatch overhead — the budget
+      // can therefore only be over-reported, never flattered.
+      client.drain();
+      const t0 = performance.now();
+      vi.advanceTimersByTime(250);
+      samples.push(performance.now() - t0);
+
+      expect(client.statusFrames().length).toBe(DEBT_SIZE);
+    }
+
+    samples.sort((a, b) => a - b);
+    const median = samples[Math.floor(samples.length / 2)];
+    expect(median).toBeLessThan(BUDGET_RECONCILE_FLUSH_MS);
   });
 });

@@ -456,6 +456,32 @@ Every server→browser frame carries exactly one delivery class. `frameClassOf(m
 
 **Health.** `/api/health#droppedFrames` gains `coalescedState` (superseded pending entries) + `stalledSocketsTerminated` beside transcript/blocking counters. No dropped-state counter — no code path drops one. Coalesce ≠ drop: `total` does not increment.
 
+### Status reconcile — shed `session_updated` is a debt (change: fix-backpressure-status-and-subagent-frames)
+
+`session_updated` stays transcript-class. Carries no seq. No backfill answers it. No successor frame guaranteed. Long tool call emits status once, then session goes quiet — so ONE shed frame leaves the badge stale until reconnect/reload. Server therefore treats a shed `session_updated` as a **debt owed to that socket**.
+
+**Debt capture.** `broadcast()` derives `dirtyId = msg.type === "session_updated" ? msg.sessionId : undefined`, passes it to `fanout(serialized, stateKey, dirtyId)`. `fanout()` sees only the serialized string — cannot recover type or session id without parsing, so the id must come from the typed caller. Every other `fanout` caller (incl. `broadcastOpenSpecUpdateImpl`) passes `undefined`. Shed site records the id in per-socket `statusDebt: Map<WebSocket, { ids: Set<string>, timer }>`. **Ids only, never a payload** — cannot reach the pending-state byte ceiling, cannot move `stalledSocketsTerminated`.
+
+**Own timer.** `STATUS_RECONCILE_INTERVAL_MS = 250`, started when the set becomes non-empty, stopped when it empties. Deliberately NOT the pending-state interval: that one exists only when a *state* frame defers, and a socket saturated purely by transcript traffic never creates it.
+
+**Flush.** `flushStatusDebt(ws)` rebuilds `session_updated` from `sessionManager.get(id)` (`updates: { status, currentTool }`) while the socket is under threshold. Nothing stale is queued, so two partial `updates` never have to be merged. Missing session → debt discarded, no frame, `statusReconcileSent` not incremented.
+
+**Loop-safe.** Reconcile send carries `ctx.sessionId`, so a reconcile that is itself shed re-enters the debt at the drop site — eventually-delivered, not check-once. Re-entry is idempotent (a `Set`), so a persistent flood costs one id, not a growing queue.
+
+**Settled-value semantics.** Reconcile carries the CURRENT value. `idle → streaming → idle` entirely inside one shed window delivers one `idle`; the intermediate edge is not recovered.
+
+**Teardown.** Set + timer released on socket `close`, on socket `error`, and on the `sendState` stalled-socket `ws.terminate()` path.
+
+**Scope.** `session_updated` ONLY. `session_added` / `session_removed` / `sessions_reordered` stay transcript-class and stay unrecovered — create/delete/reorder are not idempotent re-pushes of one row.
+
+**No client change.** `useMessageHandler`'s `if (existing)` guard makes a reconcile for an unknown row a no-op. That guard is what stops a re-push resurrecting a row a shed `session_removed` deleted.
+
+**Health.** `/api/health#droppedFrames` gains `statusReconcileQueued` (ids recorded owed) + `statusReconcileSent` (reconcile frames re-sent). Both sit BESIDE the drop counters, never folded in — the reconcile must not mask the shed it recovers from. `/api/health#socketBufferOccupancy` = `{ max, p95, msAboveThreshold }` over browser-socket `bufferedAmount`; typed-zero fallback `EMPTY_SOCKET_BUFFER_OCCUPANCY`. Sampled at the send-decision sites, which already read `bufferedAmount` for the shed predicate — **not** on a timer. A periodic sampler was implemented first and rejected: it breaks the "zero timers on an unsaturated socket" invariant (`browser-gateway-critical-frames` P3/E9). Time-above-threshold uses a per-socket entry/exit span (`occupancyAboveSince`); the hot exit branch is gated on `size > 0`.
+
+**`msAboveThreshold` is OBSERVATION-based, not continuous wall-clock.** Sampling happens at send decisions, so a crossing that starts and ends between two decisions is never observed, and a reported duration is bounded by the samples that delimit it. `getSocketBufferOccupancy()` adds spans still open at read time (else an in-progress stall reports 0), and SETTLES a span whose socket has since drained or closed — without that, an event-driven sampler leaves such a span open forever and it grows on every health read (unbounded over-report). Settling deletes the entry, so a later exit cannot accrue it twice.
+
+**Test-only injector.** `POST /api/test/force-shed { enabled }` forces transcript-class frames to shed while leaving `bufferedAmount` untouched. Registered ONLY under `PI_E2E_FORCE_SHED=1` (set in `docker/compose.test.yml`, never a real image); still `networkGuard`-gated. Returns the effective state, so an unflagged server reports refusal instead of a silent no-op. Exists because real saturation is a browser failing to drain its own socket, which Playwright cannot induce. Drives `tests/e2e/status-reconcile.spec.ts`.
+
 ### Sessions snapshot window + paging (change: fix-connect-snapshot-frame-loss)
 
 On browser connect, gateway emits ONE `sessions_snapshot { sessions, orders, endedTotals }` — replaces per-session `session_added` / per-cwd `sessions_reordered` bootstrap loops; sent LAST (see Frame delivery policy). Live updates after snapshot keep incremental `session_added` / `session_updated` / `session_removed` / `sessions_reordered`.
@@ -925,6 +951,42 @@ New package `packages/hermes-memory-plugin` (client + server + shared). Settings
 - Runtime caveat: hermes reads config once at extension load → edits apply to newly started sessions only ("applies to new sessions" notice in the UI), not running ones.
 - Structured logging: path + field count on read/write success, failure reason on error, NEVER field values (config may hold model/provider hints).
 
+### MCP Client Plugin (`extract-mcp-client-plugin`)
+
+New plugin `packages/mcp-client-plugin/`, id `mcp-client`. Sole owner of `pi-mcp-adapter` configuration on the dashboard side. `apple-tools` and `mcp-server-plugin` consume it.
+
+**Claims.** `settings-section` → `/settings/plugins/mcp-client`. Folder pill = ONE component on two slots: `sidebar-folder-section` + `worktree-card-section`. `shell-overlay-route` `/folder/:encodedCwd/mcp`, `depth: 2`, `parentPath` `/folder/:encodedCwd`.
+
+**Exports.** `./client`, `./server`, `./core`. `./core` imports NO React and NO host runtime — the hostless `pi-apple-tools-install` CLI builds the same service from it.
+
+**Service.** `ctx.provide("mcp-client.config", …)` before any route registers. Factory `createMcpClientConfigService({ configIO, knownCwds, adapter? })`. Surface: `readServerEntry`, `ensureServerEntry`, `setServerDisabled`, `setDirectTools`, `ensureAdapterPackage`, `checkConfigFiles`, `adapterVerdict`, `targetPath`. Write-only operations never call the adapter loaders.
+
+**Worker-thread adapter port.** `loadMcpConfig` / `getServerProvenance` are synchronous, so the default port runs them in one lazily-spawned `worker_threads` Worker (`src/core/adapter-worker.ts`). Each load carries the deadline `adapterLoadTimeoutMs` — plugin host config namespace `plugins.mcp-client`, manifest `configSchema` `./configSchema.json`, integer, default `10000`, minimum `1000`, maximum `120000`. Expiry terminates the worker, rejects `AdapterTimeoutError`, respawns on the next load. HTTP maps it to `504 { error: "adapter-timeout", timeoutMs }`. Write-only paths spawn nothing.
+
+**REST.** `GET /api/mcp-client/effective?cwd=`, `GET /api/mcp-client/schema`, `GET /api/mcp-client/adapter`, `PUT /api/mcp-client/servers/:name` (patch `{scope, set, unset}`), `DELETE /api/mcp-client/servers/:name?scope` (returns the removed raw layer entry for exact undo), `PUT /api/mcp-client/servers/:name/disabled`, `PUT /api/mcp-client/settings`. EVERY route — GET included — registers with `{ preHandler: ctx.networkGuard }`: mutating bodies become executable config for pi, and the effective view returns own-layer secrets.
+
+**Effective view.** Provenance per server, classified from `getServerProvenance` by `kind` + Pi-path equality: `user` → **Pi global**; `project` at `<cwd>/.pi/mcp.json` → **Pi folder**; `project` elsewhere (`<cwd>/.mcp.json`) → **Shared**; `import` → **Shared**, labelled by `importKind`. A server the provenance map omits (`package.json#mcp`, agent plugin) → **Other**, read-only. Only Pi global + Pi folder are writable. Secret redaction is SERVER-SIDE: any secret-marked value not defined in the requested scope's writable layer leaves the process as a marker — scalar `{ redacted: true }`, record `{ redacted: true, keys: [{ name, secret }] }` (key names only, never values). `own` = the writable layer's unmerged entry, so a client distinguishes an override (key in `own`) from an inherited field.
+
+**Schema.** Published `schema/mcp-config.schema.json` describes `ServerEntry` + `McpSettings`. Markers `x-secret` (redaction + masking), `x-atomic` (layer-atomic records the adapter spreads wholesale), `x-transport` (`command` / `url` / `socket` grouping). Distinct from `configSchema.json`, which covers only the plugin's own dashboard-side settings.
+
+**Consumers.** `apple-tools` declares `dependsOn: ["mcp-client"]` — first first-party consumer of `dependsOn` + `ctx.provide`/`ctx.consume` — and drops `requires.piExtensions: ["pi-mcp-adapter"]`, which moves to the `mcp-client` recommended row. `src/mcp-config.ts` is DELETED; `install.ts` calls `ensureServerEntry("iMCP", …)` / `ensureAdapterPackage` / `checkConfigFiles`, the panel readout calls `readServerEntry`. `set-disabled` + `set-direct-tools` `plugin_action`s are removed (hard break, no shim); the panel links "Manage MCP servers →" to `/settings/plugins/mcp-client`. `mcp-server-plugin` takes the plugin as a PACKAGE dependency (no `dependsOn`, so `/mcp` survives `mcp-client` disabled) and writes its `pi-dashboard` entry through the shared core.
+
+```mermaid
+flowchart LR
+  ADP["pi-mcp-adapter/config"] --> W["adapter-worker.ts<br/>adapterLoadTimeoutMs"]
+  W --> CORE
+  IO["ConfigIO (wx + 0600 + fsync)"] --> CORE
+  subgraph MC ["packages/mcp-client-plugin"]
+    CORE["./core<br/>createMcpClientConfigService"] --> SVC["ctx.provide('mcp-client.config')"]
+    CORE --> RT["./server routes<br/>networkGuard on every route"]
+    CORE --> CLI2["./client<br/>settings + folder pill + /folder/:cwd/mcp"]
+  end
+  SVC -->|"ctx.consume (dependsOn)"| AT["apple-tools install.ts<br/>ensureServerEntry('iMCP')"]
+  SVC -->|"lazy consume, first POST /mcp"| MS["mcp-server-plugin<br/>adapter-diagnostic.ts"]
+  CORE -->|"package dep, hostless"| PROV["mcp-server-plugin provisioning.ts<br/>ensureServerEntry('pi-dashboard')"]
+  CORE -->|"package dep, hostless"| BIN["pi-apple-tools-install CLI"]
+```
+
 ### MCP Endpoint (`add-dashboard-mcp-server`)
 
 New plugin `packages/mcp-server-plugin/`. Headless — no client entry, `claims: []`. Mounts `POST /mcp` on `ctx.fastify`, the shared Fastify instance every plugin gets. Seven other plugins register routes the same way.
@@ -969,9 +1031,9 @@ Guarantee stated exactly: "the session this connection registered as". Not spoof
 
 **Streaming.** `subscriptions/listen`, a long-lived POST-response stream. `params.sessionIds[]` required; absent/empty/non-array → `-32602`. No subscribe-to-all. Filter applied per subscription before write. Authorisation re-checked per delivery. Revoked mid-stream → terminates it. Slow consumer → subscription TERMINATED at `MAX_BUFFERED_EVENTS` (1000) buffered events. Does NOT silently drop events. Subscription dies with its request.
 
-**Provisioning.** Writes `~/.pi/agent/mcp.json` key `pi-dashboard` on server start. HTTP `url` shape, not stdio `command` (iMCP writes `command`). `protocolVersion` pinned `2026-07-28` — never omitted, else legacy handshake. Merge-only. Atomic rename. Refuses unparseable file. Foreign shape under the reserved key → refuses the whole write, file untouched. Failure logged, never thrown — provisioning a convenience, not a precondition for serving `/mcp`.
+**Provisioning.** Writes the Pi-global `mcp.json` key `pi-dashboard` on server start, THROUGH the `mcp-client` core (`createMcpClientConfigService(...).ensureServerEntry`) — path from the adapter's own helper, so `PI_CODING_AGENT_DIR` is honoured. HTTP `url` shape, not stdio `command` (iMCP writes `command`). `protocolVersion` pinned `2026-07-28` — never omitted, else legacy handshake. Merge-only, so operator-added fields (`disabled`, `headers`) now survive a refresh. JSONC parse + `mcpServers` / `mcp-servers` alias + atomic hardened write come from the core, not a local reader. Foreign shape under the reserved key → refuses the whole write, file untouched. Failure logged, never thrown — provisioning a convenience, not a precondition for serving `/mcp`.
 
-**Prerequisite.** `pi-mcp-adapter >= 2.20.0` for the local-pi path. Below that, "legacy remains the default", handshake silently degrades. Runtime probe reports floor + installed + failure mode (`absent` / `below-floor` / `unparseable`).
+**Prerequisite.** `pi-mcp-adapter >= 2.20.0` for the local-pi path. Below that, "legacy remains the default", handshake silently degrades. The probe moved to `mcp-client` core; this plugin DELETED its `probeAdapterVersion` / `readInstalledAdapterVersion` and the atomic-write copy. Diagnostic is LAZY (`src/server/adapter-diagnostic.ts`): no `dependsOn`, so it consumes `mcp-client.config` at call time — absent service reads as `unknown` — and warns at most once, fired from the routes' `onMcpRequest` hook on the first `POST /mcp`, not at registration.
 
 **Config reference.** `MCP_BODY_LIMIT_BYTES` 1 MiB body cap. `MAX_BUFFERED_EVENTS` 1000 buffered events.
 
@@ -1650,6 +1712,8 @@ See change: add-session-uncommitted-indicator-and-commit.
 ### Git worktree convention (`.worktrees/`)
 Dashboard derives new worktree path as `<repoRoot>/.worktrees/<slugifyBranch(branch)>` when `POST /api/git/worktree` body omits `path`. `addWorktree` calls `ensureWorktreeExcludeLine(cwd)` first — idempotently appends `.worktrees/` to `<repoRoot>/.git/info/exclude` so parent repo ignores nested checkouts (untouched if line already present). Bridge `detectWorktree` populates `GitInfo.gitWorktree.mainPath`; `resolveSessionGroupPath` collapses worktree sessions under parent repo's pinned-directory group. See change: add-worktree-spawn-dialog.
 
+Worktree parentage immutable once resolved (cwd unchanged). `git_info_update { gitWorktree: null }` after parentage set means worktree removed underneath a live session — server keeps prior value; `gitWorktreeReported` stays true. `null` with no prior parentage clears as before. Same-cwd re-register carries `gitWorktree` over (server restart / bridge reconnect / resume); different cwd resets to unresolved. Wire shape unchanged — narrows documented meaning of wire `null`. See change: fix-worktree-grouping-lost-on-remove.
+
 ### Git worktree lifecycle (push / PR / merge / close)
 Dashboard exposes 7 endpoints under `/api/git/worktree/*`: `remove`, `remove-batch`, `prune`, `merge`, `push`, `pr`, `diff-stat`. Localhost-gated. Each forwards stable `{code, stderr}` errors (`active_sessions`, `dirty_worktree`, `branch_not_merged`, `dirty_main`, `merge_conflict`, `base_not_found`, `no_remote`, `auth_failed`, `non_fast_forward`, `gh_not_found`, `gh_not_authed`, `pr_exists`, `pushed_but_pr_failed`, `cwd_invalid`, `is_main_worktree`) produced by pure stderr→code mappers in `git-worktree-lifecycle.ts`.
 `/remove-batch` body `{ items: Array<{cwd, force?, deleteBranch?}> }`. Cap 50 items enforced before any git runs — `batch_too_large` 400; non-array `items` → `items_invalid` 400. Returns `{ results }` in INPUT ORDER, one per item. Never aborts on first failure. Item result: `{ cwd, ok, code, sessionIds?, branchDeleted?, branchDeleteCode? }`. `code` widens `RemoveCode` with `active_sessions | cwd_invalid | is_main_worktree`. Sits behind `networkGuard` + `validateCwd`.
@@ -1777,6 +1841,8 @@ Plausible = no `.git` path segment AND `statSync(<mainPath>/.git)` succeeds. One
 `.git`-entry condition is load-bearing: `--separate-git-dir`/bare phantoms are real, existing, unrelated dirs.
 
 KNOWN LIMITATION: phantom landing on a real working tree survives (bare hub `$HOME/bare.git` → phantom `$HOME`, `$HOME` a dotfiles repo). Shape test, not identity test.
+
+Worktree parentage inference runs when persisted parentage absent (key absent or `null`) or implausible. Requires ABSOLUTE cwd shape `<X>/.worktrees/<name>[/<sub>...]`. Split at FIRST `.worktrees` segment. `<X>` non-empty, absolute. `<X>/.git` must stat; reuse `isPlausibleWorktreeMainPath` for that one stat. Decline with NO stat for relative cwd or leading `.worktrees` — would resolve `.git` against server cwd. Read-time only; `.meta.json` never rewritten. One stat per record, zero subprocesses. Heals records the removed-worktree race cleared. See change: fix-worktree-grouping-lost-on-remove.
 
 kb guard is STRICTER, not looser, in every state except a submodule admitted on its own cwd. Submodule does not inherit superproject trust.
 
@@ -2370,6 +2436,8 @@ Durable bearer never rides WS. Client mints short-lived ~15s single-use ticket v
 #### Genuine-local trust — D10, narrowed
 
 Loopback auth-exemption replaced by `isGenuinelyLocal(ip, headers)` = loopback AND no proxy-forwarding header (`x-forwarded-*`, `x-real-ip`, `forwarded`). Closes zrok-tunnel-as-127.0.0.1 bypass at all 3 sites: auth-plugin `onRequest`, `createNetworkGuard`, WS upgrade. Marker-less `ssh -R` not caught by header heuristic — accepted narrowing. Affirmative local-IPC token `~/.pi/dashboard/local/token` (dir 0700, file 0600), header `X-Pi-Local-Token`, for same-host process callers. Module `local-token.ts`. Same-desktop browser keeps loopback trust (genuine-local, no forwarding header).
+
+Windows credential ACLs now OBSERVED, not assumed. `chmod` no-op on Windows — owner-only property of `~/.pi/dashboard/local/token`, `~/.pi/dashboard/identity.key`, `~/.pi/dashboard/paired-devices.json` rests on inherited NTFS profile ACLs, not mode bits. Observed 2026-09-14. Method `qa/tests/28-gateway-windows.ps1` §4: second local user via `New-LocalUser`, asserted NOT in `Administrators` (else test vacuous), real read attempt via `Start-Process -Credential`; all three files minted first through product writers `ensureLocalToken` / `ensureServerIdentity` / `PairedDeviceRegistry`. Result `READ-DENIED` (`UnauthorizedAccessException`) all three. DACL per file: no `Everyone`, no `BUILTIN\Users`, no `Authenticated Users`; owner `BUILTIN\Administrators`. Host GitHub `windows-latest`, `.github/workflows/ci-gateway-platform.yml`, run 34823022229, job 103908680316, PASS 4m45s. Denial from second user, not owner — files owned by `BUILTIN\Administrators`, so owner-principal read would SUCCEED. Earlier `infeasible` verdict was HARNESS bug, not runner limit: probe wrote verdict into session owner `%TEMP%` with second user granted only `(RX)`, standard user cannot traverse another user's profile; fixed by moving probe dir to `C:\ProgramData\qa-acl-<pid>` granted `(M)` to second user, removed in `Cleanup`. Arm has NO pass-without-verdict path — missing read verdict = hard FAIL, worded evidence failure, never leak. `qa/` VM matrix (`make test-windows`) NOT used, NOT required.
 
 #### CORS default
 
@@ -4915,3 +4983,75 @@ flowchart TD
 - `server.ts` hoists ONE `createRemoteTranscriptStore()`. Shared by `wireEvents` (write), the read route, and hydration.
 - `ChatView` renders the `retained-transcript-incomplete` notice for `incomplete` ONLY. `absent` keeps the ordinary "No messages yet" empty state.
 - L3 gate `tests/e2e/remote-transcript-read.spec.ts` — task 12.52 of `add-pi-gateway-transport-identity`, deferred there for want of a read path to drive.
+## Browser relay (plugin-owned WS scopes + screencast tap)
+
+Drive the user's real logged-in Chrome from a pi session. Plugin-owned (`packages/browser-plugin/`), opt-in (`defaultEnabled:false`). Ground truth: `openspec/changes/add-browser-relay/design.md` (D1–D9), `packages/browser-plugin/src/server/{ws-routes,status,routes,index}.ts`, `relay/{relay-manager,relay-instance,screencast-tap,viewer-input}.ts`, `packages/dashboard-plugin-runtime/src/server/ws-route-registry.ts`.
+
+See change: add-browser-relay. Research record: [`research/browser-relay-playwright-extension.md`](research/browser-relay-playwright-extension.md).
+
+### Connect → relay → viewer flow
+
+```mermaid
+sequenceDiagram
+  participant Agent as pi session (agent)
+  participant Dash as Dashboard server (core)
+  participant Mgr as RelayManager (plugin)
+  participant Ext as Playwright Chrome Extension
+  participant Chrome as User Chrome
+  participant Viewer as Dashboard /ws viewer
+  Agent->>Dash: POST /api/browser/connect {profileDirectory}
+  Dash->>Mgr: connect(profileDirectory)
+  Mgr->>Mgr: mint 128-bit guid + public instanceId
+  Mgr->>Chrome: open connect.html?mcpRelayUrl=ws://127.0.0.1:<port>/ws/browser-ext/<guid> --profile-directory=<dir>
+  Ext->>Dash: WS upgrade /ws/browser-ext/<guid>
+  Note over Dash: core gates: host -> pinned origin -> genuinely-local; then plugin handleUpgrade
+  Dash->>Mgr: attachExtension(guid, ws)
+  Mgr-->>Agent: {cdpUrl, instanceId}
+  Agent->>Dash: agent-browser connect ws://127.0.0.1:<port>/ws/browser-cdp/<guid>
+  Note over Dash: core gates; handler refuses ANY Origin header
+  Dash->>Mgr: attachCdp(guid, ws)
+  Agent->>Ext: CDP commands (deny-list verbs answered -32000)
+  Viewer->>Dash: /ws browser_relay_subscribe {instanceId, tabId}
+  Dash->>Ext: Page.startScreencast (tap)
+  Ext-->>Viewer: browser_relay_frame PER socket (jpeg)
+  Dash-->>Viewer: browser_relay_status broadcast
+```
+
+### Plugin WS-scope admission (all in core, before `handleUpgrade`)
+
+- Two scopes: `browser-ext` = `/ws/browser-ext/<guid>`; `browser-cdp` = `/ws/browser-cdp/<guid>`. Registered via `ctx.registerWsRoute` during plugin activation.
+- Gate order: host admission → origin admission → genuinely-local peer. Then the plugin's `handleUpgrade` owns the guid.
+- `admitOrigins` non-empty = exact-match, REPLACES the dashboard origin policy. `browser-ext` pins `chrome-extension://mmlmfjhmonkocbjadbfplnigmagldckm`; a loopback page origin (`http://localhost:5173`) is refused there.
+- `admitOrigins` empty = core policy applies. `browser-cdp` uses empty AND its handler refuses any request carrying an `Origin` header — web content always sends one, a CDP client never does.
+- Genuinely-local = loopback remote address AND loopback `Host` (`127.0.0.1` / `[::1]` / `localhost`, any port) AND none of 8 forwarding headers (`x-forwarded-*`, `x-real-ip`, `forwarded`, `via`). Tunnel reachability never depends on whether the proxy injects markers.
+- Cookies, local IPC token, single-use tickets, trusted-CIDR bypass NEVER run for a plugin scope. The guid is the only credential. `POST /api/ws-ticket` refuses to mint for a plugin scope.
+- Registrations are per activation: toggle off tears down (sockets close 1001, prefixes 404); toggle on registers afresh.
+
+### Address model
+
+- **guid** = 128 bits of randomness, minted per connect. Socket credential. In the path of both relay endpoints. Never logged, never persisted, never returned to a browser client.
+- **`instanceId`** = short public handle (`inst-…`) for the UI and audit. Cannot open a socket.
+- Deliberately NO cdpUrl-lookup endpoint: REST calls carry no pi-session identity, so a profile-keyed lookup could hand one local process another session's tab group. The caller keeps the `cdpUrl` from `connect`.
+- No secret reaches a client: the pairing token is `writeOnly` in `configSchema.json`, stripped by `redactPluginConfigForClient` (fails CLOSED — unloadable schema → `{}`), and written through `PUT /api/browser/profile` which merges server-side against the unredacted config.
+
+### Lifecycle (each end is a real leak otherwise)
+
+- A minted guid never claimed within 60 s expires (the user never allowed, or token mismatch — indistinguishable, one 504).
+- An instance closes when its extension socket closes, when its CDP client socket closes (the agent's task is over), and 30 s after the handshake with no CDP client (agent crashed, or the pi session is not on the dashboard host and cannot dial `127.0.0.1`).
+- Kill switch (`PUT /api/browser/enabled {false}`) persists config first, bumps a `disableEpoch` (a connect in flight re-checks it after each await), then closes every instance; the response returns only after all are gone.
+- Plugin disable rides the WS-socket tracking: the loader's `teardownPlugin` closes tracked sockets 1001 → `RelayInstance` finalizes → the Chrome tab group releases.
+
+### Screencast tap + viewer plane
+
+- One `ScreencastTap` per `(instance, tabId)` with ≥1 viewer. It is an in-process listener on the relay's CDP stream — the extension allows one `chrome.debugger` session per tab, so a second session is impossible.
+- Frames for a tapped session are FILTERED OUT of the CDP-client stream; a client `Page.startScreencast` on a tapped tab is denied. A client screencast already running on a tab wins: the viewer subscribe is refused `client-screencast-active`.
+- Frames are sent PER viewer socket (the only way `bufferedAmount` backpressure can skip ONE viewer); `browser_relay_status` (instance list, per-tab state, monotonic `auditSeq`) IS broadcast, coalesced ≤1 per 500 ms on audit append.
+- Viewer input is allowlisted to `Input.dispatchMouseEvent` / `Input.dispatchKeyEvent` / `Input.synthesizeScrollGesture` / `Page.bringToFront`; coordinates are normalized `[0,1]` of the rendered frame, scaled server-side by the last frame's device geometry. No `Runtime.*` path.
+- Deny-list: cookie reads (`Storage.getCookies`, `Network.getCookies`, `Network.getAllCookies`) + `Browser.setDownloadBehavior` always refused; `Page.navigate` / `Target.createTarget` fenced off `file:` / `javascript:` / `data:` / `blob:` and (when `allowedDomains` is non-empty) off host-less/outside-list URLs. A refusal is a CDP error `-32000` — loud, never a silent skip.
+- No-frames detector: no frame for 2 s → tab state `no-frames` (a hidden tab AND a visible idle tab both produce zero frames, so the tile wording stays neutral). DevTools take-over → `detached` + `reason:"devtools"`, input stops.
+
+### Client surfaces (plugin)
+
+- `settings-section` → `BrowserSettings`: profile rows keyed by `profileDirectory` (label, email, `installed`, `hasToken`, instances/tab count), write-only token input, `Zero-dialog` toggle, `allowedDomains` editor, Connect/Disconnect per `instanceId`, kill switch, Web Store link, capability notice; `AuditList` per profile.
+- `session-card-badge` → `BrowserRelayBadge`: always-mounted `browser_relay_status` subscriber. The relay is GLOBAL (no pi-session linkage), so this module-store feed is what lets the hook-less `content-view` predicate `isLiveViewActive` see it.
+- `content-view` → `LiveViewTile`: one tile per `{instanceId, tabId}`; subscribe/unsubscribe lifecycle, JPEG frames, pointer/key/wheel → normalized `browser_relay_input`, no-frames + DevTools overlays.

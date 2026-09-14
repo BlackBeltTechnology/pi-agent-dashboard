@@ -53,8 +53,15 @@ export default defineConfig({
       // collected by no project, so its suite never ran. A gate no CI job runs
       // is not a gate. See change: move-slot-actions-to-menu.
       "packages/kb-plugin",
+      // browser-plugin (change: add-browser-relay): relay scaffold + vendor
+      // integrity + manifest tests; relay-instance/manager tests land with
+      // workstream 2c. A package absent here never runs its tests.
+      "packages/browser-plugin",
       "packages/blackhole-plugin",
       "packages/mcp-server-plugin",
+      // Owns the pi-mcp-adapter config surface + version floor. See change:
+      // extract-mcp-client-plugin.
+      "packages/mcp-client-plugin",
       "scripts",
       // Pure helpers under tests/e2e/helpers/. NOT the Playwright specs — the
       // project's include glob is scoped to `e2e/helpers/__tests__/`. Added

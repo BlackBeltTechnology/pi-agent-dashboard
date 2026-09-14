@@ -13,6 +13,8 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 		expect(ids).toEqual(
 			[
 				"@blackbelt-technology/pi-dashboard-cost-estimator",
+				"@blackbelt-technology/pi-dashboard-mcp-client-plugin",
+				"pi-mcp-adapter",
 				"pi-anthropic-messages",
 				"pi-agent-browser",
 				"@blackbelt-technology/pi-dashboard-subagents",
@@ -176,6 +178,7 @@ describe("getRecommendedByStatus", () => {
 				"pi-flows",
 				"pi-web-access",
 				"context-mode",
+				"pi-mcp-adapter",
 				"@blackbelt-technology/pi-dashboard-kb-extension",
 			].sort(),
 		);
@@ -200,6 +203,7 @@ describe("getRecommendedByStatus", () => {
 				"@blackbelt-technology/pi-dashboard-apple-tools",
 				"@blackbelt-technology/pi-dashboard-video-transcription",
 				"@blackbelt-technology/pi-dashboard-forms-bpmn",
+				"@blackbelt-technology/pi-dashboard-mcp-client-plugin",
 				"@blackbelt-technology/pi-dashboard-cost-estimator",
 				"@blackbelt-technology/pi-dashboard-code-review-toolkit",
 				"@blackbelt-technology/pi-dashboard-openspec-workflow",

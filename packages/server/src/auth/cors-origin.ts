@@ -221,6 +221,27 @@ export function isWsOriginTrusted(
   return isOriginAdmitted(origin, hostHeader, opts);
 }
 
+/**
+ * Origin admission for a PLUGIN-registered WS scope (change: add-browser-relay
+ * D1). Runs BESIDE {@link isWsOriginTrusted} — core behaviour is untouched.
+ *
+ * Non-empty `admitOrigins` REPLACES the dashboard origin policy for the
+ * scope: the request Origin must exactly equal one listed string, so a
+ * loopback page origin the core policy would admit is refused, and an ABSENT
+ * Origin cannot match (browsers cannot omit it; a listed extension origin is
+ * the only admitted peer). Empty list → the dashboard policy applies
+ * unchanged (scope `null`: plugin scopes get no `live` carve-out).
+ */
+export function isPluginWsOriginAdmitted(
+  origin: string | undefined,
+  hostHeader: string | undefined,
+  admitOrigins: readonly string[],
+  opts: CorsOriginOptions,
+): boolean {
+  if (admitOrigins.length > 0) return origin !== undefined && admitOrigins.includes(origin);
+  return isWsOriginTrusted(origin, hostHeader, null, opts);
+}
+
 /** Mutating-REST admission (`/api/*` + `POST /auth/logout`). No `null` carve-out. */
 export function isMutationOriginTrusted(
   origin: string | undefined,

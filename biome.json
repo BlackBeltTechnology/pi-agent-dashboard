@@ -18,7 +18,11 @@
       "!**/__tests__/fixtures/**",
       "!**/*.production.min.js",
       "!packages/pi-forms-bpmn/.pi/skills/**/assets/**",
-      "!site/vendor/**"
+      "!site/vendor/**",
+      "!packages/browser-plugin/src/server/relay/vendor/playwright-core/**",
+      "!packages/browser-plugin/src/server/relay/vendor/shims/manualPromise.ts",
+      "!packages/browser-plugin/src/server/relay/vendor/shims/time.ts",
+      "!packages/browser-plugin/src/server/relay/vendor/shims/timeoutRunner.ts"
     ]
   },
   "formatter": {

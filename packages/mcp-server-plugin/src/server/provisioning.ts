@@ -1,11 +1,12 @@
 /**
- * Provisions the dashboard's own entry into `~/.pi/agent/mcp.json` so a local
+ * Provisions the dashboard's own entry into the Pi-global `mcp.json` so a local
  * pi session can reach `/mcp` (design.md Decision 5, Decision 11).
  *
- * Reuses the discipline proven in `packages/apple-tools/src/mcp-config.ts`:
- * read → merge exactly one key → atomic write; refuse a present-but-unparseable
- * file rather than "fixing" it; inject all filesystem access so the suite never
- * touches real user config.
+ * The read → merge-one-key → atomic-write discipline now lives in the
+ * `mcp-client` plugin's `./core` (`createMcpClientConfigService`); this module
+ * owns only the dashboard's collision policy for its reserved key. It is a
+ * package dependency, NOT a manifest `dependsOn` — provisioning degrades
+ * gracefully and must not gate plugin load.
  *
  * TWO traps this module exists to avoid.
  *
@@ -18,14 +19,16 @@
  *
  * 2. **The wrong-shape trap.** `ensureMcpEntry` writes a stdio `command` entry
  *    for iMCP. This endpoint is HTTP and must be declared by `url` (J1).
+ *
+ * See change: extract-mcp-client-plugin (task 6.2).
  */
+import {
+  type AdapterPort,
+  type ConfigIO,
+  createMcpClientConfigService,
+} from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
 
-/** Injected filesystem surface. `readFile` returns null when absent. */
-export interface ConfigIO {
-  readFile: (path: string) => string | null;
-  /** Atomic write (temp-file + rename). */
-  writeFileAtomic: (path: string, content: string) => void;
-}
+export type { ConfigIO };
 
 /**
  * The reserved key (Decision 11). Namespaced by product so it cannot collide
@@ -46,39 +49,31 @@ export type ProvisionResult =
 
 export interface DashboardMcpEntry {
   url: string;
-  protocolVersion: string;
+  protocolVersion: typeof PROVISIONED_PROTOCOL_VERSION;
 }
 
 export function buildDashboardEntry(url: string): DashboardMcpEntry {
   return { url, protocolVersion: PROVISIONED_PROTOCOL_VERSION };
 }
 
-function parseConfig(
-  io: ConfigIO,
-  path: string,
-): { parsed: Record<string, unknown> } | { error: ProvisionResult } {
-  const raw = io.readFile(path);
-  // An absent or empty file is first-run, not corruption (J8).
-  if (raw === null || raw.trim() === "") return { parsed: {} };
-  try {
-    const val = JSON.parse(raw);
-    if (val === null || typeof val !== "object" || Array.isArray(val)) {
-      // J5's second case: valid JSON whose root is an array. Refused, because
-      // merging into it would silently discard the operator's document.
-      return {
-        error: { ok: false, state: "CONFIG_UNPARSEABLE", message: `${path} is not a JSON object` },
-      };
-    }
-    return { parsed: val as Record<string, unknown> };
-  } catch (e) {
-    return {
-      error: {
-        ok: false,
-        state: "CONFIG_UNPARSEABLE",
-        message: `${path} contains invalid JSON: ${(e as Error).message}`,
-      },
-    };
-  }
+export interface ProvisionOptions {
+  url: string;
+  /**
+   * The adapter port the config service resolves paths through. Injected for
+   * tests (a temp-dir stub); the default is the worker-thread port over the
+   * real `pi-mcp-adapter/config`, so `PI_CODING_AGENT_DIR` is honoured.
+   */
+  adapter?: AdapterPort;
+}
+
+/** An entry is "ours" iff it is an object declaring an HTTP `url`. */
+function isDashboardHttpEntry(v: unknown): boolean {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    !Array.isArray(v) &&
+    typeof (v as { url?: unknown }).url === "string"
+  );
 }
 
 /**
@@ -94,111 +89,54 @@ function parseConfig(
  * clobber J6 forbids.
  */
 export function provisionDashboardEntry(
-  io: ConfigIO,
-  path: string,
-  url: string,
+  configIO: ConfigIO,
+  opts: ProvisionOptions,
 ): ProvisionResult {
-  const read = parseConfig(io, path);
-  if ("error" in read) return read.error;
-  const config = read.parsed;
+  const service = createMcpClientConfigService({
+    configIO,
+    knownCwds: () => [],
+    ...(opts.adapter ? { adapter: opts.adapter } : {}),
+  });
+  const scope = { kind: "global" } as const;
+  const path = service.targetPath(scope);
 
-  const rawServers = config.mcpServers;
-  if (rawServers !== undefined && (!rawServers || typeof rawServers !== "object" || Array.isArray(rawServers))) {
+  // Parse gate: the writer's own read status, so a present-but-unparseable file
+  // is refused (with the path in the message) rather than treated as absent.
+  const status = service.checkConfigFiles();
+  if (!status.mcpJson.ok) {
+    const detail = status.mcpJson.message ?? "unparseable";
     return {
       ok: false,
       state: "CONFIG_UNPARSEABLE",
-      message: `${path}: "mcpServers" must be an object`,
+      message: detail.includes(path) ? detail : `${path}: ${detail}`,
     };
   }
-  const servers = (rawServers as Record<string, unknown> | undefined) ?? {};
 
-  const existing = servers[DASHBOARD_MCP_KEY];
-  if (existing !== undefined) {
-    const isOurs =
-      typeof existing === "object" &&
-      existing !== null &&
-      !Array.isArray(existing) &&
-      typeof (existing as { url?: unknown }).url === "string";
-    if (!isOurs) {
-      return {
-        ok: false,
-        state: "FOREIGN_ENTRY",
-        message: `${path}: mcpServers["${DASHBOARD_MCP_KEY}"] exists but is not a dashboard HTTP entry; refusing to overwrite it`,
-      };
-    }
-  }
+  // File-only read of the Pi-global layer — never the adapter merge.
+  const existing = service.readServerEntry(DASHBOARD_MCP_KEY, scope);
 
-  const entry = buildDashboardEntry(url);
-  const unchanged =
-    existing !== undefined && JSON.stringify(existing) === JSON.stringify(entry);
-  if (unchanged) return { ok: true, action: "unchanged" };
-
-  const next = {
-    ...config,
-    mcpServers: { ...servers, [DASHBOARD_MCP_KEY]: entry },
-  };
-
-  try {
-    io.writeFileAtomic(path, `${JSON.stringify(next, null, 2)}\n`);
-  } catch (e) {
-    // J7: an unwritable directory surfaces cleanly. The caller keeps running —
-    // provisioning is a convenience, not a precondition for serving /mcp.
+  if (existing !== undefined && !isDashboardHttpEntry(existing)) {
     return {
       ok: false,
-      state: "CONFIG_WRITE_FAILED",
-      message: `${path}: ${(e as Error).message}`,
+      state: "FOREIGN_ENTRY",
+      message: `${path}: mcpServers["${DASHBOARD_MCP_KEY}"] exists but is not a dashboard HTTP entry; refusing to overwrite it`,
     };
   }
 
+  const entry = buildDashboardEntry(opts.url);
+  if (existing !== undefined && JSON.stringify(existing) === JSON.stringify(entry)) {
+    return { ok: true, action: "unchanged" };
+  }
+
+  // Merge-only: an operator-added `disabled`/`headers`/unknown key on our entry
+  // survives the refresh; `ensureServerEntry` only sets url + protocolVersion.
+  const write = service.ensureServerEntry(DASHBOARD_MCP_KEY, entry, scope);
+  if (!write.ok) {
+    return {
+      ok: false,
+      state: write.refusal.code === "write-failed" ? "CONFIG_WRITE_FAILED" : "CONFIG_UNPARSEABLE",
+      message: write.refusal.message,
+    };
+  }
   return { ok: true, action: existing === undefined ? "created" : "updated" };
-}
-
-/** Minimum `pi-mcp-adapter` that speaks this revision (Decision 5). */
-export const ADAPTER_VERSION_FLOOR = "2.20.0";
-
-export type AdapterProbeResult =
-  | { ok: true; version: string }
-  | { ok: false; reason: "absent" | "below-floor" | "unparseable"; message: string };
-
-function compareSemver(a: string, b: string): number {
-  const pa = a.split(".").map((n) => Number.parseInt(n, 10));
-  const pb = b.split(".").map((n) => Number.parseInt(n, 10));
-  for (let i = 0; i < 3; i += 1) {
-    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (d !== 0) return d;
-  }
-  return 0;
-}
-
-/**
- * Diagnose the installed adapter (X1, X2, X3).
- *
- * The point is the DIAGNOSTIC. Without this probe, an adapter below the floor
- * fails as a silent legacy-handshake hang, which is close to un-debuggable from
- * the client side. Naming both the required floor and the installed version
- * turns it into a one-line fix.
- */
-export function probeAdapterVersion(installed: string | null): AdapterProbeResult {
-  if (installed === null) {
-    return {
-      ok: false,
-      reason: "absent",
-      message: `pi-mcp-adapter is not installed. The dashboard MCP endpoint requires >= ${ADAPTER_VERSION_FLOOR}.`,
-    };
-  }
-  if (!/^\d+\.\d+\.\d+/.test(installed)) {
-    return {
-      ok: false,
-      reason: "unparseable",
-      message: `Could not parse the installed pi-mcp-adapter version ("${installed}"). Required: >= ${ADAPTER_VERSION_FLOOR}.`,
-    };
-  }
-  if (compareSemver(installed, ADAPTER_VERSION_FLOOR) < 0) {
-    return {
-      ok: false,
-      reason: "below-floor",
-      message: `pi-mcp-adapter ${installed} is below the required floor ${ADAPTER_VERSION_FLOOR}; protocol ${PROVISIONED_PROTOCOL_VERSION} would fall back to the legacy handshake. Upgrade with: pi ext update pi-mcp-adapter`,
-    };
-  }
-  return { ok: true, version: installed };
 }

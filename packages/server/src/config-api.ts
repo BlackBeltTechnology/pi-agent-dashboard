@@ -4,6 +4,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { redactPluginConfigForClient } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { type AuthConfig, type DashboardConfig, loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import { refreshModelRegistry } from "./model-proxy/registry-singleton.js";
@@ -27,6 +28,15 @@ export function readConfigRedacted(): DashboardConfig {
   // clear (change: add-tunnel-providers — doubt-review gap). The write path
   // preserves a redacted value via writeConfigPartial's tunnel deep-merge.
   config.tunnel = redactTunnelSecrets(config.tunnel);
+  // Redact writeOnly plugin config fields (e.g. the browser plugin's
+  // per-profile SSO pairing tokens) so GET /api/config never serves them in
+  // clear. Plugins WITHOUT a writeOnly field keep their config verbatim
+  // (same-reference no-op). The plugin write paths merge against the RAW
+  // file, so stripping on read cannot clobber a stored value.
+  // See change: add-browser-relay (GAP A, scenario F2).
+  config.plugins = Object.fromEntries(
+    Object.entries(config.plugins ?? {}).map(([id, cfg]) => [id, redactPluginConfigForClient(id, cfg)]),
+  ) as DashboardConfig["plugins"];
   return config;
 }
 
@@ -263,7 +273,7 @@ export function writeConfigPartial(partial: Record<string, any>): WriteConfigRes
 
     // Write
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(merged, null, 2) + "\n");
+    fs.writeFileSync(file, `${JSON.stringify(merged, null, 2)}\n`);
 
     // Eager-refresh model proxy registry (config may affect proxy settings).
     refreshModelRegistry().catch(() => {});

@@ -200,7 +200,7 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
     node -e '
       const crypto = require("node:crypto");
       const fs = require("node:fs");
-      const [key, spawnStrategy, out, trusted] = process.argv.slice(1);
+      const [key, spawnStrategy, out, trusted, relayFake] = process.argv.slice(1);
       const hash = crypto.createHash("sha256").update(key).digest("hex");
       const networks = (trusted || "").split(",").map((s) => s.trim()).filter(Boolean);
       const cfg = {
@@ -224,8 +224,13 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
           },
         },
       };
+      // Browser-relay e2e faucet (change: add-browser-relay, task 7.61): the
+      // plugin is defaultEnabled:false, so the Fake instance only appears when
+      // the config enables it BEFORE boot (the server entry seeds the fake at
+      // activation). See docker/test-up.sh.
+      if (relayFake === "1") cfg.plugins.browser = { enabled: true };
       fs.writeFileSync(out, JSON.stringify(cfg) + "\n");
-    ' "${E2E_PROXY_KEY}" "${PI_SPAWN_STRATEGY:-tmux}" "${PI_DIR}/dashboard/config.json" "${PI_E2E_TRUSTED_NETWORKS:-}"
+    ' "${E2E_PROXY_KEY}" "${PI_SPAWN_STRATEGY:-tmux}" "${PI_DIR}/dashboard/config.json" "${PI_E2E_TRUSTED_NETWORKS:-}" "${PI_BROWSER_RELAY_FAKE:-}"
     echo "[test-entrypoint] PI_E2E_SEED: seeded trustedNetworks (${PI_E2E_TRUSTED_NETWORKS:-0.0.0.0/0}) + defaultModel + modelProxy apiKey → config.json"
   fi
 

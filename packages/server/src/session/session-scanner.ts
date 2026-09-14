@@ -4,7 +4,7 @@
  * Falls back to `.jsonl` parsing for sessions without cached meta.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, sep } from "node:path";
 import type { ArchivedSessionSummary } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { resolvePiSessionsDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
@@ -90,6 +90,44 @@ function isPlausibleWorktreeMainPath(mainPath: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Infer worktree parentage from the dashboard's own layout: an ABSOLUTE cwd of
+ * the form `<X>/.worktrees/<name>[/<sub>...]`, split at the FIRST `.worktrees`
+ * path segment, where `<X>` is non-empty, absolute, and directly contains a
+ * `.git` entry.
+ *
+ * This heals records whose parentage the removal race cleared (the `.git` file
+ * vanishes, the bridge reports `null`, meta is written with no `gitWorktree`
+ * key). Read-time only — `.meta.json` is never rewritten, so revert = stop
+ * inferring. See design D3.
+ *
+ * Declines (no stat at all) for a relative cwd or a leading `.worktrees`
+ * (e.g. `/.worktrees/x`, whose `<X>` would be empty and would stat `.git`
+ * against the SERVER's cwd). Reuses `isPlausibleWorktreeMainPath` for the
+ * `<X>/.git` stat and its `.git`-segment reject — no subprocess.
+ *
+ * Known limitation: for a nested `<X>/.worktrees/<A>/.worktrees/<B>` the first
+ * segment wins, so `mainPath` is `<X>` even if `B` is a worktree OF `A`. Not a
+ * layout the dashboard creates. See change:
+ * fix-worktree-grouping-lost-on-remove.
+ */
+function inferWorktreeFromCwd(
+  cwd: string | undefined,
+): { mainPath: string; name: string } | undefined {
+  if (!cwd || !isAbsolute(cwd)) return undefined;
+  const segments = cwd.split(sep);
+  const idx = segments.indexOf(".worktrees");
+  // `-1` = no `.worktrees` segment; `0` = leading (relative root).
+  if (idx <= 0) return undefined;
+  if (idx + 1 >= segments.length) return undefined; // no follower → no name
+  const mainPath = segments.slice(0, idx).join(sep);
+  if (!mainPath || !isAbsolute(mainPath)) return undefined;
+  const name = segments[idx + 1];
+  if (!name) return undefined;
+  if (!isPlausibleWorktreeMainPath(mainPath)) return undefined;
+  return { mainPath, name };
 }
 
 /** Build a DashboardSession from cached `.meta.json` data. Exported so the
@@ -202,10 +240,15 @@ export function sessionFromMeta(
     // (the session degrades to grouping by its own cwd). `.meta.json` is never
     // rewritten — this is a read-time filter, so a revert simply stops
     // filtering. See change: add-git-checkout-root-resolver.
+    //
+    // When persisted parentage is absent/implausible, infer it from the
+    // dashboard's `.worktrees/` layout (heals the removal race). Same
+    // read-time-only contract. See design D3.
+    // See change: fix-worktree-grouping-lost-on-remove.
     gitWorktree:
       meta.gitWorktree?.mainPath && isPlausibleWorktreeMainPath(meta.gitWorktree.mainPath)
         ? { mainPath: meta.gitWorktree.mainPath, name: meta.gitWorktree.name ?? "" }
-        : undefined,
+        : inferWorktreeFromCwd(meta.cwd),
     // Probe whether the session's cwd still exists on disk. Cheap stat,
     // runs once per ended session at scan time. Avoids the dashboard
     // showing a stale resume button on a session whose dir was removed.

@@ -7,6 +7,12 @@ Chrome for Testing that `agent-browser` launches by default.
 Not vendored from upstream. Authored for this repo; see
 [`UPSTREAM.md`](../UPSTREAM.md).
 
+> **Legacy path.** The Pi Dashboard browser relay
+> ([`dashboard-relay.md`](dashboard-relay.md)) is preferred whenever the pi
+> session runs on the dashboard host — it needs no native-messaging host and
+> the dashboard holds the pairing token. Use this Panerelay recipe only when
+> the agent runs elsewhere and cannot reach a loopback dashboard.
+
 ## When this recipe applies
 
 Use it when the target is behind a login the agent cannot perform: SSO /
@@ -274,7 +280,7 @@ call fails.
 |---|---|
 | `Plugin 'panerelay' returned success=false` (no detail) | Generic wrapper for any plugin error. Query the native host directly (above) or run `check-panerelay.sh` to get the real message. Most often multiple ready browsers. |
 | `Multiple Panerelay browsers are ready` | Several browser processes carry the extension. Set `PANERELAY_BROWSER_ID` — see the section above. |
-| Still fails right after fixing the real cause | The session daemon **sticks to the browser it first resolved**. Re-run under a fresh `--session` name. Do **not** use `close --all` to clear it — it is not session-scoped and closes every session, including unrelated ones. |
+| Still fails right after fixing the real cause | The session daemon **sticks to the browser it first resolved**. Re-run under a fresh `--session` name (provider-resolution failures only — on a challenge follow [`challenge.md`](challenge.md)). Do **not** use `close --all` to clear it — it is not session-scoped and closes every session, including unrelated ones. |
 | `CDP error (Target.createTarget): No current window` | That `PANERELAY_BROWSER_ID` names a registration whose window has closed. Pick another. |
 | `Creating a new tab requires all-tabs authorization` | Panerelay defaults to **per-tab** consent. Open the side panel and authorize all tabs, or drive an already-authorized tab. Safe to grant inside a dedicated profile. |
 | `Extension is not currently connected` | Extension not installed in the profile, or its side panel was never opened. Open the panel. |

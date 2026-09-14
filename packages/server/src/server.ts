@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, getPluginStatusStore, loadServerEntries, pluginSpawnToSessionOptions, refreshRequirementProbesFor } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, resolvePluginEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { ExitIntent } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
@@ -41,6 +41,7 @@ import { decideBridgeTicketMint } from "./auth/bridge-ticket-eligibility.js";
 import {
   type CorsOriginOptions,
   isCorsOriginAllowed,
+  isPluginWsOriginAdmitted,
   isWsOriginTrusted,
   sanitizeHeaderForLog,
 } from "./auth/cors-origin.js";
@@ -55,11 +56,24 @@ import {
 } from "./auth/host-gate.js";
 import { ensureServerIdentity } from "./auth/identity.js";
 import { ensureLocalToken, verifyLocalToken } from "./auth/local-token.js";
-import { createNetworkGuard, isBypassedHost, isGenuinelyLocal } from "./auth/localhost-guard.js";
+import {
+  createNetworkGuard,
+  isBypassedHost,
+  isGenuinelyLocal,
+  isPluginScopePeerLocal,
+} from "./auth/localhost-guard.js";
 import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
 import { readAuthJson } from "./auth/provider-auth-storage.js";
 import { mintSpawnToken } from "./auth/spawn-token.js";
-import { extractTicket, routeScopeForUrl, type WsRouteScope, WsTicketStore } from "./auth/ws-ticket.js";
+import {
+  type CoreWsRouteScope,
+  extractTicket,
+  isCoreWsRouteScope,
+  routeScopeForUrl,
+  setPluginScopeResolver,
+  type WsRouteScope,
+  WsTicketStore,
+} from "./auth/ws-ticket.js";
 import {
   buildDispatchReloadContext,
   type ReloadHostContext,
@@ -99,7 +113,7 @@ import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager } from "./pairing/pairing.js";
 import { createPendingAttachRegistry } from "./pending/pending-attach-registry.js";
 import { createPendingClientCorrelations } from "./pending/pending-client-correlations.js";
-import { createPendingForkRegistry, type PendingForkRegistry } from "./pending/pending-fork-registry.js";
+import { createPendingForkRegistry } from "./pending/pending-fork-registry.js";
 import { createPendingInitialPromptRegistry } from "./pending/pending-initial-prompt-registry.js";
 import { createPendingPluginRefRegistry } from "./pending/pending-plugin-ref-registry.js";
 import { createPendingPromptAcks } from "./pending/pending-prompt-acks.js";
@@ -107,13 +121,13 @@ import { createPendingResumeIntentRegistry } from "./pending/pending-resume-inte
 import { createPendingWorktreeBaseRegistry } from "./pending/pending-worktree-base-registry.js";
 import { recordExitIntent, resolveExitIntent, stampBootStart } from "./persistence/boot-state.js";
 import { createMemoryEventStore, DEFAULT_MAX_EVENT_DATA_SIZE, type EventStore } from "./persistence/memory-event-store.js";
-import { createMetaPersistence, type MetaPersistence } from "./persistence/meta-persistence.js";
+import { createMetaPersistence } from "./persistence/meta-persistence.js";
 import { migrateCustomEntryFallbackOverrides } from "./persistence/migrate-custom-entry-fallback.js";
 import { needsMigration, runMigration } from "./persistence/migrate-persistence.js";
-import { createPreferencesStore, type PreferencesStore } from "./persistence/preferences-store.js";
+import { createPreferencesStore } from "./persistence/preferences-store.js";
 import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
-import { createPiGateway, type PiGateway } from "./pi/pi-gateway.js";
+import { createPiGateway } from "./pi/pi-gateway.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
 import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
@@ -178,8 +192,8 @@ import { createIdleTimer } from "./spawn-process/idle-timer.js";
 import { getKeeperManager, setCwdPolicyRegistry, spawnPiSession } from "./spawn-process/process-manager.js";
 import { removePid, writePid } from "./spawn-process/server-pid.js";
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
-import { createTerminalGateway, type TerminalGateway } from "./terminal/terminal-gateway.js";
-import { createTerminalManager, deriveTranscriptCapBytes, type TerminalManager } from "./terminal/terminal-manager.js";
+import { createTerminalGateway } from "./terminal/terminal-gateway.js";
+import { createTerminalManager, deriveTranscriptCapBytes } from "./terminal/terminal-manager.js";
 import { cleanupStaleZrok, createTunnel, deleteTunnel, detectZrokBinary, ensureReservedName, getTunnelUrl, liveTunnelOrigins, scavengeOrphanZrokProcesses } from "./tunnel/tunnel.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "./tunnel/tunnel-watchdog.js";
 
@@ -1755,11 +1769,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     { preHandler: networkGuard },
     async (request, reply) => {
       const scope = request.body?.scope;
+      // Core scopes only: a plugin-registered scope name is refused here —
+      // plugin scopes are structurally unticketable (add-browser-relay D1).
       // `bridge` is mintable by any authenticated caller (networkGuard: a
       // paired device's durable bearer, a cookie, or a trusted network). The
       // bearer authenticates this REST call and never rides the socket
       // (task 6.2/6.4).
-      if (scope !== "browser" && scope !== "terminal" && scope !== "live" && scope !== "bridge") {
+      if (typeof scope !== "string" || !isCoreWsRouteScope(scope)) {
         reply.code(400);
         return { success: false as const, error: "invalid scope" };
       }
@@ -2160,12 +2176,23 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // register routes. Fastify rejects route registration after listen().
       // Failure-isolated per-plugin via loader; awaited so all routes are
       // mounted before requests can arrive.
+      //
+      // Plugin-owned WS routes (change: add-browser-relay D1): the runtime
+      // registry resolves plugin scopes inside routeScopeForUrl, AFTER the
+      // four core prefixes. Wired BEFORE loadServerEntries so a plugin
+      // registering during its activation is immediately routable.
+      const wsRouteRegistry = getWsRouteRegistry();
+      setPluginScopeResolver((path) => wsRouteRegistry.resolveScope(path));
       try {
         await loadServerEntries({
           isEnabled: (pluginId) => {
             const cfg = loadConfig();
             const pluginCfg = getPluginConfigFromFile(cfg, pluginId) as Record<string, unknown>;
-            return pluginCfg.enabled !== false;
+            // defaultEnabled (add-browser-relay GAP B): an explicit config
+            // `enabled` wins; else the manifest default (false = opt-in
+            // plugin, e.g. `browser`); else the historical default-allow.
+            const manifest = discoverPlugins().find((p) => p.manifest.id === pluginId)?.manifest;
+            return resolvePluginEnabled(pluginCfg, manifest?.defaultEnabled);
           },
           requirementDeps: {
             listInstalled: () => packageManagerWrapper.listInstalled("global"),
@@ -2264,7 +2291,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 // change: detach-automation-goal-from-core,
                 // relocate-goal-product-to-plugin (D1-#1).
                 const requested = typeof opts.spawnToken === "string" ? opts.spawnToken : "";
-                if (requested && requested.includes("\0")) {
+                if (requested?.includes("\0")) {
                   // A NUL cannot survive argv/registry round-trips — honouring
                   // "used verbatim" means refusing, not silently re-minting a
                   // token the caller's persisted state would never match.
@@ -2525,10 +2552,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 } catch { /* start fresh */ }
                 rawConfig.plugins = { ...(rawConfig.plugins as Record<string, unknown> ?? {}), [id]: merged };
                 const fs = (await import('node:fs')).default;
-                const tmpFile = CONFIG_FILE + '.tmp.' + process.pid;
-                fs.writeFileSync(tmpFile, JSON.stringify(rawConfig, null, 2) + '\n');
+                const tmpFile = `${CONFIG_FILE}.tmp.${process.pid}`;
+                fs.writeFileSync(tmpFile, `${JSON.stringify(rawConfig, null, 2)}\n`);
                 fs.renameSync(tmpFile, CONFIG_FILE);
-                browserGateway.broadcast({ type: 'plugin_config_update', id, config: merged } as any);
+                browserGateway.broadcast({
+                  type: 'plugin_config_update',
+                  // writeOnly fields (e.g. the browser plugin's per-profile SSO
+                  // tokens) never cross to a client — spec add-browser-relay
+                  // browser-plugin-settings F2 / GAP A.
+                  config: redactPluginConfigForClient(id, merged),
+                } as any);
               },
               // In-process model runtime seam for plugin server entries (e.g. the
               // grammar plugin's llm backend) — mirrors the grammar-route wiring
@@ -2607,6 +2640,69 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         const trusted = config.resolvedTrustedNetworks ?? [];
         const secWsProtocol = request.headers["sec-websocket-protocol"] as string | undefined;
 
+        // ── Plugin-owned WS routes (change: add-browser-relay D1) ──────────
+        // A NON-core scope resolved from the plugin registry is gated
+        // STRICTER than core, and NONE of the credential branches below
+        // (cookie, local token, trusted-CIDR, ticket) run for it: the
+        // plugin's `handleUpgrade` owns its per-connection credential. Gate
+        // order: host admission (above, unchanged) → origin admission — a
+        // non-empty `admitOrigins` list REPLACES the dashboard policy →
+        // deterministic genuinely-local (loopback peer AND loopback `Host`
+        // AND none of the 8 forwarding headers), so tunnel reachability
+        // cannot depend on whether the tunnel injects markers.
+        if (scope !== null && !isCoreWsRouteScope(scope)) {
+          const registration = wsRouteRegistry.get(scope);
+          // Torn down between scope resolution and here (toggle raced the
+          // upgrade): same deliberate 404 as a tombstoned prefix below.
+          if (!registration) {
+            socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+            socket.destroy();
+            return;
+          }
+          const wsReqHeaders = request.headers as unknown as Record<string, unknown>;
+          if (
+            !isPluginWsOriginAdmitted(
+              request.headers.origin,
+              request.headers.host,
+              registration.admitOrigins,
+              corsOpts(),
+            ) ||
+            !isPluginScopePeerLocal(remoteAddress, request.headers.host, wsReqHeaders)
+          ) {
+            console.error(
+              `[ws-gate] rejected upgrade origin=${sanitizeHeaderForLog(request.headers.origin)} scope=${scope} peer=${sanitizeHeaderForLog(remoteAddress)}`,
+            );
+            socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+            socket.destroy();
+            return;
+          }
+          // A plugin's handleUpgrade is third-party code — a bug there must
+          // never escape the upgrade event listener (an uncaught throw here
+          // is fatal to the process). Refuse the socket, log, keep serving.
+          try {
+            registration.handleUpgrade(request, socket, head, {
+              pluginId: registration.pluginId,
+              scope,
+              trackSocket: (ws) => wsRouteRegistry.trackSocket(registration.pluginId, ws),
+            });
+          } catch (err) {
+            console.error(
+              `[ws-gate] plugin handleUpgrade threw scope=${scope} plugin=${registration.pluginId}:`,
+              err,
+            );
+            socket.destroy();
+          }
+          return;
+        }
+        // A prefix whose plugin was toggled off stays reachable-but-dead: a
+        // deliberate 404 (not the bare TCP destroy an unrouted path gets)
+        // lets a client tell "plugin disabled" from "wrong port".
+        if (scope === null && wsRouteRegistry.isTombstonedPath(request.url)) {
+          socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+
         // Cross-site upgrade gate (issue #625). Runs after the host-admission
         // check and ahead of the `bridge` early-return and the auth branches,
         // so an untrusted Origin can never consume a ticket and cannot tell a
@@ -2632,7 +2728,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           return;
         }
         const ticket = extractTicket(request.url, secWsProtocol);
-        const consumeTicket = (t: string, s: WsRouteScope) => wsTicketStore.consume(t, s);
+        const consumeTicket = (t: string, s: CoreWsRouteScope) => wsTicketStore.consume(t, s);
         const wsHeaders = request.headers as unknown as Record<string, unknown>;
         if (config.authConfig?.secret) {
           if (!validateWsUpgrade(request.headers.cookie, remoteAddress, config.authConfig.secret, trusted, { ticket, scope, consumeTicket, headers: wsHeaders, localToken })) {

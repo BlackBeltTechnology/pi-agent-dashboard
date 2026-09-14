@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "@blackbelt-technology/pi-dashboard-browser-plugin/configSchema",
+  "title": "Browser Relay config",
+  "description": "Plugin config persisted under plugins['browser'].* in ~/.pi/dashboard/config.json. Read by the server entry. The relay is OPT-IN: the manifest sets defaultEnabled:false AND this schema defaults enabled to false; enabling is a settings toggle. Per-profile SSO pairing tokens are writeOnly — the server strips them from every client-facing config payload (redactWriteOnly, spec browser-plugin-settings scenario F2).",
+  "type": "object",
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "description": "Kill switch (distinct from the plugin toggle): when false the plugin stays loaded but relay routes answer 403 and live instances are closed synchronously.",
+      "default": false
+    },
+    "defaultBrowser": {
+      "type": "string",
+      "description": "profileDirectory used when connect is requested without an explicit profile."
+    },
+    "allowMultipleInstancesPerProfile": {
+      "type": "boolean",
+      "description": "When false (default), a second connect on a profile with a live instance gets 409 {reason:'busy'}; when true the relay allows concurrent instances on one profile (user decision under tasks.md 2.2b — both paths implemented; the connect logic honouring this flag lands with workstream 2c).",
+      "default": false
+    },
+    "browsers": {
+      "type": "object",
+      "description": "Per-Chrome-profile settings keyed by profileDirectory — the stable key from Local State → profile.info_cache, never the user-editable label.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "writeOnly": true,
+            "description": "SSO pairing token pasted from the extension's connect page. writeOnly: never served back to any client; redactWriteOnly strips it from every broadcast and GET."
+          },
+          "zeroDialog": {
+            "type": "boolean",
+            "description": "When true, connect appends &token= to the connect.html URL so Chrome skips its Allow dialog. Token mismatch, Reject and no-answer are indistinguishable and all surface as the 60 s connect timeout (504).",
+            "default": false
+          },
+          "allowedDomains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Navigation guardrail, NOT a sandbox: Page.navigate / Target.createTarget to a host outside this list is denied. Exact host or leading-dot entry for subdomains (.github.com admits api.github.com). Empty = any host allowed.",
+            "default": []
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

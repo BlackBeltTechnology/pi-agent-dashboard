@@ -1173,7 +1173,9 @@ export type ServerToBrowserMessage =
   | PromptReceivedToBrowserMessage
   | CanvasIntentMessage
   | CanvasServerChipMessage
-  | FileChangedMessage;
+  | FileChangedMessage
+  | BrowserRelayFrameMessage
+  | BrowserRelayStatusMessage;
 
 /**
  * Server push: drive the per-session auto-canvas surface (change: auto-canvas).
@@ -1998,6 +2000,9 @@ export type BrowserToServerMessage =
   | RecoveryDismissMessage
   | SubagentResyncRequestBrowserMessage
   | PromptResyncRequestBrowserMessage
+  | BrowserRelaySubscribeMessage
+  | BrowserRelayUnsubscribeMessage
+  | BrowserRelayInputMessage
   | WatchFilesBrowserMessage;
 
 /**
@@ -2100,3 +2105,126 @@ export interface ActiveWorktreeInit {
   code?: string;
 }
 
+
+// ── Browser relay (change: add-browser-relay) ──────────────────────────
+//
+// Live-view messages for the browser plugin's screencast tap. The relay
+// endpoint sockets themselves are NOT in this protocol — they are plugin-owned
+// WS routes (`/ws/browser-ext/<guid>`, `/ws/browser-cdp/<guid>`) and never
+// traverse this gateway. Only the viewer plane (tiles + audit) rides `/ws`,
+// so it is reachable through the tunnel exactly like the rest of the UI.
+//
+// FRAME/STATUS ARE SECRET-FREE BY CONSTRUCTION (spec shared-protocol F2):
+// neither carries the relay guid or a profile token — `instanceId` is the
+// public, non-secret address. Do NOT add a `guid`/`token` field here.
+
+/**
+ * Browser → server: start streaming frames for one tab of one live instance.
+ * `tabId` is the Chrome tab id from `browser_relay_status`. The relay may
+ * refuse (tab state `client-screencast-active`) when the CDP client already
+ * runs its own screencast on that tab.
+ */
+export interface BrowserRelaySubscribeMessage {
+  type: "browser_relay_subscribe";
+  instanceId: string;
+  tabId: number;
+}
+
+/** Browser → server: stop streaming; the last unsubscribe stops the screencast. */
+export interface BrowserRelayUnsubscribeMessage {
+  type: "browser_relay_unsubscribe";
+  instanceId: string;
+  tabId: number;
+}
+
+/**
+ * Browser → server: one viewer input event. `x`/`y` are NORMALIZED to `[0,1]`
+ * of the rendered frame (never CSS pixels, never device pixels) so tile
+ * scaling cannot mis-target; the relay multiplies by the last frame's
+ * `metadata.deviceWidth/deviceHeight` before dispatching. Only the kinds below
+ * are accepted — an unknown kind, or out-of-range coordinates, is dropped and
+ * audited, and the viewer never reaches `Runtime.*`.
+ */
+export interface BrowserRelayInputMessage {
+  type: "browser_relay_input";
+  instanceId: string;
+  tabId: number;
+  kind: "mouse" | "key" | "scroll" | "bringToFront";
+  /** mouse/scroll only — normalized `[0,1]` of the frame. */
+  x?: number;
+  y?: number;
+  /** mouse only. */
+  action?: "click" | "move" | "down" | "up";
+  button?: "left" | "middle" | "right";
+  clickCount?: number;
+  /** scroll only — raw wheel deltas, not normalized (they are not positions). */
+  deltaX?: number;
+  deltaY?: number;
+  /** key only — a DOM key event, mirrored to `Input.dispatchKeyEvent`. */
+  keyType?: "keyDown" | "keyUp" | "char";
+  key?: string;
+  code?: string;
+  text?: string;
+}
+
+/** One frame's device-pixel geometry + capture time. */
+export interface BrowserRelayFrameMetadata {
+  deviceWidth: number;
+  deviceHeight: number;
+  timestamp: number;
+}
+
+/**
+ * Server → browser: ONE screencast frame, sent ONLY to sockets that subscribed
+ * to this `{instanceId, tabId}` — never broadcast. `jpegBase64` is the raw
+ * base64 payload (no data-URL prefix).
+ */
+export interface BrowserRelayFrameMessage {
+  type: "browser_relay_frame";
+  instanceId: string;
+  tabId: number;
+  jpegBase64: string;
+  metadata: BrowserRelayFrameMetadata;
+}
+
+/**
+ * Tab state as the tile renders it. `no-frames` means "no repaint for 2 s" —
+ * which a hidden tab AND a visible idle tab both produce, hence the neutral
+ * tile wording; `detached` + `reason: "devtools"` means the user opened
+ * DevTools and input must stop; `client-screencast-active` is the refusal
+ * state when the agent already screenshots that tab.
+ */
+export type BrowserRelayTabState =
+  | "live"
+  | "no-frames"
+  | "detached"
+  | "client-screencast-active";
+
+export interface BrowserRelayTabStatus {
+  tabId: number;
+  title: string;
+  url: string;
+  state: BrowserRelayTabState;
+  /** Set when `state === "detached"`. */
+  reason?: "devtools";
+}
+
+export interface BrowserRelayInstanceStatus {
+  instanceId: string;
+  profileDirectory: string;
+  /** `no-cdp-client` = extension handshake done, agent has not attached yet. */
+  state: "connected" | "no-cdp-client";
+  tabs: BrowserRelayTabStatus[];
+}
+
+/**
+ * Server → browser: the full live-instance snapshot, broadcast on every
+ * instance/tab change and on every audit append (coalesced to ≤1 per 500 ms).
+ * `auditSeq` is monotonic, so the audit viewer refetches when it changes and
+ * does not when a status with the same seq arrives.
+ */
+export interface BrowserRelayStatusMessage {
+  type: "browser_relay_status";
+  instances: BrowserRelayInstanceStatus[];
+  auditSeq: number;
+}

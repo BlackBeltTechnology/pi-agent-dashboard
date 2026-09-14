@@ -363,7 +363,15 @@ export default function App() {
   // See change: throttle-idle-ui-animations.
   useAppHidden();
   const [wsUrl, setWsUrl] = useState(getInitialWsUrl);
-  const { send, onMessage, status } = useWebSocket(wsUrl);
+  const { send, onMessage, status, ws } = useWebSocket(wsUrl);
+  // Stable identity: the plugin runtime's `usePluginSend` memoizes on this prop,
+  // and a fresh closure per render made every effect that depends on `send`
+  // re-run — the browser relay's LiveViewTile re-subscribed on every render.
+  // See change: add-browser-relay.
+  const pluginSend = useCallback(
+    (msg: unknown) => dispatchPluginMessage(msg, (m) => send(m as Parameters<typeof send>[0])),
+    [send],
+  );
   // Worktree-init bus needs a way to send subscribe/unsubscribe
   // messages over the same socket. See change: generalize-worktree-init-hook.
   useEffect(() => {
@@ -2530,11 +2538,16 @@ export default function App() {
         registry={_pluginRegistry}
         sessions={allSessionsList}
         selectedSessionId={selectedId}
+        // The live shell socket, so plugin `usePluginMessage` consumers actually
+        // receive server→browser frames (the browser relay's status + screencast
+        // frames). Omitting it silently no-ops EVERY plugin's message hook.
+        // See change: add-browser-relay.
+        ws={ws}
         // Plugin settings-section writes persist via the canonical REST route
         // (validated, broadcast) instead of the dead WS frame; all other
         // messages pass through to the WebSocket. See change:
         // fix-plugin-config-write-persistence.
-        send={(msg) => dispatchPluginMessage(msg, (m) => send(m as Parameters<typeof send>[0]))}
+        send={pluginSend}
         useSessionInteractiveRequests={(sid) =>
           sessionStates.get(sid)?.interactiveRequests ?? EMPTY_INTERACTIVE_REQUESTS
         }
