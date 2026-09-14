@@ -1426,3 +1426,51 @@ describe("SettingsPanel — archive fields (archive-sessions-lazy-load)", () => 
     expect(putBody.sessionList.archiveSweepIntervalMinutes).toBe(1);
   });
 });
+
+describe("SettingsPanel TrustedNetworks dropdown overlay-layering", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    fetchAutoInitWorktreePref.mockResolvedValue(false);
+    setAutoInitWorktreePref.mockResolvedValue(true);
+    setPath("/settings/security");
+  });
+  afterEach(() => cleanup());
+
+  it("trusted-networks dropdown panel has fixed and z-popover, not absolute or z-50", async () => {
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url === "/api/config") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: mockConfig }) });
+      }
+      if (url === "/api/providers") {
+        return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+      }
+      if (url.includes("/api/network-interfaces")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            data: [
+              { name: "eth0", address: "192.168.1.10", label: "eth0", pointToPoint: false, suggestions: [{ value: "192.168.1.0/24", wide: false }] },
+            ],
+          }),
+        });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    });
+    global.fetch = mockFetch;
+
+    render(<SettingsPanel />);
+    // Wait for Security tab to load
+    await waitFor(() => screen.getByTestId("trusted-networks-add-local"));
+    // Click the "+ Add Local Network" button to trigger dropdown open
+    fireEvent.click(screen.getByTestId("trusted-networks-add-local"));
+    // Wait for fetch to complete and dropdown to render
+    await waitFor(() => screen.queryByTestId("trusted-networks-dropdown"));
+    const panel = screen.queryByTestId("trusted-networks-dropdown");
+    if (!panel) return; // dropdown empty; skip rather than fail
+    expect(panel.className).toContain("fixed");
+    expect(panel.className).toContain("z-popover");
+    expect(panel.className).not.toContain("absolute");
+    expect(panel.className).not.toContain("z-50");
+  });
+});

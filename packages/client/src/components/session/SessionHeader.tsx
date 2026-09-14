@@ -1,8 +1,10 @@
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiArrowLeft, mdiCrosshairsGps, mdiFileCompare, mdiLinkOff, mdiPaperclip, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiRefresh, mdiSourceFork, mdiViewGridOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
+import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import React, { useEffect, useRef, useState } from "react";
 import { useMobile } from "../../hooks/useMobile.js";
+import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import type { SessionState } from "../../lib/chat/event-reducer.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { getSessionDisplayName } from "../../lib/session/session-display-name.js";
@@ -80,15 +82,22 @@ function MobileAttachButton({ session, openspecChanges, onAttach, onDetach }: {
   onDetach?: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const { flipUp, maxHeight, anchorRight, maxWidth, triggerRect } = usePopoverFlip(triggerRef, {
+    open,
+    estimatedWidth: 256,
+    minPopoverHeight: 0,
+  });
 
-  // Close on outside click/touch
+  // Close on outside click/touch — check portaled panel FIRST, then trigger.
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent | TouchEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      const target = e.target as Node;
+      if (panelRef.current?.contains(target)) return;
+      if (triggerRef.current?.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener("mousedown", handler);
     document.addEventListener("touchstart", handler);
@@ -106,8 +115,9 @@ function MobileAttachButton({ session, openspecChanges, onAttach, onDetach }: {
   if (!attached && !hasChanges) return null;
 
   return (
-    <div ref={containerRef} className="relative">
+    <div className="relative">
       <button
+        ref={triggerRef}
         onClick={() => setOpen(!open)}
         className={`p-2 min-w-[44px] min-h-[44px] flex items-center justify-center ${
           attached ? "text-blue-400" : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
@@ -119,7 +129,28 @@ function MobileAttachButton({ session, openspecChanges, onAttach, onDetach }: {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 w-64 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-xl shadow-lg z-50 overflow-hidden" data-testid="mobile-attach-menu">
+        <LayerPortal>
+        <div
+          ref={panelRef}
+          style={{
+            width: 256,
+            maxHeight,
+            maxWidth,
+            visibility: triggerRect ? "visible" : "hidden",
+            ...(triggerRect
+              ? flipUp
+                ? { bottom: Math.round(window.innerHeight - triggerRect.top + 4) }
+                : { top: Math.round(triggerRect.bottom + 4) }
+              : {}),
+            ...(triggerRect
+              ? anchorRight
+                ? { right: Math.max(0, Math.round(window.innerWidth - triggerRect.right)) }
+                : { left: Math.round(triggerRect.left) }
+              : {}),
+          }}
+          className="fixed overflow-hidden z-popover bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-xl shadow-lg"
+          data-testid="mobile-attach-menu"
+        >
           {attached ? (
             <>
               <div className="px-4 py-2 text-xs text-blue-400 border-b border-[var(--border-primary)]">
@@ -146,6 +177,7 @@ function MobileAttachButton({ session, openspecChanges, onAttach, onDetach }: {
             ))
           )}
         </div>
+        </LayerPortal>
       )}
     </div>
   );

@@ -164,8 +164,9 @@ describe("WorktreeActionsMenu — F9 boundary-aware sheet (fix-popover-container
       rect({ left: 510, right: 540, top: 100, bottom: 130, width: 30, height: 30, x: 510, y: 100 });
     fireEvent.click(trigger);
     const sheet = screen.getByTestId("worktree-actions-mobile-sheet");
-    expect(sheet.className).toContain("left-0");
-    expect(sheet.className).not.toContain("right-0");
+    // Positioning is now in style (portal pattern) — left-anchor means style.left is set.
+    expect(sheet.style.left).toBeTruthy();
+    expect(sheet.style.right).toBe("");
   });
 
   it("keeps the sheet right-0 (default) when the pane has ample room to the left", () => {
@@ -177,8 +178,9 @@ describe("WorktreeActionsMenu — F9 boundary-aware sheet (fix-popover-container
       rect({ left: 840, right: 870, top: 100, bottom: 130, width: 30, height: 30, x: 840, y: 100 });
     fireEvent.click(trigger);
     const sheet = screen.getByTestId("worktree-actions-mobile-sheet");
-    expect(sheet.className).toContain("right-0");
-    expect(sheet.className).not.toContain("left-0");
+    // Positioning is now in style (portal pattern) — right-anchor means style.right is set.
+    expect(sheet.style.right).toBeTruthy();
+    expect(sheet.style.left).toBe("");
   });
 });
 
@@ -202,6 +204,24 @@ describe("WorktreeActionsMenu — mobile", () => {
 
   it("mobile sheet hides until the trigger is clicked", () => {
     renderMenu(makeSession());
+    expect(screen.queryByTestId("worktree-actions-mobile-sheet")).toBeNull();
+  });
+
+  it("sheet panel has fixed and z-popover, not absolute or z-50 (overlay-layering)", () => {
+    renderMenu(makeSession());
+    fireEvent.click(screen.getByTestId("worktree-actions-mobile-trigger"));
+    const sheet = screen.getByTestId("worktree-actions-mobile-sheet");
+    expect(sheet.className).toContain("fixed");
+    expect(sheet.className).toContain("z-popover");
+    expect(sheet.className).not.toContain("absolute");
+    expect(sheet.className).not.toContain("z-50");
+  });
+
+  it("outside click closes the mobile sheet", () => {
+    renderMenu(makeSession());
+    fireEvent.click(screen.getByTestId("worktree-actions-mobile-trigger"));
+    expect(screen.queryByTestId("worktree-actions-mobile-sheet")).not.toBeNull();
+    fireEvent.mouseDown(document.body);
     expect(screen.queryByTestId("worktree-actions-mobile-sheet")).toBeNull();
   });
 });

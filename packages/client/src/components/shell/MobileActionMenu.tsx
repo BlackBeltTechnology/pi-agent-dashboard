@@ -17,7 +17,9 @@ import {
   mdiSourceFork,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
+import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import React, { useEffect, useRef, useState } from "react";
+import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { isRemoteOrigin } from "../../lib/session/session-origin-view.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
@@ -67,7 +69,13 @@ export function MobileActionMenu({ session, openspecChanges, onRename, onArchive
   const [open, setOpen] = useState(false);
   const [exploreOpen, setExploreOpen] = useState(false);
   const [newChangeOpen, setNewChangeOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const { flipUp, maxHeight, anchorRight, maxWidth, triggerRect } = usePopoverFlip(triggerRef, {
+    open,
+    estimatedWidth: 256,
+    minPopoverHeight: 0,
+  });
 
   const isAlive = session.status !== "ended";
   const isHidden = !!session.hidden;
@@ -75,9 +83,10 @@ export function MobileActionMenu({ session, openspecChanges, onRename, onArchive
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      const target = e.target as Node;
+      if (panelRef.current?.contains(target)) return;
+      if (triggerRef.current?.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -87,9 +96,10 @@ export function MobileActionMenu({ session, openspecChanges, onRename, onArchive
   useEffect(() => {
     if (!open) return;
     const handler = (e: TouchEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      const target = e.target as Node;
+      if (panelRef.current?.contains(target)) return;
+      if (triggerRef.current?.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener("touchstart", handler);
     return () => document.removeEventListener("touchstart", handler);
@@ -102,8 +112,9 @@ export function MobileActionMenu({ session, openspecChanges, onRename, onArchive
 
   return (
     <>
-    <div ref={containerRef} className="relative">
+    <div className="relative">
       <button
+        ref={triggerRef}
         onClick={() => setOpen(!open)}
         className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
         aria-label={i18nT("session.sessionActions", undefined, "Session actions")}
@@ -113,7 +124,28 @@ export function MobileActionMenu({ session, openspecChanges, onRename, onArchive
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 w-64 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-xl shadow-lg z-50 overflow-hidden" data-testid="mobile-action-menu">
+        <LayerPortal>
+        <div
+          ref={panelRef}
+          style={{
+            width: 256,
+            maxHeight,
+            maxWidth,
+            visibility: triggerRect ? "visible" : "hidden",
+            ...(triggerRect
+              ? flipUp
+                ? { bottom: Math.round(window.innerHeight - triggerRect.top + 4) }
+                : { top: Math.round(triggerRect.bottom + 4) }
+              : {}),
+            ...(triggerRect
+              ? anchorRight
+                ? { right: Math.max(0, Math.round(window.innerWidth - triggerRect.right)) }
+                : { left: Math.round(triggerRect.left) }
+              : {}),
+          }}
+          className="fixed overflow-hidden z-popover bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-xl shadow-lg"
+          data-testid="mobile-action-menu"
+        >
           {/* Git info row (non-interactive) */}
           {session.gitBranch && (
             <div className="px-4 py-2 text-xs text-[var(--text-tertiary)] flex items-center gap-2 border-b border-[var(--border-primary)]">
@@ -228,6 +260,7 @@ export function MobileActionMenu({ session, openspecChanges, onRename, onArchive
             }} danger />
           )}
         </div>
+        </LayerPortal>
       )}
     </div>
 
