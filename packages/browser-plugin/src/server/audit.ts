@@ -17,7 +17,7 @@
  */
 
 /** Kinds the spec enumerates. A caller may not invent its own. */
-export type AuditKind =
+type AuditKind =
   | "attach"
   | "detach"
   | "navigate"

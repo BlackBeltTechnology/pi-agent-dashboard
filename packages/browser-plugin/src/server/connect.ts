@@ -28,11 +28,11 @@ import { buildChromeOpenCommand } from "./capability.js";
 /** The pinned Playwright Chrome Extension. Kept in one place (design risk note). */
 export const PLAYWRIGHT_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm";
 
-export const PLAYWRIGHT_EXTENSION_STORE_URL =
+const PLAYWRIGHT_EXTENSION_STORE_URL =
   `https://chromewebstore.google.com/detail/playwright-extension/${PLAYWRIGHT_EXTENSION_ID}`;
 
 /** Protocol version the extension requires. Bump only with the extension. */
-export const EXTENSION_PROTOCOL_VERSION = "2";
+const EXTENSION_PROTOCOL_VERSION = "2";
 
 export interface ConnectUrlOptions {
   port: number;

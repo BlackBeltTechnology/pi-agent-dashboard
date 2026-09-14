@@ -38,7 +38,7 @@ function dashboardPort(ctx: ServerPluginContext): number {
   return typeof address === "object" && address !== null ? address.port : 0;
 }
 
-export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
+async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   const audit = new AuditRing();
   const getConfig = () => ctx.getPluginConfig<RelayConfig>();
 
@@ -70,6 +70,7 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   registerBrowserRoutes(ctx.fastify, {
     manager,
     audit,
+    getConfig,
     canOpenChrome: () => canOpenChrome(),
     listProfiles: () => listChromeProfiles(),
     updateConfig: (partial) => ctx.updatePluginConfig(partial),

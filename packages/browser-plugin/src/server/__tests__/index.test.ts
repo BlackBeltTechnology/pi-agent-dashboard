@@ -8,7 +8,7 @@
 import type { ServerPluginContext, WsRouteRegistration } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import Fastify from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
-import { registerPlugin } from "../index.js";
+import registerPlugin from "../index.js";
 
 interface Fake {
   ctx: ServerPluginContext;

@@ -47,7 +47,7 @@ const REAL_TIMERS: StatusTimers = {
   clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
 
-export interface StatusLogger {
+interface StatusLogger {
   info(msg: string, ...args: unknown[]): void;
   warn(msg: string, ...args: unknown[]): void;
   error(msg: string, ...args: unknown[]): void;

@@ -50,6 +50,10 @@
         "component": "BrowserSettings"
       },
       {
+        "slot": "session-card-badge",
+        "component": "BrowserRelayBadge"
+      },
+      {
         "slot": "content-view",
         "component": "LiveViewTile",
         "predicate": "isLiveViewActive"

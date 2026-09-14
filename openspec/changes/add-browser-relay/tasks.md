@@ -217,11 +217,40 @@ re-read status unless it relies on the `browser_relay_status` WS push alone.
 
 ## 4. Client: settings section + live-view tile (spec `browser-plugin-settings`)
 
-- [ ] 4.1 `BrowserSettings.tsx` claiming `settings-section`: profile rows keyed by `profileDirectory` (label, email, installed, hasToken, instances/tab count), write-only token input, `Zero-dialog` toggle with mismatch help text, `allowedDomains` editor with guardrail help text, Connect/Disconnect per `instanceId`, `Enabled` toggle via `PUT /api/browser/enabled`, Web Store link when not installed, capability-missing notice. Verify: RTL tests for each spec scenario (not installed → Connect disabled + link; token saved → input clears, `hasToken` true; kill switch → rows disconnected + reason; capability false → notice only).
-- [ ] 4.2 `AuditList.tsx` fed by `GET /api/browser/audit`, refetch when `browser_relay_status.auditSeq` changes. Verify: RTL test — status with higher `auditSeq` triggers refetch and new `denied` row appears; same `auditSeq` does not refetch.
-- [ ] 4.3 `LiveViewTile.tsx` claiming a content-view slot: tiles driven by `browser_relay_status` tab list, subscribe/unsubscribe lifecycle, JPEG render, pointer/key/wheel → `browser_relay_input`, no-frames overlay with `Bring to front`, DevTools overlay stops input. Verify: RTL tests — tab appears/disappears in status → tile mounts/unmounts; unmount sends unsubscribe; `no-frames` shows overlay and button sends `bringToFront`; `detached/devtools` blocks input events.
-- [ ] 4.4 `i18n.ts` catalog entries for all strings. Verify: i18n completeness test used by other plugins passes for `browser`.
-- [ ] 4.5 `react-expert` review of 4.1–4.3 (≥3 components + new subscription hook). Record outcome here.
+- [x] 4.1 `BrowserSettings.tsx` claiming `settings-section`: profile rows keyed by `profileDirectory` (label, email, installed, hasToken, instances/tab count), write-only token input, `Zero-dialog` toggle with mismatch help text, `allowedDomains` editor with guardrail help text, Connect/Disconnect per `instanceId`, `Enabled` toggle via `PUT /api/browser/enabled`, Web Store link when not installed, capability-missing notice. Verify: RTL tests for each spec scenario (not installed → Connect disabled + link; token saved → input clears, `hasToken` true; kill switch → rows disconnected + reason; capability false → notice only).
+- [x] 4.2 `AuditList.tsx` fed by `GET /api/browser/audit`, refetch when `browser_relay_status.auditSeq` changes. Verify: RTL test — status with higher `auditSeq` triggers refetch and new `denied` row appears; same `auditSeq` does not refetch.
+- [x] 4.3 `LiveViewTile.tsx` claiming a content-view slot: tiles driven by `browser_relay_status` tab list, subscribe/unsubscribe lifecycle, JPEG render, pointer/key/wheel → `browser_relay_input`, no-frames overlay with `Bring to front`, DevTools overlay stops input. Verify: RTL tests — tab appears/disappears in status → tile mounts/unmounts; unmount sends unsubscribe; `no-frames` shows overlay and button sends `bringToFront`; `detached/devtools` blocks input events.
+- [x] 4.4 `i18n.ts` catalog entries for all strings. Verify: i18n completeness test used by other plugins passes for `browser`.
+- [x] 4.5 `react-expert` review of 4.1–4.3 (≥3 components + new subscription hook). Record outcome here.
+
+### 4 outcome (client, this workstream): settings + audit + live-view tile landed.
+
+- `relay-store.ts` — module-level `browser_relay_status` store; `setRelayStatus`
+  bumps `bumpSlotClaimsVersion()` only on a MATERIAL instance/tab change
+  (`auditSeq` excluded). This is the bridge that lets the pure `content-view`
+  predicate (`isLiveViewActive` → `hasLiveInstance()`) see global relay state.
+- `BrowserRelayBadge.tsx` — NEW `session-card-badge` claim (user decision):
+  the always-mounted WebSocket subscriber that feeds the store. The relay
+  protocol is GLOBAL (no pi-session linkage), so a mounted subscriber is the
+  only way a hook-less predicate can learn it.
+- `BrowserSettings.tsx` (4.1), `AuditList.tsx` (4.2), `LiveViewTile.tsx` (4.3),
+  `i18n.ts` (4.4, zh-CN + hu parity), `browser-api.ts` (typed REST client).
+- Tests: 21 files / 191 browser-plugin tests green (RTL for 4.1-4.3 + 7.40-7.43);
+  full repo `npm test` 19276 passed / 0 failed; `tsc`, biome, `i18n:lint` and
+  `knip:ratchet` clean.
+
+**Deviation found + fixed during implementation (server bug):** the settings
+token save originally went through the generic `plugin_config_write`. Because
+tokens are `writeOnly`-redacted from the client, the client could only send the
+redacted `browsers` map, and the server's SHALLOW top-level merge replaced the
+whole map — silently dropping every OTHER profile's pairing token. Fixed with a
+plugin-owned `PUT /api/browser/profile` that merges against the UNREDACTED
+config server-side (empty string clears a token); `BrowserSettings` now uses it.
+Route + RTL tests pin the preservation.
+
+**Also cleaned up my own earlier dead exports:** `knip:ratchet` went red (+14
+exports / +12 types / +1 duplicate) from the server work; de-exported the
+internal-only symbols and dropped the redundant named `registerPlugin` export.
 
 ## 5. Browser skill routing (spec `default-browser-skill`, design D8)
 
@@ -301,10 +330,10 @@ Exemplars: L1 server auth/upgrade → `packages/server/src/__tests__/cors.test.t
 
 ### Client RTL (L1, `packages/browser-plugin/src/client/__tests__/*.test.tsx`; see `HermesMemorySettings.test.tsx`)
 
-- [ ] 7.41 No-frames overlay: tile mounted · status `no-frames` · overlay text; `Bring to front` sends `{kind:"bringToFront"}`; `live` hides overlay (test-plan #F6)
-- [ ] 7.42 DevTools overlay: tile live · `{state:"detached", reason:"devtools"}` · overlay text; pointer/key produce no `browser_relay_input` (test-plan #F7)
-- [ ] 7.43 Coordinate normalization BVA: tile 320×200 for 1280×800 frame · click CSS (160,100),(319,199) · `{x:0.5,y:0.5}`, `{x≈0.997,y≈0.995}`; never pixels (test-plan #F8)
-- [ ] 7.40 Tab list drives tiles: statuses tabs [1]→[1,2]→[2] · successive · tile count 1→2→1; tab 1 unsubscribes on removal (test-plan #F9)
+- [x] 7.41 No-frames overlay: tile mounted · status `no-frames` · overlay text; `Bring to front` sends `{kind:"bringToFront"}`; `live` hides overlay (test-plan #F6)
+- [x] 7.42 DevTools overlay: tile live · `{state:"detached", reason:"devtools"}` · overlay text; pointer/key produce no `browser_relay_input` (test-plan #F7)
+- [x] 7.43 Coordinate normalization BVA: tile 320×200 for 1280×800 frame · click CSS (160,100),(319,199) · `{x:0.5,y:0.5}`, `{x≈0.997,y≈0.995}`; never pixels (test-plan #F8)
+- [x] 7.40 Tab list drives tiles: statuses tabs [1]→[1,2]→[2] · successive · tile count 1→2→1; tab 1 unsubscribes on removal (test-plan #F9)
 
 ### Playwright e2e (L3, `tests/e2e/browser-relay.spec.ts`; see `tests/e2e/plugin-settings-pages.spec.ts`, `kb-folder-slot.spec.ts`; harness with `PI_BROWSER_RELAY_FAKE=1`, port from `.pi-test-harness.json`)
 

@@ -33,8 +33,8 @@ import { FakeRelayInstance } from "./fake-relay-instance.js";
 import type { RelayInstance, RelayLogger, RelayTabView, RelayTimers } from "./relay-instance.js";
 import { RelayInstance as RelayInstanceClass } from "./relay-instance.js";
 
-export const CONNECT_TIMEOUT_MS = 60_000;
-export const GUID_EXPIRY_MS = 60_000;
+const CONNECT_TIMEOUT_MS = 60_000;
+const GUID_EXPIRY_MS = 60_000;
 
 /** 32 lowercase hex chars = 128 bits. */
 const GUID_PATTERN = /^[0-9a-f]{32}$/;

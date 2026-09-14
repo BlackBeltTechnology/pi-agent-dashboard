@@ -44,9 +44,13 @@ describe("browser-plugin manifest (E31)", () => {
     expect(v.defaultEnabled).toBe(false);
   });
 
-  it("declares settings-section + content-view claims that resolve to exported components", () => {
+  it("declares settings-section + session-card-badge + content-view claims that resolve to exported components", () => {
     const v = validateManifest(manifest, "browser");
-    expect(v.claims.map((c) => c.slot).sort()).toEqual(["content-view", "settings-section"]);
+    expect(v.claims.map((c) => c.slot).sort()).toEqual([
+      "content-view",
+      "session-card-badge",
+      "settings-section",
+    ]);
 
     for (const claim of v.claims) {
       const component = (clientEntry as Record<string, unknown>)[claim.component as string];

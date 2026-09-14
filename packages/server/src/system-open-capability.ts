@@ -24,7 +24,7 @@ import { execFile } from "@blackbelt-technology/pi-dashboard-shared/platform/exe
 // so every existing server-side import keeps working. See change: add-browser-relay.
 import { computeSystemOpen } from "@blackbelt-technology/pi-dashboard-shared/platform/system-open.js";
 
-export { computeSystemOpen, detectContainer } from "@blackbelt-technology/pi-dashboard-shared/platform/system-open.js";
+export { computeSystemOpen } from "@blackbelt-technology/pi-dashboard-shared/platform/system-open.js";
 
 let cached: boolean | undefined;
 /** Memoized capability, computed once at first read (process lifetime). */

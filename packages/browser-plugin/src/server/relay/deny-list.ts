@@ -32,15 +32,15 @@ export const ALWAYS_DENIED_METHODS: readonly string[] = [
 ];
 
 /** Methods whose `url` parameter is subject to the navigation policy. */
-export const URL_POLICY_METHODS: readonly string[] = ["Page.navigate", "Target.createTarget"];
+const URL_POLICY_METHODS: readonly string[] = ["Page.navigate", "Target.createTarget"];
 
 /** Schemes with no host-bearing navigation semantics. Always refused. */
 const DENIED_SCHEMES: readonly string[] = ["file:", "javascript:", "data:", "blob:"];
 
-export const DENY_ERROR_CODE = -32000;
+const DENY_ERROR_CODE = -32000;
 
 /** The CDP error message shape the spec pins. */
-export function denyErrorMessage(method: string): string {
+function denyErrorMessage(method: string): string {
   return `Denied by dashboard relay policy: ${method}`;
 }
 
@@ -72,7 +72,7 @@ export function hostAllowed(host: string, allowedDomains: readonly string[]): bo
 }
 
 /** The URL a URL-policy method targets, when present and a string. */
-export function urlParam(params: unknown): string | undefined {
+function urlParam(params: unknown): string | undefined {
   if (typeof params !== "object" || params === null) return undefined;
   const url = (params as { url?: unknown }).url;
   return typeof url === "string" ? url : undefined;

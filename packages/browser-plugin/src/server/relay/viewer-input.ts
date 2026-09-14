@@ -25,7 +25,7 @@ export interface FrameGeometry {
 }
 
 /** One CDP command to dispatch, in order. */
-export interface ViewerCommand {
+interface ViewerCommand {
   method: string;
   params: Record<string, unknown>;
 }

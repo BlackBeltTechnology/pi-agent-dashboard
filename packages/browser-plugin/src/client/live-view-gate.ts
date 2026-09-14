@@ -3,15 +3,20 @@
  *
  * content-view claims MUST be predicate-gated (see
  * shared/src/__tests__/content-view-claims-predicated.test.ts): an ungated
- * claim renders for every session and occludes the chat. The real gate —
- * "this session has a live browser-relay instance with a screencast tile" —
- * lands with workstream 4 (client) on top of workstream 2c's
- * `browser_relay_status`; until then the tile never renders.
+ * claim renders for every session and occludes the chat.
  *
- * See change: add-browser-relay (task 2.1 scaffold).
+ * A predicate cannot use hooks, and the relay protocol is GLOBAL (no pi-session
+ * linkage), so the answer comes from the module-level relay store, which an
+ * always-mounted subscriber (`BrowserRelayBadge`) feeds over the shell WS.
+ * `setRelayStatus` bumps the slot-claims version on a material change, which is
+ * what re-renders the content-view slot and re-evaluates this predicate.
+ *
+ * See change: add-browser-relay (task 4.3).
  */
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { hasLiveInstance } from "./relay-store.js";
 
+// The session arg is ignored on purpose: the relay is global, not per-session.
 export function isLiveViewActive(_session?: DashboardSession | null): boolean {
-  return false;
+  return hasLiveInstance();
 }

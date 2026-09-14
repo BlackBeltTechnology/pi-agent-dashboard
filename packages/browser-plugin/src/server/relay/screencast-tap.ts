@@ -29,10 +29,10 @@ import { buildViewerInputCommands, type FrameGeometry } from "./viewer-input.js"
 export type TapTabState = "live" | "no-frames" | "client-screencast-active";
 
 /** Frames are ~4 KB; 512 KiB of queued bytes is ~2 minutes of frame time. */
-export const BACKPRESSURE_BYTES = 512 * 1024;
+const BACKPRESSURE_BYTES = 512 * 1024;
 
 /** No repaint for this long → `no-frames` (idle OR hidden; see module doc). */
-export const NO_FRAMES_MS = 2000;
+const NO_FRAMES_MS = 2000;
 
 export interface TapTimers {
   setTimeout(fn: () => void, ms: number): unknown;
@@ -44,7 +44,7 @@ const REAL_TIMERS: TapTimers = {
   clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
 
-export interface TapLogger {
+interface TapLogger {
   info(msg: string, ...args: unknown[]): void;
   warn(msg: string, ...args: unknown[]): void;
   error(msg: string, ...args: unknown[]): void;

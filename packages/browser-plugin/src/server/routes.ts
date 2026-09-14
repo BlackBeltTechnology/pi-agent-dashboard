@@ -26,7 +26,7 @@ import type { AuditEntry, AuditRing } from "./audit.js";
 import type { ProfileListResult, ProfileSource } from "./profiles.js";
 import type { BrowserProfileConfig, ConnectResult, RelayConfig, RelayLike } from "./relay/relay-manager.js";
 
-export interface BrowserRouteTab {
+interface BrowserRouteTab {
   tabId: number;
   title: string;
   url: string;
@@ -34,13 +34,13 @@ export interface BrowserRouteTab {
   reason?: "devtools";
 }
 
-export interface BrowserRouteInstance {
+interface BrowserRouteInstance {
   instanceId: string;
   state: "connected" | "no-cdp-client";
   tabs: BrowserRouteTab[];
 }
 
-export interface BrowserRouteProfile {
+interface BrowserRouteProfile {
   profileDirectory: string;
   label: string;
   email?: string;
@@ -50,18 +50,18 @@ export interface BrowserRouteProfile {
   instances: BrowserRouteInstance[];
 }
 
-export interface BrowserProfilesResponse {
+interface BrowserProfilesResponse {
   profiles: Record<string, BrowserRouteProfile>;
   /** Set only on the synthetic-`Default` fallback; names the offending path. */
   warning?: string;
 }
 
-export interface BrowserStatusResponse {
+interface BrowserStatusResponse {
   enabled: boolean;
   canOpenChrome: boolean;
 }
 
-export interface BrowserAuditResponse {
+interface BrowserAuditResponse {
   entries: AuditEntry[];
 }
 
@@ -75,7 +75,7 @@ export interface BrowserRoutesManager {
   profileConfig(profileDirectory: string): BrowserProfileConfig;
 }
 
-export interface BrowserRoutesLogger {
+interface BrowserRoutesLogger {
   info(msg: string, ...args: unknown[]): void;
   warn(msg: string, ...args: unknown[]): void;
   error(msg: string, ...args: unknown[]): void;
@@ -84,6 +84,8 @@ export interface BrowserRoutesLogger {
 export interface BrowserRoutesDeps {
   manager: BrowserRoutesManager;
   audit: AuditRing;
+  /** The plugin's UNREDACTED config — used only for the server-side profile merge. */
+  getConfig(): RelayConfig;
   canOpenChrome(): boolean;
   listProfiles(): Promise<ProfileListResult>;
   /** Persist a partial plugin config (`plugins.browser.*`). */
@@ -122,6 +124,60 @@ function profileRow(
   };
 }
 
+/** One profile row: discovered metadata, or a synthetic row for a live instance. */
+function rowFor(
+  profile: ProfileSource | undefined,
+  dir: string,
+  instances: RelayLike[],
+  hasToken: boolean,
+): BrowserRouteProfile {
+  if (profile) return profileRow(profile, instances, hasToken);
+  return {
+    profileDirectory: dir,
+    label: dir,
+    installed: true,
+    hasToken,
+    instances: instances.map(instanceRow),
+  };
+}
+
+/** 
+ * Apply a per-profile patch to the UNREDACTED config. Pure; returns the merged
+ * `browsers` map or a validation error. Kept separate from the route so a
+ * shallow `plugin_config_write` can never be mistaken for it.
+ */
+type ProfilePatch = { token?: unknown; zeroDialog?: unknown; allowedDomains?: unknown };
+type ProfilePatchResult =
+  | { ok: true; browsers: Record<string, BrowserProfileConfig>; hasToken: boolean }
+  | { ok: false; error: string };
+
+function applyProfilePatch(current: RelayConfig, dir: string, patch: ProfilePatch): ProfilePatchResult {
+  if (patch.token !== undefined && typeof patch.token !== "string") {
+    return { ok: false, error: "token must be a string" };
+  }
+  if (patch.zeroDialog !== undefined && typeof patch.zeroDialog !== "boolean") {
+    return { ok: false, error: "zeroDialog must be a boolean" };
+  }
+  if (patch.allowedDomains !== undefined && !Array.isArray(patch.allowedDomains)) {
+    return { ok: false, error: "allowedDomains must be an array" };
+  }
+  const browsers = { ...(current.browsers ?? {}) };
+  const entry: BrowserProfileConfig = { ...(browsers[dir] ?? {}) };
+  if (patch.token !== undefined) {
+    // Empty string clears the token (the UI has no other way to remove one).
+    if (patch.token === "") delete entry.token;
+    else entry.token = patch.token;
+  }
+  if (patch.zeroDialog !== undefined) entry.zeroDialog = patch.zeroDialog;
+  if (patch.allowedDomains !== undefined) {
+    entry.allowedDomains = (patch.allowedDomains as unknown[]).filter(
+      (d): d is string => typeof d === "string",
+    );
+  }
+  browsers[dir] = entry;
+  return { ok: true, browsers, hasToken: typeof entry.token === "string" && entry.token.length > 0 };
+}
+
 export function registerBrowserRoutes(fastify: FastifyInstance, deps: BrowserRoutesDeps): void {
   const { manager, audit, logger } = deps;
 
@@ -147,18 +203,12 @@ export function registerBrowserRoutes(fastify: FastifyInstance, deps: BrowserRou
       const rows: Record<string, BrowserRouteProfile> = {};
       for (const dir of dirs) {
         if (only !== undefined && dir !== only) continue;
-        const profile = discovered.get(dir);
-        const instances = manager.instances(dir);
-        const hasToken = Boolean(manager.profileConfig(dir).token);
-        rows[dir] = profile
-          ? profileRow(profile, instances, hasToken)
-          : {
-              profileDirectory: dir,
-              label: dir,
-              installed: true,
-              hasToken,
-              instances: instances.map(instanceRow),
-            };
+        rows[dir] = rowFor(
+          discovered.get(dir),
+          dir,
+          manager.instances(dir),
+          Boolean(manager.profileConfig(dir).token),
+        );
       }
       return warning ? { profiles: rows, warning } : { profiles: rows };
     },
@@ -226,5 +276,30 @@ export function registerBrowserRoutes(fastify: FastifyInstance, deps: BrowserRou
     await manager.setEnabled(enabled);
     logger.info(`[browser-relay] enabled=${enabled}`);
     return { enabled };
+  });
+
+  // Per-profile config write, merged SERVER-SIDE. A generic
+  // `plugin_config_write` of the client-visible (`writeOnly`-redacted) `browsers`
+  // map would replace the whole map on the server's shallow merge and silently
+  // drop every OTHER profile's pairing token. Here the merge happens against the
+  // UNREDACTED config, so untouched tokens survive and a token never has to
+  // round-trip through the client.
+  fastify.put<{
+    Body: { profileDirectory?: unknown; token?: unknown; zeroDialog?: unknown; allowedDomains?: unknown };
+  }>("/api/browser/profile", async (req, reply) => {
+    const body = req.body ?? {};
+    const profileDirectory = body.profileDirectory;
+    if (typeof profileDirectory !== "string" || profileDirectory.length === 0) {
+      reply.code(400);
+      return { error: "profileDirectory is required" };
+    }
+    const result = applyProfilePatch(deps.getConfig(), profileDirectory, body);
+    if (!result.ok) {
+      reply.code(400);
+      return { error: result.error };
+    }
+    await deps.updateConfig({ browsers: result.browsers });
+    logger.info(`[browser-relay] profile config updated profile=${profileDirectory}`);
+    return { profileDirectory, hasToken: result.hasToken };
   });
 }

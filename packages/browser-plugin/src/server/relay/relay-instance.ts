@@ -38,7 +38,7 @@ import { ExtensionProtocolV2 } from "./vendor/playwright-core/src/tools/mcp/cdpR
 const DEVTOOLS_DETACH_REASON = "canceled_by_user";
 
 /** No CDP client after the handshake — the agent crashed or is on another host. */
-export const DEFAULT_CDP_ATTACH_TIMEOUT_MS = 30_000;
+const DEFAULT_CDP_ATTACH_TIMEOUT_MS = 30_000;
 
 export interface RelayLogger {
   info(msg: string, ...args: unknown[]): void;

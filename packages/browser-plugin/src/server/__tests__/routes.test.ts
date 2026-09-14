@@ -72,6 +72,7 @@ interface Harness {
   app: FastifyInstance;
   manager: StubManager;
   audit: AuditRing;
+  config: RelayConfig;
   updateConfig: ReturnType<typeof vi.fn>;
   setProfiles(result: ProfileListResult): void;
 }
@@ -79,6 +80,10 @@ interface Harness {
 async function harness(): Promise<Harness> {
   const manager = new StubManager();
   const audit = new AuditRing();
+  const config: RelayConfig = {
+    enabled: true,
+    browsers: { Default: { token: "old-default" }, "Profile 1": { token: "keep-me" } },
+  };
   const updateConfig = vi.fn(async (_partial: Partial<RelayConfig>) => {});
   let profiles: ProfileListResult = {
     profiles: [
@@ -90,13 +95,14 @@ async function harness(): Promise<Harness> {
   registerBrowserRoutes(app, {
     manager,
     audit,
+    getConfig: () => config,
     canOpenChrome: () => true,
     listProfiles: async () => profiles,
     updateConfig,
     logger: { info: () => {}, warn: () => {}, error: () => {} },
   });
   await app.ready();
-  return { app, manager, audit, updateConfig, setProfiles: (r) => (profiles = r) };
+  return { app, manager, audit, config, updateConfig, setProfiles: (r) => (profiles = r) };
 }
 
 const json = <T>(res: { body: string }): T => JSON.parse(res.body) as T;
@@ -245,5 +251,58 @@ describe("PUT /api/browser/enabled", () => {
     expect(res.statusCode).toBe(400);
     expect(h.updateConfig).not.toHaveBeenCalled();
     expect(h.manager.setEnabledCalls).toEqual([]);
+  });
+});
+
+describe("PUT /api/browser/profile", () => {
+  it("merges server-side, preserving every other profile's writeOnly token", async () => {
+    const res = await h.app.inject({
+      method: "PUT",
+      url: "/api/browser/profile",
+      payload: { profileDirectory: "Default", token: "new-token" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(json(res)).toEqual({ profileDirectory: "Default", hasToken: true });
+    const sent = h.updateConfig.mock.calls.at(-1)?.[0] as { browsers: Record<string, { token?: string }> };
+    expect(sent.browsers.Default.token).toBe("new-token");
+    // The client never receives other profiles' tokens — they must survive.
+    expect(sent.browsers["Profile 1"].token).toBe("keep-me");
+  });
+
+  it("clears a token with an empty string", async () => {
+    const res = await h.app.inject({
+      method: "PUT",
+      url: "/api/browser/profile",
+      payload: { profileDirectory: "Default", token: "" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(json<{ hasToken: boolean }>(res).hasToken).toBe(false);
+    const sent = h.updateConfig.mock.calls.at(-1)?.[0] as { browsers: Record<string, { token?: string }> };
+    expect(sent.browsers.Default.token).toBeUndefined();
+  });
+
+  it("writes zeroDialog + allowedDomains", async () => {
+    const res = await h.app.inject({
+      method: "PUT",
+      url: "/api/browser/profile",
+      payload: { profileDirectory: "Default", zeroDialog: true, allowedDomains: ["github.com", 7] },
+    });
+    expect(res.statusCode).toBe(200);
+    const sent = h.updateConfig.mock.calls.at(-1)?.[0] as {
+      browsers: Record<string, { zeroDialog?: boolean; allowedDomains?: string[] }>;
+    };
+    expect(sent.browsers.Default.zeroDialog).toBe(true);
+    expect(sent.browsers.Default.allowedDomains).toEqual(["github.com"]);
+  });
+
+  it.each([
+    ["missing profileDirectory", {}],
+    ["non-string token", { profileDirectory: "Default", token: 7 }],
+    ["non-boolean zeroDialog", { profileDirectory: "Default", zeroDialog: "yes" }],
+    ["non-array allowedDomains", { profileDirectory: "Default", allowedDomains: "github.com" }],
+  ])("400 for %s", async (_label, payload) => {
+    const res = await h.app.inject({ method: "PUT", url: "/api/browser/profile", payload });
+    expect(res.statusCode).toBe(400);
+    expect(h.updateConfig).not.toHaveBeenCalled();
   });
 });

@@ -11,7 +11,7 @@ import { FolderKbSection, KbSettingsClaim, catalog as kb_catalog } from "@blackb
 import { BuiltInRolesSettings, catalog as roles_catalog } from "@blackbelt-technology/pi-dashboard-roles-plugin";
 import { SubagentsSettings, SubagentPopoutClaim, catalog as subagents_catalog } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
 import { BlackholeSettings, MemorySubcard, shouldRenderMemorySubcard, PipelineDetailView, isPipelineDetailActive, catalog as blackhole_catalog } from "@blackbelt-technology/pi-dashboard-blackhole-plugin";
-import { BrowserSettings, LiveViewTile, isLiveViewActive, catalog as browser_catalog } from "@blackbelt-technology/pi-dashboard-browser-plugin";
+import { BrowserSettings, BrowserRelayBadge, LiveViewTile, isLiveViewActive, catalog as browser_catalog } from "@blackbelt-technology/pi-dashboard-browser-plugin";
 import { FlowsAnthropicBridgeSettings, catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
 import { QuotaWidget, QuotaSettings, catalog as quota_catalog } from "@blackbelt-technology/pi-dashboard-quota-plugin";
 
@@ -446,6 +446,10 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
                 "component": "BrowserSettings"
             },
             {
+                "slot": "session-card-badge",
+                "component": "BrowserRelayBadge"
+            },
+            {
                 "slot": "content-view",
                 "component": "LiveViewTile",
                 "predicate": "isLiveViewActive"
@@ -459,6 +463,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     },
     claims: [
       { pluginId: "browser", priority: 500, slot: "settings-section", Component: BrowserSettings },
+      { pluginId: "browser", priority: 500, slot: "session-card-badge", Component: BrowserRelayBadge },
       { pluginId: "browser", priority: 500, slot: "content-view", Component: LiveViewTile, predicate: isLiveViewActive },
     ],
     catalog: browser_catalog,
@@ -515,4 +520,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "5b3a02a53759489ee2ce150a5e1361d2e15c7ddd410289d788f0f4cfa7e1f75d";
+export const PLUGIN_REGISTRY_HASH = "1105c782e7bb2bde8f5eba0402b37a909e21b9593449b62c13ae9ec85a1a9794";
