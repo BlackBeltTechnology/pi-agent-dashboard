@@ -37,12 +37,19 @@ function status(tabCount: number): BrowserRelayStatusMessage {
 
 beforeEach(() => {
 	__resetRelayStoreForTests();
+	// The badge now seeds the store from REST on mount; stub `fetch` so the test
+	// exercises the WS path without a real network call.
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () => ({ ok: true, json: async () => ({ profiles: {} }) })),
+	);
 });
 
 afterEach(() => {
 	cleanup();
 	__resetRelayStoreForTests();
 	vi.restoreAllMocks();
+	vi.unstubAllGlobals();
 });
 
 describe("BrowserRelayBadge", () => {

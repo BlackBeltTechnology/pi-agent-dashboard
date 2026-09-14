@@ -17,11 +17,14 @@
  */
 import { usePluginMessage, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type {
+  BrowserRelayInstanceStatus,
   BrowserRelayStatusMessage,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type React from "react";
-import { setRelayStatus, useRelayStatus } from "./relay-store.js";
+import { useEffect } from "react";
+import { getBrowserProfiles } from "./browser-api.js";
+import { getRelayStatus, setRelayStatus, useRelayStatus } from "./relay-store.js";
 
 export function BrowserRelayBadge(_props: {
   session: DashboardSession;
@@ -30,6 +33,31 @@ export function BrowserRelayBadge(_props: {
   // The subscription is the point: this instance is mounted for every session
   // card, so the global status keeps flowing even when no tile is open.
   usePluginMessage<BrowserRelayStatusMessage>("browser_relay_status", setRelayStatus);
+  // `browser_relay_status` is a CHANGE broadcast with no on-connect replay, so a
+  // fresh page load would see an empty store until the next instance/tab change
+  // — and the content-view tile would never mount. Seed from the REST snapshot
+  // once on mount; the WS stream then keeps it current. `auditSeq: 0` is the
+  // baseline the audit viewer treats as "no refetch yet".
+  useEffect(() => {
+    let alive = true;
+    getBrowserProfiles()
+      .then((res) => {
+        // A WS `browser_relay_status` may have landed first — never clobber it
+        // with the older REST snapshot.
+        if (!alive || getRelayStatus() !== null) return;
+        const instances: BrowserRelayInstanceStatus[] = Object.entries(res.profiles).flatMap(
+          ([profileDirectory, profile]) =>
+            profile.instances.map((inst) => ({ ...inst, profileDirectory })),
+        );
+        setRelayStatus({ type: "browser_relay_status", instances, auditSeq: 0 });
+      })
+      .catch(() => {
+        /* plugin disabled / offline: the WS path stays authoritative */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
   const status = useRelayStatus();
 
   const tabCount = (status?.instances ?? []).reduce((n, instance) => n + instance.tabs.length, 0);
