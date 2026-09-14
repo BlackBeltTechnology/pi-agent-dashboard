@@ -1,0 +1,41 @@
+## Why
+
+Four open security follow-ups (#647, #665, #514, and the enforce-mode flip deferred by #637) each describe a server surface where caller-supplied input reaches a privileged action with a weaker guard than its sibling routes already have. Each was deliberately left out of the change that surfaced it ("out of scope, tracked as an issue"), so none has an owner. They share one shape — a stricter guard already exists next door and just is not applied — which makes a single `security-hardening` pass cheaper than four.
+
+## What Changes
+
+- **`openspec_refresh` gated like `openspec_get` (#647).** `handleOpenSpecRefresh` currently spawns `openspec list` for any `cwd` a paired browser names, force-polling past the mtime gate. It SHALL apply the same gate chain `getOrPollOpenSpec` already uses — `openspec.enabled`, per-cwd opt-out, tracked cwd (session registry or pinned), `<cwd>/openspec/` exists — and on any gate failure SHALL neither spawn nor touch the filesystem. The concurrency cap and mtime-bypass semantics for a *tracked* cwd are unchanged.
+- **`DELETE /api/paired-devices/:id` and `POST /api/pair/approve` require an operator credential (#665).** Both routes are guarded by `networkGuard`, which admits any authenticated request — including one authenticated by a paired-device bearer. A paired phone can therefore revoke its sibling devices, or approve a pending device. Both SHALL swap to the existing `createOperatorGuard` (refuses `authVia === "device"`; admits login session, `X-Pi-Local-Token`, or genuinely local), matching `POST /api/paired-devices`. The approve path's optional `label` SHALL be validated against `MAX_DEVICE_LABEL_BYTES` exactly as the mint route does (trim; 1..64 UTF-8 bytes; `400` otherwise) instead of being written unbounded.
+- **Remaining shell-string git invocations migrate to argv form (#514).** `git-operations.ts` still builds shell strings with `shellEscape` (POSIX single-quoting, literal on `cmd.exe`) for `addWorktree`, `addWorktreeFromPr`, `mergeWorktree`, `pushBranch`, `createPullRequest`, `worktreeDiffStat`, the fetch, the `resolveDefaultBase`/hint verifies, and the `tryRun`/`run` helpers. Every git/gh invocation that carries a caller-supplied branch, ref, or path SHALL run via `execFileSync`/`spawnSync` with an argv array and no shell; `shellEscape` is deleted. Behaviour (exit codes, error envelopes, timeouts) is unchanged; regression tests pin the argv shape as `git-worktree-lifecycle-ops.test.ts` already does for `removeWorktree`.
+- **Host-admission gate defaults to `enforce` (#637 follow-up).** `add-host-allowlist-admission` shipped report-only so refusal logs could be sized. The resolved default (`resolveHostGateMode` when neither `PI_DASHBOARD_HOST_GATE` nor `hostGate.mode` is set) SHALL become `enforce`. `hostGate.mode: "report"` and `PI_DASHBOARD_HOST_GATE=report` remain as the opt-out. **BREAKING** for an operator reaching the dashboard through a hostname that is not loopback, an IP literal, `*.local`, a `publicBaseUrls`/`cors.allowedOrigins`/live-tunnel host, or an `allowedHosts` entry — such a request now receives the existing self-describing `403` page instead of a log line. Release notes SHALL name the opt-out.
+
+Out of scope: `POST /api/pair/approve`'s "SHALL NOT honor any loopback exemption" clause in `qr-device-pairing` (operator guard admits genuinely-local; tightening that is a separate decision), `X-Forwarded-Host`, and the `tryRun` sites whose argv is entirely constant (migrated only where the helper signature change forces it).
+
+## Capabilities
+
+### New Capabilities
+
+_None._
+
+### Modified Capabilities
+
+- `server-openspec-polling`: the "Browser requests immediate refresh" scenario gains the tracked-cwd / enabled / opt-out / openspec-root gates; an untracked or gated cwd SHALL NOT spawn.
+- `bearer-device-auth`: revoking a paired device becomes an operator-only action — a device bearer SHALL NOT revoke any row; the approve label SHALL be bounded like the mint label.
+- `qr-device-pairing`: the approval action SHALL refuse a paired-device bearer credential (`authVia === "device"`).
+- `git-operations-api`: new requirement — git/gh invocations carrying caller-supplied arguments SHALL be argv-form, never shell-interpolated, on every platform.
+- `host-admission`: "Enforcement mode is switchable and defaults to report-only" becomes "… defaults to enforce"; the report-only-default scenario inverts.
+
+## Impact
+
+- `packages/server/src/browser-handlers/directory-handler.ts` (`handleOpenSpecRefresh`), `packages/server/src/directory-service.ts` (expose or reuse `isTrackedCwd` / opt-out / root gates for the refresh path).
+- `packages/server/src/routes/pairing-routes.ts` (two `preHandler` swaps, label validation on approve), `packages/server/src/pairing/pairing.ts` (`approve` label bound, or validate at the route).
+- `packages/server/src/git-worktree/git-operations.ts` (argv migration; `run`/`tryRun` signature; delete `shellEscape`), `packages/server/src/git-worktree/__tests__/`.
+- `packages/server/src/auth/host-gate.ts` (`resolveHostGateMode` default), Settings ▸ Security copy that describes the default, `CHANGELOG.md` `[Unreleased]` breaking note, `docs/` host-gate page.
+- Docker harness and Playwright E2E reach the dashboard via `localhost`/IP literal, which stay admissible — no harness change expected; verified in tasks.
+- No protocol or shared-type changes.
+
+## Discipline Skills
+
+- `security-hardening` — every item is an untrusted-input-reaches-privileged-action fix; the threat-model table lives in `design.md`.
+- `doubt-driven-review` — the host-gate default flip is a user-visible, hard-to-diagnose lockout for anyone on an unadmitted hostname; reviewed before it stands.
+- `review-code` — before commit, non-trivial diff across four server modules.
