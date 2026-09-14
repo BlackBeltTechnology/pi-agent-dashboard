@@ -16,13 +16,15 @@
  *
  * See change: fix-pending-prompt-lost-on-replay (design D1/D2/D3).
  */
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import { createBrowserGateway } from "../pairing/browser-gateway.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
+// Aliased: this file already owns a StateWs-typed `asWs` for its own fixtures.
+import { asWs as debtAsWs, attachCapturedWs, buildDebtGateway, TEST_MAX_WS_BUFFER } from "./helpers/status-debt-fixtures.js";
 import type { DrainingWs } from "./helpers/draining-ws.js";
 import { createDrainingWs } from "./helpers/draining-ws.js";
 import {
@@ -600,5 +602,85 @@ describe("pending-state map — transcript ordering and steady-state cost (E11, 
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// ── Status-reconcile: retry + teardown (X1/X3) ──────────────────────────
+// See change: fix-backpressure-status-and-subagent-frames.
+
+describe("status-reconcile is loop-safe and releases on abnormal teardown (X1/X3)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("re-records a reconcile that is itself shed, and stays bounded (X1)", () => {
+    const { gateway } = buildDebtGateway(["s1"]);
+    const client = attachCapturedWs(gateway);
+    client.saturate();
+    gateway.broadcastSessionUpdated("s1", { status: "streaming" });
+    expect(gateway.getStatusReconcileInfo(debtAsWs(client.ws))?.owed).toEqual(["s1"]);
+
+    // The socket re-crosses the threshold BETWEEN the flush loop's
+    // under-threshold check and `sendTo`'s own check — the exact race the
+    // reconcile has to survive. First read is under, every later read is over.
+    let reads = 0;
+    Object.defineProperty(client.ws, "bufferedAmount", {
+      configurable: true,
+      get: () => (reads++ === 0 ? 0 : TEST_MAX_WS_BUFFER + 1),
+      set: () => {},
+    });
+    vi.advanceTimersByTime(250);
+
+    // Shed, not lost: the id is owed again and the set did not grow.
+    expect(client.statusFrames()).toHaveLength(0);
+    expect(gateway.getStatusReconcileInfo(debtAsWs(client.ws))?.owed).toEqual(["s1"]);
+
+    // A later tick with the socket genuinely drained delivers it.
+    Object.defineProperty(client.ws, "bufferedAmount", { configurable: true, writable: true, value: 0 });
+    vi.advanceTimersByTime(250);
+
+    expect(client.statusFrames()).toHaveLength(1);
+    expect(gateway.getStatusReconcileInfo(debtAsWs(client.ws))).toBeUndefined();
+  });
+
+  it("releases the debt and its timer on socket error (X3)", () => {
+    const { gateway } = buildDebtGateway(["s1"]);
+    const client = attachCapturedWs(gateway);
+    client.saturate();
+    gateway.broadcastSessionUpdated("s1", { status: "streaming" });
+    expect(gateway.getStatusReconcileInfo(debtAsWs(client.ws))?.timerActive).toBe(true);
+
+    client.ws.emit("error", new Error("socket boom"));
+
+    expect(gateway.getStatusReconcileInfo(debtAsWs(client.ws))).toBeUndefined();
+    client.drain();
+    vi.advanceTimersByTime(10 * 250);
+    expect(client.statusFrames()).toHaveLength(0);
+  });
+
+  it("releases the debt on the stalled-socket terminate path (X3)", () => {
+    const { gateway } = buildDebtGateway(["s1"]);
+    const client = attachCapturedWs(gateway);
+    client.saturate();
+    gateway.broadcastSessionUpdated("s1", { status: "streaming" });
+    expect(gateway.getStatusReconcileInfo(debtAsWs(client.ws))?.timerActive).toBe(true);
+
+    // Push the pending-state map past its byte ceiling: a state frame larger
+    // than TEST_MAX_WS_BUFFER, deferred onto a saturated socket.
+    gateway.sendToClient(debtAsWs(client.ws), {
+      type: "openspec_update",
+      cwd: "/repo/a",
+      data: { initialized: true, changes: [{ name: "x".repeat(TEST_MAX_WS_BUFFER), status: "in-progress", completedTasks: 0, totalTasks: 1, artifacts: [] }] },
+    } as unknown as ServerToBrowserMessage);
+
+    expect(gateway.getDroppedFrameStats().stalledSocketsTerminated).toBe(1);
+    expect(gateway.getStatusReconcileInfo(debtAsWs(client.ws))).toBeUndefined();
+    vi.advanceTimersByTime(10 * 250);
+    expect(client.statusFrames()).toHaveLength(0);
   });
 });

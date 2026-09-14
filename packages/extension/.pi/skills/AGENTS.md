@@ -6,12 +6,13 @@ pi-dashboard bridge extension; ship inside the published package. Rows relocated
 
 | File | Purpose |
 |------|---------|
-| `browser/SKILL.md` | Router for bundled `browser` skill. Step 0a preflight (`pi-dashboard-ensure`, registry check, never auto-install);… → see `browser/SKILL.md.AGENTS.md` |
+| `browser/SKILL.md` | Router for bundled `browser` skill. Step 0a preflight (`pi-dashboard-ensure`, registry check, never auto-install); Step 1 challenge hook → `references/challenge.md`;… → see `browser/SKILL.md.AGENTS.md` |
+| `browser/references/challenge.md` | AUTHORED. Pause/resume discipline for interactive anti-bot challenges (Turnstile, hCaptcha, reCAPTCHA, browser check); keep the same session, hand completion to the user, resume it. → see `browser/references/challenge.md.AGENTS.md` |
 | `browser/references/electron.md` | Vendored agent-browser Electron-app automation reference. → see `browser/references/electron.md.AGENTS.md` |
 | `browser/references/own-browser.md` | AUTHORED. Drive the user's own logged-in browser via Panerelay… → see `browser/references/own-browser.md.AGENTS.md` |
 | `browser/references/web.md` | Vendored agent-browser core reference. Core loop: `snapshot -i` → @eN refs; waits, semantic `find`, tabs,… → see `browser/references/web.md.AGENTS.md` |
 | `browser/scripts/check-panerelay.sh` | AUTHORED. Panerelay diagnostic; key=value + `NEXT=`… → see `browser/scripts/check-panerelay.sh.AGENTS.md` |
-| `browser/UPSTREAM.md` | Vendoring provenance + refresh procedure. Records upstream tag/SHA/CLI version; marks `own-browser.md` + `check-panerelay.sh` authored, exempt from refresh. |
+| `browser/UPSTREAM.md` | Vendoring provenance + refresh procedure. Records upstream tag/SHA/CLI version; marks `own-browser.md`, `challenge.md` + `check-panerelay.sh` authored, exempt from refresh. |
 | `canvas-webapp/SKILL.md` | Bundled skill: render a web app on the dashboard canvas. Canvas loopback `kind:"url"` loads under… → see `canvas-webapp/SKILL.md.AGENTS.md` |
 | `pi-dashboard/commands/` | `/dashboard:*` slash-command templates (33 `dashboard-*.md`). → see `pi-dashboard/commands/.AGENTS.md` |
 | `pi-dashboard/commands/dashboard-flow-abort.md` | LLM-bound command. Resolves `<id-prefix>` via GET /api/sessions, POST /api/session/<full-id>/flow-control body {"action":"abort"}. Reports result. Usage `/dashboard:flow-abort <id-prefix>`. |

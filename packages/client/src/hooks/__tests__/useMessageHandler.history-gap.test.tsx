@@ -838,3 +838,67 @@ describe("X7: a refused request is terminal until the user retries", () => {
     expect(shouldAutoLoadHistory({ ...inputs, failed: false })).toBe(true);
   });
 });
+
+// ── Reconcile no-op for an unknown session (E6) ─────────────────────────
+// The server re-pushes a `session_updated` for every session id it owed a
+// socket after a shed. `session_removed` is NOT recovered, so a reconcile can
+// legitimately arrive for a row the client has already deleted — and must not
+// resurrect it. The client's `if (existing)` guard is what makes that hold, so
+// it is pinned here as a contract rather than left as an implementation detail.
+// See change: fix-backpressure-status-and-subagent-frames (test-plan #E6).
+
+/** Mount with a REAL `setSessions`, so the sessions map is observable. */
+function mountSessions(seed: Map<string, { id: string; status: string }>) {
+  let sessions!: Map<string, { id: string; status: string }>;
+  let handle!: (m: ServerToBrowserMessage) => void;
+  renderHook(() => {
+    const [live, setSessions] = useState(seed);
+    const setters = new Proxy(
+      { setSessions },
+      { get: (t: Record<string, unknown>, k: string) => (k in t ? t[k] : vi.fn()) },
+    ) as unknown as MessageHandlerSetters;
+    const deps: any = {
+      send: vi.fn(),
+      navigate: vi.fn(),
+      clearSpawningCwd: vi.fn(),
+      spawningCwdsRef: useRef(new Set<string>()),
+      subscribedRef: useRef(new Set<string>()),
+      pendingTerminalCwdRef: useRef(null),
+      lastCreatedTerminalIdRef: useRef(null),
+      maxSeqMapRef: useRef(new Map<string, number>()),
+      selectedSessionIdRef: useRef(SID),
+      pendingSpawnsRef: useRef(new Map()),
+      loadingHistoryTimersRef: useRef(new Map()),
+      replayInFlightTimersRef: useRef(new Map()),
+    };
+    handle = useMessageHandler(setters, deps);
+    sessions = live;
+    return null;
+  });
+  return {
+    get: () => sessions,
+    fire: (m: ServerToBrowserMessage) => act(() => handle(m)),
+  };
+}
+
+describe("session_updated reconcile — unknown session is a no-op (E6)", () => {
+  const reconcile = (sessionId: string) =>
+    ({ type: "session_updated", sessionId, updates: { status: "streaming", currentTool: "Agent" } }) as ServerToBrowserMessage;
+
+  it("never creates a row for a session the client does not hold", () => {
+    const h = mountSessions(new Map([[SID, { id: SID, status: "idle" }]]));
+
+    h.fire(reconcile("s9"));
+
+    expect(h.get().has("s9")).toBe(false);
+    expect(h.get().size).toBe(1);
+  });
+
+  it("non-vacuity: the same frame DOES update a row the client holds", () => {
+    const h = mountSessions(new Map([[SID, { id: SID, status: "idle" }]]));
+
+    h.fire(reconcile(SID));
+
+    expect(h.get().get(SID)?.status).toBe("streaming");
+  });
+});

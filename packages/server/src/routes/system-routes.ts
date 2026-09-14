@@ -37,7 +37,7 @@ import { computeEffectiveLaunchSource } from "../lifecycle/launch-source-effecti
 import type { EventLoopSpikeMetrics } from "../metrics/eventloop-spike-metrics.js";
 import type { HydrationMetrics } from "../metrics/hydration-metrics.js";
 import { getModelProxyStatus } from "../model-proxy/registry-singleton.js";
-import { type DroppedFrameStats, EMPTY_DROPPED_FRAME_STATS } from "../pairing/browser-gateway.js";
+import { type DroppedFrameStats, EMPTY_DROPPED_FRAME_STATS, EMPTY_SOCKET_BUFFER_OCCUPANCY, type SocketBufferOccupancy } from "../pairing/browser-gateway.js";
 import { recordExitIntent } from "../persistence/boot-state.js";
 import { EMPTY_TRIM_STATS, type TrimStats } from "../persistence/memory-event-store.js";
 import type { MetaPersistence } from "../persistence/meta-persistence.js";
@@ -148,6 +148,11 @@ export function registerSystemRoutes(
       // fix-pending-prompt-lost-on-replay (blocking-class split).
       getDroppedFrameStats?: () => DroppedFrameStats;
       getNotifyLogStats?: () => { evictedEntries: number; bySession: Record<string, number> };
+      // DERIVED from the gateway's exported type, same rule as above.
+      // See change: fix-backpressure-status-and-subagent-frames.
+      getSocketBufferOccupancy?: () => SocketBufferOccupancy;
+      /** Test-only shed injector; inert without `PI_E2E_FORCE_SHED=1`. */
+      setTestForceShed?: (enabled: boolean) => boolean;
     };
     // Shared hydration-timing recorder; `/api/health` reads its snapshot.
     // See change: instrument-session-hydration-timing.
@@ -263,6 +268,31 @@ export function registerSystemRoutes(
     compatCache = { at: now, value };
     return value;
   };
+
+  // ── TEST-ONLY back-pressure injector ──
+  // Registered ONLY under `PI_E2E_FORCE_SHED=1`, so on a production instance
+  // the route does not exist at all (404) rather than existing-and-refusing.
+  // Still `networkGuard`-gated, because it is a mutating endpoint and the flag
+  // is an operator mistake away from being set somewhere it should not be.
+  //
+  // It exists because real back-pressure is caused by a browser failing to
+  // drain its own socket — a browser automation driver cannot induce that, so
+  // without this hook the status-reconcile convergence is unobservable in the
+  // rendered UI. See change: fix-backpressure-status-and-subagent-frames.
+  if (process.env.PI_E2E_FORCE_SHED === "1") {
+    fastify.post<{ Body: { enabled?: boolean } }>(
+      "/api/test/force-shed",
+      { preHandler: networkGuard },
+      async (request, reply) => {
+        const enabled = request.body?.enabled === true;
+        const applied = browserGateway?.setTestForceShed?.(enabled);
+        if (applied === undefined) {
+          return reply.code(503).send({ success: false, error: "browser gateway unavailable" });
+        }
+        return { success: true, data: { forceShed: applied } };
+      },
+    );
+  }
 
   // Config endpoints
   fastify.get(
@@ -916,8 +946,25 @@ export function registerSystemRoutes(
           ),
           coalescedState: serverToBrowser.coalescedState,
           stalledSocketsTerminated: serverToBrowser.stalledSocketsTerminated,
+          // Status-reconcile debt counters. Deliberately BESIDE the drop
+          // counters, never folded into them: the reconcile must not mask the
+          // shed it recovers from, so a regression stays attributable.
+          // See change: fix-backpressure-status-and-subagent-frames.
+          statusReconcileQueued: serverToBrowser.statusReconcileQueued,
+          statusReconcileSent: serverToBrowser.statusReconcileSent,
         };
       })(),
+      // Browser-socket `bufferedAmount` occupancy. The drop counters are
+      // cumulative and instance-wide: they can neither attribute saturation to
+      // a socket nor bound its duration, so a back-pressure claim was only ever
+      // inferrable. Sampled at the send-decision sites (which already read
+      // `bufferedAmount` for the shed predicate), never on a timer — a periodic
+      // sampler breaks the gateway's zero-timers-when-unsaturated invariant.
+      // `msAboveThreshold` includes spans still open at read time.
+      // Typed-zero fallback (the EMPTY_TRIM_STATS convention) — `a ?? b` does
+      // not typecheck `b`, so an inline literal could silently drift.
+      // See change: fix-backpressure-status-and-subagent-frames.
+      socketBufferOccupancy: browserGateway?.getSocketBufferOccupancy?.() ?? EMPTY_SOCKET_BUFFER_OCCUPANCY,
       // Subagent-tick throttle counters, summed across active bridges. Rides
       // the heartbeat `processMetrics` transport, so the per-session breakdown
       // is already in `agents[]` above and this block is the session-agnostic
