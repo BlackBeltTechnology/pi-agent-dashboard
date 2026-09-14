@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>stop-discarding-known-session-state — UI mockup</title>
+<style>
+/* ── Tokens: copied verbatim from packages/client/src/index.css ───────────── */
+:root {
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+  --bg-hover:rgba(255,255,255,.06);
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+  --border-primary:#252525; --border-secondary:#333; --border-subtle:rgba(255,255,255,.06);
+  --border-strong:#808080; --rail-directory:rgba(255,255,255,.22);
+  --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-yellow:#eab308;
+  --accent-red:#ef4444; --accent-purple:#a855f7; --accent-orange:#f97316;
+  --accent:#3b82f6; --accent-solid:#2563eb; --accent-text:#60a5fa;
+  --status-needs-you:var(--accent-purple); --status-working:var(--accent-yellow);
+  --status-idle:var(--accent-green); --status-error:var(--accent-red); --status-notice:var(--accent-blue);
+  --elevation-rim:rgba(255,255,255,.04); --shadow-card:rgba(0,0,0,.4);
+}
+[data-theme="light"]{
+  --bg-primary:#fff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+  --bg-hover:rgba(0,0,0,.04);
+  --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#777; --text-muted:#aaa;
+  --border-primary:#e0e0e0; --border-secondary:#ccc; --border-subtle:rgba(0,0,0,.06);
+  --border-strong:#777; --rail-directory:rgba(0,0,0,.18);
+  --accent:#2563eb; --accent-text:#1d4ed8;
+  --elevation-rim:rgba(255,255,255,.7); --shadow-card:rgba(0,0,0,.12);
+}
+/* Severity triples — derived, never literal */
+:root,[data-theme="light"]{
+  --severity-error-bg:color-mix(in srgb,var(--accent-red) 10%,var(--bg-tertiary));
+  --severity-error-fg:color-mix(in srgb,var(--accent-red) 46%,var(--text-primary));
+  --severity-error-border:color-mix(in srgb,var(--accent-red) 40%,transparent);
+  --severity-warning-bg:color-mix(in srgb,var(--accent-orange) 10%,var(--bg-tertiary));
+  --severity-warning-fg:color-mix(in srgb,var(--accent-orange) 46%,var(--text-primary));
+  --severity-warning-border:color-mix(in srgb,var(--accent-orange) 40%,transparent);
+  --severity-info-bg:color-mix(in srgb,var(--accent-blue) 10%,var(--bg-tertiary));
+  --severity-info-fg:color-mix(in srgb,var(--accent-blue) 46%,var(--text-primary));
+  --severity-info-border:color-mix(in srgb,var(--accent-blue) 40%,transparent);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg-primary);color:var(--text-primary);
+  font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;line-height:1.5}
+.wrap{max-width:1180px;margin:0 auto;padding:24px 16px 96px}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:baseline;justify-content:space-between;margin-bottom:8px}
+h1{font-size:18px;font-weight:600;margin:0}
+.sub{color:var(--text-tertiary);font-size:13px;margin:0 0 24px}
+h2{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;
+  color:var(--text-tertiary);margin:32px 0 4px;padding-top:20px;border-top:1px solid var(--border-primary)}
+.note{color:var(--text-tertiary);font-size:12.5px;margin:0 0 16px;max-width:76ch}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(310px,1fr))}
+.caption{font-size:11px;color:var(--text-muted);margin:6px 2px 0}
+.caption b{color:var(--text-tertiary);font-weight:600}
+button.toggle{background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border-secondary);
+  border-radius:8px;padding:7px 13px;font:inherit;font-size:13px;cursor:pointer;min-height:44px}
+button.toggle:hover{background:var(--bg-hover)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* ── Session card — mirrors SessionCard.tsx:803 ───────────────────────────── */
+.card{position:relative;padding:8px 8px 8px 6px;border-radius:12px;background:var(--bg-tertiary);
+  border:1px solid var(--border-primary);
+  box-shadow:inset 0 1px 0 var(--elevation-rim),0 4px 8px var(--shadow-card);
+  transition:transform .2s,box-shadow .2s}
+.card:hover{transform:translateY(-2px);box-shadow:inset 0 1px 0 var(--elevation-rim),0 6px 12px var(--shadow-card)}
+.card.ended{opacity:.92}
+.rail{position:absolute;left:0;top:8px;bottom:8px;width:2px;border-radius:2px}
+.row1{display:flex;align-items:center;gap:6px;padding-left:8px}
+.dot{flex:0 0 auto;width:16px;height:16px;border-radius:50%;background:var(--bg-tertiary);
+  display:inline-flex;align-items:center;justify-content:center;font-size:10px;line-height:1;box-shadow:0 1px 2px var(--shadow-card)}
+.title{font-size:14px;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.time{font-size:11px;color:var(--text-muted);flex:0 0 auto}
+.row2{display:flex;align-items:center;gap:6px;padding-left:24px;margin-top:2px;min-height:17px}
+/* The meta text is the shrink victim: a long currentTool must ellipsize, never
+   push the pressure pill out of the card. */
+.meta{font-size:11px;color:var(--text-tertiary);overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;flex:1 1 auto;min-width:0}
+.spacer{flex:1}
+
+/* micro-pill — mirrors the `moved` badge, SessionCard.tsx:145 */
+.pill{flex:0 0 auto;display:inline-flex;align-items:center;gap:3px;padding:0 6px;
+  font-size:10px;line-height:16px;border-radius:999px;
+  background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border-subtle);white-space:nowrap}
+.pill .gl{font-size:9px;line-height:1}
+/* --text-muted measures 2.34:1 (dark) / 2.04:1 (light) on --bg-tertiary and
+   --text-tertiary only 4.22 / 3.93 — both FAIL WCAG AA for 10px text. Quietness
+   is carried by dropping the fill + border, NOT by lowering contrast. */
+.pill.quiet{color:var(--text-secondary);border-color:transparent;background:transparent;padding-left:0}
+.pill.unknown{color:var(--text-secondary)}
+.pill.warn{background:var(--severity-warning-bg);color:var(--severity-warning-fg);border-color:var(--severity-warning-border)}
+.pill.err{background:var(--severity-error-bg);color:var(--severity-error-fg);border-color:var(--severity-error-border)}
+.pill.info{background:var(--severity-info-bg);color:var(--severity-info-fg);border-color:var(--severity-info-border)}
+
+/* ── Chat pending-prompt card — mirrors ChatView.tsx:2016 ─────────────────── */
+.chat{max-width:620px}
+.bubblerow{display:flex;justify-content:flex-end;margin:16px 0}
+.bubble{border-radius:12px;padding:8px 16px;max-width:82%;
+  background:color-mix(in srgb,var(--accent-blue) 10%,transparent);
+  border:1px solid color-mix(in srgb,var(--accent-blue) 20%,transparent);
+  border-left:2px solid var(--accent-text);box-shadow:0 4px 8px var(--shadow-card)}
+.bubble.sending{opacity:.6}
+.bubble.failed{border-left-color:var(--severity-error-fg)}
+.btext{display:flex;align-items:flex-start;gap:8px}
+.btext p{margin:0;flex:1;font-size:13.5px}
+.bstat{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;margin-top:2px;font-size:10px;font-weight:600}
+.bstat.sending{color:var(--accent-text)}
+.bstat.sent{color:color-mix(in srgb,var(--accent-green) 46%,var(--text-primary))}
+.bstat.failed{color:var(--severity-error-fg)}
+.why{display:flex;align-items:center;gap:8px;margin-top:7px;padding-top:7px;
+  border-top:1px solid var(--severity-error-border);font-size:11.5px;color:var(--severity-error-fg)}
+.why .msg{flex:1}
+.retry{background:transparent;border:1px solid var(--severity-error-border);color:var(--severity-error-fg);
+  border-radius:7px;padding:5px 11px;font:inherit;font-size:11px;font-weight:600;cursor:pointer;min-height:36px}
+.retry:hover{background:var(--severity-error-bg)}
+/* WCAG 2.2 SC 2.5.8 floor is 24px; touch guidance is 44px (Fitts's Law). */
+@media (pointer:coarse){.retry{min-height:44px;padding:5px 16px}}
+
+/* ── Toast — existing command-feedback surface ────────────────────────────── */
+.toast{display:flex;align-items:flex-start;gap:9px;padding:10px 13px;border-radius:10px;
+  border:1px solid var(--severity-warning-border);background:var(--severity-warning-bg);
+  color:var(--severity-warning-fg);font-size:12.5px;max-width:520px;margin-bottom:10px;
+  box-shadow:0 4px 8px var(--shadow-card)}
+.toast.err{border-color:var(--severity-error-border);background:var(--severity-error-bg);color:var(--severity-error-fg)}
+.toast .gl{flex:0 0 auto;margin-top:1px}
+.toast b{font-weight:600}
+.toast .hint{display:block;margin-top:2px;opacity:.85}
+
+/* ── Tooltip (progressive disclosure) ─────────────────────────────────────── */
+.tipbox{border:1px solid var(--border-secondary);background:var(--bg-secondary);border-radius:10px;
+  padding:10px 13px;font-size:12px;color:var(--text-secondary);max-width:330px;
+  box-shadow:0 6px 16px var(--shadow-card)}
+.tipbox .h{color:var(--text-primary);font-weight:600;font-size:12px;margin-bottom:5px;display:block}
+.tipbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:3px 12px}
+.tipbox dt{color:var(--text-tertiary)} .tipbox dd{margin:0;color:var(--text-secondary)}
+.tipbox .past{margin:7px 0 0;color:var(--text-tertiary);font-size:11.5px;font-style:normal}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div>
+    <h1>stop-discarding-known-session-state</h1>
+    <p class="sub">UI surfaces · every colour is a theme token · healthy states render nothing new</p>
+  </div>
+  <button class="toggle" id="t" aria-label="Toggle dark and light theme">◐ Toggle theme</button>
+</header>
+
+<h2>1 · Session card — ended reason</h2>
+<p class="note">Today <code>SessionCard.tsx:84</code> returns <code>null</code> for ended sessions: the card
+has nothing to say about why it died. These fill that row. A <b>manual</b> close stays deliberately quiet —
+the user did it, telling them why is extraneous load.</p>
+<div class="grid">
+
+  <div>
+    <div class="card ended">
+      <span class="rail" style="background:var(--bg-surface)"></span>
+      <div class="row1"><span class="dot" style="color:var(--text-muted)">▣</span>
+        <span class="title">refactor-auth-guards</span><span class="time">2h</span></div>
+      <div class="row2"><span class="pill quiet">closed</span><span class="spacer"></span>
+        <span class="meta">~/work/api</span></div>
+    </div>
+    <p class="caption"><b>Manual</b> — muted, no icon, no alarm. Unchanged behaviour for <code>"manual"</code>.</p>
+  </div>
+
+  <div>
+    <div class="card ended">
+      <span class="rail" style="background:var(--bg-surface)"></span>
+      <div class="row1"><span class="dot" style="color:var(--severity-error-fg)">✕</span>
+        <span class="title">judo-tatami-part-5</span><span class="time">31m</span></div>
+      <div class="row2"><span class="pill err"><span class="gl">✕</span>process gone</span><span class="spacer"></span>
+        <span class="meta">~/Project/judo-ng</span></div>
+    </div>
+    <p class="caption"><b>Killed by the host</b> — error severity. An unasked-for death is an error to the
+    user regardless of which layer did the killing. This is your jetsam case.</p>
+  </div>
+
+  <div>
+    <div class="card ended">
+      <span class="rail" style="background:var(--bg-surface)"></span>
+      <div class="row1"><span class="dot" style="color:var(--severity-error-fg)">✕</span>
+        <span class="title">docs-caveman-pass</span><span class="time">5m</span></div>
+      <div class="row2"><span class="pill err"><span class="gl">✕</span>restart failed</span><span class="spacer"></span>
+        <span class="meta">~/Project/pi-agent-dashboard</span></div>
+    </div>
+    <p class="caption"><b>Spawn failure</b> — error severity, because this one <i>is</i> the dashboard's fault.</p>
+  </div>
+
+  <div>
+    <div class="card ended">
+      <span class="rail" style="background:var(--bg-surface)"></span>
+      <div class="row1"><span class="dot" style="color:var(--text-tertiary)">?</span>
+        <span class="title">flow-runner-spike</span><span class="time">1d</span></div>
+      <div class="row2"><span class="pill unknown"><span class="gl">?</span>ended — reason unknown</span>
+        <span class="spacer"></span><span class="meta">~/Project/spikes</span></div>
+    </div>
+    <p class="caption"><b>Unknown is rendered, not hidden.</b> "We don't know" is a real state; hiding it
+    re-implies a clean exit — the exact lie this change removes.</p>
+  </div>
+</div>
+
+<h2>2 · Session card — host pressure</h2>
+<p class="note">Live sessions only. <b>Healthy renders nothing</b> — with 40 cards on screen, permanent
+chrome would destroy the isolation effect that makes a sick card stand out (Von&nbsp;Restorff; Nielsen&nbsp;#8).
+Thresholds reuse the heartbeat (15&nbsp;s) and watchdog (60&nbsp;s) the transport already commits to.</p>
+<div class="grid">
+
+  <div>
+    <div class="card">
+      <span class="rail" style="background:color-mix(in srgb,var(--status-working) 40%,transparent)"></span>
+      <div class="row1"><span class="dot" style="color:var(--status-working)">◐</span>
+        <span class="title">apply-change-worker</span><span class="time">now</span></div>
+      <div class="row2"><span class="meta">⚡ Edit · streaming</span><span class="spacer"></span></div>
+    </div>
+    <p class="caption"><b>Healthy · baseline.</b> Zero added pixels. This is most cards, most of the time.</p>
+  </div>
+
+  <div>
+    <div class="card">
+      <span class="rail" style="background:color-mix(in srgb,var(--status-working) 40%,transparent)"></span>
+      <div class="row1"><span class="dot" style="color:var(--status-working)">◐</span>
+        <span class="title">kb-reindex-batch</span><span class="time">now</span></div>
+      <div class="row2"><span class="meta">⚡ Bash</span><span class="spacer"></span>
+        <span class="pill warn"><span class="gl">◐</span>host slow · 38s</span></div>
+    </div>
+    <p class="caption"><b>Degraded</b> — past ~2 missed beats. Shows <i>elapsed silence</i>, a number the user
+    can check against what they're seeing, not a synthetic health score.</p>
+  </div>
+
+  <div>
+    <div class="card">
+      <span class="rail" style="background:color-mix(in srgb,var(--status-error) 40%,transparent)"></span>
+      <div class="row1"><span class="dot" style="color:var(--severity-error-fg)">◐</span>
+        <span class="title">judo-tatami-part-6</span><span class="time">now</span></div>
+      <div class="row2"><span class="meta">⚡ Write</span><span class="spacer"></span>
+        <span class="pill err"><span class="gl">◐</span>unresponsive · 2m 3s</span></div>
+    </div>
+    <p class="caption"><b>Unresponsive</b> — past the watchdog threshold. In your incident this card sat
+    "streaming" for 122&nbsp;s with no way to tell it had stopped breathing.</p>
+  </div>
+
+  <div>
+    <div class="tipbox">
+      <span class="h">Host pressure · hover detail</span>
+      <dl>
+        <dt>Silent for</dt><dd>2m 03s</dd>
+        <dt>Memory</dt><dd>1.4 GB rss</dd>
+        <dt>Load (1m)</dt><dd>6.78</dd>
+      </dl>
+      <p class="past">Event loop stalled 12s — <b>earlier</b>, already recovered.</p>
+    </div>
+    <p class="caption"><b>Progressive disclosure.</b> <code>eventLoopMaxMs</code> is phrased in the
+    <i>past tense</i>: a frozen loop cannot report itself, so it can only ever describe a stall already survived.</p>
+  </div>
+</div>
+
+<h2>3 · Chat — a prompt that never left the browser</h2>
+<p class="note">The <code>failed</code> arm exists (<code>ChatView.tsx:2030</code>) but says only "not sent".
+It gains a <b>cause</b> and a <b>way out</b> — and stops blaming the session for something the browser did.</p>
+<div class="chat">
+
+  <div class="bubblerow"><div class="bubble sending">
+    <div class="btext"><p>run the test suite and summarise failures</p>
+      <span class="bstat sending">◌ sending</span></div></div></div>
+  <p class="caption" style="text-align:right"><b>Existing</b> — in flight.</p>
+
+  <div class="bubblerow"><div class="bubble">
+    <div class="btext"><p>run the test suite and summarise failures</p>
+      <span class="bstat sent">✓ sent</span></div></div></div>
+  <p class="caption" style="text-align:right"><b>Existing</b> — handed to the socket.</p>
+
+  <div class="bubblerow"><div class="bubble failed">
+    <div class="btext"><p>run the test suite and summarise failures</p>
+      <span class="bstat failed">✕ not sent</span></div>
+    <div class="why"><span class="gl">⚠</span>
+      <span class="msg">Dashboard is offline — your prompt never left this browser.</span>
+      <button class="retry">Retry</button></div>
+  </div></div>
+  <p class="caption" style="text-align:right"><b>New · the reported symptom.</b> Appears <i>immediately</i>,
+  not after 30&nbsp;s. Text preserved, cause named, exit offered.</p>
+
+  <div class="bubblerow"><div class="bubble failed">
+    <div class="btext"><p>continue where you left off</p>
+      <span class="bstat failed">✕ not sent</span></div>
+    <div class="why"><span class="gl">⚠</span>
+      <span class="msg">This session has no saved transcript, so it can't be resumed.</span>
+      <button class="retry">Fork instead</button></div>
+  </div></div>
+  <p class="caption" style="text-align:right"><b>New</b> — the 16 real sessions with
+  <code>sessionFile: null</code>. Dead-end replaced with the one action that does work.</p>
+</div>
+
+<h2>4 · Server refusals — existing toast, honest copy</h2>
+<p class="note">No new component. Plain language, names the cause <i>and</i> the next step
+(NN/g error-message guidelines), never a raw code.</p>
+<div>
+  <div class="toast"><span class="gl">⚠</span><span><b>Prompt not delivered</b>
+    <span class="hint">This session isn't connected right now. It will not receive the message.</span></span></div>
+  <div class="toast err"><span class="gl">✕</span><span><b>Restart failed</b>
+    <span class="hint">pi could not be started in ~/Project/judo-ng. The session stays closed.</span></span></div>
+  <div class="toast"><span class="gl">⚠</span><span><b>Can't resume this session</b>
+    <span class="hint">There's no saved transcript on disk. Fork it to start a fresh session in the same folder.</span></span></div>
+</div>
+
+<h2>5 · Before / after, in one line each</h2>
+<p class="note">
+<b>Ended card</b> — before: <code>ended</code>. after: <code>process gone</code>.<br>
+<b>Frozen session</b> — before: looks like it's still streaming. after: <code>unresponsive · 2m 3s</code>.<br>
+<b>Lost prompt</b> — before: 30&nbsp;s of silence, then "No response from session". after: instant
+"Dashboard is offline — your prompt never left this browser." + Retry.</p>
+
+</div>
+<script>
+const b=document.documentElement,t=document.getElementById('t');
+t.addEventListener('click',()=>{b.dataset.theme=b.dataset.theme==='dark'?'light':'dark';});
+</script>
+</body>
+</html>

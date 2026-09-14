@@ -1,7 +1,9 @@
 # Tasks — stop-discarding-known-session-state
 
 TDD throughout: write the test, watch it fail, then implement. Scenario ids
-(`E*`, `F*`, `X*`, `Q*`, `P1`) refer to `test-plan.md`.
+(`E*`, `F*`, `X*`, `Q*`, `P1`) refer to `test-plan.md`. UI states, tokens and
+copy are fixed by `mockups/ui-plan.md` + `mockups/index.html` — build to the
+approved mockup, do not redesign in code.
 
 Phases are ordered by value-per-risk. **Phase 1 alone fixes the reported
 symptom** and is independently shippable if the change must be cut short.
@@ -34,7 +36,15 @@ symptom** and is independently shippable if the change must be cut short.
 - [ ] 2.2 Consume the verdict in the prompt path; mark the bubble failed at send
       time when it was never transmitted.
 - [ ] 2.3 Add a connection-attributed message distinct from "the prompt may not
-      have been received", which stays reserved for the unknown case.
+      have been received", which stays reserved for the unknown case. Approved
+      copy: **"Dashboard is offline — your prompt never left this browser."**
+- [ ] 2.3a Add the **Retry** action to the failed arm (Nielsen #3: a marked
+      exit). For the no-`sessionFile` case the action is **Fork instead** — the
+      one thing that does work. Cause + action live on a divider row under the
+      preserved prompt text, per the mockup.
+- [ ] 2.3b Use `--severity-error-*` for the new failed-arm elements. Do NOT
+      re-theme the surrounding legacy `red-400` / `blue-500` literals — recorded
+      as debt in `ui-plan.md`, out of scope.
 - [ ] 2.4 Update the `pending-prompt-safety` spec's owning tests for the new
       not-armed path.
 
@@ -88,34 +98,79 @@ symptom** and is independently shippable if the change must be cut short.
       ongoing stall visible with no heartbeat (F2), recovered stall labelled past
       (F3), missing `eventLoopMaxMs` still functions (F4).
 - [ ] 5.3 Render the indicator from the `processMetrics` already on the session
-      row. **No endpoint, no polling, no added socket traffic.**
+      row. **No endpoint, no polling, no added socket traffic.** Healthy sessions
+      render **nothing** — zero added pixels (Nielsen #8; preserves the
+      Von Restorff isolation that makes a sick card noticeable among 40).
 - [ ] 5.4 Derive the primary signal from out-of-band elapsed silence, not from
       self-reported `eventLoopMaxMs` (a frozen loop cannot report itself).
-- [ ] 5.5 Render the ended-session reason (F7).
+- [ ] 5.5 Render the ended-session reason (F7) into the subtitle row that
+      `SessionCard.tsx:84` currently returns `null` for, as a micro-pill matching
+      the existing `moved` badge (`SessionCard.tsx:145`). Severity per
+      `ui-plan.md`: **`process gone` and `restart failed` both use
+      `--severity-error-*`** (user decision — severity tracks the user's loss,
+      not which layer did the killing); `manual` stays visually silent; `unknown`
+      is rendered, never hidden.
+- [ ] 5.7 Every state carries a glyph as well as a colour (`✕ ◐ ? ⚠ ✓`) — WCAG
+      1.4.1, matching the existing `deriveStatusShape` precedent.
+- [ ] 5.8 `.meta` must be the shrink victim (`flex:1 1 auto; min-width:0`) so a
+      long `currentTool` ellipsizes instead of pushing the pressure pill out.
 - [ ] 5.6 Review the `update()` hot path for O(1), no allocation on the
       non-transition branch (P1) — by reading the diff, not a timing assertion.
 
-## 6. Verification and landing
+## 6. Theme contrast remediation (folded in by user decision)
 
-- [ ] 6.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and grep the
+Audited during the mockup loop: **16 of 18 palettes fail WCAG AA** for
+`--text-tertiary` on `--bg-tertiary` (worst 2.48:1); against `--bg-surface` the
+worst is 1.67:1. Computed replacement values are tabulated in
+`mockups/ui-plan.md`.
+
+- [ ] 6.1 **Write the failing audit test FIRST**: iterate all 18 palettes in
+      `themes.ts`, assert `--text-tertiary` and `--text-secondary` each reach
+      4.5:1 against both `--bg-tertiary` and `--bg-surface`. It must fail 16
+      times before any palette is touched.
+- [ ] 6.2 Write the **hierarchy** test: `--text-secondary` contrast ≥
+      `--text-tertiary` contrast on the same background, per palette.
+- [ ] 6.3 Apply the computed tertiary values (hue + saturation preserved,
+      lightness only — never a neutral grey).
+- [ ] 6.4 **Pair a secondary lift** in the 4 palettes that would otherwise invert
+      hierarchy: `catppuccinLight`, `rosePineLight`, `solarizedDark`,
+      `solarizedLight` (their secondary is itself sub-AA at 4.05 / 3.67 / 4.06 /
+      3.95).
+- [ ] 6.5 **Decide Solarized explicitly.** The `--bg-surface` constraint drives
+      its tertiary to near-white (`#e9eced`, 9.15:1 on card) — AA-compliant and
+      no longer recognisably Solarized. Either move `--bg-surface` for that theme
+      or accept the identity loss. Do not resolve silently.
+- [ ] 6.6 Mirror the Base values into `index.css` `:root` and
+      `[data-theme="light"]` — the spec requires the two sources match exactly,
+      so updating `themes.ts` alone breaks the parity scenario.
+- [ ] 6.7 Visually re-check all 9 themes in both modes; confirm no theme reads as
+      washed-out or off-brand after the lift.
+
+## 7. Verification and landing
+
+- [ ] 7.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and grep the
       summary pattern.
-- [ ] 6.2 Add the E2E specs: reconnect-window prompt (Q1 — the reported
+- [ ] 7.2 Add the E2E specs: reconnect-window prompt (Q1 — the reported
       incident), out-of-band kill shows a reason (Q2), healthy indicator (Q3).
-- [ ] 6.3 Run E2E against the docker harness reflecting local changes.
-- [ ] 6.4 `npm run quality:changed`.
-- [ ] 6.5 Rebuild per the matrix: client changes → `npm run build` +
+- [ ] 7.3 Run E2E against the docker harness reflecting local changes.
+- [ ] 7.4 `npm run quality:changed`.
+- [ ] 7.5 Rebuild per the matrix: client changes → `npm run build` +
       `/api/restart`; server/shared → `/api/restart`.
-- [ ] 6.6 Manually reproduce the original symptom: interrupt the dashboard
+- [ ] 7.6 Manually reproduce the original symptom: interrupt the dashboard
       socket, type into a session, confirm the failure is honest and attributed
       to the connection.
-- [ ] 6.7 `openspec validate stop-discarding-known-session-state --type change`.
-- [ ] 6.8 Re-run `doubt-driven-review` on the **implementation** before landing —
+- [ ] 7.7 Compare the shipped UI against `mockups/index.html` side by side — the
+      approved mockup is the acceptance reference for states, tokens and copy.
+- [ ] 7.8 `openspec validate stop-discarding-known-session-state --type change`.
+- [ ] 7.9 Re-run `doubt-driven-review` on the **implementation** before landing —
       the `closedReason` vocabulary touches a persisted field, and two review
       cycles have already overturned this change's design twice.
 
 ## Discipline skills
 
 - `observability-instrumentation` — phases 4 and 5.
+- `frontend-mockup-loop-dashboard` — phases 2, 5 and 6 build to an approved
+  mockup; re-run the scored rubric if a surface deviates from it.
 - `security-hardening` — **not triggered**: no auth, secrets, PII, or untrusted
   input. The outbox holds user prompts already in browser memory.
 - `performance-optimization` — only as P1's read-the-diff check on the hot path.
