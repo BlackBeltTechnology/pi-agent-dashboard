@@ -8,6 +8,7 @@
  * S3 (empty filter) and S7 (legacy subscription methods).
  */
 import { describe, expect, it, vi } from "vitest";
+import type { ResolvedVersion } from "../dispatch.js";
 import {
   buildDiscoverResult,
   type DispatchDeps,
@@ -17,7 +18,6 @@ import {
 } from "../dispatch.js";
 import { parseRpcRequest, RPC_METHOD_NOT_FOUND } from "../jsonrpc.js";
 import { META_VERSION_KEY, SUPPORTED_PROTOCOL_VERSIONS } from "../protocol.js";
-import type { ResolvedVersion } from "../dispatch.js";
 import type { McpCaller } from "../tokens.js";
 
 const V = "2026-07-28";

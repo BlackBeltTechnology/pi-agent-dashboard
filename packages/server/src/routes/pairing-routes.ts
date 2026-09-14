@@ -14,10 +14,10 @@
 
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { isHostAdmitted, type HostAdmissionOptions } from "../auth/host-admission.js";
-import { verifyLocalToken } from "../auth/local-token.js";
+import { type HostAdmissionOptions, isHostAdmitted } from "../auth/host-admission.js";
 import type { ServerIdentity } from "../auth/identity.js";
 import { signNonce } from "../auth/identity.js";
+import { verifyLocalToken } from "../auth/local-token.js";
 import { isGenuinelyLocal } from "../auth/localhost-guard.js";
 import type { PairedDeviceRegistry, PairedDeviceView } from "../pairing/paired-devices.js";
 import type { PairingManager } from "../pairing/pairing.js";

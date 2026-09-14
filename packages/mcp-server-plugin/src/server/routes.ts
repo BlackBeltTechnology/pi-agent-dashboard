@@ -14,9 +14,8 @@ import { type AuthDeps, authenticate } from "./auth.js";
 import {
   type DispatchDeps,
   dispatchRpc,
-  type ResolvedVersion,
   parseSubscriptionFilter,
-  REMOVED_METHODS,
+  type ResolvedVersion,
   versionFailureResponse,
 } from "./dispatch.js";
 import {

@@ -10,9 +10,10 @@
  * F2  dismiss → token unrecoverable, row listed as manually issued.
  * F3  revoke → row gone, and the token no longer authenticates on `/mcp`.
  */
+
+import { COOKIE_NAME, signToken } from "../../packages/server/src/auth/auth.js";
 import { expect, test } from "./fixtures.js";
 import { gotoDashboard } from "./helpers/index.js";
-import { COOKIE_NAME, signToken } from "../../packages/server/src/auth/auth.js";
 import { BASE_URL } from "./lifecycle.js";
 
 /**
@@ -189,10 +190,10 @@ test.describe("MCP client token — Settings flow", () => {
     for (;;) {
       const row = page.locator("li", { hasText: "claude-code" }).first();
       if ((await row.count()) === 0) break;
-      await expect(row).toBeVisible();
       await row.getByTitle(REVOKE).click();
       await row.getByText("Confirm revoke").click();
-      await expect(page.locator("li", { hasText: "claude-code" })).toHaveCount(await page.locator("li", { hasText: "claude-code" }).count() - 1, { timeout: 20_000 });
+      // Assert THIS row detaches, not a count computed from the DOM.
+      await expect(row).toHaveCount(0, { timeout: 20_000 });
     }
     await expect(page.locator("li", { hasText: "claude-code" })).toHaveCount(0, { timeout: 20_000 });
 

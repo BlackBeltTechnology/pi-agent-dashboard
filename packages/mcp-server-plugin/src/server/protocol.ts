@@ -69,10 +69,6 @@ function isSupported(value: unknown): value is SupportedProtocolVersion {
   );
 }
 
-function eraOf(version: SupportedProtocolVersion): ProtocolEra {
-  return version === MODERN_PROTOCOL_VERSION ? "modern" : "legacy";
-}
-
 /**
  * Resolve the protocol version for one request.
  *

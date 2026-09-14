@@ -8,11 +8,11 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  LEGACY_PROTOCOL_VERSIONS,
   META_VERSION_KEY,
   MODERN_PROTOCOL_VERSION,
   resolveProtocolVersion,
   SUPPORTED_PROTOCOL_VERSIONS,
-  LEGACY_PROTOCOL_VERSIONS,
 } from "../protocol.js";
 
 const meta = (version: unknown) => ({ _meta: { [META_VERSION_KEY]: version } });
@@ -68,6 +68,9 @@ describe("E1 — decision table over method × header × _meta", () => {
     { label: "header 2025-06-18, _meta 2026-07-28", method: "tools/list", header: "2025-06-18", params: meta("2026-07-28"), want: { ok: false, code: "HeaderMismatch" } },
     { label: "unknown header 1999-01-01", method: "tools/list", header: "1999-01-01", params: {}, want: { ok: false, code: "UnsupportedProtocolVersion" } },
     { label: "unknown header 1999-01-01 with agreeing _meta", method: "tools/list", header: "1999-01-01", params: meta("1999-01-01"), want: { ok: false, code: "UnsupportedProtocolVersion" } },
+
+    { label: "empty header is absent (rule 4 loosening)", method: "tools/list", header: "", params: {}, want: { ok: true, era: "legacy", version: "2025-03-26" } },
+    { label: "comma-joined duplicate header is AmbiguousHeader", method: "tools/list", header: "2025-06-18, 2026-07-28", params: {}, want: { ok: false, code: "AmbiguousHeader" } },
 
     // Rule 1 — initialize negotiates from params.protocolVersion only.
     { label: "initialize 2025-03-26, no header", method: INIT, header: undefined, params: { protocolVersion: "2025-03-26" }, want: { ok: true, era: "legacy", version: "2025-03-26" } },

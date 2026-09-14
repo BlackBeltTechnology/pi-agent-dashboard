@@ -11,11 +11,11 @@ import os from "node:os";
 import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PairedDeviceRegistry } from "../../../../server/src/pairing/paired-devices.js";
 import { META_VERSION_KEY } from "../protocol.js";
 import { MCP_BODY_LIMIT_BYTES, mountMcpRoutes, REJECTED_METHODS } from "../routes.js";
 import { SubscriptionRegistry } from "../streaming.js";
 import { McpTokenRegistry } from "../tokens.js";
-import { PairedDeviceRegistry } from "../../../../server/src/pairing/paired-devices.js";
 
 const V = "2026-07-28";
 const meta = { _meta: { [META_VERSION_KEY]: V } };

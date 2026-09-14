@@ -35,6 +35,7 @@ const MANUAL_ROW = {
   source: "manual" as const,
 };
 const MINTED = { device: MANUAL_ROW, token: "tok_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+const MINTED_TOKEN = MINTED.token;
 
 beforeEach(() => {
   listPairedDevices.mockReset().mockResolvedValue([PAIRING_ROW, MANUAL_ROW]);
@@ -119,4 +120,3 @@ describe("create-token flow", () => {
   });
 });
 
-const MINTED_TOKEN = "tok_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

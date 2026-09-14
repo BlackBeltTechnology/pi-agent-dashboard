@@ -48,6 +48,7 @@ export function PairedDevicesSection() {
   const [error, setError] = useState<string | null>(null);
   const [stage, setStage] = useState<CreateStage>("closed");
   const [labelDraft, setLabelDraft] = useState("");
+  const [minting, setMinting] = useState(false);
   const [minted, setMinted] = useState<MintedDeviceToken | null>(null);
 
   const reload = useCallback(async () => {
@@ -78,6 +79,8 @@ export function PairedDevicesSection() {
   };
 
   const handleCreate = async () => {
+    if (minting) return; // guard against double-submit (Enter + click)
+    setMinting(true);
     try {
       // One-shot panel (D6): the plaintext token lives in React state only
       // while the result panel is open, and is dropped on dismiss.
@@ -89,6 +92,8 @@ export function PairedDevicesSection() {
     } catch (e: any) {
       setError(e?.message ?? "failed to mint token");
       setStage("closed");
+    } finally {
+      setMinting(false);
     }
   };
 
