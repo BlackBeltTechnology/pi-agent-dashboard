@@ -54,8 +54,6 @@ treated as percent USED and clamped to `0..100`.
   header, and no substring of it SHALL appear in `/api/quota`, any broadcast, or
   any log line
 
-## MODIFIED Requirements
-
 ### Requirement: Wallet-balance and cookie-gated providers SHALL remain unsupported
 The plugin SHALL NOT attempt a quota fetch for providers that expose only a wallet
 balance with no resetting window (`deepseek`, `minimax`) or whose usage is reachable
