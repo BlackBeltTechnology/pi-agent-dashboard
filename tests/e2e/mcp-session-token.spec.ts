@@ -272,6 +272,14 @@ test.describe("wired per-session MCP credential (wire-mcp-session-token)", () =>
 
       // The bridge re-registers on reconnect; the mint re-runs; the FRESH
       // token reaches /mcp with no operator action.
+      //
+      // Scope note (CodeRabbit round 1): this drives the protocol as a bridge
+      // CLIENT, so it pins the SERVER contract — re-registration yields a
+      // fresh credential the endpoint honours while the stale one is refused.
+      // The production bridge's own re-registration is the REAL reconnect
+      // path (session-sync.ts sendStateSync → re-mint, D3) and is pinned at
+      // L1 (session-sync.test.ts D3 block); the docker harness cannot observe
+      // a real pi bridge's env/handshake (no adapter in the image).
       const freshToken = await session.connectAndMint(after!.piGatewayPort!);
       expect(freshToken).not.toBe(oldToken);
       const post = await mcpCall(request, freshToken, "tools/list");

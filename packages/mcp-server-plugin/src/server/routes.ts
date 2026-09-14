@@ -232,6 +232,14 @@ function mountMcpRoutesInScope(fastify: FastifyInstance, deps: McpRouteDeps): vo
         return;
       }
 
+      // A valid credential clears any accumulated failures, so an operator who
+      // rotates a stale token recovers immediately instead of serving out a
+      // penalty earned by the old one. BEFORE the RPC parse: a well-authorized
+      // request with a malformed body returns below without clearing either
+      // counter, and a near-threshold ip could then lock healthy credentials
+      // out on its next failure (CodeRabbit round 1).
+      throttle.recordSuccess(source, fingerprint);
+
       // Fastify has already parsed the body; a syntax error surfaces as a 400
       // from its parser, which we normalise into a JSON-RPC parse error so a
       // client always gets a JSON-RPC shape back (E17).
@@ -240,11 +248,6 @@ function mountMcpRoutesInScope(fastify: FastifyInstance, deps: McpRouteDeps): vo
         send(reply, parsed);
         return;
       }
-
-      // A valid credential clears any accumulated failures, so an operator who
-      // rotates a stale token recovers immediately instead of serving out a
-      // penalty earned by the old one.
-      throttle.recordSuccess(source, fingerprint);
 
       // `subscriptions/listen` is a long-lived response stream, so it cannot go
       // through the single-response path below. Handled here, where the reply

@@ -191,6 +191,24 @@ export function sendStateSync(
       bc.connection.send({ type: "providers_list", sessionId: bc.sessionId, providers: buildProviderCatalogue() });
     } catch { /* ignore */ }
   }
+
+  // D3: re-mint after EVERY re-register — this is the path a dashboard
+  // restart actually takes (onReconnect → sendStateSync, registerReason
+  // "reattach"): the server's in-memory token registry died with the old
+  // process, so without this the session env keeps a stale credential
+  // forever. Ordered after session_register on the SAME socket, so the
+  // gateway's connection-key attribution is established; the reply
+  // (mcp_token_minted) rewrites process.env and the server-side re-mint
+  // invalidates the stale row (D4). Idempotent with the session_start-driven
+  // mint — last mint wins. See change: wire-mcp-session-token (D3/D6;
+  // CodeRabbit round 1).
+  bc.connection.send({
+    type: "plugin_pi_message",
+    sessionId: bc.sessionId,
+    pluginId: "mcp-server",
+    messageType: "mcp/mint-token",
+    payload: {},
+  });
 }
 
 /**
@@ -300,4 +318,16 @@ export function handleSessionChange(
       bc.connection.send({ type: "providers_list", sessionId: bc.sessionId, providers: buildProviderCatalogue() });
     } catch { /* ignore */ }
   }
+
+  // D3: a new/forked/resumed session identity needs its own credential.
+  // Same contract as sendStateSync's re-mint: after this function's
+  // session_register, same socket; server-side re-mint replaces the row.
+  // See change: wire-mcp-session-token (D3/D4).
+  bc.connection.send({
+    type: "plugin_pi_message",
+    sessionId: bc.sessionId,
+    pluginId: "mcp-server",
+    messageType: "mcp/mint-token",
+    payload: {},
+  });
 }

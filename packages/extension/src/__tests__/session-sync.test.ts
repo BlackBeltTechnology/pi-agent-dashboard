@@ -241,3 +241,60 @@ describe("sendStateSync: spawnToken from env", () => {
     });
   });
 });
+
+describe("D3 re-mint on every re-register (wire-mcp-session-token)", () => {
+  it("sendStateSync sends mcp/mint-token AFTER its session_register (the reconnect path)", () => {
+    const bc = createMockBridgeContext();
+    sendStateSync(bc, () => []);
+    const sent = (bc as any)._sent;
+    const registerIdx = sent.findIndex((m: any) => m.type === "session_register");
+    const mintIdx = sent.findIndex(
+      (m: any) => m.type === "plugin_pi_message" && m.messageType === "mcp/mint-token",
+    );
+    expect(registerIdx).toBeGreaterThanOrEqual(0);
+    expect(mintIdx).toBeGreaterThan(registerIdx);
+    expect(sent[mintIdx]).toMatchObject({
+      type: "plugin_pi_message",
+      sessionId: "sess-123",
+      pluginId: "mcp-server",
+      messageType: "mcp/mint-token",
+    });
+  });
+
+  it("the REATTACH register (reconnect after dashboard restart) re-mints — the token registry died server-side", () => {
+    const bc = createMockBridgeContext();
+    sendStateSync(bc, () => []); // first register
+    (bc as any)._sent.length = 0;
+    bc.hasRegisteredOnce = true;
+    sendStateSync(bc, () => []); // reconnect
+    const sent = (bc as any)._sent;
+    const register = sent.find((m: any) => m.type === "session_register");
+    expect(register.registerReason).toBe("reattach");
+    expect(
+      sent.some((m: any) => m.type === "plugin_pi_message" && m.messageType === "mcp/mint-token"),
+    ).toBe(true);
+  });
+
+  it("handleSessionChange (new/fork/resume identity) re-mints for the NEW session id", () => {
+    const bc = createMockBridgeContext();
+    const ctx = {
+      sessionManager: {
+        getSessionId: () => "sess-456",
+        getSessionFile: () => "/path/to/other.json",
+        getSessionDir: () => "/path/to/other",
+        getBranch: () => [{ role: "user", content: "hello" }],
+      },
+      cwd: "/tmp/x",
+    };
+    bc.cachedCtx = ctx as any;
+    handleSessionChange(bc, ctx, () => []);
+    const sent = (bc as any)._sent;
+    const registerIdx = sent.findIndex((m: any) => m.type === "session_register");
+    const mint = sent.find(
+      (m: any) => m.type === "plugin_pi_message" && m.messageType === "mcp/mint-token",
+    );
+    expect(registerIdx).toBeGreaterThanOrEqual(0);
+    expect(mint).toBeDefined();
+    expect(mint.sessionId).toBe("sess-456");
+  });
+});
