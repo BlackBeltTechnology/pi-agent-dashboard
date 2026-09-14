@@ -323,6 +323,9 @@ export async function registerAuthPlugin(
       const payload = verifyToken(cookieToken, authState.secret);
       if (payload) {
         (request as any).isAuthenticated = true;
+        // Additive marker: a dashboard login session (vs a device bearer).
+        // `operatorGuard` on the token-mint route admits exactly this kind.
+        (request as any).authVia = "session";
         return;
       }
       // Invalid/expired — clear cookie

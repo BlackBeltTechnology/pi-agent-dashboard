@@ -2,9 +2,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { resolvePublicBaseUrls } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { registerBearerAuth } from "../auth/bearer-auth.js";
+import { createNetworkGuard } from "../auth/localhost-guard.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 import { PAIRING_PROTOCOL_VERSION, PairingManager } from "../pairing/pairing.js";
+import { MAX_DEVICE_LABEL_BYTES, registerPairingRoutes } from "../routes/pairing-routes.js";
 
 let tmpDir: string;
 let clock: number;
@@ -211,5 +215,238 @@ describe("G7: promoted publicBaseUrls stay behind the read-time TLS gate", () =>
     urls = resolvePublicBaseUrls(config);
     const { mgr } = mkManager();
     expect(mgr.reachableUrls()).toEqual([]);
+  });
+});
+
+// ── Direct device-token issuance (test-plan E13/E16/X4–X9) ────────────────
+// POST /api/paired-devices — the operator-gated mint route
+// (change: mcp-legacy-clients-and-token-issuance, D4/D5). The pairing
+// identity/manager are not exercised by these routes, so they are stubs.
+
+async function mkRouteApp(
+  opts: { trusted?: string[]; localToken?: string; deviceBearer?: boolean } = {},
+): Promise<{ app: Fastify; reg: PairedDeviceRegistry }> {
+  const reg = new PairedDeviceRegistry(path.join(tmpDir, "paired.json"));
+  const app = Fastify();
+  openApps.push(app);
+  const deps = {
+    networkGuard: createNetworkGuard(opts.trusted ?? [], { localToken: opts.localToken }),
+    identity: {} as never,
+    pairing: {} as never,
+    registry: reg,
+    localToken: opts.localToken,
+    hostAdmission: () => ({
+      allowedHosts: [],
+      publicBaseUrls: [],
+      configuredOrigins: [],
+      getLiveTunnelOrigins: () => [],
+      bindHost: "localhost",
+    }),
+  };
+  if (opts.deviceBearer) {
+    registerBearerAuth(app, { registry: reg });
+  }
+  registerPairingRoutes(app, deps);
+  await app.ready();
+  return { app, reg };
+}
+
+const openApps: Fastify[] = [];
+
+const loopbackMint = (app: Fastify, body: unknown, extra: Record<string, unknown> = {}) =>
+  app.inject({
+    method: "POST",
+    url: "/api/paired-devices",
+    remoteAddress: "127.0.0.1",
+    headers: { "content-type": "application/json", ...extra },
+    payload: body,
+  });
+
+function registryRowCount(regPath: string): number {
+  try {
+    return (JSON.parse(fs.readFileSync(regPath, "utf-8")) as unknown[]).length;
+  } catch {
+    return 0;
+  }
+}
+
+describe("E13 — mint label BVA", () => {
+  it.each([
+    ["empty string", "", 400],
+    ["whitespace only", " ", 400],
+    ["one char", "a", 200],
+    ["64 ascii chars", "x".repeat(64), 200],
+    ["65 ascii chars", "x".repeat(65), 400],
+    ["32 two-byte chars (64 bytes)", "é".repeat(32), 200],
+    ["33 two-byte chars (66 bytes)", "é".repeat(33), 400],
+    ["a number", 123, 400],
+    ["absent", undefined, 400],
+  ])("%s", async (_label, value, want) => {
+    const regPath = path.join(tmpDir, "paired.json");
+    const { app, reg } = await mkRouteApp();
+    const before = registryRowCount(regPath);
+    const res = await loopbackMint(app, { label: value });
+    expect(res.statusCode).toBe(want);
+    // No registry row may be created by a refused label.
+    expect(registryRowCount(regPath)).toBe(want === 200 ? before + 1 : before);
+    expect(reg.list()).toHaveLength(want === 200 ? before + 1 : before);
+  });
+
+  it("a valid mint trims the label and returns a ≥32-char token with source manual", async () => {
+    const regPath = path.join(tmpDir, "paired.json");
+    const { app, reg } = await mkRouteApp();
+    const res = await loopbackMint(app, { label: "  claude-code  " });
+    expect(res.statusCode).toBe(200);
+    const data = res.json().data;
+    expect(data.token.length).toBeGreaterThanOrEqual(32);
+    expect(data.device.label).toBe("claude-code");
+    expect(data.device.source).toBe("manual");
+    expect(reg.list()[0].label).toBe("claude-code");
+    expect(MAX_DEVICE_LABEL_BYTES).toBe(64);
+  });
+});
+
+describe("E16 — mint response envelope", () => {
+  it("returns the plaintext once; the listing never carries token material", async () => {
+    const { app, reg } = await mkRouteApp();
+    const mint = await loopbackMint(app, { label: "cli" });
+    expect(mint.statusCode).toBe(200);
+    const body = mint.json();
+    expect(Object.keys(body)).toEqual(["success", "data"]);
+    expect(Object.keys(body.data)).toEqual(["device", "token"]);
+    expect(Object.keys(body.data.device).sort()).toEqual(
+      ["createdAt", "id", "label", "lastSeen", "source"].sort(),
+    );
+    expect(body.data.device).not.toHaveProperty("tokenHash");
+
+    const list = await app.inject({ method: "GET", url: "/api/paired-devices" });
+    expect(list.statusCode).toBe(200);
+    const row = list.json().data.find((d: { id: string }) => d.id === body.data.device.id);
+    expect(row).toBeTruthy();
+    expect(row).not.toHaveProperty("token");
+    expect(row).not.toHaveProperty("tokenHash");
+    void reg;
+  });
+});
+
+describe("X4 — a paired device cannot clone itself", () => {
+  it("a device bearer alone is refused 401 with no registry row", async () => {
+    const regPath = path.join(tmpDir, "paired.json");
+    const { app, reg } = await mkRouteApp({ deviceBearer: true });
+    const phone = reg.add("phone");
+    const before = registryRowCount(regPath);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/paired-devices",
+      remoteAddress: "127.0.0.1",
+      headers: { authorization: `Bearer ${phone.token}`, "x-forwarded-for": "203.0.113.9" },
+      payload: { label: "clone" },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(registryRowCount(regPath)).toBe(before);
+  });
+});
+
+describe("X5 — trusted network alone cannot mint", () => {
+  it("401 on mint; the sibling GET still admits the same address", async () => {
+    const { app } = await mkRouteApp({ trusted: ["10.0.0.0/8"] });
+    const mint = await app.inject({
+      method: "POST",
+      url: "/api/paired-devices",
+      remoteAddress: "10.1.2.3",
+      payload: { label: "remote" },
+    });
+    expect(mint.statusCode).toBe(401);
+
+    const list = await app.inject({ method: "GET", url: "/api/paired-devices", remoteAddress: "10.1.2.3" });
+    expect(list.statusCode).toBe(200);
+  });
+});
+
+describe("X6 — unadmitted Host refused even in report mode", () => {
+  it("403 on mint; the global gate stays report-only for the sibling GET", async () => {
+    const { app } = await mkRouteApp();
+    const attackerHeaders = {
+      host: "attacker.example:8000",
+      origin: "http://attacker.example:8000",
+    };
+    const mint = await loopbackMint(app, { label: "rebind" }, attackerHeaders);
+    expect(mint.statusCode).toBe(403);
+
+    const list = await app.inject({
+      method: "GET",
+      url: "/api/paired-devices",
+      remoteAddress: "127.0.0.1",
+      headers: attackerHeaders,
+    });
+    expect(list.statusCode).toBe(200);
+  });
+});
+
+describe("X7 — a local browser mints with authentication enabled", () => {
+  it("loopback, no cookie, auth on → 200 with a token", async () => {
+    const reg = new PairedDeviceRegistry(path.join(tmpDir, "paired.json"));
+    const app = Fastify();
+    openApps.push(app);
+    const { registerAuthPlugin } = await import("../auth/auth-plugin.js");
+    await registerAuthPlugin(app, {
+      authConfig: {
+        secret: "test-secret-32-chars-long-abcdef",
+        providers: { github: { clientId: "cid", clientSecret: "csecret" } },
+      },
+      port: 8000,
+    });
+    registerPairingRoutes(app, {
+      networkGuard: createNetworkGuard([]),
+      identity: {} as never,
+      pairing: {} as never,
+      registry: reg,
+      hostAdmission: () => ({
+        allowedHosts: [],
+        publicBaseUrls: [],
+        configuredOrigins: [],
+        getLiveTunnelOrigins: () => [],
+        bindHost: "localhost",
+      }),
+    });
+    await app.ready();
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/paired-devices",
+      remoteAddress: "127.0.0.1",
+      headers: { host: "localhost:8000" },
+      payload: { label: "lb" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.token.length).toBeGreaterThanOrEqual(32);
+  });
+});
+
+describe("X8 — a local token mints from a non-loopback address", () => {
+  it("valid X-Pi-Local-Token → 200 with a token", async () => {
+    const { app } = await mkRouteApp({ localToken: "local-secret-token" });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/paired-devices",
+      remoteAddress: "203.0.113.9",
+      headers: { "x-pi-local-token": "local-secret-token", "x-forwarded-for": "203.0.113.9" },
+      payload: { label: "cli" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.token.length).toBeGreaterThanOrEqual(32);
+  });
+});
+
+describe("X9 — the mint route is not a public pairing prefix", () => {
+  it("a remote unauthenticated request is 401, not admitted via any pairing path", async () => {
+    const { app } = await mkRouteApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/paired-devices",
+      remoteAddress: "203.0.113.9",
+      payload: { label: "outsider" },
+    });
+    expect(res.statusCode).toBe(401);
   });
 });

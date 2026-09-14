@@ -11,7 +11,14 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { type AuthDeps, authenticate } from "./auth.js";
-import { type DispatchDeps, dispatchRpc, parseSubscriptionFilter } from "./dispatch.js";
+import {
+  type DispatchDeps,
+  dispatchRpc,
+  type ResolvedVersion,
+  parseSubscriptionFilter,
+  REMOVED_METHODS,
+  versionFailureResponse,
+} from "./dispatch.js";
 import {
   extractId,
   parseRpcRequest,
@@ -20,7 +27,7 @@ import {
   type RpcHttpResponse,
   rpcError
 } from "./jsonrpc.js";
-import { PROTOCOL_VERSION_HEADER } from "./protocol.js";
+import { PROTOCOL_VERSION_HEADER, resolveProtocolVersion } from "./protocol.js";
 import { AuthFailureThrottle } from "./rate-limit.js";
 import type { EventSource, StreamSink, SubscriptionRegistry } from "./streaming.js";
 import type { McpCaller } from "./tokens.js";
@@ -78,9 +85,12 @@ export function hasStreaming(deps: McpRouteDeps): boolean {
 }
 
 function send(reply: FastifyReply, res: RpcHttpResponse): void {
-  // Explicitly NOT setting Mcp-Session-Id anywhere: the revision forbids
-  // minting or echoing one (E5).
-  reply.code(res.status).type("application/json").send(res.body);
+  // The session id is minted by the legacy-era `initialize` adapter and only
+  // ever echoed there (D2). A modern-era response NEVER carries one — the
+  // revision forbids minting or echoing (E5) — so `res.sessionId` staying
+  // undefined for every modern path is the load-bearing invariant here.
+  if (res.sessionId) reply.header("mcp-session-id", res.sessionId);
+  reply.code(res.status).type("application/json").send(res.body ?? "");
 }
 
 /**
@@ -241,21 +251,32 @@ function mountMcpRoutesInScope(fastify: FastifyInstance, deps: McpRouteDeps): vo
       // penalty earned by the old one.
       throttle.recordSuccess(source);
 
+      // The SINGLE version-resolution site (D1): before the listen
+      // interceptor, so `subscriptions/listen` is subject to the same version
+      // contract as every other method (E12) — a gap the pre-dual-era code
+      // left open.
+      const resolved = resolveProtocolVersion(
+        parsed.request.method,
+        request.headers[PROTOCOL_VERSION_HEADER] as string | string[] | undefined,
+        parsed.request.params,
+      );
+      if (!resolved.ok) {
+        send(reply, versionFailureResponse(resolved.code, parsed.request.id ?? null));
+        return;
+      }
+
       // `subscriptions/listen` is a long-lived response stream, so it cannot go
       // through the single-response path below. Handled here, where the reply
-      // object still exists to be hijacked.
-      if (parsed.request.method === "subscriptions/listen") {
+      // object still exists to be hijacked. A legacy-era request never opens a
+      // stream (D3) — dispatch reports the method removed, and the reply is
+      // never hijacked.
+      if (parsed.request.method === "subscriptions/listen" && resolved.era === "modern") {
         await handleListen(request, reply, parsed.request, caller, deps);
         return;
       }
 
       try {
-        const res = await dispatchRpc(
-          parsed.request,
-          request.headers[PROTOCOL_VERSION_HEADER] as string | string[] | undefined,
-          caller,
-          dispatchDeps,
-        );
+        const res = await dispatchRpc(parsed.request, resolved, caller, dispatchDeps);
         send(reply, res);
       } catch (err) {
         // A handler rejection becomes -32603, never a 500 with a stack and

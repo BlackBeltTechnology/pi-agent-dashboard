@@ -30,6 +30,10 @@ export interface PairedDevice {
   createdAt: string;
   /** ISO timestamp of most recent authenticated request, or null. */
   lastSeen: string | null;
+  /** How the token was issued: the QR pairing ceremony, or direct operator
+   * issuance via `POST /api/paired-devices`. Rows written before the field
+   * existed read as `"pairing"` (E15). */
+  source: "pairing" | "manual";
 }
 
 /** Public view of a device (no token material) for Settings / listing. */
@@ -38,6 +42,7 @@ export interface PairedDeviceView {
   label: string;
   createdAt: string;
   lastSeen: string | null;
+  source: "pairing" | "manual";
 }
 
 export function defaultRegistryPath(): string {
@@ -66,7 +71,13 @@ export class PairedDeviceRegistry {
 
   constructor(filePath = defaultRegistryPath()) {
     this.filePath = filePath;
-    this.devices = readJsonFile<PairedDevice[]>(filePath, []);
+    // Loader default, not a migration script (D4): a row written before
+    // `source` existed reads as `"pairing"`, and the next write back normalises
+    // it in place.
+    this.devices = readJsonFile<PairedDevice[]>(filePath, []).map((d) => ({
+      ...d,
+      source: d.source === "manual" ? "manual" : "pairing",
+    }));
   }
 
   private persist(): void {
@@ -82,8 +93,14 @@ export class PairedDeviceRegistry {
   /**
    * Register a new device, returning the plaintext bearer token (shown once).
    * The token is never persisted in plaintext.
+   *
+   * @param source issuance path: `"pairing"` (QR ceremony, the default so the
+   *   existing caller needs no edit) or `"manual"` (direct operator mint).
    */
-  add(label: string): { device: PairedDeviceView; token: string } {
+  add(
+    label: string,
+    source: "pairing" | "manual" = "pairing",
+  ): { device: PairedDeviceView; token: string } {
     const token = crypto.randomBytes(TOKEN_BYTES).toString("base64url");
     const device: PairedDevice = {
       id: crypto.randomUUID(),
@@ -91,6 +108,7 @@ export class PairedDeviceRegistry {
       tokenHash: hashToken(token),
       createdAt: new Date().toISOString(),
       lastSeen: null,
+      source,
     };
     this.devices.push(device);
     this.persist();
@@ -136,6 +154,12 @@ export class PairedDeviceRegistry {
   }
 
   private toView(d: PairedDevice): PairedDeviceView {
-    return { id: d.id, label: d.label, createdAt: d.createdAt, lastSeen: d.lastSeen };
+    return {
+      id: d.id,
+      label: d.label,
+      createdAt: d.createdAt,
+      lastSeen: d.lastSeen,
+      source: d.source,
+    };
   }
 }

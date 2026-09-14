@@ -1,16 +1,25 @@
 /**
- * Stateless JSON-RPC dispatch for MCP revision 2026-07-28.
+ * Stateful-at-the-edge, stateless underneath: dispatch for the dual-era MCP
+ * endpoint.
  *
  * "Stateless" here is precise: no request may depend on state established by a
- * previous request. There is no `initialize` handshake to complete, no session
- * id to carry, and no `Last-Event-ID` to resume from — so every request is
- * self-describing and independently servable (E8, E18, X7).
+ * previous request. There is no session id the server records, no resume token
+ * and no `Last-Event-ID` — so every request is self-describing and
+ * independently servable (E8, E18, X7).
  *
- * A `subscriptions/listen` stream does not violate this. Its subscription is
- * scoped to the lifetime of the single request that opened it and dies with
- * that request; nothing is shared *between* requests.
+ * The protocol era is resolved ONCE in `routes.ts` (single resolution site,
+ * D1) and passed in as `resolved`; this module never re-resolves. The
+ * legacy-only surface (`initialize`, `notifications/*`, `ping`) is a thin
+ * adapter in front of the same per-method dispatcher the modern era uses.
+ * `Mcp-Session-Id` is minted only so clients that store and echo it are happy
+ * — it is never recorded and never checked (D2).
+ *
+ * A `subscriptions/listen` stream does not violate statelessness. Its
+ * subscription is scoped to the lifetime of the single request that opened it
+ * and dies with that request; nothing is shared *between* requests.
  */
 
+import crypto from "node:crypto";
 import { evaluateSelfTarget } from "./guard.js";
 import {
   RPC_INVALID_PARAMS,
@@ -23,14 +32,14 @@ import {
 } from "./jsonrpc.js";
 import {
   CURRENT_PROTOCOL_VERSION,
+  type ProtocolEra,
   type ProtocolVersionFailure,
-  resolveProtocolVersion,
   SUPPORTED_PROTOCOL_VERSIONS,
 } from "./protocol.js";
 import type { McpCaller } from "./tokens.js";
 import { findTool, listTools, MCP_TOOLS, type McpToolDef } from "./tools.js";
 
-/** Methods reported as unsupported rather than silently accepted. */
+/** Methods reported as unsupported rather than silently accepted (modern era). */
 export const REMOVED_METHODS = [
   // SEP-2575 removed the handshake. Accepting it silently would let a legacy
   // client believe it negotiated something (E9).
@@ -41,11 +50,17 @@ export const REMOVED_METHODS = [
   "resources/unsubscribe",
 ] as const;
 
-/** How a version failure maps onto the wire. */
+/** How a version failure maps onto the wire. Used by `routes.ts`, the single
+ * resolution site, so the failure→status pairing has one owner. */
 const VERSION_FAILURES: Record<
   ProtocolVersionFailure,
   { status: number; message: string; type: string }
 > = {
+  AmbiguousHeader: {
+    status: 400,
+    message: "MCP-Protocol-Version header was sent more than once",
+    type: "AmbiguousHeader",
+  },
   MissingHeader: {
     status: 400,
     message: "MCP-Protocol-Version header is required on every request",
@@ -67,6 +82,15 @@ const VERSION_FAILURES: Record<
     type: "UnsupportedProtocolVersionError",
   },
 };
+
+/** Map a version-resolution failure onto the wire (E4/E12, X3). */
+export function versionFailureResponse(
+  code: ProtocolVersionFailure,
+  id: RpcId,
+): RpcHttpResponse {
+  const f = VERSION_FAILURES[code];
+  return rpcError(f.status, id, RPC_INVALID_PARAMS, f.message, f.type);
+}
 
 /** Everything a tool handler needs. Handlers never see the raw request. */
 export interface ToolInvocation {
@@ -153,27 +177,36 @@ export function parseSubscriptionFilter(
   return { ok: true, sessionIds: raw as string[] };
 }
 
+/** The version verdict handed down by the single resolution site (`routes.ts`). */
+export interface ResolvedVersion {
+  era: ProtocolEra;
+  version: string;
+}
+
+/** Opaque compatibility token: random 128-bit hex, minted once, never stored (D2). */
+function mintSessionId(): string {
+  return crypto.randomBytes(16).toString("hex");
+}
+
 /**
  * Dispatch one already-parsed JSON-RPC request.
  *
+ * @param resolved the protocol version resolved ONCE in `routes.ts` — this
+ *   module never re-resolves (single resolution site, D1).
  * @param caller resolved from the presented credential by the auth layer —
  *   never from anything in `request` (M3).
  */
 export async function dispatchRpc(
   request: RpcRequest,
-  headerVersion: string | string[] | undefined,
+  resolved: ResolvedVersion,
   caller: McpCaller,
   deps: DispatchDeps,
 ): Promise<RpcHttpResponse> {
   const id: RpcId = request.id ?? null;
+  const { era } = resolved;
 
-  // Version is validated before the method is even looked at: an unsupported
-  // client must not be able to reach a handler, and a version error is more
-  // actionable than a downstream one.
-  const version = resolveProtocolVersion(headerVersion, request.params);
-  if (!version.ok) {
-    const f = VERSION_FAILURES[version.code];
-    return rpcError(f.status, id, RPC_INVALID_PARAMS, f.message, f.type);
+  if (era === "legacy") {
+    return dispatchLegacy(request, resolved, id, caller, deps);
   }
 
   if ((REMOVED_METHODS as readonly string[]).includes(request.method)) {
@@ -186,7 +219,15 @@ export async function dispatchRpc(
     );
   }
 
-  switch (request.method) {
+  return dispatchModernRest(request, id, caller, deps);
+}
+
+async function dispatchModernRest(
+  request: RpcRequest,
+  id: RpcId,
+  caller: McpCaller,
+  deps: DispatchDeps,
+): Promise<RpcHttpResponse> {  switch (request.method) {
     case "server/discover":
       return rpcResult(
         id,
@@ -215,6 +256,69 @@ export async function dispatchRpc(
       // (E15/E16). Notably NOT a fall-through to the SPA handler.
       return rpcError(404, id, RPC_METHOD_NOT_FOUND, `Unknown method: ${request.method}`);
   }
+}
+
+/**
+ * The legacy-era surface (D1): the three 2025-era revisions get the
+ * Streamable-HTTP compatibility adapter — handshake, notifications, ping —
+ * with everything else flowing into the SAME per-method dispatcher as the
+ * modern era, so the tool allowlist, guard and per-tool behaviour have no era
+ * variant.
+ */
+function dispatchLegacy(
+  request: RpcRequest,
+  resolved: ResolvedVersion,
+  id: RpcId,
+  caller: McpCaller,
+  deps: DispatchDeps,
+): Promise<RpcHttpResponse> | RpcHttpResponse {
+  // Method prefix decides, BEFORE any other handling: a `notifications/*`
+  // message is acted on by nobody, with or without a stray `id` (E6).
+  if (request.method.startsWith("notifications/")) {
+    return { status: 202, body: null };
+  }
+
+  switch (request.method) {
+    case "initialize":
+      // Static InitializeResult, per the 2025 ServerCapabilities schema —
+      // deliberately NOT the discover object, whose `subscriptions`/`resources`
+      // keys are foreign to the 2025 schema and would fail strict SDK
+      // validation. `protocolVersion` was already negotiated by the resolver
+      // (echoed, or negotiated down to `2025-11-25`).
+      return {
+        status: 200,
+        sessionId: mintSessionId(),
+        body: {
+          jsonrpc: "2.0",
+          id,
+          result: {
+            protocolVersion: resolved.version,
+            capabilities: { tools: { listChanged: false } },
+            serverInfo: { ...deps.serverInfo },
+          },
+        },
+      };
+
+    case "ping":
+      return rpcResult(id, {});
+
+    case "subscriptions/listen":
+      // Streaming stays modern-only (D3): no stream, the MethodRemoved shape.
+      return rpcError(
+        404,
+        id,
+        RPC_METHOD_NOT_FOUND,
+        `subscriptions/listen is not supported on protocol revision ${resolved.version}`,
+        "MethodRemoved",
+      );
+
+    default:
+      break;
+  }
+
+  // Everything else — tools/list, tools/call, server/discover, unknown
+  // methods — flows through the modern path unchanged.
+  return dispatchModernRest(request, id, caller, deps);
 }
 
 async function dispatchToolCall(

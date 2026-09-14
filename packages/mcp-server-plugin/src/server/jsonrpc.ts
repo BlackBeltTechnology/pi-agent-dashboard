@@ -41,7 +41,11 @@ export interface RpcResultBody {
 /** An HTTP status paired with the JSON-RPC body to send. */
 export interface RpcHttpResponse {
   status: number;
-  body: RpcErrorBody | RpcResultBody;
+  /** `null` = an intentionally empty body (legacy `notifications/*` → 202). */
+  body: RpcErrorBody | RpcResultBody | null;
+  /** Legacy era only: mint-and-echo `Mcp-Session-Id` (opaque, D2). Never set
+   * on a modern-era response. */
+  sessionId?: string;
 }
 
 export function rpcResult(id: RpcId, result: unknown): RpcHttpResponse {
