@@ -173,9 +173,9 @@ The header badge SHALL expose the session's original `startedAt` as a native bro
 
 ### Requirement: Sessions snapshot replaces client state atomically
 
-The browser message handler (`useMessageHandler`) SHALL handle `sessions_snapshot` by REPLACING both the `sessions` Map and the `sessionOrderMap` Map with the payload contents. It SHALL NOT merge with existing state. A `sessions_page_result` SHALL be MERGED: its sessions are added to (or overwrite entries in) the `sessions` Map, and its `order` is appended after the cwd's current order with ids already present skipped.
+The browser message handler (`useMessageHandler`) SHALL handle `sessions_snapshot` by REPLACING the `sessions` Map, the `sessionOrderMap` Map and the `archivedCountByCwd` map with the payload contents. It SHALL NOT merge with existing state. `payload.sessions` SHALL never contain archived sessions.
 
-After replacement, ids that were present in the previous `sessions` Map but are absent from `payload.sessions` SHALL no longer be in `sessions` — including ids that were previously merged from a page. Cwds that were present in the previous `sessionOrderMap` but are absent from `payload.orders` SHALL no longer be in `sessionOrderMap`.
+After replacement, ids that were present in the previous `sessions` Map but are absent from `payload.sessions` SHALL no longer be in `sessions`. Cwds that were present in the previous `sessionOrderMap` but are absent from `payload.orders` SHALL no longer be in `sessionOrderMap`.
 
 #### Scenario: Stale session is dropped on snapshot
 - **GIVEN** the client has `sessions` containing id "stale-x" with status "active" from a previous server lifetime
@@ -203,6 +203,16 @@ After replacement, ids that were present in the previous `sessions` Map but are 
 - **GIVEN** the client merged paged session `old-z` for `/repoA`
 - **WHEN** a `sessions_snapshot` arrives that does not include `old-z`
 - **THEN** `sessions.has("old-z")` SHALL be `false`
+
+#### Scenario: session_archived deletes the id
+- **GIVEN** the client has `sessions` containing id "old-z"
+- **WHEN** `session_archived { sessionId: "old-z", cwd: "/repoA", count: 6 }` arrives
+- **THEN** `sessions.has("old-z")` SHALL be `false` and `archivedCountByCwd["/repoA"]` SHALL be `6`
+
+#### Scenario: Snapshot replaces archived counts
+- **GIVEN** the client has `archivedCountByCwd = { "/repoA": 5 }`
+- **WHEN** a `sessions_snapshot` arrives with `archivedCountByCwd: { "/repoB": 312 }`
+- **THEN** after processing, `/repoA` SHALL have no archived count and `/repoB` SHALL have `312`
 
 ### Requirement: A session that is ended always has an end timestamp
 Every entry point that places a session into the session map SHALL guarantee that

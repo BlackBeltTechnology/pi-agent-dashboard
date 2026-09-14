@@ -87,7 +87,7 @@ describe("Smoke integration", () => {
     await delay(100);
   }, 15000);
 
-  it("9.3 — hide session updates session manager", async () => {
+  it("9.3 — legacy hide_session no longer hides (archive replaced it)", async () => {
     const bridge = new WebSocket(`ws://localhost:${piPort}`);
     await waitForOpen(bridge);
     bridge.send(JSON.stringify({
@@ -99,14 +99,15 @@ describe("Smoke integration", () => {
     await waitForOpen(browser);
     await delay(100); // drain session_added
 
+    // Archived replaced hidden; the removed verb must not mutate the manager.
     browser.send(JSON.stringify({ type: "hide_session", sessionId: "s3" }));
 
     const msgs = await collectMsgs(browser, 300);
     const hideUpdate = msgs.find((m) =>
       m.type === "session_updated" && m.sessionId === "s3" && m.updates?.hidden === true
     );
-    expect(hideUpdate).toBeDefined();
-    expect(server.sessionManager.get("s3")?.hidden).toBe(true);
+    expect(hideUpdate).toBeUndefined();
+    expect(server.sessionManager.get("s3")?.hidden).toBeFalsy();
 
     browser.close();
     bridge.close();

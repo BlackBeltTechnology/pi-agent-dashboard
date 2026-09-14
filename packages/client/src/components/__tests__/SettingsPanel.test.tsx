@@ -1349,3 +1349,80 @@ describe("SettingsPanel default model favorites (model-picker-everywhere-favorit
     expect(toggle).toHaveBeenCalledWith("anthropic/a", false);
   });
 });
+
+// ── archive-sessions-lazy-load: Sessions page archive fields ─────────────
+// #E33 BVA: archiveAfterDays -1 → error + Save disabled; 0 and 14 ok;
+// sweep interval 0 → error, 1 ok; Save carries sessionList.archiveAfterDays.
+// See change: archive-sessions-lazy-load.
+describe("SettingsPanel — archive fields (archive-sessions-lazy-load)", () => {
+  it("renders the archive fields with defaults 30 / 60 when sessionList config is absent", async () => {
+    global.fetch = mockFetchConfig();
+    setPath("/settings/sessions");
+
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Archive after"));
+
+    expect(screen.getByDisplayValue("30")).toBeTruthy();
+    expect(screen.getByDisplayValue("60")).toBeTruthy();
+  });
+
+  it("E33: archiveAfterDays -1 shows an error and disables Save; 0 and 14 are valid", async () => {
+    global.fetch = mockFetchConfig();
+    setPath("/settings/sessions");
+
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Archive after"));
+
+    const input = screen.getByDisplayValue("30");
+    fireEvent.change(input, { target: { value: "-1" } });
+    expect(screen.getByTestId("archive-after-days-error")).toBeTruthy();
+    expect((screen.getByTestId("save-btn") as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(input, { target: { value: "0" } });
+    expect(screen.queryByTestId("archive-after-days-error")).toBeNull();
+    expect((screen.getByTestId("save-btn") as HTMLButtonElement).disabled).toBe(false);
+
+    fireEvent.change(input, { target: { value: "14" } });
+    expect(screen.queryByTestId("archive-after-days-error")).toBeNull();
+  });
+
+  it("E33: sweep interval 0 shows an error; 1 is valid; Save persists sessionList.archiveAfterDays=14", async () => {
+    let putBody: any = undefined;
+    global.fetch = vi.fn().mockImplementation((url: string, options?: any) => {
+      if (url === "/api/config" && !options?.method) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: mockConfig }) });
+      }
+      if (url === "/api/providers") {
+        return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+      }
+      if (url === "/api/config" && options?.method === "PUT") {
+        putBody = JSON.parse(options.body);
+        return Promise.resolve({ json: () => Promise.resolve({ success: true }) });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    });
+    setPath("/settings/sessions");
+
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Archive after"));
+
+    const daysInput = screen.getByDisplayValue("30");
+    const sweepInput = screen.getByDisplayValue("60");
+
+    fireEvent.change(sweepInput, { target: { value: "0" } });
+    expect(screen.getByTestId("archive-sweep-interval-error")).toBeTruthy();
+    expect((screen.getByTestId("save-btn") as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(sweepInput, { target: { value: "1" } });
+    expect(screen.queryByTestId("archive-sweep-interval-error")).toBeNull();
+
+    fireEvent.change(daysInput, { target: { value: "14" } });
+    await waitFor(() => screen.getByTestId("save-btn"));
+    fireEvent.click(screen.getByTestId("save-btn"));
+
+    await waitFor(() => expect(putBody).toBeDefined());
+    expect(putBody.sessionList).toBeDefined();
+    expect(putBody.sessionList.archiveAfterDays).toBe(14);
+    expect(putBody.sessionList.archiveSweepIntervalMinutes).toBe(1);
+  });
+});

@@ -381,6 +381,7 @@ describe("fix-connect-snapshot-frame-loss protocol types (E28)", () => {
       sessions: [],
       orders: {},
       endedTotals: { "/a": 3 },
+      archivedCountByCwd: {},
     };
     expect(extractSessionsSnapshotEndedTotals(msg)).toEqual({ "/a": 3 });
   });

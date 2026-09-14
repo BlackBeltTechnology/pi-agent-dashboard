@@ -23,9 +23,9 @@ describe("package manifest", () => {
     expect(pkg.bin?.["pi-apple-tools-install"]).toBeTruthy();
   });
 
-  it("declares pi-mcp-adapter as a dependency but NOT bundledDependencies", () => {
-    expect(pkg.dependencies?.["pi-mcp-adapter"]).toBeTruthy();
-    expect(pkg.bundledDependencies ?? []).not.toContain("pi-mcp-adapter");
+  it("declares the mcp-client plugin as a dependency but NOT bundledDependencies", () => {
+    expect(pkg.dependencies?.["@blackbelt-technology/pi-dashboard-mcp-client-plugin"]).toBeTruthy();
+    expect(pkg.bundledDependencies ?? []).not.toContain("@blackbelt-technology/pi-dashboard-mcp-client-plugin");
   });
 
   it("server entry satisfies the loader contract (default export function)", async () => {
@@ -35,11 +35,15 @@ describe("package manifest", () => {
     expect(typeof mod.default).toBe("function");
   });
 
-  it("#E34: has a pi-dashboard-plugin manifest with id apple-tools + paths requirement", () => {
+  it("#E34: has a pi-dashboard-plugin manifest with id apple-tools, a mcp-client dep, + paths requirement", () => {
     const m = pkg["pi-dashboard-plugin"];
     expect(m?.id).toBe("apple-tools");
     expect(m?.requires?.paths).toEqual(["${imcpServerPath}"]);
-    expect(m?.requires?.piExtensions).toEqual(["pi-mcp-adapter"]);
+    // The adapter requirement moved to the mcp-client plugin, which apple-tools
+    // now depends on; a hard pi-mcp-adapter dependency would pull a second copy.
+    expect(m?.requires?.piExtensions).toBeUndefined();
+    expect(pkg.dependencies?.["pi-mcp-adapter"]).toBeUndefined();
+    expect(m?.dependsOn).toEqual(["mcp-client"]);
     // settings-section without a tab field (renders inline under the plugin row)
     const claim = (m?.claims ?? []).find((c: { slot: string }) => c.slot === "settings-section");
     expect(claim).toBeTruthy();

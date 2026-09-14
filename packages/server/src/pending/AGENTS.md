@@ -4,6 +4,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 
 | File | Purpose |
 |------|---------|
+| `pending-archive-intent-registry.ts` | In-memory one-shot archive intents for idle-alive sessions. Exports `createPendingArchiveIntentRegistry`, `PendingArchiveIntentRegistry`. TTL 60s. See change: archive-sessions-lazy-load. |
 | `pending-attach-registry.ts` | In-memory FIFO queue of pending `attachProposal` intents per cwd. → see `pending-attach-registry.ts.AGENTS.md` |
 | `pending-client-correlations.ts` | Maps server-minted `spawnToken` → client-minted `requestId`; per-record TTL derived from the arming timeout. → see `pending-client-correlations.ts.AGENTS.md`. See change: fix-spawn-correlation-ttl-coupling. |
 | `pending-fork-registry.ts` | Tracks pending fork operations keyed by `spawnToken` to place forked sessions after parent; per-entry TTL derived from the arming timeout. → see `pending-fork-registry.ts.AGENTS.md`. See change: fix-spawn-correlation-ttl-coupling. |

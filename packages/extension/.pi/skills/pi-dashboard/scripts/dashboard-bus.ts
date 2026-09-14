@@ -18,7 +18,7 @@
  *   npx tsx ./scripts/dashboard-bus.ts model <id-prefix> <provider> <modelId>
  *   npx tsx ./scripts/dashboard-bus.ts thinking <id-prefix> <level>
  *   npx tsx ./scripts/dashboard-bus.ts rename <id-prefix> <name...>
- *   npx tsx ./scripts/dashboard-bus.ts hide|unhide <id-prefix>
+ *   npx tsx ./scripts/dashboard-bus.ts archive|unarchive <id-prefix>
  *   npx tsx ./scripts/dashboard-bus.ts resume <id-prefix> [--fork]
  *   npx tsx ./scripts/dashboard-bus.ts flow <id-prefix> <abort|toggle_autonomous|dismiss_summary>
  *   npx tsx ./scripts/dashboard-bus.ts proposal-attach <id-prefix> <change>
@@ -149,10 +149,10 @@ async function main(): Promise<void> {
         console.log(`renamed ${id.slice(0, 8)} → ${name}`);
         break;
       }
-      case "hide":
-      case "unhide": {
+      case "archive":
+      case "unarchive": {
         const id = resolveId(pos[0] ?? die(`${cmd} needs <id-prefix>`));
-        client.send({ type: cmd === "hide" ? "hide_session" : "unhide_session", sessionId: id });
+        client.send({ type: cmd === "archive" ? "archive_session" : "unarchive_session", sessionId: id });
         console.log(`${cmd} ${id.slice(0, 8)}`);
         break;
       }

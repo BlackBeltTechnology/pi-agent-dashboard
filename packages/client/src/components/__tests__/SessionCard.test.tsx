@@ -1,7 +1,7 @@
 import { createSlotRegistry, PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { DISPLAY_PRESETS } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useSessionActions } from "../../hooks/useSessionActions.js";
@@ -34,8 +34,7 @@ const defaultProps = {
   now: Date.now(),
   showGitInfo: false,
   isHidden: false,
-  onHide: () => {},
-  onUnhide: () => {},
+  onArchive: () => {},
 };
 
 // worktree-card-section slot: KB row is rendered ONLY for worktree sessions,
@@ -1748,5 +1747,104 @@ describe("SessionCard notifyLog invariance (fix-connect-snapshot-frame-loss F5)"
 
     const withoutLog = render(<SessionCard session={makeSession()} {...defaultProps} />);
     expect(withoutLog.container.innerHTML).toBe(htmlWithLog);
+  });
+});
+
+// ── archive-sessions-lazy-load: per-card archive affordance ──────────────
+// Manual hide is REMOVED (hide_session/unhide_session verbs deleted server
+// side). The archive button replaces it: shown on ended and idle-alive
+// cards, never while running. Idle-alive asks for confirmation (archiving
+// ends the pi process); ended archives immediately.
+// See change: archive-sessions-lazy-load (test-plan #F1, #F2, #F3).
+describe("SessionCard — archive affordance (archive-sessions-lazy-load)", () => {
+  // #F1 decision table: ended / idle-alive / running / hidden worker →
+  // archive btn yes / yes / no / yes-if-shown; hide/unhide never.
+  it("F1: renders the archive button on an ended session; no hide/unhide buttons", () => {
+    render(<SessionCard session={makeSession({ status: "ended", endedAt: 1 })} {...defaultProps} />);
+    expect(screen.getByTestId("session-archive-btn")).toBeTruthy();
+    expect(screen.queryByTestId("session-hide-btn")).toBeNull();
+    expect(screen.queryByTestId("session-unhide-btn")).toBeNull();
+  });
+
+  it("F1: renders the archive button on an idle alive session", () => {
+    render(<SessionCard session={makeSession({ status: "idle" })} {...defaultProps} />);
+    expect(screen.getByTestId("session-archive-btn")).toBeTruthy();
+  });
+
+  it("F1: never renders the archive button while running (streaming)", () => {
+    render(<SessionCard session={makeSession({ status: "streaming" })} {...defaultProps} />);
+    expect(screen.queryByTestId("session-archive-btn")).toBeNull();
+  });
+
+  it("F1: never renders the archive button while a tool call is in flight", () => {
+    render(<SessionCard session={makeSession({ status: "active", currentTool: "bash" })} {...defaultProps} />);
+    expect(screen.queryByTestId("session-archive-btn")).toBeNull();
+  });
+
+  it("F1: hidden worker (revealed via Show hidden) still offers archive", () => {
+    render(
+      <SessionCard session={makeSession({ status: "idle", hidden: true })} {...defaultProps} isHidden />,
+    );
+    expect(screen.getByTestId("session-archive-btn")).toBeTruthy();
+    expect(screen.queryByTestId("session-hide-btn")).toBeNull();
+    expect(screen.queryByTestId("session-unhide-btn")).toBeNull();
+  });
+
+  // #F2: idle-alive needs a confirmation — archiving ends the pi process.
+  it("F2: idle-alive opens a confirm dialog; cancel sends nothing, confirm archives once", () => {
+    const onArchive = vi.fn();
+    render(<SessionCard session={makeSession({ status: "idle" })} {...defaultProps} onArchive={onArchive} />);
+
+    fireEvent.click(screen.getByTestId("session-archive-btn"));
+    expect(screen.getByTestId("session-archive-confirm")).toBeTruthy();
+    expect(onArchive).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("session-archive-confirm-cancel"));
+    expect(onArchive).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("session-archive-confirm")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("session-archive-btn"));
+    fireEvent.click(screen.getByTestId("session-archive-confirm-action"));
+    expect(onArchive).toHaveBeenCalledTimes(1);
+    expect(onArchive).toHaveBeenCalledWith("test-session");
+  });
+
+  // #F3: ended sessions archive immediately — no dialog.
+  it("F3: ended session archives immediately without a dialog", () => {
+    const onArchive = vi.fn();
+    render(
+      <SessionCard session={makeSession({ status: "ended", endedAt: 1 })} {...defaultProps} onArchive={onArchive} />,
+    );
+    fireEvent.click(screen.getByTestId("session-archive-btn"));
+    expect(onArchive).toHaveBeenCalledTimes(1);
+    expect(onArchive).toHaveBeenCalledWith("test-session");
+    expect(screen.queryByTestId("session-archive-confirm")).toBeNull();
+  });
+
+  // Wire-level: the session actions send the NEW verbs.
+  it("handleArchiveSession / handleUnarchiveSession send archive_session / unarchive_session", () => {
+    const send = vi.fn();
+    const { result } = renderHook(() =>
+      useSessionActions({
+        selectedId: undefined,
+        send,
+        navigate: () => {},
+        setMobileOpen: () => {},
+        sessions: new Map(),
+        setSessions: () => {},
+        setSessionStates: () => {},
+        setSpawningCwds: () => {},
+        setTerminals: () => {},
+        clearSpawningCwd: () => {},
+        spawnTimeoutsRef: { current: new Map() },
+        pendingTerminalCwdRef: { current: null },
+        terminals: new Map(),
+        pendingSpawnsRef: { current: new Map() },
+      } as any),
+    );
+    act(() => result.current.handleArchiveSession("s1"));
+    expect(send).toHaveBeenCalledWith({ type: "archive_session", sessionId: "s1" });
+    act(() => result.current.handleUnarchiveSession("s1"));
+    expect(send).toHaveBeenCalledWith({ type: "unarchive_session", sessionId: "s1" });
   });
 });

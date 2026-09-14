@@ -2,6 +2,7 @@ const LEGACY_HIDDEN_KEY = "dashboard:hiddenSessions";
 const ACTIVE_ONLY_KEY = "dashboard:activeOnly";
 const COLLAPSED_GROUPS_KEY = "dashboard:collapsedGroups";
 const TAG_AREA_OPEN_KEY = "sidebar.tagArea.open";
+const INCLUDE_ARCHIVE_KEY = "sidebar.search.includeArchive";
 
 function getStorage(): Storage {
   return window.localStorage;
@@ -59,6 +60,25 @@ export function getTagAreaOpen(): boolean {
 export function setTagAreaOpen(open: boolean): void {
   try {
     getStorage().setItem(TAG_AREA_OPEN_KEY, String(open));
+  } catch { /* ignore */ }
+}
+
+/**
+ * Include-archive search chip state. Absent ⇒ OFF (default) — archived
+ * search is strictly opt-in.
+ * See change: archive-sessions-lazy-load (#F13).
+ */
+export function getIncludeArchive(): boolean {
+  try {
+    return getStorage().getItem(INCLUDE_ARCHIVE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function setIncludeArchive(value: boolean): void {
+  try {
+    getStorage().setItem(INCLUDE_ARCHIVE_KEY, String(value));
   } catch { /* ignore */ }
 }
 

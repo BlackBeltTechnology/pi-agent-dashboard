@@ -11,7 +11,7 @@
  */
 
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
@@ -187,5 +187,120 @@ describe("SessionList tag filter — folder-tier coverage", () => {
     fireEvent.click(getByLabelText("Filter by tag feature"));
     expect(visible(container, match.id)).toBe(true);
     expect(visible(container, other.id)).toBe(false);
+  });
+});
+
+// ── archive-sessions-lazy-load: include-archive search chip ──────────────
+// #F11: chip OFF → no archived request, no Archive matches section.
+// #F12: chip ON → debounced single fetch (q=allow after al→all→allow), results
+//       grouped per groupPath under `Archive matches (N)`.
+// #F13: chip state persists in localStorage across remounts.
+// See change: archive-sessions-lazy-load.
+describe("SessionList — include-archive search chip (archive-sessions-lazy-load)", () => {
+  function archivedItem(id: string, groupPath = "/home/user/project") {
+    return {
+      id,
+      name: `Archived ${id}`,
+      cwd: groupPath,
+      groupPath,
+      endedAt: 1000,
+      archivedAt: 2000,
+      sessionFile: `/tmp/sessions/${id}.jsonl`,
+    };
+  }
+
+  function archiveFetch(items: ReturnType<typeof archivedItem>[], nextCursor?: string) {
+    return vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: () => Promise.resolve({ success: true, data: { items, ...(nextCursor ? { nextCursor } : {}) } }),
+    });
+  }
+
+  /** Only the archive-listing calls — SessionList also fetches git/openspec/tunnel. */
+  function archivedCalls(fetchImpl: ReturnType<typeof vi.fn>) {
+    return fetchImpl.mock.calls.filter((c) => String(c[0]).includes("/api/sessions/archived"));
+  }
+
+  it("F11: chip off — typing a query makes no archived fetch and renders no Archive matches", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = archiveFetch([archivedItem("a1"), archivedItem("a2")]);
+      vi.stubGlobal("fetch", fetchImpl);
+      renderList([makeSession({ name: "Live session" })]);
+
+      fireEvent.change(screen.getByTestId("session-search-input"), { target: { value: "allowlist" } });
+      await act(async () => { await vi.advanceTimersByTimeAsync(350); });
+
+      expect(archivedCalls(fetchImpl)).toHaveLength(0);
+      expect(screen.queryByText(/Archive matches/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("F12: chip on — one debounced fetch with q=allow; results grouped under Archive matches (2)", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = archiveFetch([archivedItem("a1"), archivedItem("a2")]);
+      vi.stubGlobal("fetch", fetchImpl);
+      renderList([makeSession({ name: "Live session" })]);
+
+      // Chip ON.
+      fireEvent.click(screen.getByTestId("search-include-archive"));
+      expect(screen.getByTestId("search-include-archive").getAttribute("aria-pressed")).toBe("true");
+
+      const input = screen.getByTestId("session-search-input");
+      fireEvent.change(input, { target: { value: "al" } });
+      fireEvent.change(input, { target: { value: "all" } });
+      fireEvent.change(input, { target: { value: "allow" } });
+      await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+
+      const calls = archivedCalls(fetchImpl);
+      expect(calls).toHaveLength(1);
+      const url = String(calls[0][0]);
+      expect(url).toContain("q=allow");
+      expect(url).toContain("limit=50");
+
+      // Flush the fetch promise + setState microtasks (no real timers —
+      // waitFor would hang under fake timers).
+      await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+      expect(screen.getByText("Archive matches (2)")).toBeTruthy();
+      // Two archived rows rendered beneath the section.
+      expect(screen.getAllByTestId("archived-session-row").length).toBe(2);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("F12: chip on but query shorter than 3 chars → no fetch", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = archiveFetch([]);
+      vi.stubGlobal("fetch", fetchImpl);
+      renderList([makeSession({ name: "Live session" })]);
+
+      fireEvent.click(screen.getByTestId("search-include-archive"));
+      fireEvent.change(screen.getByTestId("session-search-input"), { target: { value: "al" } });
+      await act(async () => { await vi.advanceTimersByTimeAsync(350); });
+
+      expect(archivedCalls(fetchImpl)).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("F13: chip state persists in localStorage across remounts", () => {
+    window.localStorage.setItem("sidebar.search.includeArchive", "true");
+    const first = renderList([makeSession()]);
+    expect(screen.getByTestId("search-include-archive").getAttribute("aria-pressed")).toBe("true");
+    first.unmount();
+
+    const second = renderList([makeSession()]);
+    expect(screen.getByTestId("search-include-archive").getAttribute("aria-pressed")).toBe("true");
+    second.unmount();
   });
 });

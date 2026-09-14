@@ -475,7 +475,11 @@ export async function handleResumeSession(
   msg: Extract<BrowserToServerMessage, { type: "resume_session" }>,
   ctx: BrowserHandlerContext,
 ): Promise<void> {
-  const { ws, sessionManager, pendingForkRegistry, headlessPidRegistry, pendingDashboardSpawns, pendingResumeIntents, pendingClientCorrelations, sendTo } = ctx;
+  const { ws, sessionManager, pendingForkRegistry, headlessPidRegistry, pendingDashboardSpawns, pendingResumeIntents, pendingClientCorrelations, sendTo, pendingArchiveIntents } = ctx;
+  // A resume cancels any pending idle-alive archive intent: the user is
+  // bringing the session back, so a later `ended` must not archive it.
+  // See change: archive-sessions-lazy-load.
+  pendingArchiveIntents?.clear(msg.sessionId);
   const session = sessionManager.get(msg.sessionId);
   if (!session) {
     sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Session not found", code: "resume.session_not_found", requestId: msg.requestId });

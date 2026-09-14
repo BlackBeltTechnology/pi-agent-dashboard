@@ -22,8 +22,7 @@
  * credential is per-request, because there is nowhere to cache it per
  * connection.
  */
-import type { McpCaller } from "./tokens.js";
-import type { McpTokenRegistry } from "./tokens.js";
+import type { McpCaller, McpTokenRegistry } from "./tokens.js";
 
 const BEARER_PREFIX = "bearer ";
 

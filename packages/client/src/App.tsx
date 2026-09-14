@@ -67,6 +67,7 @@ import { usePiResourceFileFetch } from "./hooks/usePiResourceFileFetch.js";
 import { useSidebarState } from "./hooks/useSidebarState.js";
 import { useStaleToolReconcile } from "./hooks/useStaleToolReconcile.js";
 import { useWebSocket } from "./hooks/useWebSocket.js";
+import { fetchArchivedSessionById } from "./lib/api/archived-sessions-api.js";
 import { performServerSwitch } from "./lib/api/server-switch.js";
 import { openStagingSocket } from "./lib/api/staging-socket.js";
 import { EMPTY_CANVAS_STATE } from "./lib/canvas/canvas-gate.js";
@@ -126,7 +127,7 @@ import { decodeFolderPath, encodeFolderPath } from "./lib/util/folder-encoding.j
 const NAV_TRACKER = { predecessor, popNav };
 
 import { applyPluginConfigUpdate, initPluginConfigs, PluginContextProvider, type SubagentStateSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
-import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { ArchivedSessionSummary, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { ProviderRefreshError } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { CommandInfo, DashboardSession, FileEntry, ImageContent, ModelInfo, OpenSpecData, OpenSpecGroup, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -325,6 +326,31 @@ function PiResourceFileRoute({
   );
 }
 
+/**
+ * Synthesize a header-only `DashboardSession` from an archived summary row
+ * (read-only `?archived=1` open). Feeds `SessionHeader` when the session is
+ * deliberately absent from the live `sessions` Map; it must NEVER be written
+ * back into that Map.
+ * See change: archive-sessions-lazy-load.
+ */
+function archivedSummaryToSession(item: ArchivedSessionSummary): DashboardSession {
+  return {
+    id: item.id,
+    cwd: item.cwd,
+    name: item.name,
+    firstMessage: item.firstMessage,
+    source: "tui",
+    status: "ended",
+    startedAt: item.endedAt,
+    endedAt: item.endedAt,
+    tokensIn: 0,
+    tokensOut: 0,
+    cost: 0,
+    sessionFile: item.sessionFile,
+    gitWorktree: item.gitWorktree,
+  };
+}
+
 // Referentially-stable empty steering array so the common (no-pending) case
 // does not hand ChatView a fresh [] literal every render, which would defeat
 // its React.memo. See change: reduce-chat-render-cpu-umbrella (Phase 4).
@@ -509,6 +535,15 @@ export default function App() {
     setRevealRequest((prev) => ({ sessionId, nonce: (prev?.nonce ?? 0) + 1 }));
   }, []);
 
+  // ── Read-only archived open (archive-sessions-lazy-load) ──
+  // `/session/:id?archived=1` renders the transcript through the normal
+  // subscribe-by-id path (the server hydrates archived ids from the index)
+  // while the session stays OUT of the live `sessions` Map. The summary row
+  // (fetched in the effect beside `archivedSummaryById`) only seeds the
+  // header; the composer is hidden (readOnly).
+  const archivedReadOnlyId =
+    match && fileViewSearch.get("archived") === "1" ? selectedId : undefined;
+
   // Drives the server-side viewed-session tracker for unread state.
   // See change: session-card-unread-stripes.
   useViewDispatcher({
@@ -599,6 +634,31 @@ export default function App() {
   // re-runs OpenSpec reconciliation after every applied snapshot.
   const [endedTotalsMap, setEndedTotalsMap] = useState<Map<string, number>>(new Map());
   const [pagedCount, setPagedCount] = useState<Map<string, number>>(new Map());
+  // archive-sessions-lazy-load: folder group key → archived count, replaced
+  // by `sessions_snapshot`, maintained by `session_archived` /
+  // `archived_count_updated`. Drives the per-folder `Archive (N)` fold.
+  const [archivedCountMap, setArchivedCountMap] = useState<Map<string, number>>(new Map());
+  // Read-only archived deep link (`/session/:id?archived=1`): summary row
+  // fetched from `/api/sessions/archived/:id` to seed the header when the
+  // session is not (and must not be) in the live `sessions` Map.
+  const [archivedSummaryById, setArchivedSummaryById] = useState<Map<string, ArchivedSessionSummary>>(new Map());
+  // Fetch the summary that seeds the read-only header (skip when the id is
+  // live-resident — a restored session renders from the `sessions` Map).
+  useEffect(() => {
+    const id = archivedReadOnlyId;
+    if (!id || sessions.has(id) || archivedSummaryById.has(id)) return;
+    let alive = true;
+    fetchArchivedSessionById(id)
+      .then((item) => {
+        if (alive) setArchivedSummaryById((prev) => new Map(prev).set(id, item));
+      })
+      .catch(() => {
+        /* header stays lean; the transcript still renders via the replay */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [archivedReadOnlyId, sessions, archivedSummaryById]);
   const [snapshotGeneration, setSnapshotGeneration] = useState(0);
   // Live `sessions` mirror for useMessageHandler (order filtering + live
   // endedTotals transitions read it synchronously outside setState updaters).
@@ -719,6 +779,7 @@ export default function App() {
           // stale endedTotals / page offsets from server A must not render
           // against server B. See change: fix-connect-snapshot-frame-loss.
           setEndedTotalsMap(new Map());
+          setArchivedCountMap(new Map());
           setPagedCount(new Map());
           // Per-session refresh failures are scoped to one server's bridges;
           // a stale notice from server A must not render against server B.
@@ -946,7 +1007,7 @@ export default function App() {
   }, [send, historyGaps]);
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setPagedCount, setSnapshotGeneration },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPagedCount, setSnapshotGeneration },
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast, sessionsRef, openspecGetInflightRef },
   );
 
@@ -1091,13 +1152,16 @@ export default function App() {
     prevStatusRef.current = status;
   }, [status]);
 
-  // Redirect to / if session ID in URL is not found after sessions have loaded
+  // Redirect to / if session ID in URL is not found after sessions have loaded.
+  // An archived read-only deep link (`?archived=1`) is INTENTIONALLY absent from
+  // the live `sessions` Map, so it must not be bounced. See change:
+  // archive-sessions-lazy-load.
   const sessionsLoaded = sessions.size > 0;
   useEffect(() => {
-    if (selectedId && sessionsLoaded && !sessions.has(selectedId)) {
+    if (selectedId && sessionsLoaded && !sessions.has(selectedId) && !archivedReadOnlyId) {
       navigate("/", { replace: true });
     }
-  }, [selectedId, sessionsLoaded, sessions, navigate]);
+  }, [selectedId, sessionsLoaded, sessions, navigate, archivedReadOnlyId]);
 
   // Request global roles once on connect, using any available session id
   // as a routing target (the bridge handler doesn't actually scope by it).
@@ -1455,7 +1519,7 @@ export default function App() {
     handleAbort, handleForceKill, handleStopAfterTurn, handleCancelPending, handleRespondToUi, handleSend,
     handleSelect, handleRenameSession, handleShutdownSession, handleKillProcess,
     handleSendPromptToSession, handleRetrySession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
-    handleHideSession, handleUnhideSession, handleSetSessionTags, removeTagGlobally,
+    handleArchiveSession, handleUnarchiveSession, handleSetSessionTags, removeTagGlobally,
     handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle,
     handleOpenInlineTerminal, handleCloseInlineTerminal,
     handleListFiles,
@@ -1705,8 +1769,9 @@ export default function App() {
       onShutdown={handleShutdownSession}
       onResume={handleResumeSession}
       onResumeKeepPosition={handleResumeSessionKeepPosition}
-      onHideSession={handleHideSession}
-      onUnhideSession={handleUnhideSession}
+      onArchiveSession={handleArchiveSession}
+      onUnarchiveSession={handleUnarchiveSession}
+      archivedCountMap={archivedCountMap}
       onSpawnSession={handleSpawnSession}
       spawningCwds={spawningCwds}
       addSpawningCwd={addSpawningCwd}
@@ -1794,8 +1859,7 @@ export default function App() {
       onSpawnSession={handleSpawnSession}
       onSpawnAttachedWorktree={(c, changeName) => setBoardWorktreeForChange({ cwd: c, changeName })}
       onResumeSession={handleResumeSession}
-      onHideSession={handleHideSession}
-      onUnhideSession={handleUnhideSession}
+      onArchiveSession={handleArchiveSession}
       onSendPrompt={handleSendPromptToSession}
       onAttachProposal={handleAttachProposal}
       onDetachProposal={handleDetachProposal}
@@ -1890,7 +1954,15 @@ export default function App() {
   // See change: add-route-backed-overlay-dialogs.
   const renderSessionDetail = (sessionIdArg: string, frozen = false) => {
     const selectedId = sessionIdArg;
-    const selectedSession = sessions.get(selectedId);
+    // Read-only archived open (archive-sessions-lazy-load): the session is
+    // not in the live `sessions` Map by design — synthesize a header row from
+    // the fetched summary. The synthesized session NEVER feeds the composer
+    // (`readOnly` gates it off below).
+    const readOnly = !frozen && selectedId === archivedReadOnlyId;
+    const archivedSummary = readOnly ? archivedSummaryById.get(selectedId) : undefined;
+    const selectedSession =
+      sessions.get(selectedId) ??
+      (archivedSummary ? archivedSummaryToSession(archivedSummary) : undefined);
     const selectedCwd = selectedSession?.cwd;
     const selectedState = sessionStates.get(selectedId) ?? createInitialState();
     const selectedDraft = drafts.get(selectedId) ?? "";
@@ -1913,11 +1985,10 @@ export default function App() {
         onSeekToCard={selectedId ? () => seekToCard(selectedId) : undefined}
         showBack
         onBack={goBack}
-        onResume={selectedId ? (mode) => handleResumeSession(selectedId, mode) : undefined}
+        onResume={!readOnly && selectedId ? (mode) => handleResumeSession(selectedId, mode) : undefined}
         mobileActions={isMobile ? {
           openspecChanges: selectedCwd ? openspecMap.get(selectedCwd)?.changes : undefined,
-          onHide: () => handleHideSession(selectedId),
-          onUnhide: () => handleUnhideSession(selectedId),
+          onArchive: () => handleArchiveSession(selectedId),
           onResume: (mode) => handleResumeSession(selectedId, mode),
           onShutdown: () => handleShutdownSession(selectedId),
           onAttachProposal: (changeName) => handleAttachProposal(selectedId, changeName),
@@ -2109,8 +2180,9 @@ export default function App() {
           />
           {/* Context strip above the composer card: OpenSpec refresh + View
               menu + session-action groups (relocated from the retired
-              StatusBar model row). See change: redesign-prompt-input. */}
-          {selectedSession && (
+              StatusBar model row). Read-only archived open hides it with the
+              rest of the composer (archive-sessions-lazy-load). */}
+          {selectedSession && !readOnly && (
             <div
               /* `shrink-0`: thin furniture row — cannot compress below its content,
                  so absorbing a pane height deficit here would clip it rather than
@@ -2145,6 +2217,8 @@ export default function App() {
               />
             </div>
           )}
+          {!readOnly && (
+            <>
           <StatusBar
             status={selectedState.status}
             currentTool={selectedState.currentTool}
@@ -2220,6 +2294,8 @@ export default function App() {
             modelRefreshErrors={modelRefreshErrorsMap.get(selectedId)}
             contextUsage={selectedContextUsage}
           />
+            </>
+          )}
           {/* Plugin slot: content-inline-footer — contributions from flows-plugin (per-session inline footer) and other plugins.
               Host-owned `shrink-0` wrapper so EVERY contribution in this slot is
               protected from the chat pane's bottom clip, without each plugin having

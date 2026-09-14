@@ -174,6 +174,9 @@ import { CustomEventGroupMatcher } from "./session/custom-event-group-matcher.js
 import { CustomEventGroupResolver } from "./session/custom-event-group-resolver.js";
 import { deriveEndedAt } from "./session/derive-ended-at.js";
 import { createMemorySessionManager, type SessionManager } from "./session/memory-session-manager.js";
+import { createSessionArchive } from "./session/session-archive.js";
+import { createArchiveSweeper } from "./session/archive-sweeper.js";
+import { createPendingArchiveIntentRegistry } from "./pending/pending-archive-intent-registry.js";
 import { applyReattachPolicy } from "./session/reattach-placement.js";
 import { reconcileSessionOrder } from "./session/reconcile-session-order.js";
 import { createRemoteTranscriptStore } from "./session/remote-transcript-store.js";
@@ -432,6 +435,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const sessionOrderManager = createSessionOrderManager(preferencesStore);
   const sessionManager = createMemorySessionManager(undefined, sessionOrderManager);
   const metaPersistence = createMetaPersistence();
+  // Archive index + one-shot idle-alive archive intents. The index is seeded
+  // from the boot scan below; its broadcast emitter is wired after the browser
+  // gateway exists. See change: archive-sessions-lazy-load.
+  const sessionArchive = createSessionArchive({
+    sessionManager,
+    metaPersistence,
+    getPinnedDirs: () => preferencesStore.getPinnedDirectories(),
+  });
+  const pendingArchiveIntents = createPendingArchiveIntentRegistry();
   // Stable per-boot id stamped into the liveness marker so cold start can
   // attribute a `live:true` sidecar to a specific server run. A new value
   // each createServer() call is sufficient — the classifier needs
@@ -461,7 +473,20 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const worktreeInitRegistry = createWorktreeInitRegistry();
 
   // Restore sessions from per-session .meta.json files (scans ~/.pi/agent/sessions/)
+  const scanStartedAt = Date.now();
   const scanResult = scanAllSessions();
+  const scanMs = Date.now() - scanStartedAt;
+  // Seed the archive index from the boot scan: migrated + already-archived
+  // rows are indexed, never restored. The one-shot ended+hidden migration and
+  // the scan-time age archive already ran inside the scan (no eviction frames).
+  // See change: archive-sessions-lazy-load.
+  sessionArchive.seed(scanResult.archived);
+  if (scanResult.archived.length > 0 || scanResult.migrated > 0 || scanResult.agedOut > 0) {
+    console.info(
+      `[dashboard] archive: ${scanResult.archived.length} indexed, ` +
+        `${scanResult.migrated} migrated, ${scanResult.agedOut} aged-out (${scanMs} ms)`,
+    );
+  }
   // Interrupted-session recovery candidates discovered on cold start. A
   // candidate (`live===true && status!=="ended"`, see isRecoveryCandidate)
   // was running when the host died. Candidates are NORMALIZED to `ended` on
@@ -912,7 +937,25 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Live-server-preview manager (loopback dev-server allowlist + proxy).
   const liveServerManager = createLiveServerManager(preferencesStore);
 
-  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode);
+  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents);
+  // Wire the archive broadcaster now that the gateway exists. `session_archived`
+  // carries the folder count for its own transition; restore/delete/re-key use
+  // `archived_count_updated`. See change: archive-sessions-lazy-load.
+  sessionArchive.setEmitter({
+    sessionArchived: (sessionId, cwd, count) =>
+      browserGateway.broadcastToAll({ type: "session_archived", sessionId, cwd, count }),
+    archivedCountUpdated: (cwd, count) =>
+      browserGateway.broadcastToAll({ type: "archived_count_updated", cwd, count }),
+    sessionAdded: (session) => browserGateway.broadcastSessionAdded(session),
+  });
+  // Runtime auto-archive sweeper. Started after boot discovery resolves (see
+  // the startup block below) so it never races the index seed. Reads config
+  // live each tick. See change: archive-sessions-lazy-load.
+  const archiveSweeper = createArchiveSweeper({
+    sessionManager,
+    sessionArchive,
+    isViewed: (id) => browserGateway.viewedSessionTracker.isViewedByAnyone(id),
+  });
 
   // Editor-pane changed-on-disk watch: the browser declares its open files via
   // `watch_files`; the server watches exactly those and pushes `file_changed`.
@@ -1169,6 +1212,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     liveEpoch,
     commitDraftRelay,
     customEventGroupResolver,
+    sessionArchive,
+    pendingArchiveIntents,
   });
 
   // Auto-shutdown idle timer
@@ -1354,6 +1399,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pendingResumeIntents,
     pendingAttachRegistry,
     pendingPromptAcks,
+    sessionArchive,
+    pendingArchiveIntents,
   });
 
   // Register route modules
@@ -1393,7 +1440,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       browserGateway.headlessPidRegistry,
     );
 
-  registerSessionRoutes(fastify, { sessionManager, eventStore, networkGuard });
+  registerSessionRoutes(fastify, { sessionManager, eventStore, networkGuard, sessionArchive });
   // pi retry policy editor. Reload fan-out dispatches `/reload` to every
   // connected session so a saved policy applies without a manual restart
   // (pi reads its settings only at session construction). See change:
@@ -2863,11 +2910,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // runs. The rejection needs an owner all the same, or a discovery failure
       // is invisible except as an anonymous crash-safety-net line.
       // See change: cleanup-async-semantics-server-extension (design D1).
-      discoverAndBroadcastSessions({ sessionManager, browserGateway, directoryService }).catch(
-        (err: unknown) => {
-          console.warn("[boot] session discovery failed:", err);
-        },
-      );
+      discoverAndBroadcastSessions({ sessionManager, browserGateway, directoryService, sessionArchive })
+        .then(() => { archiveSweeper.start(); })
+        .catch(
+          (err: unknown) => {
+            console.warn("[boot] session discovery failed:", err);
+            // Start the sweeper anyway — discovery failure must not disable
+            // automatic archiving. See change: archive-sessions-lazy-load.
+            archiveSweeper.start();
+          },
+        );
 
       // Auto-register plugin bridge entries
       const discoveredPlugins = discoverPlugins();

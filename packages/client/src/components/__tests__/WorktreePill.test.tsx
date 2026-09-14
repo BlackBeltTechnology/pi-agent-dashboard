@@ -164,8 +164,7 @@ describe("SessionCard worktree pill — mobile vs desktop", () => {
         now={Date.now()}
         showGitInfo={true}
         isHidden={false}
-        onHide={() => {}}
-        onUnhide={() => {}}
+        onArchive={() => {}}
       />,
     );
     expect(screen.getByTestId("worktree-pill")).toBeTruthy();
@@ -189,8 +188,7 @@ describe("SessionCard worktree pill — mobile vs desktop", () => {
         now={Date.now()}
         showGitInfo={false}
         isHidden={false}
-        onHide={() => {}}
-        onUnhide={() => {}}
+        onArchive={() => {}}
       />,
     );
     expect(screen.getByTestId("worktree-pill")).toBeTruthy();
@@ -209,8 +207,7 @@ describe("SessionCard worktree pill — mobile vs desktop", () => {
         now={Date.now()}
         showGitInfo={false}
         isHidden={false}
-        onHide={() => {}}
-        onUnhide={() => {}}
+        onArchive={() => {}}
       />,
     );
     expect(container.querySelector("[data-testid='worktree-pill']")).toBeNull();
@@ -232,8 +229,7 @@ describe("SessionCard worktree pill — mobile vs desktop", () => {
         now={Date.now()}
         showGitInfo={true}
         isHidden={false}
-        onHide={() => {}}
-        onUnhide={() => {}}
+        onArchive={() => {}}
       />,
     );
     expect(container.querySelector("[data-testid='worktree-pill']")).toBeNull();

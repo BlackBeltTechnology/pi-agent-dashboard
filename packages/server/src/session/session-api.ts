@@ -16,6 +16,8 @@ import {
 } from "../browser-handlers/session-action-handler.js";
 import { attachRenameTarget, detachShouldClearName } from "../openspec/proposal-attach-naming.js";
 import type { BrowserGateway } from "../pairing/browser-gateway.js";
+import { requestArchive } from "../browser-handlers/session-meta-handler.js";
+import type { PendingArchiveIntentRegistry } from "../pending/pending-archive-intent-registry.js";
 import type { PendingForkRegistry } from "../pending/pending-fork-registry.js";
 import type { PendingResumeIntentRegistry } from "../pending/pending-resume-intent-registry.js";
 import type { PiGateway } from "../pi/pi-gateway.js";
@@ -51,6 +53,10 @@ export interface SessionApiDeps {
    * See change: fix-spawn-correlation-ttl-coupling (D7).
    */
   pendingPromptAcks?: import("../pending/pending-prompt-acks.js").PendingPromptAcks;
+  /** Archive index + transition owner. See change: archive-sessions-lazy-load. */
+  sessionArchive?: import("./session-archive.js").SessionArchive;
+  /** One-shot intents for idle-alive archive requests. See change: archive-sessions-lazy-load. */
+  pendingArchiveIntents?: PendingArchiveIntentRegistry;
 }
 
 type IdParams = { Params: { id: string } };
@@ -63,7 +69,7 @@ function getSessionOrFail(sessionManager: SessionManager, id: string): { session
 }
 
 export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDeps) {
-  const { sessionManager, piGateway, browserGateway, pendingForkRegistry, pendingDashboardSpawns, pendingResumeIntents, pendingAttachRegistry, pendingPromptAcks } = deps;
+  const { sessionManager, piGateway, browserGateway, pendingForkRegistry, pendingDashboardSpawns, pendingResumeIntents, pendingAttachRegistry, pendingPromptAcks, sessionArchive, pendingArchiveIntents } = deps;
 
   // Bootstrap gate + queue removed under change: eliminate-electron-runtime-install
   // (task 3.5). pi/openspec/tsx ship as regular npm deps so pi is always
@@ -215,36 +221,37 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
     },
   );
 
-  // POST /api/session/:id/hide
+  // POST /api/session/:id/archive
   fastify.post<IdParams>(
-    "/api/session/:id/hide",
+    "/api/session/:id/archive",
     async (request, reply) => {
       const { id } = request.params;
-      const result = getSessionOrFail(sessionManager, id);
-      if ("error" in result) {
-        reply.code(404);
-        return result.error;
+      const result = await requestArchive(id, {
+        sessionManager,
+        piGateway,
+        headlessPidRegistry: browserGateway.headlessPidRegistry,
+        broadcast: (msg) => browserGateway.broadcast(msg),
+        sessionArchive,
+        pendingArchiveIntents,
+      });
+      if (!result.ok) {
+        reply.code(result.error === "session not found" ? 404 : 409);
+        return { success: false, error: result.error } satisfies ApiResponse;
       }
-      const updates = { hidden: true };
-      sessionManager.update(id, updates);
-      browserGateway.broadcastSessionUpdated(id, updates);
-      return { success: true } satisfies ApiResponse;
+      return (result.pending ? { success: true, pending: true } : { success: true }) as ApiResponse;
     },
   );
 
-  // POST /api/session/:id/unhide
+  // POST /api/session/:id/unarchive
   fastify.post<IdParams>(
-    "/api/session/:id/unhide",
+    "/api/session/:id/unarchive",
     async (request, reply) => {
       const { id } = request.params;
-      const result = getSessionOrFail(sessionManager, id);
-      if ("error" in result) {
+      const result = sessionArchive?.unarchiveSession(id);
+      if (!result?.ok) {
         reply.code(404);
-        return result.error;
+        return { success: false, error: result?.error ?? "archive unavailable" } satisfies ApiResponse;
       }
-      const updates = { hidden: false };
-      sessionManager.update(id, updates);
-      browserGateway.broadcastSessionUpdated(id, updates);
       return { success: true } satisfies ApiResponse;
     },
   );

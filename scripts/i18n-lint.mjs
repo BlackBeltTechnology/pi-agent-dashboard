@@ -57,8 +57,13 @@ function walk(dir) {
       // contract. Same rationale as mcp-server-plugin below. The plugin's
       // CLIENT subtree stays scanned — that is where UI copy lives.
       // See change: add-browser-relay.
+      //
+      // mcp-client-plugin/src/core is host-free logic (no React) shared with
+      // the hostless apple-tools installer; its `message:` strings are
+      // diagnostics returned as data, never rendered copy. The plugin's client
+      // entry is still scanned. See change: extract-mcp-client-plugin.
       if (
-        /node_modules|__tests__|\.test\.|dist|templates|demo-plugin|dashboard-plugin-skill|mcp-server-plugin|browser-plugin\/src\/server/.test(
+        /node_modules|__tests__|\.test\.|dist|templates|demo-plugin|dashboard-plugin-skill|mcp-server-plugin|browser-plugin\/src\/server|mcp-client-plugin\/src\/core/.test(
           p,
         )
       )

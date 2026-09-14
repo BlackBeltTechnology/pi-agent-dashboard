@@ -135,4 +135,4 @@ Vendored third-party modules run in-process in the server that hosts every sessi
 
 #### Scenario: STT connection drops
 - **WHEN** the speech-to-text connection drops, expires, or is rate-limited
-- **THEN** the capture surfaces an explicit error state and reconnect is bounded at 5 attempts with exponential backoff capped at 30s before entering a terminal error state
+- **THEN** the vendored STT client's own reconnect policy (backoff 0.5s→8s, unbounded, with audio buffered and replayed on reconnect) is left in place, the pair's status surfaces a visible `reconnecting` state carrying the attempt count while the socket is down and clears on reconnect, and a terminal socket error (auth-expiry, rejected credential) puts the pair into an explicit error state; stopping the capture is what ends reconnection

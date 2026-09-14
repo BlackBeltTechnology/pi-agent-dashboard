@@ -56,7 +56,7 @@ test.describe("apple-tools — missing-requirement surfacing", () => {
     await expect(page.getByTestId(`install-path-${IMCP_DEFAULT_PATH}`)).toHaveCount(0);
   });
 
-  test("#F3: the pi-mcp-adapter requirement links to the Packages tab, not inline Install", async ({
+  test("#F3: the pi-mcp-adapter requirement offers an inline Install (recommended extension)", async ({
     page,
   }) => {
     await openPluginsTab(page);
@@ -64,10 +64,11 @@ test.describe("apple-tools — missing-requirement surfacing", () => {
     const pill = page.getByTestId("missing-piExtension-pi-mcp-adapter");
     await expect(pill).toBeVisible({ timeout: 30_000 });
 
-    // pi-mcp-adapter has no curated RECOMMENDED_EXTENSIONS entry, so the row
-    // falls back to the Packages-tab link rather than a one-click install.
-    await expect(page.getByTestId("install-piExtension-link-pi-mcp-adapter")).toBeVisible();
-    await expect(page.getByTestId("install-piExtension-pi-mcp-adapter")).toHaveCount(0);
+    // pi-mcp-adapter IS a curated RECOMMENDED_EXTENSIONS entry (see change
+    // extract-mcp-client-plugin task 5.5), so the binding row offers a one-click
+    // inline Install rather than the Packages-tab link fallback.
+    await expect(page.getByTestId("install-piExtension-pi-mcp-adapter")).toBeVisible();
+    await expect(page.getByTestId("install-piExtension-link-pi-mcp-adapter")).toHaveCount(0);
   });
 });
 

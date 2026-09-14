@@ -209,3 +209,174 @@ describe("persisted gitWorktree repair on load", () => {
     expect(fsHooks.spawns).toEqual([]);
   });
 });
+
+// ── D3: cold-start inference from the dashboard's `.worktrees/` layout ──────
+// Heals persisted records whose parentage the removal race cleared. See change:
+// fix-worktree-grouping-lost-on-remove.
+describe("load-time worktree inference from cwd", () => {
+  /** Seed a session with arbitrary meta fields (no `gitWorktree` unless supplied). */
+  function seedMeta(
+    id: string,
+    cwd: string,
+    extra: Record<string, unknown> = {},
+    opts: { cachedAt?: number } = {},
+  ): { metaFile: string } {
+    const dir = path.join(sessionsDir, `--seed-${id}--`);
+    fs.mkdirSync(dir, { recursive: true });
+    const sessionFile = path.join(dir, `2026-03-30T21-39-43-034Z_${id}.jsonl`);
+    fs.writeFileSync(sessionFile, `${JSON.stringify({ type: "session", id, cwd })}\n`);
+    const jsonlMtime = fs.statSync(sessionFile).mtimeMs;
+    const metaFile = `${sessionFile.replace(/\.jsonl$/, "")}.meta.json`;
+    fs.writeFileSync(
+      metaFile,
+      JSON.stringify({
+        id,
+        cwd,
+        source: "tui",
+        startedAt: 1000,
+        status: "ended",
+        jsonlMtime,
+        jsonlSize: fs.statSync(sessionFile).size,
+        // `mtimeMs` is fractional while `Date.now()` truncates, so ceil it —
+        // otherwise the freshness check reads the record as stale by <1ms.
+        cachedAt: opts.cachedAt ?? Math.ceil(jsonlMtime),
+        ...extra,
+      }),
+    );
+    return { metaFile };
+  }
+
+  /** A directory that looks like the parent repo: it directly carries `.git`. */
+  function makeRepo(name: string): string {
+    const root = path.join(scratch, name);
+    fs.mkdirSync(path.join(root, ".git"), { recursive: true });
+    return root;
+  }
+
+  it("E10: infers parentage for a missing key and does not rewrite meta", () => {
+    const repo = makeRepo("repo");
+    const { metaFile } = seedMeta("inf-missing", path.join(repo, ".worktrees", "feat-x"));
+    const before = fs.readFileSync(metaFile, "utf8");
+
+    expect(worktreeOf("inf-missing")).toEqual({ mainPath: repo, name: "feat-x" });
+    expect(fs.readFileSync(metaFile, "utf8")).toBe(before);
+  });
+
+  it("E11: infers parentage for an explicit null", () => {
+    const repo = makeRepo("repo-null");
+    seedMeta("inf-null", path.join(repo, ".worktrees", "feat-x"), { gitWorktree: null });
+    expect(worktreeOf("inf-null")).toEqual({ mainPath: repo, name: "feat-x" });
+  });
+
+  it("E12: infers parentage when cwd is a subdirectory of the worktree", () => {
+    const repo = makeRepo("repo-sub");
+    seedMeta("inf-sub", path.join(repo, ".worktrees", "feat-x", "packages", "foo"));
+    expect(worktreeOf("inf-sub")).toEqual({ mainPath: repo, name: "feat-x" });
+  });
+
+  it("E13: replaces an implausible persisted parentage", () => {
+    const repo = makeRepo("repo-impl");
+    const implausible = path.join(scratch, "super", ".git", "modules", "x");
+    seedMeta("inf-impl", path.join(repo, ".worktrees", "feat-x"), {
+      gitWorktree: { mainPath: implausible, name: "x" },
+    });
+    expect(worktreeOf("inf-impl")).toEqual({ mainPath: repo, name: "feat-x" });
+  });
+
+  it("E14: a plausible persisted parentage wins and skips the repo stat", () => {
+    const repo = makeRepo("repo-lose");
+    const other = makeRepo("repo-winner");
+    seedMeta("inf-win", path.join(repo, ".worktrees", "feat-x"), {
+      gitWorktree: { mainPath: other, name: "z" },
+    });
+    fsHooks.statCalls.length = 0;
+
+    expect(worktreeOf("inf-win")).toEqual({ mainPath: other, name: "z" });
+    expect(fsHooks.statCalls).toContain(path.join(other, ".git"));
+    expect(fsHooks.statCalls).not.toContain(path.join(repo, ".git"));
+  });
+
+  it("E15: declines when the parent has no `.git`, with exactly one stat", () => {
+    const noRepo = path.join(scratch, "scratch-norepo");
+    fs.mkdirSync(noRepo, { recursive: true });
+    seedMeta("inf-norepo", path.join(noRepo, ".worktrees", "feat-x"));
+    fsHooks.statCalls.length = 0;
+
+    expect(worktreeOf("inf-norepo")).toBeUndefined();
+    expect(fsHooks.statCalls.filter((p) => p === path.join(noRepo, ".git"))).toHaveLength(1);
+  });
+
+  it("E16: declines for relative or root-level `.worktrees` cwds without any `.git` stat", () => {
+    seedMeta("inf-rel", ".worktrees/feat-x");
+    seedMeta("inf-root", "/.worktrees/feat-x");
+    fsHooks.statCalls.length = 0;
+
+    expect(worktreeOf("inf-rel")).toBeUndefined();
+    expect(worktreeOf("inf-root")).toBeUndefined();
+    expect(fsHooks.statCalls.filter((p) => p.endsWith(".git"))).toEqual([]);
+  });
+
+  it("E17: leaves a non-`.worktrees` cwd alone without a stat under it", () => {
+    const elsewhere = path.join(scratch, "elsewhere");
+    fs.mkdirSync(elsewhere, { recursive: true });
+    seedMeta("inf-plain", path.join(elsewhere, "feat-x"));
+    fsHooks.statCalls.length = 0;
+
+    expect(worktreeOf("inf-plain")).toBeUndefined();
+    expect(fsHooks.statCalls.filter((p) => p.startsWith(elsewhere))).toEqual([]);
+  });
+
+  it("E18: the FIRST `.worktrees` segment wins for a nested layout", () => {
+    const repo = makeRepo("repo-nested");
+    const a = path.join(repo, ".worktrees", "a");
+    fs.mkdirSync(a, { recursive: true });
+    fs.writeFileSync(path.join(a, ".git"), "gitdir: /elsewhere\n");
+    seedMeta("inf-nested", path.join(a, ".worktrees", "b"));
+    expect(worktreeOf("inf-nested")).toEqual({ mainPath: repo, name: "a" });
+  });
+
+  it("E19: inference applies even when the stale-cache path rewrites meta", () => {
+    const repo = makeRepo("repo-stale");
+    const { metaFile } = seedMeta(
+      "inf-stale",
+      path.join(repo, ".worktrees", "feat-x"),
+      {},
+      { cachedAt: 1 },
+    );
+    const before = fs.readFileSync(metaFile, "utf8");
+
+    expect(worktreeOf("inf-stale")).toEqual({ mainPath: repo, name: "feat-x" });
+    const after = fs.readFileSync(metaFile, "utf8");
+    expect(after).not.toBe(before); // the stale-cache path did rewrite it
+    expect(JSON.parse(after)).not.toHaveProperty("gitWorktree"); // still no key
+  });
+
+  it("X1: a stat failure declines parentage and does not throw", () => {
+    const repo = makeRepo("repo-eacces");
+    seedMeta("inf-eacces", path.join(repo, ".worktrees", "x"));
+    fsHooks.fault = (p) => {
+      if (p === path.join(repo, ".git")) {
+        const err = new Error("denied") as NodeJS.ErrnoException;
+        err.code = "EACCES";
+        throw err;
+      }
+    };
+
+    expect(() => scanAllSessions(sessionsDir)).not.toThrow();
+    expect(worktreeOf("inf-eacces")).toBeUndefined();
+  });
+
+  it("P1: inference is one stat per record and zero subprocesses", () => {
+    const repo = makeRepo("repo-perf");
+    for (let i = 0; i < 500; i++) seedMeta(`inf-perf-${i}`, path.join(repo, ".worktrees", `${i}`));
+    const gitEntry = path.join(repo, ".git");
+    fsHooks.statCalls.length = 0;
+    fsHooks.spawns.length = 0;
+
+    const { sessions } = scanAllSessions(sessionsDir);
+
+    expect(sessions.filter((s) => s.id.startsWith("inf-perf-")).length).toBe(500);
+    expect(fsHooks.statCalls.filter((p) => p === gitEntry)).toHaveLength(500);
+    expect(fsHooks.spawns).toEqual([]);
+  });
+});

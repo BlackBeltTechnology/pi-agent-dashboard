@@ -9,7 +9,7 @@ Standalone scenario catalog produced by `scenario-design` (stage: design, HARD g
 | Slot | Resolution |
 |---|---|
 | Backpressure cap | Configurable in `set-copilot.config.json`; documented default **200 lines OR 32 KB**, whichever trips first. Tests assert the default. |
-| STT reconnect bound | **5 attempts, exponential backoff capped at 30s**, then terminal error state. |
+| STT reconnect bound | **Upstream's policy adopted** (verified in `soniox-rt.ts` @ `24a714d`): unbounded backoff 0.5s→8s with ~15 s audio replay. Plugin surfaces `reconnecting`(n)/`reconnected`; terminal socket error → pair error; teardown is the bound. |
 | Latency threshold | **Deferred** — no perf budget in v1. Only host-stability (no event-loop starvation) is tested. |
 | Browser-mic audio format | Determined from vendored `soniox-rt.ts` during implementation; scenarios assert "matches the server-local path's format" without fixing numbers. |
 
@@ -35,7 +35,7 @@ None. All rows route to existing tiers. L3 rows need a docker-harness fixture th
 | 12 | edge-case | BVA | L1 | automated | Pending coalesced payload at cap−1 line / exactly cap / cap+1 line (default 200 lines, 32 KB) · next batch merges · at/below cap dispatches whole; above cap drops oldest AND inserts a truncation marker |
 | 13 | edge-case | EP | L1 | automated | Two batches produced while one is in flight · in-flight completes · both merge in arrival order (append, no line lost by merging) and dispatch once |
 | 14 | edge-case | invariant | L1 | automated | Session-leg coalescing active and dropping oldest · same capture running · the wall leg still receives **every** line (drop is session-leg only) |
-| 15 | error-handling | fault injection (delay+abort) | L1 | automated | STT socket drops mid-capture · reconnect path · exactly 5 attempts with exponential backoff capped at 30s, then terminal error state — never an unbounded loop |
+| 15 | error-handling | fault injection (delay+abort) | L1 | automated | STT client emits `reconnecting`(n) then `reconnected` · pair status observed · badge shows `reconnecting` with attempt count and clears on reconnect, capture stays alive; a terminal socket error instead puts the pair in error state; teardown closes the socket |
 | 16 | error-handling | fault injection (abort) | L1 | automated | Vendored code raises inside a batch · error surfaces · only that pair enters error state; other pairs and the host keep running |
 | 17 | error-handling | fault injection (abort) | L1 | automated | Vendored emitter emits `'error'` with no other listener · error emitted · caught by the boundary's construction-time listener; no `uncaughtException` |
 | 18 | error-handling | fault injection (abort) | L1 | automated | `sox` binary absent · recorder spawn · async ENOENT caught via `child.on('error')` (NOT by a try/catch around `spawn()`); pair enters error state |
@@ -71,7 +71,7 @@ None. All rows route to existing tiers. L3 rows need a docker-harness fixture th
 | 48 | manual | — | — | manual-only | Real microphone on a real host · dictate a paragraph and stop · transcription is accurate enough to be usable (subjective quality judgment, no automatable signal) |
 | 49 | manual | — | — | manual-only | Real two-party call with system audio · run meeting copilot · the other party's speech is actually captured and attributed to the right speaker (requires real hardware + a live call) |
 | 50 | manual | — | — | manual-only | Wall rendered in the embedded iframe · observe · upstream's own `wall.css` renders legibly inside the dashboard shell (visual/aesthetic judgment) |
-| 51 | manual | — | — | manual-only | Vendored wall served behind `/live/<id>/` · open the wall · upstream's `wall.js` WebSocket actually connects through the path-prefixed opaque-origin proxy (verifies the unverified upstream seam; needs real vendored code) |
+| 51 | manual | — | — | manual-only | Patched wall served behind `/live/<id>/` · open the wall · assets + `./api/bootstrap` resolve under the prefix, the `EventSource` SSE feed streams through `reply.from` un-buffered, unpkg CDN scripts load in the sandboxed iframe (upstream URLs were root-absolute — confirmed, patched in task 2.7b) |
 | 52 | manual | — | — | manual-only | Popout link activated in Electron, PWA, and mobile browser · observe · the main-origin `/live/<id>/` link behaves acceptably in each shell (cross-shell behaviour, no automatable oracle) |
 
 ## Summary

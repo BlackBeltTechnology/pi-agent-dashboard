@@ -50,6 +50,7 @@ function makeStubSessionManager(sessions: DashboardSession[]): SessionManager {
   return {
     register: () => { throw new Error("unused"); },
     restore: () => { /* unused */ },
+    remove: () => { /* unused */ },
     unregister: () => { /* unused */ },
     update(id, updates) {
       const s = map.get(id);

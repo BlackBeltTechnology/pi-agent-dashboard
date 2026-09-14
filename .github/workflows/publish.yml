@@ -333,6 +333,7 @@ jobs:
             "@blackbelt-technology/pi-dashboard-blackhole-plugin"
             "@blackbelt-technology/pi-dashboard-browser-plugin"
             "@blackbelt-technology/pi-dashboard-mcp-server-plugin"
+            "@blackbelt-technology/pi-dashboard-mcp-client-plugin"
             "@blackbelt-technology/pi-dashboard-document-converter"
             "@blackbelt-technology/anti-slop-frontend"
             "@blackbelt-technology/pi-dashboard-eng-disciplines"

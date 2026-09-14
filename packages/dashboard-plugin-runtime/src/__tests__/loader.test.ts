@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { buildGraph, computeToggleImpact } from "../dependency-graph.js";
 import {
   clearDiscoveryCache,
   clearStatusStore,
@@ -210,5 +211,82 @@ describe("loadServerEntries", () => {
     expect(badStatus?.loaded).toBe(false);
     expect(badStatus?.error).toBeTruthy();
     expect(goodStatus?.loaded).toBe(true);
+  });
+});
+
+/**
+ * The real-manifest `dependsOn` matrix (change extract-mcp-client-plugin, task
+ * 4.3). apple-tools declares `dependsOn: ["mcp-client"]`, so the three facts the
+ * change rests on are asserted against the ACTUAL id/priority/dependsOn values
+ * read off disk, not a synthetic graph:
+ *
+ *   1. both enabled  → mcp-client is attempted BEFORE apple-tools
+ *   2. mcp-client off → apple-tools reports `missingDeps: ["mcp-client"]` and
+ *                       loads nothing
+ *   3. toggling mcp-client off cascades onto apple-tools
+ *
+ * `listAll()` preserves the store's insertion order, which is exactly the
+ * loader's iteration order — the topological order the loader computed.
+ */
+describe("dependsOn matrix — mcp-client → apple-tools (task 4.3)", () => {
+  const repoRoot = path.resolve(__dirname, "../../../..");
+
+  /** The real manifests, with server/client entries stripped (temp dir has none). */
+  function realManifest(pkg: string): Record<string, unknown> {
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(repoRoot, "packages", pkg, "package.json"), "utf8"),
+    ) as { "pi-dashboard-plugin": Record<string, unknown> };
+    const { server: _s, client: _c, ...manifest } = raw["pi-dashboard-plugin"];
+    return manifest;
+  }
+
+  it("loads mcp-client before apple-tools when both are enabled", async () => {
+    writePlugin("mcp-client", realManifest("mcp-client-plugin"));
+    writePlugin("apple-tools", realManifest("apple-tools"));
+
+    await loadServerEntries({
+      createContext: () => makeFakeContext(),
+      isEnabled: () => true,
+      repoRoot: tmpDir,
+    });
+
+    const store = getPluginStatusStore();
+    const order = store.listAll().map((s) => s.id);
+    expect(order.indexOf("mcp-client")).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf("mcp-client")).toBeLessThan(order.indexOf("apple-tools"));
+
+    expect(store.getStatus("mcp-client")?.loaded).toBe(true);
+    expect(store.getStatus("apple-tools")?.loaded).toBe(true);
+    expect(store.getStatus("apple-tools")?.missingDeps).toBeUndefined();
+    // The inverse map the status row renders from.
+    expect(store.getStatus("mcp-client")?.dependents).toEqual(["apple-tools"]);
+  });
+
+  it("refuses apple-tools with missingDeps when mcp-client is disabled", async () => {
+    writePlugin("mcp-client", realManifest("mcp-client-plugin"));
+    writePlugin("apple-tools", realManifest("apple-tools"));
+
+    await loadServerEntries({
+      createContext: () => makeFakeContext(),
+      isEnabled: (id) => id !== "mcp-client",
+      repoRoot: tmpDir,
+    });
+
+    const apple = getPluginStatusStore().getStatus("apple-tools");
+    expect(apple?.loaded).toBe(false);
+    expect(apple?.missingDeps).toEqual(["mcp-client"]);
+    expect(getPluginStatusStore().getStatus("mcp-client")?.loaded).toBe(false);
+  });
+
+  it("names apple-tools as the cascading dependent when mcp-client is toggled off", () => {
+    const manifests = [realManifest("mcp-client-plugin"), realManifest("apple-tools")].map((m) => ({
+      id: m.id as string,
+      dependsOn: (m.dependsOn as string[] | undefined) ?? [],
+    }));
+    const graph = buildGraph(manifests, () => true);
+    expect(computeToggleImpact(graph, "mcp-client", false).cascadeDisable).toEqual(["apple-tools"]);
+    // Enabling apple-tools while its dep is off cascades the dep back on.
+    const offGraph = buildGraph(manifests, (id) => id !== "mcp-client");
+    expect(computeToggleImpact(offGraph, "apple-tools", true).cascadeEnable).toEqual(["mcp-client"]);
   });
 });

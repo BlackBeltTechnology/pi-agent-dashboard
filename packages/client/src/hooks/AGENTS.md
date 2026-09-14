@@ -8,6 +8,7 @@ Files in this directory. One row per source file.
 | `useAnthropicPeerProbe.ts` | `useAnthropicPeerProbe() -> { peerMissing, peerReason }` for the Anthropic OAuth row hint. → see `useAnthropicPeerProbe.ts.AGENTS.md` |
 | `useAppHidden.ts` | NEW. Exports `useAppHidden()` hook + `applyAppHiddenClass(root, hidden)`. → see `useAppHidden.ts.AGENTS.md` |
 | `useArchiveListing.ts` | Fetches `GET /api/openspec-archive?cwd=` into `entries: ArchiveEntry[]` with `isLoading`/`error`. → see `useArchiveListing.ts.AGENTS.md` |
+| `useArchivedSessions.ts` | Per-key lazy cache for archived-session listings (`<groupPath>` for folder folds, `q:<text>` for search). Exports `useArchivedSessions`, `ARCHIVE_PAGE_SIZE` (50), `ArchivedKeyState`. Loads pages, retries, invalidates on count changes. See change: archive-sessions-lazy-load. |
 | `useAsyncAction.ts` | `useAsyncAction(fn, opts) → { pending, error, run, bind }`. Wraps async action. → see `useAsyncAction.ts.AGENTS.md` |
 | `useAuthStatus.ts` | Fetches `GET /auth/status` into `authStatus: AuthStatus | null` (`authenticated`, `authEnabled`, `user`) with… → see `useAuthStatus.ts.AGENTS.md` |
 | `useContentViews.ts` | URL-routing navigation helpers. `handleOpenDirectorySettings(cwd)` (renamed from `handleOpenPiResources`,… → see `useContentViews.ts.AGENTS.md` |
@@ -24,7 +25,7 @@ Files in this directory. One row per source file.
 | `useLaunchSource.ts` | One-shot probe of `/api/health` `launchSource` field (`"electron" | "standalone" | "bridge"`). → see `useLaunchSource.ts.AGENTS.md` |
 | `useMainSpecsReader.ts` | Reads `openspec/specs/` directory, fetches each `spec.md` in parallel, concatenates into single markdown… → see `useMainSpecsReader.ts.AGENTS.md` |
 | `useMediaQuery.ts` | Re-export shim. Forwards `useMediaQuery` from `@blackbelt-technology/pi-dashboard-client-utils/useMediaQuery`. Migration Layer 0. |
-| `useMessageHandler.ts` | New `case "view_messages_update"`: replaces `viewMessagesMap.get(sessionId)` with `msg.viewMessages.slice()`. → see `useMessageHandler.ts.AGENTS.md` Adds `sessions_page_result` merge, `openspec_get_result` apply, snapshot `endedTotals`→`endedTotalsMap` + `snapshotGeneration`, live endedTotals, tail-keeping `sessions_reordered`. See change: fix-connect-snapshot-frame-loss. |
+| `useMessageHandler.ts` | New `case "view_messages_update"`: replaces `viewMessagesMap.get(sessionId)` with `msg.viewMessages.slice()`. → see `useMessageHandler.ts.AGENTS.md` Adds `sessions_page_result` merge, `openspec_get_result` apply, snapshot `endedTotals`→`endedTotalsMap` + `snapshotGeneration`, live endedTotals, tail-keeping `sessions_reordered`. See change: fix-connect-snapshot-frame-loss. Handles `session_archived` (deletes session, updates count + ended totals), `archived_count_updated`, and snapshot `archivedCountByCwd`. See change: archive-sessions-lazy-load. |
 | `useMobile.tsx` | Re-export shim. Forwards `useMobile` from `@blackbelt-technology/pi-dashboard-client-utils/useMobile`. Migration Layer 0. |
 | `useOpenSpecActions.ts` | OpenSpec action callbacks. `handleOpenSpecRefresh`/`handleBulkArchive` send WS… → see `useOpenSpecActions.ts.AGENTS.md` |
 | `useOpenSpecReader.ts` | Fetches OpenSpec change artifact content. `activeTab` derives from URL `initialArtifact` (single source of… → see `useOpenSpecReader.ts.AGENTS.md` |
@@ -43,7 +44,7 @@ Files in this directory. One row per source file.
 | `usePopoverFlip.ts` | Shared viewport-anchored popover positioning hook. `usePopoverFlip(triggerRef, { open, estimatedHeight?,… → see `usePopoverFlip.ts.AGENTS.md` |
 | `useProvidersReady.ts` | Polls `/api/providers` + `/api/provider-auth/status`, returns `ProvidersReadyState` (`loading`, `ready`,… → see `useProvidersReady.ts.AGENTS.md` |
 | `useRecommendedExtensions.ts` | Fetches `GET /api/packages/recommended`, returns `EnrichedRecommendedExtension[]` +… → see `useRecommendedExtensions.ts.AGENTS.md` |
-| `useSessionActions.ts` | Session action callbacks extracted from App.tsx. Sends… → see `useSessionActions.ts.AGENTS.md` |
+| `useSessionActions.ts` | Session action callbacks extracted from App.tsx. Sends… → see `useSessionActions.ts.AGENTS.md` Swaps hide/unhide for `handleArchiveSession` and `handleUnarchiveSession`. See change: archive-sessions-lazy-load. |
 | `useSessionDiff.ts` | Fetches `GET /api/session-diff?sessionId=`, returns `SessionDiffResponse` + `isLoading`/`error`/`refresh`. Refetches on `sessionId` change. Exports `useSessionDiff`, `UseSessionDiffResult`. |
 | `useSessionState.ts` | Embed-side session-state accumulator. Exports `useSessionState(sessionId?)` (`{state, apply, reset}`) and the… → see `useSessionState.ts.AGENTS.md` |
 | `useSidebarState.ts` | Persists sidebar `width` + `collapsed` to `localStorage` (`dashboard:sidebar-width`,… → see `useSidebarState.ts.AGENTS.md` |

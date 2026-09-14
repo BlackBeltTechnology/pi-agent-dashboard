@@ -335,6 +335,14 @@ export interface DashboardSession {
   sessionDir?: string;
   hidden?: boolean;
   /**
+   * Archive state (ended-only) mirrored from `SessionMeta`. Archived sessions
+   * are non-resident: never in `sessions_snapshot`, `GET /api/sessions` or
+   * `session_added`/`session_updated`. See change: archive-sessions-lazy-load.
+   */
+  archived?: boolean;
+  archivedAt?: number;
+  restoredAt?: number;
+  /**
    * User-owned, free-form tags mirrored from `SessionMeta.tags`. Bridges
    * SHALL NOT send this — it is dashboard-owned, set via `set_session_tags`.
    * See change: add-session-tags.

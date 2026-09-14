@@ -233,7 +233,7 @@ Single rich-output surface; 3 consumers wrap one core (`packages/electron/src/li
 - auth.json write contract — two writers of `~/.pi/agent/auth.json`; `provider-auth-storage.ts#writeCredential` mkdir lock.
 
 ## Test execution & isolation
-Vitest 4. Root `vitest.config.ts` `test.projects`. Per-project `pool:"forks"` `maxWorkers:"50%"`. Per-file HOME isolation via `setup-home-perfile.ts` mkdtemp.
+Vitest 4. Root `vitest.config.ts` `test.projects`. Parallel projects `pool:"forks"` `maxWorkers: PARALLEL_MAX_WORKERS` from repo-root `vitest.workers.ts` (`= "50%"`; was `1`). Serial `maxWorkers: 1`. Per-file HOME isolation via `setup-home-perfile.ts` mkdtemp.
 
 ## Electron Auto-Update
 `packages/electron/src/lib/app-updater.ts` wraps `electron-updater`. `initAutoUpdater()` 60s initial + 24h interval. Skipped in dev.

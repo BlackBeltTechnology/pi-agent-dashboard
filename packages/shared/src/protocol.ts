@@ -334,9 +334,13 @@ export interface GitInfoUpdateMessage {
   gitPrUrl?: string;
   /**
    * Set when the session's cwd is a git worktree. `null` clears any
-   * previously-stored worktree state on the server (e.g. cwd switched
-   * to a non-worktree). Absent on older bridges — server treats as
-   * "no change". See change: add-worktree-spawn-dialog.
+   * previously-stored worktree state on the server — UNLESS parentage was
+   * already resolved for the session, in which case it is retained (a `null`
+   * after set means the worktree was removed underneath a live session, not
+   * that the cwd switched to a plain checkout). Absent on older bridges —
+   * server treats as "no change".
+   * See changes: add-worktree-spawn-dialog,
+   *               fix-worktree-grouping-lost-on-remove.
    */
   gitWorktree?: import("./types.js").GitWorktreeInfo | null;
   /**

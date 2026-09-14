@@ -925,6 +925,42 @@ New package `packages/hermes-memory-plugin` (client + server + shared). Settings
 - Runtime caveat: hermes reads config once at extension load → edits apply to newly started sessions only ("applies to new sessions" notice in the UI), not running ones.
 - Structured logging: path + field count on read/write success, failure reason on error, NEVER field values (config may hold model/provider hints).
 
+### MCP Client Plugin (`extract-mcp-client-plugin`)
+
+New plugin `packages/mcp-client-plugin/`, id `mcp-client`. Sole owner of `pi-mcp-adapter` configuration on the dashboard side. `apple-tools` and `mcp-server-plugin` consume it.
+
+**Claims.** `settings-section` → `/settings/plugins/mcp-client`. Folder pill = ONE component on two slots: `sidebar-folder-section` + `worktree-card-section`. `shell-overlay-route` `/folder/:encodedCwd/mcp`, `depth: 2`, `parentPath` `/folder/:encodedCwd`.
+
+**Exports.** `./client`, `./server`, `./core`. `./core` imports NO React and NO host runtime — the hostless `pi-apple-tools-install` CLI builds the same service from it.
+
+**Service.** `ctx.provide("mcp-client.config", …)` before any route registers. Factory `createMcpClientConfigService({ configIO, knownCwds, adapter? })`. Surface: `readServerEntry`, `ensureServerEntry`, `setServerDisabled`, `setDirectTools`, `ensureAdapterPackage`, `checkConfigFiles`, `adapterVerdict`, `targetPath`. Write-only operations never call the adapter loaders.
+
+**Worker-thread adapter port.** `loadMcpConfig` / `getServerProvenance` are synchronous, so the default port runs them in one lazily-spawned `worker_threads` Worker (`src/core/adapter-worker.ts`). Each load carries the deadline `adapterLoadTimeoutMs` — plugin host config namespace `plugins.mcp-client`, manifest `configSchema` `./configSchema.json`, integer, default `10000`, minimum `1000`, maximum `120000`. Expiry terminates the worker, rejects `AdapterTimeoutError`, respawns on the next load. HTTP maps it to `504 { error: "adapter-timeout", timeoutMs }`. Write-only paths spawn nothing.
+
+**REST.** `GET /api/mcp-client/effective?cwd=`, `GET /api/mcp-client/schema`, `GET /api/mcp-client/adapter`, `PUT /api/mcp-client/servers/:name` (patch `{scope, set, unset}`), `DELETE /api/mcp-client/servers/:name?scope` (returns the removed raw layer entry for exact undo), `PUT /api/mcp-client/servers/:name/disabled`, `PUT /api/mcp-client/settings`. EVERY route — GET included — registers with `{ preHandler: ctx.networkGuard }`: mutating bodies become executable config for pi, and the effective view returns own-layer secrets.
+
+**Effective view.** Provenance per server, classified from `getServerProvenance` by `kind` + Pi-path equality: `user` → **Pi global**; `project` at `<cwd>/.pi/mcp.json` → **Pi folder**; `project` elsewhere (`<cwd>/.mcp.json`) → **Shared**; `import` → **Shared**, labelled by `importKind`. A server the provenance map omits (`package.json#mcp`, agent plugin) → **Other**, read-only. Only Pi global + Pi folder are writable. Secret redaction is SERVER-SIDE: any secret-marked value not defined in the requested scope's writable layer leaves the process as a marker — scalar `{ redacted: true }`, record `{ redacted: true, keys: [{ name, secret }] }` (key names only, never values). `own` = the writable layer's unmerged entry, so a client distinguishes an override (key in `own`) from an inherited field.
+
+**Schema.** Published `schema/mcp-config.schema.json` describes `ServerEntry` + `McpSettings`. Markers `x-secret` (redaction + masking), `x-atomic` (layer-atomic records the adapter spreads wholesale), `x-transport` (`command` / `url` / `socket` grouping). Distinct from `configSchema.json`, which covers only the plugin's own dashboard-side settings.
+
+**Consumers.** `apple-tools` declares `dependsOn: ["mcp-client"]` — first first-party consumer of `dependsOn` + `ctx.provide`/`ctx.consume` — and drops `requires.piExtensions: ["pi-mcp-adapter"]`, which moves to the `mcp-client` recommended row. `src/mcp-config.ts` is DELETED; `install.ts` calls `ensureServerEntry("iMCP", …)` / `ensureAdapterPackage` / `checkConfigFiles`, the panel readout calls `readServerEntry`. `set-disabled` + `set-direct-tools` `plugin_action`s are removed (hard break, no shim); the panel links "Manage MCP servers →" to `/settings/plugins/mcp-client`. `mcp-server-plugin` takes the plugin as a PACKAGE dependency (no `dependsOn`, so `/mcp` survives `mcp-client` disabled) and writes its `pi-dashboard` entry through the shared core.
+
+```mermaid
+flowchart LR
+  ADP["pi-mcp-adapter/config"] --> W["adapter-worker.ts<br/>adapterLoadTimeoutMs"]
+  W --> CORE
+  IO["ConfigIO (wx + 0600 + fsync)"] --> CORE
+  subgraph MC ["packages/mcp-client-plugin"]
+    CORE["./core<br/>createMcpClientConfigService"] --> SVC["ctx.provide('mcp-client.config')"]
+    CORE --> RT["./server routes<br/>networkGuard on every route"]
+    CORE --> CLI2["./client<br/>settings + folder pill + /folder/:cwd/mcp"]
+  end
+  SVC -->|"ctx.consume (dependsOn)"| AT["apple-tools install.ts<br/>ensureServerEntry('iMCP')"]
+  SVC -->|"lazy consume, first POST /mcp"| MS["mcp-server-plugin<br/>adapter-diagnostic.ts"]
+  CORE -->|"package dep, hostless"| PROV["mcp-server-plugin provisioning.ts<br/>ensureServerEntry('pi-dashboard')"]
+  CORE -->|"package dep, hostless"| BIN["pi-apple-tools-install CLI"]
+```
+
 ### MCP Endpoint (`add-dashboard-mcp-server`)
 
 New plugin `packages/mcp-server-plugin/`. Headless — no client entry, `claims: []`. Mounts `POST /mcp` on `ctx.fastify`, the shared Fastify instance every plugin gets. Seven other plugins register routes the same way.
@@ -969,9 +1005,9 @@ Guarantee stated exactly: "the session this connection registered as". Not spoof
 
 **Streaming.** `subscriptions/listen`, a long-lived POST-response stream. `params.sessionIds[]` required; absent/empty/non-array → `-32602`. No subscribe-to-all. Filter applied per subscription before write. Authorisation re-checked per delivery. Revoked mid-stream → terminates it. Slow consumer → subscription TERMINATED at `MAX_BUFFERED_EVENTS` (1000) buffered events. Does NOT silently drop events. Subscription dies with its request.
 
-**Provisioning.** Writes `~/.pi/agent/mcp.json` key `pi-dashboard` on server start. HTTP `url` shape, not stdio `command` (iMCP writes `command`). `protocolVersion` pinned `2026-07-28` — never omitted, else legacy handshake. Merge-only. Atomic rename. Refuses unparseable file. Foreign shape under the reserved key → refuses the whole write, file untouched. Failure logged, never thrown — provisioning a convenience, not a precondition for serving `/mcp`.
+**Provisioning.** Writes the Pi-global `mcp.json` key `pi-dashboard` on server start, THROUGH the `mcp-client` core (`createMcpClientConfigService(...).ensureServerEntry`) — path from the adapter's own helper, so `PI_CODING_AGENT_DIR` is honoured. HTTP `url` shape, not stdio `command` (iMCP writes `command`). `protocolVersion` pinned `2026-07-28` — never omitted, else legacy handshake. Merge-only, so operator-added fields (`disabled`, `headers`) now survive a refresh. JSONC parse + `mcpServers` / `mcp-servers` alias + atomic hardened write come from the core, not a local reader. Foreign shape under the reserved key → refuses the whole write, file untouched. Failure logged, never thrown — provisioning a convenience, not a precondition for serving `/mcp`.
 
-**Prerequisite.** `pi-mcp-adapter >= 2.20.0` for the local-pi path. Below that, "legacy remains the default", handshake silently degrades. Runtime probe reports floor + installed + failure mode (`absent` / `below-floor` / `unparseable`).
+**Prerequisite.** `pi-mcp-adapter >= 2.20.0` for the local-pi path. Below that, "legacy remains the default", handshake silently degrades. The probe moved to `mcp-client` core; this plugin DELETED its `probeAdapterVersion` / `readInstalledAdapterVersion` and the atomic-write copy. Diagnostic is LAZY (`src/server/adapter-diagnostic.ts`): no `dependsOn`, so it consumes `mcp-client.config` at call time — absent service reads as `unknown` — and warns at most once, fired from the routes' `onMcpRequest` hook on the first `POST /mcp`, not at registration.
 
 **Config reference.** `MCP_BODY_LIMIT_BYTES` 1 MiB body cap. `MAX_BUFFERED_EVENTS` 1000 buffered events.
 
@@ -1650,6 +1686,8 @@ See change: add-session-uncommitted-indicator-and-commit.
 ### Git worktree convention (`.worktrees/`)
 Dashboard derives new worktree path as `<repoRoot>/.worktrees/<slugifyBranch(branch)>` when `POST /api/git/worktree` body omits `path`. `addWorktree` calls `ensureWorktreeExcludeLine(cwd)` first — idempotently appends `.worktrees/` to `<repoRoot>/.git/info/exclude` so parent repo ignores nested checkouts (untouched if line already present). Bridge `detectWorktree` populates `GitInfo.gitWorktree.mainPath`; `resolveSessionGroupPath` collapses worktree sessions under parent repo's pinned-directory group. See change: add-worktree-spawn-dialog.
 
+Worktree parentage immutable once resolved (cwd unchanged). `git_info_update { gitWorktree: null }` after parentage set means worktree removed underneath a live session — server keeps prior value; `gitWorktreeReported` stays true. `null` with no prior parentage clears as before. Same-cwd re-register carries `gitWorktree` over (server restart / bridge reconnect / resume); different cwd resets to unresolved. Wire shape unchanged — narrows documented meaning of wire `null`. See change: fix-worktree-grouping-lost-on-remove.
+
 ### Git worktree lifecycle (push / PR / merge / close)
 Dashboard exposes 7 endpoints under `/api/git/worktree/*`: `remove`, `remove-batch`, `prune`, `merge`, `push`, `pr`, `diff-stat`. Localhost-gated. Each forwards stable `{code, stderr}` errors (`active_sessions`, `dirty_worktree`, `branch_not_merged`, `dirty_main`, `merge_conflict`, `base_not_found`, `no_remote`, `auth_failed`, `non_fast_forward`, `gh_not_found`, `gh_not_authed`, `pr_exists`, `pushed_but_pr_failed`, `cwd_invalid`, `is_main_worktree`) produced by pure stderr→code mappers in `git-worktree-lifecycle.ts`.
 `/remove-batch` body `{ items: Array<{cwd, force?, deleteBranch?}> }`. Cap 50 items enforced before any git runs — `batch_too_large` 400; non-array `items` → `items_invalid` 400. Returns `{ results }` in INPUT ORDER, one per item. Never aborts on first failure. Item result: `{ cwd, ok, code, sessionIds?, branchDeleted?, branchDeleteCode? }`. `code` widens `RemoveCode` with `active_sessions | cwd_invalid | is_main_worktree`. Sits behind `networkGuard` + `validateCwd`.
@@ -1777,6 +1815,8 @@ Plausible = no `.git` path segment AND `statSync(<mainPath>/.git)` succeeds. One
 `.git`-entry condition is load-bearing: `--separate-git-dir`/bare phantoms are real, existing, unrelated dirs.
 
 KNOWN LIMITATION: phantom landing on a real working tree survives (bare hub `$HOME/bare.git` → phantom `$HOME`, `$HOME` a dotfiles repo). Shape test, not identity test.
+
+Worktree parentage inference runs when persisted parentage absent (key absent or `null`) or implausible. Requires ABSOLUTE cwd shape `<X>/.worktrees/<name>[/<sub>...]`. Split at FIRST `.worktrees` segment. `<X>` non-empty, absolute. `<X>/.git` must stat; reuse `isPlausibleWorktreeMainPath` for that one stat. Decline with NO stat for relative cwd or leading `.worktrees` — would resolve `.git` against server cwd. Read-time only; `.meta.json` never rewritten. One stat per record, zero subprocesses. Heals records the removed-worktree race cleared. See change: fix-worktree-grouping-lost-on-remove.
 
 kb guard is STRICTER, not looser, in every state except a submodule admitted on its own cwd. Submodule does not inherit superproject trust.
 
@@ -2912,13 +2952,36 @@ The per-message ⤘ Fork button needs each chat bubble to carry the entry id of 
 
 `queueMicrotask` was used previously but no longer works: on pi 0.69+ the microtask resolves *inside* the awaited `_emitExtensionEvent`, before persistence. See change `fix-per-message-fork`.
 
+### Session Archiving (change: archive-sessions-lazy-load)
+
+Archive evicts an ended session from the live set. Replaces manual hide. `hidden` stays — separate axis, auto-hide worker visibility only.
+
+- Sidecar flags `archived`, `archivedAt`, `restoredAt` in `.meta.json`. Optional. Absent reads not-archived.
+- Boot scan (`session-scanner.ts`) builds in-memory archive index `Map<groupKey, ArchivedSessionSummary[]>`. `groupKey = pathKey(resolveSessionGroupPath(row, pinned, platform))` — same normalised key client folders use. Migrates: legacy hidden-ended sidecar → archived; age past `sessionList.archiveAfterDays` (default 30, min 0 = disabled) → archived. Logs `archive: N indexed, M migrated, K aged-out (ms)`.
+- `session-archive.ts` owns archive/unarchive/delete/list. Archive: flush pending sidecar write → merge `{archived:true, archivedAt}` → `remove()` from manager → index insert → broadcast `session_archived { sessionId, cwd: groupKey, count }`. Restore is mirror: `archived:false, restoredAt:now, hidden:false` → `restore()` → `session_added` + `archived_count_updated`.
+- `archive-sweeper.ts` ticks every `sessionList.archiveSweepIntervalMinutes` (default 60, min 1). Predicate: ended + `live !== true` + not viewed + `max(endedAt, restoredAt)` past threshold. Cap 200 oldest per tick. Re-arms on config change. `archiveAfterDays: 0` no-op.
+- WS verbs `archive_session`/`unarchive_session` replace `hide_session`/`unhide_session`. Idle-alive archive ends the pi process first, then archives on the `ended` transition (one-shot intent registry, 60 s expiry). Frames `session_archived`, `archived_count_updated`. Snapshot carries `archivedCountByCwd`.
+- REST: `GET /api/sessions/archived` (`cwd` absolute-only, `limit` 1–200 default 50, opaque base64 `cursor`, `q` ≥ 3 chars), `GET /api/sessions/archived/:id`, `DELETE /api/sessions/archived/:id`. `GET /api/sessions` excludes archived.
+- Client: per-folder `Archive (N)` fold below the ended fold. First expand issues exactly one lazy `GET`. Rows via `ArchivedSessionRow.tsx`. Click → read-only open `/session/<id>?archived=1` — composer hidden, server resolves `sessionFile` from the index, session stays out of the live `sessions` map.
+
+```mermaid
+flowchart LR
+  Boot["boot scan"] -->|archived\nsidecar| Index["archive index\nMap<groupKey, rows>"]
+  Sweeper["archive-sweeper\ntick"] --> Arch["archiveSession"]
+  Card["card archive btn\nidle-alive: confirm"] --> WS["archive_session"] --> Arch
+  Arch --> Sidecar[".meta.json\narchived:true"] --> Index
+  Index --> List["GET /api/sessions/archived"]
+  Index --> Open["read-only open\n?archived=1"]
+  List --> Fold["Archive (N) fold"]
+```
+
 ## Persistence
 
 | Data | Storage | Details |
 |------|---------|---------|
 | Events | In-memory Map | LRU eviction, max 100 sessions. Pinned if active bridge or browser subscribers. |
-| Sessions | In-memory Map + `.meta.json` | In-memory registry. Each session's state cached in per-session `.meta.json` sidecar next to `.jsonl`. On startup, `session-scanner.ts` scans `~/.pi/agent/sessions/*/` to restore all sessions from cached meta. |
-| Session meta | `~/.pi/agent/sessions/…/<id>.meta.json` | Per-session sidecar: dashboard-owned state (name, attachedProposal, hidden, source) + cached stats (tokens, cost, model, status). Debounced per-session writes (max 1/sec). Stale cache detected via `cachedAt` vs `.jsonl` mtime. |
+| Sessions | In-memory Map + `.meta.json` | In-memory registry. Each session's state cached in per-session `.meta.json` sidecar next to `.jsonl`. On startup, `session-scanner.ts` scans `~/.pi/agent/sessions/*/` to restore all sessions from cached meta. Archived sessions evicted to the in-memory archive index (`session-archive.ts`). See Session Archiving. |
+| Session meta | `~/.pi/agent/sessions/…/<id>.meta.json` | Per-session sidecar: dashboard-owned state (name, attachedProposal, hidden, source) + cached stats (tokens, cost, model, status) + archive flags (`archived`, `archivedAt`, `restoredAt`). Debounced per-session writes (max 1/sec). Stale cache detected via `cachedAt` vs `.jsonl` mtime. |
 | Namer stop state | `~/.pi/agent/sessions/…/<id>.meta.json` (`autoNamerState`) | Auto-naming permanent stop + counters (attemptsUsed, starvedCount, waitingCount, stoppedModelRef, stopCause). Survives process restart; restored via `auto_name_state_restore` at register. Cleared on naming re-resolution or blocking-cause resolution. See change: fix-auto-naming-reasoning-model. |
 | Notify log | `~/.pi/agent/sessions/…/<id>.meta.json` (`SessionMeta.notifyLog`) | Bounded per-session notify history (cap 50, oldest-first). Not a `DashboardEvent` — `event_replay` cannot restore. Mirrored by `sessionToMeta` (full-overwrite save), restored by `sessionFromMeta` cold start, carried across bridge reattach by `memory-session-manager.register()`. See Notify Flow. |
 | Pinned directories | `~/.pi/dashboard/preferences.json` | Ordered array of cwd paths. Pinned dirs always visible in sidebar. |
@@ -4559,7 +4622,7 @@ See change: `add-dashboard-model-proxy`.
 
 ## Test execution & isolation
 
-Vitest 4. Root `vitest.config.ts` lists projects under `test.projects`. Per-project `vitest.config.ts` carries `pool: "forks"` + `maxWorkers: "50%"` (parallel; was `1`).
+Vitest 4. Root `vitest.config.ts` lists projects under `test.projects`. Parallel projects carry `pool: "forks"` + `maxWorkers: PARALLEL_MAX_WORKERS` imported from repo-root `vitest.workers.ts` (`= "50%"` of logical cores; parallel; was `1`). Deliberately serial projects retain `maxWorkers: 1`. See change: `make-test-suite-deterministic`.
 
 Per-file HOME isolation via `setupFiles` → `packages/shared/src/test-support/setup-home-perfile.ts`. Fresh `mkdtemp` HOME per test file. `globalSetup` `setup-home.ts` tripwire kept.
 

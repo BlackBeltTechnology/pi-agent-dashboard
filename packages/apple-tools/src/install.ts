@@ -6,6 +6,10 @@
  *
  * See change: add-apple-tools-imcp-plugin (Decision 2).
  */
+import type {
+  ConfigRefusal,
+  McpClientConfigService,
+} from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
 import {
   discoverServer,
   IMCP_BREW_CASK,
@@ -14,13 +18,6 @@ import {
   MIN_MACOS,
   meetsMinimum,
 } from "./detect.js";
-import {
-  type ConfigIO,
-  type ConfigWriteResult,
-  ensureAdapterPackage,
-  ensureMcpEntry,
-  validateConfigShape,
-} from "./mcp-config.js";
 
 /** Closed, nine-member terminal-state enum. All three surfaces render these. */
 export type TerminalState =
@@ -67,12 +64,12 @@ export interface InstallerEnv {
   runBrewCask: (brew: string) => BrewResult;
   /** Operator override for the imcp-server path (`imcpServerPath` config key). */
   overridePath?: string;
-  /** Absolute path to `~/.pi/agent/mcp.json`. */
-  mcpJsonPath: string;
-  /** Absolute path to `~/.pi/agent/settings.json`. */
-  settingsJsonPath: string;
-  /** Injected config IO for the two writers. */
-  configIO: ConfigIO;
+  /**
+   * The `mcp-client.config` service. Owns every target path (honouring
+   * `PI_CODING_AGENT_DIR`) and the hardened atomic write, so this module needs
+   * no `ConfigIO` / hard-coded `~/.pi/agent` paths of its own.
+   */
+  mcps: McpClientConfigService;
 }
 
 export interface InstallResult {
@@ -186,13 +183,14 @@ export function runInstaller(env: InstallerEnv, opts: RunOptions = {}): InstallR
 
   // 5. Config writes (suppressed in check mode).
   if (!check) {
-    const mcp = ensureMcpEntry(env.configIO, env.mcpJsonPath, resolved);
-    if (!mcp.ok) return relayConfigFailure(mcp);
-    const pkg = ensureAdapterPackage(env.configIO, env.settingsJsonPath);
-    if (!pkg.ok) return relayConfigFailure(pkg);
+    const mcp = env.mcps.ensureServerEntry("iMCP", { command: resolved }, { kind: "global" });
+    if (!mcp.ok) return relayConfigFailure(mcp.refusal);
+    const pkg = env.mcps.ensureAdapterPackage();
+    if (!pkg.ok) return relayConfigFailure(pkg.refusal);
   } else {
-    // Predict a config failure the write would hit (unparseable existing file).
-    const predicted = predictConfigWritability(env);
+    // Predict a config failure the write would hit (unparseable existing file
+    // or a malformed post-patch entry).
+    const predicted = predictConfigWritability(env, resolved);
     if (predicted) return predicted;
   }
 
@@ -224,21 +222,29 @@ export function runInstaller(env: InstallerEnv, opts: RunOptions = {}): InstallR
   };
 }
 
-function relayConfigFailure(r: Extract<ConfigWriteResult, { ok: false }>): InstallResult {
-  return fail(r.state, r.message);
+function relayConfigFailure(r: ConfigRefusal): InstallResult {
+  // The 9-member TerminalState enum is unchanged: a write IO fault is
+  // CONFIG_WRITE_FAILED, every structural refusal (unparseable, entry-not-object,
+  // invalid-name, transport-conflict) is CONFIG_UNPARSEABLE.
+  return fail(r.code === "write-failed" ? "CONFIG_WRITE_FAILED" : "CONFIG_UNPARSEABLE", r.message);
 }
 
 /**
- * Check-mode dry predicate. Delegates to the writers' OWN structural validators
- * so check and write agree: a config that would fail a write (invalid JSON,
- * non-object root, malformed `mcpServers` / `mcpServers.iMCP` / `packages`)
- * must never be reported as healthy by `--check`. Write-permission failures
- * (EACCES/ENOSPC) remain unpredictable without attempting a write.
+ * Check-mode dry predicate. Delegates to the service's own check path so check
+ * and write agree: a config the write would refuse must never be reported as
+ * healthy by `--check`. Write-permission failures (EACCES/ENOSPC) remain
+ * unpredictable without attempting a write.
  */
-function predictConfigWritability(env: InstallerEnv): InstallResult | null {
-  const mcp = validateConfigShape(env.configIO, env.mcpJsonPath, "mcp");
-  if (mcp) return fail(mcp.state, mcp.message);
-  const settings = validateConfigShape(env.configIO, env.settingsJsonPath, "settings");
-  if (settings) return fail(settings.state, settings.message);
+function predictConfigWritability(env: InstallerEnv, resolvedPath: string): InstallResult | null {
+  const status = env.mcps.checkConfigFiles({
+    serverName: "iMCP",
+    fields: { command: resolvedPath },
+  });
+  if (!status.mcpJson.ok) {
+    return fail("CONFIG_UNPARSEABLE", status.mcpJson.message ?? "mcp.json would be refused");
+  }
+  if (!status.settingsJson.ok) {
+    return fail("CONFIG_UNPARSEABLE", status.settingsJson.message ?? "settings.json would be refused");
+  }
   return null;
 }
