@@ -122,38 +122,60 @@ export function decideRetainedRead(input: {
 }
 
 /**
- * Read what was retained for `sessionId` and replay it.
+ * Read what was retained for `sessionId`, WITHOUT replaying it.
+ *
+ * The two HTTP callers need `entries` and/or `state` and discard events
+ * entirely, so replaying for them would spend a full parse + event synthesis
+ * on output nobody reads — on the main thread, against a transcript whose
+ * observed maximum is 44.1 MB. Only cold hydration actually needs the events.
+ *
+ * Never throws: the store refuses a hostile session id rather than sanitising
+ * it, and that refusal has to read as "no transcript", not as an exception.
+ * See CodeRabbit #663, thread 5.
+ */
+export function readRetainedState(
+  store: RemoteTranscriptStore,
+  sessionId: string,
+): { entries: string[]; state: RetainedTranscriptState } {
+  let retained: ReturnType<RemoteTranscriptStore["read"]>;
+  try {
+    retained = store.read(sessionId);
+  } catch {
+    return { entries: [], state: "absent" };
+  }
+  if (!retained.retained) return { entries: [], state: "absent" };
+  return { entries: retained.entries, state: retained.complete ? "complete" : "incomplete" };
+}
+
+/**
+ * Read what was retained for `sessionId` AND replay it into dashboard events.
+ *
+ * For cold hydration, which is the only caller that consumes the events; a
+ * caller wanting just entries or completeness should use `readRetainedState`
+ * and skip the parse entirely.
  *
  * Parses through `parseSessionEntries` — the same branch-order resolution the
  * local path uses — so a remote session renders the conversation the origin
  * machine would render, not a simpler linear approximation of it.
  *
  * Never throws — and the PARSE is inside that guarantee, not just the store
- * read. The store refuses a hostile session id rather than sanitising it, and
- * the replay walks attacker-shaped JSON (a single `message.content: [null]`
- * line reaches a property access on `null`). Both have to read as "no usable
- * transcript", not as an exception that takes a subscribe down or turns one
- * crafted line into a 500.
+ * read. The replay walks attacker-shaped JSON (a single `message.content:
+ * [null]` line reaches a property access on `null`), which has to read as "no
+ * usable transcript" rather than take a subscribe down.
  */
 export function readRetainedTranscript(
   store: RemoteTranscriptStore,
   sessionId: string,
   knownContextWindow?: number,
 ): RetainedTranscriptRead {
-  let retained: ReturnType<RemoteTranscriptStore["read"]>;
-  try {
-    retained = store.read(sessionId);
-  } catch {
-    return { entries: [], events: [], state: "absent" };
-  }
-  if (!retained.retained) return { entries: [], events: [], state: "absent" };
+  const { entries: rawEntries, state } = readRetainedState(store, sessionId);
+  if (state === "absent") return { entries: [], events: [], state: "absent" };
 
-  const state = retained.complete ? "complete" : "incomplete";
   let events: RetainedTranscriptRead["events"] = [];
   try {
     events = replayEntriesAsEvents(
       sessionId,
-      parseSessionEntries(retained.entries),
+      parseSessionEntries(rawEntries),
       knownContextWindow,
     ).map((m) => m.event);
   } catch (err) {
@@ -162,5 +184,5 @@ export function readRetainedTranscript(
     // claim nothing was captured, which is the one thing we know is false.
     console.error(`[transcript] retained replay failed for ${sessionId}: ${String(err)}`);
   }
-  return { entries: retained.entries, events, state };
+  return { entries: rawEntries, events, state };
 }

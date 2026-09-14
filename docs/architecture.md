@@ -4964,7 +4964,8 @@ flowchart TD
 
 - `RemoteTranscriptStore.read()` → `{entries, complete, retained}`. `retained` = transcript FILE exists. `complete:false` alone conflates "transfer truncated" with "never transferred".
 - Three states: `complete` | `incomplete` | `absent`. Surfaced as `DashboardSession.retainedTranscript` (`packages/shared/src/types.ts`). Absent on local sessions.
-- `packages/server/src/session/retained-transcript.ts` exports `decideRetainedRead({sessionId, query, origin})` + `readRetainedTranscript(store, sessionId, knownContextWindow?)`.
+- `packages/server/src/session/retained-transcript.ts` exports `decideRetainedRead({sessionId, query, origin})`, `readRetainedState(store, sessionId)` and `readRetainedTranscript(store, sessionId, knownContextWindow?)`.
+- Read is SPLIT by need. Both HTTP callers want entries/completeness and discard events, so they use `readRetainedState` and skip parse + event synthesis entirely; only cold hydration calls the replaying read. Replaying for a route would parse up to the 44.1 MB observed maximum to produce output nobody reads.
 - Refusal order: path-bearing field FIRST (`path-on-the-wire`), local-origin SECOND (`local-origin`). Shape before subject — reverse order differences two refusals into an origin oracle.
 - Path refusal delegates to `decideTranscriptRequest`. Guard MOVED `packages/extension/src/` → `packages/shared/src/`. Bridge wire check and dashboard route check are ONE function.
 - Route `GET /api/sessions/:sessionId/retained-transcript` → `{entries, state}`. `networkGuard`ed like every content-bearing session read (`session-file`, `session-change`, `session-diff`, `tool-result`) — loopback, `x-pi-local-token`, or a trusted network. Browser never calls it; consumers are local + the L3 gate.

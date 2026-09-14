@@ -28,6 +28,7 @@ import { createRemoteTranscriptStore } from "../remote-transcript-store.js";
 import {
   chooseHydrationSource,
   decideRetainedRead,
+  readRetainedState,
   readRetainedTranscript,
 } from "../retained-transcript.js";
 
@@ -169,6 +170,52 @@ describe("chooseHydrationSource", () => {
     expect(
       chooseHydrationSource({ origin: LOCAL, sessionFile: undefined, hasRetentionStore: true }),
     ).toBe("none");
+  });
+});
+
+/**
+ * The HTTP callers want entries and/or completeness and discard events. Making
+ * them pay a full parse + event synthesis for output nobody reads is wasted
+ * main-thread time against a transcript whose observed maximum is 44.1 MB.
+ * See CodeRabbit #663, thread 5.
+ */
+describe("readRetainedState", () => {
+  it("returns entries and state without replaying", () => {
+    const s = store();
+    s.append("sess-remote", TRANSCRIPT, { restarted: true, complete: true });
+    expect(readRetainedState(s, "sess-remote")).toEqual({
+      entries: TRANSCRIPT,
+      state: "complete",
+    });
+  });
+
+  it("agrees with the replaying read on every state, so the two cannot drift", () => {
+    const s = store();
+    s.append("complete", TRANSCRIPT, { restarted: true, complete: true });
+    s.append("partial", TRANSCRIPT.slice(0, 2), { restarted: true, complete: false });
+    for (const id of ["complete", "partial", "never-seen"]) {
+      expect(readRetainedState(s, id).state, id).toBe(readRetainedTranscript(s, id).state);
+      expect(readRetainedState(s, id).entries, id).toEqual(readRetainedTranscript(s, id).entries);
+    }
+  });
+
+  it("does NOT throw on a transcript whose replay would crash", () => {
+    // It never reaches the replay at all — that is the point of the split.
+    const s = store();
+    s.append(
+      "poison",
+      [
+        JSON.stringify({ type: "session", id: "poison", timestamp: "2025-01-01T00:00:00Z" }),
+        JSON.stringify({
+          type: "message",
+          id: "p1",
+          parentId: null,
+          message: { role: "assistant", content: [null] },
+        }),
+      ],
+      { restarted: true, complete: true },
+    );
+    expect(readRetainedState(s, "poison").state).toBe("complete");
   });
 });
 

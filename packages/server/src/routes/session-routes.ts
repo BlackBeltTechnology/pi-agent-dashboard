@@ -11,7 +11,7 @@ import { decodeCursor, type SessionArchive } from "../session/session-archive.js
 import { buildSessionDiffCached, type SessionDiffResult } from "../session/session-diff.js";
 import { SessionDiffCache } from "../session/session-diff-cache.js";
 import type { RemoteTranscriptStore } from "../session/remote-transcript-store.js";
-import { decideRetainedRead, readRetainedTranscript } from "../session/retained-transcript.js";
+import { decideRetainedRead, readRetainedState } from "../session/retained-transcript.js";
 import { findSessionToolCallPayload } from "../session/session-file-reader.js";
 import { originOf } from "../session/session-origin.js";
 import type { NetworkGuard } from "./route-deps.js";
@@ -98,7 +98,7 @@ export function registerSessionRoutes(
       // See change: serve-retained-remote-transcripts (task 2.2).
       const enriched =
         remoteTranscriptStore && !originOf(item).local
-          ? { ...item, retainedTranscript: readRetainedTranscript(remoteTranscriptStore, item.id).state }
+          ? { ...item, retainedTranscript: readRetainedState(remoteTranscriptStore, item.id).state }
           : item;
       return { success: true, data: { item: enriched } } satisfies ApiResponse;
     },
@@ -265,7 +265,11 @@ export function registerSessionRoutes(
         reply.code(503);
         return { success: false, error: "remote transcript retention is not enabled" } satisfies ApiResponse;
       }
-      const retained = readRetainedTranscript(remoteTranscriptStore, sessionId, session?.contextWindow);
+      // `readRetainedState`, not the replaying read: this route returns the
+      // verbatim entries, so synthesizing dashboard events here would parse a
+      // transcript (up to a 44.1 MB observed maximum) to produce output that is
+      // then discarded. See CodeRabbit #663, thread 5.
+      const retained = readRetainedState(remoteTranscriptStore, sessionId);
       // `state` rides alongside the entries rather than being inferred from
       // their emptiness: an empty COMPLETE transfer and a never-started one are
       // both zero entries and are not the same fact (task 1.2).
