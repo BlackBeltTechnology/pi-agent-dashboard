@@ -158,6 +158,12 @@ Non-goals:
   unchanged — the predicate is **not** modified. An earlier draft claimed a
   semantics change; that was an overclaim, and touching the predicate would add
   regression surface for no benefit.
+- `theme-gallery` — owns the 18 palettes. The mockup loop's contrast gate found
+  **16 of 18 fail WCAG AA** for `--text-tertiary` on `--bg-tertiary` (worst
+  2.48:1; 1.67:1 against `--bg-surface`). Pre-existing debt, **folded in by user
+  decision** rather than deferred, since this change puts new small text on the
+  same rows. Computed remediation + the 4 hierarchy-inversion traps:
+  `mockups/ui-plan.md`.
 - `pending-prompt-safety` — owns the 30 s timeout and its "may not have been
   received" message. A known-undelivered prompt fails immediately instead, and
   that wording is reserved for the genuinely unknown case.
