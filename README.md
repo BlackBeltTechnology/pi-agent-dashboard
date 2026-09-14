@@ -390,6 +390,17 @@ The dashboard resolves every external tool it calls (`pi`, `pi-coding-agent`, `o
 
 The file is deliberately separate from `config.json` so machine-specific paths don't follow a dotfiles sync. Invalid overrides (path doesn't exist) are recorded in the trail and the registry falls through to the next strategy automatically.
 
+### MCP servers
+
+Enable the **MCP Client** plugin (`mcp-client`) in Settings → Plugins to manage the MCP servers your pi sessions use. It requires the `pi-mcp-adapter` pi extension (minimum version `2.20.0`); the plugins index offers an inline Install for it.
+
+- **Global surface** — `/settings/plugins/mcp-client`: every server the adapter resolves, with its source layer (Pi global, Pi folder, shared, other), enable/disable, a per-server editor, and the global adapter settings form. Writes land only in `~/.pi/agent/mcp.json`.
+- **Per folder** — `/folder/<cwd>/mcp`, reachable from the folder pill: the effective merged view for that directory plus folder-layer overrides. Writes land only in `<cwd>/.pi/mcp.json`.
+
+Shared layers (`<cwd>/.mcp.json`, imports, `package.json#mcp`) are read-only and shown with provenance. Secret values inherited from a layer you cannot write are redacted server-side and never reach the browser. Comments in a `mcp.json` are not preserved on write.
+
+**`adapterLoadTimeoutMs`** (Dashboard plugin settings group, default `10000`, range `1000`–`120000`) bounds how long the dashboard waits for one `pi-mcp-adapter` config load. The load runs in a worker thread; on expiry the request fails with `adapter-timeout`. It bounds the **dashboard's** config read only — it does not affect pi sessions.
+
 ---
 
 ## Using the model proxy

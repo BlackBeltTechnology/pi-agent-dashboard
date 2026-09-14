@@ -1,8 +1,9 @@
-## Purpose
+# mcp-client-config Specification
 
+## Purpose
 Server-side ownership of `pi-mcp-adapter` configuration on the dashboard: reads the adapter's full layer stack, writes only the two Pi-owned layers, and exposes that capability to other plugins as an in-process service.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Plugin identity and adapter requirement
 
@@ -69,6 +70,14 @@ Every server in an effective view SHALL carry provenance derived from the adapte
 
 - **WHEN** the same field is defined in `~/.pi/agent/mcp.json` and the effective view is requested at global scope
 - **THEN** the payload carries the value
+
+#### Scenario: The writable layer's own entry is exposed as `own`
+
+- **WHEN** the requested scope's writable Pi-owned layer defines a server that a lower layer also defines
+- **THEN** that server's view carries `own`, the writable layer's own entry, unmerged
+- **AND** its merged `entry` still carries every lower layer's values
+- **AND** a server the writable layer does not define carries no `own`
+- **AND** a client can therefore distinguish an override (a key in `own`) from an inherited field (a key absent from `own`), which the merged `entry` alone cannot express for a non-secret key
 
 #### Scenario: Shared project file is not Pi folder
 

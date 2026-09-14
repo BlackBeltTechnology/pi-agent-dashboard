@@ -5,18 +5,21 @@
  *
  * See change: add-apple-tools-imcp-plugin.
  */
-import { describe, expect, it } from "vitest";
 import {
-  type BrewResult,
-  type InstallerEnv,
-  runInstaller,
-  TERMINAL_STATES,
-} from "../install.js";
-import type { ConfigIO } from "../mcp-config.js";
+  type AdapterPort,
+  type ConfigIO,
+  createMcpClientConfigService,
+  type McpClientConfigService,
+  type McpConfig,
+  type ServerProvenance,
+} from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
+import { describe, expect, it } from "vitest";
+import { type BrewResult, type InstallerEnv, runInstaller, TERMINAL_STATES } from "../install.js";
 
 const DEFAULT_SERVER = "/Applications/iMCP.app/Contents/MacOS/imcp-server";
 const HOME = "/home/tester";
 const USER_LOCAL = `${HOME}/Applications/iMCP.app/Contents/MacOS/imcp-server`;
+const GLOBAL = "/cfg/mcp.json";
 
 /** In-memory config IO with write tracking. */
 function memIO(files: Record<string, string> = {}): ConfigIO & {
@@ -36,6 +39,22 @@ function memIO(files: Record<string, string> = {}): ConfigIO & {
   };
 }
 
+/** Adapter port pointing both config layers at the in-memory test paths. */
+function fakePort(): AdapterPort {
+  return {
+    loadMcpConfig: () => Promise.resolve({} as McpConfig),
+    getServerProvenance: () => Promise.resolve(new Map<string, ServerProvenance>()),
+    getConfigDiscoveryPaths: () => [],
+    getPiGlobalConfigPath: () => GLOBAL,
+    getProjectPiConfigPath: (cwd) => `${cwd}/.pi/mcp.json`,
+  };
+}
+
+/** Build the real service over the in-memory IO (write-only paths only). */
+function makeService(io: ConfigIO): McpClientConfigService {
+  return createMcpClientConfigService({ configIO: io, knownCwds: () => [], adapter: fakePort() });
+}
+
 function makeEnv(overrides: Partial<InstallerEnv> = {}): InstallerEnv {
   return {
     platform: "darwin",
@@ -44,9 +63,7 @@ function makeEnv(overrides: Partial<InstallerEnv> = {}): InstallerEnv {
     pathExists: () => false,
     brewPath: () => "/opt/homebrew/bin/brew",
     runBrewCask: () => ({ code: 0, stderr: "" }) as BrewResult,
-    mcpJsonPath: "/cfg/mcp.json",
-    settingsJsonPath: "/cfg/settings.json",
-    configIO: memIO(),
+    mcps: makeService(memIO()),
     ...overrides,
   };
 }
@@ -58,7 +75,7 @@ describe("platform gate", () => {
     const r = runInstaller(
       makeEnv({
         platform: "linux",
-        configIO: io,
+        mcps: makeService(io),
         brewPath: () => {
           brewCalled = true;
           return "/x/brew";
@@ -109,7 +126,7 @@ describe("version gate", () => {
     it(`${id}: sw_vers ${version} → ${passes ? "passes" : "OS_TOO_OLD"}`, () => {
       const io = memIO();
       const r = runInstaller(
-        makeEnv({ probeOsVersion: () => version, pathExists: (p) => p === DEFAULT_SERVER, configIO: io }),
+        makeEnv({ probeOsVersion: () => version, pathExists: (p) => p === DEFAULT_SERVER, mcps: makeService(io) }),
       );
       if (passes) {
         expect(r.state).toBe("READY_PENDING_GRANTS");
@@ -215,20 +232,20 @@ describe("terminal-state closure + distinctness", () => {
     const unparseable = runInstaller(
       makeEnv({
         pathExists: (p) => p === DEFAULT_SERVER,
-        configIO: memIO({ "/cfg/mcp.json": "{ not json" }),
+        mcps: makeService(memIO({ "/cfg/mcp.json": "{ not json" })),
       }),
     );
     const unwritable = runInstaller(
       makeEnv({
         pathExists: (p) => p === DEFAULT_SERVER,
-        configIO: {
+        mcps: makeService({
           readFile: () => null,
           writeFileAtomic: () => {
             const err = new Error("EACCES") as Error & { code: string };
             err.code = "EACCES";
             throw err;
           },
-        },
+        }),
       }),
     );
     expect(installFailed.state).toBe("INSTALL_FAILED");
@@ -244,7 +261,7 @@ describe("check mode", () => {
     const r = runInstaller(
       makeEnv({
         pathExists: () => false,
-        configIO: io,
+        mcps: makeService(io),
         runBrewCask: () => {
           brewCalled = true;
           return { code: 0, stderr: "" };
@@ -278,7 +295,7 @@ describe("check mode", () => {
   it("#E32: --check and write-mode report the same terminal state for identical host", () => {
     const build = (check: boolean) =>
       runInstaller(
-        makeEnv({ pathExists: (p) => p === DEFAULT_SERVER, configIO: memIO() }),
+        makeEnv({ pathExists: (p) => p === DEFAULT_SERVER, mcps: makeService(memIO()) }),
         { check },
       );
     expect(build(true).state).toBe(build(false).state);
@@ -297,10 +314,10 @@ describe("check mode", () => {
       ["packages is an object", { "/cfg/settings.json": JSON.stringify({ packages: {} }) }],
     ];
     for (const [label, files] of cases) {
-      const env = makeEnv({ pathExists: (p) => p === DEFAULT_SERVER, configIO: memIO(files) });
+      const env = makeEnv({ pathExists: (p) => p === DEFAULT_SERVER, mcps: makeService(memIO(files)) });
       const checkState = runInstaller(env, { check: true }).state;
       const writeState = runInstaller(
-        makeEnv({ pathExists: (p) => p === DEFAULT_SERVER, configIO: memIO(files) }),
+        makeEnv({ pathExists: (p) => p === DEFAULT_SERVER, mcps: makeService(memIO(files)) }),
         { check: false },
       ).state;
       expect(checkState, label).toBe("CONFIG_UNPARSEABLE");
@@ -312,14 +329,14 @@ describe("check mode", () => {
     // The hardest parity case: check PREDICTS the post-install state without
     // invoking brew, while write mode actually installs and re-discovers.
     const checkState = runInstaller(
-      makeEnv({ pathExists: () => false, configIO: memIO() }),
+      makeEnv({ pathExists: () => false, mcps: makeService(memIO()) }),
       { check: true },
     ).state;
 
     let installed = false;
     const writeState = runInstaller(
       makeEnv({
-        configIO: memIO(),
+        mcps: makeService(memIO()),
         pathExists: (p) => installed && p === DEFAULT_SERVER,
         runBrewCask: () => {
           installed = true; // the cask lands the binary
@@ -331,6 +348,27 @@ describe("check mode", () => {
 
     expect(checkState).toBe("READY_PENDING_GRANTS");
     expect(writeState).toBe(checkState);
+  });
+});
+
+describe("re-provisioning", () => {
+  it("preserves operator-set fields on the iMCP entry (merge-only)", () => {
+    const io = memIO({
+      [GLOBAL]: JSON.stringify({
+        mcpServers: { iMCP: { command: "old", disabled: true, directTools: ["a"], unknown: 1 } },
+      }),
+    });
+    const r = runInstaller(
+      makeEnv({ pathExists: (p) => p === DEFAULT_SERVER, mcps: makeService(io) }),
+      { check: false },
+    );
+    expect(r.state).toBe("READY_PENDING_GRANTS");
+    expect(JSON.parse(io.store[GLOBAL]).mcpServers.iMCP).toEqual({
+      command: DEFAULT_SERVER,
+      disabled: true,
+      directTools: ["a"],
+      unknown: 1,
+    });
   });
 });
 
@@ -347,7 +385,7 @@ describe("install faults", () => {
     const r = runInstaller(
       makeEnv({
         pathExists: () => false,
-        configIO: io,
+        mcps: makeService(io),
         runBrewCask: () => ({ code: 1, stderr: "Error: cask failed spectacularly" }),
       }),
     );
@@ -361,7 +399,7 @@ describe("install faults", () => {
     const r = runInstaller(
       makeEnv({
         pathExists: () => false,
-        configIO: io,
+        mcps: makeService(io),
         runBrewCask: () => ({ code: 1, stderr: "", timedOut: true }),
       }),
     );
@@ -375,7 +413,7 @@ describe("install faults", () => {
     const r = runInstaller(
       makeEnv({
         pathExists: () => false, // never appears, even after brew
-        configIO: io,
+        mcps: makeService(io),
         runBrewCask: () => ({ code: 0, stderr: "" }),
       }),
     );

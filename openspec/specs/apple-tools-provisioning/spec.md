@@ -7,7 +7,9 @@ reach it through `pi-mcp-adapter`. Covers the installer's terminal-state
 machine, its write-suppressed check twin, the merge-only config writes, and the
 dashboard/CLI/doctor surfaces that report the resulting state. macOS-only;
 Apple Mail is out of scope (iMCP exposes no Mail service).
+
 ## Requirements
+
 ### Requirement: Platform gate
 
 The provisioning traversal SHALL evaluate `process.platform` before any other check and SHALL terminate immediately on any value other than `darwin`. Termination on a non-macOS platform SHALL be a success (exit code 0), not a failure, because iMCP is structurally macOS-only and its absence on Linux/Windows is not an error condition.
@@ -128,7 +130,7 @@ After a successful cask installation the traversal SHALL re-run application disc
 
 ### Requirement: Merge-only MCP configuration write
 
-The traversal SHALL register the iMCP server by merging exactly the `mcpServers.iMCP` key into the pi agent MCP configuration file, preserving every sibling server entry and every unrecognised key. The write SHALL be atomic and SHALL refuse to proceed when the existing file is present but unparseable.
+The traversal SHALL register the iMCP server by merging exactly the `mcpServers.iMCP` key into the pi agent MCP configuration file, preserving every sibling server entry and every unrecognised key. The write SHALL be atomic and SHALL refuse to proceed when the existing file is present but unparseable. The write SHALL be performed through the `mcp-client.config` service's ensure-entry operation at global scope; the Apple-tools package SHALL contain no MCP configuration writer of its own.
 
 #### Scenario: Sibling servers survive the write
 
@@ -139,7 +141,7 @@ The traversal SHALL register the iMCP server by merging exactly the `mcpServers.
 #### Scenario: Command points at the discovered binary
 
 - **WHEN** the installer writes the iMCP entry after discovering the binary
-- **THEN** `mcpServers.iMCP.command` equals the discovered `imcp-server` path
+- **THEN** the `iMCP` entry's `command`, under whichever servers key the file already uses (`mcpServers` by default), equals the discovered `imcp-server` path
 
 #### Scenario: Unparseable existing config aborts the write
 
@@ -156,6 +158,12 @@ The traversal SHALL register the iMCP server by merging exactly the `mcpServers.
 
 - **WHEN** the installer writes the iMCP entry
 - **THEN** no value from any other MCP configuration layer is copied into the written file
+
+#### Scenario: Operator-set fields on the iMCP entry survive re-provisioning
+
+- **WHEN** the operator has set `disabled` or `directTools` on the `iMCP` entry via the MCP client and the installer re-runs
+- **THEN** `command` is refreshed
+- **AND** `disabled` and `directTools` are preserved
 
 ### Requirement: Idempotent re-run
 
@@ -272,7 +280,7 @@ Every environment probe (platform, OS version, filesystem existence, executable 
 
 ### Requirement: Provisioning settings surface
 
-The plugin SHALL contribute a `settings-section` claim exposing the provisioning state, an action to run the installer, and the operator-tunable configuration values. The section SHALL derive its state from the same write-suppressed check that backs the command-line and diagnostic surfaces. Per the plugin-settings rendering contract the claim SHALL NOT set `tab`, and no new settings page id SHALL be introduced; the host renders the contribution on the plugin's own settings page at `/settings/plugins/<id>` under host-owned chrome, reached from the settings affordance on the plugin's row.
+The plugin SHALL contribute a `settings-section` claim exposing the provisioning state, an action to run the installer, and the `imcp-server` path override. The section SHALL derive its state from the same write-suppressed check that backs the command-line and diagnostic surfaces. Per the plugin-settings rendering contract the claim SHALL NOT set `tab`, and no new settings page id SHALL be introduced; the host renders the contribution on the plugin's own settings page at `/settings/plugins/<id>` under host-owned chrome, reached from the settings affordance on the plugin's row. The section SHALL NOT render MCP server controls (enable/disable, direct-tools); it SHALL offer a "Manage MCP servers" link to `/settings/plugins/mcp-client`.
 
 #### Scenario: Section renders on the plugin's own settings page
 
@@ -310,7 +318,9 @@ command-line entry point owns the long, network-bound install.
 #### Scenario: Section exposes the tunable values
 
 - **WHEN** the section renders
-- **THEN** it offers the iMCP server enable/disable toggle, the direct-tools selection, and the `imcp-server` path override
+- **THEN** it offers the `imcp-server` path override
+- **AND** it renders a "Manage MCP servers" link to `/settings/plugins/mcp-client`
+- **AND** it renders no enable/disable toggle and no direct-tools selection
 
 #### Scenario: Section is inert on a non-macOS host
 
@@ -339,33 +349,6 @@ Per-service activation for iMCP is granted through macOS permission dialogs driv
 - **THEN** it instructs the operator to activate services from the application's menu bar
 - **AND** states that permission grants cannot be automated
 
-### Requirement: Server enable/disable SHALL NOT destroy the installer's entry
-
-Disabling the iMCP server SHALL be expressed as a `disabled` flag merged into the adapter's configuration, never by rewriting or removing the entry the installer wrote. Two scopes SHALL be supported, because the surfaces that offer the control differ in what they know:
-
-- **global** — `~/.pi/agent/mcp.json`, the layer the installer also writes `command` to. This is the target for the plugin's settings page, which is host-owned and global and therefore has no project directory to scope a write to.
-- **project** — `<cwd>/.pi/mcp.json`, the adapter's highest-precedence layer, for surfaces that do know a project. A project value overrides the global one without mutating it.
-
-A project scope write SHALL validate the supplied directory against the host's known folder set before touching the filesystem. Disabling SHALL write `disabled: true`; enabling SHALL remove the key rather than writing `false`, matching the adapter, which treats only a literal `true` as disabled.
-
-#### Scenario: Disabling leaves the installer's command entry intact
-
-- **WHEN** the operator disables the iMCP server from the settings section
-- **THEN** the disable flag is merged into the global adapter configuration
-- **AND** the installer-written `command` value on that entry is unmodified
-- **AND** every sibling MCP server entry is preserved verbatim
-
-#### Scenario: A project scope override folds over the global value
-
-- **WHEN** a project-scoped surface disables the server for a known project directory
-- **THEN** the flag is written to that project's adapter configuration layer
-- **AND** the global configuration is left untouched
-
-#### Scenario: An unknown project directory is refused
-
-- **WHEN** a project scope disable names a directory outside the host's known folder set
-- **THEN** no filesystem write occurs
-
 ### Requirement: Plugin SHALL be registered for production bundling
 
 The plugin SHALL be listed in the Electron bundle's plugin manifest so it ships in production builds. The repository's bundle-completeness test requires every non-fixture dashboard plugin under the packages directory to appear in that list.
@@ -380,3 +363,47 @@ The plugin SHALL be listed in the Electron bundle's plugin manifest so it ships 
 - **WHEN** a production Electron build is produced
 - **THEN** the Apple-tools plugin is present in the bundled plugins resource directory
 
+### Requirement: Plugin depends on the MCP client plugin
+
+The Apple-tools plugin manifest SHALL declare `dependsOn: ["mcp-client"]` and SHALL NOT declare `pi-mcp-adapter` as a required pi extension or package dependency of its own; that requirement is owned by `mcp-client`. All MCP configuration reads and writes, the adapter-package registration in `~/.pi/agent/settings.json`, and the check-mode parse-status of both files SHALL go through the `mcp-client.config` service (`ensureServerEntry`, `ensureAdapterPackage`, `checkConfigFiles`). The service's `write-failed` refusal maps to the existing `CONFIG_WRITE_FAILED` terminal state and every other refusal to `CONFIG_UNPARSEABLE`, so the closed nine-member state enumeration is unchanged. In the dashboard the service is the consumed instance; the hostless `pi-apple-tools-install` CLI obtains the identical implementation from the MCP client package's exported factory with its own injected IO and paths. Check mode SHALL ask the service's check operation about the same server name and fields the write run would ensure, so both verdicts derive from one validation of the same post-patch entry.
+
+#### Scenario: Service write failure maps to CONFIG_WRITE_FAILED
+
+- **WHEN** the service reports `write-failed` for the iMCP entry
+- **THEN** the installer terminates in `CONFIG_WRITE_FAILED` with the error code in its message
+
+#### Scenario: Check mode predicts the write verdict
+
+- **WHEN** the existing `iMCP` entry defines `url` and check mode runs
+- **THEN** check mode reports `CONFIG_UNPARSEABLE` with a transport-conflict message
+- **AND** the write run on the same host terminates in the same state without writing
+
+#### Scenario: CLI installer uses the factory-built service
+
+- **WHEN** `pi-apple-tools-install` runs outside the dashboard
+- **THEN** its iMCP write goes through the factory-built `mcp-client.config` implementation
+- **AND** the Apple-tools package contains no MCP configuration writer
+
+#### Scenario: Loader orders mcp-client first
+
+- **WHEN** both plugins are enabled
+- **THEN** `mcp-client` registers before `apple-tools`
+- **AND** `apple-tools` observes the `mcp-client.config` service during its own registration
+
+#### Scenario: Disabled dependency gates the plugin
+
+- **WHEN** `mcp-client` is disabled
+- **THEN** the plugins index reports `apple-tools` with `mcp-client` in `missingDeps`
+- **AND** the Apple-tools server plugin is not loaded
+
+#### Scenario: Cascade toggle warns
+
+- **WHEN** the operator toggles `mcp-client` off while `apple-tools` is enabled
+- **THEN** the host's cascade confirmation names `apple-tools` as a dependent
+
+#### Scenario: Settings section reports the missing dependency
+
+- **WHEN** the operator opens `/settings/plugins/apple-tools` while `mcp-client` is disabled or absent (after the restart that applies the toggle), so the Apple-tools row reads `enabled: true, loaded: false, missingDeps: ["mcp-client"]`
+- **THEN** the host chrome shows the row's status error naming `mcp-client`
+- **AND** the section body still mounts (the client enabled-set filter keys on `enabled`, not `loaded`) and shows a banner stating the MCP client plugin is required with an Enable link to the plugins index, derived from its own row's `missingDeps`
+- **AND** the run-installer action is not offered
