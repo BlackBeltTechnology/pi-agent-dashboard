@@ -1,0 +1,13 @@
+{
+  "$comment": "Integrity manifest for relay/vendor/playwright-core/ — see task 2.2 / scenario X14. Regenerate with: node -e \"const c=require('node:crypto'),f=require('node:fs'),p=require('node:path');const walk=d=>f.readdirSync(d,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(p.join(d,e.name)):[p.join(d,e.name)]);const o={};for(const fp of walk('relay/vendor/playwright-core').sort())o[fp.replace(/\\\\/g,'/')]=c.createHash('sha256').update(f.readFileSync(fp)).digest('hex');console.log(JSON.stringify({upstreamCommit:'d1ead3ecca23182f2d06d761c28e3d4edafb6595',files:o},null,2))\" (run from packages/browser-plugin/src/server). Any drift = a vendored file was edited — refresh is re-copy, never edit (see vendor/NOTICE).",
+  "upstreamCommit": "d1ead3ecca23182f2d06d761c28e3d4edafb6595",
+  "files": {
+    "relay/vendor/playwright-core/src/server/registry/index.ts": "4c5a9678c710871a30a38d6e6839b42932ab5905ace611bae0c2b18ea6a6e29f",
+    "relay/vendor/playwright-core/src/tools/mcp/browserModel.ts": "e89261f77ef4d78935c051e42e50458e74066381cc6f071196a112e5fe96110b",
+    "relay/vendor/playwright-core/src/tools/mcp/cdpRelay.ts": "5f19dfb0034a2877029c36e5a4c665082ff27a1b0af22374f8f796f91d98078d",
+    "relay/vendor/playwright-core/src/tools/mcp/cdpRelayV2.ts": "db32c68ffe422bfef9e477f23d062c79c79150ca9c5b3503618d26a7524e1556",
+    "relay/vendor/playwright-core/src/tools/mcp/log.ts": "a770eaf6e1ce798d60a1ec741bc3629eafc6e912c0bd7ae2bbfe4859bab461ab",
+    "relay/vendor/playwright-core/src/tools/mcp/protocol.ts": "041f648b328631e0cb54bd7de37f003d54b01d6701b98f3757f6e059eb1a7598",
+    "relay/vendor/playwright-core/src/tools/utils/extension.ts": "5252eedcae5890cf1402ef98bef24bc046483680700bdb04dc0794e0a4428a62"
+  }
+}

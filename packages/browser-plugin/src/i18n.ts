@@ -1,0 +1,91 @@
+/**
+ * Browser plugin i18n catalog — UNPREFIXED leaf keys.
+ *
+ * The generated plugin registry imports the `catalog` named export (declared
+ * as `i18nCatalog` in package.json's `pi-dashboard-plugin` manifest) and the
+ * shell merges it under `plugin.browser.*`. Component code resolves keys via
+ * the scoped `useT()` hook, which auto-prefixes `plugin.browser.`.
+ *
+ * zh-CN and hu MUST keep parity (identical key sets). {var} placeholders are
+ * preserved verbatim so `t(key, vars)` can interpolate.
+ *
+ * See change: add-browser-relay (task 4.4).
+ */
+export const catalog = {
+  "zh-CN": {
+    loading: "加载中…",
+    settingsError: "浏览器中继设置不可用。",
+    settingsIntro: "通过 Playwright 扩展将已登录的 Chrome 中继到 pi 会话。",
+    enabledLabel: "已启用",
+    cannotOpenChrome: "此主机无法自动打开 Chrome。请自行以中继扩展启动 Chrome，然后连接。",
+    profilesWarning: "无法读取 Chrome 配置文件（{path}）；显示默认配置文件。",
+    noProfiles: "未找到 Chrome 配置文件。",
+    installed: "扩展已安装",
+    notInstalled: "扩展未安装",
+    tokenSet: "令牌已设置",
+    tokenMissing: "无令牌",
+    notConnected: "未连接",
+    connectedTabs: "已连接 · {n} 个标签页",
+    connect: "连接",
+    disconnect: "断开",
+    relayDisabled: "浏览器中继已禁用",
+    installExtension: "安装 Playwright 扩展",
+    tokenPlaceholder: "粘贴配对令牌",
+    saveToken: "保存令牌",
+    zeroDialogLabel: "零对话框（跳过 Chrome 的允许提示）",
+    zeroDialogHelp: "需要有效令牌。令牌不匹配、拒绝或未响应都会表现为 60 秒超时。",
+    allowedDomainsLabel: "允许的域名",
+    allowedDomainsHelp: "仅限制 Page.navigate 与 Target.createTarget — 不影响其他网络流量。",
+    auditTitle: "审计记录",
+    auditEmpty: "暂无审计记录。",
+    instanceTabs: "{n} 个标签页",
+    liveViewTitle: "实时浏览器视图",
+    close: "关闭",
+    noTabs: "没有实时浏览器标签页。",
+    waitingFrame: "等待画面…",
+    noFramesOverlay: "无重绘 — 标签页可能空闲或在后台",
+    bringToFront: "置于前台",
+    devtoolsOverlay: "此标签页打开了 DevTools — 关闭它以恢复",
+    relayBadge: "{n} 个浏览器标签页",
+    untitledTab: "未命名标签页",
+    frameAlt: "实时浏览器画面",
+  },
+  hu: {
+    loading: "Betöltés…",
+    settingsError: "A böngésző-közvetítő beállításai nem érhetők el.",
+    settingsIntro: "A bejelentkezett Chrome közvetítése egy pi munkamenetbe a Playwright bővítményen keresztül.",
+    enabledLabel: "Engedélyezve",
+    cannotOpenChrome: "Ez a gép nem tudja automatikusan megnyitni a Chrome-ot. Indítsa el a Chrome-ot a közvetítő bővítménnyel, majd csatlakozzon.",
+    profilesWarning: "A Chrome profilok nem olvashatók ({path}); alapértelmezett profil megjelenítése.",
+    noProfiles: "Nem található Chrome profil.",
+    installed: "Bővítmény telepítve",
+    notInstalled: "Bővítmény nincs telepítve",
+    tokenSet: "Token beállítva",
+    tokenMissing: "Nincs token",
+    notConnected: "Nincs csatlakozva",
+    connectedTabs: "Csatlakozva · {n} lap",
+    connect: "Csatlakozás",
+    disconnect: "Leválasztás",
+    relayDisabled: "Böngésző-közvetítő letiltva",
+    installExtension: "A Playwright bővítmény telepítése",
+    tokenPlaceholder: "Párosítási token beillesztése",
+    saveToken: "Token mentése",
+    zeroDialogLabel: "Nulla párbeszéd (Chrome engedélykérés kihagyása)",
+    zeroDialogHelp: "Érvényes tokent igényel. A nem egyező token, az elutasítás és a válasz hiánya egyaránt 60 másodperces időtúllépésként jelenik meg.",
+    allowedDomainsLabel: "Engedélyezett domainek",
+    allowedDomainsHelp: "Csak a Page.navigate és a Target.createTarget hívásokat őrzi — más hálózati forgalmat nem.",
+    auditTitle: "Napló",
+    auditEmpty: "Nincs naplóbejegyzés.",
+    instanceTabs: "{n} lap",
+    liveViewTitle: "Élő böngészőnézet",
+    close: "Bezárás",
+    noTabs: "Nincs élő böngészőlap.",
+    waitingFrame: "Várakozás képkockára…",
+    noFramesOverlay: "Nincs újrarajzolás — a lap lehet tétlen vagy háttérben",
+    bringToFront: "Előtérbe",
+    devtoolsOverlay: "A DevTools nyitva van ezen a lapon — zárja be a folytatáshoz",
+    relayBadge: "{n} böngészőlap",
+    untitledTab: "Névtelen lap",
+    frameAlt: "Élő böngésző képkocka",
+  },
+} as const;

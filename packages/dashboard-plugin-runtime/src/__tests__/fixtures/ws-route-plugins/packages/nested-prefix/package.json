@@ -1,0 +1,4 @@
+{
+  "name": "nested-prefix",
+  "pi-dashboard-plugin": { "id": "nested-prefix", "displayName": "nested-prefix", "claims": [], "server": "./server.mjs" }
+}

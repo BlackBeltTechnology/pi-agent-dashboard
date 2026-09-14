@@ -5,20 +5,20 @@
  * Validates against the plugin's configSchema (if declared).
  * Broadcasts plugin_config_update to all subscribed browsers.
  */
-import type { FastifyInstance } from "fastify";
+
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
 import {
-  getPluginStatusStore,
-  discoverPlugins,
-} from "@blackbelt-technology/dashboard-plugin-runtime/server";
-import {
-  validatePluginConfig,
   applySchemaDefaults,
+  discoverPlugins,
+  getPluginStatusStore,
+  redactWriteOnly,
+  validatePluginConfig,
 } from "@blackbelt-technology/dashboard-plugin-runtime/server";
-import type { NetworkGuard } from "./route-deps.js";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { FastifyInstance } from "fastify";
+import type { NetworkGuard } from "./route-deps.js";
 
 const CONFIG_DIR = path.join(os.homedir(), ".pi", "dashboard");
 const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
@@ -34,8 +34,8 @@ function readRawConfig(): Record<string, unknown> {
 
 function writeRawConfig(merged: Record<string, unknown>): void {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  const tmpFile = CONFIG_FILE + ".tmp." + process.pid;
-  fs.writeFileSync(tmpFile, JSON.stringify(merged, null, 2) + "\n");
+  const tmpFile = `${CONFIG_FILE}.tmp.${process.pid}`;
+  fs.writeFileSync(tmpFile, `${JSON.stringify(merged, null, 2)}\n`);
   fs.renameSync(tmpFile, CONFIG_FILE);
 }
 
@@ -116,14 +116,18 @@ export function registerPluginConfigRoutes(
       const updatedConfig = { ...existing, plugins: updatedPlugins };
       writeRawConfig(updatedConfig);
 
-      // Broadcast to all subscribed browsers
+      // Broadcast to all subscribed browsers. writeOnly fields (e.g. the
+      // browser plugin's per-profile SSO tokens) are stripped first — they
+      // must never cross to a client, and neither may the POST response echo
+      // one back. Spec add-browser-relay, browser-plugin-settings F2 / GAP A.
+      const outbound = schema ? redactWriteOnly(merged, schema) : merged;
       broadcast({
         type: "plugin_config_update",
         id,
-        config: merged,
+        config: outbound,
       });
 
-      return reply.status(200).send({ success: true, config: merged });
+      return reply.status(200).send({ success: true, config: outbound });
     },
   );
 }

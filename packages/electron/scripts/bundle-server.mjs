@@ -135,6 +135,7 @@ const BUNDLED_PLUGINS = [
   "mcp-client-plugin",
   "cost-estimator",
   "quota-plugin",
+  "browser-plugin",
 ];
 const BUNDLED_PLUGINS_DIR = path.join(SERVER_BUNDLE, "resources", "plugins");
 mkdirSync(BUNDLED_PLUGINS_DIR, { recursive: true });

@@ -15,6 +15,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
@@ -421,6 +422,35 @@ export function usePluginRouter(): PluginRouter {
   const ctx = useContext(PluginReactContext);
   if (!ctx) throw new Error("Slot consumer must be rendered inside <PluginContextProvider>");
   return ctx.pluginRouter;
+}
+
+/**
+ * @public — subscribe to ONE server→browser message type on the shell's
+ * dashboard WebSocket. A plugin that owns a global (non-session) surface —
+ * e.g. the browser relay's `browser_relay_status` / `browser_relay_frame` —
+ * reads those frames here; `usePluginSend` is the write half. The handler is
+ * held in a ref so an inline closure does not re-subscribe every render; a
+ * malformed frame is ignored. No-op while the shell has no socket (the effect
+ * re-runs when `ws` appears).
+ */
+export function usePluginMessage<T = unknown>(type: string, handler: (msg: T) => void): void {
+  const ctx = useContext(PluginReactContext);
+  const ws = ctx?.ws ?? null;
+  const handlerRef = useRef(handler);
+  handlerRef.current = handler;
+  useEffect(() => {
+    if (!ws) return;
+    function onMessage(evt: MessageEvent) {
+      try {
+        const msg = JSON.parse(evt.data as string);
+        if (msg?.type === type) handlerRef.current(msg as T);
+      } catch {
+        /* a malformed frame must not break the socket */
+      }
+    }
+    ws.addEventListener("message", onMessage);
+    return () => ws.removeEventListener("message", onMessage);
+  }, [ws, type]);
 }
 
 // ── Registry accessor ─────────────────────────────────────────────────────────

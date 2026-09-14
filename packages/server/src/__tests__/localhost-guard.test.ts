@@ -40,6 +40,13 @@ describe("isBypassedHost", () => {
     expect(isBypassedHost("10.0.1.5", ["10.0.0.*"])).toBe(false);
   });
 
+  it("treats a regex metacharacter in a wildcard entry as a literal, not a pattern", () => {
+    // A config entry is DATA: only `*` is a wildcard. `\d+` must not become a
+    // regex (CodeQL "incomplete string escaping").
+    expect(isBypassedHost("10.0.0.1", ["10.0.0.\\d+"])).toBe(false);
+    expect(isBypassedHost("1.1.1.1", ["10.0.0.*|1.1.1.*"])).toBe(false);
+  });
+
   it("should match CIDR", () => {
     expect(isBypassedHost("192.168.1.42", ["192.168.1.0/24"])).toBe(true);
     expect(isBypassedHost("192.168.2.1", ["192.168.1.0/24"])).toBe(false);

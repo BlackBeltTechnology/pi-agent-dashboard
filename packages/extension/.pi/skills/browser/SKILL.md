@@ -1,8 +1,8 @@
 ---
 name: browser
-description: 'Browser automation via the `agent-browser` CLI. Use when the user needs to drive websites or Electron desktop apps — navigating, filling forms, clicking, screenshots, extracting data, testing web apps, visual UI checks, the Pi Dashboard''s Electron shell, or the user''s own logged-in browser (SSO/2FA sites). Triggers: "open a website", "take a screenshot", "test this web app", "use my own browser".'
+description: 'Browser automation via the `agent-browser` CLI. Use when the user needs to drive websites or Electron apps — navigating, forms, clicks, screenshots, data extraction, testing web apps, UI checks, the dashboard Electron shell, or the user''s own logged-in Chrome via the browser relay or Panerelay (SSO/2FA). Triggers: "open a website", "take a screenshot", "test this web app", "use my own browser".'
 license: Apache-2.0
-allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*), Bash(npx @panerelay/setup:*)
+allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*), Bash(npx @panerelay/setup:*), Bash(curl:*)
 metadata:
   author: pi-dashboard
   version: "1.2"
@@ -25,9 +25,14 @@ Three recipes:
   a worked example for the Pi Dashboard's own shell via `--debug-cdp`.
   Reference: [`references/electron.md`](references/electron.md).
 - **The user's own logged-in browser** — reach SSO/2FA-gated sites using the
-  user's real cookies via an extension bridge (Panerelay), plus how to list
-  and select Chrome profiles.
-  Reference: [`references/own-browser.md`](references/own-browser.md).
+  user's real cookies. Two paths:
+  - **Pi Dashboard browser relay** (preferred when the pi session runs on the
+    dashboard host) — pair the Playwright Chrome Extension, connect to a
+    loopback CDP URL. Reference:
+    [`references/dashboard-relay.md`](references/dashboard-relay.md).
+  - **Panerelay extension bridge** (legacy) — a native-messaging host for when
+    there is no loopback dashboard. Reference:
+    [`references/own-browser.md`](references/own-browser.md).
 
 ## Step 0a — Preflight: `agent-browser` CLI must be installed
 
@@ -75,7 +80,9 @@ else
   CDP_LIVE=$(nc -z 127.0.0.1 9222 2>/dev/null && echo yes || echo no)
 fi
 PD_RUNNING=$(pgrep -f "Pi Dashboard|pi-dashboard" >/dev/null 2>&1 && echo yes || echo no)
-echo "CDP_LIVE=$CDP_LIVE PD_RUNNING=$PD_RUNNING"
+# Browser relay: the dashboard's own capability probe (see dashboard-relay.md).
+RELAY=$(curl -fsS http://localhost:8000/api/browser/status 2>/dev/null || echo unavailable)
+echo "CDP_LIVE=$CDP_LIVE PD_RUNNING=$PD_RUNNING RELAY=$RELAY"
 ```
 
 Routing rule:
@@ -97,11 +104,21 @@ launching any Electron app with `--remote-debugging-port`.
 
 **Override (login state)**: if the target needs the user's *existing*
 session — "use my browser", "I'm already logged in", SSO/2FA, an internal
-tool the agent cannot sign into — route to `references/own-browser.md`
-regardless of the probe. The default bundled browser starts logged out and
-cannot be made to inherit those logins; `--profile` copies the profile and
-still loses macOS Keychain-encrypted cookies. Prefer the bundled browser
-whenever login state is irrelevant — it is faster and more capable.
+tool the agent cannot sign into — route to a login-state recipe regardless of
+the probe. Pick by capability, in this order:
+
+1. **`references/dashboard-relay.md`** when the pi session runs on the
+   dashboard host and the probe's `RELAY` is a JSON object with
+   `"enabled":true` and `"canOpenChrome":true`. This is the preferred path;
+   it needs no extra install and the dashboard holds the pairing token.
+2. **`references/own-browser.md`** (legacy Panerelay bridge) only when the
+   relay is unavailable (`RELAY=unavailable`) or the session is remote.
+
+The default bundled browser starts logged out and cannot be made to inherit
+those logins; `--profile` copies the profile and still loses macOS
+Keychain-encrypted cookies. Prefer the bundled browser whenever login state is
+irrelevant — it is faster and more capable. **Never** fall back to it for a
+login-state task.
 
 ## Step 1 — Read the matched recipe and execute
 
@@ -120,8 +137,13 @@ switch `--session`, `--profile`, or provider, and do not run `close --all`.
   snapshots of upstream `agent-browser` skill content (`core` and
   `electron`) at CLI version 0.27.0. See [`UPSTREAM.md`](UPSTREAM.md) for
   refresh procedure and [`LICENSE`](LICENSE) for upstream attribution.
-  `references/own-browser.md` and `references/challenge.md` are
-  **authored, not vendored** — an upstream refresh must not overwrite either.
+  `references/own-browser.md`, `references/dashboard-relay.md`, and
+  `references/challenge.md` are **authored, not vendored** — an upstream
+  refresh must not overwrite them.
+- **Login-state recipes**: `references/dashboard-relay.md` is the preferred
+  path (Pi Dashboard browser relay); `references/own-browser.md` is the legacy
+  Panerelay/native-messaging path for remote sessions with no loopback
+  dashboard.
 - **Surfaces share one browser**: the `browser` MCP tool and
   `Bash: agent-browser …` drive the *same* daemon and *same* Chrome, with a
   shared active page. Probing with one mid-task can silently move the page

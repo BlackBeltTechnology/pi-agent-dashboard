@@ -32,6 +32,7 @@ describe("browser skill — required files present", () => {
     "LICENSE",
     "references/web.md",
     "references/electron.md",
+    "references/dashboard-relay.md",
     "references/challenge.md",
     "scripts/detect-dashboard.sh",
   ]) {
@@ -54,6 +55,16 @@ describe("browser skill — SKILL.md frontmatter", () => {
   it("declares allowed-tools with agent-browser bash patterns", () => {
     expect(src).toMatch(/allowed-tools:.*Bash\(agent-browser:\*\)/);
     expect(src).toMatch(/Bash\(npx agent-browser:\*\)/);
+  });
+
+  it("declares the panerelay + curl grants (E30)", () => {
+    expect(src).toMatch(/Bash\(npx @panerelay\/setup:\*\)/);
+    expect(src).toMatch(/Bash\(curl:\*\)/);
+  });
+
+  it("routes login-state tasks to the dashboard relay before the legacy Panerelay recipe", () => {
+    expect(src).toContain("references/dashboard-relay.md");
+    expect(src).toMatch(/dashboard-relay\.md.*preferred|preferred.*dashboard-relay\.md/is);
   });
 
   it("documents the Step-0 preflight halt message", () => {
@@ -155,6 +166,27 @@ describe("browser skill — package.json registration", () => {
 
   it("files[] ships .pi/skills/browser/", () => {
     expect(pkgJson.files).toContain(".pi/skills/browser/");
+  });
+});
+
+describe("browser skill — dashboard relay routing branches (X15)", () => {
+  const relay = fs.readFileSync(
+    path.join(skillDir, "references", "dashboard-relay.md"),
+    "utf-8",
+  );
+
+  it.each([
+    ["404 (plugin absent)", /`404`[\s\S]*not usable/i],
+    ["enabled:false → enable", /"enabled":false[\s\S]{0,120}enable/i],
+    ["canOpenChrome:false → 503 / stop", /"canOpenChrome":false[\s\S]{0,160}503/i],
+    ["409 not-installed", /`409`[\s\S]{0,40}`not-installed`/],
+    ["409 busy", /`409`[\s\S]{0,40}`busy`/],
+    ["504 timeout", /`504`[\s\S]{0,120}60 s/i],
+    ["deny-list is a loud -32000", /-32000/],
+    ["loopback requirement", /loopback/i],
+    ["never fall back to the bundled browser", /Never fall back to the bundled browser/i],
+  ])("dashboard-relay.md documents %s", (_label, pattern) => {
+    expect(relay).toMatch(pattern);
   });
 });
 

@@ -5,27 +5,29 @@
  * Both the Vite plugin and loadServerEntries share the discovery result
  * via a module-level cache.
  */
+
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import url from "node:url";
-import crypto from "node:crypto";
-import { validateManifest, ManifestValidationError } from "../manifest-validator.js";
 import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
-import type { ServerPluginContext } from "./server-context.js";
-import { createPluginStatusStore, type PluginStatusStore } from "./plugin-status-store.js";
-import {
-  runRequirementProbes,
-  missingFromReport,
-  setCachedReport,
-  type RequirementProbeDeps,
-} from "./requirement-probes.js";
 import {
   buildGraph,
   detectCycles,
   topologicalSort,
   transitiveDependents,
 } from "../dependency-graph.js";
+import { validateManifest } from "../manifest-validator.js";
+import { createPluginStatusStore, type PluginStatusStore } from "./plugin-status-store.js";
+import {
+  missingFromReport,
+  type RequirementProbeDeps,
+  runRequirementProbes,
+  setCachedReport,
+} from "./requirement-probes.js";
+import type { ServerPluginContext } from "./server-context.js";
+import { getWsRouteRegistry } from "./ws-route-registry.js";
 
 // ── Discovery cache ────────────────────────────────────────────────────────
 
@@ -417,6 +419,11 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
     }
 
     if (!enabled) {
+      // Loader-level disable (toggle off): tear down any WS routes the
+      // plugin's last activation registered — a disabled plugin's prefixes
+      // must not stay live (spec add-browser-relay / plugin-ws-route). No-op
+      // for a plugin that owns none.
+      getWsRouteRegistry().teardownPlugin(manifest.id);
       store.setStatus({
         id: manifest.id,
         displayName: manifest.displayName,
@@ -445,12 +452,19 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
     }
 
     const ctx = deps.createContext(plugin);
+    // Open the plugin's WS-route activation window around its server entry:
+    // `ctx.registerWsRoute` succeeds only inside this window (spec
+    // add-browser-relay / plugin-ws-route). Re-activation (toggle off → on,
+    // next loadServerEntries pass) opens a fresh window so the plugin
+    // registers again.
+    getWsRouteRegistry().beginActivation(manifest.id);
     try {
       const mod = await import(plugin.serverEntryPath);
       if (typeof mod.default !== "function") {
         throw new Error(`Server entry at ${plugin.serverEntryPath} has no default export function`);
       }
       await mod.default(ctx);
+      getWsRouteRegistry().endActivation(manifest.id);
       store.setStatus({
         id: manifest.id,
         displayName: manifest.displayName,
@@ -463,6 +477,9 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
       loadedIds.add(manifest.id);
       console.info(`[plugin-loader] Loaded plugin "${manifest.id}"`);
     } catch (e) {
+      // A failed activation must not leave its WS routes live (spec
+      // add-browser-relay / plugin-ws-route: disable OR failure tears down).
+      getWsRouteRegistry().teardownPlugin(manifest.id);
       const msg = e instanceof Error ? e.message : String(e);
       store.setStatus({
         id: manifest.id,

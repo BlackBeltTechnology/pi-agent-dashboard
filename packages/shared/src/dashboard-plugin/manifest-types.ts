@@ -168,6 +168,18 @@ export interface PluginManifest {
   bridge?: string;
   /** Optional relative path to a JSON Schema 7 file for plugin config validation. */
   configSchema?: string;
+  /**
+   * Whether the plugin is enabled when `plugins.<id>.enabled` is unset in
+   * `~/.pi/dashboard/config.json`. Defaults to true (the historical
+   * `enabled !== false` behaviour). A plugin carrying real-user surface —
+   * e.g. the browser relay driving the operator's SSO Chrome — sets
+   * `defaultEnabled: false` so it ships opt-in.
+   * Honoured by the server-side enabled checks (loader `isEnabled`, toggle
+   * impact graph) and reported via `/api/health.plugins[].enabled`, which the
+   * client's enabled-set consumes — no client change needed.
+   * See change: add-browser-relay (GAP B).
+   */
+  defaultEnabled?: boolean;
   /** Slot claims. */
   claims: PluginClaim[];
   /**

@@ -4957,3 +4957,76 @@ flowchart TD
 - Origin derived from the authenticated bridge credential, never bridge-claimed (`attributeOrigin`, `packages/server/src/session/session-origin.ts`). unix / loopback → local. Remote + `deviceId` → remote. Unattributable remote → remote, fail closed. Claimed fields (`claimedDeviceId`, `claimedLocal`, …) ignored.
 - Remote-origin sessions refuse local file reads (`mayReadLocalSessionFile`: `remote-origin` | `no-session-file`) — same-username path collision would serve an unrelated host's transcript.
 - Remote-origin sessions refuse resume (`decideResume`: `remote-origin-ended` | `remote-origin-live`) — local resume would attach a writer to another host's transcript. Read-only after bridge ends (D13).
+
+## Browser relay (plugin-owned WS scopes + screencast tap)
+
+Drive the user's real logged-in Chrome from a pi session. Plugin-owned (`packages/browser-plugin/`), opt-in (`defaultEnabled:false`). Ground truth: `openspec/changes/add-browser-relay/design.md` (D1–D9), `packages/browser-plugin/src/server/{ws-routes,status,routes,index}.ts`, `relay/{relay-manager,relay-instance,screencast-tap,viewer-input}.ts`, `packages/dashboard-plugin-runtime/src/server/ws-route-registry.ts`.
+
+See change: add-browser-relay. Research record: [`research/browser-relay-playwright-extension.md`](research/browser-relay-playwright-extension.md).
+
+### Connect → relay → viewer flow
+
+```mermaid
+sequenceDiagram
+  participant Agent as pi session (agent)
+  participant Dash as Dashboard server (core)
+  participant Mgr as RelayManager (plugin)
+  participant Ext as Playwright Chrome Extension
+  participant Chrome as User Chrome
+  participant Viewer as Dashboard /ws viewer
+  Agent->>Dash: POST /api/browser/connect {profileDirectory}
+  Dash->>Mgr: connect(profileDirectory)
+  Mgr->>Mgr: mint 128-bit guid + public instanceId
+  Mgr->>Chrome: open connect.html?mcpRelayUrl=ws://127.0.0.1:<port>/ws/browser-ext/<guid> --profile-directory=<dir>
+  Ext->>Dash: WS upgrade /ws/browser-ext/<guid>
+  Note over Dash: core gates: host -> pinned origin -> genuinely-local; then plugin handleUpgrade
+  Dash->>Mgr: attachExtension(guid, ws)
+  Mgr-->>Agent: {cdpUrl, instanceId}
+  Agent->>Dash: agent-browser connect ws://127.0.0.1:<port>/ws/browser-cdp/<guid>
+  Note over Dash: core gates; handler refuses ANY Origin header
+  Dash->>Mgr: attachCdp(guid, ws)
+  Agent->>Ext: CDP commands (deny-list verbs answered -32000)
+  Viewer->>Dash: /ws browser_relay_subscribe {instanceId, tabId}
+  Dash->>Ext: Page.startScreencast (tap)
+  Ext-->>Viewer: browser_relay_frame PER socket (jpeg)
+  Dash-->>Viewer: browser_relay_status broadcast
+```
+
+### Plugin WS-scope admission (all in core, before `handleUpgrade`)
+
+- Two scopes: `browser-ext` = `/ws/browser-ext/<guid>`; `browser-cdp` = `/ws/browser-cdp/<guid>`. Registered via `ctx.registerWsRoute` during plugin activation.
+- Gate order: host admission → origin admission → genuinely-local peer. Then the plugin's `handleUpgrade` owns the guid.
+- `admitOrigins` non-empty = exact-match, REPLACES the dashboard origin policy. `browser-ext` pins `chrome-extension://mmlmfjhmonkocbjadbfplnigmagldckm`; a loopback page origin (`http://localhost:5173`) is refused there.
+- `admitOrigins` empty = core policy applies. `browser-cdp` uses empty AND its handler refuses any request carrying an `Origin` header — web content always sends one, a CDP client never does.
+- Genuinely-local = loopback remote address AND loopback `Host` (`127.0.0.1` / `[::1]` / `localhost`, any port) AND none of 8 forwarding headers (`x-forwarded-*`, `x-real-ip`, `forwarded`, `via`). Tunnel reachability never depends on whether the proxy injects markers.
+- Cookies, local IPC token, single-use tickets, trusted-CIDR bypass NEVER run for a plugin scope. The guid is the only credential. `POST /api/ws-ticket` refuses to mint for a plugin scope.
+- Registrations are per activation: toggle off tears down (sockets close 1001, prefixes 404); toggle on registers afresh.
+
+### Address model
+
+- **guid** = 128 bits of randomness, minted per connect. Socket credential. In the path of both relay endpoints. Never logged, never persisted, never returned to a browser client.
+- **`instanceId`** = short public handle (`inst-…`) for the UI and audit. Cannot open a socket.
+- Deliberately NO cdpUrl-lookup endpoint: REST calls carry no pi-session identity, so a profile-keyed lookup could hand one local process another session's tab group. The caller keeps the `cdpUrl` from `connect`.
+- No secret reaches a client: the pairing token is `writeOnly` in `configSchema.json`, stripped by `redactPluginConfigForClient` (fails CLOSED — unloadable schema → `{}`), and written through `PUT /api/browser/profile` which merges server-side against the unredacted config.
+
+### Lifecycle (each end is a real leak otherwise)
+
+- A minted guid never claimed within 60 s expires (the user never allowed, or token mismatch — indistinguishable, one 504).
+- An instance closes when its extension socket closes, when its CDP client socket closes (the agent's task is over), and 30 s after the handshake with no CDP client (agent crashed, or the pi session is not on the dashboard host and cannot dial `127.0.0.1`).
+- Kill switch (`PUT /api/browser/enabled {false}`) persists config first, bumps a `disableEpoch` (a connect in flight re-checks it after each await), then closes every instance; the response returns only after all are gone.
+- Plugin disable rides the WS-socket tracking: the loader's `teardownPlugin` closes tracked sockets 1001 → `RelayInstance` finalizes → the Chrome tab group releases.
+
+### Screencast tap + viewer plane
+
+- One `ScreencastTap` per `(instance, tabId)` with ≥1 viewer. It is an in-process listener on the relay's CDP stream — the extension allows one `chrome.debugger` session per tab, so a second session is impossible.
+- Frames for a tapped session are FILTERED OUT of the CDP-client stream; a client `Page.startScreencast` on a tapped tab is denied. A client screencast already running on a tab wins: the viewer subscribe is refused `client-screencast-active`.
+- Frames are sent PER viewer socket (the only way `bufferedAmount` backpressure can skip ONE viewer); `browser_relay_status` (instance list, per-tab state, monotonic `auditSeq`) IS broadcast, coalesced ≤1 per 500 ms on audit append.
+- Viewer input is allowlisted to `Input.dispatchMouseEvent` / `Input.dispatchKeyEvent` / `Input.synthesizeScrollGesture` / `Page.bringToFront`; coordinates are normalized `[0,1]` of the rendered frame, scaled server-side by the last frame's device geometry. No `Runtime.*` path.
+- Deny-list: cookie reads (`Storage.getCookies`, `Network.getCookies`, `Network.getAllCookies`) + `Browser.setDownloadBehavior` always refused; `Page.navigate` / `Target.createTarget` fenced off `file:` / `javascript:` / `data:` / `blob:` and (when `allowedDomains` is non-empty) off host-less/outside-list URLs. A refusal is a CDP error `-32000` — loud, never a silent skip.
+- No-frames detector: no frame for 2 s → tab state `no-frames` (a hidden tab AND a visible idle tab both produce zero frames, so the tile wording stays neutral). DevTools take-over → `detached` + `reason:"devtools"`, input stops.
+
+### Client surfaces (plugin)
+
+- `settings-section` → `BrowserSettings`: profile rows keyed by `profileDirectory` (label, email, `installed`, `hasToken`, instances/tab count), write-only token input, `Zero-dialog` toggle, `allowedDomains` editor, Connect/Disconnect per `instanceId`, kill switch, Web Store link, capability notice; `AuditList` per profile.
+- `session-card-badge` → `BrowserRelayBadge`: always-mounted `browser_relay_status` subscriber. The relay is GLOBAL (no pi-session linkage), so this module-store feed is what lets the hook-less `content-view` predicate `isLiveViewActive` see it.
+- `content-view` → `LiveViewTile`: one tile per `{instanceId, tabId}`; subscribe/unsubscribe lifecycle, JPEG frames, pointer/key/wheel → normalized `browser_relay_input`, no-frames + DevTools overlays.

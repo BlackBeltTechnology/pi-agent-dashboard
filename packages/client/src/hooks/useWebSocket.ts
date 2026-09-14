@@ -11,6 +11,11 @@ const OFFLINE_THRESHOLD = 3;
 export function useWebSocket(url: string) {
   const wsRef = useRef<WebSocket | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
+  // The live socket, exposed for consumers that attach their OWN `message`
+  // listener instead of routing through `onMessage` (the plugin runtime's
+  // `usePluginMessage`). State, not the ref, so a (re)connect re-attaches them.
+  // See change: add-browser-relay.
+  const [ws, setWs] = useState<WebSocket | null>(null);
   const handlersRef = useRef<((msg: ServerToBrowserMessage) => void)[]>([]);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const backoffRef = useRef(1000);
@@ -23,6 +28,7 @@ export function useWebSocket(url: string) {
     try {
       const ws = new WebSocket(finalUrl);
       wsRef.current = ws;
+      setWs(ws);
 
       ws.onopen = () => {
         setStatus("connected");
@@ -42,6 +48,7 @@ export function useWebSocket(url: string) {
       };
 
       ws.onclose = () => {
+        setWs(null);
         failCountRef.current++;
         if (failCountRef.current >= OFFLINE_THRESHOLD) {
           // Check if it's an auth issue before marking as offline
@@ -126,5 +133,5 @@ export function useWebSocket(url: string) {
     };
   }, []);
 
-  return { send, onMessage, status };
+  return { send, onMessage, status, ws };
 }

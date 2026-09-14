@@ -12,6 +12,7 @@ import { McpSettingsClaim, FolderMcpSection, FolderMcpPage } from "@blackbelt-te
 import { BuiltInRolesSettings, catalog as roles_catalog } from "@blackbelt-technology/pi-dashboard-roles-plugin";
 import { SubagentsSettings, SubagentPopoutClaim, catalog as subagents_catalog } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
 import { BlackholeSettings, MemorySubcard, shouldRenderMemorySubcard, PipelineDetailView, isPipelineDetailActive, catalog as blackhole_catalog } from "@blackbelt-technology/pi-dashboard-blackhole-plugin";
+import { BrowserSettings, BrowserRelayBadge, LiveViewTile, isLiveViewActive, catalog as browser_catalog } from "@blackbelt-technology/pi-dashboard-browser-plugin";
 import { FlowsAnthropicBridgeSettings, catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
 import { QuotaWidget, QuotaSettings, catalog as quota_catalog } from "@blackbelt-technology/pi-dashboard-quota-plugin";
 
@@ -480,6 +481,39 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
+        "id": "browser",
+        "displayName": "Browser Relay",
+        "priority": 500,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "BrowserSettings"
+            },
+            {
+                "slot": "session-card-badge",
+                "component": "BrowserRelayBadge"
+            },
+            {
+                "slot": "content-view",
+                "component": "LiveViewTile",
+                "predicate": "isLiveViewActive"
+            }
+        ],
+        "client": "./src/client/index.tsx",
+        "server": "./src/server/index.ts",
+        "configSchema": "./configSchema.json",
+        "defaultEnabled": false,
+        "i18nCatalog": "catalog"
+    },
+    claims: [
+      { pluginId: "browser", priority: 500, slot: "settings-section", Component: BrowserSettings },
+      { pluginId: "browser", priority: 500, slot: "session-card-badge", Component: BrowserRelayBadge },
+      { pluginId: "browser", priority: 500, slot: "content-view", Component: LiveViewTile, predicate: isLiveViewActive },
+    ],
+    catalog: browser_catalog,
+  },
+  {
+    manifest: {
         "id": "flows-anthropic-bridge",
         "displayName": "Anthropic Messages Bridge",
         "priority": 500,
@@ -530,4 +564,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "23ca858edf1ae7e7d0c16e9daa0da6f3e9326f1fa4b9fd70e8e2cf2314e2ba0d";
+export const PLUGIN_REGISTRY_HASH = "4e1f10fbdbfd764dc7f026c43aabf87f0b79ab5a5b0aa4148cb68918a4ef080c";
