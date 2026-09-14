@@ -456,6 +456,32 @@ Every server→browser frame carries exactly one delivery class. `frameClassOf(m
 
 **Health.** `/api/health#droppedFrames` gains `coalescedState` (superseded pending entries) + `stalledSocketsTerminated` beside transcript/blocking counters. No dropped-state counter — no code path drops one. Coalesce ≠ drop: `total` does not increment.
 
+### Status reconcile — shed `session_updated` is a debt (change: fix-backpressure-status-and-subagent-frames)
+
+`session_updated` stays transcript-class. Carries no seq. No backfill answers it. No successor frame guaranteed. Long tool call emits status once, then session goes quiet — so ONE shed frame leaves the badge stale until reconnect/reload. Server therefore treats a shed `session_updated` as a **debt owed to that socket**.
+
+**Debt capture.** `broadcast()` derives `dirtyId = msg.type === "session_updated" ? msg.sessionId : undefined`, passes it to `fanout(serialized, stateKey, dirtyId)`. `fanout()` sees only the serialized string — cannot recover type or session id without parsing, so the id must come from the typed caller. Every other `fanout` caller (incl. `broadcastOpenSpecUpdateImpl`) passes `undefined`. Shed site records the id in per-socket `statusDebt: Map<WebSocket, { ids: Set<string>, timer }>`. **Ids only, never a payload** — cannot reach the pending-state byte ceiling, cannot move `stalledSocketsTerminated`.
+
+**Own timer.** `STATUS_RECONCILE_INTERVAL_MS = 250`, started when the set becomes non-empty, stopped when it empties. Deliberately NOT the pending-state interval: that one exists only when a *state* frame defers, and a socket saturated purely by transcript traffic never creates it.
+
+**Flush.** `flushStatusDebt(ws)` rebuilds `session_updated` from `sessionManager.get(id)` (`updates: { status, currentTool }`) while the socket is under threshold. Nothing stale is queued, so two partial `updates` never have to be merged. Missing session → debt discarded, no frame, `statusReconcileSent` not incremented.
+
+**Loop-safe.** Reconcile send carries `ctx.sessionId`, so a reconcile that is itself shed re-enters the debt at the drop site — eventually-delivered, not check-once. Re-entry is idempotent (a `Set`), so a persistent flood costs one id, not a growing queue.
+
+**Settled-value semantics.** Reconcile carries the CURRENT value. `idle → streaming → idle` entirely inside one shed window delivers one `idle`; the intermediate edge is not recovered.
+
+**Teardown.** Set + timer released on socket `close`, on socket `error`, and on the `sendState` stalled-socket `ws.terminate()` path.
+
+**Scope.** `session_updated` ONLY. `session_added` / `session_removed` / `sessions_reordered` stay transcript-class and stay unrecovered — create/delete/reorder are not idempotent re-pushes of one row.
+
+**No client change.** `useMessageHandler`'s `if (existing)` guard makes a reconcile for an unknown row a no-op. That guard is what stops a re-push resurrecting a row a shed `session_removed` deleted.
+
+**Health.** `/api/health#droppedFrames` gains `statusReconcileQueued` (ids recorded owed) + `statusReconcileSent` (reconcile frames re-sent). Both sit BESIDE the drop counters, never folded in — the reconcile must not mask the shed it recovers from. `/api/health#socketBufferOccupancy` = `{ max, p95, msAboveThreshold }` over browser-socket `bufferedAmount`; typed-zero fallback `EMPTY_SOCKET_BUFFER_OCCUPANCY`. Sampled at the send-decision sites, which already read `bufferedAmount` for the shed predicate — **not** on a timer. A periodic sampler was implemented first and rejected: it breaks the "zero timers on an unsaturated socket" invariant (`browser-gateway-critical-frames` P3/E9). Time-above-threshold uses a per-socket entry/exit span (`occupancyAboveSince`); the hot exit branch is gated on `size > 0`.
+
+**`msAboveThreshold` is OBSERVATION-based, not continuous wall-clock.** Sampling happens at send decisions, so a crossing that starts and ends between two decisions is never observed, and a reported duration is bounded by the samples that delimit it. `getSocketBufferOccupancy()` adds spans still open at read time (else an in-progress stall reports 0), and SETTLES a span whose socket has since drained or closed — without that, an event-driven sampler leaves such a span open forever and it grows on every health read (unbounded over-report). Settling deletes the entry, so a later exit cannot accrue it twice.
+
+**Test-only injector.** `POST /api/test/force-shed { enabled }` forces transcript-class frames to shed while leaving `bufferedAmount` untouched. Registered ONLY under `PI_E2E_FORCE_SHED=1` (set in `docker/compose.test.yml`, never a real image); still `networkGuard`-gated. Returns the effective state, so an unflagged server reports refusal instead of a silent no-op. Exists because real saturation is a browser failing to drain its own socket, which Playwright cannot induce. Drives `tests/e2e/status-reconcile.spec.ts`.
+
 ### Sessions snapshot window + paging (change: fix-connect-snapshot-frame-loss)
 
 On browser connect, gateway emits ONE `sessions_snapshot { sessions, orders, endedTotals }` — replaces per-session `session_added` / per-cwd `sessions_reordered` bootstrap loops; sent LAST (see Frame delivery policy). Live updates after snapshot keep incremental `session_added` / `session_updated` / `session_removed` / `sessions_reordered`.

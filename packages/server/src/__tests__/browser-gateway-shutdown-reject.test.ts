@@ -11,6 +11,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
+import { asWs, attachCapturedWs, buildDebtGateway } from "./helpers/status-debt-fixtures.js";
 
 // Reject only `handleShutdown`; every other handler the gateway imports keeps
 // its real implementation.
@@ -108,5 +109,42 @@ describe("browser-gateway — shutdown handler rejection is owned", () => {
       (args: unknown[]) => typeof args[0] === "string" && args[0].includes("[browser-gw] handler error"),
     ).length;
     expect(afterCount).toBe(1);
+  });
+});
+
+// ── Status-reconcile teardown on close (X2) ─────────────────────────────
+// A closed socket can never receive its owed reconciles; the set AND the
+// interval serving it must go with it, or the gateway leaks a timer per
+// disconnect. See change: fix-backpressure-status-and-subagent-frames.
+
+describe("socket close releases the status-reconcile debt (X2)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("drops the set and clears the interval; no callback fires afterwards", () => {
+    const { gateway } = buildDebtGateway(["s1"]);
+    const client = attachCapturedWs(gateway);
+    client.saturate();
+    gateway.broadcastSessionUpdated("s1", { status: "streaming" });
+
+    const before = gateway.getStatusReconcileInfo(asWs(client.ws));
+    expect(before?.owed).toEqual(["s1"]);
+    expect(before?.timerActive).toBe(true);
+
+    client.ws.close();
+
+    expect(gateway.getStatusReconcileInfo(asWs(client.ws))).toBeUndefined();
+    // Drain and let 10 intervals elapse: a surviving timer would fire here.
+    client.drain();
+    vi.advanceTimersByTime(10 * 250);
+    expect(client.statusFrames()).toHaveLength(0);
+    expect(gateway.getDroppedFrameStats().statusReconcileSent).toBe(0);
   });
 });
