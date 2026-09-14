@@ -2,8 +2,9 @@
  * Pure in-memory session registry.
  * Replaces SQLite-backed session-manager.ts.
  */
-import type { DashboardSession, SessionSource, SessionStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+
 import { pathKey } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
+import type { DashboardSession, SessionSource, SessionStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { deriveEndedAt, type EndedAtDeriver } from "./derive-ended-at.js";
 import { resolveOrderKey } from "./resolve-order-key.js";
 
@@ -281,9 +282,10 @@ export function createMemorySessionManager(
   const mgr: SessionManager = {
     register(params: RegisterSessionParams): DashboardSession {
       // Preserve accumulated data (tokens, cost) from a prior session with the
-      // same ID (e.g. restored after server restart). Git and openspec data are
-      // polled by the bridge extension shortly after reconnect, so they don't
-      // need to be carried over.
+      // same ID (e.g. restored after server restart). Openspec data is polled
+      // by the bridge extension shortly after reconnect, so it doesn't need to
+      // be carried over. `gitWorktree` is NOT re-polled when the worktree no
+      // longer exists, so it is carried over for a same-cwd reattach (below).
       const existing = sessions.get(params.id);
       const priorStatus = existing?.status;
 
@@ -309,6 +311,14 @@ export function createMemorySessionManager(
           // Preserve context usage until bridge sends fresh data
           contextTokens: existing.contextTokens,
           contextWindow: existing.contextWindow,
+          // Preserve resolved worktree parentage across a SAME-cwd reattach
+          // (server restart / bridge reconnect / resume). A different cwd
+          // starts unresolved and the bridge re-reports it. Without this, the
+          // reconnect cache reset forces a fresh `gitWorktree: null` while the
+          // guard has no `prior` to protect — re-opening the clear during the
+          // worktree-removal window. See design D2b.
+          // See change: fix-worktree-grouping-lost-on-remove.
+          gitWorktree: existing.cwd === params.cwd ? existing.gitWorktree : undefined,
         } : {
           tokensIn: 0,
           tokensOut: 0,

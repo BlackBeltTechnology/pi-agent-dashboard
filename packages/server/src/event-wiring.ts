@@ -1719,11 +1719,15 @@ export function wireEvents(deps: EventWiringDeps): void {
     if (msg.type === "git_info_update") {
       // Compose live worktree state from bridge + server-cached base ref
       // (loaded earlier from .meta.json by session-scanner / spawn flow).
-      // `null` clears, `undefined` leaves existing value untouched.
-      // See change: add-worktree-spawn-dialog.
+      // `null` clears unless parentage is already resolved (worktree removed
+      // underneath a live session — parentage is immutable once known);
+      // `undefined` leaves existing value untouched.
+      // See changes: add-worktree-spawn-dialog,
+      //               fix-worktree-grouping-lost-on-remove.
       const composedWorktree = composeWorktreePayload(
         msg.gitWorktree,
         sessionManager.get(sessionId)?.gitWorktreeBase,
+        sessionManager.get(sessionId)?.gitWorktree,
       );
       const gitUpdates: Record<string, unknown> = {
         gitBranch: msg.gitBranch,
@@ -1752,7 +1756,8 @@ export function wireEvents(deps: EventWiringDeps): void {
       }
       if (composedWorktree !== undefined) {
         // Map wire `null` → in-memory `undefined` so the field clears
-        // cleanly on the DashboardSession.
+        // cleanly on the DashboardSession (only reached when no prior
+        // parentage — a resolved value is retained by the composer).
         gitUpdates.gitWorktree = composedWorktree ?? undefined;
       }
       // Server-internal resolution signal: the bridge has reported worktree

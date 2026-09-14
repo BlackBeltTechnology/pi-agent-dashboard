@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { describe, it, expect } from "vitest";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it } from "vitest";
 import {
   createMemorySessionManager,
   type SnapshotOrders,
@@ -427,5 +427,26 @@ describe("memory-session-manager", () => {
     sm.update("s1", { tokensIn: 50 });
     sm.unregister("s1");
     expect(ids).toEqual(["s1", "s1", "s1"]);
+  });
+
+  // D2b: gitWorktree carried over only when cwd is unchanged, so a server
+  // restart / bridge reconnect during the worktree-removal window cannot
+  // re-open the clear. See change: fix-worktree-grouping-lost-on-remove.
+  describe("gitWorktree carry-over across reattach", () => {
+    it("E7: same-cwd reattach preserves parentage", () => {
+      const sm = createMemorySessionManager();
+      sm.register({ id: "w1", cwd: "/repo/.worktrees/x", source: "tui" });
+      sm.update("w1", { gitWorktree: { mainPath: "/repo", name: "x" } });
+      sm.register({ id: "w1", cwd: "/repo/.worktrees/x", source: "tui", registerReason: "reattach" });
+      expect(sm.get("w1")?.gitWorktree).toEqual({ mainPath: "/repo", name: "x" });
+    });
+
+    it("E8: different-cwd reattach resets parentage", () => {
+      const sm = createMemorySessionManager();
+      sm.register({ id: "w1", cwd: "/repo/.worktrees/x", source: "tui" });
+      sm.update("w1", { gitWorktree: { mainPath: "/repo", name: "x" } });
+      sm.register({ id: "w1", cwd: "/elsewhere", source: "tui" });
+      expect(sm.get("w1")?.gitWorktree).toBeUndefined();
+    });
   });
 });
