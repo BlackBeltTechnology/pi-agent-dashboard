@@ -262,6 +262,20 @@ internal-only symbols and dropped the redundant named `registerPlugin` export.
 
 - [x] 6.1 `security-hardening` pass on the full diff (`Audit` subagent): admission order, token handling (write-only, redaction), deny-list completeness, audit redaction, kill switch. Fix findings; record summary here.
 
+**6.2/6.3 outcome + DEVIATION:** `docs/architecture.md` gained a `## Browser relay
+(plugin-owned WS scopes + screencast tap)` section (Mermaid connect→relay→viewer
+sequence, the plugin WS-scope gate order, the guid/instanceId address model, the
+lifecycle ends, the tap/viewer plane, the client surfaces);
+`docs/research/browser-relay-playwright-extension.md` §8 was rewritten from
+"NOT written" to a shipped status (relay in the plugin, the real REST surface, no
+cdpUrl lookup, live-view tile delivered) and its sidecar refreshed. Source-tree
+DOX rows were added by the main agent (`config-redact.ts`, `plugin-enabled.ts`,
+`shared/src/platform/system-open.ts`, the new skill-reference record). **Deviation:**
+the `DocScribe` subagent returned empty output twice (no file changes), so the
+`docs/` writes were done by the main agent in caveman style — review should
+re-check the prose against the DocScribe rule. `docs/AGENTS.md` needed no new row
+(no new docs file).
+
   **6.1 outcome — `Audit` pass, 1 blocking + 3 non-blocking findings, all fixed:**
 
   - **[blocking] `redactPluginConfigForClient` failed OPEN** (`dashboard-plugin-runtime/src/server/config-redact.ts`): when the plugin was not discovered, or its declared `configSchema` was missing/unreadable/unparseable, it returned the config VERBATIM — so a packaging/permission/parse failure would broadcast every profile's `writeOnly` SSO token to all clients. **Fixed: fail closed** — unresolvable plugin or unloadable schema → `{}` + a log; only a resolved plugin with NO declared schema passes through. Tests added (loads-strips, missing file, malformed JSON, unknown id, no-schema) in `config-redact.test.ts`.
@@ -271,8 +285,8 @@ internal-only symbols and dropped the redundant named `registerPlugin` export.
   - **Deliberate non-fix**: the deny-list fences cookie READS + download behavior (per spec), not cookie writes/clears (`Network.setCookie` etc.). Recorded as intent; adding write verbs would exceed the spec's enumerated set and break E12's exact-verb contract.
 
   **Verified clean by the audit:** plugin-scope WS admission returns before every credential branch (cookie/localToken/ticket/CIDR cannot admit a plugin scope); pinned-origin exact-match replaces the core policy; loopback peer+Host+8 forwarding headers enforced; guid never logged/persisted/returned to a client; token never rendered and only in PUT bodies; audit `detail` string-only at every one of 12 call sites; viewer input allowlist emits no `Runtime.*`; no new direct `node:child_process` import.
-- [ ] 6.2 `docs/` via DocScribe: `docs/architecture.md` browser-relay section (Mermaid from design D5), `docs/AGENTS.md` rows; directory `AGENTS.md` rows for `packages/browser-plugin/`, runtime, server auth files, shared, skill references. Verify: `kb dox lint` clean.
-- [ ] 6.3 Update `docs/research/browser-relay-playwright-extension.md` §8 status line to point at this change. Verify: row in `docs/AGENTS.md` updated.
+- [x] 6.2 `docs/` via DocScribe: `docs/architecture.md` browser-relay section (Mermaid from design D5), `docs/AGENTS.md` rows; directory `AGENTS.md` rows for `packages/browser-plugin/`, runtime, server auth files, shared, skill references. Verify: `kb dox lint` clean.
+- [x] 6.3 Update `docs/research/browser-relay-playwright-extension.md` §8 status line to point at this change. Verify: row in `docs/AGENTS.md` updated.
 - [ ] 6.4 Full test run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` + `npm run quality:changed`; `review-code` pass. Verify: 0 failed, Biome clean.
 
 ## 7. Automated scenarios from test-plan.md (fold — one task per `automated` row)

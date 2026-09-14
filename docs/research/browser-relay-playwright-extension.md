@@ -141,16 +141,18 @@ Verdict: viewer detects frame starvation → "Bring to front" = `Page.bringToFro
 
 Traps: server inside context-mode `ctx_execute` sandbox → inbound blocked ("Failed to connect to MCP relay: WebSocket error"); run relay from plain shell. `protocolVersion=2` mandatory.
 
-## 8. First-change sketch (Option 1 `add-browser-relay`, NOT written)
+## 8. Shipped: `add-browser-relay` (sketch superseded)
 
-- Core `packages/server/src/browser-relay/`: relay port (Apache-2.0 attribution), `Map<guid, RelayInstance>`, scopes `"ext"`+`"cdp"`, pinned-id admission, deny-list, audit, `ScreencastTap`.
-- Plugin `packages/browser-plugin/`: settings (profiles from `Local State`, installed/token/connected, kill switch, audit), later live-view tile.
-- Config `~/.pi/dashboard/config.json#plugins.browser.{enabled, browsers:{<label>:{profileDirectory, token?, allowedDomains?}}, defaultBrowser}`.
-- REST `GET /api/browser/profiles`, `POST /api/browser/connect?profile=`, `GET /api/browser/cdp-url?profile=`.
-- Skill `references/dashboard-relay.md`; rule "logged-in state needed → `agent-browser connect $(curl -s localhost:8000/api/browser/cdp-url?profile=OSS)`"; Panerelay → legacy.
+Implemented. Ground truth: `openspec/changes/add-browser-relay/` (proposal/design/tasks/specs). Architecture: `docs/architecture.md` §Browser relay.
+
+- Relay lives in the PLUGIN (`packages/browser-plugin/`), not core `packages/server/src/browser-relay/` — the sketch's core placement was superseded by the plugin-owned `registerWsRoute` seam (design D1). Vendored playwright-core relay under `packages/browser-plugin/src/server/relay/vendor/` (Apache-2.0, hash-pinned).
+- Plugin `packages/browser-plugin/`: settings (profiles from `Local State`, installed/token/connected, kill switch, audit), `session-card-badge` status subscriber, live-view tile.
+- Config `plugins.browser.{enabled, browsers:{<profileDirectory>:{token?, zeroDialog?, allowedDomains?}}, defaultBrowser, allowMultipleInstancesPerProfile}`. `token` is `writeOnly` (redacted, fail-closed); `defaultEnabled:false`.
+- REST: `GET /api/browser/status`, `GET /api/browser/profiles`, `POST /api/browser/connect` (body `{profileDirectory}`), `POST /api/browser/disconnect?instanceId=`, `GET /api/browser/audit`, `PUT /api/browser/enabled`, `PUT /api/browser/profile`. NO cdpUrl-lookup endpoint (deliberate: REST carries no pi-session identity).
+- Skill `references/dashboard-relay.md`; rule "logged-in state needed → `POST /api/browser/connect` then `agent-browser connect <cdpUrl>`"; Panerelay → legacy.
 - Discipline skills: security-hardening, observability-instrumentation, doubt-driven-review.
 
-Deferred: remote Chrome (fork), separate window (fork), live-view tile, DevTools-conflict UX, 17-profile token onboarding.
+Delivered (was deferred): live-view tile, DevTools-conflict UX. Still deferred: remote Chrome (fork), separate window (fork), 17-profile token onboarding.
 
 ## 9. Sources
 
