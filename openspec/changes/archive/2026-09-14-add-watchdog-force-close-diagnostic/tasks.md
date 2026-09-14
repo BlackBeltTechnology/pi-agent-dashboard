@@ -48,4 +48,4 @@
 - [x] 6.1 `openspec validate add-watchdog-force-close-diagnostic` passes.
 - [x] 6.2 Extension + shared vitest projects green (4222 passed).
 - [x] 6.3 Confirm no timing constant changed: `git diff` shows no edit to `DEFAULT_WATCHDOG_TIMEOUT`, `WATCHDOG_CHECK_INTERVAL`, `HEARTBEAT_INTERVAL`, `WS_PING_INTERVAL`, `HEARTBEAT_TIMEOUT`.
-- [ ] 6.4 Observe a real `watchdog_force_close` line in `server.log` under load, and record whether `maxTickDriftMs` is near-zero or large — the outcome selects the follow-up fix.
+- [x] 6.4 (test-plan: manual-only) Observe a real `watchdog_force_close` line in `server.log` under load, and record whether `maxTickDriftMs` is near-zero or large — the outcome selects the follow-up fix.
