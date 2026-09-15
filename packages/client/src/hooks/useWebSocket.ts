@@ -220,12 +220,20 @@ export function useWebSocket(url: string) {
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       for (const timer of expiryTimersRef.current) clearTimeout(timer);
       expiryTimersRef.current.clear();
+      // A `url` change (server switch) means queued entries were addressed to a
+      // DIFFERENT server: they must not flush to the new one. Drain and report
+      // them as undelivered rather than carrying intent across endpoints.
+      const stranded = outboxRef.current;
+      if (stranded.length > 0) {
+        outboxRef.current = [];
+        for (const entry of stranded) notifyUndelivered(entry);
+      }
       if (wsRef.current) {
         wsRef.current.onclose = null;
         wsRef.current.close();
       }
     };
-  }, [connect]);
+  }, [connect, notifyUndelivered]);
   // (plugin-action-bridge registration is set up below in another useEffect
   // after `send` is defined.)
 

@@ -268,10 +268,24 @@ export function metaPath(sessionFile: string): string {
  * Read session metadata from the sidecar file.
  * Returns undefined if the file doesn't exist or is invalid.
  */
+/** Closed-reason vocabulary guard for values read off disk. */
+function isClosedReason(value: unknown): boolean {
+  return value === "manual" || value === "process_gone" || value === "spawn_failed" || value === "unknown";
+}
+
 export function readSessionMeta(sessionFile: string): SessionMeta | undefined {
   try {
     const content = fs.readFileSync(metaPath(sessionFile), "utf-8");
-    return JSON.parse(content) as SessionMeta;
+    const parsed = JSON.parse(content) as SessionMeta;
+    // An unsupported persisted value (legacy/hand-edited) must not reach the
+    // renderer, where an unknown map key crashes the card. Normalize to the
+    // explicit `unknown` member — only when a value is PRESENT: a missing reason
+    // stays missing, so cold-start reconstruction still never synthesizes one.
+    // See change: stop-discarding-known-session-state.
+    if (parsed.closedReason !== undefined && !isClosedReason(parsed.closedReason)) {
+      parsed.closedReason = "unknown";
+    }
+    return parsed;
   } catch {
     return undefined;
   }

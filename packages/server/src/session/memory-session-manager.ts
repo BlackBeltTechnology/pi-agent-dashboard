@@ -445,10 +445,8 @@ export function createMemorySessionManager(
         // detection exact: a no-op update on an already-ended session must not
         // overwrite a good reason with `unknown` (design D1).
         const wasEnded = session.status === "ended";
+        const priorReason = session.closedReason;
         Object.assign(session, updates);
-        if (!wasEnded && session.status === "ended" && session.closedReason === undefined) {
-          session.closedReason = "unknown";
-        }
         ensureEndedAt(session);
         // Also fire when an ended record has NO reason (an explicit `undefined`
         // key in `updates` can clear it): the invariant is "no ended session
@@ -456,7 +454,13 @@ export function createMemorySessionManager(
         if (session.status === "ended" && session.closedReason === undefined) {
           session.closedReason = "unknown";
         }
-        if (!wasEnded && session.status === "ended") mgr.onEnded?.(sessionId);
+        // Persist on the terminal TRANSITION **and** whenever the reason CHANGES
+        // (e.g. an already-ended session learns a better reason). Firing only on
+        // the transition would skip the eager `setLiveness` write for the latter,
+        // leaving the reason stale on disk after the next full-overwrite save.
+        const endedNewly = !wasEnded && session.status === "ended";
+        const reasonChanged = session.status === "ended" && session.closedReason !== priorReason;
+        if (endedNewly || reasonChanged) mgr.onEnded?.(sessionId);
         mgr.onChange?.(sessionId);
       }
     },

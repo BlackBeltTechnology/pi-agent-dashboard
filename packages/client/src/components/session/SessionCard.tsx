@@ -302,14 +302,22 @@ function EndedReasonPill({ session }: { session: DashboardSession }) {
   if (hasMovedAway(session)) return null;
   const reason = session.closedReason;
   if (!reason) return null;
-  const label = ENDED_REASON_LABEL[reason];
-  const title = ENDED_REASON_TITLE[reason];
-  const glyph = ENDED_REASON_GLYPH[reason];
+  // Defensive: a persisted value outside the vocabulary must not crash the card
+  // (`title.key` on `undefined`). The boundary normalizes too; this is the last
+  // line of defence. Keyed on vocabulary MEMBERSHIP, not a nullish fallback —
+  // `manual`'s glyph is legitimately absent (a silent close) and must stay so.
+  // See change: stop-discarding-known-session-state.
+  const known = reason in ENDED_REASON_LABEL;
+  const safeReason = known ? reason : "unknown";
+  const label = ENDED_REASON_LABEL[safeReason];
+  const title = ENDED_REASON_TITLE[safeReason];
+  const glyph = ENDED_REASON_GLYPH[safeReason];
+  const klass = ENDED_REASON_CLASS[safeReason];
   return (
     <span
       data-testid={`session-ended-reason-${session.id}`}
-      data-closed-reason={reason}
-      className={`flex-shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0 text-[10px] rounded-full border ${ENDED_REASON_CLASS[reason]}`}
+      data-closed-reason={safeReason}
+      className={`flex-shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0 text-[10px] rounded-full border ${klass}`}
       title={i18nT(title.key, undefined, title.fallback)}
     >
       {glyph ? <span aria-hidden="true">{glyph}</span> : null}

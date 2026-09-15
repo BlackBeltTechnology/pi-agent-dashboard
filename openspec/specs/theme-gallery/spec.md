@@ -13,7 +13,7 @@ Body-text tokens SHALL additionally meet a measured contrast floor. `--text-tert
 
 Fidelity to an upstream palette SHALL NOT override the contrast floor. Where a published value (e.g. Dracula's comment colour `#6272a4`) fails, the theme SHALL adjust lightness while preserving hue and saturation, so the theme keeps its identity.
 
-The text hierarchy SHALL be preserved after remediation: `--text-tertiary` SHALL NOT measure a higher contrast than `--text-secondary` against the same background. Raising tertiary to the floor while leaving secondary below it inverts the hierarchy — the token meant to recede becomes the most legible — which is a regression even though both numbers improved.
+The text hierarchy SHALL be preserved after remediation: `--text-tertiary` SHALL NOT measure a higher contrast than `--text-secondary` against each background (`--bg-tertiary` and `--bg-surface`). Raising tertiary to the floor while leaving secondary below it inverts the hierarchy — the token meant to recede becomes the most legible — which is a regression even though both numbers improved.
 
 #### Scenario: All themes define all variables
 - **WHEN** a theme is loaded
@@ -38,7 +38,7 @@ The text hierarchy SHALL be preserved after remediation: `--text-tertiary` SHALL
 #### Scenario: Hierarchy survives remediation
 
 - **GIVEN** a palette whose `--text-tertiary` was raised to meet the floor
-- **WHEN** both tokens are measured against `--bg-tertiary`
+- **WHEN** both tokens are measured against each of `--bg-tertiary` and `--bg-surface`
 - **THEN** `--text-secondary` SHALL measure at least as high as `--text-tertiary`
 - **AND** a palette where lifting tertiary alone would invert the order SHALL have its `--text-secondary` lifted in the same change
 

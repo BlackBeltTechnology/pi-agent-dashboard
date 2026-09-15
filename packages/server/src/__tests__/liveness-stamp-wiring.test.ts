@@ -168,6 +168,28 @@ describe("liveness-stamp wiring", () => {
     ws.close();
   });
 
+  it("persists a reason LEARNED after the session already ended", async () => {
+    const SID = "late-reason";
+    const sessionFile = path.join(tmpDir, `${SID}.jsonl`);
+    writeFileSync(sessionFile, "");
+
+    const ws = await register(SID, sessionFile);
+    activity(ws, SID, "message_start");
+    await wait(120);
+
+    // Ends with the central default, persisted.
+    server.sessionManager.update(SID, { status: "ended" });
+    await wait(150);
+    expect(readSessionMeta(sessionFile)?.closedReason).toBe("unknown");
+
+    // A later, better reason must ALSO persist — the reason-change arm, not just
+    // the first transition. See change: stop-discarding-known-session-state.
+    server.sessionManager.update(SID, { closedReason: "spawn_failed" });
+    await wait(150);
+    expect(readSessionMeta(sessionFile)?.closedReason).toBe("spawn_failed");
+    ws.close();
+  });
+
   it("does not stamp liveness for non-activity events alone", async () => {
     const SID = "live-noop";
     const sessionFile = path.join(tmpDir, `${SID}.jsonl`);

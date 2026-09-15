@@ -298,4 +298,29 @@ describe("useWebSocket — send verdict & outbox", () => {
     act(() => ws.open());
     expect(ws.sent).toHaveLength(0);
   });
+
+  it("a url change drops queued entries as undelivered instead of flushing them to the new endpoint", () => {
+    const { result, rerender } = renderHook(({ url }: { url: string }) => useWebSocket(url), {
+      initialProps: { url: "ws://a" },
+    });
+    const seen: any[] = [];
+    act(() => {
+      result.current.onOutboxExpiry((m) => seen.push(m));
+    });
+
+    act(() => {
+      result.current.send({ type: "send_prompt", sessionId: "s1", text: "to-a" } as any);
+    });
+    expect(seen).toHaveLength(0);
+
+    // Server switch: the entry was addressed to the OLD endpoint.
+    act(() => {
+      rerender({ url: "ws://b" });
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ type: "send_prompt", text: "to-a" });
+
+    act(() => lastSocket().open());
+    expect(lastSocket().sent).toHaveLength(0);
+  });
 });

@@ -1,7 +1,10 @@
 # session-death-attribution Specification
 
 ## Purpose
-TBD - created by archiving change stop-discarding-known-session-state. Update Purpose after archive.
+Define `closedReason` attribution for involuntary session deaths: the vocabulary
+(`manual` | `process_gone` | `spawn_failed` | `unknown`), coverage of both terminal
+seams, persistence through the `.meta.json` full-overwrite trap, and conservative
+carrier-loss classification that admits `unknown` rather than overclaiming.
 
 ## Requirements
 
