@@ -40,13 +40,19 @@ describe("McpTokenRegistry — minting (M1)", () => {
     expect(dumped).toContain(crypto.createHash("sha256").update(token).digest("hex"));
   });
 
-  it("mints distinct tokens per call, and both remain valid for the session", () => {
+  it("E1 — a re-mint REPLACES the session's row (design D4)", () => {
+    // The bridge re-mints on every (re)registration. A stale row left behind
+    // would keep the previous token valid until session end and grow a
+    // linear-scan registry, so the re-mint must replace, not append.
     const reg = new McpTokenRegistry();
-    const a = reg.mintForSession("session-a");
-    const b = reg.mintForSession("session-a");
-    expect(a).not.toBe(b);
-    expect(reg.resolve(a)).toEqual({ kind: "session", sessionId: "session-a" });
-    expect(reg.resolve(b)).toEqual({ kind: "session", sessionId: "session-a" });
+    const t1 = reg.mintForSession("session-a");
+    expect(reg.size).toBe(1);
+    const t2 = reg.mintForSession("session-a");
+    expect(t2).not.toBe(t1);
+    // Exactly one row survives, and it authenticates ONLY the fresh token.
+    expect(reg.size).toBe(1);
+    expect(reg.resolve(t1)).toBeNull();
+    expect(reg.resolve(t2)).toEqual({ kind: "session", sessionId: "session-a" });
   });
 
   it("keeps sessions isolated — one session's token never resolves to another", () => {
@@ -101,25 +107,27 @@ describe("McpTokenRegistry — revocation (A6, M6)", () => {
     expect(reg.revokeToken("mcp_nope")).toBe(false);
   });
 
-  it("revoking one token leaves the session's other tokens alone", () => {
+  it("an explicit revoke of a replaced (stale) token is a no-op; the live token is untouched", () => {
+    // D4: a session holds at most ONE live row. T1 was replaced by T2, so
+    // revoking T1 reports nothing removed and T2 keeps authenticating.
     const reg = new McpTokenRegistry();
-    const a = reg.mintForSession("session-a");
-    const b = reg.mintForSession("session-a");
-    reg.revokeToken(a);
-    expect(reg.resolve(a)).toBeNull();
-    expect(reg.resolve(b)).toEqual({ kind: "session", sessionId: "session-a" });
+    const t1 = reg.mintForSession("session-a");
+    const t2 = reg.mintForSession("session-a");
+    expect(reg.revokeToken(t1)).toBe(false);
+    expect(reg.resolve(t2)).toEqual({ kind: "session", sessionId: "session-a" });
   });
 
-  it("M6 — every token of a session dies when the session ends", () => {
+  it("M6 — the session's token dies when the session ends", () => {
     const reg = new McpTokenRegistry();
-    const a1 = reg.mintForSession("session-a");
-    const a2 = reg.mintForSession("session-a");
+    const stale = reg.mintForSession("session-a");
+    const live = reg.mintForSession("session-a"); // re-mint on reconnect replaced `stale`
     const b = reg.mintForSession("session-b");
 
-    expect(reg.revokeSession("session-a")).toBe(2);
+    // Exactly ONE row existed for session-a (D4) — the re-mint replaced it.
+    expect(reg.resolve(stale)).toBeNull();
+    expect(reg.revokeSession("session-a")).toBe(1);
 
-    expect(reg.resolve(a1)).toBeNull();
-    expect(reg.resolve(a2)).toBeNull();
+    expect(reg.resolve(live)).toBeNull();
     // A sibling session is untouched.
     expect(reg.resolve(b)).toEqual({ kind: "session", sessionId: "session-b" });
   });

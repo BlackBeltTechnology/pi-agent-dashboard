@@ -1,0 +1,38 @@
+## 1. `openspec_refresh` gate (#647) — `packages/server/src/directory-service.ts`, `browser-handlers/directory-handler.ts`
+
+- [ ] 1.1 Test untracked cwd does not spawn or stat — extend `packages/server/src/browser-handlers/__tests__/directory-handler.test.ts`: real `createDirectoryService` fake with a spy on the CLI spawn and on `fs.statSync`; `handleOpenSpecRefresh({cwd:"/tmp/anywhere"})` with an empty session registry and no pins · spawn spy not called, no `openspec_update` broadcast, stat spy never called with a path under `/tmp/anywhere`. Verify red first.
+- [ ] 1.2 Test opted-out and no-root tracked cwds do not spawn — same file: cwd tracked via a registered session, (a) opted out, (b) no `openspec/` dir · spawn spy not called, no broadcast, for both. Verify red first.
+- [ ] 1.3 Test tracked cwd still force-polls and broadcasts — same file: tracked cwd with `openspec/`, cache warm with a stale mtime · `openspec_refresh` · spawn spy called once (mtime gate bypassed), one `openspec_update` broadcast. Verify red first (guards against over-gating).
+- [ ] 1.4 Implement D1: in `refreshOpenSpec(cwd)` after the `cfg.enabled` check add opt-out → `isTrackedCwd` → `hasOpenSpecRoot` gates returning `null` (no cache write, no spawn); `handleOpenSpecRefresh` skips broadcast on `null`; update `refreshOpenSpec`'s return type and its `handleOpenSpecBulkArchive` caller. Verify 1.1–1.3 green and existing `directory-service` / `openspec-polling` tests green.
+
+## 2. Pairing routes (#665) — `packages/server/src/routes/pairing-routes.ts`
+
+- [ ] 2.1 Test device bearer cannot revoke a sibling or itself — `packages/server/src/__tests__/pairing.test.ts` `fastify.inject` pattern: two registry rows A, B; `DELETE /api/paired-devices/<B>` and `DELETE /api/paired-devices/<A>` with `Authorization: Bearer <A's token>` from a non-local ip · both `401`, both rows still `verify()` true. Verify red first.
+- [ ] 2.2 Test operator revokes over a tunnel — same file: cookie session (`authVia:"session"`) from a non-local ip on an admitted Host · `DELETE /api/paired-devices/<B>` · `200`, B's token no longer verifies. Verify red first (guards against over-tightening).
+- [ ] 2.3 Test device bearer cannot approve — same file: pending device P; `POST /api/pair/approve` with correct `code`/`confirmCode` and `Authorization: Bearer <A's token>` · `401`, P still pending, `pairing.poll(P.pendingId).status` unchanged. Verify red first.
+- [ ] 2.4 Test approve label bound — same file: operator session; `label` of 65 UTF-8 bytes · `400`, P still pending; `label: "  phone  "` · `200`, device label `"phone"`; no `label` · `200`, device label equals the redemption label. Verify red first.
+- [ ] 2.5 Implement D2: swap `preHandler: networkGuard` → `preHandler: operatorGuard` on `DELETE /api/paired-devices/:id` and `POST /api/pair/approve`; add trim + `MAX_DEVICE_LABEL_BYTES` check on approve mirroring the mint route; update the route-file docblock lines that still say "networkGuard" / "Phase C". Verify 2.1–2.4 green and existing pairing tests green.
+
+## 3. Argv migration (#514) — `packages/server/src/git-worktree/git-operations.ts`
+
+- [ ] 3.1 Test argv shape for every migrated op — `packages/server/src/__tests__/git-worktree-lifecycle-ops.test.ts` `vi.spyOn(platformExec, "execFileSync")` pattern: `addWorktree` (branch `feat&calc`), `addWorktreeFromPr`, `mergeWorktree` (branch `x; echo pwned`), `pushBranch`, `createPullRequest` (title with `"` and `$(`), `worktreeDiffStat` (base `release 2026`), the fetch, `resolveDefaultBase` hint verify · each spy call has `file === "git"` (or `"gh"`) and the caller-supplied value present as ONE argv element verbatim; `execSync` spy never called. Verify red first.
+- [ ] 3.2 Test error mapping unchanged — same file: `execFileSync` spy throws `{status:1, stderr:"already used by worktree at '/x'"}` etc. for `addWorktree` / `mergeWorktree` · stable error codes (`branch_in_use`, `merge_conflict`, …) identical to the current assertions. Verify green before AND after 3.3 (behaviour-preserving).
+- [ ] 3.3 Implement D3: `run(argv: string[], cwd)` via `execFileSync(argv[0], argv.slice(1), …)`; convert every `run`/`tryRun` caller to an array literal; convert `mergeWorktree`'s three `execSync` calls, `worktreeDiffStat`, `pushBranch`, `createPullRequest` to `execFileSync`; delete `shellEscape` and the `execSync` import. Verify 3.1–3.2 green and all `git-worktree*` tests green.
+- [ ] 3.4 Test the property cannot regress — same file: read `git-operations.ts` source, assert it contains neither `execSync(` nor `shellEscape`. Verify green.
+
+## 4. Host gate default (#637 follow-up) — `packages/server/src/auth/host-gate.ts`, `server.ts`, client settings
+
+- [ ] 4.1 Test resolver default — `packages/server/src/__tests__/host-gate.test.ts` decision table: env unset + config absent → `{mode:"enforce", envOverridden:false}`; env `yes` + config absent → `enforce`; env unset + config `report` → `report`; env `report` + config `enforce` → `report`. Verify red first (first row).
+- [ ] 4.2 Test REST default refuses + admits — `pairing.test.ts` inject pattern with env unset and no `hostGate` config: `GET /api/health` `Host: rebind.example` · `403 host_not_allowed`; `Host:` `localhost:8000` / `127.0.0.1:8000` / `[::1]:8000` / `192.168.1.20:8000` · all `200`. Verify red first.
+- [ ] 4.3 Test boot log names mode + source — server boot test pattern: env unset, config absent · exactly one line matching `[host-gate] mode=enforce source=default`; with `hostGate.mode:"report"` · `source=config`; with `PI_DASHBOARD_HOST_GATE=report` · `source=env`. Verify red first.
+- [ ] 4.4 Implement D4 server side: `configMode ?? "enforce"`; one boot line in `server.ts` next to the existing `resolveHostGateMode` call. Verify 4.1–4.3 green and `host-gate.test.ts` / `cors.test.ts` / `ws-origin-gate.test.ts` green (update any test that asserted the old default).
+- [ ] 4.5 Implement D4 client side: `SettingsPanel.tsx` three `?? "report"` fallbacks → `?? "enforce"`; `AllowedHostsSection` copy describing the default; `settings-field-contract.test.tsx` / `AllowedHostsSection.test.tsx` expectations. Verify client tests green.
+- [ ] 4.6 `CHANGELOG.md` `[Unreleased]` — **Breaking** entry: host gate now enforces by default; opt-out `hostGate.mode: "report"` / `PI_DASHBOARD_HOST_GATE=report`. Verify the entry renders under the correct heading.
+
+## 5. Docs + closeout
+
+- [ ] 5.1 Delegate to `DocScribe`: `docs/faq.md` and `docs/architecture.md` host-gate paragraphs (default now enforce, opt-out named); one-line note in the pairing/security section that revoke + approve are operator-only. Verify grep `report-only` in `docs/` returns no stale "default" claim.
+- [ ] 5.2 Update directory `AGENTS.md` rows: `packages/server/src/auth/AGENTS.md` (`host-gate.ts` default), `packages/server/src/routes/AGENTS.md` (`pairing-routes.ts` guards), `packages/server/src/git-worktree/git-operations.ts.AGENTS.md` (argv, `shellEscape` gone), `packages/server/src/browser-handlers/AGENTS.md` + `directory-service` row (`refreshOpenSpec` gate). Verify `kb dox lint` clean.
+- [ ] 5.3 Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` — zero failures. Run `npm run quality:changed` clean.
+- [ ] 5.4 Docker harness smoke: `docker/test-up.sh`, `GET /api/health` on `localhost` and on the container IP literal both `200` with default config (enforce); `docker/test-down.sh`. Verify the Playwright E2E subset that exercises pairing (`tests/e2e/*pair*`) is green.
+- [ ] 5.5 Comment on #647, #665, #514 with the change name; #637 already closed with a pointer to this change.

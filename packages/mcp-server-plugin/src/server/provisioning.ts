@@ -24,6 +24,8 @@
  *
  * See change: extract-mcp-client-plugin (task 6.2).
  */
+
+import { fileURLToPath } from "node:url";
 import {
   type AdapterPort,
   type ConfigIO,
@@ -42,6 +44,24 @@ export const DASHBOARD_MCP_KEY = "pi-dashboard";
  * the legacy era for foreign clients (D7). */
 export const PROVISIONED_PROTOCOL_VERSION = "2026-07-28";
 
+/**
+ * The env var carrying the per-session credential (design.md D2). The bridge
+ * extension assigns the minted plaintext to it in the pi process's own
+ * environment; the entry's `env` slot below re-declares it so the adapter's
+ * per-request interpolation resolves the LIVE value, never a snapshot.
+ */
+export const MCP_TOKEN_ENV_VAR = "PI_DASHBOARD_MCP_TOKEN";
+
+/**
+ * Absolute path of the header command this package ships. Resolved from this
+ * module's own URL, so it is correct wherever the plugin is installed (global
+ * npm, worktree, Electron bundle) — the pi process and this server share the
+ * machine in the local path this entry serves.
+ */
+export function headerCommandPath(): string {
+  return fileURLToPath(new URL("./header-command.mjs", import.meta.url));
+}
+
 export type ProvisionResult =
   | { ok: true; action: "created" | "updated" | "unchanged" }
   | {
@@ -53,10 +73,35 @@ export type ProvisionResult =
 export interface DashboardMcpEntry {
   url: string;
   protocolVersion: typeof PROVISIONED_PROTOCOL_VERSION;
+  /**
+   * The per-session credential transport (design.md D2). The command echoes
+   * `{"Authorization": "Bearer …"}` read from ITS OWN environment — the env
+   * value is the interpolation form, so no credential ever lands in this file
+   * (E9: no literal `mcp_` value at rest) and none rides in argv (spike Q1b).
+   * `args` carries only a plain path: every interpolation form there resolves
+   * to "" via the adapter's `Array.map` env-overload bug (spike Q1a).
+   *
+   * The path is THIS server install's `header-command.mjs`. If sessions load
+   * the dashboard from a different root (stale second install, pruned cache),
+   * the command fails closed → 401 (today's behaviour), not a wrong credential.
+   */
+  requestHeadersCommand: {
+    command: "node";
+    args: [string];
+    env: Record<string, string>;
+  };
 }
 
 export function buildDashboardEntry(url: string): DashboardMcpEntry {
-  return { url, protocolVersion: PROVISIONED_PROTOCOL_VERSION };
+  return {
+    url,
+    protocolVersion: PROVISIONED_PROTOCOL_VERSION,
+    requestHeadersCommand: {
+      command: "node",
+      args: [headerCommandPath()],
+      env: { [MCP_TOKEN_ENV_VAR]: `\${${MCP_TOKEN_ENV_VAR}}` },
+    },
+  };
 }
 
 export interface ProvisionOptions {

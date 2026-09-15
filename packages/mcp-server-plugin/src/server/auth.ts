@@ -22,6 +22,7 @@
  * credential is per-request, because there is nowhere to cache it per
  * connection.
  */
+import crypto from "node:crypto";
 import type { McpCaller, McpTokenRegistry } from "./tokens.js";
 
 const BEARER_PREFIX = "bearer ";
@@ -54,6 +55,21 @@ export function parseBearer(header: string | string[] | undefined): string | nul
   if (!header.slice(0, BEARER_PREFIX.length).toLowerCase().startsWith(BEARER_PREFIX)) return null;
   const token = header.slice(BEARER_PREFIX.length);
   return token.length > 0 ? token : null;
+}
+
+/**
+ * SHA-256 fingerprint of the PRESENTED credential — the throttle key's second
+ * dimension (design.md D7). Computed over the raw presented value, valid or
+ * not: a brute-forcer rotating guesses still creates one bucket per distinct
+ * guess, and the per-ip ceiling catches the rotation.
+ *
+ * The digest is never logged (X6) — it exists only to key the throttle maps.
+ * A headerless request fingerprints the empty string: all such requests from
+ * one ip share a bucket, and the per-ip ceiling still bounds them.
+ */
+export function credentialFingerprint(header: string | string[] | undefined): string {
+  const token = parseBearer(header);
+  return crypto.createHash("sha256").update(token ?? "").digest("hex");
 }
 
 /**

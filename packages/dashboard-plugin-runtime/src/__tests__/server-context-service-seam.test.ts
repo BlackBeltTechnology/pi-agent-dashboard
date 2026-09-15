@@ -23,6 +23,7 @@ function depsWithSharedRegistry(): ServerContextDeps {
     onSessionResolved: () => () => {},
     sendToSession: () => true,
     emitEventToSession: () => true,
+    sendExtensionMessage: () => false,
     consumeAll: <T = unknown>(prefix: string) => {
       const out: Array<{ key: string; value: T }> = [];
       for (const [key, value] of registry) if (key.startsWith(prefix)) out.push({ key, value: value as T });

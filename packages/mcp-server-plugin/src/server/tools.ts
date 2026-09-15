@@ -15,7 +15,7 @@
  */
 import type { McpCaller } from "./tokens.js";
 
-/** Every member of `ServerPluginContext`, as of the 19-member interface. */
+/** Every member of `ServerPluginContext`, as of the 20-member interface. */
 export const ALL_CONTEXT_MEMBERS = [
   "fastify",
   "sessionManager",
@@ -27,6 +27,7 @@ export const ALL_CONTEXT_MEMBERS = [
   "onSessionEnded",
   "sendToSession",
   "emitEventToSession",
+  "sendExtensionMessage",
   "spawnSession",
   "abortSession",
   "abortSpawnedRun",
@@ -61,6 +62,9 @@ export const ALLOWLISTED_CONTEXT_MEMBERS = [
  * - `registerPiHandler` / `registerBrowserHandler` — install message handlers.
  * - `broadcastToSubscribers` / `emitEventToSession` — forge events that clients
  *   and sessions would treat as server-originated.
+ * - `sendExtensionMessage` — forge server-originated control messages on
+ *   another session's private bridge lane (the channel the minted credential
+ *   itself rides). See change: wire-mcp-session-token (D5).
  * - `eventStore` — bulk history read across every session.
  * - `provide` / `consume` / `consumeAll` — the inter-plugin service bus.
  * - `onSessionEnded` — a lifecycle hook, not a verb.
@@ -79,6 +83,7 @@ export const DENIED_CONTEXT_MEMBERS = [
   "registerBrowserHandler",
   "onSessionEnded",
   "emitEventToSession",
+  "sendExtensionMessage",
   "abortSpawnedRun",
   "provide",
   "consume",
