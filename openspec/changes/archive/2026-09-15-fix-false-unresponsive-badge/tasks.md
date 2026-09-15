@@ -1,8 +1,12 @@
 # Tasks
 
 Sections 0-5 were implemented inline in the main session (a live-bug fix, not a
-worktree build) and are done. Sections 6-8 come from the doubt-review of the
-proposal + delta and from the `test-plan.md` fold; they are NOT yet written.
+worktree build). Sections 6-8 came from the doubt-review of the proposal + delta
+and from the `test-plan.md` fold, and were built in this worktree.
+
+ALL sections are now complete. The one exception is 7.7, which `test-plan.md`
+disposes as `manual-only` (badge legibility across the four themes has no
+automatable observable) and which is deferred to post-merge visual verification.
 
 Test homes and their harness exemplars:
 

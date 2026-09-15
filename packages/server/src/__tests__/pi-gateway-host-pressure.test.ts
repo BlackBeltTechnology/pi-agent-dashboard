@@ -216,6 +216,31 @@ describe("pi-gateway host pressure", () => {
     });
   });
 
+  // A manager-driven ending (`update({status:"ended"})`) reaches none of the
+  // gateway's exit paths while the bridge socket is still open.
+  // See change: fix-false-unresponsive-badge (CodeRabbit round 1).
+  it("X8: clearHostPressure releases an entry whose socket is still open", async () => {
+    const emissions: Array<{ sessionId: string; pressure: HostPressure | null }> = [];
+    gateway = createPiGateway(createMemorySessionManager(), {
+      pingInterval: 0,
+      hostPressureDegradedMs: 60,
+      hostPressureUnresponsiveMs: 120,
+      onHostPressure: (sessionId, pressure) => emissions.push({ sessionId, pressure }),
+    });
+    await gateway.startOnSocket(sockPath);
+
+    const ws = await openBridge();
+    register(ws, "press-ended-live");
+    await waitFor(() => gateway?.hostPressureTrackedCount() === 1);
+
+    // The socket stays OPEN; only the row ends (the `onEnded` wiring's job).
+    gateway.clearHostPressure("press-ended-live");
+
+    expect(gateway.hostPressureTrackedCount()).toBe(0);
+    await sleep(250);
+    expect(emissions).toEqual([]);
+  });
+
   // ── P1: the cost promise ────────────────────────────────────────────────
   it("P1: a bridge that keeps framing costs zero host-pressure frames", async () => {
     const emissions: Array<{ sessionId: string; pressure: HostPressure | null }> = [];

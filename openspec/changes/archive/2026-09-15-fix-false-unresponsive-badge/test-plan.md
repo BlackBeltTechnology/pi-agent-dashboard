@@ -57,8 +57,12 @@ concrete in the spec and in `browser-gateway.ts`, so every Triple below fills.
 - Scenarios by level: L1 14 · L2 0 · L3 2 · manual-only 1
 - Scenarios by disposition: automated 17 · manual-only 1
 
-Already green in the working tree: E1, E2, E3, E5 (partially — the 8-cell table
-is not exhaustive yet), F1, F2, X6. Everything else is new work.
+Green in the working tree when this plan was written: E1, E2, E3, E5 (partially —
+the 8-cell table was not exhaustive yet), F1, F2, X6.
+
+AT SHIP: every `automated` row above is implemented and passing — E4/E5 completed,
+E6, P1, F3, F4 and X1–X5 newly written. Only F5 (`manual-only`) remains, by
+disposition rather than as outstanding work.
 
 ## New infra needed
 

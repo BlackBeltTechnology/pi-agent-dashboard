@@ -118,6 +118,14 @@ export interface PiGateway {
    * See change: fix-false-unresponsive-badge.
    */
   hostPressureTrackedCount(): number;
+  /**
+   * Release a session's host-pressure tracking. Wired to the session manager's
+   * `onEnded` so a MANAGER-driven ending (`update({status:"ended"})` with the
+   * bridge socket still open — reload-spawn failure, zombie normalization,
+   * move) releases the entry and its timers too; the gateway's own exit paths
+   * clear themselves. See change: fix-false-unresponsive-badge.
+   */
+  clearHostPressure(sessionId: string): void;
   /** Force-close the WebSocket connection for a session */
   closeSession(sessionId: string): boolean;
   /**
@@ -562,8 +570,17 @@ export function createPiGateway(
           // Any received message proves the connection is alive
           aliveMisses.set(ws, 0);
           // …and that the bridge's event loop is running: a blocked loop cannot
-          // put a frame on the wire. See change: fix-false-unresponsive-badge.
-          if (currentSessionId) hostPressure.noteFrame(currentSessionId);
+          // put a frame on the wire.
+          //
+          // Gated on OWNERSHIP, like the close handler: a displaced or refused
+          // socket still carries the `currentSessionId` it named, and its
+          // in-flight frames would otherwise keep clearing or postponing the
+          // INCUMBENT's verdict — a liveness claim made by a socket that is no
+          // longer serving that session.
+          // See change: fix-false-unresponsive-badge.
+          if (currentSessionId && connections.get(currentSessionId) === ws) {
+            hostPressure.noteFrame(currentSessionId);
+          }
           queue = queue.then(() => handleMessage(raw)).catch(() => {});
         });
 
@@ -1049,6 +1066,9 @@ export function createPiGateway(
     hostPressureTrackedCount() {
       return hostPressure.size();
     },
+    clearHostPressure(sessionId: string) {
+      hostPressure.clear(sessionId);
+    },
     transport() {
       if (socketPath) return { transport: "unix" as const, path: socketPath };
       const addr = socketServer?.address() ?? wss?.address();
@@ -1250,8 +1270,13 @@ export function createPiGateway(
         connections.delete(sessionId);
         contention.clear(sessionId);
         // Same guard-defeat as the ping reaper: the routing entry is gone
-        // before the close event, so the close path cannot clear this id.
-        hostPressure.clear(sessionId);
+        // before the close event, so the close path can neither clear NOR
+        // retract this id. Retract explicitly — dropping the entry silently
+        // would destroy the only state that can still produce the recovery
+        // transition, stranding a raised badge on a row that outlives the call.
+        if (hostPressure.clear(sessionId)) {
+          options?.onHostPressure?.(sessionId, null);
+        }
         return true;
       }
       return false;
