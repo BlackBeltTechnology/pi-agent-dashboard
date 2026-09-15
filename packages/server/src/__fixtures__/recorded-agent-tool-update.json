@@ -1,0 +1,43 @@
+{
+  "seq": 1637,
+  "event": {
+    "eventType": "tool_execution_update",
+    "timestamp": 1789499331512,
+    "data": {
+      "type": "tool_execution_update",
+      "toolCallId": "toolu_018aG4khx4T2QyeMYHBBpzEq",
+      "toolName": "Agent",
+      "args": {
+        "subagent_type": "fixture-probe",
+        "description": "Trivial no-op subagent to generate frames",
+        "model": "@fast",
+        "prompt": "Reply with exactly the word: ok. Do not use any tools."
+      },
+      "partialResult": {
+        "content": [
+          {
+            "type": "text",
+            "text": "(running…)"
+          }
+        ],
+        "details": {
+          "agentId": "ab3a62ec-fa4c-4b40-83ea-0022f4a81e34",
+          "displayName": "fixture-probe",
+          "description": "Trivial no-op subagent to generate frames",
+          "subagentType": "fixture-probe",
+          "status": "running",
+          "toolUses": 0,
+          "tokens": "0",
+          "tokensUsage": {
+            "input": 0,
+            "output": 0,
+            "total": 0
+          },
+          "turnCount": 0,
+          "durationMs": 2541,
+          "modelName": "gemini-3.8-flash"
+        }
+      }
+    }
+  }
+}

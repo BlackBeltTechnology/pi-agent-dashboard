@@ -20,11 +20,15 @@
  * same path arithmetic pi-coding-agent uses internally, then matches by
  * `package.json#name` to expose an `await import(absPath)`-ready result.
  *
- * Read-on-call contract — performs no installs, mutates nothing, holds
- * no module-level cache. Two settings reads + N package.json reads per
- * resolution; each settings file is ~1 KB. Designed to be called from
- * plugin bridges (`packages/shared/`-only imports allowed) on every
- * probe without amortization.
+ * Read-on-call contract — performs no installs and mutates nothing. Two
+ * settings reads + N package.json reads per resolution; each settings file is
+ * ~1 KB. Designed to be called from plugin bridges (`packages/shared/`-only
+ * imports allowed) on every probe without amortization.
+ *
+ * ONE value is memoized process-wide: the default `npm root -g` (a ~150 ms
+ * `spawnSync` that dominated per-child extension instantiation). Settings and
+ * package.json reads are NOT cached, so a newly added package still resolves.
+ * See change: heal-orphaned-tool-cards-on-session-end (design D6).
  *
  * Scope only: walks `packages[]` from `~/.pi/agent/settings.json` and
  * `<cwd>/.pi/settings.json`. Does NOT walk `extensions[]`/`skills[]`/
@@ -39,6 +43,24 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import { rootGlobalOr } from "./platform/npm.js";
+
+/**
+ * Memoized `npm root -g`. The global npm prefix cannot change within a process
+ * lifetime; an empty result (npm missing) is cached too — retrying per call
+ * would just repeat the slow failure.
+ * See change: heal-orphaned-tool-cards-on-session-end (design D6).
+ */
+let cachedNpmRoot: string | undefined;
+
+function defaultNpmRoot(): string {
+  if (cachedNpmRoot === undefined) cachedNpmRoot = rootGlobalOr("");
+  return cachedNpmRoot;
+}
+
+/** Test seam: drop the memoized npm root so the next default call re-resolves. */
+export function resetNpmRootCacheForTests(): void {
+  cachedNpmRoot = undefined;
+}
 
 // ── Public surface ──────────────────────────────────────────────────
 
@@ -81,7 +103,7 @@ export function resolvePiPackage(
   const agentDir = opts.agentDir ?? path.join(os.homedir(), ".pi", "agent");
   const scope = opts.scope ?? "any";
   const cwd = opts.cwd;
-  const npmRoot = opts.npmRoot ?? rootGlobalOr("");
+  const npmRoot = opts.npmRoot ?? defaultNpmRoot();
 
   // Project scope first (matches deepMergeSettings precedence).
   if ((scope === "project" || scope === "any") && cwd) {
@@ -123,7 +145,7 @@ export function listPiPackages(opts: ResolvePiPackageOptions = {}): ResolvedPiPa
   const agentDir = opts.agentDir ?? path.join(os.homedir(), ".pi", "agent");
   const scope = opts.scope ?? "any";
   const cwd = opts.cwd;
-  const npmRoot = opts.npmRoot ?? rootGlobalOr("");
+  const npmRoot = opts.npmRoot ?? defaultNpmRoot();
 
   const out: ResolvedPiPackage[] = [];
   const seen = new Set<string>();

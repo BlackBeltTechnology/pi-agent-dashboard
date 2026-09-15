@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type DashboardConfig, DEFAULT_MEMORY_LIMITS, DEFAULT_DASHBOARD_PORT, DEFAULT_GATEWAY_PORT, ensureConfig, loadConfig, parseSessionListConfig, validateSessionListConfig, READINESS_TIMEOUT_MAX_MS, READINESS_TIMEOUT_MIN_MS, resolveDashboardPorts, resolvePublicBaseUrls, SPAWN_READINESS_BUDGET_MS, spawnReadinessBudgetMs } from "../config.js";
+import { type DashboardConfig, DEFAULT_DASHBOARD_PORT, DEFAULT_GATEWAY_PORT, DEFAULT_MEMORY_LIMITS, ensureConfig, loadConfig, parseSessionListConfig, READINESS_TIMEOUT_MAX_MS, READINESS_TIMEOUT_MIN_MS, resolveDashboardPorts, resolvePublicBaseUrls, SPAWN_READINESS_BUDGET_MS, spawnReadinessBudgetMs, validateSessionListConfig } from "../config.js";
 
 describe("loadConfig", () => {
   let testDir: string;
@@ -1204,5 +1204,48 @@ describe("sessionList config BVA (E14)", () => {
     const cfg = loadConfig();
     expect(cfg.sessionList.archiveAfterDays).toBe(0);
     expect(cfg.sessionList.archiveSweepIntervalMinutes).toBe(1);
+  });
+});
+
+// ── subagent tick throttle: default ON + marker round-trip ───────────────────
+// See change: heal-orphaned-tool-cards-on-session-end (design D5).
+describe("subagentTickThrottleMs default + migration marker", () => {
+  let testDir: string;
+  let configFile: string;
+  let origHome: string;
+
+  beforeEach(() => {
+    testDir = path.join(os.tmpdir(), `test-throttle-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    fs.mkdirSync(path.join(testDir, ".pi", "dashboard"), { recursive: true });
+    configFile = path.join(testDir, ".pi", "dashboard", "config.json");
+    origHome = process.env.HOME!;
+    process.env.HOME = testDir;
+  });
+  afterEach(() => {
+    process.env.HOME = origHome;
+    fs.rmSync(testDir, { recursive: true, force: true });
+  });
+
+  it("defaults to 500 when the key is absent", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ port: 8000 }));
+    expect(loadConfig().subagentTickThrottleMs).toBe(500);
+  });
+
+  it("honours an explicit stored 0", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ subagentTickThrottleMs: 0 }));
+    expect(loadConfig().subagentTickThrottleMs).toBe(0);
+  });
+
+  it("round-trips the migration marker so a settings save cannot strip it", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ subagentTickThrottleMs: 0, subagentTickThrottleMigrated: true }));
+    expect(loadConfig().subagentTickThrottleMigrated).toBe(true);
+  });
+
+  it("ensureConfig seeds the marker on a fresh install", () => {
+    fs.rmSync(configFile, { force: true });
+    ensureConfig();
+    const written = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+    expect(written.subagentTickThrottleMs).toBe(500);
+    expect(written.subagentTickThrottleMigrated).toBe(true);
   });
 });

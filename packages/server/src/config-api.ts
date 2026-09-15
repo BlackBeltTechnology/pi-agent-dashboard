@@ -5,7 +5,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { redactPluginConfigForClient } from "@blackbelt-technology/dashboard-plugin-runtime/server";
-import { type AuthConfig, type DashboardConfig, loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import {
+  type AuthConfig,
+  type DashboardConfig,
+  DEFAULT_SUBAGENT_TICK_THROTTLE_MS,
+  loadConfig,
+} from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import { refreshModelRegistry } from "./model-proxy/registry-singleton.js";
 
@@ -290,4 +295,41 @@ export function writeConfigPartial(partial: Record<string, any>): WriteConfigRes
   } catch (err: any) {
     return { success: false, restartRequired: false, error: err.message };
   }
+}
+
+/**
+ * One-shot boot migration: a stored `subagentTickThrottleMs: 0` that predates
+ * the default flip is rewritten to the current default and marked.
+ *
+ * `ensureConfig()` materializes the default into every install's config.json,
+ * so flipping the default alone reaches nobody. The MARKER, not the value,
+ * decides: a `0` written after the marker exists is a deliberate opt-out and is
+ * kept. Boot path only (`cli.ts`, beside `ensureConfig()`) — never `loadConfig`,
+ * which every bridge process calls and which must never write.
+ * See change: heal-orphaned-tool-cards-on-session-end (design D5).
+ */
+export function migrateSubagentTickThrottle(): void {
+  const { file } = getConfigPaths();
+  let existing: Record<string, any>;
+  try {
+    existing = JSON.parse(fs.readFileSync(file, "utf-8"));
+  } catch {
+    return; // no config yet — `ensureConfig()` seeds the marker itself
+  }
+  // A file that parses to a non-object (array, string) is not a config; writing
+  // through it would persist junk keys via the merge writer's spread.
+  if (typeof existing !== "object" || existing === null || Array.isArray(existing)) return;
+  if (existing.subagentTickThrottleMigrated !== undefined) return;
+  if (existing.subagentTickThrottleMs !== 0) {
+    // Nothing to rewrite, but STAMP the marker: a config that never carried the
+    // key (hand-pruned, or seeded by something other than `ensureConfig`) would
+    // otherwise stay markerless, and a deliberate `0` set later through the
+    // settings UI would be migrated away on the next boot.
+    writeConfigPartial({ subagentTickThrottleMigrated: true });
+    return;
+  }
+  writeConfigPartial({
+    subagentTickThrottleMs: DEFAULT_SUBAGENT_TICK_THROTTLE_MS,
+    subagentTickThrottleMigrated: true,
+  });
 }

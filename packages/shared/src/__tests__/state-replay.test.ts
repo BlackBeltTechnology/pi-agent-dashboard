@@ -222,3 +222,62 @@ describe("X1 — a malformed compaction entry does not abort the replay", () => 
     expect(compactEvents(events)).toHaveLength(1);
   });
 });
+
+// ── X6/X7: an orphaned tool call replays as an ERROR, not a silent success ───
+// A tool call whose session died mid-execution has no `toolResult` entry. The
+// parser closes it so the card is not stuck `running` — but closing it as
+// `{result:"", isError:false}` renders a killed call as a successful empty
+// result, contradicting the error card the live heal produces for the same
+// call. See change: heal-orphaned-tool-cards-on-session-end (design D7).
+describe("X6/X7 — orphan-close shape", () => {
+  const assistantWithCall = (id: string, parentId: string, ts: string, toolCallId: string) => ({
+    type: "message",
+    id,
+    parentId,
+    timestamp: ts,
+    message: {
+      role: "assistant",
+      content: [{ type: "toolCall", id: toolCallId, name: "bash", arguments: { cmd: "sleep 99" } }],
+    },
+  });
+
+  it("emits a session_ended-marked error end for a toolCall with no toolResult (#X6)", () => {
+    const entries = [
+      userEntry("u1", "go", T("30")),
+      assistantWithCall("a1", "u1", T("31"), "t1"),
+    ];
+    const snapshot = JSON.parse(JSON.stringify(entries));
+
+    const events = replayEntriesAsEvents("sess-1", entries);
+
+    const ends = events.filter((e) => e.event.eventType === "tool_execution_end");
+    expect(ends).toHaveLength(1);
+    expect(ends[0].event.data).toMatchObject({
+      toolCallId: "t1",
+      toolName: "bash",
+      result: "parent session ended",
+      isError: true,
+      healedBy: "session_ended",
+    });
+    expect(entries).toEqual(snapshot);
+  });
+
+  it("emits no orphan close when every toolCall has its toolResult (#X7)", () => {
+    const events = replayEntriesAsEvents("sess-1", [
+      userEntry("u1", "go", T("30")),
+      assistantWithCall("a1", "u1", T("31"), "t1"),
+      {
+        type: "message",
+        id: "r1",
+        parentId: "a1",
+        timestamp: T("32"),
+        message: { role: "toolResult", toolCallId: "t1", toolName: "bash", content: [{ type: "text", text: "ok" }] },
+      },
+    ]);
+
+    const ends = events.filter((e) => e.event.eventType === "tool_execution_end");
+    expect(ends).toHaveLength(1);
+    expect(ends[0].event.data.healedBy).toBeUndefined();
+    expect(ends[0].event.data.isError).toBeFalsy();
+  });
+});

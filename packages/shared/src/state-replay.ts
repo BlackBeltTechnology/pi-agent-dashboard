@@ -234,11 +234,17 @@ export function replayEntriesAsEvents(
   for (const toolCallId of openToolCalls) {
     const startEvent = startByToolCallId.get(toolCallId);
     const ts = startEvent ? startEvent.event.timestamp : Date.now();
+    // An orphan is a call the session DIED holding, so it closes as an error
+    // carrying the same marker the server-side live heal writes. Closing it as
+    // `{result:"", isError:false}` rendered a killed call as a successful empty
+    // result, contradicting the live view of the same call.
+    // See change: heal-orphaned-tool-cards-on-session-end (design D7).
     messages.push(makeEvent(sessionId, "tool_execution_end", ts, {
       toolCallId,
       toolName: (startEvent?.event.data as any)?.toolName ?? "unknown",
-      result: "",
-      isError: false,
+      result: "parent session ended",
+      isError: true,
+      healedBy: "session_ended",
     }));
   }
 

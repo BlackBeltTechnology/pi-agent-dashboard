@@ -1,3 +1,5 @@
 # state-replay.ts — index
 
 Synthesizes dashboard `event_forward` messages from persisted pi session entries for post-reconnect chat rebuild. Exports `replayEntriesAsEvents(sessionId, entries, knownContextWindow?)`. Emits message_start/update/end, tool_execution_start/end, model_select, session_compact, stats_update; closes orphaned tool calls; replays persisted flow-run events sorted by seq. A persisted `compaction` entry synthesizes a metadata-free `session_compact` at the entry's own position — the divider the live path renders; `summary` is never emitted (See change: replay-compaction-boundary). Uses persisted `entry.id` as `entryId` — no `entry_persisted` follow-up.
+
+Orphan-close shape changed: a `toolCall` with no `toolResult` now replays as `tool_execution_end{result:"parent session ended", isError:true, healedBy:"session_ended"}` (was `{result:"", isError:false}` — a killed call rendered as a silent empty success). Blast radius intended: disk hydration, archive, remote retained, bridge register-replay all rendered the same lie. See change: heal-orphaned-tool-cards-on-session-end.
