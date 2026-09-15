@@ -117,7 +117,7 @@ describe("useSessionActions — delivery verdict", () => {
 
   it("F8: a queued prompt also keeps the unknown path (it may still flush)", () => {
     const states = new Map([["s1", idle()]]);
-    const { actions, getStates } = setup("s1", states, { status: "queued" });
+    const { actions, getStates } = setup("s1", states, { status: "queued", entryId: 1 });
 
     actions.handleSend("run the tests");
 
@@ -127,13 +127,13 @@ describe("useSessionActions — delivery verdict", () => {
 
   it("Q1: a queued prompt that is dropped undelivered becomes an honest connection failure", () => {
     const states = new Map([["s1", idle()]]);
-    const { actions, getStates } = setup("s1", states, { status: "queued" });
+    const { actions, getStates } = setup("s1", states, { status: "queued", entryId: 7 });
 
     actions.handleSend("run the tests");
     expect(getStates().get("s1")!.pendingPrompt!.status).toBe("sending");
 
     // The outbox reports the drop after the reconnect window elapsed.
-    actions.markPromptUndelivered("s1", "run the tests");
+    actions.markPromptUndelivered("s1", 7);
 
     const pending = getStates().get("s1")!.pendingPrompt!;
     expect(pending.status).toBe("failed");
@@ -141,17 +141,24 @@ describe("useSessionActions — delivery verdict", () => {
     expect(pending.text).toBe("run the tests"); // preserved for Retry
   });
 
-  it("Q1: a late drop report does not clobber a different prompt that replaced it", () => {
+  it("Q1: a drop report for a SUPERSEDED entry never fails the current bubble (identical text)", () => {
     const states = new Map([["s1", idle()]]);
-    const { actions, getStates } = setup("s1", states, { status: "queued" });
+    const { actions, send, getStates } = setup("s1", states, { status: "queued", entryId: 1 });
+    // Two sends, IDENTICAL text, DIFFERENT outbox entries.
+    send.mockReturnValueOnce({ status: "queued", entryId: 1 });
+    send.mockReturnValueOnce({ status: "queued", entryId: 2 });
 
-    actions.handleSend("first");
-    actions.handleSend("second");
+    actions.handleSend("same text");
+    actions.handleSend("same text");
 
-    actions.markPromptUndelivered("s1", "first");
-
-    // Identity-keyed: the stale expiry for `first` must not fail `second`.
+    // Entry 1's expiry must not mark the bubble that now represents entry 2 —
+    // entry 2 can still flush, and failing it would invite a duplicate retry.
+    actions.markPromptUndelivered("s1", 1);
     expect(getStates().get("s1")!.pendingPrompt!.status).toBe("sending");
-    expect(getStates().get("s1")!.pendingPrompt!.text).toBe("second");
+    expect(getStates().get("s1")!.pendingPrompt!.queueId).toBe(2);
+
+    // Entry 2's own expiry does.
+    actions.markPromptUndelivered("s1", 2);
+    expect(getStates().get("s1")!.pendingPrompt!.status).toBe("failed");
   });
 });

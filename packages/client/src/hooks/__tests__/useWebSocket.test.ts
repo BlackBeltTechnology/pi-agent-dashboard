@@ -115,7 +115,7 @@ describe("useWebSocket — send verdict & outbox", () => {
     act(() => {
       verdict = result.current.send({ type: "abort", sessionId: "s1" } as any);
     });
-    expect(verdict).toEqual({ status: "queued" });
+    expect(verdict).toMatchObject({ status: "queued" });
     expect(ws.sent).toHaveLength(0);
 
     act(() => ws.open());

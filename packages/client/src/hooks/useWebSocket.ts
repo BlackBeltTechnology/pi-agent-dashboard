@@ -26,10 +26,12 @@ export const OUTBOX_EXPIRY_MS = 10_000;
  */
 export type SendVerdict =
   | { status: "handed" }
-  | { status: "queued" }
+  | { status: "queued"; /** Correlates the queued message with its outbox entry. */ entryId: number }
   | { status: "rejected"; reason: "no_socket" | "send_failed" };
 
 interface OutboxEntry {
+  /** Process-unique id; the caller keys late drop reports on it, NOT on text. */
+  id: number;
   msg: BrowserToServerMessage;
   /** Epoch ms after which the entry is dropped instead of flushed. */
   expiresAt: number;
@@ -42,7 +44,7 @@ interface OutboxEntry {
  * dropped silently and only surfaces later as the ambiguous 30 s wording.
  * See change: stop-discarding-known-session-state.
  */
-export type OutboxExpiryListener = (msg: BrowserToServerMessage) => void;
+export type OutboxExpiryListener = (msg: BrowserToServerMessage, entryId: number) => void;
 
 export function useWebSocket(url: string) {
   const wsRef = useRef<WebSocket | null>(null);
@@ -67,11 +69,13 @@ export function useWebSocket(url: string) {
   // One timer per expiring entry; entry identity decides whether it is still
   // queued when the timer fires (a flushed entry no-ops).
   const expiryTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  // Monotonic id source for outbox entries (never reused, never persisted).
+  const nextEntryIdRef = useRef(1);
 
   const notifyUndelivered = useCallback((entry: OutboxEntry) => {
     for (const listener of expiryListenersRef.current) {
       try {
-        listener(entry.msg);
+        listener(entry.msg, entry.id);
       } catch {
         // A listener must never break the sweep.
       }
@@ -257,6 +261,7 @@ export function useWebSocket(url: string) {
     // every other message waits for capacity eviction.
     const isPrompt = (msg as { type?: string }).type === "send_prompt";
     const entry: OutboxEntry = {
+      id: nextEntryIdRef.current++,
       msg,
       expiresAt: isPrompt ? Date.now() + OUTBOX_EXPIRY_MS : Number.POSITIVE_INFINITY,
     };
@@ -268,7 +273,7 @@ export function useWebSocket(url: string) {
       // letting the caller keep believing it may still flush.
       if (evicted) notifyUndelivered(evicted);
     }
-    return { status: "queued" };
+    return { status: "queued", entryId: entry.id };
   }, [scheduleEntryExpiry, notifyUndelivered]);
 
   // Register `send` as the global plugin-action sender so the

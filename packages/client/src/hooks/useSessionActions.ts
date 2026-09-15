@@ -214,6 +214,9 @@ export function useSessionActions(deps: SessionActionDeps) {
       // See change: stop-discarding-known-session-state.
       const rejected = verdict?.status === "rejected";
       const failureCause = cannotResume ? ("no_session_file" as const) : rejected ? ("connection" as const) : undefined;
+      // Correlate a queued send with its outbox entry so a late drop report
+      // matches THIS bubble, not one carrying the same text.
+      const queueId = verdict?.status === "queued" ? verdict.entryId : undefined;
       // Optimistic feedback, scoped to idle / fresh-turn sends only. Mid-turn
       // sends are governed by `mid-turn-prompt-queue` (authoritative
       // `pendingQueues` chips) and SHALL NOT write `pendingPrompt`. The bridge
@@ -235,6 +238,7 @@ export function useSessionActions(deps: SessionActionDeps) {
             delivery,
             status: failureCause ? "failed" : "sending",
             ...(failureCause ? { failureCause } : {}),
+            ...(queueId !== undefined ? { queueId } : {}),
           },
         });
         return next;
@@ -286,6 +290,7 @@ export function useSessionActions(deps: SessionActionDeps) {
     (sessionId: string, text: string, images?: ImageContent[]) => {
       const verdict = send({ type: "send_prompt", sessionId, text, images });
       const rejected = verdict?.status === "rejected";
+      const queueId = verdict?.status === "queued" ? verdict.entryId : undefined;
       // Same idle-scoped optimistic write as handleSend, for the card/board
       // quick-send path. The session may not be selected, so we read its state
       // from the map; if absent or streaming, skip the optimistic write and let
@@ -303,6 +308,7 @@ export function useSessionActions(deps: SessionActionDeps) {
             images,
             status: rejected ? "failed" : "sending",
             ...(rejected ? { failureCause: "connection" as const } : {}),
+            ...(queueId !== undefined ? { queueId } : {}),
           },
         });
         return next;
@@ -319,11 +325,11 @@ export function useSessionActions(deps: SessionActionDeps) {
    * `sending` with the SAME text, so a later retype is not clobbered.
    * See change: stop-discarding-known-session-state (test-plan Q1).
    */
-  const markPromptUndelivered = useCallback((sessionId: string, text: string) => {
+  const markPromptUndelivered = useCallback((sessionId: string, queueId: number) => {
     setSessionStates((prev) => {
       const current = prev.get(sessionId);
       const pending = current?.pendingPrompt;
-      if (!current || !pending || pending.status !== "sending" || pending.text !== text) return prev;
+      if (!current || !pending || pending.status !== "sending" || pending.queueId !== queueId) return prev;
       const next = new Map(prev);
       next.set(sessionId, {
         ...current,

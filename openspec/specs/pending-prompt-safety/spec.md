@@ -67,6 +67,6 @@ attributing the failure to the dashboard connection.
 
 - **GIVEN** a socket that is not open
 - **WHEN** the user sends a prompt and `send` returns a not-transmitted verdict
-- **THEN** `pendingPrompt` SHALL be marked failed immediately
+- **THEN** `pendingPrompt` SHALL be marked failed immediately with a connection cause
 - **AND** the 30-second safety timeout SHALL NOT be armed for that prompt
-- **AND** `lastError` SHALL attribute the failure to the dashboard connection rather than to the session
+- **AND** the failure SHALL be attributed to the dashboard connection rather than to the session, surfaced on the FAILED BUBBLE (`pendingPrompt.failureCause`) — NOT via `lastError`, which stays owned by the timeout and session/provider error paths

@@ -252,6 +252,14 @@ export interface PendingPrompt {
    * See change: stop-discarding-known-session-state.
    */
   failureCause?: "connection" | "no_session_file";
+  /**
+   * The outbox entry this bubble represents, when the send was QUEUED. A late
+   * drop report (expiry/eviction) is matched on THIS id, never on text: two
+   * identical prompts queued back-to-back must not have the first entry's
+   * expiry fail the second bubble while the second entry still flushes.
+   * See change: stop-discarding-known-session-state.
+   */
+  queueId?: number;
 }
 
 /**

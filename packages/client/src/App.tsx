@@ -1540,9 +1540,9 @@ export default function App() {
   // connection-attributed failure rather than letting the 30 s session-blaming
   // wording stand. See change: stop-discarding-known-session-state (test-plan Q1).
   useEffect(() => {
-    return onOutboxExpiry((msg) => {
+    return onOutboxExpiry((msg, entryId) => {
       if (msg.type === "send_prompt") {
-        markPromptUndelivered(msg.sessionId, msg.text);
+        markPromptUndelivered(msg.sessionId, entryId);
       }
     });
   }, [onOutboxExpiry, markPromptUndelivered]);

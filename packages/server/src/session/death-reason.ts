@@ -4,11 +4,10 @@ import type { ClosedReason } from "@blackbelt-technology/pi-dashboard-shared/typ
 /**
  * Best-effort classification of an involuntary death from the recorded `pid`.
  *
- * A SIGKILL, an out-of-memory kill, a process crash and a severed network link
- * are identical from the server's position: silence. The probe can only
- * distinguish "the process is gone" from "we could not tell", and NEVER names a
- * signal or a kill mechanism (spec: "Process-liveness classification SHALL NOT
- * overclaim").
+ * Involuntary termination causes and a severed network link are identical from
+ * the server's position: silence. The probe can only distinguish "the process is
+ * gone" from "we could not tell", and NEVER names a signal or a kill mechanism
+ * (spec: "Process-liveness classification SHALL NOT overclaim").
  *
  * `pid` is self-reported by the bridge and optional, and operating systems
  * recycle pids. A live probe is therefore NOT evidence of a live pi: a recycled

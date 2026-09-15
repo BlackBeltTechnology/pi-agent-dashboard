@@ -27,7 +27,7 @@ session whose ending was never examined.
 
 - **GIVEN** a session whose bridge connection is gone and whose reconnect grace period expires
 - **WHEN** the server ends the session
-- **THEN** the persisted reason SHALL identify loss of the process carrier
+- **THEN** the persisted reason SHALL be `process_gone` when the local `pid` probe proves the process absent, and `unknown` in every other case (no pid, a live/recycled pid, an unprobeable pid, or a remote-origin pid that is never probed)
 - **AND** the card SHALL present that reason rather than a bare `ended`
 
 #### Scenario: A failed respawn is labelled
