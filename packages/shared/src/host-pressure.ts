@@ -13,3 +13,12 @@
 export const HOST_PRESSURE_DEGRADED_MS = 35_000;
 /** Silence at/after this reads as unresponsive. */
 export const HOST_PRESSURE_UNRESPONSIVE_MS = 60_000;
+
+export type HostPressureState = "degraded" | "unresponsive";
+
+/** The wire shape carried by `DashboardSession.hostPressure`. */
+export interface HostPressure {
+  state: HostPressureState;
+  /** Server receipt time of the last frame — the anchor the pill counts from. */
+  since: number;
+}

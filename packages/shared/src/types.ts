@@ -1,3 +1,8 @@
+// Type-only (erased at emit), so this module keeps its zero-runtime-dependency
+// character. `HostPressure` is defined beside the thresholds that produce it so
+// the verdict is not described twice. See change: fix-false-unresponsive-badge.
+import type { HostPressure } from "./host-pressure.js";
+
 /**
  * The auto-namer's enumerated durable state set: carried across an extension
  * reload as VALUES (never the namer object, whose closures would hold a stale
@@ -436,7 +441,7 @@ export interface DashboardSession {
    * only ever arrives in the connect snapshot and then freezes, which read every
    * live session as unresponsive. See change: fix-false-unresponsive-badge.
    */
-  hostPressure?: { state: "degraded" | "unresponsive"; since: number } | null;
+  hostPressure?: HostPressure | null;
   /** Extension-declared UI modules (Phase 1: management-modal slot). */
   uiModules?: ExtensionUiModule[];
   /** Cached row data per `view.dataEvent` for table/grid views. Per-event item cap is enforced server-side. */

@@ -94,9 +94,26 @@ describe("host-pressure tracker", () => {
   it("clear() drops the session without emitting — an ended card has no pressure", () => {
     const { emissions, tracker } = setup();
     tracker.noteFrame("s1");
-    tracker.clear("s1");
+    // Reports "no verdict was live", so a caller has nothing to retract.
+    expect(tracker.clear("s1")).toBe(false);
     vi.advanceTimersByTime(10 * HOST_PRESSURE_UNRESPONSIVE_MS);
     expect(emissions).toEqual([]);
+  });
+
+  it("clear() REPORTS a live verdict, so the caller can retract it", () => {
+    const { emissions, tracker } = setup();
+    tracker.noteFrame("s1");
+    vi.advanceTimersByTime(HOST_PRESSURE_DEGRADED_MS);
+    emissions.length = 0;
+
+    // Still silent itself — the retraction belongs to the caller that knows
+    // WHY the session is going away (carrier loss vs. a real end).
+    expect(tracker.clear("s1")).toBe(true);
+    expect(emissions).toEqual([]);
+    expect(tracker.size()).toBe(0);
+
+    // An unknown id is never a live verdict.
+    expect(tracker.clear("nobody")).toBe(false);
   });
 
   it("tracks sessions independently", () => {

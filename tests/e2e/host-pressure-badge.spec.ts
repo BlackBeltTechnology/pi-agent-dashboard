@@ -49,6 +49,15 @@ async function connectBridge(port: number, bearer: string): Promise<WebSocket> {
   });
 }
 
+/** Best-effort send: a dead socket in cleanup must not mask the real failure. */
+function trySend(bridge: WebSocket, payload: unknown): void {
+  try {
+    if (bridge.readyState === WebSocket.OPEN) bridge.send(JSON.stringify(payload));
+  } catch {
+    // The socket died with the test; nothing left to clean up on it.
+  }
+}
+
 /** The pill's rendered verdict for a session, or null when it renders nothing. */
 async function badgeState(page: Page, sessionId: string): Promise<string | null> {
   const pill = page.locator(`[data-testid="session-host-pressure-${sessionId}"]`);
@@ -90,7 +99,12 @@ test.describe("host-pressure badge over the real socket (L3)", () => {
     try {
       // The card exists and is SILENT while the bridge is fresh — the
       // zero-pixel contract, and the non-vacuity guard for the pill below.
+      // `awaitCard` may legitimately spend longer than the 35 s degraded
+      // threshold (it can pin a folder), so re-arm the window immediately
+      // before asserting silence: otherwise a slow harness fails this line
+      // with no product bug behind it.
       await awaitCard(page, sessionId);
+      bridge.send(JSON.stringify({ type: "session_heartbeat", sessionId }));
       expect(await badgeState(page, sessionId)).toBeNull();
 
       // Now it says nothing at all. The verdict is PUSHED, so the pill must
@@ -109,7 +123,7 @@ test.describe("host-pressure badge over the real socket (L3)", () => {
         .poll(() => badgeState(page, sessionId), { timeout: 30_000, intervals: [1_000] })
         .toBeNull();
     } finally {
-      bridge.send(JSON.stringify({ type: "session_unregister", sessionId }));
+      trySend(bridge, { type: "session_unregister", sessionId });
       bridge.close();
     }
   });
@@ -131,13 +145,16 @@ test.describe("host-pressure badge over the real socket (L3)", () => {
     const second = await browser.newContext({ baseURL: BASE_URL });
     try {
       // First browser watches the raise happen live (`session_updated`).
+      // Settled at the TERMINAL state, not merely "some verdict": the two
+      // contexts tick on independent 5 s phases, so comparing them mid-
+      // escalation would fail for up to one tick with nothing wrong.
       await awaitCard(page, sessionId);
       await expect
         .poll(() => badgeState(page, sessionId), {
           timeout: UNRESPONSIVE_MS + 60_000,
           intervals: [2_000],
         })
-        .not.toBeNull();
+        .toBe("unresponsive");
 
       // Second browser learns the SAME state from `sessions_snapshot` alone —
       // it was never on the wire for the transition.
@@ -145,15 +162,12 @@ test.describe("host-pressure badge over the real socket (L3)", () => {
       await late.goto("/");
       await expect
         .poll(() => badgeState(late, sessionId), { timeout: 60_000, intervals: [2_000] })
-        .not.toBeNull();
+        .toBe("unresponsive");
 
-      // Compared at the same instant: the local ticker may have escalated both
-      // by now, but it must have escalated them identically.
-      const [a, b] = await Promise.all([badgeState(page, sessionId), badgeState(late, sessionId)]);
-      expect(b).toBe(a);
-      expect(["degraded", "unresponsive"]).toContain(a);
+      // Both settled; the snapshot path and the live path agree.
+      expect(await badgeState(page, sessionId)).toBe("unresponsive");
     } finally {
-      bridge.send(JSON.stringify({ type: "session_unregister", sessionId }));
+      trySend(bridge, { type: "session_unregister", sessionId });
       bridge.close();
       await second.close();
     }

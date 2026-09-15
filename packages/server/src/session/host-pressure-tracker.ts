@@ -18,19 +18,20 @@
 // numbers the server fires on. Re-exported here so this module stays the
 // server's single import site. See change: fix-false-unresponsive-badge.
 import {
+  type HostPressure,
   HOST_PRESSURE_DEGRADED_MS,
   HOST_PRESSURE_UNRESPONSIVE_MS,
+  type HostPressureState,
 } from "@blackbelt-technology/pi-dashboard-shared/host-pressure.js";
 
-export { HOST_PRESSURE_DEGRADED_MS, HOST_PRESSURE_UNRESPONSIVE_MS };
-
-export type HostPressureState = "degraded" | "unresponsive";
-
-export interface HostPressure {
-  state: HostPressureState;
-  /** Server receipt time of the last frame — the anchor the pill counts from. */
-  since: number;
-}
+// The SHAPE lives with the thresholds, for the same reason: `DashboardSession`
+// and this module must not describe the verdict twice.
+export {
+  type HostPressure,
+  HOST_PRESSURE_DEGRADED_MS,
+  HOST_PRESSURE_UNRESPONSIVE_MS,
+  type HostPressureState,
+};
 
 export interface HostPressureTrackerDeps {
   /** Fires on every transition. `null` means "recovered — clear the badge". */
@@ -42,8 +43,13 @@ export interface HostPressureTrackerDeps {
 export interface HostPressureTracker {
   /** Any frame received from a bridge proves its event loop is running. */
   noteFrame(sessionId: string): void;
-  /** Forget a session (unregister/disconnect). Emits nothing. */
-  clear(sessionId: string): void;
+  /**
+   * Forget a session (unregister/disconnect). Emits nothing — but REPORTS
+   * whether a verdict was live, so a caller that is ending the signal on a
+   * still-LIVE row (carrier loss during the reconnect grace) can broadcast the
+   * clear itself instead of stranding the badge.
+   */
+  clear(sessionId: string): boolean;
   /** Cancel every pending timer (server shutdown). */
   stop(): void;
   /** Tracked-session count — the leak oracle for the exit-path tests (X3). */
@@ -97,9 +103,10 @@ export function createHostPressureTracker(deps: HostPressureTrackerDeps): HostPr
 
     clear(sessionId) {
       const entry = entries.get(sessionId);
-      if (!entry) return;
+      if (!entry) return false;
       cancel(entry);
       entries.delete(sessionId);
+      return entry.state !== null;
     },
 
     stop() {

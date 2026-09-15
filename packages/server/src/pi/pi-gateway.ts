@@ -366,6 +366,11 @@ export function createPiGateway(
                 if (timer) clearTimeout(timer);
                 heartbeatTimers.delete(sid);
                 heartbeatMeta.delete(sid);
+                // MUST clear here, not lean on the close path: the routing
+                // entry is dropped BEFORE `terminate()`, so the close
+                // handler's ownership guard is already false and its clear
+                // never runs for this id.
+                hostPressure.clear(sid);
                 break;
               }
             }
@@ -971,8 +976,19 @@ export function createPiGateway(
             // An OPEN bridge socket is a PRECONDITION of the silence signal: a
             // closed carrier is not host pressure, and reporting it as such
             // would double-badge a disconnect the heartbeat/status machinery
-            // already owns. See change: fix-false-unresponsive-badge.
-            hostPressure.clear(currentSessionId);
+            // already owns.
+            //
+            // A verdict ALREADY raised is RETRACTED, not merely forgotten. A
+            // partition with no FIN raises degraded/unresponsive on a still
+            // half-open socket; once the close finally lands the server knows
+            // this is carrier loss, but the row still carries the verdict and
+            // the card's local ticker keeps counting it up for the whole
+            // reconnect grace. Dropping the entry silently makes that
+            // unrecoverable, because the tracker can no longer transition.
+            // See change: fix-false-unresponsive-badge.
+            if (hostPressure.clear(currentSessionId)) {
+              options?.onHostPressure?.(currentSessionId, null);
+            }
             // The incumbent leaving is one of the four D4 clearing triggers.
             contention.clear(currentSessionId);
           }
@@ -1233,6 +1249,9 @@ export function createPiGateway(
         ws.close();
         connections.delete(sessionId);
         contention.clear(sessionId);
+        // Same guard-defeat as the ping reaper: the routing entry is gone
+        // before the close event, so the close path cannot clear this id.
+        hostPressure.clear(sessionId);
         return true;
       }
       return false;

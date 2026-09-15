@@ -119,6 +119,36 @@ describe("pi-gateway host pressure", () => {
     expect(gateway.hostPressureTrackedCount()).toBe(0);
   });
 
+  // A verdict already on the row is RETRACTED when the carrier dies, not just
+  // forgotten — otherwise a partition with no FIN leaves the card ticking
+  // "unresponsive" for the whole reconnect grace, with the tracker no longer
+  // able to transition it back. See change: fix-false-unresponsive-badge.
+  it("X2b: a socket that dies while PRESSURED emits an explicit clear", async () => {
+    const emissions: Array<{ sessionId: string; pressure: HostPressure | null }> = [];
+    gateway = createPiGateway(createMemorySessionManager(), {
+      pingInterval: 0,
+      hostPressureDegradedMs: 60,
+      hostPressureUnresponsiveMs: 120,
+      onHostPressure: (sessionId, pressure) => emissions.push({ sessionId, pressure }),
+    });
+    await gateway.startOnSocket(sockPath);
+
+    const ws = await openBridge();
+    register(ws, "press-partition");
+    await waitFor(() => gateway?.isSessionConnected("press-partition") === true);
+
+    // The socket stays open long enough for the verdict to land …
+    await waitFor(() => emissions.length >= 2);
+    expect(emissions.map((e) => e.pressure?.state)).toEqual(["degraded", "unresponsive"]);
+
+    // … then the carrier finally goes away.
+    ws.close();
+    await waitFor(() => emissions.length >= 3);
+
+    expect(emissions.at(-1)).toEqual({ sessionId: "press-partition", pressure: null });
+    expect(gateway.hostPressureTrackedCount()).toBe(0);
+  });
+
   // ── X3: no tracking state survives a dead session ───────────────────────
   // Each exit path must release the map entry AND its two timers. The
   // heartbeat-timeout / sleep-retry sites are only reachable once the socket is
