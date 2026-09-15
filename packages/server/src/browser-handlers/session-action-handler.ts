@@ -266,11 +266,11 @@ export async function handleHeadlessReload(
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[dashboard] headless reload spawn failed: ${message}`);
     const endedAt = Date.now();
-    sessionManager.update(msg.sessionId, { status: "ended", endedAt });
+    sessionManager.update(msg.sessionId, { status: "ended", endedAt, closedReason: "spawn_failed" });
     ctx.broadcast({
       type: "session_updated",
       sessionId: msg.sessionId,
-      updates: { status: "ended", endedAt },
+      updates: { status: "ended", endedAt, closedReason: "spawn_failed" },
     });
     emitCommandFeedback(ctx, msg.sessionId, "error", message);
     return;
@@ -281,11 +281,11 @@ export async function handleHeadlessReload(
       `[dashboard] headless reload spawn failed: ${spawnResult.message}`,
     );
     const endedAt = Date.now();
-    sessionManager.update(msg.sessionId, { status: "ended", endedAt });
+    sessionManager.update(msg.sessionId, { status: "ended", endedAt, closedReason: "spawn_failed" });
     ctx.broadcast({
       type: "session_updated",
       sessionId: msg.sessionId,
-      updates: { status: "ended", endedAt },
+      updates: { status: "ended", endedAt, closedReason: "spawn_failed" },
     });
     emitCommandFeedback(ctx, msg.sessionId, "error", spawnResult.message);
     return;
@@ -339,10 +339,22 @@ export async function handleSendPrompt(
     // Normalize a zombie's stale "active" to "ended" so the rest of this block
     // drives the SAME proven ended→alive resume flow (pendingResume + continue).
     if (promptSession.status !== "ended") {
-      sessionManager.update(msg.sessionId, { status: "ended" });
+      // The process probe just returned "gone" for this zombie, so the cause is
+      // not a mystery. See change: stop-discarding-known-session-state.
+      sessionManager.update(msg.sessionId, { status: "ended", closedReason: "process_gone" });
     }
     if (!promptSession.sessionFile) {
       console.error(`[dashboard] auto-resume failed: no session file for session ${msg.sessionId}`);
+      // A server-side log is not a user-visible outcome. Surface the refusal so
+      // the browser does not blame the session after its 30 s timeout.
+      // See change: stop-discarding-known-session-state.
+      emitCommandFeedback(
+        ctx,
+        msg.sessionId,
+        "error",
+        "Can't resume this session — no saved transcript on disk.",
+        "send_prompt",
+      );
       return;
     }
     // Third continue-spawn site, so it needs D5's file guard too: a stale
@@ -393,6 +405,13 @@ export async function handleSendPrompt(
       pendingResumeRegistry.consume(promptSession.cwd);
       sessionManager.update(msg.sessionId, { resuming: false });
       broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: { resuming: false } });
+      emitCommandFeedback(
+        ctx,
+        msg.sessionId,
+        "error",
+        `Restart failed — ${spawnResult.message}`,
+        "send_prompt",
+      );
     }
     if (spawnResult.dashboardSpawned && spawnResult.success) {
       pendingDashboardSpawns?.set(promptSession.cwd, (pendingDashboardSpawns?.get(promptSession.cwd) ?? 0) + 1);
@@ -416,6 +435,13 @@ export async function handleSendPrompt(
     });
     if (!sent) {
       console.error(`[dashboard] send_prompt failed: no bridge connection for session ${msg.sessionId}`);
+      emitCommandFeedback(
+        ctx,
+        msg.sessionId,
+        "error",
+        "Prompt not delivered — the session isn't connected.",
+        "send_prompt",
+      );
     }
   }
 }
@@ -960,7 +986,7 @@ export async function shutdownSession(
     }
   }
 
-  sessionManager.unregister(msg.sessionId);
+  sessionManager.unregister(msg.sessionId, { closedReason: "manual" });
   broadcast({ type: "session_removed", sessionId: msg.sessionId });
 }
 
@@ -1176,8 +1202,8 @@ export async function handleForceKill(
   const pid = session?.pid;
   if (!pid) {
     // No PID — we can only close the WebSocket
-    sessionManager.update(msg.sessionId, { status: "ended", endedAt: Date.now() });
-    broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: { status: "ended", endedAt: Date.now() } });
+    sessionManager.update(msg.sessionId, { status: "ended", endedAt: Date.now(), closedReason: "manual" });
+    broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: { status: "ended", endedAt: Date.now(), closedReason: "manual" } });
     sendTo(ws, { type: "force_kill_result", sessionId: msg.sessionId, success: true, message: "WebSocket closed (no PID available)" });
     return;
   }
@@ -1201,8 +1227,8 @@ export async function handleForceKill(
   await headlessPidRegistry.killBySessionId(msg.sessionId);
 
   const endedAt = Date.now();
-  sessionManager.update(msg.sessionId, { status: "ended", endedAt });
-  broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: { status: "ended", endedAt } });
+  sessionManager.update(msg.sessionId, { status: "ended", endedAt, closedReason: "manual" });
+  broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: { status: "ended", endedAt, closedReason: "manual" } });
 
   if (!killResult.ok) {
     // Process was already dead when the kill was issued.

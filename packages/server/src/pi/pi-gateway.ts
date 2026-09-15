@@ -8,6 +8,7 @@ import type { ExtensionToServerMessage, ServerToExtensionMessage } from "@blackb
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { WebSocket, WebSocketServer } from "ws";
 import type { TicketConsumption } from "../auth/ws-ticket.js";
+import { classifyCarrierLoss } from "../session/death-reason.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import { attributeOrigin, UNATTRIBUTED_REMOTE } from "../session/session-origin.js";
 import { getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
@@ -221,7 +222,10 @@ export function createPiGateway(
               // Expiry only DETECTS an ending that already happened; the
               // session's last activity is the evidence.
               // See change: fix-ended-session-missing-endedat.
-              sessionManager.unregister(sessionId, { witnessed: false });
+              sessionManager.unregister(sessionId, {
+                witnessed: false,
+                closedReason: classifyCarrierLoss(session),
+              });
               connections.delete(sessionId);
               heartbeatTimers.delete(sessionId);
               heartbeatMeta.delete(sessionId);
@@ -250,7 +254,10 @@ export function createPiGateway(
               }
               console.error(`[gateway] session timed out: ${sessionId} (sleep recovery failed)`);
               // Detection, not observation — see above.
-              sessionManager.unregister(sessionId, { witnessed: false });
+              sessionManager.unregister(sessionId, {
+                witnessed: false,
+                closedReason: classifyCarrierLoss(session ?? {}),
+              });
               connections.delete(sessionId);
               heartbeatTimers.delete(sessionId);
               heartbeatMeta.delete(sessionId);
@@ -263,7 +270,10 @@ export function createPiGateway(
         console.error(`[gateway] session timed out: ${sessionId} (no heartbeat for ${hbTimeout}ms)`);
         // Heartbeat expiry — evidence-derived, not detection time.
         // See change: fix-ended-session-missing-endedat.
-        sessionManager.unregister(sessionId, { witnessed: false });
+        sessionManager.unregister(sessionId, {
+          witnessed: false,
+          closedReason: classifyCarrierLoss(session ?? {}),
+        });
         connections.delete(sessionId);
         heartbeatTimers.delete(sessionId);
         heartbeatMeta.delete(sessionId);
@@ -315,7 +325,10 @@ export function createPiGateway(
                 console.error(`[gateway] connection dead (ping timeout, ${misses} misses): ${sid}`);
                 // Ping timeout — same family as heartbeat expiry.
                 // See change: fix-ended-session-missing-endedat.
-                sessionManager.unregister(sid, { witnessed: false });
+                sessionManager.unregister(sid, {
+                  witnessed: false,
+                  closedReason: classifyCarrierLoss(sessionManager.get(sid) ?? {}),
+                });
                 connections.delete(sid);
                 const timer = heartbeatTimers.get(sid);
                 if (timer) clearTimeout(timer);

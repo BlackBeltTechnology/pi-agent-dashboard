@@ -5,11 +5,6 @@ import {
   isNotifyRowVisible,
   toolCallPrefKey,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
-import {
-  CHAT_TRANSCRIPT_BOUND,
-  CHAT_TRANSCRIPT_FLOOR,
-  CHAT_TRANSCRIPT_WEIGHT,
-} from "../../lib/layout/chat-pane-row-class.js";
 import { mdiAlertCircleOutline, mdiCheck, mdiChevronDown, mdiChevronUp, mdiClose, mdiCommentQuestionOutline, mdiContentCopy, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
@@ -39,6 +34,11 @@ import {
 import { derivePendingFreeFloating } from "../../lib/chat/pending-free-floating.js";
 import { computeAnchorCorrection } from "../../lib/chat/selection-anchor.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import {
+  CHAT_TRANSCRIPT_BOUND,
+  CHAT_TRANSCRIPT_FLOOR,
+  CHAT_TRANSCRIPT_WEIGHT,
+} from "../../lib/layout/chat-pane-row-class.js";
 import { REPLAY_PILL_DELAY_MS } from "../../lib/replay/loading-history.js";
 import { promptDesyncGatesFromState, usePromptDesync } from "../../lib/session/prompt-desync.js";
 import { formatMessageTime } from "../../lib/util/format.js";
@@ -87,6 +87,19 @@ interface Props {
   onAbort?: () => void;
   onForceKill?: () => void;
   onForkFromMessage?: (entryId: string) => void;
+  /**
+   * Re-send the preserved text of a pending prompt that failed because the
+   * browser could not transmit it. Rendered as the marked exit (Nielsen #3) on
+   * the connection-attributed failed arm.
+   * See change: stop-discarding-known-session-state.
+   */
+  onRetryPendingPrompt?: () => void;
+  /**
+   * Start a fresh session in the same folder for an ended session that has no
+   * saved transcript (the "Fork instead" exit). See change:
+   * stop-discarding-known-session-state (task 2.3a).
+   */
+  onForkPendingPrompt?: () => void;
   /**
    * Close a live inline terminal card (sends close_inline_terminal). The
    * parent binds the owning sessionId. See change: add-inline-terminal-card.
@@ -371,7 +384,7 @@ export interface ChatViewHandle {
   scrollToTurn: (turnIndex: number) => void;
 }
 
-const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onPromptResync, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, retainedTranscript, replayInFlight, historyGap, onLoadEarlier, historySpliceRev, onCollapseStreamingThinking }, ref) {
+const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onPromptResync, onAbort, onForceKill, onForkFromMessage, onRetryPendingPrompt, onForkPendingPrompt, onCloseInlineTerminal, pendingSteering, loadingHistory, retainedTranscript, replayInFlight, historyGap, onLoadEarlier, historySpliceRev, onCollapseStreamingThinking }, ref) {
   // `ToolContext` is a published surface (re-exported from `chat-embed`), so an
   // external embedder builds one by hand and would carry no `fileLink` —
   // silently losing file-mention linkification with no type error. Merge a
@@ -2032,8 +2045,8 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
                      retry; never the emerald success tick.
                      See change: fix-optimistic-prompt-stuck-sending. */
                   <>
-                    <Icon path={mdiAlertCircleOutline} size={0.7} className="text-red-400" />
-                    <span className="text-[10px] text-red-400/80 font-medium" data-testid="pending-prompt-failed">not sent</span>
+                    <Icon path={mdiAlertCircleOutline} size={0.7} className="text-[var(--severity-error-fg)]" />
+                    <span className="text-[10px] text-[var(--severity-error-fg)]/80 font-medium" data-testid="pending-prompt-failed">not sent</span>
                   </>
                 ) : (
                   <>
@@ -2043,6 +2056,46 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
                 )}
               </div>
             </div>
+            {state.pendingPrompt.status === "failed" && state.pendingPrompt.failureCause && (
+              /* Cause + marked exit on a divider row under the preserved text.
+                 Error conveyed by icon + text + border, never colour alone
+                 (WCAG 1.4.1). See change: stop-discarding-known-session-state. */
+              <div className="flex items-center gap-2 mt-1.5 pt-1.5 border-t border-[var(--severity-error-border)] text-[11.5px] text-[var(--severity-error-fg)]">
+                <span aria-hidden className="shrink-0 leading-none">⚠</span>
+                <span className="flex-1">
+                  {state.pendingPrompt.failureCause === "connection"
+                    ? i18nT(
+                        "session.promptNotSentConnection",
+                        undefined,
+                        "Dashboard is offline — your prompt never left this browser.",
+                      )
+                    : i18nT(
+                        "session.promptNotSentNoSessionFile",
+                        undefined,
+                        "This session has no saved transcript, so it can't be resumed.",
+                      )}
+                </span>
+                {state.pendingPrompt.failureCause === "connection"
+                  ? onRetryPendingPrompt && (
+                      <button
+                        type="button"
+                        onClick={onRetryPendingPrompt}
+                        className="shrink-0 rounded-md border border-[var(--severity-error-border)] px-2.5 py-1 text-[11px] font-semibold text-[var(--severity-error-fg)] hover:bg-[var(--severity-error-bg)] min-h-[36px] pointer-coarse:min-h-[44px]"
+                      >
+                        {i18nT("session.promptRetry", undefined, "Retry")}
+                      </button>
+                    )
+                  : onForkPendingPrompt && (
+                      <button
+                        type="button"
+                        onClick={onForkPendingPrompt}
+                        className="shrink-0 rounded-md border border-[var(--severity-error-border)] px-2.5 py-1 text-[11px] font-semibold text-[var(--severity-error-fg)] hover:bg-[var(--severity-error-bg)] min-h-[36px] pointer-coarse:min-h-[44px]"
+                      >
+                        {i18nT("session.promptForkInstead", undefined, "Fork instead")}
+                      </button>
+                    )}
+              </div>
+            )}
           </div>
         </div>
       )}

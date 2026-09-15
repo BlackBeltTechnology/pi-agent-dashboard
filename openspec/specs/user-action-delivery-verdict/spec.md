@@ -1,6 +1,9 @@
 # user-action-delivery-verdict Specification
 
-## ADDED Requirements
+## Purpose
+TBD - created by archiving change stop-discarding-known-session-state. Update Purpose after archive.
+
+## Requirements
 
 ### Requirement: Browser send SHALL report a delivery verdict
 
@@ -106,8 +109,12 @@ attribute the failure to the session.
 
 #### Scenario: Never-transmitted prompt fails immediately with a connection message
 
-- **GIVEN** a socket that is not open and an outbox that rejected the message
+- **GIVEN** a socket that is not open and an outbox that could not transmit the
+  message — rejected at call time, or dropped undelivered on expiry before the
+  reconnect lands
 - **WHEN** the user sends a prompt
 - **THEN** the prompt bubble SHALL be marked failed without waiting 30 seconds
 - **AND** the message shown SHALL attribute the failure to the dashboard
   connection, not to the session having failed to respond
+- **AND** a prompt that DOES flush within the expiry window SHALL NOT be marked
+  failed (it was transmitted)

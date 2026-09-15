@@ -74,7 +74,7 @@ describe("a process that outlives the ladder is announced, not just logged (C2)"
     expect(killProcess).toHaveBeenCalledWith(SURVIVING_PID, { timeoutMs: 2000 });
     // And the record really was released — `session_removed` on the wire is the
     // announcement, `unregister` is the act.
-    expect(unregister).toHaveBeenCalledWith("orphan-session");
+    expect(unregister).toHaveBeenCalledWith("orphan-session", { closedReason: "manual" });
 
     const orphaned = sent.find((m) => m.type === "session_orphaned");
     expect(

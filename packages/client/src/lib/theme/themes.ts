@@ -64,6 +64,20 @@ const statusVars: Record<string, string> = {
   "--status-notice": "var(--accent-blue)",
 };
 
+// ── Body-text contrast floor ──
+//
+// `--text-secondary` and `--text-tertiary` carry 10–11 px body text, so both
+// must reach WCAG AA 4.5:1 against BOTH `--bg-tertiary` (cards, inputs) and
+// `--bg-surface` (badges, buttons). 16 of 18 palettes failed on tertiary
+// (worst 2.48:1 on card, 1.67:1 on surface); the published upstream values were
+// remediated by adjusting lightness only, preserving hue and saturation, so each
+// theme keeps its identity. In catppuccinLight, rosePineLight, solarizedDark and
+// solarizedLight `--text-secondary` was itself sub-AA, so it was lifted in the
+// same pass — raising tertiary alone would have made the token meant to recede
+// the most legible text on the card. Pinned by
+// `src/lib/__tests__/theme-body-text-contrast.test.ts`.
+// See change: stop-discarding-known-session-state.
+
 // ── Base (matches current CSS :root / [data-theme="light"]) ──
 
 const baseDark: Record<string, string> = {
@@ -77,7 +91,7 @@ const baseDark: Record<string, string> = {
   "--bg-overlay": "rgba(0, 0, 0, 0.6)",
   "--text-primary": "#e5e5e5",
   "--text-secondary": "#b0b0b0",
-  "--text-tertiary": "#808080",
+  "--text-tertiary": "#919191",
   "--text-muted": "#585858",
   "--text-faint": "#3a3a3a",
   "--border-primary": "#252525",
@@ -105,7 +119,7 @@ const baseLight: Record<string, string> = {
   "--bg-overlay": "rgba(0, 0, 0, 0.3)",
   "--text-primary": "#1a1a1a",
   "--text-secondary": "#444444",
-  "--text-tertiary": "#777777",
+  "--text-tertiary": "#636363",
   "--text-muted": "#aaaaaa",
   "--text-faint": "#d0d0d0",
   "--border-primary": "#e0e0e0",
@@ -135,7 +149,7 @@ const draculaDark: Record<string, string> = {
   "--bg-overlay": "rgba(0, 0, 0, 0.6)",
   "--text-primary": "#f8f8f2",
   "--text-secondary": "#ccc9e7",
-  "--text-tertiary": "#6272a4",
+  "--text-tertiary": "#aeb6d0",
   "--text-muted": "#4d5681",
   "--text-faint": "#383a4e",
   "--border-primary": "#343746",
@@ -163,7 +177,7 @@ const draculaLight: Record<string, string> = {
   "--bg-overlay": "rgba(0, 0, 0, 0.3)",
   "--text-primary": "#282a36",
   "--text-secondary": "#44475a",
-  "--text-tertiary": "#6272a4",
+  "--text-tertiary": "#4e5c87",
   "--text-muted": "#9ea4c0",
   "--text-faint": "#d0d0d0",
   "--border-primary": "#d8d8d0",
@@ -193,7 +207,7 @@ const nordDark: Record<string, string> = {
   "--bg-overlay": "rgba(0, 0, 0, 0.5)",
   "--text-primary": "#eceff4",
   "--text-secondary": "#d8dee9",
-  "--text-tertiary": "#81899b",
+  "--text-tertiary": "#b7bcc6",
   "--text-muted": "#5b6375",
   "--text-faint": "#434c5e",
   "--border-primary": "#3b4252",
@@ -221,7 +235,7 @@ const nordLight: Record<string, string> = {
   "--bg-overlay": "rgba(0, 0, 0, 0.3)",
   "--text-primary": "#2e3440",
   "--text-secondary": "#3b4252",
-  "--text-tertiary": "#636e83",
+  "--text-tertiary": "#4f5869",
   "--text-muted": "#9da5b4",
   "--text-faint": "#c8ced9",
   "--border-primary": "#d8dee9",
@@ -251,7 +265,7 @@ const githubDark: Record<string, string> = {
   "--bg-overlay": "rgba(0, 0, 0, 0.5)",
   "--text-primary": "#e6edf3",
   "--text-secondary": "#c9d1d9",
-  "--text-tertiary": "#8b949e",
+  "--text-tertiary": "#969ea7",
   "--text-muted": "#6e7681",
   "--text-faint": "#3d444d",
   "--border-primary": "#21262d",
@@ -279,7 +293,7 @@ const githubLight: Record<string, string> = {
   "--bg-overlay": "rgba(0, 0, 0, 0.3)",
   "--text-primary": "#1f2328",
   "--text-secondary": "#424a53",
-  "--text-tertiary": "#656d76",
+  "--text-tertiary": "#575e66",
   "--text-muted": "#a1a9b1",
   "--text-faint": "#d0d7de",
   "--border-primary": "#d0d7de",
@@ -309,7 +323,7 @@ const catppuccinDark: Record<string, string> = {
   "--bg-overlay": "rgba(0, 0, 0, 0.5)",
   "--text-primary": "#cdd6f4",
   "--text-secondary": "#bac2de",
-  "--text-tertiary": "#7f849c",
+  "--text-tertiary": "#b3b6c4",
   "--text-muted": "#585b70",
   "--text-faint": "#45475a",
   "--border-primary": "#313244",
@@ -336,8 +350,8 @@ const catppuccinLight: Record<string, string> = {
   "--bg-code": "#e8eaf0",
   "--bg-overlay": "rgba(0, 0, 0, 0.3)",
   "--text-primary": "#4c4f69",
-  "--text-secondary": "#5c5f77",
-  "--text-tertiary": "#7c7f93",
+  "--text-secondary": "#414354",
+  "--text-tertiary": "#4b4d5b",
   "--text-muted": "#acb0be",
   "--text-faint": "#ccd0da",
   "--border-primary": "#ccd0da",
@@ -367,7 +381,7 @@ const tokyoNightDark: Record<string, string> = {
   "--bg-overlay": "rgba(0, 0, 0, 0.6)",
   "--text-primary": "#c0caf5",
   "--text-secondary": "#a9b1d6",
-  "--text-tertiary": "#787c99",
+  "--text-tertiary": "#999cb2",
   "--text-muted": "#565a73",
   "--text-faint": "#3b3f54",
   "--border-primary": "#24283b",
@@ -395,7 +409,7 @@ const tokyoNightLight: Record<string, string> = {
   "--bg-overlay": "rgba(0, 0, 0, 0.3)",
   "--text-primary": "#3760bf",
   "--text-secondary": "#343b59",
-  "--text-tertiary": "#6172b0",
+  "--text-tertiary": "#3c4877",
   "--text-muted": "#8990b3",
   "--text-faint": "#b6bac4",
   "--border-primary": "#c4c8da",
@@ -425,7 +439,7 @@ const rosePineDark: Record<string, string> = {
   "--bg-overlay": "rgba(0, 0, 0, 0.6)",
   "--text-primary": "#e0def4",
   "--text-secondary": "#cdcbe0",
-  "--text-tertiary": "#908caa",
+  "--text-tertiary": "#a29fb8",
   "--text-muted": "#6e6a86",
   "--text-faint": "#403d52",
   "--border-primary": "#26233a",
@@ -452,8 +466,8 @@ const rosePineLight: Record<string, string> = {
   "--bg-code": "#fffaf3",
   "--bg-overlay": "rgba(0, 0, 0, 0.3)",
   "--text-primary": "#575279",
-  "--text-secondary": "#797593",
-  "--text-tertiary": "#9893a5",
+  "--text-secondary": "#57546b",
+  "--text-tertiary": "#625d70",
   "--text-muted": "#b5afba",
   "--text-faint": "#dfdad9",
   "--border-primary": "#f2e9e1",
@@ -471,6 +485,12 @@ const rosePineLight: Record<string, string> = {
 };
 
 // ── Solarized (Dark / Light, Ethan Schoonover) ──
+//
+// ACCEPTED IDENTITY LOSS (user decision 2026-09-14/15). Solarized's `--bg-surface`
+// (#586e75 / #93a1a1) sits inside its own text ramp, so the 4.5:1 floor on that
+// surface drives `--text-tertiary` to near-white (#e9eced dark, 9.15:1 on card)
+// and `--text-secondary` with it. The alternative — moving `--bg-surface` — was
+// rejected; the remaining Solarized tokens are unchanged.
 
 const solarizedDark: Record<string, string> = {
   "--bg-primary": "#002b36",
@@ -482,8 +502,8 @@ const solarizedDark: Record<string, string> = {
   "--bg-code": "#073642",
   "--bg-overlay": "rgba(0, 0, 0, 0.5)",
   "--text-primary": "#fdf6e3",
-  "--text-secondary": "#93a1a1",
-  "--text-tertiary": "#839496",
+  "--text-secondary": "#eef1f1",
+  "--text-tertiary": "#e9eced",
   "--text-muted": "#657b83",
   "--text-faint": "#586e75",
   "--border-primary": "#073642",
@@ -510,8 +530,8 @@ const solarizedLight: Record<string, string> = {
   "--bg-code": "#eee8d5",
   "--bg-overlay": "rgba(0, 0, 0, 0.3)",
   "--text-primary": "#002b36",
-  "--text-secondary": "#586e75",
-  "--text-tertiary": "#657b83",
+  "--text-secondary": "#242d30",
+  "--text-tertiary": "#2d373b",
   "--text-muted": "#839496",
   "--text-faint": "#93a1a1",
   "--border-primary": "#e4ddc3",
@@ -541,7 +561,7 @@ const gruvboxDark: Record<string, string> = {
   "--bg-overlay": "rgba(0, 0, 0, 0.5)",
   "--text-primary": "#ebdbb2",
   "--text-secondary": "#d5c4a1",
-  "--text-tertiary": "#a89984",
+  "--text-tertiary": "#c2b8a9",
   "--text-muted": "#7c6f64",
   "--text-faint": "#504945",
   "--border-primary": "#3c3836",
@@ -569,7 +589,7 @@ const gruvboxLight: Record<string, string> = {
   "--bg-overlay": "rgba(0, 0, 0, 0.3)",
   "--text-primary": "#3c3836",
   "--text-secondary": "#504945",
-  "--text-tertiary": "#7c6f64",
+  "--text-tertiary": "#5a5149",
   "--text-muted": "#a89984",
   "--text-faint": "#d5c4a1",
   "--border-primary": "#ebdbb2",

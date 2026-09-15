@@ -60,9 +60,9 @@ import { selectInflightBashTools } from "./hooks/useInflightBashTools.js";
 import { useInstallPrompt } from "./hooks/useInstallPrompt.js";
 import { useLaunchSource } from "./hooks/useLaunchSource.js";
 import { useMessageHandler } from "./hooks/useMessageHandler.js";
-import { type OpenSpecGetInflight, useOpenSpecReconcile } from "./hooks/useOpenSpecReconcile.js";
 import { useMobile } from "./hooks/useMobile.js";
 import { useOpenSpecReader } from "./hooks/useOpenSpecReader.js";
+import { type OpenSpecGetInflight, useOpenSpecReconcile } from "./hooks/useOpenSpecReconcile.js";
 import { usePiResourceFileFetch } from "./hooks/usePiResourceFileFetch.js";
 import { useSidebarState } from "./hooks/useSidebarState.js";
 import { useStaleToolReconcile } from "./hooks/useStaleToolReconcile.js";
@@ -370,7 +370,7 @@ export default function App() {
   // See change: throttle-idle-ui-animations.
   useAppHidden();
   const [wsUrl, setWsUrl] = useState(getInitialWsUrl);
-  const { send, onMessage, status, ws } = useWebSocket(wsUrl);
+  const { send, onMessage, status, ws, onOutboxExpiry } = useWebSocket(wsUrl);
   // Stable identity: the plugin runtime's `usePluginSend` memoizes on this prop,
   // and a fresh closure per render made every effect that depends on `send`
   // re-run — the browser relay's LiveViewTile re-subscribed on every render.
@@ -1532,7 +1532,20 @@ export default function App() {
     handleListFiles,
     // Bridge-owned follow-up buffer mutation senders. See change: rework-mid-turn-prompt-queue.
     removeFollowUpEntry, editFollowUpEntry, promoteFollowUpEntry, clearFollowUpEntries,
+    markPromptUndelivered,
   } = sessionActions;
+
+  // A prompt queued while the socket was not open is dropped if the reconnect
+  // never lands inside the outbox window. Correct that to an honest,
+  // connection-attributed failure rather than letting the 30 s session-blaming
+  // wording stand. See change: stop-discarding-known-session-state (test-plan Q1).
+  useEffect(() => {
+    return onOutboxExpiry((msg, entryId) => {
+      if (msg.type === "send_prompt") {
+        markPromptUndelivered(msg.sessionId, entryId);
+      }
+    });
+  }, [onOutboxExpiry, markPromptUndelivered]);
 
   // Stabilized ChatView callbacks: hoisted from inline arrows at the call site
   // so keystrokes into the command input (which re-render App) do not defeat
@@ -1550,6 +1563,22 @@ export default function App() {
     },
     [selectedId, handleCloseInlineTerminal],
   );
+  // Re-send the preserved text of a prompt the BROWSER refused to transmit
+  // (connection-attributed failed arm). The marked exit, not a silent drop.
+  // See change: stop-discarding-known-session-state.
+  const handleRetryPendingPrompt = useCallback(() => {
+    const pending = selectedState.pendingPrompt;
+    if (!pending) return;
+    handleSend(pending.text, pending.images as any, pending.delivery);
+  }, [selectedState.pendingPrompt, handleSend]);
+  // Ended session with no saved transcript: resume AND fork are both refused
+  // server-side (`resume.session_file_unknown` — the `sessionFile` guard runs
+  // before any mode branching), so the action that actually works is a fresh
+  // session in the same folder. See change: stop-discarding-known-session-state.
+  const handleForkPendingPrompt = useCallback(() => {
+    const target = selectedId ? sessions.get(selectedId) : undefined;
+    if (target) handleSpawnSession(target.cwd);
+  }, [selectedId, sessions, handleSpawnSession]);
   const handleCollapseStreamingThinking = useCallback(() => {
     if (!selectedId) return;
     setSessionStates((prev) => {
@@ -2148,7 +2177,7 @@ export default function App() {
             </div>
           }>
             <SessionAssetsProvider assets={selectedSession?.assets}>
-            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onPromptResync={requestPromptResync} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? handleForkFromMessage : undefined} onCloseInlineTerminal={selectedId ? handleCloseInlineTerminalForSelected : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? EMPTY_STEERING} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} retainedTranscript={selectedSession?.retainedTranscript} replayInFlight={selectedId ? replayInFlight.get(selectedId) ?? false : false} historyGap={selectedId ? historyGaps.get(selectedId) : undefined} onLoadEarlier={selectedId ? handleLoadEarlier : undefined} historySpliceRev={historySpliceRev} onCollapseStreamingThinking={selectedId ? handleCollapseStreamingThinking : undefined} />
+            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onPromptResync={requestPromptResync} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? handleForkFromMessage : undefined} onRetryPendingPrompt={selectedId ? handleRetryPendingPrompt : undefined} onForkPendingPrompt={selectedId ? handleForkPendingPrompt : undefined} onCloseInlineTerminal={selectedId ? handleCloseInlineTerminalForSelected : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? EMPTY_STEERING} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} retainedTranscript={selectedSession?.retainedTranscript} replayInFlight={selectedId ? replayInFlight.get(selectedId) ?? false : false} historyGap={selectedId ? historyGaps.get(selectedId) : undefined} onLoadEarlier={selectedId ? handleLoadEarlier : undefined} historySpliceRev={historySpliceRev} onCollapseStreamingThinking={selectedId ? handleCollapseStreamingThinking : undefined} />
             </SessionAssetsProvider>
           </ErrorBoundary>
           {/* Single-card error-lifecycle surface. Sticky above the command

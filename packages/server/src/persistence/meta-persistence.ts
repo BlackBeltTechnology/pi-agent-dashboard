@@ -3,8 +3,10 @@
  * Each session gets its own debounce timer — updating session A
  * does not trigger a write for session B.
  */
-import { type SessionMeta, metaPath, readSessionMeta, writeSessionMeta, mergeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+
 import type { DisplayPrefs, PartialDisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import { mergeSessionMeta, metaPath, readSessionMeta, type SessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import type { ClosedReason } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 const DEBOUNCE_MS = 1000;
 
@@ -35,7 +37,7 @@ export interface MetaPersistence {
    */
   setLiveness(
     sessionFile: string,
-    liveness: { live: boolean; liveEpoch?: number; closedReason?: string },
+    liveness: { live: boolean; liveEpoch?: number; closedReason?: ClosedReason },
   ): void;
   /** Flush all pending writes immediately. */
   flushAll(): void;

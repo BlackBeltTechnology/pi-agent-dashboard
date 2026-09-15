@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import { metaPath, readSessionMeta, writeSessionMeta, mergeSessionMeta } from "../session-meta.js";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mergeSessionMeta, metaPath, readSessionMeta, writeSessionMeta } from "../session-meta.js";
 
 describe("session-meta", () => {
   let tmpDir: string;
@@ -41,6 +41,26 @@ describe("session-meta", () => {
       const sessionFile = path.join(tmpDir, "bad.jsonl");
       fs.writeFileSync(path.join(tmpDir, "bad.meta.json"), "not json");
       expect(readSessionMeta(sessionFile)).toBeUndefined();
+    });
+
+    it("normalizes an unsupported persisted closedReason to `unknown`, never leaving it absent", () => {
+      // An unsupported value (legacy/hand-edited) reaching the renderer would
+      // crash the ended-reason pill lookup; a MISSING reason must stay missing,
+      // though — cold-start reconstruction must never synthesize one.
+      // See change: stop-discarding-known-session-state.
+      const sessionFile = path.join(tmpDir, "badreason.jsonl");
+      fs.writeFileSync(
+        path.join(tmpDir, "badreason.meta.json"),
+        JSON.stringify({ source: "dashboard", closedReason: "crashed-somehow" }),
+      );
+      expect(readSessionMeta(sessionFile)?.closedReason).toBe("unknown");
+
+      const noReason = path.join(tmpDir, "noreason.jsonl");
+      fs.writeFileSync(
+        path.join(tmpDir, "noreason.meta.json"),
+        JSON.stringify({ source: "dashboard" }),
+      );
+      expect(readSessionMeta(noReason)?.closedReason).toBeUndefined();
     });
 
     it("should write and read expanded fields", () => {
