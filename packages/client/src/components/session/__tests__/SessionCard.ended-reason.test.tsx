@@ -85,6 +85,20 @@ describe("SessionCard ended reason (F7)", () => {
     else expect(pill.textContent?.trim()).toBe(label);
   });
 
+  it("an out-of-vocabulary closedReason falls back to `unknown` without crashing", () => {
+    // Wire frames are unvalidated. `"constructor"`/`"toString"` are inherited
+    // `Object.prototype` keys: an `in` check accepts them and resolves the map to
+    // an Object member, crashing the `.key` read. `Object.hasOwn` rejects them.
+    for (const bogus of ["constructor", "toString", "crashed-somehow"]) {
+      const session = makeSession({ closedReason: bogus as unknown as ClosedReason });
+      const { unmount } = renderCard(session);
+      const pill = screen.getByTestId(`session-ended-reason-${session.id}`);
+      expect(pill.getAttribute("data-closed-reason")).toBe("unknown");
+      expect(pill.textContent).toContain("ended — reason unknown");
+      unmount();
+    }
+  });
+
   it("F7: unknown is rendered, not hidden — it never implies a clean exit", () => {
     const session = makeSession({ closedReason: "unknown" });
     renderCard(session);

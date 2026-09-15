@@ -307,8 +307,13 @@ function EndedReasonPill({ session }: { session: DashboardSession }) {
   // line of defence. Keyed on vocabulary MEMBERSHIP, not a nullish fallback —
   // `manual`'s glyph is legitimately absent (a silent close) and must stay so.
   // See change: stop-discarding-known-session-state.
-  const known = reason in ENDED_REASON_LABEL;
-  const safeReason = known ? reason : "unknown";
+  // `Object.hasOwn`, not `in`: `"constructor"` (and any other inherited
+  // `Object.prototype` key) passes the `in` operator and resolves the map to
+  // `Object`'s own member, crashing the `.key` read. A wire frame
+  // (`session_updated.updates`) can carry any string at runtime.
+  const safeReason: ClosedReason = Object.hasOwn(ENDED_REASON_LABEL, reason)
+    ? reason
+    : "unknown";
   const label = ENDED_REASON_LABEL[safeReason];
   const title = ENDED_REASON_TITLE[safeReason];
   const glyph = ENDED_REASON_GLYPH[safeReason];
