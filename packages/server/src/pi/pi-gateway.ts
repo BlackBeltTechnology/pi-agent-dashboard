@@ -9,6 +9,7 @@ import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared
 import { WebSocket, WebSocketServer } from "ws";
 import type { TicketConsumption } from "../auth/ws-ticket.js";
 import { classifyCarrierLoss } from "../session/death-reason.js";
+import { createHostPressureTracker, type HostPressure } from "../session/host-pressure-tracker.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import { attributeOrigin, UNATTRIBUTED_REMOTE } from "../session/session-origin.js";
 import { getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
@@ -72,6 +73,16 @@ export interface PiGatewayOptions {
    * committing a move (D11/D14, task 9.7).
    */
   instanceId?: string;
+  /**
+   * Fires on a host-pressure TRANSITION for a session (`null` = recovered).
+   * The gateway owns the last-frame fact; the dashboard server turns the
+   * verdict into a session row update + browser broadcast.
+   * See change: fix-false-unresponsive-badge.
+   */
+  onHostPressure?: (sessionId: string, pressure: HostPressure | null) => void;
+  /** Test seams for the pressure thresholds. */
+  hostPressureDegradedMs?: number;
+  hostPressureUnresponsiveMs?: number;
 }
 
 export interface PiGateway {
@@ -100,6 +111,21 @@ export interface PiGateway {
   findSessionsByCwd(cwd: string): string[];
   getConnectedSessionIds(): string[];
   isSessionConnected(sessionId: string): boolean;
+  /**
+   * Host-pressure tracked-session count. Test seam: every session-exit path
+   * must release its tracker entry (and its two timers), and a leak is
+   * otherwise invisible until a verdict fires for a session nobody serves.
+   * See change: fix-false-unresponsive-badge.
+   */
+  hostPressureTrackedCount(): number;
+  /**
+   * Release a session's host-pressure tracking. Wired to the session manager's
+   * `onEnded` so a MANAGER-driven ending (`update({status:"ended"})` with the
+   * bridge socket still open — reload-spawn failure, zombie normalization,
+   * move) releases the entry and its timers too; the gateway's own exit paths
+   * clear themselves. See change: fix-false-unresponsive-badge.
+   */
+  clearHostPressure(sessionId: string): void;
   /** Force-close the WebSocket connection for a session */
   closeSession(sessionId: string): boolean;
   /**
@@ -164,6 +190,14 @@ export function createPiGateway(
   const heartbeatTimers = new Map<string, ReturnType<typeof setTimeout>>();
   // Map sessionId → { setAt: timestamp, sleepRetried: boolean } for sleep detection
   const heartbeatMeta = new Map<string, { setAt: number; sleepRetried: boolean }>();
+  // Bridge-silence verdict, emitted on transition only. Fed by EVERY frame a
+  // bridge sends — any frame proves its event loop is running.
+  // See change: fix-false-unresponsive-badge.
+  const hostPressure = createHostPressureTracker({
+    onChange: (sessionId, pressure) => options?.onHostPressure?.(sessionId, pressure),
+    degradedMs: options?.hostPressureDegradedMs,
+    unresponsiveMs: options?.hostPressureUnresponsiveMs,
+  });
 
   let onEvent: ((sessionId: string, msg: ExtensionToServerMessage) => void) | undefined;
   let onEmpty: (() => void) | undefined;
@@ -229,6 +263,7 @@ export function createPiGateway(
               connections.delete(sessionId);
               heartbeatTimers.delete(sessionId);
               heartbeatMeta.delete(sessionId);
+              hostPressure.clear(sessionId);
               checkEmpty();
             }, hbTimeout),
           );
@@ -261,6 +296,7 @@ export function createPiGateway(
               connections.delete(sessionId);
               heartbeatTimers.delete(sessionId);
               heartbeatMeta.delete(sessionId);
+              hostPressure.clear(sessionId);
               checkEmpty();
             }, hbTimeout),
           );
@@ -277,6 +313,10 @@ export function createPiGateway(
         connections.delete(sessionId);
         heartbeatTimers.delete(sessionId);
         heartbeatMeta.delete(sessionId);
+        // Every exit path releases the tracker entry and its two timers; a
+        // missed site leaks a map entry that fires a verdict for a session
+        // nobody is serving. See change: fix-false-unresponsive-badge.
+        hostPressure.clear(sessionId);
         checkEmpty();
       }, hbTimeout)
     );
@@ -334,6 +374,11 @@ export function createPiGateway(
                 if (timer) clearTimeout(timer);
                 heartbeatTimers.delete(sid);
                 heartbeatMeta.delete(sid);
+                // MUST clear here, not lean on the close path: the routing
+                // entry is dropped BEFORE `terminate()`, so the close
+                // handler's ownership guard is already false and its clear
+                // never runs for this id.
+                hostPressure.clear(sid);
                 break;
               }
             }
@@ -524,6 +569,18 @@ export function createPiGateway(
         ws.on("message", (raw) => {
           // Any received message proves the connection is alive
           aliveMisses.set(ws, 0);
+          // …and that the bridge's event loop is running: a blocked loop cannot
+          // put a frame on the wire.
+          //
+          // Gated on OWNERSHIP, like the close handler: a displaced or refused
+          // socket still carries the `currentSessionId` it named, and its
+          // in-flight frames would otherwise keep clearing or postponing the
+          // INCUMBENT's verdict — a liveness claim made by a socket that is no
+          // longer serving that session.
+          // See change: fix-false-unresponsive-badge.
+          if (currentSessionId && connections.get(currentSessionId) === ws) {
+            hostPressure.noteFrame(currentSessionId);
+          }
           queue = queue.then(() => handleMessage(raw)).catch(() => {});
         });
 
@@ -776,6 +833,9 @@ export function createPiGateway(
                 if (oldSession && (oldSession.source === "unknown" || !oldSession.sessionFile)) {
                   sessionManager.unregister(currentSessionId);
                   connections.delete(currentSessionId);
+                  // The placeholder id is gone for good after a /reload swap —
+                  // release its tracker entry with it.
+                  hostPressure.clear(currentSessionId);
                 }
               }
               currentSessionId = msg.sessionId;
@@ -818,6 +878,7 @@ export function createPiGateway(
               console.error(`[gateway] session registered: ${msg.sessionId} cwd=${msg.cwd}`);
 
               resetHeartbeat(msg.sessionId);
+              hostPressure.noteFrame(msg.sessionId);
               onConnection?.();
               onSessionRegistered?.(msg.sessionId, msg.cwd);
               onEvent?.(msg.sessionId, msg);
@@ -845,6 +906,7 @@ export function createPiGateway(
               console.error(`[gateway] session unregistered: ${msg.sessionId} (explicit)`);
               sessionManager.unregister(msg.sessionId);
               connections.delete(msg.sessionId);
+              hostPressure.clear(msg.sessionId);
               // Session end is one of the four D4 clearing triggers.
               contention.clear(msg.sessionId);
               const timer = heartbeatTimers.get(msg.sessionId);
@@ -928,6 +990,22 @@ export function createPiGateway(
               // This handles temporary disconnects
               onDisconnect?.(currentSessionId);
             }
+            // An OPEN bridge socket is a PRECONDITION of the silence signal: a
+            // closed carrier is not host pressure, and reporting it as such
+            // would double-badge a disconnect the heartbeat/status machinery
+            // already owns.
+            //
+            // A verdict ALREADY raised is RETRACTED, not merely forgotten. A
+            // partition with no FIN raises degraded/unresponsive on a still
+            // half-open socket; once the close finally lands the server knows
+            // this is carrier loss, but the row still carries the verdict and
+            // the card's local ticker keeps counting it up for the whole
+            // reconnect grace. Dropping the entry silently makes that
+            // unrecoverable, because the tracker can no longer transition.
+            // See change: fix-false-unresponsive-badge.
+            if (hostPressure.clear(currentSessionId)) {
+              options?.onHostPressure?.(currentSessionId, null);
+            }
             // The incumbent leaving is one of the four D4 clearing triggers.
             contention.clear(currentSessionId);
           }
@@ -983,6 +1061,13 @@ export function createPiGateway(
       // so the path is reported as-is and the accessor is transport-aware.
       if (typeof addr === "string") return addr;
       return null;
+    },
+    /** Test seam: tracked-session count, the exit-path leak oracle (X3). */
+    hostPressureTrackedCount() {
+      return hostPressure.size();
+    },
+    clearHostPressure(sessionId: string) {
+      hostPressure.clear(sessionId);
     },
     transport() {
       if (socketPath) return { transport: "unix" as const, path: socketPath };
@@ -1090,6 +1175,7 @@ export function createPiGateway(
       }
       heartbeatTimers.clear();
       heartbeatMeta.clear();
+      hostPressure.stop();
       aliveMisses.clear();
       // Forcibly terminate every accepted socket, not just the ones holding a
       // routing entry — `wss.close()` does not terminate clients, so a socket
@@ -1183,6 +1269,14 @@ export function createPiGateway(
         ws.close();
         connections.delete(sessionId);
         contention.clear(sessionId);
+        // Same guard-defeat as the ping reaper: the routing entry is gone
+        // before the close event, so the close path can neither clear NOR
+        // retract this id. Retract explicitly — dropping the entry silently
+        // would destroy the only state that can still produce the recovery
+        // transition, stranding a raised badge on a row that outlives the call.
+        if (hostPressure.clear(sessionId)) {
+          options?.onHostPressure?.(sessionId, null);
+        }
         return true;
       }
       return false;
