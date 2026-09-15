@@ -48,6 +48,27 @@ export type LifecyclePolicy = "ephemeral" | "durable";
 export type SessionStatus = "active" | "idle" | "streaming" | "ended";
 
 /**
+ * Why a session reached `status: "ended"`. One vocabulary, reused by
+ * `DashboardSession.closedReason` and the persisted `.meta.json` liveness
+ * marker — never a third attribution field beside `movedTo`.
+ *
+ *   - `manual`       — the user asked for the close (shutdown / force-kill).
+ *   - `process_gone` — the session's process was established to be ABSENT: a
+ *                      pid probed gone at grace expiry, or the zombie-
+ *                      normalization check. A REMOTE-origin pid is never probed
+ *                      (foreign PID namespace) and reads `unknown` instead.
+ *   - `spawn_failed` — pi could not be started / restarted.
+ *   - `unknown`      — a real terminal state whose cause could not be
+ *                      established. A member, never an absence: "we do not
+ *                      know" is a different fact from "never examined".
+ *
+ * `isRecoveryCandidate` excludes only `manual`; every other value (and an
+ * absent reason) passes through unchanged. See change:
+ * stop-discarding-known-session-state.
+ */
+export type ClosedReason = "manual" | "process_gone" | "spawn_failed" | "unknown";
+
+/**
  * Per-session git-worktree state. Populated by the bridge's VCS probe when the
  * shared checkout-root resolution reports the cwd as a LINKED WORKTREE — its
  * `git rev-parse --git-dir` differs from its `--git-common-dir` — AND a
@@ -372,7 +393,7 @@ export interface DashboardSession {
    */
   live?: boolean;
   liveEpoch?: number;
-  closedReason?: string;
+  closedReason?: ClosedReason;
   /** Set at cold-start restore when the scanned session is a recovery
    *  candidate. See change: reopen-sessions-after-shutdown. */
   recoveryCandidate?: boolean;

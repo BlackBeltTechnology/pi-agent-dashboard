@@ -72,9 +72,9 @@ handlers), **E2E** Playwright against the docker harness.
 
 | id | requirement | technique | level | disposition | input | trigger | expected observable |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------|
-| **Q1** | An undelivered user action SHALL be surfaced honestly | **incident reproduction** | E2E | automated | dashboard open on a session; dashboard WebSocket forcibly interrupted | user types a prompt during the reconnect window | an honest connection-failure indication appears promptly; the session is **not** blamed. This is the user-reported symptom |
+| **Q1** | An undelivered user action SHALL be surfaced honestly | **incident reproduction** | E2E | automated | dashboard open on a session; dashboard WebSocket forcibly interrupted before the prompt is typed | user types a prompt during the reconnect window | a prompt the reconnect window does not rescue is declared failed at outbox expiry (10 s, well inside the 30 s deadline), attributed to the **connection**; the session is **not** blamed. A prompt that DOES flush within the window is delivered, not failed. This is the user-reported symptom |
 | Q2 | Involuntary session death SHALL carry a reason | incident reproduction | E2E | automated | a session whose process is killed out-of-band | card transitions to ended | card shows a reason, not a bare `ended` |
-| Q3 | Host pressure SHALL be rendered | smoke | E2E | automated | a healthy running session | card renders | a health indicator is present and reads healthy |
+| Q3 | Host pressure SHALL be rendered | smoke | E2E | automated | a healthy running session carrying a fresh heartbeat | card renders | **no** pressure indicator is rendered — a healthy card gains **zero** new pixels. The pill exists only for degraded/unresponsive. Reconciles this row with the approved mockup (`mockups/ui-plan.md` Surface 2: "Healthy renders nothing") and the F1/F3 contract |
 
 ### Performance
 

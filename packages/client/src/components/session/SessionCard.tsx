@@ -1,5 +1,5 @@
-import { mdiAlertOutline, mdiArchiveOutline, mdiArrowRightCircleOutline, mdiClose, mdiCommentQuestion, mdiConsoleLine, mdiFlash, mdiLoading, mdiPaperclip, mdiPencil, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiPlus, mdiRefresh, mdiRemoteDesktop, mdiSourceBranch, mdiSourceBranchPlus, mdiSourceFork } from "@mdi/js";
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
+import { mdiAlertOutline, mdiArchiveOutline, mdiArrowRightCircleOutline, mdiClose, mdiCommentQuestion, mdiConsoleLine, mdiFlash, mdiLoading, mdiPaperclip, mdiPencil, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiPlus, mdiRefresh, mdiRemoteDesktop, mdiSourceBranch, mdiSourceBranchPlus, mdiSourceFork } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useState } from "react";
 import { getApiBase } from "../../lib/api/api-context.js";
@@ -28,7 +28,7 @@ export const statusColors = statusColorsExt;
 export const sourceBadgeColors = sourceBadgeColorsExt;
 
 import { SessionCardActionBarSlot, SessionCardBadgeSlot, SessionCardFlowsSlot, SessionCardMemorySlot, useHasWidgetBarPrompt, useSlotHasClaimsForSession, WorktreeCardSectionSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
-import type { CommandInfo, DashboardSession, GitStatus, ImageContent, OpenSpecChange, OpenSpecData, OpenSpecGroup, OpenSpecReadiness, OpenSpecReadinessReason } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { ClosedReason, CommandInfo, DashboardSession, GitStatus, ImageContent, OpenSpecChange, OpenSpecData, OpenSpecGroup, OpenSpecReadiness, OpenSpecReadinessReason } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";
 import { useFxVisibility } from "../../hooks/useFxVisibility.js";
 import type { InflightBashTool } from "../../hooks/useInflightBashTools.js";
@@ -81,7 +81,11 @@ export function ActivityIndicator({ session, retryAttempt }: { session: Dashboar
     return <span className="text-yellow-400">{i18nT("common.resuming", undefined, "Resuming…")}</span>;
   }
 
-  if (session.status === "ended") return null;
+  // Ended sessions have no activity, so this slot used to be blank (it
+  // `return`ed null). It now carries WHY the session ended; a MOVED session
+  // keeps the MovedBadge instead (one fact, one pill).
+  // See change: stop-discarding-known-session-state.
+  if (session.status === "ended") return <EndedReasonPill session={session} />;
 
   if (session.currentTool === "ask_user" && !hasWidgetBarPrompt) {
     // Blocked-on-you: distinct "Needs you" label + needs-you color + icon.
@@ -126,6 +130,190 @@ export function StatusShapeBadge({ shape, colorClass }: { shape: StatusShape; co
       className={`absolute -bottom-1 -right-1 inline-flex rounded-full bg-[var(--bg-tertiary)] leading-none ${colorClass}`}
     >
       <Icon path={path} size={0.34} />
+    </span>
+  );
+}
+
+// ── Host pressure ───────────────────────────────────────────────────────────
+// Thresholds reuse the transport's own liveness verdict so the UI never
+// disagrees with the server: the bridge heartbeat is 15 s and the watchdog
+// force-closes at 60 s, so > 2 missed beats is degraded and >= 60 s is
+// unresponsive. See change: stop-discarding-known-session-state (test-plan 5.1).
+
+/** Silence past this reads as degraded (≈2 missed 15 s heartbeats). */
+export const HOST_PRESSURE_DEGRADED_MS = 35_000;
+/** Silence at/after this reads as unresponsive (the 60 s watchdog threshold). */
+export const HOST_PRESSURE_UNRESPONSIVE_MS = 60_000;
+/** Local re-render cadence; the sidebar has no ticker of its own. */
+const HOST_PRESSURE_TICK_MS = 5_000;
+
+type HostPressureState = "unknown" | "healthy" | "degraded" | "unresponsive";
+
+interface HostPressureDerivation {
+  state: HostPressureState;
+  silenceMs?: number;
+  eventLoopMaxMs?: number;
+}
+
+/**
+ * Derive a session's pressure from data ALREADY on the wire (the session row's
+ * `processMetrics`) — no endpoint, no polling, no added socket traffic.
+ *
+ * The primary signal is out-of-band silence: `Date.now() - updatedAt`, where
+ * `updatedAt` is the server-stamped receipt time of the last frame
+ * (`pi-gateway.ts` stamps `Date.now()` when a `process_metrics` message
+ * arrives). A blocked event loop cannot send that frame, so silence is the
+ * only signal that can see a stall IN PROGRESS; the self-reported
+ * `eventLoopMaxMs` is retroactive corroboration only.
+ *
+ * Absent metrics yield `unknown`, never `healthy` — "we have not heard" is a
+ * different fact from "all is well". See change:
+ * stop-discarding-known-session-state (design D4).
+ */
+export function deriveHostPressure(session: DashboardSession, now: number): HostPressureDerivation {
+  const metrics = session.processMetrics;
+  const updatedAt = metrics?.updatedAt;
+  if (typeof updatedAt !== "number" || !Number.isFinite(updatedAt)) {
+    return { state: "unknown" };
+  }
+  const silenceMs = Math.max(0, now - updatedAt);
+  const eventLoopMaxMs = metrics?.eventLoopMaxMs;
+  if (silenceMs >= HOST_PRESSURE_UNRESPONSIVE_MS) {
+    return { state: "unresponsive", silenceMs, eventLoopMaxMs };
+  }
+  if (silenceMs > HOST_PRESSURE_DEGRADED_MS) {
+    return { state: "degraded", silenceMs, eventLoopMaxMs };
+  }
+  return { state: "healthy", silenceMs, eventLoopMaxMs };
+}
+
+/**
+ * Past-tense corroboration. A frozen loop cannot report itself, so a non-zero
+ * `eventLoopMaxMs` can only ever describe a stall the session already
+ * recovered from — never the one in progress. See design D4.
+ */
+export function formatEventLoopCorroboration(eventLoopMaxMs: number): string {
+  const duration = formatElapsed(eventLoopMaxMs);
+  return i18nT(
+    "session.eventLoopStalledEarlier",
+    { duration },
+    `Event loop stalled ${duration} earlier — already recovered.`,
+  );
+}
+
+function formatHostPressureTooltip(d: HostPressureDerivation): string {
+  const duration = formatElapsed(d.silenceMs ?? 0);
+  const parts = [
+    i18nT("session.hostPressureSilence", { duration }, `No frames received from this session for ${duration}.`),
+  ];
+  if (d.eventLoopMaxMs != null && d.eventLoopMaxMs > 0) {
+    parts.push(formatEventLoopCorroboration(d.eventLoopMaxMs));
+  }
+  return parts.join(" ");
+}
+
+/**
+ * Per-session host-pressure pill (live sessions only). Renders NOTHING for a
+ * healthy or unknown session — zero added pixels keeps the Von Restorff
+ * isolation that makes a genuinely sick card stand out among dozens (Nielsen
+ * #8). Every rendered state carries a glyph as well as a colour (WCAG 1.4.1).
+ *
+ * The sidebar has no ticker, so the component owns a small LOCAL interval to
+ * re-render as wall-clock advances; it is render-only — no polling, no socket
+ * traffic. See change: stop-discarding-known-session-state.
+ */
+function HostPressureIndicator({ session }: { session: DashboardSession }) {
+  const hasTimestamp = typeof session.processMetrics?.updatedAt === "number";
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!hasTimestamp) return;
+    const id = window.setInterval(() => setTick((n) => n + 1), HOST_PRESSURE_TICK_MS);
+    return () => window.clearInterval(id);
+  }, [hasTimestamp]);
+
+  // Metrics are latest-only and never retained for a dead session.
+  if (session.status === "ended") return null;
+
+  const d = deriveHostPressure(session, Date.now());
+  if (d.state !== "degraded" && d.state !== "unresponsive") return null;
+
+  const isError = d.state === "unresponsive";
+  const silence = formatElapsed(d.silenceMs ?? 0);
+  const label = i18nT(
+    isError ? "session.hostUnresponsive" : "session.hostSlow",
+    { duration: silence },
+    isError ? `unresponsive · ${silence}` : `host slow · ${silence}`,
+  );
+  return (
+    <span
+      data-testid={`session-host-pressure-${session.id}`}
+      data-host-pressure={d.state}
+      title={formatHostPressureTooltip(d)}
+      className={`flex-shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0 text-[10px] rounded-full border ${
+        isError
+          ? "bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)] border-[var(--severity-error-border)]"
+          : "bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)] border-[var(--severity-warning-border)]"
+      }`}
+    >
+      <span aria-hidden="true">◐</span>
+      {label}
+    </span>
+  );
+}
+
+const ENDED_REASON_CLASS: Record<ClosedReason, string> = {
+  manual: "bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border-[var(--border-subtle)]",
+  process_gone: "bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)] border-[var(--severity-error-border)]",
+  spawn_failed: "bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)] border-[var(--severity-error-border)]",
+  unknown: "bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border-[var(--border-subtle)]",
+};
+
+const ENDED_REASON_GLYPH: Record<ClosedReason, string | undefined> = {
+  manual: undefined,
+  process_gone: "✕",
+  spawn_failed: "✕",
+  unknown: "?",
+};
+
+const ENDED_REASON_LABEL: Record<ClosedReason, { key: string; fallback: string }> = {
+  manual: { key: "session.endedReasonManual", fallback: "closed" },
+  process_gone: { key: "session.endedReasonProcessGone", fallback: "process gone" },
+  spawn_failed: { key: "session.endedReasonSpawnFailed", fallback: "restart failed" },
+  unknown: { key: "session.endedReasonUnknown", fallback: "ended — reason unknown" },
+};
+
+const ENDED_REASON_TITLE: Record<ClosedReason, { key: string; fallback: string }> = {
+  manual: { key: "session.endedReasonManualTitle", fallback: "Closed by you" },
+  process_gone: { key: "session.endedReasonProcessGoneTitle", fallback: "The pi process is gone — this session did not close cleanly" },
+  spawn_failed: { key: "session.endedReasonSpawnFailedTitle", fallback: "pi could not be restarted" },
+  unknown: { key: "session.endedReasonUnknownTitle", fallback: "Ended — the reason is unknown" },
+};
+
+/**
+ * Why an ended session stopped. The subtitle row used to `return null` for
+ * every ended session, so a kill, a spawn failure and a clean exit all read as
+ * a bare `ended`. Mirrors the `moved` micro-pill — same class of fact ("why
+ * this card is no longer live"). Renders nothing when the reason is absent, or
+ * when the session MOVED (the MovedBadge already explains that case).
+ * See change: stop-discarding-known-session-state.
+ */
+function EndedReasonPill({ session }: { session: DashboardSession }) {
+  if (session.status !== "ended") return null;
+  if (hasMovedAway(session)) return null;
+  const reason = session.closedReason;
+  if (!reason) return null;
+  const label = ENDED_REASON_LABEL[reason];
+  const title = ENDED_REASON_TITLE[reason];
+  const glyph = ENDED_REASON_GLYPH[reason];
+  return (
+    <span
+      data-testid={`session-ended-reason-${session.id}`}
+      data-closed-reason={reason}
+      className={`flex-shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0 text-[10px] rounded-full border ${ENDED_REASON_CLASS[reason]}`}
+      title={i18nT(title.key, undefined, title.fallback)}
+    >
+      {glyph ? <span aria-hidden="true">{glyph}</span> : null}
+      {i18nT(label.key, undefined, label.fallback)}
     </span>
   );
 }
@@ -708,6 +896,7 @@ export function SessionCard({
             </span>
           )}
           <ActivityIndicator session={session} retryAttempt={retryAttempt} />
+          <HostPressureIndicator session={session} />
           <MovedBadge session={session} />
           <OriginDeviceChip session={session} />
           {/* Pi-native queue count badge — sum of steering + follow-up depth.
@@ -1003,10 +1192,14 @@ export function SessionCard({
         )}
       </div>
 
-      {/* Line 3: activity (left) | context bar + cost (right) */}
+      {/* Line 3: activity/meta (left, the shrink victim so a long
+          `currentTool` ellipsizes instead of pushing the pressure pill out) |
+          pressure + context bar + cost (right). */}
       <div className="flex items-center mt-0.5 text-[11px] gap-2">
-        <ActivityIndicator session={session} retryAttempt={retryAttempt} />
-        <span className="flex-1" />
+        <div className="flex-auto min-w-0 flex items-center gap-2" data-testid="session-card-meta">
+          <ActivityIndicator session={session} retryAttempt={retryAttempt} />
+        </div>
+        <HostPressureIndicator session={session} />
         {prefs.contextUsageBar && (
           <ContextUsageBar
             tokens={contextUsage?.tokens ?? null}

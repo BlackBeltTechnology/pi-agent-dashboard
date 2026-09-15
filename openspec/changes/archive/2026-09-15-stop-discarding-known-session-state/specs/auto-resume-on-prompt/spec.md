@@ -14,6 +14,12 @@ that session. A server-side `console.error` is not a user-visible outcome: the
 browser receives nothing, and the client's 30-second safety timeout then
 attributes the failure to the session rather than to the server's refusal.
 
+> **Deliberate behaviour change, not a bug fix.** The pre-change
+> `auto-resume-on-prompt` requirement specified the drop *explicitly* ("the
+> prompt SHALL be dropped (same as current behavior)"). Replacing that specified
+> drop with command feedback is a deliberate behaviour change against the old
+> spec, recorded here so it is not later mistaken for a regression.
+
 #### Scenario: Prompt sent to ended session with session file
 
 - **WHEN** the server receives `send_prompt` for a session with `status === "ended"` and a valid `sessionFile`

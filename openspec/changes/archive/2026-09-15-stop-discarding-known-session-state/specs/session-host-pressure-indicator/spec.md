@@ -13,12 +13,20 @@ The client SHALL render a per-session health indicator from the
 add an endpoint, a polling loop, or any additional socket traffic — the bytes are
 already being sent and discarded.
 
-#### Scenario: Indicator renders from the existing session row
+#### Scenario: A pressured session renders an indicator from its existing row
 
-- **GIVEN** a session row carrying `processMetrics`
+- **GIVEN** a session row carrying `processMetrics` whose last frame is stale
 - **WHEN** the card renders
 - **THEN** a health indicator SHALL be shown derived from those metrics
 - **AND** no additional network request SHALL be issued to obtain them
+
+#### Scenario: A healthy session renders nothing
+
+- **GIVEN** a session whose metrics indicate no pressure
+- **WHEN** the card renders
+- **THEN** NO indicator SHALL be rendered — a healthy card gains zero pixels, so a
+  pressured card remains the sole focal point in its group (Nielsen #8; the
+  Von Restorff isolation the signal depends on)
 
 #### Scenario: No metrics yields an absent state, not a healthy one
 

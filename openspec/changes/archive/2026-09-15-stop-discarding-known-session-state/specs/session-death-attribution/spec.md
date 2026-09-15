@@ -94,12 +94,24 @@ recycle pids. The classification SHALL therefore admit an `unknown` outcome when
 no pid is recorded, and its documentation SHALL state the pid-recycling caveat
 rather than presenting the probe as authoritative.
 
+A pid recorded by a REMOTE-origin session belongs to another host's PID
+namespace, where a local probe is meaningless. Remote origin SHALL yield
+`unknown` without probing, rather than a false `process_gone` about a process
+this host cannot see.
+
 #### Scenario: No recorded pid yields unknown
 
 - **GIVEN** a session ending with no `pid` recorded
 - **WHEN** the server classifies the death
 - **THEN** the reason SHALL be `unknown`
 - **AND** the server SHALL NOT claim the process is gone
+
+#### Scenario: A remote-origin pid is never probed locally
+
+- **GIVEN** a session ending whose `originDeviceId` identifies another host
+- **WHEN** the server classifies the death
+- **THEN** the reason SHALL be `unknown`
+- **AND** no local process probe SHALL be run against the foreign pid
 
 #### Scenario: The probe never names a signal
 

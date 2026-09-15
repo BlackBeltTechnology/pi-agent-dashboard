@@ -5,12 +5,13 @@
  * once-per-activation guard makes repeat events idempotent at the marker).
  * See change: reopen-sessions-after-shutdown.
  */
-import { describe, it, expect, afterEach, beforeEach } from "vitest";
-import { WebSocket } from "ws";
+
 import { mkdtempSync, writeFileSync } from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
 import { readSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { WebSocket } from "ws";
 import { createServer, type DashboardServer } from "../server.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -126,7 +127,12 @@ describe("liveness-stamp wiring", () => {
     await wait(150);
     const afterQuit = readSessionMeta(sessionFile);
     expect(afterQuit?.live).toBe(false);
-    expect(afterQuit?.closedReason).toBeUndefined();
+    // A terminal transition with no better information stamps `unknown`
+    // explicitly (design D1): a death whose cause was never examined is not
+    // the same fact as one we know was clean. `isRecoveryCandidate` still
+    // excludes this session because `status` is `ended` and `live` is false.
+    // See change: stop-discarding-known-session-state.
+    expect(afterQuit?.closedReason).toBe("unknown");
 
     // 3. Same-boot resume of the SAME session id: the register-side guard
     //    reset means activity re-stamps live:true (otherwise a later crash
@@ -136,6 +142,30 @@ describe("liveness-stamp wiring", () => {
     await wait(150);
     expect(readSessionMeta(sessionFile)?.live).toBe(true);
     ws2.close();
+  });
+
+  // The `update()` seam has no `onUnregister`, so before the shared `onEnded`
+  // hook its terminal reason was stamped in memory + broadcast but never
+  // persisted. A reload-spawn failure (`spawn_failed`) then lost its label on
+  // the next restart, because `onChange`'s routine save is a full `.meta.json`
+  // overwrite that does not enumerate `closedReason`.
+  // See change: stop-discarding-known-session-state (review fix).
+  it("an update()-based terminal transition persists its closedReason eagerly", async () => {
+    const SID = "update-ended";
+    const sessionFile = path.join(tmpDir, `${SID}.jsonl`);
+    writeFileSync(sessionFile, "");
+
+    const ws = await register(SID, sessionFile);
+    activity(ws, SID, "message_start");
+    await wait(120);
+    expect(readSessionMeta(sessionFile)?.live).toBe(true);
+
+    server.sessionManager.update(SID, { status: "ended", closedReason: "spawn_failed" });
+    await wait(150);
+    const meta = readSessionMeta(sessionFile);
+    expect(meta?.live).toBe(false);
+    expect(meta?.closedReason).toBe("spawn_failed");
+    ws.close();
   });
 
   it("does not stamp liveness for non-activity events alone", async () => {

@@ -244,6 +244,14 @@ export interface PendingPrompt {
    * See change: optimistic-prompt-progress, fix-optimistic-prompt-stuck-sending.
    */
   status: "sending" | "sent" | "failed";
+  /**
+   * Why a failed bubble failed, when the cause is known at send time.
+   * `connection` = the browser refused the message (socket not open);
+   * `no_session_file` = the ended session cannot be resumed. Absent = unknown
+   * (the legacy 30 s timeout path, whose wording stays reserved for that case).
+   * See change: stop-discarding-known-session-state.
+   */
+  failureCause?: "connection" | "no_session_file";
 }
 
 /**

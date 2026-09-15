@@ -133,3 +133,43 @@ worthwhile.
   unresponsive, admits `unknown` when no pid was reported, and carries the
   pid-recycling caveat. Claiming more would repeat the overclaiming this change
   exists to end.
+
+## Review-round corrections (round 3)
+
+A cross-model adversarial review of the implementation surfaced three blocking
+defects, all fixed before landing:
+
+1. **The `Fork instead` exit was impossible.** It sent `resume_session
+   mode:"fork"`, but the server's `sessionFile` guard rejects EVERY resume mode
+   for a null `sessionFile` (`resume.session_file_unknown`). The action is now a
+   fresh spawn in the same folder — the only exit that works — keeping the
+   approved `Fork instead` copy.
+2. **The `update()` seam did not persist its reason.** The durable write lived
+   only in `onUnregister`, so an `update()`-based ending (reload-spawn failure,
+   zombie normalization, move) was labelled in memory + broadcast but wiped by
+   the next full `.meta.json` overwrite. A shared `onEnded` hook now fires on the
+   exact terminal transition from BOTH seams and writes liveness + reason
+   eagerly; `onUnregister`'s now-duplicate write was removed.
+3. **`classifyCarrierLoss` probed foreign pids.** A remote-origin session's pid
+   lives in another host's PID namespace, so a local probe false-`ESRCH`ed and
+   asserted `process_gone` about a running remote pi. Remote origin now yields
+   `unknown` without probing.
+
+Accepted limitations (flagged by the reviewer, deliberately not fixed):
+
+- **Outbox identity is keyed on `(sessionId, text)` only.** A user who retypes
+  the EXACT same prompt (and images) into the same session while the first copy
+  is still queued can have the stale expiry mark the second bubble failed.
+  Narrow (10 s window, byte-identical text) and it errs toward an honest
+  failure, never a silent drop.
+- **Non-prompt outbox entries do not expire** (design D3 keeps them until
+  capacity eviction), so an `abort`/steer clicked during a long outage replays on
+  reconnect. Accepted: expiring intent would silently discard user commands, and
+  the risky entries are rare beside idempotent subscriptions.
+- **Clock skew.** Staleness is browser `Date.now()` minus server-stamped
+  `updatedAt`; a remote dashboard with gross skew could mis-colour every card.
+  Same-host and normal-NTP deployments are unaffected, and the error direction
+  is toward *showing* trouble.
+- **`eventLoopMaxMs` jitter corroboration.** Any positive value renders as
+  "stalled earlier", including sub-frame jitter. Cosmetic noise on an already
+  flagged card; a threshold would need evidence this change does not have.

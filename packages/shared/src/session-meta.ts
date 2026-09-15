@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { DisplayPrefs, PartialDisplayPrefs } from "./display-prefs.js";
-import type { AutoNamerPersistedState, NotifyLogEntry } from "./types.js";
+import type { AutoNamerPersistedState, ClosedReason, NotifyLogEntry } from "./types.js";
 
 /**
  * Session metadata stored as a sidecar `.meta.json` file
@@ -198,7 +198,7 @@ export interface SessionMeta {
    */
   live?: boolean;
   liveEpoch?: number;
-  closedReason?: string;
+  closedReason?: ClosedReason;
 
   /**
    * Core-owned cold-start recovery opt-out. Defaults to `true` when absent

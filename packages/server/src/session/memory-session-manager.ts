@@ -4,7 +4,7 @@
  */
 
 import { pathKey } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
-import type { DashboardSession, SessionSource, SessionStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { ClosedReason, DashboardSession, SessionSource, SessionStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { deriveEndedAt, type EndedAtDeriver } from "./derive-ended-at.js";
 import { resolveOrderKey } from "./resolve-order-key.js";
 
@@ -61,6 +61,13 @@ export interface SnapshotResult {
 export interface UnregisterOptions {
   /** Default `true` — preserves the observed-ending `Date.now()` stamp. */
   witnessed?: boolean;
+  /**
+   * Why the session is ending. Call sites that know their cause pass it
+   * explicitly (`"manual"`, `"spawn_failed"`, a pid probe result); a terminal
+   * transition with no better information is stamped `"unknown"` centrally.
+   * See change: stop-discarding-known-session-state.
+   */
+  closedReason?: ClosedReason;
 }
 
 export interface RegisterSessionParams {
@@ -176,6 +183,14 @@ export interface SessionManager {
   onChange?: (sessionId: string, ctx?: OnChangeContext) => void;
   /** Called after a session is unregistered (status set to ended). */
   onUnregister?: (sessionId: string) => void;
+  /**
+   * Called on the EXACT transition to `ended`, from BOTH seams (`unregister`
+   * and `update`), before `onChange`. The eager, durable write point for the
+   * terminal `closedReason`: `onUnregister` covers only the unregister seam,
+   * and the routine `onChange` save is a full `.meta.json` overwrite that does
+   * not enumerate the field. See change: stop-discarding-known-session-state.
+   */
+  onEnded?: (sessionId: string) => void;
 }
 
 export function createMemorySessionManager(
@@ -389,7 +404,17 @@ export function createMemorySessionManager(
     unregister(sessionId: string, opts?: UnregisterOptions): void {
       const session = sessions.get(sessionId);
       if (session) {
+        // Capture BEFORE flipping: a duplicate termination signal for an
+        // already-ended session is not a new ending and must not overwrite a
+        // good reason with `unknown` (design D1).
+        const wasEnded = session.status === "ended";
         session.status = "ended";
+        // Central `→ ended` stamp (design D1 option B): no unregister path can
+        // produce an unlabelled death. Call sites that know better pass an
+        // explicit reason; the rest get `unknown`.
+        if (!wasEnded && session.closedReason === undefined) {
+          session.closedReason = opts?.closedReason ?? "unknown";
+        }
         // An ended session is not compacting. Without this an unregister that
         // lands mid-compaction leaves the flag set on the record, and the
         // reload dispatcher would refuse forever on a session restored from
@@ -407,6 +432,7 @@ export function createMemorySessionManager(
         if (session.endedAt === undefined) {
           session.endedAt = opts?.witnessed === false ? derive(session) : Date.now();
         }
+        if (!wasEnded) mgr.onEnded?.(sessionId);
         mgr.onChange?.(sessionId);
         mgr.onUnregister?.(sessionId);
       }
@@ -415,8 +441,22 @@ export function createMemorySessionManager(
     update(sessionId: string, updates: Partial<DashboardSession>): void {
       const session = sessions.get(sessionId);
       if (session) {
+        // Central `→ ended` stamp, mirroring `unregister`. `wasEnded` makes the
+        // detection exact: a no-op update on an already-ended session must not
+        // overwrite a good reason with `unknown` (design D1).
+        const wasEnded = session.status === "ended";
         Object.assign(session, updates);
+        if (!wasEnded && session.status === "ended" && session.closedReason === undefined) {
+          session.closedReason = "unknown";
+        }
         ensureEndedAt(session);
+        // Also fire when an ended record has NO reason (an explicit `undefined`
+        // key in `updates` can clear it): the invariant is "no ended session
+        // without a reason", and a stale reason already set is never touched.
+        if (session.status === "ended" && session.closedReason === undefined) {
+          session.closedReason = "unknown";
+        }
+        if (!wasEnded && session.status === "ended") mgr.onEnded?.(sessionId);
         mgr.onChange?.(sessionId);
       }
     },

@@ -483,6 +483,22 @@ export function wireEvents(deps: EventWiringDeps): void {
 
 
   // Broadcast session ended to browsers when sessions are unregistered
+  sessionManager.onEnded = (sessionId) => {
+    const session = sessionManager.get(sessionId);
+    // The eager, durable write point for the terminal `closedReason` (design
+    // D2). Fires on the EXACT transition from BOTH seams, so an `update()`-based
+    // ending (reload-spawn failure, zombie normalization, move) persists its
+    // reason too — `onUnregister` below only covers the unregister seam, and the
+    // routine `onChange` save is a full `.meta.json` overwrite that does not
+    // enumerate the field. See change: stop-discarding-known-session-state.
+    if (metaPersistence && session?.sessionFile) {
+      metaPersistence.setLiveness(session.sessionFile, {
+        live: false,
+        closedReason: session.closedReason ?? "unknown",
+      });
+    }
+  };
+
   sessionManager.onUnregister = (sessionId) => {
     // Turn-boundary reset (change: auto-canvas): a terminated session must not
     // leave stale candidates behind. No settle broadcast on termination.
@@ -495,19 +511,12 @@ export function wireEvents(deps: EventWiringDeps): void {
     pendingPromptAcks?.evictSession(sessionId);
     const session = sessionManager.get(sessionId);
     if (session) {
-      // Durably clear the liveness marker EAGERLY (atomic, not debounced).
-      // Every unregister path (TUI quit, heartbeat expiry, run termination)
-      // is a non-crash end: without this, `status:"ended"` rides the
-      // 1s-debounced save while `live:true` stays on disk — a host death
-      // inside that window makes the next cold start offer (or in `auto`
-      // mode, silently respawn) a session that ended cleanly.
-      // See change: reopen-sessions-after-shutdown.
-      if (metaPersistence && session.sessionFile) {
-        metaPersistence.setLiveness(session.sessionFile, { live: false });
-      }
+      // Liveness + the death reason are written eagerly by `onEnded` above (the
+      // shared terminal-transition write point for both seams).
       browserGateway.broadcastSessionUpdated(sessionId, {
         status: "ended",
         endedAt: session.endedAt,
+        closedReason: session.closedReason,
         currentTool: null,
       });
     }
