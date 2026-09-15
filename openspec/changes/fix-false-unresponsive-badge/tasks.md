@@ -92,65 +92,65 @@ Test home:
 
 ## 6. Doubt-review corrections (transport, lifecycle, drift)
 
-- [ ] 6.1 A shed verdict frame is repaid: add `hostPressure` to the
+- [x] 6.1 A shed verdict frame is repaid: add `hostPressure` to the
   status-reconcile payload in `flushStatusDebt`
   (`packages/server/src/pairing/browser-gateway.ts`), rebuilt from
   `sessionManager.get(id)` like `status`/`currentTool`, with the same load-bearing
   `?? null` clearing semantics.
-- [ ] 6.2 Test (red first): a saturated socket sheds a `hostPressure: null`
+- [x] 6.2 Test (red first): a saturated socket sheds a `hostPressure: null`
   recovery; the debt flush rebuilds a frame carrying the live row's
   `hostPressure`, so the badge clears without a reconnect · input: socket with
   `bufferedAmount > MAX_WS_BUFFER` · trigger: recovery broadcast then drain ·
   observable: reconciled `session_updated.updates.hostPressure === null`
   (test-plan #X1; see `browser-gateway-dropped-frames.test.ts`).
-- [ ] 6.3 An OPEN bridge socket becomes a precondition of the signal: call
+- [x] 6.3 An OPEN bridge socket becomes a precondition of the signal: call
   `hostPressure.clear(...)` on the non-finalize `ws.on("close")` path
   (`pi-gateway.ts`), so carrier loss is left to the heartbeat/status machinery.
-- [ ] 6.4 Test (red first): a bridge socket closes without `session_unregister`;
+- [x] 6.4 Test (red first): a bridge socket closes without `session_unregister`;
   60 s of silence elapse · observable: zero verdicts emitted
   (test-plan #X2; see `pi-gateway-host-pressure.test.ts`).
-- [ ] 6.5 Release tracking state on EVERY exit path — the three
+- [x] 6.5 Release tracking state on EVERY exit path — the three
   heartbeat-timeout/sleep-retry `unregister` sites and the reload placeholder
   swap in `pi-gateway.ts` currently leak a map entry and its timers.
-- [ ] 6.6 Test (red first): each exit path (explicit unregister, heartbeat
+- [x] 6.6 Test (red first): each exit path (explicit unregister, heartbeat
   timeout, sleep-retry expiry, reload swap) · trigger: the exit fires ·
   observable: no timer fires past the thresholds and the tracker holds no entry
   (test-plan #X3; see `pi-gateway-host-pressure.test.ts`).
-- [ ] 6.7 Clear the row's `hostPressure` when a session transitions to `ended`,
+- [x] 6.7 Clear the row's `hostPressure` when a session transitions to `ended`,
   so a later `sessions_snapshot` cannot serve a stale verdict.
-- [ ] 6.8 Test (red first): a session carrying `unresponsive` ends · observable:
+- [x] 6.8 Test (red first): a session carrying `unresponsive` ends · observable:
   its row's `hostPressure` is absent in the next snapshot
   (test-plan #X4; see `host-pressure-tracker.test.ts` for the fake-clock setup).
-- [ ] 6.9 Move `HOST_PRESSURE_DEGRADED_MS` / `HOST_PRESSURE_UNRESPONSIVE_MS` into
+- [x] 6.9 Move `HOST_PRESSURE_DEGRADED_MS` / `HOST_PRESSURE_UNRESPONSIVE_MS` into
   `packages/shared`; tracker and `SessionCard` both import them (the client's
   between-transition escalation depends on the same numbers the server fires on).
-- [ ] 6.10 Test: both consumers read the shared constants and no second
+- [x] 6.10 Test: both consumers read the shared constants and no second
   `35_000`/`60_000` literal survives in either module
   (test-plan #E6; plain unit assertion, no harness).
 
 ## 7. Remaining folded scenarios
 
-- [ ] 7.1 Boundary: a frame at `t0+34_999` re-arms the timers — 0 emits at
+- [x] 7.1 Boundary: a frame at `t0+34_999` re-arms the timers — 0 emits at
   `t0+35_000`, degraded lands at `t0+69_999` instead
   (test-plan #E4; see `host-pressure-tracker.test.ts`).
-- [ ] 7.2 Decision table: the full 8 cells of `hostPressure ∈ {undefined, null,
+- [x] 7.2 Decision table: the full 8 cells of `hostPressure ∈ {undefined, null,
   degraded, unresponsive}` × `processMetrics.updatedAt ∈ {now, now-1h}` · trigger:
   card renders · observable: nothing for `undefined`/`null` in BOTH metric ages,
   pill only for the two verdict cells. Also rename the existing
   `"F1: no server verdict yields UNKNOWN, never healthy"` case — the delta now
   says silence renders nothing (test-plan #E5; see
   `SessionCard.host-pressure.test.tsx`).
-- [ ] 7.3 Cost promise: a bridge framing every 5 s for 4× the degraded threshold
+- [x] 7.3 Cost promise: a bridge framing every 5 s for 4× the degraded threshold
   · observable: `onHostPressure` invoked 0 times
   (test-plan #P1; see `pi-gateway-host-pressure.test.ts`).
-- [ ] 7.4 Transience: a row carrying a verdict round-trips through `sessionToMeta`
+- [x] 7.4 Transience: a row carrying a verdict round-trips through `sessionToMeta`
   · observable: `hostPressure` absent on the rehydrated row
   (test-plan #X5; see the session-manager meta tests).
-- [ ] 7.5 E2E: a live session's bridge stops framing past the threshold, then
+- [x] 7.5 E2E: a live session's bridge stops framing past the threshold, then
   frames again · observable: the card acquires the pressure pill then loses it,
   no page reload · read the port from `.pi-test-harness.json#dashboardPort`
   (test-plan #F3; see `tests/e2e/bridge-contention-health.spec.ts`).
-- [ ] 7.6 E2E: a SECOND browser context opens while a session is pressured ·
+- [x] 7.6 E2E: a SECOND browser context opens while a session is pressured ·
   observable: both contexts show the identical badge state from
   `sessions_snapshot` (test-plan #F4; see
   `tests/e2e/bridge-contention-health.spec.ts`).

@@ -420,6 +420,11 @@ export function createMemorySessionManager(
         // reload dispatcher would refuse forever on a session restored from
         // that record. See change: fix-out-of-band-reload.
         session.compacting = false;
+        // A dead session has no host pressure: the verdict describes a LIVE
+        // bridge's silence, and leaving it on the row lets a later
+        // `sessions_snapshot` serve a stale badge for a card that is gone.
+        // See change: fix-false-unresponsive-badge.
+        session.hostPressure = undefined;
         // Witnessed (the default) keeps the observed instant. An inferred
         // ending — heartbeat/grace expiry, or history registered then
         // immediately unregistered — must not record detection time.
@@ -454,6 +459,10 @@ export function createMemorySessionManager(
         if (session.status === "ended" && session.closedReason === undefined) {
           session.closedReason = "unknown";
         }
+        // Same clearing rule as `unregister`, for the seam that ends a session
+        // via `update({ status: "ended" })`.
+        // See change: fix-false-unresponsive-badge.
+        if (session.status === "ended") session.hostPressure = undefined;
         // Persist on the terminal TRANSITION **and** whenever the reason CHANGES
         // (e.g. an already-ended session learns a better reason). Firing only on
         // the transition would skip the eager `setLiveness` write for the latter,

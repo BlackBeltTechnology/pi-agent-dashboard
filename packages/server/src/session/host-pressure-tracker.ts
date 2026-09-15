@@ -14,10 +14,15 @@
  * See change: fix-false-unresponsive-badge.
  */
 
-/** Silence past this reads as degraded (≈2 missed 15 s bridge heartbeats). */
-export const HOST_PRESSURE_DEGRADED_MS = 35_000;
-/** Silence at/after this reads as unresponsive. */
-export const HOST_PRESSURE_UNRESPONSIVE_MS = 60_000;
+// The thresholds live in `packages/shared` so the card escalates on exactly the
+// numbers the server fires on. Re-exported here so this module stays the
+// server's single import site. See change: fix-false-unresponsive-badge.
+import {
+  HOST_PRESSURE_DEGRADED_MS,
+  HOST_PRESSURE_UNRESPONSIVE_MS,
+} from "@blackbelt-technology/pi-dashboard-shared/host-pressure.js";
+
+export { HOST_PRESSURE_DEGRADED_MS, HOST_PRESSURE_UNRESPONSIVE_MS };
 
 export type HostPressureState = "degraded" | "unresponsive";
 
@@ -41,6 +46,8 @@ export interface HostPressureTracker {
   clear(sessionId: string): void;
   /** Cancel every pending timer (server shutdown). */
   stop(): void;
+  /** Tracked-session count — the leak oracle for the exit-path tests (X3). */
+  size(): number;
 }
 
 interface Entry {
@@ -98,6 +105,10 @@ export function createHostPressureTracker(deps: HostPressureTrackerDeps): HostPr
     stop() {
       for (const entry of entries.values()) cancel(entry);
       entries.clear();
+    },
+
+    size() {
+      return entries.size;
     },
   };
 }

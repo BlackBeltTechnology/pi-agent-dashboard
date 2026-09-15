@@ -111,6 +111,13 @@ export interface PiGateway {
   findSessionsByCwd(cwd: string): string[];
   getConnectedSessionIds(): string[];
   isSessionConnected(sessionId: string): boolean;
+  /**
+   * Host-pressure tracked-session count. Test seam: every session-exit path
+   * must release its tracker entry (and its two timers), and a leak is
+   * otherwise invisible until a verdict fires for a session nobody serves.
+   * See change: fix-false-unresponsive-badge.
+   */
+  hostPressureTrackedCount(): number;
   /** Force-close the WebSocket connection for a session */
   closeSession(sessionId: string): boolean;
   /**
@@ -248,6 +255,7 @@ export function createPiGateway(
               connections.delete(sessionId);
               heartbeatTimers.delete(sessionId);
               heartbeatMeta.delete(sessionId);
+              hostPressure.clear(sessionId);
               checkEmpty();
             }, hbTimeout),
           );
@@ -280,6 +288,7 @@ export function createPiGateway(
               connections.delete(sessionId);
               heartbeatTimers.delete(sessionId);
               heartbeatMeta.delete(sessionId);
+              hostPressure.clear(sessionId);
               checkEmpty();
             }, hbTimeout),
           );
@@ -296,6 +305,10 @@ export function createPiGateway(
         connections.delete(sessionId);
         heartbeatTimers.delete(sessionId);
         heartbeatMeta.delete(sessionId);
+        // Every exit path releases the tracker entry and its two timers; a
+        // missed site leaks a map entry that fires a verdict for a session
+        // nobody is serving. See change: fix-false-unresponsive-badge.
+        hostPressure.clear(sessionId);
         checkEmpty();
       }, hbTimeout)
     );
@@ -798,6 +811,9 @@ export function createPiGateway(
                 if (oldSession && (oldSession.source === "unknown" || !oldSession.sessionFile)) {
                   sessionManager.unregister(currentSessionId);
                   connections.delete(currentSessionId);
+                  // The placeholder id is gone for good after a /reload swap —
+                  // release its tracker entry with it.
+                  hostPressure.clear(currentSessionId);
                 }
               }
               currentSessionId = msg.sessionId;
@@ -941,7 +957,6 @@ export function createPiGateway(
               heartbeatTimers.delete(currentSessionId);
               heartbeatMeta.delete(currentSessionId);
               connections.delete(currentSessionId);
-              hostPressure.clear(currentSessionId);
               onDisconnect?.(currentSessionId);
               // unregister LAST: it fires onUnregister → plugin onSessionEnded
               // → engine finalize; do it after local cleanup so the death
@@ -953,6 +968,11 @@ export function createPiGateway(
               // This handles temporary disconnects
               onDisconnect?.(currentSessionId);
             }
+            // An OPEN bridge socket is a PRECONDITION of the silence signal: a
+            // closed carrier is not host pressure, and reporting it as such
+            // would double-badge a disconnect the heartbeat/status machinery
+            // already owns. See change: fix-false-unresponsive-badge.
+            hostPressure.clear(currentSessionId);
             // The incumbent leaving is one of the four D4 clearing triggers.
             contention.clear(currentSessionId);
           }
@@ -1008,6 +1028,10 @@ export function createPiGateway(
       // so the path is reported as-is and the accessor is transport-aware.
       if (typeof addr === "string") return addr;
       return null;
+    },
+    /** Test seam: tracked-session count, the exit-path leak oracle (X3). */
+    hostPressureTrackedCount() {
+      return hostPressure.size();
     },
     transport() {
       if (socketPath) return { transport: "unix" as const, path: socketPath };
