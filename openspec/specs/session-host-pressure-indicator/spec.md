@@ -7,37 +7,66 @@ TBD - created by archiving change stop-discarding-known-session-state. Update Pu
 
 ### Requirement: Host pressure SHALL be rendered from data already on the wire
 
-`processMetrics` is stored on the session record and is already carried to the
-browser in `sessions_snapshot` and `session_updated`. The client receives it and
-renders nothing (`grep -rn "processMetrics" packages/client/src` → zero hits).
+The pressure VERDICT SHALL be derived server-side and carried on the session row
+as `hostPressure`, pushed to browsers on a STATE TRANSITION only.
 
-The client SHALL render a per-session health indicator from the
-`processMetrics` already present on the session row. This capability SHALL NOT
-add an endpoint, a polling loop, or any additional socket traffic — the bytes are
-already being sent and discarded.
+The client SHALL NOT derive the verdict from `processMetrics.updatedAt`. That
+field is written on the server on every bridge heartbeat but is carried to the
+browser ONLY in the connect `sessions_snapshot` — nothing broadcasts it
+afterwards — so a client deriving elapsed silence from it counts time since page
+load and reads every live session as unresponsive.
+
+This capability SHALL NOT add an endpoint or a polling loop, and a HEALTHY
+session SHALL cost zero additional frames.
+
+Because a transition frame is pushed at most once and the browser transport MAY
+SHED it under backpressure, the verdict SHALL be recoverable: the shed-frame
+reconcile path SHALL rebuild `hostPressure` from the live session row alongside
+the other reconciled fields. A dropped recovery frame SHALL NOT be able to strand
+a badge permanently.
+
+Thresholds SHALL have a single source of truth shared by server and client; the
+client SHALL NOT carry an independent copy that can drift.
 
 #### Scenario: A pressured session renders an indicator from its existing row
 
-- **GIVEN** a session row carrying `processMetrics` whose last frame is stale
+- **GIVEN** a session row carrying a `hostPressure` verdict
 - **WHEN** the card renders
-- **THEN** a health indicator SHALL be shown derived from those metrics
-- **AND** no additional network request SHALL be issued to obtain them
+- **THEN** a health indicator SHALL be shown derived from that verdict
+- **AND** no additional network request SHALL be issued to obtain it
 
 #### Scenario: A healthy session renders nothing
 
-- **GIVEN** a session whose metrics indicate no pressure
+- **GIVEN** a session whose bridge is sending frames normally
 - **WHEN** the card renders
 - **THEN** NO indicator SHALL be rendered — a healthy card gains zero pixels, so a
   pressured card remains the sole focal point in its group (Nielsen #8; the
   Von Restorff isolation the signal depends on)
+- **AND** no host-pressure frame SHALL be emitted for it
 
 #### Scenario: Silence from the server renders nothing
 
-- **GIVEN** a session row with no `processMetrics` (never reported, or a session
-  that predates the bridge's heartbeat)
+- **GIVEN** a session row with no `hostPressure` (the server has said nothing yet)
 - **WHEN** the card renders
-- **THEN** the indicator SHALL present an unknown/absent state
-- **AND** SHALL NOT present the session as healthy
+- **THEN** NO indicator SHALL be rendered — the server speaks only on a
+  transition, so the absence of a verdict is the healthy signal and is not
+  distinguishable from it on the wire
+
+#### Scenario: A shed verdict frame is reconciled, not lost
+
+- **GIVEN** a browser socket saturated enough that its `session_updated` frames
+  are shed
+- **WHEN** a host-pressure transition (raise or recovery) occurs for a session
+- **THEN** the reconcile that repays the shed frame SHALL carry the session's
+  current `hostPressure`
+- **AND** the browser SHALL converge on the server's verdict without a reconnect
+
+#### Scenario: A stale metrics timestamp alone never raises a badge
+
+- **GIVEN** a session row whose `processMetrics.updatedAt` is an hour old but
+  which carries no `hostPressure` verdict
+- **WHEN** the card renders
+- **THEN** NO indicator SHALL be rendered
 
 ### Requirement: Freeze SHALL be signalled out-of-band, not self-reported
 
@@ -48,8 +77,10 @@ as the primary freeze signal would leave the worst case invisible, which is the
 failure mode that motivated this capability.
 
 The primary freeze signal SHALL be server-side elapsed silence since the last
-received frame. `eventLoopMaxMs` SHALL be used only as retroactive
-corroboration, and the two SHALL be presented distinguishably.
+frame received from the bridge, measured where that fact lives — on the server.
+Any frame a bridge sends SHALL count as proof of life, not heartbeats alone.
+`eventLoopMaxMs` SHALL be used only as retroactive corroboration, and the two
+SHALL be presented distinguishably.
 
 #### Scenario: An ongoing stall is visible without any heartbeat
 
@@ -58,6 +89,43 @@ corroboration, and the two SHALL be presented distinguishably.
 - **WHEN** the card renders
 - **THEN** the indicator SHALL show the session as unresponsive
 - **AND** SHALL NOT require a `processMetrics` update to do so
+
+#### Scenario: Recovery clears the badge explicitly
+
+- **GIVEN** a session that has been signalled as degraded or unresponsive
+- **WHEN** any frame is received from its bridge
+- **THEN** the server SHALL push an explicit cleared verdict
+- **AND** the card SHALL stop rendering the indicator
+
+#### Scenario: Carrier loss is not reported as host pressure
+
+- **GIVEN** a session whose bridge SOCKET closes (network blip, host sleep,
+  dashboard restart) while the session process itself is alive
+- **WHEN** the reconnect grace window elapses without any frame
+- **THEN** NO host-pressure verdict SHALL be raised for it — a wedged event loop
+  keeps its socket OPEN and merely stops writing, so an OPEN socket is a
+  precondition of the signal
+- **AND** carrier loss SHALL remain the concern of the existing heartbeat/status
+  machinery, which already models its own grace periods
+
+#### Scenario: A session that goes away leaves no tracking state
+
+- **GIVEN** a tracked session that unregisters, times out its heartbeat, is
+  replaced by a reload, or ends
+- **WHEN** it leaves the gateway by ANY of those paths
+- **THEN** its pressure-tracking state and pending timers SHALL be released
+- **AND** its row SHALL NOT retain a stale verdict for a later
+  `sessions_snapshot` to serve
+
+#### Scenario: The card escalates between transitions without falling below the verdict
+
+- **GIVEN** a card showing a degraded verdict stamped with the server's receipt
+  time of the last frame
+- **WHEN** wall-clock time advances past the unresponsive threshold with no new
+  verdict
+- **THEN** the card SHALL escalate to unresponsive on its own
+- **AND** a browser clock behind the server's SHALL NOT drop the card below the
+  state the server signalled
 
 #### Scenario: Recovered stalls are labelled as past, not present
 

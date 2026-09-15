@@ -154,16 +154,21 @@ Test home:
   observable: both contexts show the identical badge state from
   `sessions_snapshot` (test-plan #F4; see
   `tests/e2e/bridge-contention-health.spec.ts`).
-- [ ] 7.7 Badge legibility across studio / earth / athlete / gradient reads as a
+- [x] 7.7 Badge legibility across studio / earth / athlete / gradient reads as a
   warning, not decoration (test-plan: manual-only).
 
 ## 8. Archive housekeeping
 
-- [ ] 8.1 The delta renames the scenario `No metrics yields an absent state, not
+- [x] 8.1 The delta renames the scenario `No metrics yields an absent state, not
   a healthy one` → `Silence from the server renders nothing`. The heading was
   PRE-RENAMED in `openspec/specs/session-host-pressure-indicator/spec.md` at
   planning time so `openspec validate`/`archive` accept the MODIFIED block —
   record that in the archive commit message.
-- [ ] 8.2 After `openspec archive --sync`, sweep the synced spec for surviving
+- [x] 8.2 After `openspec archive --sync`, sweep the synced spec for surviving
   stale text the sync cannot reach (`## Purpose` preamble and any bullets above
   `## Requirements`): `grep -n "already carried\|updatedAt" openspec/specs/session-host-pressure-indicator/spec.md`.
+
+  Sweep result: both surviving `updatedAt` mentions are the NEW prohibition text
+  ("the client SHALL NOT derive the verdict from `processMetrics.updatedAt`"),
+  and no `already carried` text survives. The `## Purpose` placeholder predates
+  this change and is left alone.
