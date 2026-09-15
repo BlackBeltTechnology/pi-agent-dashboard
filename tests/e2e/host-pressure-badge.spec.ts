@@ -10,10 +10,12 @@
  * pill with no page reload (#F3) — and a browser that connects DURING the
  * pressure gets the same state from `sessions_snapshot` (#F4).
  *
- * Silence is provoked by driving a synthetic bridge straight at the pi gateway
+ * Silence is provoked by driving a SYNTHETIC bridge straight at the pi gateway
  * and then saying nothing: a real harness session heartbeats every 15 s and can
- * never go quiet on demand. Its cwd is borrowed from a real spawned session so
- * the card lands in an already-visible folder group.
+ * never go quiet on demand. No `spawnFreshGitSession` here — the scenario needs
+ * a quiet bridge, not a live model, and a real spawn would only add a minute of
+ * latency and a reap obligation. It registers under `FIXTURE_GIT`, the
+ * pre-trusted fixture the sidebar already groups by.
  *
  * Exemplar for the raw-gateway glue: `bridge-contention-health.spec.ts`.
  * The dashboard port comes from `.pi-test-harness.json#dashboardPort` via the
@@ -22,11 +24,10 @@
 
 import { expect, type Page, test } from "./fixtures.js";
 import { gatewayUrlWithTicket, pairDeviceBearer } from "./helpers/bridge-credential.js";
-import { spawnFreshGitSession } from "./helpers/index.js";
+import { FIXTURE_GIT, pinDirectory } from "./helpers/index.js";
 import { BASE_URL } from "./lifecycle.js";
 
 /** Server thresholds (`packages/shared/src/host-pressure.ts`). */
-const DEGRADED_MS = 35_000;
 const UNRESPONSIVE_MS = 60_000;
 
 async function piGatewayPort(page: Page): Promise<number | null> {
@@ -55,6 +56,22 @@ async function badgeState(page: Page, sessionId: string): Promise<string | null>
   return pill.first().getAttribute("data-host-pressure");
 }
 
+/**
+ * Wait for the synthetic card to render. On a container whose sidebar has no
+ * group for the fixture yet, pin it once and wait again — the card exists on
+ * the server either way, so this is a rendering precondition, not the assertion.
+ */
+async function awaitCard(page: Page, sessionId: string): Promise<void> {
+  const card = page.locator(`[data-session-id="${sessionId}"]`).first();
+  const shown = await card
+    .waitFor({ state: "visible", timeout: 20_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (shown) return;
+  await pinDirectory(page, FIXTURE_GIT);
+  await expect(card).toBeVisible({ timeout: 30_000 });
+}
+
 test.describe("host-pressure badge over the real socket (L3)", () => {
   test("F3: a quiet bridge raises the pill, and a frame clears it — no page reload", async ({ page }) => {
     test.setTimeout(240_000);
@@ -63,27 +80,17 @@ test.describe("host-pressure badge over the real socket (L3)", () => {
     const port = await piGatewayPort(page);
     test.skip(!port, "harness health does not expose the bound gateway port");
 
-    // Borrow a real session's cwd so the synthetic card renders in a visible
-    // folder group rather than an unknown directory.
-    const realCard = await spawnFreshGitSession(page);
-    const realId = await realCard.getAttribute("data-session-id");
-    const sessions = (await (await page.request.get("/api/sessions")).json()) as
-      | { sessions?: Array<{ id: string; cwd: string }> }
-      | Array<{ id: string; cwd: string }>;
-    const rows = Array.isArray(sessions) ? sessions : (sessions.sessions ?? []);
-    const cwd = rows.find((s) => s.id === realId)?.cwd;
-    expect(cwd, "the spawned session reports a cwd").toBeTruthy();
-
     const sessionId = `e2e-pressure-${Date.now()}`;
     const bearer = await pairDeviceBearer(BASE_URL);
     const bridge = await connectBridge(port as number, bearer);
-    bridge.send(JSON.stringify({ type: "session_register", sessionId, cwd, source: "tui", pid: 424242 }));
+    bridge.send(
+      JSON.stringify({ type: "session_register", sessionId, cwd: FIXTURE_GIT, source: "tui", pid: 424242 }),
+    );
 
     try {
       // The card exists and is SILENT while the bridge is fresh — the
       // zero-pixel contract, and the non-vacuity guard for the pill below.
-      const card = page.locator(`[data-session-id="${sessionId}"]`);
-      await expect(card.first()).toBeVisible({ timeout: 30_000 });
+      await awaitCard(page, sessionId);
       expect(await badgeState(page, sessionId)).toBeNull();
 
       // Now it says nothing at all. The verdict is PUSHED, so the pill must
@@ -114,29 +121,23 @@ test.describe("host-pressure badge over the real socket (L3)", () => {
     const port = await piGatewayPort(page);
     test.skip(!port, "harness health does not expose the bound gateway port");
 
-    const realCard = await spawnFreshGitSession(page);
-    const realId = await realCard.getAttribute("data-session-id");
-    const sessions = (await (await page.request.get("/api/sessions")).json()) as
-      | { sessions?: Array<{ id: string; cwd: string }> }
-      | Array<{ id: string; cwd: string }>;
-    const rows = Array.isArray(sessions) ? sessions : (sessions.sessions ?? []);
-    const cwd = rows.find((s) => s.id === realId)?.cwd;
-
     const sessionId = `e2e-pressure-snap-${Date.now()}`;
     const bearer = await pairDeviceBearer(BASE_URL);
     const bridge = await connectBridge(port as number, bearer);
-    bridge.send(JSON.stringify({ type: "session_register", sessionId, cwd, source: "tui", pid: 424243 }));
+    bridge.send(
+      JSON.stringify({ type: "session_register", sessionId, cwd: FIXTURE_GIT, source: "tui", pid: 424243 }),
+    );
 
     const second = await browser.newContext({ baseURL: BASE_URL });
     try {
       // First browser watches the raise happen live (`session_updated`).
+      await awaitCard(page, sessionId);
       await expect
         .poll(() => badgeState(page, sessionId), {
-          timeout: DEGRADED_MS + 60_000,
+          timeout: UNRESPONSIVE_MS + 60_000,
           intervals: [2_000],
         })
         .not.toBeNull();
-      const live = await badgeState(page, sessionId);
 
       // Second browser learns the SAME state from `sessions_snapshot` alone —
       // it was never on the wire for the transition.
@@ -148,8 +149,9 @@ test.describe("host-pressure badge over the real socket (L3)", () => {
 
       // Compared at the same instant: the local ticker may have escalated both
       // by now, but it must have escalated them identically.
-      expect(await badgeState(late, sessionId)).toBe(await badgeState(page, sessionId));
-      expect(["degraded", "unresponsive"]).toContain(live);
+      const [a, b] = await Promise.all([badgeState(page, sessionId), badgeState(late, sessionId)]);
+      expect(b).toBe(a);
+      expect(["degraded", "unresponsive"]).toContain(a);
     } finally {
       bridge.send(JSON.stringify({ type: "session_unregister", sessionId }));
       bridge.close();
