@@ -6,12 +6,27 @@
  * resolver's three deps (`agentDir`, `cwd`, `npmRoot`) are all injected
  * so tests are hermetic and never read the developer's real settings.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { resolvePiPackage, resolvePiPackageEntry } from "../pi-package-resolver.js";
+import {
+  listPiPackages,
+  resetNpmRootCacheForTests,
+  resolvePiPackage,
+  resolvePiPackageEntry,
+} from "../pi-package-resolver.js";
+
+// `npm root -g` shells out; the memo contract is a CALL COUNT, so the real
+// implementation is replaced by a counting stub for this file.
+// See change: heal-orphaned-tool-cards-on-session-end (design D6).
+const { npmRootSpy } = vi.hoisted(() => ({ npmRootSpy: vi.fn(() => "") }));
+vi.mock("../platform/npm.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../platform/npm.js")>()),
+  rootGlobalOr: (...args: unknown[]) => npmRootSpy(...(args as [])),
+}));
 
 let root: string;
 let agentDir: string;
@@ -296,5 +311,61 @@ describe("missing settings.json", () => {
     writeSettings("user", { packages: [{ source: pkgDir, extensions: [] }] });
 
     expect(resolvePiPackage("obj-pkg", { agentDir, npmRoot })?.packageDir).toBe(pkgDir);
+  });
+});
+
+// ── npm-root memoization (change: heal-orphaned-tool-cards-on-session-end) ───
+// `npm root -g` is a ~150 ms `spawnSync`. Defaulted per call it dominated
+// per-child extension instantiation (7-way fan-out spawn block). The global npm
+// root cannot change within a process lifetime, so it is resolved once.
+// Folded 1:1 from the manifest: E11–E14.
+describe("npm root memoization (#E11–#E14)", () => {
+  beforeEach(() => {
+    npmRootSpy.mockClear();
+    resetNpmRootCacheForTests();
+  });
+  afterEach(() => {
+    resetNpmRootCacheForTests();
+  });
+
+  it("resolves `npm root -g` exactly once across many default-npmRoot calls (#E11)", () => {
+    writeSettings("user", { packages: ["npm:foo"] });
+    resolvePiPackageEntry("foo", { agentDir });
+    resolvePiPackageEntry("foo", { agentDir });
+    resolvePiPackageEntry("foo", { agentDir });
+    listPiPackages({ agentDir });
+    expect(npmRootSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("an explicit npmRoot bypasses the cache; the reset helper clears it (#E12)", () => {
+    writeSettings("user", { packages: ["npm:foo"] });
+    const pkgDir = path.join(npmRoot, "foo");
+    writePackage(pkgDir, { name: "foo", main: "index.js" }, { "index.js": "" });
+
+    expect(resolvePiPackage("foo", { agentDir, npmRoot })?.packageDir).toBe(pkgDir);
+    expect(npmRootSpy).not.toHaveBeenCalled();
+
+    resetNpmRootCacheForTests();
+    resolvePiPackage("foo", { agentDir });
+    expect(npmRootSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("caches a degenerate empty result rather than retrying the slow failure (#E13)", () => {
+    npmRootSpy.mockReturnValue("");
+    writeSettings("user", { packages: ["npm:foo"] });
+    const first = resolvePiPackage("foo", { agentDir });
+    const second = resolvePiPackage("foo", { agentDir });
+    expect(npmRootSpy).toHaveBeenCalledTimes(1);
+    expect(second).toEqual(first);
+  });
+
+  it("does not cache settings reads — a newly added package resolves (#E14)", () => {
+    writeSettings("user", { packages: [] });
+    expect(resolvePiPackage("foo", { agentDir, npmRoot })).toBeNull();
+
+    writeSettings("user", { packages: ["npm:foo"] });
+    const pkgDir = path.join(npmRoot, "foo");
+    writePackage(pkgDir, { name: "foo", main: "index.js" }, { "index.js": "" });
+    expect(resolvePiPackage("foo", { agentDir, npmRoot })?.packageDir).toBe(pkgDir);
   });
 });

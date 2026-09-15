@@ -425,6 +425,18 @@ export interface DashboardSession {
     /** Timestamp when metrics were last received */
     updatedAt: number;
   };
+  /**
+   * Server-derived bridge-silence verdict, pushed ONLY on a state transition
+   * (`host-pressure-tracker.ts`). `undefined` = the server has said nothing yet
+   * (unknown, NOT healthy); explicit `null` = recovered, clear the badge.
+   * `since` is the server receipt time of the last frame, so the card can count
+   * elapsed silence locally without any extra traffic.
+   *
+   * The browser MUST NOT derive this from `processMetrics.updatedAt`: that field
+   * only ever arrives in the connect snapshot and then freezes, which read every
+   * live session as unresponsive. See change: fix-false-unresponsive-badge.
+   */
+  hostPressure?: { state: "degraded" | "unresponsive"; since: number } | null;
   /** Extension-declared UI modules (Phase 1: management-modal slot). */
   uiModules?: ExtensionUiModule[];
   /** Cached row data per `view.dataEvent` for table/grid views. Per-event item cap is enforced server-side. */

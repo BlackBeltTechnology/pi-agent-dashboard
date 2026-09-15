@@ -31,7 +31,7 @@ already being sent and discarded.
   pressured card remains the sole focal point in its group (Nielsen #8; the
   Von Restorff isolation the signal depends on)
 
-#### Scenario: No metrics yields an absent state, not a healthy one
+#### Scenario: Silence from the server renders nothing
 
 - **GIVEN** a session row with no `processMetrics` (never reported, or a session
   that predates the bridge's heartbeat)
