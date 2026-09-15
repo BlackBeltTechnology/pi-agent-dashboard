@@ -880,6 +880,21 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // Windows has, since it gets no unix socket (D6, task 5.3).
       verifyLocalToken: (headers) => verifyLocalToken(headers, localToken),
     },
+    // Bridge-silence verdict. The browser cannot observe silence itself — it
+    // receives `processMetrics` once, in the connect snapshot, and nothing
+    // refreshes it — so the server derives the state and pushes it on a
+    // TRANSITION only. A healthy session still costs zero frames.
+    // See change: fix-false-unresponsive-badge.
+    onHostPressure: (sessionId, hostPressure) => {
+      const session = sessionManager.get(sessionId);
+      if (!session || session.status === "ended") return;
+      sessionManager.update(sessionId, { hostPressure });
+      browserGateway.broadcastToAll({
+        type: "session_updated",
+        sessionId,
+        updates: { hostPressure },
+      });
+    },
   });
 
   // Relay for AI-drafted commit messages (bridge fork-subagent ↔ HTTP).

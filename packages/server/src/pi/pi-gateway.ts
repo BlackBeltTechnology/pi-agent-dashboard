@@ -9,6 +9,7 @@ import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared
 import { WebSocket, WebSocketServer } from "ws";
 import type { TicketConsumption } from "../auth/ws-ticket.js";
 import { classifyCarrierLoss } from "../session/death-reason.js";
+import { createHostPressureTracker, type HostPressure } from "../session/host-pressure-tracker.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import { attributeOrigin, UNATTRIBUTED_REMOTE } from "../session/session-origin.js";
 import { getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
@@ -72,6 +73,16 @@ export interface PiGatewayOptions {
    * committing a move (D11/D14, task 9.7).
    */
   instanceId?: string;
+  /**
+   * Fires on a host-pressure TRANSITION for a session (`null` = recovered).
+   * The gateway owns the last-frame fact; the dashboard server turns the
+   * verdict into a session row update + browser broadcast.
+   * See change: fix-false-unresponsive-badge.
+   */
+  onHostPressure?: (sessionId: string, pressure: HostPressure | null) => void;
+  /** Test seams for the pressure thresholds. */
+  hostPressureDegradedMs?: number;
+  hostPressureUnresponsiveMs?: number;
 }
 
 export interface PiGateway {
@@ -164,6 +175,14 @@ export function createPiGateway(
   const heartbeatTimers = new Map<string, ReturnType<typeof setTimeout>>();
   // Map sessionId → { setAt: timestamp, sleepRetried: boolean } for sleep detection
   const heartbeatMeta = new Map<string, { setAt: number; sleepRetried: boolean }>();
+  // Bridge-silence verdict, emitted on transition only. Fed by EVERY frame a
+  // bridge sends — any frame proves its event loop is running.
+  // See change: fix-false-unresponsive-badge.
+  const hostPressure = createHostPressureTracker({
+    onChange: (sessionId, pressure) => options?.onHostPressure?.(sessionId, pressure),
+    degradedMs: options?.hostPressureDegradedMs,
+    unresponsiveMs: options?.hostPressureUnresponsiveMs,
+  });
 
   let onEvent: ((sessionId: string, msg: ExtensionToServerMessage) => void) | undefined;
   let onEmpty: (() => void) | undefined;
@@ -524,6 +543,9 @@ export function createPiGateway(
         ws.on("message", (raw) => {
           // Any received message proves the connection is alive
           aliveMisses.set(ws, 0);
+          // …and that the bridge's event loop is running: a blocked loop cannot
+          // put a frame on the wire. See change: fix-false-unresponsive-badge.
+          if (currentSessionId) hostPressure.noteFrame(currentSessionId);
           queue = queue.then(() => handleMessage(raw)).catch(() => {});
         });
 
@@ -818,6 +840,7 @@ export function createPiGateway(
               console.error(`[gateway] session registered: ${msg.sessionId} cwd=${msg.cwd}`);
 
               resetHeartbeat(msg.sessionId);
+              hostPressure.noteFrame(msg.sessionId);
               onConnection?.();
               onSessionRegistered?.(msg.sessionId, msg.cwd);
               onEvent?.(msg.sessionId, msg);
@@ -845,6 +868,7 @@ export function createPiGateway(
               console.error(`[gateway] session unregistered: ${msg.sessionId} (explicit)`);
               sessionManager.unregister(msg.sessionId);
               connections.delete(msg.sessionId);
+              hostPressure.clear(msg.sessionId);
               // Session end is one of the four D4 clearing triggers.
               contention.clear(msg.sessionId);
               const timer = heartbeatTimers.get(msg.sessionId);
@@ -917,6 +941,7 @@ export function createPiGateway(
               heartbeatTimers.delete(currentSessionId);
               heartbeatMeta.delete(currentSessionId);
               connections.delete(currentSessionId);
+              hostPressure.clear(currentSessionId);
               onDisconnect?.(currentSessionId);
               // unregister LAST: it fires onUnregister → plugin onSessionEnded
               // → engine finalize; do it after local cleanup so the death
@@ -1090,6 +1115,7 @@ export function createPiGateway(
       }
       heartbeatTimers.clear();
       heartbeatMeta.clear();
+      hostPressure.stop();
       aliveMisses.clear();
       // Forcibly terminate every accepted socket, not just the ones holding a
       // routing entry — `wss.close()` does not terminate clients, so a socket
