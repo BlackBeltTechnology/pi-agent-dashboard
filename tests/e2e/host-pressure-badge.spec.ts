@@ -103,9 +103,13 @@ test.describe("host-pressure badge over the real socket (L3)", () => {
       // threshold (it can pin a folder), so re-arm the window immediately
       // before asserting silence: otherwise a slow harness fails this line
       // with no product bug behind it.
+      // Polled, not read once: the re-arm is a socket round-trip plus a React
+      // render, which a synchronous read can beat and see the stale pill.
       await awaitCard(page, sessionId);
       bridge.send(JSON.stringify({ type: "session_heartbeat", sessionId }));
-      expect(await badgeState(page, sessionId)).toBeNull();
+      await expect
+        .poll(() => badgeState(page, sessionId), { timeout: 10_000, intervals: [500] })
+        .toBeNull();
 
       // Now it says nothing at all. The verdict is PUSHED, so the pill must
       // appear without any navigation.
