@@ -525,6 +525,13 @@ export function wireEvents(deps: EventWiringDeps): void {
         endedAt: session.endedAt,
         closedReason: session.closedReason,
         currentTool: null,
+        // Explicit `null` for the same reason as `currentTool`: the client
+        // merges with `{ ...existing, ...updates }`, so an omitted key would
+        // leave the last verdict in browser state for a dead session. The
+        // ended card does not render it, but the row should not carry a
+        // liveness claim about a bridge that is gone.
+        // See change: fix-false-unresponsive-badge.
+        hostPressure: null,
       });
     }
     // Drop both pending registries. `pendingPromptRequests` and
