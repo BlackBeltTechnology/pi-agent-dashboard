@@ -123,7 +123,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `route-backed-overlay.spec.ts` | Route-backed overlay contract: S-12/S-12b (one overlay per URL, tunnel replaces settings), S-13 (cold-load… → see `route-backed-overlay.spec.ts.AGENTS.md` |
 | `scroll-to-top.spec.ts` | Browser E2E gate for `fix-chat-scroll-to-top-estimate-drift` (the ONLY layer that reproduces the… → see `scroll-to-top.spec.ts.AGENTS.md` |
 | `session-context-injection.spec.ts` | Playwright spec. Spawns session, sends `[[faux:echo-system-context]]`, asserts rendered text contains… → see `session-context-injection.spec.ts.AGENTS.md` |
-| `session-ended-orphan-heal.spec.ts` | L3 #F6/#F7: a session SIGKILLed mid-`Agent` heals live and after a cold reload. → see `session-ended-orphan-heal.spec.ts.AGENTS.md` |
+| `session-ended-orphan-heal.spec.ts` | L3 #F6/#F7: a session killed while holding a long-running bash call heals live and after a cold re-hydration. → see `session-ended-orphan-heal.spec.ts.AGENTS.md` |
 | `session-reap.spec.ts` | L3 gate on the reap fixture itself, driven headless over `BusClient` (no browser page); port from… → see `session-reap.spec.ts.AGENTS.md` |
 | `session-spawn.spec.ts` | Scenario spec 5.1, authoritative WS round-trip. Clears onboarding gate, clicks `onboarding-step-2-cta` opens… → see `session-spawn.spec.ts.AGENTS.md` |
 | `session-state-honesty.spec.ts` | L3 rendered-honesty gate (change: stop-discarding-known-session-state, test-plan Q1/Q2/Q3): offline prompt fails connection-attributed; out-of-band kill ends the card with a reason; healthy card renders no pressure pill. → see `session-state-honesty.spec.ts.AGENTS.md` |

@@ -34,7 +34,7 @@ function inContainer(script: string): string {
  * L3 — a session that DIES mid-`Agent` leaves no card spinning, live or after a
  * cold re-hydration.
  *
- * F6 (live): the pi process is killed out of band while a tool call is in
+ * F6 (live): the pi process is killed while a long-running bash call is in
  * flight. The bridge socket closes, the gateway finalizes the session, and
  * `sessionManager.onEnded` synthesizes the terminal events into the session's
  * own stream: `tool_execution_end{isError, healedBy:"session_ended"}` per open

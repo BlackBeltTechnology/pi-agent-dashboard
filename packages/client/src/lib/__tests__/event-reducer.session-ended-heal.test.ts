@@ -80,7 +80,13 @@ describe("session_ended heal — reducer guards", () => {
         toolCallId: "A",
         partialResult: {
           content: [{ type: "text", text: "(running…)" }],
-          details: { agentId: "ag-1", subagentType: "Explore", description: "probe", toolUses: 4 },
+          details: {
+            agentId: "ag-1",
+            subagentType: "Explore",
+            description: "probe",
+            toolUses: 4,
+            status: "running",
+          },
         },
       },
     };
@@ -90,6 +96,8 @@ describe("session_ended heal — reducer guards", () => {
     expect(row?.toolDetails?.agentId).toBe("ag-1");
     expect(row?.toolDetails?.subagentType).toBe("Explore");
     expect(row?.toolDetails?.toolUses).toBe(4);
+    // …but the snapshot's own status goes terminal with the card.
+    expect(row?.toolDetails?.status).toBe("error");
   });
 
   it("does not clobber an already-complete tool call (#F2)", () => {

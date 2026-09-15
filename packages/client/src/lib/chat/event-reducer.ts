@@ -2277,7 +2277,14 @@ export function reduceEvent(
           // would drop the live Agent snapshot (status, tokens, description)
           // the row already rendered from.
           // See change: heal-orphaned-tool-cards-on-session-end.
-          mergedDetails = { ...(next.messages[idx].toolDetails ?? {}), ...endDetails };
+          // …but the STATUS must still go terminal: a live Agent snapshot can
+          // carry `status:"running"`, and preserving it would leave the card's
+          // details contradicting its `toolStatus`.
+          mergedDetails = {
+            ...(next.messages[idx].toolDetails ?? {}),
+            ...endDetails,
+            status: isError ? "error" : "completed",
+          };
         } else if (endDetails) {
           mergedDetails = endDetails;
         } else if (next.messages[idx].toolDetails) {
