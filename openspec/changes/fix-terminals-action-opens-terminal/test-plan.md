@@ -60,7 +60,7 @@ subjective row M1 below.
 
 - Requirements covered: 2/2 (`terminal-viewer-tab` terminal-focused entry — all 7 scenarios; `directory-home-page` distinct targets — both scenarios)
 - Scenarios by class: edge 9 · perf 0 · frontend 10 · error 2
-- Scenarios by level: L1 14 · L2 0 · L3 5 · manual-only 1
+- Scenarios by level: L1 15 · L2 0 · L3 5 · manual-only 1
 - Scenarios by disposition: automated 20 · manual-only 1
 
 ## New infra needed

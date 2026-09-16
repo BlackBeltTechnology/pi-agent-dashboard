@@ -49,6 +49,13 @@ The recorded kind SHALL follow last-write-wins across the lifecycle kinds — a 
 `removed` SHALL overwrite any kind already recorded for that id, while a newly recorded `updated` SHALL
 overwrite only an existing `updated` and SHALL NOT downgrade a pending `added` or `removed`.
 
+A lifecycle frame that is DELIVERED successfully to a socket SHALL clear that socket's recorded debt for
+that session id, including the shed-`added` flag, because the delivered frame is that socket's current
+truth and any older debt describes a state the socket has already been told about. The clear SHALL NOT
+discard debt recorded for that id during or after the send. Without this rule a shed `session_added`
+followed by a successfully delivered `session_removed` would leave `added` owed, and the flush would emit
+a reconciled `session_added` that resurrects an ended row the socket was correctly told to drop.
+
 Within 1 second of the socket's buffered amount falling back under the threshold, the server SHALL send
 that socket a frame rebuilt from the session's CURRENT server-held state, resolved in this order:
 when `removed` is owed and no record for that id exists, `session_removed`; when `removed` is owed and the
@@ -60,7 +67,9 @@ were both shed is still presented rather than silently absent; when `removed` is
 with no shed creation, `session_removed`; otherwise when the session no longer exists, `session_removed`;
 otherwise when `added` is owed, `session_added` carrying the full current record, the recorded
 `spawnRequestId`, and `reconciled: true`; otherwise `session_updated` carrying the session's current
-`status`, `currentTool`, and `hostPressure`, each with `null` as its clearing value.
+`status`, `currentTool`, and `hostPressure`. `status` SHALL always carry the session's current status
+and SHALL NOT be cleared; `currentTool` and `hostPressure` are the optional fields, each using `null`
+(never `undefined`) as its clearing value.
 
 A session record that is no longer ended SHALL be taken to mean the id was registered again, which requires
 that registration is the only operation that puts a session record into a non-ended status. The recorded set SHALL hold
@@ -151,6 +160,13 @@ closes, errors, or is terminated as stalled.
 - **WHEN** a `session_removed` for `s2` is dropped for a socket
 - **AND** the socket drains while `s2` no longer exists
 - **THEN** that socket SHALL receive a `session_removed` for `s2`
+
+#### Scenario: A delivered removal clears an older shed-add debt
+
+- **WHEN** a `session_added` for `s10` is dropped for a socket
+- **AND** a later `session_removed` for `s10` is delivered to that socket successfully
+- **AND** the socket then drains while `s10`'s record is ended
+- **THEN** that socket SHALL NOT receive a reconciled `session_added` for `s10`
 
 #### Scenario: Remove then re-add converges to the current record
 

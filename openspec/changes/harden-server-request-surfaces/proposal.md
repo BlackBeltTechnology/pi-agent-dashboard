@@ -30,7 +30,7 @@ _None._
 
 - `packages/server/src/browser-handlers/directory-handler.ts` (`handleOpenSpecRefresh`), `packages/server/src/directory-service.ts` (expose or reuse `isTrackedCwd` / opt-out / root gates for the refresh path).
 - `packages/server/src/routes/pairing-routes.ts` (two `preHandler` swaps, label validation on approve), `packages/server/src/pairing/pairing.ts` (`approve` label bound, or validate at the route).
-- `packages/server/src/git-worktree/git-operations.ts` (argv migration across 16 sites; `run`/`tryRun` signature; delete `shellEscape`), `packages/server/src/__tests__/git-worktree-lifecycle-ops.test.ts`.
+- `packages/server/src/git-worktree/git-operations.ts` (argv migration across 17 sites; `run`/`tryRun` signature; delete `shellEscape`), `packages/server/src/__tests__/git-worktree-lifecycle-ops.test.ts`.
 - `packages/server/src/auth/host-gate.ts` (`resolveHostGateMode` default), Settings ▸ Security copy that describes the default, `CHANGELOG.md` `[Unreleased]` breaking note, `docs/` host-gate page.
 - `packages/shared/src/config.ts` (`parseHostGateMode` only — the module-private `DEFAULTS.hostGate` entry is read by nothing and is left alone), `packages/server/src/config-snapshot.ts` (`liveHostGateMode` fallback), `packages/server/src/__tests__/host-gate.test.ts` (pins the old default), `docs/faq.md` (documents default `"report"`).
 - Docker harness and Playwright E2E reach the dashboard via `localhost`/IP literal, which stay admissible — no harness change expected; verified in tasks.
