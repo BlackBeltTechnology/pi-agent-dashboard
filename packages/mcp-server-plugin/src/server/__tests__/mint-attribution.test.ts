@@ -47,7 +47,7 @@ describe("M1 — minting attributes to the connection's session", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0].sessionId).toBe("session-a");
     const token = (sent[0].msg as { token: string }).token;
-    expect(tokens.resolve(token)).toEqual({ kind: "session", sessionId: "session-a" });
+    expect(tokens.resolve(token)).toEqual({ kind: "session", sessionId: "session-a", tier: "control" });
   });
 });
 
@@ -65,7 +65,7 @@ describe("M4 — the mint binds to the DISPATCHED id, not the payload", () => {
     mintHandler(tokens, send)(body, "session-a");
     const token = (sent[0].msg as { token: string }).token;
     // The resolved caller is A — the body's B never becomes the caller.
-    expect(tokens.resolve(token)).toEqual({ kind: "session", sessionId: "session-a" });
+    expect(tokens.resolve(token)).toEqual({ kind: "session", sessionId: "session-a", tier: "control" });
   });
 
   it("the same body dispatched under two ids yields two distinct bindings", () => {
@@ -79,8 +79,8 @@ describe("M4 — the mint binds to the DISPATCHED id, not the payload", () => {
     const b = (sent[1].msg as { token: string }).token;
     expect(sent[0].sessionId).toBe("session-a");
     expect(sent[1].sessionId).toBe("session-b");
-    expect(tokens.resolve(a)).toEqual({ kind: "session", sessionId: "session-a" });
-    expect(tokens.resolve(b)).toEqual({ kind: "session", sessionId: "session-b" });
+    expect(tokens.resolve(a)).toEqual({ kind: "session", sessionId: "session-a", tier: "control" });
+    expect(tokens.resolve(b)).toEqual({ kind: "session", sessionId: "session-b", tier: "control" });
   });
 
   it("E3 — a minted-for-A bearer presented with a body naming B still resolves to A", () => {
@@ -90,7 +90,7 @@ describe("M4 — the mint binds to the DISPATCHED id, not the payload", () => {
     const { send, sent } = recordSend();
     mintHandler(tokens, send)({}, "session-a");
     const tokenA = (sent[0].msg as { token: string }).token;
-    expect(tokens.resolve(tokenA)).toEqual({ kind: "session", sessionId: "session-a" });
+    expect(tokens.resolve(tokenA)).toEqual({ kind: "session", sessionId: "session-a", tier: "control" });
   });
 });
 
@@ -101,7 +101,7 @@ describe("M2 — the resolved caller comes from server-side records", () => {
     mintHandler(tokens, send)({}, "session-a");
     const token = (sent[0].msg as { token: string }).token;
     // Resolution takes the credential and nothing else.
-    expect(tokens.resolve(token)).toEqual({ kind: "session", sessionId: "session-a" });
+    expect(tokens.resolve(token)).toEqual({ kind: "session", sessionId: "session-a", tier: "control" });
     expect(tokens.resolve(`${token}-tampered`)).toBeNull();
   });
 });

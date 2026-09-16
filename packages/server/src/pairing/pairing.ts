@@ -18,6 +18,11 @@
  * must NOT honor the loopback/tunnel exemption (enforced at the route layer).
  */
 import crypto from "node:crypto";
+import {
+  defaultTierForSource,
+  isTier,
+  type Tier,
+} from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import type { PairedDeviceRegistry, PairedDeviceView } from "./paired-devices.js";
 
 /** Current pairing protocol version (D9). */
@@ -223,7 +228,7 @@ export class PairingManager {
    * device. Wrong codes are rate-limited then locked out. MUST be called only
    * from an authenticated browser session (route-layer responsibility).
    */
-  approve(code: string, typedConfirmCode: string, label?: string): ApproveResult {
+  approve(code: string, typedConfirmCode: string, label?: string, tier?: Tier): ApproveResult {
     const entry = this.codes.get(code);
     if (!entry) return { ok: false, error: "invalid_code" };
     // Reject an expired entry explicitly — the server is the authority on code
@@ -247,7 +252,14 @@ export class PairingManager {
     if (!match) return { ok: false, error: "mismatch" };
 
     // Match → consume the code (single successful pairing) and issue the token.
-    const { device, token } = this.deps.registry.add(label ?? pending.label);
+    // The approving browser chooses the tier; absent, the pairing source
+    // default applies (`operate` — a phone browser drives the whole dashboard,
+    // D1/D8).
+    const { device, token } = this.deps.registry.add(
+      label ?? pending.label,
+      "pairing",
+      isTier(tier) ? tier : defaultTierForSource("pairing"),
+    );
     pending.issuedToken = token;
     // Drop the code so it can never be reused; keep the pending slot so the
     // device's next poll collects the token, then it self-expires via sweep.

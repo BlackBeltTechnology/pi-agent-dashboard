@@ -32,6 +32,7 @@ import Fastify from "fastify";
 import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
 import { registerAuthPlugin, validateWsUpgrade } from "./auth/auth-plugin.js";
 import { registerBearerAuth } from "./auth/bearer-auth.js";
+import { createRouteTierGate } from "./auth/route-tier-gate.js";
 import {
   computeBindReachability,
   formatBindReachabilityWarning,
@@ -76,9 +77,11 @@ import {
 } from "./auth/ws-ticket.js";
 import {
   buildDispatchReloadContext,
+  forceKillSession,
   type ReloadHostContext,
   respawnForRuntimeSwap,
 } from "./browser-handlers/session-action-handler.js";
+import { runLifecycleAction } from "./browser-handlers/session-lifecycle.js";
 import { createCommitDraftRelay } from "./commit-draft-relay.js";
 import { writeConfigPartial } from "./config-api.js";
 import {
@@ -284,6 +287,13 @@ export interface ServerConfig {
   resolvedTrustedNetworks?: string[];
   /** CORS allowed origins from config */
   corsAllowedOrigins?: string[];
+  /**
+   * @internal Test/observability only: invoked for every route as Fastify
+   * registers it (before `listen`), so the MCP manifest completeness test can
+   * enumerate the route set R exactly as it boots. Additive; no runtime effect.
+   * See change: expand-mcp-tiered-surface (D6).
+   */
+  onRoute?: (route: { method: string | string[]; url: string }) => void;
 }
 
 export interface DashboardServer {
@@ -1148,7 +1158,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // See change: add-dashboard-mcp-server.
   pluginServiceRegistry.set(
     "host.verifyDeviceToken",
-    (token: string): string | null => pairedDeviceRegistry.verify(token),
+    (token: string): string | null => pairedDeviceRegistry.verify(token)?.id ?? null,
+  );
+  // Tier-aware service board entry (change: expand-mcp-tiered-surface, D1).
+  // A NEW key, not a signature change to the old one: `mcp-server-plugin` is
+  // published separately and may run against an older/newer host. The plugin
+  // consumes this when present and otherwise falls back to
+  // `host.verifyDeviceToken` with `tier: "operate"`.
+  pluginServiceRegistry.set(
+    "host.verifyDeviceTokenTier",
+    (token: string) => pairedDeviceRegistry.verify(token),
   );
   // Prefers the BOUND port, falls back to the CONFIGURED one.
   //
@@ -1262,6 +1281,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     keepAliveTimeout: 30_000,
     connectionTimeout: 10_000,
   });
+
+  // Route inventory (test-only): fires as each route registers, before listen,
+  // so a caller can enumerate the full route set. See change:
+  // expand-mcp-tiered-surface (D6).
+  if (config.onRoute) {
+    const collect = config.onRoute;
+    fastify.addHook("onRoute", (route) => collect({ method: route.method, url: route.url }));
+  }
 
   // Compression: gzip/deflate for HTTP responses. Critical for large client
   // bundles (~3 MB JS) served over tunnels like zrok which abort big transfers.
@@ -1411,6 +1438,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     fastify.get("/auth/status", async () => ({ authenticated: true, authEnabled: false }));
   }
 
+  // REST tier gate (change: expand-mcp-tiered-surface, D1b). Registered AFTER
+  // both admission hooks above (bearer-auth, then the cookie auth plugin) so
+  // `request.authVia`/`principalTier` are already set when it runs, and it
+  // reads the same live trusted-network source `networkGuard` does.
+  fastify.addHook(
+    "onRequest",
+    createRouteTierGate({
+      getTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
+    }),
+  );
+
   // Session control REST API (wraps WebSocket-only operations)
   registerSessionApi(fastify, {
     sessionManager,
@@ -1423,6 +1461,21 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pendingPromptAcks,
     sessionArchive,
     pendingArchiveIntents,
+    // Shared lifecycle handler (change: expand-mcp-tiered-surface, D3): the
+    // three bridge forwards plus the shared force-kill ladder.
+    handleLifecycle: (sessionId, action) =>
+      runLifecycleAction(action, sessionId, {
+        piGateway,
+        forceKill: (sid) =>
+          forceKillSession(sid, {
+            sessionManager,
+            piGateway,
+            headlessPidRegistry: browserGateway.headlessPidRegistry,
+            broadcast: browserGateway.broadcastToAll,
+            metaPersistence,
+          }),
+      }),
+    getTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
   });
 
   // Register route modules
@@ -1777,6 +1830,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     registry: pairedDeviceRegistry,
     localToken,
     hostAdmission: () => getHostGateCtx().admission,
+    // Public (tunnel + configured public) base URLs, already TLS-gated.
+    getReachableUrls: () => pairingManager.reachableUrls(),
+    getPort: () => {
+      const addr = fastify.server.address();
+      return typeof addr === "object" && addr !== null ? addr.port : config.port;
+    },
   });
   // Mint a single-use WS ticket (D11). Authenticated (networkGuard: cookie,
   // trusted network, or Authorization: Bearer). The ticket is bound to a WS

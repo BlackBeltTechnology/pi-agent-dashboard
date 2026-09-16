@@ -77,6 +77,7 @@
     "@types/jsonwebtoken": "^9.0.9",
     "@types/mailparser": "^3.4.6",
     "@types/proper-lockfile": "^4.1.4",
-    "@types/ws": "^8.18.1"
+    "@types/ws": "^8.18.1",
+    "@blackbelt-technology/pi-dashboard-mcp-server-plugin": "^0.8.0"
   }
 }

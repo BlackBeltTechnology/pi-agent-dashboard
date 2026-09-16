@@ -20,8 +20,11 @@
  */
 
 import crypto from "node:crypto";
+import type { Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
+import { rank } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import { evaluateSelfTarget } from "./guard.js";
 import {
+  RPC_INSUFFICIENT_SCOPE,
   RPC_INVALID_PARAMS,
   RPC_METHOD_NOT_FOUND,
   type RpcHttpResponse,
@@ -37,7 +40,10 @@ import {
   SUPPORTED_PROTOCOL_VERSIONS,
 } from "./protocol.js";
 import type { McpCaller } from "./tokens.js";
-import { findTool, listTools, MCP_TOOLS, type McpToolDef } from "./tools.js";
+
+export type { McpCaller };
+import { GENERATED_TOOLS, type GeneratedTool } from "./generated/tools.js";
+import { findTool, listTools } from "./tools.js";
 
 /** Methods reported as unsupported rather than silently accepted (modern era). */
 export const REMOVED_METHODS = [
@@ -94,22 +100,89 @@ export function versionFailureResponse(
 
 /** Everything a tool handler needs. Handlers never see the raw request. */
 export interface ToolInvocation {
-  tool: McpToolDef;
+  tool: GeneratedTool;
   args: Record<string, unknown>;
   caller: McpCaller;
 }
 
+/** Options for the REST binder's `fastify.inject` call (design D4). */
+export interface InjectOptions {
+  method: string;
+  url: string;
+  payload?: unknown;
+  headers?: Record<string, string>;
+  remoteAddress?: string;
+}
+
+/** The subset of a Fastify inject reply the binder needs. */
+export interface InjectResult {
+  statusCode: number;
+  body: unknown;
+}
+
+/** Per-request transport context the route hands down (headers, peer IP). */
+export interface DispatchContext {
+  /** The originating `/mcp` request headers. */
+  headers?: Record<string, unknown>;
+  /** The originating peer address (Fastify's `request.ip`). */
+  remoteAddress?: string;
+}
+
 export interface DispatchDeps {
-  /** Invoke a tool. Rejections become `-32603`, never an unhandled rejection. */
+  /**
+   * Execute a `context`-bound tool (the four original tools). Kept as one hook
+   * so the plugin entry owns the `ServerPluginContext` mapping.
+   */
   invokeTool(invocation: ToolInvocation): Promise<unknown>;
+  /** Run a `rest`-bound tool through `fastify.inject` with caller identity. */
+  inject?(options: InjectOptions): Promise<InjectResult>;
+  /** Forward a `session`-bound tool to the owning bridge. */
+  sendToSession?(sessionId: string, message: Record<string, unknown>): boolean;
   /** Dashboard identity for `server/discover`. */
   serverInfo: { name: string; version: string };
   /** Record a refused self-target (G5). */
   recordRefusal?(detail: { callerSessionId: string; targetSessionId: string; tool: string }): void;
+  /** Record an out-of-tier refusal (change: expand-mcp-tiered-surface, D2). */
+  recordTierRefusal?(detail: {
+    caller: McpCaller;
+    tool: string;
+    callerTier: Tier;
+    requiredTier: Tier;
+  }): void;
+  /**
+   * The advertised tool set. Defaults to `GENERATED_TOOLS`; injectable so a
+   * fixture can exercise the tier filter and binders without the full manifest.
+   */
+  tools?: readonly GeneratedTool[];
   /** Open a subscription stream. Absent in unit contexts that never call it. */
   openSubscription?(sessionIds: string[], caller: McpCaller): Promise<unknown>;
   /** Whether the streaming transport is wired; drives `server/discover`. */
   streamingAvailable?: boolean;
+}
+
+/** The tool set for this dispatch, defaulting to the generated manifest. */
+function toolsFor(deps: DispatchDeps): readonly GeneratedTool[] {
+  return deps.tools ?? GENERATED_TOOLS;
+}
+
+/**
+ * The spec-shaped out-of-tier refusal: HTTP 403 + the `insufficient_scope`
+ * scope challenge header + a JSON-RPC error naming the required tier (D2).
+ */
+export function tierRefusalResponse(id: RpcId, scope: Tier): RpcHttpResponse {
+  return {
+    status: 403,
+    wwwAuthenticate: `Bearer error="insufficient_scope", scope="${scope}"`,
+    body: {
+      jsonrpc: "2.0",
+      id,
+      error: {
+        code: RPC_INSUFFICIENT_SCOPE,
+        message: "insufficient_scope",
+        data: { scope, type: "InsufficientScope" },
+      },
+    },
+  };
 }
 
 function argsOf(params: unknown): Record<string, unknown> {
@@ -201,12 +274,13 @@ export async function dispatchRpc(
   resolved: ResolvedVersion,
   caller: McpCaller,
   deps: DispatchDeps,
+  ctx: DispatchContext = {},
 ): Promise<RpcHttpResponse> {
   const id: RpcId = request.id ?? null;
   const { era } = resolved;
 
   if (era === "legacy") {
-    return dispatchLegacy(request, resolved, id, caller, deps);
+    return dispatchLegacy(request, resolved, id, caller, deps, ctx);
   }
 
   if ((REMOVED_METHODS as readonly string[]).includes(request.method)) {
@@ -219,7 +293,7 @@ export async function dispatchRpc(
     );
   }
 
-  return dispatchModernRest(request, id, caller, deps);
+  return dispatchModernRest(request, id, caller, deps, ctx);
 }
 
 async function dispatchModernRest(
@@ -227,6 +301,7 @@ async function dispatchModernRest(
   id: RpcId,
   caller: McpCaller,
   deps: DispatchDeps,
+  ctx: DispatchContext,
 ): Promise<RpcHttpResponse> {  switch (request.method) {
     case "server/discover":
       return rpcResult(
@@ -235,10 +310,10 @@ async function dispatchModernRest(
       );
 
     case "tools/list":
-      return rpcResult(id, { tools: listTools(MCP_TOOLS) });
+      return rpcResult(id, { tools: listTools(toolsFor(deps), caller.tier) });
 
     case "tools/call":
-      return dispatchToolCall(request, id, caller, deps);
+      return dispatchToolCall(request, id, caller, deps, ctx);
 
     case "subscriptions/listen": {
       const filter = parseSubscriptionFilter(request.params);
@@ -271,6 +346,7 @@ function dispatchLegacy(
   id: RpcId,
   caller: McpCaller,
   deps: DispatchDeps,
+  ctx: DispatchContext,
 ): Promise<RpcHttpResponse> | RpcHttpResponse {
   // Method prefix decides, BEFORE any other handling: a `notifications/*`
   // message is acted on by nobody, with or without a stray `id` (E6).
@@ -318,7 +394,7 @@ function dispatchLegacy(
 
   // Everything else — tools/list, tools/call, server/discover, unknown
   // methods — flows through the modern path unchanged.
-  return dispatchModernRest(request, id, caller, deps);
+  return dispatchModernRest(request, id, caller, deps, ctx);
 }
 
 async function dispatchToolCall(
@@ -326,21 +402,36 @@ async function dispatchToolCall(
   id: RpcId,
   caller: McpCaller,
   deps: DispatchDeps,
+  ctx: DispatchContext,
 ): Promise<RpcHttpResponse> {
   const name = typeof request.params === "object" && request.params !== null
     ? (request.params as { name?: unknown }).name
     : undefined;
 
-  const tool = findTool(name);
+  const tool = findTool(name, toolsFor(deps));
   if (!tool) {
     return rpcError(404, id, RPC_METHOD_NOT_FOUND, `Unknown tool: ${String(name)}`);
+  }
+
+  // Tier check FIRST (D2): an out-of-tier call is refused before argument
+  // validation and before the self-target guard. The two refusals stay
+  // distinguishable (scope challenge vs unknown tool), which is what lets a
+  // client prompt for a higher-tier token.
+  if (rank(tool.tier) > rank(caller.tier)) {
+    deps.recordTierRefusal?.({
+      caller,
+      tool: tool.name,
+      callerTier: caller.tier,
+      requiredTier: tool.tier,
+    });
+    return tierRefusalResponse(id, tool.tier);
   }
 
   const args = argsOf(request.params);
 
   // Required arguments are checked before the guard so a malformed call is
   // reported as invalid-params rather than being masked by a refusal (E26).
-  for (const required of tool.inputSchema.required) {
+  for (const required of tool.inputSchema.required ?? []) {
     if (typeof args[required] !== "string" || (args[required] as string).length === 0) {
       return rpcError(
         400,
@@ -351,7 +442,7 @@ async function dispatchToolCall(
     }
   }
 
-  if (tool.targetsSession) {
+  if (tool.sessionTargeting) {
     const verdict = evaluateSelfTarget(caller, args.sessionId as string, tool.name);
     if (!verdict.allowed) {
       deps.recordRefusal?.({
@@ -369,5 +460,156 @@ async function dispatchToolCall(
     }
   }
 
-  return rpcResult(id, await deps.invokeTool({ tool, args, caller }));
+  try {
+    return rpcResult(id, await executeTool(tool, args, caller, deps, ctx));
+  } catch (err) {
+    // A binder argument failure is invalid-params, never an internal error.
+    if (err instanceof ToolArgumentError) {
+      return rpcError(400, id, RPC_INVALID_PARAMS, err.message, "InvalidToolArguments");
+    }
+    throw err;
+  }
+}
+
+// ── Transport binders (D3/D4) ──────────────────────────────────────────────
+
+/** Characters that must never appear in a path-parameter value. */
+const UNSAFE_PATH_CHARS = /[/?#%]/;
+
+/**
+ * Execute a tool through its declared binding. `context` rows call the plugin's
+ * member handlers; `rest` rows run `fastify.inject` with the caller's identity;
+ * `session` rows forward a bridge message.
+ */
+async function executeTool(
+  tool: GeneratedTool,
+  args: Record<string, unknown>,
+  caller: McpCaller,
+  deps: DispatchDeps,
+  ctx: DispatchContext,
+): Promise<unknown> {
+  switch (tool.bind.kind) {
+    case "context":
+      return deps.invokeTool({ tool, args, caller });
+    case "session":
+      return executeSession(tool, args, deps);
+    case "rest":
+      return executeRest(tool, args, caller, deps, ctx);
+  }
+}
+
+function executeSession(tool: GeneratedTool, args: Record<string, unknown>, deps: DispatchDeps) {
+  if (tool.bind.kind !== "session") throw new Error("not a session-bound tool");
+  const sessionId = args.sessionId;
+  if (typeof sessionId !== "string" || sessionId.length === 0) {
+    throw new ToolArgumentError('requires a non-empty "sessionId"');
+  }
+  const { sessionId: _sid, ...rest } = args;
+  const delivered = deps.sendToSession?.(sessionId, {
+    type: tool.bind.message,
+    sessionId,
+    ...rest,
+  });
+  return { delivered: delivered === true };
+}
+
+/** Argument-validation failure raised inside a binder (mapped to -32602). */
+export class ToolArgumentError extends Error {}
+
+async function executeRest(
+  tool: GeneratedTool,
+  args: Record<string, unknown>,
+  caller: McpCaller,
+  deps: DispatchDeps,
+  ctx: DispatchContext,
+): Promise<unknown> {
+  if (tool.bind.kind !== "rest") throw new Error("not a rest-bound tool");
+  if (!deps.inject) throw new Error(`no REST transport wired for ${tool.name}`);
+
+  const split = tool.paramSplit;
+  const pathArgNames = new Set(split.path.map((p) => p.arg));
+
+  // Path parameters: string-only, and never a value that could smuggle an
+  // extra path segment or query under the caller's credential (E20).
+  let url = tool.bind.path;
+  for (const { arg, param } of split.path) {
+    const value = args[arg];
+    if (typeof value !== "string" || value.length === 0) {
+      throw new ToolArgumentError(`${tool.name} requires a non-empty "${arg}" path argument`);
+    }
+    if (UNSAFE_PATH_CHARS.test(value)) {
+      throw new ToolArgumentError(`${arg} must not contain /, ?, # or %`);
+    }
+    url = url.replace(`:${param}`, encodeURIComponent(value));
+  }
+
+  const rest: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(args)) if (!pathArgNames.has(k)) rest[k] = v;
+
+  let payload: unknown;
+  if (tool.bind.method === "GET") {
+    const queryNames = split.queryAll ? Object.keys(rest) : (split.query ?? []);
+    const params = new URLSearchParams();
+    for (const name of queryNames) {
+      const v = rest[name];
+      if (v === undefined || v === null) continue;
+      params.append(name, String(v));
+    }
+    const qs = params.toString();
+    if (qs) url += `?${qs}`;
+  } else {
+    const bodyNames = split.bodyAll ? Object.keys(rest) : (split.body ?? []);
+    const body: Record<string, unknown> = { ...(tool.bind.fixed ?? {}) };
+    for (const name of bodyNames) if (rest[name] !== undefined) body[name] = rest[name];
+    payload = body;
+  }
+
+  const { headers, remoteAddress } = injectIdentity(caller, ctx);
+  const options: InjectOptions = { method: tool.bind.method, url, headers, remoteAddress };
+  if (tool.bind.method !== "GET") options.payload = payload;
+  const res = await deps.inject(options);
+  return mapRestEnvelope(tool.name, res);
+}
+
+/**
+ * Caller identity for the injected request (D4). A device caller forwards its
+ * own credential and the tunnel's forwarding headers so `bearer-auth`,
+ * `isGenuinelyLocal` and the host gate see the real origin; a session caller
+ * injects as loopback with no credential (the trust a local pi session already
+ * holds). `origin` is never forwarded.
+ */
+function injectIdentity(
+  caller: McpCaller,
+  ctx: DispatchContext,
+): { headers: Record<string, string>; remoteAddress: string } {
+  const src = ctx.headers ?? {};
+  const headers: Record<string, string> = {};
+  const pick = (name: string) => {
+    const v = src[name];
+    if (typeof v === "string") headers[name] = v;
+  };
+  if (caller.kind === "device") {
+    pick("host");
+    pick("authorization");
+    pick("x-forwarded-for");
+    pick("x-forwarded-proto");
+    pick("x-real-ip");
+    return { headers, remoteAddress: ctx.remoteAddress ?? "127.0.0.1" };
+  }
+  pick("host");
+  return { headers, remoteAddress: "127.0.0.1" };
+}
+
+/** Map the REST `{ success, data | error }` envelope onto an MCP tool result. */
+function mapRestEnvelope(name: string, res: InjectResult): unknown {
+  const body = res.body as { success?: boolean; data?: unknown; error?: unknown } | undefined;
+  if (res.statusCode >= 400) {
+    return { isError: true, content: [{ type: "text", text: JSON.stringify(body ?? {}) }] };
+  }
+  if (body && body.success === false) {
+    const message = typeof body.error === "string" ? body.error : `${name} failed`;
+    return { isError: true, content: [{ type: "text", text: message }] };
+  }
+  const data = body && "data" in body ? body.data : body;
+  return { content: [{ type: "text", text: JSON.stringify(data ?? null) }] };
 }

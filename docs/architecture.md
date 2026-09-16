@@ -1037,11 +1037,26 @@ Bridge handler `packages/extension/src/mcp-token-delivery.ts`: assigns `process.
 
 Recovery trigger: mint reply. D6 deviation (approved, recorded in design.md § Open Questions): shipped pi-mcp-adapter 2.31.0 exposes no programmatic reconnect for config-defined entry; recovery completes via adapter's `lazyConnect` on entry's next use (60 s failure backoff), presenting fresh env per request (spike Q2: header command re-reads live env per HTTP request). Bridge keeps injected `reconnect` seam.
 
-**Direct device-token mint.** `POST /api/paired-devices` issues durable bearer credentials for external MCP clients (Claude Code, Cursor). Gated by `operatorGuard`: requires dashboard login session (`authVia === "session"`), valid `X-Pi-Local-Token`, or genuine local loopback (`isGenuinelyLocal`, no proxy headers). Enforces unconditional Host admission (closes DNS-rebinding). Accepts `{ label }` (1..64 UTF-8 bytes). Plaintext token returned ONCE in response, never stored or retrievable. Paired-device registry (`~/.pi/dashboard/paired-devices.json`, 0600) stores SHA-256 hash with `source: "manual"` (`source: "pairing"` for QR pairing). Revocation via `DELETE /api/paired-devices/:id`.
+**Direct device-token mint.** `POST /api/paired-devices` issues durable bearer credentials for external MCP clients (Claude Code, Cursor). Gated by `operatorGuard`: requires dashboard login session (`authVia === "session"`), valid `X-Pi-Local-Token`, or genuine local loopback (`isGenuinelyLocal`, no proxy headers). Enforces unconditional Host admission (closes DNS-rebinding). Accepts `{ label, tier }` (`tier` optional, `"observe" | "control" | "operate"`, default `"observe"`, 1..64 UTF-8 bytes for label). Plaintext token returned ONCE in response, never stored or retrievable. Paired-device registry (`~/.pi/dashboard/paired-devices.json`, 0600) stores SHA-256 hash with `source: "manual"` (`source: "pairing"` for QR pairing), `tier` field. Rows without `tier` read as `"operate"` (back-compat with existing paired devices). Revocation via `DELETE /api/paired-devices/:id`.
+
+**Tier model.** Three ordered tiers: `observe < control < operate`. Registry row holds `tier`. Session-kind MCP tokens hard-wired `control`. Missing `tier` resolves to `operate`.
+
+**REST tier gate.** `packages/shared/src/route-tiers.ts` defines `ROUTE_TIERS` map + `routeTier()`. Route not in map defaults to `operate` (fail closed). Gate `packages/server/src/auth/route-tier-gate.ts` checks off-host paired-device bearer credentials: tier below required route tier → HTTP 403 + `WWW-Authenticate: Bearer error="insufficient_scope", scope="<tier>"`. Genuinely-local or trusted-network bearers exempt (pass unrestricted). Route `/api/ws-ticket` classified `operate` (prevents privilege escalation to full browser WS).
+
+**`/mcp` surface.** Tools list filtered to caller tier (`tools/list`). Calling tool above caller tier (`tools/call`) → HTTP 403 + JSON-RPC error `-32001` + `scope: "<tier>"`. Path caps: `/mcp/observe`, `/mcp/control` cap caller tier to path suffix. `/mcp/operate` and unknown suffixes return 404 JSON (no operate path cap).
+
+**Manifest pipeline.** `packages/mcp-server-plugin/src/server/tools.manifest.ts` is hand-reviewed tool source of truth. Codegen `src/codegen/generate-tools.ts` emits `src/server/generated/tools.ts` + README `<!-- tools:start/end -->` block. Freshness test re-runs generator and fails on drift. Completeness test `packages/server/src/__tests__/mcp-manifest-completeness.test.ts` validates every `/api/*` route and browser-WS verb is either bound in manifest or listed on `tools.denylist.ts`.
+
+**Manifest binding kinds.**
+- `rest`: invokes internal route via `fastify.inject`; forwards caller identity per design D4.
+- `session`: dispatches to bridge via `sendToSession`.
+- `context`: invokes original 4 tools (`list_sessions` in `observe`; `send_prompt`, `spawn_session`, `abort` in `control`).
+
+**Reachable endpoints & issuance.** Endpoint `/api/pair/reachable-urls` returns merged local interfaces + active tunnel/public base URLs. Client issuance UI includes tier picker (`observe`, `control`, `operate`) and base-URL selector. CLI supports tier and base URL flags: `pi-dashboard token create --label <l> [--tier <t>] [--url <base>]`.
 
 **Self-target guard.** Refuses a session-targeting tool call (`send_prompt`, `abort`) whose target equals the caller's own resolved session. Target normalised for equality (trim, one quote pair, lowercase) — bypass-proof. Catches DIRECT self-targeting only. Indirect A→B→A loop permitted, documented out of scope. Device callers have no originating session, structurally outside the guard.
 
-**Tool surface.** Curated allowlist over `ServerPluginContext`. 5 of 19 allowlisted (`sessionManager`, `sendToSession`, `spawnSession`, `abortSession`, `onEvent`), 14 denied. Partition total — future member fails `assertContextPartitionTotal`. Tools: `list_sessions`, `send_prompt`, `spawn_session`, `abort`. `abort` maps to `abortSession` (soft-only, false on a disconnected bridge), NOT `abortSpawnedRun`. `sessionId` an ordinary required argument (revision removed protocol sessions).
+**Tool surface.** Generated tool definitions filtered by caller tier. 4 context tools: `list_sessions` (`observe`), `send_prompt` (`control`), `spawn_session` (`control`), `abort` (`control`). REST and session tools route through manifest bindings with tier constraints. `abort` maps to `abortSession` (soft-only, false on a disconnected bridge), NOT `abortSpawnedRun`. `sessionId` an ordinary required argument.
 
 **Streaming.** `subscriptions/listen`, a long-lived POST-response stream. `params.sessionIds[]` required; absent/empty/non-array → `-32602`. No subscribe-to-all. Filter applied per subscription before write. Authorisation re-checked per delivery. Revoked mid-stream → terminates it. Slow consumer → subscription TERMINATED at `MAX_BUFFERED_EVENTS` (1000) buffered events. Does NOT silently drop events. Subscription dies with its request.
 
@@ -1073,7 +1088,7 @@ sequenceDiagram
 
 **Security notes (accepted exposure).** The delivered credential lives in the pi process's own environment. ANY subprocess the session spawns inherits it and can read `PI_DASHBOARD_MCP_TOKEN`. Accepted: cost of the only verified per-session delivery mechanism (D2); same-uid `ps -E` surface the pi process already exposes. Residual: token revoked server-side without a re-mint strands the entry until session restart (pre-change behaviour for that case). Plaintext never at rest, never logged (asserted X4/X5); argv carries no token (X9 probe, `qa/tests/33-mcp-session-token.sh`).
 
-See change: add-dashboard-mcp-server, wire-mcp-session-token, mcp-legacy-clients-and-token-issuance.
+See change: add-dashboard-mcp-server, wire-mcp-session-token, mcp-legacy-clients-and-token-issuance, expand-mcp-tiered-surface.
 
 ### Bootstrap & First Run (R3, immutable bundle)
 

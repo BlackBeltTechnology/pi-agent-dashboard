@@ -8,16 +8,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setGlobalApiBase } from "../../../lib/api/api-context.js";
 import { PairedDevicesSection } from "../PairedDevicesSection.js";
 
-const { listPairedDevices, revokePairedDevice, createPairedDevice } = vi.hoisted(() => ({
+const { listPairedDevices, revokePairedDevice, createPairedDevice, reachableUrls } = vi.hoisted(() => ({
   listPairedDevices: vi.fn(),
   revokePairedDevice: vi.fn(),
   createPairedDevice: vi.fn(),
+  reachableUrls: vi.fn(),
 }));
 
 vi.mock("../../../lib/pairing/paired-devices-api.js", () => ({
   listPairedDevices,
   revokePairedDevice,
   createPairedDevice,
+  reachableUrls,
 }));
 
 const PAIRING_ROW = {
@@ -26,6 +28,7 @@ const PAIRING_ROW = {
   createdAt: "2026-08-01T00:00:00.000Z",
   lastSeen: null,
   source: "pairing" as const,
+  tier: "operate" as const,
 };
 const MANUAL_ROW = {
   id: "dev-2",
@@ -33,6 +36,7 @@ const MANUAL_ROW = {
   createdAt: "2026-08-02T00:00:00.000Z",
   lastSeen: null,
   source: "manual" as const,
+  tier: "observe" as const,
 };
 const MINTED = { device: MANUAL_ROW, token: "tok_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
 const MINTED_TOKEN = MINTED.token;
@@ -41,6 +45,7 @@ beforeEach(() => {
   listPairedDevices.mockReset().mockResolvedValue([PAIRING_ROW, MANUAL_ROW]);
   revokePairedDevice.mockReset().mockResolvedValue(undefined);
   createPairedDevice.mockReset().mockResolvedValue(MINTED);
+  reachableUrls.mockReset().mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -87,7 +92,7 @@ describe("create-token flow", () => {
     setGlobalApiBase("http://localhost:8000");
     await openCreateFlow();
 
-    expect(createPairedDevice).toHaveBeenCalledWith("claude-code");
+    expect(createPairedDevice).toHaveBeenCalledWith("claude-code", "observe");
     // The token is shown.
     expect(screen.getByText(MINTED_TOKEN)).toBeTruthy();
     // The snippet is copy-ready and embeds the same token.
@@ -129,3 +134,99 @@ describe("create-token flow", () => {
   });
 });
 
+
+// ── F1–F5 (test-plan expand-mcp-tiered-surface) ───────────────────────────
+
+describe("F1 — tier picker defaults to observe and warns on operate", () => {
+  it("observe is preselected; choosing operate shows the restart warning; no snippet yet", async () => {
+    reachableUrls.mockResolvedValue([window.location.origin]);
+    render(<PairedDevicesSection />);
+    await screen.findByText("My iPhone");
+    fireEvent.click(screen.getByText("Create token for an MCP client"));
+    const form = await screen.findByTestId("create-token-form");
+
+    const observe = form.querySelector('input[value="observe"]') as HTMLInputElement;
+    const operate = form.querySelector('input[value="operate"]') as HTMLInputElement;
+    expect(observe.checked).toBe(true);
+    expect(screen.queryByTestId("operate-warning")).toBeNull();
+
+    fireEvent.click(operate);
+    expect(screen.getByTestId("operate-warning").textContent).toMatch(/restart/i);
+    // The snippet only exists in the result stage.
+    expect(screen.queryByText(/claude mcp add/)).toBeNull();
+  });
+});
+
+describe("F2 — base-URL select", () => {
+  it("preselects the browser origin and lists the reachable URLs", async () => {
+    reachableUrls.mockResolvedValue([window.location.origin, "https://x.share.zrok.io"]);
+    render(<PairedDevicesSection />);
+    await screen.findByText("My iPhone");
+    fireEvent.click(screen.getByText("Create token for an MCP client"));
+    const select = (await screen.findByLabelText("Reachable at")) as HTMLSelectElement;
+    expect(select.value).toBe(window.location.origin);
+    expect(select.querySelectorAll("option")).toHaveLength(2);
+  });
+});
+
+describe("F3 — snippet uses the chosen tier + base, token shown once", () => {
+  it("control + zrok base → snippet targets the tunnel with Bearer tok_123", async () => {
+    const minted = {
+      device: { ...MANUAL_ROW, tier: "control" as const },
+      token: "tok_123",
+    };
+    createPairedDevice.mockResolvedValue(minted);
+    reachableUrls.mockResolvedValue([window.location.origin, "https://x.share.zrok.io"]);
+    render(<PairedDevicesSection />);
+    await screen.findByText("My iPhone");
+    fireEvent.click(screen.getByText("Create token for an MCP client"));
+    const form = await screen.findByTestId("create-token-form");
+    fireEvent.change(screen.getByLabelText("Token label"), { target: { value: "cursor" } });
+    fireEvent.click(form.querySelector('input[value="control"]') as HTMLInputElement);
+    fireEvent.change(screen.getByLabelText("Reachable at"), {
+      target: { value: "https://x.share.zrok.io" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await screen.findByText("tok_123");
+    expect(createPairedDevice).toHaveBeenCalledWith("cursor", "control");
+    const snippet = screen.getByText(/claude mcp add/) as HTMLElement;
+    expect(snippet.textContent).toContain("https://x.share.zrok.io/mcp");
+    expect(snippet.textContent).toContain("Bearer tok_123");
+    // The token element's exact text appears once (the snippet is a longer string).
+    expect(screen.getAllByText("tok_123")).toHaveLength(1);
+  });
+});
+
+describe("F4 — token not shown again", () => {
+  it("after dismiss and reopen no tok_123 remains", async () => {
+    createPairedDevice.mockResolvedValue({ device: MANUAL_ROW, token: "tok_123" });
+    reachableUrls.mockResolvedValue([window.location.origin]);
+    render(<PairedDevicesSection />);
+    await screen.findByText("My iPhone");
+    fireEvent.click(screen.getByText("Create token for an MCP client"));
+    await screen.findByTestId("create-token-form");
+    fireEvent.change(screen.getByLabelText("Token label"), { target: { value: "cursor" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    await screen.findByText("tok_123");
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(document.body.textContent).not.toContain("tok_123");
+
+    fireEvent.click(screen.getByText("Create token for an MCP client"));
+    await screen.findByTestId("create-token-form");
+    expect(document.body.textContent).not.toContain("tok_123");
+  });
+});
+
+describe("F5 — tier badge on every row", () => {
+  it("each row shows its tier text", async () => {
+    listPairedDevices.mockResolvedValue([
+      { ...PAIRING_ROW, id: "d-o", tier: "observe" as const },
+      { ...MANUAL_ROW, id: "d-p", tier: "operate" as const },
+    ]);
+    render(<PairedDevicesSection />);
+    await screen.findByText("My iPhone");
+    expect(screen.getByTestId("tier-d-o").textContent).toBe("observe");
+    expect(screen.getByTestId("tier-d-p").textContent).toBe("operate");
+  });
+});

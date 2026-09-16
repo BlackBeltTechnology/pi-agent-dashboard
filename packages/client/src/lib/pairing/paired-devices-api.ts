@@ -4,6 +4,9 @@
 import { getApiBase } from "../api/api-context.js";
 import { fetchJson } from "../api/fetch-json.js";
 
+/** Capability tier carried by a paired-device token (mirror of shared/tiers). */
+export type Tier = "observe" | "control" | "operate";
+
 export interface PairedDeviceView {
   id: string;
   label: string;
@@ -11,6 +14,8 @@ export interface PairedDeviceView {
   lastSeen: string | null;
   /** How the token was issued (mirror of the server-side field). */
   source: "pairing" | "manual";
+  /** Capability tier recorded at mint. */
+  tier: Tier;
 }
 
 /** Plaintext-once result of direct issuance — the token is never retrievable again. */
@@ -30,13 +35,24 @@ export async function listPairedDevices(): Promise<PairedDeviceView[]> {
  * The plaintext token rides this ONE response; the row shows up in the list
  * without it, marked `source: "manual"`.
  */
-export async function createPairedDevice(label: string): Promise<MintedDeviceToken> {
+export async function createPairedDevice(label: string, tier: Tier): Promise<MintedDeviceToken> {
   const json = await fetchJson(`${getApiBase()}/api/paired-devices`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ label }),
+    body: JSON.stringify({ label, tier }),
   });
   if (!json.success) throw new Error(json.error ?? "failed to mint device token");
+  return json.data;
+}
+
+/**
+ * The dashboard's currently reachable base URLs (loopback, LAN IPv4, configured
+ * public, tunnel), so the emitted `claude mcp add` snippet works from the
+ * machine that will run the agent (change: expand-mcp-tiered-surface, D8).
+ */
+export async function reachableUrls(): Promise<string[]> {
+  const json = await fetchJson(`${getApiBase()}/api/pair/reachable-urls`);
+  if (!json.success) throw new Error(json.error ?? "failed to load reachable URLs");
   return json.data;
 }
 

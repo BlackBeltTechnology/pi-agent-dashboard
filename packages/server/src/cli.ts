@@ -37,6 +37,7 @@ import {
   PortConflictError,
 } from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
 import { migrateSubagentTickThrottle } from "./config-api.js";
+import { ensureLocalToken, LOCAL_TOKEN_HEADER } from "./auth/local-token.js";
 import {
   isModuleNotFoundError,
   parseModuleNotFoundError,
@@ -544,6 +545,115 @@ async function cmdRestartImpl(
 }
 
 /**
+ * `pi-dashboard token create --label <l> [--tier <t>] [--url <base>]` — mint a
+ * paired-device token for a headless host (change: expand-mcp-tiered-surface,
+ * D8). Authenticates with the local-IPC token, prints the plaintext once and one
+ * `claude mcp add` snippet per reachable URL (or one for `--url`).
+ *
+ * Returns the process exit code so it is testable without `process.exit`.
+ */
+export interface TokenCreateDeps {
+  fetchImpl?: typeof fetch;
+  /** Local-IPC token; `undefined` reads/creates the real one. */
+  localToken?: string | null;
+  out?: (line: string) => void;
+  err?: (line: string) => void;
+}
+
+const TOKEN_TIERS = ["observe", "control", "operate"] as const;
+
+export async function cmdTokenCreate(
+  argv: string[],
+  opts: { port: number },
+  deps: TokenCreateDeps = {},
+): Promise<number> {
+  const out = deps.out ?? ((l: string) => console.log(l));
+  const err = deps.err ?? ((l: string) => console.error(l));
+  const fetchFn = deps.fetchImpl ?? fetch;
+
+  const args = argv[0] === "create" ? argv.slice(1) : argv;
+  let label: string | undefined;
+  let tier: string | undefined;
+  let url: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--label") label = args[++i];
+    else if (a === "--tier") tier = args[++i];
+    else if (a === "--url") url = args[++i];
+  }
+  if (!label) {
+    err(
+      "usage: pi-dashboard token create --label <label> [--tier observe|control|operate] [--url <base>]",
+    );
+    return 2;
+  }
+  if (tier !== undefined && !(TOKEN_TIERS as readonly string[]).includes(tier)) {
+    err(`invalid --tier: ${tier} (expected ${TOKEN_TIERS.join(" | ")})`);
+    return 2;
+  }
+
+  const localToken = deps.localToken !== undefined ? deps.localToken : safeEnsureLocalToken();
+  const base = `http://localhost:${opts.port}`;
+
+  let minted: { token: string };
+  try {
+    const res = await fetchFn(`${base}/api/paired-devices`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(localToken ? { [LOCAL_TOKEN_HEADER]: localToken } : {}),
+      },
+      body: JSON.stringify({ label, ...(tier ? { tier } : {}) }),
+    });
+    if (!res.ok) {
+      err(`[token] failed to mint: HTTP ${res.status}`);
+      return 1;
+    }
+    const json = (await res.json()) as { success: boolean; data?: { token: string }; error?: string };
+    if (!json.success || !json.data) {
+      err(`[token] failed to mint: ${json.error ?? "unknown error"}`);
+      return 1;
+    }
+    minted = json.data;
+  } catch (e) {
+    err(`[token] dashboard not running at ${base} (${(e as Error).message ?? e})`);
+    return 1;
+  }
+
+  let urls: string[] = [];
+  if (url) {
+    urls = [url.replace(/\/+$/, "")];
+  } else {
+    try {
+      const res = await fetchFn(`${base}/api/pair/reachable-urls`, {
+        headers: { ...(localToken ? { [LOCAL_TOKEN_HEADER]: localToken } : {}) },
+      });
+      const json = (await res.json()) as { success: boolean; data?: string[] };
+      urls = (json.success && json.data ? json.data : []).map((u) => u.replace(/\/+$/, ""));
+    } catch {
+      urls = [];
+    }
+  }
+  if (urls.length === 0) urls = [base];
+
+  out(minted.token);
+  for (const u of urls) {
+    out(
+      `claude mcp add --transport http pi-dashboard ${u}/mcp --header "Authorization: Bearer ${minted.token}"`,
+    );
+  }
+  return 0;
+}
+
+function safeEnsureLocalToken(): string | null {
+  try {
+    return ensureLocalToken();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Show server status.
  */
 
@@ -677,7 +787,14 @@ async function main() {
   // process. See change: heal-orphaned-tool-cards-on-session-end (design D5).
   migrateSubagentTickThrottle();
 
-  const { subcommand, flags } = parseArgs(process.argv.slice(2));
+  const rawArgs = process.argv.slice(2);
+  if (rawArgs[0] === "token") {
+    const { flags } = parseArgs(rawArgs.slice(1));
+    const config = buildConfig(flags);
+    process.exit(await cmdTokenCreate(rawArgs.slice(1), { port: config.port }));
+  }
+
+  const { subcommand, flags } = parseArgs(rawArgs);
   const config = buildConfig(flags);
 
   switch (subcommand) {

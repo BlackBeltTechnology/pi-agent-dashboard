@@ -13,18 +13,19 @@ import {
   buildDiscoverResult,
   type DispatchDeps,
   dispatchRpc,
+  type InjectOptions,
   parseSubscriptionFilter,
   REMOVED_METHODS,
 } from "../dispatch.js";
-import { parseRpcRequest, RPC_METHOD_NOT_FOUND } from "../jsonrpc.js";
+import { parseRpcRequest, RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND } from "../jsonrpc.js";
 import { META_VERSION_KEY, SUPPORTED_PROTOCOL_VERSIONS } from "../protocol.js";
 import type { McpCaller } from "../tokens.js";
 
 const V = "2026-07-28";
 const MODERN: ResolvedVersion = { era: "modern", version: V };
 const meta = { _meta: { [META_VERSION_KEY]: V } };
-const deviceCaller: McpCaller = { kind: "device", deviceId: "d1" };
-const sessionCaller = (id: string): McpCaller => ({ kind: "session", sessionId: id });
+const deviceCaller: McpCaller = { kind: "device", deviceId: "d1", tier: "operate" };
+const sessionCaller = (id: string): McpCaller => ({ kind: "session", sessionId: id, tier: "control" });
 
 function deps(over: Partial<DispatchDeps> = {}): DispatchDeps {
   return {
@@ -346,5 +347,285 @@ describe("dispatch does not re-resolve the version (single resolution site, D1)"
     expect(r.status).toBe(200);
     expect((r.body as { result: { protocolVersion: string } }).result.protocolVersion).toBe("2025-06-18");
     expect(r.sessionId).toMatch(/^[0-9a-f]{32}$/);
+  });
+});
+
+// ── E10, X1–X4 (test-plan expand-mcp-tiered-surface) ──────────────────────
+// Tier filter + scope challenge. A fixture manifest with one tool per tier
+// exercises the filter without the full 130-row manifest.
+import { RPC_INSUFFICIENT_SCOPE } from "../jsonrpc.js";
+import { GENERATED_TOOLS, type GeneratedTool } from "../generated/tools.js";
+
+const fixtureTools: readonly GeneratedTool[] = [
+  {
+    name: "read_sessions",
+    description: "observe",
+    tier: "observe",
+    annotations: { readOnlyHint: true, destructiveHint: false },
+    inputSchema: { type: "object", properties: {}, required: [], additionalProperties: false },
+    bind: { kind: "context", member: "sessionManager" },
+    paramSplit: { path: [], bodyAll: true },
+    sessionTargeting: false,
+  },
+  {
+    name: "send_prompt",
+    description: "control",
+    tier: "control",
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    inputSchema: {
+      type: "object",
+      properties: { sessionId: { type: "string", description: "" }, text: { type: "string", description: "" } },
+      required: ["sessionId", "text"],
+      additionalProperties: false,
+    },
+    bind: { kind: "context", member: "sendToSession" },
+    paramSplit: { path: [], bodyAll: true },
+    sessionTargeting: true,
+  },
+  {
+    name: "force_kill",
+    description: "operate",
+    tier: "operate",
+    annotations: { readOnlyHint: false, destructiveHint: true },
+    inputSchema: {
+      type: "object",
+      properties: { sessionId: { type: "string", description: "" } },
+      required: ["sessionId"],
+      additionalProperties: false,
+    },
+    bind: { kind: "rest", method: "POST", path: "/api/session/:id/lifecycle", fixed: { action: "force_kill" } },
+    paramSplit: { path: [{ arg: "sessionId", param: "id" }], bodyAll: true },
+    sessionTargeting: true,
+  },
+];
+
+const callerAt = (tier: "observe" | "control" | "operate"): McpCaller => ({
+  kind: "device",
+  deviceId: "d1",
+  tier,
+});
+
+const toolNames = (r: Awaited<ReturnType<typeof dispatchRpc>>): string[] =>
+  (r.body as { result: { tools: Array<{ name: string }> } }).result.tools.map((t) => t.name);
+
+describe("E10 — tools/list is filtered to the caller's tier", () => {
+  it("observe ⊆ control ⊆ operate", async () => {
+    const observe = await dispatchRpc(req("tools/list"), MODERN, callerAt("observe"), deps({ tools: fixtureTools }));
+    const control = await dispatchRpc(req("tools/list"), MODERN, callerAt("control"), deps({ tools: fixtureTools }));
+    const operate = await dispatchRpc(req("tools/list"), MODERN, callerAt("operate"), deps({ tools: fixtureTools }));
+
+    expect(toolNames(observe)).toEqual(["read_sessions"]);
+    expect(toolNames(control)).toEqual(["read_sessions", "send_prompt"]);
+    expect(toolNames(operate)).toEqual(["read_sessions", "send_prompt", "force_kill"]);
+
+    const o = new Set(toolNames(observe));
+    const c = new Set(toolNames(control));
+    const p = new Set(toolNames(operate));
+    for (const n of o) expect(c.has(n)).toBe(true);
+    for (const n of c) expect(p.has(n)).toBe(true);
+  });
+});
+
+describe("X1 — out-of-tier call is refused with a scope challenge", () => {
+  it("observe caller → send_prompt: 403, header, -32001, handler not called, logged", async () => {
+    const recordTierRefusal = vi.fn();
+    const d = deps({ tools: fixtureTools, recordTierRefusal });
+    const r = await dispatchRpc(
+      req("tools/call", { name: "send_prompt", arguments: { sessionId: "S", text: "hi" } }),
+      MODERN,
+      callerAt("observe"),
+      d,
+    );
+    expect(r.status).toBe(403);
+    expect(r.wwwAuthenticate).toBe('Bearer error="insufficient_scope", scope="control"');
+    const body = r.body as unknown as { error: { code: number; data: { scope: string } } };
+    expect(body.error.code).toBe(RPC_INSUFFICIENT_SCOPE);
+    expect(body.error.data.scope).toBe("control");
+    expect(d.invokeTool).not.toHaveBeenCalled();
+    expect(recordTierRefusal).toHaveBeenCalledWith({
+      caller: callerAt("observe"),
+      tool: "send_prompt",
+      callerTier: "observe",
+      requiredTier: "control",
+    });
+  });
+});
+
+describe("X2 — tier refusal precedes the self-target guard", () => {
+  it("session caller A (control) cannot force_kill A; no guard refusal logged", async () => {
+    const recordRefusal = vi.fn();
+    const recordTierRefusal = vi.fn();
+    const r = await dispatchRpc(
+      req("tools/call", { name: "force_kill", arguments: { sessionId: "A" } }),
+      MODERN,
+      sessionCaller("A"),
+      deps({ tools: fixtureTools, recordRefusal, recordTierRefusal }),
+    );
+    expect(r.status).toBe(403);
+    expect((r.body as unknown as { error: { data: { scope: string } } }).error.data.scope).toBe("operate");
+    expect(recordRefusal).not.toHaveBeenCalled();
+    expect(recordTierRefusal).toHaveBeenCalledOnce();
+  });
+});
+
+describe("X3 — tier refusal precedes argument validation", () => {
+  it("observe caller with missing args gets 403, not -32602", async () => {
+    const r = await dispatchRpc(
+      req("tools/call", { name: "send_prompt", arguments: {} }),
+      MODERN,
+      callerAt("observe"),
+      deps({ tools: fixtureTools }),
+    );
+    expect(r.status).toBe(403);
+    expect((r.body as unknown as { error: { code: number } }).error.code).toBe(RPC_INSUFFICIENT_SCOPE);
+  });
+});
+
+describe("X4 — unknown tool is unchanged", () => {
+  it("returns 404 + -32601 for any caller", async () => {
+    const r = await dispatchRpc(
+      req("tools/call", { name: "nope", arguments: {} }),
+      MODERN,
+      callerAt("operate"),
+      deps({ tools: fixtureTools }),
+    );
+    expect(r.status).toBe(404);
+    expect((r.body as unknown as { error: { code: number } }).error.code).toBe(RPC_METHOD_NOT_FOUND);
+  });
+});
+
+// ── E19–E22, X5–X7: transport binders (design D4) ─────────────────────────
+
+const eventsTool: GeneratedTool = {
+  name: "get_session_events_fixture",
+  description: "fixture rest row",
+  tier: "observe",
+  annotations: { readOnlyHint: true, destructiveHint: false },
+  inputSchema: {
+    type: "object",
+    properties: { sessionId: { type: "string" }, since: { type: "number" } },
+    required: ["sessionId"],
+    additionalProperties: false,
+  },
+  bind: { kind: "rest", method: "GET", path: "/api/session/:id/events" },
+  paramSplit: { path: [{ arg: "sessionId", param: "id" }], query: ["since"] },
+  sessionTargeting: true,
+};
+
+const callTool = (name: string, args: Record<string, unknown>, d: DispatchDeps, caller: McpCaller = callerAt("operate"), ctx = {}) =>
+  dispatchRpc(req("tools/call", { name, arguments: args }), MODERN, caller, d, ctx);
+
+describe("E19 — REST params split into url + query", () => {
+  it("GET args map to path + query, with no body", async () => {
+    const inject = vi.fn(async (_opts: InjectOptions) => ({ statusCode: 200, body: { success: true, data: { ok: 1 } } }));
+    const d = deps({ tools: [eventsTool], inject });
+    const r = await callTool("get_session_events_fixture", { sessionId: "S1", since: 5 }, d);
+    expect(r.status).toBe(200);
+    expect(inject).toHaveBeenCalledWith(
+      expect.objectContaining({ method: "GET", url: "/api/session/S1/events?since=5" }),
+    );
+    expect(inject.mock.calls[0][0]).not.toHaveProperty("payload");
+  });
+});
+
+describe("E20 — path parameters reject smuggling", () => {
+  it.each(["S1/../../restart", "a%2Fb"])("%s → -32602 and inject is not called", async (sessionId) => {
+    const inject = vi.fn();
+    const d = deps({ tools: [eventsTool], inject });
+    const r = await callTool("get_session_events_fixture", { sessionId }, d);
+    expect(r.status).toBe(400);
+    expect((r.body as unknown as { error: { code: number } }).error.code).toBe(RPC_INVALID_PARAMS);
+    expect(inject).not.toHaveBeenCalled();
+  });
+});
+
+describe("E21 — fixed body fields", () => {
+  it("force_kill injects POST …/lifecycle with {action:'force_kill'}", async () => {
+    const inject = vi.fn(async (_opts: InjectOptions) => ({ statusCode: 200, body: { success: true, data: {} } }));
+    const d = deps({ tools: fixtureTools, inject });
+    await callTool("force_kill", { sessionId: "S2" }, d);
+    expect(inject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "POST",
+        url: "/api/session/S2/lifecycle",
+        payload: { action: "force_kill" },
+      }),
+    );
+  });
+});
+
+describe("E22 — the four context tools are unchanged", () => {
+  it("each still invokes the context handler with tool + args + caller", async () => {
+    const d = deps({ tools: fixtureTools });
+    await callTool("read_sessions", {}, d, callerAt("observe"));
+    await callTool("send_prompt", { sessionId: "S", text: "hi" }, d, callerAt("control"));
+    expect(d.invokeTool).toHaveBeenCalledTimes(2);
+    const first = (d.invokeTool as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(first.tool.name).toBe("read_sessions");
+    expect(first.caller).toEqual(callerAt("observe"));
+    const second = (d.invokeTool as ReturnType<typeof vi.fn>).mock.calls[1][0];
+    expect(second.args).toEqual({ sessionId: "S", text: "hi" });
+  });
+});
+
+describe("X5 — every session-targeting row refuses self-target", () => {
+  it("a session caller targeting itself is refused; inject never runs", async () => {
+    const inject = vi.fn();
+    const recordRefusal = vi.fn();
+    for (const tool of GENERATED_TOOLS.filter((t) => t.sessionTargeting && t.tier !== "operate")) {
+      const args: Record<string, unknown> = { sessionId: "A" };
+      for (const reqName of tool.inputSchema.required ?? []) if (reqName !== "sessionId") args[reqName] = "x";
+      const r = await callTool(tool.name, args, deps({ tools: GENERATED_TOOLS, inject, recordRefusal }), sessionCaller("A"));
+      expect(r.status, tool.name).toBe(403);
+    }
+    expect(inject).not.toHaveBeenCalled();
+    expect(recordRefusal).toHaveBeenCalled();
+    expect(recordRefusal.mock.calls[0][0]).toMatchObject({ callerSessionId: "A", targetSessionId: "A" });
+  });
+});
+
+describe("X6 — REST error envelope", () => {
+  it("a 500 {success:false,error:'boom'} becomes isError with the message", async () => {
+    const inject = vi.fn(async (_opts: InjectOptions) => ({ statusCode: 500, body: { success: false, error: "boom" } }));
+    const d = deps({ tools: [eventsTool], inject });
+    const r = await callTool("get_session_events_fixture", { sessionId: "S1" }, d);
+    const result = (r.body as unknown as { result: { isError: boolean; content: Array<{ text: string }> } }).result;
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("boom");
+  });
+});
+
+describe("X7 — inject identity", () => {
+  it("device caller forwards its credential + tunnel headers and its own IP", async () => {
+    const inject = vi.fn(async (_opts: InjectOptions) => ({ statusCode: 200, body: { success: true, data: {} } }));
+    const d = deps({ tools: [eventsTool], inject });
+    await callTool("get_session_events_fixture", { sessionId: "S1" }, d, callerAt("operate"), {
+      headers: {
+        host: "dash.local",
+        authorization: "Bearer tok",
+        "x-forwarded-for": "203.0.113.5",
+        origin: "https://evil.example",
+      },
+      remoteAddress: "203.0.113.5",
+    });
+    const opts = inject.mock.calls[0][0] as { headers: Record<string, string>; remoteAddress: string };
+    expect(opts.remoteAddress).toBe("203.0.113.5");
+    expect(opts.headers.authorization).toBe("Bearer tok");
+    expect(opts.headers.host).toBe("dash.local");
+    expect(opts.headers["x-forwarded-for"]).toBe("203.0.113.5");
+    expect(opts.headers).not.toHaveProperty("origin");
+  });
+
+  it("session caller injects as loopback with no credential or forwarding headers", async () => {
+    const inject = vi.fn(async (_opts: InjectOptions) => ({ statusCode: 200, body: { success: true, data: {} } }));
+    const d = deps({ tools: [eventsTool], inject });
+    await callTool("get_session_events_fixture", { sessionId: "S1" }, d, sessionCaller("CALLER"), {
+      headers: { host: "dash.local", authorization: "Bearer tok", "x-forwarded-for": "203.0.113.5" },
+      remoteAddress: "203.0.113.5",
+    });
+    const opts = inject.mock.calls[0][0] as { headers: Record<string, string>; remoteAddress: string };
+    expect(opts.remoteAddress).toBe("127.0.0.1");
+    expect(opts.headers).not.toHaveProperty("authorization");
+    expect(opts.headers).not.toHaveProperty("x-forwarded-for");
   });
 });

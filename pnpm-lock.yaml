@@ -1139,6 +1139,9 @@ importers:
         specifier: ^0.18.5
         version: 0.18.5
     devDependencies:
+      '@blackbelt-technology/pi-dashboard-mcp-server-plugin':
+        specifier: ^0.8.0
+        version: link:../mcp-server-plugin
       '@types/diff':
         specifier: ^7.0.0
         version: 7.0.2

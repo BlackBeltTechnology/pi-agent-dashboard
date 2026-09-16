@@ -8,7 +8,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `KnownServersSection.tsx` | Settings section managing persisted known remote servers. → see `KnownServersSection.tsx.AGENTS.md` |
 | `NetworkDiscoverySection.tsx` | Settings section for mDNS server discovery. Exports `NetworkDiscoverySection`. → see `NetworkDiscoverySection.tsx.AGENTS.md` |
 | `PairedDevicesSection.tsx` | Settings → Security → Paired Devices. Lists bearer-paired devices (label, last-seen), per-device… → see `PairedDevicesSection.tsx.AGENTS.md` |
-| `__tests__/PairedDevicesSection.test.tsx` | F4 (test-plan, mcp-legacy-clients-and-token-issuance) + create-flow rows: exactly one `manual` badge with both sources present, revoke control on every row, mint flow shows token + snippet once and clears on dismiss, API failure surfaces as error. Mocks `../../lib/pairing/paired-devices-api.js`. |
+| `__tests__/PairedDevicesSection.test.tsx` | F4 (mcp-legacy-clients-and-token-issuance) + create-flow rows, plus F1–F5 (expand-mcp-tiered-surface): tier radio defaults `observe` and warns on `operate`, base-URL select preselects the origin, snippet uses the chosen tier+base with the token once, token not shown after reopen, per-row tier badge. Mocks `../../lib/pairing/paired-devices-api.js`. |
 | `PairLanding.tsx` | Browser `/pair` landing — phone-camera counterpart of the Electron shell `PairView`. Exports `PairLanding`. → see `PairLanding.tsx.AGENTS.md` |
 | `ServerSelector.tsx` | Server selector dropdown showing persisted known servers. → see `ServerSelector.tsx.AGENTS.md` |
 | `TunnelButton.tsx` | Exports `TunnelButton`. Unified tunnel/QR button. Polls `/api/tunnel-status` every 30s. → see `TunnelButton.tsx.AGENTS.md` |

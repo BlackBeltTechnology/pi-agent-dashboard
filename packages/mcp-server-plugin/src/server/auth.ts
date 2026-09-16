@@ -23,6 +23,7 @@
  * connection.
  */
 import crypto from "node:crypto";
+import type { Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import type { McpCaller, McpTokenRegistry } from "./tokens.js";
 
 const BEARER_PREFIX = "bearer ";
@@ -37,6 +38,13 @@ export interface AuthDeps {
    * self-target guard.
    */
   verifyDeviceToken(token: string): string | null;
+  /**
+   * Tier-aware paired-device verification (change: expand-mcp-tiered-surface,
+   * D1). Preferred over `verifyDeviceToken` when present. Absent against an old
+   * host (service-board skew), in which case every device token resolves to
+   * `operate` — the access an old host grants.
+   */
+  verifyDeviceTokenTier?(token: string): { id: string; tier: Tier } | null;
 }
 
 /**
@@ -91,6 +99,12 @@ export function authenticate(
   const sessionCaller = deps.tokens.resolve(token);
   if (sessionCaller) return sessionCaller;
 
+  // Prefer the tier-aware service; fall back to the id-only one with full
+  // access (an old host has no tiers). See change: expand-mcp-tiered-surface D1.
+  if (deps.verifyDeviceTokenTier) {
+    const verified = deps.verifyDeviceTokenTier(token);
+    return verified ? { kind: "device", deviceId: verified.id, tier: verified.tier } : null;
+  }
   const deviceId = deps.verifyDeviceToken(token);
-  return deviceId ? { kind: "device", deviceId } : null;
+  return deviceId ? { kind: "device", deviceId, tier: "operate" } : null;
 }

@@ -15,6 +15,40 @@ import type { EnrichedRecommendedExtension } from "./recommended-extensions.js";
 
 export type { EnrichedRecommendedExtension } from "./recommended-extensions.js";
 
+// Tier primitives are shared with the MCP plugin and the route→tier map; the
+// API surface re-exports them so consumers have one import path for the REST
+// types they carry (see change: expand-mcp-tiered-surface, D1).
+export { isTier, minTier, rank, TIERS, defaultTierForSource } from "./tiers.js";
+export type { Tier } from "./tiers.js";
+
+/**
+ * MCP tool input types (change: expand-mcp-tiered-surface, D5). A manifest row
+ * names one of these (or a route's own `*Request` type); the codegen resolves
+ * it to a JSON Schema, so the schema cannot drift from the type.
+ */
+
+/** A tool that takes no arguments. */
+export type ToolEmptyInput = Record<string, never>;
+
+/**
+ * Permissive body/query for a route with no narrow exported request type yet.
+ * Path parameters are still typed (and validated) by the codegen from the route
+ * pattern, so the untrusted part — the body — is what stays open here.
+ */
+export type ToolJsonBody = Record<string, unknown>;
+
+/** MCP: send a prompt to a session. */
+export interface SendPromptRequest {
+  sessionId: string;
+  text: string;
+  images?: unknown[];
+}
+
+/** MCP: a bare session reference (abort and similar). */
+export interface SessionIdRequest {
+  sessionId: string;
+}
+
 // ── Sessions ────────────────────────────────────────────────────────
 
 export interface ListSessionsQuery {

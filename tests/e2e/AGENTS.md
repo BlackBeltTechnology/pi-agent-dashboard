@@ -164,3 +164,4 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `worktree-init-feedback.spec.ts` | Playwright E2E for friendly worktree-init feedback (Level 1, change: friendlier-worktree-init; automates… → see `worktree-init-feedback.spec.ts.AGENTS.md` |
 | `zrok-v2-tunnel.spec.ts` | L3 (change: support-zrok-v2, F1/F2/F3). Stubs `/api/tunnel-status` (+`/api/tunnel-disconnect`) via… → see `zrok-v2-tunnel.spec.ts.AGENTS.md` |
 | `mcp-session-token.spec.ts` | L3 (change: wire-mcp-session-token, test-plan #F1, #F5, #F6). → see `mcp-session-token.spec.ts.AGENTS.md` |
+| `mcp-tiered-token.spec.ts` | F6/F7 (expand-mcp-tiered-surface): observe token's `tools/list` omits `send_prompt` and calling it is 403 `insufficient_scope scope="control"`; operate token's list has `force_kill` and the call is served (no scope challenge). Mints via the real operator-gated `POST /api/paired-devices`, presents to real `/mcp`. |

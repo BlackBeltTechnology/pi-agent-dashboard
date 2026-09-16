@@ -25,3 +25,4 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `spawn-token.ts` | Spawn correlation token. Exports `mintSpawnToken()` (UUIDv4), `SPAWN_TOKEN_ENV_VAR =… → see `spawn-token.ts.AGENTS.md` |
 | `test-env-guard.ts` | Exports `isUnsafeTestHomeScan()` — defense-in-depth against destructive PID-registry sweeps during vitest… → see `test-env-guard.ts.AGENTS.md` |
 | `ws-ticket.ts` | Single-use WS upgrade tickets (D11/F4/F6). `WsTicketStore(now?)`: `mint(scope)` high-entropy in-memory ticket… → see `ws-ticket.ts.AGENTS.md` |
+| `route-tier-gate.ts` | `createRouteTierGate`, `tierRefusalFor`, `sendTierRefusal`. Global `onRequest` hook after both admission hooks; refuses an off-host device bearer below its route's `ROUTE_TIERS` tier with 403 + `WWW-Authenticate: Bearer error="insufficient_scope", scope="<tier>"`; genuinely-local/trusted exempt; refuses only, never admits. See change: expand-mcp-tiered-surface. |

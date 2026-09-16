@@ -13,6 +13,7 @@
  */
 
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { isTier, TIERS } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { type HostAdmissionOptions, isHostAdmitted } from "../auth/host-admission.js";
 import type { ServerIdentity } from "../auth/identity.js";
@@ -22,6 +23,7 @@ import { isGenuinelyLocal } from "../auth/localhost-guard.js";
 import type { PairedDeviceRegistry, PairedDeviceView } from "../pairing/paired-devices.js";
 import type { PairingManager } from "../pairing/pairing.js";
 import { SUPPORTED_PAIRING_VERSIONS } from "../pairing/pairing.js";
+import { localEndpoints } from "../tunnel/tunnel-endpoints.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 /** URL prefixes of the PUBLIC device-facing pairing routes (auth-exempt). */
@@ -89,6 +91,16 @@ export function registerPairingRoutes(
     localToken?: string;
     /** Host-admission options, read LIVE per request (D5 enforce semantics). */
     hostAdmission: () => HostAdmissionOptions;
+    /**
+     * Publicly-reachable base URLs (tunnel + configured public), already
+     * TLS-gated by `PairingManager.reachableUrls()`. Used by
+     * `GET /api/pair/reachable-urls`; defaults to the pairing manager's own
+     * list so the browser Settings flow and the CLI share one source (D8).
+     */
+    getReachableUrls?: () => string[];
+    /** Bound HTTP port, used to enumerate loopback/LAN endpoints. A thunk so
+     * a `port: 0` server reports the real bound port per request. */
+    getPort?: () => number;
   },
 ) {
   const { networkGuard, identity, pairing, registry, localToken, hostAdmission } = deps;
@@ -153,16 +165,25 @@ export function registerPairingRoutes(
 
   // ── Dashboard: approve a pending device by typed confirm code (auth) ───
   // D12: active typed compare-and-match; authenticated session only.
-  fastify.post<{ Body: { code?: string; confirmCode?: string; label?: string } }>(
+  fastify.post<{ Body: { code?: string; confirmCode?: string; label?: string; tier?: unknown } }>(
     "/api/pair/approve",
     { preHandler: networkGuard },
     async (request, reply): Promise<ApiResponse<PairedDeviceView>> => {
-      const { code, confirmCode, label } = request.body ?? {};
+      const { code, confirmCode, label, tier } = request.body ?? {};
       if (typeof code !== "string" || typeof confirmCode !== "string") {
         reply.code(400);
         return { success: false, error: "code and confirmCode required" };
       }
-      const result = pairing.approve(code, confirmCode, typeof label === "string" ? label : undefined);
+      if (tier !== undefined && !isTier(tier)) {
+        reply.code(400);
+        return { success: false, error: "invalid tier" };
+      }
+      const result = pairing.approve(
+        code,
+        confirmCode,
+        typeof label === "string" ? label : undefined,
+        isTier(tier) ? tier : undefined,
+      );
       if (!result.ok) {
         reply.code(result.error === "locked_out" ? 429 : 400);
         return { success: false, error: result.error };
@@ -210,14 +231,21 @@ export function registerPairingRoutes(
   // ── Dashboard: mint a device token for an MCP client (operator-only) ──
   // Deliberately NOT in PUBLIC_PAIRING_PREFIXES: this route issues durable
   // credentials and requires an operator credential, not a pairing code (D5).
-  fastify.post<{ Body: { label?: unknown } }>(
+  fastify.post<{ Body: { label?: unknown; tier?: unknown } }>(
     "/api/paired-devices",
     { preHandler: operatorGuard },
     async (request, reply): Promise<ApiResponse<{ device: PairedDeviceView; token: string }>> => {
       const label = request.body?.label;
+      const tier = request.body?.tier;
       if (typeof label !== "string") {
         reply.code(400);
         return { success: false, error: "label must be a string" };
+      }
+      // Validate the tier BEFORE touching the registry, so a refused request
+      // never leaves a row behind (E6).
+      if (tier !== undefined && !isTier(tier)) {
+        reply.code(400);
+        return { success: false, error: `tier must be one of ${TIERS.join(", ")}` };
       }
       const trimmed = label.trim();
       if (trimmed.length === 0 || Buffer.byteLength(trimmed, "utf8") > MAX_DEVICE_LABEL_BYTES) {
@@ -229,7 +257,32 @@ export function registerPairingRoutes(
       }
       // The plaintext token rides this ONE response and is never retrievable
       // again (D4) — same plaintext-once semantics as the pairing ceremony.
-      return { success: true, data: registry.add(trimmed, "manual") };
+      // No tier → the manual source default (`observe`, D1).
+      return { success: true, data: registry.add(trimmed, "manual", isTier(tier) ? tier : undefined) };
+    },
+  );
+
+  // ── Dashboard: reachable base URLs for an agent client (D8) ────────────
+  // The one `/api/pair/*` route with an MCP tool (`get_reachable_urls`): it
+  // merges the public URLs the pairing payload already exposes with this
+  // host's loopback + LAN endpoints, so a snippet minted in Settings works from
+  // the machine that will run the agent. Not a public pairing prefix — it reads
+  // addresses, it does not participate in the ceremony.
+  fastify.get(
+    "/api/pair/reachable-urls",
+    { preHandler: networkGuard },
+    async (): Promise<ApiResponse<string[]>> => {
+      const publicUrls = deps.getReachableUrls?.() ?? pairing.reachableUrls();
+      const local = localEndpoints(deps.getPort?.() ?? 0).map((e) => e.url);
+      const seen = new Set<string>();
+      const merged: string[] = [];
+      for (const raw of [...publicUrls, ...local]) {
+        const url = raw.trim().replace(/\/+$/, "");
+        if (url.length === 0 || seen.has(url)) continue;
+        seen.add(url);
+        merged.push(url);
+      }
+      return { success: true, data: merged };
     },
   );
 }
