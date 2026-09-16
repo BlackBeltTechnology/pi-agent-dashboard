@@ -2991,3 +2991,27 @@ Cross-refs:
 - packages/client/src/components/connectivity/PairedDevicesSection.tsx
 - packages/server/src/routes/pairing-routes.ts
 
+## Why is a subagent or tool card stuck `running` after the session ended?
+
+Cause: server tracked only `currentTool`. When session died (kill -9, watchdog force close, grace expiry), nothing wrote terminal event for in-flight `Agent` tool calls or subagents. Cards spun forever live and after reload.
+
+Fix: `sessionManager.onEnded` (`packages/server/src/event-wiring.ts`) derives open work from stored event stream via `packages/server/src/session/open-tool-calls.ts` (`findOpenToolCalls`, `findOpenSubagents`). Inserts + broadcasts synthesized `tool_execution_end{isError:true, result:"parent session ended", healedBy:"session_ended"}` per open call and `subagent_failed{error:"parent session ended", healedBy:"session_ended"}` per non-terminal subagent.
+
+Idempotent: synthesized ends re-enter same stream; second `onEnded` finds nothing open. Relocation (`session.movedTo` set) skipped — calls still run on destination.
+
+Cold hydration: `packages/shared/src/state-replay.ts` `replayEntriesAsEvents` closes orphaned transcript toolCall with same error shape (`{result:"parent session ended", isError:true, healedBy:"session_ended"}`). Replaces previous `{result:"", isError:false}` (killed call previously rendered as silent empty success; now explicit failure in already-archived sessions).
+
+Client: reducer heals only `running` row (`packages/client/src/lib/chat/event-reducer.ts`). Payload carrying `healedBy` on existing terminal state ignored.
+
+API: `GET /api/session/:id/tool-result/:toolCallId` returns synthesized end if present. `healedBy:"session_ended"` in payload distinguishes synthesized end from real tool result.
+
+See change: heal-orphaned-tool-cards-on-session-end.
+
+Cross-refs:
+- packages/server/src/event-wiring.ts
+- packages/server/src/session/open-tool-calls.ts
+- packages/shared/src/state-replay.ts
+- packages/client/src/lib/chat/event-reducer.ts
+- openspec/changes/heal-orphaned-tool-cards-on-session-end/
+
+

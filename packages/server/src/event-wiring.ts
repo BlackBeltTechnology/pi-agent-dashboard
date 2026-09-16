@@ -39,6 +39,12 @@ import type { UnreadTriggerSnapshot } from "./session/event-status-extraction.js
 import { extractSessionUpdates, isActivityEvent, isUnreadTrigger, reconcileAgentLiveness } from "./session/event-status-extraction.js";
 import type { SessionManager } from "./session/memory-session-manager.js";
 import {
+  findOpenSubagents,
+  findOpenToolCalls,
+  synthesizeSessionEndedEnd,
+  synthesizeSessionEndedSubagentFail,
+} from "./session/open-tool-calls.js";
+import {
   attachedStillExistsInCandidateRoots,
   localityGateAllows,
 } from "./session/openspec-locality.js";
@@ -503,6 +509,30 @@ export function wireEvents(deps: EventWiringDeps): void {
         live: false,
         closedReason: session.closedReason ?? "unknown",
       });
+    }
+
+    // Terminate every tool card + subagent the dying session left open, by
+    // writing synthesized terminal events into its own stream (design D1): the
+    // reducer's existing arms then heal live AND on every replay, and a second
+    // `onEnded` (a later `closedReason` change) finds nothing open, so
+    // idempotence comes from the store rather than a flag.
+    //
+    // A relocation is not a death: `movedTo` means the calls are still running
+    // on the destination instance, which could never correct the lie.
+    // See change: heal-orphaned-tool-cards-on-session-end.
+    if (session && session.movedTo === undefined) {
+      const stored = eventStore.getEvents(sessionId, 1);
+      const now = Date.now();
+      const healEvents = [
+        ...findOpenToolCalls(stored).map((call) => synthesizeSessionEndedEnd(call, now)),
+        ...findOpenSubagents(stored).map((id) => synthesizeSessionEndedSubagentFail(id, now)),
+      ];
+      for (const healEvent of healEvents) {
+        const seq = eventStore.insertEvent(sessionId, healEvent);
+        if (!replayingSessions.has(sessionId)) {
+          browserGateway.broadcastEvent(sessionId, seq, healEvent);
+        }
+      }
     }
   };
 

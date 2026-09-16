@@ -36,6 +36,7 @@ import {
   launchDashboardServer,
   PortConflictError,
 } from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
+import { migrateSubagentTickThrottle } from "./config-api.js";
 import {
   isModuleNotFoundError,
   parseModuleNotFoundError,
@@ -60,8 +61,8 @@ import {
 import { parseDashboardStarter } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import { discoverDashboard } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 import {
-  type ResolvedRuntime,
   piEntryFromArgv,
+  type ResolvedRuntime,
   resolveSpawnRuntime,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js";
 import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
@@ -671,6 +672,10 @@ function installCrashSafetyNet(): void {
 async function main() {
   installCrashSafetyNet();
   ensureConfig();
+  // One-shot: rewrite a pre-flip materialized `subagentTickThrottleMs: 0`.
+  // Boot path only — `loadConfig` is a pure read called by every bridge
+  // process. See change: heal-orphaned-tool-cards-on-session-end (design D5).
+  migrateSubagentTickThrottle();
 
   const { subcommand, flags } = parseArgs(process.argv.slice(2));
   const config = buildConfig(flags);

@@ -93,6 +93,36 @@ test.describe("subagent tick throttle — wire cadence (synthetic producer)", ()
     expect(rate, `throttled Agent-tick rate ${rate.toFixed(2)}/s`).toBeLessThanOrEqual(2.2);
   });
 
+  // P3 (change: heal-orphaned-tool-cards-on-session-end) — the DEFAULT is now
+  // throttled, so a session spawned with NO config write must already coalesce.
+  // The bridge's own `tickCoalesced` counter has no wire surface, so the
+  // observable is the forwarded rate: a 20 fps source that arrives at <= 4/s
+  // can only have been coalesced.
+  test("default-throttle P3: a run with NO config write forwards <= 4 Agent ticks/s", async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+    await page.goto("/");
+
+    const ticks = collectAgentTicks(page);
+    const card = await spawnFreshGitSession(page);
+    const sessionId = await card.getAttribute("data-session-id");
+    await card.click();
+    await page.keyboard.press("Escape").catch(() => {});
+    await sendPrompt(page, STREAM);
+
+    const mine = () => ticks.agent().filter((s) => s.sessionId === sessionId);
+    await expect.poll(() => mine().length, { timeout: 60_000 }).toBeGreaterThan(0);
+    const start = mine()[0]!.at;
+    await page.waitForTimeout(MEASURE_MS);
+    const inWindow = mine().filter((s) => s.at - start <= MEASURE_MS);
+
+    // Non-vacuity: the producer really streamed.
+    expect(inWindow.length, "the default-throttled run produced frames").toBeGreaterThanOrEqual(5);
+    const rate = (inWindow.length / MEASURE_MS) * 1000;
+    expect(rate, `default-throttled Agent-tick rate ${rate.toFixed(2)}/s`).toBeLessThanOrEqual(4);
+  });
+
   test("P2: the reduction is real — throttle OFF runs at >= 4x the throttled rate", async ({
     page,
   }) => {

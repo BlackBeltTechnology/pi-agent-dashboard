@@ -2234,18 +2234,19 @@ export function reduceEvent(
 
     case "tool_execution_end": {
       const toolCallId = data.toolCallId as string;
-      // Supersede heal (`healedBy:"superseded"`) is a client-synthesized
-      // placeholder. D4: it MUST NOT clobber a real terminal row nor another
-      // superseded row — only a `running` row is eligible. A real end (no
-      // `healedBy`) always proceeds and overwrites a superseded placeholder.
-      // See change: fix-stuck-tool-card-superseded-heal.
+      // A SYNTHESIZED heal (`healedBy` set — `"superseded"` from the client,
+      // `"session_ended"` from the server) MUST NOT clobber a real terminal row
+      // nor another healed row: only a `running` row is eligible. A real end (no
+      // `healedBy`) always proceeds and overwrites a placeholder.
+      // See change: fix-stuck-tool-card-superseded-heal,
+      // heal-orphaned-tool-cards-on-session-end (design D4).
       const healedBy = data.healedBy as string | undefined;
       const existing = next.toolCalls.get(toolCallId);
       // A superseded synth may only finalize a live `running` map entry. An
       // absent entry (`existing === undefined`) is also rejected so a stray
       // synth can never mutate a message row while leaving `toolCalls`
       // inconsistent. Real ends (no `healedBy`) are unaffected.
-      if (healedBy === "superseded" && existing?.status !== "running") {
+      if (healedBy !== undefined && existing?.status !== "running") {
         break;
       }
       if (existing) {
@@ -2271,7 +2272,20 @@ export function reduceEvent(
         // so renderers (e.g. AgentToolRenderer) see the final status
         const isError = data.isError as boolean;
         let mergedDetails: Record<string, unknown> | undefined;
-        if (endDetails) {
+        if (endDetails && healedBy !== undefined) {
+          // A synthesized heal carries only `{agentId}`; replacing wholesale
+          // would drop the live Agent snapshot (status, tokens, description)
+          // the row already rendered from.
+          // See change: heal-orphaned-tool-cards-on-session-end.
+          // …but the STATUS must still go terminal: a live Agent snapshot can
+          // carry `status:"running"`, and preserving it would leave the card's
+          // details contradicting its `toolStatus`.
+          mergedDetails = {
+            ...(next.messages[idx].toolDetails ?? {}),
+            ...endDetails,
+            status: isError ? "error" : "completed",
+          };
+        } else if (endDetails) {
           mergedDetails = endDetails;
         } else if (next.messages[idx].toolDetails) {
           mergedDetails = {
@@ -2318,7 +2332,16 @@ export function reduceEvent(
         const endDetails = data.details as Record<string, unknown> | undefined;
         const agentId =
           endDetails && typeof endDetails.agentId === "string" ? endDetails.agentId : undefined;
-        if (toolName === "Agent" && agentId) {
+        const existingBackfillSub = agentId ? next.subagents.get(agentId) : undefined;
+        const subagentIsTerminal =
+          existingBackfillSub?.status === "completed" || existingBackfillSub?.status === "failed";
+        // The patch below sets `status` unconditionally and is spread AFTER
+        // `existingSub`, so a synthesized end would overwrite a REAL
+        // `completed` subagent with `failed` — reachable whenever
+        // `subagent_completed` arrived but the process died before the Agent
+        // tool's own end. A heal only reduces a non-terminal subagent.
+        // See change: heal-orphaned-tool-cards-on-session-end (design D4).
+        if (toolName === "Agent" && agentId && !(healedBy !== undefined && subagentIsTerminal)) {
           const isError = data.isError as boolean;
           const resultStr = typeof data.result === "string" ? (data.result as string) : undefined;
           const detailError =
@@ -2646,8 +2669,18 @@ export function reduceEvent(
     case "subagent_failed": {
       const id = data.id as string;
       const details = (data.details as Record<string, unknown> | undefined) ?? undefined;
+      const existingSubagent = next.subagents.get(id);
+      // Same rule as the Agent backfill: a synthesized heal never regresses a
+      // subagent that already reported a real terminal state.
+      // See change: heal-orphaned-tool-cards-on-session-end (design D4).
+      if (
+        data.healedBy !== undefined &&
+        (existingSubagent?.status === "completed" || existingSubagent?.status === "failed")
+      ) {
+        break;
+      }
       next.subagents = new Map(next.subagents);
-      const existing = next.subagents.get(id);
+      const existing = existingSubagent;
       setSubagentState(next.subagents, {
         ...(existing ?? { id, type: data.type as string ?? "unknown", description: data.description as string ?? "" }),
         status: event.eventType === "subagent_completed" ? "completed" : "failed",

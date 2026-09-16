@@ -780,6 +780,18 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "burst complete" },
   },
 
+  // Session-death fixture (heal-orphaned-tool-cards-on-session-end, #F6/#F7).
+  // ONE long-sleeping bash call, so a tool card stays `running` for two minutes
+  // — the window the E2E kills the pi process in. Nothing follows it: the
+  // session never reaches the terminal frame on its own, which is the point.
+  "session-death-open-tool": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 120 && echo never-reached" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText("open tool scenario complete")]),
+    ],
+    expect: { text: "open tool scenario complete" },
+  },
+
   // Supersede-heal fixture (fix-stuck-tool-card-superseded-heal). One bash tool
   // call (inference #1) followed by a plain-text reply (inference #2 → a LATER
   // assistant message_start = the completion proof). The e2e DROPS the tool's

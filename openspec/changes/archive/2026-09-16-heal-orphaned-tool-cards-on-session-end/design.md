@@ -123,6 +123,17 @@ its updates. A subagent whose `created`/`started` were both trimmed and whose
 nothing in the retained stream that names it. Accepted: it is also invisible to
 the reducer, so it renders no card.
 
+Known gap (local review, cycle 1): the bridge sends a SYNTHETIC bare
+`agent_start` after a mid-turn reconnect (`bridge.ts` ~L1517/L3255, gated on
+`isAgentStreaming`). It is indistinguishable from a real one in the stored
+stream, so a call opened BEFORE the reconnect sits above that boundary and the
+live heal misses it — the flaky-WS-then-death path. Accepted rather than
+heuristically detected: dropping the turn scope would let a start whose end
+never reached the store (lost in a transport / back-pressure gap) be "healed"
+with a false error, which is the worse failure. The D7
+transcript orphan-close is NOT turn-scoped, so the next cold hydration of that
+session still renders the call as an error card.
+
 Store trimming: `getEvents(sessionId, 1)` may not reach the last `agent_start`
 for a very long turn (per-session cap). Then everything visible counts as one
 turn — still correct for open calls (an end always follows its start, so a
