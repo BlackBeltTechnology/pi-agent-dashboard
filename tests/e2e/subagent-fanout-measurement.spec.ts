@@ -106,7 +106,8 @@ interface Cell {
   n: number;
   cap: number;
   eventLoopMaxMs: number;
-  timeToFirstChildMs: number;
+  telemetryObserved: boolean;
+  timeToFirstChildStartMs: number;
   survived: boolean;
   fanoutAdmitted: number;
   fanoutRefused: number;
@@ -116,14 +117,18 @@ test.describe("subagent fan-out stall measurement (L2)", () => {
   test("#P1/#P4 the gated cap lowers the parent stall at the fatal width", async ({ page }) => {
     test.setTimeout(900_000);
 
-    // One WS collector for the whole test: timestamps the first Agent tool_call
-    // after `armAt` (time-to-first-child-start).
+    // One WS collector for the whole test: timestamps the first Agent
+    // `tool_execution_start` after `armAt` (time-to-first-child-start). NOT
+    // `tool_call`: the bridge forwards EVERY Agent tool_call BEFORE the gate
+    // runs, including the ones it refuses, so a tool_call proves nothing about
+    // an admitted child starting. `tool_execution_start` fires only for a call
+    // that actually began executing.
     let armAt = 0;
     let firstChildAt = 0;
     page.on("websocket", (ws) => {
       ws.on("framereceived", (frame) => {
         const payload = typeof frame.payload === "string" ? frame.payload : "";
-        if (!payload.includes("tool_call")) return;
+        if (!payload.includes("tool_execution_start")) return;
         let parsed: any;
         try {
           parsed = JSON.parse(payload);
@@ -132,7 +137,7 @@ test.describe("subagent fan-out stall measurement (L2)", () => {
         }
         const events: any[] = parsed?.event ? [parsed.event] : [];
         for (const ev of events) {
-          if (ev?.eventType !== "tool_call" || ev.data?.toolName !== "Agent") continue;
+          if (ev?.eventType !== "tool_execution_start" || ev.data?.toolName !== "Agent") continue;
           if (armAt && !firstChildAt) firstChildAt = Date.now();
         }
       });
@@ -147,11 +152,12 @@ test.describe("subagent fan-out stall measurement (L2)", () => {
       await expect(page.getByText(/fanout width complete/i).first()).toBeVisible({
         timeout: 240_000,
       });
-      const timeToFirstChildMs = firstChildAt ? firstChildAt - armAt : -1;
+      const timeToFirstChildStartMs = firstChildAt ? firstChildAt - armAt : -1;
 
       // Poll a full heartbeat window; `eventLoopMaxMs` resets every 15 s, so the
       // stall may land in the beat AFTER the turn.
       let eventLoopMaxMs = 0;
+      let telemetryObserved = false;
       let fanoutAdmitted = 0;
       let fanoutRefused = 0;
       const deadline = Date.now() + 22_000;
@@ -161,6 +167,7 @@ test.describe("subagent fan-out stall measurement (L2)", () => {
         const metrics = (body.agents ?? []).find((a: any) => a.sessionId === sessionId);
         if (metrics) {
           if (typeof metrics.eventLoopMaxMs === "number") {
+            telemetryObserved = true;
             eventLoopMaxMs = Math.max(eventLoopMaxMs, metrics.eventLoopMaxMs);
           }
           fanoutAdmitted = Math.max(fanoutAdmitted, metrics.fanoutAdmitted ?? 0);
@@ -168,8 +175,19 @@ test.describe("subagent fan-out stall measurement (L2)", () => {
         }
         await page.waitForTimeout(1_000);
       }
-      const survived = (await readSession(page, sessionId))?.status !== "ended";
-      return { n, cap, eventLoopMaxMs, timeToFirstChildMs, survived, fanoutAdmitted, fanoutRefused };
+      // A missing record must NOT read as survival: require the session to exist.
+      const session = await readSession(page, sessionId);
+      const survived = Boolean(session) && session.status !== "ended";
+      return {
+        n,
+        cap,
+        eventLoopMaxMs,
+        telemetryObserved,
+        timeToFirstChildStartMs,
+        survived,
+        fanoutAdmitted,
+        fanoutRefused,
+      };
     }
 
     // #P1 — the ungated matrix. Widths include the census fatal widths.
@@ -185,8 +203,10 @@ test.describe("subagent fan-out stall measurement (L2)", () => {
     console.log(`[fanout-measurement] wrote ${OUT_PATH}`);
     console.log(JSON.stringify(table, null, 2));
 
-    // #P1 — every cell produced a measurement and the parent survived.
+    // #P1 — every cell produced REAL telemetry (not a vacuous 0) and the parent
+    // survived (a missing session record must not read as survival).
     for (const cell of [...ungated, gatedAtFatal]) {
+      expect(cell.telemetryObserved, `N=${cell.n} cap=${cell.cap} telemetry observed`).toBe(true);
       expect(cell.eventLoopMaxMs, `N=${cell.n} cap=${cell.cap} recorded a stall`).toBeGreaterThanOrEqual(0);
       expect(cell.survived, `N=${cell.n} cap=${cell.cap} parent survived`).toBe(true);
     }

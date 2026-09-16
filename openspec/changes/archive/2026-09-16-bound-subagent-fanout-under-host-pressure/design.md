@@ -101,16 +101,20 @@ the turn.
 
 | N | ctx | host | cap | parent `eventLoopMaxMs` (ms) | time-to-first-child-start (ms) | survived | admitted / refused |
 |---|---|---|---|---|---|---|---|
-| 1 | small | idle | 0 (ungated) | 113 | 1947 | yes | 0 / 0 |
-| 2 | small | idle | 0 (ungated) | 134 | 2276 | yes | 0 / 0 |
-| 3 | small | idle | 0 (ungated) | 152 | 2873 | yes | 0 / 0 |
-| 4 | small | idle | 0 (ungated) | 156 | 3455 | yes | 0 / 0 |
-| 7 | small | idle | 0 (ungated) | 257 | 5066 | yes | 0 / 0 |
-| 7 | small | idle | 2 (gated) | **108** | 5225 | yes | **2 / 5** |
+| 1 | small | idle | 0 (ungated) | 87 | 1720 | yes | 0 / 0 |
+| 2 | small | idle | 0 (ungated) | 102 | 2241 | yes | 0 / 0 |
+| 3 | small | idle | 0 (ungated) | 133 | 2732 | yes | 0 / 0 |
+| 4 | small | idle | 0 (ungated) | 121 | 3278 | yes | 0 / 0 |
+| 7 | small | idle | 0 (ungated) | 202 | 5193 | yes | 0 / 0 |
+| 7 | small | idle | 2 (gated) | **119** | 5086 | yes | **2 / 5** |
+
+`time-to-first-child-start` is the first Agent `tool_execution_start` (proves an
+admitted child began executing), NOT the forwarded `tool_call` — the bridge
+forwards every `tool_call` before the gate runs, including refused ones.
 
 **Read against the three branches:** the stall grows with **N at fixed ctx**
-(113 ms → 257 ms, ~2.3× from N=1 to N=7), and gating at the default cap lowers it
-at the fatal width (**257 ms → 108 ms**, with 5 of 7 calls refused). The cap is
+(87 ms → 202 ms, ~2.3× from N=1 to N=7), and gating at the default cap lowers it
+at the fatal width (**202 ms → 119 ms**, with 5 of 7 calls refused). The cap is
 therefore a legitimate partial mitigation, not a no-op. The **ctx** and
 **loaded-host** dimensions are NOT measured by this harness — a ~220 k-context
 parent and a controlled host load cannot be synthesized in this container, so
@@ -125,7 +129,7 @@ unchanged. The measurement above covers the chosen value directly (`gated 7 @ ca
 2`).
 
 **Mitigation delta (#P4, task 8.2):** at the fatal width, ungated
-`eventLoopMaxMs` = **257 ms**, gated = **108 ms** — strictly lower, with the
+`eventLoopMaxMs` = **202 ms**, gated = **119 ms** — strictly lower, with the
 refusal path exercised (2 admitted, 5 refused). The stall moved; the cap is
 recorded here as a measured partial mitigation, not as a proven cure.
 

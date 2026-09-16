@@ -220,13 +220,22 @@ test.describe("subagent fan-out admission (L3)", () => {
     expect(pid, "the session must expose its pid").toBeTruthy();
     inContainer(`kill -9 ${pid}`);
 
-    // The durable record is on disk — every refusal present, cause distinguishable.
+    // The durable record is on disk — scoped to THIS session's transcript. A
+    // recursive grep over the shared sessions dir could pass on a stale record
+    // from an earlier run even if this session lost its refusal during kill -9.
     let record = "";
     await expect
       .poll(
         () => {
+          const file = inContainer(
+            `ls /home/pi/.pi/agent/sessions/*/*${sessionId}*.jsonl 2>/dev/null | head -1`,
+          );
+          if (!file) {
+            record = "";
+            return false;
+          }
           record = inContainer(
-            "grep -rh 'subagent-admission-refused' /home/pi/.pi/agent/sessions 2>/dev/null | head -1",
+            `grep -h 'subagent-admission-refused' '${file}' 2>/dev/null | head -1`,
           );
           return record.length > 0;
         },

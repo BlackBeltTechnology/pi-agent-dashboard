@@ -1360,9 +1360,9 @@ See change: `fix-keeper-kill-escalation`. See also `docs/architecture.md` § "RP
 
 Symptom: session dies immediately after issuing wide `Agent` fan-out. Last transcript entry shows unanswered subagent calls. Host marks session unresponsive and reaps process.
 
-Root cause: parallel subagent initialization blocks Node event loop on loaded host. 13/14 census crash sessions died at fan-out start.
+Contributing cause: parallel subagent initialization blocks Node event loop on loaded host (contributing cause, not confirmed root cause; loaded-host and large-context factors untested). 13/14 census crash sessions died at fan-out start (correlation observed, causality not proven).
 
-Fix (change: `bound-subagent-fanout-under-host-pressure`): bridge admission gate bounds concurrent in-flight subagents per session.
+Mitigation (change: `bound-subagent-fanout-under-host-pressure`): bridge admission gate bounds concurrent in-flight subagents per session (partial mitigation, not definitive fix).
 
 Mechanism:
 - Gate intercepts `tool_call` before execution starts.
@@ -1389,7 +1389,7 @@ Cross-refs:
 - packages/extension/src/subagent-fanout-admission.ts
 - packages/extension/src/subagent-saturation.ts
 - packages/shared/src/config.ts
-- openspec/changes/bound-subagent-fanout-under-host-pressure/
+- openspec/changes/archive/2026-09-16-bound-subagent-fanout-under-host-pressure/
 
 ## Gemini session starts, model never responds, no error — "Gemini doesn't work with subagents"?
 
