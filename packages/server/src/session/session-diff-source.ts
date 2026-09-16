@@ -268,9 +268,13 @@ export async function resolveDiffSource(
     };
   }
 
-  // Remote origin or no sessionFile: store source, key on the only events
-  // whose arrival can change the diff (not raw count / maxSeq — streaming
-  // deltas would churn those). Never touches the transcript path.
+  // Remote origin or no sessionFile: store source. Key on the count of
+  // Write/Edit/Bash tool-call START events — the arrivals that ADD a diff
+  // entry (not raw count / maxSeq — streaming deltas would churn those). A
+  // `tool_execution_end` that closes a Bash window can move a file to
+  // `otherChanges` without changing this key; that staleness is bounded by
+  // the cache TTL (2 s), matching the cache's inherent staleness. Never
+  // touches the transcript path.
   const storeKey = `s:${countDiffToolStarts(eventStore.getEvents(session.id, 0).map((e) => e.event))}`;
   return {
     sourceKey: storeKey,

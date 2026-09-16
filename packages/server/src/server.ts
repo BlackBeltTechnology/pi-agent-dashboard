@@ -121,7 +121,7 @@ import { createPendingPromptAcks } from "./pending/pending-prompt-acks.js";
 import { createPendingResumeIntentRegistry } from "./pending/pending-resume-intent-registry.js";
 import { createPendingWorktreeBaseRegistry } from "./pending/pending-worktree-base-registry.js";
 import { recordExitIntent, resolveExitIntent, stampBootStart } from "./persistence/boot-state.js";
-import { createMemoryEventStore, DEFAULT_MAX_EVENT_DATA_SIZE, type EventStore } from "./persistence/memory-event-store.js";
+import { createMemoryEventStore, DEFAULT_MAX_EVENT_DATA_SIZE, DEFAULT_MAX_STRING_SIZE, type EventStore } from "./persistence/memory-event-store.js";
 import { createMetaPersistence } from "./persistence/meta-persistence.js";
 import { migrateCustomEntryFallbackOverrides } from "./persistence/migrate-custom-entry-fallback.js";
 import { needsMigration, runMigration } from "./persistence/migrate-persistence.js";
@@ -1473,7 +1473,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // tool payloads match store-sourced ones. See change:
     // fix-session-diff-durable-source.
     loadWorkerPool: () => directoryService.ensureLoadWorkerPool(),
-    maxStringSize: config.maxStringFieldSize,
+    // The store's own parameter default resolves an unset cap to
+    // DEFAULT_MAX_STRING_SIZE; mirror it here so the transcript projection
+    // caps `args` with the SAME effective value the store used on ingest.
+    // Passing the raw `undefined` would make the projection's `?? 0` sentinel
+    // disable truncation and break payload/`truncated` parity.
+    // See change: fix-session-diff-durable-source.
+    maxStringSize: config.maxStringFieldSize ?? DEFAULT_MAX_STRING_SIZE,
   });
   // pi retry policy editor. Reload fan-out dispatches `/reload` to every
   // connected session so a saved policy applies without a manual restart

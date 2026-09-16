@@ -26,6 +26,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 });
 
 import {
+  capString,
   createMemoryEventStore,
   DEFAULT_MAX_STRING_SIZE,
   type EventStore,
@@ -472,6 +473,24 @@ describe("session-diff source resolution + loss modes (5.5–5.10, 6.x)", () => 
     expect(body.data.files).toHaveLength(200);
     const paths = body.data.files.map((f: any) => f.path);
     expect([...paths].sort()).toEqual(paths);
+  });
+
+  it("6.11 the route plumbs maxStringSize into the projection (store-cap parity)", async () => {
+    const content = "A".repeat(DEFAULT_MAX_STRING_SIZE + 1);
+    const file = writeTranscript(join(dir, "cap-args.jsonl"), [
+      assistant(1000, "w", [writeCall("c1", "big.ts", content)]),
+    ]);
+    fastify = await buildHarness({
+      session: localSession(file),
+      store: createMemoryEventStore(() => false),
+      maxStringSize: DEFAULT_MAX_STRING_SIZE,
+    });
+    const { body } = await getDiff(fastify);
+    const change = body.data.files.find((f: any) => f.path === "big.ts").changes[0];
+    // The projection ran `truncateStrings(args, 4000)` — same helper + cap the
+    // store applies on ingest (B1 wiring guard: a `undefined` cap would skip this).
+    expect(change.content).toBe(capString(content, DEFAULT_MAX_STRING_SIZE));
+    expect(change.content).toContain("chars hidden");
   });
 });
 
