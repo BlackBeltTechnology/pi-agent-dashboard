@@ -198,3 +198,30 @@ describe("findTool", () => {
     expect(findTool({ name: "abort" })).toBeUndefined();
   });
 });
+
+describe("E28 — list_sessions advertises the bound", () => {
+  const ls = findTool("list_sessions");
+  if (!ls) throw new Error("list_sessions must be advertised");
+
+  it("states the default, the hard maximum and the paging argument in the description", () => {
+    expect(ls.description).toMatch(/25/);
+    expect(ls.description).toMatch(/200/);
+    expect(ls.description).toMatch(/cursor/i);
+  });
+
+  it("documents the bound and the cursor in the inputSchema", () => {
+    const props = ls.inputSchema.properties;
+    expect(props.limit).toMatchObject({ type: "integer", minimum: 1, maximum: 200 });
+    expect(props.cursor).toMatchObject({ type: "string" });
+    expect(props.status).toMatchObject({ type: "array" });
+  });
+
+  it("advertises every SessionStatus value in the status enum", () => {
+    expect(ls.inputSchema.properties.status.items?.enum).toEqual([
+      "active",
+      "idle",
+      "streaming",
+      "ended",
+    ]);
+  });
+});
