@@ -85,7 +85,7 @@ L3 rows read the dashboard against the harness port recorded in
 
 None. Every row extends an existing harness:
 - server L1 → `packages/server/src/__tests__/browser-gateway-host-pressure-reconcile.test.ts` (reconcile + force-shed pattern), `browser-gateway-dropped-frames.test.ts` (shed accounting)
-- client handler L1 → `packages/client/src/components/__tests__/useMessageHandler.tier25-fallback.test.tsx` (spawn-cascade tiers), `useMessageHandler.snapshot-replace.test.tsx` (snapshot apply)
+- client handler L1 → `packages/client/src/hooks/__tests__/useMessageHandler.tier25-fallback.test.tsx` (spawn-cascade tiers), `useMessageHandler.snapshot-replace.test.tsx` (snapshot apply)
 - client component L1 → `packages/client/src/components/__tests__/SessionList.test.tsx`
 - session manager L1 → `packages/server/src/__tests__/session-death-attribution.test.ts` (register/unregister status transitions)
 - L3 → `tests/e2e/sessions-page-stub-group.spec.ts` (ended paging + stub group)

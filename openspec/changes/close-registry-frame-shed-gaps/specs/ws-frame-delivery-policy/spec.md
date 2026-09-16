@@ -152,11 +152,6 @@ closes, errors, or is terminated as stalled.
 - **AND** the socket drains while `s2` no longer exists
 - **THEN** that socket SHALL receive a `session_removed` for `s2`
 
-#### Scenario: Add then remove within one window converges to removed
-
-- **WHEN** `session_added` and then `session_removed` for `s3` are both dropped for a socket within one flood window
-- **THEN** on drain the socket SHALL receive only `session_removed` for `s3`
-
 #### Scenario: Remove then re-add converges to the current record
 
 - **WHEN** `session_removed` for `s4` is dropped and `s4` is later re-registered and its `session_added` is also dropped
