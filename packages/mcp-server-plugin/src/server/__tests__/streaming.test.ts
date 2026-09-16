@@ -14,7 +14,7 @@ import {
 } from "../streaming.js";
 import type { McpCaller } from "../tokens.js";
 
-const caller: McpCaller = { kind: "device", deviceId: "d1" };
+const caller: McpCaller = { kind: "device", deviceId: "d1", tier: "operate" };
 
 /**
  * A source that mirrors `ctx.onEvent`: every listener sees EVERY session's

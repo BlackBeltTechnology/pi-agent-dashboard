@@ -23,9 +23,10 @@ import { listSessions } from "../list-sessions.js";
 import { type EventSource, type StreamSink, SubscriptionRegistry } from "../streaming.js";
 import type { McpCaller } from "../tokens.js";
 import { McpTokenRegistry } from "../tokens.js";
-import { listTools, MCP_TOOLS } from "../tools.js";
+import { listTools } from "../tools.js";
+import { GENERATED_TOOLS } from "../generated/tools.js";
 
-const caller: McpCaller = { kind: "device", deviceId: "d1" };
+const caller: McpCaller = { kind: "device", deviceId: "d1", tier: "operate" };
 
 function p95(samples: number[]): number {
   const sorted = [...samples].sort((a, b) => a - b);
@@ -75,14 +76,14 @@ describe("P2 — tools/list stays within budget (<= 50 ms p95)", () => {
     let entries = 0;
     for (let i = 0; i < 1000; i += 1) {
       const t0 = performance.now();
-      const list = listTools(MCP_TOOLS);
+      const list = listTools(GENERATED_TOOLS, "operate");
       samples.push(performance.now() - t0);
       entries += list.length;
     }
 
     // Non-vacuous: a real, non-empty table was built every time.
-    expect(entries).toBe(1000 * MCP_TOOLS.length);
-    expect(MCP_TOOLS.length).toBeGreaterThan(0);
+    expect(entries).toBe(1000 * GENERATED_TOOLS.length);
+    expect(GENERATED_TOOLS.length).toBeGreaterThan(0);
     expect(p95(samples)).toBeLessThanOrEqual(50);
   });
 });
@@ -195,7 +196,7 @@ describe("P2 — the registry stays bounded under re-mint churn and resolve stay
     for (let i = 0; i < 200; i += 1) live = tokens.mintForSession("session-a");
     expect(tokens.size).toBe(1);
     // The registry honours exactly the freshest token.
-    expect(tokens.resolve(live)).toEqual({ kind: "session", sessionId: "session-a" });
+    expect(tokens.resolve(live)).toEqual({ kind: "session", sessionId: "session-a", tier: "control" });
   });
 
   it("resolve() at 1000 rows stays negligible next to the endpoint's dominant cost", () => {

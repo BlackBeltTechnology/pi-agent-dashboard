@@ -315,7 +315,7 @@ describe("E16 — mint response envelope", () => {
     expect(Object.keys(body)).toEqual(["success", "data"]);
     expect(Object.keys(body.data)).toEqual(["device", "token"]);
     expect(Object.keys(body.data.device).sort()).toEqual(
-      ["createdAt", "id", "label", "lastSeen", "source"].sort(),
+      ["createdAt", "id", "label", "lastSeen", "source", "tier"].sort(),
     );
     expect(body.data.device).not.toHaveProperty("tokenHash");
 
@@ -447,5 +447,90 @@ describe("X9 — the mint route is not a public pairing prefix", () => {
       payload: { label: "outsider" },
     });
     expect(res.statusCode).toBe(401);
+  });
+});
+
+// E6/E7 (test-plan expand-mcp-tiered-surface) — tier on the issuance routes.
+describe("E6 — mint tier decision table", () => {
+  it("defaults to observe; an explicit valid tier is honored; an invalid one is 400 with no row", async () => {
+    const regPath = path.join(tmpDir, "paired.json");
+    const { app } = await mkRouteApp();
+
+    const dflt = await loopbackMint(app, { label: "a" });
+    expect(dflt.statusCode).toBe(200);
+    expect(dflt.json().data.device.tier).toBe("observe");
+
+    const explicit = await loopbackMint(app, { label: "b", tier: "control" });
+    expect(explicit.statusCode).toBe(200);
+    expect(explicit.json().data.device.tier).toBe("control");
+
+    const before = registryRowCount(regPath);
+    const bad = await loopbackMint(app, { label: "c", tier: "admin" });
+    expect(bad.statusCode).toBe(400);
+    expect(registryRowCount(regPath)).toBe(before);
+  });
+});
+
+describe("E7 — approve tier", () => {
+  async function mkApproveApp() {
+    const reg = new PairedDeviceRegistry(path.join(tmpDir, "paired.json"));
+    const mgr = new PairingManager({
+      registry: reg,
+      getFingerprint: () => "sha256:test-fp",
+      getReachableUrls: () => urls,
+      now: () => clock,
+    });
+    const app = Fastify();
+    openApps.push(app);
+    registerPairingRoutes(app, {
+      networkGuard: createNetworkGuard([]),
+      identity: {} as never,
+      pairing: mgr,
+      registry: reg,
+      hostAdmission: () => ({
+        allowedHosts: [],
+        publicBaseUrls: [],
+        configuredOrigins: [],
+        getLiveTunnelOrigins: () => [],
+        bindHost: "localhost",
+      }),
+    });
+    await app.ready();
+    return { app, reg, mgr };
+  }
+
+  it("with tier:'control' the row is control; without it the row is operate", async () => {
+    const { app, reg, mgr } = await mkApproveApp();
+
+    const p1 = mgr.createPayload()!;
+    const r1 = mgr.redeem(p1.code);
+    if (!r1.ok) throw new Error("redeem failed");
+    const a1 = await app.inject({
+      method: "POST",
+      url: "/api/pair/approve",
+      remoteAddress: "127.0.0.1",
+      headers: { "content-type": "application/json" },
+      payload: { code: p1.code, confirmCode: r1.confirmCode, label: "agent", tier: "control" },
+    });
+    expect(a1.statusCode).toBe(200);
+    expect(a1.json().data.tier).toBe("control");
+    expect(reg.list().find((d) => d.label === "agent")?.tier).toBe("control");
+  });
+
+  it("without a tier the pairing default operate applies", async () => {
+    const { app, reg, mgr } = await mkApproveApp();
+    const p2 = mgr.createPayload()!;
+    const r2 = mgr.redeem(p2.code);
+    if (!r2.ok) throw new Error("redeem failed");
+    const a2 = await app.inject({
+      method: "POST",
+      url: "/api/pair/approve",
+      remoteAddress: "127.0.0.1",
+      headers: { "content-type": "application/json" },
+      payload: { code: p2.code, confirmCode: r2.confirmCode, label: "phone" },
+    });
+    expect(a2.statusCode).toBe(200);
+    expect(a2.json().data.tier).toBe("operate");
+    expect(reg.list().find((d) => d.label === "phone")?.tier).toBe("operate");
   });
 });

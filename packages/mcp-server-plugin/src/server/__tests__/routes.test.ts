@@ -22,6 +22,9 @@ const meta = { _meta: { [META_VERSION_KEY]: V } };
 
 const SPA_HTML = "<!doctype html><html><body>dashboard SPA</body></html>";
 
+import type { Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
+import type { GeneratedTool } from "../generated/tools.js";
+
 interface Harness {
   app: FastifyInstance;
   tokens: McpTokenRegistry;
@@ -36,7 +39,13 @@ afterEach(async () => {
   open = [];
 });
 
-async function harness(opts: { withAuth?: boolean } = {}): Promise<Harness> {
+async function harness(
+  opts: {
+    withAuth?: boolean;
+    tools?: readonly GeneratedTool[];
+    tiers?: Map<string, { id: string; tier: Tier }>;
+  } = {},
+): Promise<Harness> {
   const app = Fastify();
   open.push(app);
   const tokens = new McpTokenRegistry();
@@ -53,6 +62,8 @@ async function harness(opts: { withAuth?: boolean } = {}): Promise<Harness> {
   const deps = {
     tokens,
     verifyDeviceToken: (t: string) => deviceTokens.get(t) ?? null,
+    verifyDeviceTokenTier: opts.tiers ? (t: string) => opts.tiers!.get(t) ?? null : undefined,
+    tools: opts.tools,
     invokeTool,
     serverInfo: { name: "pi-dashboard", version: "0.7.0" },
     openSubscription: async (ids: string[]) => ({ subscribed: ids }),
@@ -62,7 +73,7 @@ async function harness(opts: { withAuth?: boolean } = {}): Promise<Harness> {
   if (opts.withAuth === false) {
     // A8's negative control: the same routes with the credential check
     // removed. Used to prove the auth assertions actually bite.
-    await mountMcpRoutes(app, { ...deps, verifyDeviceToken: () => "anyone", tokens: { resolve: () => ({ kind: "device", deviceId: "anyone" }) } });
+    await mountMcpRoutes(app, { ...deps, verifyDeviceToken: () => "anyone", tokens: { resolve: () => ({ kind: "device", deviceId: "anyone", tier: "operate" }) } });
   } else {
     await mountMcpRoutes(app, deps);
   }
@@ -1039,14 +1050,15 @@ describe("E14 — a manually minted device token reaches /mcp", () => {
       const invokeTool = vi.fn(async (_inv: { caller: unknown }) => ({ ok: true }));
       await mountMcpRoutes(app, {
         tokens: new McpTokenRegistry(),
-        verifyDeviceToken: (t: string) => registry.verify(t),
+        verifyDeviceToken: () => null,
+        verifyDeviceTokenTier: (t: string) => registry.verify(t),
         invokeTool,
         serverInfo: { name: "pi-dashboard", version: "0.7.0" },
         log: { info: () => {}, warn: () => {}, error: () => {} },
       });
       await app.ready();
 
-      const { device, token } = registry.add("cli", "manual");
+      const { device, token } = registry.add("cli", "manual", "operate");
       const res = await app.inject({
         method: "POST",
         url: "/mcp",
@@ -1059,6 +1071,7 @@ describe("E14 — a manually minted device token reaches /mcp", () => {
       expect(invokeTool.mock.calls[0][0].caller).toEqual({
         kind: "device",
         deviceId: device.id,
+        tier: "operate",
       });
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
@@ -1114,5 +1127,94 @@ describe("E8 — one session's stale token never denies a healthy one (route lev
     });
     expect(res.statusCode).toBe(401);
     expect(tokens.size).toBe(before);
+  });
+});
+
+// ── E11–E13 (test-plan expand-mcp-tiered-surface): path cap + 404 discipline ─
+
+const tierFixtureTools: readonly GeneratedTool[] = [
+  mk("o_read", "observe"),
+  mk("c_write", "control"),
+  mk("p_kill", "operate"),
+];
+
+function mk(name: string, tier: Tier): GeneratedTool {
+  return {
+    name,
+    description: `${tier} tool`,
+    tier,
+    annotations: { readOnlyHint: tier === "observe", destructiveHint: false },
+    inputSchema: { type: "object", properties: {}, required: [], additionalProperties: false },
+    bind: { kind: "context", member: "sessionManager" },
+    paramSplit: { path: [], bodyAll: true },
+    sessionTargeting: false,
+  };
+}
+
+async function toolsListAt(url: string, token: string, tiers: Map<string, { id: string; tier: Tier }>) {
+  const { app } = await harness({ tools: tierFixtureTools, tiers });
+  const res = await app.inject({
+    method: "POST",
+    url,
+    headers: authed(token),
+    payload: rpc("tools/list"),
+  });
+  expect(res.statusCode, url).toBe(200);
+  return (res.json() as { result: { tools: Array<{ name: string }> } }).result.tools.map((t) => t.name);
+}
+
+describe("E11/E12 — path cap", () => {
+  it("operate token at /mcp/observe, /mcp/control, /mcp → 1 / 2 / 3 tools", async () => {
+    const tiers = new Map([["op", { id: "d", tier: "operate" as Tier }]]);
+    expect(await toolsListAt("/mcp/observe", "op", tiers)).toEqual(["o_read"]);
+    expect(await toolsListAt("/mcp/control", "op", tiers)).toEqual(["o_read", "c_write"]);
+    expect(await toolsListAt("/mcp", "op", tiers)).toEqual(["o_read", "c_write", "p_kill"]);
+  });
+
+  it("the cap never raises: observe token at /mcp/control still sees the observe set", async () => {
+    const tiers = new Map([["ob", { id: "d", tier: "observe" as Tier }]]);
+    expect(await toolsListAt("/mcp/control", "ob", tiers)).toEqual(["o_read"]);
+  });
+});
+
+describe("E13 — bad suffix / method discipline", () => {
+  it("POST /mcp/operate and GET /mcp/nope are 404 JSON, never the SPA", async () => {
+    const { app } = await harness();
+    const post = await app.inject({ method: "POST", url: "/mcp/operate", headers: authed("x"), payload: rpc("tools/list") });
+    expect(post.statusCode).toBe(404);
+    expect(post.headers["content-type"]).toContain("application/json");
+    expect(post.body).not.toContain("<!doctype html");
+
+    const get = await app.inject({ method: "GET", url: "/mcp/nope" });
+    expect(get.statusCode).toBe(404);
+    expect(get.headers["content-type"]).toContain("application/json");
+    expect(get.body).not.toContain("<!doctype html");
+  });
+
+  it("PUT /mcp/observe is 405 like PUT /mcp", async () => {
+    const { app } = await harness();
+    const res = await app.inject({ method: "PUT", url: "/mcp/observe" });
+    expect(res.statusCode).toBe(405);
+  });
+});
+
+// X10 (test-plan expand-mcp-tiered-surface) — a token revoked mid-flight 401s.
+describe("X10 — revocation is checked per request", () => {
+  it("tools/list works, then the same token is revoked and tools/call is 401 (not 403)", async () => {
+    const tiers = new Map<string, { id: string; tier: Tier }>([["tok", { id: "d", tier: "observe" }]]);
+    const { app } = await harness({ tools: tierFixtureTools, tiers });
+
+    const list = await app.inject({ method: "POST", url: "/mcp", headers: authed("tok"), payload: rpc("tools/list") });
+    expect(list.statusCode).toBe(200);
+
+    tiers.delete("tok");
+
+    const call = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: authed("tok"),
+      payload: rpc("tools/call", { name: "o_read", arguments: {} }),
+    });
+    expect(call.statusCode).toBe(401);
   });
 });

@@ -13,7 +13,7 @@ import { decideBridgeTicketMint } from "../auth/bridge-ticket-eligibility.js";
 const base = {
   ip: "192.168.1.50",
   headers: {} as Record<string, unknown>,
-  verifyDeviceBearer: (t: string) => (t === "good-device-bearer" ? "device-7" : null),
+  verifyDeviceBearer: (t: string) => (t === "good-device-bearer" ? { id: "device-7" } : null),
 };
 
 describe("decideBridgeTicketMint", () => {
@@ -75,7 +75,7 @@ describe("the bearer parser accepts and rejects exactly what it used to", () => 
         authorization,
         verifyDeviceBearer: (t: string) => {
           seen.push(t);
-          return "device-7";
+          return { id: "device-7" };
         },
       }).allow;
 
@@ -91,7 +91,7 @@ describe("the bearer parser accepts and rejects exactly what it used to", () => 
         decideBridgeTicketMint({
           ...base,
           authorization: bad,
-          verifyDeviceBearer: () => "device-7",
+          verifyDeviceBearer: () => ({ id: "device-7" }),
         }).allow,
       ).toBe(false);
     }

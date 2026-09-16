@@ -1162,7 +1162,9 @@ export interface RequestRolesMessage {
 export interface KillProcessMessage {
   type: "kill_process";
   sessionId: string;
-  pgid: number;
+  /** Optional: the REST/MCP lifecycle path may not know the pgid; the bridge
+   *  no-ops on a falsy value. See change: expand-mcp-tiered-surface. */
+  pgid?: number;
 }
 
 export interface ExtensionUiResponseMessage {

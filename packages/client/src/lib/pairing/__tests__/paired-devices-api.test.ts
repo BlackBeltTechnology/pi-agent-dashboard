@@ -49,18 +49,18 @@ describe("createPairedDevice", () => {
     const fetchMock = mockFetch();
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await createPairedDevice("cli");
+    const result = await createPairedDevice("cli", "observe");
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toMatch(/\/api\/paired-devices$/);
     expect(init.method).toBe("POST");
-    expect(JSON.parse(init.body as string)).toEqual({ label: "cli" });
+    expect(JSON.parse(init.body as string)).toEqual({ label: "cli", tier: "observe" });
     expect(result).toEqual({ device: DEVICE, token: TOKEN });
   });
 
   it("throws on a non-success envelope", async () => {
     vi.stubGlobal("fetch", mockFetch(false));
-    await expect(createPairedDevice("cli")).rejects.toThrow("operator credential required");
+    await expect(createPairedDevice("cli", "observe")).rejects.toThrow("operator credential required");
   });
 });
