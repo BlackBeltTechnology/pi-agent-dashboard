@@ -828,16 +828,19 @@ export async function buildSessionDiff(
  * Cache + single-flight wrapper over `buildSessionDiff` for the request path.
  *
  * Computes a cheap cache key up front — `sessionId : HEAD-sha :
- * djb2(porcelain) : sourceKey` — via two non-blocking git spawns, then defers
- * to the `cache`: a fresh entry within TTL returns immediately; concurrent
- * identical requests coalesce onto one in-flight computation. `sourceKey` is
- * the event-source signature (transcript `mtime:size` or store tool-start
- * count; see `resolveDiffSource`), so a new tool call invalidates even when
- * HEAD and the dirty signature are unchanged. `load()` runs INSIDE
- * `cache.run`, so a cache hit / coalesced request never parses a transcript.
- * A HEAD/dirty/source change yields a new key → recompute (never serves a
- * stale diff). The fetched `gitRepo` / `porcelainRaw` are threaded into
- * `buildSessionDiff` so detection does not re-spawn them.
+ * djb2(porcelain) : sourceKey : lifecycle` — via two non-blocking git spawns,
+ * then defers to the `cache`: a fresh entry within TTL returns immediately;
+ * concurrent identical requests coalesce onto one in-flight computation.
+ * `sourceKey` is the event-source signature (transcript `mtime:size` or store
+ * tool-start count; see `resolveDiffSource`), so a new tool call invalidates
+ * even when HEAD and the dirty signature are unchanged. The `lifecycle`
+ * component (`e`/`l`) keeps a live→ended transition from serving the previous
+ * live result: `opts.ended` changes `windowEnd`, so the SAME git + source key
+ * can compute a different diff. `load()` runs INSIDE `cache.run`, so a cache
+ * hit / coalesced request never parses a transcript. A HEAD/dirty/source/
+ * lifecycle change yields a new key → recompute (never serves a stale diff).
+ * The fetched `gitRepo` / `porcelainRaw` are threaded into `buildSessionDiff`
+ * so detection does not re-spawn them.
  *
  * See change: fix-session-diff-eventloop-block,
  * fix-session-diff-durable-source (D2/D3).
@@ -852,7 +855,7 @@ export async function buildSessionDiffCached(
   const gitRepo = await safeIsGitRepo(cwd);
   const headSha = gitRepo ? await git.headShaOrAsync({ cwd }) : undefined;
   const porcelainRaw = gitRepo ? await git.statusPorcelainOrAsync({ cwd }) : "";
-  const key = `${sessionId}:${headSha ?? "nogit"}:${djb2(porcelainRaw)}:${opts.sourceKey}`;
+  const key = `${sessionId}:${headSha ?? "nogit"}:${djb2(porcelainRaw)}:${opts.sourceKey}:${opts.ended ? "e" : "l"}`;
   return cache.run(key, async () => {
     const src = await load();
     return buildSessionDiff(src.events, cwd, {

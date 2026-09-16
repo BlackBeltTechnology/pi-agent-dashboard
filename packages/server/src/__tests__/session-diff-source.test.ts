@@ -656,4 +656,26 @@ describe("session-diff cache + event loop (7.1–7.7)", () => {
       await offThread.close();
     }
   });
+
+  it("7.8 live→ended transition is not served from the live cache entry (CR-5)", async () => {
+    const T = Date.now() - 10_000;
+    const file = writeTranscript(join(dir, "lifecycle.jsonl"), [
+      assistant(T, "run", [bashCall("c1", "true")]),
+    ]);
+    const owned = join(repo, "lifecycle-owned.txt");
+    writeFileSync(owned, "x");
+    setMtime(owned, T + 5000);
+    const session: any = { id: "s1", cwd: repo, status: "streaming", sessionFile: file };
+    fastify = await buildHarness({ session, store: createMemoryEventStore(() => false) });
+    const live = await getDiff(fastify);
+    expect(live.body.data.files.map((f: any) => f.path)).toContain("lifecycle-owned.txt");
+
+    // Session ends with the transcript AND git state unchanged (aborted call —
+    // no new entry). Without the lifecycle key component the live result would
+    // be served for the TTL and the file would stay session-owned.
+    session.status = "ended";
+    const ended = await getDiff(fastify);
+    expect(ended.body.data.files.map((f: any) => f.path)).not.toContain("lifecycle-owned.txt");
+    expect(ended.body.data.otherChanges.map((f: any) => f.path)).toContain("lifecycle-owned.txt");
+  });
 });
