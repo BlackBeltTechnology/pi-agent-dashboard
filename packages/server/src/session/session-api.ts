@@ -14,6 +14,13 @@ import {
   FORK_DEGRADED_TO_NEW_MESSAGE,
   isSessionProcessGone,
 } from "../browser-handlers/session-action-handler.js";
+import { forwardExtensionUiResponse } from "../browser-handlers/directory-handler.js";
+import {
+  isLifecycleAction,
+  LIFECYCLE_ACTIONS,
+  type LifecycleAction,
+} from "../browser-handlers/session-lifecycle.js";
+import { sendTierRefusal, tierRefusalFor } from "../auth/route-tier-gate.js";
 import { attachRenameTarget, detachShouldClearName } from "../openspec/proposal-attach-naming.js";
 import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import { requestArchive } from "../browser-handlers/session-meta-handler.js";
@@ -25,6 +32,7 @@ import { keeperOptsFromSpawnResult } from "../spawn-process/headless-pid-registr
 import { spawnPiSession } from "../spawn-process/process-manager.js";
 import { deriveSpawnCorrelationTtlMs } from "../spawn-process/spawn-recovery-window.js";
 import { armSpawnWatchdog } from "../spawn-process/spawn-register-watchdog.js";
+import type { NetworkGuard } from "../routes/route-deps.js";
 import type { SessionManager } from "./memory-session-manager.js";
 import { decideResume } from "./session-origin.js";
 
@@ -57,6 +65,25 @@ export interface SessionApiDeps {
   sessionArchive?: import("./session-archive.js").SessionArchive;
   /** One-shot intents for idle-alive archive requests. See change: archive-sessions-lazy-load. */
   pendingArchiveIntents?: PendingArchiveIntentRegistry;
+  /**
+   * Shared lifecycle handler. server.ts wires the real implementation (the
+   * force-kill ladder + the three bridge forwards). Absent in unit contexts
+   * that never hit the route. See change: expand-mcp-tiered-surface (D3).
+   */
+  handleLifecycle?: (sessionId: string, action: LifecycleAction, extras?: { pgid?: number }) => Promise<{ delivered?: boolean } | void>;
+  /**
+   * Live trusted-network list, for the in-handler `operate` check on the two
+   * destructive lifecycle actions (`force_kill`, `kill_process`).
+   * See change: expand-mcp-tiered-surface (D3).
+   */
+  getTrustedNetworks?: () => string[];
+  /**
+   * Admission guard for the lifecycle/extension-ui routes. Without it an
+   * unauthenticated off-host caller (no Origin, so the CSRF gate is silent)
+   * could reach the destructive lifecycle handler. See change:
+   * expand-mcp-tiered-surface (D3).
+   */
+  networkGuard?: NetworkGuard;
 }
 
 type IdParams = { Params: { id: string } };
@@ -70,6 +97,9 @@ function getSessionOrFail(sessionManager: SessionManager, id: string): { session
 
 export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDeps) {
   const { sessionManager, piGateway, browserGateway, pendingForkRegistry, pendingDashboardSpawns, pendingResumeIntents, pendingAttachRegistry, pendingPromptAcks, sessionArchive, pendingArchiveIntents } = deps;
+  const handleLifecycle = deps.handleLifecycle;
+  const getTrustedNetworks = deps.getTrustedNetworks ?? (() => []);
+  const networkGuard = deps.networkGuard;
 
   // Bootstrap gate + queue removed under change: eliminate-electron-runtime-install
   // (task 3.5). pi/openspec/tsx ship as regular npm deps so pi is always
@@ -505,6 +535,84 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
         return result.error;
       }
       piGateway.sendToSession(id, { type: "set_thinking_level", sessionId: id, level });
+      return { success: true } satisfies ApiResponse;
+    },
+  );
+
+  // POST /api/session/:id/lifecycle — shared handler for the four lifecycle
+  // verbs (stop_after_turn, retry, force_kill, kill_process). The route sits at
+  // `control` in ROUTE_TIERS; the two destructive verbs additionally require
+  // `operate`, checked HERE because the action is in the body and the
+  // onRequest gate runs before body parsing. See change:
+  // expand-mcp-tiered-surface (D3).
+  fastify.post<IdParams & { Body: { action?: unknown } }>(
+    "/api/session/:id/lifecycle",
+    { ...(networkGuard ? { preHandler: networkGuard } : {}) },
+    async (request, reply) => {
+      const { id } = request.params;
+      const action = request.body?.action;
+      const pgid = (request.body as { pgid?: unknown } | undefined)?.pgid;
+      if (!isLifecycleAction(action)) {
+        reply.code(400);
+        return {
+          success: false,
+          error: `action must be one of ${LIFECYCLE_ACTIONS.join(", ")}`,
+        } satisfies ApiResponse;
+      }
+      const check = getSessionOrFail(sessionManager, id);
+      if ("error" in check) {
+        reply.code(404);
+        return check.error;
+      }
+      if (action === "force_kill" || action === "kill_process") {
+        const refusal = tierRefusalFor(request, "operate", getTrustedNetworks);
+        if (refusal) {
+          sendTierRefusal(reply, refusal.scope);
+          return;
+        }
+      }
+      if (!handleLifecycle) {
+        reply.code(501);
+        return { success: false, error: "lifecycle handler not wired" } satisfies ApiResponse;
+      }
+      const result = await handleLifecycle(id, action, typeof pgid === "number" ? { pgid } : {});
+      // Never report success for a forward that reached no bridge.
+      if (result && result.delivered === false) {
+        reply.code(502);
+        return { success: false, transmitted: false, error: "no bridge connection for session" } satisfies ApiResponse;
+      }
+      return { success: true } satisfies ApiResponse;
+    },
+  );
+
+  // POST /api/session/:id/extension-ui-response — REST twin of the browser-WS
+  // `extension_ui_response` case. Both clear the gateway's pendingUiRequests
+  // entry and forward on the same shared path. See change:
+  // expand-mcp-tiered-surface (D3).
+  fastify.post<
+    IdParams & { Body: { requestId?: unknown; result?: unknown; cancelled?: unknown } }
+  >(
+    "/api/session/:id/extension-ui-response",
+    { ...(networkGuard ? { preHandler: networkGuard } : {}) },
+    async (request, reply) => {
+      const { id } = request.params;
+      const { requestId, result, cancelled } = request.body ?? {};
+      if (typeof requestId !== "string" || requestId.length === 0) {
+        reply.code(400);
+        return { success: false, error: "requestId is required" } satisfies ApiResponse;
+      }
+      const check = getSessionOrFail(sessionManager, id);
+      if ("error" in check) {
+        reply.code(404);
+        return check.error;
+      }
+      browserGateway.clearUiRequest(id, requestId);
+      forwardExtensionUiResponse(piGateway, {
+        sessionId: id,
+        requestId,
+        result,
+        cancelled: cancelled === true,
+      });
       return { success: true } satisfies ApiResponse;
     },
   );

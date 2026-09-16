@@ -28,9 +28,10 @@ export interface BridgeMintInput {
    * the ID rather than a boolean so the minted ticket can carry WHICH device
    * minted it: a session registered over that ticket is then attributable,
    * which is what the origin gate needs to refuse local file reads for a
-   * remote session (#E15).
+   * remote session (#E15). Takes the object the registry now returns
+   * (`{ id, tier }`; change: expand-mcp-tiered-surface) and reads only `id`.
    */
-  verifyDeviceBearer: (token: string) => string | null;
+  verifyDeviceBearer: (token: string) => { id: string } | null;
 }
 
 export interface BridgeMintDecision {
@@ -62,7 +63,7 @@ function bearerFrom(authorization: string | undefined): string | null {
 
 export function decideBridgeTicketMint(input: BridgeMintInput): BridgeMintDecision {
   const bearer = bearerFrom(input.authorization);
-  const deviceId = bearer ? input.verifyDeviceBearer(bearer) : null;
+  const deviceId = bearer ? (input.verifyDeviceBearer(bearer)?.id ?? null) : null;
   if (deviceId) {
     return { allow: true, reason: "paired device bearer", deviceId };
   }

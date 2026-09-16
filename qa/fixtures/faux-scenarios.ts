@@ -617,6 +617,24 @@ export const SCENARIOS: Record<string, Scenario> = {
     path: "src/new-file.ts",
     content: "export const x = 1;\n",
   }),
+  // Two Writes in sequence. Drives tests/e2e/durable-session-diff.spec.ts (F1):
+  // after a server restart the in-memory event store is empty for the session,
+  // so the Diff panel can only converge on the two paths if the diff is sourced
+  // from the durable transcript. See change: fix-session-diff-durable-source.
+  "tool-write-pair": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("write", { path: "src/e2e-durable-a.ts", content: "export const a = 1;\n" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [fauxToolCall("write", { path: "src/e2e-durable-b.ts", content: "export const b = 2;\n" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("wrote two durable files")]),
+    ],
+    expect: { toolName: "write" },
+  },
   // opt-in-out-of-cwd-session-diffs: a Write OUTSIDE the session cwd. pi really
   // creates the file (writable /tmp in the harness); the server carries it into
   // data.files keyed by absolute path (payload-only, previewable:false). Drives

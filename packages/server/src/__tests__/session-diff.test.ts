@@ -612,6 +612,31 @@ describe("buildSessionDiff — ownership gate", () => {
   });
 });
 
+// fix-session-diff-durable-source (D4): an ENDED session clamps an unclosed
+// Bash window to the transcript's last entry ts, not `now`.
+describe("buildSessionDiff — ended-session Bash window clamp (windowEnd)", () => {
+  const cwd = "/project";
+  beforeEach(() => {
+    vi.mocked(git.isGitRepoOrAsync).mockReset().mockResolvedValue(true);
+    vi.mocked(git.diffAllOr).mockReset().mockResolvedValue("");
+    vi.mocked(git.numstatOrAsync).mockReset().mockResolvedValue("");
+    vi.mocked(git.statusPorcelainOrAsync).mockReset().mockResolvedValue("?? f.txt\n");
+    vi.mocked(existsSync).mockReset().mockReturnValue(true);
+    vi.mocked(statSync).mockReset();
+  });
+
+  it("defaults to `now`; an explicit windowEnd clamps ownership", async () => {
+    vi.mocked(statSync).mockReturnValue({ size: 10, mtimeMs: 5000 } as any);
+    const events = [makeBash("run", 100, "w")]; // no end → [start, now] by default
+    const live = await buildSessionDiff(events, cwd);
+    expect(live.files.some((f) => f.path === "f.txt")).toBe(true);
+
+    const ended = await buildSessionDiff(events, cwd, { windowEnd: 200 });
+    expect(ended.files.some((f) => f.path === "f.txt")).toBe(false);
+    expect(ended.otherChanges.some((f) => f.path === "f.txt")).toBe(true);
+  });
+});
+
 describe("buildSessionDiff — degradation", () => {
   const cwd = "/project";
   it("G1 — git absent, still returns Write/Edit entries", async () => {
