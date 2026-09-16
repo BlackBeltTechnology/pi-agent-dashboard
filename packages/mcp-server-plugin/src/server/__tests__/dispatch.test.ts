@@ -7,6 +7,7 @@
  * validation), G1/G2/G5 (self-target refusal through the real dispatch path),
  * S3 (empty filter) and S7 (legacy subscription methods).
  */
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it, vi } from "vitest";
 import type { ResolvedVersion } from "../dispatch.js";
 import {
@@ -18,6 +19,7 @@ import {
   REMOVED_METHODS,
 } from "../dispatch.js";
 import { parseRpcRequest, RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND } from "../jsonrpc.js";
+import { listSessions, validateListSessionsArgs } from "../list-sessions.js";
 import { META_VERSION_KEY, SUPPORTED_PROTOCOL_VERSIONS } from "../protocol.js";
 import type { McpCaller } from "../tokens.js";
 
@@ -32,6 +34,8 @@ function deps(over: Partial<DispatchDeps> = {}): DispatchDeps {
     invokeTool: vi.fn(async () => ({ ok: true })),
     serverInfo: { name: "pi-dashboard", version: "0.7.0" },
     openSubscription: vi.fn(async (sessionIds: string[]) => ({ subscribed: sessionIds })),
+    validateToolArgs: (name, args) =>
+      name === "list_sessions" ? validateListSessionsArgs(args) : null,
     ...over,
   };
 }
@@ -276,10 +280,11 @@ describe("G1/G2/G5 — self-target refusal through dispatch", () => {
     expect(d.invokeTool).toHaveBeenCalledOnce();
   });
 
-  it("M3 — a client-supplied session claim in the arguments does not become identity", async () => {
+  it("M3 — an undeclared session claim in the arguments is rejected, not honoured", async () => {
     const d = deps();
-    // The caller is a DEVICE token asserting it is session A. If the claim were
-    // honoured, this self-target would be refused; it must be permitted.
+    // The caller is a DEVICE token. A stray `callerSessionId` is rejected by
+    // strict validation before the handler, so the claim cannot even be
+    // presented — stronger than silently ignoring it.
     const r = await dispatchRpc(
       req("tools/call", {
         name: "send_prompt",
@@ -289,7 +294,9 @@ describe("G1/G2/G5 — self-target refusal through dispatch", () => {
       deviceCaller,
       d,
     );
-    expect(r.status).toBe(200);
+    expect(r.status).toBe(400);
+    expect(r.body).toMatchObject({ error: { code: -32602 } });
+    expect(d.invokeTool).not.toHaveBeenCalled();
   });
 });
 
@@ -627,5 +634,137 @@ describe("X7 — inject identity", () => {
     expect(opts.remoteAddress).toBe("127.0.0.1");
     expect(opts.headers).not.toHaveProperty("authorization");
     expect(opts.headers).not.toHaveProperty("x-forwarded-for");
+  });
+});
+
+// ── Strict argument validation (change: paginate-mcp-list-sessions) ───────
+// Preserved through the manifest migration: `list_sessions` keeps its bound,
+// filters and cursor; the generic schema validator checks the shape and the
+// tool-specific hook checks the cursor's filter binding.
+
+function listRows(n: number, over: (i: number) => Partial<DashboardSession> = () => ({})) {
+  return Array.from({ length: n }, (_, i) =>
+    ({
+      source: "tui",
+      status: "active",
+      startedAt: 1_000 + i,
+      hidden: false,
+      id: `s-${String(i).padStart(4, "0")}`,
+      cwd: "/proj",
+      ...over(i),
+    }) as DashboardSession,
+  );
+}
+
+const listCall = (args: Record<string, unknown>, d: DispatchDeps = deps()) =>
+  dispatchRpc(req("tools/call", { name: "list_sessions", arguments: args }), MODERN, deviceCaller, d);
+
+describe("E3/E4/E6-E9 — malformed limits are rejected, never coerced", () => {
+  it.each([
+    ["a zero limit", { limit: 0 }],
+    ["a negative limit", { limit: -1 }],
+    ["a limit above the maximum", { limit: 201 }],
+    ["a non-integer limit", { limit: 25.5 }],
+    ["a numeric string limit", { limit: "25" }],
+    ["a non-numeric limit", { limit: "abc" }],
+  ])("%s is invalid-params with no page", async (_label, args) => {
+    const d = deps();
+    const r = await listCall(args, d);
+    expect(r.status).toBe(400);
+    expect(r.body).toMatchObject({ error: { code: -32602 } });
+    expect(r.body).not.toHaveProperty("result");
+    expect(d.invokeTool).not.toHaveBeenCalled();
+  });
+});
+
+describe("E12/E17 — enum and unknown-name validation", () => {
+  it("E12 — an unknown status value is rejected, not silently unfiltered", async () => {
+    const d = deps();
+    const r = await listCall({ status: ["running"] }, d);
+    expect(r.status).toBe(400);
+    expect(r.body).toMatchObject({ error: { code: -32602 } });
+    expect(d.invokeTool).not.toHaveBeenCalled();
+  });
+
+  it("E17 — a misspelled argument is rejected, not ignored", async () => {
+    const d = deps();
+    const r = await listCall({ statuss: ["active"] }, d);
+    expect(r.status).toBe(400);
+    expect(r.body).toMatchObject({ error: { code: -32602 } });
+    expect(d.invokeTool).not.toHaveBeenCalled();
+  });
+
+  it("E17 — a prototype-named argument is rejected, not skipped by the `in` trap", async () => {
+    for (const name of ["toString", "constructor", "hasOwnProperty", "__proto__"]) {
+      const d = deps();
+      const r = await listCall({ [name]: "x" }, d);
+      expect(r.status, name).toBe(400);
+      expect(r.body, name).toMatchObject({ error: { code: -32602 } });
+      expect(d.invokeTool, name).not.toHaveBeenCalled();
+    }
+  });
+});
+
+describe("E24–E26 — the cursor is validated", () => {
+  it("E24 — a malformed cursor is rejected", async () => {
+    const d = deps();
+    const r = await listCall({ cursor: "!!!not-base64!!!" }, d);
+    expect(r.status).toBe(400);
+    expect(r.body).toMatchObject({ error: { code: -32602 } });
+    expect(d.invokeTool).not.toHaveBeenCalled();
+  });
+
+  it("E25 — a cursor replayed with different filters is rejected", async () => {
+    const rows = listRows(30, () => ({ status: "active" }));
+    const cursor = listSessions(rows, { status: ["active"] }).nextCursor;
+    expect(cursor).toBeTruthy();
+    const d = deps();
+    const r = await listCall({ status: ["ended"], cursor }, d);
+    expect(r.status).toBe(400);
+    expect(r.body).toMatchObject({ error: { code: -32602 } });
+    expect(d.invokeTool).not.toHaveBeenCalled();
+  });
+
+  it("E26 — a cursor replayed with a different limit is rejected", async () => {
+    const cursor = listSessions(listRows(100), { limit: 25 }).nextCursor;
+    expect(cursor).toBeTruthy();
+    const d = deps();
+    const r = await listCall({ limit: 50, cursor }, d);
+    expect(r.status).toBe(400);
+    expect(r.body).toMatchObject({ error: { code: -32602 } });
+    expect(d.invokeTool).not.toHaveBeenCalled();
+  });
+});
+
+describe("E27 — validation of other tools is unchanged", () => {
+  it.each([
+    ["send_prompt", { sessionId: "B", text: "hi" }],
+    ["spawn_session", { cwd: "/tmp" }],
+    ["abort", { sessionId: "B" }],
+  ])("%s still dispatches with pre-change arguments", async (name, args) => {
+    const d = deps();
+    const r = await dispatchRpc(req("tools/call", { name, arguments: args }), MODERN, deviceCaller, d);
+    expect(r.status).toBe(200);
+    expect(d.invokeTool).toHaveBeenCalledOnce();
+  });
+});
+
+// S1 — a client argument must not override the manifest's fixed body field.
+describe("fixed body fields are not client-overridable", () => {
+  it("stop_after_turn ignores a caller-supplied action", async () => {
+    const inject = vi.fn(async (_opts: InjectOptions) => ({ statusCode: 200, body: { success: true, data: {} } }));
+    const stopTool: GeneratedTool = {
+      ...fixtureTools[2],
+      name: "stop_after_turn",
+      tier: "control",
+      // A permissive body so a caller-supplied `action` reaches the binder (the
+      // point under test) rather than being rejected as an unknown argument.
+      inputSchema: { type: "object", properties: {}, required: [], additionalProperties: true },
+      bind: { kind: "rest", method: "POST", path: "/api/session/:id/lifecycle", fixed: { action: "stop_after_turn" } },
+    };
+    const d = deps({ tools: [stopTool], inject });
+    await callTool("stop_after_turn", { sessionId: "S2", action: "force_kill" }, d, callerAt("control"));
+    const opts = inject.mock.calls[0][0] as InjectOptions;
+    expect(opts.payload).toEqual({ action: "stop_after_turn" });
   });
 });

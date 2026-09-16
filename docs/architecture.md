@@ -987,7 +987,7 @@ flowchart LR
   CORE -->|"package dep, hostless"| BIN["pi-apple-tools-install CLI"]
 ```
 
-### MCP Endpoint (`add-dashboard-mcp-server`, `mcp-legacy-clients-and-token-issuance`)
+### MCP Endpoint (`add-dashboard-mcp-server`, `mcp-legacy-clients-and-token-issuance`, `paginate-mcp-list-sessions`)
 
 New plugin `packages/mcp-server-plugin/`. Headless — no client entry, `claims: []`. Mounts `POST /mcp` on `ctx.fastify`, the shared Fastify instance every plugin gets. Seven other plugins register routes the same way.
 
@@ -1056,7 +1056,7 @@ Recovery trigger: mint reply. D6 deviation (approved, recorded in design.md § O
 
 **Self-target guard.** Refuses a session-targeting tool call (`send_prompt`, `abort`) whose target equals the caller's own resolved session. Target normalised for equality (trim, one quote pair, lowercase) — bypass-proof. Catches DIRECT self-targeting only. Indirect A→B→A loop permitted, documented out of scope. Device callers have no originating session, structurally outside the guard.
 
-**Tool surface.** Generated tool definitions filtered by caller tier. 4 context tools: `list_sessions` (`observe`), `send_prompt` (`control`), `spawn_session` (`control`), `abort` (`control`). REST and session tools route through manifest bindings with tier constraints. `abort` maps to `abortSession` (soft-only, false on a disconnected bridge), NOT `abortSpawnedRun`. `sessionId` an ordinary required argument.
+**Tool surface.** Generated from the reviewed manifest, filtered by caller tier. 4 context tools: `list_sessions` (`observe`), `send_prompt` (`control`), `spawn_session` (`control`), `abort` (`control`). REST and session tools route through manifest bindings with tier constraints. `abort` maps to `abortSession` (soft-only, false on a disconnected bridge), NOT `abortSpawnedRun`. `sessionId` an ordinary required argument. `list_sessions` is bounded, filterable, cursor-paged: envelope `{ sessions, total, nextCursor? }`; default limit 25, hard max 200; `hidden` worker sessions excluded; keyset cursor over `endedAt ?? lastActivityAt ?? startedAt` desc, `id` tiebreak; the bound is advertised in `inputSchema` + description, unknown argument rejected (`additionalProperties: false`), wrong type/range/enum → `-32602` before the handler; handler delegates to `listSessions()` in `packages/mcp-server-plugin/src/server/list-sessions.ts`. See change: paginate-mcp-list-sessions.
 
 **Streaming.** `subscriptions/listen`, a long-lived POST-response stream. `params.sessionIds[]` required; absent/empty/non-array → `-32602`. No subscribe-to-all. Filter applied per subscription before write. Authorisation re-checked per delivery. Revoked mid-stream → terminates it. Slow consumer → subscription TERMINATED at `MAX_BUFFERED_EVENTS` (1000) buffered events. Does NOT silently drop events. Subscription dies with its request.
 

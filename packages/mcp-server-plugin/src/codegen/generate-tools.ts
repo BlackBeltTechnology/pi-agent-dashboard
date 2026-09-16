@@ -89,6 +89,20 @@ export function isSessionTargeting(row: ToolRow): boolean {
 
 function tjs(tsType: ts.Type, checker: ts.TypeChecker): JsonSchema {
   const flags = tsType.flags;
+  // A union of string literals is an enum (e.g. `status?: SessionStatus[]`).
+  if (tsType.isUnion()) {
+    const literals: string[] = [];
+    let allStringLiterals = true;
+    for (const member of tsType.types) {
+      if (member.isStringLiteral()) literals.push(member.value);
+      else if (member.flags & ts.TypeFlags.Undefined) continue;
+      else {
+        allStringLiterals = false;
+        break;
+      }
+    }
+    if (allStringLiterals && literals.length > 0) return { type: "string", enum: literals };
+  }
   if (flags & ts.TypeFlags.StringLike) {
     if (tsType.isStringLiteral()) return { type: "string", enum: [tsType.value] };
     return { type: "string" };
@@ -116,8 +130,25 @@ function tjs(tsType: ts.Type, checker: ts.TypeChecker): JsonSchema {
     const required: string[] = [];
     for (const prop of props) {
       const declaration = prop.valueDeclaration ?? prop.declarations?.[0];
-      const propType = checker.getTypeOfSymbolAtLocation(prop, declaration ?? declaration!);
-      properties[prop.name] = tjs(propType, checker);
+      const rawPropType = checker.getTypeOfSymbolAtLocation(prop, declaration ?? declaration!);
+      // Optional props are `T | undefined`; strip it so `limit?: number` maps to
+      // `{type:"number"}`, not `{}`.
+      const schema = tjs(checker.getNonNullableType(rawPropType), checker);
+      // JSDoc `@minimum`/`@maximum`/`@integer` carry bounds a plain TS type
+      // cannot express (e.g. the list_sessions page sizes).
+      if (declaration) {
+        for (const tag of ts.getJSDocTags(declaration)) {
+          const name = tag.tagName.text;
+          const text = typeof tag.comment === "string" ? tag.comment.trim() : "";
+          if (name === "minimum" || name === "maximum") {
+            const n = Number(text);
+            if (Number.isFinite(n)) schema[name] = n;
+          } else if (name === "integer") {
+            schema.type = "integer";
+          }
+        }
+      }
+      properties[prop.name] = schema;
       const optional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
       if (!optional) required.push(prop.name);
     }

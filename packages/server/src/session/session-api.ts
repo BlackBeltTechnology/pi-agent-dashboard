@@ -32,6 +32,7 @@ import { keeperOptsFromSpawnResult } from "../spawn-process/headless-pid-registr
 import { spawnPiSession } from "../spawn-process/process-manager.js";
 import { deriveSpawnCorrelationTtlMs } from "../spawn-process/spawn-recovery-window.js";
 import { armSpawnWatchdog } from "../spawn-process/spawn-register-watchdog.js";
+import type { NetworkGuard } from "../routes/route-deps.js";
 import type { SessionManager } from "./memory-session-manager.js";
 import { decideResume } from "./session-origin.js";
 
@@ -69,13 +70,20 @@ export interface SessionApiDeps {
    * force-kill ladder + the three bridge forwards). Absent in unit contexts
    * that never hit the route. See change: expand-mcp-tiered-surface (D3).
    */
-  handleLifecycle?: (sessionId: string, action: LifecycleAction) => Promise<void>;
+  handleLifecycle?: (sessionId: string, action: LifecycleAction, extras?: { pgid?: number }) => Promise<void>;
   /**
    * Live trusted-network list, for the in-handler `operate` check on the two
    * destructive lifecycle actions (`force_kill`, `kill_process`).
    * See change: expand-mcp-tiered-surface (D3).
    */
   getTrustedNetworks?: () => string[];
+  /**
+   * Admission guard for the lifecycle/extension-ui routes. Without it an
+   * unauthenticated off-host caller (no Origin, so the CSRF gate is silent)
+   * could reach the destructive lifecycle handler. See change:
+   * expand-mcp-tiered-surface (D3).
+   */
+  networkGuard?: NetworkGuard;
 }
 
 type IdParams = { Params: { id: string } };
@@ -91,6 +99,7 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
   const { sessionManager, piGateway, browserGateway, pendingForkRegistry, pendingDashboardSpawns, pendingResumeIntents, pendingAttachRegistry, pendingPromptAcks, sessionArchive, pendingArchiveIntents } = deps;
   const handleLifecycle = deps.handleLifecycle;
   const getTrustedNetworks = deps.getTrustedNetworks ?? (() => []);
+  const networkGuard = deps.networkGuard;
 
   // Bootstrap gate + queue removed under change: eliminate-electron-runtime-install
   // (task 3.5). pi/openspec/tsx ship as regular npm deps so pi is always
@@ -538,9 +547,11 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
   // expand-mcp-tiered-surface (D3).
   fastify.post<IdParams & { Body: { action?: unknown } }>(
     "/api/session/:id/lifecycle",
+    { ...(networkGuard ? { preHandler: networkGuard } : {}) },
     async (request, reply) => {
       const { id } = request.params;
       const action = request.body?.action;
+      const pgid = (request.body as { pgid?: unknown } | undefined)?.pgid;
       if (!isLifecycleAction(action)) {
         reply.code(400);
         return {
@@ -564,7 +575,7 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
         reply.code(501);
         return { success: false, error: "lifecycle handler not wired" } satisfies ApiResponse;
       }
-      await handleLifecycle(id, action);
+      await handleLifecycle(id, action, typeof pgid === "number" ? { pgid } : {});
       return { success: true } satisfies ApiResponse;
     },
   );
@@ -577,6 +588,7 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
     IdParams & { Body: { requestId?: unknown; result?: unknown; cancelled?: unknown } }
   >(
     "/api/session/:id/extension-ui-response",
+    { ...(networkGuard ? { preHandler: networkGuard } : {}) },
     async (request, reply) => {
       const { id } = request.params;
       const { requestId, result, cancelled } = request.body ?? {};

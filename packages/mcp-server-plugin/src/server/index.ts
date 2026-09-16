@@ -31,6 +31,8 @@ import {
 import { createAdapterWarnOnce } from "./adapter-diagnostic.js";
 import type { ToolInvocation } from "./dispatch.js";
 import { GENERATED_TOOLS } from "./generated/tools.js";
+import { type ListSessionsArgs, listSessions, validateListSessionsArgs } from "./list-sessions.js";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { provisionDashboardEntry } from "./provisioning.js";
 import { mountMcpRoutes } from "./routes.js";
 import { filterToolsByRoute } from "./route-skew.js";
@@ -86,7 +88,9 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     hostVerifyDeviceToken?.(token) ?? hostVerifyDeviceTokenTier?.(token)?.id ?? null;
 
   const handlers: Record<string, (inv: ToolInvocation) => Promise<unknown>> = {
-    list_sessions: async () => ({ sessions: ctx.sessionManager.listAll() }),
+    list_sessions: async ({ args }) =>
+      // Bounded, filterable, cursor-paged (change: paginate-mcp-list-sessions).
+      listSessions(ctx.sessionManager.listAll() as DashboardSession[], args as ListSessionsArgs),
     send_prompt: async ({ args }) => ({
       delivered: ctx.sendToSession(args.sessionId as string, args.text as string),
     }),
@@ -159,6 +163,10 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     },
     // Session-bound tools forward to the owning bridge.
     sendToSession: (sessionId, message) => ctx.sendToSession(sessionId, message as never),
+    // Tool-specific argument checks beyond the generated schema shape — the
+    // bound/filter/cursor rules the list_sessions page owns.
+    validateToolArgs: (name, args) =>
+      name === "list_sessions" ? validateListSessionsArgs(args) : null,
     recordRefusal: ({ callerSessionId, targetSessionId, tool }) => {
       // G5 — refusals must be observable, with all three identifiers.
       ctx.logger.warn(

@@ -1449,6 +1449,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     }),
   );
 
+  // Shared network guard (thunk, not a boot snapshot — D15): a CIDR added at
+  // runtime admits without a restart. Created BEFORE registerSessionApi so the
+  // new lifecycle/extension-ui routes can carry it as a preHandler.
+  const networkGuard = createNetworkGuard(
+    () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
+    { localToken },
+  );
+
   // Session control REST API (wraps WebSocket-only operations)
   registerSessionApi(fastify, {
     sessionManager,
@@ -1461,9 +1469,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pendingPromptAcks,
     sessionArchive,
     pendingArchiveIntents,
+    networkGuard,
     // Shared lifecycle handler (change: expand-mcp-tiered-surface, D3): the
     // three bridge forwards plus the shared force-kill ladder.
-    handleLifecycle: (sessionId, action) =>
+    handleLifecycle: (sessionId, action, extras) =>
       runLifecycleAction(action, sessionId, {
         piGateway,
         forceKill: (sid) =>
@@ -1474,7 +1483,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             broadcast: browserGateway.broadcastToAll,
             metaPersistence,
           }),
-      }),
+      }, extras ?? {}),
     getTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
   });
 
@@ -1482,10 +1491,6 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Create network guard from merged trusted networks
   // Thunk, not a boot snapshot (D15): a CIDR added through the gateway action
   // must admit that range on the next request, with no restart.
-  const networkGuard = createNetworkGuard(
-    () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
-    { localToken },
-  );
 
   // ── Reload fan-out plumbing ───────────────────────────────────────────
   // Every automated reload trigger goes through the SAME ladder as the

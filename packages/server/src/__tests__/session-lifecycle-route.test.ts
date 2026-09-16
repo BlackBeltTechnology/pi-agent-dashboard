@@ -40,7 +40,7 @@ interface App {
   sendToSession: ReturnType<typeof vi.fn>;
 }
 
-async function mkApp(): Promise<App> {
+async function mkApp(opts: { guard?: (req: any, reply: any) => Promise<void> } = {}): Promise<App> {
   const reg = new PairedDeviceRegistry(path.join(tmpDir, "paired.json"));
   const tokens = {
     control: reg.add("c", "manual", "control").token,
@@ -69,6 +69,7 @@ async function mkApp(): Promise<App> {
       lifecycleCalls.push({ sessionId, action });
     },
     getTrustedNetworks: () => [],
+    networkGuard: opts.guard,
   });
   await app.ready();
   return { app, tokens, lifecycleCalls, clearUiRequest, sendToSession };
@@ -155,6 +156,29 @@ describe("E27 — extension-ui-response clears and forwards identically", () => 
     const { app, clearUiRequest } = await mkApp();
     const res = await post(app, "/api/session/S/extension-ui-response", {});
     expect(res.statusCode).toBe(400);
+    expect(clearUiRequest).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("B2 — the destructive lifecycle route carries an admission guard", () => {
+  it("a rejecting networkGuard stops the call before the handler", async () => {
+    const guard = async (_req: unknown, reply: any) => {
+      reply.code(403).send({ success: false, error: "network_not_allowed" });
+    };
+    const { app, lifecycleCalls } = await mkApp({ guard });
+    const res = await post(app, "/api/session/S/lifecycle", { action: "force_kill" }, {}, "127.0.0.1");
+    expect(res.statusCode).toBe(403);
+    expect(lifecycleCalls).toHaveLength(0);
+  });
+
+  it("the extension-ui route carries the same guard", async () => {
+    const guard = async (_req: unknown, reply: any) => {
+      reply.code(403).send({ success: false, error: "network_not_allowed" });
+    };
+    const { app, clearUiRequest } = await mkApp({ guard });
+    const res = await post(app, "/api/session/S/extension-ui-response", { requestId: "R" }, {}, "127.0.0.1");
+    expect(res.statusCode).toBe(403);
     expect(clearUiRequest).not.toHaveBeenCalled();
   });
 });

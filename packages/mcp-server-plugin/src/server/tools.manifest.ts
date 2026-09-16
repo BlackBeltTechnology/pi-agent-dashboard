@@ -33,7 +33,7 @@ export interface ToolRow {
 }
 
 export const MANIFEST: readonly ToolRow[] = [
-  { name: "list_sessions", description: "List every session the dashboard knows about.", tier: "observe", annotations: { readOnlyHint: true, destructiveHint: false }, input: "ToolEmptyInput", bind: { kind: "context", member: "sessionManager" } },
+  { name: "list_sessions", description: "List sessions. Bounded, filterable, cursor-paged; default 25, max 200, hidden excluded.", tier: "observe", annotations: { readOnlyHint: true, destructiveHint: false }, input: "ListSessionsToolArgs", bind: { kind: "context", member: "sessionManager" } },
   { name: "send_prompt", description: "Send prompt text to a session.", tier: "control", annotations: { readOnlyHint: false, destructiveHint: false }, input: "SendPromptRequest", sessionTargeting: true, bind: { kind: "context", member: "sendToSession" } },
   { name: "spawn_session", description: "Spawn a new pi session in a working directory.", tier: "control", annotations: { readOnlyHint: false, destructiveHint: false }, input: "SpawnSessionRequest", bind: { kind: "context", member: "spawnSession" } },
   { name: "abort", description: "Abort the running turn of a session.", tier: "control", annotations: { readOnlyHint: false, destructiveHint: false }, input: "SessionIdRequest", sessionTargeting: true, bind: { kind: "context", member: "abortSession" } },

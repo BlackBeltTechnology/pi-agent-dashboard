@@ -158,6 +158,12 @@ export interface DispatchDeps {
   openSubscription?(sessionIds: string[], caller: McpCaller): Promise<unknown>;
   /** Whether the streaming transport is wired; drives `server/discover`. */
   streamingAvailable?: boolean;
+  /**
+   * Tool-specific argument check beyond the JSON-Schema shapes (e.g. the opaque
+   * `list_sessions` cursor's filter binding). Returns an error message or null;
+   * `dispatch.ts` returns `-32602` before invoking the handler.
+   */
+  validateToolArgs?(toolName: string, args: Record<string, unknown>): string | null;
 }
 
 /** The tool set for this dispatch, defaulting to the generated manifest. */
@@ -397,6 +403,100 @@ function dispatchLegacy(
   return dispatchModernRest(request, id, caller, deps, ctx);
 }
 
+/** A scalar/array schema property the generated tools can express. */
+interface SchemaProp {
+  type?: string;
+  enum?: readonly string[];
+  minimum?: number;
+  maximum?: number;
+  items?: { type?: string; enum?: readonly string[] };
+}
+
+/** Validate a string, optionally constrained to an allowed set. */
+function checkString(name: string, value: unknown, allowed?: readonly string[]): string | null {
+  if (typeof value !== "string") return `${name} must be a string`;
+  if (allowed && !allowed.includes(value)) return `${name} must be one of ${allowed.join(", ")}`;
+  return null;
+}
+
+/** Validate a finite number/integer against optional inclusive bounds. */
+function checkNumber(
+  name: string,
+  value: unknown,
+  opts: { integer: boolean; minimum?: number; maximum?: number },
+): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return `${name} must be a number`;
+  if (opts.integer && !Number.isInteger(value)) return `${name} must be an integer`;
+  if (opts.minimum !== undefined && value < opts.minimum) return `${name} must be >= ${opts.minimum}`;
+  if (opts.maximum !== undefined && value > opts.maximum) return `${name} must be <= ${opts.maximum}`;
+  return null;
+}
+
+/** Validate an array and every element against the declared item schema. */
+function checkArray(name: string, schema: SchemaProp, value: unknown): string | null {
+  if (!Array.isArray(value)) return `${name} must be an array`;
+  const items = schema.items;
+  if (!items) return null;
+  for (let i = 0; i < value.length; i += 1) {
+    if (items.type !== "string" && items.type !== "number" && items.type !== "integer") continue;
+    const prefix = `${name}[${i}]`;
+    const error =
+      items.type === "string"
+        ? checkString(prefix, value[i], items.enum)
+        : checkNumber(prefix, value[i], { integer: items.type === "integer" });
+    if (error) return error;
+  }
+  return null;
+}
+
+/** Validate one `inputSchema` property value against its declared shape. */
+function validatePropertyValue(name: string, schema: SchemaProp, value: unknown): string | null {
+  switch (schema.type) {
+    case "string":
+      return checkString(name, value, schema.enum);
+    case "number":
+      return checkNumber(name, value, { integer: false, minimum: schema.minimum, maximum: schema.maximum });
+    case "integer":
+      return checkNumber(name, value, { integer: true, minimum: schema.minimum, maximum: schema.maximum });
+    case "boolean":
+      return typeof value === "boolean" ? null : `${name} must be a boolean`;
+    case "array":
+      return checkArray(name, schema, value);
+    default:
+      return null;
+  }
+}
+
+/**
+ * Validate `tools/call` arguments against the tool's declared schema. Unknown
+ * names are rejected ONLY for sealed schemas (`additionalProperties: false`),
+ * so a permissive manifest row still accepts a body. The tool-specific
+ * `validateToolArgs` hook runs last (e.g. the opaque cursor's filter binding).
+ */
+export function validateToolArguments(
+  tool: GeneratedTool,
+  args: Record<string, unknown>,
+): string | null {
+  const schema = tool.inputSchema;
+  const props = schema.properties ?? {};
+  if (schema.additionalProperties === false) {
+    for (const key of Object.keys(args)) {
+      // `Object.hasOwn`, not `in`: an argument named `toString`/`__proto__` must
+      // not pass by walking the prototype chain.
+      if (!Object.hasOwn(props, key)) {
+        return `${tool.name} does not accept an argument named "${key}"`;
+      }
+    }
+  }
+  for (const [name, raw] of Object.entries(props)) {
+    const value = args[name];
+    if (value === undefined) continue;
+    const error = validatePropertyValue(name, raw as SchemaProp, value);
+    if (error) return `${tool.name}: ${error}`;
+  }
+  return null;
+}
+
 async function dispatchToolCall(
   request: RpcRequest,
   id: RpcId,
@@ -440,6 +540,13 @@ async function dispatchToolCall(
         `${tool.name} requires a non-empty "${required}" argument`,
       );
     }
+  }
+
+  // Schema/shape validation plus any tool-specific check (e.g. the list_sessions
+  // cursor's filter binding). Still BEFORE the self-target guard.
+  const argError = validateToolArguments(tool, args) ?? deps.validateToolArgs?.(tool.name, args) ?? null;
+  if (argError) {
+    return rpcError(400, id, RPC_INVALID_PARAMS, argError, "InvalidToolArguments");
   }
 
   if (tool.sessionTargeting) {
@@ -537,8 +644,8 @@ async function executeRest(
     if (typeof value !== "string" || value.length === 0) {
       throw new ToolArgumentError(`${tool.name} requires a non-empty "${arg}" path argument`);
     }
-    if (UNSAFE_PATH_CHARS.test(value)) {
-      throw new ToolArgumentError(`${arg} must not contain /, ?, # or %`);
+    if (UNSAFE_PATH_CHARS.test(value) || value === "." || value === "..") {
+      throw new ToolArgumentError(`${arg} must not contain /, ?, # or % and must not be a dot segment`);
     }
     url = url.replace(`:${param}`, encodeURIComponent(value));
   }
@@ -559,8 +666,11 @@ async function executeRest(
     if (qs) url += `?${qs}`;
   } else {
     const bodyNames = split.bodyAll ? Object.keys(rest) : (split.body ?? []);
-    const body: Record<string, unknown> = { ...(tool.bind.fixed ?? {}) };
+    const body: Record<string, unknown> = {};
     for (const name of bodyNames) if (rest[name] !== undefined) body[name] = rest[name];
+    // `fixed` is the manifest's contract and MUST win: a caller supplying
+    // `{action:"force_kill"}` to `stop_after_turn` must not override it.
+    Object.assign(body, tool.bind.fixed ?? {});
     payload = body;
   }
 

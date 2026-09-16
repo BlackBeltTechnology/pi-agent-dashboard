@@ -40,6 +40,7 @@ export async function runLifecycleAction(
   action: LifecycleAction,
   sessionId: string,
   deps: LifecycleDeps,
+  extras: { pgid?: number } = {},
 ): Promise<void> {
   switch (action) {
     case "stop_after_turn":
@@ -49,7 +50,11 @@ export async function runLifecycleAction(
       deps.piGateway.sendToSession(sessionId, { type: "retry_session", sessionId });
       return;
     case "kill_process":
-      deps.piGateway.sendToSession(sessionId, { type: "kill_process", sessionId });
+      deps.piGateway.sendToSession(sessionId, {
+        type: "kill_process",
+        sessionId,
+        ...(extras.pgid !== undefined ? { pgid: extras.pgid } : {}),
+      });
       return;
     case "force_kill":
       await deps.forceKill(sessionId);

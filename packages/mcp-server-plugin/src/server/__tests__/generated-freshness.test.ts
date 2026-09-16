@@ -41,8 +41,8 @@ describe("E17 — generated tool artefacts are fresh", () => {
   it("is NOT vacuous — a hand-edited description no longer matches", () => {
     const { content } = build(routeTier);
     const tampered = content.replace(
-      '"description":"List every session the dashboard knows about."',
-      '"description":"HAND-EDITED"',
+      /"name":"list_sessions","description":"[^"]*"/,
+      '"name":"list_sessions","description":"HAND-EDITED"',
     );
     expect(tampered).not.toBe(content);
     expect(fs.readFileSync(GENERATED, "utf8")).toBe(content);

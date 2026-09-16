@@ -49,6 +49,23 @@ export interface SessionIdRequest {
   sessionId: string;
 }
 
+/**
+ * MCP `list_sessions` args (change: paginate-mcp-list-sessions). Bounds and the
+ * status enum are enforced by the tool's validator; the shape drives the schema.
+ */
+export interface ListSessionsToolArgs {
+  /**
+   * @minimum 1
+   * @maximum 200
+   * @integer
+   */
+  limit?: number;
+  status?: Array<"active" | "idle" | "streaming" | "ended">;
+  cwd?: string;
+  since?: number;
+  cursor?: string;
+}
+
 // ── Sessions ────────────────────────────────────────────────────────
 
 export interface ListSessionsQuery {
