@@ -14,7 +14,9 @@ Revocation SHALL accept only an **operator** credential — the same admission
 rule as direct token issuance: an authenticated dashboard login session, a
 valid `X-Pi-Local-Token`, or a genuinely local (loopback, non-forwarded)
 caller. A request authenticated only by a paired-device bearer SHALL NOT
-revoke any registry row, including its own.
+revoke any registry row, including its own, regardless of the caller's network
+position — a device bearer arriving over loopback SHALL be refused on the
+strength of the credential alone.
 
 #### Scenario: Token issued and recorded
 - **WHEN** a device successfully redeems a pairing code
@@ -33,6 +35,10 @@ revoke any registry row, including its own.
 #### Scenario: Paired device cannot revoke itself
 - **WHEN** a request authenticated only by device A's bearer sends `DELETE /api/paired-devices/<id of A>`
 - **THEN** the server SHALL respond `401` and device A's row SHALL remain
+
+#### Scenario: Loopback device bearer cannot revoke
+- **WHEN** a request authenticated only by device A's bearer sends `DELETE /api/paired-devices/<id of B>` from `127.0.0.1` with no forwarding headers
+- **THEN** the server SHALL respond `401` and device B's row SHALL remain
 
 #### Scenario: Operator revokes over a tunnel
 - **WHEN** a request carrying an authenticated dashboard login session sends `DELETE /api/paired-devices/<id>` from a non-local address

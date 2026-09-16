@@ -11,6 +11,26 @@ shell metacharacters (`cmd.exe` treats single quotes as literal characters).
 Exit-code handling, stable error codes, and timeouts SHALL be unchanged by the
 invocation form.
 
+Because a shell is no longer present to report a missing binary as exit status
+`127` with a diagnostic on stderr, a spawn failure that carries no exit status
+(`ENOENT` / `ENOTDIR` from the resolved binary path) SHALL be mapped to a
+dedicated stable error code naming the missing tool rather than degrading to a
+generic failure whose stderr is empty.
+
+#### Scenario: Missing git binary reports a dedicated code
+- **WHEN** a worktree request runs and the resolved `git` binary does not exist, so the spawn throws `ENOENT` with no exit status and no stderr
+- **THEN** the response SHALL carry a stable error code identifying git as not found
+- **AND** the server SHALL NOT crash and SHALL NOT report an empty-stderr generic failure
+
+#### Scenario: Missing gh binary reports a dedicated code
+- **WHEN** a create-pull-request request runs and the resolved `gh` binary does not exist
+- **THEN** the response SHALL carry a stable error code identifying gh as not found
+
+#### Scenario: No shell is interposed on Windows
+- **WHEN** any migrated git or `gh` invocation is built with the platform reported as `win32`
+- **THEN** the spawned argv[0] SHALL be the resolved binary path
+- **AND** argv[0] SHALL NOT be `cmd.exe` and no `/d /s /c` argument sequence SHALL be present
+
 #### Scenario: Branch name with a command separator is passed verbatim
 - **WHEN** a create-worktree request names the branch `feat&calc`
 - **THEN** git SHALL be invoked with `feat&calc` as a single argument
