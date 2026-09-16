@@ -31,8 +31,10 @@ beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-pair-urls-"));
 });
 
-afterEach(() => {
-  for (const app of openApps.splice(0)) void app.close();
+afterEach(async () => {
+  for (const app of openApps.splice(0)) {
+    await app.close();
+  }
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
