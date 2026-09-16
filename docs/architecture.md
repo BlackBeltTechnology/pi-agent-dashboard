@@ -987,7 +987,7 @@ flowchart LR
   CORE -->|"package dep, hostless"| BIN["pi-apple-tools-install CLI"]
 ```
 
-### MCP Endpoint (`add-dashboard-mcp-server`, `mcp-legacy-clients-and-token-issuance`)
+### MCP Endpoint (`add-dashboard-mcp-server`, `mcp-legacy-clients-and-token-issuance`, `paginate-mcp-list-sessions`)
 
 New plugin `packages/mcp-server-plugin/`. Headless — no client entry, `claims: []`. Mounts `POST /mcp` on `ctx.fastify`, the shared Fastify instance every plugin gets. Seven other plugins register routes the same way.
 
@@ -1041,7 +1041,7 @@ Recovery trigger: mint reply. D6 deviation (approved, recorded in design.md § O
 
 **Self-target guard.** Refuses a session-targeting tool call (`send_prompt`, `abort`) whose target equals the caller's own resolved session. Target normalised for equality (trim, one quote pair, lowercase) — bypass-proof. Catches DIRECT self-targeting only. Indirect A→B→A loop permitted, documented out of scope. Device callers have no originating session, structurally outside the guard.
 
-**Tool surface.** Curated allowlist over `ServerPluginContext`. 5 of 19 allowlisted (`sessionManager`, `sendToSession`, `spawnSession`, `abortSession`, `onEvent`), 14 denied. Partition total — future member fails `assertContextPartitionTotal`. Tools: `list_sessions`, `send_prompt`, `spawn_session`, `abort`. `abort` maps to `abortSession` (soft-only, false on a disconnected bridge), NOT `abortSpawnedRun`. `sessionId` an ordinary required argument (revision removed protocol sessions).
+**Tool surface.** Curated allowlist over `ServerPluginContext`. 5 of 19 allowlisted (`sessionManager`, `sendToSession`, `spawnSession`, `abortSession`, `onEvent`), 14 denied. Partition total — future member fails `assertContextPartitionTotal`. Tools: `list_sessions`, `send_prompt`, `spawn_session`, `abort`. `abort` maps to `abortSession` (soft-only, false on a disconnected bridge), NOT `abortSpawnedRun`. `sessionId` an ordinary required argument (revision removed protocol sessions). `list_sessions` now bounded, filterable, cursor-paged (BREAKING for no-argument call: returns envelope, not bare array; defaults to first page). Default limit 25, hard max 200. Advertised in `inputSchema` + description. Unknown argument rejected (enforces `additionalProperties: false`). Wrong type/numeric string/out-of-range/enum-violation → `-32602` before handler. Response envelope `{ sessions, total, nextCursor? }`; `total` post-filter; `nextCursor` absent (not null) on final page. Filters: `status` (array any-match), `cwd` (normalized via `pathKey`), `since` (epoch ms vs sort key). `hidden` excluded by default. Keyset cursor over `endedAt ?? lastActivityAt ?? startedAt` desc, `id` tiebreak; non-finite key sorts last; cursor digest binds filters+limit; mid-walk insert/end/remove tolerated. Handler delegates to `listSessions()` in `packages/mcp-server-plugin/src/server/list-sessions.ts`. See change: paginate-mcp-list-sessions.
 
 **Streaming.** `subscriptions/listen`, a long-lived POST-response stream. `params.sessionIds[]` required; absent/empty/non-array → `-32602`. No subscribe-to-all. Filter applied per subscription before write. Authorisation re-checked per delivery. Revoked mid-stream → terminates it. Slow consumer → subscription TERMINATED at `MAX_BUFFERED_EVENTS` (1000) buffered events. Does NOT silently drop events. Subscription dies with its request.
 

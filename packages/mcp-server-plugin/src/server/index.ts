@@ -28,8 +28,10 @@ import {
   createRealConfigIO,
   type McpClientConfigService,
 } from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { createAdapterWarnOnce } from "./adapter-diagnostic.js";
 import type { ToolInvocation } from "./dispatch.js";
+import { type ListSessionsArgs, listSessions } from "./list-sessions.js";
 import { provisionDashboardEntry } from "./provisioning.js";
 import { mountMcpRoutes } from "./routes.js";
 import { SubscriptionRegistry } from "./streaming.js";
@@ -73,7 +75,10 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     hostVerifyDeviceToken?.(token) ?? null;
 
   const handlers: Record<string, (inv: ToolInvocation) => Promise<unknown>> = {
-    list_sessions: async () => ({ sessions: ctx.sessionManager.listAll() }),
+    list_sessions: async ({ args }) =>
+      // The host exposes `listAll(): unknown[]`; rows are `DashboardSession`s by
+      // contract (the same rows the snapshot serves).
+      listSessions(ctx.sessionManager.listAll() as DashboardSession[], args as ListSessionsArgs),
     send_prompt: async ({ args }) => ({
       delivered: ctx.sendToSession(args.sessionId as string, args.text as string),
     }),
