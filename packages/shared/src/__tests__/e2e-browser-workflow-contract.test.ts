@@ -133,6 +133,16 @@ describe("ci-e2e-browser.yml — shard matrix", () => {
     expect(m, "ci workflow must set PW_E2E_BOOT_TIMEOUT_MS for the cold build").toBeTruthy();
     expect(Number(m?.[1])).toBeGreaterThan(180_000);
   });
+
+  it("runs the harness in COPY mode on CI (runners refuse the overlay mount)", () => {
+    // GitHub-hosted runners reject the entrypoint's `mount -t overlay`
+    // ("cannot mount overlay read-only", exit 32) so the container crash-looped
+    // 6 times per shard and NEVER answered /api/health. TEST_COPY_MODE=1 is the
+    // spec-sanctioned no-added-capability fallback (`cp -a` instead of overlay;
+    // test-up.sh then omits compose.test.cap.yml). Costless here: globalSetup
+    // boots from an EMPTY throwaway workspace, so the copy source is empty.
+    expect(yaml).toMatch(/TEST_COPY_MODE:\s*"?1"?/);
+  });
 });
 
 describe("ci-e2e-browser.yml — teardown + merged report", () => {

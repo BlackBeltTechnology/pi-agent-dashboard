@@ -100,6 +100,14 @@ jobs:
           CI: "1"
           PI_E2E_SEED: "1"
           PW_E2E_BOOT_TIMEOUT_MS: "1200000"
+          # GitHub-hosted runners refuse the entrypoint's `mount -t overlay`
+          # ("cannot mount overlay read-only", exit 32), so the container
+          # crash-looped 6x per shard and never answered /api/health.
+          # TEST_COPY_MODE=1 is the spec-sanctioned no-capability fallback
+          # (`cp -a` instead of overlay; test-up.sh then omits
+          # compose.test.cap.yml). Costless here: globalSetup boots from an
+          # EMPTY throwaway workspace, so the copy source is empty.
+          TEST_COPY_MODE: "1"
 
       - name: Upload blob report
         if: ${{ always() }}
