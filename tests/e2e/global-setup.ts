@@ -4,11 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import { chromium } from "@playwright/test";
 import {
+  captureHarnessFailure,
   DASHBOARD_PORT,
   HEALTH_URL,
   MARKER_PATH,
   resolvePortsFromStateFile,
   TEST_UP,
+  throwIfCrashLooping,
   USE_RUNNING,
   waitForHealth,
 } from "./lifecycle.js";
@@ -64,13 +66,6 @@ function assertBrowserInstalled(): void {
   }
 }
 
-/**
- * Poll the workspace state file + health endpoint until a derived dashboard port
- * is healthy. Re-reads .pi-test-harness.json EACH iteration so a bind-collision
- * retry that rewrites the ports (change fix-parallel-e2e-docker-collisions D2) is
- * followed instead of pinning a stale, abandoned port. First run builds the
- * image (slow); warm runs are seconds. Throws on timeout.
- */
 async function bootHealthyPorts(
   workspace: string,
   logPath: string,
@@ -78,7 +73,12 @@ async function bootHealthyPorts(
 ): Promise<{ dashboardPort: number; gatewayPort: number }> {
   const deadline = Date.now() + timeoutMs;
   let ports: { dashboardPort: number; gatewayPort: number } | undefined;
+  let tick = 0;
   while (Date.now() < deadline) {
+    // Probe for a crash-loop every ~10s (see throwIfCrashLooping): a failed
+    // entrypoint restarts within seconds, so this reports in ~2min instead of
+    // burning the whole CI budget on a poll that can never succeed.
+    if (++tick % 5 === 0) throwIfCrashLooping(workspace, logPath);
     try {
       ports = resolvePortsFromStateFile(workspace);
     } catch {
@@ -99,9 +99,11 @@ async function bootHealthyPorts(
   const where = ports
     ? `${ports.dashboardPort}/${ports.gatewayPort}`
     : "none (state file never written)";
+  const dump = captureHarnessFailure(workspace, logPath);
   throw new Error(
     `[${CHANGE}] container never became healthy within ${timeoutMs / 1_000}s ` +
-      `(last ports: ${where}). Check ${logPath} and docker/test-up.sh.`,
+      `(last ports: ${where}). ` +
+      `${dump ? `Container state + logs: ${dump}. ` : ""}Check ${logPath} and docker/test-up.sh.`,
   );
 }
 

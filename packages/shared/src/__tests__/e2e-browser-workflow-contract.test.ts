@@ -155,6 +155,22 @@ describe("ci-e2e-browser.yml — teardown + merged report", () => {
     expect(yaml).toMatch(/upload-artifact@v\d/);
   });
 
+  it("uploads the harness failure bundle when the boot never goes healthy", () => {
+    // test-up.sh's output ends at "Container ... Started" (compose returns as
+    // soon as the container is up), so an entrypoint that then crash-loops left
+    // NO diagnosable trace — exactly how the first CI dispatches failed. The
+    // shard must upload globalSetup's container state + log snapshot.
+    //
+    // Structural, not a bare substring match: a comment naming the file would
+    // keep `/harness-failure\.log/` green even after the upload step is deleted.
+    const lines = yaml.split("\n");
+    const header = lines.findIndex((l) => /-\s+name:\s*Upload harness failure bundle/.test(l));
+    expect(header, "no `Upload harness failure bundle` step found").toBeGreaterThanOrEqual(0);
+    const step = lines.slice(header, header + 8).join("\n");
+    expect(step).toMatch(/if:\s*\$\{\{\s*always\(\)\s*\}\}/);
+    expect(step).toMatch(/path:\s*test-results\/harness-failure\.log/);
+  });
+
   it("merges the shard reports into one playwright-report artifact", () => {
     expect(yaml).toMatch(/^\s{2}merge-report:/m);
     expect(yaml).toMatch(/merge-reports/);

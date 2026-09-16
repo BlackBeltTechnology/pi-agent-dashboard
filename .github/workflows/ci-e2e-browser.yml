@@ -125,6 +125,20 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      # test-up.sh's output ends at "Container ... Started" (compose returns as
+      # soon as the container is up), so an entrypoint that then crash-loops has
+      # NO trace in test-up.log. globalSetup snapshots the container's state +
+      # log tail into this bundle on a boot failure; without it the first CI
+      # dispatches died with "container never became healthy" and no cause.
+      - name: Upload harness failure bundle
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-failure-${{ matrix.shard }}
+          path: test-results/harness-failure.log
+          if-no-files-found: ignore
+          retention-days: 7
+
       # Belt-and-braces: globalTeardown already runs, but a KILLED Playwright
       # process skips it, and a leaked 4 GiB container would poison the next
       # matrix leg on a reused runner. test-down.sh re-derives the compose

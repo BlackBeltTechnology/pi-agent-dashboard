@@ -4,7 +4,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 
 | File | Purpose |
 |------|---------|
-| `README.md` | Docs for browser E2E. Prerequisites: Docker, `npx playwright install chromium`. Run via `npm run test:e2e`. → see `README.md.AGENTS.md` |
+| `README.md` | Browser E2E docs: prerequisites, run command, harness recovery. → see `README.md.AGENTS.md` |
 | `anthropic-bridge-activation.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Asserts the flows-anthropic-bridge regression via… → see `anthropic-bridge-activation.spec.ts.AGENTS.md` |
 | `archive-fold.spec.ts` | L3 for the per-folder `Archive (N)` fold (test-plan #F4, #F8, #F9, #F10, #F14, #F15, #X8, #P3): seeds… → see `archive-fold.spec.ts.AGENTS.md` |
 | `asciidoc-preview.spec.ts` | L3 AsciiDoc preview styling (change: asciidoc-support, test-plan #F1–#F6). → see `asciidoc-preview.spec.ts.AGENTS.md` |
@@ -58,10 +58,11 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `gateway-reserved-name.spec.ts` | Setup step 3 — the reserved-name control and its typed outcomes. → see `gateway-reserved-name.spec.ts.AGENTS.md` |
 | `gateway-url-action.spec.ts` | L3 spec (change: config-override-oauth-redirect-base, D12/D13/D15). → see `gateway-url-action.spec.ts.AGENTS.md` |
 | `git-panel.spec.ts` | Scenario 5.2 spec. Calls `ensureGitSession`. Asserts page-level `git-branch-btn` (title "Switch branch")… → see `git-panel.spec.ts.AGENTS.md` |
-| `global-setup.ts` | Playwright globalSetup. `PW_E2E_USE_RUNNING=1` → only verify `/api/health` (30s). → see `global-setup.ts.AGENTS.md` |
+| `global-setup.ts` | Playwright globalSetup: boot harness, poll health, dump container state+logs on boot failure. → see `global-setup.ts.AGENTS.md` |
 | `global-teardown.ts` | Playwright globalTeardown. Managed (marker present, not fast path) → run `docker/test-down.sh` with… → see `global-teardown.ts.AGENTS.md` |
 | `headless-reload-dispatch.spec.ts` | L3 for `fix-out-of-band-reload` (#F1–#F3). Bare `/reload` on a headless harness session: one terminal… → see `headless-reload-dispatch.spec.ts.AGENTS.md` |
 | `helpers/__tests__/evidence-path.test.ts` | Unit tests (vitest `tests` project, NOT Playwright) for `helpers/evidence-path.ts`. → see `helpers/__tests__/evidence-path.test.ts.AGENTS.md` |
+| `helpers/__tests__/lifecycle.test.ts` | Unit tests for `lifecycle.ts`'s harness failure diagnostics. → see `helpers/__tests__/lifecycle.test.ts.AGENTS.md` |
 | `helpers/__tests__/playwright-config.test.ts` | Unit tests (vitest `tests` project) for the ROOT `playwright.config.ts`, imported by absolute file URL… → see `helpers/__tests__/playwright-config.test.ts.AGENTS.md` |
 | `host-gate-allow.spec.ts` | L3 for the Host-gate operator flow (test-plan #F9/#F10, change: add-host-allowlist-admission). → see `host-gate-allow.spec.ts.AGENTS.md` |
 | `helpers/evidence-path.ts` | Resolves a change's `measurements.json` WITHOUT creating it. → see `helpers/evidence-path.ts.AGENTS.md` |
@@ -75,7 +76,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `inline-terminal-transcript.spec.ts` | L3 gate for `preserve-inline-terminal-transcript`: F1 exit-then-close keeps scrollback, F2/F3 untouched card… → see `inline-terminal-transcript.spec.ts.AGENTS.md` |
 | `kb-folder-slot.spec.ts` | Playwright spec. KB folder slot end-to-end in Docker harness. → see `kb-folder-slot.spec.ts.AGENTS.md` |
 | `large-session-replay.spec.ts` | L3 wire-level gate for `compact-warm-replay-stream` (#399): P1 zero superseded `message_update`, F5, F6… → see `large-session-replay.spec.ts.AGENTS.md` |
-| `lifecycle.ts` | Shared E2E lifecycle module. Port dynamic: probes free port in managed mode; `PW_E2E_PORT` (default 18000) +… → see `lifecycle.ts.AGENTS.md` |
+| `lifecycle.ts` | Shared E2E lifecycle: port state file, health poll, harness failure bundle. → see `lifecycle.ts.AGENTS.md` |
 | `list-models-registry-ready.spec.ts` | Playwright spec (L3). Live proof of the `list_models` registry-readiness discriminator. → see `list-models-registry-ready.spec.ts.AGENTS.md` |
 | `manage-worktrees.spec.ts` | L3 for the manage-worktrees surface (test-plan F4, F3, F7, X5, X11, X12, X13): menu gate is… → see `manage-worktrees.spec.ts.AGENTS.md` |
 | `mcp-client-folder-mobile.spec.ts` | L3 mobile presentation of the folder MCP page (change: extract-mcp-client-plugin, tasks 8.1/8.4). → see `mcp-client-folder-mobile.spec.ts.AGENTS.md` |
