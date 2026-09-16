@@ -27,10 +27,10 @@ describe("project-init seed carries no doctrine text", () => {
     expect(block).not.toMatch(/dox:\w+:start/);
   });
 
-  it("the coding profile template keeps its own fallback READ table", () => {
+  it("the coding profile template carries no READ table — injection is the sole source", () => {
     const tmpl = codingTmpl();
-    expect(tmpl).toContain("kb_search --doc-type agents");
-    expect(tmpl).toContain("kb agents <path>");
-    expect(tmpl).toContain("Fall-through");
+    expect(tmpl).not.toContain("kb_search --doc-type agents");
+    expect(tmpl).not.toContain("Finding docs (READ discipline)");
+    expect(tmpl).not.toContain("Fall-through");
   });
 });

@@ -14,7 +14,7 @@ repo-specific pointers the canonical doctrine leaves out:
 
 Behavioral guidelines to reduce common LLM mistakes. Bias toward caution over speed. Trivial tasks → judgment.
 
-1. **Think before coding.** State assumptions; if uncertain, ask via `ask_user`. Present multiple interpretations, don't pick silently. Push back when a simpler approach exists. **Never speculate about code you haven't opened** — consult the doc tree (`kb agents`/`kb_search`), then read the file. Confirm the plan before any major change.
+1. **Think before coding.** State assumptions; if uncertain, ask via `ask_user`. Present multiple interpretations, don't pick silently. Push back when a simpler approach exists. **Never speculate about code you haven't opened.** Confirm the plan before any major change.
 2. **Simplicity first.** Minimum code that solves the problem. No speculative features/abstractions/flexibility/error-handling for impossible cases. DRY: extract a shared helper when a pattern repeats (not for a single call site). "Would a senior engineer call this overcomplicated?" If yes, simplify.
 3. **Surgical changes.** Touch only what you must. Don't improve/refactor/reformat adjacent code. Match existing style. Mention unrelated dead code, don't delete it. Remove only orphans YOUR change created. Every changed line traces to the request.
 4. **Goal-driven (TDD).** Turn tasks into verifiable goals. Write/update tests first, verify they fail, then minimal implementation to pass. State a brief plan for multi-step tasks (step → verify).
@@ -103,10 +103,6 @@ Context inheritance: this repo ships `pi-dashboard-subagents` (default `inheritC
 ## OpenSpec Conventions
 
 In a worktree, resolve OpenSpec skills from the main repo root, not the checkout. **Create** change artifacts at `openspec/changes/<name>/` (never under `active/`/`archive/`); prefer `openspec change new <name>`. Creation-time only — `ship-change` MOVES a completed change into `openspec/changes/archive/<date>-<name>/`, which `scripts/check-conventions.mjs` skips as immutable history; a review asking to move an archived change back is a false positive. In `proposal.md`, add a `## Discipline Skills` section naming the `eng-disciplines` skills its tasks trigger (per the checkpoint tables above); when none apply, say so under the heading rather than omitting it. **Gating** on any `proposal.md` a change touches (`ship-it` step 4.4 via `scripts/check-conventions.mjs`); untouched proposals are not backfilled. Use `ask_user` (batch for multi-question) for any needed input.
-
-## Key Files
-
-The architectural backbone is NOT indexed here. Per-file record = the directory `AGENTS.md` tree, via `kb agents <path>` (root→nearest chain) or `kb_search --doc-type agents`. Docs tree node: [`docs/AGENTS.md`](docs/AGENTS.md). Adding a file → nearest directory `AGENTS.md` (never this root file).
 
 ## Diagram Style
 
