@@ -238,6 +238,7 @@ describe("P2 — the registry stays bounded under re-mint churn and resolve stay
 function realisticRows(n: number): DashboardSession[] {
   return Array.from({ length: n }, (_, i) =>
     ({
+      id: `session-${i}`,
       source: "tui",
       status: i % 20 === 0 ? "active" : "ended",
       startedAt: 1_700_000_000_000 + i,
@@ -258,10 +259,13 @@ describe("P1 — the default page stays within its payload budget (< 64 KB)", ()
     const envelope = listSessions(realisticRows(538));
     const bytes = Buffer.byteLength(JSON.stringify(envelope), "utf8");
 
-    // Non-vacuous: 25 real weighted rows, not an empty page.
+    // Non-vacuous: 25 DISTINCT real rows were serialized, not an empty page.
+    // No payload floor: this is a budget (`< 64 KB`), and a floor would fail a
+    // future row-weight trim (the documented non-goal follow-up) rather than a
+    // regression.
     expect(envelope.sessions).toHaveLength(25);
     expect(envelope.total).toBe(538);
-    expect(bytes).toBeGreaterThan(20 * 1024);
+    expect(new Set(envelope.sessions.map((s) => s.id)).size).toBe(25);
     expect(bytes).toBeLessThan(64 * 1024);
   });
 });
