@@ -17,7 +17,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "typescript";
 import { MANIFEST, type ToolRow } from "../src/server/tools.manifest.js";
 
@@ -66,23 +66,34 @@ export interface GeneratedTool {
 
 const PATH_ARG_RE = /:([A-Za-z0-9_]+)/g;
 
-/** Route `:param` → tool argument name (`:id` becomes `sessionId`, D4). */
-export function argNameFor(param: string): string {
-  return param === "id" ? "sessionId" : param;
+/**
+ * Route `:param` → tool argument name. The `/api/session/:id/*` family renames
+ * `:id` to `sessionId` so every session-targeting tool shares one argument
+ * name (D4); other routes keep their own `:id` (a device/goal/plugin id is not
+ * a session id — renaming those would mislabel the argument and make the
+ * self-target guard inspect the wrong field).
+ */
+export function argNameFor(param: string, routePath: string): string {
+  if (param === "id" && routePath.startsWith("/api/session/")) return "sessionId";
+  return param;
 }
 
 /** Path parameters declared by a route pattern, in order. */
 export function pathParams(routePath: string): Array<{ arg: string; param: string }> {
   const out: Array<{ arg: string; param: string }> = [];
-  for (const m of routePath.matchAll(PATH_ARG_RE)) out.push({ arg: argNameFor(m[1]), param: m[1] });
+  for (const m of routePath.matchAll(PATH_ARG_RE)) {
+    out.push({ arg: argNameFor(m[1], routePath), param: m[1] });
+  }
   return out;
 }
 
 /** A `:param` in the path or a `sessionId` argument marks a session-targeting row. */
 export function isSessionTargeting(row: ToolRow): boolean {
   if (row.sessionTargeting) return true;
-  if (row.bind.kind === "rest" && /:(id|sessionId)\b/.test(row.bind.path)) return true;
-  return false;
+  if (row.bind.kind !== "rest") return false;
+  // A session target is `:sessionId` anywhere, or `:id` ONLY in the
+  // `/api/session/:id` family. A bare `:id` elsewhere is a device/goal/plugin id.
+  return /:sessionId\b/.test(row.bind.path) || /^\/api\/session\/:id\b/.test(row.bind.path);
 }
 
 // ── JSON Schema from a TypeScript type ─────────────────────────────────────
@@ -374,6 +385,6 @@ async function main(): Promise<void> {
   console.log(`Generated ${tools.length} tools → ${path.relative(REPO_ROOT, OUT_FILE)}`);
 }
 
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   await main();
 }

@@ -27,14 +27,21 @@ const authedHeaders = () => ({ cookie: `${COOKIE_NAME}=${sessionToken}` });
 
 async function armOperatorSession(request: import("@playwright/test").APIRequestContext): Promise<void> {
   sessionToken = signToken(SESSION_USER, E2E_AUTH_SECRET);
-  const cur = (await (await request.get("/api/config", { headers: authedHeaders() })).json()).data as {
-    trustedNetworks?: unknown;
-    auth?: Record<string, unknown>;
-  };
-  preTestConfig = { trustedNetworks: cur?.trustedNetworks, auth: cur?.auth };
+  // Capture the ORIGINAL snapshot ONCE: `beforeEach` runs per test, and a
+  // second call would otherwise snapshot the already-narrowed config.
+  if (!preTestConfig) {
+    const cur = (await (await request.get("/api/config", { headers: authedHeaders() })).json()).data as {
+      trustedNetworks?: unknown;
+      auth?: Record<string, unknown>;
+    };
+    preTestConfig = { trustedNetworks: cur?.trustedNetworks, auth: cur?.auth };
+  }
   await request.put("/api/config", {
     headers: authedHeaders(),
-    data: { trustedNetworks: [], auth: { ...(cur?.auth ?? {}), bypassUrls: ["/v1/"] } },
+    data: {
+      trustedNetworks: [],
+      auth: { ...((await (await request.get("/api/config", { headers: authedHeaders() })).json()).data?.auth ?? {}), bypassUrls: ["/v1/"] },
+    },
   });
 }
 

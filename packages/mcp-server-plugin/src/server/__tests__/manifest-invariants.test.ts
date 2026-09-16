@@ -13,7 +13,10 @@ const EMPTY = { readOnlyHint: false, destructiveHint: false } as const;
 
 /** Does a row's route pattern imply it targets one session? */
 function impliesSessionTarget(row: ToolRow): boolean {
-  return row.bind.kind === "rest" && /:(id|sessionId)\b/.test(row.bind.path);
+  if (row.bind.kind !== "rest") return false;
+  // `:sessionId` anywhere, or `:id` ONLY in the `/api/session/:id` family
+  // (a bare `:id` elsewhere is a device/goal/plugin id, not a session).
+  return /:sessionId\b/.test(row.bind.path) || /^\/api\/session\/:id\b/.test(row.bind.path);
 }
 
 /** The flag invariant: a session-targeting route MUST set the flag. */
@@ -89,10 +92,12 @@ describe("E18 — session-targeting coverage", () => {
     expect(checkSessionFlag(rogue)).toBe(false);
   });
 
-  it("a sessionId path parameter is exposed as `sessionId` on every such row", () => {
+  it("a session `:id` is exposed as `sessionId`; a non-session `:id` keeps `id`", () => {
     for (const t of GENERATED_TOOLS) {
-      if (t.paramSplit.path.some((p) => p.param === "id")) {
-        expect(t.paramSplit.path.some((p) => p.arg === "sessionId"), t.name).toBe(true);
+      for (const p of t.paramSplit.path) {
+        if (p.param !== "id") continue;
+        // Only session-targeting rows rename it.
+        expect(p.arg, t.name).toBe(t.sessionTargeting ? "sessionId" : "id");
       }
     }
   });

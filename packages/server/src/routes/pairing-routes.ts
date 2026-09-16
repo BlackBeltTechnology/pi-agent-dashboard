@@ -172,9 +172,13 @@ export function registerPairingRoutes(
 
   // ── Dashboard: approve a pending device by typed confirm code (auth) ───
   // D12: active typed compare-and-match; authenticated session only.
+  // Operator-only: a paired-DEVICE bearer must NOT approve a pairing, or it
+  // could mint a second durable token that survives its own revocation
+  // (CodeRabbit CWE-862). `operatorGuard` admits only a dashboard login session,
+  // the local token, or a genuinely-local caller.
   fastify.post<{ Body: { code?: string; confirmCode?: string; label?: string; tier?: unknown } }>(
     "/api/pair/approve",
-    { preHandler: networkGuard },
+    { preHandler: operatorGuard },
     async (request, reply): Promise<ApiResponse<PairedDeviceView>> => {
       const { code, confirmCode, label, tier } = request.body ?? {};
       if (typeof code !== "string" || typeof confirmCode !== "string") {

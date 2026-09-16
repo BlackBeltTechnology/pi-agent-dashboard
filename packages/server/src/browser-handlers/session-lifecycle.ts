@@ -36,28 +36,32 @@ export interface LifecycleDeps {
  * the caller (the REST route's in-handler `operate` check covers the two
  * destructive actions before this runs).
  */
+export interface LifecycleResult {
+  /** False when the bridge forward reached no live session (an honest no-op). */
+  delivered: boolean;
+}
+
 export async function runLifecycleAction(
   action: LifecycleAction,
   sessionId: string,
   deps: LifecycleDeps,
   extras: { pgid?: number } = {},
-): Promise<void> {
+): Promise<LifecycleResult> {
   switch (action) {
     case "stop_after_turn":
-      deps.piGateway.sendToSession(sessionId, { type: "stop_after_turn", sessionId });
-      return;
+      return { delivered: deps.piGateway.sendToSession(sessionId, { type: "stop_after_turn", sessionId }) };
     case "retry":
-      deps.piGateway.sendToSession(sessionId, { type: "retry_session", sessionId });
-      return;
+      return { delivered: deps.piGateway.sendToSession(sessionId, { type: "retry_session", sessionId }) };
     case "kill_process":
-      deps.piGateway.sendToSession(sessionId, {
-        type: "kill_process",
-        sessionId,
-        ...(extras.pgid !== undefined ? { pgid: extras.pgid } : {}),
-      });
-      return;
+      return {
+        delivered: deps.piGateway.sendToSession(sessionId, {
+          type: "kill_process",
+          sessionId,
+          ...(extras.pgid !== undefined ? { pgid: extras.pgid } : {}),
+        }),
+      };
     case "force_kill":
       await deps.forceKill(sessionId);
-      return;
+      return { delivered: true };
   }
 }

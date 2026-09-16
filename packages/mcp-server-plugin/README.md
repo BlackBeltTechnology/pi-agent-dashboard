@@ -3,7 +3,7 @@
 Built-in Pi Dashboard plugin exposing a dual-era MCP endpoint at `POST /mcp`.
 
 Implements dual-era protocol support:
-- **Modern (`2026-07-28`):** stateless, handshake-free, no session ids, `server/discover`, and `subscriptions/listen` streaming over curated allowlist of `ServerPluginContext` verbs (`list_sessions`, `send_prompt`, `spawn_session`, `abort`).
+- **Modern (`2026-07-28`):** stateless, handshake-free, no session ids, `server/discover`, and `subscriptions/listen` streaming over tier-filtered manifest of tools (`observe` < `control` < `operate`) bound to REST routes, browser-WS verbs and the `ServerPluginContext` (the original `list_sessions`, `send_prompt`, `spawn_session`, `abort` plus the wider capability surface).
 - **Legacy (`2025-03-26`, `2025-06-18`, `2025-11-25`):** Streamable-HTTP handshake via `initialize`, echoes negotiated version or negotiates down to `2025-11-25` on unknown version (modern `2026-07-28` on `initialize` refused with 404 / `-32601`), returns opaque unrecorded `Mcp-Session-Id` header, accepts `notifications/*` with 202, returns `{}` on `ping`. Streaming refused (404 `MethodRemoved`).
 - **Negotiation:** resolved once per request in `routes.ts` before streaming interceptor. Repeated or comma-joined header returns 400 `AmbiguousHeader`. Absent version markers default to legacy `2025-03-26`. Header and `params._meta` must agree when both present. Pi-global `mcp.json` provisioning stays pinned to `2026-07-28`.
 

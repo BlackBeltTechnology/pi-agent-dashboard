@@ -70,7 +70,7 @@ export interface SessionApiDeps {
    * force-kill ladder + the three bridge forwards). Absent in unit contexts
    * that never hit the route. See change: expand-mcp-tiered-surface (D3).
    */
-  handleLifecycle?: (sessionId: string, action: LifecycleAction, extras?: { pgid?: number }) => Promise<void>;
+  handleLifecycle?: (sessionId: string, action: LifecycleAction, extras?: { pgid?: number }) => Promise<{ delivered?: boolean } | void>;
   /**
    * Live trusted-network list, for the in-handler `operate` check on the two
    * destructive lifecycle actions (`force_kill`, `kill_process`).
@@ -575,7 +575,12 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
         reply.code(501);
         return { success: false, error: "lifecycle handler not wired" } satisfies ApiResponse;
       }
-      await handleLifecycle(id, action, typeof pgid === "number" ? { pgid } : {});
+      const result = await handleLifecycle(id, action, typeof pgid === "number" ? { pgid } : {});
+      // Never report success for a forward that reached no bridge.
+      if (result && result.delivered === false) {
+        reply.code(502);
+        return { success: false, transmitted: false, error: "no bridge connection for session" } satisfies ApiResponse;
+      }
       return { success: true } satisfies ApiResponse;
     },
   );
