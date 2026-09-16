@@ -9,7 +9,14 @@
  * emits ONLY on a state transition.
  */
 
+import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  HOST_PRESSURE_DEGRADED_MS as SHARED_DEGRADED_MS,
+  HOST_PRESSURE_UNRESPONSIVE_MS as SHARED_UNRESPONSIVE_MS,
+} from "@blackbelt-technology/pi-dashboard-shared/host-pressure.js";
+import { createMemorySessionManager } from "../memory-session-manager.js";
+import { sessionToMeta } from "../session-to-meta.js";
 import {
   createHostPressureTracker,
   HOST_PRESSURE_DEGRADED_MS,
@@ -87,9 +94,26 @@ describe("host-pressure tracker", () => {
   it("clear() drops the session without emitting — an ended card has no pressure", () => {
     const { emissions, tracker } = setup();
     tracker.noteFrame("s1");
-    tracker.clear("s1");
+    // Reports "no verdict was live", so a caller has nothing to retract.
+    expect(tracker.clear("s1")).toBe(false);
     vi.advanceTimersByTime(10 * HOST_PRESSURE_UNRESPONSIVE_MS);
     expect(emissions).toEqual([]);
+  });
+
+  it("clear() REPORTS a live verdict, so the caller can retract it", () => {
+    const { emissions, tracker } = setup();
+    tracker.noteFrame("s1");
+    vi.advanceTimersByTime(HOST_PRESSURE_DEGRADED_MS);
+    emissions.length = 0;
+
+    // Still silent itself — the retraction belongs to the caller that knows
+    // WHY the session is going away (carrier loss vs. a real end).
+    expect(tracker.clear("s1")).toBe(true);
+    expect(emissions).toEqual([]);
+    expect(tracker.size()).toBe(0);
+
+    // An unknown id is never a live verdict.
+    expect(tracker.clear("nobody")).toBe(false);
   });
 
   it("tracks sessions independently", () => {
@@ -112,5 +136,99 @@ describe("host-pressure tracker", () => {
     tracker.stop();
     vi.advanceTimersByTime(10 * HOST_PRESSURE_UNRESPONSIVE_MS);
     expect(emissions).toEqual([]);
+    expect(tracker.size()).toBe(0);
+  });
+
+  // Test-plan #E4 — the threshold is measured from the LAST frame, so a frame
+  // one millisecond short of it must restart the whole window, not shorten it.
+  it("E4: a frame just below the boundary re-arms the timers", () => {
+    const { emissions, tracker } = setup();
+    tracker.noteFrame("s1");
+
+    vi.advanceTimersByTime(HOST_PRESSURE_DEGRADED_MS - 1);
+    const secondFrameAt = Date.now();
+    tracker.noteFrame("s1");
+
+    // The original deadline passes with nothing emitted …
+    vi.advanceTimersByTime(1);
+    expect(emissions).toEqual([]);
+
+    // … and the verdict lands a full window after the SECOND frame
+    // (t0+34_999+35_000 = t0+69_999), stamped with that frame's time.
+    vi.advanceTimersByTime(HOST_PRESSURE_DEGRADED_MS - 2);
+    expect(emissions).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(emissions).toEqual([
+      { sessionId: "s1", pressure: { state: "degraded", since: secondFrameAt } },
+    ]);
+  });
+});
+
+// ── E6: one source of truth for the thresholds ────────────────────────────
+// The card escalates degraded → unresponsive BETWEEN server transitions, so it
+// must use the very numbers the server fires on. Two private copies drift.
+// See change: fix-false-unresponsive-badge (task 6.10).
+
+describe("E6: thresholds come from packages/shared, not from private literals", () => {
+  it("the tracker re-exports the shared constants unchanged", () => {
+    expect(HOST_PRESSURE_DEGRADED_MS).toBe(SHARED_DEGRADED_MS);
+    expect(HOST_PRESSURE_UNRESPONSIVE_MS).toBe(SHARED_UNRESPONSIVE_MS);
+  });
+
+  it("neither consumer module redefines the numbers", () => {
+    const modules = {
+      tracker: new URL("../host-pressure-tracker.ts", import.meta.url),
+      card: new URL(
+        "../../../../client/src/components/session/SessionCard.tsx",
+        import.meta.url,
+      ),
+    };
+    for (const [label, url] of Object.entries(modules)) {
+      const src = fs.readFileSync(url, "utf8");
+      // A bare threshold literal is exactly the drift this forbids. The shared
+      // module is the only place either number may be written.
+      expect(src, `${label} defines its own threshold literal`).not.toMatch(/\b35_?000\b/);
+      expect(src, `${label} defines its own threshold literal`).not.toMatch(/\b60_?000\b/);
+    }
+  });
+});
+
+// ── X4/X5: a verdict never outlives the live session ──────────────────────
+// See change: fix-false-unresponsive-badge (tasks 6.8, 7.4).
+
+describe("a host-pressure verdict is scoped to a live session", () => {
+  it("X4: ending a session clears its verdict, so a later snapshot serves none", () => {
+    const manager = createMemorySessionManager();
+    manager.register({ id: "s1", cwd: "/repo/a", source: "tui" });
+    manager.update("s1", { hostPressure: { state: "unresponsive", since: 1_000 } });
+    expect(manager.get("s1")?.hostPressure).toEqual({ state: "unresponsive", since: 1_000 });
+
+    manager.unregister("s1");
+
+    expect(manager.get("s1")?.status).toBe("ended");
+    expect(manager.get("s1")?.hostPressure).toBeUndefined();
+  });
+
+  it("X4: the update() seam that ends a session clears it too", () => {
+    const manager = createMemorySessionManager();
+    manager.register({ id: "s1", cwd: "/repo/a", source: "tui" });
+    manager.update("s1", { hostPressure: { state: "degraded", since: 1_000 } });
+
+    manager.update("s1", { status: "ended" });
+
+    expect(manager.get("s1")?.hostPressure).toBeUndefined();
+  });
+
+  it("X5: the verdict is transient — it never reaches .meta.json", () => {
+    const manager = createMemorySessionManager();
+    manager.register({ id: "s1", cwd: "/repo/a", source: "tui" });
+    manager.update("s1", { hostPressure: { state: "unresponsive", since: 1_000 } });
+
+    const meta = sessionToMeta(manager.get("s1")!) as Record<string, unknown>;
+
+    // A restart must not resurrect a verdict about a bridge that no longer
+    // exists: the field is derived live, so it is absent from the persisted
+    // enumeration entirely.
+    expect("hostPressure" in meta).toBe(false);
   });
 });

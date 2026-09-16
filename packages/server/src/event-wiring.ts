@@ -491,6 +491,13 @@ export function wireEvents(deps: EventWiringDeps): void {
   // Broadcast session ended to browsers when sessions are unregistered
   sessionManager.onEnded = (sessionId) => {
     const session = sessionManager.get(sessionId);
+    // A dead session keeps no host-pressure tracking. The gateway's own exit
+    // paths clear themselves, but a MANAGER-driven ending with the bridge
+    // socket still open (reload-spawn failure, zombie normalization, move)
+    // reaches none of them, and would leave the entry plus both timers alive.
+    // Fires on the EXACT transition from BOTH seams, like the write below.
+    // See change: fix-false-unresponsive-badge.
+    piGateway.clearHostPressure(sessionId);
     // The eager, durable write point for the terminal `closedReason` (design
     // D2). Fires on the EXACT transition from BOTH seams, so an `update()`-based
     // ending (reload-spawn failure, zombie normalization, move) persists its
@@ -548,6 +555,13 @@ export function wireEvents(deps: EventWiringDeps): void {
         endedAt: session.endedAt,
         closedReason: session.closedReason,
         currentTool: null,
+        // Explicit `null` for the same reason as `currentTool`: the client
+        // merges with `{ ...existing, ...updates }`, so an omitted key would
+        // leave the last verdict in browser state for a dead session. The
+        // ended card does not render it, but the row should not carry a
+        // liveness claim about a bridge that is gone.
+        // See change: fix-false-unresponsive-badge.
+        hostPressure: null,
       });
     }
     // Drop both pending registries. `pendingPromptRequests` and

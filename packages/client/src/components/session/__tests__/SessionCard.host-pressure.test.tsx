@@ -97,7 +97,7 @@ function renderCard(session: DashboardSession) {
 }
 
 describe("SessionCard host-pressure indicator", () => {
-  it("F1: no server verdict yields UNKNOWN, never healthy", () => {
+  it("silence from the server renders nothing (unknown is not healthy, and not a badge)", () => {
     const session = makeSession({ status: "streaming" });
     const d = deriveHostPressure(session, Date.now());
     expect(d.state).toBe("unknown");
@@ -234,6 +234,41 @@ describe("SessionCard host-pressure indicator", () => {
     renderCard(session);
     const pill = screen.getByTestId(`session-host-pressure-${session.id}`);
     expect(pill.textContent).toContain("◐");
+  });
+
+  // Test-plan #E5 — the full cross-product. The bug being fixed was exactly a
+  // cell of this table: `hostPressure` absent but `processMetrics.updatedAt` an
+  // hour old rendered `unresponsive · ~1h` on every live card. The metric age
+  // must be IRRELEVANT in all eight cells.
+  describe("E5: hostPressure × processMetrics age decision table", () => {
+    const now = Date.now();
+    const verdicts = {
+      undefined: undefined,
+      null: null,
+      degraded: pressure(now - HOST_PRESSURE_DEGRADED_MS - 1_000, "degraded"),
+      unresponsive: pressure(now - HOST_PRESSURE_UNRESPONSIVE_MS - 1_000, "unresponsive"),
+    } as const;
+    const ages = { now: now - 1_000, "now-1h": now - 60 * 60_000 };
+
+    for (const [verdictLabel, hostPressure] of Object.entries(verdicts)) {
+      for (const [ageLabel, updatedAt] of Object.entries(ages)) {
+        const shouldRender = verdictLabel === "degraded" || verdictLabel === "unresponsive";
+        it(`hostPressure=${verdictLabel} × metrics=${ageLabel} → ${shouldRender ? "pill" : "nothing"}`, () => {
+          const session = makeSession({
+            status: "streaming",
+            processMetrics: metrics(updatedAt),
+            ...(verdictLabel === "undefined" ? {} : { hostPressure }),
+          });
+          const { container } = renderCard(session);
+          const pill = container.querySelector("[data-host-pressure]");
+          if (!shouldRender) {
+            expect(pill).toBeNull();
+            return;
+          }
+          expect(pill?.getAttribute("data-host-pressure")).toBe(verdictLabel);
+        });
+      }
+    }
   });
 
   it("an ended session never shows a host-pressure indicator", () => {

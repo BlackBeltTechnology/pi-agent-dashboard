@@ -1,4 +1,8 @@
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
+import {
+  HOST_PRESSURE_DEGRADED_MS,
+  HOST_PRESSURE_UNRESPONSIVE_MS,
+} from "@blackbelt-technology/pi-dashboard-shared/host-pressure.js";
 import { mdiAlertOutline, mdiArchiveOutline, mdiArrowRightCircleOutline, mdiClose, mdiCommentQuestion, mdiConsoleLine, mdiFlash, mdiLoading, mdiPaperclip, mdiPencil, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiPlus, mdiRefresh, mdiRemoteDesktop, mdiSourceBranch, mdiSourceBranchPlus, mdiSourceFork } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useState } from "react";
@@ -145,10 +149,10 @@ export function StatusShapeBadge({ shape, colorClass }: { shape: StatusShape; co
 // about a minute after page load.
 // See changes: stop-discarding-known-session-state, fix-false-unresponsive-badge.
 
-/** Silence past this reads as degraded (≈2 missed 15 s heartbeats). */
-export const HOST_PRESSURE_DEGRADED_MS = 35_000;
-/** Silence at/after this reads as unresponsive (the 60 s watchdog threshold). */
-export const HOST_PRESSURE_UNRESPONSIVE_MS = 60_000;
+// Thresholds come from `packages/shared`: the escalation below happens BETWEEN
+// server transitions, so it must use the very numbers the server fires on.
+// Re-exported so existing `SessionCard` import sites keep working.
+export { HOST_PRESSURE_DEGRADED_MS, HOST_PRESSURE_UNRESPONSIVE_MS };
 /** Local re-render cadence; the sidebar has no ticker of its own. */
 const HOST_PRESSURE_TICK_MS = 5_000;
 

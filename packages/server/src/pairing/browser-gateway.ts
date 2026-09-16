@@ -857,7 +857,16 @@ export function createBrowserGateway(
           // dropped by `JSON.stringify`, so the merge would PRESERVE the stale
           // tool name. `null` is the established clearing value, so a session
           // that finished its tool reconciles to "no tool", not to the old one.
-          updates: { status: session.status, currentTool: session.currentTool ?? null },
+          // `hostPressure` joins the rebuild for the same reason and with the
+          // same `?? null` clearing semantics: it is pushed on a TRANSITION
+          // only, so a shed recovery frame has no successor — the badge would
+          // stay lit until a reconnect.
+          // See change: fix-false-unresponsive-badge.
+          updates: {
+            status: session.status,
+            currentTool: session.currentTool ?? null,
+            hostPressure: session.hostPressure ?? null,
+          },
         },
         { sessionId: id },
       );
