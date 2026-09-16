@@ -1605,6 +1605,7 @@ export function loadConfig(): DashboardConfig {
     const rawStrategy = parsed.spawnStrategy;
     const spawnStrategy: SpawnStrategy =
       VALID_SPAWN_STRATEGIES.includes(rawStrategy) ? rawStrategy : defaults.spawnStrategy;
+    const subagentSaturation = parseSubagentSaturation(parsed.subagentSaturation);
 
     const result: DashboardConfig = {
       port: parsed.port ?? defaults.port,
@@ -1629,9 +1630,7 @@ export function loadConfig(): DashboardConfig {
           ? parsed.subagentTickThrottleMs
           : defaults.subagentTickThrottleMs,
       maxConcurrentSubagents: resolveMaxConcurrentSubagents(parsed.maxConcurrentSubagents),
-      ...(parseSubagentSaturation(parsed.subagentSaturation)
-        ? { subagentSaturation: parseSubagentSaturation(parsed.subagentSaturation) }
-        : {}),
+      ...(subagentSaturation ? { subagentSaturation } : {}),
       ...(parsed.subagentTickThrottleMigrated === true ? { subagentTickThrottleMigrated: true } : {}),
       removeBatchCap: clampRemoveBatchCap(parsed.removeBatchCap),
       spawnStrategy,

@@ -2584,9 +2584,10 @@ function initBridge(pi: ExtensionAPI) {
   // "not now" (re-issue after running children finish), not a task failure. The
   // `block` decision itself lives in `subagent-fanout-admission.ts`. See change:
   // bound-subagent-fanout-under-host-pressure (D2/D4/D5/D6/D7/D8).
+  const admissionSampler = new SaturationSampler();
   const fanoutAdmission = new FanoutAdmissionGate({
     resolveConfig: () => resolveAdmissionConfig(config),
-    saturation: new SaturationSampler(),
+    saturation: admissionSampler,
     // Refusals are ALSO written durably: the failure this mitigates ends with the
     // process gone, so counters carried only by the live frame vanish in exactly
     // the case that matters. Admissions write nothing (hot path, no FS I/O).
@@ -3726,6 +3727,10 @@ function initBridge(pi: ExtensionAPI) {
     s.hasUI = cachedHasUI;
     if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
     if (gitPollTimer) { clearInterval(gitPollTimer); gitPollTimer = null; }
+    // Disable the admission sampler's private event-loop histogram. A bridge
+    // re-init (/reload, session replacement) constructs a fresh sampler; without
+    // this the superseded 20 ms-resolution monitor runs until process exit.
+    admissionSampler.dispose();
 
     // Dev build & restart: rebuild client and stop server before reload
     if (config.devBuildOnReload) {

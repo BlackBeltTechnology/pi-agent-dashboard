@@ -199,7 +199,10 @@ export class FanoutAdmissionGate {
             toolCallId: event.toolCallId,
             cause: decision.cause,
             inFlight: this.admitted.size,
-            cap,
+            // Record the EFFECTIVE cap (1 under saturation), matching the reason
+            // string — a post-mortem reader must not see "cap 2" for a refusal
+            // that actually happened at cap 1.
+            cap: effectiveCap(config.maxConcurrentSubagents, saturated),
             reason: decision.reason,
             at: this.now(),
           });
