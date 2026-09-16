@@ -29,12 +29,11 @@ import {
  *   push arm:  ... plus PI_DASHBOARD_SUBAGENT_STRIP=0
  * then, against the derived `.pi-test-harness.json` port:
  *   PW_E2E_USE_RUNNING=1 PW_E2E_PORT=$PORT PI_SYNTH_AGENT_TICKS=1 PI_E2E_MEASURE=1 \
- *     PW_CHANNEL=chrome npx playwright test subagent-pull-measurements \
- *     --global-timeout=2400000
+ *     PW_CHANNEL=chrome npx playwright test subagent-pull-measurements
  *
- * `--global-timeout` is REQUIRED: the config default is 15 min, and these rows
- * spawn a session per measured run. Without it the run aborts mid-suite and
- * reports "did not run" rather than a real failure.
+ * No `--global-timeout` is needed: the config carries no whole-run budget
+ * (#450). These rows are long — pass `--global-timeout=<ms>` only if you want a
+ * local cap; omitting it lets the run finish however long it takes.
  */
 
 const WATCHED_BY_BUS: Record<number, string> = {
@@ -312,11 +311,10 @@ test.describe("subagent pull path — recorded measurements", () => {
 
   test("P4: inspector-open share across four watch patterns", async ({ page, context }) => {
     test.skip(STRIP_OFF, "the share is a client-side reading, measured on the default arm");
-    // MUST stay below the config's `globalTimeout` (15 min). At 900_000 the two
-    // budgets coincide, so the RUN aborted before the test could report and the
-    // failure surfaced as "1 did not run" with no diagnostic at all. Four arms
-    // need more than 15 min of wall clock on a loaded host, so this row is run
-    // with an explicit `--global-timeout` (see the header).
+    // Four arms need a long wall clock on a loaded host. The config sets no
+    // whole-run budget (#450), so this is bounded by the per-test timeout below;
+    // previously it had to be squeezed under a 15-min `globalTimeout` that made
+    // the run abort as "1 did not run" with no diagnostic.
     test.setTimeout(600_000);
     void page;
 

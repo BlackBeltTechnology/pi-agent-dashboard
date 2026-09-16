@@ -46,6 +46,28 @@ npm run test:e2e:ui     # same, Playwright UI mode
 npm run test:e2e:chrome # same, but use the SYSTEM Google Chrome (no bundled download)
 ```
 
+### No committed wall-clock budget
+
+The config sets **no `globalTimeout`** — a full run is unbounded by design
+(Playwright's default). A committed budget cannot cover a growing suite and made
+a full run report a *timeout* instead of a verdict, because it died long before
+168 specs finished (#450). Termination of a pathological run is already
+bounded by the per-test `timeout` (60s), `expect.timeout` (10s), and the
+harness-down short-circuit (3 consecutive probe failures → remaining specs
+skipped).
+
+A whole-run budget belongs to the CI job (`timeout-minutes` per shard), not the
+config. Locally, pass one explicitly when you want a cap:
+
+```bash
+npm run test:e2e -- --global-timeout=7200000   # 2 h local cap
+```
+
+CI additionally emits a Playwright `blob` report per shard (the config adds the
+`blob` reporter when `CI` is set); `.github/workflows/ci-e2e-browser.yml` merges
+those into one HTML artifact. Local runs keep `list` + `html` and never emit
+`blob`.
+
 ### System browser (skip the bundled Chromium download)
 
 `PW_CHANNEL=<chrome|msedge|chromium>` launches the installed browser binary
@@ -284,6 +306,57 @@ The L1 probe/reducer unit gaps and the hermetic L2 contract-pinned reducer test
 `packages/flows-plugin/src/__tests__/flow-reducer-*.test.ts`) are plain vitest —
 they run in the standard `npm test` (ci.yml) with NO Docker, browser, or
 pi-flows dependency (design D2). Only L3 needs the harness.
+
+## When a run dies mid-way
+
+Two different failures look identical from the outside (a run stops, a container
+is gone) but have different causes and different evidence. Capture the evidence
+BEFORE trying to explain it.
+
+### Someone else's harness is up (oversubscription)
+
+`docker/test-up.sh` now refuses to start when the running harness projects plus
+this one no longer fit the daemon's memory:
+
+- **Refused** — `(n+1) × MEM_LIMIT >= MemTotal`. The message names the other
+  `pi-dash-test-*` project(s) and the arithmetic, and nothing is built. Free the
+  other harness (`docker/test-down.sh` from its worktree) or override:
+  `PI_HARNESS_ALLOW_OVERSUBSCRIBE=1 docker/test-up.sh -d --build`.
+- **Warned** — the limits fit but a peer is up. The run proceeds; a red result is
+  no longer attributable to this change while the peer is alive.
+
+A memory reading that cannot be parsed (`MEM_LIMIT` unrecognised, or `docker
+info` unavailable) warns and proceeds — the guard never refuses on missing data.
+
+### A container was destroyed by something that is not this worktree (#451)
+
+The teardown in this repo is `-p`-scoped to its own compose project, so nothing
+in-tree can reach a foreign `pi-dash-test-*` container. When one nonetheless
+disappears, record the daemon's own event stream rather than reconstructing a
+timeline afterwards:
+
+```bash
+# shell 1 — start BEFORE the run so create/start are captured; Ctrl-C to stop
+docker/harness-audit.sh /tmp/harness-events.log
+
+# shell 2 — drive the harness as usual
+cd <worktree> && docker/test-up.sh -d --build
+PW_E2E_USE_RUNNING=1 npm run test:e2e
+docker/test-down.sh
+```
+
+The log then carries one line per `create`/`start`/`die`/`destroy`/`kill` for
+the harness namespace, each with `project=pi-dash-test-…`:
+
+```
+2026-… create  pi-dash-test-1234567890-pi-dashboard-1 project=pi-dash-test-1234567890
+2026-… destroy pi-dash-test-1234567890-pi-dashboard-1 project=pi-dash-test-1234567890
+```
+
+A `destroy` line whose timestamp does not line up with your own `test-down.sh`
+(or any `destroy` while your run is still going) is the occurrence to report on
+#451 — attach the file. Part 1 of #451 is explicitly **not** fixed by this
+change; the helper exists so the next occurrence yields evidence.
 
 ## Not run by `npm test`
 

@@ -14,6 +14,7 @@ Files in this directory. One row per file. Non-source area. Subdir files owned b
 | `compose.yml` | Base compose. Service `pi-dashboard`, `init:true`, env-driven ports, named volumes `pi-state`→`/home/pi/.pi`… → see `compose.yml.AGENTS.md` |
 | `Dockerfile` | Multi-stage. base: `node:24-bookworm-slim` +… → see `Dockerfile.AGENTS.md` |
 | `entrypoint.sh` | Runs `seed-auth.js`, seeds spawnStrategy into config.json first-run-only, starts tmux server, enrolls zrok v2… → see `entrypoint.sh.AGENTS.md` |
+| `harness-audit.sh` | Records `docker events` (`create`/`start`/`die`/`destroy`/`kill`) for the `pi-dash-test-*` label set into a file, so a container destroyed by a non-repo actor (#451 part 1) leaves evidence. `harness-audit.sh <outfile>`; start before `test-up.sh`. See change: stabilize-browser-e2e. |
 | `lib-ports.sh` | Sourced pure-helper lib. Exports `derive_hash(cwd)` (cksum), `derive_project(cwd)` -> `pi-dash-test-<hash>`,… → see `lib-ports.sh.AGENTS.md` |
 | `README.md` | User guide. Quick-start, config table, path-identical workspace mounts, volume perf profiles, gateway access, dev mode, Electron remote mode. See change: docker-packaging. |
 | `supervise-daemon.sh` | `supervise_daemon <pidfile> [label]` — keeps PID 1 alive for a DETACHED dashboard daemon, sourced by BOTH… → see `supervise-daemon.sh.AGENTS.md` |

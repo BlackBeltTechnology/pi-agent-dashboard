@@ -2951,6 +2951,26 @@ Cross-refs:
 - vitest.workers.ts
 - packages/client/src/__tests__/fixed-tick-conversion-equivalence.test.ts
 
+## Why does docker/test-up.sh refuse to start with "co-resident harness oversubscription"?
+
+Cause: `docker/test-up.sh` compares `(n+1) × MEM_LIMIT` against daemon `MemTotal`, where n = count of running peer `pi-dash-test-*` compose projects. Default `MEM_LIMIT` = `4g` (`docker/compose.yml`).
+
+Refuses when `(n+1) × MEM_LIMIT >= MemTotal`. Equality refuses: host must keep running. Error names other running project(s) plus arithmetic.
+
+Fix A: free peer harness — run `docker/test-down.sh` from other worktree.
+
+Fix B: override — `PI_HARNESS_ALLOW_OVERSUBSCRIBE=1 docker/test-up.sh -d --build`.
+
+Softer case: limits fit but peer running → one warning only (attribution degraded under contention).
+
+Missing data case: unparseable `MEM_LIMIT` or unavailable `docker info` → warning + proceed; never refuse.
+
+Issue: #451 part 2. Change: stabilize-browser-e2e.
+
+Cross-refs:
+- docker/TESTING.md
+- tests/e2e/README.md
+
 ## Doctrine not injected / first-contact nudge keeps firing?
 
 Check in order:

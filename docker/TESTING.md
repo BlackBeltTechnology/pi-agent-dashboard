@@ -64,6 +64,48 @@ hash of `HOST_CWD` (`$PWD`). See change: parallelize-test-harness.
   `PW_E2E_PORT` (default 18000) when attaching with `PW_E2E_USE_RUNNING=1`, and
   keeps `use.baseURL` in sync with the container.
 
+## Co-resident harness guard (#451 part 2)
+
+Two 4 GiB harnesses on 8 GB VM saturate daemon. Red run under contention cannot be attributed.
+
+`docker/test-up.sh` lists other running `pi-dash-test-*` compose projects via `list_running_harness_projects` in `docker/lib-ports.sh`.
+
+Refuses when `(n+1) × MEM_LIMIT >= MemTotal`. Default `MEM_LIMIT` = `4g` (`docker/compose.yml`). `>=` intentional: host must keep running; limits equal to MemTotal already oversubscribed.
+
+Refusal runs before image build and before `.pi-test-harness.json` write. Refused start costs nothing, leaves no state.
+
+Refusal message names other project(s) and arithmetic. Override: `PI_HARNESS_ALLOW_OVERSUBSCRIBE=1`.
+
+Limits fit but peer up → one warning (attribution degraded). No peer → silent.
+
+Unparseable `MEM_LIMIT` or failed `docker info` → warning + proceed; never refuse on missing data.
+
+One code path in and out of CI (CI runner has one harness → no-op).
+
+Tests: `scripts/__tests__/test-up-oversubscribe-guard.test.mjs`.
+
+## Harness audit (#451 part 1)
+
+Worktree harness container destroyed mid-run by outside action.
+
+Grep audit of every `docker … down|rm|prune|stop|kill` in-tree: all `-p`-scoped or own-container-named. Nothing in-repo reaches foreign `pi-dash-test-*` project. Destroy came from outside repo (manual action, Docker Desktop restart, out-of-tree prune).
+
+Not fix. Part 1 of #451 stays open.
+
+Helper: `docker/harness-audit.sh <outfile>` runs `docker events` for `create`/`start`/`die`/`destroy`/`kill`, filtered to `project=pi-dash-test-*`. Appends. Start before `test-up.sh`; Ctrl-C stops.
+
+Usage:
+```bash
+# shell 1
+docker/harness-audit.sh /tmp/harness-events.log
+# shell 2
+cd <worktree> && docker/test-up.sh -d --build
+PW_E2E_USE_RUNNING=1 npm run test:e2e
+docker/test-down.sh
+```
+
+`destroy` line not matching own `test-down.sh` = occurrence to attach to #451.
+
 ## Path-parity mount
 
 The directory you launch `test-up.sh` from (`$PWD`) is mounted into the
