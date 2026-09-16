@@ -3022,6 +3022,8 @@ CLI alternative on dashboard host:
 pi-dashboard token create --label ci --tier control --url http://<lan-ip>:8000
 ```
 
+Caveat: bearer token sends in cleartext over plain HTTP; LAN `http://` snippet exposes token to network sniffers. Use `https://` tunnel/base URL for agents off trusted LAN. Revoke + re-mint token after any exposure.
+
 Details: `docs/architecture.md` §MCP Endpoint.
 
 See change: expand-mcp-tiered-surface.
