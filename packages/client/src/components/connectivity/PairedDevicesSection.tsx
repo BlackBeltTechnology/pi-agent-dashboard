@@ -109,8 +109,10 @@ export function PairedDevicesSection() {
       const origin = window.location.origin;
       setBase(urls.includes(origin) ? origin : (urls[0] ?? ""));
     } catch {
+      // Discovery failed: fall back to the API base (a remote dashboard would
+      // otherwise be replaced by the browser origin, targeting the wrong server).
       setBaseUrls([]);
-      setBase(window.location.origin);
+      setBase(snippetBase());
     }
   }, []);
 

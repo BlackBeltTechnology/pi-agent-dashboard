@@ -115,12 +115,11 @@ describe("E25 — abort maps to the general session primitive", () => {
 });
 
 describe("E26 — session targeting is explicit and addressable", () => {
-  it("every session-targeting row can name a sessionId", () => {
+  it("every session-targeting row NAMES sessionId explicitly", () => {
     for (const tool of GENERATED_TOOLS.filter((t) => t.sessionTargeting)) {
       const hasPath = tool.paramSplit.path.some((p) => p.arg === "sessionId");
       const hasProp = "sessionId" in (tool.inputSchema.properties ?? {});
-      const permissive = tool.paramSplit.bodyAll === true;
-      expect(hasPath || hasProp || permissive, tool.name).toBe(true);
+      expect(hasPath || hasProp, tool.name).toBe(true);
     }
   });
 

@@ -112,11 +112,14 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     (method, url) => ctx.fastify.hasRoute({ method: method as never, url }),
     (m) => ctx.logger.warn(m),
   );
-  const advertised = new Set(tools.map((t) => t.name));
-
-  const completeness = checkToolCompleteness(tools, (name) =>
-    advertised.has(name) ? () => undefined : undefined,
-  );
+  // Completeness must consult the ACTUAL handlers: a context row with no
+  // handler would otherwise pass a membership-only resolver and only fail at
+  // call time. `rest`/`session` rows are executed by dispatch's binders.
+  const completeness = checkToolCompleteness(tools, (name) => {
+    const tool = tools.find((t) => t.name === name);
+    if (!tool) return undefined;
+    return tool.bind.kind === "context" ? handlers[name] : () => undefined;
+  });
   if (!completeness.ok) {
     ctx.logger.error(
       `mcp-server: advertised tools without a handler: ${completeness.missing.join(", ")}`,

@@ -126,16 +126,16 @@ function tjs(tsType: ts.Type, checker: ts.TypeChecker): JsonSchema {
     return { type: "array", items: elem ? tjs(elem, checker) : {} };
   }
 
-  // Record<string, unknown> — an object type with a string index signature.
+  // An object type with a string index signature (`Record<string, unknown>`,
+  // or a typed bag like `SessionToolArgs`) is permissive.
   const stringIndex = checker.getIndexTypeOfType(tsType, ts.IndexKind.String);
-  if (stringIndex) {
-    return { type: "object", additionalProperties: true };
-  }
 
   if (flags & ts.TypeFlags.Object) {
     const props = checker.getPropertiesOfType(tsType);
     if (props.length === 0) {
-      return { type: "object", properties: {}, required: [], additionalProperties: false };
+      return stringIndex
+        ? { type: "object", additionalProperties: true }
+        : { type: "object", properties: {}, required: [], additionalProperties: false };
     }
     const properties: Record<string, JsonSchema> = {};
     const required: string[] = [];
@@ -163,7 +163,7 @@ function tjs(tsType: ts.Type, checker: ts.TypeChecker): JsonSchema {
       const optional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
       if (!optional) required.push(prop.name);
     }
-    return { type: "object", properties, required, additionalProperties: false };
+    return { type: "object", properties, required, additionalProperties: stringIndex != null };
   }
 
   // Fallback: an intentionally-unspecified type.

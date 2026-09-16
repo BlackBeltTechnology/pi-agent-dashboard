@@ -44,6 +44,15 @@ export interface SendPromptRequest {
   images?: unknown[];
 }
 
+/**
+ * MCP: args for a session-bound bridge tool. `sessionId` is explicit (so the
+ * guard and the schema can see it) plus any bridge-specific fields.
+ */
+export interface SessionToolArgs {
+  sessionId: string;
+  [k: string]: unknown;
+}
+
 /** MCP: a bare session reference (abort and similar). */
 export interface SessionIdRequest {
   sessionId: string;
