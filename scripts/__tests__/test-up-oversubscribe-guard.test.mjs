@@ -19,12 +19,13 @@
  * `docker` is stubbed on PATH; no daemon is touched. Pattern:
  * scripts/__tests__/test-up-port-derivation.test.mjs.
  */
-import { describe, it, expect } from "vitest";
+
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, chmodSync, rmSync } from "node:fs";
-import path from "node:path";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..");

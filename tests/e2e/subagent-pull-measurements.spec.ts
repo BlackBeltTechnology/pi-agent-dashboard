@@ -1,4 +1,4 @@
-import type { BrowserContext, Locator, Page } from "@playwright/test";
+import type { BrowserContext, Page } from "@playwright/test";
 import { expect, test } from "./fixtures.js";
 import { recordMeasurement } from "./helpers/evidence-path.js";
 import {

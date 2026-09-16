@@ -115,11 +115,15 @@ CWDs, and VCS roots read exactly as they do on the host.
 Writes never reach the host. The host directory is the read-only *lower* layer
 of an in-container overlayfs; the *upper* layer is a throwaway tmpfs:
 
-```
-host ${HOST_CWD}  ──(bind, ro)──▶  /mnt/test-lower          (lowerdir)
-tmpfs (size=2g)                    /mnt/test-overlay/upper  (upperdir)
-  └─ same fs (overlay rule)        /mnt/test-overlay/work   (workdir)
-   mount -t overlay overlay -o lower,upper,work  ${HOST_CWD}
+```mermaid
+flowchart LR
+  HOST["host cwd (HOST_CWD)<br/>bind, read-only"] --> LOWER["/mnt/test-lower<br/>lowerdir"]
+  TMPFS["tmpfs (size=2g)<br/>upperdir + workdir on one fs"] --> UPPER["/mnt/test-overlay/upper"]
+  TMPFS --> WORK["/mnt/test-overlay/work"]
+  LOWER --> MOUNT["mount -t overlay overlay<br/>-o lowerdir,upperdir,workdir"]
+  UPPER --> MOUNT
+  WORK --> MOUNT
+  MOUNT --> SEEN["container sees HOST_CWD writable<br/>writes land in the tmpfs upper"]
 ```
 
 Container sees `${HOST_CWD}` writable; reads fall through to the host (ro);
@@ -177,7 +181,8 @@ and a single `/ws` WebSocket connect. A broken image/build exits non-zero
 | File | Role |
 |---|---|
 | `compose.test.yml` | overlay: isolation env, SYS_ADMIN, tmpfs state, mounts, entrypoint; container `DASHBOARD_PORT`/`PI_GATEWAY_PORT` interpolate `${…:-default}` |
-| `lib-ports.sh` | sourced pure helpers: `derive_hash`, `derive_project`, `is_free`, `find_free_in_window` |
+| `lib-ports.sh` | sourced pure helpers: `derive_hash`, `derive_project`, `is_free`, `find_free_in_window`, `list_running_harness_projects` (peer `pi-dash-test-*` projects), `parse_memory_bytes`, `human_bytes` |
+| `harness-audit.sh` | `docker events` capture for the `pi-dash-test-*` namespace (`create`/`start`/`die`/`destroy`/`kill`) -> file; evidence for a foreign destroy (#451 part 1). Start before `test-up.sh` |
 | `test-entrypoint.sh` | builds overlay, inits fixtures, smoke check, execs base entrypoint |
 | `test-up.sh` | derives port pair + project from `HOST_CWD`, writes state file, `compose -p … up`, prints chosen URL |
 | `test-down.sh` | re-derives project from `$PWD`, `compose -p … down -v`, removes state file |
