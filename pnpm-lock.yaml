@@ -961,6 +961,9 @@ importers:
       '@blackbelt-technology/pi-dashboard-shared':
         specifier: ^0.8.0
         version: link:../shared
+      '@fastify/rate-limit':
+        specifier: ^11.2.0
+        version: 11.2.0
     devDependencies:
       fastify:
         specifier: ^5.0.0

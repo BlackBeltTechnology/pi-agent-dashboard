@@ -46,7 +46,8 @@
   "dependencies": {
     "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
     "@blackbelt-technology/pi-dashboard-mcp-client-plugin": "^0.8.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0"
+    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
+    "@fastify/rate-limit": "^11.2.0"
   },
   "devDependencies": {
     "fastify": "^5.0.0",

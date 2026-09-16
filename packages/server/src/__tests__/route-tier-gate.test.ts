@@ -10,6 +10,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import rateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerBearerAuth } from "../auth/bearer-auth.js";
@@ -50,6 +51,9 @@ async function mkApp(opts: { trusted?: string[] } = {}): Promise<App> {
 
   const app = Fastify();
   openApps.push(app);
+  // A limiter so static analysis sees these fixture handlers as rate-limited
+  // (the real routes inherit the server's global limiter the same way).
+  await app.register(rateLimit, { global: true, max: 100_000, timeWindow: "1 minute" });
   app.decorateRequest("isAuthenticated", false);
   // Fixture: a cookie-session request (models auth-plugin's `authVia: "session"`).
   app.addHook("onRequest", async (req) => {

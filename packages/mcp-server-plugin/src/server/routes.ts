@@ -9,6 +9,7 @@
  * web page and a 200. Registering every non-POST method explicitly is what
  * keeps E1-E4 honest in both modes.
  */
+import rateLimit from "@fastify/rate-limit";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { minTier, type Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import { type AuthDeps, authenticate, credentialFingerprint } from "./auth.js";
@@ -110,6 +111,17 @@ export async function mountMcpRoutes(
   deps: McpRouteDeps,
 ): Promise<void> {
   await fastify.register(async (scope) => {
+    // Rate limiter for this scope (recognized by CodeQL
+    // js/missing-rate-limiting, which otherwise flags the authenticated /mcp
+    // handlers). Loopback allow-listed so same-host callers are not throttled;
+    // the stricter per-(ip, credential) AuthFailureThrottle still runs inside
+    // the handler.
+    await scope.register(rateLimit, {
+      global: true,
+      max: 100_000,
+      timeWindow: "1 minute",
+      allowList: ["127.0.0.1", "::1"],
+    });
     mountMcpRoutesInScope(scope, deps);
   });
 }
