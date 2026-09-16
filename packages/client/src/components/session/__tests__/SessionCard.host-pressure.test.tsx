@@ -1,10 +1,13 @@
 /**
  * Render suite for the host-pressure indicator (test-plan F1–F4).
- * See change: stop-discarding-known-session-state (tasks 5.2–5.8).
+ * See changes: stop-discarding-known-session-state (tasks 5.2–5.8),
+ * fix-false-unresponsive-badge.
  *
  * The freeze signal is OUT-OF-BAND silence since the last received frame, not
  * the self-reported `eventLoopMaxMs` — a blocked event loop cannot fire its own
- * heartbeat, so it can only ever describe a stall already recovered from.
+ * heartbeat, so it can only ever describe a stall already recovered from. The
+ * verdict is the SERVER's (`session.hostPressure`), never re-derived from
+ * `processMetrics.updatedAt`, which is pushed once at connect and then freezes.
  * Healthy sessions render nothing (zero added pixels). Every rendered state
  * carries a glyph as well as a colour (WCAG 1.4.1).
  *
@@ -71,6 +74,11 @@ function metrics(updatedAt: number, eventLoopMaxMs?: number) {
   };
 }
 
+/** The server's verdict, stamped with its receipt time of the last frame. */
+function pressure(since: number, state: "degraded" | "unresponsive" = "degraded") {
+  return { state, since };
+}
+
 const defaultProps = {
   selectedId: undefined,
   onSelect: () => {},
@@ -89,7 +97,7 @@ function renderCard(session: DashboardSession) {
 }
 
 describe("SessionCard host-pressure indicator", () => {
-  it("F1: absent processMetrics yields UNKNOWN, never healthy", () => {
+  it("silence from the server renders nothing (unknown is not healthy, and not a badge)", () => {
     const session = makeSession({ status: "streaming" });
     const d = deriveHostPressure(session, Date.now());
     expect(d.state).toBe("unknown");
@@ -99,20 +107,30 @@ describe("SessionCard host-pressure indicator", () => {
     expect(container.querySelector("[data-host-pressure]")).toBeNull();
   });
 
-  it("a healthy (fresh beat) session renders nothing — zero added pixels", () => {
-    const session = makeSession({
-      status: "streaming",
-      processMetrics: metrics(Date.now() - 1_000),
-    });
+  it("a healthy (server cleared) session renders nothing — zero added pixels", () => {
+    const session = makeSession({ status: "streaming", hostPressure: null });
+    expect(deriveHostPressure(session, Date.now()).state).toBe("healthy");
     const { container } = renderCard(session);
     expect(container.querySelector("[data-host-pressure]")).toBeNull();
   });
 
-  it("F2: an ongoing stall is visible from silence alone, with no heartbeat arriving", () => {
+  it("REGRESSION: a stale processMetrics timestamp alone never raises a badge", () => {
+    // The snapshot-only `processMetrics` freezes in the browser, so hours of
+    // apparent silence there mean nothing. Only the server's verdict counts.
+    const session = makeSession({
+      status: "streaming",
+      processMetrics: metrics(Date.now() - 60 * 60_000),
+    });
+    expect(deriveHostPressure(session, Date.now()).state).toBe("unknown");
+    const { container } = renderCard(session);
+    expect(container.querySelector("[data-host-pressure]")).toBeNull();
+  });
+
+  it("F2: an ongoing stall is visible from the server verdict, with no heartbeat arriving", () => {
     const now = Date.now();
     const session = makeSession({
       status: "streaming",
-      processMetrics: metrics(now - HOST_PRESSURE_UNRESPONSIVE_MS - 1_000),
+      hostPressure: pressure(now - HOST_PRESSURE_UNRESPONSIVE_MS - 1_000, "unresponsive"),
     });
     renderCard(session);
 
@@ -121,18 +139,20 @@ describe("SessionCard host-pressure indicator", () => {
     expect(pill.textContent).toMatch(/unresponsive/);
   });
 
-  it("F2: the card self-ticks — a fresh session goes unresponsive as wall-clock advances with no new frame", () => {
+  it("F2: the card self-ticks — a degraded session escalates as wall-clock advances", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2025-06-01T00:00:00.000Z"));
     const base = Date.now();
     const session = makeSession({
       status: "streaming",
-      processMetrics: metrics(base - 10_000),
+      hostPressure: pressure(base - HOST_PRESSURE_DEGRADED_MS - 1_000, "degraded"),
     });
     renderCard(session);
-    expect(screen.queryByTestId(`session-host-pressure-${session.id}`)).toBeNull();
+    expect(
+      screen.getByTestId(`session-host-pressure-${session.id}`).getAttribute("data-host-pressure"),
+    ).toBe("degraded");
 
-    // No new `processMetrics` arrives — only time passes.
+    // No new verdict arrives — only time passes.
     act(() => {
       vi.advanceTimersByTime(HOST_PRESSURE_UNRESPONSIVE_MS);
     });
@@ -141,25 +161,23 @@ describe("SessionCard host-pressure indicator", () => {
     expect(pill.getAttribute("data-host-pressure")).toBe("unresponsive");
   });
 
-  it("F2 boundary: past the unresponsive boundary is unresponsive; at the degraded boundary is healthy", () => {
+  it("F2 boundary: the local tick escalates past the boundary but never falls below the server verdict", () => {
     const now = 1_000_000_000;
     expect(
       deriveHostPressure(
-        makeSession({ processMetrics: metrics(now - HOST_PRESSURE_UNRESPONSIVE_MS) }),
+        makeSession({ hostPressure: pressure(now - HOST_PRESSURE_UNRESPONSIVE_MS, "degraded") }),
         now,
       ).state,
     ).toBe("unresponsive");
     expect(
       deriveHostPressure(
-        makeSession({ processMetrics: metrics(now - HOST_PRESSURE_DEGRADED_MS) }),
+        makeSession({ hostPressure: pressure(now - HOST_PRESSURE_DEGRADED_MS - 1, "degraded") }),
         now,
       ).state,
-    ).toBe("healthy");
+    ).toBe("degraded");
+    // Browser clock behind the server's: the badge the server raised stands.
     expect(
-      deriveHostPressure(
-        makeSession({ processMetrics: metrics(now - HOST_PRESSURE_DEGRADED_MS - 1) }),
-        now,
-      ).state,
+      deriveHostPressure(makeSession({ hostPressure: pressure(now, "degraded") }), now).state,
     ).toBe("degraded");
   });
 
@@ -167,9 +185,10 @@ describe("SessionCard host-pressure indicator", () => {
     const now = Date.now();
     const session = makeSession({
       status: "streaming",
+      hostPressure: null,
       processMetrics: metrics(now - 1_000, 12_000),
     });
-    // Fresh heartbeat → healthy → nothing rendered → never presented as current.
+    // Server cleared the verdict → healthy → nothing rendered → never current.
     expect(deriveHostPressure(session, now).state).toBe("healthy");
     const { container } = renderCard(session);
     expect(container.querySelector("[data-host-pressure]")).toBeNull();
@@ -182,6 +201,7 @@ describe("SessionCard host-pressure indicator", () => {
   it("F3: when corroboration is shown it reads as an already-recovered stall", () => {
     const session = makeSession({
       status: "streaming",
+      hostPressure: pressure(Date.now() - 40_000),
       processMetrics: metrics(Date.now() - 40_000, 12_000),
     });
     renderCard(session);
@@ -194,7 +214,7 @@ describe("SessionCard host-pressure indicator", () => {
     const now = Date.now();
     const session = makeSession({
       status: "streaming",
-      processMetrics: metrics(now - HOST_PRESSURE_UNRESPONSIVE_MS - 1_000),
+      hostPressure: pressure(now - HOST_PRESSURE_UNRESPONSIVE_MS - 1_000, "unresponsive"),
     });
     const d = deriveHostPressure(session, now);
     expect(d.state).toBe("unresponsive");
@@ -209,18 +229,53 @@ describe("SessionCard host-pressure indicator", () => {
   it("every rendered pressure state carries a glyph as well as colour (§1.4.1)", () => {
     const session = makeSession({
       status: "streaming",
-      processMetrics: metrics(Date.now() - 40_000),
+      hostPressure: pressure(Date.now() - 40_000),
     });
     renderCard(session);
     const pill = screen.getByTestId(`session-host-pressure-${session.id}`);
     expect(pill.textContent).toContain("◐");
   });
 
+  // Test-plan #E5 — the full cross-product. The bug being fixed was exactly a
+  // cell of this table: `hostPressure` absent but `processMetrics.updatedAt` an
+  // hour old rendered `unresponsive · ~1h` on every live card. The metric age
+  // must be IRRELEVANT in all eight cells.
+  describe("E5: hostPressure × processMetrics age decision table", () => {
+    const now = Date.now();
+    const verdicts = {
+      undefined: undefined,
+      null: null,
+      degraded: pressure(now - HOST_PRESSURE_DEGRADED_MS - 1_000, "degraded"),
+      unresponsive: pressure(now - HOST_PRESSURE_UNRESPONSIVE_MS - 1_000, "unresponsive"),
+    } as const;
+    const ages = { now: now - 1_000, "now-1h": now - 60 * 60_000 };
+
+    for (const [verdictLabel, hostPressure] of Object.entries(verdicts)) {
+      for (const [ageLabel, updatedAt] of Object.entries(ages)) {
+        const shouldRender = verdictLabel === "degraded" || verdictLabel === "unresponsive";
+        it(`hostPressure=${verdictLabel} × metrics=${ageLabel} → ${shouldRender ? "pill" : "nothing"}`, () => {
+          const session = makeSession({
+            status: "streaming",
+            processMetrics: metrics(updatedAt),
+            ...(verdictLabel === "undefined" ? {} : { hostPressure }),
+          });
+          const { container } = renderCard(session);
+          const pill = container.querySelector("[data-host-pressure]");
+          if (!shouldRender) {
+            expect(pill).toBeNull();
+            return;
+          }
+          expect(pill?.getAttribute("data-host-pressure")).toBe(verdictLabel);
+        });
+      }
+    }
+  });
+
   it("an ended session never shows a host-pressure indicator", () => {
     const session = makeSession({
       status: "ended",
       endedAt: Date.now(),
-      processMetrics: metrics(Date.now() - 5 * 60_000),
+      hostPressure: pressure(Date.now() - 5 * 60_000, "unresponsive"),
     });
     const { container } = renderCard(session);
     expect(container.querySelector("[data-host-pressure]")).toBeNull();

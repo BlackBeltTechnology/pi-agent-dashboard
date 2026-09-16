@@ -1,9 +1,4 @@
-# session-host-pressure-indicator Specification
-
-## Purpose
-TBD - created by archiving change stop-discarding-known-session-state. Update Purpose after archive.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Host pressure SHALL be rendered from data already on the wire
 
@@ -141,33 +136,3 @@ SHALL be presented distinguishably.
 - **WHEN** the card renders
 - **THEN** the indicator SHALL still function from the out-of-band silence signal
 - **AND** SHALL NOT render a corroboration value it does not have
-
-### Requirement: An ended session SHALL present its reason
-
-An ended session's card SHALL present the `closedReason` it carries, so a death
-is distinguishable from a clean exit at a glance.
-
-#### Scenario: Ended card shows why
-
-- **GIVEN** an ended session carrying a `closedReason`
-- **WHEN** the card renders
-- **THEN** the card SHALL present the reason alongside the ended state
-- **AND** a session whose reason is `unknown` SHALL say so rather than implying a clean exit
-
-### Requirement: Metrics history is explicitly out of scope
-
-Retaining a per-session metrics ring would require a new endpoint, server-side
-storage outliving `listActive()`, and an eviction rule. It is deliberately
-excluded.
-
-The consequence SHALL be stated rather than hidden: metrics remain latest-only
-and still disappear when a session leaves `listActive()`, so post-mortem
-inspection of a dead session's pressure history is NOT improved by this
-capability. What it improves is visibility of pressure while it is happening.
-
-#### Scenario: Dead session metrics are not retained
-
-- **GIVEN** a session that has ended
-- **WHEN** its card is inspected afterwards
-- **THEN** the absence of retained metrics history SHALL be an accepted outcome
-- **AND** SHALL NOT be treated as a defect of this capability

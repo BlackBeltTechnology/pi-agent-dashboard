@@ -1,4 +1,8 @@
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
+import {
+  HOST_PRESSURE_DEGRADED_MS,
+  HOST_PRESSURE_UNRESPONSIVE_MS,
+} from "@blackbelt-technology/pi-dashboard-shared/host-pressure.js";
 import { mdiAlertOutline, mdiArchiveOutline, mdiArrowRightCircleOutline, mdiClose, mdiCommentQuestion, mdiConsoleLine, mdiFlash, mdiLoading, mdiPaperclip, mdiPencil, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiPlus, mdiRefresh, mdiRemoteDesktop, mdiSourceBranch, mdiSourceBranchPlus, mdiSourceFork } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useState } from "react";
@@ -135,15 +139,20 @@ export function StatusShapeBadge({ shape, colorClass }: { shape: StatusShape; co
 }
 
 // ── Host pressure ───────────────────────────────────────────────────────────
-// Thresholds reuse the transport's own liveness verdict so the UI never
-// disagrees with the server: the bridge heartbeat is 15 s and the watchdog
-// force-closes at 60 s, so > 2 missed beats is degraded and >= 60 s is
-// unresponsive. See change: stop-discarding-known-session-state (test-plan 5.1).
+// The VERDICT is the server's (`host-pressure-tracker.ts`), pushed on a state
+// transition as `session.hostPressure`. The card only renders it and counts the
+// elapsed silence from the server-stamped `since`.
+//
+// It deliberately does NOT derive the verdict from `processMetrics.updatedAt`:
+// that field arrives once, in the connect `sessions_snapshot`, and is never
+// refreshed — deriving silence from it read EVERY live session as unresponsive
+// about a minute after page load.
+// See changes: stop-discarding-known-session-state, fix-false-unresponsive-badge.
 
-/** Silence past this reads as degraded (≈2 missed 15 s heartbeats). */
-export const HOST_PRESSURE_DEGRADED_MS = 35_000;
-/** Silence at/after this reads as unresponsive (the 60 s watchdog threshold). */
-export const HOST_PRESSURE_UNRESPONSIVE_MS = 60_000;
+// Thresholds come from `packages/shared`: the escalation below happens BETWEEN
+// server transitions, so it must use the very numbers the server fires on.
+// Re-exported so existing `SessionCard` import sites keep working.
+export { HOST_PRESSURE_DEGRADED_MS, HOST_PRESSURE_UNRESPONSIVE_MS };
 /** Local re-render cadence; the sidebar has no ticker of its own. */
 const HOST_PRESSURE_TICK_MS = 5_000;
 
@@ -156,35 +165,33 @@ interface HostPressureDerivation {
 }
 
 /**
- * Derive a session's pressure from data ALREADY on the wire (the session row's
- * `processMetrics`) — no endpoint, no polling, no added socket traffic.
+ * Read the server's pressure verdict off the session row.
  *
- * The primary signal is out-of-band silence: `Date.now() - updatedAt`, where
- * `updatedAt` is the server-stamped receipt time of the last frame
- * (`pi-gateway.ts` stamps `Date.now()` when a `process_metrics` message
- * arrives). A blocked event loop cannot send that frame, so silence is the
- * only signal that can see a stall IN PROGRESS; the self-reported
- * `eventLoopMaxMs` is retroactive corroboration only.
+ * `hostPressure` absent → `unknown` ("we have not heard" is a different fact
+ * from "all is well"); explicit `null` → recovered/healthy; an object → the
+ * server saw silence, and `since` (its receipt time of the last frame) anchors
+ * the locally-ticking duration.
  *
- * Absent metrics yield `unknown`, never `healthy` — "we have not heard" is a
- * different fact from "all is well". See change:
- * stop-discarding-known-session-state (design D4).
+ * The state is re-derived from elapsed silence so the pill escalates
+ * degraded → unresponsive between transitions, but it never falls BELOW the
+ * server's verdict — a browser clock behind the server's must not erase a
+ * badge the server put there. `eventLoopMaxMs` stays retroactive corroboration
+ * only: a blocked loop cannot report itself.
+ * See change: fix-false-unresponsive-badge.
  */
 export function deriveHostPressure(session: DashboardSession, now: number): HostPressureDerivation {
-  const metrics = session.processMetrics;
-  const updatedAt = metrics?.updatedAt;
-  if (typeof updatedAt !== "number" || !Number.isFinite(updatedAt)) {
-    return { state: "unknown" };
-  }
-  const silenceMs = Math.max(0, now - updatedAt);
-  const eventLoopMaxMs = metrics?.eventLoopMaxMs;
+  const pressure = session.hostPressure;
+  const eventLoopMaxMs = session.processMetrics?.eventLoopMaxMs;
+  if (pressure === undefined) return { state: "unknown" };
+  if (pressure === null) return { state: "healthy", silenceMs: 0, eventLoopMaxMs };
+  const silenceMs = Math.max(0, now - pressure.since);
   if (silenceMs >= HOST_PRESSURE_UNRESPONSIVE_MS) {
     return { state: "unresponsive", silenceMs, eventLoopMaxMs };
   }
   if (silenceMs > HOST_PRESSURE_DEGRADED_MS) {
     return { state: "degraded", silenceMs, eventLoopMaxMs };
   }
-  return { state: "healthy", silenceMs, eventLoopMaxMs };
+  return { state: pressure.state, silenceMs, eventLoopMaxMs };
 }
 
 /**
@@ -223,7 +230,7 @@ function formatHostPressureTooltip(d: HostPressureDerivation): string {
  * traffic. See change: stop-discarding-known-session-state.
  */
 function HostPressureIndicator({ session }: { session: DashboardSession }) {
-  const hasTimestamp = typeof session.processMetrics?.updatedAt === "number";
+  const hasTimestamp = session.hostPressure != null;
   const [, setTick] = useState(0);
   useEffect(() => {
     if (!hasTimestamp) return;
