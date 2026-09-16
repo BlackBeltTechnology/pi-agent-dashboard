@@ -30,7 +30,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `dashboard-slash.spec.ts` | Browser E2E: spawn session → `/dashboard:server-health` asserts bash card + "ran locally" footer + `ok=true`;… → see `dashboard-slash.spec.ts.AGENTS.md` |
 | `directory-home.spec.ts` | L3 for the `/folder/:encodedCwd` directory home page (change: add-directory-home-page). → see `directory-home.spec.ts.AGENTS.md` |
 | `editor-pane.spec.ts` | Playwright E2E for internal Monaco editor pane (change: add-internal-monaco-editor-pane). → see `editor-pane.spec.ts.AGENTS.md` |
-| `durable-session-diff.spec.ts` | L3 (change: fix-session-diff-durable-source, #F1): after `POST /api/restart` the RAM event store is empty, yet the Diff panel must list the Writes from the durable transcript. Drives `[[faux:tool-write-pair]]`. |
+| `durable-session-diff.spec.ts` | L3 (change: fix-session-diff-durable-source, #F1): after `POST /api/restart` the RAM event store is empty,… → see `durable-session-diff.spec.ts.AGENTS.md` |
 | `empty-model-selector.spec.ts` | L3 for `open-empty-model-selector`. Proves the harness-feasible slice: composer `model-selector-button` is… → see `empty-model-selector.spec.ts.AGENTS.md` |
 | `model-favorites-cross-surface.spec.ts` | L3 for model-picker-everywhere-favorites (test-plan F3): star model in Settings → Sessions Default Model… → see `model-favorites-cross-surface.spec.ts.AGENTS.md` |
 | `keeper-log-health.spec.ts` | L3 (test-plan #F1, #F2): `/api/health` carries `keeperLogs` (7 numeric fields); a sparse 2×-cap… → see `keeper-log-health.spec.ts.AGENTS.md` |
@@ -62,13 +62,13 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `global-teardown.ts` | Playwright globalTeardown. Managed (marker present, not fast path) → run `docker/test-down.sh` with… → see `global-teardown.ts.AGENTS.md` |
 | `headless-reload-dispatch.spec.ts` | L3 for `fix-out-of-band-reload` (#F1–#F3). Bare `/reload` on a headless harness session: one terminal… → see `headless-reload-dispatch.spec.ts.AGENTS.md` |
 | `helpers/__tests__/evidence-path.test.ts` | Unit tests (vitest `tests` project, NOT Playwright) for `helpers/evidence-path.ts`. → see `helpers/__tests__/evidence-path.test.ts.AGENTS.md` |
-| `helpers/__tests__/playwright-config.test.ts` | Unit tests (vitest `tests` project) for the ROOT `playwright.config.ts`, imported by absolute file URL (config sits outside this project's `tests/` root). Asserts no `globalTimeout` (#450: committed whole-run budget removed; per-test `timeout` 60s still bounds), `globalTeardown` wired, and the CI-only `blob` reporter (present when `CI` set, absent locally alongside `list` + `html`) — the sharded CI workflow merges per-shard blobs. See change: stabilize-browser-e2e. |
+| `helpers/__tests__/playwright-config.test.ts` | Unit tests (vitest `tests` project) for the ROOT `playwright.config.ts`, imported by absolute file URL… → see `helpers/__tests__/playwright-config.test.ts.AGENTS.md` |
 | `host-gate-allow.spec.ts` | L3 for the Host-gate operator flow (test-plan #F9/#F10, change: add-host-allowlist-admission). → see `host-gate-allow.spec.ts.AGENTS.md` |
 | `helpers/evidence-path.ts` | Resolves a change's `measurements.json` WITHOUT creating it. → see `helpers/evidence-path.ts.AGENTS.md` |
 | `helpers/index.ts` | E2E helpers. `gotoDashboard(page)` navigates `/`, waits for `header-app-bar`, and arms a one-per-page… → see `helpers/index.ts.AGENTS.md` |
 | `helpers/openspec-board.ts` | OpenSpec-board drop-targeting E2E helpers. Fixture `/fixtures/openspec-board` (64 generated `board-card-NN`… → see `helpers/openspec-board.ts.AGENTS.md` |
 | `helpers/windowed-session.ts` | Shared glue for L3 specs needing a REAL replay window. `buildWindowedSession({mode,window,transcripts})`… → see `helpers/windowed-session.ts.AGENTS.md` |
-| `host-pressure-badge.spec.ts` | L3 for `fix-false-unresponsive-badge` (#F3, #F4). Synthetic bridge goes quiet at the pi gateway; card acquires then loses the pressure pill with no reload,… → see `host-pressure-badge.spec.ts.AGENTS.md` |
+| `host-pressure-badge.spec.ts` | L3 for `fix-false-unresponsive-badge` (#F3, #F4): synthetic bridge quiet → pressure pill appears then clears, no reload. → see `host-pressure-badge.spec.ts.AGENTS.md` |
 | `history-backfill-gap.spec.ts` | L3 for `fix-lazy-history-backfill-ux` (F1–F6, F8–F11, X3, X5 — twelve scenarios). → see `history-backfill-gap.spec.ts.AGENTS.md` |
 | `history-backfill-perf.spec.ts` | L3 P1/P2 for `fix-lazy-history-backfill-ux`, metric AMENDED by the task-1.2 measurement. → see `history-backfill-perf.spec.ts.AGENTS.md` |
 | `inline-screenshot.spec.ts` | Playwright E2E for inline agent screenshot artifacts (change: inline-agent-screenshot-artifacts, automates… → see `inline-screenshot.spec.ts.AGENTS.md` |
@@ -166,4 +166,4 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `worktree-init-feedback.spec.ts` | Playwright E2E for friendly worktree-init feedback (Level 1, change: friendlier-worktree-init; automates… → see `worktree-init-feedback.spec.ts.AGENTS.md` |
 | `zrok-v2-tunnel.spec.ts` | L3 (change: support-zrok-v2, F1/F2/F3). Stubs `/api/tunnel-status` (+`/api/tunnel-disconnect`) via… → see `zrok-v2-tunnel.spec.ts.AGENTS.md` |
 | `mcp-session-token.spec.ts` | L3 (change: wire-mcp-session-token, test-plan #F1, #F5, #F6). → see `mcp-session-token.spec.ts.AGENTS.md` |
-| `mcp-tiered-token.spec.ts` | F6/F7 (expand-mcp-tiered-surface): observe token's `tools/list` omits `send_prompt` and calling it is 403 `insufficient_scope scope="control"`; operate token's list has `force_kill` and the call is served (no scope challenge). Mints via the real operator-gated `POST /api/paired-devices`, presents to real `/mcp`. |
+| `mcp-tiered-token.spec.ts` | F6/F7 (expand-mcp-tiered-surface): observe token's `tools/list` omits `send_prompt` and calling it is 403… → see `mcp-tiered-token.spec.ts.AGENTS.md` |
