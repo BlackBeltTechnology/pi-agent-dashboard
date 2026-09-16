@@ -11,7 +11,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { routeTier } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
 import { describe, expect, it } from "vitest";
-import { build, readmeBlockFor } from "../../codegen/generate-tools.js";
+import { build, readmeBlockFor } from "../../../codegen/generate-tools.js";
 import { GENERATED_TOOLS } from "../generated/tools.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

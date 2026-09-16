@@ -19,10 +19,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
-import { MANIFEST, type ToolRow } from "../server/tools.manifest.js";
+import { MANIFEST, type ToolRow } from "../src/server/tools.manifest.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PKG_ROOT = path.resolve(__dirname, "..", "..");
+const PKG_ROOT = path.resolve(__dirname, "..");
 const REPO_ROOT = path.resolve(PKG_ROOT, "..", "..");
 const SHARED_ENTRY = path.join(REPO_ROOT, "packages/shared/src/rest-api.ts");
 const OUT_FILE = path.join(PKG_ROOT, "src/server/generated/tools.ts");
