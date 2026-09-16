@@ -51,14 +51,16 @@ permissions:
 jobs:
   # ── e2e: one shard per runner, one harness per shard ──────────────────────
   e2e:
-    name: e2e (shard ${{ matrix.shard }}/6)
+    name: e2e (shard ${{ matrix.shard }})
     # Label-gated on PRs; always on for dispatch/nightly.
     if: >-
       github.event_name != 'pull_request' ||
       contains(github.event.pull_request.labels.*.name, 'e2e-browser')
     runs-on: ubuntu-latest
-    # ubuntu-latest is 7 GB RAM: one 4 GiB harness fits, two would not — hence
-    # one shard per runner rather than several shards per runner.
+    # One shard per runner is about ISOLATION: each shard gets its own harness
+    # container, so a shard's death cannot cascade. `test-up.sh` reads the
+    # runner's real MemTotal at boot and refuses an oversubscribing start, so
+    # the runner's RAM figure is not the constraint here.
     timeout-minutes: 75
     # ADVISORY on the PR path only; dispatch/nightly fail loudly.
     continue-on-error: ${{ github.event_name == 'pull_request' }}
@@ -98,6 +100,10 @@ jobs:
         with:
           name: blob-report-${{ matrix.shard }}
           path: blob-report
+          # A shard that dies before the blob reporter's onEnd (install failure,
+          # globalSetup crash) has no report: ignore it rather than adding a
+          # second red step on top of the real failure.
+          if-no-files-found: ignore
           retention-days: 7
 
       # Belt-and-braces: globalTeardown already runs, but a KILLED Playwright
@@ -125,14 +131,26 @@ jobs:
   # ── merge-report: one HTML artifact for the whole sharded run ─────────────
   merge-report:
     needs: [e2e]
-    if: ${{ always() }}
+    # NOT a bare `always()`: that also runs this job when the label gate SKIPPED
+    # `e2e`. There are then zero blob artifacts, `merge-reports` fails, and every
+    # UNLABELED PR grows a red "CI E2E Browser / merge-report" check — exactly
+    # the red wall the advisory + land-dark design exists to avoid.
+    if: ${{ always() && needs.e2e.result != 'skipped' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: pnpm
+
+      # Same toolchain as the shards. The merger's playwright version must match
+      # the one that WROTE the blobs, so it comes from the lockfile rather than a
+      # hardcoded literal that drifts on the next pin bump.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Download shard blob reports
         uses: actions/download-artifact@v4
@@ -142,7 +160,7 @@ jobs:
           merge-multiple: true
 
       - name: Merge into one HTML report
-        run: npx --yes playwright@1.61.1 merge-reports --reporter html ./all-blobs
+        run: pnpm exec playwright merge-reports --reporter html ./all-blobs
 
       - name: Upload merged report
         if: ${{ always() }}

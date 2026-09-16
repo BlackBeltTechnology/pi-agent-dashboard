@@ -346,11 +346,12 @@ docker/test-down.sh
 ```
 
 The log then carries one line per `create`/`start`/`die`/`destroy`/`kill` for
-the harness namespace, each with `project=pi-dash-test-…`:
+the harness namespace, each with `project=pi-dash-test-…`. The first field is
+`{{.Time}}` — **epoch seconds** (not a rendered date):
 
 ```
-2026-… create  pi-dash-test-1234567890-pi-dashboard-1 project=pi-dash-test-1234567890
-2026-… destroy pi-dash-test-1234567890-pi-dashboard-1 project=pi-dash-test-1234567890
+1758000000 create  pi-dash-test-1234567890-pi-dashboard-1 project=pi-dash-test-1234567890
+1758003600 destroy pi-dash-test-1234567890-pi-dashboard-1 project=pi-dash-test-1234567890
 ```
 
 A `destroy` line whose timestamp does not line up with your own `test-down.sh`

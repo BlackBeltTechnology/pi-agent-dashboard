@@ -151,6 +151,25 @@ describe("ci-e2e-browser.yml — teardown + merged report", () => {
     expect(yaml).toMatch(/^\s+name:\s*playwright-report\s*$/m);
   });
 
+  it("does not run merge-report when the label gate SKIPPED the shard job", () => {
+    // A bare `if: always()` would run the merge on an unlabeled PR: zero blob
+    // artifacts, `merge-reports` fails, red check on every PR — the exact red
+    // wall the advisory design exists to avoid. The skip guard is load-bearing.
+    const lines = yaml.split("\n");
+    const header = lines.findIndex((l) => /^\s{2}merge-report:/.test(l));
+    expect(header, "no merge-report job found").toBeGreaterThanOrEqual(0);
+    const jobHead = lines.slice(header, header + 8).join("\n");
+    expect(jobHead).toMatch(/needs:\s*\[\s*e2e\s*\]/);
+    expect(jobHead).toMatch(/always\(\)\s*&&\s*needs\.e2e\.result\s*!=\s*'skipped'/);
+  });
+
+  it("derives the merge toolchain from the repo pin, not a hardcoded literal", () => {
+    // Blobs are written by the shards' @playwright/test; a hardcoded merger
+    // version drifts on the next pin bump and can reject a newer blob format.
+    expect(yaml).not.toMatch(/playwright@\d+\.\d+\.\d+/);
+    expect(yaml).toMatch(/pnpm exec playwright merge-reports/);
+  });
+
   it("is advisory on the PR path (continue-on-error), not on dispatch/nightly", () => {
     expect(yaml).toMatch(
       /continue-on-error:\s*\$\{\{\s*github\.event_name\s*==\s*'pull_request'\s*\}\}/,
