@@ -13,6 +13,12 @@
  * context member belongs to neither list, so `assertContextPartitionTotal`
  * fails and the omission is caught instead of silently un-triaged.
  */
+import {
+  DEFAULT_LIMIT,
+  MAX_LIMIT,
+  SESSION_STATUSES,
+  validateListSessionsArgs,
+} from "./list-sessions.js";
 import type { McpCaller } from "./tokens.js";
 
 /** Every member of `ServerPluginContext`, as of the 20-member interface. */
@@ -104,6 +110,22 @@ export const FORBIDDEN_VERB_NAMES = [
   "worktree_init_subscribe",
 ] as const;
 
+/** A scalar/array JSON Schema property the tool table can express. */
+export interface McpSchemaProperty {
+  type: "string" | "number" | "integer" | "boolean" | "array";
+  description: string;
+  enum?: readonly string[];
+  minimum?: number;
+  maximum?: number;
+  items?: McpSchemaItem;
+}
+
+/** Array element schema — only the shapes the tool table actually uses. */
+export interface McpSchemaItem {
+  type: "string" | "number" | "integer";
+  enum?: readonly string[];
+}
+
 export interface McpToolDef {
   name: string;
   description: string;
@@ -112,10 +134,16 @@ export interface McpToolDef {
   /** JSON Schema for `tools/call` arguments. */
   inputSchema: {
     type: "object";
-    properties: Record<string, { type: string; description: string }>;
+    properties: Record<string, McpSchemaProperty>;
     required: string[];
     additionalProperties: false;
   };
+  /**
+   * Tool-specific argument check beyond the JSON-Schema shapes (e.g. an opaque
+   * cursor's filter binding). Returns an error message, or `null` when valid.
+   * `dispatch.ts` runs it (and returns `-32602`) before invoking the handler.
+   */
+  validateArgs?: (args: Record<string, unknown>) => string | null;
   /**
    * Whether the tool takes a target session and can therefore self-target.
    * Drives the Req 6 guard; see `guard.ts` `SESSION_TARGETING_TOOLS`.
@@ -140,9 +168,44 @@ const SESSION_ID_ARG = {
 export const MCP_TOOLS: readonly McpToolDef[] = [
   {
     name: "list_sessions",
-    description: "List every session the dashboard knows about.",
+    description:
+      `List the dashboard's sessions. Bounded, filterable and cursor-paged: the default call returns the ${DEFAULT_LIMIT} most recent visible sessions (hard maximum ${MAX_LIMIT}) rather than the whole store, and hidden worker sessions are excluded. The response is an envelope { sessions, total, nextCursor? } — total is the post-filter match count and nextCursor is absent when the list is exhausted, so a truncated page is never mistaken for a complete answer. Pass a returned nextCursor back as this cursor argument to fetch the next page; replay it with the same filters and limit.`,
     contextMember: "sessionManager",
-    inputSchema: { type: "object", properties: {}, required: [], additionalProperties: false },
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: MAX_LIMIT,
+          description: `Page size. Defaults to ${DEFAULT_LIMIT} when omitted; hard maximum ${MAX_LIMIT}. A value below 1 or above ${MAX_LIMIT} is rejected, never clamped.`,
+        },
+        status: {
+          type: "array",
+          items: { type: "string", enum: SESSION_STATUSES },
+          description:
+            'Filter to sessions whose status matches any of the listed values "active", "idle", "streaming", "ended".',
+        },
+        cwd: {
+          type: "string",
+          description:
+            "Filter to sessions whose working directory matches this path after path normalization.",
+        },
+        since: {
+          type: "number",
+          description:
+            "Filter to sessions whose recency sort key (endedAt ?? lastActivityAt ?? startedAt) is >= this epoch-millisecond value.",
+        },
+        cursor: {
+          type: "string",
+          description:
+            "Opaque forward-paging cursor from a previous response's nextCursor. Must be replayed with the same filters and limit.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    validateArgs: validateListSessionsArgs,
     targetsSession: false,
   },
   {

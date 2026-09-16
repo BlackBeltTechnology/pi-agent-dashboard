@@ -37,7 +37,7 @@ import {
   SUPPORTED_PROTOCOL_VERSIONS,
 } from "./protocol.js";
 import type { McpCaller } from "./tokens.js";
-import { findTool, listTools, MCP_TOOLS, type McpToolDef } from "./tools.js";
+import { findTool, listTools, MCP_TOOLS, type McpSchemaProperty, type McpToolDef } from "./tools.js";
 
 /** Methods reported as unsupported rather than silently accepted (modern era). */
 export const REMOVED_METHODS = [
@@ -321,6 +321,93 @@ function dispatchLegacy(
   return dispatchModernRest(request, id, caller, deps);
 }
 
+/** Validate a string, optionally constrained to an allowed set. */
+function checkString(name: string, value: unknown, allowed?: readonly string[]): string | null {
+  if (typeof value !== "string") return `${name} must be a string`;
+  if (allowed && !allowed.includes(value)) {
+    return `${name} must be one of ${allowed.join(", ")}`;
+  }
+  return null;
+}
+
+/** Validate a finite number/integer against optional inclusive bounds. */
+function checkNumber(
+  name: string,
+  value: unknown,
+  opts: { integer: boolean; minimum?: number; maximum?: number },
+): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return `${name} must be a number`;
+  if (opts.integer && !Number.isInteger(value)) return `${name} must be an integer`;
+  if (opts.minimum !== undefined && value < opts.minimum) return `${name} must be >= ${opts.minimum}`;
+  if (opts.maximum !== undefined && value > opts.maximum) return `${name} must be <= ${opts.maximum}`;
+  return null;
+}
+
+/** Validate an array and every element against the declared item schema. */
+function checkArray(name: string, schema: McpSchemaProperty, value: unknown): string | null {
+  if (!Array.isArray(value)) return `${name} must be an array`;
+  const items = schema.items;
+  if (!items) return null;
+  for (let i = 0; i < value.length; i += 1) {
+    const prefix = `${name}[${i}]`;
+    const error =
+      items.type === "string"
+        ? checkString(prefix, value[i], items.enum)
+        : checkNumber(prefix, value[i], { integer: items.type === "integer" });
+    if (error) return error;
+  }
+  return null;
+}
+
+/**
+ * Validate one `inputSchema` property value. Deliberately small — the tool
+ * table only uses scalars, string enums and string arrays, so a JSON-Schema
+ * library would be dead weight. Every failure is a descriptive message, never
+ * a coerced value (design D4).
+ */
+function validatePropertyValue(name: string, schema: McpSchemaProperty, value: unknown): string | null {
+  switch (schema.type) {
+    case "string":
+      return checkString(name, value, schema.enum);
+    case "number":
+      return checkNumber(name, value, { integer: false, minimum: schema.minimum, maximum: schema.maximum });
+    case "integer":
+      return checkNumber(name, value, { integer: true, minimum: schema.minimum, maximum: schema.maximum });
+    case "boolean":
+      return typeof value === "boolean" ? null : `${name} must be a boolean`;
+    case "array":
+      return checkArray(name, schema, value);
+  }
+}
+
+/**
+ * Validate `tools/call` arguments against the tool's declared schema:
+ * unknown names are rejected (enforcing the already-declared
+ * `additionalProperties: false`), and every present argument is checked for
+ * type/enum/range/array items. The tool-specific `validateArgs` hook runs last
+ * (e.g. the opaque cursor's filter binding).
+ */
+export function validateToolArguments(tool: McpToolDef, args: Record<string, unknown>): string | null {
+  for (const key of Object.keys(args)) {
+    // `Object.hasOwn`, not `in`: the latter walks the prototype chain, so an
+    // argument named `toString`/`constructor`/`__proto__` would pass the check
+    // and then be skipped by the own-key loop below — silently ignored, exactly
+    // what the unknown-name rejection exists to prevent.
+    if (!Object.hasOwn(tool.inputSchema.properties, key)) {
+      return `${tool.name} does not accept an argument named "${key}"`;
+    }
+  }
+
+  for (const [name, schema] of Object.entries(tool.inputSchema.properties)) {
+    const value = args[name];
+    if (value === undefined) continue;
+    const error = validatePropertyValue(name, schema, value);
+    if (error) return `${tool.name}: ${error}`;
+  }
+
+  return tool.validateArgs?.(args) ?? null;
+}
+
 async function dispatchToolCall(
   request: RpcRequest,
   id: RpcId,
@@ -349,6 +436,15 @@ async function dispatchToolCall(
         `${tool.name} requires a non-empty "${required}" argument`,
       );
     }
+  }
+
+  // Optional/typed arguments and unknown names are validated from the tool's
+  // own `inputSchema` (design D4), so nothing is coerced and a misspelled
+  // argument is rejected rather than silently ignored. Reported before the
+  // guard and before the handler runs.
+  const argError = validateToolArguments(tool, args);
+  if (argError) {
+    return rpcError(400, id, RPC_INVALID_PARAMS, argError);
   }
 
   if (tool.targetsSession) {

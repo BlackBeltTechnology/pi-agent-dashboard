@@ -16,7 +16,10 @@
  * non-empty tool list, delivered events). Without that, a budget test passes
  * fastest when the code under test does nothing — the classic vacuous perf test.
  */
+
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
+import { listSessions } from "../list-sessions.js";
 import { type EventSource, type StreamSink, SubscriptionRegistry } from "../streaming.js";
 import type { McpCaller } from "../tokens.js";
 import { McpTokenRegistry } from "../tokens.js";
@@ -223,5 +226,55 @@ describe("P2 — the registry stays bounded under re-mint churn and resolve stay
     // The work happened — otherwise this measures nothing.
     expect(resolved).toBe(iterations);
     expect(meanPerCallMs).toBeLessThan(5);
+  });
+});
+
+// ── list_sessions budgets (change: paginate-mcp-list-sessions, test-plan P1/P2) ──
+// Thresholds are the manifest's: a default page < 64 KB, and a default page over
+// a 10x store < 50 ms. Each test asserts the work actually happened (25 real
+// weighted rows in the page) so it cannot pass vacuously by returning nothing.
+
+/** Production-weight rows: `notifyLog` + `sessionFile` dominate the payload. */
+function realisticRows(n: number): DashboardSession[] {
+  return Array.from({ length: n }, (_, i) =>
+    ({
+      source: "tui",
+      status: i % 20 === 0 ? "active" : "ended",
+      startedAt: 1_700_000_000_000 + i,
+      endedAt: i % 20 === 0 ? undefined : 1_700_000_000_000 + i,
+      hidden: false,
+      cwd: `/Users/operator/Project/app-${i % 7}`,
+      sessionFile: `/Users/operator/.pi/sessions/${"x".repeat(70)}-${i}.jsonl`,
+      notifyLog: Array.from({ length: 20 }, (_, k) => ({
+        notifyId: `n-${i}-${k}`,
+        message: "assistant output line ".repeat(3),
+      })),
+    }) as DashboardSession,
+  );
+}
+
+describe("P1 — the default page stays within its payload budget (< 64 KB)", () => {
+  it("serializes a 538-row store's default page under 64 KB", () => {
+    const envelope = listSessions(realisticRows(538));
+    const bytes = Buffer.byteLength(JSON.stringify(envelope), "utf8");
+
+    // Non-vacuous: 25 real weighted rows, not an empty page.
+    expect(envelope.sessions).toHaveLength(25);
+    expect(envelope.total).toBe(538);
+    expect(bytes).toBeGreaterThan(20 * 1024);
+    expect(bytes).toBeLessThan(64 * 1024);
+  });
+});
+
+describe("P2 — a 10x store's default page stays within its latency budget (< 50 ms)", () => {
+  it("returns a default page from 5,400 rows in under 50 ms", () => {
+    const rows = realisticRows(5_400);
+    const t0 = performance.now();
+    const envelope = listSessions(rows);
+    const elapsed = performance.now() - t0;
+
+    expect(envelope.sessions).toHaveLength(25);
+    expect(envelope.total).toBe(5_400);
+    expect(elapsed).toBeLessThan(50);
   });
 });

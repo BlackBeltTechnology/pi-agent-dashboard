@@ -7,6 +7,8 @@
  * validation), G1/G2/G5 (self-target refusal through the real dispatch path),
  * S3 (empty filter) and S7 (legacy subscription methods).
  */
+
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it, vi } from "vitest";
 import type { ResolvedVersion } from "../dispatch.js";
 import {
@@ -17,6 +19,7 @@ import {
   REMOVED_METHODS,
 } from "../dispatch.js";
 import { parseRpcRequest, RPC_METHOD_NOT_FOUND } from "../jsonrpc.js";
+import { listSessions } from "../list-sessions.js";
 import { META_VERSION_KEY, SUPPORTED_PROTOCOL_VERSIONS } from "../protocol.js";
 import type { McpCaller } from "../tokens.js";
 
@@ -275,10 +278,12 @@ describe("G1/G2/G5 — self-target refusal through dispatch", () => {
     expect(d.invokeTool).toHaveBeenCalledOnce();
   });
 
-  it("M3 — a client-supplied session claim in the arguments does not become identity", async () => {
+  it("M3 — an undeclared session claim in the arguments is rejected, not honoured", async () => {
     const d = deps();
-    // The caller is a DEVICE token asserting it is session A. If the claim were
-    // honoured, this self-target would be refused; it must be permitted.
+    // The caller is a DEVICE token. Before this change a stray `callerSessionId`
+    // was silently ignored; strict validation (design D4) now rejects the whole
+    // call, so the claim cannot even be presented — a stronger guarantee than
+    // ignoring it.
     const r = await dispatchRpc(
       req("tools/call", {
         name: "send_prompt",
@@ -288,7 +293,9 @@ describe("G1/G2/G5 — self-target refusal through dispatch", () => {
       deviceCaller,
       d,
     );
-    expect(r.status).toBe(200);
+    expect(r.status).toBe(400);
+    expect(r.body).toMatchObject({ error: { code: -32602 } });
+    expect(d.invokeTool).not.toHaveBeenCalled();
   });
 });
 
@@ -346,5 +353,116 @@ describe("dispatch does not re-resolve the version (single resolution site, D1)"
     expect(r.status).toBe(200);
     expect((r.body as { result: { protocolVersion: string } }).result.protocolVersion).toBe("2025-06-18");
     expect(r.sessionId).toMatch(/^[0-9a-f]{32}$/);
+  });
+});
+
+// ── Strict argument validation (change: paginate-mcp-list-sessions) ────────
+
+function listRows(n: number, over: (i: number) => Partial<DashboardSession> = () => ({})) {
+  return Array.from({ length: n }, (_, i) =>
+    ({
+      source: "tui",
+      status: "active",
+      startedAt: 1_000 + i,
+      hidden: false,
+      id: `s-${String(i).padStart(4, "0")}`,
+      cwd: "/proj",
+      ...over(i),
+    }) as DashboardSession,
+  );
+}
+
+const listCall = (args: Record<string, unknown>, d: DispatchDeps = deps()) =>
+  dispatchRpc(req("tools/call", { name: "list_sessions", arguments: args }), MODERN, deviceCaller, d);
+
+describe("E3/E4/E6-E9 — malformed limits are rejected, never coerced", () => {
+  it.each([
+    ["a zero limit", { limit: 0 }],
+    ["a negative limit", { limit: -1 }],
+    ["a limit above the maximum", { limit: 201 }],
+    ["a non-integer limit", { limit: 25.5 }],
+    ["a numeric string limit", { limit: "25" }],
+    ["a non-numeric limit", { limit: "abc" }],
+  ])("%s is invalid-params with no page", async (_label, args) => {
+    const d = deps();
+    const r = await listCall(args, d);
+    expect(r.status).toBe(400);
+    expect(r.body).toMatchObject({ error: { code: -32602 } });
+    expect(r.body).not.toHaveProperty("result");
+    expect(d.invokeTool).not.toHaveBeenCalled();
+  });
+});
+
+describe("E12/E17 — enum and unknown-name validation", () => {
+  it("E12 — an unknown status value is rejected, not silently unfiltered", async () => {
+    const d = deps();
+    const r = await listCall({ status: ["running"] }, d);
+    expect(r.status).toBe(400);
+    expect(r.body).toMatchObject({ error: { code: -32602 } });
+    expect(d.invokeTool).not.toHaveBeenCalled();
+  });
+
+  it("E17 — a misspelled argument is rejected, not ignored", async () => {
+    const d = deps();
+    const r = await listCall({ statuss: ["active"] }, d);
+    expect(r.status).toBe(400);
+    expect(r.body).toMatchObject({ error: { code: -32602 } });
+    expect(d.invokeTool).not.toHaveBeenCalled();
+  });
+
+  it("E17 — a prototype-named argument is rejected, not skipped by the `in` trap", async () => {
+    // `in` walks the prototype chain, so `toString`/`constructor`/`__proto__`
+    // would pass an own-property check spelled with `in` and then be ignored.
+    for (const name of ["toString", "constructor", "hasOwnProperty", "__proto__"]) {
+      const d = deps();
+      const r = await listCall({ [name]: "x" }, d);
+      expect(r.status, name).toBe(400);
+      expect(r.body, name).toMatchObject({ error: { code: -32602 } });
+      expect(d.invokeTool, name).not.toHaveBeenCalled();
+    }
+  });
+});
+
+describe("E24–E26 — the cursor is validated", () => {
+  it("E24 — a malformed cursor is rejected", async () => {
+    const d = deps();
+    const r = await listCall({ cursor: "!!!not-base64!!!" }, d);
+    expect(r.status).toBe(400);
+    expect(r.body).toMatchObject({ error: { code: -32602 } });
+    expect(d.invokeTool).not.toHaveBeenCalled();
+  });
+
+  it("E25 — a cursor replayed with different filters is rejected", async () => {
+    const rows = listRows(30, () => ({ status: "active" }));
+    const cursor = listSessions(rows, { status: ["active"] }).nextCursor;
+    expect(cursor).toBeTruthy();
+    const d = deps();
+    const r = await listCall({ status: ["ended"], cursor }, d);
+    expect(r.status).toBe(400);
+    expect(r.body).toMatchObject({ error: { code: -32602 } });
+    expect(d.invokeTool).not.toHaveBeenCalled();
+  });
+
+  it("E26 — a cursor replayed with a different limit is rejected", async () => {
+    const cursor = listSessions(listRows(100), { limit: 25 }).nextCursor;
+    expect(cursor).toBeTruthy();
+    const d = deps();
+    const r = await listCall({ limit: 50, cursor }, d);
+    expect(r.status).toBe(400);
+    expect(r.body).toMatchObject({ error: { code: -32602 } });
+    expect(d.invokeTool).not.toHaveBeenCalled();
+  });
+});
+
+describe("E27 — validation of other tools is unchanged", () => {
+  it.each([
+    ["send_prompt", { sessionId: "B", text: "hi" }],
+    ["spawn_session", { cwd: "/tmp" }],
+    ["abort", { sessionId: "B" }],
+  ])("%s still dispatches with pre-change arguments", async (name, args) => {
+    const d = deps();
+    const r = await dispatchRpc(req("tools/call", { name, arguments: args }), MODERN, deviceCaller, d);
+    expect(r.status).toBe(200);
+    expect(d.invokeTool).toHaveBeenCalledOnce();
   });
 });
