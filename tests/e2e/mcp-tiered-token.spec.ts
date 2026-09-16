@@ -61,7 +61,7 @@ async function mint(
     headers: { ...authedHeaders(), "content-type": "application/json" },
     data: { label: `e2e-${tier}-${Date.now()}`, tier },
   });
-  expect(res.ok()).toBe(true);
+  if (!res.ok()) throw new Error(`mint failed: HTTP ${res.status()} ${await res.text()}`);
   const body = (await res.json()) as { data: { token: string } };
   return body.data.token;
 }
