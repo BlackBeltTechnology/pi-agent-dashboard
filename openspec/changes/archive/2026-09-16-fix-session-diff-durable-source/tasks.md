@@ -63,5 +63,5 @@
 
 ## 9. Manual validation
 
-- [ ] 9.1 Record the worker parse p50/p95 and RSS delta for 5 consecutive uncached GET /api/session-diff on the 20 MB fixture (touch the file between calls) into design.md § Risks; no threshold (test-plan: manual-only)
-- [ ] 9.2 After deploying to the local dashboard, open the Diff panel for the four sessions named in proposal.md and confirm each shows its files and agrees with the chat's "N files +A −D" block (test-plan: manual-only)
+- [x] 9.1 Record the worker parse p50/p95 and RSS delta for 5 consecutive uncached GET /api/session-diff on the 20 MB fixture (touch the file between calls) into design.md § Risks; no threshold (test-plan: manual-only)
+- [x] 9.2 After deploying to the local dashboard, open the Diff panel for the four sessions named in proposal.md and confirm each shows its files and agrees with the chat's "N files +A −D" block (test-plan: manual-only)
