@@ -20,8 +20,9 @@
  * See change: offload-session-events-load-to-worker.
  */
 import { isMainThread, parentPort } from "node:worker_threads";
-import { loadSessionEntries } from "./session-file-reader.js";
 import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
+import { projectDiffEvents } from "./session-diff-source.js";
+import { loadSessionEntries } from "./session-file-reader.js";
 
 export interface SessionLoadRequest {
   jobId: number;
@@ -30,6 +31,16 @@ export interface SessionLoadRequest {
   /** Persisted `session.contextWindow`; passed through to replay so
    *  `stats_update` events use the real window, not the model heuristic. */
   knownContextWindow?: number;
+  /**
+   * `"diff-events"` → return ONLY the diff-relevant projection
+   * (`projectDiffEvents`) instead of the full replay. Used by
+   * `/api/session-diff` to source tool-call events from the durable
+   * transcript. See change: fix-session-diff-durable-source.
+   */
+  mode?: "diff-events";
+  /** Per-field string cap for the projection's tool `args` (mirrors the
+   *  store's `maxStringFieldSize`; `<= 0` disables truncation). */
+  maxStringSize?: number;
 }
 
 export interface LoadedEvent {
@@ -46,6 +57,9 @@ export interface SessionLoadResult {
   /** Parsed entry count — telemetry for the hydration sample. Omitted on the
    *  failure path. Additive; not part of the event-parity contract. */
   entryCount?: number;
+  /** Max timestamp over ALL transcript entries. Only set in `"diff-events"`
+   *  mode; used to clamp an ended session's open Bash window. */
+  lastEntryTs?: number;
 }
 
 /**
@@ -54,9 +68,13 @@ export interface SessionLoadResult {
  * body in `directory-service.ts::loadSessionEvents()`.
  */
 export function loadAndReplay(req: SessionLoadRequest): SessionLoadResult {
-  const { jobId, sessionId, sessionFile, knownContextWindow } = req;
+  const { jobId, sessionId, sessionFile, knownContextWindow, mode, maxStringSize } = req;
   try {
     const entries = loadSessionEntries(sessionFile);
+    if (mode === "diff-events") {
+      const { events, lastEntryTs } = projectDiffEvents(sessionId, entries, { maxStringSize });
+      return { jobId, success: true, events, entryCount: entries.length, lastEntryTs };
+    }
     const events = replayEntriesAsEvents(sessionId, entries, knownContextWindow).map((m) => m.event);
     return { jobId, success: true, events, entryCount: entries.length };
   } catch (err: any) {

@@ -111,6 +111,7 @@ import { PackageManagerWrapper } from "./package/package-manager-wrapper.js";
 import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gateway.js";
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager } from "./pairing/pairing.js";
+import { createPendingArchiveIntentRegistry } from "./pending/pending-archive-intent-registry.js";
 import { createPendingAttachRegistry } from "./pending/pending-attach-registry.js";
 import { createPendingClientCorrelations } from "./pending/pending-client-correlations.js";
 import { createPendingForkRegistry } from "./pending/pending-fork-registry.js";
@@ -120,7 +121,7 @@ import { createPendingPromptAcks } from "./pending/pending-prompt-acks.js";
 import { createPendingResumeIntentRegistry } from "./pending/pending-resume-intent-registry.js";
 import { createPendingWorktreeBaseRegistry } from "./pending/pending-worktree-base-registry.js";
 import { recordExitIntent, resolveExitIntent, stampBootStart } from "./persistence/boot-state.js";
-import { createMemoryEventStore, DEFAULT_MAX_EVENT_DATA_SIZE, type EventStore } from "./persistence/memory-event-store.js";
+import { createMemoryEventStore, DEFAULT_MAX_EVENT_DATA_SIZE, DEFAULT_MAX_STRING_SIZE, type EventStore } from "./persistence/memory-event-store.js";
 import { createMetaPersistence } from "./persistence/meta-persistence.js";
 import { migrateCustomEntryFallbackOverrides } from "./persistence/migrate-custom-entry-fallback.js";
 import { needsMigration, runMigration } from "./persistence/migrate-persistence.js";
@@ -170,18 +171,17 @@ import {
   dispatchReload as dispatchReloadRaw,
   reloadTargetSessionIds,
 } from "./rpc-keeper/dispatch-reload.js";
+import { createArchiveSweeper } from "./session/archive-sweeper.js";
 import { CustomEventGroupMatcher } from "./session/custom-event-group-matcher.js";
 import { CustomEventGroupResolver } from "./session/custom-event-group-resolver.js";
 import { deriveEndedAt } from "./session/derive-ended-at.js";
 import { createMemorySessionManager, type SessionManager } from "./session/memory-session-manager.js";
-import { createSessionArchive } from "./session/session-archive.js";
-import { createArchiveSweeper } from "./session/archive-sweeper.js";
-import { createPendingArchiveIntentRegistry } from "./pending/pending-archive-intent-registry.js";
 import { applyReattachPolicy } from "./session/reattach-placement.js";
 import { reconcileSessionOrder } from "./session/reconcile-session-order.js";
 import { createRemoteTranscriptStore } from "./session/remote-transcript-store.js";
 import { resolveOrderKey } from "./session/resolve-order-key.js";
 import { registerSessionApi } from "./session/session-api.js";
+import { createSessionArchive } from "./session/session-archive.js";
 import { discoverAndBroadcastSessions } from "./session/session-bootstrap.js";
 import { createSessionOrderManager, type SessionOrderManager } from "./session/session-order-manager.js";
 import { scanAllSessions } from "./session/session-scanner.js";
@@ -1468,6 +1468,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     networkGuard,
     sessionArchive,
     remoteTranscriptStore,
+    // Transcript-sourced session diffs dispatch through the same pool the
+    // hydration path owns; `maxStringSize` is the store's cap so projected
+    // tool payloads match store-sourced ones. See change:
+    // fix-session-diff-durable-source.
+    loadWorkerPool: () => directoryService.ensureLoadWorkerPool(),
+    // The store's own parameter default resolves an unset cap to
+    // DEFAULT_MAX_STRING_SIZE; mirror it here so the transcript projection
+    // caps `args` with the SAME effective value the store used on ingest.
+    // Passing the raw `undefined` would make the projection's `?? 0` sentinel
+    // disable truncation and break payload/`truncated` parity.
+    // See change: fix-session-diff-durable-source.
+    maxStringSize: config.maxStringFieldSize ?? DEFAULT_MAX_STRING_SIZE,
   });
   // pi retry policy editor. Reload fan-out dispatches `/reload` to every
   // connected session so a saved policy applies without a manual restart
