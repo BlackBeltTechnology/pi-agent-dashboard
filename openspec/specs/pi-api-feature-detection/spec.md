@@ -136,7 +136,7 @@ pi 0.84.1's fullscreen TUI mode and its terminal Mermaid/LaTeX rendering are TUI
 
 pi 0.84.1 added `ToolCallEventResult.terminate?: boolean` (`dist/core/extensions/types.d.ts`), which lets an extension stop an all-terminating tool batch without another model call. It takes effect ONLY for a handler that blocks the call. The dashboard bridge forwards `tool_call` as a pass-through event and never blocks, so the field is unreachable. The dashboard SHALL record this as audited-with-no-consumer and SHALL NOT introduce a blocking `tool_call` handler to use it.
 
-#### Scenario: The bridge does not block tool calls
+#### Scenario: The pass-through forwarder does not block tool calls
 
 - **WHEN** the bridge's `tool_call` subscription is inspected
 - **THEN** `tool_call` SHALL appear in the pass-through event list

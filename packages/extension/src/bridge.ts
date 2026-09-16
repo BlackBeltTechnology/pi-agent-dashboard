@@ -92,6 +92,8 @@ import { detectSessionSource } from "./source-detector.js";
 import { flushBufferedSubagentFrames, serveSubagentResync } from "./subagent-forward-sites.js";
 import { SubagentFrameBuffer } from "./subagent-frame-buffer.js";
 import { stripForForward } from "./subagent-frame-strip.js";
+import { FanoutAdmissionGate, resolveAdmissionConfig } from "./subagent-fanout-admission.js";
+import { SaturationSampler } from "./subagent-saturation.js";
 import { isSubagentTick, SubagentTickThrottle } from "./subagent-tick-throttle.js";
 import { inlineToolResultImages } from "./tool-result-image-inliner.js";
 import { readTranscriptChunk, type TranscriptCursor } from "./transcript-backfill.js";
@@ -2568,6 +2570,47 @@ function initBridge(pi: ExtensionAPI) {
     }));
   }
 
+  // ── Subagent fan-out admission ────────────────────────────────────────────
+  // Bounds concurrently in-flight `Agent` children so a wide fan-out on a loaded
+  // host cannot stall the parent's event loop until the process is reaped.
+  //
+  // Registered AFTER the pass-through loop above ON PURPOSE: `runner.emitToolCall`
+  // returns on the FIRST handler that answers a blocking result, so a gate
+  // registered earlier would starve the bridge's own `tool_call` forwarder — the
+  // dashboard would miss the refused call's `tool_call` while still seeing its
+  // `tool_execution_end`, and live UI and transcript would disagree. See D8.
+  //
+  // The result carries `block` + `reason` and NEVER `terminate`: a refusal is
+  // "not now" (re-issue after running children finish), not a task failure. The
+  // `block` decision itself lives in `subagent-fanout-admission.ts`. See change:
+  // bound-subagent-fanout-under-host-pressure (D2/D4/D5/D6/D7/D8).
+  const fanoutAdmission = new FanoutAdmissionGate({
+    resolveConfig: () => resolveAdmissionConfig(config),
+    saturation: new SaturationSampler(),
+    // Refusals are ALSO written durably: the failure this mitigates ends with the
+    // process gone, so counters carried only by the live frame vanish in exactly
+    // the case that matters. Admissions write nothing (hot path, no FS I/O).
+    recordRefusal: (record) => {
+      try {
+        pi.appendEntry("subagent-admission-refused", record);
+      } catch (err) {
+        console.error("[dashboard] subagent-admission-refused entry failed:", err);
+      }
+    },
+  });
+  pi.on("tool_call", safe((event: any) => {
+    if (!isActive()) return;
+    return fanoutAdmission.onToolCall(event);
+  }));
+  // Release permits on `tool_execution_end` — the ONE signal pi emits on the
+  // normal, blocked AND aborted paths. NEVER `tool_result`: an aborted call
+  // skips the path that produces it, so a permit released there would leak on
+  // every Esc and eventually refuse all subagent work for the session. See D2.
+  pi.on("tool_execution_end", safe((event: any) => {
+    if (!isActive()) return;
+    fanoutAdmission.onExecutionEnd(event);
+  }));
+
   // Generic custom entries/messages (pi.appendEntry / pi.sendMessage) are NOT
   // subscribed here: pi does NOT dispatch `entry_appended` to extensions, and
   // the idle-path sendMessage emits message_start/end to internal listeners
@@ -3485,6 +3528,11 @@ function initBridge(pi: ExtensionAPI) {
           // throttle's two information-loss modes are observable in production
           // instead of only at L1. See change: reduce-bridge-tick-bandwidth (D6).
           ...subagentTickThrottle.stats,
+          // Subagent fan-out admission counters ride the same transport, so a
+          // narrowed fan-out is observable instead of looking like a model that
+          // chose not to parallelize. See change:
+          // bound-subagent-fanout-under-host-pressure (D7).
+          ...fanoutAdmission.counters,
         },
       });
     }, HEARTBEAT_INTERVAL);

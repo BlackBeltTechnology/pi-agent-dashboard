@@ -91,6 +91,44 @@ include 4.
 *Alternative rejected:* pick a plausible cap now, validate later. That ships a
 change that appears to work because the workload also changed.
 
+**Measured result (2026-09-16).** Harness:
+`tests/e2e/subagent-fanout-measurement.spec.ts` (artifact
+`test-results/fanout-measurement.json`). The real `pi-dashboard-subagents`
+producer drives N-wide `Agent` fan-outs from one parent on the docker harness;
+`cap` is `maxConcurrentSubagents` read by the NEXT session's bridge; parent
+`eventLoopMaxMs` is the max observed across one full 15 s heartbeat window after
+the turn.
+
+| N | ctx | host | cap | parent `eventLoopMaxMs` (ms) | time-to-first-child-start (ms) | survived | admitted / refused |
+|---|---|---|---|---|---|---|---|
+| 1 | small | idle | 0 (ungated) | 98 | 1781 | yes | 0 / 0 |
+| 2 | small | idle | 0 (ungated) | 92 | 2411 | yes | 0 / 0 |
+| 3 | small | idle | 0 (ungated) | 132 | 3079 | yes | 0 / 0 |
+| 4 | small | idle | 0 (ungated) | 132 | 3407 | yes | 0 / 0 |
+| 7 | small | idle | 0 (ungated) | 229 | 5216 | yes | 0 / 0 |
+| 7 | small | idle | 2 (gated) | **98** | 5371 | yes | **2 / 5** |
+
+**Read against the three branches:** the stall grows with **N at fixed ctx**
+(98 ms → 229 ms, ~1.6× from N=1 to N=7), and gating at the default cap lowers it
+at the fatal width (**229 ms → 98 ms**, with 5 of 7 calls refused). The cap is
+therefore a legitimate partial mitigation, not a no-op. The **ctx** and
+**loaded-host** dimensions are NOT measured by this harness — a ~220 k-context
+parent and a controlled host load cannot be synthesized in this container, so
+the "stall scales with ctx rather than N → stop" branch is **untested, not
+refuted**. The ctx dimension remains the first re-check if the mitigation proves
+insufficient in the field.
+
+**Cap choice (task 1.4):** default = `2` (`DEFAULT_MAX_CONCURRENT_SUBAGENTS`). It
+is the only integer satisfying the spec property (defined, ≥ 2, < 3) and it sits
+below every census fatal width (3, 4, 7), so no observed batch is admitted
+unchanged. The measurement above covers the chosen value directly (`gated 7 @ cap
+2`).
+
+**Mitigation delta (#P4, task 8.2):** at the fatal width, ungated
+`eventLoopMaxMs` = **229 ms**, gated = **98 ms** — strictly lower, with the
+refusal path exercised (2 admitted, 5 refused). The stall moved; the cap is
+recorded here as a measured partial mitigation, not as a proven cure.
+
 ### Decision 2 — Bound in-flight concurrency, not the batch
 
 The natural statement is "at most 3 per assistant message". It is not
