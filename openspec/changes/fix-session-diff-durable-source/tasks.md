@@ -19,7 +19,7 @@
 
 - [x] 4.1 Update rows for `session-routes.ts`, `session-diff.ts`, `session-load-worker.ts`, `directory-service.ts`, `memory-event-store.ts`, and the new `session-diff-source.ts` in their nearest `AGENTS.md` with `See change: fix-session-diff-durable-source`; verify `kb dox lint` reports no new stale/missing rows
 - [x] 4.2 Delegate a caveman-style note to `DocScribe` for `docs/architecture.md` (session-diff source = transcript for local sessions; store fallback; remote unchanged) and apply the returned rows; verify the section reads correctly
-- [ ] 4.3 Run `npm run quality:changed` and `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log; grep -nE 'FAIL|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log`; verify zero failures, then `review-code` on the diff before commit
+- [x] 4.3 Run `npm run quality:changed` and `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log; grep -nE 'FAIL|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log`; verify zero failures, then `review-code` on the diff before commit
 
 ## 5. Tests — projection + source resolution (`packages/server/src/__tests__/session-diff-source.test.ts`, new; exemplar `session-load-worker.test.ts` for JSONL fixtures + pool, `session-diff.test.ts` for `makeEvent`/git-repo helpers)
 
@@ -59,7 +59,7 @@
 
 ## 8. Tests — browser (`tests/e2e/`; exemplar `tests/e2e/ended-session-endedat.spec.ts` for the harness restart flow, `tests/e2e/out-of-cwd-session-diffs.spec.ts` for Diff-panel selectors)
 
-- [ ] 8.1 Post-restart Diff panel: spawn a git session, send a prompt that Writes 2 files, wait for both tool events, POST /api/restart and wait for /api/health, open the session's Diff panel; the tree converges to exactly the 2 written paths and selecting one renders a non-empty diff tab (test-plan #F1)
+- [x] 8.1 Post-restart Diff panel: spawn a git session, send a prompt that Writes 2 files, wait for both tool events, POST /api/restart and wait for /api/health, open the session's Diff panel; the tree converges to exactly the 2 written paths and selecting one renders a non-empty diff tab (test-plan #F1)
 
 ## 9. Manual validation
 
