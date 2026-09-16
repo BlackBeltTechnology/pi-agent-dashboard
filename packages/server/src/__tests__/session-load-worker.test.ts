@@ -10,12 +10,14 @@
  *
  * See change: offload-session-events-load-to-worker.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { loadSessionEntries } from "../session/session-file-reader.js";
+import { join } from "node:path";
 import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { projectDiffEvents } from "../session/session-diff-source.js";
+import { loadSessionEntries } from "../session/session-file-reader.js";
 import { loadAndReplay } from "../session/session-load-worker.js";
 import { createSessionLoadWorkerPool } from "../session/session-load-worker-pool.js";
 
@@ -138,6 +140,54 @@ describe("session-load-worker — persisted compaction boundary (disk producer)"
     // Absent metadata is not fabricated, and the summary is context, not content.
     expect(events[boundary].data).not.toHaveProperty("reason");
     expect(JSON.stringify(out.events)).not.toContain("SUMMARY: collapsed");
+  });
+});
+
+describe("session-load-worker — diff-events mode (change: fix-session-diff-durable-source)", () => {
+  beforeEach(() => { tmpDir = mkdtempSync(join(tmpdir(), "session-load-diff-")); });
+  afterEach(() => { try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ } });
+
+  function diffFixture(): string {
+    return writeSession("diff.jsonl", [
+      { type: "session", id: "sess-diff", timestamp: "2025-01-01T00:00:00Z", cwd: "/tmp" },
+      {
+        type: "message", timestamp: "2025-01-01T00:00:01Z",
+        message: { role: "assistant", content: [{ type: "text", text: "write it" }, { type: "toolCall", id: "c1", name: "Write", arguments: { path: "a.ts", content: "x" } }] },
+      },
+      {
+        type: "message", timestamp: "2025-01-01T00:00:02Z",
+        message: { role: "toolResult", toolCallId: "c1", toolName: "Write", content: [{ type: "text", text: "ok" }] },
+      },
+      { type: "message", timestamp: "2025-01-01T00:00:03Z", message: { role: "user", content: [{ type: "text", text: "next" }] } },
+    ]);
+  }
+
+  it("projects only diff-relevant events and reports entryCount/lastEntryTs", () => {
+    const file = diffFixture();
+    const out = loadAndReplay({ jobId: 3, sessionId: "sess-diff", sessionFile: file, mode: "diff-events", maxStringSize: 4000 });
+    expect(out.success).toBe(true);
+    expect(out.entryCount).toBe(3);
+    expect(new Set(out.events.map((e) => e.eventType))).toEqual(
+      new Set(["message_end", "tool_execution_start", "tool_execution_end"]),
+    );
+    expect(out.lastEntryTs).toBe(Date.parse("2025-01-01T00:00:03Z"));
+    expect(out.events).toEqual(
+      projectDiffEvents("sess-diff", loadSessionEntries(file), { maxStringSize: 4000 }).events,
+    );
+  });
+
+  it("the pool passes mode + maxStringSize through and returns lastEntryTs", async () => {
+    const pool = createSessionLoadWorkerPool({ useWorker: false });
+    try {
+      const file = diffFixture();
+      const { result } = pool.load({ sessionId: "sess-diff", sessionFile: file, mode: "diff-events", maxStringSize: 4000 });
+      const out = await result;
+      expect(out.success).toBe(true);
+      expect(out.lastEntryTs).toBe(Date.parse("2025-01-01T00:00:03Z"));
+      expect(out.events.some((e) => e.eventType === "tool_execution_start")).toBe(true);
+    } finally {
+      await pool.dispose();
+    }
   });
 });
 

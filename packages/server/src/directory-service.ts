@@ -59,12 +59,12 @@ import {
 } from "./openspec/openspec-poll-worker-pool.js";
 import type { PreferencesStore } from "./persistence/preferences-store.js";
 import { scanPiResources } from "./pi/pi-resource-scanner.js";
-import type { SessionManager } from "./session/memory-session-manager.js";
 import {
   customEventTypeOfEvent,
   isGroupableCustomEvent,
   stampEventGroup,
 } from "./session/custom-event-group-annotation.js";
+import type { SessionManager } from "./session/memory-session-manager.js";
 import { discoverSessionsForCwd } from "./session/session-discovery.js";
 import {
   createSessionLoadWorkerPool,
@@ -150,6 +150,13 @@ export interface DirectoryService {
    * offload-session-events-load-to-worker.
    */
   cancelLoad(sessionId: string): void;
+  /**
+   * Lazy accessor for the session-load worker pool (hydration + session-diff
+   * transcript projection). Creates it on first call; returns `null` once
+   * `stopPolling` has disposed it (or before `startPolling` re-enables).
+   * See change: fix-session-diff-durable-source.
+   */
+  ensureLoadWorkerPool(): SessionLoadWorkerPool | null;
   getOpenSpecData(cwd: string): OpenSpecData | undefined;
   /** Force refresh: bypasses the mtime gate. Still honors the semaphore. */
   refreshOpenSpec(cwd: string): Promise<OpenSpecData>;
@@ -580,7 +587,13 @@ export function createDirectoryService(
   let loadWorkerPool: SessionLoadWorkerPool | null = null;
   const useLoadWorker = options.useLoadWorker !== false;
   const inFlightLoadJobs = new Map<string, number>();
-  function ensureLoadWorkerPool(): SessionLoadWorkerPool {
+  // Set by `stopPolling`, cleared by `startPolling`. While set, the public
+  // `ensureLoadWorkerPool()` returns `null` so a route can run in-process
+  // rather than spawning a pool during shutdown. See change:
+  // fix-session-diff-durable-source.
+  let loadWorkerPoolDisposed = false;
+  function ensureLoadWorkerPool(): SessionLoadWorkerPool | null {
+    if (loadWorkerPoolDisposed) return null;
     if (loadWorkerPool) return loadWorkerPool;
     const cpuCount = os.cpus().length || 1;
     loadWorkerPool = createSessionLoadWorkerPool({
@@ -640,6 +653,12 @@ export function createDirectoryService(
     // spawn/crash/timeout. `cancelLoad(sessionId)` drops the job via this
     // jobId. See change: offload-session-events-load-to-worker.
     const pool = ensureLoadWorkerPool();
+    if (!pool) {
+      // Post-dispose: no pool to dispatch to. Callers do not hydrate after
+      // `stopPolling`; fail cleanly rather than spawning a fresh pool.
+      loadingSet.delete(sessionId);
+      return { success: false, events: [], error: "disposed" };
+    }
     const { jobId, result } = pool.load({ sessionId, sessionFile, knownContextWindow });
     inFlightLoadJobs.set(sessionId, jobId);
     try {
@@ -1419,6 +1438,7 @@ export function createDirectoryService(
     discoverSessions,
     loadSessionEvents,
     cancelLoad,
+    ensureLoadWorkerPool,
 
     getOpenSpecData(cwd: string): OpenSpecData | undefined {
       return caches.get(cwd)?.data;
@@ -1443,6 +1463,9 @@ export function createDirectoryService(
       onFolderHead?: (msg: BrowserGitHeadUpdateMessage) => void,
     ) {
       onChangeCallback = onChange;
+      // A restart of polling re-enables the load-worker pool accessor.
+      // See change: fix-session-diff-durable-source.
+      loadWorkerPoolDisposed = false;
       // Construct the folder-HEAD poll now that the broadcast callback is
       // known. The poll's diff cache lives for the polling lifetime.
       // See change: refresh-folder-header-branch.
@@ -1485,6 +1508,7 @@ export function createDirectoryService(
         loadWorkerPool = null;
         void lp.dispose().catch(() => { /* ignore shutdown errors */ });
       }
+      loadWorkerPoolDisposed = true;
     },
 
     reconfigurePolling(newCfg: OpenSpecPollConfig) {

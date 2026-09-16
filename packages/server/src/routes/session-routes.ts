@@ -7,12 +7,14 @@ import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/type
 import type { FastifyInstance } from "fastify";
 import type { EventStore } from "../persistence/memory-event-store.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
+import type { RemoteTranscriptStore } from "../session/remote-transcript-store.js";
+import { decideRetainedRead, readRetainedState } from "../session/retained-transcript.js";
 import { decodeCursor, type SessionArchive } from "../session/session-archive.js";
 import { buildSessionDiffCached, type SessionDiffResult } from "../session/session-diff.js";
 import { SessionDiffCache } from "../session/session-diff-cache.js";
-import type { RemoteTranscriptStore } from "../session/remote-transcript-store.js";
-import { decideRetainedRead, readRetainedState } from "../session/retained-transcript.js";
+import { resolveDiffSource } from "../session/session-diff-source.js";
 import { findSessionToolCallPayload } from "../session/session-file-reader.js";
+import type { SessionLoadWorkerPool } from "../session/session-load-worker-pool.js";
 import { originOf } from "../session/session-origin.js";
 import type { NetworkGuard } from "./route-deps.js";
 
@@ -28,9 +30,28 @@ export function registerSessionRoutes(
     /** Retention store backing `GET /api/sessions/:id/retained-transcript`.
      *  See change: serve-retained-remote-transcripts. */
     remoteTranscriptStore?: RemoteTranscriptStore;
+    /**
+     * Lazy accessor for the session-load worker pool. Absent/`null` (unit
+     * tests, or after `stopPolling` disposed it) makes `/api/session-diff` run
+     * the transcript projection in-process instead of off-thread.
+     * See change: fix-session-diff-durable-source.
+     */
+    loadWorkerPool?: () => SessionLoadWorkerPool | null;
+    /** Store's `maxStringFieldSize` — the projection caps tool `args` with the
+     *  SAME value so transcript- and store-sourced payloads match.
+     *  See change: fix-session-diff-durable-source. */
+    maxStringSize?: number;
   },
 ) {
-  const { sessionManager, eventStore, networkGuard, sessionArchive, remoteTranscriptStore } = deps;
+  const {
+    sessionManager,
+    eventStore,
+    networkGuard,
+    sessionArchive,
+    remoteTranscriptStore,
+    loadWorkerPool,
+    maxStringSize,
+  } = deps;
 
   // Per-server session-diff result cache + single-flight coordinator. Short TTL
   // so repeated UI polls of an unchanged session skip recompute, and concurrent
@@ -189,8 +210,19 @@ export function registerSessionRoutes(
       if (!session) {
         return { success: false, error: "session not found" } satisfies ApiResponse;
       }
-      const events = eventStore.getEvents(sessionId, 0).map((e) => e.event);
-      const result = await buildSessionDiffCached(sessionId, events, session.cwd, sessionDiffCache);
+      // Source the tool-call events from the durable transcript for local
+      // sessions (store fallback when it is missing/empty; remote sessions
+      // stay store-sourced). `sourceKey` is the event-source cache signature;
+      // `load()` runs INSIDE the cache compute, so a cache hit never parses a
+      // transcript. See change: fix-session-diff-durable-source.
+      const { sourceKey, load } = await resolveDiffSource(session, eventStore, {
+        pool: loadWorkerPool?.() ?? null,
+        maxStringSize,
+      });
+      const result = await buildSessionDiffCached(sessionId, load, session.cwd, sessionDiffCache, {
+        sourceKey,
+        ended: session.status === "ended",
+      });
       return {
         success: true,
         data: {
