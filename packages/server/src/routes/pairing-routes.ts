@@ -26,6 +26,13 @@ import { SUPPORTED_PAIRING_VERSIONS } from "../pairing/pairing.js";
 import { localEndpoints } from "../tunnel/tunnel-endpoints.js";
 import type { NetworkGuard } from "./route-deps.js";
 
+/** Strip trailing slashes without a regex (avoids a polynomial-ReDoS shape). */
+function stripTrailingSlashes(u: string): string {
+  let end = u.length;
+  while (end > 0 && u[end - 1] === "/") end -= 1;
+  return u.slice(0, end);
+}
+
 /** URL prefixes of the PUBLIC device-facing pairing routes (auth-exempt). */
 export const PUBLIC_PAIRING_PREFIXES = [
   "/api/pair/challenge",
@@ -277,7 +284,7 @@ export function registerPairingRoutes(
       const seen = new Set<string>();
       const merged: string[] = [];
       for (const raw of [...publicUrls, ...local]) {
-        const url = raw.trim().replace(/\/+$/, "");
+        const url = stripTrailingSlashes(raw.trim());
         if (url.length === 0 || seen.has(url)) continue;
         seen.add(url);
         merged.push(url);

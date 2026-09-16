@@ -562,6 +562,13 @@ export interface TokenCreateDeps {
 
 const TOKEN_TIERS = ["observe", "control", "operate"] as const;
 
+/** Strip trailing slashes WITHOUT a regex (avoids a polynomial-ReDoS shape). */
+function stripTrailingSlashes(u: string): string {
+  let end = u.length;
+  while (end > 0 && u[end - 1] === "/") end -= 1;
+  return u.slice(0, end);
+}
+
 export async function cmdTokenCreate(
   argv: string[],
   opts: { port: number },
@@ -622,14 +629,14 @@ export async function cmdTokenCreate(
 
   let urls: string[] = [];
   if (url) {
-    urls = [url.replace(/\/+$/, "")];
+    urls = [stripTrailingSlashes(url)];
   } else {
     try {
       const res = await fetchFn(`${base}/api/pair/reachable-urls`, {
         headers: { ...(localToken ? { [LOCAL_TOKEN_HEADER]: localToken } : {}) },
       });
       const json = (await res.json()) as { success: boolean; data?: string[] };
-      urls = (json.success && json.data ? json.data : []).map((u) => u.replace(/\/+$/, ""));
+      urls = (json.success && json.data ? json.data : []).map(stripTrailingSlashes);
     } catch {
       urls = [];
     }
