@@ -599,13 +599,16 @@ describe("session-diff cache + event loop (7.1–7.7)", () => {
     // STALL (proves the assertion is falsifiable); the pool variant must not.
     const file = join(dir, "big.jsonl");
     const COUNT = 2000;
-    const bigText = "x".repeat(20_000);
+    // ~80 MB: the in-process parse must stall the loop well past the 100 ms
+    // budget on a FAST CI runner too (a 40 MB fixture measured ~86 ms there).
+    const bigText = "x".repeat(40_000);
     const lines: string[] = [JSON.stringify({ type: "session", id: "big", cwd: "/tmp" })];
     for (let i = 0; i < COUNT; i++) {
       lines.push(JSON.stringify(assistant(1_000_000 + i, `step ${i}`, [editCall(`c${i}`, `f${i}.ts`, [{ oldText: "a", newText: bigText }])])));
     }
     writeFileSync(file, `${lines.join("\n")}\n`);
-    expect(loadSessionEntries(file).length).toBe(COUNT);
+    const entries = loadSessionEntries(file);
+    expect(entries.length).toBe(COUNT);
 
     async function maxLoopGap(f: FastifyInstance, sessionId: string): Promise<{ maxGap: number; diff: any }> {
       let maxGap = 0;
@@ -634,7 +637,7 @@ describe("session-diff cache + event loop (7.1–7.7)", () => {
     }
 
     // Pool owns the parse (resolved off the measured window) → loop stays responsive.
-    const precomputed = projectDiffEvents("s1", loadSessionEntries(file), { maxStringSize: 4000 });
+    const precomputed = projectDiffEvents("s1", entries, { maxStringSize: 4000 });
     const { pool } = realishFakePool();
     const offThread = await buildHarness({
       session: { id: "s1", cwd: repo, status: "active", sessionFile: file },
