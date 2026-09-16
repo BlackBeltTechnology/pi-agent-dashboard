@@ -153,6 +153,13 @@ test.describe("subagent fan-out stall measurement (L2)", () => {
         timeout: 240_000,
       });
       const timeToFirstChildStartMs = firstChildAt ? firstChildAt - armAt : -1;
+      // Reject an incomplete cell BEFORE it can be written to the table: no
+      // Agent `tool_execution_start` means no admitted child was observed
+      // starting, so the cell is not a measurement.
+      expect(
+        timeToFirstChildStartMs,
+        `N=${n} cap=${cap} observed an admitted child start`,
+      ).toBeGreaterThanOrEqual(0);
 
       // Poll a full heartbeat window; `eventLoopMaxMs` resets every 15 s, so the
       // stall may land in the beat AFTER the turn.
