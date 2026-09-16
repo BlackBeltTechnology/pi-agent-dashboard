@@ -1078,6 +1078,9 @@ importers:
       '@fastify/http-proxy':
         specifier: ^11.4.3
         version: 11.6.1
+      '@fastify/rate-limit':
+        specifier: ^11.2.0
+        version: 11.2.0
       '@fastify/reply-from':
         specifier: ^12.6.1
         version: 12.6.4
@@ -2558,6 +2561,9 @@ packages:
 
   '@fastify/proxy-addr@5.1.0':
     resolution: {integrity: sha512-INS+6gh91cLUjB+PVHfu1UqcB76Sqtpyp7bnL+FYojhjygvOPA9ctiD/JDKsyD9Xgu4hUhCSJBPig/w7duNajw==}
+
+  '@fastify/rate-limit@11.2.0':
+    resolution: {integrity: sha512-X7osJd4XSvMoejYrnJkSZYYjY1eNYoBqhjlzf1RakC2204qExFqZFTKj5+T7VuzA/iUI9Z3UoSqQRkB2HpG0oQ==}
 
   '@fastify/reply-from@12.6.4':
     resolution: {integrity: sha512-WpHqGNRKzEraRQwBFK64g2HijN0ZuDuiiwWg06r5LY0lv1iu0qYg1BfVM0iYcCMiovrM8kKXsKm5GDH9JH9aPA==}
@@ -11899,6 +11905,13 @@ snapshots:
     dependencies:
       '@fastify/forwarded': 3.0.2
       ipaddr.js: 2.5.0
+
+  '@fastify/rate-limit@11.2.0':
+    dependencies:
+      '@lukeed/ms': 2.0.2
+      fastify-plugin: 6.0.0
+      ip-address: 10.5.0
+      toad-cache: 3.7.4
 
   '@fastify/reply-from@12.6.4':
     dependencies:

@@ -28,6 +28,7 @@ import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared
 import compress from "@fastify/compress";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
+import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
 import { registerAuthPlugin, validateWsUpgrade } from "./auth/auth-plugin.js";
@@ -1289,6 +1290,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     const collect = config.onRoute;
     fastify.addHook("onRoute", (route) => collect({ method: route.method, url: route.url }));
   }
+
+  // Global rate limiter. Two jobs: a real remote-caller ceiling, and making the
+  // app recognizable to static analysis (`js/missing-rate-limiting` otherwise
+  // flags every authenticated route handler). Loopback is allow-listed so
+  // same-host callers (tests, CLI, local browser, pi sessions) are never
+  // throttled; `/mcp` keeps its own stricter per-(ip, credential) throttle.
+  await fastify.register(rateLimit, {
+    global: true,
+    max: 100_000,
+    timeWindow: "1 minute",
+    allowList: ["127.0.0.1", "::1"],
+  });
 
   // Compression: gzip/deflate for HTTP responses. Critical for large client
   // bundles (~3 MB JS) served over tunnels like zrok which abort big transfers.
