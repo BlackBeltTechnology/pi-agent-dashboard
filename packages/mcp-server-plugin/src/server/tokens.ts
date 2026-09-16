@@ -26,6 +26,7 @@
  * a second expiry axis would add a failure mode without closing a threat.
  */
 import crypto from "node:crypto";
+import type { Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 
 /** 256-bit opaque bearer, matching `paired-devices.ts` `TOKEN_BYTES`. */
 const TOKEN_BYTES = 32;
@@ -36,10 +37,14 @@ const TOKEN_PREFIX = "mcp_";
 /**
  * Who the server believes is calling, resolved from the presented credential
  * alone (design.md Decision 4a). Never from anything the client asserts.
+ *
+ * Each caller carries the `tier` that scopes what it may see and do
+ * (change: expand-mcp-tiered-surface). A bridge-minted session token is
+ * hard-wired to `control`; a device bearer's tier comes from its registry row.
  */
 export type McpCaller =
-  | { kind: "session"; sessionId: string }
-  | { kind: "device"; deviceId: string };
+  | { kind: "session"; sessionId: string; tier: "control" }
+  | { kind: "device"; deviceId: string; tier: Tier };
 
 interface TokenRow {
   /** SHA-256 hex of the plaintext token. The plaintext is never retained. */
@@ -115,7 +120,7 @@ export class McpTokenRegistry {
     for (const row of this.rows) {
       if (timingSafeEqualHex(presented, row.tokenHash)) found = row;
     }
-    return found ? { kind: "session", sessionId: found.sessionId } : null;
+    return found ? { kind: "session", sessionId: found.sessionId, tier: "control" } : null;
   }
 
   /** Revoke one token (explicit `mcp/revoke-token`). True when a row went. */

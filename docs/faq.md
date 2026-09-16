@@ -3018,12 +3018,84 @@ Caveats + configuration:
 
 Details: `docs/architecture.md` §MCP Endpoint.
 
-See change: mcp-legacy-clients-and-token-issuance.
+See change: mcp-legacy-clients-and-token-issuance, expand-mcp-tiered-surface.
 
 Cross-refs:
 - docs/architecture.md
 - packages/mcp-server-plugin/README.md
 - packages/client/src/components/connectivity/PairedDevicesSection.tsx
+- packages/server/src/routes/pairing-routes.ts
+
+## Which tier do I give Claude Code / Cursor?
+
+Tier choice depends on desired authority:
+
+- `observe` (default): inspect sessions, read files, list tools, view git diffs and transcripts. No execution or mutation.
+- `control`: drive sessions, send prompts, spawn sessions, abort runs, trigger session actions.
+- `operate`: full control including server restart, package management, process control, system settings.
+
+Details: `docs/architecture.md` §MCP Endpoint.
+
+See change: expand-mcp-tiered-surface.
+
+Cross-refs:
+- docs/architecture.md
+- packages/shared/src/route-tiers.ts
+- packages/mcp-server-plugin/src/server/tools.manifest.ts
+
+## How do I connect an agent from another machine?
+
+Steps:
+1. Navigate Settings → Security → Paired Devices.
+2. Click "Create token for an MCP client".
+3. Select base URL from "Reachable at" dropdown (shows LAN IP or active tunnel URL).
+4. Pick tier (`observe`, `control`, `operate`).
+5. Copy generated snippet containing target base URL and bearer token.
+
+CLI alternative on dashboard host:
+```bash
+pi-dashboard token create --label ci --tier control --url http://<lan-ip>:8000
+```
+
+Caveat: bearer token sends in cleartext over plain HTTP; LAN `http://` snippet exposes token to network sniffers. Use `https://` tunnel/base URL for agents off trusted LAN. Revoke + re-mint token after any exposure.
+
+Details: `docs/architecture.md` §MCP Endpoint.
+
+See change: expand-mcp-tiered-surface.
+
+Cross-refs:
+- docs/architecture.md
+- packages/server/src/routes/pairing-routes.ts
+- packages/server/src/cli.ts
+
+## Does observe still expose repo contents?
+
+Yes. `observe` grants inspection reach matching browser dashboard:
+- File reads, workspace directory tree, grep search.
+- Session diffs, transcripts, activity logs.
+- No session mutation, prompt dispatch, or process execution.
+
+Details: `docs/architecture.md` §MCP Endpoint.
+
+See change: expand-mcp-tiered-surface.
+
+Cross-refs:
+- docs/architecture.md
+- packages/shared/src/route-tiers.ts
+
+## My existing tokens changed behaviour
+
+Existing token registry rows written before `tier` field existed default to `operate`:
+- Full access preserved; existing automations continue working.
+- Paired Devices list displays assigned tier for each device row.
+- Re-mint narrower tokens (`observe` or `control`) to apply least privilege.
+
+Details: `docs/architecture.md` §MCP Endpoint.
+
+See change: expand-mcp-tiered-surface.
+
+Cross-refs:
+- docs/architecture.md
 - packages/server/src/routes/pairing-routes.ts
 
 ## Why is a subagent or tool card stuck `running` after the session ended?

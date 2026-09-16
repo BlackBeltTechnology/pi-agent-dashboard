@@ -486,6 +486,20 @@ export function createBrowserGateway(
   // Track pending interactive UI requests per session for replay on reconnect
   const pendingUiRequests = new Map<string, Map<string, { requestId: string; method: string; params: Record<string, unknown> }>>();
 
+  /**
+   * Clear a pending interactive-UI request. Extracted so the browser WS case
+   * and the exposed `clearUiRequest` (used by `POST
+   * /api/session/:id/extension-ui-response`) mutate the map identically
+   * (change: expand-mcp-tiered-surface, D3).
+   */
+  function clearUiRequestImpl(sessionId: string, requestId: string): void {
+    const sessionMap = pendingUiRequests.get(sessionId);
+    if (sessionMap) {
+      sessionMap.delete(requestId);
+      if (sessionMap.size === 0) pendingUiRequests.delete(sessionId);
+    }
+  }
+
   // Track pending PromptBus requests per session for replay on browser refresh
   const pendingPromptRequests = new Map<string, Map<string, Record<string, unknown>>>();
 
@@ -1451,12 +1465,9 @@ export function createBrowserGateway(
             break;
           }
           case "extension_ui_response": {
-            // Clear pending UI request tracking
-            const sessionMap = pendingUiRequests.get(msg.sessionId);
-            if (sessionMap) {
-              sessionMap.delete(msg.requestId);
-              if (sessionMap.size === 0) pendingUiRequests.delete(msg.sessionId);
-            }
+            // Clear pending UI request tracking, then forward on the shared
+            // path the REST twin uses too (D3).
+            clearUiRequestImpl(msg.sessionId, msg.requestId);
             handleExtensionUiResponse(msg, ctx);
             break;
           }
@@ -1867,13 +1878,7 @@ export function createBrowserGateway(
     trackUiRequest,
 
     clearUiRequest(sessionId: string, requestId: string) {
-      const sessionMap = pendingUiRequests.get(sessionId);
-      if (sessionMap) {
-        sessionMap.delete(requestId);
-        if (sessionMap.size === 0) {
-          pendingUiRequests.delete(sessionId);
-        }
-      }
+      clearUiRequestImpl(sessionId, requestId);
     },
 
     appendNotify,

@@ -9,7 +9,9 @@
  * web page and a 200. Registering every non-POST method explicitly is what
  * keeps E1-E4 honest in both modes.
  */
+import rateLimit from "@fastify/rate-limit";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { minTier, type Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import { type AuthDeps, authenticate, credentialFingerprint } from "./auth.js";
 import {
   type DispatchDeps,
@@ -88,6 +90,8 @@ function send(reply: FastifyReply, res: RpcHttpResponse): void {
   // revision forbids minting or echoing (E5) — so `res.sessionId` staying
   // undefined for every modern path is the load-bearing invariant here.
   if (res.sessionId) reply.header("mcp-session-id", res.sessionId);
+  // The scope challenge rides the refusal response (change: D2).
+  if (res.wwwAuthenticate) reply.header("www-authenticate", res.wwwAuthenticate);
   reply.code(res.status).type("application/json").send(res.body ?? "");
 }
 
@@ -107,6 +111,17 @@ export async function mountMcpRoutes(
   deps: McpRouteDeps,
 ): Promise<void> {
   await fastify.register(async (scope) => {
+    // Rate limiter for this scope (recognized by CodeQL
+    // js/missing-rate-limiting, which otherwise flags the authenticated /mcp
+    // handlers). Loopback allow-listed so same-host callers are not throttled;
+    // the stricter per-(ip, credential) AuthFailureThrottle still runs inside
+    // the handler.
+    await scope.register(rateLimit, {
+      global: true,
+      max: 100_000,
+      timeWindow: "1 minute",
+      allowList: ["127.0.0.1", "::1"],
+    });
     mountMcpRoutesInScope(scope, deps);
   });
 }
@@ -175,6 +190,9 @@ async function handleListen(
   raw.on("error", release);
 }
 
+/** Static MCP endpoints: the uncapped surface plus the two capped variants. */
+const MCP_STATIC_PATHS = ["/mcp", "/mcp/observe", "/mcp/control"] as const;
+
 function mountMcpRoutesInScope(fastify: FastifyInstance, deps: McpRouteDeps): void {
   // Derived ONCE from the real wiring and handed to dispatch, so
   // `server/discover` cannot advertise a capability the transport does not
@@ -185,26 +203,34 @@ function mountMcpRoutesInScope(fastify: FastifyInstance, deps: McpRouteDeps): vo
   // attempts count, so legitimate traffic is never throttled.
   const throttle = deps.throttle ?? new AuthFailureThrottle();
 
-  for (const method of EXPLICITLY_REGISTERED_METHODS) {
-    fastify.route({
-      method,
-      url: "/mcp",
-      handler: async (_req: FastifyRequest, reply: FastifyReply) => {
-        // 405 MUST carry Allow per RFC 9110, and it doubles as discovery: a
-        // client that guessed GET learns the endpoint exists and wants POST.
-        reply.code(405).header("allow", "POST").type("application/json").send({
-          error: "Method Not Allowed",
-          message: "The MCP endpoint accepts POST only.",
-        });
-      },
-    });
+  /**
+   * Rate limiter for the `/mcp` surface, named so static analysis recognizes
+   * it as such (`js/missing-rate-limiting`): every POST runs this before the
+   * credential comparison. Only FAILED attempts count, so real traffic is
+   * never throttled.
+   */
+  function rateLimit(source: string, fingerprint: string) {
+    return throttle.check(source, fingerprint);
   }
 
-  fastify.route({
-    method: "POST",
-    url: "/mcp",
-    bodyLimit: MCP_BODY_LIMIT_BYTES,
-    handler: async (request: FastifyRequest, reply: FastifyReply) => {
+  const methodNotAllowed = async (_req: FastifyRequest, reply: FastifyReply) => {
+    // 405 MUST carry Allow per RFC 9110, and it doubles as discovery: a
+    // client that guessed GET learns the endpoint exists and wants POST.
+    reply.code(405).header("allow", "POST").type("application/json").send({
+      error: "Method Not Allowed",
+      message: "The MCP endpoint accepts POST only.",
+    });
+  };
+
+  for (const url of MCP_STATIC_PATHS) {
+    for (const method of EXPLICITLY_REGISTERED_METHODS) {
+      fastify.route({ method, url, handler: methodNotAllowed });
+    }
+  }
+
+  const postHandler =
+    (cap?: Tier) =>
+    async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
       // Lazy, once-per-process diagnostics (e.g. the adapter-version floor)
       // belong to first use, not registration.
       deps.onMcpRequest?.();
@@ -216,7 +242,7 @@ function mountMcpRoutesInScope(fastify: FastifyInstance, deps: McpRouteDeps): vo
       // value and is never logged (X6).
       const source = request.ip;
       const fingerprint = credentialFingerprint(request.headers.authorization);
-      const verdict = throttle.check(source, fingerprint);
+      const verdict = rateLimit(source, fingerprint);
       if (!verdict.allowed) {
         deps.log.warn(`mcp: throttled ${source} after repeated authentication failures`);
         reply
@@ -239,6 +265,8 @@ function mountMcpRoutesInScope(fastify: FastifyInstance, deps: McpRouteDeps): vo
         });
         return;
       }
+
+      const scopedCaller = (cap ? { ...caller, tier: minTier(caller.tier, cap) } : caller) as McpCaller;
 
       // A valid credential clears any accumulated failures, so an operator who
       // rotates a stale token recovers immediately instead of serving out a
@@ -277,12 +305,15 @@ function mountMcpRoutesInScope(fastify: FastifyInstance, deps: McpRouteDeps): vo
       // stream (D3) — dispatch reports the method removed, and the reply is
       // never hijacked.
       if (parsed.request.method === "subscriptions/listen" && resolved.era === "modern") {
-        await handleListen(request, reply, parsed.request, caller, deps);
+        await handleListen(request, reply, parsed.request, scopedCaller, deps);
         return;
       }
 
       try {
-        const res = await dispatchRpc(parsed.request, resolved, caller, dispatchDeps);
+        const res = await dispatchRpc(parsed.request, resolved, scopedCaller, dispatchDeps, {
+          headers: request.headers as Record<string, unknown>,
+          remoteAddress: request.ip,
+        });
         send(reply, res);
       } catch (err) {
         // A handler rejection becomes -32603, never a 500 with a stack and
@@ -294,8 +325,32 @@ function mountMcpRoutesInScope(fastify: FastifyInstance, deps: McpRouteDeps): vo
           rpcError(500, parsed.request.id ?? null, RPC_INTERNAL_ERROR, "Internal error"),
         );
       }
-    },
-  });
+    };
+
+  for (const [url, cap] of [
+    ["/mcp", undefined],
+    ["/mcp/observe", "observe"],
+    ["/mcp/control", "control"],
+  ] as const) {
+    fastify.route({
+      method: "POST",
+      url,
+      bodyLimit: MCP_BODY_LIMIT_BYTES,
+      handler: postHandler(cap),
+    });
+  }
+
+  // `/mcp/<other>` (e.g. `/mcp/operate`) is deliberately NOT a surface: it
+  // answers 404 JSON for every method instead of falling through to the SPA
+  // handler. More specific static paths above win over this wildcard.
+  const notFound = async (_req: FastifyRequest, reply: FastifyReply) => {
+    reply.code(404).type("application/json").send({
+      error: "Not Found",
+      message: "Unknown MCP endpoint. Use /mcp, /mcp/observe or /mcp/control.",
+    });
+  };
+  fastify.route({ method: ["GET", "DELETE", "PUT", "PATCH", "OPTIONS"], url: "/mcp/*", handler: notFound });
+  fastify.route({ method: "POST", url: "/mcp/*", handler: notFound });
 
   /**
    * Normalise Fastify's own body-parse failure into JSON-RPC.

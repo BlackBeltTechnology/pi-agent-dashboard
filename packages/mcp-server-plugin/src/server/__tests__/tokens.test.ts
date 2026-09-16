@@ -17,7 +17,7 @@ describe("McpTokenRegistry — minting (M1)", () => {
   it("resolves a minted token to the session it was minted for", () => {
     const reg = new McpTokenRegistry();
     const token = reg.mintForSession("session-a");
-    expect(reg.resolve(token)).toEqual({ kind: "session", sessionId: "session-a" });
+    expect(reg.resolve(token)).toEqual({ kind: "session", sessionId: "session-a", tier: "control" });
   });
 
   it("issues an opaque 256-bit token, not a structured claim", () => {
@@ -52,15 +52,15 @@ describe("McpTokenRegistry — minting (M1)", () => {
     // Exactly one row survives, and it authenticates ONLY the fresh token.
     expect(reg.size).toBe(1);
     expect(reg.resolve(t1)).toBeNull();
-    expect(reg.resolve(t2)).toEqual({ kind: "session", sessionId: "session-a" });
+    expect(reg.resolve(t2)).toEqual({ kind: "session", sessionId: "session-a", tier: "control" });
   });
 
   it("keeps sessions isolated — one session's token never resolves to another", () => {
     const reg = new McpTokenRegistry();
     const a = reg.mintForSession("session-a");
     const b = reg.mintForSession("session-b");
-    expect(reg.resolve(a)).toEqual({ kind: "session", sessionId: "session-a" });
-    expect(reg.resolve(b)).toEqual({ kind: "session", sessionId: "session-b" });
+    expect(reg.resolve(a)).toEqual({ kind: "session", sessionId: "session-a", tier: "control" });
+    expect(reg.resolve(b)).toEqual({ kind: "session", sessionId: "session-b", tier: "control" });
   });
 });
 
@@ -114,7 +114,7 @@ describe("McpTokenRegistry — revocation (A6, M6)", () => {
     const t1 = reg.mintForSession("session-a");
     const t2 = reg.mintForSession("session-a");
     expect(reg.revokeToken(t1)).toBe(false);
-    expect(reg.resolve(t2)).toEqual({ kind: "session", sessionId: "session-a" });
+    expect(reg.resolve(t2)).toEqual({ kind: "session", sessionId: "session-a", tier: "control" });
   });
 
   it("M6 — the session's token dies when the session ends", () => {
@@ -129,7 +129,7 @@ describe("McpTokenRegistry — revocation (A6, M6)", () => {
 
     expect(reg.resolve(live)).toBeNull();
     // A sibling session is untouched.
-    expect(reg.resolve(b)).toEqual({ kind: "session", sessionId: "session-b" });
+    expect(reg.resolve(b)).toEqual({ kind: "session", sessionId: "session-b", tier: "control" });
   });
 
   it("ending a session with no tokens is a no-op, not an error", () => {
@@ -151,7 +151,7 @@ describe("McpTokenRegistry — revocation (A6, M6)", () => {
     const reg = new McpTokenRegistry();
     const token = reg.mintForSession("session-a");
     const captured = reg.resolve(token);
-    expect(captured).toEqual({ kind: "session", sessionId: "session-a" });
+    expect(captured).toEqual({ kind: "session", sessionId: "session-a", tier: "control" });
 
     reg.revokeSession("session-a");
 
@@ -189,7 +189,7 @@ describe("McpTokenRegistry — lifetime (X8, X9)", () => {
     // No independent expiry axis exists (Decision 7), so a token minted far in
     // the past is still valid until its session ends.
     reg.debugBackdate(token, Date.now() - 1000 * 60 * 60 * 24 * 365);
-    expect(reg.resolve(token)).toEqual({ kind: "session", sessionId: "session-a" });
+    expect(reg.resolve(token)).toEqual({ kind: "session", sessionId: "session-a", tier: "control" });
   });
 });
 

@@ -2,11 +2,12 @@
  * In-memory event store with LRU eviction.
  * Replaces SQLite-backed event-store.ts.
  */
-import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+
 import {
   isBase64DataCarrier,
   isInlineImageBlock,
 } from "@blackbelt-technology/pi-dashboard-shared/image-block.js";
+import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 export interface StoredEvent {
   seq: number;
@@ -577,8 +578,13 @@ function summarizeAtDepthLimit(obj: unknown, maxSize: number): unknown {
 /**
  * Recursively truncate large string fields in an object.
  * Returns a new object if any truncation occurred, otherwise the original.
+ *
+ * Exported (change: fix-session-diff-durable-source) so the transcript→diff
+ * projection (`session-diff-source.ts::projectDiffEvents`) caps tool `args`
+ * with the SAME helper + cap the store applies on ingest, keeping a
+ * transcript-sourced diff payload-identical to a store-sourced one.
  */
-function truncateStrings(obj: unknown, maxSize: number, depth = 0): unknown {
+export function truncateStrings(obj: unknown, maxSize: number, depth = 0): unknown {
   if (depth > 4) return summarizeAtDepthLimit(obj, maxSize);
   if (typeof obj === "string") return capString(obj, maxSize);
   if (Array.isArray(obj)) {
