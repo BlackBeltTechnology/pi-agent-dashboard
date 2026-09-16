@@ -88,11 +88,18 @@ jobs:
       # Managed mode: globalSetup boots the harness (test-up.sh --build builds
       # the image from THIS checked-out tree) and globalTeardown tears it down.
       # No --global-timeout: the job's timeout-minutes is the budget.
+      #
+      # PW_E2E_BOOT_TIMEOUT_MS: the runner has NO Docker layer cache, so the
+      # first build of the dashboard image is ~6-8 min. The 180s local default
+      # starts polling right after the detached build is spawned, so every shard
+      # died at exactly 180s with "container never became healthy". 20 min is
+      # ~2.5x the measured build and well inside the 75-min job budget.
       - name: Run browser E2E shard
         run: pnpm exec playwright test --shard=${{ matrix.shard }}/6
         env:
           CI: "1"
           PI_E2E_SEED: "1"
+          PW_E2E_BOOT_TIMEOUT_MS: "1200000"
 
       - name: Upload blob report
         if: ${{ always() }}
@@ -103,6 +110,18 @@ jobs:
           # A shard that dies before the blob reporter's onEnd (install failure,
           # globalSetup crash) has no report: ignore it rather than adding a
           # second red step on top of the real failure.
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # globalSetup sends the detached `test-up.sh` output to a FILE, so a boot
+      # failure otherwise shows only "container never became healthy" with no
+      # cause. Without this the first red run was undiagnosable from the logs.
+      - name: Upload harness boot log
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-up-log-${{ matrix.shard }}
+          path: test-results/test-up.log
           if-no-files-found: ignore
           retention-days: 7
 

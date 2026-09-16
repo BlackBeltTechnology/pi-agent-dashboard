@@ -15,6 +15,29 @@ import {
 
 const CHANGE = "change add-playwright-e2e";
 
+/**
+ * How long the managed boot may take before globalSetup gives up.
+ *
+ * 180s covers a WARM image (warm runs are seconds) and is the local default.
+ * It does NOT cover a COLD docker build: `test-up.sh --build` is spawned
+ * detached and this poll starts immediately, while a from-scratch build of the
+ * dashboard image is ~6-8 min (design D2 of stabilize-browser-e2e). On a CI
+ * runner with no Docker layer cache every shard therefore timed out at exactly
+ * 180s with "container never became healthy" — the build was still running.
+ * CI raises this via PW_E2E_BOOT_TIMEOUT_MS (see ci-e2e-browser.yml).
+ */
+const BOOT_TIMEOUT_MS = (() => {
+  const raw = process.env.PW_E2E_BOOT_TIMEOUT_MS;
+  if (raw === undefined || raw === "") return 180_000;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1_000) {
+    throw new Error(
+      `Invalid PW_E2E_BOOT_TIMEOUT_MS: "${raw}". Expected an integer >= 1000 (ms).`,
+    );
+  }
+  return parsed;
+})();
+
 // Fail fast (sub-second) if the host Chromium binary is absent, BEFORE the
 // container boot (≤180s). Resolves the executable via the @playwright/test
 // module (not the node_modules/.bin/playwright shim), so a missing bin symlink
@@ -224,7 +247,7 @@ export default async function globalSetup(): Promise<void> {
   // Mark managed BEFORE the wait so a crash mid-boot still gets torn down.
   fs.writeFileSync(MARKER_PATH, JSON.stringify({ workspace, pid: child.pid, logPath }));
 
-  const ports = await bootHealthyPorts(workspace, logPath, 180_000);
+  const ports = await bootHealthyPorts(workspace, logPath, BOOT_TIMEOUT_MS);
   // Lock in the healthy ports so worker processes (spawned after this) inherit
   // the container port → baseURL in sync.
   process.env.PW_E2E_PORT = String(ports.dashboardPort);

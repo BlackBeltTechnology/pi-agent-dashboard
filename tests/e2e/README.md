@@ -81,7 +81,10 @@ Default (managed) lifecycle:
 
 1. `globalSetup` spawns `docker/test-up.sh` from a throwaway workspace dir
    (keeps the overlay off the repo) and waits for `/api/health` → 200
-   (up to 180s; first run builds the image).
+   (up to **180s**; first run builds the image). Override the wait with
+   `PW_E2E_BOOT_TIMEOUT_MS` (ms) — **required in CI**, where there is no Docker
+   layer cache and a from-scratch image build is ~6–8 min, i.e. longer than the
+   local 180s default. `.github/workflows/ci-e2e-browser.yml` sets 20 min.
 2. specs run against `:18000`.
 3. `globalTeardown` runs `docker/test-down.sh` (`compose down -v`) — all
    ephemeral state discarded, host `~/.pi` byte-identical.

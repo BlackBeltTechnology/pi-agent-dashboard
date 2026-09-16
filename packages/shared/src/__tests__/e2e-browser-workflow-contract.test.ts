@@ -123,6 +123,16 @@ describe("ci-e2e-browser.yml — shard matrix", () => {
   it("seeds the harness (PI_E2E_SEED) so scenario specs can pin + spawn", () => {
     expect(yaml).toMatch(/PI_E2E_SEED:\s*"?1"?/);
   });
+
+  it("raises the harness boot timeout above the 180s local default", () => {
+    // A CI runner has no Docker layer cache, so `test-up.sh --build` is ~6-8 min
+    // of build. globalSetup starts its health poll right after spawning the
+    // detached build, so the 180s LOCAL default made every shard die at exactly
+    // 180s with "container never became healthy". The workflow must override it.
+    const m = yaml.match(/PW_E2E_BOOT_TIMEOUT_MS:\s*"?(\d+)"?/);
+    expect(m, "ci workflow must set PW_E2E_BOOT_TIMEOUT_MS for the cold build").toBeTruthy();
+    expect(Number(m?.[1])).toBeGreaterThan(180_000);
+  });
 });
 
 describe("ci-e2e-browser.yml — teardown + merged report", () => {
