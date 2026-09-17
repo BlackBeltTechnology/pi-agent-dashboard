@@ -56,6 +56,21 @@ applies to fallback rows.
 - **WHEN** the burst is EXPANDED and that row's group visibility is `false`
 - **THEN** the absorbed row SHALL render nothing inside the expanded burst
 
+#### Scenario: absorbed row survives an empty container
+- **GIVEN** a claimed custom row absorbed into a tool burst whose tool members are all hidden by
+  the per-tool call visibility preference
+- **WHEN** the chat renders and that row's own custom event group is visible
+- **THEN** the row SHALL still render
+- **AND** the container SHALL NOT suppress it merely because no tool member survived the
+  per-tool gate
+
+#### Scenario: absorbed row still renders when its group is visible
+- **GIVEN** a claimed custom row absorbed into a tool burst
+- **WHEN** the burst is EXPANDED and that row's group visibility is `true`
+- **THEN** the plugin's component SHALL render for that row inside the expanded burst
+- **AND** it SHALL offer the same collapsed presentation and expand affordance it offers at top
+  level, so absorption changes a row's POSITION and never its content
+
 ## ADDED Requirements
 
 ### Requirement: A failing plugin renderer SHALL degrade to the generic fallback
@@ -85,13 +100,22 @@ a transcript containing thousands of claimed rows costs no additional requests a
 
 #### Scenario: Expansion issues exactly one request
 
-- **WHEN** the user expands a single claimed custom row
+- **WHEN** the user expands a single claimed custom row that carries an entry id
 - **THEN** exactly one payload request SHALL be issued, for that row's entry
+
+#### Scenario: Row without an entry id offers no expand affordance
+
+- **GIVEN** a claimed custom row carrying no entry id (the reducer does not stamp one on custom
+  rows originating from a custom message rather than an appended entry)
+- **WHEN** the row renders
+- **THEN** the collapsed presentation SHALL render normally
+- **AND** the row SHALL NOT offer an expand affordance, rather than offering one whose request
+  can never be issued
 
 #### Scenario: Collapsed summary never reports a partial count
 
-- **GIVEN** a claimed custom row whose stored body was truncated and cannot be parsed as a
-  complete payload
+- **GIVEN** a claimed custom row carrying an entry id, whose stored body was truncated and cannot
+  be parsed as a complete payload
 - **WHEN** the collapsed presentation renders
 - **THEN** it SHALL NOT display a count or summary derived from the partial body
 - **AND** it SHALL still offer the expand affordance

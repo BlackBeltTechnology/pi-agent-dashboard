@@ -26,25 +26,27 @@ is not a wall of JSON in one place; it is ~4.3k burst-splitters sprayed across e
 - Plugin renderers stay subject to the existing `customEventGroups` visibility gate
   (unlike flow cards, which are exempt); a hidden group hides the plugin card too.
 - Add `GET /api/sessions/:sessionId/entry/:entryId` returning the untruncated structured
-  payload for a persisted custom entry, in the same session-addressed safety class as the
-  existing `…/tool-result/:toolCallId` endpoint, with a `useCustomEntryPayload` hook
-  mirroring `useToolFullResult` (404 → "entry evicted").
+  payload for a persisted custom entry, read from the **on-disk session JSONL** (the in-memory
+  event store truncates strings to 4 KB and clobbers arrays >20 at ingest, so it cannot serve an
+  untruncated payload), in the same session-addressed safety class as `…/session-change/:toolCallId`,
+  with a `useCustomEntryPayload` hook mirroring `useToolFullResult` (404 → "entry evicted").
 - Renderers are **collapsed-first**: the collapsed line is derived from the row's existing
   truncated body with no fetch; the payload fetch fires only on expand. This keeps the
   steady-state cost of 4.3k rows at zero extra bytes and zero extra requests.
 - Custom rows whose `customType` is CLAIMED by a plugin become transparent to burst
-  formation, so they stop splitting tool bursts. The row's group-visibility gate is pushed
-  into the burst renderer so an absorbed row is still hidden when its group is toggled off
-  (grouping runs BEFORE `isRowVisible` in `ChatView`, so absorption would otherwise let a
-  hidden row escape the gate).
+  formation in BOTH grouping passes (`groupConsecutiveToolCalls` keeps its own separate
+  transparent-row set), so they stop splitting tool bursts and `×N` runs. `ToolBurstGroup` gains
+  a `role: "custom"` render branch — today it returns `null` for any non-`toolResult` row, so an
+  absorbed row would otherwise vanish — plus the row's group-visibility gate, since grouping runs
+  BEFORE `isRowVisible` in `ChatView` and absorption would otherwise let a hidden row escape it.
 - The blackhole plugin claims `om.observations.recorded`, `om.reflections.recorded`, and
   `om.observations.dropped`, rendering a one-line summary collapsed and the structured
   observation/reflection list expanded.
 - **Non-goals**: no change to how custom rows are reduced or truncated; no new visibility
   surface (density is already handled by the shipped `customEventGroups` toggle);
-  **no cross-row aggregation** — measurement shows `om` rows are never adjacent (median
-  45-entry gaps), so adjacent-run collapsing would fire on ~36% of runs and fold at most 3
-  rows; `flow-event` keeps its dedicated path; `om.folded` is out of scope (it is a field
+  **no cross-row aggregation** — measurement shows same-type `om` rows are never adjacent (median
+  45-entry gaps), so adjacent-run collapsing would fire on only 36 of 176 runs (~20%, and only
+  when all `om.*` types are treated as one class) and fold at most 3 rows; `flow-event` keeps its dedicated path; `om.folded` is out of scope (it is a field
   inside `type: "compaction"` entries, not a `customType`, and never reaches the chat as a
   custom row).
 
@@ -57,8 +59,15 @@ is not a wall of JSON in one place; it is ~4.3k burst-splitters sprayed across e
 
 ### Modified Capabilities
 - `dashboard-shell-slots`: adds the `custom-entry-renderer` slot id, its multiplicity /
-  payload tier / predicate classification, and the `customType` claim-matching + tiebreak
-  rules (mirroring the existing `tool-renderer` requirements).
+  payload tier / predicate classification, and the `customType` claim-matching + fatal-collision
+  rules (mirroring the written `tool-renderer` requirements). The frozen-`SlotId` requirement is
+  deliberately NOT modified: it enumerates "at minimum" and the predicate table's last row is a
+  catch-all ("every other `SlotId`"), so a new slot contradicts neither. That enumeration is
+  already stale against the code by four ids (`worktree-card-section`, `composer-panel`,
+  `shell-overlay-route`, `automation-action-editor`); refreshing it is real drift worth fixing,
+  but not in this change.
+- `consecutive-tool-call-grouping`: the inner repetitive-run pass gains the same conditional
+  custom-row transparency, and its absorbed-row render site gains a `custom` branch.
 - `custom-entry-rendering`: the generic `CustomEntryCard` fallback becomes the last link in
   a resolution chain rather than the only renderer; group-visibility gating and the
   `flow-event` exclusion extend to plugin-owned renderers.
@@ -70,20 +79,35 @@ is not a wall of JSON in one place; it is ~4.3k burst-splitters sprayed across e
 
 - `packages/shared/src/dashboard-plugin/slot-types.ts` — new `SlotId`, `SLOT_DEFINITIONS`
   entry, `SlotPredicateInput` classification (`never`, like `tool-renderer`).
+- `packages/dashboard-plugin-runtime/src/slot-registry.ts` — `customType?: string` on
+  `ClaimEntry`; new `forCustomType` filter beside `forToolName`.
 - `packages/dashboard-plugin-runtime/src/manifest-validator.ts` — validate the
-  `customType` field on the new slot.
+  `customType` field on the new slot; reject intra-plugin duplicate
+  `(custom-entry-renderer, customType)` pairs as it already does for `tool-renderer`.
 - `packages/client/src/components/chat/ChatView.tsx` — resolution chain in the
   `role: "custom"` branch; new claim-matching helper alongside `forToolName`; claimed-type
   predicate + group gate threaded into `groupToolBursts`.
-- `packages/client/src/lib/chat/group-tool-bursts.ts` — conditional transparency for custom
-  rows via an injected predicate (the module stays pure; no registry import).
-- `packages/client/src/components/chat/ToolBurstGroup.tsx` — applies the custom-group gate to
-  absorbed custom rows.
+- `packages/client/src/lib/chat/group-tool-bursts.ts` and
+  `packages/client/src/lib/chat/group-tool-calls.ts` — conditional transparency for custom rows
+  via an injected predicate in BOTH passes (the modules stay pure; no registry import).
+- `packages/client/src/components/chat/ToolBurstGroup.tsx` — new `role: "custom"` branch in
+  `BurstBodyItem` (currently `return null`), carrying the resolution chain plus the custom-group
+  gate for absorbed rows.
+- `packages/client/src/components/chat/CollapsedToolGroup.tsx` — the SECOND vanish site: it
+  renders the inner `×N` group's absorbed rows and also falls through to `return null` for a
+  `custom` row. Needs the same branch + gate (it already mirrors the `prefs.toolCalls` gate, so
+  the pattern exists).
+- `packages/dashboard-plugin-runtime/src/vite-plugin/` — cross-plugin
+  `(custom-entry-renderer, customType)` collision detection where the generated client registry is
+  assembled (it runs `validateManifest` per manifest today, with no aggregate check). NOT the
+  server-side `loader.ts`, which governs activation rather than the browser registry that resolves
+  react claims.
 - `packages/client/src/hooks/` — `useCustomEntryPayload`.
 - `packages/server/src/` — entry-payload route.
 - `packages/blackhole-plugin/` — new client renderer component + three manifest claims.
-- No change to `event-reducer.ts` row shape; `ChatMessage.entryId` (already persisted on
-  the `custom_entry` arm) is the fetch key.
+- No change to `event-reducer.ts` row shape; `ChatMessage.entryId` (persisted on the
+  `custom_entry` arm only — the `message_end`/`pi.sendMessage` arm deliberately omits it) is the
+  fetch key, and its absence suppresses the expand affordance rather than producing a dead one.
 
 ## Discipline Skills
 

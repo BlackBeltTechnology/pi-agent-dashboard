@@ -23,24 +23,36 @@ The blackhole plugin SHALL claim the `custom-entry-renderer` slot for `om.observ
 - **WHEN** the chat renders it
 - **THEN** the generic fallback card SHALL render it
 
-#### Scenario: Compaction-borne fold metadata is not a chat row
+#### Scenario: Compaction-borne fold metadata is not claimed
 
-- **GIVEN** a session containing compaction entries carrying `om.folded` metadata
-- **WHEN** the chat renders
-- **THEN** no custom row SHALL be produced for that metadata
-- **AND** the plugin SHALL NOT claim `om.folded`
+- **GIVEN** fold metadata that travels as a field inside compaction entries rather than as a
+  custom entry of its own
+- **WHEN** the plugin's claims are validated
+- **THEN** the plugin SHALL declare no `custom-entry-renderer` claim for it
 
 ### Requirement: Claimed rows SHALL render collapsed by default
 
 Each claimed row SHALL render as a single compact line identifying the kind of ledger event,
-with an affordance to expand. The collapsed line SHALL be derived from the chat row alone and
-SHALL NOT require the full payload.
+with an affordance to expand when the row carries an entry id. The collapsed line SHALL be
+derived from the chat row alone and SHALL NOT require the full payload.
+
+Each of the three claimed types SHALL carry its own icon on the collapsed line. The icon SHALL be
+additive to a textual identification of the event kind and SHALL NOT be the sole carrier of that
+information, consistent with the plugin's existing rule that state is never conveyed by colour or
+glyph alone.
 
 #### Scenario: Collapsed line identifies the event
 
 - **WHEN** a claimed row renders without being expanded
 - **THEN** it SHALL occupy a single line identifying the ledger event kind
-- **AND** it SHALL offer an expand affordance
+- **AND** it SHALL offer an expand affordance when the row carries an entry id
+
+#### Scenario: Each claimed type is visually distinguishable
+
+- **WHEN** rows of all three claimed types render collapsed
+- **THEN** each SHALL show an icon distinct from the other two
+- **AND** each SHALL still expose its event kind as text, so the type is never conveyed by icon
+  alone
 
 #### Scenario: Parseable body yields a count
 
@@ -48,11 +60,14 @@ SHALL NOT require the full payload.
 - **WHEN** it renders collapsed
 - **THEN** the line MAY report the number of records the event carries
 
-#### Scenario: Truncated body omits the count
+#### Scenario: Unparseable body omits the count
 
-- **GIVEN** a claimed row whose stored body was truncated
+- **GIVEN** a claimed row whose stored body does not parse as a complete payload, which includes
+  every truncated body
 - **WHEN** it renders collapsed
 - **THEN** the line SHALL omit any record count rather than report a partial one
+- **AND** omitting a count where one could in principle have been derived SHALL be acceptable,
+  since under-reporting is safe and over-reporting is not
 
 ### Requirement: Expanded rows SHALL present the ledger records structurally
 

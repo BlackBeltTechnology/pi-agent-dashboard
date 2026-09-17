@@ -7,6 +7,10 @@ of a chat custom entry, keyed by the entry's `customType`. The slot SHALL accept
 contributions, SHALL accept React payloads only, and SHALL take no predicate input (gating is
 via `shouldRender` only), matching the `tool-renderer` slot's classification.
 
+`ClaimEntry` SHALL carry an optional `customType: string` field alongside the existing keyed
+fields (`toolName`, `command`, `path`), and the registry SHALL expose a `forCustomType` filter
+mirroring `forToolName`.
+
 #### Scenario: Claim declares a customType
 
 - **WHEN** a plugin manifest declares a claim with `slot: "custom-entry-renderer"`
@@ -22,16 +26,25 @@ via `shouldRender` only), matching the `tool-renderer` slot's classification.
 - **AND** a row whose `customType` is `"om.reflections"` or `"om.reflections.recorded.v2"` SHALL
   NOT match that claim
 
+#### Scenario: One plugin declares the same customType twice
+
+- **WHEN** a single plugin manifest declares two `custom-entry-renderer` claims with the same
+  `customType`
+- **THEN** manifest validation SHALL reject the manifest with an error naming the plugin and the
+  duplicated `customType`, exactly as it already rejects duplicate `(tool-renderer, toolName)`
+  and `(command-route, command)` pairs
+
 #### Scenario: Two plugins claim the same customType
 
 - **WHEN** plugin A and plugin B both claim `custom-entry-renderer` for the same `customType`
-- **THEN** exactly one claim SHALL render, selected by the slot system's existing precedence
-  (priority, then plugin id)
-- **AND** the losing claim SHALL NOT render alongside it
+- **THEN** the loader SHALL report a fatal collision error naming both plugins and the
+  conflicting `customType`, and abort startup
+- **AND** the system SHALL NOT silently pick a winner by priority or plugin id, because the
+  priority ordering governs render order of many-multiplicity contributions, not keyed ownership
 
 #### Scenario: shouldRender gates the claim fail-closed
 
 - **GIVEN** a `custom-entry-renderer` claim declaring a `shouldRender` gate
 - **WHEN** the gate returns false, or throws
 - **THEN** the claim SHALL NOT render
-- **AND** resolution SHALL continue to the next claim, then to the generic fallback
+- **AND** resolution SHALL continue to the generic fallback

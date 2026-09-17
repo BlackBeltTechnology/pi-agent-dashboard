@@ -10,6 +10,15 @@ matching claim SHALL remain a hard boundary. Transparency SHALL therefore depend
 of registered claims, never on display preferences, so toggling a custom event group SHALL NOT
 re-form bursts.
 
+The inner repetitive-run pass maintains its own, DIFFERENT transparent-row set and independently
+ends its run on a `custom` row; the matching change there is specified by the
+`consecutive-tool-call-grouping` capability. Applying conditional transparency to only one of the
+two passes SHALL be treated as incomplete.
+
+The claimed-type set SHALL be read once per transcript grouping rather than re-evaluated live, so
+that claims registering asynchronously after first render re-group at most once and never
+reshuffle a transcript the user is already reading.
+
 #### Scenario: Interior thinking does not break a burst
 
 - WHEN two `toolResult` rows are separated by a `thinking` row
@@ -40,6 +49,14 @@ re-form bursts.
   contribution
 - THEN they SHALL belong to two separate bursts
 - AND the `custom` row SHALL be emitted verbatim at the top level
+
+#### Scenario: Lone repetitive group flanked by a claimed custom row is wrapped
+
+- GIVEN a single `×N` group whose only absorbed neighbour is a claimed `custom` row
+- WHEN the burst pass runs
+- THEN the bare-group exception SHALL NOT apply, because a claimed custom row is content rather
+  than structural chrome
+- AND the group SHALL be wrapped in a burst container together with that row
 
 #### Scenario: Burst formation is unchanged with no claims registered
 
