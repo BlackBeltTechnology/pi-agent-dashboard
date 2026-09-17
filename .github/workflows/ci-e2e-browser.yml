@@ -61,7 +61,15 @@ jobs:
     # container, so a shard's death cannot cascade. `test-up.sh` reads the
     # runner's real MemTotal at boot and refuses an oversubscribing start, so
     # the runner's RAM figure is not the constraint here.
-    timeout-minutes: 75
+    #
+    # The budget is NOT the design's 30-50 min estimate: the first run that
+    # actually reached the specs measured 58-75 min per shard for ~28 specs, and
+    # shards 2+3 were KILLED here at 75 min with no blob report (a killed shard
+    # contributes nothing to the merged report). 120 min finishes the run and
+    # keeps the red list complete; re-sizing the matrix is tracked separately
+    # (nothing depends on the exact number — the contract test ties the matrix
+    # length to every `--shard=i/N` denominator, not to this timeout).
+    timeout-minutes: 120
     # ADVISORY on the PR path only; dispatch/nightly fail loudly.
     continue-on-error: ${{ github.event_name == 'pull_request' }}
     strategy:
