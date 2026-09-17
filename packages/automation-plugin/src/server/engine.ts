@@ -25,7 +25,7 @@ import type {
   Sandbox,
   Visibility
 } from "../shared/automation-types.js";
-import type { LeasedHandle, WorkSource } from "../shared/work-source.js";
+import type { LeasedHandle, WorkSource, WorkSourceContext } from "../shared/work-source.js";
 import {
   type ActionCompletion,
   type ActionRegistry,
@@ -346,6 +346,21 @@ export interface Engine {
   actionRegistry: ActionRegistry;
   /** Stable work-source registry for `schedule.batch` fan-out. */
   workSources: WorkSourceRegistry;
+  /**
+   * TARGETED single-item fan-out. Leases the ONE item addressed by `key`
+   * through the source's optional `take`, then spawns exactly one child for it
+   * — the same child path a batch fire uses, so the item rides `${{trigger}}`.
+   *
+   * The lease IS the single-flight guard — an item already leased (by a batch
+   * fire or a prior targeted run) is refused `{ ok:false, reason:"in_flight" }`,
+   * so two children never process the same item. `unsupported` when the
+   * automation is not `schedule.batch` or its source cannot address items by
+   * key. See change: work-source-seam.
+   */
+  runWorkItem(
+    automation: DiscoveredAutomation,
+    key: string,
+  ): Promise<{ ok: boolean; runId?: string; reason?: "in_flight" | "unsupported"; error?: string }>;
   dispose(): void;
 }
 
@@ -836,6 +851,87 @@ export function createEngine(deps: EngineDeps): Engine {
     return { runId: parentRec.runId };
   }
 
+  /**
+   * TARGETED single-item fan-out (`Engine.runWorkItem`). Leases the ONE item
+   * addressed by `key` through the source's optional `take`, then spawns exactly
+   * one child for it — the same child path a batch fire uses, so the item rides
+   * `${{trigger}}` and the action resolves against it identically.
+   *
+   * The LEASE is the single-flight guard: `take` returns null when the item is
+   * already leased (by a batch fire or an earlier targeted run) and this reports
+   * `in_flight`. No `pending`-registry scan, no second dispatch path.
+   * See change: work-source-seam.
+   */
+  async function runWorkItem(
+    automation: DiscoveredAutomation,
+    key: string,
+  ): Promise<{ ok: boolean; runId?: string; reason?: "in_flight" | "unsupported"; error?: string }> {
+    if (!automation.valid || !automation.config) return { ok: false, error: "automation invalid" };
+    const on = automation.config.on;
+    const sourceId = on.kind === "schedule.batch" && typeof on.source === "string" ? on.source : undefined;
+    if (!sourceId) return { ok: false, reason: "unsupported", error: "automation has no work source" };
+    const source = workSources.get(sourceId);
+    if (!source) return { ok: false, error: `work source "${sourceId}" not registered` };
+    if (typeof source.take !== "function") {
+      return { ok: false, reason: "unsupported", error: `work source "${sourceId}" cannot address items by key` };
+    }
+
+    const cfg = deps.config();
+    const scopeBase = scopeBaseFor(automation);
+    const wsCtx: WorkSourceContext = { cwd: scopeBase };
+    let handle: LeasedHandle | null;
+    try {
+      handle = await source.take(key, wsCtx);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      warn(`[engine] work source "${sourceId}" take(${key}) failed: ${msg}`);
+      return { ok: false, error: msg };
+    }
+    if (!handle) {
+      log(`[engine] work item ${key}: unavailable (leased or gone); refusing`);
+      return { ok: false, reason: "in_flight" };
+    }
+
+    const base = resolveChildren(automation, 1).specs[0];
+    if (!base) {
+      try {
+        source.nack(handle.leaseToken);
+      } catch {
+        /* best-effort */
+      }
+      return { ok: false, error: "automation resolves no action" };
+    }
+
+    const vis = effectiveVisibility(automation, cfg.defaultVisibility);
+    const resolved = resolveModel(automation.config.model, {
+      defaultModel: cfg.defaultModel,
+      ...(deps.readRoles ? { readRoles: deps.readRoles } : {}),
+    });
+    const parentRec = storeStartParentRun(scopeBase, automation.name, {});
+    const parent: ParentState = {
+      parentRunId: parentRec.runId,
+      key: automationKey(automation),
+      scopeBase,
+      name: automation.name,
+      remaining: 1,
+      statuses: [],
+      findings: 0,
+      finalized: false,
+    };
+    parents.set(parent.parentRunId, parent);
+
+    const childAutomation: DiscoveredAutomation = {
+      ...automation,
+      config: { ...automation.config, action: base.action, actions: undefined },
+    };
+    const childCtx: FireContext = { firedAt: deps.now?.() ?? Date.now(), value: handle.item };
+    spawnChild(parent, childAutomation, base.actionLabel, scopeBase, resolved, vis, childCtx, {
+      lease: { source, token: handle.leaseToken },
+      idempotencyKey: handle.idempotencyKey,
+    });
+    return { ok: true, runId: parent.parentRunId };
+  }
+
   function startRunFor(automation: DiscoveredAutomation, fireCtx?: FireContext): { runId: string } | null {
     if (!automation.valid || !automation.config) return null;
     const cfg = deps.config();
@@ -917,6 +1013,7 @@ export function createEngine(deps: EngineDeps): Engine {
     runner,
     registry,
     workSources,
+    runWorkItem,
     get actionRegistry() { return resolveRegistry(); },
 
     start(): void {
