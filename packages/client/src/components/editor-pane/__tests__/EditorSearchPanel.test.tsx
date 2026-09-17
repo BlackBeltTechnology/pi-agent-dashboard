@@ -74,10 +74,18 @@ describe("EditorSearchPanel", () => {
     fireEvent.change(input, { target: { value: "edit" } });
     await screen.findByText("src/editor.ts");
     fireEvent.keyDown(input, { key: "ArrowDown" });
+    // race: `onKeyDown` closes over `activeIndex`. Enter dispatched before the
+    // ArrowDown state update has re-rendered runs the STALE closure and opens
+    // item 0. Poll the rendered selection (the active row carries a bare
+    // `bg-[var(--bg-hover)]`; inactive rows only the `hover:`-prefixed one).
+    await waitFor(() => {
+      const rows = screen.getAllByRole("button").filter((b) => b.textContent?.includes("src/"));
+      expect(/(?:^|\s)bg-\[var\(--bg-hover\)\]/.test(rows[1].className)).toBe(true);
+    });
     fireEvent.keyDown(input, { key: "Enter" });
-    expect(onOpen).toHaveBeenCalledWith("src/edit-log.ts", undefined);
+    await waitFor(() => expect(onOpen).toHaveBeenCalledWith("src/edit-log.ts", undefined));
     fireEvent.keyDown(input, { key: "Escape" });
-    expect(onClose).toHaveBeenCalled();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
   it("content match opens with its line for scroll-to", async () => {

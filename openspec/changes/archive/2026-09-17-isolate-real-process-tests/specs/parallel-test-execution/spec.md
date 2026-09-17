@@ -22,14 +22,14 @@ Under `CI`, the real-process project — and only that project — SHALL retry a
 #### Scenario: Retried test is attributable
 - **WHEN** a real-process test fails once and passes on retry in CI
 - **THEN** the job SHALL succeed
-- **AND** the uploaded report SHALL list that test with a retry count of 1
+- **AND** the uploaded report SHALL list that test as passed while retaining the failed attempt's failure message, so the retry is distinguishable from a clean pass
 
 #### Scenario: Locally there is no retry
 - **WHEN** the same test fails on a developer machine
 - **THEN** the run SHALL fail on the first failure
 
 ### Requirement: Named jsdom races are closed by polling
-The following client tests SHALL assert on polled DOM/mock state and SHALL NOT issue a `fireEvent` before the state it depends on has been observed: `SettingsPanel` "buffers 'Initialize on worktree' and persists it only on Save"; `EditorSearchPanel` "Esc dismisses the hoisted overlay" and "keyboard: ArrowDown + Enter opens the selected result; Esc closes"; `FilePreviewContext` "E24: link handover clears the outgoing driver, replaces, stamps, primes once".
+The following client tests SHALL assert on polled DOM/mock state and SHALL NOT issue a `fireEvent` before the state it depends on has been observed: `SettingsPanel` "buffers 'Initialize on worktree' and persists it only on Save"; `EditorSearchPanel` "keyboard: ArrowDown + Enter opens the selected result; Esc closes"; `FilePreviewContext` "Esc dismisses the hoisted overlay".
 
 #### Scenario: Toggle is issued after the baseline landed
 - **WHEN** the SettingsPanel test toggles "Initialize on worktree"
