@@ -139,6 +139,49 @@ export interface ScaffoldResult extends ScaffoldPlan {
 }
 
 /**
+ * Render `.pi/settings.json` from the profile template. Substitutions are
+ * JSON-escaped so a stack command or project name containing `"`/`\` cannot
+ * corrupt the file, and the rendered text is validated as JSON BEFORE any write
+ * so corruption surfaces as a thrown error rather than a broken settings file.
+ */
+function renderSettings(
+  profileDir: string,
+  subs: Record<string, string>,
+): { text: string; hookValid: boolean; leftover: string[] } {
+  const raw = fs.readFileSync(path.join(profileDir, "settings.json.tmpl"), "utf8");
+  const text = render(raw, subs, jsonEscape);
+  let parsed: { worktreeInit?: unknown };
+  try {
+    parsed = JSON.parse(text) as { worktreeInit?: unknown };
+  } catch (err) {
+    throw new Error(
+      `rendered .pi/settings.json is not valid JSON (check the profile template + substitutions): ${(err as Error).message}`,
+    );
+  }
+  return {
+    text,
+    hookValid: isValidWorktreeInit(parsed.worktreeInit),
+    leftover: leftoverPlaceholders(text),
+  };
+}
+
+/** Copy the profile's prompt files, honoring the caller's write guard. */
+function copyPrompts(
+  profileDir: string,
+  targetDir: string,
+  shouldWrite: (target: string) => boolean,
+): void {
+  const prompts = listPrompts(profileDir);
+  if (prompts.length === 0) return;
+  const promptsDir = path.join(targetDir, ".pi", "prompts");
+  fs.mkdirSync(promptsDir, { recursive: true });
+  for (const f of prompts) {
+    const target = path.join(promptsDir, f);
+    if (shouldWrite(target)) fs.copyFileSync(path.join(profileDir, "prompts", f), target);
+  }
+}
+
+/**
  * Perform the scaffold. Throws when a target file exists and `overwrite` is
  * false (the interactive skill previews `planScaffold().conflicts` first).
  */
@@ -173,39 +216,17 @@ export function scaffoldProfile(opts: ScaffoldOptions): ScaffoldResult {
   const wroteAgentsMd = shouldWrite(agentsMd);
   if (wroteAgentsMd) fs.writeFileSync(agentsMd, agentsText, "utf8");
 
-  // .pi/settings.json. Substitutions are JSON-escaped so a stack command or
-  // project name containing `"`/`\` cannot corrupt the file; the rendered text
-  // is validated as JSON BEFORE writing so corruption surfaces as a thrown
-  // error rather than a silently-broken settings file.
-  const settingsRaw = fs.readFileSync(path.join(profile.dir, "settings.json.tmpl"), "utf8");
-  const settingsText = render(settingsRaw, subs, jsonEscape);
-  leftover.push(...leftoverPlaceholders(settingsText));
-  let parsedSettings: { worktreeInit?: unknown };
-  try {
-    parsedSettings = JSON.parse(settingsText) as { worktreeInit?: unknown };
-  } catch (err) {
-    throw new Error(
-      `rendered .pi/settings.json is not valid JSON (check the profile template + substitutions): ${(err as Error).message}`,
-    );
-  }
+  // .pi/settings.json
+  const settings = renderSettings(profile.dir, subs);
+  leftover.push(...settings.leftover);
   const settingsDir = path.join(targetDir, ".pi");
   const settingsTarget = path.join(settingsDir, "settings.json");
   if (shouldWrite(settingsTarget)) {
     fs.mkdirSync(settingsDir, { recursive: true });
-    fs.writeFileSync(settingsTarget, settingsText, "utf8");
+    fs.writeFileSync(settingsTarget, settings.text, "utf8");
   }
-  const hookValid = isValidWorktreeInit(parsedSettings.worktreeInit);
 
-  // prompts/*.md
-  const prompts = listPrompts(profile.dir);
-  if (prompts.length > 0) {
-    const promptsDir = path.join(targetDir, ".pi", "prompts");
-    fs.mkdirSync(promptsDir, { recursive: true });
-    for (const f of prompts) {
-      const target = path.join(promptsDir, f);
-      if (shouldWrite(target)) fs.copyFileSync(path.join(profile.dir, "prompts", f), target);
-    }
-  }
+  copyPrompts(profile.dir, targetDir, shouldWrite);
 
   // DOX: seed doctrine + kb toolset. In gap-fill mode the doctrine block is
   // appended only to an AGENTS.md this call created — a pre-existing one is the
@@ -221,5 +242,5 @@ export function scaffoldProfile(opts: ScaffoldOptions): ScaffoldResult {
     if (!kb.written) skipped.push(kbConfigPath(targetDir));
   }
 
-  return { ...plan, skipped, doctrineSeeded, hookValid, leftover };
+  return { ...plan, skipped, doctrineSeeded, hookValid: settings.hookValid, leftover };
 }
