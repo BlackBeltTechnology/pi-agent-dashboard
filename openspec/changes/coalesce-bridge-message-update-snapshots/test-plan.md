@@ -90,5 +90,6 @@ it is in-process bridge logic plus rendered-UI consequences.
 None. L1 rows extend the existing `packages/extension/src/__tests__/` vitest
 tier (exemplars: `subagent-tick-throttle.test.ts` for an injected-timer state
 machine, `bridge-followup-chat-order.test.ts` for the bridge wire-order harness).
-L3 rows extend `tests/e2e/` against the docker harness (exemplar:
-`tests/e2e/reconnect.spec.ts` for the WS-boundary pattern).
+L3 rows extend `tests/e2e/` against the docker harness (exemplars:
+`tests/e2e/streaming-latch-heal.spec.ts` for streaming-bubble convergence,
+`tests/e2e/replay-delta-on-reload.spec.ts` for the reload/replay boundary).
