@@ -174,6 +174,30 @@ export function throwIfCrashLooping(
 }
 
 /**
+ * Compose project for the CURRENT run — what spec code needs to reach the
+ * harness container.
+ *
+ * globalSetup boots the managed harness from a THROWAWAY workspace, so the
+ * state file lands THERE, not at the repo root; it exports the project to
+ * workers as `PW_E2E_PROJECT` (same mechanism as `PW_E2E_PORT`). The repo-root
+ * file is only the manual fallback (`docker/test-up.sh` run from the repo).
+ * Reading the repo-root file directly made 11 specs die with
+ * `ENOENT .../pi-agent-dashboard/.pi-test-harness.json` on every CI shard.
+ */
+export function harnessProject(repoRoot: string = REPO_ROOT): string {
+  const fromEnv = process.env.PW_E2E_PROJECT;
+  if (fromEnv) return fromEnv;
+  const project = resolveHarnessProject(repoRoot);
+  if (!project) {
+    throw new Error(
+      `no harness compose project: PW_E2E_PROJECT is unset and ` +
+        `${path.join(repoRoot, ".pi-test-harness.json")} carries none`,
+    );
+  }
+  return project;
+}
+
+/**
  * Snapshot a container that booted but never answered `/api/health`.
  *
  * test-up.sh's output ends at `Container ... Started` (compose returns as soon

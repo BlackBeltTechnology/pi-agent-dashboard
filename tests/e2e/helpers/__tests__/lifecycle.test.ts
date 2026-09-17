@@ -19,6 +19,7 @@ import {
   captureHarnessFailure,
   type DockerProbe,
   harnessFailureLogPath,
+  harnessProject,
   harnessRestartCount,
   resolveHarnessProject,
   throwIfCrashLooping,
@@ -130,6 +131,36 @@ describe("throwIfCrashLooping", () => {
     const ws = workspace({ project: "p" });
     const logPath = path.join(ws, "test-results", "test-up.log");
     expect(() => throwIfCrashLooping(ws, logPath, probe)).toThrow(/crash-looping/);
+  });
+});
+
+describe("harnessProject", () => {
+  const saved = process.env.PW_E2E_PROJECT;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.PW_E2E_PROJECT;
+    else process.env.PW_E2E_PROJECT = saved;
+  });
+
+  it("prefers the env globalSetup exported over a repo-root file", () => {
+    // The regression: specs read the repo-root state file, which the managed
+    // boot never writes — ENOENT on every CI shard. A stale repo-root file must
+    // NOT win over the real (env-exported) project.
+    process.env.PW_E2E_PROJECT = "pi-dash-test-from-env";
+    expect(harnessProject(workspace({ project: "pi-dash-test-stale-repo-root" }))).toBe(
+      "pi-dash-test-from-env",
+    );
+  });
+
+  it("falls back to the repo-root state file (manual test-up.sh flow)", () => {
+    delete process.env.PW_E2E_PROJECT;
+    expect(harnessProject(workspace({ project: "pi-dash-test-manual" }))).toBe(
+      "pi-dash-test-manual",
+    );
+  });
+
+  it("names the missing state file when neither source has a project", () => {
+    delete process.env.PW_E2E_PROJECT;
+    expect(() => harnessProject(workspace())).toThrow(/no harness compose project/);
   });
 });
 

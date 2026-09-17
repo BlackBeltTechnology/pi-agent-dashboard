@@ -8,6 +8,7 @@ import {
   DASHBOARD_PORT,
   HEALTH_URL,
   MARKER_PATH,
+  resolveHarnessProject,
   resolvePortsFromStateFile,
   TEST_UP,
   throwIfCrashLooping,
@@ -254,6 +255,11 @@ export default async function globalSetup(): Promise<void> {
   // the container port → baseURL in sync.
   process.env.PW_E2E_PORT = String(ports.dashboardPort);
   process.env.PW_GATEWAY_PORT = String(ports.gatewayPort);
+  // Same inheritance for the compose project: specs reach the container by
+  // project label, and the state file lives in THIS throwaway workspace, not at
+  // the repo root (see harnessProject).
+  const project = resolveHarnessProject(workspace);
+  if (project) process.env.PW_E2E_PROJECT = project;
 
   await waitForHarnessOwnedSessions(ports.dashboardPort);
 }
