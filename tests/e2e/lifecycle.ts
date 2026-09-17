@@ -97,7 +97,7 @@ export interface DockerProbe {
   (args: string[]): { status: number; stdout: string; stderr: string };
 }
 
-export const defaultDockerProbe: DockerProbe = (args) => {
+const defaultDockerProbe: DockerProbe = (args) => {
   const res = spawnSync("docker", args, { encoding: "utf8", timeout: 20_000 });
   return { status: res.status ?? 1, stdout: res.stdout ?? "", stderr: res.stderr ?? "" };
 };
@@ -141,13 +141,13 @@ export function harnessRestartCount(
 }
 
 /** Change name for triage brackets in harness-lifecycle error messages. */
-export const LIFECYCLE_CHANGE = "change stabilize-browser-e2e";
+const LIFECYCLE_CHANGE = "change stabilize-browser-e2e";
 
 /**
  * Docker restart count that proves a crash-loop. Two separate restarts can
  * never be a healthy boot: PID 1 only exits on a failed entrypoint.
  */
-export const CRASH_LOOP_RESTARTS = 2;
+const CRASH_LOOP_RESTARTS = 2;
 
 /**
  * Throw when the harness container is crash-looping.
