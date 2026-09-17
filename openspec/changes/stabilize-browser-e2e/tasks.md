@@ -50,6 +50,19 @@
   tests 1/2 (a fresh container seeds all-false display prefs → enable tool calls
   in `beforeEach`), `editor-pane` F3 (`pane-caption-*` removed as redundant).
 
+  **Second dispatch (run 35259223668, 6 shards, S1/S2 fixed).** 592 passed /
+  117 distinct failed. Shards 1/2/4/5 finished in 38/42/48/52 min; shards 3/6
+  ran ~115/100 min (shard 3: 34 `timedOut`; shard 6: 25 skipped = harness-down
+  short-circuit) — a degraded long run, NOT more-broken code. **Design delta:
+  matrix re-sized 6 → 12** (see `measurements.md`) so every shard fits ~40-50
+  min. A local fresh-harness pass over 24 of the shards 1/2/4/5 spec files found
+  ~19 deterministic failures; the rest passed locally → CI-only flakiness.
+  Drift fixed: `bus-client-goal-plugin-action` (`flows` is now a KNOWN handler),
+  `folder-status-capsule` F1-order (per-test reaping removed the prior test's
+  sessions), `error-lifecycle` test 1 (settled Retry re-added). Product bug
+  fixed: `event-reducer` `message_end` over-eager clear (an `ask_user`
+  `tool_use` pause cleared the settled error anchor).
+
   **Still red, next pass** (CI re-run 35257314976 is authoritative — a local
   attach harness pollutes after ~100 specs): `chat-transcript-virtualization`
   :127, `compaction-boundary-replay` #F1/#F2, `custom-entry-fallback` #E11,

@@ -2,15 +2,17 @@
 
 ## Dispatch mechanism (task 3.3)
 
-`gh workflow run ci-e2e-browser.yml --ref os/stabilize-browser-e2e` is
-**impossible before merge**: `workflow_dispatch` is only available for workflows
-that exist on the DEFAULT branch, and this workflow is new on this branch →
-`HTTP 404: workflow not found on the default branch`.
+`gh workflow run ci-e2e-browser.yml --ref os/stabilize-browser-e2e` was 404
+for the FIRST dispatch (2026-09-16): at that point `workflow_dispatch` was not
+registered for a workflow that only existed on a non-default branch. By the
+second dispatch it WORKED (run 35272663761) — GitHub had registered the
+workflow after the earlier PR-path runs. Recorded so the next dispatcher does
+not assume it is impossible.
 
-Dispatch was therefore done through the workflow's **PR path**: open the PR and
-apply the `e2e-browser` label (types `opened`/`synchronize`/`reopened`/`labeled`).
-Runs are advisory on that path (`continue-on-error`), so the job's own conclusion
-is the signal, not the check's.
+Dispatch can also be done through the workflow's **PR path**: apply the
+`e2e-browser` label (types `opened`/`synchronize`/`reopened`/`labeled`). Runs
+are advisory on that path (`continue-on-error`), so the job's own conclusion is
+the signal, not the check's.
 
 | run | head | trigger | outcome |
 |---|---|---|---|
@@ -87,3 +89,57 @@ Recovery measured on the live harness (same specs that were red in CI):
 Residual drift fixed in the same pass: `change-summary-table`, `editor-pane` F3,
 `enhance-tool-call-grouping` 1/2, and the duplicated toast helper (8 specs).
 The remaining red list lives in task 4.2.
+
+## Second dispatch — run 35259223668 (post-systemic-fix, 6 shards)
+
+The first run that reached the specs AFTER S1/S2 landed. All six shards booted
+and produced a blob. Wall clock (all started `18:32:46Z`):
+
+| shard | wall clock | passed | failed | timedOut | skipped | note |
+|---|---|---|---|---|---|---|
+| 1 | 38m | 117 | 2 | 0 | 9 | |
+| 2 | 42m | 107 | 8 | 3 | 10 | |
+| 3 | ~115m | 63 | 17 | **34** | 7 | near the 120-min cap |
+| 4 | 52m | 115 | 5 | 1 | 12 | |
+| 5 | 48m | 111 | 5 | 1 | 2 | |
+| 6 | 100m | 71 | 26 | 1 | **25** | harness-down short-circuit after the timeouts |
+
+**592 passed / 117 distinct failed.** Versus the 129-red, 5-shard baseline this
+is a real recovery, but the run exposed a NEW infrastructure problem:
+`--shard=i/N` balances by TEST COUNT, not DURATION, and the slow specs
+(`subagent-*`, `tail-only-*`, `terminal`) cluster. Shards 3 and 6 ran ~2× the
+other four.
+
+The two long shards are NOT more-broken code — they are a DEGRADED long run:
+shard 3 recorded **34 `timedOut`** results (a cascade), and shard 6 recorded
+**25 skipped** (the harness-down short-circuit: 3 consecutive probe failures →
+the remaining specs skip) plus harness symptoms in its red messages (`docker
+exec` failures, a 25-min `beforeAll` timeout, `browserContext.close`). A shard
+that runs 100+ min on a single shared harness is not attributable.
+
+### Design delta — matrix re-sized 6 → 12
+
+Halving the per-shard spec count halves the wall clock. The contract test
+derives the matrix length from the YAML and asserts every `--shard=i/N`
+denominator equals it, so the bump is self-consistent (17/17 contract tests
+pass). `timeout-minutes` stays 120 as the cap. This supersedes the earlier
+"re-sizing tracked separately" note in the workflow comment: the 6-shard data
+made 12 the fix, not a follow-up.
+
+### Residual triage (second dispatch)
+
+117 distinct reds across 62 files. A local fresh-harness pass over 24 of the
+shards 1/2/4/5 spec files found ~19 DETERMINISTIC failures; the rest passed
+locally → CI-only flakiness (consistent with the long-shard degradation). Fixed
+in this pass (each reproduced locally):
+
+- **drift** — `bus-client-goal-plugin-action` (used `flows`, now a KNOWN handler,
+  as the unhandled probe), `folder-status-capsule` F1-order (relied on the
+  previous serial test's sessions, removed by per-test reaping),
+  `error-lifecycle` test 1 (asserted NO settled Retry; `fix-retry-error-lifecycle`
+  re-added one).
+- **product bug** — `event-reducer` `message_end` cleared `lastError` on ANY
+  non-error stop, so an `ask_user` `tool_use` pause silently cleared the settled
+  error anchor, contradicting the `CONFIRMED_GOOD_STOP_REASONS` intent the
+  `agent_end` arm already honours. Recovery now requires a confirmed-good
+  terminal stop, or an active retry chain.
