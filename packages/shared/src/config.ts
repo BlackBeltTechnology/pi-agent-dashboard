@@ -423,6 +423,23 @@ export function resolveKrokiEndpoint(
 
 export type PluginsConfig = Record<string, Record<string, unknown>>;
 
+/**
+ * Resource-saturation thresholds consulted by subagent admission. Each metric is
+ * optional and names the domain it measures — mixing the domains up makes a
+ * threshold silently never fire on a machine loaded by *many* sessions whose
+ * parent process reads low.
+ *
+ * See change: bound-subagent-fanout-under-host-pressure (D5).
+ */
+export interface SubagentSaturationThresholds {
+  /** PROCESS domain: event-loop delay max (ms) over the admission window. */
+  eventLoopDelayMs?: number;
+  /** PROCESS domain: this process's CPU share (percent). */
+  cpuPercent?: number;
+  /** MACHINE domain: the system 1-minute load average. */
+  loadAvg1m?: number;
+}
+
 export interface DashboardConfig {
   port: number;
   piPort: number;
@@ -465,6 +482,22 @@ export interface DashboardConfig {
    * See change: reduce-bridge-tick-bandwidth (D2/D3/D4).
    */
   subagentTickThrottleMs: number;
+  /**
+   * Effective cap on concurrently in-flight `Agent` children in one session.
+   * `0` disables admission entirely and is the exact-no-op rollback path.
+   * Absent resolves to `DEFAULT_MAX_CONCURRENT_SUBAGENTS` (active by default).
+   * A negative / non-integer / non-numeric value is malformed and resolves to
+   * the fail-open (uncapped) path — NOT to the disable path: a malformed gate
+   * must never refuse a call.
+   * See change: bound-subagent-fanout-under-host-pressure (D1/D6).
+   */
+  maxConcurrentSubagents: number;
+  /**
+   * Optional resource-saturation thresholds. Any metric at/above its threshold
+   * narrows the effective cap to 1 (never 0). Absent metric = "no signal".
+   * See change: bound-subagent-fanout-under-host-pressure (D5).
+   */
+  subagentSaturation?: SubagentSaturationThresholds;
   /**
    * One-shot marker: the boot migration has already rewritten a materialized
    * `0` to the current default. Declared here so the settings round-trip
@@ -924,6 +957,56 @@ export function resolveDashboardPorts(
  */
 export const DEFAULT_SUBAGENT_TICK_THROTTLE_MS = 500;
 
+/**
+ * Default cap on concurrently in-flight `Agent` children per session.
+ *
+ * Fixed by Decision 1's measurement table in the change's `design.md`: it must
+ * sit below every observed fatal fan-out width (3, 4, 7) so the default admits
+ * no census batch unchanged, and the spec asserts the property "defined, at
+ * least 2, below 3" rather than a literal so the constant survives that
+ * measurement. The value is therefore 2.
+ * See change: bound-subagent-fanout-under-host-pressure (D1/D6).
+ */
+export const DEFAULT_MAX_CONCURRENT_SUBAGENTS = 2;
+
+/**
+ * Resolve `maxConcurrentSubagents` from a raw config value.
+ *
+ * Absent → the active default. An explicit non-negative integer (including the
+ * `0` disable value) is honoured. Anything else is MALFORMED and resolves to
+ * the fail-open (uncapped) path — never to the disable path and never to a
+ * refusal, because a broken gate refusing every `Agent` call is strictly worse
+ * than the crash this capability mitigates.
+ * See change: bound-subagent-fanout-under-host-pressure (D6).
+ */
+export function resolveMaxConcurrentSubagents(raw: unknown): number {
+  if (raw === undefined) return DEFAULT_MAX_CONCURRENT_SUBAGENTS;
+  if (typeof raw === "number" && Number.isInteger(raw) && raw >= 0) return raw;
+  return Number.POSITIVE_INFINITY;
+}
+
+/**
+ * Parse the optional saturation thresholds. A threshold that is not a positive
+ * finite number is dropped (absent = "no signal from that metric", not zero);
+ * an object with no usable threshold at all collapses to `undefined`.
+ * See change: bound-subagent-fanout-under-host-pressure (D5).
+ */
+export function parseSubagentSaturation(raw: any): SubagentSaturationThresholds | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const positive = (v: unknown): number | undefined =>
+    typeof v === "number" && Number.isFinite(v) && v > 0 ? v : undefined;
+  const thresholds: SubagentSaturationThresholds = {
+    eventLoopDelayMs: positive(raw.eventLoopDelayMs),
+    cpuPercent: positive(raw.cpuPercent),
+    loadAvg1m: positive(raw.loadAvg1m),
+  };
+  return thresholds.eventLoopDelayMs === undefined &&
+    thresholds.cpuPercent === undefined &&
+    thresholds.loadAvg1m === undefined
+    ? undefined
+    : thresholds;
+}
+
 const DEFAULTS: DashboardConfig = {
   plugins: {},
   kroki: { ...DEFAULT_KROKI_CONFIG },
@@ -939,6 +1022,7 @@ const DEFAULTS: DashboardConfig = {
   // cannot drift. See change: add-configurable-readiness-timeout.
   readinessTimeoutMs: HEALTH_CHECK_TIMEOUT_MS,
   subagentTickThrottleMs: DEFAULT_SUBAGENT_TICK_THROTTLE_MS,
+  maxConcurrentSubagents: DEFAULT_MAX_CONCURRENT_SUBAGENTS,
   removeBatchCap: DEFAULT_REMOVE_BATCH_CAP,
   spawnStrategy: "headless",
   tunnel: {
@@ -1521,6 +1605,7 @@ export function loadConfig(): DashboardConfig {
     const rawStrategy = parsed.spawnStrategy;
     const spawnStrategy: SpawnStrategy =
       VALID_SPAWN_STRATEGIES.includes(rawStrategy) ? rawStrategy : defaults.spawnStrategy;
+    const subagentSaturation = parseSubagentSaturation(parsed.subagentSaturation);
 
     const result: DashboardConfig = {
       port: parsed.port ?? defaults.port,
@@ -1544,6 +1629,8 @@ export function loadConfig(): DashboardConfig {
         parsed.subagentTickThrottleMs >= 0
           ? parsed.subagentTickThrottleMs
           : defaults.subagentTickThrottleMs,
+      maxConcurrentSubagents: resolveMaxConcurrentSubagents(parsed.maxConcurrentSubagents),
+      ...(subagentSaturation ? { subagentSaturation } : {}),
       ...(parsed.subagentTickThrottleMigrated === true ? { subagentTickThrottleMigrated: true } : {}),
       removeBatchCap: clampRemoveBatchCap(parsed.removeBatchCap),
       spawnStrategy,

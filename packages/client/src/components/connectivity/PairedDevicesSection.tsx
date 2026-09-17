@@ -17,7 +17,9 @@ import {
   listPairedDevices,
   type MintedDeviceToken,
   type PairedDeviceView,
+  reachableUrls,
   revokePairedDevice,
+  type Tier,
 } from "../../lib/pairing/paired-devices-api.js";
 import { logRejection } from "../../lib/report-error.js";
 import { copyText } from "../../lib/util/clipboard.js";
@@ -40,6 +42,13 @@ function snippetBase(): string {
 
 type CreateStage = "closed" | "label" | "result";
 
+/** One-line descriptions of what each tier can do (change: expand-mcp-tiered-surface). */
+export const TIER_OPTIONS: ReadonlyArray<{ value: Tier; label: string; description: string }> = [
+  { value: "observe", label: "Observe", description: "Read-only: list sessions, read events, diffs, files." },
+  { value: "control", label: "Control", description: "Drive sessions: prompts, abort, model and thinking level." },
+  { value: "operate", label: "Operate", description: "Full control: restart the server, install packages, force-kill processes." },
+];
+
 export function PairedDevicesSection() {
   const [devices, setDevices] = useState<PairedDeviceView[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,6 +57,10 @@ export function PairedDevicesSection() {
   const [error, setError] = useState<string | null>(null);
   const [stage, setStage] = useState<CreateStage>("closed");
   const [labelDraft, setLabelDraft] = useState("");
+  // Default `observe`: the safest tier is preselected for a first-time operator.
+  const [tier, setTier] = useState<Tier>("observe");
+  const [baseUrls, setBaseUrls] = useState<string[]>([]);
+  const [base, setBase] = useState<string>("");
   const [minting, setMinting] = useState(false);
   const [minted, setMinted] = useState<MintedDeviceToken | null>(null);
   // Copy feedback for the plaintext-once panel: a silent clipboard failure is
@@ -85,13 +98,31 @@ export function PairedDevicesSection() {
     }
   };
 
+  /** Open the create flow: load reachable URLs and preselect the browser origin. */
+  const openCreate = useCallback(async () => {
+    setLabelDraft("");
+    setTier("observe");
+    setStage("label");
+    try {
+      const urls = await reachableUrls();
+      setBaseUrls(urls);
+      const origin = window.location.origin;
+      setBase(urls.includes(origin) ? origin : (urls[0] ?? ""));
+    } catch {
+      // Discovery failed: fall back to the API base (a remote dashboard would
+      // otherwise be replaced by the browser origin, targeting the wrong server).
+      setBaseUrls([]);
+      setBase(snippetBase());
+    }
+  }, []);
+
   const handleCreate = async () => {
     if (minting) return; // guard against double-submit (Enter + click)
     setMinting(true);
     try {
       // One-shot panel (D6): the plaintext token lives in React state only
       // while the result panel is open, and is dropped on dismiss.
-      const result = await createPairedDevice(labelDraft);
+      const result = await createPairedDevice(labelDraft, tier);
       setLabelDraft("");
       setMinted(result);
       setStage("result");
@@ -103,6 +134,9 @@ export function PairedDevicesSection() {
       setMinting(false);
     }
   };
+
+  /** The base the snippet targets: the picked URL, else the browser origin. */
+  const snippetTarget = () => base || snippetBase();
 
   const dismissMinted = () => {
     setMinted(null);
@@ -123,8 +157,7 @@ export function PairedDevicesSection() {
             type="button"
             className="text-sm text-[var(--accent)] hover:underline"
             onClick={() => {
-              setLabelDraft("");
-              setStage("label");
+              void openCreate();
             }}
           >
             {i18nT("settings.createMcpToken", undefined, "Create token for an MCP client")}
@@ -132,32 +165,81 @@ export function PairedDevicesSection() {
         </div>
       )}
       {stage === "label" && (
-        <div className="flex items-center gap-2">
-          <input
-            aria-label={i18nT("common.tokenLabel", undefined, "Token label")}
-            className="min-w-0 flex-1 rounded border border-[var(--border-primary)] bg-transparent px-2 py-1 text-sm"
-            value={labelDraft}
-            placeholder={i18nT("common.tokenLabelPlaceholder", undefined, "e.g. claude-code")}
-            onChange={(e) => setLabelDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void handleCreate();
-              if (e.key === "Escape") setStage("closed");
-            }}
-          />
-          <button
-            type="button"
-            className="text-sm text-[var(--accent)] hover:underline"
-            onClick={() => void handleCreate()}
-          >
-            {i18nT("common.create", undefined, "Create")}
-          </button>
-          <button
-            type="button"
-            className="text-xs text-[var(--text-muted)] hover:underline"
-            onClick={() => setStage("closed")}
-          >
-            {i18nT("common.cancel", undefined, "Cancel")}
-          </button>
+        <div className="space-y-2" data-testid="create-token-form">
+          <div className="flex items-center gap-2">
+            <input
+              aria-label={i18nT("common.tokenLabel", undefined, "Token label")}
+              className="min-w-0 flex-1 rounded border border-[var(--border-primary)] bg-transparent px-2 py-1 text-sm"
+              value={labelDraft}
+              placeholder={i18nT("common.tokenLabelPlaceholder", undefined, "e.g. claude-code")}
+              onChange={(e) => setLabelDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleCreate();
+                if (e.key === "Escape") setStage("closed");
+              }}
+            />
+            <button
+              type="button"
+              className="text-sm text-[var(--accent)] hover:underline"
+              onClick={() => void handleCreate()}
+            >
+              {i18nT("common.create", undefined, "Create")}
+            </button>
+            <button
+              type="button"
+              className="text-xs text-[var(--text-muted)] hover:underline"
+              onClick={() => setStage("closed")}
+            >
+              {i18nT("common.cancel", undefined, "Cancel")}
+            </button>
+          </div>
+          <fieldset className="space-y-1">
+            <legend className="text-xs text-[var(--text-muted)]">
+              {i18nT("settings.tokenTier", undefined, "Capability")}
+            </legend>
+            {TIER_OPTIONS.map((opt) => (
+              <label key={opt.value} className="flex items-start gap-2 text-xs">
+                <input
+                  type="radio"
+                  name="mcp-token-tier"
+                  value={opt.value}
+                  checked={tier === opt.value}
+                  onChange={() => setTier(opt.value)}
+                />
+                <span>
+                  <span className="font-medium">{opt.label}</span>{" — "}
+                  <span className="text-[var(--text-muted)]">{opt.description}</span>
+                </span>
+              </label>
+            ))}
+            {tier === "operate" && (
+              <div className="text-xs text-[var(--status-error)]" data-testid="operate-warning">
+                {i18nT(
+                  "settings.operateWarning",
+                  undefined,
+                  "Operate grants restart, package and process control.",
+                )}
+              </div>
+            )}
+          </fieldset>
+          <label className="flex items-center gap-2 text-xs">
+            <span className="text-[var(--text-muted)]">
+              {i18nT("settings.tokenBaseUrl", undefined, "Reachable at")}
+            </span>
+            <select
+              aria-label={i18nT("settings.tokenBaseUrl", undefined, "Reachable at")}
+              className="min-w-0 flex-1 rounded border border-[var(--border-primary)] bg-transparent px-2 py-1 text-xs"
+              value={base}
+              onChange={(e) => setBase(e.target.value)}
+            >
+              {baseUrls.length === 0 && <option value={base}>{base}</option>}
+              {baseUrls.map((u) => (
+                <option key={u} value={u}>
+                  {u}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       )}
       {stage === "result" && minted && (
@@ -179,7 +261,7 @@ export function PairedDevicesSection() {
             </button>
           </div>
           <code className="block overflow-x-auto rounded bg-[var(--bg-primary)] p-2 text-xs">
-            {`claude mcp add --transport http pi-dashboard ${snippetBase()}/mcp --header "Authorization: Bearer ${minted.token}"`}
+            {`claude mcp add --transport http pi-dashboard ${snippetTarget()}/mcp --header "Authorization: Bearer ${minted.token}"`}
           </code>
           <div className="flex items-center gap-3">
             <button
@@ -187,7 +269,7 @@ export function PairedDevicesSection() {
               className="text-xs text-[var(--accent)] hover:underline"
               onClick={() =>
                 copyOnce(
-                  `claude mcp add --transport http pi-dashboard ${snippetBase()}/mcp --header "Authorization: Bearer ${minted.token}"`,
+                  `claude mcp add --transport http pi-dashboard ${snippetTarget()}/mcp --header "Authorization: Bearer ${minted.token}"`,
                 )
               }
             >
@@ -227,6 +309,12 @@ export function PairedDevicesSection() {
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm">
                   {d.label}
+                  <span
+                    className="ml-2 rounded bg-[var(--bg-surface)] px-1.5 py-0.5 align-middle text-[10px] uppercase text-[var(--text-muted)]"
+                    data-testid={`tier-${d.id}`}
+                  >
+                    {d.tier}
+                  </span>
                   {d.source === "manual" && (
                     <span className="ml-2 rounded bg-[var(--bg-surface)] px-1.5 py-0.5 align-middle text-[10px] uppercase text-[var(--text-muted)]">
                       {i18nT("common.manualSource", undefined, "manual")}

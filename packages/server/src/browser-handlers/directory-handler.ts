@@ -331,12 +331,26 @@ export function handleOpenSpecBulkArchive(
   }
 }
 
+export function forwardExtensionUiResponse(
+  piGateway: BrowserHandlerContext["piGateway"],
+  args: { sessionId: string; requestId: string; result: unknown; cancelled?: boolean },
+): void {
+  piGateway.sendToSession(args.sessionId, {
+    type: "extension_ui_response",
+    sessionId: args.sessionId,
+    requestId: args.requestId,
+    result: args.result,
+    // Normalise to a boolean so the REST and WS entry points emit an
+    // identical message (E27).
+    cancelled: args.cancelled === true,
+  });
+}
+
 export function handleExtensionUiResponse(
   msg: Extract<BrowserToServerMessage, { type: "extension_ui_response" }>,
   ctx: BrowserHandlerContext,
 ): void {
-  ctx.piGateway.sendToSession(msg.sessionId, {
-    type: "extension_ui_response",
+  forwardExtensionUiResponse(ctx.piGateway, {
     sessionId: msg.sessionId,
     requestId: msg.requestId,
     result: msg.result,

@@ -1,18 +1,18 @@
 /**
- * The advertised MCP tool surface: a curated allowlist over
- * `ServerPluginContext` (design.md Decision 1).
+ * The MCP tool surface — shared helpers over the generated manifest
+ * (change: expand-mcp-tiered-surface).
  *
- * `GENERATED_VERBS` (73 entries) is far too wide — most are UI-shaped
- * (`reorder_pinned_dirs`, `set_session_process_drawer`) or transport plumbing
- * (`subscribe`, `watch_files`, `worktree_init_subscribe`). Selecting a subset of
- * the 19-member plugin context is still a hand-maintained allowlist, just a far
- * smaller and better-typed one — which is precisely why the completeness check
- * below is REQUIRED rather than avoided.
+ * The advertised table now lives in `tools.manifest.ts` (reviewed) and
+ * `generated/tools.ts` (derived). This module keeps the context partition, the
+ * tier filter, the completeness check and the wire-shape helper that all of
+ * them read.
  *
- * The partition is total: 5 allowlisted + 14 denied = 19 members. A future
- * context member belongs to neither list, so `assertContextPartitionTotal`
- * fails and the omission is caught instead of silently un-triaged.
+ * The partition is total over `ServerPluginContext`: allowlisted ∪ denied ∪
+ * internal-only = all members. `fastify` is INTERNAL_ONLY — the plugin uses it
+ * to run REST-bound tools, but no caller can reach it as a context member.
  */
+import type { Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
+import { rank } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import type { McpCaller } from "./tokens.js";
 
 /** Every member of `ServerPluginContext`, as of the 20-member interface. */
@@ -40,11 +40,9 @@ export const ALL_CONTEXT_MEMBERS = [
 ] as const;
 
 /**
- * Members reachable through the MCP surface.
- *
- * `onEvent` is here because `subscriptions/listen` is built on it — it is a
- * protocol method rather than a `tools/list` entry, but it is still an exposed
- * capability and must be accounted for by the partition.
+ * Members reachable through the MCP surface. `onEvent` backs
+ * `subscriptions/listen`, a protocol method rather than a `tools/list` entry,
+ * but still an exposed capability the partition must account for.
  */
 export const ALLOWLISTED_CONTEXT_MEMBERS = [
   "sessionManager",
@@ -54,29 +52,18 @@ export const ALLOWLISTED_CONTEXT_MEMBERS = [
   "onEvent",
 ] as const;
 
+/** A context member reachable through the MCP surface. */
+export type AllowlistedMember = (typeof ALLOWLISTED_CONTEXT_MEMBERS)[number];
+
 /**
- * Members that must never be reachable. Each entry is a decision, not an
- * oversight:
- *
- * - `fastify` — the raw server instance; would let a caller mount routes.
- * - `registerPiHandler` / `registerBrowserHandler` — install message handlers.
- * - `broadcastToSubscribers` / `emitEventToSession` — forge events that clients
- *   and sessions would treat as server-originated.
- * - `sendExtensionMessage` — forge server-originated control messages on
- *   another session's private bridge lane (the channel the minted credential
- *   itself rides). See change: wire-mcp-session-token (D5).
- * - `eventStore` — bulk history read across every session.
- * - `provide` / `consume` / `consumeAll` — the inter-plugin service bus.
- * - `onSessionEnded` — a lifecycle hook, not a verb.
- * - `abortSpawnedRun` — hard-kills *plugin-spawned* runs only; wrong shape for
- *   a general tool, and the reason Decision 13 leaves MCP without a kill ladder.
- * - `getPluginConfig` — leaks server-side configuration.
- * - `updatePluginConfig` — privilege escalation via configuration write.
- * - `logger` — not a verb; exposing it would let a caller forge the very log
- *   lines G5 relies on to make refusals observable.
+ * Members the plugin uses internally but never exposes to a caller.
+ * `fastify` backs `POST /api/session/:id/lifecycle` etc. via `inject` — the tool
+ * surface reaches the route, never the server instance.
  */
+export const INTERNAL_ONLY_CONTEXT_MEMBERS = ["fastify"] as const;
+
+/** Members that must never be reachable. */
 export const DENIED_CONTEXT_MEMBERS = [
-  "fastify",
   "eventStore",
   "broadcastToSubscribers",
   "registerPiHandler",
@@ -93,7 +80,7 @@ export const DENIED_CONTEXT_MEMBERS = [
   "logger",
 ] as const;
 
-/** Verbs from `GENERATED_VERBS` that must never appear (E21). */
+/** Verbs that must never appear as tools. */
 export const FORBIDDEN_VERB_NAMES = [
   // UI-only.
   "reorder_pinned_dirs",
@@ -104,91 +91,37 @@ export const FORBIDDEN_VERB_NAMES = [
   "worktree_init_subscribe",
 ] as const;
 
-export interface McpToolDef {
+/** Minimal structural shape shared by the generated tools and test fixtures. */
+export interface ToolLike {
   name: string;
   description: string;
-  /** The `ServerPluginContext` member this tool is backed by. */
-  contextMember: (typeof ALLOWLISTED_CONTEXT_MEMBERS)[number];
-  /** JSON Schema for `tools/call` arguments. */
-  inputSchema: {
-    type: "object";
-    properties: Record<string, { type: string; description: string }>;
-    required: string[];
-    additionalProperties: false;
-  };
-  /**
-   * Whether the tool takes a target session and can therefore self-target.
-   * Drives the Req 6 guard; see `guard.ts` `SESSION_TARGETING_TOOLS`.
-   */
-  targetsSession: boolean;
+  tier: Tier;
+  annotations: { readOnlyHint: boolean; destructiveHint: boolean };
+  inputSchema: Record<string, unknown>;
 }
 
-const SESSION_ID_ARG = {
-  sessionId: {
-    type: "string",
-    description:
-      "Id of the session to act on. An ordinary argument — there is no connection-scoped session state to fall back to (SEP-2567).",
-  },
-} as const;
-
 /**
- * The advertised table. `sessionId` is an ordinary required argument on every
- * session-targeting tool: revision 2026-07-28 removed protocol sessions, so a
- * server needing cross-call state passes explicit server-minted handles as tool
- * arguments (E26).
+ * Filter to the tools a caller's tier may see (D2). `rank` is shared with the
+ * REST route gate, so the two surfaces agree by construction.
  */
-export const MCP_TOOLS: readonly McpToolDef[] = [
-  {
-    name: "list_sessions",
-    description: "List every session the dashboard knows about.",
-    contextMember: "sessionManager",
-    inputSchema: { type: "object", properties: {}, required: [], additionalProperties: false },
-    targetsSession: false,
-  },
-  {
-    name: "send_prompt",
-    description:
-      "Send prompt text to a session. Text beginning with '/' is routed to extension-command dispatch by the receiving session.",
-    contextMember: "sendToSession",
-    inputSchema: {
-      type: "object",
-      properties: {
-        ...SESSION_ID_ARG,
-        text: { type: "string", description: "The prompt text to deliver." },
-      },
-      required: ["sessionId", "text"],
-      additionalProperties: false,
-    },
-    targetsSession: true,
-  },
-  {
-    name: "spawn_session",
-    description: "Spawn a new pi session. Subject to the first-party trust gate.",
-    contextMember: "spawnSession",
-    inputSchema: {
-      type: "object",
-      properties: {
-        cwd: { type: "string", description: "Working directory for the new session." },
-      },
-      required: ["cwd"],
-      additionalProperties: false,
-    },
-    targetsSession: false,
-  },
-  {
-    name: "abort",
-    description:
-      "Abort the running turn of a session. Soft abort only — returns false when the session's bridge is disconnected, so a no-op is never reported as success.",
-    contextMember: "abortSession",
-    inputSchema: {
-      type: "object",
-      properties: { ...SESSION_ID_ARG },
-      required: ["sessionId"],
-      additionalProperties: false,
-    },
-    targetsSession: true,
-  },
-];
+export function filterToolsForTier<T extends ToolLike>(tools: readonly T[], tier: Tier): T[] {
+  return tools.filter((t) => rank(t.tier) <= rank(tier));
+}
+
+/** The `tools/list` wire payload — never leaks the transport binding. */
+export function listTools<T extends ToolLike>(tools: readonly T[], tier: Tier = "operate") {
+  return filterToolsForTier(tools, tier).map((t) => ({
+    name: t.name,
+    description: t.description,
+    annotations: t.annotations,
+    inputSchema: t.inputSchema,
+  }));
+}
+
+/** Look up an advertised tool by name. */
+export function findTool<T extends ToolLike>(name: unknown, tools: readonly T[]): T | undefined {
+  return typeof name === "string" ? tools.find((t) => t.name === name) : undefined;
+}
 
 /** A handler resolver: given a tool name, produce its invocable handler. */
 export type ToolHandlerResolver = (name: string) => ((...args: never[]) => unknown) | undefined;
@@ -201,17 +134,11 @@ export interface CompletenessResult {
 
 /**
  * Assert every advertised tool resolves to an invocable handler (E22).
- *
- * This exists because of the `denylist.ts` lesson: naive codegen "would emit a
- * WS helper that silently fails" — an advertised-but-dead tool is worse than an
- * absent one, because a client believes the call landed.
- *
- * Deliberately parameterised over both the table and the resolver so a fixture
- * can feed it a deliberately unresolvable entry and prove the check FAILS
- * (E23). A check that cannot be made to fail proves nothing.
+ * Deliberately parameterised over the table and the resolver so a fixture can
+ * prove the check FAILS.
  */
 export function checkToolCompleteness(
-  tools: readonly McpToolDef[],
+  tools: readonly { name: string }[],
   resolve: ToolHandlerResolver,
 ): CompletenessResult {
   const missing = tools.filter((t) => typeof resolve(t.name) !== "function").map((t) => t.name);
@@ -220,45 +147,26 @@ export function checkToolCompleteness(
 
 export interface PartitionResult {
   ok: boolean;
-  /** Members in neither list — a new context member nobody triaged. */
+  /** Members in no list — a new context member nobody triaged. */
   unclassified: string[];
-  /** Members in both lists — a contradiction. */
+  /** Members in more than one list — a contradiction. */
   overlapping: string[];
 }
 
 /**
- * Assert the allowlist and denylist together account for every context member,
- * exactly once. Guards the "allowlist drifts from the context" risk: adding a
- * member upstream fails this check rather than quietly defaulting to exposed or
- * to forgotten.
+ * Assert the allowlist, denylist and internal-only list account for every
+ * context member, exactly once.
  */
 export function assertContextPartitionTotal(
   all: readonly string[] = ALL_CONTEXT_MEMBERS,
   allowed: readonly string[] = ALLOWLISTED_CONTEXT_MEMBERS,
   denied: readonly string[] = DENIED_CONTEXT_MEMBERS,
+  internal: readonly string[] = INTERNAL_ONLY_CONTEXT_MEMBERS,
 ): PartitionResult {
-  const allowedSet = new Set(allowed);
-  const deniedSet = new Set(denied);
-  const unclassified = all.filter((m) => !allowedSet.has(m) && !deniedSet.has(m));
-  const overlapping = all.filter((m) => allowedSet.has(m) && deniedSet.has(m));
+  const lists = [allowed, denied, internal];
+  const unclassified = all.filter((m) => !lists.some((l) => l.includes(m)));
+  const overlapping = all.filter((m) => lists.filter((l) => l.includes(m)).length > 1);
   return { ok: unclassified.length === 0 && overlapping.length === 0, unclassified, overlapping };
-}
-
-/** The `tools/list` wire payload — never leaks `contextMember`. */
-export function listTools(tools: readonly McpToolDef[] = MCP_TOOLS) {
-  return tools.map((t) => ({
-    name: t.name,
-    description: t.description,
-    inputSchema: t.inputSchema,
-  }));
-}
-
-/** Look up an advertised tool by name. */
-export function findTool(
-  name: unknown,
-  tools: readonly McpToolDef[] = MCP_TOOLS,
-): McpToolDef | undefined {
-  return typeof name === "string" ? tools.find((t) => t.name === name) : undefined;
 }
 
 /** Re-exported for handler signatures that need the resolved caller. */

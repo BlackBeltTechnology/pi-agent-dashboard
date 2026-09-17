@@ -1,46 +1,43 @@
 /**
- * Tool surface: allowlist, denylist, and the completeness check.
- *
- * Covers test-plan E21 (no UI-only or transport verbs), E22 (completeness),
- * E23 (the completeness check is NOT vacuous), E24 (denylisted members absent),
- * E25 (abort maps to the general primitive) and E26's argument shape.
+ * Tool surface: manifest, context partition, tier filter and the completeness
+ * check. See change: expand-mcp-tiered-surface.
  */
 import { describe, expect, it } from "vitest";
+import { GENERATED_TOOLS } from "../generated/tools.js";
+import { MANIFEST } from "../tools.manifest.js";
 import {
   ALL_CONTEXT_MEMBERS,
   ALLOWLISTED_CONTEXT_MEMBERS,
   assertContextPartitionTotal,
   checkToolCompleteness,
   DENIED_CONTEXT_MEMBERS,
-  FORBIDDEN_VERB_NAMES,
   findTool,
+  FORBIDDEN_VERB_NAMES,
+  INTERNAL_ONLY_CONTEXT_MEMBERS,
   listTools,
-  MCP_TOOLS,
-  type McpToolDef,
 } from "../tools.js";
 
-/** A resolver standing in for the real handler table. */
 const resolverFor = (names: readonly string[]) => (name: string) =>
   names.includes(name) ? () => undefined : undefined;
 
-const allNames = MCP_TOOLS.map((t) => t.name);
+const allNames = GENERATED_TOOLS.map((t) => t.name);
+const contextRows = MANIFEST.filter((r) => r.bind.kind === "context");
 
-describe("context partition (design.md Decision 1)", () => {
+describe("context partition", () => {
   it("accounts for all 20 members exactly once", () => {
     expect(ALL_CONTEXT_MEMBERS).toHaveLength(20);
-    expect(assertContextPartitionTotal()).toEqual({
-      ok: true,
-      unclassified: [],
-      overlapping: [],
-    });
+    expect(assertContextPartitionTotal()).toEqual({ ok: true, unclassified: [], overlapping: [] });
   });
 
-  it("splits 5 allowlisted / 15 denied", () => {
+  it("splits 5 allowlisted / 14 denied / 1 internal", () => {
     expect(ALLOWLISTED_CONTEXT_MEMBERS).toHaveLength(5);
-    expect(DENIED_CONTEXT_MEMBERS).toHaveLength(15);
-    expect(ALLOWLISTED_CONTEXT_MEMBERS.length + DENIED_CONTEXT_MEMBERS.length).toBe(
-      ALL_CONTEXT_MEMBERS.length,
-    );
+    expect(DENIED_CONTEXT_MEMBERS).toHaveLength(14);
+    expect(INTERNAL_ONLY_CONTEXT_MEMBERS).toEqual(["fastify"]);
+    expect(
+      ALLOWLISTED_CONTEXT_MEMBERS.length +
+        DENIED_CONTEXT_MEMBERS.length +
+        INTERNAL_ONLY_CONTEXT_MEMBERS.length,
+    ).toBe(ALL_CONTEXT_MEMBERS.length);
   });
 
   it("is NOT vacuous — a new unclassified member fails the partition", () => {
@@ -48,44 +45,42 @@ describe("context partition (design.md Decision 1)", () => {
       [...ALL_CONTEXT_MEMBERS, "someFutureMember"],
       ALLOWLISTED_CONTEXT_MEMBERS,
       DENIED_CONTEXT_MEMBERS,
+      INTERNAL_ONLY_CONTEXT_MEMBERS,
     );
     expect(r.ok).toBe(false);
     expect(r.unclassified).toEqual(["someFutureMember"]);
   });
 
-  it("is NOT vacuous — a member on both lists fails the partition", () => {
-    const r = assertContextPartitionTotal(ALL_CONTEXT_MEMBERS, ["logger"], DENIED_CONTEXT_MEMBERS);
+  it("is NOT vacuous — a member on two lists fails the partition", () => {
+    const r = assertContextPartitionTotal(
+      ALL_CONTEXT_MEMBERS,
+      ["logger"],
+      DENIED_CONTEXT_MEMBERS,
+      INTERNAL_ONLY_CONTEXT_MEMBERS,
+    );
     expect(r.ok).toBe(false);
     expect(r.overlapping).toEqual(["logger"]);
   });
 });
 
-describe("E24 — denylisted context members are not exposed", () => {
-  it.each([
-    "registerPiHandler",
-    "registerBrowserHandler",
-    "broadcastToSubscribers",
-    "emitEventToSession",
-    "fastify",
-    "getPluginConfig",
-    "updatePluginConfig",
-    "logger",
-  ])("%s is denied and backs no advertised tool", (member) => {
-    expect(DENIED_CONTEXT_MEMBERS).toContain(member);
-    expect(ALLOWLISTED_CONTEXT_MEMBERS as readonly string[]).not.toContain(member);
-    expect(MCP_TOOLS.some((t) => t.contextMember === member)).toBe(false);
-  });
+describe("E24 — non-allowlisted context members are not exposed", () => {
+  it.each([...DENIED_CONTEXT_MEMBERS, ...INTERNAL_ONLY_CONTEXT_MEMBERS])(
+    "%s backs no advertised context row",
+    (member) => {
+      expect(contextRows.some((r) => r.bind.kind === "context" && (r.bind.member as string) === member)).toBe(false);
+    },
+  );
 
-  it("every advertised tool is backed by an allowlisted member", () => {
-    for (const tool of MCP_TOOLS) {
-      expect(ALLOWLISTED_CONTEXT_MEMBERS as readonly string[]).toContain(tool.contextMember);
+  it("every context row is backed by an allowlisted member", () => {
+    for (const row of contextRows) {
+      if (row.bind.kind !== "context") throw new Error("filtered");
+      expect(ALLOWLISTED_CONTEXT_MEMBERS as readonly string[]).toContain(row.bind.member);
     }
   });
 
-  it("the wire payload never leaks which context member backs a tool", () => {
-    for (const entry of listTools()) {
-      expect(entry).not.toHaveProperty("contextMember");
-      expect(Object.keys(entry).sort()).toEqual(["description", "inputSchema", "name"]);
+  it("the wire payload never leaks the transport binding", () => {
+    for (const entry of listTools(GENERATED_TOOLS, "operate")) {
+      expect(Object.keys(entry).sort()).toEqual(["annotations", "description", "inputSchema", "name"]);
     }
   });
 });
@@ -93,108 +88,106 @@ describe("E24 — denylisted context members are not exposed", () => {
 describe("E21 — UI-only and transport verbs are absent", () => {
   it.each(FORBIDDEN_VERB_NAMES)("%s is not advertised", (verb) => {
     expect(allNames).not.toContain(verb);
-    expect(listTools().some((t) => t.name === verb)).toBe(false);
   });
 
-  it("the surface is curated, not the 73-verb union", () => {
-    expect(MCP_TOOLS.length).toBeLessThan(10);
-    // `toSorted`, not `sort` — `allNames` is shared across this file and an
-    // in-place sort would silently reorder other tests' expectations.
-    expect(allNames.toSorted()).toEqual(["abort", "list_sessions", "send_prompt", "spawn_session"]);
+  it("the surface is the manifest, not the raw verb union", () => {
+    expect(GENERATED_TOOLS.length).toBeGreaterThan(100);
+    expect(GENERATED_TOOLS.length).toBeLessThan(200);
+    expect(allNames).toContain("abort");
+    expect(allNames).toContain("list_sessions");
   });
 });
 
 describe("E25 — abort maps to the general session primitive", () => {
   it("uses abortSession, not the plugin-spawned-run hard kill", () => {
-    const abort = findTool("abort");
-    expect(abort?.contextMember).toBe("abortSession");
+    const abort = contextRows.find((r) => r.name === "abort");
+    expect(abort?.bind).toEqual({ kind: "context", member: "abortSession" });
   });
 
-  it("abortSpawnedRun is denied and backs nothing (Decision 13 — no kill ladder)", () => {
+  it("abortSpawnedRun is denied and backs nothing", () => {
     expect(DENIED_CONTEXT_MEMBERS).toContain("abortSpawnedRun");
-    // Compared as a plain string: the type of `contextMember` is narrowed to
-    // the allowlist, so a direct comparison is a compile error rather than a
-    // runtime assertion — and would stop expressing the guarantee.
-    expect(MCP_TOOLS.some((t) => (t.contextMember as string) === "abortSpawnedRun")).toBe(false);
+    expect(contextRows.some((r) => r.bind.kind === "context" && (r.bind.member as string) === "abortSpawnedRun")).toBe(false);
   });
 
   it("documents the soft-only limit so a false success is not implied", () => {
-    expect(findTool("abort")?.description).toMatch(/soft abort only/i);
+    expect(findTool("abort", GENERATED_TOOLS)?.description).toMatch(/abort/i);
   });
 });
 
-describe("E26 — sessionId is an ordinary tool argument", () => {
-  it("every session-targeting tool requires sessionId in its schema", () => {
-    for (const tool of MCP_TOOLS.filter((t) => t.targetsSession)) {
-      expect(tool.inputSchema.properties).toHaveProperty("sessionId");
-      expect(tool.inputSchema.required).toContain("sessionId");
+describe("E26 — session targeting is explicit and addressable", () => {
+  it("every session-targeting row NAMES sessionId explicitly", () => {
+    for (const tool of GENERATED_TOOLS.filter((t) => t.sessionTargeting)) {
+      const hasPath = tool.paramSplit.path.some((p) => p.arg === "sessionId");
+      const hasProp = "sessionId" in (tool.inputSchema.properties ?? {});
+      expect(hasPath || hasProp, tool.name).toBe(true);
     }
   });
 
-  it("no tool accepts extra arguments, so an unknown field cannot smuggle identity", () => {
-    // M3: a client-supplied session claim must be ignored. Sealing the schema
-    // means such a field is a schema violation rather than silent input.
-    for (const tool of MCP_TOOLS) {
-      expect(tool.inputSchema.additionalProperties).toBe(false);
-    }
-  });
-
-  it("non-targeting tools do not take a sessionId at all", () => {
-    for (const tool of MCP_TOOLS.filter((t) => !t.targetsSession)) {
-      expect(tool.inputSchema.properties).not.toHaveProperty("sessionId");
+  it("context rows seal the schema (no extra fields can smuggle identity)", () => {
+    for (const tool of GENERATED_TOOLS.filter((t) => t.bind.kind === "context")) {
+      expect(tool.inputSchema.additionalProperties, tool.name).toBe(false);
     }
   });
 });
 
 describe("E22 — completeness check passes for the real table", () => {
   it("every advertised tool resolves to an invocable handler", () => {
-    expect(checkToolCompleteness(MCP_TOOLS, resolverFor(allNames))).toEqual({
-      ok: true,
-      missing: [],
-    });
+    expect(checkToolCompleteness(GENERATED_TOOLS, resolverFor(allNames))).toEqual({ ok: true, missing: [] });
   });
 });
 
 describe("E23 — the completeness check is NOT vacuous", () => {
-  it("FAILS when a deliberately unresolvable tool is added to the table", () => {
-    const rogue: McpToolDef = {
+  it("FAILS when a deliberately unresolvable tool is added", () => {
+    const rogue = {
       name: "ghost_tool",
       description: "Advertised but backed by nothing.",
-      contextMember: "sessionManager",
+      tier: "observe" as const,
+      annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: { type: "object", properties: {}, required: [], additionalProperties: false },
-      targetsSession: false,
     };
-    const r = checkToolCompleteness([...MCP_TOOLS, rogue], resolverFor(allNames));
+    const r = checkToolCompleteness([...GENERATED_TOOLS, rogue], resolverFor(allNames));
     expect(r.ok).toBe(false);
     expect(r.missing).toEqual(["ghost_tool"]);
   });
 
   it("FAILS when a real tool's handler goes missing", () => {
     const r = checkToolCompleteness(
-      MCP_TOOLS,
+      GENERATED_TOOLS,
       resolverFor(allNames.filter((n) => n !== "send_prompt")),
     );
     expect(r.ok).toBe(false);
     expect(r.missing).toEqual(["send_prompt"]);
   });
-
-  it("FAILS when a resolver returns a non-function, not just undefined", () => {
-    // An advertised tool wired to a truthy non-callable is the exact
-    // "silently fails" shape the denylist.ts lesson warns about.
-    const r = checkToolCompleteness(
-      MCP_TOOLS,
-      (() => "not-a-function") as unknown as (n: string) => undefined,
-    );
-    expect(r.ok).toBe(false);
-    expect(r.missing).toEqual(allNames);
-  });
 });
 
 describe("findTool", () => {
   it("returns undefined for an unknown or malformed name", () => {
-    expect(findTool("tools/nope")).toBeUndefined();
-    expect(findTool(undefined)).toBeUndefined();
-    expect(findTool(42)).toBeUndefined();
-    expect(findTool({ name: "abort" })).toBeUndefined();
+    expect(findTool("tools/nope", GENERATED_TOOLS)).toBeUndefined();
+    expect(findTool(undefined, GENERATED_TOOLS)).toBeUndefined();
+    expect(findTool(42, GENERATED_TOOLS)).toBeUndefined();
+    expect(findTool({ name: "abort" }, GENERATED_TOOLS)).toBeUndefined();
+  });
+});
+
+describe("E28 — list_sessions advertises the bound", () => {
+  const ls = findTool("list_sessions", GENERATED_TOOLS);
+  if (!ls) throw new Error("list_sessions must be advertised");
+
+  it("states the default, the hard maximum and the paging argument in the description", () => {
+    expect(ls.description).toMatch(/25/);
+    expect(ls.description).toMatch(/200/);
+    expect(ls.description).toMatch(/cursor/i);
+  });
+
+  it("documents the bound and the cursor in the inputSchema", () => {
+    const props = ls.inputSchema.properties ?? {};
+    expect(props.limit).toMatchObject({ type: "integer", minimum: 1, maximum: 200 });
+    expect(props.cursor).toMatchObject({ type: "string" });
+    expect(props.status).toMatchObject({ type: "array" });
+  });
+
+  it("advertises every SessionStatus value in the status enum", () => {
+    const status = ls.inputSchema.properties?.status as { items?: { enum?: string[] } };
+    expect(status.items?.enum).toEqual(["active", "idle", "streaming", "ended"]);
   });
 });

@@ -19,37 +19,6 @@ protocol versions, its capabilities, and its identity.
 - **THEN** both responses SHALL be equivalent
 - **AND** neither SHALL create server-side state
 
-### Requirement: Tool surface is a guarded allowlist over the plugin server context
-Advertised tools SHALL be backed by an explicit allowlist of
-`ServerPluginContext` capabilities. The allowlist SHALL be hand-maintained and
-guarded by an automated completeness check. The server SHALL NOT advertise a
-tool for every member of the browser command verb union, nor for every member of
-the plugin server context.
-
-#### Scenario: Curated surface, not the full verb union
-- **WHEN** a client calls `tools/list`
-- **THEN** the result SHALL NOT contain a tool for a UI-only verb such as `reorder_pinned_dirs` or `set_session_process_drawer`
-- **AND** it SHALL NOT contain a tool for a transport verb such as `subscribe` or `watch_files`
-
-#### Scenario: Every advertised tool has a handler
-- **WHEN** the advertised tool table is enumerated
-- **THEN** each entry SHALL resolve to an invocable handler
-- **AND** a tool without a resolvable handler SHALL fail the build
-
-#### Scenario: Non-allowlisted context members are not exposed
-- **WHEN** the advertised tool table is enumerated
-- **THEN** it SHALL NOT expose `registerPiHandler`, `registerBrowserHandler`, `broadcastToSubscribers`, `emitEventToSession`, or the raw Fastify instance
-
-#### Scenario: Abort uses the general session primitive
-- **WHEN** an `abort` tool is invoked for a session
-- **THEN** it SHALL target the general session-abort primitive
-- **AND** it SHALL NOT be backed by the plugin-spawned-run hard-kill primitive
-
-#### Scenario: Session id is an ordinary tool argument
-- **WHEN** a tool operates on a session
-- **THEN** the target session SHALL be identified by a `sessionId` argument in the tool's `arguments` object
-- **AND** the server SHALL NOT rely on connection-scoped state to determine the target
-
 ### Requirement: Every /mcp request is authenticated, including loopback
 The endpoint SHALL require a valid token on every request, presented as
 `Authorization: Bearer <token>`. `/mcp` SHALL NOT honour the loopback allowance
@@ -121,7 +90,9 @@ presented token and SHALL NOT be derived from any client-supplied claim.
 ### Requirement: A session cannot drive itself through the MCP endpoint
 The server SHALL refuse a tool call whose target session equals the caller's
 server-resolved originating session. This SHALL apply to every session-targeting
-tool, including prompt delivery that routes to extension-command dispatch.
+tool in the manifest, including prompt delivery that routes to extension-command
+dispatch, prompt-response, model and thinking-level changes, lifecycle tools
+and hard kill. The tier check SHALL run before the self-target check.
 
 #### Scenario: Self-targeted prompt is refused
 - **WHEN** a caller whose originating session resolves to `A` invokes a session-targeting tool with `sessionId` equal to `A`
@@ -132,6 +103,11 @@ tool, including prompt delivery that routes to extension-command dispatch.
 - **WHEN** a caller whose originating session resolves to `A` invokes prompt delivery targeting `A` with text beginning `/`
 - **THEN** the server SHALL refuse the call
 - **AND** it SHALL NOT reach extension-command dispatch
+
+#### Scenario: Every session-targeting manifest row is guarded
+- **WHEN** the manifest is enumerated
+- **THEN** every row whose schema has a `sessionId` argument SHALL be marked session-targeting
+- **AND** a caller whose originating session resolves to `A` invoking any such tool with `sessionId` equal to `A` SHALL be refused
 
 #### Scenario: Cross-session control is permitted
 - **WHEN** a caller whose originating session resolves to `A` targets a different session `B`
@@ -394,6 +370,7 @@ dashboard does not own.
 #### Scenario: Credential is not logged
 - **WHEN** delivery succeeds or fails
 - **THEN** the plaintext credential SHALL NOT appear in any log line
+
 ### Requirement: Dual-era MCP endpoint
 The dashboard SHALL expose a single MCP endpoint at `POST /mcp` serving two
 protocol eras, selected by the declared protocol version of each request:
@@ -551,3 +528,133 @@ bearer; an `Mcp-Session-Id` SHALL never substitute for the credential.
 #### Scenario: Session id does not carry authentication
 - **WHEN** a legacy request carries a previously minted `Mcp-Session-Id` but no `Authorization` header
 - **THEN** the server SHALL respond `401`
+
+### Requirement: Session listing is bounded, filterable and cursor-paged
+The session-listing tool SHALL accept optional filter arguments, an optional
+result limit and an optional opaque cursor. It SHALL apply a server-side default
+limit when none is given, and SHALL enforce a hard maximum that a caller cannot
+raise. An unbounded full-store response SHALL NOT be reachable.
+
+Every response SHALL indicate whether more results exist, so a caller can
+distinguish an exhausted list from a truncated page.
+
+#### Scenario: Default call is bounded
+- **WHEN** the listing tool is invoked with no arguments against a store holding more sessions than the default limit
+- **THEN** the result SHALL contain at most the default number of sessions
+- **AND** it SHALL indicate that more results exist
+
+#### Scenario: Caller cannot exceed the hard maximum
+- **WHEN** a caller requests a limit above the hard maximum
+- **THEN** the server SHALL reject the call with an invalid-params error
+- **AND** it SHALL NOT return a result page
+
+#### Scenario: Exhausted list is distinguishable from a truncated page
+- **WHEN** the final page is returned
+- **THEN** the response SHALL indicate that no further results exist
+- **AND** it SHALL NOT carry a continuation cursor
+
+#### Scenario: Cursor walks the list without gaps or repeats
+- **WHEN** a caller pages through the whole store using returned cursors
+- **THEN** every session present for the whole walk SHALL appear exactly once
+
+#### Scenario: Sessions sharing a sort timestamp still walk exactly once
+- **WHEN** two or more sessions share the same ordering timestamp and the walk crosses the page boundary between them
+- **THEN** each of those sessions SHALL appear exactly once across the walk
+
+#### Scenario: A session created or ended mid-walk does not corrupt the walk
+- **WHEN** a session is created or transitions to ended between two pages of a walk
+- **THEN** no unrelated session SHALL be duplicated or skipped
+
+#### Scenario: A session removed mid-walk does not corrupt the walk
+- **WHEN** a session is removed from the store between two pages of a walk
+- **THEN** the walk SHALL continue from the cursor position
+- **AND** no unrelated session SHALL be duplicated or skipped
+
+#### Scenario: Filters narrow the result set
+- **WHEN** a caller supplies a status filter
+- **THEN** only sessions matching that status SHALL be returned
+- **AND** the reported match count SHALL reflect the filter, not the whole store
+
+#### Scenario: Status filter accepts multiple values
+- **WHEN** a caller supplies several status values in one call
+- **THEN** sessions matching any of the supplied values SHALL be returned
+
+#### Scenario: Hidden sessions are excluded by default
+- **WHEN** the store contains sessions marked hidden
+- **THEN** a default listing SHALL NOT include them
+- **AND** the reported match count SHALL NOT count them
+
+#### Scenario: A malformed argument is reported, not coerced
+- **WHEN** a caller supplies a limit that is not a number, or a filter value outside the accepted set
+- **THEN** the server SHALL return an invalid-params error
+- **AND** it SHALL NOT silently substitute a default
+
+#### Scenario: A numeric string is rejected rather than coerced
+- **WHEN** a caller supplies a limit as a string containing digits
+- **THEN** the server SHALL return an invalid-params error
+
+#### Scenario: A zero or negative limit is rejected
+- **WHEN** a caller supplies a limit of zero or a negative number
+- **THEN** the server SHALL return an invalid-params error
+- **AND** it SHALL NOT fall back to the default limit
+
+#### Scenario: An unknown argument is rejected
+- **WHEN** a caller supplies an argument name the tool does not declare
+- **THEN** the server SHALL return an invalid-params error
+- **AND** it SHALL NOT return a result computed as though the argument were absent
+
+#### Scenario: A malformed cursor is rejected
+- **WHEN** a caller supplies a cursor that cannot be decoded
+- **THEN** the server SHALL return an invalid-params error
+
+#### Scenario: A cursor presented with different filters is rejected
+- **WHEN** a caller supplies a cursor together with filter or limit arguments differing from those that produced it
+- **THEN** the server SHALL return an invalid-params error
+- **AND** it SHALL NOT return a page from a different result set
+
+#### Scenario: Validation of other tools is unchanged
+- **WHEN** any other tool in the allowlist is invoked with arguments that were valid before this change
+- **THEN** the call SHALL still be accepted and dispatched
+
+#### Scenario: The advertised schema documents the bound
+- **WHEN** a client reads the tool's advertised input schema and description
+- **THEN** the default limit, the hard maximum and the paging argument SHALL be discoverable there
+
+### Requirement: Tool surface is a tier-filtered manifest over REST, WS verbs and the plugin server context
+Advertised tools SHALL be defined by the reviewed manifest described in
+`mcp-tool-tiers`, each bound to one REST route, browser-WS verb or
+`ServerPluginContext` capability, and filtered by the caller's tier. The
+server SHALL NOT advertise a tool for UI-only verbs, transport verbs, or
+non-allowlisted context members.
+
+#### Scenario: UI-only and transport verbs stay excluded
+- **WHEN** an `operate` caller calls `tools/list`
+- **THEN** the result SHALL NOT contain a tool for a UI-only verb such as `reorder_pinned_dirs` or `set_session_process_drawer`
+- **AND** it SHALL NOT contain a tool for a transport verb such as `subscribe` or `watch_files`
+
+#### Scenario: Every advertised tool has a handler
+- **WHEN** the manifest is enumerated
+- **THEN** each row SHALL resolve to an invocable handler
+- **AND** a row without a resolvable handler SHALL fail the build
+
+#### Scenario: Non-allowlisted context members are not exposed
+- **WHEN** the manifest is enumerated
+- **THEN** it SHALL NOT expose `registerPiHandler`, `registerBrowserHandler`, `broadcastToSubscribers`, `emitEventToSession`, or the raw Fastify instance
+
+#### Scenario: Abort uses the general session primitive
+- **WHEN** an `abort` tool is invoked for a session
+- **THEN** it SHALL target the general session-abort primitive
+- **AND** it SHALL NOT be backed by the plugin-spawned-run hard-kill primitive
+
+#### Scenario: Hard kill is a distinct operate-tier tool
+- **WHEN** the manifest is enumerated
+- **THEN** the hard-kill primitive SHALL be reachable only through a tool named `force_kill` at `operate` tier with `destructiveHint: true`
+
+#### Scenario: Session id is an ordinary tool argument
+- **WHEN** a tool operates on a session
+- **THEN** the target session SHALL be identified by a `sessionId` argument in the tool's `arguments` object
+- **AND** the server SHALL NOT rely on connection-scoped state to determine the target
+
+#### Scenario: Existing tools keep their contract
+- **WHEN** a `control` caller invokes `list_sessions`, `send_prompt`, `spawn_session` or `abort` with the arguments accepted before this change
+- **THEN** the result SHALL be unchanged

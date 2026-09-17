@@ -34,7 +34,8 @@ describe("PairedDeviceRegistry", () => {
   it("verifies a valid token and rejects unknown/revoked tokens", () => {
     const reg = new PairedDeviceRegistry(regPath);
     const { device, token } = reg.add("dev");
-    expect(reg.verify(token)).toBe(device.id);
+    // Pairing source with no explicit tier → operate (D1).
+    expect(reg.verify(token)).toEqual({ id: device.id, tier: "operate" });
     expect(reg.verify("bogus-token")).toBe(null);
     expect(reg.verify(undefined)).toBe(null);
 
@@ -55,7 +56,7 @@ describe("PairedDeviceRegistry", () => {
     const reg = new PairedDeviceRegistry(regPath);
     const { device, token } = reg.add("dev");
     const reg2 = new PairedDeviceRegistry(regPath);
-    expect(reg2.verify(token)).toBe(device.id);
+    expect(reg2.verify(token)).toMatchObject({ id: device.id });
   });
 });
 
@@ -74,8 +75,8 @@ describe("E15 — registry rows without a source field", () => {
     const reg = new PairedDeviceRegistry(regPath);
 
     expect(reg.list()[0]).toMatchObject({ id: "row-1", label: "old", source: "pairing" });
-    // The legacy token continues to verify.
-    expect(reg.verify(legacyToken)).toBe("row-1");
+    // The legacy token continues to verify — as `operate` (full access kept).
+    expect(reg.verify(legacyToken)).toMatchObject({ id: "row-1", tier: "operate" });
 
     // The next write back-fills `source` on the OLD row too.
     reg.add("new-device");
@@ -90,5 +91,80 @@ describe("E15 — registry rows without a source field", () => {
     expect(device.source).toBe("manual");
     expect(token.length).toBeGreaterThanOrEqual(32);
     expect(reg.list()[0].source).toBe("manual");
+  });
+});
+
+// E1–E5 (test-plan expand-mcp-tiered-surface) — registry tier + legacy-row
+// defaults + unknown-field preservation. See change: expand-mcp-tiered-surface.
+describe("tier on the registry (E1–E5)", () => {
+  it("E1: add(manual) with no tier defaults to observe", () => {
+    const reg = new PairedDeviceRegistry(regPath);
+    reg.add("x", "manual");
+    expect(reg.list()[0]).toMatchObject({ tier: "observe" });
+  });
+
+  it("E2: add(pairing) with no tier defaults to operate", () => {
+    const reg = new PairedDeviceRegistry(regPath);
+    reg.add("x", "pairing");
+    expect(reg.list()[0]).toMatchObject({ tier: "operate" });
+  });
+
+  it("E3: an invalid tier throws before minting; the file is byte-identical", () => {
+    const reg = new PairedDeviceRegistry(regPath);
+    reg.add("seed", "manual"); // create the file
+    const before = fs.readFileSync(regPath, "utf-8");
+    expect(() => reg.add("x", "manual", "root" as never)).toThrow();
+    const after = fs.readFileSync(regPath, "utf-8");
+    expect(after).toBe(before);
+    expect(Buffer.byteLength(after)).toBe(Buffer.byteLength(before));
+    expect(reg.list()).toHaveLength(1);
+  });
+
+  it("E4: a legacy row (no tier, no source) verifies as operate and lists pairing/operate", () => {
+    const legacyToken = "legacy-plaintext-token";
+    const legacyHash = crypto.createHash("sha256").update(legacyToken).digest("hex");
+    fs.writeFileSync(
+      regPath,
+      JSON.stringify([
+        { id: "row-1", label: "old", tokenHash: legacyHash, createdAt: "2026-01-01T00:00:00.000Z", lastSeen: null },
+      ]),
+    );
+    const reg = new PairedDeviceRegistry(regPath);
+    expect(reg.verify(legacyToken)).toEqual({ id: "row-1", tier: "operate" });
+    expect(reg.list()[0]).toMatchObject({ source: "pairing", tier: "operate" });
+  });
+
+  it("E5: unknown fields on a row survive an add + revoke round-trip", () => {
+    const legacyToken = "legacy-plaintext-token";
+    const legacyHash = crypto.createHash("sha256").update(legacyToken).digest("hex");
+    fs.writeFileSync(
+      regPath,
+      JSON.stringify([
+        {
+          id: "row-1",
+          label: "old",
+          tokenHash: legacyHash,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          lastSeen: null,
+          tier: "control",
+          source: "manual",
+          futureField: 1,
+        },
+      ]),
+    );
+    const reg = new PairedDeviceRegistry(regPath);
+    const { device } = reg.add("scratch", "manual");
+    reg.revoke(device.id);
+    const rows = JSON.parse(fs.readFileSync(regPath, "utf-8"));
+    const original = rows.find((r: { id: string }) => r.id === "row-1");
+    expect(original.futureField).toBe(1);
+    expect(original.tier).toBe("control");
+  });
+
+  it("an explicit tier is persisted and survives reconstruction", () => {
+    const reg = new PairedDeviceRegistry(regPath);
+    const { token } = reg.add("explicit", "manual", "control");
+    const reg2 = new PairedDeviceRegistry(regPath);
+    expect(reg2.verify(token)).toEqual(expect.objectContaining({ tier: "control" }));
   });
 });

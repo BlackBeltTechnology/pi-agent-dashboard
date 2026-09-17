@@ -163,16 +163,27 @@ describe("pi 0.84.x audit records", () => {
     expect(bridge).not.toMatch(/JsonAgentSessionEvent/);
   });
 
-  it("E17: tool_call is pass-through, so the 0.84.1 `terminate` field has no consumer", () => {
+  it("E17: the admission handler blocks but never sets `terminate`", () => {
     // `ToolCallEventResult.terminate` only takes effect for a handler that
-    // returns `block`. The bridge never blocks, so the field is unreachable.
-    // A future blocking handler must revisit the pi-api-feature-detection
-    // requirement that records this as not-applicable.
+    // returns `block`. The bridge's pass-through `tool_call` forwarder does not
+    // block; the ONLY blocking handler is subagent fan-out admission
+    // (bound-subagent-fanout-under-host-pressure), which returns `block` +
+    // `reason` and deliberately never sets `terminate` — a refusal is "not now".
+    // This revisits the pi-api-feature-detection requirement that recorded the
+    // field as not-applicable while the bridge never blocked.
     const bridge = fs.readFileSync(path.join(__dirname, "../bridge.ts"), "utf-8");
     const passThrough = bridge.match(/const passThroughEventTypes = \[([\s\S]*?)\] as const;/);
     expect(passThrough, "passThroughEventTypes block not found").toBeTruthy();
     expect(passThrough![1]).toMatch(/"tool_call"/);
+    // The bridge source itself must not inline a block/terminate result.
     expect(bridge).not.toMatch(/terminate:\s*true/);
     expect(bridge).not.toMatch(/block:\s*true/);
+
+    const admission = fs.readFileSync(
+      path.join(__dirname, "../subagent-fanout-admission.ts"),
+      "utf-8",
+    );
+    expect(admission).toMatch(/block:\s*true/);
+    expect(admission).not.toMatch(/terminate:\s*true/);
   });
 });

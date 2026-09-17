@@ -1516,7 +1516,9 @@ export interface ServersUpdatedMessage {
 export interface KillProcessBrowserMessage {
   type: "kill_process";
   sessionId: string;
-  pgid: number;
+  /** Process group to kill. Optional: the REST/MCP lifecycle path may not know
+   *  it, and the bridge no-ops on a falsy pgid. See change: expand-mcp-tiered-surface. */
+  pgid?: number;
 }
 
 export interface ListSessionsBrowserMessage {

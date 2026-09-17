@@ -15,6 +15,66 @@ import type { EnrichedRecommendedExtension } from "./recommended-extensions.js";
 
 export type { EnrichedRecommendedExtension } from "./recommended-extensions.js";
 
+// Tier primitives are shared with the MCP plugin and the route→tier map; the
+// API surface re-exports them so consumers have one import path for the REST
+// types they carry (see change: expand-mcp-tiered-surface, D1).
+export { isTier, minTier, rank, TIERS, defaultTierForSource } from "./tiers.js";
+export type { Tier } from "./tiers.js";
+
+/**
+ * MCP tool input types (change: expand-mcp-tiered-surface, D5). A manifest row
+ * names one of these (or a route's own `*Request` type); the codegen resolves
+ * it to a JSON Schema, so the schema cannot drift from the type.
+ */
+
+/** A tool that takes no arguments. */
+export type ToolEmptyInput = Record<string, never>;
+
+/**
+ * Permissive body/query for a route with no narrow exported request type yet.
+ * Path parameters are still typed (and validated) by the codegen from the route
+ * pattern, so the untrusted part — the body — is what stays open here.
+ */
+export type ToolJsonBody = Record<string, unknown>;
+
+/** MCP: send a prompt to a session. */
+export interface SendPromptRequest {
+  sessionId: string;
+  text: string;
+  images?: unknown[];
+}
+
+/**
+ * MCP: args for a session-bound bridge tool. `sessionId` is explicit (so the
+ * guard and the schema can see it) plus any bridge-specific fields.
+ */
+export interface SessionToolArgs {
+  sessionId: string;
+  [k: string]: unknown;
+}
+
+/** MCP: a bare session reference (abort and similar). */
+export interface SessionIdRequest {
+  sessionId: string;
+}
+
+/**
+ * MCP `list_sessions` args (change: paginate-mcp-list-sessions). Bounds and the
+ * status enum are enforced by the tool's validator; the shape drives the schema.
+ */
+export interface ListSessionsToolArgs {
+  /**
+   * @minimum 1
+   * @maximum 200
+   * @integer
+   */
+  limit?: number;
+  status?: Array<"active" | "idle" | "streaming" | "ended">;
+  cwd?: string;
+  since?: number;
+  cursor?: string;
+}
+
 // ── Sessions ────────────────────────────────────────────────────────
 
 export interface ListSessionsQuery {
