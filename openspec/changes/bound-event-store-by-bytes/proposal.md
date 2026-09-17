@@ -64,17 +64,29 @@ envelope, which is why raising the cap only moved the crash.
 - **Back-pressure**: `droppedFrames.serverToBrowser` = **177,384**; socket buffer sat above threshold for **605 s** cumulative. Frames are dropped rather than retained, so this is a *symptom and a UX loss*, not a second leak — but it shares the cause and belongs in the same investigation.
 - **RSS ≫ heap**: `rss` 1867 MB against `heapUsed` 818 MB. Fragmentation/`malloced` overhead means host memory pressure is roughly 2× the heap figure any ceiling is expressed in.
 
-### Relationship to `bound-session-retained-bytes`
+### Supersedes `bound-session-retained-bytes`
 
-That change (active, 0/19 tasks done) already proposes the **per-session**
-byte budget `maxBytesPerSession`, default 64 MiB. It is necessary but **not
-sufficient**, and its default is disproved by the measurement above:
+This change **absorbs and replaces** `bound-session-retained-bytes` (active,
+0/19 tasks, never started). Its design, spec deltas and tasks are folded in here
+rather than discarded; its per-session budget is retained as one of three
+bounds, with its default retuned by measurement. That change is removed so one
+coherent retention change owns `memory-event-store.ts` and the Memory Limits
+settings section instead of two overlapping ones.
+
+Its per-session budget was necessary but **not sufficient**, and its default is
+disproved by the measurement above:
 
 | bound | permitted resident |
 |---|---|
 | today — 100 cached × 20000 events, no byte cap | ~3.6 GB at measured rates (**= the ~4093 MB crash**) |
-| `bound-session-retained-bytes` alone — 64 MiB × 100 cached | **6.4 GB** (**still above both crash ceilings**) |
-| this change — global budget + configurable resident count | bounded by construction |
+| per-session cap alone — 64 MiB × 100 cached | **6.4 GB** (**still above both crash ceilings**) |
+| this change — 32 MiB × 32 cached, capped globally at 768 MiB | **768 MiB**, bounded by construction |
+
+That change's own design note conceded the 6.4 GB cross-session worst case was
+"still the LRU's job, unchanged" — but live telemetry reports
+`evictedSessions = 0`: **the LRU has never fired**, because it triggers on
+session COUNT (100) while only ~19 buffers are ever resident. The mechanism it
+delegated to does not run.
 
 Measured occupancy is **36 MB per pegged session**, *below* the proposed 64 MiB
 per-session default — so that change as specified **would not have trimmed the

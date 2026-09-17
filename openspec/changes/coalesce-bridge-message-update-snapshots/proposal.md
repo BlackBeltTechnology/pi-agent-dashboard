@@ -62,12 +62,15 @@
     immediately**. Source order is preserved and thinking deltas stay lossless.
   - **Generation + key barrier** — the bridge stamps an incrementing generation on
     every `message_start` (assistant *and* user, so retry chains and new turns both
-    reset the barrier) and supplies a stable `role:timestamp` message key.
+    reset the barrier) and folds it into a `` `${gen}:${role}:${timestamp}` ``
+    message key (`role:timestamp` alone collides in a same-millisecond retry loop;
+    `message.id` does not exist until post-handler persistence).
     `messageStart(gen, key)` opens the stream; `messageEnd(gen, key)` closes it
-    after the bridge flushes the final snapshot. Updates from an older generation,
-    a different key, or a closed message are **dropped**. (pi clones `message` refs
-    per event and `message.id` only exists after persistence, so object identity
-    and early ids are unusable as keys.)
+    after the bridge flushes the final snapshot. The drop rule is narrow and
+    fail-open: **only** an update whose key is already closed is dropped — an
+    update with no open message, or with an unseen key, opens one instead
+    (`npm run reload` re-inits the bridge mid-turn, and dropping there would
+    silence the rest of the turn).
   - `flush()` is sync and idempotent; `clear(gen)` drops pending data, cancels the
     private timeout, and closes the lifecycle.
 - **Bridge integration (`bridge.ts`)**
@@ -80,13 +83,14 @@
   - `onReconnect` → `flush()` **before** state sync and replay: reconnect is a
     transport boundary, not a session boundary, so live content is kept but can
     never appear after historical replay.
-  - Session-scoped instance re-created on `session_start`; a single 50 ms sweep
-    interval flushes all live instances (each slot carries its own arm time, so one
-    timer cannot delay a window). Cancel the sweep + clear instances on session
-    switch, shutdown and reload.
+  - Session-scoped instance re-created on `session_start`; one injected
+    `setTimeout` per armed window, cancelled on flush/clear and registered with the
+    existing bridge-timer registry. (A shared sweep interval was rejected: it
+    delays a slot by up to `interval + window`, breaking the one-window bound.)
   - `maybeInlineAssistantImages` moves **into the coalescer's send callback** so it
-    runs once per flushed window instead of per token; the `message_end` inliner
-    stays for final-content replacement.
+    runs once per flushed window instead of per token, still ahead of the snapshot
+    referencing its assets; the `message_end` inliner stays for final-content
+    replacement.
 
 **Out of scope** — changing pi's snapshot-carrying `message_update` shape, the
 subagent frame path (`subagent-tick-throttle.ts`, already throttled), and the
@@ -110,8 +114,10 @@ server/client-side fold and render-batching layers (they stay as-is).
 
 - NEW `packages/extension/src/message-update-coalescer.ts` (~217 LOC) + its
   `.AGENTS.md` sidecar.
-- `packages/extension/src/bridge.ts` (~+126 LOC) — instance ownership, sweep
-  timer, `messageKeyOf(message)` helper, flush-at-handler-entry invariant,
+- `packages/extension/src/bridge.ts` (~+126 LOC) — instance ownership, window
+  timer, `messageKeyOf(message)` helper, flush-at-handler-entry invariant, an
+  explicit flush in `wrapCustomPersistenceForCtx` + `sendSyntheticRetryEvent` (the
+  only chat-content-ordered sinks outside the two event loops),
   message_start/end barrier calls, reconnect flush, lifecycle clear.
 - `packages/extension/src/AGENTS.md` + `bridge.ts.AGENTS.md` rows.
 
@@ -121,8 +127,10 @@ server/client-side fold and render-batching layers (they stay as-is).
   (fixed, not debounce), last-wins within a contiguous run, thinking/toolcall
   flush-then-forward ordering, generation/key stale-drop, closed-message drop,
   idempotent `flush()`, `clear(gen)`.
-- NEW `__tests__/bridge-followup-chat-order.test.ts` (~124 LOC) — the end-to-end
-  ordering regression: a follow-up chat line after reload/resume arrives in order.
+- NEW `__tests__/bridge-coalesced-chat-order.test.ts` — the end-to-end ordering
+  regression: a follow-up chat line after reload/resume arrives in order.
+  (`bridge-followup-chat-order.test.ts` ALREADY EXISTS and asserts a different
+  drain-ordering invariant — it must not be overwritten.)
 - Existing bridge tests (retry-state wire ordering in
   `specs/provider-retry-state`, subagent frame buffering/flush) MUST stay green —
   `provider-retry-state` asserts a **bridge wire-ordering invariant**, so it is the

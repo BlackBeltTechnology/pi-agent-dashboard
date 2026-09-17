@@ -164,13 +164,16 @@ semantics), granular context splitting for the display-prefs/model-config maps
 
 ### Added Capabilities
 
-- `patch-editing-and-resize` — a drag's body cursor/userSelect pair is scoped to
-  the drag lifecycle and is ALWAYS cleared on drag end **and** on unmount.
-- `mobile-shell` — the mobile root SHALL bound itself to the viewport
-  (`100dvh` + `overflow-hidden`) and stack in-flow banners above a flexing shell,
-  so no banner can make the document scrollable.
+- `drag-body-style` — a drag's body cursor/userSelect pair is scoped to the drag
+  lifecycle and is ALWAYS cleared on drag end **and** on unmount. Cross-cutting:
+  covers all three draggers (sidebar, split divider, diff tree panel).
 
 ### Modified Capabilities
+
+- `mobile-resilience` — the mobile root SHALL bound itself to the viewport
+  (`100dvh` + `overflow-hidden`) and stack in-flow banners above a flexing shell,
+  so no banner can make the document scrollable. (Added requirement on the
+  existing capability that already owns the mobile navigation shell.)
 
 - `content-copy` — CopyButton's path becomes fallback-backed via shared
   `copyText`; ✓ feedback driven by its success boolean.
