@@ -48,10 +48,13 @@ const REAL_PROCESS_CONFIG = path.join(SERVER_DIR, "vitest.real-process.config.ts
  * a socket, or a log file — the thing that needs an idle machine.
  */
 const NAMED_SPAWN_IMPORT_RE =
-  /^import\s+(?:type\s+)?\{([^}]*)\}\s+from\s+"node:child_process"/m;
-/** `import * as childProcess from "node:child_process"` — captures the alias. */
+  /^import\s+(?:type\s+)?\{([^}]*)\}\s+from\s+["']node:child_process["']/m;
+/**
+ * `import * as childProcess from "node:child_process"` — captures the alias.
+ * `\S+` not `\w+`: `$` and `_` are legal in an identifier (`child$`).
+ */
 const NAMESPACE_IMPORT_RE =
-  /^import\s+\*\s+as\s+(\w+)\s+from\s+"node:child_process"/m;
+  /^import\s+\*\s+as\s+(\S+)\s+from\s+["']node:child_process["']/m;
 const SPAWNERS = ["spawn", "spawnSync", "fork"];
 const HELPER_RE = /\b(?:spawnKeeper|bootRealServer)\s*\(/;
 
@@ -76,7 +79,9 @@ function isRealProcessTest(source: string): boolean {
   const ns = source.match(NAMESPACE_IMPORT_RE);
   if (ns) {
     const alias = ns[1].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    if (new RegExp(`\\b${alias}\\.(?:${SPAWNERS.join("|")})\\s*\\(`).test(source)) return true;
+    // `(?:^|[^\w$])` not `\b`: `\b` fails for an alias starting with `$`.
+    if (new RegExp(`(?:^|[^\\w$])${alias}\\.(?:${SPAWNERS.join("|")})\\s*\\(`).test(source))
+      return true;
   }
   return HELPER_RE.test(source);
 }
