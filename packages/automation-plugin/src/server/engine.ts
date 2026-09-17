@@ -548,6 +548,12 @@ export function createEngine(deps: EngineDeps): Engine {
       if (parent.remaining <= 0) finalizeParent(parent);
     } else {
       // Defensive: a child with no tracked parent releases the slot directly.
+      // Unreachable for a targeted `runWorkItem` run: its parent is inserted
+      // BEFORE spawnChild, has `remaining: 1`, and is deleted only by
+      // `finalizeParent` triggered by THIS child's own (idempotent) finalize —
+      // so the parent is always present here for the targeted path, and this
+      // branch never releases a runner slot on its behalf. See change:
+      // work-source-seam.
       runner.completeRun(ctx.key);
     }
   }
