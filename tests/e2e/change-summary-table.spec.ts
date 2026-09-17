@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures.js";
+import { expect, test } from "./fixtures.js";
 import { dismissToasts, robustClick, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
 /**

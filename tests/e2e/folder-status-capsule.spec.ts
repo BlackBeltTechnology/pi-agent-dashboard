@@ -127,6 +127,14 @@ test.describe("folder status capsule", () => {
 
   test("segments render in fixed severity order (test-plan #F1)", async ({ page }) => {
     await gotoDashboard(page);
+    // Seed BOTH buckets on THIS page: the per-test `reapSessions` fixture
+    // (change: per-test session reaping) removes any session an earlier test
+    // left behind, so relying on the previous test's needs-you/error sessions
+    // yields an absent capsule — and `[]` trivially equals the filtered
+    // severity list, so the assertion below could never fail. Seeding keeps
+    // the order assertion non-trivial (needs-you before error).
+    await seedNeedsYou(page);
+    await seedError(page);
     // Without these two guards an absent capsule yields [], and [] trivially
     // equals the filtered severity list — the assertion could never fail.
     await expect(capsule(page)).toBeVisible({ timeout: 15_000 });

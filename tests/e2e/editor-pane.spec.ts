@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures.js";
-import { dismissToasts, robustClick, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import { robustClick, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
 // Browser E2E — internal Monaco editor pane (change: add-internal-monaco-editor-pane).
 //
