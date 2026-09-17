@@ -217,6 +217,13 @@ export default async function globalSetup(): Promise<void> {
     // written through `PUT /api/config`.
     // See change: config-override-oauth-redirect-base.
     PI_E2E_OAUTH: process.env.PI_E2E_OAUTH ?? "1",
+    // PI_BROWSER_RELAY_FAKE=1 enables the browser-relay plugin (which ships
+    // `defaultEnabled: false`) so its settings surface and Fake relay instance
+    // exist. The plugin seeds its fake at ACTIVATION, so this MUST be set before
+    // boot. Without it, browser-relay.spec.ts's 5 tests wait 150s for a surface
+    // that never mounts — the whole cluster was red in CI for this one omission.
+    // See change: add-browser-relay (task 7.61).
+    PI_BROWSER_RELAY_FAKE: process.env.PI_BROWSER_RELAY_FAKE ?? "1",
     ANTHROPIC_API_KEY: "",
     OPENAI_API_KEY: "",
     GEMINI_API_KEY: "",

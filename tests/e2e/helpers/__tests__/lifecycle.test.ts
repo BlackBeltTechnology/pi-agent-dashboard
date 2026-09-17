@@ -21,6 +21,7 @@ import {
   harnessFailureLogPath,
   harnessProject,
   harnessRestartCount,
+  REPO_ROOT,
   resolveHarnessProject,
   throwIfCrashLooping,
 } from "../../lifecycle.js";
@@ -161,6 +162,20 @@ describe("harnessProject", () => {
   it("names the missing state file when neither source has a project", () => {
     delete process.env.PW_E2E_PROJECT;
     expect(() => harnessProject(workspace())).toThrow(/no harness compose project/);
+  });
+});
+
+describe("globalSetup harness faucets", () => {
+  it("seeds every E2E faucet the entrypoint gates on (missing seed = red cluster)", () => {
+    // PI_BROWSER_RELAY_FAKE was missing and cost a 5-test cluster: the plugin is
+    // defaultEnabled:false and only seeds its fake at ACTIVATION, so an unset
+    // seed makes its settings surface unreachable for 150s per attempt. Pin the
+    // whole faucet set rather than the one key, so the next gate added to
+    // test-entrypoint.sh fails here instead of in CI.
+    const src = fs.readFileSync(path.join(REPO_ROOT, "tests", "e2e", "global-setup.ts"), "utf8");
+    for (const key of ["PI_E2E_SEED", "PI_E2E_OAUTH", "PI_TEST_PEERS", "PI_BROWSER_RELAY_FAKE"]) {
+      expect(src, `${key} is missing from globalSetup's managed spawn env`).toContain(`${key}:`);
+    }
   });
 });
 
