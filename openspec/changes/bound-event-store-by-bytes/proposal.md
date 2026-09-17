@@ -154,12 +154,28 @@ versus 3.6 GB today and 6.4 GB with the per-session cap alone.
 
 ## Impact
 
-- Affected specs: `dashboard-server`, `shared-config`, and the event-store
-  retention behaviour; `settings-panel` for the new key.
-- Affected code: `packages/server/src/persistence/memory-event-store.ts`
-  (accounting + budget eviction), `packages/server/src/routes/system-routes.ts`
-  (`/api/health` fields), `packages/shared/src/memory-limits.ts` (new key +
-  default).
+- Affected specs: `in-memory-event-buffer` (per-session budget, global budget,
+  configurable resident count, byte-trim telemetry) and `settings-panel` (three
+  new Memory Limits controls).
+- Affected server/shared code:
+  `packages/server/src/persistence/memory-event-store.ts` (accounting + budget
+  eviction), `packages/server/src/routes/system-routes.ts` (`/api/health`
+  `heapSizeLimit` + `storeTrim.residentBytes`), `packages/shared/src/memory-limits.ts`
+  and `packages/shared/src/config.ts` (three new keys + loader clamps),
+  `packages/server/src/config-api.ts` (partial write), `packages/server/src/server.ts`
+  (threading; replaces the hardcoded `undefined // maxCachedSessions` at :925).
+- **Affected UI** — `packages/client/src/components/settings/SettingsPanel.tsx`,
+  Memory Limits section. Three numeric controls added beside the existing ones:
+  `maxBytesPerSession` and `maxTotalEventBytes` (labelled in MiB, converted to
+  bytes at the edge) and `maxCachedSessions` (a plain count). Each carries a
+  translated label + hint with an English fallback across every locale file, a
+  partial config write, and the restart-required badge the sibling controls
+  already use. No new screen, route, component or layout — it is three fields in
+  an existing section, so there is no design/mockup work. Covered by
+  `settings-field-contract.test.tsx` and `settings-bespoke-validation.test.tsx`
+  (tasks 4.2–4.3).
+- No other UI surface changes: the new `/api/health` fields are additive and no
+  client component is required to render them in this change.
 - Behavioural change: under sustained load the server will now **drop old event
   detail it previously retained**. That is the point — the alternative currently
   observed is a fatal OOM that loses everything. Replay/hydration already

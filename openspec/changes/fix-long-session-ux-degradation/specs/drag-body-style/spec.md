@@ -55,10 +55,15 @@ double invocation) are harmless.
 
 ### Requirement: Every drag-to-resize affordance obeys this contract
 
-All drag-to-resize affordances in the web client — the session sidebar width
-handle, the split-editor divider, and the diff view's file-tree panel handle —
-SHALL obey the lifecycle contract above, via a single shared mechanism rather
-than per-component copies of the same override logic.
+Every drag-to-resize affordance in the web client SHALL obey the lifecycle
+contract above. The three affordances that write the overrides from their event
+handlers — the session sidebar width handle, the split-editor divider, and the
+diff view's file-tree panel handle — SHALL obtain them from a single shared
+mechanism rather than per-component copies of the same override logic. An
+affordance that already satisfies the contract with its own guarded cleanup (the
+directory-tree column handle, whose effect also owns width persistence) SHALL
+continue to satisfy it; consolidating it onto the shared mechanism is not
+required by this capability.
 
 #### Scenario: Each affordance clears on unmount mid-drag
 - **WHEN** any of the sidebar, split divider, or diff tree-panel handles is mid-drag AND is removed from the page

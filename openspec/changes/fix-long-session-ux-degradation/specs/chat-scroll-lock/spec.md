@@ -15,9 +15,16 @@ programmatic write that caused it. A scroll event attributed to a bottom-pin
 write SHALL preserve the follow state when it is consistent with a measurement
 clamp — that is, it matches the position the pin actually achieved and the
 content has grown since — and SHALL otherwise fall through to the normal
-position rules. Attribution SHALL be cleared by real user input (wheel, touch,
-scrollbar drag, keyboard), so a genuine escape gesture always releases the
-follow. Programmatic writes that are deliberate jumps rather than bottom-pins
+position rules.
+
+Attribution SHALL NOT survive a genuine escape gesture, by either of two paths:
+real user input (wheel, touch) SHALL clear it directly, and any scroll event that
+moves the view off the position the pin achieved — which is what a scrollbar drag
+or a keyboard scroll does — SHALL fail the clamp test and fall through to the
+normal position rules. Attribution SHALL be consumed by the first scroll event it
+is tested against: an event that falls through SHALL clear it, so a recorded pin
+cannot be re-matched by a later, unrelated event that happens to land on the same
+position. Programmatic writes that are deliberate jumps rather than bottom-pins
 (scroll-to-bottom button, jump-to-turn, position restore, splice corrections)
 SHALL NOT claim bottom-pin attribution.
 
@@ -35,6 +42,13 @@ SHALL NOT claim bottom-pin attribution.
 - **AND** no user gesture has occurred
 - **THEN** the follow state SHALL be preserved even though the reported position is far from the new bottom
 - **AND** the view SHALL continue chasing the bottom on the next pin
+
+#### Scenario: Scrollbar drag away from the pin releases the follow
+- **GIVEN** the chat view wrote a bottom-pin and recorded the position it achieved
+- **WHEN** the user drags the scrollbar upward, producing a scroll event at a different position with no wheel or touch input
+- **THEN** the event SHALL NOT be treated as a measurement clamp
+- **AND** the follow state SHALL be released
+- **AND** the recorded pin SHALL NOT be able to preserve the follow on any later event
 
 #### Scenario: Real user scroll during replay still wins
 - **GIVEN** event replay is in progress

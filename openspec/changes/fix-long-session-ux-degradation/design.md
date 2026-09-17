@@ -11,18 +11,27 @@ Verified baseline on `develop`:
 |---|---|---|
 | §1 drag styles | `ResizableSidebar.tsx:42-43/59-60`, `SplitDivider.tsx:47-48/62-63`, `FileDiffView.tsx:172-173/190-191` all write `document.body.style` in handlers only. `useTreeColumnWidth.ts:57-58/70-71/87-88` has the guarded-cleanup pattern. | Yes, verbatim |
 | §2 copy | `CopyButton.tsx` calls `navigator.clipboard.writeText` with an empty catch. `lib/util/clipboard.ts#copyText` exists and returns a boolean. | Yes, verbatim |
-| §3 reconcile maps | `useStaleToolReconcile.ts` deletes only `inFlightRef`. `lastAttemptRef`/`count404Ref` never pruned. | Yes, verbatim |
-| §4 mobile | `MobileShell.tsx:42` root is `w-screen h-[100dvh] overflow-hidden`; `App.tsx:2678` mobile branch wraps it in a plain `<div>` with `PluginStalenessBanner` + `ConnectionStatusBanner` in flow above it. | Yes, verbatim |
-| §5 scroll | **Moved, but the defect is live.** `develop` has `programmaticScrollUntilRef` + `stampProgrammaticScroll()` (`SETTLE_MS = 120`) — but it feeds ONLY `pendingUserIntentRef` / `evaluateAutoLoad` (`ChatView.tsx:1371`), never `handleScroll`'s near-bottom branch. Both bottom-pin writes (`onChange` `:1189`, follow effect `:1503`) stamp it and then fall into `handleScroll`'s `else` at `:1348`, which sets `stickToBottomRef = nearBottom` → `false`. The `descendingRef` latch (`:1336`) is the right shape but is set only by `scrollToBottom`. | Defect yes; fix must be re-derived |
+| §3 reconcile maps | `useStaleToolReconcile.ts` deletes only `inFlightRef`. `lastAttemptRef`/`count404Ref` never pruned. Additionally verified: `event-reducer.ts` never deletes from `state.toolCalls` (only `createInitialState` clears), so a tool row persists for the session's lifetime once created. | Yes — and worse than stated (see D3) |
+| §4 mobile | `MobileShell.tsx:42` root is `w-screen h-[100dvh] overflow-hidden`; `App.tsx:2678` mobile branch wraps it in a plain `<div>` with `PluginStalenessBanner` + `ConnectionStatusBanner` in flow above it. The one other child of that wrapper, `addFoldersDialog` (`App.tsx:2441`), renders inside `<DialogPortal>` and so contributes no height either. The `presentation: "page"` plugin-overlay branch (`App.tsx:2661`) returns *before* this wrapper and is already `fixed inset-0` with no banners — out of scope for D4. | Yes, verbatim |
+| §5 scroll | **Moved, but the defect is live.** `develop` has `programmaticScrollUntilRef` + `stampProgrammaticScroll()` (`SETTLE_MS = 120`) — but it feeds ONLY `pendingUserIntentRef` / `evaluateAutoLoad` (`ChatView.tsx:1371`), never `handleScroll`'s near-bottom branch. Both bottom-pin writes (`onChange` `:1189`, follow effect `:1503`) stamp it and then fall into `handleScroll`'s `else` at `:1348`, which sets `stickToBottomRef = nearBottom` → `false`. The `descendingRef` latch (`:1334`) is the right shape but is set only by `scrollToBottom`. The scroll container (`:1629`) wires `onScroll`/`onCopy`/`onWheel`/`onTouchMove` only — there is no keyboard or scrollbar listener to hook. | Defect yes; fix must be re-derived |
 | §6 markdown | No `MarkdownRenderContext`; `MarkdownContent.tsx:492` passes an inline `components={{...}}` object. `App.tsx:1498-1503` memoizes `toolContext` on the whole `sessionStates` map. | Yes, verbatim |
 | §7 idle FX | `index.css:645-647` pauses on `:root.app-hidden *`, driven by `useAppHidden`. No visible-but-idle pause. | Yes, verbatim |
 
-One proposal claim was verified rather than assumed: `ToolContext.session` is
-consumed only by `AgentToolRenderer.tsx:343`, which forwards it to
-`SubagentDetailView`, whose declared `SessionStateLike` reads exactly one field —
-`session.subagents` (`packages/subagents-plugin/src/client/SubagentDetailView.tsx:107`).
-`FileLink` uses `context.sessionId`, not `context.session`. So narrowing the
-context to the selected session's `subagents` is lossless.
+One proposal claim was verified rather than assumed, and the verification came
+back narrower than the claim. Inside this repo, `ToolContext.session` is read
+only by `AgentToolRenderer.tsx:229`, which forwards it to `SubagentDetailView`,
+whose declared `SessionStateLike` reads exactly one field — `session.subagents`
+(`packages/subagents-plugin/src/client/SubagentDetailView.tsx:107`). `FileLink`
+uses `context.sessionId`, not `context.session`.
+
+But that is an audit of *in-repo* consumers, not of the contract. The field is
+declared `session?: SessionState` — the **whole** state — in
+`components/tool-renderers/types.ts:36`, and `ToolCallStep.tsx` resolves plugin
+`tool-renderer` slot claims *before* the built-in registry, handing them the same
+`ToolContext`; the type is re-exported for external embedders. So "narrowing is
+lossless" holds for the code in this repo and is an unverifiable assumption about
+anything outside it. D7 resolves that by narrowing the declared type rather than
+leaving a full-looking `SessionState` that is silently stale.
 
 Capability placement differs from the proposal's first draft (confirmed with the
 user): §1 lands in a new cross-cutting `drag-body-style` capability rather than
@@ -97,19 +106,36 @@ Add pure `selectActiveToolKeys(states): Set<string>` beside the existing
 selectors, and have `tick()` delete every `lastAttemptRef`/`count404Ref` key not
 in that set **before** scanning.
 
+**"Active" means `status === "running"`, not "still present in state".** This is
+load-bearing, not a detail: `event-reducer.ts` never deletes from
+`state.toolCalls`, so *every tool call ever executed remains a present row* for
+the life of the session. A prune keyed on presence would therefore delete nothing
+and the fix would be a no-op against the exact defect it targets. `selectActiveToolKeys`
+yields the running rows and nothing else.
+
 This is lossless because the scan only ever consults keys of rows the selectors
-still yield (they guard `status === "running"`); a pruned key is by construction
-one the scan cannot reach. Live rows keep their backoff and 404 counts.
-`inFlightRef` is untouched — it self-clears in `finally`.
+still yield (`selectStaleRunningTools` / `selectSupersededHealTargets` both guard
+`status === "running"`); a pruned key is by construction one the scan cannot
+reach. Running rows keep their backoff and 404 counts. `inFlightRef` is untouched
+— it self-clears in `finally`.
+
+One ordering wrinkle, accepted rather than guarded: a reconcile request already
+in flight when its row goes terminal can re-insert that row's key into
+`count404Ref` from the response handler (`useStaleToolReconcile.ts:159`) after the
+tick pruned it. The re-inserted key is bounded — at most one per in-flight
+request, discarded by the next tick. Adding a second liveness check inside the
+async handler would buy a 4 s window of tidiness for a real race hazard, so the
+prune stays the single point of truth.
 
 *Alternatives considered.* (a) TTL eviction — introduces a second clock and can
 evict a live row's 404 count, silently resetting its backoff. (b) An LRU cap —
 same hazard plus an arbitrary constant. The live key set is already derivable
 exactly; approximating it is strictly worse.
 
-Placing the prune before the scan (not after) means the tick's own work is
-already proportional to live rows, so the per-tick scan cost is bounded too, not
-just the memory.
+Placing the prune before the scan (not after) means the deletion pass and the
+bookkeeping it walks are proportional to running rows. Note the bound this buys
+is on the **bookkeeping maps**: the selectors themselves still iterate every
+`toolCalls` entry per tick, which is pre-existing behavior and out of scope here.
 
 ### D4 — The viewport bound moves up to the App mobile root
 
@@ -176,15 +202,33 @@ only when **all** hold:
   every comparison is trivially satisfiable).
 
 Anything else falls through to today's rules unchanged, so a real escape still
-releases the follow. The tag is cleared ONLY by real user input — the existing
-`onWheel`/`onTouchMove` → `cancelDescent` path is extended to clear it, which is
-also where `descendingRef`/`ascendingRef` are cleared, keeping one place that
-means "the user took over". `"jump"` writers (`scrollToBottom`, `scrollToTurn`,
-restore, splice corrections) leave the pin refs untouched.
+releases the follow. `"jump"` writers (`scrollToBottom`, `scrollToTurn`, restore,
+splice corrections) leave the pin refs untouched.
 
-Scrollbar-drag and keyboard escapes are covered by the `scrollTop` equality
-clause rather than by an input listener: they move the position off the recorded
-pin, so the clamp branch does not apply.
+**The attribution is single-use.** It is cleared on two paths, and the second is
+not optional: the existing `onWheel`/`onTouchMove` → `cancelDescent` path is
+extended to clear it (keeping one place that means "the user took over", where
+`descendingRef`/`ascendingRef` are already cleared), **and** the first scroll
+event tested against the snapshot consumes it — an event that falls through
+clears it too.
+
+The second path is what makes the no-listener answer for scrollbar-drag and
+keyboard escapes correct rather than merely convenient. Those inputs move the
+position off the recorded pin, so they fail the equality clause and fall
+through — but without consumption the stale snapshot would survive an entire
+scrollbar-only session and could be re-matched later by an unrelated event that
+happens to land on the same `scrollTop` while content grew, silently re-arming
+the follow away from the bottom. Consumption also bounds the double-pin
+interleave (both pin sites can write within one growth cycle): the overwritten
+first event falls through and clears, and the second pin re-arms from its own
+snapshot.
+
+**One coupling the clamp must not forget.** `handleScroll` also persists the raw
+`nearBottom` into `scrollStateMap` (`ChatView.tsx:1352-1362`) for
+switch-away-and-back restore. A clamp-preserved event must persist the state it
+*preserved*, not the raw `false`, or the follow survives in-session and is then
+thrown away by the next session switch — restoring mid-transcript with the
+scroll-to-bottom button showing, after no user gesture.
 
 **Sequencing requirement.** The red test must be written first and must
 reproduce against *current* `develop`, using a `setScrollPosition` test helper
@@ -205,6 +249,21 @@ Renderers move to module scope (stable identities) and read what they need —
 `ToolContext`, syntax theme, loopback-link behavior, image base — from a new
 `MarkdownRenderContext`. The `components` object then becomes a module constant.
 
+**Provider placement and the no-provider path are part of this decision, not an
+implementation detail.** The provider is mounted *inside* `MarkdownContent`,
+wrapping its `react-markdown` element, with a value memoized on the individual
+fields it carries. Mounting it higher (e.g. once in `ChatView`) would reintroduce
+the defect by a different door: a new context *value* still re-renders every
+consumer, and the point of D6 is that the render survives a value change because
+the component *types* are stable. Node identity is preserved by stable types;
+field-wise memoization only avoids needless re-renders.
+
+`MarkdownContent`'s `context` prop is optional (`MarkdownContent.tsx:37`) and
+`chat-embed` embedders mount it without one, so the context's default value must
+be a complete, inert object — no `fileLink` (linkification already degrades to
+plain text on absence, per `types.ts`), no `session`, default syntax theme. A
+module-scope renderer must never assume a provider is above it.
+
 *Alternative considered.* Memoizing the `components` object on its inputs. This
 fails for the reported repro: the inputs (a fresh but *equivalent* `ToolContext`)
 change identity, so the memo misses and the identities churn anyway. D7 reduces
@@ -224,11 +283,28 @@ splits out cleanly — nothing else here depends on it.
 
 `App.tsx:1498-1503` memoizes on `sessionStates` (the whole map), so any session's
 SSE/thinking update mints a new context. Narrow the dependency to the selected
-session's `subagents` map — verified above as the only field consumers read.
+session's `subagents` map — the only field any consumer reads.
 
-*Alternative considered.* A deep/structural equality check on the built context —
-pays a comparison on every event and still allocates; narrowing the input is both
-cheaper and self-documenting.
+**The declared type narrows with it.** `ToolContext.session` is currently
+`session?: SessionState` (`types.ts:36`) and is handed to plugin tool renderers
+before built-ins (`ToolCallStep.tsx`), so narrowing only the memo *dependency*
+would leave a field that still advertises the whole `SessionState` while silently
+freezing every non-`subagents` field between `subagents` changes — stale data
+behind a type that promises fresh data, which is strictly worse than no data.
+The field is therefore re-declared as the `subagents`-bearing subset
+(`{ subagents: SessionState["subagents"] }`). `SubagentDetailView`'s
+`SessionStateLike` already declares exactly that shape, so the in-repo consumer is
+unaffected; an out-of-repo renderer reading another field now gets a compile
+error instead of stale values. The narrowing is a deliberate, breaking contract
+change on a re-exported type — called out in the proposal's Impact so it lands in
+the changelog rather than surprising an embedder.
+
+*Alternatives considered.* (a) A deep/structural equality check on the built
+context — pays a comparison on every event and still allocates; narrowing the
+input is cheaper and self-documenting. (b) Keep `SessionState` and narrow only
+the memo dependency — rejected above: silent staleness. (c) Drop D7 and rely on
+D6 alone — rejected: D6 removes the sensitivity but leaves every background event
+rebuilding the context and re-rendering every consumer.
 
 ### D8 — `useIdleFx` mirrors `useAppHidden`, with a deliberate activity set
 
@@ -239,7 +315,10 @@ cheaper and self-documenting.
 
 Activity = `pointerdown`, `wheel`, `keydown`, `touchstart`, `focusin` — listened
 at **capture** on `document`, so activity inside a stopped-propagation subtree
-still counts.
+still counts. `focusin` also fires for a *programmatic* `element.focus()` (dialog
+open, popout flows), which will restart the idle timer without a user present.
+Accepted: it is a one-shot restart, not a hold — the pause lands 5 s later — and
+filtering on `isTrusted` would drop genuine keyboard-driven focus moves.
 
 **`pointermove` and `scroll` are deliberately excluded.** A resting hand emits
 pointer micro-moves, and streaming auto-scroll dispatches trusted `scroll`
@@ -255,6 +334,29 @@ core). State remains legible because every animated state also has static color;
 the static selection affordance (`ring-1 ring-blue-500/30 border-blue-500/60`) is
 retained and pinned by a `SessionCard` test so a class rename cannot silently
 break the CSS selectors.
+
+**With one exemption: indeterminate progress indicators keep animating.** This is
+where `fx-idle` must diverge from `app-hidden` rather than mirror it. `app-hidden`
+is safe to apply universally because nobody is looking; `fx-idle` fires while the
+user is looking at the screen, and a spinner frozen mid-rotation during a genuine
+in-flight operation reports "hung", not "idle". The static-color argument that
+covers the decorative animations does not transfer: a spinner's *motion* is the
+entire signal.
+
+The exemption is a single rule following the pause block, keyed on Tailwind's
+`animate-spin` (39 call sites, and the class every indeterminate spinner in the
+client already uses):
+
+```css
+:root.fx-idle .animate-spin { animation-play-state: running !important; }
+```
+
+One declarative rule, no per-component opt-out to remember, and a future spinner
+inherits it by using the same utility. `animate-pulse` is deliberately **not**
+exempt — it is skeleton/liveness decoration whose state is carried statically,
+and it includes the status-dot pulses this change exists to stop. Cost of the
+exemption is one animated element while an operation is genuinely in flight,
+which is not the unattended-idle case being optimized.
 
 `fx-idle` and `app-hidden` are independent and compose — both are pause-only, so
 whichever is set pauses, and both must clear for animation to run.
@@ -281,7 +383,15 @@ class is declarative and already proven by `app-hidden`.
   distinguishes every animated state; a spec scenario and a `SessionCard` test
   pin the static selection affordance.
 - **§7's activity set could feel unresponsive** (mouse-move-only users) →
-  5 s delay, one-frame resume, no functional dependency on animation.
+  5 s delay, one-frame resume, no functional dependency on animation, and the
+  `animate-spin` exemption keeps in-flight work legible while paused.
+- **§6/§7 (D7) narrows a re-exported public type** (`ToolContext.session`) →
+  breaking for an out-of-repo tool renderer that reads a non-`subagents` field;
+  chosen over silent staleness so the break is a compile error. No in-repo
+  consumer is affected (`SessionStateLike` already declares the narrow shape).
+- **§3's prune could be a no-op** if "active" were read as "present" — tool rows
+  are never evicted from client state → D3 fixes the semantics to `running`, and
+  a scenario pins that terminal rows' bookkeeping is discarded while present.
 - **§4 could regress desktop layout** → the change is confined to the `isMobile`
   branch of `App.tsx` and to `MobileShell`, which desktop does not render.
 - **§1's guard could over-clear with two draggers** → the two-instance isolation

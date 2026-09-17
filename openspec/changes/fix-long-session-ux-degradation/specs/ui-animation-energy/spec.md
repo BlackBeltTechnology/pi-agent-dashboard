@@ -27,6 +27,15 @@ static styling, and the selected session MUST retain a static, non-animated
 selection affordance. No functional behavior may depend on an animation running
 or completing.
 
+Indeterminate progress indicators are the one exception and SHALL keep animating
+while idle. Unlike pausing for a hidden document, this pause applies while the
+user is looking at the screen, where a frozen spinner misreports an in-progress
+operation as a hung one. The exemption SHALL be expressed as a single declarative
+rule keyed on the shared indicator class, not as a per-component opt-out, so a
+newly added indicator inherits it. Decorative liveness animations that merely
+restate a state already carried by static styling (status stripes, status-dot
+pulses, shimmer) are NOT exempt.
+
 This requirement is complementary to, and does not replace, pausing while the
 document is hidden.
 
@@ -54,6 +63,13 @@ document is hidden.
 - **WHEN** the pointer rests over the window emitting micro-movements and scroll events are dispatched by auto-scroll, with no deliberate input
 - **THEN** the document root SHALL still be marked idle after the delay
 - **AND** animations SHALL be paused
+
+#### Scenario: An in-flight operation's spinner keeps animating while idle
+- **GIVEN** a long-running operation is in progress and shows an indeterminate progress indicator
+- **WHEN** the user performs no input for the idle delay
+- **THEN** the document root SHALL be marked idle
+- **AND** decorative animations SHALL be paused
+- **AND** the indeterminate progress indicator SHALL continue animating, so the operation still reads as in progress
 
 #### Scenario: Paused state remains legible
 - **GIVEN** animations are paused because the UI is idle

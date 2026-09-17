@@ -18,9 +18,12 @@ while. Each has an isolated mechanism, not a guess.
    components set `document.body.style.cursor` + `userSelect = "none"` on
    `mousedown` and clear them only in their `mouseup` handler. Effect cleanups
    remove the listeners but **not the styles**. Unmount mid-drag (breakpoint flip,
-   panel collapse, session switch) or a `mouseup` lost outside the window leaves
-   the page at `user-select: none` **forever** — nothing is selectable or copyable
-   until a refresh. The correct guarded-cleanup pattern already exists in
+   panel collapse, session switch) leaves the page at `user-select: none`
+   **forever** — nothing is selectable or copyable until a refresh. (A `mouseup`
+   lost outside the window strands the styles the same way, but that case stays
+   as-is: fixing it needs pointer capture or a `blur` listener, an explicit
+   non-goal below. Unmount cleanup is the bound this change buys.) The correct
+   guarded-cleanup pattern already exists in
    `useTreeColumnWidth`; it was never applied to the three older draggers.
    *Upstream delta:* present verbatim — `ResizableSidebar.tsx:42-60`,
    `SplitDivider.tsx:47-48`, `FileDiffView.tsx:172-191`. No `useBodyDragStyle` on
@@ -139,7 +142,10 @@ semantics), granular context splitting for the display-prefs/model-config maps
 - **The selected `ToolContext` ignores unrelated session-state churn** — `App`
   retains only the selected session's `subagents` map (the sole state its
   agent-tool consumers read), so another session's update cannot mint a new
-  otherwise-equivalent context.
+  otherwise-equivalent context. `ToolContext.session` is **re-declared** from the
+  whole `SessionState` to the `subagents`-bearing subset so the type matches what
+  is actually kept fresh — a deliberate breaking change on a type re-exported to
+  embedders, chosen over leaving a full-looking field silently stale.
 - **Markdown renderers get stable module-level component types** — dynamic
   content, `ToolContext`, syntax theme and loopback-link behavior flow through a
   `MarkdownRenderContext` instead of closure-captured inline functions, so React
@@ -152,8 +158,10 @@ semantics), granular context splitting for the display-prefs/model-config maps
   emits micro-moves; streaming auto-scroll emits trusted scroll events — either
   would hold the FX alive for a whole 24 h stream). CSS mirrors the existing
   `app-hidden` wildcard block (`*`, `*::before`, `*::after` →
-  `animation-play-state: paused !important`) and covers **all** animations, not
-  just the selected card's neon trio — a background streaming card's stripes and
+  `animation-play-state: paused !important`) and covers **all** animations except
+  indeterminate progress spinners (`:root.fx-idle .animate-spin` keeps running —
+  unlike a hidden tab, an idle-but-visible user reads a frozen spinner as a hang),
+  not just the selected card's neon trio — a background streaming card's stripes and
   status dots cost the same per-frame overhead, and static state colors still
   communicate the state. Everything resumes within one frame on first input;
   nothing functional depends on animation completion (`animationend` unused
@@ -205,10 +213,16 @@ semantics), granular context splitting for the display-prefs/model-config maps
   snapshot + clamp branch, tag clearing on wheel/touch (on top of the existing
   settle window).
 - `components/preview/MarkdownContent.tsx` — module-level renderers +
-  `MarkdownRenderContext`.
+  `MarkdownRenderContext` (provider mounted inside `MarkdownContent`; inert
+  default for provider-less embedders).
+- `components/tool-renderers/types.ts` — `ToolContext.session` narrowed from
+  `SessionState` to the `subagents`-bearing subset. **Breaking** for an
+  out-of-repo tool renderer reading any other field; no in-repo consumer affected.
 - `App.tsx` — viewport-bounded mobile flex root; selected-only `ToolContext`
   subagents; mount `useIdleFx()` next to `useAppHidden()`.
-- `index.css` — `:root.fx-idle *` pause block mirroring `app-hidden`.
+- `index.css` — `:root.fx-idle *` pause block mirroring `app-hidden`, plus the
+  `:root.fx-idle .animate-spin` running-override that exempts indeterminate
+  progress indicators.
 
 **Tests**
 
@@ -222,7 +236,9 @@ semantics), granular context splitting for the display-prefs/model-config maps
   and on unmount-mid-drag.
 - `CopyButton.test.tsx` — real failure → execCommand fallback shows ✓ and removes
   the hidden textarea; no execCommand → no throw, no ✓.
-- `useStaleToolReconcile.test.ts` — pure selector semantics + tick-driven prune.
+- `useStaleToolReconcile.test.ts` — pure selector semantics (`running`-only) +
+  tick-driven prune, including that a present-but-terminal row's bookkeeping is
+  discarded and a still-running row keeps its backoff/404 count.
 - `ChatView.scroll-race.test.tsx` — browser-faithful clamping `setScrollPosition`
   plus two regressions: the measurement clamp holds the follow through growth; a
   view moved above the pin with no gesture still releases.
