@@ -13,6 +13,19 @@
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
+# Trust every repo in this disposable, RAM-backed container. `/fixtures-src` is
+# BIND-MOUNTED from the host workspace (compose.test.yml) and the test-entrypoint
+# `cp -a`s it into /fixtures, PRESERVING ownership. On Linux CI the checkout is
+# owned by the `runner` uid (1001) while the harness runs as root, so every git
+# command on /fixtures/sample-git died with `fatal: detected dubious ownership
+# in repository` — the whole git cluster (manage-worktrees, uncommitted-
+# indicator, git-panel, worktree-*) failed from it. Docker Desktop normalizes
+# bind-mount ownership to root on macOS, which is why this never reproduced
+# locally. `safe.directory '*'` is the standard container fix and the trust
+# boundary is already the disposable harness. Idempotent: --add of an existing
+# value is a no-op.
+git config --system --add safe.directory '*' 2>/dev/null || true
+
 LOWER="/mnt/test-lower"
 # upper + work MUST share one filesystem (overlayfs requirement) — both live
 # under the single /mnt/test-overlay tmpfs declared in compose.test.yml.
