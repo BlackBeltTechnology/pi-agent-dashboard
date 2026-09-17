@@ -7,7 +7,7 @@ and `serverHeap`, each carrying integer megabyte values.
 
 `sessionHeap` SHALL accept `maxOldSpaceMb` (default `512`), `initialOldSpaceMb`
 (no default — absent means unset), and `maxSemiSpaceMb` (no default — absent
-means unset). `serverHeap` SHALL accept `maxOldSpaceMb` (default `8192`).
+means unset). `serverHeap` SHALL accept `maxOldSpaceMb` (default `1536`).
 
 They are two separate top-level keys rather than one nested block because
 settings-page attribution resolves per top-level key, and the two blocks belong
@@ -19,7 +19,7 @@ SHALL affect the other's defaults.
 
 #### Scenario: Config omitting both keys
 - **WHEN** `~/.pi/dashboard/config.json` contains neither key
-- **THEN** `loadConfig()` SHALL return `sessionHeap.maxOldSpaceMb` of `512` and `serverHeap.maxOldSpaceMb` of `8192`
+- **THEN** `loadConfig()` SHALL return `sessionHeap.maxOldSpaceMb` of `512` and `serverHeap.maxOldSpaceMb` of `1536`
 - **AND** `sessionHeap.initialOldSpaceMb` and `sessionHeap.maxSemiSpaceMb` SHALL be absent
 
 #### Scenario: Config with a partial heap block

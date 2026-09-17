@@ -17,17 +17,19 @@ environment from the pi session that started it; once that environment no longer
 carries a ceiling, an unstamped bridge path would run the server at the runtime
 default instead of the intended one.
 
-The default SHALL remain `8192`, so a deployment with no such configuration
-behaves exactly as before. An operator-supplied heap flag already present in the
-environment SHALL continue to win, unchanged from current behavior.
+The default SHALL be `1536`, lowered from the previously hardcoded `8192`. A
+deployment with no such configuration therefore runs under a materially lower
+ceiling than before; this is intentional and is only safe once the in-memory
+event store is byte-bounded. An operator-supplied heap flag already present in
+the environment SHALL continue to win, unchanged from current behavior.
 
 The standalone launcher runs before the project's TypeScript loader is
 installed, so it SHALL read the value without importing the shared
 TypeScript configuration module.
 
-#### Scenario: No configuration keeps today's ceiling
+#### Scenario: No configuration applies the lowered default
 - **WHEN** the server is launched with no `serverHeap` in the config
-- **THEN** it SHALL run with the `8192` MB request on both launch paths
+- **THEN** it SHALL run with the `1536` MB request on both launch paths
 
 #### Scenario: Bridge auto-start does not fall back to the runtime default
 - **WHEN** a pi session whose environment carries no heap flag auto-starts a dashboard server
@@ -45,4 +47,4 @@ TypeScript configuration module.
 
 #### Scenario: Standalone launcher tolerates an unreadable config
 - **WHEN** the config file is absent or malformed at standalone launch
-- **THEN** the launcher SHALL use the `8192` default and start normally
+- **THEN** the launcher SHALL use the `1536` default and start normally

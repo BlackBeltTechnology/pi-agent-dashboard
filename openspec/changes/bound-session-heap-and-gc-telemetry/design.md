@@ -177,8 +177,27 @@ restart to take effect on the next spawn.
 
 `bin/pi-dashboard.mjs` runs before jiti, so it cannot import the shared
 TypeScript config module. It reads `~/.pi/dashboard/config.json` with
-`JSON.parse` inside a `try`, taking the `8192` default on any failure. Tolerated
-duplication: one integer field, and the alternative is a bootstrap cycle.
+`JSON.parse` inside a `try`, taking the `1536` default on any failure. Tolerated
+duplication: one integer field, and the alternative is a bootstrap cycle. The
+literal is duplicated in two places (wrapper + shared config), so task 8.5 keeps
+them asserted against the same value.
+
+### D9 — `serverHeap` defaults to 1536, gated on the event-store byte bound
+
+Measured baseline is ~95 MB idle / ~155 MB warm across five idle instances and
+the live server; the store is bounded to 768 MiB by `bound-event-store-by-bytes`,
+so steady state is ~923 MB. A `1024` request gives a 1216 MB `heap_size_limit`
+and OOMs near 1000 MB heapUsed — 923 MB is 92% of that, i.e. GC thrash. `1536`
+places the same working set at ~62% of its usable heap.
+
+Rejected alternative: `1024` with the store halved to 384 MiB. It fits, but at
+the measured ~36 MB/session it holds ~10 of 19 pegged sessions, so the rest
+re-read from transcript on open. 1536 buys the fidelity back for 512 MB.
+
+This default is **ordered after** the byte bound. Against today's unbounded
+store a 1536 ceiling is strictly worse than 8192 — the same leak, reached
+sooner. It also bounds V8 only: the live server carries ~1.07 GB outside the
+heap, so `serverHeap` is not an RSS budget.
 
 ## Risks / Trade-offs
 

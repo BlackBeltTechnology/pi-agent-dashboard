@@ -187,6 +187,31 @@ would then latch the follow on and yank them back. `descendingRef` is safe for
 `scrollToBottom` only because that write is an explicit user request to go to the
 bottom.
 
+**Four bottom-pin writers, not two.** Besides the virtualizer `onChange` re-pin
+(`ChatView.tsx:1189`) and the follow effect (`:1503`), the session-switch restore
+effect writes to the bottom on **two** of its three paths:
+
+- `:1461-1464` — the "near bottom or first visit" branch: sets
+  `stickToBottomRef = true`, then `scrollTo(0, scrollHeight)`. This is the site
+  the `chat-scroll-lock` delta's *"Long session opens at the latest message"*
+  scenario actually exercises. The other writers usually mask it by re-pinning in
+  the same commit, but on a switch where the follow effect's deps are unchanged
+  it is the last writer and the defect survives.
+- `:1456-1459` — the **anchor-row-not-found fallback** inside the scroll-locked
+  restore: when the saved `anchorRowId` resolves to no current index, it also
+  writes `scrollTo(0, scrollHeight)`. Easy to misread as part of the restore, but
+  it pins to the bottom like any other, and it fires precisely in this change's
+  target population (long session, anchor row outside the retained window).
+
+All four tag `"pin-bottom"`. The genuine `"jump"` in that effect is the
+`idx >= 0` path (`:1443-1455`: `scrollToIndex` + the rAF intra-row offset),
+together with `scrollToBottom`, `scrollToTurn` and splice corrections.
+
+Note the clamp branch **preserves** the follow state the pin established rather
+than forcing it true — which is what makes tagging `:1456-1459` safe: that path
+deliberately sets `stickToBottomRef = false` (`:1438-1440`), and preserving
+`false` through a measurement clamp is exactly as correct as preserving `true`.
+
 **Decision.** Programmatic writers tag themselves as `"pin-bottom"` or `"jump"`.
 A bottom-pin additionally records a snapshot at write time: the `scrollTop` it
 actually achieved and the `scrollHeight` it saw. `handleScroll` consults the tag
@@ -194,12 +219,21 @@ actually achieved and the `scrollHeight` it saw. `handleScroll` consults the tag
 only when **all** hold:
 
 - the tag is `"pin-bottom"`, and
-- the event's `scrollTop` equals the recorded achieved position (the browser
-  clamped us there; we have not moved since), and
+- the event's `scrollTop` matches the recorded achieved position **within a
+  one-pixel tolerance** (the browser clamped us there; we have not moved since),
+  and
 - `scrollHeight` has grown since the snapshot (growth is what made the position
   look non-bottom), and
 - the pin landed with real content (guards the empty/zero-height case, where
   every comparison is trivially satisfiable).
+
+The tolerance is not incidental: `scrollTop` readback is fractional under
+non-100 % zoom, fractional `dvh`, and mobile device-pixel rounding — including on
+the 390×844 device this defect was measured on. An exact `===` would fall through
+on a sub-pixel readback difference and silently reintroduce the defect on exactly
+that form factor, in a way the test helper (which clamps, but does not round to
+device pixels) would never catch. One pixel is far below the escape gestures this
+must still detect (the observed escape was 13 388 px).
 
 Anything else falls through to today's rules unchanged, so a real escape still
 releases the follow. `"jump"` writers (`scrollToBottom`, `scrollToTurn`, restore,
@@ -219,9 +253,20 @@ through — but without consumption the stale snapshot would survive an entire
 scrollbar-only session and could be re-matched later by an unrelated event that
 happens to land on the same `scrollTop` while content grew, silently re-arming
 the follow away from the bottom. Consumption also bounds the double-pin
-interleave (both pin sites can write within one growth cycle): the overwritten
+interleave (the pin sites can write within one growth cycle): the overwritten
 first event falls through and clears, and the second pin re-arms from its own
 snapshot.
+
+Attribution is also reset on `sessionId` change. Without it, a snapshot recorded
+in the outgoing session can be tested against the incoming session's first
+event — comparing growth to a `scrollHeight` from a different transcript.
+
+Placement is specific: the reset belongs in the restore effect's **unconditional**
+prologue, beside `prevSessionRef.current = sessionId` (`ChatView.tsx:1432`),
+before the branch split. It must NOT be attached to the
+`descendingRef`/`stickToBottomRef` clears at `:1438-1440` — those run only on the
+scroll-locked-restore path, so a reset placed there would be skipped on exactly
+the near-bottom/first-visit switch that needs it most.
 
 **One coupling the clamp must not forget.** `handleScroll` also persists the raw
 `nearBottom` into `scrollStateMap` (`ChatView.tsx:1352-1362`) for
@@ -252,11 +297,16 @@ Renderers move to module scope (stable identities) and read what they need —
 **Provider placement and the no-provider path are part of this decision, not an
 implementation detail.** The provider is mounted *inside* `MarkdownContent`,
 wrapping its `react-markdown` element, with a value memoized on the individual
-fields it carries. Mounting it higher (e.g. once in `ChatView`) would reintroduce
-the defect by a different door: a new context *value* still re-renders every
-consumer, and the point of D6 is that the render survives a value change because
-the component *types* are stable. Node identity is preserved by stable types;
-field-wise memoization only avoids needless re-renders.
+fields it carries.
+
+To be precise about why — mounting it higher would **not** reintroduce the defect;
+once the component types are stable, a context-value change re-renders consumers
+but never unmounts or recreates their DOM, which is the whole mechanism D6 buys.
+The reason for the inner placement is narrower: the value is genuinely per-instance
+(`MarkdownContent` takes `context` as a prop and embedders mount it standalone),
+so a single high provider would have to reconcile several callers' values. Node
+identity is preserved by stable types either way; placement only decides who owns
+the value.
 
 `MarkdownContent`'s `context` prop is optional (`MarkdownContent.tsx:37`) and
 `chat-embed` embedders mount it without one, so the context's default value must
@@ -291,8 +341,10 @@ before built-ins (`ToolCallStep.tsx`), so narrowing only the memo *dependency*
 would leave a field that still advertises the whole `SessionState` while silently
 freezing every non-`subagents` field between `subagents` changes — stale data
 behind a type that promises fresh data, which is strictly worse than no data.
-The field is therefore re-declared as the `subagents`-bearing subset
-(`{ subagents: SessionState["subagents"] }`). `SubagentDetailView`'s
+The field is therefore re-declared as the `subagents`-bearing subset, keeping its
+optionality — `session?: { subagents: SessionState["subagents"] }`. It stays
+optional because `App.tsx:1499-1500` passes `undefined` whenever no session is
+selected, and embedders build contexts without it. `SubagentDetailView`'s
 `SessionStateLike` already declares exactly that shape, so the in-repo consumer is
 unaffected; an out-of-repo renderer reading another field now gets a compile
 error instead of stale values. The narrowing is a deliberate, breaking contract
@@ -343,20 +395,82 @@ in-flight operation reports "hung", not "idle". The static-color argument that
 covers the decorative animations does not transfer: a spinner's *motion* is the
 entire signal.
 
-The exemption is a single rule following the pause block, keyed on Tailwind's
-`animate-spin` (39 call sites, and the class every indeterminate spinner in the
-client already uses):
+The exemption needs **two** selectors, because the client spins glyphs two
+different ways. Tailwind's `animate-spin` covers 39 call sites and costs nothing
+to exempt. The rest use `@mdi/react`'s `spin` prop (`ToolBurstGroup.tsx:227`,
+`StatusBar.tsx:54`, `UnifiedPackagesSection.tsx:329`/`:360`), which applies
+`animation: spin … infinite` as an **inline style with no class attached** — an
+`!important` pause still overrides it, but no class selector can exempt it. Those
+four sites therefore get an explicit `fx-progress` opt-out class (the `Icon`
+component forwards `className`), which is also the hook any future non-Tailwind
+indicator uses.
+
+This matters because `ToolBurstGroup`'s rotating `mdiLoading` glyph is the
+canonical "this tool is running" indicator in the transcript — the single most
+important thing not to freeze.
+
+**It must not leak past the two stronger pauses.** An exemption written as one
+rule does leak, in two ways that both regress shipped behavior:
+
+1. The exemption selectors are specificity (0,3,0); the shipped hidden-window
+   pause `:root.app-hidden *` (`index.css:644-647`) is (0,2,0). Both are
+   `!important`, so the exemption **wins**. And `useIdleFx` has no visibility
+   gate — a hidden window receives no input, so it goes idle after 5 s and carries
+   *both* classes. Spinners would keep animating in a tray-hidden window, breaking
+   the shipped `ui-animation-energy` requirement outright.
+2. The off-screen pause `.fx-offscreen *` (`index.css:649-657`, from
+   `reduce-chat-render-cpu-umbrella` Phase 1) is only (0,1,0) and loses the same
+   way. `SessionCard` is an FX container containing `animate-spin`
+   (`SessionCard.tsx:852` / `:1136`), and `ToolBurstGroup` is one containing an
+   `fx-progress` glyph (`:119` / `:227`), so an off-screen card's spinner would
+   resume.
+
+The exemption is therefore a three-selector ladder, and the re-pause rules must
+follow it in source order:
 
 ```css
-:root.fx-idle .animate-spin { animation-play-state: running !important; }
+/* Idle-only exemption: a visible user reads a frozen spinner as a hang. */
+:root.fx-idle .animate-spin,
+:root.fx-idle .fx-progress { animation-play-state: running !important; }
+/* … but hidden-window and off-screen pauses still win. */
+:root.app-hidden .animate-spin,                    /* (0,3,0), later → wins */
+:root.app-hidden .fx-progress,
+:root.fx-idle .fx-offscreen .animate-spin,         /* (0,4,0) → wins */
+:root.fx-idle .fx-offscreen .fx-progress {
+  animation-play-state: paused !important;
+}
 ```
 
-One declarative rule, no per-component opt-out to remember, and a future spinner
-inherits it by using the same utility. `animate-pulse` is deliberately **not**
-exempt — it is skeleton/liveness decoration whose state is carried statically,
-and it includes the status-dot pulses this change exists to stop. Cost of the
-exemption is one animated element while an operation is genuinely in flight,
-which is not the unattended-idle case being optimized.
+The invariant to hold: **the exemption applies only when the sole reason to pause
+is idleness.** Nobody is looking at a hidden window or an off-screen card, so the
+"frozen spinner reads as a hang" argument does not apply there — the exemption
+must not either. A spec scenario pins each precedence so a later refactor of the
+pause blocks cannot silently invert it.
+
+*Alternative considered.* Gate `useIdleFx` on `visibilityState` so `fx-idle` is
+never set while hidden. That fixes (1) but not (2), and leaves the precedence
+implicit in JS rather than stated in the cascade where the pauses live.
+
+**Scope of "indeterminate progress indicator" is rotation, and that boundary is
+deliberate.** `animate-pulse` is **not** exempt — skeleton/liveness decoration
+whose state is carried statically, and it includes the status-dot pulses this
+change exists to stop. Nor is `.tool-group-spin-pulse` (`index.css:464`), the
+opacity pulse on a running tool group's `mdiLoading` glyph: unlike a bare
+spinner it sits inside a group frame whose running state is already carried by
+static styling. That makes the exempt/non-exempt line *class choice*, which is a
+weaker rationale than "motion is the only signal" — accepted for now as the
+minimal rule, and task 5.3b audits the animation inventory for any other
+animation whose motion carries information. That audit must cover **both**
+`index.css` keyframes and package-injected animations applied by inline style
+(the `@mdi/react` case above is exactly what a CSS-only audit misses). The known
+candidate is `.flow-edge-animated` (`index.css:632-638`), where dash direction
+indicates edge direction.
+
+Cost of the exemption is one running animation whenever an operation is genuinely
+in flight. By this change's own measurement (~9.7 % CrGpuMain for a single 8×8 px
+rotating div) that is not free — so the "drops to near-idle" outcome is claimed
+for the unattended case with **no operation in flight**, which is the case being
+optimized.
 
 `fx-idle` and `app-hidden` are independent and compose — both are pause-only, so
 whichever is set pauses, and both must clear for animation to run.

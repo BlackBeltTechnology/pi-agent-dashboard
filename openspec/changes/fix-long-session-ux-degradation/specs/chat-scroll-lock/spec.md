@@ -24,9 +24,21 @@ or a keyboard scroll does — SHALL fail the clamp test and fall through to the
 normal position rules. Attribution SHALL be consumed by the first scroll event it
 is tested against: an event that falls through SHALL clear it, so a recorded pin
 cannot be re-matched by a later, unrelated event that happens to land on the same
-position. Programmatic writes that are deliberate jumps rather than bottom-pins
-(scroll-to-bottom button, jump-to-turn, position restore, splice corrections)
-SHALL NOT claim bottom-pin attribution.
+position. Every programmatic write that pins to the bottom SHALL claim attribution —
+including the session-switch write taken when the outgoing position was near the
+bottom or the session is opened for the first time, which is the write the
+"opens at the latest message" behavior depends on. Programmatic writes that are
+deliberate jumps rather than bottom-pins (scroll-to-bottom button, jump-to-turn,
+restore to a saved position, splice corrections) SHALL NOT claim bottom-pin
+attribution.
+
+Attribution SHALL NOT outlive the session it was recorded in: on a session
+change it SHALL be discarded, so a snapshot cannot be matched against a different
+transcript's scroll extent.
+
+The position match SHALL tolerate sub-pixel differences in reported scroll
+position, which occur under browser zoom and device-pixel rounding; it SHALL NOT
+require exact equality.
 
 #### Scenario: Programmatic scroll-to-bottom races a replay batch
 - **GIVEN** the user has switched to a session whose events are not cached on the server
@@ -42,6 +54,11 @@ SHALL NOT claim bottom-pin attribution.
 - **AND** no user gesture has occurred
 - **THEN** the follow state SHALL be preserved even though the reported position is far from the new bottom
 - **AND** the view SHALL continue chasing the bottom on the next pin
+
+#### Scenario: Attribution does not cross a session switch
+- **GIVEN** the chat view recorded a bottom-pin snapshot in one session
+- **WHEN** the user switches to a different session and its first scroll event is dispatched
+- **THEN** that event SHALL NOT be matched against the previous session's snapshot
 
 #### Scenario: Scrollbar drag away from the pin releases the follow
 - **GIVEN** the chat view wrote a bottom-pin and recorded the position it achieved

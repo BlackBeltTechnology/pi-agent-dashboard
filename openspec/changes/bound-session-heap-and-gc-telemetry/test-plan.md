@@ -15,7 +15,7 @@ Clarifications resolved before writing (no open markers):
 
 | id | requirement | technique | level | disposition | input | trigger | expected observable |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------|
-| E1 | shared-config: defaults | EP | L1 | automated | config file `{}` | `loadConfig()` | `sessionHeap.maxOldSpaceMb === 512` and `serverHeap.maxOldSpaceMb === 8192`; `initialOldSpaceMb` and `maxSemiSpaceMb` are `undefined`, not `0` |
+| E1 | shared-config: defaults | EP | L1 | automated | config file `{}` | `loadConfig()` | `sessionHeap.maxOldSpaceMb === 512` and `serverHeap.maxOldSpaceMb === 1536`; `initialOldSpaceMb` and `maxSemiSpaceMb` are `undefined`, not `0` |
 | E2 | heap-limits: floor is 64 | BVA | L1 | automated | `sessionHeap.maxOldSpaceMb: 63` | `loadConfig()` | returns `512` (default), no throw |
 | E3 | heap-limits: floor is 64 | BVA | L1 | automated | `sessionHeap.maxOldSpaceMb: 64` | `loadConfig()` | returns `64` — the floor itself is valid |
 | E4 | heap-limits: floor is 64 | BVA | L1 | automated | `sessionHeap.maxOldSpaceMb: 65` | `loadConfig()` | returns `65` |
@@ -52,8 +52,8 @@ Clarifications resolved before writing (no open markers):
 
 | id | requirement | technique | level | disposition | fault | trigger | expected observable |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------|
-| X1 | server-launch: unreadable config | fault-injection (corrupt) | L2 | automated | config file is malformed JSON | standalone wrapper start | the server starts and runs at the `8192` default — the wrapper does not crash on a bad config |
-| X2 | server-launch: absent config | fault-injection (missing) | L2 | automated | no config file | standalone wrapper start | starts at the `8192` default |
+| X1 | server-launch: unreadable config | fault-injection (corrupt) | L2 | automated | config file is malformed JSON | standalone wrapper start | the server starts and runs at the `1536` default — the wrapper does not crash on a bad config |
+| X2 | server-launch: absent config | fault-injection (missing) | L2 | automated | no config file | standalone wrapper start | starts at the `1536` default |
 | X3 | heap-limits: fallback is recorded | fault-injection (no argv slot) | L2 | automated | a resolution yielding no runtime position | spawn a session | a fallback line appears in the server log **and** the health endpoint reports the fallback in use |
 | X4 | heap-limits: no false fallback report | fault-injection (control) | L1 | automated | every session spawned through the normal argv route | read the health endpoint | the fallback is not reported as in use |
 | X5 | heap-limits: below-floor cannot reach a process | fault-injection (bad config) | L1 | automated | `sessionHeap.maxOldSpaceMb: "lots"` | build the invocation | no non-integer token appears in the argv or any command string; the default is used |

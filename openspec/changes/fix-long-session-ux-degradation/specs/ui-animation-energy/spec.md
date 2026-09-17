@@ -30,11 +30,18 @@ or completing.
 Indeterminate progress indicators are the one exception and SHALL keep animating
 while idle. Unlike pausing for a hidden document, this pause applies while the
 user is looking at the screen, where a frozen spinner misreports an in-progress
-operation as a hung one. The exemption SHALL be expressed as a single declarative
-rule keyed on the shared indicator class, not as a per-component opt-out, so a
-newly added indicator inherits it. Decorative liveness animations that merely
-restate a state already carried by static styling (status stripes, status-dot
-pulses, shimmer) are NOT exempt.
+operation as a hung one. The exemption SHALL be expressed as a declarative rule
+keyed on the shared indicator class, not as a per-component opt-out, so a newly
+added indicator inherits it. Decorative liveness animations that merely restate a
+state already carried by static styling (status stripes, status-dot pulses,
+shimmer) are NOT exempt.
+
+The exemption SHALL apply only when idleness is the sole reason to pause. Where
+the document is hidden, or the indicator is inside a container marked off-screen,
+those pauses SHALL continue to win over the idle exemption — no user is looking
+in either case, so the reason for the exemption does not hold. Because the idle
+mark is not gated on document visibility, a hidden document can carry both marks
+at once; the resulting precedence MUST be pinned rather than left to rule order.
 
 This requirement is complementary to, and does not replace, pausing while the
 document is hidden.
@@ -42,6 +49,7 @@ document is hidden.
 #### Scenario: Visible but unattended dashboard pauses animations
 - **GIVEN** the dashboard is visible on screen with a selected session card and one or more background sessions streaming
 - **WHEN** the user performs no input for the idle delay
+- **AND** no operation with an indeterminate progress indicator is in flight
 - **THEN** the document root SHALL be marked idle
 - **AND** all animations, including background cards' stripes and status dots, SHALL be paused
 - **AND** renderer and GPU CPU usage SHALL drop to near-idle
@@ -70,6 +78,18 @@ document is hidden.
 - **THEN** the document root SHALL be marked idle
 - **AND** decorative animations SHALL be paused
 - **AND** the indeterminate progress indicator SHALL continue animating, so the operation still reads as in progress
+
+#### Scenario: A hidden document pauses indicators despite the idle exemption
+- **GIVEN** an indeterminate progress indicator is animating for an in-flight operation
+- **WHEN** the window is hidden and the idle delay subsequently elapses, so the document is marked both hidden and idle
+- **THEN** the indicator SHALL be paused
+- **AND** the hidden-document pause SHALL take precedence over the idle exemption
+
+#### Scenario: An off-screen indicator stays paused while idle
+- **GIVEN** an indeterminate progress indicator is inside a container marked off-screen
+- **WHEN** the UI is idle
+- **THEN** the indicator SHALL be paused
+- **AND** the off-screen pause SHALL take precedence over the idle exemption
 
 #### Scenario: Paused state remains legible
 - **GIVEN** animations are paused because the UI is idle

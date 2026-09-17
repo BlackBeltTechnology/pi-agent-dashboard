@@ -87,12 +87,14 @@ Verified precedence: argv beats `NODE_OPTIONS` (`NODE_OPTIONS=8192` +
 - New config, two **top-level** keys (settings-page attribution in
   `CONFIG_FIELD_PAGE` is per top-level key, so one shared key would strand
   session fields on the Server page):
-  - `sessionHeap` → page `sessions`: `maxOldSpaceMb` (default **1024**),
+  - `sessionHeap` → page `sessions`: `maxOldSpaceMb` (default **512**),
     `initialOldSpaceMb` (the `-Xms` analogue, unset), `maxSemiSpaceMb`
     (young-gen, unset).
-  - `serverHeap` → page `server`: `maxOldSpaceMb` (default **8192**, preserving
-    today's behavior) replacing the hardcoded `8192` in `server-launcher.ts`
-    (`DEFAULT_SERVER_MAX_OLD_SPACE_MB`) and `bin/pi-dashboard.mjs`.
+  - `serverHeap` → page `server`: `maxOldSpaceMb` (default **1536**, lowered
+    from today's behavior) replacing the hardcoded `8192` in
+    `server-launcher.ts` (`DEFAULT_SERVER_MAX_OLD_SPACE_MB`) and
+    `bin/pi-dashboard.mjs`. **Gated on `bound-event-store-by-bytes`** — see the
+    sequencing note below.
 
   Distinct from the existing `memoryLimits` key, which bounds the **event
   store** (events/session, WS buffer, replay window) and is unrelated to V8
@@ -142,8 +144,9 @@ follow-ups gated on this telemetry existing.
   and other env-shaping behaviors SHALL be preserved unchanged" is exactly what
   the inherited-flag strip modifies, and the invocation handed to the keeper now
   carries heap arguments.
-- `server-launch`: the hardcoded `8192` becomes config-derived, and the
-  bridge-initiated path gains the stamp it never actually applied.
+- `server-launch`: the hardcoded `8192` becomes config-derived and its default
+  drops to `1536`, and the bridge-initiated path gains the stamp it never
+  actually applied.
 - `server-restart`: `/api/restart` inherits `env: process.env`, so a changed
   `serverHeap` is cold-start-only — a stated requirement, not an accident.
 
@@ -180,11 +183,42 @@ follow-ups gated on this telemetry existing.
   the server is. Two distinct crash ceilings appear, and both matter:
   - `~8130 (8202) MB` — the server dying *at its 8192 stamp*, GC thrashing with
     mutator utilization collapsing to `0.017`. Whatever grows there is not a
-    tuning problem, and `serverHeap` must therefore **keep** its 8192 default;
-    lowering it would convert a slow leak into a fast outage.
+    tuning problem: lowering the ceiling **while the growth is unbounded** would
+    only convert a slow leak into a fast outage.
   - `~4093 (4097) MB` — a server dying at the **runtime default**, i.e. a server
     that never received the stamp. That is the dead `buildSpawnEnv` path this
     change fixes (task 8.6), with a crash to show for it.
+- **`serverHeap` default of 1536, and why it is not 1024.** Measured on the
+  live server (pid 31396, ~1.5 d uptime) and five idle instances:
+
+  | population | heapUsed | heapTotal | RSS |
+  |---|---|---|---|
+  | 5 idle instances, 0 sessions | 83–103 MB | 84–112 MB | 63–73 MB |
+  | live, 13 active / 643 total | 722–757 MB | 890–933 MB | 2000 MB |
+
+  Baseline is ~95 MB cold and ~155 MB warm; the remainder is event-store
+  retention, matching the heap snapshot's 686 MB of strings. With the store
+  bounded to **768 MiB**, steady state is `768 + 155 = 923 MB`.
+
+  A `1024` request yields a **1216 MB** `heap_size_limit` (measured) and was
+  driven to OOM at **~1000 MB** heapUsed, so 923 MB would sit at **92%** of the
+  crash point — GC thrash, then death. `1536` puts the same 923 MB at **~62%**
+  of its ~1500 MB usable, which is ordinary GC headroom. 1024 would have been
+  viable only by halving the store budget to 384 MiB, which costs fidelity:
+  at the measured ~36 MB/session it holds ~10 of the 19 currently pegged
+  sessions, forcing the rest to re-read from transcript. 1536 keeps all 19.
+- **Sequencing (hard dependency).** The `1536` default MUST NOT ship before
+  `bound-event-store-by-bytes` lands. Its whole basis is a 768 MiB store bound;
+  applied to today's unbounded store the server would reach the ceiling in a
+  fraction of the ~1.5 d it now takes to reach 8 GB. If the two changes are
+  split across releases, this one ships with `8192` and the default drops in
+  the release that carries the byte bound.
+- **`serverHeap` bounds the V8 heap, not RSS.** The live server shows 2000 MB
+  RSS against 933 MB `heapTotal` — **~1.07 GB outside V8** (native buffers,
+  code, allocator fragmentation). A `1536` ceiling does not produce a 1.5 GB
+  process. Much of that overhead is plausibly *caused by* the string churn the
+  byte bound removes, but that is a hypothesis: the 24 h verification task
+  measures RSS alongside heap rather than assuming it follows.
 - **Accepted trade-off:** subagents run **in-process** and share the parent's
   single heap, so a wide fan-out turns heap growth into a fatal OOM. Measured
   budget at 512 (usable live heap 500 MB, driven to crash):

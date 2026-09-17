@@ -6,7 +6,7 @@ implement.
 
 ## 1. Config schema (`packages/shared/src/config.ts`, new browser-safe defaults module)
 
-- [ ] 1.1 Test defaults — config `{}` · `loadConfig()` · `sessionHeap.maxOldSpaceMb === 512`, `serverHeap.maxOldSpaceMb === 8192`, optional fields `undefined` not `0` · see `packages/shared/src/__tests__/config-keeper-log.test.ts` (test-plan #E1)
+- [ ] 1.1 Test defaults — config `{}` · `loadConfig()` · `sessionHeap.maxOldSpaceMb === 512`, `serverHeap.maxOldSpaceMb === 1536`, optional fields `undefined` not `0` · see `packages/shared/src/__tests__/config-keeper-log.test.ts` (test-plan #E1)
 - [ ] 1.2 Test floor boundary — `maxOldSpaceMb: 63` · `loadConfig()` · returns `512`, no throw · see `packages/shared/src/__tests__/config-keeper-log.test.ts` (test-plan #E2)
 - [ ] 1.3 Test floor is inclusive — `maxOldSpaceMb: 64` · `loadConfig()` · returns `64` · see `packages/shared/src/__tests__/config-keeper-log.test.ts` (test-plan #E3)
 - [ ] 1.4 Test just above floor — `maxOldSpaceMb: 65` · `loadConfig()` · returns `65` · see `packages/shared/src/__tests__/config-keeper-log.test.ts` (test-plan #E4)
@@ -55,10 +55,10 @@ implement.
 ## 8. Server launch paths (`packages/extension/src/server-launcher.ts`, `packages/server/bin/pi-dashboard.mjs`)
 
 - [ ] 8.1 Test standalone config-derived ceiling — `serverHeap.maxOldSpaceMb: 4096` · start via the standalone wrapper · server `heap_size_limit` within `[4096, 4396]` MB · see `qa/tests/02-server-start.sh` (test-plan #E22)
-- [ ] 8.2 Test malformed config tolerated — corrupt JSON config · wrapper start · server starts at the `8192` default, no crash · see `qa/tests/02-server-start.sh` (test-plan #X1)
-- [ ] 8.3 Test absent config tolerated — no config file · wrapper start · starts at the `8192` default · see `qa/tests/02-server-start.sh` (test-plan #X2)
+- [ ] 8.2 Test malformed config tolerated — corrupt JSON config · wrapper start · server starts at the `1536` default, no crash · see `qa/tests/02-server-start.sh` (test-plan #X1)
+- [ ] 8.3 Test absent config tolerated — no config file · wrapper start · starts at the `1536` default · see `qa/tests/02-server-start.sh` (test-plan #X2)
 - [ ] 8.4 Test bridge path stamps — a pi session whose env carries no heap flag · that session auto-starts a dashboard server · the server runs under the configured server ceiling, not the runtime default · see `qa/tests/02-server-start.sh` (test-plan #X12)
-- [ ] 8.5 Implement config-derived `serverHeap` on the standalone wrapper via plain `JSON.parse` with an `8192` fallback (it runs before jiti — design D8)
+- [ ] 8.5 Implement config-derived `serverHeap` on the standalone wrapper via plain `JSON.parse` with a `1536` fallback (it runs before jiti — design D8)
 - [ ] 8.6 Implement the bridge path stamp by passing `env` through `launchDashboardServer`, which currently receives none so the extension's `buildSpawnEnv` never runs (design D5a) — must land with task 4.4
 
 ## 9. Metrics + protocol (`packages/extension/src/process-metrics.ts`, `packages/shared/src/protocol.ts`)

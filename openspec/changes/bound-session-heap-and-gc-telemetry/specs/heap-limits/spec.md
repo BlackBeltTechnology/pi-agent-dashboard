@@ -17,12 +17,22 @@ Each block SHALL support `maxOldSpaceMb`. `sessionHeap` SHALL additionally
 support `initialOldSpaceMb` and `maxSemiSpaceMb`, both unset by default.
 
 `sessionHeap.maxOldSpaceMb` SHALL default to `512`. `serverHeap.maxOldSpaceMb`
-SHALL default to `8192`, preserving the previously hardcoded behavior.
+SHALL default to `1536`, replacing the previously hardcoded `8192`.
+
+The `1536` default is derived, not chosen: a measured idle server occupies
+83–103 MB of heap and ~155 MB once its session index is warm, and the event
+store is bounded to 768 MiB of event bytes by `bound-event-store-by-bytes`. The
+resulting steady-state live set of ~923 MB sits at ~62% of the ~1500 MB usable
+below a `1536` request, leaving normal GC headroom.
+
+This default SHALL NOT take effect before the event store is byte-bounded.
+Without that bound the server has been observed growing to 8130 MB, and a
+`1536` ceiling would convert a slow leak into a fast outage.
 
 #### Scenario: Defaults apply when the config omits the blocks
 - **WHEN** the config file contains neither `sessionHeap` nor `serverHeap`
 - **THEN** a spawned pi session SHALL be started with a `512` MB old-space request
-- **AND** the dashboard server SHALL be started with an `8192` MB old-space request
+- **AND** the dashboard server SHALL be started with a `1536` MB old-space request
 
 #### Scenario: Operator lowers the session ceiling
 - **WHEN** the config sets `sessionHeap.maxOldSpaceMb` to `512`
