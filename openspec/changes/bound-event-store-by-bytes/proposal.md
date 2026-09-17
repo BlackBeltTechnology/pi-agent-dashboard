@@ -64,6 +64,56 @@ envelope, which is why raising the cap only moved the crash.
 - **Back-pressure**: `droppedFrames.serverToBrowser` = **177,384**; socket buffer sat above threshold for **605 s** cumulative. Frames are dropped rather than retained, so this is a *symptom and a UX loss*, not a second leak — but it shares the cause and belongs in the same investigation.
 - **RSS ≫ heap**: `rss` 1867 MB against `heapUsed` 818 MB. Fragmentation/`malloced` overhead means host memory pressure is roughly 2× the heap figure any ceiling is expressed in.
 
+### Relationship to `bound-session-retained-bytes`
+
+That change (active, 0/19 tasks done) already proposes the **per-session**
+byte budget `maxBytesPerSession`, default 64 MiB. It is necessary but **not
+sufficient**, and its default is disproved by the measurement above:
+
+| bound | permitted resident |
+|---|---|
+| today — 100 cached × 20000 events, no byte cap | ~3.6 GB at measured rates (**= the ~4093 MB crash**) |
+| `bound-session-retained-bytes` alone — 64 MiB × 100 cached | **6.4 GB** (**still above both crash ceilings**) |
+| this change — global budget + configurable resident count | bounded by construction |
+
+Measured occupancy is **36 MB per pegged session**, *below* the proposed 64 MiB
+per-session default — so that change as specified **would not have trimmed the
+workload that actually OOM'd**. The unbounded dimension is the multiplier
+(resident sessions), not the individual session.
+
+## Settings and defaults
+
+The existing Settings ▸ Memory Limits section already exposes
+`maxEventsPerSession`, `maxStringFieldSize` and `maxWsBufferBytes`. Two gaps:
+
+1. **`maxCachedSessions` is not operator-configurable at all.** `server.ts:925`
+   passes `undefined, // maxCachedSessions (use default)`, hardcoding 100. This
+   is the "resident sessions" knob and the direct multiplier on every
+   per-session bound.
+2. **No aggregate byte ceiling exists** in any form.
+
+Proposed defaults, each derived from the measurement rather than picked:
+
+| setting | today | proposed | basis |
+|---|---|---|---|
+| `maxCachedSessions` | 100 (hardcoded) | **32**, configurable | 13 active / 19 pegged observed; evicted sessions rehydrate from the transcript |
+| `maxTotalEventBytes` (new) | — | **768 MiB**, `0` = off | current live occupancy is 686 MB; keeps steady-state heap ≈1 GB against the 8192 ceiling |
+| `maxBytesPerSession` | — (proposed 64 MiB elsewhere) | **32 MiB** | 36 MB measured per pegged session — 64 MiB never binds |
+| `maxEventsPerSession` | 20000 | **unchanged** | chat-head preservation depends on it; the byte budget is the correct lever |
+| `maxStringFieldSize` | `0` (truncation OFF) | **unchanged, documented** | see below |
+
+`maxStringFieldSize: 0` disables per-field truncation entirely
+(`createTruncator` sets `stringPass = false`), which is why the 1–64 KB band
+exists at all: 98,809 strings that a 4000-char cap would have truncated. Raising
+it to the store's own `DEFAULT_MAX_STRING_SIZE` (4000) would reclaim roughly
+150–250 MB — but it truncates transcript text users read, so it is a **fidelity
+trade-off, not a bug**. This change does NOT flip it; it documents it as an
+opt-in lever for memory-constrained hosts and lets the aggregate budget do the
+work instead.
+
+Worst case under the proposed defaults: `min(32 × 32 MiB, 768 MiB)` = **768 MiB**,
+versus 3.6 GB today and 6.4 GB with the per-session cap alone.
+
 ## What Changes
 
 - **Add a global byte budget to the event store.** A new **operator-configurable**
@@ -76,6 +126,8 @@ envelope, which is why raising the cap only moved the crash.
   per event (`measureBytes`, `jsonStringByteSize`); accumulate them into a
   running per-session and global total instead of discarding them, so the budget
   is enforced without a second walk.
+- **Make `maxCachedSessions` operator-configurable** and lower its default,
+  replacing the hardcoded `undefined` at `server.ts:925`.
 - **Expose retention + heap headroom in `/api/health`.** Add retained bytes
   (global and per session), `evictedSessions` alongside the existing
   `storeTrim`, and `heapSizeLimit` — absent today, so no client can compute how
