@@ -19,15 +19,62 @@ support `initialOldSpaceMb` and `maxSemiSpaceMb`, both unset by default.
 `sessionHeap.maxOldSpaceMb` SHALL default to `512`. `serverHeap.maxOldSpaceMb`
 SHALL default to `1536`, replacing the previously hardcoded `8192`.
 
-The `1536` default is derived, not chosen: a measured idle server occupies
-83–103 MB of heap and ~155 MB once its session index is warm, and the event
-store is bounded to 768 MiB of event bytes by `bound-event-store-by-bytes`. The
-resulting steady-state live set of ~923 MB sits at ~62% of the ~1500 MB usable
-below a `1536` request, leaving normal GC headroom.
+The `1536` default is derived from a measured ~112 MB non-store baseline plus
+the 768 MiB event-store budget expressed **as heap** (~1024 MB — the budget
+counts serialized `data` bytes, not V8 heap bytes) plus hysteresis slack,
+giving a steady-state live set of ~1187 MB against a ~1417 MB effective crash
+point: **~84% occupancy, an accepted trade-off rather than a comfortable
+margin**. Operators whose telemetry shows sustained pressure SHALL raise the
+value; `2048` restores ~65% occupancy.
 
-This default SHALL NOT take effect before the event store is byte-bounded.
-Without that bound the server has been observed growing to 8130 MB, and a
-`1536` ceiling would convert a slow leak into a fast outage.
+The lowered default SHALL NOT be shipped without the event-store byte bound. The
+two defaults SHALL be tied by a build-time invariant rather than a runtime probe,
+so that the guarantee also covers the standalone launcher, which cannot consult
+the store before it starts.
+
+#### Scenario: Shipping the lowered default without the byte bound fails the build
+- **WHEN** the shared server-heap default is below `8192` and the shared memory-limits default carries no `maxTotalEventBytes`
+- **THEN** the invariant assertion SHALL fail
+
+### Requirement: The dashboard server SHALL report its own heap and GC telemetry
+
+The server process is the one being bounded, and the accepted occupancy relies
+on pressure being observable before it becomes an OOM. `/api/health` today
+reports only `rss`, `heapUsed` and `heapTotal` for the server. It SHALL also
+report the server's `heapSizeLimit`, a major-GC count, and the **effective**
+ceiling the running process was started with.
+
+#### Scenario: Server health exposes heap ceiling and GC pressure
+- **WHEN** `/api/health` is requested
+- **THEN** the server block SHALL carry the server process's `heapSizeLimit` and a major-GC count
+- **AND** it SHALL carry the effective old-space ceiling the process was started with
+
+#### Scenario: Effective ceiling reflects the running process, not the config
+- **WHEN** the configured ceiling has been changed but the process has not been cold-started
+- **THEN** the reported effective ceiling SHALL remain the value the running process was started with
+
+### Requirement: The server ceiling and the store budget SHALL be guarded as a pair
+
+`serverHeap.maxOldSpaceMb` and `memoryLimits.maxTotalEventBytes` jointly
+determine whether the server fits in its heap. The system SHALL warn when the
+store budget converted to heap, plus the baseline, exceeds the ceiling's
+effective crash point — that is, when
+`budgetMiB × 1.33 + 112 > ceilingMB × 0.82`. `maxTotalEventBytes` of `0` means
+unlimited and SHALL always warn, at any ceiling, since no finite budget
+satisfies the comparison. The warning SHALL NOT block the save.
+
+#### Scenario: Unlimited store budget under a bounded ceiling
+- **WHEN** `maxTotalEventBytes` is `0` and `serverHeap.maxOldSpaceMb` is `1536`
+- **THEN** a non-blocking warning SHALL state that the store is unbounded under a bounded ceiling
+- **AND** the value SHALL remain saveable
+
+#### Scenario: Budget raised past what the ceiling can hold
+- **WHEN** the operator raises `maxTotalEventBytes` to `2048` MiB against a `1536` MB ceiling
+- **THEN** the guard SHALL warn, reporting the budget's heap-equivalent against the ceiling
+
+#### Scenario: Default pairing is silent
+- **WHEN** `maxTotalEventBytes` is the default `768` MiB and the ceiling is the default `1536`
+- **THEN** no warning SHALL be shown
 
 #### Scenario: Defaults apply when the config omits the blocks
 - **WHEN** the config file contains neither `sessionHeap` nor `serverHeap`
@@ -144,6 +191,22 @@ and the pairing is a risk to disclose rather than an error.
 #### Scenario: No fallback is reported on the normal path
 - **WHEN** every session was spawned through an argument position or a per-window environment
 - **THEN** the health endpoint SHALL NOT report the fallback as in use
+
+### Requirement: The dashboard's heap flag SHALL NOT reach dashboard terminals
+
+A dashboard terminal's environment SHALL NOT carry the dashboard's own
+old-space flag, and an operator-set heap flag SHALL be preserved.
+
+The stamped ceiling lives in the server's own `NODE_OPTIONS`, and dashboard
+terminals are spawned from `process.env`, so without a strip every Node tool a
+user runs in a dashboard terminal inherits the server's ceiling. This is the
+same grandchild-capping failure the session-spawn strip prevents, on a second
+path.
+
+#### Scenario: Terminal environment carries no inherited ceiling
+- **WHEN** a dashboard terminal is created while the server runs under a stamped ceiling
+- **THEN** the terminal's environment SHALL NOT carry the server's old-space flag
+- **AND** an operator-set heap flag SHALL be preserved
 
 ### Requirement: An inherited dashboard heap flag is not propagated to sessions
 

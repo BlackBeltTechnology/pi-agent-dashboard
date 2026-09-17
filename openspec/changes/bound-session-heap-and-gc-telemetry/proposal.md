@@ -193,20 +193,47 @@ follow-ups gated on this telemetry existing.
 
   | population | heapUsed | heapTotal | RSS |
   |---|---|---|---|
-  | 5 idle instances, 0 sessions | 83–103 MB | 84–112 MB | 63–73 MB |
+  | 5 idle instances, 0 sessions | 83–103 MB | 84–112 MB | 63–73 MB¹ |
   | live, 13 active / 643 total | 722–757 MB | 890–933 MB | 2000 MB |
 
-  Baseline is ~95 MB cold and ~155 MB warm; the remainder is event-store
-  retention, matching the heap snapshot's 686 MB of strings. With the store
-  bounded to **768 MiB**, steady state is `768 + 155 = 923 MB`.
+  ¹ Idle `rss` reads *below* `heapUsed`, which is not physically meaningful for
+  a live process — most likely macOS memory compression on idle instances. The
+  idle RSS column is therefore not load-bearing for any figure below.
 
-  A `1024` request yields a **1216 MB** `heap_size_limit` (measured) and was
-  driven to OOM at **~1000 MB** heapUsed, so 923 MB would sit at **92%** of the
-  crash point — GC thrash, then death. `1536` puts the same 923 MB at **~62%**
-  of its ~1500 MB usable, which is ordinary GC headroom. 1024 would have been
-  viable only by halving the store budget to 384 MiB, which costs fidelity:
-  at the measured ~36 MB/session it holds ~10 of the 19 currently pegged
-  sessions, forcing the rest to re-read from transcript. 1536 keeps all 19.
+  The non-store baseline is **~112 MB** — the heap snapshot's 798 MB live set
+  minus its 686 MB of strings. (An earlier draft used 155 MB, taken from a
+  health reading that could not be reproduced and was already suspect.)
+
+  **The budget does not convert 1:1 into heap.** `bound-event-store-by-bytes`
+  counts *serialized `data` bytes*; the crash ceiling counts *V8 heap bytes*,
+  and that change documents the factor explicitly: a 768 MiB budget means
+  **roughly 1 GiB of heap**. Adding hysteresis (`GLOBAL_TRIM_SLACK`, since
+  reclaim lets the total overshoot before it fires):
+
+  | term | MB |
+  |---|---|
+  | 768 MiB budget as heap | ~1024 |
+  | `GLOBAL_TRIM_SLACK` | ~+51 |
+  | non-store baseline | ~112 |
+  | **steady-state heapUsed** | **~1187** |
+
+  A `1024` request (1216 MB limit, measured; driven to OOM at ~1000 MB) sits at
+  **119%** — it cannot hold the working set at all. **`1536`** (1728 MB limit,
+  crash ~1417 MB at the same ratio) sits at **~84%**.
+- **84% is an accepted trade-off, explicitly not a safe margin.** Comfortable is
+  ~62-65%, which `2048` would give. 1536 is shipped anyway to cap the process
+  footprint, against three mitigations: the GC telemetry in this change makes
+  thrash visible *before* it becomes an OOM, the new `serverHeap` ×
+  `maxTotalEventBytes` guard catches the config that guarantees death, and
+  raising the ceiling to `2048` is a one-line config edit with no redeploy. If
+  the 24 h verification shows sustained `heapUsed` above ~1200 MB or a rising
+  `gcMajorCount`, **2048 is the intended response**.
+- **The 768 MiB bound is soft — peak exceeds steady state.** Global reclaim
+  skips *pinned* sessions (bridge-connected or browser-subscribed); when every
+  resident session is pinned the store deliberately prefers a bounded overshoot
+  to data loss. Rehydrating an evicted session re-inserts its transcript at the
+  measured 3.0× disk→heap ratio — a transient spike on top of peak. Both eat
+  into the 16% that remains at 1536.
 - **Sequencing (hard dependency).** The `1536` default MUST NOT ship before
   `bound-event-store-by-bytes` lands. Its whole basis is a 768 MiB store bound;
   applied to today's unbounded store the server would reach the ceiling in a
@@ -217,8 +244,11 @@ follow-ups gated on this telemetry existing.
   RSS against 933 MB `heapTotal` — **~1.07 GB outside V8** (native buffers,
   code, allocator fragmentation). A `1536` ceiling does not produce a 1.5 GB
   process. Much of that overhead is plausibly *caused by* the string churn the
-  byte bound removes, but that is a hypothesis: the 24 h verification task
-  measures RSS alongside heap rather than assuming it follows.
+  byte bound removes, but that is a hypothesis — task 12.4 measures RSS
+  alongside heap rather than assuming it follows. **Consequence for containers:**
+  a 1536 heap implies ~2.5-3 GB RSS, so a Docker deployment capped at 1-2 GB is
+  SIGKILLed by the kernel before V8 reaches its ceiling — no heap dump, no GC
+  telemetry, no `FATAL ERROR` line. The docker guide gains a memory floor.
 - **Accepted trade-off:** subagents run **in-process** and share the parent's
   single heap, so a wide fan-out turns heap growth into a fatal OOM. Measured
   budget at 512 (usable live heap 500 MB, driven to crash):

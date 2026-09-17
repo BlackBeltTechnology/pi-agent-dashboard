@@ -215,25 +215,11 @@
     "harden-server-request-surfaces": "ui",
     "fix-terminals-action-opens-terminal": "ui",
     "fix-ci-pipeline-followups": "ui",
-    "close-registry-frame-shed-gaps": "ui"
+    "close-registry-frame-shed-gaps": "ui",
+    "bound-event-store-by-bytes": "ui"
   },
   "changeOrder": {
-    "__ungrouped__": [
-      "add-microservice-pattern-selection-skill",
-      "add-session-step-table",
-      "implement-it",
-      "ab-test-rlm-delegation-claim",
-      "investigate-auto-name-provenance-relabel",
-      "add-native-pi-tui-view",
-      "add-voice-assistant-dashboard-plugin",
-      "bound-event-store-by-bytes",
-      "fix-settings-overlay-header-peek",
-      "offload-retained-transcript-replay",
-      "portal-composer-action-popovers",
-      "retest-plain-language-hard-battery",
-      "test-trust-audit",
-      "auto-seed-project-defaults"
-    ],
+    "__ungrouped__": [],
     "kowledge-base": [
       "consolidate-retrieval-planes",
       "add-lora-dataset-export-skill",
@@ -243,12 +229,13 @@
       "memory-retrieval-injection"
     ],
     "ui": [
-      "stabilize-browser-e2e",
-      "isolate-real-process-tests",
-      "harden-server-request-surfaces",
-      "fix-terminals-action-opens-terminal",
+      "close-registry-frame-shed-gaps",
       "fix-ci-pipeline-followups",
-      "close-registry-frame-shed-gaps"
+      "fix-terminals-action-opens-terminal",
+      "harden-server-request-surfaces",
+      "bound-event-store-by-bytes",
+      "isolate-real-process-tests",
+      "stabilize-browser-e2e"
     ],
     "next-phase": [
       "add-session-trajectory-view",

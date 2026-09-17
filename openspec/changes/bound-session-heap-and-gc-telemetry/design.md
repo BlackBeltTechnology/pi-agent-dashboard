@@ -184,20 +184,137 @@ them asserted against the same value.
 
 ### D9 — `serverHeap` defaults to 1536, gated on the event-store byte bound
 
-Measured baseline is ~95 MB idle / ~155 MB warm across five idle instances and
-the live server; the store is bounded to 768 MiB by `bound-event-store-by-bytes`,
-so steady state is ~923 MB. A `1024` request gives a 1216 MB `heap_size_limit`
-and OOMs near 1000 MB heapUsed — 923 MB is 92% of that, i.e. GC thrash. `1536`
-places the same working set at ~62% of its usable heap.
+**The budget is denominated in serialized `data` bytes; the ceiling is
+denominated in V8 heap bytes.** `bound-event-store-by-bytes` documents the
+conversion: a 768 MiB budget means *roughly 1 GiB of heap*. Any derivation that
+adds 768 to a baseline is wrong by ~256 MB before it starts.
 
-Rejected alternative: `1024` with the store halved to 384 MiB. It fits, but at
-the measured ~36 MB/session it holds ~10 of 19 pegged sessions, so the rest
-re-read from transcript on open. 1536 buys the fidelity back for 512 MB.
+Steady state, with every term applied:
+
+| term | MB | source |
+|---|---|---|
+| 768 MiB budget expressed as heap | ~1024 | sibling change, "roughly 1 GiB heap" |
+| `GLOBAL_TRIM_SLACK` (reclaim is hysteretic) | ~+51 | enforced high-water is `budget + slack` |
+| non-store baseline | ~112 | heap snapshot: 798 MB live set − 686 MB strings |
+| **steady-state heapUsed** | **~1187** | |
+
+A `1024` request (1216 MB limit, observed OOM ~1000 MB) puts that at **119%** —
+it cannot hold the working set at all. `1536` (1728 MB limit, crash ~1417 MB at
+the same 82% ratio) puts it at **~84%**.
+
+**84% is an accepted trade-off, not a safe margin.** It is above the ~62-65%
+that would be comfortable, and `2048` would deliver that (65%). 1536 was chosen
+anyway to cap the process footprint, against three mitigations — the coupling
+guard in D10, a one-line config escape hatch to `2048`, and **server-side heap
+and GC telemetry that this change must now build** (D13).
+
+**The crash ratio is an assumption, stated as one.** 1417 MB comes from applying
+the synthetic benchmark's 82% (OOM at ~1000 of a 1216 limit) to the 1728 limit.
+The *corpus* crashes died at ~97% of their limit (~8130 of 8384) — leak-mode,
+where the process is driven into the ceiling rather than resting near it. 82% is
+the conservative pick and is used deliberately; at 97% the occupancy figure
+would be ~71% instead of 84%. The soak (X17) settles which regime applies.
+
+Rejected alternative: `1024` with the store halved to 384 MiB. Even corrected
+for the heap factor it does not fit, and it costs fidelity — at ~36 MB/session
+it holds far fewer of the 19 pegged sessions, so the rest re-read from
+transcript on open.
+
+**The 768 MiB bound is soft, so peak exceeds steady state.** Global reclaim
+skips *pinned* sessions (bridge-connected or browser-subscribed); when every
+resident session is pinned the store prefers a bounded overshoot to data loss.
+Rehydrating an evicted session re-inserts its transcript at the measured 3.0×
+disk→heap ratio, a transient tens-of-MB spike on top of peak. Neither term is
+budgeted here — both eat into the 16% remaining at 1536, which is precisely why
+the telemetry, not the arithmetic, is the safety net.
 
 This default is **ordered after** the byte bound. Against today's unbounded
 store a 1536 ceiling is strictly worse than 8192 — the same leak, reached
-sooner. It also bounds V8 only: the live server carries ~1.07 GB outside the
-heap, so `serverHeap` is not an RSS budget.
+sooner. D11 turns that from prose into an enforced gate.
+
+It also bounds V8 only: the live server carries ~1.07 GB outside the heap, so
+`serverHeap` is not an RSS budget — see D12 for the container consequence.
+
+### D10 — `serverHeap` × `maxTotalEventBytes` coupling guard
+
+The two keys are independently editable and jointly decide whether the server
+fits. `maxTotalEventBytes: 0` means *unlimited*, which under a 1536 ceiling is a
+guaranteed OOM rather than a degraded-retention mode.
+
+This change already builds exactly this guard for `sessionHeap` ×
+`maxConcurrentSubagents`; omitting the server-side twin would be an internal
+inconsistency. Same shape: a pure shared helper, a non-blocking warning, the
+value stays saveable.
+
+**The predicate is pinned** so the implementer is not left to choose between two
+formulas that diverge in the middle of the range. The guard warns when
+
+```
+budgetMiB × HEAP_PER_BUDGET_BYTE + BASELINE_MB > ceilingMB × CRASH_RATIO
+```
+
+with `HEAP_PER_BUDGET_BYTE = 1.33`, `BASELINE_MB = 112`, `CRASH_RATIO = 0.82` —
+the same three constants D9 derives from, exported once from shared so the
+guard, the tests and any future re-derivation read one source. `maxTotalEventBytes`
+of `0` (unlimited) short-circuits to "warn" since no finite budget satisfies it.
+
+Note both keys live on the **Server** settings page (`CONFIG_FIELD_PAGE` maps
+`memoryLimits` and `serverHeap` alike to `server`), so this is not a cross-page
+invisibility problem — it is that two adjacent fields multiply into a third
+quantity neither displays.
+
+### D11 — The ordering dependency is a static invariant, not a runtime probe
+
+D9's correctness rests entirely on the store being byte-bounded, and prose in a
+spec with no WHEN/THEN stops nothing. A **runtime** gate was considered and
+rejected: the standalone wrapper runs before jiti (D8) and cannot import the
+store to ask whether a bound is in effect, so a runtime gate would be
+unimplementable on exactly the path that most needs it — and it would contradict
+this change's own X1/X2, which assert the wrapper starts at the default on an
+absent or malformed config.
+
+Instead the two defaults are tied together **where they are both already
+static**: in shared. A unit assertion fails the build if the lowered
+`DEFAULT_SERVER_MAX_OLD_SPACE_MB` is shipped while `DEFAULT_MEMORY_LIMITS`
+carries no `maxTotalEventBytes`. Both launch paths read the same shared default,
+so the invariant covers the wrapper for free, with no bootstrap cycle and no new
+probe API. It is a release-ordering guarantee, which is exactly the risk — the
+inversion can only happen by shipping one change without the other.
+
+### D12 — A heap ceiling is not a container memory limit
+
+The live server runs ~1.07 GB outside V8. A 1536 heap therefore implies ~2.5-3
+GB RSS, and Docker is a first-class target here. Under a 1-2 GB container limit
+the kernel OOM-killer fires before V8 reaches its ceiling — no heap dump, no GC
+telemetry, no `FATAL ERROR` line.
+
+**The floor is 4 GB for the all-in-one image, and `docker/compose.yml` already
+ships `MEM_LIMIT:-4g`** — so the default is adequate and the doc states why
+rather than inventing a number. The caveat that belongs with it: 4 GB is shared
+with the co-tenants (pi sessions at a 512 ceiling each, code-server, zrok,
+tmux), so a server alone at ~2.5-3 GB leaves under 1 GB for everything else.
+Operators running several concurrent sessions raise `MEM_LIMIT`, and the doc
+says so.
+
+This covers cgroup-limited deployments. A bare host with ≤2 GB of RAM is *not*
+covered by any guard here — a 1728 MB limit plus ~1.07 GB of non-V8 exceeds
+physical memory and the host swaps or the kernel kills. Out of scope for this
+change; named so it is a known gap rather than an unnoticed one.
+
+### D13 — The server process needs its own heap + GC telemetry
+
+The existing telemetry work in this change instruments **pi sessions**
+(`packages/extension/src/process-metrics.ts`). `packages/server/src` contains no
+`v8.getHeapStatistics()` and no `PerformanceObserver('gc')` — the server's
+`/api/health` reports only `rss`/`heapUsed`/`heapTotal`.
+
+That gap invalidates D9's premise as originally written: 84% occupancy was
+accepted *because* thrash would be visible before it became an OOM, and the
+instrument to see it did not exist for the process being bounded. The server
+therefore gains the same two signals the sessions get — `heapSizeLimit` and
+`gcMajorCount` on its own `/api/health` — plus the **effective** ceiling, so a
+config value that diverges from the running process (the cold-start-only case)
+is observable instead of silent.
 
 ## Risks / Trade-offs
 
@@ -205,8 +322,9 @@ heap, so `serverHeap` is not an RSS budget.
   → Observed peak is 148 MB (7× headroom); `heapSizeLimit` + `gcMajorCount` make
   an approaching ceiling visible before it is hit; the config key is the escape
   hatch. Accepted deliberately — see proposal, Impact.
-- **The 1024 default generalizes from one host's workload mix.** → Ship it (see
-  proposal), and treat the shipped telemetry as the instrument for revising it.
+- **Both shipped defaults generalize from one host's workload mix** (macOS, Node
+  v25.8.1, 64 GB). → Ship them (see proposal), and treat the shipped telemetry as
+  the instrument for revising them.
 - **The provenance marker and the flag could drift apart** (env edited between
   launch and spawn). → Mismatch is the safe case: mismatch means "operator owns
   it", so the worst outcome is the old inherited-flag behavior, not a wrong cap.
@@ -230,3 +348,11 @@ No data migration. Rollout is by process replacement: sessions started after the
 change are capped, and on the default headless strategy the boundary is the next
 keeper launch. Rollback is a config edit — set `sessionHeap.maxOldSpaceMb` to
 `8192` to restore today's effective ceiling without redeploying.
+
+The **server** ceiling rolls back via `serverHeap.maxOldSpaceMb`, a different
+key, and unlike `sessionHeap` it is **cold-start-only**: an in-place
+`/api/restart` inherits the current env, so the new ceiling requires a full
+process start. Reverting `bound-event-store-by-bytes` after this change has
+shipped leaves `1536` over an unbounded store — D9's "strictly worse than 8192"
+case — so that revert MUST also restore `serverHeap` to `8192`; D11's runtime
+gate makes this automatic rather than a checklist item.
