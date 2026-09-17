@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "./fixtures.js";
-import { byTestId, spawnFreshGitSession } from "./helpers/index.js";
+import { byTestId, dismissToasts, spawnFreshGitSession } from "./helpers/index.js";
 
 // Browser E2E — `/view` opens its target in the editor pane (change:
 // open-view-command-in-editor-pane). Replaces the retired inline `PreviewCard`
@@ -7,13 +7,6 @@ import { byTestId, spawnFreshGitSession } from "./helpers/index.js";
 // `/session/:id/editor?file=…|url=…`; `SplitRouteSync` bridges the param into
 // the split. Fixtures (README.md, data.csv, report.docx, *.eml) live in
 // docker/fixtures/sample-git/, copied to the session cwd at container start.
-
-/** Dismiss the harness's recurring spawn toasts (they intercept the send button). */
-async function dismissToasts(page: Page): Promise<void> {
-  for (const btn of await page.getByRole("button", { name: "Dismiss" }).all()) {
-    await btn.click().catch(() => {});
-  }
-}
 
 /** `/view <arg>` in the composer; returns after send (toast-robust). */
 async function runView(page: Page, arg: string): Promise<void> {

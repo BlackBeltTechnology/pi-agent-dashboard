@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures.js";
-import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import { dismissToasts, robustClick, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
 // Browser E2E — internal Monaco editor pane (change: add-internal-monaco-editor-pane).
 //
@@ -95,21 +95,6 @@ test.describe("internal Monaco editor pane", () => {
 // events (documented harness noise — see tool-created-files.spec.ts). Every
 // header interaction dismisses visible toasts and retries, so the click lands
 // once a toast fades. Folds test-plan F1/F2/F3/F4/F5/F7/F8/F10/F13/F14.
-
-async function dismissToasts(page: import("@playwright/test").Page): Promise<void> {
-  for (const btn of await page.getByRole("button", { name: "Dismiss" }).all()) {
-    await btn.click().catch(() => {});
-  }
-}
-
-/** Click a testid, dismissing overlapping spawn toasts and retrying until it lands. */
-async function robustClick(page: import("@playwright/test").Page, testid: string): Promise<void> {
-  const target = page.getByTestId(testid);
-  await expect(async () => {
-    await dismissToasts(page);
-    await target.click({ timeout: 2_000 });
-  }).toPass({ timeout: 30_000 });
-}
 
 async function openSessionWithSwitch(page: import("@playwright/test").Page) {
   const card = await spawnFreshGitSession(page);

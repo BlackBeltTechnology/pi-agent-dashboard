@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "./fixtures.js";
-import { spawnFreshGitSession } from "./helpers/index.js";
+import { dismissToasts, robustClick, spawnFreshGitSession } from "./helpers/index.js";
 
 // Browser E2E — terminals as tabs inside the editor pane
 // (change: terminals-in-tabbed-panes).
@@ -15,21 +15,6 @@ import { spawnFreshGitSession } from "./helpers/index.js";
 // packages/client/src/lib/__tests__/use-terminal-pane-tabs.test.ts — the L3
 // paths need cross-cwd terminal seeding + reload timing that is harness-flaky,
 // so (per the editor-pane.spec F9/F11 precedent) they stay at L1.
-
-async function dismissToasts(page: Page): Promise<void> {
-  for (const btn of await page.getByRole("button", { name: "Dismiss" }).all()) {
-    await btn.click().catch(() => {});
-  }
-}
-
-/** Click a testid, dismissing overlapping spawn toasts and retrying until it lands. */
-async function robustClick(page: Page, testid: string): Promise<void> {
-  const target = page.getByTestId(testid);
-  await expect(async () => {
-    await dismissToasts(page);
-    await target.click({ timeout: 2_000 });
-  }).toPass({ timeout: 30_000 });
-}
 
 test.describe("terminal tabs in the editor pane", () => {
   test("+ Terminal in the split creates a terminal tab; xterm mounts; close removes it", async ({ page }) => {

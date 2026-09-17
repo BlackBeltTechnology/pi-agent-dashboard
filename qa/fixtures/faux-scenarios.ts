@@ -645,7 +645,12 @@ export const SCENARIOS: Record<string, Scenario> = {
   // See change: add-internal-monaco-editor-pane.
   "tool-read-fixture": toolScenario("read", { path: "README.md" }),
   "tool-edit": toolScenario("edit", {
-    path: "src/example.ts",
+    // A file that REALLY exists in the sample-git fixture. The editor-pane
+    // Changes rail renders its per-file rows inline in the DISK-backed file
+    // tree (change: collapse-diff-file-tree), so an edit to a fabricated path
+    // (the old `src/example.ts`) has no tree row to open. Drives
+    // tests/e2e/change-summary-table.spec.ts.
+    path: "README.md",
     edits: [{ oldText: "alpha", newText: "beta" }],
   }),
   "tool-write": toolScenario("write", {

@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, test } from "./fixtures.js";
-import { byTestId, spawnFreshGitSession } from "./helpers/index.js";
+import { byTestId, dismissToasts, spawnFreshGitSession } from "./helpers/index.js";
 
 // Browser E2E — AsciiDoc preview styling (change: asciidoc-support, test-plan
 // #F1–#F6). The server renders `.adoc` via asciidoctor; the client wraps that
@@ -12,13 +12,6 @@ import { byTestId, spawnFreshGitSession } from "./helpers/index.js";
 // at container start), carrying three section levels, a NOTE admonition, a
 // frame=none/grid=none table, a stripes=even table and `:toc:`.
 // Exemplar: tests/e2e/eml-preview.spec.ts (/view → editor-pane preview).
-
-/** Dismiss the harness's recurring spawn toasts (they intercept the send button). */
-async function dismissToasts(page: Page): Promise<void> {
-  for (const btn of await page.getByRole("button", { name: "Dismiss" }).all()) {
-    await btn.click().catch(() => {});
-  }
-}
 
 /** `/view @styling.adoc` → the mounted `.asciidoc-body` scope. */
 async function openAdoc(page: Page): Promise<Locator> {

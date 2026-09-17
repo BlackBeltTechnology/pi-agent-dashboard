@@ -123,6 +123,32 @@ export function byTestId(scope: Page | Locator, key: keyof typeof TESTIDS): Loca
   return scope.getByTestId(TESTIDS[key]);
 }
 
+/**
+ * Dismiss the harness's recurring spawn toasts.
+ *
+ * A spawn raises a dismissible toast pinned over the editor/tab strip, so a
+ * `locator.click()` on a control underneath never becomes "stable" and the
+ * action times out with no useful cause. ~8 specs grew their own copy of this
+ * workaround; it lives here now. See change: stabilize-browser-e2e (4.2).
+ */
+export async function dismissToasts(page: Page): Promise<void> {
+  for (const btn of await page.getByRole("button", { name: "Dismiss" }).all()) {
+    await btn.click().catch(() => {});
+  }
+}
+
+/**
+ * Click a testid, dismissing overlapping toasts and retrying until it lands.
+ * Prefer this over a bare `click()` for any control that can sit under a toast.
+ */
+export async function robustClick(page: Page, testid: string): Promise<void> {
+  const target = page.getByTestId(testid);
+  await expect(async () => {
+    await dismissToasts(page);
+    await target.click({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+}
+
 /** Navigate to the dashboard root and wait for the shell to mount. */
 // Track pages that already have the first-launch auto-dismiss handler wired, so
 // repeated gotoDashboard calls don't stack duplicate handlers.
