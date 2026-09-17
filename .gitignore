@@ -37,6 +37,8 @@ site/.astro/
 .pi-test-harness.json
 # Playwright E2E outputs (tests/e2e). See change: add-playwright-e2e.
 playwright-report/
+# Sharded blob reports (CI=1). See change: stabilize-browser-e2e (task 1.3).
+blob-report/
 # Electron-E2E outputs. See change: electron-attach-ownership-fixes.
 playwright-report-electron/
 test-results/

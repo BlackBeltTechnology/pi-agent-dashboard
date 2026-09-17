@@ -166,16 +166,28 @@ describe("harnessProject", () => {
 });
 
 describe("globalSetup harness faucets", () => {
-  it("seeds every E2E faucet the entrypoint gates on (missing seed = red cluster)", () => {
-    // PI_BROWSER_RELAY_FAKE was missing and cost a 5-test cluster: the plugin is
-    // defaultEnabled:false and only seeds its fake at ACTIVATION, so an unset
-    // seed makes its settings surface unreachable for 150s per attempt. Pin the
-    // whole faucet set rather than the one key, so the next gate added to
-    // test-entrypoint.sh fails here instead of in CI.
-    const src = fs.readFileSync(path.join(REPO_ROOT, "tests", "e2e", "global-setup.ts"), "utf8");
-    for (const key of ["PI_E2E_SEED", "PI_E2E_OAUTH", "PI_TEST_PEERS", "PI_BROWSER_RELAY_FAKE"]) {
+  const src = fs.readFileSync(path.join(REPO_ROOT, "tests", "e2e", "global-setup.ts"), "utf8");
+
+  it("seeds the shared-harness faucets the entrypoint gates on", () => {
+    // A shared-harness faucet missing from the managed spawn env costs a red
+    // cluster (e.g. PI_TEST_PEERS gates the whole flow/bridge L3 group). Pin the
+    // set so the next gate added to test-entrypoint.sh fails here, not in CI.
+    for (const key of ["PI_E2E_SEED", "PI_E2E_OAUTH", "PI_TEST_PEERS"]) {
       expect(src, `${key} is missing from globalSetup's managed spawn env`).toContain(`${key}:`);
     }
+  });
+
+  it("passes PI_BROWSER_RELAY_FAKE through WITHOUT defaulting it on", () => {
+    // Defaulting this to "1" on the shared harness enables the browser-relay
+    // plugin and seeds a live Fake instance, so isLiveViewActive() becomes true
+    // for every session and the content-view slot renders the live-browser tile
+    // instead of the chat — ~150 specs lost the composer. It must stay an
+    // opt-in passthrough; browser-relay.spec.ts skips when it is not "1".
+    // See change: stabilize-browser-e2e (4.2).
+    expect(src).toContain('PI_BROWSER_RELAY_FAKE: process.env.PI_BROWSER_RELAY_FAKE ?? ""');
+    expect(src, "PI_BROWSER_RELAY_FAKE must not be defaulted on").not.toContain(
+      'PI_BROWSER_RELAY_FAKE: process.env.PI_BROWSER_RELAY_FAKE ?? "1"',
+    );
   });
 });
 

@@ -217,13 +217,16 @@ export default async function globalSetup(): Promise<void> {
     // written through `PUT /api/config`.
     // See change: config-override-oauth-redirect-base.
     PI_E2E_OAUTH: process.env.PI_E2E_OAUTH ?? "1",
-    // PI_BROWSER_RELAY_FAKE=1 enables the browser-relay plugin (which ships
-    // `defaultEnabled: false`) so its settings surface and Fake relay instance
-    // exist. The plugin seeds its fake at ACTIVATION, so this MUST be set before
-    // boot. Without it, browser-relay.spec.ts's 5 tests wait 150s for a surface
-    // that never mounts — the whole cluster was red in CI for this one omission.
-    // See change: add-browser-relay (task 7.61).
-    PI_BROWSER_RELAY_FAKE: process.env.PI_BROWSER_RELAY_FAKE ?? "1",
+    // PI_BROWSER_RELAY_FAKE is deliberately NOT defaulted here. `1` forces the
+    // browser plugin enabled AND seeds a live Fake relay instance, which makes
+    // `isLiveViewActive()` true for EVERY session: the `content-view` slot then
+    // renders the live-browser tile instead of the chat and NO spec can reach
+    // the composer (2026-09-17: seeding it by default turned a 5-test
+    // browser-relay cluster into ~150 reds). It is a VARIANT-harness faucet:
+    // opt in by exporting PI_BROWSER_RELAY_FAKE=1 for a dedicated run;
+    // browser-relay.spec.ts skips itself otherwise.
+    // See change: add-browser-relay (task 7.61), stabilize-browser-e2e (4.2).
+    PI_BROWSER_RELAY_FAKE: process.env.PI_BROWSER_RELAY_FAKE ?? "",
     ANTHROPIC_API_KEY: "",
     OPENAI_API_KEY: "",
     GEMINI_API_KEY: "",

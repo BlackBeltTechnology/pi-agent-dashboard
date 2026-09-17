@@ -213,6 +213,42 @@ export async function pinDirectory(page: Page, absPath: string): Promise<void> {
 }
 
 /**
+ * The sidebar folder-GROUP body (Create tray + session cards) for an absolute
+ * cwd. Its testid is dynamic, so it cannot live in TESTIDS.
+ *
+ * Scoping to the group is load-bearing: the sidebar renders a Create tray for
+ * EVERY folder group, and PI_E2E_SEED seeds 125 ended sessions in
+ * `/fixtures/seed-win-*` (scripts/seed-sessions-window.mjs), so a global
+ * `.first()` picks an arbitrary seed dir. Those cwds do not exist on disk, so
+ * the spawn 500s ("Directory does not exist") and no card ever appears.
+ * See change: stabilize-browser-e2e (baseline triage 4.2).
+ */
+function folderGroupBody(page: Page, cwd: string): Locator {
+  return page.getByTestId(`folder-body-${cwd}`);
+}
+
+/**
+ * Ensure the baked git fixture is in the sidebar and return its group body.
+ *
+ * Pins it only when absent: re-opening the add-folders dialog for an
+ * already-pinned folder is not a supported flow (the dialog lists unpinned
+ * paths). Waits for the sidebar to render SOME group first so a still-hydrating
+ * snapshot is not misread as "not pinned".
+ */
+async function ensureFixtureGitGroup(page: Page): Promise<Locator> {
+  const body = folderGroupBody(page, FIXTURE_GIT);
+  await page
+    .locator('[data-testid^="folder-body-"]')
+    .first()
+    .waitFor({ state: "visible", timeout: 10_000 })
+    .catch(() => {});
+  if (await visible(body)) return body;
+  await pinDirectory(page, FIXTURE_GIT);
+  await body.waitFor({ state: "visible", timeout: 30_000 });
+  return body;
+}
+
+/**
  * Idempotently guarantee a session spawned in the baked git fixture, returning
  * its card locator. Reuses an existing card if one is already present (specs
  * share one container), otherwise pins FIXTURE_GIT and spawns. The spawned
@@ -231,13 +267,13 @@ export async function ensureGitSession(page: Page): Promise<Locator> {
     .catch(() => false);
   if (reused) return card;
 
-  await pinDirectory(page, FIXTURE_GIT);
+  const fixGitBody = await ensureFixtureGitGroup(page);
 
   const spawnCta = byTestId(page, "onboardingStep3Cta");
   if (await visible(spawnCta)) {
     await spawnCta.click();
   } else {
-    await byTestId(page, "folderSpawnSessionBtn").first().click();
+    await fixGitBody.getByTestId(TESTIDS.folderSpawnSessionBtn).click();
   }
   await card.waitFor({ state: "visible", timeout: 60_000 });
   return card;
@@ -257,17 +293,6 @@ export async function spawnFreshGitSession(page: Page): Promise<Locator> {
   await gotoDashboard(page);
   const cardsSel = '[data-testid="session-card-desktop"]';
 
-  // Settle WS hydration before branching: a fresh load briefly shows the
-  // onboarding (empty) view, then flips to the dashboard view once sessions
-  // arrive over /ws. Clicking the onboarding CTA mid-flip detaches it. If any
-  // card is present after the settle we are in dashboard mode (folder pinned).
-  const hasSessions = await page
-    .locator(cardsSel)
-    .first()
-    .waitFor({ state: "visible", timeout: 6_000 })
-    .then(() => true)
-    .catch(() => false);
-
   const existing = new Set(
     (
       (await page
@@ -278,18 +303,12 @@ export async function spawnFreshGitSession(page: Page): Promise<Locator> {
     ).filter((id): id is string => Boolean(id)),
   );
 
-  const spawnBtn = byTestId(page, "folderSpawnSessionBtn").first();
-  if (hasSessions || (await visible(spawnBtn))) {
-    // Dashboard mode (a folder is already pinned): spawn via the sidebar.
-    await spawnBtn.waitFor({ state: "visible", timeout: 15_000 });
-    await spawnBtn.click();
-  } else {
-    // Truly empty container: the onboarding flow pins the fixture and spawns.
-    await pinDirectory(page, FIXTURE_GIT);
-    const step3 = byTestId(page, "onboardingStep3Cta");
-    if (await visible(step3)) await step3.click();
-    else await byTestId(page, "folderSpawnSessionBtn").first().click();
-  }
+  // Spawn from the FIXTURE_GIT group and ONLY that group (see
+  // folderGroupBody). This replaces the old `hasSessions || spawnBtn visible`
+  // branch, which read a seed dir's Create tray as "a folder is pinned" and
+  // clicked it — a 500 with no card, so the spec died at the poll below.
+  const fixGitBody = await ensureFixtureGitGroup(page);
+  await fixGitBody.getByTestId(TESTIDS.folderSpawnSessionBtn).click();
 
   let card!: Locator;
   await expect

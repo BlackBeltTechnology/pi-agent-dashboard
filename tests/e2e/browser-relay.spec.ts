@@ -96,6 +96,17 @@ async function fakeInstanceId(request: APIRequestContext): Promise<string> {
   return id as string;
 }
 
+// Variant-harness gate: the Fake relay instance exists only when the container
+// booted with PI_BROWSER_RELAY_FAKE=1. That faucet CANNOT be a shared-harness
+// default — a live relay instance makes `isLiveViewActive()` true for every
+// session, so the `content-view` slot renders the live-browser tile and occludes
+// the chat for EVERY spec. Opt in for a dedicated run; skip otherwise.
+// See change: add-browser-relay (task 7.61), stabilize-browser-e2e (4.2).
+test.skip(
+  process.env.PI_BROWSER_RELAY_FAKE !== "1",
+  "opt-in: boot the harness with PI_E2E_SEED=1 PI_BROWSER_RELAY_FAKE=1",
+);
+
 test.describe("browser relay — settings surface (F1-F4)", () => {
   // The seeded harness saturates the browser's per-origin connection pool (see
   // `gotoSettings`), so a settings assertion can legitimately take tens of
