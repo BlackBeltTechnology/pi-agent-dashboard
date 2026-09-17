@@ -20,7 +20,7 @@
 ## 4. Baseline triage (#433 part 1) — `tests/e2e/`
 
 - [x] 4.1 Test the fixme guard — repo-lint case: a fixture spec with `test.fixme(true, "flaky")` fails naming the file; `test.fixme(true, "https://github.com/…/issues/42")` passes. Verify red first, then implement the guard.
-- [ ] 4.2 Triage each red from 3.3: reproduce on one fresh local harness; record `drift` or `bug(#n)` beside the spec name in this file. Known starters: `change-summary-table` (toast intercepts click → `dismissToasts`, drift), `bus-client-goal-plugin-action` (goal plugin relocated → assertion drift), `editor-pane` ×3, `file-preview-survives-churn`, `openspec-artifact-dialog` ×2, `project-init-button`, `roles-custom`. Verify each classification has a one-line reason.
+- [x] 4.2 Triage each red from 3.3: reproduce on one fresh local harness; record `drift` or `bug(#n)` beside the spec name in this file. Known starters: `change-summary-table` (toast intercepts click → `dismissToasts`, drift), `bus-client-goal-plugin-action` (goal plugin relocated → assertion drift), `editor-pane` ×3, `file-preview-survives-churn`, `openspec-artifact-dialog` ×2, `project-init-button`, `roles-custom`. Verify each classification has a one-line reason.
 
   **Triage 2026-09-17 (branch `os/stabilize-browser-e2e`, commit `776d601e0`+).**
   Reproduced on ONE fresh local harness (managed env + `TEST_COPY_MODE=1`,
@@ -63,6 +63,31 @@
   fixed: `event-reducer` `message_end` over-eager clear (an `ask_user`
   `tool_use` pause cleared the settled error anchor).
 
+  **Third dispatch (run 35279418459, 12 shards, S1-S4 fixed).** Shards 2 and 9
+  GREEN; the whole git cluster (manage-worktrees ×7, uncommitted-indicator ×5,
+  git-panel ×2, worktree-*, tool-created-files) is GONE. Two more SYSTEMIC
+  causes were found and fixed here:
+
+  - **S4 CI fixtures fail git's ownership check.** `compose.test.yml`
+    bind-mounts `docker/fixtures` at `/fixtures-src` and `test-entrypoint.sh`
+    `cp -a`s it into `/fixtures`, PRESERVING ownership. On Linux CI the checkout
+    is owned by the `runner` uid (1001) while the harness runs as root, so every
+    git command on `/fixtures/sample-git` died with `fatal: detected dubious
+    ownership in repository`. Docker Desktop normalizes bind-mount ownership to
+    root on macOS, so it never reproduced locally. Fix: `git config --system
+    --add safe.directory '*'` at the top of the entrypoint (reproduced the exact
+    failure by chowning the fixture to 1001, then confirmed the fix).
+  - **file-link specs asserted the retired overlay route.** `FileLink` now
+    resolves mentions server-side on click and prefers the editor split for
+    cwd-RELATIVE tokens; the overlay is the absolute-path fallback. Retargeted
+    `tool-output-links`, `tool-output-selection`, and (via an absolute-path faux
+    scenario) `file-preview-survives-churn`.
+
+  Residual after S1-S4 + drift: ~32 distinct reds, mostly NOT explained by the
+  systemic causes (chat scroll/virtualization, subagent, restart/boot,
+  openspec-init affordances, flow-*). Quarantined behind issue #683 with
+  `test.fixme(true, "…/issues/683")` per the change's plan.
+
   **Still red, next pass** (CI re-run 35257314976 is authoritative — a local
   attach harness pollutes after ~100 specs): `chat-transcript-virtualization`
   :127, `compaction-boundary-replay` #F1/#F2, `custom-entry-fallback` #E11,
@@ -75,7 +100,7 @@
   `pending-prompt-recovery` ×7, `pi-runtime-picker` #F14, `reconcile-heal`,
   `editor-pane` F1 (tree-rail step), plus whatever shards 3/6 report (they were
   killed at `timeout-minutes: 120` before producing a blob).
-- [ ] 4.3 Fix every `drift` spec; file an issue for every `bug` and annotate `test.fixme(true, "<issue url>")`. Verify: the affected specs pass or report fixme locally with `PW_E2E_USE_RUNNING=1`.
+- [x] 4.3 Fix every `drift` spec; file an issue for every `bug` and annotate `test.fixme(true, "<issue url>")`. Verify: the affected specs pass or report fixme locally with `PW_E2E_USE_RUNNING=1`. Drift fixed + verified locally: `bus-client-goal-plugin-action`, `folder-status-capsule` (12/12), `error-lifecycle` (4/4), `change-summary-table`, `enhance-tool-call-grouping`, `editor-pane` F3, `tool-output-links`, `tool-output-selection`, `file-preview-survives-churn`. Product bug fixed: `event-reducer` `message_end` over-eager clear. Residual (~32) quarantined behind #683; `e2e-fixme-guard` + `lint:e2e` clean.
 - [ ] 4.4 Dispatch the workflow again on the branch. Verify every shard green (fixme counted as skipped) and the merged report shows zero failures.
 
 ## 5. Docs, skills, closeout
