@@ -288,6 +288,15 @@ interface ParentState {
   findings: number;
   warning?: string;
   finalized: boolean;
+  /**
+   * Whether this parent owns a runner concurrency slot (acquired via
+   * `runner.begin`). A scheduled fire does; a TARGETED `runWorkItem` does NOT —
+   * it bypasses the runner (item-level lease is its only guard), so its finalize
+   * MUST NOT call `runner.completeRun` or it would drain/delete the slot of a
+   * concurrent batch fire of the same automation key. Undefined = managed
+   * (back-compat for the scheduled paths). See change: work-source-seam.
+   */
+  runnerManaged?: boolean;
 }
 
 export interface Engine {
@@ -492,7 +501,10 @@ export function createEngine(deps: EngineDeps): Engine {
       retention: cfg.retention,
     });
     parents.delete(parent.parentRunId);
-    runner.completeRun(parent.key);
+    // A targeted `runWorkItem` parent holds no runner slot (it never called
+    // `runner.begin`); releasing here would corrupt a concurrent batch fire's
+    // slot for the same key. See change: work-source-seam.
+    if (parent.runnerManaged !== false) runner.completeRun(parent.key);
     log(`[engine] parent run ${parent.parentRunId} finalized (${parent.key})`);
   }
 
@@ -917,6 +929,9 @@ export function createEngine(deps: EngineDeps): Engine {
       statuses: [],
       findings: 0,
       finalized: false,
+      // Targeted run: bypasses the runner, so its finalize must not release a
+      // runner slot it never acquired. See change: work-source-seam.
+      runnerManaged: false,
     };
     parents.set(parent.parentRunId, parent);
 

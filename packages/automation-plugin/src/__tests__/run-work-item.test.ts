@@ -19,6 +19,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ActionRegistry } from "../server/action-registry.js";
 import { createEngine } from "../server/engine.js";
+import { automationKey } from "../server/scheduler.js";
 import { listRuns, readChildRuns } from "../server/run-store.js";
 import { WorkSourceRegistry } from "../server/work-source-registry.js";
 import type { DiscoveredAutomation } from "../shared/automation-types.js";
@@ -113,7 +114,7 @@ function echoRegistry(seen: Array<Record<string, unknown>>): ActionRegistry {
   return reg;
 }
 
-function batchAutomation(name = "drain"): DiscoveredAutomation {
+function batchAutomation(name = "drain", maxConcurrentSpawns?: number): DiscoveredAutomation {
   const dir = path.join(repo, ".pi", "automation", name);
   fs.mkdirSync(dir, { recursive: true });
   return {
@@ -134,6 +135,7 @@ function batchAutomation(name = "drain"): DiscoveredAutomation {
       mode: "local",
       sandbox: "workspace-write",
       concurrency: "queue",
+      ...(maxConcurrentSpawns ? { maxConcurrentSpawns } : {}),
     },
   } as DiscoveredAutomation;
 }
@@ -239,6 +241,37 @@ describe("engine.runWorkItem", () => {
     // only `b` fans out — `a` is already in flight
     expect(spawnCalls).toHaveLength(2);
     expect(spawnCalls.map(idemKey)).toEqual(["a", "b"]);
+  });
+
+  it("a targeted run's finalize leaves a concurrent batch fire's runner slot intact", async () => {
+    // Regression: `runWorkItem` bypasses the runner (no `begin`), so its parent
+    // finalize must NOT call `runner.completeRun` — doing so would drain/delete
+    // the runner slot held by a concurrent scheduled batch fire of the SAME
+    // automation key, silently breaking its `concurrency` policy.
+    const src = new KeyedSource(["a", "b"]);
+    const spawnCalls: SpawnOpts[] = [];
+    const engine = makeEngine(src, spawnCalls);
+    const auto = batchAutomation("drain", 1); // bound 1 → the batch leases ONE item
+    const key = automationKey(auto);
+
+    // Real runner-managed batch fire: acquires `active[key]`, leases `a`, its
+    // child never finalizes here (so the slot stays held).
+    engine.runner.fire(auto);
+    await flush();
+    expect(engine.runner.activeRunId(key)).toBeTruthy();
+    expect(spawnCalls).toHaveLength(1); // only `a` leased by the batch
+
+    // Targeted run for the OTHER item; drive its child to death → finalizeParent.
+    const res = await engine.runWorkItem(batchAutomation("drain", 1), "b");
+    await flush();
+    expect(res.ok).toBe(true);
+    const child = childrenOf(res.runId!)[0]!;
+    engine.onSessionRegisteredForRun("sess-targeted", child.runId);
+    engine.onSessionDeath("sess-targeted");
+    await flush();
+
+    // The batch's runner slot MUST survive the targeted run's finalize.
+    expect(engine.runner.activeRunId(key)).toBeTruthy();
   });
 
   it("releases the item when its run dies — re-dispatchable, never stranded", async () => {
