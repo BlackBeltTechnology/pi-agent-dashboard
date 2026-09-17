@@ -1057,6 +1057,15 @@ export interface DashboardConfig {
   autoShutdown: boolean;
   shutdownIdleSeconds: number;
   /**
+   * Auto-seed the `coding` profile's missing artifacts into a project's config
+   * root when a folder is pinned, a session registers, or the boot sweep runs.
+   * `false` is the exact-no-op rollback path: every trigger point short-circuits
+   * and nothing is written. Absent resolves to `true` (active by default), so an
+   * unset config seeds — the switch exists to opt OUT.
+   * Read once in `createServer` and applied via `configureProjectSeed`.
+   */
+  autoSeedProjects: boolean;
+  /**
    * Cold-start readiness budget (ms) the bridge's auto-spawn allows before
    * giving up its health poll and reporting "readiness timeout". The spawned
    * server keeps booting regardless — the timeout only controls how long the
@@ -1737,6 +1746,7 @@ const DEFAULTS: DashboardConfig = {
   autoStart: true,
   autoShutdown: false,
   shutdownIdleSeconds: 300,
+  autoSeedProjects: true,
   // Historical hardcoded value of the bridge cold-start health window — the
   // shared health-poll constant, referenced rather than respelled so the two
   // cannot drift. See change: add-configurable-readiness-timeout.
@@ -2703,6 +2713,7 @@ export function loadConfig(): DashboardConfig {
       autoStart: parsed.autoStart ?? defaults.autoStart,
       autoShutdown: parsed.autoShutdown ?? defaults.autoShutdown,
       shutdownIdleSeconds: parsed.shutdownIdleSeconds ?? defaults.shutdownIdleSeconds,
+      autoSeedProjects: parsed.autoSeedProjects ?? defaults.autoSeedProjects,
       readinessTimeoutMs:
         typeof parsed.readinessTimeoutMs === "number" &&
         Number.isFinite(parsed.readinessTimeoutMs) &&

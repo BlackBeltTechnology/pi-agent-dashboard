@@ -129,6 +129,34 @@ describe("project-init scaffold", () => {
     expect(res.hookValid).toBe(false);
   });
 
+  // ── skipExisting (gap-fill) — change: auto-seed-project-defaults ──────────
+
+  it("skipExisting writes only absent artifacts and never throws on conflict", () => {
+    const profile = makeProfileDir(profilesRoot, "coding", { dox: true });
+    const mine = "# my own instructions\n";
+    fs.mkdirSync(target, { recursive: true });
+    fs.writeFileSync(path.join(target, "AGENTS.md"), mine);
+
+    const res = scaffoldProfile({ profile, targetDir: target, skipExisting: true });
+
+    // Pre-existing file untouched — not even the append-only doctrine block.
+    expect(fs.readFileSync(path.join(target, "AGENTS.md"), "utf8")).toBe(mine);
+    expect(res.doctrineSeeded).toBe(false);
+    expect(res.skipped).toContain(path.join(target, "AGENTS.md"));
+    // Absent artifacts still written.
+    expect(fs.existsSync(path.join(target, ".pi", "settings.json"))).toBe(true);
+    expect(fs.existsSync(path.join(target, ".pi", "dashboard", "knowledge_base.json"))).toBe(true);
+  });
+
+  it("skipExisting seeds the doctrine into an AGENTS.md it created", () => {
+    const profile = makeProfileDir(profilesRoot, "coding", { dox: true });
+
+    const res = scaffoldProfile({ profile, targetDir: target, skipExisting: true });
+
+    expect(res.doctrineSeeded).toBe(true);
+    expect(res.skipped).toEqual([]);
+  });
+
   it("isValidWorktreeInit mirrors change-A schema", () => {
     expect(isValidWorktreeInit({ gate: "true", run: { type: "script", command: "x" } })).toBe(true);
     expect(isValidWorktreeInit({ gate: "true", run: { type: "agent", prompt: "x" } })).toBe(true);

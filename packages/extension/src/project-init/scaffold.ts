@@ -20,7 +20,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { writeDoxKbConfig } from "./dox-kb-config.js";
+import { kbConfigPath, writeDoxKbConfig } from "./dox-kb-config.js";
 import type { Profile } from "./profiles.js";
 import { seedDoctrine } from "./seed-doctrine.js";
 
@@ -37,6 +37,20 @@ export interface ScaffoldOptions {
   substitutions?: Record<string, string>;
   /** Overwrite existing files. Default false (throws on conflict). */
   overwrite?: boolean;
+  /**
+   * Gap-fill mode: write only the artifacts that are ABSENT and leave every
+   * existing file byte-identical, instead of the default all-or-nothing
+   * behavior (`overwrite: false` throws on any conflict, `true` clobbers all).
+   *
+   * Used by the server's unattended auto-seed, where a half-configured project
+   * must gain its missing artifacts without the user's own AGENTS.md /
+   * settings.json ever being touched. Implies no throw on conflict. The DOX
+   * doctrine block is appended only to an AGENTS.md this call CREATED — a
+   * pre-existing one is never mutated. Default false.
+   *
+   * See change: auto-seed-project-defaults.
+   */
+  skipExisting?: boolean;
 }
 
 export interface ScaffoldPlan {
@@ -114,6 +128,8 @@ export function planScaffold(opts: ScaffoldOptions): ScaffoldPlan {
 }
 
 export interface ScaffoldResult extends ScaffoldPlan {
+  /** Paths left untouched because they already existed (`skipExisting` only). */
+  skipped: string[];
   /** True when the DOX doctrine was appended (false = already present or not dox). */
   doctrineSeeded: boolean;
   /** True when the worktreeInit hook rendered is structurally valid. */
@@ -130,13 +146,23 @@ export function scaffoldProfile(opts: ScaffoldOptions): ScaffoldResult {
   const { profile, targetDir } = opts;
   const projectName = opts.projectName ?? path.basename(targetDir);
   const overwrite = opts.overwrite ?? false;
+  const skipExisting = opts.skipExisting ?? false;
   const subs = { PROJECT_NAME: projectName, ...(opts.substitutions ?? {}) };
   const leftover: string[] = [];
+  const skipped: string[] = [];
 
   const plan = planScaffold(opts);
-  if (!overwrite && plan.conflicts.length > 0) {
+  if (!overwrite && !skipExisting && plan.conflicts.length > 0) {
     throw new Error(`refusing to overwrite existing files: ${plan.conflicts.join(", ")}`);
   }
+  /** Gap-fill guard: in `skipExisting` mode an existing target is recorded, not written. */
+  const shouldWrite = (target: string): boolean => {
+    if (skipExisting && fs.existsSync(target)) {
+      skipped.push(target);
+      return false;
+    }
+    return true;
+  };
 
   // AGENTS.md
   const agentsMd = path.join(targetDir, "AGENTS.md");
@@ -144,7 +170,8 @@ export function scaffoldProfile(opts: ScaffoldOptions): ScaffoldResult {
   const agentsText = render(agentsTmpl, subs);
   leftover.push(...leftoverPlaceholders(agentsText));
   fs.mkdirSync(targetDir, { recursive: true });
-  fs.writeFileSync(agentsMd, agentsText, "utf8");
+  const wroteAgentsMd = shouldWrite(agentsMd);
+  if (wroteAgentsMd) fs.writeFileSync(agentsMd, agentsText, "utf8");
 
   // .pi/settings.json. Substitutions are JSON-escaped so a stack command or
   // project name containing `"`/`\` cannot corrupt the file; the rendered text
@@ -162,8 +189,11 @@ export function scaffoldProfile(opts: ScaffoldOptions): ScaffoldResult {
     );
   }
   const settingsDir = path.join(targetDir, ".pi");
-  fs.mkdirSync(settingsDir, { recursive: true });
-  fs.writeFileSync(path.join(settingsDir, "settings.json"), settingsText, "utf8");
+  const settingsTarget = path.join(settingsDir, "settings.json");
+  if (shouldWrite(settingsTarget)) {
+    fs.mkdirSync(settingsDir, { recursive: true });
+    fs.writeFileSync(settingsTarget, settingsText, "utf8");
+  }
   const hookValid = isValidWorktreeInit(parsedSettings.worktreeInit);
 
   // prompts/*.md
@@ -172,18 +202,24 @@ export function scaffoldProfile(opts: ScaffoldOptions): ScaffoldResult {
     const promptsDir = path.join(targetDir, ".pi", "prompts");
     fs.mkdirSync(promptsDir, { recursive: true });
     for (const f of prompts) {
-      fs.copyFileSync(path.join(profile.dir, "prompts", f), path.join(promptsDir, f));
+      const target = path.join(promptsDir, f);
+      if (shouldWrite(target)) fs.copyFileSync(path.join(profile.dir, "prompts", f), target);
     }
   }
 
-  // DOX: seed doctrine + kb toolset.
+  // DOX: seed doctrine + kb toolset. In gap-fill mode the doctrine block is
+  // appended only to an AGENTS.md this call created — a pre-existing one is the
+  // user's file and stays byte-identical.
   let doctrineSeeded = false;
   if (profile.dox) {
-    doctrineSeeded = seedDoctrine(agentsMd).seeded;
+    if (!skipExisting || wroteAgentsMd) doctrineSeeded = seedDoctrine(agentsMd).seeded;
     // Honor overwrite for the kb config too, so the plan/conflict UX (which
     // lists knowledge_base.json as a conflict) matches actual write behavior.
-    writeDoxKbConfig(targetDir, { overwrite });
+    // `writeDoxKbConfig` is already idempotent without `overwrite`, so gap-fill
+    // only needs to record the untouched file.
+    const kb = writeDoxKbConfig(targetDir, { overwrite: overwrite && !skipExisting });
+    if (!kb.written) skipped.push(kbConfigPath(targetDir));
   }
 
-  return { ...plan, doctrineSeeded, hookValid, leftover };
+  return { ...plan, skipped, doctrineSeeded, hookValid, leftover };
 }
