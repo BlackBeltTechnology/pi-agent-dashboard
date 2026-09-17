@@ -1,10 +1,20 @@
-import { defineConfig } from "vitest/config";
 import path from "node:path";
+import { configDefaults, defineConfig } from "vitest/config";
 import { PARALLEL_MAX_WORKERS } from "../../vitest.workers";
+import { REAL_PROCESS_TESTS } from "./vitest.real-process-files";
 
 export default defineConfig({
   test: {
     include: ["src/**/__tests__/**/*.test.ts"],
+    // Tests that spawn a real OS process under test run in their OWN phase,
+    // after the parallel run, at maxWorkers 2 — inside this saturated run they
+    // are starved of CPU and fail on timing, never on the diff under test.
+    // Same list the real-process config includes, so every test still runs
+    // exactly once. See change: isolate-real-process-tests.
+    // `configDefaults.exclude` spread back in: setting `exclude` REPLACES the
+    // vitest defaults (node_modules, dist, ...), which today only the `src/**`
+    // include keeps harmless.
+    exclude: [...configDefaults.exclude, ...REAL_PROCESS_TESTS],
     environment: "node",
     pool: "forks",
     maxWorkers: PARALLEL_MAX_WORKERS,
