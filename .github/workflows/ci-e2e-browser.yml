@@ -1,10 +1,13 @@
 name: CI E2E Browser
 
 # Sharded browser-E2E suite (tests/e2e/, 168+ Playwright specs) against the
-# Docker test harness. A single job cannot produce a verdict: the suite's
-# measured chunk size is ~28 specs (~30-50 min incl. an ~6-8 min image build),
-# so N shards each get their OWN runner and OWN harness container. Shards are
-# independent by construction, so one shard's death cannot cascade into another.
+# Docker test harness. A single job cannot produce a verdict: the suite is
+# ~168 specs and `--shard` balances by COUNT, not duration, so the matrix is
+# sized so the SLOWEST shard still fits comfortably. At N=6 the measured spread
+# was 38 min (fastest) to ~115 min (slowest, nearly the 120-min cap); N=12
+# halves the per-shard spec count. Each shard gets its OWN runner and OWN
+# harness container. Shards are independent by construction, so one shard's
+# death cannot cascade into another.
 #
 # Why this exists (issue #433 part 2): `tests/e2e/` is the strongest gate on the
 # ship-it path, yet nothing ran it on develop — only the Electron-E2E workflow
@@ -35,7 +38,7 @@ on:
       shards:
         description: "Matrix length to document in this dispatch (informational; the matrix itself is fixed below)"
         required: false
-        default: "6"
+        default: "12"
   pull_request:
     branches: [develop]
     types: [opened, synchronize, reopened, labeled]
@@ -62,20 +65,24 @@ jobs:
     # runner's real MemTotal at boot and refuses an oversubscribing start, so
     # the runner's RAM figure is not the constraint here.
     #
-    # The budget is NOT the design's 30-50 min estimate: the first run that
-    # actually reached the specs measured 58-75 min per shard for ~28 specs, and
-    # shards 2+3 were KILLED here at 75 min with no blob report (a killed shard
-    # contributes nothing to the merged report). 120 min finishes the run and
-    # keeps the red list complete; re-sizing the matrix is tracked separately
-    # (nothing depends on the exact number — the contract test ties the matrix
-    # length to every `--shard=i/N` denominator, not to this timeout).
+    # 12 shards, not 6: the 6-shard dispatch (run 35259223668) measured a badly
+    # DURATION-imbalanced split — shards 1/2/4/5 finished in 38/42/48/52 min,
+    # while shards 6 and 3 ran 100 and ~115 min (shard 3 only just beat the
+    # cap). The long shards also produced a scattered red set with harness
+    # symptoms (`docker exec` failures, a 25-min beforeAll timeout,
+    # `browserContext.close`) — a degraded long run, not attributable.
+    # `--shard` balances by TEST COUNT, not duration, and the slow specs
+    # (subagent-*, tail-only-*, terminal) cluster. Halving the per-shard spec
+    # count halves the wall clock, so every shard fits ~40-50 min with headroom.
+    # 120 min remains the cap; the re-measured per-shard wall clock is in
+    # openspec/changes/stabilize-browser-e2e/measurements.md.
     timeout-minutes: 120
     # ADVISORY on the PR path only; dispatch/nightly fail loudly.
     continue-on-error: ${{ github.event_name == 'pull_request' }}
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     steps:
       - uses: actions/checkout@v4
 
@@ -103,7 +110,7 @@ jobs:
       # died at exactly 180s with "container never became healthy". 20 min is
       # ~2.5x the measured build and well inside the 75-min job budget.
       - name: Run browser E2E shard
-        run: pnpm exec playwright test --shard=${{ matrix.shard }}/6
+        run: pnpm exec playwright test --shard=${{ matrix.shard }}/12
         env:
           CI: "1"
           PI_E2E_SEED: "1"
