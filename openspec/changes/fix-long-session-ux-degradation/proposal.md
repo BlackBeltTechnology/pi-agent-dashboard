@@ -159,9 +159,11 @@ semantics), granular context splitting for the display-prefs/model-config maps
   would hold the FX alive for a whole 24 h stream). CSS mirrors the existing
   `app-hidden` wildcard block (`*`, `*::before`, `*::after` →
   `animation-play-state: paused !important`) and covers **all** animations except
-  indeterminate progress spinners (`:root.fx-idle .animate-spin` keeps running —
-  unlike a hidden tab, an idle-but-visible user reads a frozen spinner as a hang),
-  not just the selected card's neon trio — a background streaming card's stripes and
+  indeterminate progress indicators (`.animate-spin` plus an `fx-progress` opt-out
+  for the `@mdi/react` spinners, which animate via inline style — unlike a hidden
+  tab, an idle-but-visible user reads a frozen spinner as a hang; the hidden-window
+  and off-screen pauses still win over the exemption), not just the selected card's
+  neon trio — a background streaming card's stripes and
   status dots cost the same per-frame overhead, and static state colors still
   communicate the state. Everything resumes within one frame on first input;
   nothing functional depends on animation completion (`animationend` unused
@@ -221,8 +223,12 @@ semantics), granular context splitting for the display-prefs/model-config maps
 - `App.tsx` — viewport-bounded mobile flex root; selected-only `ToolContext`
   subagents; mount `useIdleFx()` next to `useAppHidden()`.
 - `index.css` — `:root.fx-idle *` pause block mirroring `app-hidden`, plus the
-  `:root.fx-idle .animate-spin` running-override that exempts indeterminate
-  progress indicators.
+  exemption ladder that keeps indeterminate progress indicators
+  (`.animate-spin`, `.fx-progress`) running while idle and re-pauses them when
+  hidden or off-screen.
+- `components/chat/ToolBurstGroup.tsx`, `components/shell/StatusBar.tsx`,
+  `components/packages/UnifiedPackagesSection.tsx` — `fx-progress` class on the
+  four `@mdi/react` `spin` glyphs.
 
 **Tests**
 

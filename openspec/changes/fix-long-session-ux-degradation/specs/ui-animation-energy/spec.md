@@ -30,9 +30,11 @@ or completing.
 Indeterminate progress indicators are the one exception and SHALL keep animating
 while idle. Unlike pausing for a hidden document, this pause applies while the
 user is looking at the screen, where a frozen spinner misreports an in-progress
-operation as a hung one. The exemption SHALL be expressed as a declarative rule
-keyed on the shared indicator class, not as a per-component opt-out, so a newly
-added indicator inherits it. Decorative liveness animations that merely restate a
+operation as a hung one. The exemption SHALL be expressed as declarative
+rules keyed on shared indicator classes rather than per-component styling, and
+SHALL cover indicators animated by an injected inline style as well as those
+animated by a utility class, so that no in-flight indicator is exempt merely by
+virtue of how its animation is applied. Decorative liveness animations that merely restate a
 state already carried by static styling (status stripes, status-dot pulses,
 shimmer) are NOT exempt.
 
