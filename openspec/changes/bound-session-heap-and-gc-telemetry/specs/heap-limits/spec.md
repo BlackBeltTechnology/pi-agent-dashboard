@@ -16,12 +16,12 @@ configuration blocks: `sessionHeap`, governing spawned pi sessions, and
 Each block SHALL support `maxOldSpaceMb`. `sessionHeap` SHALL additionally
 support `initialOldSpaceMb` and `maxSemiSpaceMb`, both unset by default.
 
-`sessionHeap.maxOldSpaceMb` SHALL default to `1024`. `serverHeap.maxOldSpaceMb`
+`sessionHeap.maxOldSpaceMb` SHALL default to `512`. `serverHeap.maxOldSpaceMb`
 SHALL default to `8192`, preserving the previously hardcoded behavior.
 
 #### Scenario: Defaults apply when the config omits the blocks
 - **WHEN** the config file contains neither `sessionHeap` nor `serverHeap`
-- **THEN** a spawned pi session SHALL be started with a `1024` MB old-space request
+- **THEN** a spawned pi session SHALL be started with a `512` MB old-space request
 - **AND** the dashboard server SHALL be started with an `8192` MB old-space request
 
 #### Scenario: Operator lowers the session ceiling
@@ -46,12 +46,12 @@ overhead dominates the requested size and the request stops being meaningful.
 
 #### Scenario: Below-floor value is rejected in favor of the default
 - **WHEN** the config sets `sessionHeap.maxOldSpaceMb` to `16`
-- **THEN** the loaded configuration SHALL report `1024`
-- **AND** the spawned session SHALL be started with the `1024` MB request
+- **THEN** the loaded configuration SHALL report `512`
+- **AND** the spawned session SHALL be started with the `512` MB request
 
 #### Scenario: Non-numeric value is rejected in favor of the default
 - **WHEN** the config sets `sessionHeap.maxOldSpaceMb` to `"lots"`
-- **THEN** the loaded configuration SHALL report `1024`
+- **THEN** the loaded configuration SHALL report `512`
 - **AND** config loading SHALL succeed
 
 #### Scenario: Configured values are validated before reaching a process argument
@@ -85,8 +85,8 @@ That fallback SHALL NOT be used on the headless strategy, where an
 environment-borne limit would also bind the supervising process.
 
 #### Scenario: Session process runs under the configured ceiling
-- **WHEN** a pi session is spawned with `sessionHeap.maxOldSpaceMb` set to `1024`
-- **THEN** that process's reported V8 heap ceiling SHALL be at least the requested `1024` MB and no more than `300` MB above it
+- **WHEN** a pi session is spawned with `sessionHeap.maxOldSpaceMb` set to `512`
+- **THEN** that process's reported V8 heap ceiling SHALL be at least the requested `512` MB and no more than `300` MB above it
 - **AND** it SHALL NOT reflect the dashboard server's ceiling
 
 > The upper tolerance exists because V8 adds a fixed overhead to the request
@@ -108,6 +108,28 @@ environment-borne limit would also bind the supervising process.
 - **THEN** the ceiling SHALL be applied via the accepted `NODE_OPTIONS` subset
 - **AND** a line recording the fallback SHALL appear in the server log
 - **AND** the health endpoint SHALL expose that the fallback is in use
+
+### Requirement: The ceiling and the subagent fan-out bound SHALL be presented as coupled
+
+`Agent` children execute inside the parent session's process, so they share one
+V8 heap and one ceiling. A per-child budget is therefore not expressible; the
+only lever over subagent memory is `maxConcurrentSubagents`, which silently
+becomes a memory-safety setting once a ceiling is enforced.
+
+The operator SHALL be warned when the configured pair leaves each concurrent
+child less than approximately `100` MB, computed as
+`maxOldSpaceMb / (maxConcurrentSubagents + 1)` — the `+ 1` accounting for the
+parent itself. The warning SHALL NOT block the save: both values remain valid,
+and the pairing is a risk to disclose rather than an error.
+
+#### Scenario: A risky pairing is disclosed
+- **WHEN** the session ceiling is `512` and `maxConcurrentSubagents` is raised to `8`
+- **THEN** the operator SHALL be warned that each concurrent child is left under the guidance figure
+- **AND** the save SHALL still be permitted
+
+#### Scenario: The shipped pairing is not warned
+- **WHEN** the session ceiling is `512` and `maxConcurrentSubagents` is the default `2`
+- **THEN** no warning SHALL be shown
 
 #### Scenario: No fallback is reported on the normal path
 - **WHEN** every session was spawned through an argument position or a per-window environment

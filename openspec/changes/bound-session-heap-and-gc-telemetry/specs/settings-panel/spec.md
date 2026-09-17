@@ -58,3 +58,21 @@ time.
 - **WHEN** the operator enters a value above `8192`
 - **THEN** the panel SHALL warn
 - **AND** the value SHALL remain saveable
+
+### Requirement: The panel SHALL disclose the heap/fan-out coupling
+
+`Agent` children run inside the parent session's process and share its heap, so
+raising the fan-out bound spends session memory that is invisible at the point
+of the edit. When the session ceiling and `maxConcurrentSubagents` together
+leave each concurrent child under roughly `100` MB
+(`maxOldSpaceMb / (maxConcurrentSubagents + 1)`), the panel SHALL surface a
+non-blocking warning naming the computed per-child figure.
+
+#### Scenario: Risky pairing is disclosed at the point of edit
+- **WHEN** the operator raises `maxConcurrentSubagents` to `8` against a `512` MB ceiling
+- **THEN** the panel SHALL warn and name the per-child figure
+- **AND** the value SHALL remain saveable
+
+#### Scenario: Default pairing is silent
+- **WHEN** the ceiling is `512` and `maxConcurrentSubagents` is the default `2`
+- **THEN** no coupling warning SHALL be shown

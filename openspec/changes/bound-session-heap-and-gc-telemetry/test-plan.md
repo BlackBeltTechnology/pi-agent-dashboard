@@ -15,12 +15,12 @@ Clarifications resolved before writing (no open markers):
 
 | id | requirement | technique | level | disposition | input | trigger | expected observable |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------|
-| E1 | shared-config: defaults | EP | L1 | automated | config file `{}` | `loadConfig()` | `sessionHeap.maxOldSpaceMb === 1024` and `serverHeap.maxOldSpaceMb === 8192`; `initialOldSpaceMb` and `maxSemiSpaceMb` are `undefined`, not `0` |
-| E2 | heap-limits: floor is 64 | BVA | L1 | automated | `sessionHeap.maxOldSpaceMb: 63` | `loadConfig()` | returns `1024` (default), no throw |
+| E1 | shared-config: defaults | EP | L1 | automated | config file `{}` | `loadConfig()` | `sessionHeap.maxOldSpaceMb === 512` and `serverHeap.maxOldSpaceMb === 8192`; `initialOldSpaceMb` and `maxSemiSpaceMb` are `undefined`, not `0` |
+| E2 | heap-limits: floor is 64 | BVA | L1 | automated | `sessionHeap.maxOldSpaceMb: 63` | `loadConfig()` | returns `512` (default), no throw |
 | E3 | heap-limits: floor is 64 | BVA | L1 | automated | `sessionHeap.maxOldSpaceMb: 64` | `loadConfig()` | returns `64` — the floor itself is valid |
 | E4 | heap-limits: floor is 64 | BVA | L1 | automated | `sessionHeap.maxOldSpaceMb: 65` | `loadConfig()` | returns `65` |
-| E5 | heap-limits: invalid falls back | EP | L1 | automated | values `0`, `-1`, `1024.5`, `"lots"`, `null`, `[]` | `loadConfig()` each | every case returns `1024`; `loadConfig()` never throws |
-| E6 | shared-config: partial block | EP | L1 | automated | `{"sessionHeap":{"maxSemiSpaceMb":8}}` | `loadConfig()` | `maxSemiSpaceMb === 8` **and** `maxOldSpaceMb === 1024` — sibling default still applied |
+| E5 | heap-limits: invalid falls back | EP | L1 | automated | values `0`, `-1`, `1024.5`, `"lots"`, `null`, `[]` | `loadConfig()` each | every case returns `512`; `loadConfig()` never throws |
+| E6 | shared-config: partial block | EP | L1 | automated | `{"sessionHeap":{"maxSemiSpaceMb":8}}` | `loadConfig()` | `maxSemiSpaceMb === 8` **and** `maxOldSpaceMb === 512` — sibling default still applied |
 | E7 | shared-config: `memoryLimits` independence | decision-table | L1 | automated | config sets `sessionHeap` only | `loadConfig()` | `memoryLimits` equals `DEFAULT_MEMORY_LIMITS` exactly — no cross-contamination between the two similarly-named keys |
 | E8 | shared-config: partial write | state-transition | L1 | automated | persisted `sessionHeap`, then a `PUT` partial omitting it | config write + reload | persisted `sessionHeap` survives |
 | E9 | settings: sub-block deep-merge | decision-table | L1 | automated | persisted `{maxOldSpaceMb:512, initialOldSpaceMb:64}`, panel saves `maxOldSpaceMb:256` only | config write | `initialOldSpaceMb` still `64` — the sibling is not dropped |
@@ -36,6 +36,8 @@ Clarifications resolved before writing (no open markers):
 | E19 | settings: page attribution | decision-table | L1 | automated | edit `sessionHeap` / edit `serverHeap` | compute dirty pages | `sessions` / `server` respectively; neither leaks onto the other page |
 | E20 | settings: save payload | EP | L1 | automated | change a heap field | `computeConfigPartial` | the changed top-level key is present in the partial — it is not silently dropped |
 | E21 | settings: entry validation | BVA | L3 | automated | enter `63`, `64`, `8192`, `8193` | blur the field | `63` refused with the floor explained; `64` and `8192` accepted silently; `8193` accepted with a warning |
+| E23 | heap-limits: coupling guard fires | BVA | L1 | automated | ceiling `512` with `maxConcurrentSubagents` `2`, `4`, `5`, `8` | compute per-child figure | `512/(n+1)` = 171, 102, 85, 57 MB; warning absent at `2` and `4`, present at `5` and `8` |
+| E24 | settings-panel: coupling warning rendered | decision-table | L3 | automated | ceiling `512`, raise `maxConcurrentSubagents` to `8` | blur the field | a non-blocking warning naming the per-child figure appears; the value stays saveable |
 | E22 | server-launch: standalone config-derived | EP | L2 | automated | config `serverHeap.maxOldSpaceMb: 4096` | start via the standalone wrapper | the server's `heap_size_limit` is within `[4096, 4396]` MB |
 
 ### Frontend-quirk
@@ -55,7 +57,7 @@ Clarifications resolved before writing (no open markers):
 | X3 | heap-limits: fallback is recorded | fault-injection (no argv slot) | L2 | automated | a resolution yielding no runtime position | spawn a session | a fallback line appears in the server log **and** the health endpoint reports the fallback in use |
 | X4 | heap-limits: no false fallback report | fault-injection (control) | L1 | automated | every session spawned through the normal argv route | read the health endpoint | the fallback is not reported as in use |
 | X5 | heap-limits: below-floor cannot reach a process | fault-injection (bad config) | L1 | automated | `sessionHeap.maxOldSpaceMb: "lots"` | build the invocation | no non-integer token appears in the argv or any command string; the default is used |
-| X6 | heap-limits: session ceiling applied end-to-end | state-transition | L2 | automated | `sessionHeap.maxOldSpaceMb: 1024` | spawn a session, read its metrics | the session's `heapSizeLimit` is within `[1024, 1324]` MB and is not the server's ceiling |
+| X6 | heap-limits: session ceiling applied end-to-end | state-transition | L2 | automated | `sessionHeap.maxOldSpaceMb: 512` | spawn a session, read its metrics | the session's `heapSizeLimit` is within `[512, 812]` MB and is not the server's ceiling |
 | X7 | heap-limits: tooling is not capped | state-transition | L2 | automated | a capped session | the session starts a Node subprocess | that subprocess's heap ceiling is the runtime default, not the session ceiling — proves the cap did not travel through the environment |
 | X8 | headless-spawn: keeper not capped | state-transition | L2 | automated | a capped session on the headless strategy | inspect keeper and pi | pi runs under the ceiling; the keeper process does not |
 | X9 | heap-limits: reload adopts new config | state-transition | L3 | automated | a running headless session, then the ceiling is changed | reload the session | the replacement process runs under the **new** ceiling — no stale invocation reused |
@@ -70,10 +72,10 @@ Clarifications resolved before writing (no open markers):
 
 ## Coverage summary
 
-- Requirements covered: 18/18 (every `SHALL`-bearing requirement across the eight spec deltas has at least one row)
-- Scenarios by class: edge 22 · perf 0 · frontend 3 · error 15
-- Scenarios by level: L1 17 · L2 12 · L3 6 · manual-only 3
-- Scenarios by disposition: automated 37 · manual-only 3
+- Requirements covered: 20/20 (every `SHALL`-bearing requirement across the eight spec deltas has at least one row)
+- Scenarios by class: edge 24 · perf 0 · frontend 3 · error 15
+- Scenarios by level: L1 18 · L2 12 · L3 7 · manual-only 3
+- Scenarios by disposition: automated 39 · manual-only 3
 
 Perf is deliberately empty: no performance budget exists in the specs, and the
 GC-observer overhead question was explicitly answered "no budget". Inventing a

@@ -172,18 +172,40 @@ follow-ups gated on this telemetry existing.
 - `packages/client/src/components/settings/SettingsPanel.tsx` — fields,
   `CONFIG_FIELD_PAGE` entries, and `computeConfigPartial`, which must learn the
   new top-level keys or Save silently drops them.
-- **Accepted trade-off:** subagents run **in-process** in the parent pi session
-  and share its single heap, so a wide fan-out on a 1216 MB ceiling turns what
-  used to be heap growth into a fatal OOM. Accepted because the observed peak is
-  148 MB (7× headroom), the cap is user-adjustable, and the telemetry shipped
-  here is what makes an OOM diagnosable instead of mysterious. Revisit the
-  default from `heapSizeLimit`/`external` data, not intuition.
-  **Sample bias, stated plainly:** those 11 sessions are one host, one user, one
-  plugin mix, and shipping a ~7× lower ceiling *by default* generalizes from
-  that sample to every user of the next release. Decision (reviewed, accepted):
-  **ship 1024**. The escape hatch is the config key itself, and the telemetry in
-  this change is what turns a resulting OOM from a mystery into a reading. If
-  field reports contradict the sample, raising a default is a one-line follow-up.
+- **Log evidence (decisive, measured from `~/.pi/dashboard/`):** across **4721**
+  keeper/session logs there is **not one** session heap death. Every
+  `FATAL ERROR: Reached heap limit` in the corpus — 7 in the live `server.log`
+  plus the archived `server.log.oom-20260806` — is the **dashboard server**.
+  This inverts the original suspicion: sessions are not the memory problem,
+  the server is. Two distinct crash ceilings appear, and both matter:
+  - `~8130 (8202) MB` — the server dying *at its 8192 stamp*, GC thrashing with
+    mutator utilization collapsing to `0.017`. Whatever grows there is not a
+    tuning problem, and `serverHeap` must therefore **keep** its 8192 default;
+    lowering it would convert a slow leak into a fast outage.
+  - `~4093 (4097) MB` — a server dying at the **runtime default**, i.e. a server
+    that never received the stamp. That is the dead `buildSpawnEnv` path this
+    change fixes (task 8.6), with a crash to show for it.
+- **Accepted trade-off:** subagents run **in-process** and share the parent's
+  single heap, so a wide fan-out turns heap growth into a fatal OOM. Measured
+  budget at 512 (usable live heap 500 MB, driven to crash):
+
+  | concurrency | per-child budget | verdict |
+  |---|---|---|
+  | 2 (shipped default) | 187 MB | ample |
+  | 8 | 47 MB ≈ **11.8 MB of raw data** at the measured 3.0× disk→heap ratio | thin |
+
+  Grounding: parent heap = **84 MB fixed baseline + 3.0 × transcript MB**
+  (ratio measured on the three largest transcripts: 44.1→133.3, 33.9→101.6,
+  29.3–87.8 MB — 3.00, 2.99, 3.02). Even the **largest transcript ever recorded**
+  (44.1 MB → 216 MB heap) plus 8 children each holding the **largest observed
+  subagent output** (1.09 MB) totals 242 MB — comfortably inside 500. The 512
+  ceiling only breaks at 8-wide when children each retain >11.8 MB of raw data,
+  which is a large-file-read pattern, not a conversation pattern.
+  **Sample bias, stated plainly:** one host, one user, one plugin mix, and
+  shipping a ~8× lower ceiling *by default* generalizes from that sample to every
+  user of the next release. Decision (reviewed, accepted): **ship 512**, with the
+  fan-out coupling disclosed in Settings because `maxConcurrentSubagents` is now
+  a memory-safety knob. Raising a default later is a one-line follow-up.
 - **Unverified (needs real-machine QA):** whether `wt.exe` hands new tabs to an
   existing Windows Terminal process (same env-reach class as tmux); and whether
   the WSL-tmux path can name a valid node binary — normalizing to

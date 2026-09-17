@@ -6,12 +6,12 @@ implement.
 
 ## 1. Config schema (`packages/shared/src/config.ts`, new browser-safe defaults module)
 
-- [ ] 1.1 Test defaults — config `{}` · `loadConfig()` · `sessionHeap.maxOldSpaceMb === 1024`, `serverHeap.maxOldSpaceMb === 8192`, optional fields `undefined` not `0` · see `packages/shared/src/__tests__/config-keeper-log.test.ts` (test-plan #E1)
-- [ ] 1.2 Test floor boundary — `maxOldSpaceMb: 63` · `loadConfig()` · returns `1024`, no throw · see `packages/shared/src/__tests__/config-keeper-log.test.ts` (test-plan #E2)
+- [ ] 1.1 Test defaults — config `{}` · `loadConfig()` · `sessionHeap.maxOldSpaceMb === 512`, `serverHeap.maxOldSpaceMb === 8192`, optional fields `undefined` not `0` · see `packages/shared/src/__tests__/config-keeper-log.test.ts` (test-plan #E1)
+- [ ] 1.2 Test floor boundary — `maxOldSpaceMb: 63` · `loadConfig()` · returns `512`, no throw · see `packages/shared/src/__tests__/config-keeper-log.test.ts` (test-plan #E2)
 - [ ] 1.3 Test floor is inclusive — `maxOldSpaceMb: 64` · `loadConfig()` · returns `64` · see `packages/shared/src/__tests__/config-keeper-log.test.ts` (test-plan #E3)
 - [ ] 1.4 Test just above floor — `maxOldSpaceMb: 65` · `loadConfig()` · returns `65` · see `packages/shared/src/__tests__/config-keeper-log.test.ts` (test-plan #E4)
-- [ ] 1.5 Test invalid values — `0`, `-1`, `1024.5`, `"lots"`, `null`, `[]` · `loadConfig()` each · every case returns `1024` and never throws · see `packages/shared/src/__tests__/config-openspec.test.ts` (test-plan #E5)
-- [ ] 1.6 Test partial block — `{"sessionHeap":{"maxSemiSpaceMb":8}}` · `loadConfig()` · `maxSemiSpaceMb === 8` and `maxOldSpaceMb === 1024` · see `packages/shared/src/__tests__/config-keeper-log.test.ts` (test-plan #E6)
+- [ ] 1.5 Test invalid values — `0`, `-1`, `1024.5`, `"lots"`, `null`, `[]` · `loadConfig()` each · every case returns `512` and never throws · see `packages/shared/src/__tests__/config-openspec.test.ts` (test-plan #E5)
+- [ ] 1.6 Test partial block — `{"sessionHeap":{"maxSemiSpaceMb":8}}` · `loadConfig()` · `maxSemiSpaceMb === 8` and `maxOldSpaceMb === 512` · see `packages/shared/src/__tests__/config-keeper-log.test.ts` (test-plan #E6)
 - [ ] 1.7 Test `memoryLimits` independence — config sets `sessionHeap` only · `loadConfig()` · `memoryLimits` deep-equals `DEFAULT_MEMORY_LIMITS` · see `packages/shared/src/__tests__/config-subagent-admission.test.ts` (test-plan #E7)
 - [ ] 1.8 Test partial write preservation — persisted `sessionHeap`, then a partial `PUT` omitting it · write + reload · `sessionHeap` survives · see `packages/shared/src/__tests__/config-host-gate.test.ts` (test-plan #E8)
 - [ ] 1.9 Implement `SessionHeapConfig`/`ServerHeapConfig` types, defaults, and parsers with fallback-on-invalid; put panel-visible defaults in a browser-safe module following the `memory-limits.ts` precedent (design D7)
@@ -76,12 +76,15 @@ implement.
 - [ ] 10.3 Test entry validation — enter `63`, `64`, `8192`, `8193` · blur · `63` refused with the floor explained, `64`/`8192` accepted silently, `8193` accepted with a warning · see `packages/client/src/components/settings/__tests__/settings-bespoke-validation.test.tsx` (test-plan #E21)
 - [ ] 10.4 Test effect-boundary copy — Settings → Sessions and → Server · render · session fields say "applies to newly started sessions", server field says a cold start is required · see `tests/e2e/plugin-settings-pages.spec.ts` (test-plan #F1)
 - [ ] 10.5 Test save round-trip — change a heap field, save, reload the panel · the panel converges on the saved value, no revert to default · see `tests/e2e/settings-default-model-catalogue.spec.ts` (test-plan #F2)
-- [ ] 10.6 Implement the fields, the `CONFIG_FIELD_PAGE` entries, the `computeConfigPartial` branches, and the effect-boundary copy
+- [ ] 10.6 Test coupling guard arithmetic — ceiling `512` with `maxConcurrentSubagents` `2`,`4`,`5`,`8` · compute `512/(n+1)` · 171/102/85/57 MB, warning absent at `2`/`4`, present at `5`/`8` · see `packages/shared/src/__tests__/config-subagent-admission.test.ts` (test-plan #E23)
+- [ ] 10.7 Test coupling warning rendered — ceiling `512`, raise `maxConcurrentSubagents` to `8` · blur · non-blocking warning names the per-child figure, value stays saveable · see `tests/e2e/plugin-settings-pages.spec.ts` (test-plan #E24)
+- [ ] 10.8 Implement the coupling guard: pure helper in shared (so both the panel and tests use one formula), warning surfaced on both the Sessions heap field and the subagent bound field
+- [ ] 10.9 Implement the fields, the `CONFIG_FIELD_PAGE` entries, the `computeConfigPartial` branches, and the effect-boundary copy
 
 ## 11. End-to-end behavior
 
 - [ ] 11.1 Test telemetry readable — a running session with a configured ceiling · health endpoint after a heartbeat · that session's metrics carry `heapSizeLimit`, `external`, `arrayBuffers` and the GC counters as numbers · see `tests/e2e/archive-fold.spec.ts` for harness glue (test-plan #F3)
-- [ ] 11.2 Test session ceiling end-to-end — `sessionHeap.maxOldSpaceMb: 1024` · spawn a session, read its metrics · `heapSizeLimit` within `[1024, 1324]` MB and not the server's ceiling · see `qa/tests/02-server-start.sh` (test-plan #X6)
+- [ ] 11.2 Test session ceiling end-to-end — `sessionHeap.maxOldSpaceMb: 512` · spawn a session, read its metrics · `heapSizeLimit` within `[512, 812]` MB and not the server's ceiling · see `qa/tests/02-server-start.sh` (test-plan #X6)
 - [ ] 11.3 Test tooling is not capped — a capped session starts a Node subprocess · read that subprocess's ceiling · it is the runtime default, not the session ceiling — proves the cap did not travel through the environment · see `qa/tests/04-terminal.sh` (test-plan #X7)
 - [ ] 11.4 Test keeper not capped — a capped headless session · inspect keeper and pi · pi is under the ceiling, the keeper is not · see `qa/tests/02-server-start.sh` (test-plan #X8)
 - [ ] 11.5 Test fallback recorded — a resolution yielding no runtime position · spawn a session · a fallback line in the server log AND the health endpoint reports the fallback in use · see `qa/tests/02-server-start.sh` (test-plan #X3)
