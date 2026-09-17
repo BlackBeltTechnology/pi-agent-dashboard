@@ -7,11 +7,16 @@
 ## ADDED Requirements
 
 ### Requirement: `hostGate.mode` config field and its resolved default
-The config loader SHALL support an optional `hostGate: { mode: "report" | "enforce" }`. An **absent** object or absent `mode` SHALL load as `{ mode: "enforce" }`. An **unrecognised** `mode` value SHALL load as `{ mode: "report" }`, so that a typo cannot silently refuse an operator's requests. The key SHALL NOT be seeded by `ensureConfig()`. `writeConfigPartial` SHALL accept `hostGate` and write the object whole (it has one key; no deep-merge).
+The config loader SHALL support an optional `hostGate: { mode: "report" | "enforce" }`. An **absent** object or absent `mode` SHALL load as `{ mode: "enforce" }`. An **unrecognised** `mode` value SHALL load as `{ mode: "report" }`, so that a typo cannot silently refuse an operator's requests. A config file that is **missing, empty, or unparseable** SHALL also load as `{ mode: "enforce" }` — a config the loader cannot read is not evidence that the operator opted out, so these paths SHALL fail closed rather than inheriting a report-only default. The key SHALL NOT be seeded by `ensureConfig()`. `writeConfigPartial` SHALL accept `hostGate` and write the object whole (it has one key; no deep-merge).
 
 #### Scenario: Absent defaults to enforce
 - **WHEN** `config.json` has no `hostGate` key
 - **THEN** the loaded config SHALL expose `hostGate.mode` as `"enforce"`
+
+#### Scenario: A missing, empty or unparseable config file still defaults to enforce
+- **WHEN** no `config.json` exists, or it is empty, or it holds unparseable JSON
+- **THEN** the loaded config SHALL expose `hostGate.mode` as `"enforce"` in each case
+- **AND** it SHALL NOT expose `"report"`
 
 #### Scenario: Unrecognised mode falls back to report
 - **WHEN** `hostGate.mode` is `"yes"`

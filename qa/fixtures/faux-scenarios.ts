@@ -413,6 +413,41 @@ export const CUSTOM_MESSAGE_HIDDEN = "llm-only custom message body";
 export const CUSTOM_ENTRY_SHORT_TYPE = "e2e:state";
 export const CUSTOM_ENTRY_LONG_TYPE = "e2e:big";
 
+/** Read `[[fanout:N]]` from any message; default 1, clamped 1..10. */
+export function fanoutWidth(context: FauxContext): number {
+  for (const message of context.messages ?? []) {
+    const text = (message.content ?? [])
+      .map((block) => (block.type === "text" ? block.text ?? "" : ""))
+      .join(" ");
+    const match = /\[\[fanout:(\d+)\]\]/.exec(text);
+    if (match) return Math.min(10, Math.max(1, Number(match[1])));
+  }
+  return 1;
+}
+
+/** Tail marker for the `fanout-width` measurement scenario. */
+export const FANOUT_WIDTH_TAIL = "fanout width complete";
+
+/**
+ * Measurement fixture: emits `[[fanout:N]]`-many `Agent` calls in ONE assistant
+ * message, so admission sees the whole batch at preflight. Drives the P1/P4
+ * stall table (`tests/e2e/subagent-fanout-measurement.spec.ts`).
+ * See change: bound-subagent-fanout-under-host-pressure.
+ */
+function fanoutWidthStep(context: FauxContext): unknown {
+  const width = fanoutWidth(context);
+  return fauxAssistantMessage(
+    Array.from({ length: width }, (_unused, index) =>
+      fauxToolCall("Agent", {
+        subagent_type: "Explore",
+        description: `faux fanout child ${index + 1}`,
+        prompt: `[[faux:plain-text]] run fanout child ${index + 1}`,
+      }),
+    ),
+    { stopReason: "toolUse" },
+  );
+}
+
 export const SCENARIOS: Record<string, Scenario> = {
   // ── Server-side round-trip scenarios ────────────────────────────────────
   "plain-text": {
@@ -1005,6 +1040,40 @@ export const SCENARIOS: Record<string, Scenario> = {
       fauxAssistantMessage([fauxText("subagent spawn complete")]),
     ],
     expect: { text: "subagent spawn complete" },
+  },
+
+  // Parent that emits a THREE-wide `Agent` fan-out in ONE assistant message, so
+  // the calls preflight sequentially while none has executed. With admission
+  // active at the default cap (2), the first two are admitted and the third is
+  // REFUSED with a real errored tool result — the terminal, non-orphaned refusal
+  // the admission change exists to produce. Drives the L3 rows F1-F4 and the L2
+  // X4 kill-durability row. See change: bound-subagent-fanout-under-host-pressure.
+  "subagent-fanout-refused": {
+    script: [
+      fauxAssistantMessage(
+        [1, 2, 3].map((n) =>
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: `faux fanout child ${n}`,
+            prompt: `[[faux:plain-text]] run fanout child ${n}`,
+          }),
+        ),
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("fanout refused scenario complete")]),
+    ],
+    expect: { text: "fanout refused scenario complete" },
+  },
+
+  // Measurement fixture (P1/P4): emits `[[fanout:N]]` `Agent` calls in one
+  // message so the parent's event-loop stall can be measured gated vs ungated.
+  // See change: bound-subagent-fanout-under-host-pressure.
+  "fanout-width": {
+    script: [
+      fanoutWidthStep,
+      fauxAssistantMessage([fauxText(FANOUT_WIDTH_TAIL)]),
+    ],
+    expect: { text: FANOUT_WIDTH_TAIL },
   },
 
   // Inner scenario for `subagent-sustained`: several SLEEPING bash calls so the

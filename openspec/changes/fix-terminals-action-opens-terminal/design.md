@@ -14,7 +14,9 @@ See `proposal.md` — Why. Verified wiring today (all line refs against the work
 
 ## Goals / Non-Goals
 
-**Goals:** a deterministic activate-or-create driven by a URL flag; zero change to the plain editor entry; no duplicate PTY under any load ordering; deterministic in vitest and Playwright.
+**Goals:** a deterministic activate-or-create driven by a URL flag; zero change to the plain editor entry; no duplicate PTY under any load ordering the readiness gate can observe; deterministic in vitest and Playwright.
+
+The duplicate-PTY goal is deliberately scoped to orderings the gate can observe, because one ordering provably escapes it: a reload landing inside the window between a create and the server registering that terminal sees a snapshot reporting no terminal, and creates one extra. That residual is **accepted and bounded to one extra terminal per entry** (see Risks); closing it would need server-side create idempotency (a request key deduplicated across reloads), which is out of scope here. Stating the goal as "under any load ordering" would contradict that accepted risk.
 
 **Non-Goals:** a dedicated `/terminals` route (removed by `terminals-in-tabbed-panes`, not reintroduced); focusing a *specific* terminal id from the URL; changing how the session split handles terminals; changing auto-surface's own activation behaviour.
 

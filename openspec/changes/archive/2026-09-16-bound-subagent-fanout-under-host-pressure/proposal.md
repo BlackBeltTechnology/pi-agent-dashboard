@@ -120,9 +120,13 @@ orphan-heal paths owned by #671, subagent card UI.
   durably.
 
 ### Modified Capabilities
-None. `subagent-live-cadence` is untouched: a deferred child never ticks, and
-narrowing width to 1 leaves the cadence floor for *running* subagents exactly as
-specified.
+- `pi-api-feature-detection`: its `tool_call` `terminate` audit recorded the
+  bridge as never blocking and carried a scenario saying a future blocking
+  handler makes the requirement live. This change adds exactly that handler
+  (fan-out admission), so the requirement is revisited: the handler blocks but
+  still never sets `terminate`. `subagent-live-cadence` is untouched: a deferred
+  child never ticks, and narrowing width to 1 leaves the cadence floor for
+  *running* subagents exactly as specified.
 
 ## Impact
 

@@ -311,6 +311,70 @@ TypeScript type definitions shared across all components:
 - Evicted or post-reset agents answer `resyncNoop`.
 - Client keeps its last rendered state.
 
+### Subagent Fan-out Admission (change: bound-subagent-fanout-under-host-pressure)
+
+**Problem.**
+
+- Wide `Agent` fan-out on loaded host stalls parent event loop.
+- 13/14 census sessions died with unanswered fan-out as final transcript entry.
+- Stall triggers `hostPressure` unresponsive verdict; host reaps parent process.
+
+**Registration and ordering.**
+
+- Bridge registers admission gate on `tool_call` (`packages/extension/src/subagent-fanout-admission.ts`).
+- Registered AFTER pass-through forwarder in `bridge.ts`.
+- `runner.emitToolCall` stops at first `{block: true}` handler.
+- Earlier registration starves forwarder; dashboard misses `tool_call` while seeing `tool_execution_end`. Order load-bearing.
+
+**Concurrency bound.**
+
+- Bound measures in-flight concurrency per session, not batch width.
+- Platform drops assistant message before extension sees `tool_call`; batch size and batch identity unknowable.
+- In-flight counter increments at admission, not execution.
+- Siblings preflight sequentially before any executes; execution-time counter reads zero across whole batch.
+- Synchronous reject-only decision. Gate never awaits child; awaiting deadlocks preflight sequence.
+
+**Configuration.**
+
+- Default cap: `DEFAULT_MAX_CONCURRENT_SUBAGENTS = 2` (`packages/shared/src/config.ts`).
+- Config key: `maxConcurrentSubagents`.
+- Value `0` disables gate (rollback).
+- Absent value resolves to active default (2).
+- Malformed non-integer or negative value resolves to `Infinity` (fail-open).
+
+**Resource saturation.**
+
+- Saturation narrows effective cap to 1 (never 0); saturated session still makes progress.
+- Private sampler: `subagent-saturation.ts`.
+- Dedicated `monitorEventLoopDelay` over fixed 5 s window plus own CPU baseline.
+- Never reads `collectMetrics()`: destructive read resets 15 s heartbeat histogram, corrupting crash telemetry.
+- Separates process domain (`process.cpuUsage()`, event loop delay) from machine domain (`os.loadavg()`).
+- Hysteresis: enter at threshold, exit only when all metrics fall below 80 % of threshold (`SATURATION_EXIT_RATIO = 0.8`).
+
+**Permit release.**
+
+- Releases permit on `tool_execution_end`.
+- Fires on normal, blocked, and aborted execution paths.
+- Never releases on `tool_result`: aborted call (Esc) skips result hook, leaking permits and starving session.
+
+**Refusal semantics.**
+
+- Refusal returns `{block: true, reason}`.
+- Produces real errored tool result; renders terminal card with actionable retry reason.
+- Never sets `terminate`: refusal means re-issue later, not session abort.
+
+**Observability and durability.**
+
+- Refusal writes durable session entry `subagent-admission-refused` via `pi.appendEntry`. Survives process reap.
+- Admissions skip disk writes to protect hot path.
+- Live counters on `ProcessMetrics`: `fanoutAdmitted`, `fanoutRefused`, `fanoutSaturationRefused`.
+
+**Scope boundary.**
+
+- Gate runs per gated session, not per host process.
+- Subagent sessions skip bridge initialization via re-entry guard.
+- Grandchildren and `flow_agents` run ungated.
+
 ### Retry Lifecycle (change: retry-forever-with-stop-control)
 
 Pi owns the retry loop. Dashboard configures + observes + renders it. Attempts fire sequentially; each produces ONE complete `agent_start` … `agent_end` event cycle. Final attempt produces ONE `agent_settled` event terminal marker.

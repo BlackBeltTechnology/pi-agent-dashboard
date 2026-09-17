@@ -8,8 +8,21 @@
  * engine stays domain-free — what an item is, and how availability is
  * enumerated, lives entirely behind this contract.
  *
- * See change: automation-work-source-fanout.
+ * See change: automation-work-source-fanout, work-source-seam.
  */
+
+/**
+ * Per-call context the engine hands a source at lease time. Carries the firing
+ * automation's scope base, so ONE registered source id can serve N workspaces
+ * (a source whose availability is workspace-scoped reads `cwd`; a source that
+ * owns a fixed backing store — like the folder source — ignores it).
+ * OPTIONAL for the source: an implementation may take no second argument.
+ * See change: work-source-seam.
+ */
+export interface WorkSourceContext {
+  /** Scope base of the automation whose fire is leasing (its workspace root). */
+  cwd: string;
+}
 
 /** A single leased work item handed to one child. */
 export interface LeasedHandle<T = unknown> {
@@ -25,16 +38,33 @@ export interface LeasedHandle<T = unknown> {
   idempotencyKey: string;
 }
 
-/** A fenced competing-consumers work-source. */
-export interface WorkSource<T = unknown> {
+/** The fenced competing-consumers contract every work-source implements. */
+interface WorkSourceCommon<T> {
   /**
-   * Lease up to `n` distinct available items and return their handles. An item
-   * holding a valid lease SHALL NOT be returned again (single-flight). Fewer
-   * than `n` handles means fewer items were available; zero means none.
+   * OPTIONAL targeted lease: lease the ONE available item whose
+   * `idempotencyKey` is `key`. `null` means unavailable — either already
+   * leased (so this IS the single-flight refusal for a targeted run) or gone.
+   * A source that cannot address items by key omits this method, and a
+   * targeted run against it reports `unsupported`.
+   * See change: work-source-seam.
    */
-  next(n: number): LeasedHandle<T>[];
+  take?(
+    key: string,
+    ctx?: WorkSourceContext,
+  ): LeasedHandle<T> | null | Promise<LeasedHandle<T> | null>;
   /** Drop the item permanently — conditional on `leaseToken` being current. */
   ack(leaseToken: string): void;
   /** Return the item to the available pool — conditional on `leaseToken` being current. */
   nack(leaseToken: string): void;
+}
+
+/** A fenced competing-consumers work-source. */
+export interface WorkSource<T = unknown> extends WorkSourceCommon<T> {
+  /**
+   * Lease up to `n` distinct available items and return their handles. An item
+   * holding a valid lease SHALL NOT be returned again (single-flight). Fewer
+   * than `n` handles means fewer items were available; zero means none.
+   * `ctx` is supplied by the engine and may be ignored.
+   */
+  next(n: number, ctx?: WorkSourceContext): LeasedHandle<T>[];
 }

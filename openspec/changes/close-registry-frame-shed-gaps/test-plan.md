@@ -41,6 +41,7 @@ L3 rows read the dashboard against the harness port recorded in
 | E18 | Page reply sets generation and exhausted | decision-table | L1 | automated | `pageReplyGen["/a"]`=1, `/a` not exhausted | `sessions_page_result {cwd:"/a", sessions:[], order:[], hasMore:false}` then a second with `hasMore:true` | after the first: gen=2 and `/a` exhausted; after the second: gen=3 and `/a` not exhausted |
 | E19 | Every `endedTotals` mutation re-arms paging | decision-table | L1 | automated | `/repoA` marked exhausted | each of the six mutations in turn: `session_updated`→ended, `session_removed`, `session_archived`, snapshot, App server-switch reset, `session_added` of an unheld ended session | the exhausted mark for `/repoA` clears in all six cases |
 | E20 | Paging marks live in the group-key space | EP | L1 | automated | worktree session cwd `/repoA/.worktrees/wt1`, group key `/repoA`; `sessions_page_result {cwd:"/repoA", hasMore:false}` | that session transitions to ended, changing `endedTotals["/repoA"]` | the exhausted mark clears (keys matched; no raw-cwd/group-key split) |
+| E21 | Delivered lifecycle frame clears older debt | state-transition | L1 | automated | `session_added` for `s10` shed (debt `{kind:"added", sawAdd:true}`), then `session_removed` for `s10` delivered successfully | flush after drain with `s10`'s record ended | debt for `s10` was cleared on the successful delivery, so NO reconciled `session_added` for `s10` is emitted; an ended row is not resurrected |
 
 ### Performance
 
@@ -77,15 +78,15 @@ L3 rows read the dashboard against the harness port recorded in
 ## Coverage summary
 
 - Requirements covered: 17/17
-- Scenarios by class: edge 20 · perf 2 · frontend 9 · error 4
-- Scenarios by level: L1 29 · L2 0 · L3 4 · manual-only 1
-- Scenarios by disposition: automated 34 · manual-only 1
+- Scenarios by class: edge 21 · perf 2 · frontend 9 · error 4
+- Scenarios by level: L1 32 · L2 0 · L3 3 · manual-only 1
+- Scenarios by disposition: automated 35 · manual-only 1
 
 ## New infra needed
 
 None. Every row extends an existing harness:
 - server L1 → `packages/server/src/__tests__/browser-gateway-host-pressure-reconcile.test.ts` (reconcile + force-shed pattern), `browser-gateway-dropped-frames.test.ts` (shed accounting)
-- client handler L1 → `packages/client/src/components/__tests__/useMessageHandler.tier25-fallback.test.tsx` (spawn-cascade tiers), `useMessageHandler.snapshot-replace.test.tsx` (snapshot apply)
+- client handler L1 → `packages/client/src/hooks/__tests__/useMessageHandler.tier25-fallback.test.tsx` (spawn-cascade tiers), `useMessageHandler.snapshot-replace.test.tsx` (snapshot apply)
 - client component L1 → `packages/client/src/components/__tests__/SessionList.test.tsx`
 - session manager L1 → `packages/server/src/__tests__/session-death-attribution.test.ts` (register/unregister status transitions)
 - L3 → `tests/e2e/sessions-page-stub-group.spec.ts` (ended paging + stub group)

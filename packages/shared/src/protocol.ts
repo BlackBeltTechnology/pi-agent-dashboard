@@ -252,6 +252,20 @@ export interface ProcessMetrics {
   tickCoalesced?: number;
   tickDiscardedAtTerminal?: number;
   tickDroppedNotReady?: number;
+  /**
+   * Subagent fan-out admission counters (change:
+   * bound-subagent-fanout-under-host-pressure, D7). Cumulative for the bridge's
+   * lifetime. `fanoutAdmitted` are calls the gate admitted; `fanoutRefused` are
+   * refusals by any cause, of which `fanoutSaturationRefused` were caused by
+   * resource saturation rather than the static cap. The refusals are ALSO
+   * written to the durable session record, because the failure mode this
+   * capability addresses ends with the process gone and these live counters
+   * vanish with it. Ride the existing heartbeat metrics transport rather than a
+   * new one.
+   */
+  fanoutAdmitted?: number;
+  fanoutRefused?: number;
+  fanoutSaturationRefused?: number;
 }
 
 export interface SessionHeartbeatMessage {

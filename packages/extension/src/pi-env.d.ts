@@ -28,6 +28,8 @@ declare module "@earendil-works/pi-coding-agent" {
     registerTool(tool: any): void;
     registerProvider(name: string, config: any): void;
     unregisterProvider(name: string): void;
+    /** Append a durable custom entry to the session record (not sent to the LLM). */
+    appendEntry<T = unknown>(customType: string, data?: T): void;
     exec(command: string, args: string[], options?: { timeout?: number }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
     events: EventBus;
   }

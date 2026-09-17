@@ -39,7 +39,7 @@ markers remain.
 | E21 | qr-device-pairing: label is trimmed, not rejected | BVA | L1 | automated | operator session; `label: "  phone  "` | `POST /api/pair/approve` | `200`; stored device label is exactly `"phone"` |
 | E22 | qr-device-pairing: absent label keeps the pending label | decision-table | L1 | automated | operator session; body carries no `label` key | `POST /api/pair/approve` | `200`; device label equals the label recorded at redemption |
 | E23 | qr-device-pairing: bound counts bytes, not characters | BVA | L1 | automated | operator session; a multi-byte label that is 64 bytes but far fewer characters, and a second that is 65 bytes | `POST /api/pair/approve` | `200` for the 64-byte value, `400` for the 65-byte value |
-| E24 | qr-device-pairing: non-string label degrades to absent | EP | L1 | automated | operator session; `label: 123` | `POST /api/pair/approve` | `200`; pending label kept; no `500` |
+| E24 | qr-device-pairing: supplied non-string label is rejected | EP (type violation) | L1 | automated | operator session; `label: 123` | `POST /api/pair/approve` | `400`; P remains pending; NOT a `200` that silently keeps the pending label; no `500` |
 | E25 | git-operations-api: command separator passed verbatim | EP | L1 | automated | create-worktree naming branch `feat&calc` | `addWorktree` | an `execFileSync` spy call with `file === "git"` and `feat&calc` present as exactly one argv element; the `execSync` spy is never called |
 | E26 | git-operations-api: merge metacharacter branch | EP | L1 | automated | worktree whose branch is `x; echo pwned` | `mergeWorktree` | `git merge --no-ff` receives `x; echo pwned` as one argv element |
 | E27 | git-operations-api: diff-stat base with spaces | EP | L1 | automated | diff-stat resolving base `release 2026` | `worktreeDiffStat` | the range is a single argv element `release 2026..<branch>` |
@@ -49,6 +49,7 @@ markers remain.
 | E31 | git-operations-api: property cannot silently regress | static-source | L1 | automated | the `git-operations.ts` module source read as text | assertion | the source contains neither `execSync(` nor `shellEscape`, comments included |
 | E32 | shared-config: `hostGate.mode` loader decision table | decision-table | L1 | automated | `parseHostGateMode` called with `undefined`, `"report"`, `"enforce"`, `"yes"`, `123`, `null` | direct call | `undefined` → `"enforce"`; `"report"` → `"report"`; `"enforce"` → `"enforce"`; `"yes"`, `123`, `null` → `"report"` |
 | E33 | shared-config: absent key loads as enforce | BVA | L1 | automated | `config.json` with no `hostGate` key | `loadConfig` | loaded `hostGate.mode === "enforce"` |
+| E33b | shared-config: loader fallback paths resolve to enforce | EP (fallback class) | L1 | automated | (a) no `config.json`, (b) empty/whitespace `config.json`, (c) malformed-JSON `config.json` | `loadConfig` | each case yields `hostGate.mode === "enforce"` — the three early returns hand back `DEFAULTS` without reaching `parseHostGateMode`, so a fresh install must not stay report-only |
 | E34 | shared-config: explicit report survives a round-trip | BVA | L1 | automated | `config.json` holding `hostGate.mode: "report"` | `loadConfig` | loaded value is `"report"` — the enforce default applies only to an absent value |
 | E35 | shared-config: unrelated write does not seed hostGate | state-transition | L1 | automated | `config.json` with no `hostGate` key | `PUT /api/config` updating an unrelated key | the written file still has no `hostGate` key, so the boot source stays `default` |
 | E36 | host-admission: mode resolution decision table | decision-table | L1 | automated | `(env, configMode)` pairs: `(unset, undefined)`, `("enforce", undefined)`, `("report", "enforce")`, `("yes", undefined)`, `("yes", "report")` | `resolveHostGateMode` | `enforce`; `enforce` with `envOverridden: true`; `report` with `envOverridden: true`; `enforce`; `report` |
@@ -92,9 +93,9 @@ markers remain.
 ## Coverage summary
 
 - Requirements covered: 6/6 (openspec-refresh gate, bearer revoke, approve+label, git argv+ENOENT+win32, host-admission default+boot log, shared-config loader)
-- Scenarios by class: edge 41 · perf 2 · frontend 4 · error 8
-- Scenarios by level: L1 50 · L2 1 · L3 1 · manual-only 1
-- Scenarios by disposition: automated 54 · manual-only 1
+- Scenarios by class: edge 42 · perf 2 · frontend 4 · error 8
+- Scenarios by level: L1 53 · L2 1 · L3 1 · manual-only 1
+- Scenarios by disposition: automated 55 · manual-only 1
 
 ## New infra needed
 
