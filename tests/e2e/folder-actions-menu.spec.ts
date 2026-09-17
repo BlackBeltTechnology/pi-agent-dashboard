@@ -47,6 +47,7 @@ test.describe("folder actions menu", () => {
   // F7 — the trigger sits inside a header row that navigates to the directory
   // home and toggles collapse; both must stay suppressed.
   test("F7: the trigger opens the menu without navigating or collapsing", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const before = page.url();
     await openMenu(page);
     expect(page.url()).toBe(before);

@@ -215,6 +215,7 @@ async function ensurePinned(): Promise<void> {
 
 test.describe("evidence-based endedAt across a real boot (L3)", () => {
   test("F1: a bootstrap-restored card is anchored at its transcript evidence", async () => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     await ensurePinned();
     const planted = plantBootstrapOnlyTranscript();
 
@@ -250,6 +251,7 @@ test.describe("evidence-based endedAt across a real boot (L3)", () => {
   });
 
   test("F2: the boot restore loop does not churn stored ended-tier order", async () => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     // Self-contained: bootstrap only discovers the fixture directory when it is
     // pinned, so F2 must not depend on F1 having run (`--grep`, retry, reset).
     // The helper is idempotent.

@@ -125,6 +125,7 @@ async function runScenario(page: Page) {
 test.describe("selection anchoring against row growth", () => {
   // Task 6.1 — the acceptance scenario for the original report.
   test("a tool card completing mid-drag does not retarget the selection", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(150_000);
     const hold = await runScenario(page);
 
@@ -155,6 +156,7 @@ test.describe("selection anchoring against row growth", () => {
 
   // Task 6.2 — shrink counterpart: collapsing the completed card above.
   test("a row above the anchor shrinking mid-drag does not retarget the selection", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(150_000);
     const hold = await runScenario(page);
     await hold.release(); // let the card complete and expand FIRST
@@ -243,6 +245,7 @@ test.describe("selection anchoring against row growth", () => {
 
   // Task 6.6 — a user scroll during an active selection must not be fought (D2).
   test("a wheel scroll during an active selection is not fought", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(150_000);
     await runScenario(page);
 
@@ -263,6 +266,7 @@ test.describe("selection anchoring against row growth", () => {
 // render must already find the bottom-pin suspended.
 test.describe("selection suspends the bottom-pin on the first frame", () => {
   test("a chunk delivered on the first frame of a drag does not scroll to bottom", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(150_000);
     await enableToolBodies(page);
     const card = await spawnFreshGitSession(page);

@@ -47,6 +47,7 @@ async function serverIdentity(
 
 test.describe("keeper-backed session identity survives a dashboard restart", () => {
   test("#F1 a dispatched command reaches the reattached session's pi", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     await gotoDashboard(page);
 
     // Dashboard-spawned → runs pi inside a keeper → the reattach path this

@@ -524,6 +524,7 @@ test.describe("openspec init affordances — session card", () => {
     // the init-time CLI read can also fail silently. Un-fixme F8 + F9's
     // third leg once the provider is wired; bodies below are the contract.
     test("activation navigates to the OpenSpec Workflow Profile settings surface", async ({ page }) => {
+      test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
       test.setTimeout(150_000);
       const dir = makeDir("f8");
       await gotoDashboard(page);

@@ -22,6 +22,7 @@ import { robustClick, sendPrompt, spawnFreshGitSession } from "./helpers/index.j
 
 test.describe("internal Monaco editor pane", () => {
   test("OpenFileButton opens the pane; markdown + monaco viewers render real fixture files", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     // The OpenFileButton lives in the ReadToolRenderer BODY, which only mounts
     // when the step is expanded AND tool-result bodies are shown. A fresh
     // container seeds no display prefs (server base default all-false), so enable

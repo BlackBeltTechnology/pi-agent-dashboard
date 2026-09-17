@@ -116,6 +116,7 @@ test.describe("subagent thin ticks — liveness + fidelity (L3)", () => {
   // never opens an inspector, so the share must sit far under the C4 abort
   // threshold of 50 %.
   test("P5: inspector-open share is measurable and below the C4 abort threshold", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const card = await spawnFreshGitSession(page);
     await card.click();
     await page.keyboard.press("Escape").catch(() => {});

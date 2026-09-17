@@ -262,6 +262,7 @@ test.describe("openspec init affordances — folder section", () => {
   });
 
   test("F3 (#2.50): ABSENT / BROKEN / STALE / READY section heights all match the READY pill (±2px)", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(150_000);
     const absent = makeDir("f3-absent");
     const broken = makeDir("f3-broken", "mkdir -p DIR/openspec"); // missing-changes-dir

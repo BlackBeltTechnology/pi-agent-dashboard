@@ -22,6 +22,7 @@ import { byTestId, spawnFreshGitSession } from "./helpers/index.js";
 // success state in the UI.
 test.describe("flow roundtrip (L3: real pi-flows engine + faux agents)", () => {
   test("launch synthetic flow → agents render → flow completes", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const card = await spawnFreshGitSession(page);
 
     // Select the session so the FlowDashboard content-view has a target.

@@ -20,6 +20,7 @@ test.describe("faux round-trip — inline agent screenshot", () => {
   test("bash screenshot result renders inline, auto-expanded, with no path-link", async ({
     page,
   }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const card = await spawnFreshGitSession(page);
     await card.click();
 

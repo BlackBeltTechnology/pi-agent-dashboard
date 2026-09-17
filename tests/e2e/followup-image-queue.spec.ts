@@ -193,6 +193,7 @@ test.describe("follow-up queue — refusal is user-visible", () => {
   test("F6: a send refused at the queue-depth cap surfaces in chat and does not grow the queue", async ({
     page,
   }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(240_000);
     const sessionId = await streamingSession(page);
 

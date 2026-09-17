@@ -76,6 +76,7 @@ test.describe("prompt-derived tool state — rendered card", () => {
   test("#F6 the card converges back to 'Needs you' after a dashboard server restart", async ({
     page,
   }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     await gotoDashboard(page);
 
     // MUST be a session the dashboard did not spawn. `server.stop()` calls

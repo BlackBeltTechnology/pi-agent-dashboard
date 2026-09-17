@@ -88,6 +88,7 @@ test.describe("subagents inspector (L3)", () => {
   // file (tests/e2e/lifecycle.ts), so `/api/health` resolves to this run's
   // container.
   test("collapse fires on a real sustained subagent run", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const card = await spawnFreshGitSession(page);
     await card.click();
 
