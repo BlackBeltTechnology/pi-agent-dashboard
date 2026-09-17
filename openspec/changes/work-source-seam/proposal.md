@@ -50,6 +50,17 @@ never revert to `automationRun`.
 Non-goals: any concrete consumer source and its migration (a separate change);
 any change to what an action *does*.
 
+## Discipline Skills
+
+- `scenario-design` — the seam's value is in its fault-isolation edges (a
+  throwing provider isolated, a malformed/duplicate contribution dropped not
+  fatal, `in_flight` vs `unsupported` refusals, a lease released on run death);
+  these are the scenarios the delta spec must pin down.
+- `review-code` — the `engine.ts` graft must be **additive** and preserve
+  develop's landed `pluginRef`/`lifecycle` spawn shape without reverting to
+  `automationRun`; a non-trivial, easy-to-get-wrong contract to review before it
+  lands.
+
 ## Capabilities
 
 ### Modified Capabilities
