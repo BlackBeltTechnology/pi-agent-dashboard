@@ -123,8 +123,17 @@ trade-off, not a bug**. This change does NOT flip it; it documents it as an
 opt-in lever for memory-constrained hosts and lets the aggregate budget do the
 work instead.
 
-Worst case under the proposed defaults: `min(32 × 32 MiB, 768 MiB)` = **768 MiB**,
-versus 3.6 GB today and 6.4 GB with the per-session cap alone.
+Worst case under the proposed defaults: `min(32 × 32 MiB, 768 MiB)` = **768 MiB**
+of serialized event data, versus 3.6 GB today and 6.4 GB with the per-session cap
+alone. Two qualifiers, both established during review:
+
+- The enforced high-water mark is `768 MiB + GLOBAL_TRIM_SLACK` (~806 MiB), since
+  reclaim is hysteretic — "768 MiB" is the budget, not the ceiling.
+- The budget counts **serialized `data` bytes**, while the crash ceiling counts
+  **V8 heap bytes**, and `rss` ran 1867 MB against `heapUsed` 818 MB. Strings are
+  86 % of the live set so the two track closely for this workload, but 768 MiB of
+  budget means roughly 1 GiB heap and ~2 GiB RSS. The defaults are sized against
+  the 8192 MB stamp with that factor applied; the budget is not an RSS figure.
 
 ## What Changes
 
@@ -143,10 +152,15 @@ versus 3.6 GB today and 6.4 GB with the per-session cap alone.
 - **Expose retention + heap headroom in `/api/health`.** Add retained bytes
   (global and per session), `evictedSessions` alongside the existing
   `storeTrim`, and `heapSizeLimit` — absent today, so no client can compute how
-  close the server is to its ceiling.
-- **Shed under heap pressure.** When `heapUsed` approaches `heapSizeLimit`,
-  trim more aggressively than the steady-state budget requires, so the server
-  degrades (older transcript detail is dropped) instead of dying.
+  close the server is to its ceiling. The two retention/heap numbers are GAUGES
+  and sit beside `rss`/`heapUsed`, not inside `storeTrim`, which is documented as
+  cumulative counters never reset on read.
+- **Heap-pressure shedding is NOT in this change.** Trimming harder as
+  `heapUsed` approaches `heapSizeLimit` was cut during review: it has no defined
+  trigger site, no defined target when a budget is `0`, and at the new defaults
+  the store (768 MiB) cannot reach 85 % of an 8 GiB ceiling — it would fire only
+  where its own semantics are undefined. The aggregate budget is the actual fix;
+  shedding is filed as a follow-up. `heapSizeLimit` is still exposed here.
 - **Characterize the back-pressure and stall findings.** Record the dropped-frame
   and event-loop-spike behaviour against the new telemetry to confirm they
   subside once retention is bounded, and split any residue into its own change
@@ -160,7 +174,8 @@ versus 3.6 GB today and 6.4 GB with the per-session cap alone.
 - Affected server/shared code:
   `packages/server/src/persistence/memory-event-store.ts` (accounting + budget
   eviction), `packages/server/src/routes/system-routes.ts` (`/api/health`
-  `heapSizeLimit` + `storeTrim.residentBytes`), `packages/shared/src/memory-limits.ts`
+  `server.heapSizeLimit` + `server.residentBytes` as GAUGES beside `rss`/`heapUsed`,
+  NOT inside the cumulative `storeTrim` struct), `packages/shared/src/memory-limits.ts`
   and `packages/shared/src/config.ts` (three new keys + loader clamps),
   `packages/server/src/config-api.ts` (partial write), `packages/server/src/server.ts`
   (threading; replaces the hardcoded `undefined // maxCachedSessions` at :925).
@@ -181,6 +196,20 @@ versus 3.6 GB today and 6.4 GB with the per-session cap alone.
   observed is a fatal OOM that loses everything. Replay/hydration already
   tolerates evicted sessions (`specs/session-diff-extraction`), so the
   degradation path exists.
+- **Accepted regression — scrollback gets shallower.** `history_backfill` reads
+  ONLY the in-memory store, never disk (serving it from disk is an explicit
+  non-goal of `lazy-load-session-history`), and cold-load hydration re-inserts a
+  transcript through `insertEvent`. So the byte budget now bounds both how far
+  back a user can scroll and how much of a reopened session is restored — where
+  today the bound is 20 000 events. This is real user-visible loss and it is
+  accepted: the alternative observed eight times is a fatal OOM that loses every
+  session's history at once. It degrades gracefully (backfill returns what
+  remains and the client renders a gap), which a spec scenario now asserts, and
+  operators who prefer depth over headroom raise `maxBytesPerSession` or set it
+  to `0`.
+- **Existing pegged sessions are trimmed on day one.** The 32 MiB default sits
+  BELOW the measured 36 MB per pegged session deliberately — a default above the
+  observed occupancy is a default that never fires.
 - Relationship to `bound-session-heap-and-gc-telemetry`: complementary and
   non-overlapping. That change caps session processes and keeps `serverHeap` at
   8192; this change stops the server from *filling* whatever ceiling it is
