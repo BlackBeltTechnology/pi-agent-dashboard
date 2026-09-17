@@ -920,37 +920,52 @@ export function createEngine(deps: EngineDeps): Engine {
       return { ok: false, error: "automation resolves no action" };
     }
 
-    const vis = effectiveVisibility(automation, cfg.defaultVisibility);
-    const resolved = resolveModel(automation.config.model, {
-      defaultModel: cfg.defaultModel,
-      ...(deps.readRoles ? { readRoles: deps.readRoles } : {}),
-    });
-    const parentRec = storeStartParentRun(scopeBase, automation.name, {});
-    const parent: ParentState = {
-      parentRunId: parentRec.runId,
-      key: automationKey(automation),
-      scopeBase,
-      name: automation.name,
-      remaining: 1,
-      statuses: [],
-      findings: 0,
-      finalized: false,
-      // Targeted run: bypasses the runner, so its finalize must not release a
-      // runner slot it never acquired. See change: work-source-seam.
-      runnerManaged: false,
-    };
-    parents.set(parent.parentRunId, parent);
+    // Every synchronous setup step between a successful `take` and `spawnChild`
+    // (model resolution via a caller `readRoles`, the parent-run fs write) can
+    // throw. On any throw the lease MUST be released, or a source without lease
+    // expiry strands the item unavailable forever. See change: work-source-seam.
+    try {
+      const vis = effectiveVisibility(automation, cfg.defaultVisibility);
+      const resolved = resolveModel(automation.config.model, {
+        defaultModel: cfg.defaultModel,
+        ...(deps.readRoles ? { readRoles: deps.readRoles } : {}),
+      });
+      const parentRec = storeStartParentRun(scopeBase, automation.name, {});
+      const parent: ParentState = {
+        parentRunId: parentRec.runId,
+        key: automationKey(automation),
+        scopeBase,
+        name: automation.name,
+        remaining: 1,
+        statuses: [],
+        findings: 0,
+        finalized: false,
+        // Targeted run: bypasses the runner, so its finalize must not release a
+        // runner slot it never acquired. See change: work-source-seam.
+        runnerManaged: false,
+      };
+      parents.set(parent.parentRunId, parent);
 
-    const childAutomation: DiscoveredAutomation = {
-      ...automation,
-      config: { ...automation.config, action: base.action, actions: undefined },
-    };
-    const childCtx: FireContext = { firedAt: deps.now?.() ?? Date.now(), value: handle.item };
-    spawnChild(parent, childAutomation, base.actionLabel, scopeBase, resolved, vis, childCtx, {
-      lease: { source, token: handle.leaseToken },
-      idempotencyKey: handle.idempotencyKey,
-    });
-    return { ok: true, runId: parent.parentRunId };
+      const childAutomation: DiscoveredAutomation = {
+        ...automation,
+        config: { ...automation.config, action: base.action, actions: undefined },
+      };
+      const childCtx: FireContext = { firedAt: deps.now?.() ?? Date.now(), value: handle.item };
+      spawnChild(parent, childAutomation, base.actionLabel, scopeBase, resolved, vis, childCtx, {
+        lease: { source, token: handle.leaseToken },
+        idempotencyKey: handle.idempotencyKey,
+      });
+      return { ok: true, runId: parent.parentRunId };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      warn(`[engine] work item ${key}: setup failed after lease, releasing: ${msg}`);
+      try {
+        source.nack(handle.leaseToken);
+      } catch {
+        /* best-effort */
+      }
+      return { ok: false, error: msg };
+    }
   }
 
   function startRunFor(automation: DiscoveredAutomation, fireCtx?: FireContext): { runId: string } | null {

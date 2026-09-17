@@ -68,7 +68,8 @@ class KeyedSource {
   }
 
   take?: ((key: string) => Promise<LeasedHandle<string> | null>) | undefined = async (key: string) => {
-    if (this.byItem.has(key)) return null; // in flight
+    if (this.byItem.has(key)) return null; // already leased (in flight)
+    if (!this.available.includes(key)) return null; // gone / never existed
     return this.lease(key);
   };
 
@@ -291,6 +292,17 @@ describe("engine.runWorkItem", () => {
     const again = await engine.runWorkItem(batchAutomation(), "a");
     expect(again.ok).toBe(true);
     expect(spawnCalls).toHaveLength(2);
+  });
+
+  it("maps a never-available (gone) key to `in_flight`, spawning nothing", async () => {
+    const src = new KeyedSource(["a"]);
+    const spawnCalls: SpawnOpts[] = [];
+    const engine = makeEngine(src, spawnCalls);
+
+    const res = await engine.runWorkItem(batchAutomation(), "does-not-exist");
+
+    expect(res).toEqual({ ok: false, reason: "in_flight" });
+    expect(spawnCalls).toHaveLength(0);
   });
 
   it("reports `unsupported` for a source that cannot address items by key", async () => {

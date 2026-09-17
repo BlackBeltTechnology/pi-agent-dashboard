@@ -53,25 +53,34 @@ export function collectWorkSourceContributions(
   for (const { key, value } of entries) {
     const contribs = Array.isArray(value) ? value : [value];
     for (const c of contribs) {
-      const entry = c as Partial<WorkSourceContribution> | null;
-      if (!entry || typeof entry !== "object") {
-        warn(`automation work-source "${key}": ignored — not an object`);
-        continue;
+      // A contribution is a foreign in-process value: property access
+      // (`entry.id`, `entry.source`) and the structural check may hit a
+      // throwing getter or Proxy trap. Isolate per entry so one hostile
+      // publisher never denies the others their sources (the spec's
+      // fail-open contract). See change: work-source-seam.
+      try {
+        const entry = c as Partial<WorkSourceContribution> | null;
+        if (!entry || typeof entry !== "object") {
+          warn(`automation work-source "${key}": ignored — not an object`);
+          continue;
+        }
+        if (typeof entry.id !== "string" || entry.id.trim() === "") {
+          warn(`automation work-source "${key}": ignored — missing/empty id`);
+          continue;
+        }
+        if (!isWorkSource(entry.source)) {
+          warn(`automation work-source "${entry.id}" (${key}): ignored — not a work source (next/ack/nack)`);
+          continue;
+        }
+        if (seen.has(entry.id)) {
+          warn(`automation work-source "${entry.id}" (${key}): ignored — duplicate id`);
+          continue;
+        }
+        seen.add(entry.id);
+        out.push({ id: entry.id, source: entry.source });
+      } catch (e) {
+        warn(`automation work-source "${key}": ignored — threw during validation: ${e instanceof Error ? e.message : String(e)}`);
       }
-      if (typeof entry.id !== "string" || entry.id.trim() === "") {
-        warn(`automation work-source "${key}": ignored — missing/empty id`);
-        continue;
-      }
-      if (!isWorkSource(entry.source)) {
-        warn(`automation work-source "${entry.id}" (${key}): ignored — not a work source (next/ack/nack)`);
-        continue;
-      }
-      if (seen.has(entry.id)) {
-        warn(`automation work-source "${entry.id}" (${key}): ignored — duplicate id`);
-        continue;
-      }
-      seen.add(entry.id);
-      out.push({ id: entry.id, source: entry.source });
     }
   }
   return out;

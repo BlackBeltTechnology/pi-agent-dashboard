@@ -13,7 +13,8 @@ never applied to work-sources, so:
 - a foreign plugin cannot contribute its own queue — it must *be* the
   automation plugin or go without;
 - a source whose availability lives behind an async port (DB, REST, another
-  plugin) cannot participate, because `next()` is synchronous;
+  plugin) cannot be addressed for a single item on demand, because there is no
+  asynchronous targeted-lease path;
 - there is no "process this one item now" path — only whole-batch fan-out;
 - `routes.ts` freezes `KNOWN_KINDS = new Set(["schedule"])`, so a valid
   `schedule.batch` automation shows **invalid** in `/list` and `/definition`
@@ -33,10 +34,11 @@ never revert to `automationRun`.
   providers **lazily** on every `get`/`has`/`ids`, so load order is irrelevant
   and the publishing plugin keeps ownership of its lease-stateful instance.
   Locally-registered ids win a collision; a throwing provider is isolated.
-- **Async vend widening.** `AsyncWorkSource` + `WorkSourceContext` so a source
-  MAY resolve `next()`/`take()` asynchronously and receives the firing
-  automation's `cwd`. Strictly a widening — every existing synchronous
-  `WorkSource` still satisfies the contract unchanged.
+- **Per-call context + async `take`.** `WorkSourceContext` so a source receives
+  the firing automation's `cwd` at lease time, and the OPTIONAL targeted `take`
+  MAY resolve asynchronously (the engine awaits it). Batch vend (`next`) stays
+  **synchronous** — every existing `WorkSource` still satisfies the contract
+  unchanged.
 - **Targeted single-item run.** `engine.runWorkItem(automation, key)` leases the
   ONE item whose idempotency key is `key` via the source's optional `take`; the
   lease itself is the single-flight guard (`in_flight` when already leased,
@@ -65,9 +67,9 @@ any change to what an action *does*.
 
 ### Modified Capabilities
 
-- `automation-work-source`: adds cross-plugin provider registration, async vend
-  with per-call context, targeted single-item run (`runWorkItem`/`take`), and
-  live-registry validation of `on.source` in `/list`.
+- `automation-work-source`: adds cross-plugin provider registration, per-call
+  context with an async targeted `take`, targeted single-item run
+  (`runWorkItem`), and live-registry validation of `on.source` in `/list`.
 
 ## Impact
 
@@ -76,7 +78,7 @@ any change to what an action *does*.
 - `packages/automation-plugin/src/server/work-source-registry.ts` —
   `WorkSourceProvider` + `addProvider`, lazy consult with per-provider isolation.
 - `packages/automation-plugin/src/shared/work-source.ts` — `WorkSourceContext`,
-  optional `take`, `AsyncWorkSource`, `AnyWorkSource` union.
+  optional async `take` (`next` stays synchronous).
 - `packages/automation-plugin/src/server/engine.ts` — `runWorkItem` (grafted
   onto develop's `pluginRef` engine; `automationRun` NOT reintroduced).
 - `packages/automation-plugin/src/server/index.ts` — `consumeAll` wire,

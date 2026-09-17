@@ -341,8 +341,9 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
     async (
       cwd: string,
       key: string,
+      name?: string,
     ): Promise<{ ok: boolean; runId?: string; reason?: string; error?: string }> =>
-      runWorkItemViaEngine(cwd, key),
+      runWorkItemViaEngine(cwd, key, name),
   );
 
   const watcher = createAutomationWatcher({
@@ -568,19 +569,37 @@ async function runNowViaEngine(
 async function runWorkItemViaEngine(
   cwd: string,
   key: string,
+  name?: string,
 ): Promise<{ ok: boolean; runId?: string; reason?: string; error?: string }> {
   const eng = engineRef;
   if (!eng) return { ok: false, error: "engine not ready" };
   const base = path.resolve(cwd);
   const { scanAutomations } = await import("./scanner.js");
-  const found = scanAutomations(
+  const batch = scanAutomations(
     { repoRoot: base, scanFolder: true, scanGlobal: false },
     eng.registry.kinds(),
     eng.actionRegistry.ids(),
     eng.workSources.ids(),
-  ).find((a) => a.valid && a.config?.on.kind === "schedule.batch");
-  if (!found) return { ok: false, error: "no work-source automation for workspace" };
-  return eng.runWorkItem(found, key);
+  ).filter((a) => a.valid && a.config?.on.kind === "schedule.batch");
+  // A source id does NOT uniquely identify an automation, and a workspace may
+  // hold several `schedule.batch` automations. Prefer an explicit name; without
+  // one, target only an UNAMBIGUOUS single candidate rather than silently
+  // picking the first (which could run the wrong action/source, or report
+  // `unsupported` when a sibling supports the item). See change: work-source-seam.
+  if (name) {
+    const byName = batch.find((a) => a.name === name);
+    if (!byName) return { ok: false, error: `no schedule.batch automation "${name}" for workspace` };
+    return eng.runWorkItem(byName, key);
+  }
+  if (batch.length === 0) return { ok: false, error: "no work-source automation for workspace" };
+  if (batch.length > 1) {
+    return {
+      ok: false,
+      reason: "ambiguous",
+      error: `${batch.length} schedule.batch automations in workspace; specify a name`,
+    };
+  }
+  return eng.runWorkItem(batch[0]!, key);
 }
 
 /** Stop a running run via the engine (terminate process + finalize idempotently). */
