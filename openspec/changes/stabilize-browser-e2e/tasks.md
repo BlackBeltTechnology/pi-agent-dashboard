@@ -21,6 +21,47 @@
 
 - [x] 4.1 Test the fixme guard — repo-lint case: a fixture spec with `test.fixme(true, "flaky")` fails naming the file; `test.fixme(true, "https://github.com/…/issues/42")` passes. Verify red first, then implement the guard.
 - [ ] 4.2 Triage each red from 3.3: reproduce on one fresh local harness; record `drift` or `bug(#n)` beside the spec name in this file. Known starters: `change-summary-table` (toast intercepts click → `dismissToasts`, drift), `bus-client-goal-plugin-action` (goal plugin relocated → assertion drift), `editor-pane` ×3, `file-preview-survives-churn`, `openspec-artifact-dialog` ×2, `project-init-button`, `roles-custom`. Verify each classification has a one-line reason.
+
+  **Triage 2026-09-17 (branch `os/stabilize-browser-e2e`, commit `776d601e0`+).**
+  Reproduced on ONE fresh local harness (managed env + `TEST_COPY_MODE=1`,
+  attach mode). Three SYSTEMIC causes accounted for most of the 129-red
+  baseline — each fixed and verified against the live harness:
+
+  - **S1 `spawnFreshGitSession` spawns into a SEED dir (87 specs use it).** The
+    old `hasSessions || spawnBtn-visible` branch read a `/fixtures/seed-win-*`
+    group's Create tray — seeded by `scripts/seed-sessions-window.mjs` (125
+    ended sessions under `PI_E2E_SEED=1`) — as \"a folder is pinned\" and clicked
+    it. `POST /api/session/spawn` then returns 500 `Directory does not exist:
+    /fixtures/seed-win-124`; no card ever appears, so the spec dies at its 60s
+    card poll. Fix (`tests/e2e/helpers/index.ts`): pin `FIXTURE_GIT` when absent,
+    then click the button INSIDE `folder-body-<cwd>`.
+  - **S2 live-browser tile occludes the chat (every session spec).**
+    `global-setup.ts` defaulted `PI_BROWSER_RELAY_FAKE=1` on the SHARED harness;
+    the seed makes `isLiveViewActive()` true for EVERY session, so the
+    `content-view` slot rendered `LiveViewTile` instead of the composer. Reverted
+    to an opt-in passthrough; `browser-relay.spec.ts` now `test.skip`s when the
+    faucet is absent (its documented variant-harness contract).
+  - **S3 toast interception (8 specs).** Duplicated `dismissToasts` /
+    `robustClick` hoisted into `tests/e2e/helpers/index.ts`.
+
+  Residual drift fixed: `change-summary-table` (the rail is now a slim summary
+  bar; per-file rows render inline in the disk-backed editor file tree →
+  `tool-edit` retargeted to the real `README.md`), `enhance-tool-call-grouping`
+  tests 1/2 (a fresh container seeds all-false display prefs → enable tool calls
+  in `beforeEach`), `editor-pane` F3 (`pane-caption-*` removed as redundant).
+
+  **Still red, next pass** (CI re-run 35257314976 is authoritative — a local
+  attach harness pollutes after ~100 specs): `chat-transcript-virtualization`
+  :127, `compaction-boundary-replay` #F1/#F2, `custom-entry-fallback` #E11,
+  `error-lifecycle` ×2, `faux-ask` #F6, `file-preview-survives-churn`,
+  `folder-status-capsule` #X2, `ended-session-endedat` F1/F2, `automation-fanout`
+  #F5, `flow-live-no-double-render` #F1, `flow-roundtrip`, `openspec-board-drop`
+  F2/X6b, `openspec-board-worktree-availability`,
+  `openspec-init-affordances-folder` #F3,
+  `openspec-init-affordances-session-card` #F8, `package-queue-visible`,
+  `pending-prompt-recovery` ×7, `pi-runtime-picker` #F14, `reconcile-heal`,
+  `editor-pane` F1 (tree-rail step), plus whatever shards 3/6 report (they were
+  killed at `timeout-minutes: 120` before producing a blob).
 - [ ] 4.3 Fix every `drift` spec; file an issue for every `bug` and annotate `test.fixme(true, "<issue url>")`. Verify: the affected specs pass or report fixme locally with `PW_E2E_USE_RUNNING=1`.
 - [ ] 4.4 Dispatch the workflow again on the branch. Verify every shard green (fixme counted as skipped) and the merged report shows zero failures.
 

@@ -61,3 +61,29 @@ adopted** (design open question, not an assumption).
    `401 operator credential required` (host→published-port request is not
    loopback, so operator-guarded routes need the real `x-pi-local-token`).
    Both fixed; the residual red set is triaged under tasks 4.2–4.4.
+
+## Baseline triage — the two systemic causes (run 35197357003 → commit `776d601e0`)
+
+Run 35197357003 (6 shards, 168-spec suite) still reported 44 + 54 + 34 + 40
+failures on shards 1/2/4/5 and KILLED shards 3/6 at the 120-min budget (a killed
+shard contributes nothing). Two causes accounted for the bulk, both reproduced
+on ONE fresh local harness and fixed:
+
+| # | Cause | Blast radius | Decisive evidence | Fix |
+|---|---|---|---|---|
+| S1 | `spawnFreshGitSession` clicked an arbitrary folder group's Create tray | 87 specs call it | `POST /api/session/spawn {cwd:/fixtures/seed-win-124}` → `500 Directory does not exist`; the seed dirs come from `scripts/seed-sessions-window.mjs` (`PI_E2E_SEED=1`) | pin `FIXTURE_GIT`, then click INSIDE `folder-body-<cwd>` |
+| S2 | `globalSetup` defaulted `PI_BROWSER_RELAY_FAKE=1` on the shared harness | every spec that opens a session | `isLiveViewActive()` → true for ALL sessions → `content-view` slot renders `LiveViewTile`; live repro showed `chat-scroll-container`/composer count `0` | opt-in passthrough + `test.skip` the browser-relay spec when absent |
+
+Recovery measured on the live harness (same specs that were red in CI):
+
+| spec | before | after |
+|---|---|---|
+| `overlay-layout` | 10 failed | 86 passed / 3 failed (residual) |
+| `canvas-declare-tool` | 11 failed | all passed |
+| `asciidoc-preview` | 2 failed | 2/2 |
+| `ctx-running-render` | 1 failed | 1/1 |
+| `browser-relay` | 5 failed | 5 skipped (opt-in faucet) |
+
+Residual drift fixed in the same pass: `change-summary-table`, `editor-pane` F3,
+`enhance-tool-call-grouping` 1/2, and the duplicated toast helper (8 specs).
+The remaining red list lives in task 4.2.

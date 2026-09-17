@@ -22,17 +22,43 @@ import { dismissToasts, robustClick, sendPrompt, spawnFreshGitSession } from "./
 
 test.describe("internal Monaco editor pane", () => {
   test("OpenFileButton opens the pane; markdown + monaco viewers render real fixture files", async ({ page }) => {
+    // The OpenFileButton lives in the ReadToolRenderer BODY, which only mounts
+    // when the step is expanded AND tool-result bodies are shown. A fresh
+    // container seeds no display prefs (server base default all-false), so enable
+    // the tool surface explicitly.
+    const prefs = await page.request.patch("/api/preferences/display", {
+      data: {
+        toolResults: true,
+        toolCalls: { read: true, bash: true, edit: true, agent: true, generic: true },
+      },
+    });
+    expect(prefs.ok()).toBeTruthy();
+
     const card = await spawnFreshGitSession(page);
     await card.click();
 
     // Faux read of a real fixture file → OpenFileButton appears.
     await sendPrompt(page, "[[faux:tool-read-fixture]] go");
+    // Universal grouping wraps even a single call in a burst (change:
+    // enhance-tool-call-grouping): expand the group header, then the member step,
+    // to mount the ReadToolRenderer body that hosts the OpenFileButton.
+    await expect(page.getByTestId("tool-burst-group").first()).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId("tool-burst-header").first().click();
+    await page
+      .getByTestId("tool-burst-body")
+      .first()
+      .getByRole("button", { name: /Read README\.md/ })
+      .first()
+      .click();
     const openBtn = page.getByTitle("Open README.md");
     await expect(openBtn).toBeVisible({ timeout: 30_000 });
 
-    // Body click → internal editor pane route.
+    // Body click → internal editor pane. When the session's split provider is
+    // live the file opens IN-PLACE (no route swap) — only the cross-session/
+    // no-provider path deep-links to /session/:id/editor?file= (see
+    // useFileOpenRouting). Assert the editor pane rendered, not the URL.
     await openBtn.click();
-    await expect(page).toHaveURL(/\/session\/[^/]+\/editor\?file=README\.md/, { timeout: 15_000 });
+    await expect(page.getByTestId("split-editor-pane").first()).toBeVisible({ timeout: 15_000 });
 
     // README.md → MarkdownViewer renders the heading from the fixture file.
     await expect(page.getByRole("heading", { name: "sample-git" })).toBeVisible({ timeout: 20_000 });
@@ -238,27 +264,17 @@ test.describe("split layout controls redesign", () => {
     expect(rBox && rBox.width > 0 && rBox.height > 0).toBeTruthy();
   });
 
-  test("F3: pane captions are present and folded into the pane header, not a second bar", async ({ page }) => {
+  test("F3: no redundant pane caption bar (captions were removed)", async ({ page }) => {
     await openSessionWithSwitch(page);
     await robustClick(page, "layout-mode-split");
 
-    const chatCap = page.getByTestId("pane-caption-chat");
-    const editorCap = page.getByTestId("pane-caption-editor");
-    await expect(chatCap).toBeVisible();
-    await expect(editorCap).toBeVisible();
-
-    // The EDITOR caption is a child of the editor pane's EXISTING header row
-    // (the same row hosting the Files toggle), not a standalone bar above it.
-    const editorCapInHeader = await editorCap.evaluate(
-      (el) => !!el.parentElement?.querySelector('[data-testid="tree-toggle"]'),
-    );
-    expect(editorCapInHeader).toBeTruthy();
-
-    // The CHAT caption is the chat pane's header row (its first child).
-    const chatCapIsHeader = await chatCap.evaluate(
-      (el) => el.closest('[data-testid="split-chat-pane"]')?.firstElementChild === el,
-    );
-    expect(chatCapIsHeader).toBeTruthy();
+    // The CHAT/EDITOR caption labels were removed as redundant
+    // (change: remove-pane-caption-labels) — chat content fills its pane and the
+    // editor header keeps only its toolbar. Guard against a caption bar creeping
+    // back as a second header row. This spec predates the removal and asserted
+    // the captions EXISTED; it now pins their absence.
+    await expect(page.getByTestId("pane-caption-chat")).toHaveCount(0);
+    await expect(page.getByTestId("pane-caption-editor")).toHaveCount(0);
   });
 
   test("F2: collapsed EDITOR restore tab never overlaps a narrow chat pane", async ({ page }) => {

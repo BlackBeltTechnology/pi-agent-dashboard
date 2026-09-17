@@ -21,9 +21,23 @@ import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 // Scenarios: qa/fixtures/faux-scenarios.ts → "grp-single", "burst-heterogeneous",
 // "grp-reasoning".
 test.describe("faux round-trip — enhanced tool-call grouping", () => {
-  // Guard the post-boot server-stabilization race (see tool-collapse-narration
+  // The container seeds NO display prefs, so the server base default is
+  // all-false: without enabling toolCalls/toolResults NO tool group renders and
+  // every assertion here is vacuous. Send a COMPLETE prefs object (not a sparse
+  // patch) so `toolCalls.*` is not silently left false, and turn reasoning on
+  // for the absorbed-thinking case.
+  // Then guard the post-boot server-stabilization race (see tool-collapse-narration
   // spec): wait for a STABLE healthy server (3 consecutive OKs) before each test.
   test.beforeEach(async ({ page }) => {
+    const res = await page.request.patch("/api/preferences/display", {
+      data: {
+        reasoning: true,
+        toolResults: true,
+        toolCalls: { read: true, bash: true, edit: true, agent: true, generic: true },
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+
     await expect
       .poll(
         async () => {
@@ -79,20 +93,6 @@ test.describe("faux round-trip — enhanced tool-call grouping", () => {
   });
 
   test("trailing reasoning folds inside the group as a ThinkingBlock", async ({ page }) => {
-    // Enable reasoning globally so absorbed `thinking` renders (default off).
-    // Send a COMPLETE prefs object (not a sparse `{reasoning:true}`): when the
-    // container has never seeded displayPrefs, the server's setDisplayPrefs base
-    // default is all-false — a sparse patch would silently hide every tool call
-    // (toolCalls.* → false) and no group would render. Keep tools visible.
-    const res = await page.request.patch("/api/preferences/display", {
-      data: {
-        reasoning: true,
-        toolResults: true,
-        toolCalls: { read: true, bash: true, edit: true, agent: true, generic: true },
-      },
-    });
-    expect(res.ok()).toBeTruthy();
-
     const card = await spawnFreshGitSession(page);
     await card.click();
 
