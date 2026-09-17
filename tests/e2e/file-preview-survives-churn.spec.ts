@@ -18,28 +18,20 @@ import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 //   4. Explicit dismissal (Esc) still closes it.
 //
 // The container may detect code-server as a local editor, which would route a
-// FileLink click to the editor instead of the preview overlay. We force the
-// preview path by failing `/api/open-editor`, so `useFileOpenRouting` falls
-// back to the overlay regardless of editor detection (mirrors
-// tool-output-links.spec.ts).
+// FileLink click to the editor instead of the preview overlay. The faux
+// scenario emits an ABSOLUTE path, which FileLink always routes to the overlay
+// (the editor split is only preferred for cwd-relative tokens), so the overlay
+// path is what this spec exercises.
 test.describe("file preview survives message churn", () => {
   test("open preview, then stream a new message → overlay stays open with content", async ({
     page,
   }) => {
-    await page.route("**/api/open-editor", (route) =>
-      route.fulfill({
-        status: 500,
-        contentType: "application/json",
-        body: JSON.stringify({ success: false, error: "editor disabled for e2e" }),
-      }),
-    );
-
     const card = await spawnFreshGitSession(page);
     await card.click();
 
-    // 1. Open a preview on a real file (`./hello.txt` in /fixtures/sample-git).
+    // 1. Open a preview on a real file (`/fixtures/sample-git/hello.txt`).
     await sendPrompt(page, "[[faux:text-realfile]] go");
-    const link = page.getByText("./hello.txt", { exact: true }).first();
+    const link = page.getByText("/fixtures/sample-git/hello.txt", { exact: true }).first();
     await expect(link).toBeVisible({ timeout: 30_000 });
     await link.click();
 

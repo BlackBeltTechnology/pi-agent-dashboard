@@ -7,30 +7,21 @@ import { spawnFreshGitSession, sendPrompt } from "./helpers/index.js";
 // diff header: `diff --git a/src/ghost.ts b/src/ghost.ts`. ChatView renders it
 // through MarkdownContent, which linkifies the `a/`/`b/` paths into FileLinks.
 //
-// This proves two things end-to-end in a real browser:
-//   1. The tokenizer strips the synthetic `a/` diff prefix from the RESOLVED
-//      path — clicking `a/src/ghost.ts` previews `src/ghost.ts`, not
-//      `a/src/ghost.ts`.
-//   2. `/api/file` 404s (ghost.ts does not exist in the fixture) and
-//      FilePreviewOverlay renders the friendly "file no longer exists" message
-//      keyed on the stripped path.
+// This proves the tokenizer strips the synthetic `a/` diff prefix from the
+// RESOLVED path: clicking `a/src/ghost.ts` resolves `src/ghost.ts` (not
+// `a/src/ghost.ts`), and since ghost.ts does not exist in the fixture the link
+// flips to the not-found affordance, whose tooltip names the STRIPPED path.
 //
-// The container may detect code-server as a local editor, which would route a
-// FileLink click to the editor instead of the preview overlay. The test forces
-// the preview path by failing `/api/open-editor`, so useFileOpenRouting falls
-// back to the overlay regardless of editor detection.
+// Superseded surface: before change server-side-file-mention-resolution the
+// click opened the FilePreviewOverlay and the overlay rendered a "no longer
+// exists" message from a /api/file 404. FileLink now resolves the mention
+// server-side FIRST (D5/G1) and makes NO open call when the path is absent, so
+// the not-found affordance IS the stale-link surface. See change:
+// stabilize-browser-e2e (baseline triage drift).
 test.describe("faux round-trip — tool-output file links", () => {
   test("git-diff a/ prefix is stripped and a stale link shows the no-longer-exists message", async ({
     page,
   }) => {
-    await page.route("**/api/open-editor", (route) =>
-      route.fulfill({
-        status: 500,
-        contentType: "application/json",
-        body: JSON.stringify({ success: false, error: "editor disabled for e2e" }),
-      }),
-    );
-
     const card = await spawnFreshGitSession(page);
     await card.click();
 
@@ -41,14 +32,11 @@ test.describe("faux round-trip — tool-output file links", () => {
     await expect(link).toBeVisible({ timeout: 30_000 });
     await link.click();
 
-    // Preview overlay opens (editor path forced off), keyed on the STRIPPED path.
-    await expect(page.getByTestId("file-preview-overlay")).toBeVisible({ timeout: 15_000 });
-
-    // /api/file 404 → friendly stale-file message referencing the stripped path.
-    // "at src/ghost.ts" (not "at a/src/ghost.ts") proves the diff prefix was dropped.
-    await expect(page.getByTestId("file-preview-error")).toContainText(
-      /no longer exists at src\/ghost\.ts/i,
-      { timeout: 15_000 },
-    );
+    // ghost.ts does not exist → the server-resolved mention is null → the link
+    // flips to the not-found affordance and makes NO open call.
+    await expect(link).toHaveAttribute("data-not-found", "true", { timeout: 15_000 });
+    // "Not found: …src/ghost.ts" (NOT "a/src/ghost.ts") proves the diff prefix
+    // was dropped from the resolved path.
+    await expect(link).toHaveAttribute("title", /Not found: .*src\/ghost\.ts/);
   });
 });

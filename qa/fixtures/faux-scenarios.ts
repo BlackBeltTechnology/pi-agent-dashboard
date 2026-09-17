@@ -523,17 +523,18 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "settings.json" },
   },
 
-  // Assistant text referencing a REAL fixture file. The explicit `./` prefix
-  // gives the tokenizer the separator it needs to linkify (a bare `hello.txt`
-  // has no separator and stays prose); the link resolves against the session
-  // cwd to `/fixtures/sample-git/hello.txt`, which `/api/file` reads
-  // successfully — so the preview overlay shows real content. Used by the
-  // file-preview-survives-churn e2e to assert the overlay persists across
-  // message churn with live content (not a stale-file error body).
-  // See change: fix-file-preview-survives-message-churn.
+  // Assistant text referencing a REAL fixture file by ABSOLUTE path. The
+  // absolute path matters: FileLink prefers the in-dashboard editor split for
+  // cwd-RELATIVE tokens and only falls back to the preview overlay for absolute
+  // ones (useFileOpenRouting.canSplitOpen). The churn spec exists to guard the
+  // OVERLAY's hoisted open-state, so it must exercise the overlay path.
+  // Resolves to /fixtures/sample-git/hello.txt, which /api/file reads
+  // successfully. Used by the file-preview-survives-churn e2e. See change:
+  // fix-file-preview-survives-message-churn, stabilize-browser-e2e (drift:
+  // the old `./hello.txt` now opens the split pane, not the overlay).
   "text-realfile": {
     script: [
-      fauxAssistantMessage([fauxText("preview ./hello.txt for the greeting")]),
+      fauxAssistantMessage([fauxText("preview /fixtures/sample-git/hello.txt for the greeting")]),
     ],
     expect: { text: "hello.txt" },
   },
