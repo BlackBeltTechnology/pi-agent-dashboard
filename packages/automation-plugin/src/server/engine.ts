@@ -25,7 +25,7 @@ import type {
   Sandbox,
   Visibility
 } from "../shared/automation-types.js";
-import type { LeasedHandle, WorkSource } from "../shared/work-source.js";
+import type { LeasedHandle, WorkSource, WorkSourceContext } from "../shared/work-source.js";
 import {
   type ActionCompletion,
   type ActionRegistry,
@@ -288,6 +288,15 @@ interface ParentState {
   findings: number;
   warning?: string;
   finalized: boolean;
+  /**
+   * Whether this parent owns a runner concurrency slot (acquired via
+   * `runner.begin`). A scheduled fire does; a TARGETED `runWorkItem` does NOT —
+   * it bypasses the runner (item-level lease is its only guard), so its finalize
+   * MUST NOT call `runner.completeRun` or it would drain/delete the slot of a
+   * concurrent batch fire of the same automation key. Undefined = managed
+   * (back-compat for the scheduled paths). See change: work-source-seam.
+   */
+  runnerManaged?: boolean;
 }
 
 export interface Engine {
@@ -346,6 +355,21 @@ export interface Engine {
   actionRegistry: ActionRegistry;
   /** Stable work-source registry for `schedule.batch` fan-out. */
   workSources: WorkSourceRegistry;
+  /**
+   * TARGETED single-item fan-out. Leases the ONE item addressed by `key`
+   * through the source's optional `take`, then spawns exactly one child for it
+   * — the same child path a batch fire uses, so the item rides `${{trigger}}`.
+   *
+   * The lease IS the single-flight guard — an item already leased (by a batch
+   * fire or a prior targeted run) is refused `{ ok:false, reason:"in_flight" }`,
+   * so two children never process the same item. `unsupported` when the
+   * automation is not `schedule.batch` or its source cannot address items by
+   * key. See change: work-source-seam.
+   */
+  runWorkItem(
+    automation: DiscoveredAutomation,
+    key: string,
+  ): Promise<{ ok: boolean; runId?: string; reason?: "in_flight" | "unsupported"; error?: string }>;
   dispose(): void;
 }
 
@@ -477,7 +501,10 @@ export function createEngine(deps: EngineDeps): Engine {
       retention: cfg.retention,
     });
     parents.delete(parent.parentRunId);
-    runner.completeRun(parent.key);
+    // A targeted `runWorkItem` parent holds no runner slot (it never called
+    // `runner.begin`); releasing here would corrupt a concurrent batch fire's
+    // slot for the same key. See change: work-source-seam.
+    if (parent.runnerManaged !== false) runner.completeRun(parent.key);
     log(`[engine] parent run ${parent.parentRunId} finalized (${parent.key})`);
   }
 
@@ -521,6 +548,12 @@ export function createEngine(deps: EngineDeps): Engine {
       if (parent.remaining <= 0) finalizeParent(parent);
     } else {
       // Defensive: a child with no tracked parent releases the slot directly.
+      // Unreachable for a targeted `runWorkItem` run: its parent is inserted
+      // BEFORE spawnChild, has `remaining: 1`, and is deleted only by
+      // `finalizeParent` triggered by THIS child's own (idempotent) finalize —
+      // so the parent is always present here for the targeted path, and this
+      // branch never releases a runner slot on its behalf. See change:
+      // work-source-seam.
       runner.completeRun(ctx.key);
     }
   }
@@ -836,6 +869,105 @@ export function createEngine(deps: EngineDeps): Engine {
     return { runId: parentRec.runId };
   }
 
+  /**
+   * TARGETED single-item fan-out (`Engine.runWorkItem`). Leases the ONE item
+   * addressed by `key` through the source's optional `take`, then spawns exactly
+   * one child for it — the same child path a batch fire uses, so the item rides
+   * `${{trigger}}` and the action resolves against it identically.
+   *
+   * The LEASE is the single-flight guard: `take` returns null when the item is
+   * already leased (by a batch fire or an earlier targeted run) and this reports
+   * `in_flight`. No `pending`-registry scan, no second dispatch path.
+   * See change: work-source-seam.
+   */
+  async function runWorkItem(
+    automation: DiscoveredAutomation,
+    key: string,
+  ): Promise<{ ok: boolean; runId?: string; reason?: "in_flight" | "unsupported"; error?: string }> {
+    if (!automation.valid || !automation.config) return { ok: false, error: "automation invalid" };
+    const on = automation.config.on;
+    const sourceId = on.kind === "schedule.batch" && typeof on.source === "string" ? on.source : undefined;
+    if (!sourceId) return { ok: false, reason: "unsupported", error: "automation has no work source" };
+    const source = workSources.get(sourceId);
+    if (!source) return { ok: false, error: `work source "${sourceId}" not registered` };
+    if (typeof source.take !== "function") {
+      return { ok: false, reason: "unsupported", error: `work source "${sourceId}" cannot address items by key` };
+    }
+
+    const cfg = deps.config();
+    const scopeBase = scopeBaseFor(automation);
+    const wsCtx: WorkSourceContext = { cwd: scopeBase };
+    let handle: LeasedHandle | null;
+    try {
+      handle = await source.take(key, wsCtx);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      warn(`[engine] work source "${sourceId}" take(${key}) failed: ${msg}`);
+      return { ok: false, error: msg };
+    }
+    if (!handle) {
+      log(`[engine] work item ${key}: unavailable (leased or gone); refusing`);
+      return { ok: false, reason: "in_flight" };
+    }
+
+    const base = resolveChildren(automation, 1).specs[0];
+    if (!base) {
+      try {
+        source.nack(handle.leaseToken);
+      } catch {
+        /* best-effort */
+      }
+      return { ok: false, error: "automation resolves no action" };
+    }
+
+    // Every synchronous setup step between a successful `take` and `spawnChild`
+    // (model resolution via a caller `readRoles`, the parent-run fs write) can
+    // throw. On any throw the lease MUST be released, or a source without lease
+    // expiry strands the item unavailable forever. See change: work-source-seam.
+    try {
+      const vis = effectiveVisibility(automation, cfg.defaultVisibility);
+      const resolved = resolveModel(automation.config.model, {
+        defaultModel: cfg.defaultModel,
+        ...(deps.readRoles ? { readRoles: deps.readRoles } : {}),
+      });
+      const parentRec = storeStartParentRun(scopeBase, automation.name, {});
+      const parent: ParentState = {
+        parentRunId: parentRec.runId,
+        key: automationKey(automation),
+        scopeBase,
+        name: automation.name,
+        remaining: 1,
+        statuses: [],
+        findings: 0,
+        finalized: false,
+        // Targeted run: bypasses the runner, so its finalize must not release a
+        // runner slot it never acquired. See change: work-source-seam.
+        runnerManaged: false,
+      };
+      parents.set(parent.parentRunId, parent);
+
+      const childAutomation: DiscoveredAutomation = {
+        ...automation,
+        config: { ...automation.config, action: base.action, actions: undefined },
+      };
+      const childCtx: FireContext = { firedAt: deps.now?.() ?? Date.now(), value: handle.item };
+      spawnChild(parent, childAutomation, base.actionLabel, scopeBase, resolved, vis, childCtx, {
+        lease: { source, token: handle.leaseToken },
+        idempotencyKey: handle.idempotencyKey,
+      });
+      return { ok: true, runId: parent.parentRunId };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      warn(`[engine] work item ${key}: setup failed after lease, releasing: ${msg}`);
+      try {
+        source.nack(handle.leaseToken);
+      } catch {
+        /* best-effort */
+      }
+      return { ok: false, error: msg };
+    }
+  }
+
   function startRunFor(automation: DiscoveredAutomation, fireCtx?: FireContext): { runId: string } | null {
     if (!automation.valid || !automation.config) return null;
     const cfg = deps.config();
@@ -917,6 +1049,7 @@ export function createEngine(deps: EngineDeps): Engine {
     runner,
     registry,
     workSources,
+    runWorkItem,
     get actionRegistry() { return resolveRegistry(); },
 
     start(): void {

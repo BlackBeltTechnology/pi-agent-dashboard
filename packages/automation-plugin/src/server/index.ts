@@ -115,6 +115,10 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     stopRun: ({ runId }) => stopRunViaEngine(runId),
     listActions: (cwd) => descriptorsForCwdCached(cwd ?? process.cwd()),
     actionIds: () => collectRegistry!().ids(),
+    // Live registries, so /list + /definition agree with what the scheduler will
+    // actually arm. See the FALLBACK_KINDS note in routes.ts.
+    triggerKinds: () => engineRef?.registry.kinds() ?? new Set(["schedule"]),
+    workSourceIds: () => engineRef?.workSources.ids() ?? new Set<string>(),
   });
   // plugin_action handler: run/stop/create dispatch to the SAME engine cores
   // and writer the REST routes call (no HTTP re-entry). Fan-out routes this
@@ -254,6 +258,25 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
     }
   }
 
+  // CROSS-PLUGIN registration seam (the consume half): any plugin publishes
+  // `{ id, source }` under `automation.worksource.<source>` and owns the
+  // instance (a work-source carries lease state, so its owner must construct it
+  // once). Collected LAZILY on every registry read, so plugin load order is
+  // irrelevant — a source published after engine init is picked up on the next
+  // scan/fire. Config-declared ids above win a collision.
+  // See change: work-source-seam.
+  const { collectWorkSourceContributions, WORK_SOURCE_CONTRIBUTION_PREFIX } = await import(
+    "./work-source-contributions.js"
+  );
+  const contributedSources = () =>
+    collectWorkSourceContributions(ctx.consumeAll(WORK_SOURCE_CONTRIBUTION_PREFIX), {
+      warn: (m) => ctx.logger.warn(m),
+    });
+  workSources.addProvider({
+    ids: () => contributedSources().map((c) => c.id),
+    get: (id) => contributedSources().find((c) => c.id === id)?.source,
+  });
+
   // Warned folder-scope contribution keys, deduped across reads. `folderScopeBases()`
   // runs on every `listScopes()` call (refresh, watcher reconcile, stale-run reaper),
   // so a malformed contribution must warn once per key, never once per read.
@@ -306,6 +329,22 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
     warn: (m) => logger.warn(m),
   });
   engineRef = engine;
+
+  // Cross-plugin service: start ONE run for a SINGLE work item, addressed by
+  // its idempotency key, through the same child path a batch fire uses. The
+  // work-source lease is the single-flight guard, so a key already leased is
+  // refused `{ ok:false, reason:"in_flight" }`. Domain-free: the caller knows
+  // what a key means; this plugin does not.
+  // See change: work-source-seam.
+  ctx.provide(
+    "automation:runWorkItem",
+    async (
+      cwd: string,
+      key: string,
+      name?: string,
+    ): Promise<{ ok: boolean; runId?: string; reason?: string; error?: string }> =>
+      runWorkItemViaEngine(cwd, key, name),
+  );
 
   const watcher = createAutomationWatcher({
     onChange: () => engine.refresh(),
@@ -518,6 +557,49 @@ async function runNowViaEngine(
   if (!found) return { ok: false, error: `automation "${name}" not found or invalid in ${scope} scope` };
   const r = eng.startRunFor(found);
   return r ? { ok: true, runId: r.runId } : { ok: false, error: "run not started" };
+}
+
+/**
+ * Start ONE run for a SINGLE work item in a workspace. Scans the folder scope
+ * for its `schedule.batch` automation and delegates to the engine's targeted
+ * lease core (`runWorkItem`), which refuses an item that is already leased.
+ * Backs the `automation:runWorkItem` cross-plugin service.
+ * See change: work-source-seam.
+ */
+async function runWorkItemViaEngine(
+  cwd: string,
+  key: string,
+  name?: string,
+): Promise<{ ok: boolean; runId?: string; reason?: string; error?: string }> {
+  const eng = engineRef;
+  if (!eng) return { ok: false, error: "engine not ready" };
+  const base = path.resolve(cwd);
+  const { scanAutomations } = await import("./scanner.js");
+  const batch = scanAutomations(
+    { repoRoot: base, scanFolder: true, scanGlobal: false },
+    eng.registry.kinds(),
+    eng.actionRegistry.ids(),
+    eng.workSources.ids(),
+  ).filter((a) => a.valid && a.config?.on.kind === "schedule.batch");
+  // A source id does NOT uniquely identify an automation, and a workspace may
+  // hold several `schedule.batch` automations. Prefer an explicit name; without
+  // one, target only an UNAMBIGUOUS single candidate rather than silently
+  // picking the first (which could run the wrong action/source, or report
+  // `unsupported` when a sibling supports the item). See change: work-source-seam.
+  if (name) {
+    const byName = batch.find((a) => a.name === name);
+    if (!byName) return { ok: false, error: `no schedule.batch automation "${name}" for workspace` };
+    return eng.runWorkItem(byName, key);
+  }
+  if (batch.length === 0) return { ok: false, error: "no work-source automation for workspace" };
+  if (batch.length > 1) {
+    return {
+      ok: false,
+      reason: "ambiguous",
+      error: `${batch.length} schedule.batch automations in workspace; specify a name`,
+    };
+  }
+  return eng.runWorkItem(batch[0]!, key);
 }
 
 /** Stop a running run via the engine (terminate process + finalize idempotently). */
