@@ -34,6 +34,33 @@ pnpm exec tsx .pi/skills/ci-troubleshoot/scripts/show-failed-run.ts             
 
 These wrap `gh run list`, `gh run view --log-failed`, and similar. You need `gh auth status` to be authenticated.
 
+**Unit-test failure in `ci.yml` → read the `vitest-report` artifact FIRST, not the log.**
+`ci.yml` uploads it on every run (`if: always()`, 14-day retention): `test-results/vitest.json`
+(parallel phase) + `test-results/vitest-real-process.json` (real-process phase).
+
+```bash
+gh run download <run-id> -n vitest-report -D /tmp/vr
+# failures
+jq -r '.testResults[].assertionResults[] | select(.status=="failed") | .fullName' /tmp/vr/vitest*.json
+# RETRIED PASSES — passed, but a failed attempt's error is still retained
+jq -r '.testResults[].assertionResults[] | select(.status=="passed" and (.failureMessages|length)>0) | .fullName' /tmp/vr/vitest*.json
+```
+
+There is **no `retryCount` field**. Vitest 4.1.11's JSON reporter emits only
+`{ancestorTitles, fullName, status, title, duration, failureMessages, meta, tags}`; `retryCount`
+lives on the runner API, not the report. The retried-pass signature is therefore
+`status == "passed"` **with a non-empty `failureMessages`**. Verified empirically against a
+fail-once fixture; re-verify after a vitest major upgrade — if the second query returns nothing on
+a run you know flaked, the reporter shape moved.
+
+Retry semantics: ONLY the `server-real-process` project retries, ONLY under `CI`, ONLY once
+(`retry: process.env.CI ? 1 : 0`). A green job whose report matches the retried-pass query did NOT
+pass cleanly — that test flaked. A test failing twice still reds the job. Locally retry is 0.
+The default reporter prints `(retry x1)` only for tests it lists; a retried PASS is invisible
+there, which is why the artifact is the first move.
+`npm test` = `test:parallel` then `test:real-process`; a real-process red is in the SECOND phase,
+so the log tail belongs to `vitest run --config packages/server/vitest.real-process.config.ts`.
+
 > Scripts are TypeScript and cross-platform. All invocations use `pnpm exec tsx`, which resolves the declared local dependency and fails if dependencies are absent. `gh` CLI is cross-platform.
 
 ## Triage decision tree
@@ -89,6 +116,8 @@ Maintained in [`references/common-failures.md`](references/common-failures.md). 
 | `Cannot find module @blackbelt-technology/...` in electron | `electron` | `publish` job didn't run or failed; bundled server can't resolve from npm | Check `publish` job — re-run only if it failed; never bypass |
 | Fastify crashes in bundled server smoke | any using node | Bad Node version pinned in workflow | Bump `node-version:` to ≥ 22.18.0 |
 | Loud-but-harmless `EADDRINUSE` in smoke | smoke job | Concurrent server spawns | Usually self-recovering; check next log lines |
+| Green `pnpm test` but a timing test flaked | `ci.yml` | `server-real-process` retried once | `vitest-report` artifact → `passed` + non-empty `failureMessages`; root-cause it, do not ignore |
+| `real-process-project-guard.test.ts` fails | repo-lint | New server test spawns a process but runs in the parallel project | Add it to `packages/server/vitest.real-process-files.ts`, or annotate `// real-process-exempt: <reason>` |
 | `electron` + `github-release` SKIPPED despite green `publish` | `electron` | Tag-push path skips `tag-and-push`; a skipped needs-ancestor poisons electron's DEFAULT `if: success()` | Give `electron` explicit `if: ${{ !cancelled() && needs.publish.result == 'success' }}` (mirrors `publish`'s guard). First hit v0.6.1 |
 | `✗ koffi prebuild GO/NO-GO failed at ...koffi\build\koffi\win32_x64\koffi.node` | `electron` (both win32 legs) | koffi@3.x ships the prebuild at `@koromix/koffi-win32-x64/win32_x64/koffi.node`; the 2.x `koffi/build/...` path is never created | Update `bundle-server.mjs` guard to check the 3.x @koromix path first, 2.x fallback. First hit v0.6.1 |
 | arm64 NSIS smoke: `pi-dashboard.exe not found ... after 150s` | `electron` (win32-arm64) | x64 runner can't execute an arm64 `Setup.exe`/app, so silent install extracts nothing | Guard the NSIS install-smoke step `if: matrix.platform == 'win32' && matrix.arch == 'x64'`. arm64 installer still builds+ships. First hit v0.6.1 |
