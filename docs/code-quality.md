@@ -227,7 +227,7 @@ npm run test:parallel && npm run test:real-process
 
 - Runs `vitest run --config packages/server/vitest.real-process.config.ts`.
 - Vitest project name: `server-real-process`.
-- Configuration: `maxWorkers: 2`, `testTimeout: 60_000`, `hookTimeout: 60_000`, `root: __dirname` (resolves files from repo root).
+- Configuration: `maxWorkers: 2`, `testTimeout: 60_000`, `hookTimeout: 60_000`, `root: __dirname` (pins Vitest root to `packages/server`; `src/**` in `REAL_PROCESS_TESTS` resolves relative to `packages/server`, not repo root; without pin, repo-root invocation resolves against repo root and collects zero files — silently-empty phase).
 - Membership: `packages/server/vitest.real-process-files.ts` exports `REAL_PROCESS_TESTS` (10 files). Single source of truth. Real-process config `include`s list; `packages/server/vitest.config.ts` `exclude`s list.
 - Isolation rationale: tests spawn real OS processes (keeper, mock-pi, bin wrapper, CLI signal forwarder, full server). Parallel test runner saturates CPU, causing timing false-positives. Config omitted from root `test.projects` — Vitest runs project array concurrently; sequential npm scripts enforce CPU isolation.
 - Retries: `retry: process.env.CI ? 1 : 0`, scoped strictly to `server-real-process`. Local runs use 0 retries to surface first failure. CI retry absorbs transient runner stalls; double failure fails run.

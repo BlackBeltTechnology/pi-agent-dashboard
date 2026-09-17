@@ -49,6 +49,9 @@ const REAL_PROCESS_CONFIG = path.join(SERVER_DIR, "vitest.real-process.config.ts
  */
 const NAMED_SPAWN_IMPORT_RE =
   /^import\s+(?:type\s+)?\{([^}]*)\}\s+from\s+"node:child_process"/m;
+/** `import * as childProcess from "node:child_process"` — captures the alias. */
+const NAMESPACE_IMPORT_RE =
+  /^import\s+\*\s+as\s+(\w+)\s+from\s+"node:child_process"/m;
 const SPAWNERS = ["spawn", "spawnSync", "fork"];
 const HELPER_RE = /\b(?:spawnKeeper|bootRealServer)\s*\(/;
 
@@ -66,6 +69,14 @@ function isRealProcessTest(source: string): boolean {
       .filter((s) => !s.startsWith("type "))
       .map((s) => s.split(/\s+as\s+/)[0].trim());
     if (named.some((n) => SPAWNERS.includes(n))) return true;
+  }
+  // A namespace import only counts when a SPAWNER is actually called through
+  // the alias — the ~8 files that namespace-import for `execSync` alone stay
+  // out, same boundary as the named-import branch.
+  const ns = source.match(NAMESPACE_IMPORT_RE);
+  if (ns) {
+    const alias = ns[1].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(`\\b${alias}\\.(?:${SPAWNERS.join("|")})\\s*\\(`).test(source)) return true;
   }
   return HELPER_RE.test(source);
 }
@@ -123,10 +134,23 @@ describe("real-process vitest project guard", () => {
       /from\s+"\.\/vitest\.real-process-files(?:\.js)?"/.test(main),
       "packages/server/vitest.config.ts must import REAL_PROCESS_TESTS from ./vitest.real-process-files",
     ).toBe(true);
+    const excludeBlock = main.match(/exclude:\s*\[([\s\S]*?)\]/);
     expect(
-      /exclude:[^\]]*REAL_PROCESS_TESTS/.test(main),
+      excludeBlock?.[1].includes("REAL_PROCESS_TESTS"),
       "packages/server/vitest.config.ts must set `exclude` from REAL_PROCESS_TESTS, not a hand-copied list",
     ).toBe(true);
+
+    // A server-test path excluded here but NOT in REAL_PROCESS_TESTS would run
+    // in NEITHER phase (the real-process project includes only the list), which
+    // silently drops a test while both configs still look well-formed.
+    const stray = [...(excludeBlock?.[1] ?? "").matchAll(/"([^"]+)"/g)]
+      .map((x) => x[1])
+      .filter((p) => /^src\/.*\.test\.ts$/.test(p) && !readList().includes(p));
+    expect(
+      stray,
+      "these server tests are excluded from the main project but not in " +
+        "REAL_PROCESS_TESTS, so they run in neither phase:\n  " + stray.join("\n  "),
+    ).toEqual([]);
 
     const realCfg = fs.readFileSync(REAL_PROCESS_CONFIG, "utf-8");
     expect(

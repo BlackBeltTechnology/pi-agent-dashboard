@@ -187,7 +187,7 @@ Server tests that spawn a real operating-system process under test — a keeper,
 - **THEN** every test collected by either phase SHALL have executed exactly once (absent a CI retry)
 
 ### Requirement: CI-only single retry for the real-process phase is reported, never silent
-Under `CI`, the real-process project — and only that project — SHALL retry a failed test once. A test that passed on retry SHALL be visible in the run output as retried, and the vitest JSON report uploaded by CI SHALL record it. No other project SHALL configure retries. Outside `CI` the retry count SHALL be zero.
+Under `CI`, the real-process project — and only that project — SHALL retry a failed test once. A test that passed on retry SHALL be distinguishable from a clean pass in the vitest JSON report uploaded by CI. Console output SHALL NOT be relied on for this: vitest's default reporter marks a retry only for tests it lists, so a retried PASS leaves no console trace. No other project SHALL configure retries. Outside `CI` the retry count SHALL be zero.
 
 #### Scenario: Retried test is attributable
 - **WHEN** a real-process test fails once and passes on retry in CI
