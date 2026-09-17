@@ -232,6 +232,14 @@ There is no unconditional product-domain `broadcast()` road in multi-user mode. 
 
 Rollback switches mode to `legacy` and restarts. Additive owner metadata remains harmless. No identity key is rewritten.
 
+### Legacy-connector cut-over (deferred, not in this change)
+
+Multi-user mode rejects a non-empty `auth.providers` (step 5), so any deployment that currently relies on the confidential-client cookie login is a **breaking cut-over**, not a drop-in. A migration path for those deployments is deferred to a later change; this change only guarantees the fail-closed guard and a byte-for-byte `legacy` default so no existing deployment is forced to move. When that later change is scoped, it must cover:
+- **Session continuity:** cookie sessions carry no `(iss, sub)`; every pre-cut-over session is ownerless and becomes hidden the moment mode flips. The migration must define adoption (operator claim, or first-login trust-on-first-use keyed off a stable attribute) rather than leaving users locked out of their own history.
+- **Identity join:** the cookie connector's `sub` (dashboard-minted) is NOT the Keycloak resource-server `sub`; there is no automatic mapping. A deployment switching from the login connector to the bearer resolver against the *same* Keycloak realm must confirm the issuer and `sub` values line up, or provide an explicit remap table.
+- **Client reconfiguration:** the confidential login client (clientId+secret, code→cookie) and the public browser client (PKCE, browser holds bearer) are different Keycloak clients; the realm needs the public client added before cut-over.
+- **Rollout shape:** whether a deployment can run a window where both a cookie session and a bearer are honored, or must hard-cut. This change forbids the mixed state on purpose; the migration change decides if a transitional bridge is worth its risk.
+
 ## Open Questions
 
-None. Product policy semantics and ownerless-session adoption are intentionally separate concerns; the host contracts and fail-closed behavior are defined here.
+None blocking. Product policy semantics, ownerless-session adoption, and the legacy `auth.providers` connector cut-over (see Migration → Legacy-connector cut-over) are intentionally separate, later concerns; the host contracts and fail-closed behavior are defined here.
