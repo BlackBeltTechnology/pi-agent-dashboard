@@ -1,55 +1,77 @@
 ## 1. Types and shared contract
 
-- [ ] 1.1 Add `Principal` (`{ iss: string; sub: string; email?: string }`) and the DPoP-ready `AuthContext` (`{ method: string; url: string; authorization?: string; cookie?: string; dpop?: string; isAuthenticated: boolean; ip: string }`) to a core module shared with `dashboard-plugin-runtime`; verify both packages type-check against the shared import.
-- [ ] 1.2 Add `ResolverReject` (a distinct sentinel/type), `PrincipalResolverFn = (ctx: AuthContext) => Promise<Principal | ResolverReject | null>`, `registerPrincipalResolver(resolve, priority) => () => void`, and `CanSeeFn = (principal: Principal, resourceId: string) => boolean` with `registerCanSee(fn) => () => void` to the plugin-context type; verify `tsc` passes and that `Principal`, `ResolverReject`, and `null` are distinguishable at the type level.
+- [ ] 1.1 Add immutable `Principal` (`{ iss; sub; email? }`), `PrincipalResolution` (`{ principal; expiresAt }`), `ResolverReject`, and DPoP-ready `AuthContext` (`{ method; url; authorization?; cookie?; dpop?; isAuthenticated; ip }`) to a core module shared with `dashboard-plugin-runtime`; verify both packages type-check.
+- [ ] 1.2 Add `PrincipalResolverFn = (ctx: AuthContext) => Promise<PrincipalResolution | ResolverReject | null>` plus `HostAction`, `HostResource`, and `HostAccessPolicyFn = (input: { principal; action; resource }) => Promise<boolean>`; verify the three resolver outcomes and the policy boolean are type-distinguishable.
+- [ ] 1.3 Add `identity` config shape (`mode: legacy|multi-user`; `trustedResolverPlugins: string[]`; `trustedPolicyPlugin?: string`; resolver/policy timeouts) to shared config; verify default parse yields `mode: legacy`.
 
-## 2. Principal resolver registry (HTTP plane)
+## 2. Identity mode and startup readiness
 
-- [ ] 2.1 Implement a module-level resolver registry (`{ pluginId, priority, registrationIndex, resolve }`) with add + unsubscribe; verify a unit test that add-then-unsubscribe leaves it empty.
-- [ ] 2.2 Implement `sortedResolvers()` ordered by `(priority asc, registrationIndex asc)` and a one-time warning on shared priority; verify a unit test asserts stable ordering and captures the collision warning without throwing.
+- [ ] 2.1 Thread `identity.mode` (default `legacy`) through config load; verify a test that an absent `identity` block resolves to legacy.
+- [ ] 2.2 Add a pre-`listen()` readiness check: in multi-user mode require a configured resolver and exactly one trusted policy; fail startup on missing resolver, zero policies, or duplicate policies; verify tests for each failure and the happy path.
+- [ ] 2.3 In multi-user mode reject a non-empty `auth.providers` (confidential login connectors) as a config error; verify a test that mixed mode fails startup and legacy mode leaves connectors intact.
 
-## 3. Request-time resolution hook (HTTP plane)
+## 3. Resolver registry with host trust grant
 
-- [ ] 3.1 Add `fastify.decorateRequest("principal", null)` at the single decoration site next to `isAuthenticated` (server.ts:~1397); verify the server boots without a duplicate-decorator throw.
-- [ ] 3.2 Build the curated DPoP-ready `AuthContext` (`method`, `url`, authorization/cookie/dpop headers, `isAuthenticated`, `ip`) from the request in a pure helper; verify a unit test maps a sample request to the expected shape and exposes nothing beyond the allowlist.
-- [ ] 3.3 Register one core `onRequest` hook after `registerAuthPlugin` (server.ts:~1404) that walks `sortedResolvers()`, sets `request.principal` to the first `Principal` result and short-circuits; on a `ResolverReject` stop the walk with `request.principal === null` (and enable a 401), on `null` continue; verify an integration test that a lower-priority-number resolver wins, a `ResolverReject` stops the chain fail-closed, and the higher one is not invoked after a claim.
-- [ ] 3.4 Wrap each resolver in try/catch + a time budget; throw/reject/timeout ⇒ treated as `null`, logged, never a 500; verify tests for a throwing and a slow resolver both yield `request.principal === null` with a normal response.
-- [ ] 3.5 Expose `registerPrincipalResolver` on the plugin context (server.ts:~2266) gated at `priority <= 100` with a no-op registrar otherwise; verify a test that a `>100` plugin's resolver never runs and a `<=100` plugin's does, registered before `listen()`.
+- [ ] 3.1 Implement a resolver registry keyed by `pluginId`, ordered `(manifest.priority asc, pluginId asc)`; duplicate registration from one plugin fails; verify a unit test of deterministic cross-boot ordering.
+- [ ] 3.2 Gate `registerPrincipalResolver` on the host trust grant (bundled resolver or a plugin named in `identity.trustedResolverPlugins`); a self-declared `manifest.priority` grants nothing; verify a test that an untrusted plugin gets a no-op registrar and a low-priority-but-untrusted plugin still cannot register.
+- [ ] 3.3 Validate/copy/freeze resolver output before exposure (reject empty `iss`/`sub`, non-future/absent `expiresAt`, non-plain shapes, over-length); verify a test that a malformed principal is discarded and logged.
 
-## 4. Ticket binds the principal (WS plane)
+## 4. Resolution integrated into the auth gate (HTTP plane)
 
-- [ ] 4.1 Extend the ws-ticket record and mint (server.ts:~1785, `ws-ticket.ts`) to bind `request.principal` when present (scope + deviceId retained, single-use + short-TTL unchanged); verify a unit test that a mint with a principal records it and a mint without one records none.
-- [ ] 4.2 On WS upgrade consume (server.ts:~2643), copy the ticket's principal to `ws.principal`; verify an integration test that a principal-bound ticket yields `ws.principal` set and a principal-less ticket yields `ws.principal === null`.
+- [ ] 4.1 Decorate `request.principal` (null) and `request.principalExpiresAt` (null) once, next to `isAuthenticated` (server.ts:~1397); verify boot without a duplicate-decorator throw.
+- [ ] 4.2 Build the curated `AuthContext` in a pure helper (method, canonical url, authorization/cookie/dpop, isAuthenticated, ip); verify a unit test exposes nothing beyond the allowlist.
+- [ ] 4.3 Register the resolver-dispatch `onRequest` hook AFTER `registerBearerAuth` and BEFORE `registerAuthPlugin`, so a valid bearer authenticates before the cookie hook can reject; a claim sets principal + expiry + `isAuthenticated`; a reject returns 401; `null` continues; verify an integration test that a Keycloak-bearer request with no cookie is authenticated (not 401'd) and a reject returns 401.
+- [ ] 4.4 Bound each resolver by the configured timeout; throw/reject/timeout ⇒ `null`, logged, never a 500; verify tests for a throwing and a slow resolver.
+- [ ] 4.5 Verify the device-bearer path still yields `isAuthenticated` true with `principal === null` (no resolver claims a device token).
 
-## 5. Owner-scoped subscription and replay (WS plane)
+## 5. Bundled Keycloak resolver (config-seeded, in-dashboard)
 
-- [ ] 5.1 Add an owner-equality check comparing `ws.principal` to the session owner on the subscribe path in `browser-gateway.ts`; verify tests that owner is accepted, non-owner refused, principal-less socket refused an owned session.
-- [ ] 5.2 Apply the identical check on the replay/backlog path; verify a test that a non-owner replay is refused with no historical frames.
-- [ ] 5.3 Treat an ownerless session as owned by nobody; verify a test that a principal-bearing socket cannot subscribe to an ownerless session.
+- [ ] 5.1 Declare the config schema (`issuer`, `audience` required; `authorizedParty`, `jwksUri`, `clockSkewSeconds`, `networkTimeoutMs`, `allowInsecureHttp` optional) read via `getPluginConfig()`; verify a test that with no issuer/audience it resolves every request to `null` and never substitutes a default; `http:` without `allowInsecureHttp` is inert.
+- [ ] 5.2 Implement OIDC discovery + JWKS cache with coalesced refresh and single-refresh-per-unknown-kid, bounded by `networkTimeoutMs`; verify a test that a second request hits cache and a discovery outage denies (rejects owned tokens) rather than accepting unverified.
+- [ ] 5.3 Implement ownership disambiguation: opaque/non-JWT ⇒ `null`; JWT with foreign unverified `iss` ⇒ `null`; JWT claiming the configured issuer ⇒ owned; verify tests for all three.
+- [ ] 5.4 Implement RFC 9068 validation on owned tokens (RS256 only, signature, exact `iss`, required `aud`, optional `azp`, `exp`, `sub`) returning `{ principal, expiresAt }`; failure ⇒ reject; `email` only when `email_verified`; verify tests incl. an `alg:none`/non-RS256 rejection.
+- [ ] 5.5 Validate the DPoP proof when `cnf.jkt` is present: proof JWS signature under embedded `jwk`, thumbprint == `cnf.jkt`, `htm`, canonical `htu` (query/fragment stripped, scheme/host from configured base/proxy), `ath` == b64url SHA-256 of the access token, fresh `iat`, unreused `jti` (single-instance LRU); missing/unsigned/any-mismatch ⇒ reject; token without `cnf.jkt` validates as a plain bearer; verify tests for a proof-without-`ath`-binding rejection and a bound-token-without-proof rejection.
+- [ ] 5.6 Ensure the resolver catches its own crypto/JWKS/DPoP faults on an owned token and returns `reject` (never an uncaught throw that core would coerce to `null`); verify a test that an induced validation fault on an owned token yields `reject`, not fall-through.
 
-## 6. Permissioned fan-out (WS plane)
+## 6. Session ownership (persist + assign)
 
-- [ ] 6.1 Add host-owned `broadcastToPermitted(event, resourceId)` iterating sockets and calling a registered `canSee(ws.principal, resourceId)`, delivering only on `true`; verify a two-socket test (Anna owns, Béla does not) that only Anna receives the event.
-- [ ] 6.2 Register the plugin `canSee` predicate (gated `priority <= 100`); with no predicate registered, permissioned events deliver to nobody (fail-closed); verify a test for the no-predicate case and a principal-less socket receiving nothing.
-- [ ] 6.3 Replace the domain-event `broadcast()` call site with `broadcastToPermitted`, leaving session-scoped flow-frame delivery on its existing subscription path; verify a test that flow frames still reach subscribers unchanged.
+- [ ] 6.1 Add `principalOwner?: { iss; sub }` to `SessionMeta`/`DashboardSession` and surface it on summaries; equality is exact field comparison; verify a persistence round-trip test.
+- [ ] 6.2 Stamp owner on trusted spawn roads only: browser `spawn_session` (socket principal), host HTTP spawn (request principal), trusted owned-spawn API (passed principal); an untrusted plugin's owner field is ignored; automation/legacy stay ownerless; verify tests for each road.
 
-## 7. Browser-plane liveness (WS plane)
+## 7. Host access policy + classification
 
-- [ ] 7.1 Add a browser-plane heartbeat (distinct from bridge ping/pong) that terminates a socket failing to answer within the window and releases its subscriptions; verify a test simulating a missed heartbeat closes the socket.
-- [ ] 7.2 Close a browser socket when its underlying session ends; verify a test that session-end triggers socket close rather than leaving it streaming.
+- [ ] 7.1 Accept exactly one `authorize()` from the `identity.trustedPolicyPlugin`; refuse any other registrant; verify tests for the named plugin accepted and a non-named plugin refused.
+- [ ] 7.2 Bound each policy call (default 500ms); missing/false/throw/timeout/non-boolean ⇒ deny + structured audit event; verify tests for timeout-denies and non-boolean-denies.
+- [ ] 7.3 Add identity metadata to every core HTTP route (`public`|`device`|protected `{action, resource}`) and require it on protected plugin routes; unclassified protected `/api` route in multi-user mode denies; verify a coverage test that an unclassified protected route fails.
+- [ ] 7.4 Map every browser WS bootstrap frame and inbound message type to a classification; unknown protected message denies in multi-user mode; verify a coverage test over the message table.
 
-## 8. Default Keycloak resolver plugin (config-seeded)
+## 8. Enforce every session read/write road (HTTP + WS)
 
-- [ ] 8.1 Declare the plugin config schema (issuer URL required; audience, authorizedParty/clientId, jwksUri override, clockSkew optional) and read it via `getPluginConfig()`; verify a test that with no issuer configured the resolver registers but resolves every request to `null` (inert, no hardcoded fallback).
-- [ ] 8.2 Implement OIDC discovery from the configured issuer to obtain `jwks_uri` (or use the override) and a JWKS cache with refresh-on-unknown-kid; verify a test that a second request validates against cached keys with no network fetch and an unknown kid triggers one refresh.
-- [ ] 8.3 Implement RFC 9068 validation (RS256 signature, exact `iss` match, `aud` includes configured audience, `azp` equals configured party when set, `exp` within clock skew) returning `{ iss, sub, email? }` on success and `ResolverReject` on an owned-but-invalid JWT; verify tests for a valid token → principal and a bad-signature/expired token → reject.
-- [ ] 8.4 Implement JWT-first disambiguation: a non-JWT (opaque device) bearer returns `null` and falls through; verify a test that an opaque device token yields `null` and never a principal, and that a mismatched `iss` yields `ResolverReject`.
-- [ ] 8.5 Register the resolver at the default (high-number/low-trust-precedence) priority so an override plugin can pre-empt it; verify a test that a lower-priority-number override wins over the default.
+- [ ] 8.1 Enforce owner-equality on HTTP session detail/transcript/mutation routes; verify non-owner and principal-less are refused, owner accepted.
+- [ ] 8.2 Filter WS bootstrap session snapshot + list/pagination per item (only owned sessions); verify a two-principal test that each sees only its own sessions, never the full registry.
+- [ ] 8.3 Enforce owner-equality on subscribe, replay/backfill, and every inbound session command (prompt/abort/retry/kill/rename/archive/metadata); verify a non-owner is refused identically on each road.
+- [ ] 8.4 Route non-session bootstrap/global commands (OpenSpec, branch, terminal, system) through the policy; verify bootstrap omits unauthorized workspace/terminal state and a global command is policy-gated.
 
-## 9. Validation and cross-cutting
+## 9. WebSocket identity binding + lifetime
 
-- [ ] 9.1 Verify default-inert: with the Keycloak resolver unconfigured and no `canSee` predicate, every request has `request.principal === null`, HTTP behavior is unchanged, and permissioned events deliver to nobody.
-- [ ] 9.2 End-to-end multi-user test: two principals (from real seeded Keycloak logins) over concurrent HTTP + WS get isolated principals, and one user's domain events never reach the other's socket (subscribe, replay, and fan-out).
-- [ ] 9.3 Verify the issuer-pinning conflict guard: a token whose `iss` does not exactly match the configured issuer is rejected, and document that the resolver issuer MUST equal any `auth.providers.keycloak` login-connector issuer.
-- [ ] 9.4 Run `openspec validate add-multi-user-identity-plane --strict` and confirm it passes.
-- [ ] 9.5 Add a doc note: consumers MUST gate on `request.principal`/`ws.principal`, never `isAuthenticated`; the generic seam upstreams to `develop`; nothing about Keycloak is hardcoded (all seeded via `getPluginConfig()`); verify the note links the five specs and cites RFC 9068/9700/10017/9449.
+- [ ] 9.1 Bind `principal` + `expiresAt` onto the ticket at mint (server.ts:~1785, `ws-ticket.ts`); a principal-less request records none; verify a mint test.
+- [ ] 9.2 In multi-user mode require an identity-bearing ticket for browser upgrades; cookie/local-token/trusted-network/no-ticket browser upgrades are refused (server.ts:~2643); non-browser scopes unchanged; verify tests for cookie-only and trusted-network refusal.
+- [ ] 9.3 Attach immutable `ws.principal` + `ws.principalExpiresAt` at upgrade; verify principal-bound vs principal-less tickets.
+- [ ] 9.4 Close a browser socket at `principalExpiresAt`; verify a test that expiry closes the socket and releases subscriptions.
+- [ ] 9.5 Add a transport-only browser heartbeat (distinct from bridge ping/pong, not tied to a single session); verify a missed-heartbeat close and that heartbeats do NOT extend identity past expiry.
+
+## 10. Permissioned domain-event fan-out
+
+- [ ] 10.1 Replace the global domain-event `broadcast()` with a host-owned targeted send that calls the access policy per candidate socket in multi-user mode; deliver only on `true`; principal-less socket gets nothing; verify a two-socket isolation test.
+- [ ] 10.2 Preserve legacy-mode global broadcast unchanged and leave session-scoped flow frames on their owner-gated subscription road; verify a legacy-broadcast test and a flow-frame test.
+- [ ] 10.3 Classify each frame as exactly one road at emit (session-scoped-by-`sessionId` vs global-domain-by-`resource`); an undeclared frame type is treated as a protected domain event (policy-gated, fail-closed), never broadcast; verify a test that an unknown frame type is not globally delivered.
+
+## 11. Validation and cross-cutting
+
+- [ ] 11.1 Verify legacy default-inert: with `identity.mode` unset, every HTTP/WS/bootstrap/command/broadcast outcome is identical to before the change.
+- [ ] 11.2 Docker-harness E2E: real seeded Keycloak (Anna, Béla), Authorization Code + PKCE login, two-user HTTP + WS isolation across bootstrap, list, detail, subscribe, replay, command, and domain-event fan-out; a non-owner reaches none of Anna's sessions or events.
+- [ ] 11.3 Verify issuer pinning: a token whose `iss` differs from the configured issuer is rejected; document that issuer host/scheme/port must be pinned before any `(iss, sub)` ownership is persisted.
+- [ ] 11.4 Run `openspec validate add-multi-user-identity-plane --strict` and confirm it passes.
+- [ ] 11.5 Add a doc note: consumers gate on `request.principal`/`ws.principal`, never `isAuthenticated`; the whole plane ships on `develop` with the Keycloak resolver bundled in-dashboard and fully config-seeded; product authorization lives behind the single access-policy seam; cite RFC 9068/9700/10017/9449.
+
+_(Scenarios from `scenario-design` fold into §8/§10/§11 as they are drafted.)_

@@ -1,54 +1,82 @@
 ## Why
 
-The dashboard cannot safely serve more than one human at once. On the HTTP plane it collapses every caller into a boolean `request.isAuthenticated` with no `(iss, sub)` behind it (and the boolean is even set for a device with no person). On the WebSocket plane it is worse: a socket is authenticated *once* at upgrade by a ticket that records only a route scope and device id — never a user — then goes anonymous, and InvoiceBot domain events are `broadcast()` to **every** connected socket. The observable result is a cross-user leak: Béla's browser receives Anna's invoice events (InvoiceBot `AUTH-FLOW.md` §8).
+The dashboard cannot safely serve multiple human principals today. HTTP authentication collapses callers into `request.isAuthenticated`; browser WebSockets may bootstrap global session/workspace/terminal state, accept mutating commands by caller-supplied ids, and broadcast plugin domain events globally. A principal-resolution hook alone would identify the caller but would not prevent cross-user reads or writes.
 
-Per-request principal resolution alone does **not** fix this — it isolates the short-lived HTTP request but leaves the long-lived socket, which is exactly the plane multi-user traffic actually flows over. To make the product multi-user-correct we must carry a real identity onto *both* planes. This change builds the whole identity plane as one upstreamable, IdP-agnostic unit: resolve a principal per request, bind it onto the socket, scope subscriptions and event fan-out to it, and keep an authenticated socket from outliving its principal.
+Topology B is the chosen architecture: a public browser client obtains a Keycloak access token with Authorization Code + PKCE, and the dashboard acts as the OAuth resource server. The dashboard must therefore validate the bearer before its existing cookie-auth hook rejects the request, carry the verified identity and token expiry through the WebSocket ticket, and enforce authorization at every host-owned HTTP and browser-WebSocket boundary.
+
+This change supplies the complete host identity/enforcement plane on `develop`. The Keycloak resolver ships inside the dashboard but receives all realm/issuer/client details from settings. A separately developed product plugin attaches a host access policy for product-specific decisions; the dashboard never hardcodes InvoiceBot or any product role model.
 
 ## What Changes
 
-**HTTP plane — principal resolution seam:**
-- Add a `Principal` shape `{ iss, sub, email? }`; `(iss, sub)` is the identity key, `email` a label.
-- Add a curated `AuthContext` (not the raw request): `{ method, url, authorization?, cookie?, dpop?, isAuthenticated, ip }`. It carries `method`+`url`+`dpop` so a sender-constrained-token (DPoP, RFC 9449) resolver stays possible without a later schema break, while still exposing only a bounded allowlist rather than the raw Fastify request.
-- Add `request.principal: Principal | null`, decorated once, defaulting to `null`.
-- Add `ctx.registerPrincipalResolver(resolve, priority)` (mirrors `onSessionResolved`), returning an unsubscribe fn.
-- Add one core `onRequest` hook after the auth chain that walks resolvers **in priority order** (lower wins) and sets `request.principal` to the first non-null result — first-match-by-priority, fail-closed.
-- Resolver contract `async (ctx) => Promise<Principal | ResolverReject | null>`; `null` means "not my credential, continue the chain", a `ResolverReject` means "this credential is mine and it is invalid" (stops the chain, yields no principal, may drive a 401), and a throw/timeout is treated as `null` and logged, never a 500. This mirrors Spring `ProviderManager` (return-null vs throw `AuthenticationException`).
-- Registration is trust-gated at `manifest.priority <= 100`; priority does double duty (trust gate + precedence). Equal priorities tie-break by registration order with a warning.
+### Authentication and principal resolution
 
-**WebSocket plane — carry the principal onto the socket:**
-- **BREAKING (behavioral):** the ws-ticket mint binds the resolved `principal`, not only a route scope + device id.
-- Attach `ws.principal = (iss, sub)` at upgrade so the socket stops being anonymous.
-- Enforce owner-equality on **subscribe and on replay**: a socket may stream only sessions its principal owns.
-- Replace the global `broadcast()` for domain events with `broadcastToPermitted`, driven by a plugin-supplied `canSee(principal, resourceId)` predicate — fan-out by permission, not by bare subscription.
-- Add browser-plane liveness: a heartbeat on the browser socket and close-on-session-end, so an authenticated socket cannot outlive its principal's validity (the existing `ws-ping-pong` covers only the bridge plane).
+- Add immutable `Principal { iss, sub, email? }`; exact `(iss, sub)` is the identity key and `email` is only a verified display label.
+- Add `PrincipalResolution { principal, expiresAt }` so token lifetime can follow the identity onto a WebSocket.
+- Add a bounded, DPoP-ready `AuthContext { method, url, authorization?, cookie?, dpop?, isAuthenticated, ip }`; resolvers never receive the raw request.
+- Add one host resolver registry. The dispatch hook runs after the paired-device bearer hook but before the legacy cookie-auth hook can reject a request. A successful resolution sets `request.principal`, `request.principalExpiresAt`, and `request.isAuthenticated`; a resolver reject returns 401; `null` continues.
+- Resolver registration requires an explicit host-owned capability grant (`identity.trustedResolverPlugins`); manifest priority controls ordering only and is never a trust boundary. Equal priority is deterministic by plugin id.
+- Validate, copy, and freeze resolver output before exposing it. Empty or malformed `iss`, `sub`, or expiry is rejected.
 
-**Default Keycloak resolver plugin — config-seeded, nothing hardcoded:**
-- Ship a default resolver plugin that validates a Keycloak JWT bearer as a resource server per RFC 9068: signature via cached JWKS, plus `iss`, `aud`, `azp`, `exp`. It disambiguates a JWT from the opaque paired-device bearer (JWT-first, device fallback) and returns `null` for a device token.
-- **Every Keycloak-specific value is seeded from a setting**, read via the existing `getPluginConfig()` — issuer URL (e.g. the Docker `http://keycloak:8080/realms/<realm>`), expected `audience`, `authorizedParty`/client id, optional `jwksUri` override, and clock-skew tolerance. **No issuer, realm, port, client id, or key is hardcoded.** The plugin performs its own OIDC discovery from the configured issuer to obtain `jwks_uri` (it does not depend on core's incomplete `fetchOIDCDiscovery`).
+### Bundled Keycloak resource-server resolver
 
-Non-goals (separate downstream changes on `private/invoicebot`): the InvoiceBot-specific `canSee` implementation and product authorization. Session *ownership assignment* at spawn time (stamping `pluginRef:{iss,sub}`) is in scope only as the host-side plumbing that records an owner; product meaning stays downstream.
+- Ship a bundled dashboard resolver for JWT access tokens. It performs OIDC discovery, caches JWKS, verifies RS256 signature plus exact `iss`, required `aud`, optional required `azp`, `exp`, and DPoP proof when `cnf.jkt` is present.
+- Seed every Keycloak value from dashboard/plugin settings via `getPluginConfig()`: issuer, audience, optional authorized party, optional JWKS URI, clock skew, network timeout, and explicit insecure-HTTP allowance for controlled Docker development. No realm, hostname, port, client id, audience, or key is hardcoded.
+- Determine token ownership safely: opaque/device bearer or a JWT with another issuer returns `null`; a JWT claiming the configured issuer but failing validation returns reject.
+- Topology-B multi-user mode conflicts with the existing `auth.providers.*` confidential login connectors. Configuration validation refuses that mixed mode rather than silently creating a cookie-auth bypass. Legacy mode remains unchanged.
+
+### Explicit activation and default-inert rollout
+
+- Add `identity.mode: legacy | multi-user`, default `legacy`.
+- `legacy` preserves all existing HTTP, ticket, WebSocket bootstrap, command, and broadcast behavior.
+- `multi-user` requires a configured Keycloak resolver and exactly one explicitly trusted host access-policy plugin before listen; invalid/incomplete configuration fails startup.
+- In multi-user mode, principal-less human HTTP/WS access fails closed. Device/public pairing endpoints remain explicitly classified and continue their existing device flow.
+
+### Full host authorization boundary
+
+- Add one host access-policy contract `authorize({ principal, action, resource }) => Promise<boolean>`, registered only by an explicitly configured `identity.trustedPolicyPlugin`.
+- Define stable host actions and resource descriptors for HTTP routes, WebSocket bootstrap frames, inbound WS commands, domain-event fan-out, and global/workspace/terminal operations. Unknown or unclassified protected routes/messages fail closed in multi-user mode.
+- Require route metadata for host and plugin HTTP routes. Public/device routes are explicit; protected routes require a principal and a successful policy decision.
+- Filter list/snapshot responses item-by-item. Do not merely authorize the container request and then return other users' resources.
+- Bound policy calls by a configured timeout. Missing policy, throw, timeout, or malformed result denies access and logs a structured reason.
+
+### Session ownership and browser WebSockets
+
+- Persist `principalOwner?: { iss, sub }` in session metadata and expose it on session summaries. Compare it field-by-field with exact string equality.
+- User-triggered `spawn_session` stamps `ws.principal` as owner. Trusted product-policy plugins may explicitly pass the current request principal through the trusted spawn API. Automation and legacy sessions remain ownerless.
+- Enforce owner equality for every session read/write road: HTTP detail/transcript/mutation, WS bootstrap session snapshots, list/pagination, subscribe, replay/backfill, and inbound session commands.
+- In multi-user mode browser upgrades require a single-use identity-bearing ticket. Cookie, local-token, trusted-network, or no-ticket browser upgrades do not bypass this requirement.
+- Tickets bind principal plus `expiresAt`; sockets copy both and close at token expiry. Re-authentication occurs by obtaining a new token/ticket and reconnecting. Browser heartbeat only detects half-open transport; it does not claim to prove token validity.
+- Filter OpenSpec/workspace/branch/terminal bootstrap and commands through the host access policy. Domain events use the same policy-driven targeted send; unconditional global product-event broadcast is forbidden in multi-user mode.
+
+## Discipline Skills
+
+Tasks in this change trigger these `eng-disciplines` skills:
+- **security-hardening** — the whole change is auth/untrusted-input/session/token surface: JWT/JWKS/DPoP validation, the resolver trust grant, fail-closed authorization, and the WS bootstrap/command boundary.
+- **observability-instrumentation** — new auth gate, policy decisions, and denials require structured audit events (§7.2) so a refusal is diagnosable.
+- **performance-optimization** — the resolver runs on every request's hot path; JWKS caching/coalescing and bounded timeouts (§5.2, §4.4) sit on a latency budget.
+- **doubt-driven-review** — applied during planning (two cycles) before this irreversible public-API/identity surface stands; re-apply before the migration cut-over to multi-user mode.
 
 ## Capabilities
 
 ### New Capabilities
-- `principal-resolution`: Core IdP-agnostic seam resolving an authenticated request to a `(iss, sub)` principal via priority-ordered, trust-gated, fail-closed plugin resolvers, exposed as `request.principal`.
-- `websocket-principal-binding`: Carrying the resolved principal from the HTTP mint onto the WebSocket — ticket binds the principal, `ws.principal` attached at upgrade, and browser-plane liveness so an authenticated socket cannot outlive its principal.
-- `session-ownership-scoping`: Owner-equality enforcement on both subscribe and replay, so a socket may stream only the sessions its principal owns.
-- `permissioned-event-fanout`: A host-owned `broadcastToPermitted` that fans domain events out by a plugin-supplied `canSee(principal, resourceId)` predicate, replacing the global broadcast.
-- `keycloak-principal-resolver`: A config-seeded default resolver plugin that validates a Keycloak JWT bearer as a resource server (RFC 9068: JWKS/RS256, `iss`/`aud`/`azp`/`exp`), disambiguates it from the opaque device bearer, and reads every Keycloak connection value from settings — hardcoding nothing.
+
+- `principal-resolution`: trusted, ordered, bounded principal resolution integrated into the actual auth gate, with immutable validated results and expiry metadata.
+- `keycloak-principal-resolver`: bundled, fully config-seeded Keycloak resource-server validation with discovery/JWKS caching and safe JWT/device/other-issuer disambiguation.
+- `websocket-principal-binding`: mandatory identity-bearing browser tickets in multi-user mode, principal+expiry attachment, expiry closure, and transport heartbeat.
+- `session-ownership-scoping`: persisted owner assignment and exact owner enforcement across all HTTP and WS session read/write roads.
+- `host-access-policy`: explicit activation plus deny-by-default, plugin-supplied authorization for protected HTTP routes, WS bootstrap, inbound commands, global resources, and event fan-out.
 
 ### Modified Capabilities
-<!-- None. New behavior composes WITH existing specs rather than changing their
-     requirements: ws-frame-delivery-policy (delivery class / shedding) is orthogonal
-     to WHO may receive; ws-ping-pong governs the bridge plane, not the browser plane;
-     session-identity's "owner" is bridge-routing ownership, not human principal. -->
+
+<!-- Existing wire formats remain backward compatible in legacy mode. Multi-user mode adds authorization requirements rather than changing bridge-plane delivery classes or bridge ping/pong. -->
 
 ## Impact
 
-- **Code**: `packages/server/src/server.ts` (decorate `request.principal`; resolver-walk `onRequest` hook ~1404; `registerPrincipalResolver` on plugin context ~2266; ws-ticket mint ~1785; WS upgrade validate ~2643). `browser-gateway.ts` (`subscriptions`, `broadcast()` → `broadcastToPermitted`, owner check on subscribe/replay, browser-plane heartbeat). `ws-ticket.ts` (bind principal on the ticket). Shared types with `dashboard-plugin-runtime`.
-- **Composes with (not modifying)**: `ws-frame-delivery-policy`, `ws-ping-pong` (bridge plane), `plugin-ws-route`, `session-identity`.
-- **Conflict with the existing dashboard Keycloak (`auth.providers.keycloak`, `auth.ts`)**: that integration is a *login connector* — a confidential client doing code→cookie exchange whose `fetchOIDCDiscovery` omits `jwks_uri`/`end_session_endpoint`; it is NOT a resource-server bearer validator and is the Topology-A/legacy path (mints its own 7-day cookie, Keycloak out of loop). The new `keycloak-principal-resolver` is a *resource server* validating the bearer per request. Both may point at the same realm, so the resolver's configured `issuer` MUST equal the login connector's issuer (the `iss` value is the persisted join key — a hostname/port mismatch silently breaks every stored key). Resolution: the resolver owns the API/WS bearer path via its own plugin config (seeded, `getPluginConfig()`); the login connector is not consulted for bearer validation and is not the source of the principal.
-- **APIs**: new `ctx.registerPrincipalResolver`; new `request.principal` and `ws.principal`; new host `broadcastToPermitted` + plugin `canSee` predicate registration. No existing signature removed.
-- **Behavior**: HTTP seam is default-inert (no resolver ⇒ `principal` always `null`). The WS fan-out change is behavioral: once principals exist, domain events stop reaching non-owners — the intended multi-user fix, but a visible change from today's broadcast-to-all.
-- **Security**: introduces the identity plane; the `priority <= 100` trust gate is load-bearing (a resolver can mint any principal). Consumers gate on `principal`, never on `isAuthenticated`. Fail-closed default also disposes of ownerless/automation sockets (no principal ⇒ excluded from every human subscriber).
-- **Upstream carve-out**: this whole plane is generic identity plumbing naming no product concept, so it upstreams to `develop`; the Keycloak resolver and InvoiceBot `canSee` stay downstream.
+- **Dashboard core:** auth-hook ordering; request decorators; plugin capability grants; route metadata/guards; startup readiness validation.
+- **Bundled dashboard plugin/module:** Keycloak discovery, JWKS cache, JWT/DPoP validation, config schema.
+- **Browser gateway:** ticket-only browser upgrades in multi-user mode; filtered bootstrap; authorized commands; session ownership; targeted event delivery; token-expiry timer; heartbeat.
+- **Session persistence/shared protocol:** additive `principalOwner`; filtered snapshots and pagination.
+- **Configuration:** additive `identity` settings; defaults to `legacy`. Multi-user mode rejects simultaneous legacy confidential login connectors.
+- **Product plugins:** may register exactly one trusted access policy and use the trusted owned-spawn path. Product authorization data and decisions remain outside dashboard core.
+- **Security:** no self-declared manifest field grants identity power. No human authority gates on `isAuthenticated` alone. Unknown surfaces and failures deny in multi-user mode.
+- **Compatibility:** zero configuration preserves current behavior exactly. Enabling multi-user mode is an explicit cut-over; ownerless legacy/automation sessions are hidden from human principals until deliberately adopted or respawned.

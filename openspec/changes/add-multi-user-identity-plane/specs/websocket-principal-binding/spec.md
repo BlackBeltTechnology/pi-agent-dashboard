@@ -1,44 +1,62 @@
 ## Purpose
 
-Carries the resolved `(iss, sub)` principal from the HTTP ticket mint onto the WebSocket connection so the socket is no longer anonymous, and keeps an authenticated socket from outliving its principal's validity on the browser plane.
+Carries the resolved `(iss, sub)` principal and its credential expiry from a principal-bearing HTTP mint onto the browser WebSocket, makes an identity-bearing ticket mandatory for browser upgrades in multi-user mode so no other upgrade path bypasses it, and bounds an authenticated socket by its token expiry.
 
 ## ADDED Requirements
 
-### Requirement: Ticket mint binds the principal
+### Requirement: Ticket mint binds principal and expiry
 
-The system SHALL bind the caller's resolved `principal` onto the WebSocket ticket at mint time, in addition to the existing route scope and optional device id. A ticket minted without a resolved principal SHALL carry no principal.
+The system SHALL bind the caller's resolved `principal` and `principalExpiresAt` onto the WebSocket ticket at mint time, in addition to route scope and optional device id. A ticket minted from a request with no principal SHALL carry no principal.
 
 #### Scenario: Ticket minted for an authenticated human
-- **WHEN** a request with a non-null `request.principal` mints a ws-ticket
-- **THEN** the ticket records the `(iss, sub)` principal alongside its route scope
-- **AND** the ticket remains single-use and short-TTL as before
+- **WHEN** a request with a non-null `request.principal` mints a browser ws-ticket
+- **THEN** the ticket records `(iss, sub)` and `expiresAt` alongside its scope
+- **AND** the ticket remains single-use and short-TTL
 
 #### Scenario: Ticket minted with no principal
-- **WHEN** a request with `request.principal === null` mints a ws-ticket (e.g. a device bearer or bypass path)
+- **WHEN** a request with `request.principal === null` mints a ticket
 - **THEN** the ticket carries no principal
-- **AND** any socket it upgrades is treated as principal-less
 
-### Requirement: Principal attached at upgrade
+### Requirement: Browser upgrades in multi-user mode require an identity ticket
 
-The system SHALL attach `ws.principal` to the socket when the ticket is consumed at the WebSocket upgrade, from the principal recorded on the ticket. After upgrade the socket SHALL expose its principal for the lifetime of the connection.
+When `identity.mode = multi-user`, a browser-scope WebSocket upgrade SHALL require a valid single-use ticket minted by a principal-bearing request. Cookie, local-token, trusted-network, and no-ticket browser upgrades SHALL NOT bypass this requirement. Non-browser scopes (bridge, device/pairing) retain their existing, separately specified rules.
+
+#### Scenario: Cookie-only browser upgrade is refused in multi-user mode
+- **WHEN** a browser attempts an upgrade in multi-user mode with only a session cookie and no ticket
+- **THEN** the upgrade is refused
+
+#### Scenario: Trusted-network browser upgrade still requires a ticket
+- **WHEN** a browser on a trusted network attempts an upgrade in multi-user mode without a ticket
+- **THEN** the upgrade is refused
+
+### Requirement: Principal and expiry attached at upgrade
+
+The system SHALL attach immutable `ws.principal` and `ws.principalExpiresAt` from the consumed ticket. After upgrade the socket SHALL expose its principal for the connection lifetime.
 
 #### Scenario: Socket carries identity after 101
 - **WHEN** a ticket bound to a principal is consumed at upgrade
-- **THEN** `ws.principal` equals that principal for the connection's lifetime
+- **THEN** `ws.principal` equals that principal and `ws.principalExpiresAt` equals the ticket expiry
 
 #### Scenario: Principal-less ticket yields an anonymous socket
-- **WHEN** a ticket with no principal is consumed at upgrade
-- **THEN** `ws.principal` is `null`
-- **AND** the socket is excluded from every principal-scoped delivery
+- **WHEN** a ticket with no principal is consumed
+- **THEN** `ws.principal` is `null` and the socket is excluded from every principal-scoped delivery
 
-### Requirement: Browser-plane liveness bounds an authenticated socket
+### Requirement: Socket is bounded by token expiry
 
-The system SHALL run a heartbeat on the browser WebSocket plane and SHALL close a browser socket when its underlying session ends, so that an authenticated socket cannot stream indefinitely after its principal should no longer be served. This is distinct from the bridge-plane ping/pong.
+The system SHALL close a browser socket at `ws.principalExpiresAt`. Re-authentication SHALL occur by obtaining a fresh token, minting a new ticket, and reconnecting. The system SHALL NOT claim revocation before expiry; access-token TTL bounds the exposure.
+
+#### Scenario: Socket closes at token expiry
+- **WHEN** a socket's `principalExpiresAt` is reached
+- **THEN** the socket is closed and its subscriptions released
+
+### Requirement: Heartbeat detects transport liveness only
+
+The system SHALL run a browser-plane heartbeat that terminates a socket failing to answer within the configured window, releasing its subscriptions. The heartbeat SHALL be transport-liveness only: it SHALL NOT extend, revalidate, or revoke the principal, and SHALL NOT be tied to any single session, since a browser socket multiplexes sessions. This is distinct from the bridge-plane ping/pong.
 
 #### Scenario: Half-open browser socket is detected
-- **WHEN** a browser socket stops answering the browser-plane heartbeat within the configured window
+- **WHEN** a browser socket stops answering the heartbeat within the window
 - **THEN** the socket is terminated and its subscriptions released
 
-#### Scenario: Socket closes when its session ends
-- **WHEN** the session a browser socket is bound to ends
-- **THEN** the socket is closed rather than left streaming
+#### Scenario: Heartbeat does not extend identity
+- **WHEN** a socket answers heartbeats past `principalExpiresAt`
+- **THEN** the socket is still closed at expiry, because liveness does not renew identity

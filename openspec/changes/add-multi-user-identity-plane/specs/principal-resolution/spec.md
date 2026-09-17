@@ -1,33 +1,39 @@
 ## Purpose
 
-Defines a core, identity-provider-agnostic seam that resolves an authenticated request to a stable `(iss, sub)` principal through priority-ordered, trust-gated, fail-closed plugin resolvers, and exposes the result as `request.principal` for downstream consumers.
+Defines a core, identity-provider-agnostic seam that resolves a request's credential to a stable `(iss, sub)` principal with a credential expiry, through host-trusted, priority-ordered, bounded, fail-closed resolvers, integrated into the actual authentication gate and exposed as `request.principal` for downstream consumers.
 
 ## ADDED Requirements
 
 ### Requirement: Principal shape
 
-The system SHALL define a `Principal` value as `{ iss: string, sub: string, email?: string }`, where `(iss, sub)` is the stable identity join key and `email`, when present, is a non-authoritative display label. The system SHALL NOT treat `email` as an identity key.
+The system SHALL define an immutable `Principal` value as `{ iss: string, sub: string, email?: string }`, where exact `(iss, sub)` is the identity join key and `email`, when present, is a non-authoritative display label. The system SHALL NOT treat `email` as an identity key.
 
 #### Scenario: Principal carries the issuer-qualified subject
-- **WHEN** a resolver returns a principal for an authenticated request
+- **WHEN** a resolver returns a principal for a request
 - **THEN** the principal exposes a non-empty `iss` and a non-empty `sub`
 - **AND** any `email` present is available only as a label
 
-### Requirement: Request principal exposure
+#### Scenario: Resolved principal is immutable
+- **WHEN** the system exposes a resolved principal on the request
+- **THEN** the exposed value is a frozen copy of plain data
+- **AND** a resolver cannot mutate request state after resolution via a retained reference or getter
 
-The system SHALL expose `request.principal` on every request, typed `Principal | null`, defaulting to `null`. Consumers SHALL gate authority on the presence of `request.principal`, never on `request.isAuthenticated`.
+### Requirement: Resolution result carries credential expiry
 
-#### Scenario: No resolver claims the request
-- **WHEN** the request completes the auth chain and no registered resolver returns a principal
-- **THEN** `request.principal` is `null`
+A successful resolution SHALL produce `{ principal, expiresAt }`, where `expiresAt` is the Unix epoch-millisecond expiry of the underlying credential. The system SHALL expose `request.principal` and `request.principalExpiresAt`, and SHALL reject a resolution whose `expiresAt` is not a finite timestamp in the future.
 
-#### Scenario: A resolver claims the request
-- **WHEN** a registered resolver returns a non-null principal for the request
-- **THEN** `request.principal` equals that principal for the remainder of request handling
+#### Scenario: Expiry accompanies the principal
+- **WHEN** a resolver returns a valid principal for a bearer credential
+- **THEN** the resolution includes `expiresAt` copied from the credential's expiry
+- **AND** `request.principalExpiresAt` is set to that value
+
+#### Scenario: Already-expired credential does not authenticate
+- **WHEN** a resolution's `expiresAt` is at or before the current time
+- **THEN** the result is treated as invalid and no principal is exposed
 
 ### Requirement: Curated authentication context
 
-The system SHALL pass each resolver a curated `AuthContext` of `{ method: string, url: string, authorization?: string, cookie?: string, dpop?: string, isAuthenticated: boolean, ip: string }` and SHALL NOT pass the raw underlying request object. The context SHALL expose only this bounded allowlist. It SHALL include `method`, `url`, and the `dpop` header so that a sender-constrained-token resolver (DPoP, RFC 9449) can validate a proof without a later schema change; a resolver that does not use DPoP simply ignores those fields.
+The system SHALL pass each resolver a curated `AuthContext` of `{ method: string, url: string, authorization?: string, cookie?: string, dpop?: string, isAuthenticated: boolean, ip: string }` and SHALL NOT pass the raw underlying request object. The context SHALL expose only this bounded allowlist, and SHALL include `method`, `url`, and the `dpop` header so a sender-constrained-token resolver (DPoP, RFC 9449) can validate a proof without a later schema change.
 
 #### Scenario: Resolver receives only the curated context
 - **WHEN** the resolution hook invokes a resolver
@@ -37,76 +43,89 @@ The system SHALL pass each resolver a curated `AuthContext` of `{ method: string
 #### Scenario: DPoP-bound token can be validated
 - **WHEN** a resolver validates a sender-constrained (DPoP) access token
 - **THEN** it can read the `dpop` proof header together with `method` and `url` from the context
-- **AND** no wider request access is required
 
-### Requirement: Resolver registration is trust-gated
+### Requirement: Resolver registration requires a host trust grant
 
-The system SHALL expose a plugin registration API to add a principal resolver, and SHALL permit registration only from a plugin whose manifest priority is `<= 100`. A plugin above that threshold SHALL receive a no-op registrar and its resolver SHALL never run.
+The system SHALL permit resolver registration only from the bundled dashboard resolver or from a plugin explicitly named in operator-controlled configuration (`identity.trustedResolverPlugins`). Self-declared `manifest.priority` SHALL NOT grant registration. A plugin not on the trust grant SHALL receive a no-op registrar and its resolver SHALL never run.
 
 #### Scenario: Trusted plugin registers a resolver
-- **WHEN** a plugin with manifest priority `<= 100` registers a resolver
-- **THEN** the resolver is added to the resolution chain
-- **AND** the registration call returns an unsubscribe function that removes it
+- **WHEN** a plugin named in `identity.trustedResolverPlugins` registers a resolver
+- **THEN** the resolver is added to the chain
+- **AND** the registration returns an unsubscribe function
 
 #### Scenario: Untrusted plugin attempt is inert
-- **WHEN** a plugin with manifest priority `> 100` attempts to register a resolver
-- **THEN** no resolver is added to the chain
-- **AND** no request is ever routed to that plugin for principal resolution
+- **WHEN** a plugin not named in the trust grant attempts to register a resolver
+- **THEN** no resolver is added and no request is ever routed to it
 
-### Requirement: Priority-ordered first-match resolution
+#### Scenario: Manifest priority does not confer trust
+- **WHEN** a plugin declares `manifest.priority <= 100` but is not named in the trust grant
+- **THEN** it still receives a no-op registrar
 
-The system SHALL run registered resolvers in ascending priority order (lower number first) and SHALL set `request.principal` to the first non-null principal result, stopping the walk at that point. A resolver result SHALL be one of: a `Principal` (claim), `null` ("not my credential" — continue), or a distinct reject outcome ("this credential is mine and it is invalid").
+### Requirement: Deterministic priority-ordered first-match resolution
+
+The system SHALL order resolvers by `(manifest.priority ascending, pluginId ascending)` and SHALL take the first resolver that returns a principal, stopping the walk. A resolver result SHALL be one of: a successful resolution (claim), `null` ("not my credential" — continue), or a reject ("my credential and it is invalid"). Ordering SHALL be deterministic across boots and SHALL NOT depend on registration/load order.
 
 #### Scenario: Lower-priority-number resolver wins
-- **WHEN** two resolvers would both return a principal and one has a lower priority number
-- **THEN** the lower-numbered resolver runs first and its principal is used
-- **AND** the higher-numbered resolver is not consulted for that request
+- **WHEN** two resolvers would both claim and one has a lower priority number
+- **THEN** the lower-numbered resolver's principal is used and the higher one is not consulted
+
+#### Scenario: Equal priorities tie-break deterministically by plugin id
+- **WHEN** two resolvers share the same priority number
+- **THEN** they are ordered by plugin id, identically on every boot
 
 #### Scenario: Non-claiming resolver falls through
-- **WHEN** the first resolver returns `null` for a credential it does not recognize
-- **THEN** the next resolver in priority order is consulted
+- **WHEN** a resolver returns `null`
+- **THEN** the next resolver in order is consulted
 
-#### Scenario: Reject stops the chain fail-closed
-- **WHEN** a resolver returns the reject outcome for a credential it owns but finds invalid (e.g. a JWT with a bad signature or expired `exp`)
-- **THEN** the walk stops, `request.principal` is `null`, and no lower-priority resolver claims it
-- **AND** the request MAY be answered with 401 rather than silently falling through
+#### Scenario: Reject stops the chain fail-closed with a 401
+- **WHEN** a resolver returns reject for a credential it owns but finds invalid
+- **THEN** the walk stops, no principal is exposed, and the request is answered 401
+- **AND** no lower-priority resolver claims it
 
-#### Scenario: Equal priorities tie-break by registration order with a warning
-- **WHEN** two registered resolvers share the same priority number
-- **THEN** they are ordered by registration (load) order
-- **AND** the system logs a warning identifying the colliding resolvers
+### Requirement: Resolution is integrated into the authentication gate
 
-### Requirement: Resolution runs after the auth chain settles
+The system SHALL dispatch resolution after the opaque paired-device bearer hook and before the legacy cookie-authentication hook can reject the request, so a valid bearer credential authenticates the request rather than being rejected. A successful resolution SHALL set `request.principal`, `request.principalExpiresAt`, and `request.isAuthenticated = true`. Resolvers SHALL be dispatched from a fixed position regardless of plugin load order.
 
-The system SHALL run principal resolution once per request, after the existing authentication chain has settled `request.isAuthenticated`, and before any guarded route handler executes. Resolvers SHALL be resolvable to a fixed dispatch position regardless of plugin load order.
-
-#### Scenario: Principal available to route handlers
-- **WHEN** a guarded route handler executes
-- **THEN** `request.principal` has already been resolved (to a principal or to `null`)
+#### Scenario: Bearer request authenticates before cookie rejection
+- **WHEN** a request carries a valid bearer credential and no dashboard cookie
+- **THEN** resolution sets the principal and `isAuthenticated` before the cookie hook runs
+- **AND** the cookie hook observes an authenticated request and does not reject it
 
 #### Scenario: Authenticated device bearer yields no principal
-- **WHEN** a request is authenticated via the opaque paired-device bearer path (so `isAuthenticated` is true) and no resolver recognizes it as a person
-- **THEN** `request.principal` is `null`
+- **WHEN** a request is authenticated via the opaque paired-device path and no resolver recognizes it as a person
+- **THEN** `request.principal` is `null` while `request.isAuthenticated` may be true
+
+### Requirement: Resolved output is validated before exposure
+
+The system SHALL validate a resolver's output before exposing it: reject empty/whitespace `iss` or `sub`, non-string label, absent or non-future `expiresAt`, non-plain-data shapes, and values exceeding bounded maximum lengths. A resolver's raw returned object SHALL NOT become request/ticket/socket state directly.
+
+#### Scenario: Malformed principal is rejected
+- **WHEN** a resolver returns an object with an empty `sub` or a missing `expiresAt`
+- **THEN** the result is discarded as if the resolver returned `null`
+- **AND** the event is logged
 
 ### Requirement: Fail-closed resolver isolation
 
-A resolver that throws, rejects, or exceeds its time budget SHALL be treated as if it returned `null`, SHALL be logged, and SHALL NOT cause the request to fail with a server error. Resolution SHALL never itself grant authority; absence of a claim yields `null`.
+A resolver that throws, rejects, or exceeds its configured time budget SHALL be treated as returning `null`, SHALL be logged, and SHALL NOT cause a server error. Resolution SHALL never itself grant authority; absence of a claim yields `null`.
 
 #### Scenario: Throwing resolver is neutralized
-- **WHEN** a resolver throws or rejects during resolution
-- **THEN** it is treated as returning `null`
-- **AND** the event is logged
-- **AND** the request continues to the next resolver or to `null`, never a 500
+- **WHEN** a resolver throws during resolution
+- **THEN** it is treated as returning `null`, the event is logged, and the request continues, never a 500
 
 #### Scenario: Slow resolver is bounded
 - **WHEN** a resolver exceeds its time budget
 - **THEN** it is treated as returning `null` and the walk continues
 
-### Requirement: Default-inert behavior
+### Requirement: Legacy mode is inert even when resolvers are registered
 
-With no resolver registered, the system SHALL behave exactly as before this change: `request.principal` is always `null` and no request outcome changes. The seam SHALL be safe to enable in a build that registers no resolver.
+With `identity.mode = legacy` (the default), the system SHALL NOT dispatch resolvers: `request.principal` and `request.principalExpiresAt` remain `null`, `request.isAuthenticated` is unaffected by any resolver, and every authentication and routing outcome is identical to before this change — even if resolvers are registered in the registry. Resolver dispatch and policy evaluation activate only in multi-user mode.
 
-#### Scenario: No resolvers registered
-- **WHEN** the server runs with zero registered principal resolvers
+#### Scenario: No resolvers registered in legacy mode
+- **WHEN** the server runs in legacy mode with zero registered resolvers
 - **THEN** every request has `request.principal === null`
 - **AND** no authentication or routing behavior differs from before the seam existed
+
+#### Scenario: Registered resolver stays inert in legacy mode
+- **WHEN** the server runs in legacy mode but a resolver is registered
+- **THEN** the dispatch hook does not invoke it
+- **AND** `request.principal` is `null` and `request.isAuthenticated` is exactly what the pre-existing auth chain set
