@@ -23,9 +23,11 @@ import {
 let root: string;
 let clientRoot: string;
 let outDir: string;
+/** Extra temp repos created by a test (cleaned in afterEach). */
+const extraRoots: string[] = [];
 
-function writePlugin(id: string, opts: { fixture?: boolean } = {}): void {
-  const pkgDir = path.join(root, "packages", id);
+function writePlugin(id: string, opts: { fixture?: boolean; targetRoot?: string } = {}): void {
+  const pkgDir = path.join(opts.targetRoot ?? root, "packages", id);
   fs.mkdirSync(path.join(pkgDir, "src"), { recursive: true });
   const component = `${id.replace(/[^a-zA-Z0-9]/g, "_")}Panel`;
   fs.writeFileSync(
@@ -69,6 +71,7 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(root, { recursive: true, force: true });
+  for (const extra of extraRoots.splice(0)) fs.rmSync(extra, { recursive: true, force: true });
 });
 
 describe("build declaration emit (E7, E8)", () => {
@@ -97,6 +100,37 @@ describe("build declaration emit (E7, E8)", () => {
     const declaration = emitBuildDeclaration({ outDir, repoRoot: root, isProd: false });
     expect(declaration).toBeNull();
     expect(fs.existsSync(buildDeclarationPath(outDir))).toBe(false);
+  });
+
+  it("each root's declaration matches its OWN embedded hash (no discovery-cache bleed)", () => {
+    // The process-wide discovery cache is unkeyed by root, so emitting for a
+    // second repo must not reuse the first repo's set. Two roots with disjoint
+    // plugin sets, emitted in sequence, each keep their own registry hash.
+    writePlugin("alpha");
+    const { content: contentA } = regeneratePluginRegistry(root, true);
+    const hashA = embeddedHash(contentA);
+
+    const rootB = fs.mkdtempSync(path.join(os.tmpdir(), "vite-emit-b-"));
+    extraRoots.push(rootB);
+    writePlugin("beta", { targetRoot: rootB });
+    writePlugin("gamma", { targetRoot: rootB });
+    const outDirB = path.join(rootB, "packages", "client", "dist");
+    fs.mkdirSync(outDirB, { recursive: true });
+    const { content: contentB } = regeneratePluginRegistry(rootB, true);
+    const hashB = embeddedHash(contentB);
+    expect(hashA).not.toBe(hashB);
+
+    // Emit A AFTER B — A must still carry A's set, not the most recent one.
+    emitBuildDeclaration({ outDir, repoRoot: root, isProd: true });
+    emitBuildDeclaration({ outDir: outDirB, repoRoot: rootB, isProd: true });
+
+    const readA = readBuildDeclaration(outDir);
+    const readB = readBuildDeclaration(outDirB);
+    if (!isUsableDeclaration(readA) || !isUsableDeclaration(readB)) {
+      throw new Error("both declarations must be valid");
+    }
+    expect(readA.declaration.pluginRegistryHash).toBe(hashA);
+    expect(readB.declaration.pluginRegistryHash).toBe(hashB);
   });
 
   it("the vite plugin's writeBundle hook emits in production and not in dev", () => {

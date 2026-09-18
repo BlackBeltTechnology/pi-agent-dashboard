@@ -39,6 +39,9 @@ test.describe("plugin registry hash parity (L3)", () => {
     expect(body.clientBuild?.status).toBe("matched");
     expect(body.clientBuild?.pluginRegistryHash).toMatch(/^[0-9a-f]{64}$/);
     expect(body.bundleHash).toMatch(/^[0-9a-f]{64}$/);
+    // Both are computed over the same client-registry set, so they must agree —
+    // format checks alone would pass while the two hashes silently diverged.
+    expect(body.clientBuild?.pluginRegistryHash).toBe(body.bundleHash);
 
     // Await the BROWSER's own health probe rather than sleeping: the banner
     // mounts and fetches `/api/health` on load, so waiting for that response

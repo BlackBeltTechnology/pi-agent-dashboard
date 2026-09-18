@@ -29,7 +29,7 @@ import {
   bundleRootsFor,
   selectClientRegistryPlugins,
 } from "../server/client-registry-set.js";
-import { computeBuildDeclaration } from "../server/build-declaration-sdk.js";
+import { computeBuildDeclaration, declarationFromPlugins } from "../server/build-declaration-sdk.js";
 import {
   type BuildDeclaration,
   writeBuildDeclaration,
@@ -338,6 +338,19 @@ function hashContent(content: string): string {
 let lastHash = "";
 
 /**
+ * The declaration built alongside the most recent registry generation, keyed by
+ * repoRoot.
+ *
+ * `writeBundle` writes THIS declaration, never a fresh discovery. The discovery
+ * cache is process-wide and unkeyed by root, and `buildStart` is the only point
+ * that pins it for a build — so re-discovering between `buildStart` and
+ * `writeBundle` could hash a different set than the one the emitted registry's
+ * `PLUGIN_REGISTRY_HASH` was computed from. Carrying the generated set makes the
+ * declaration hash equal to the embedded hash by construction.
+ */
+const pendingDeclarations = new Map<string, BuildDeclaration>();
+
+/**
  * Standalone-callable wrapper around `regenerate` for non-Vite consumers
  * (e.g. `scripts/generate-plugin-registry.mjs` invoked from prelint/prebuild).
  */
@@ -349,6 +362,10 @@ function regenerate(repoRoot: string, isProd: boolean): { changed: boolean; cont
   const entries = loadPluginEntries(repoRoot, isProd);
   const content = generateRegistryContent(entries, repoRoot);
   const hash = hashContent(content);
+
+  // Refresh the pending declaration even when the registry content is
+  // unchanged, so it always describes the registry THIS build emits.
+  pendingDeclarations.set(repoRoot, declarationFromPlugins(entries, { isProd }));
 
   if (hash === lastHash) return { changed: false, content };
 
@@ -372,10 +389,14 @@ export function emitBuildDeclaration(args: {
   isProd: boolean;
 }): BuildDeclaration | null {
   if (!args.isProd) return null;
-  const declaration = computeBuildDeclaration(discoverPlugins(args.repoRoot), {
-    isProd: true,
-    bundleRoots: bundleRootsFor(args.repoRoot),
-  });
+  // Prefer the set carried from registry generation; fall back to discovering
+  // only for a direct caller that never ran the generator.
+  const declaration =
+    pendingDeclarations.get(args.repoRoot) ??
+    computeBuildDeclaration(discoverPlugins(args.repoRoot), {
+      isProd: true,
+      bundleRoots: bundleRootsFor(args.repoRoot),
+    });
   writeBuildDeclaration(args.outDir, declaration);
   return declaration;
 }

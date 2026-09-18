@@ -18,6 +18,7 @@ import { pluginRegistryHash } from "./loader.js";
 import {
   BUILD_DECLARATION_SCHEMA_VERSION,
   type BuildDeclaration,
+  type FixturePolicy,
 } from "./build-metadata.js";
 
 export interface ComputeBuildDeclarationOptions {
@@ -28,7 +29,27 @@ export interface ComputeBuildDeclarationOptions {
 }
 
 /**
- * Build the declaration for the given discovery result.
+ * Build a declaration from a plugin list that has ALREADY been selected.
+ *
+ * The digest is `pluginRegistryHash` over exactly these plugins — no second
+ * selection — so a caller that already holds the set it generated the registry
+ * from gets a declaration whose hash is equal **by construction**, and cannot
+ * be perturbed by a later re-discovery (the discovery cache is process-wide).
+ */
+export function declarationFromPlugins(
+  plugins: readonly ClientRegistryCandidate[],
+  opts: { isProd: boolean },
+): BuildDeclaration {
+  const fixturePolicy: FixturePolicy = opts.isProd ? "excluded" : "included";
+  return {
+    schemaVersion: BUILD_DECLARATION_SCHEMA_VERSION,
+    pluginRegistryHash: pluginRegistryHash(plugins),
+    fixturePolicy,
+  };
+}
+
+/**
+ * Build the declaration for a discovery result.
  *
  * No paths, timestamps, or host data enter the returned object — only the
  * selected plugin *identities* (via the order-normalised serialization) and the
@@ -42,9 +63,5 @@ export function computeBuildDeclaration(
     isProd: opts.isProd,
     bundleRoots: opts.bundleRoots,
   });
-  return {
-    schemaVersion: BUILD_DECLARATION_SCHEMA_VERSION,
-    pluginRegistryHash: pluginRegistryHash(selected),
-    fixturePolicy: opts.isProd ? "excluded" : "included",
-  };
+  return declarationFromPlugins(selected, { isProd: opts.isProd });
 }
