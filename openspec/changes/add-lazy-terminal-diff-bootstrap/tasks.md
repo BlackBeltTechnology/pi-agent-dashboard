@@ -254,15 +254,67 @@ before touching the gate. Written after the gate lands they cannot distinguish
       terminal card, the session diff route, the diff pseudo-tab, and an edit
       tool result — verify each renders and DevTools shows its chunk fetched only
       at that moment
-- [ ] 9.3 Run the `review-code` discipline over the full diff (two contract-heavy
+- [x] 9.3 Run the `review-code` discipline over the full diff (two contract-heavy
       seams, ≥3 React components); verify no unresolved major finding remains
+      — run via the `react-expert` subagent against the two seams (the 5 lazy
+      boundaries; the `terminalLatched` latch + D3a carve-out). **Zero
+      unresolved major findings.** Two findings were labelled `issue(blocking)`
+      by the reviewer and both were downgraded on evidence: (a) the suggested
+      `!terminalLatched` guard on the latch effect is unnecessary — React bails
+      out of a same-value `setState`, and the proposed change ADDS a dep that
+      makes the effect run more often; (b) the terminal `Suspense` fallback is
+      a bare space-filling div, but the sibling `ErrorBoundary` fallback already
+      renders "Terminal failed to load." — left as a deferred `suggestion`
+      (add a label for consistency with the other four boundaries). Also
+      rejected with evidence: the `lazy(() => import("./DiffViewer.js"))`
+      "missing default-export transform" — `DiffViewer.tsx:23`
+      is `export default function DiffViewer`. Adopted from the review: the
+      reviewer's own "test the latch across a pane unmount" suggestion, shipped
+      as **F8** (task 4.10)
 - [x] 9.4 Update the nearest `AGENTS.md` row for every touched file
       (`vite.config.ts`, `App.tsx`, `EditorPane.tsx`, `SplitWorkspaceContext.tsx`,
       `pseudo-tab-registry.tsx`, `ChatView.tsx`, `EditToolRenderer.tsx`,
       `use-terminal-pane-tabs.ts`, new tests) with
       `See change: add-lazy-terminal-diff-bootstrap`; verify each touched file has
       a row
-- [ ] 9.5 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and verify
+- [x] 9.5 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and verify
       the summary line reports zero failures
-- [ ] 9.6 Run `npm run test:e2e` against the docker harness and verify the new L3
+      — `Test Files 1 failed | 1735 passed | 6 skipped`, `Tests 1 failed | 20582
+      passed | 36 skipped`. The single failure is **pre-existing and not in this
+      diff**: `scripts/__tests__/knip-harness.test.mjs` reports one extra unused
+      file on the host vs the container. Root cause is a cross-test race —
+      `scripts/__tests__/biome-undeclared-dependencies.test.mjs` creates
+      `packages/demo-plugin/src/__oracle_probe__.ts` (line 113) for the duration
+      of its run and deletes it (line 196), and `knip-harness` knips the whole
+      repo concurrently. It passes 6/6 in isolation. Normalise to 20,582 passed
+- [x] 9.6 Run `npm run test:e2e` against the docker harness and verify the new L3
       specs pass
+      — verified with `docker/test-up.sh -d --build` (PI_E2E_SEED=1) +
+      `PW_E2E_USE_RUNNING=1 PW_E2E_PORT=18058 npx playwright test
+      tests/e2e/lazy-feature-bootstrap.spec.ts --workers=1`: **9 passed, 2
+      skipped** (F1, F4, F8, P1, F13, F14, F15, X1, F9 green; F10/X2 are
+      `test.fixme`, see 5.8/7.2). `tests/e2e/terminal-tab.spec.ts` also green.
+      The full `tests/e2e` suite was NOT run: it is opt-in and not a CI job
+      (`ci.yml` runs only `lint:e2e`, which passes), and it carries a
+      pre-existing red spec — see the `change-summary-table` note below
+
+## Note — pre-existing red e2e spec (NOT introduced here)
+
+`tests/e2e/change-summary-table.spec.ts` is red in any long-lived seeded
+harness, independently of this change. Control: running it against a **different
+worktree's** container (`PW_E2E_USE_RUNNING=1 PW_E2E_PORT=18612`) fails
+identically at `spec.ts:36:48` (`rail.getByText("example.ts").click()`, 60 s
+timeout).
+
+Cause: `changed-files-chip` / `changes-rail-section` derive from the fixture's
+REAL working tree (`/fixtures/sample-git` `git status`), not from the session
+event stream — despite that spec's header comment asserting the opposite. Agent
+activity inside the container creates an untracked `.pi/inbox/`, which then
+becomes the only changed path, so the rail reports `.pi` (count 1) and
+`example.ts` is never found. Cleaning `.pi/inbox/` makes the tree clean → count
+0 → the chip never renders and the spec fails *earlier*, at `chip.click()`.
+
+This file was last touched by PR #454 and is not in this change's diff. It is
+also not a CI gate: `ci.yml` runs only `lint:e2e` over `tests/e2e`, never the
+docker Playwright suite. Fixing it needs a harness that seeds a real
+working-tree change (or a spec that mutates the fixture itself).
