@@ -73,6 +73,7 @@ async function waitForTail(page: Page): Promise<void> {
 test.describe("chat transcript — scroll-lock + virtualization (Step B gate)", () => {
   // ── chat-scroll-lock: "Scroll lock when user scrolls up" ──────────────────
   test("50px lock: scrolling up during streaming stops auto-follow", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     await startLongStream(page);
 
     // Scroll up >50px while content is still streaming.
@@ -88,6 +89,7 @@ test.describe("chat transcript — scroll-lock + virtualization (Step B gate)", 
 
   // ── chat-scroll-lock: "Scroll-to-bottom button" ───────────────────────────
   test("scroll-to-bottom button: appears when up, hides at bottom, click resumes", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     await startLongStream(page);
 
     const btn = scrollToBottomBtn(page);

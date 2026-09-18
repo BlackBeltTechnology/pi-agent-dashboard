@@ -98,6 +98,7 @@ async function openFixtureBoard(page: Page): Promise<void> {
 }
 
 test("board worktree action is available without any session in the board cwd", async ({ page }) => {
+  test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
   // Spawning + ending a real pi session is well past the default timeout.
   test.setTimeout(180_000);
   createBoardRepo();

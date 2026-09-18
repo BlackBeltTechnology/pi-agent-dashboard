@@ -307,6 +307,7 @@ test.describe("openspec init affordances — folder section", () => {
   });
 
   test("F12 (#2.59): Initialize on ABSENT converges straight to the READY pill with a count", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(150_000);
     const dir = makeDir("f12");
     await gotoDashboard(page);

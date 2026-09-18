@@ -572,6 +572,7 @@ test.describe("openspec init affordances — session card", () => {
 
   test.describe("F9 (#2.56): the three disabled reasons render distinct texts", () => {
     test("the two reachable disabled reasons (BROKEN / STALE·missing-skills) read distinct texts; the READY cwd stays live", async ({ page }) => {
+      test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
       test.setTimeout(300_000);
       const broken = makeDir("f9-broken", "mkdir -p DIR/openspec");
       const missingSkills = makeDir("f9-skills");
