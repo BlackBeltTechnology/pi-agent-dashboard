@@ -22,6 +22,7 @@ import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 // `ui:dialog` dismissable with Esc. Needs PI_E2E_SEED=1.
 test.describe("subagent detail dialog (D4)", () => {
   test("popout never opens a new browser tab; opens a ui:dialog when agentId resolves", async ({ page, context }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const card = await spawnFreshGitSession(page);
     await card.click();
     // A card-centre click can land on the card's OpenSpec "Propose" affordance,

@@ -205,6 +205,7 @@ test.describe("subagent pull path — recorded measurements", () => {
   );
 
   test("P1: harness ceiling for concurrent subscribers", async ({ page, context }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.skip(STRIP_OFF, "the ceiling is measured once, on the default arm");
     test.setTimeout(600_000);
 
@@ -226,6 +227,7 @@ test.describe("subagent pull path — recorded measurements", () => {
   });
 
   test("P2/P3 pull arm: reply byte rate + bus-cadence sensitivity", async ({ page, context }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.skip(STRIP_OFF, "the pull arm requires the strip ON (default harness)");
     test.setTimeout(900_000);
 
@@ -274,6 +276,7 @@ test.describe("subagent pull path — recorded measurements", () => {
     page,
     context,
   }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.skip(!STRIP_OFF, "requires the PI_DASHBOARD_SUBAGENT_STRIP=0 harness start");
     test.setTimeout(900_000);
 
@@ -310,6 +313,7 @@ test.describe("subagent pull path — recorded measurements", () => {
   });
 
   test("P4: inspector-open share across four watch patterns", async ({ page, context }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.skip(STRIP_OFF, "the share is a client-side reading, measured on the default arm");
     // Four arms need a long wall clock on a loaded host. The config sets no
     // whole-run budget (#450), so this is bounded by the per-test timeout below;

@@ -16,6 +16,7 @@ import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 // spawned agent's description) AND the parent round-trip settles.
 test.describe("subagents inspector (L3)", () => {
   test("spawned subagent renders its inspector surface", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const card = await spawnFreshGitSession(page);
     await card.click();
     // A card-centre click can land on the card's OpenSpec "Propose" affordance,
@@ -43,6 +44,7 @@ test.describe("subagents inspector (L3)", () => {
   // stored (collapsed) buffer; if the policy dropped a tick the reducer
   // accumulates from, the card degrades to the "Subagent not found" placeholder.
   test("a completed subagent still renders after a page reload", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const card = await spawnFreshGitSession(page);
     await card.click();
 

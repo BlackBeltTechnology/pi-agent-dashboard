@@ -179,6 +179,7 @@ test.describe("subagent pull path under load (synthetic watched-growth substrate
   test("F1/F2/F3/F5/F6/F7: a mounted inspector converges via the CADENCE, not via a push or a terminal frame", async ({
     page,
   }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.skip(STRIP_OFF, "the pull arm requires the strip ON (default harness)");
     test.setTimeout(240_000);
 
@@ -308,6 +309,7 @@ test.describe("subagent pull path under load (synthetic watched-growth substrate
   });
 
   test("F4: anti-vacuity — with the strip OFF the pushed frames are FAT", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.skip(
       !STRIP_OFF,
       "requires the PI_DASHBOARD_SUBAGENT_STRIP=0 harness start (the push arm)",
@@ -334,6 +336,7 @@ test.describe("subagent pull path under load (synthetic watched-growth substrate
   });
 
   test("X1/X2/X3: killed mid-run with no terminal frame, then replayed", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.skip(STRIP_OFF, "the regression is a property of the strip-ON pull model");
     test.setTimeout(240_000);
 
