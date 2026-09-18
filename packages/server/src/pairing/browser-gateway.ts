@@ -100,6 +100,7 @@ export function frameClassOf(
     case "openspec_update":
     case "git_head_update":
     case "sessions_page_result":
+    case "sessions_reordered":
       return { cls: "state", key: `${msg.type}:${msg.cwd}` };
     case "openspec_get_result":
       // The two-phase reply (placeholder then final) is NOT idempotent, so the
@@ -155,13 +156,36 @@ export interface DroppedFrameStats {
   /** Sockets terminated by the pending-state byte ceiling (stalled). */
   stalledSocketsTerminated: number;
   /**
-   * Shed `session_updated` CAPTURES — not distinct ids. A re-entry of an
-   * already-owed id counts again, as does a shed reconcile. `queued - sent` is
-   * therefore NOT the outstanding debt; read `getStatusReconcileInfo(ws)` for that.
+   * Shed session-REGISTRY CAPTURES — not distinct ids. A re-entry of an
+   * already-owed id counts again, as does a shed reconcile, and all three
+   * registry kinds (`session_updated`/`session_added`/`session_removed`) count.
+   * `queued - sent` is therefore NOT the outstanding debt; read
+   * `getStatusReconcileInfo(ws)` for that.
    */
   statusReconcileQueued: number;
-  /** Reconcile `session_updated` frames actually PUT ON THE WIRE after drain. */
+  /** Reconcile registry frames actually PUT ON THE WIRE after drain (all kinds). */
   statusReconcileSent: number;
+}
+
+/** Owed registry kind — the frame shape the reconcile must rebuild (D2). */
+type RegistryDebtKind = "updated" | "added" | "removed";
+
+/**
+ * One owed registry id, as exposed by `getStatusReconcileInfo` for diagnostics.
+ * Contains only an id, a kind tag, a boolean flag, and at most one short
+ * correlation id — never a queued payload (D2).
+ */
+interface StatusDebtEntryInfo {
+  id: string;
+  kind: RegistryDebtKind;
+  /**
+   * Set once a `session_added` for this id was shed; survives the kind being
+   * superseded by `removed`. It is the register's memory that the browser was
+   * never successfully told the session exists (D2).
+   */
+  sawAdd: boolean;
+  /** The shed `session_added`'s `spawnRequestId`, when it carried one. */
+  spawnRequestId?: string;
 }
 
 /**
@@ -259,11 +283,17 @@ export interface BrowserGateway {
   getPendingStateInfo(ws: WebSocket): { entries: number; bytes: number } | undefined;
   /**
    * Per-socket status-reconcile diagnostics: the session ids currently owed to
-   * `ws` after a shed `session_updated`, and whether the reconcile timer is
-   * live. `undefined` when nothing is owed (zero cost in steady state).
-   * See change: fix-backpressure-status-and-subagent-frames.
+   * `ws` after a shed registry frame, the owed kind + `sawAdd` flag per id, and
+   * whether the reconcile timer is live. `undefined` when nothing is owed (zero
+   * cost in steady state).
+   * See changes: fix-backpressure-status-and-subagent-frames,
+   *              close-registry-frame-shed-gaps.
    */
-  getStatusReconcileInfo(ws: WebSocket): { owed: string[]; timerActive: boolean } | undefined;
+  getStatusReconcileInfo(ws: WebSocket): {
+    owed: string[];
+    timerActive: boolean;
+    entries: StatusDebtEntryInfo[];
+  } | undefined;
   /**
    * Browser-socket buffered-amount occupancy for the health surface.
    * See change: fix-backpressure-status-and-subagent-frames.
@@ -797,17 +827,27 @@ export function createBrowserGateway(
     }
   }
 
-  // ── Status-reconcile debt register (change: fix-backpressure-status-and-subagent-frames) ──
-  // `session_updated` is transcript-class and has NO recovery path: no seq, no
-  // backfill, no guaranteed successor. A session that changes status once and
-  // then runs quiet for minutes (a long tool call) therefore shows the stale
-  // value until a reconnect. A shed `session_updated` is recorded here as a
-  // DEBT owed to that socket — ids only, never a queued payload, so it cannot
-  // contribute to the pending-state byte ceiling. On flush the frame is REBUILT
-  // from `sessionManager.get(id)`, so nothing stale is ever queued and two
-  // partial `updates` never have to be merged (D1).
+  // ── Registry-reconcile debt register ────────────────────────────────────
+  // Every REGISTRY frame (`session_updated`, `session_added`, `session_removed`)
+  // is transcript-class and has NO recovery path: no seq, no backfill, no
+  // guaranteed successor. A session that changes status once and then runs
+  // quiet for minutes (a long tool call) therefore shows the stale value until a
+  // reconnect — the same unbounded-stale shape for a shed add/remove. A shed
+  // registry frame is recorded here as a DEBT owed to that socket: an id, the
+  // owed KIND, the shed add's `spawnRequestId`, and a `sawAdd` flag — never a
+  // queued payload, so it cannot contribute to the pending-state byte ceiling.
+  // On flush the frame is REBUILT from `sessionManager.get(id)`, so nothing
+  // stale is ever queued and two partial `updates` never have to be merged.
+  // See changes: fix-backpressure-status-and-subagent-frames (D1),
+  //              close-registry-frame-shed-gaps (D2).
+  interface StatusDebtEntry {
+    kind: RegistryDebtKind;
+    /** The shed `session_added`'s correlation id; only meaningful while owed `added`. */
+    spawnRequestId?: string;
+    sawAdd: boolean;
+  }
   interface StatusDebt {
-    ids: Set<string>;
+    entries: Map<string, StatusDebtEntry>;
     timer?: NodeJS.Timeout;
   }
   const statusDebt = new Map<WebSocket, StatusDebt>();
@@ -818,6 +858,29 @@ export function createBrowserGateway(
   // traffic — the incident's exact shape — never creates it (D3).
   const STATUS_RECONCILE_INTERVAL_MS = 250;
 
+  /**
+   * The debt-relevant identity of a registry frame. `session_added` carries its
+   * id at `msg.session.id` — the siblings at top-level `sessionId` — so a shared
+   * derivation MUST NOT read `msg.sessionId` blindly (it would record
+   * `undefined`). Returns `undefined` for every non-registry frame.
+   */
+  function deliveryInfoOf(
+    msg: ServerToBrowserMessage,
+  ): { id: string; kind: RegistryDebtKind; spawnRequestId?: string } | undefined {
+    switch (msg.type) {
+      case "session_updated":
+        return { id: msg.sessionId, kind: "updated" };
+      case "session_added":
+        return msg.spawnRequestId !== undefined
+          ? { id: msg.session.id, kind: "added", spawnRequestId: msg.spawnRequestId }
+          : { id: msg.session.id, kind: "added" };
+      case "session_removed":
+        return { id: msg.sessionId, kind: "removed" };
+      default:
+        return undefined;
+    }
+  }
+
   /** Clear the reconcile timer and drop the socket's debt (close/error/terminate). */
   function dropStatusDebt(ws: WebSocket): void {
     const debt = statusDebt.get(ws);
@@ -826,14 +889,37 @@ export function createBrowserGateway(
     statusDebt.delete(ws);
   }
 
-  /** Record a shed `session_updated` as owed to `ws`; start the timer if idle. */
-  function recordStatusDebt(ws: WebSocket, sessionId: string): void {
+  /**
+   * Record a shed registry frame as owed to `ws`; start the timer if idle.
+   * Kind precedence is last-write-wins with `updated` unable to downgrade a
+   * pending lifecycle kind: a newly recorded `added`/`removed` always
+   * overwrites, while a newly recorded `updated` overwrites only an existing
+   * `updated` (D2). `sawAdd` is set the moment an `added` is recorded and
+   * survives a kind supersede — it is the register's memory that the client was
+   * never told the session exists.
+   */
+  function recordStatusDebt(ws: WebSocket, sessionId: string, kind: RegistryDebtKind, spawnRequestId?: string): void {
     let debt = statusDebt.get(ws);
     if (debt === undefined) {
-      debt = { ids: new Set() };
+      debt = { entries: new Map() };
       statusDebt.set(ws, debt);
     }
-    debt.ids.add(sessionId);
+    const existing = debt.entries.get(sessionId);
+    const supersedes = kind !== "updated" || existing === undefined || existing.kind === "updated";
+    if (supersedes) {
+      const next: StatusDebtEntry = {
+        kind,
+        sawAdd: kind === "added" ? true : (existing?.sawAdd ?? false),
+      };
+      // The shed `session_added`'s correlation id is the register's memory of
+      // WHICH spawn never got its placeholder cleared, so it survives a later
+      // lifecycle kind superseding the `added` kind. Dropping it there would
+      // leave the sawAdd-branch reconcile unable to match the pending spawn,
+      // forcing the placeholder to wait out the generic timeout (D2).
+      const spawnReq = kind === "added" ? spawnRequestId : existing?.spawnRequestId;
+      if (spawnReq !== undefined) next.spawnRequestId = spawnReq;
+      debt.entries.set(sessionId, next);
+    }
     statusReconcileQueued++;
     if (debt.timer === undefined) {
       debt.timer = setInterval(() => flushStatusDebt(ws), STATUS_RECONCILE_INTERVAL_MS);
@@ -841,11 +927,80 @@ export function createBrowserGateway(
   }
 
   /**
-   * Re-send each owed session's CURRENT status while the socket is under
-   * threshold. The send carries `ctx.sessionId`, so a reconcile that is itself
-   * shed re-enters the debt at the drop site — delivery is eventually-consistent
-   * rather than attempted once (D4). Only the settled value is delivered; an
-   * intermediate transition inside one flood window is not recovered (D5).
+   * A lifecycle frame that reaches the wire is this socket's current truth for
+   * the id, so any older debt for it is satisfied. Only `session_added` /
+   * `session_removed` clear: a delivered `updated` carries a PARTIAL `updates`
+   * payload, so it does not supersede the fuller reconcile (D2).
+   */
+  function clearDebtOnDelivered(ws: WebSocket, info: { id: string; kind: RegistryDebtKind }): void {
+    if (info.kind === "updated") return;
+    const debt = statusDebt.get(ws);
+    if (!debt) return;
+    debt.entries.delete(info.id);
+    if (debt.entries.size === 0) dropStatusDebt(ws);
+  }
+
+  /**
+   * Build the reconcile frame for one owed id from CURRENT server state. The
+   * branch ORDER is load-bearing (D2): an owed `removed` whose record is
+   * absent, still live, or was never announced to this socket resolves to the
+   * frame the browser actually needs — never a ghost-ended card, and never a
+   * resurrection of a row the socket was told to drop.
+   *
+   * Record shaping: there is NO separate `session_added` shaping helper — every
+   * `broadcastSessionAdded` call site forwards `sessionManager.get(id)`'s
+   * current record verbatim. Rebuilding from that SAME accessor here is
+   * therefore byte-equivalent to the original broadcast, so the shape cannot
+   * drift (D2).
+   */
+  function buildReconcileFrame(id: string, entry: StatusDebtEntry): ServerToBrowserMessage {
+    const session = sessionManager.get(id);
+    if (entry.kind === "removed") {
+      if (!session) return { type: "session_removed", sessionId: id };
+      // A live record means the id was re-registered after the shed removal; an
+      // ended record whose `add` was ALSO shed means the browser holds no row.
+      // Both want the current record as a reconciled add, not a removal.
+      if (session.status !== "ended" || entry.sawAdd) {
+        return entry.spawnRequestId !== undefined
+          ? { type: "session_added", session, reconciled: true, spawnRequestId: entry.spawnRequestId }
+          : { type: "session_added", session, reconciled: true };
+      }
+      return { type: "session_removed", sessionId: id };
+    }
+    if (!session) return { type: "session_removed", sessionId: id };
+    if (entry.kind === "added") {
+      return entry.spawnRequestId !== undefined
+        ? { type: "session_added", session, reconciled: true, spawnRequestId: entry.spawnRequestId }
+        : { type: "session_added", session, reconciled: true };
+    }
+    return {
+      type: "session_updated",
+      sessionId: id,
+      // `?? null` is load-bearing. `currentTool` is optional, and the client
+      // merges with `{ ...existing, ...updates }` — an `undefined` here is
+      // dropped by `JSON.stringify`, so the merge would PRESERVE the stale
+      // tool name. `null` is the established clearing value, so a session
+      // that finished its tool reconciles to "no tool", not to the old one.
+      // `hostPressure` joins the rebuild for the same reason and with the
+      // same `?? null` clearing semantics: it is pushed on a TRANSITION
+      // only, so a shed recovery frame has no successor — the badge would
+      // stay lit until a reconnect.
+      // See change: fix-false-unresponsive-badge.
+      updates: {
+        status: session.status,
+        currentTool: session.currentTool ?? null,
+        hostPressure: session.hostPressure ?? null,
+      },
+    };
+  }
+
+  /**
+   * Re-send each owed id's CURRENT state while the socket is under threshold.
+   * The entry is removed BEFORE the send: a reconcile that is itself shed
+   * re-records itself at the drop site (self-heal), and any debt recorded
+   * during the send therefore survives — a delete-after-send would discard it
+   * (D2). Only the settled value is delivered; an intermediate transition
+   * inside one flood window is not recovered.
    */
   function flushStatusDebt(ws: WebSocket): void {
     const debt = statusDebt.get(ws);
@@ -855,42 +1010,20 @@ export function createBrowserGateway(
       closeOccupancySpan(ws);
       return;
     }
-    for (const id of [...debt.ids]) {
+    for (const [id, entry] of [...debt.entries]) {
       if (shouldShed(ws.bufferedAmount)) break; // still saturated — the rest stay owed
-      debt.ids.delete(id);
-      const session = sessionManager.get(id);
-      // Session gone before its reconcile: discard the debt, send nothing.
-      if (!session) continue;
-      const delivered = sendTo(
-        ws,
-        {
-          type: "session_updated",
-          sessionId: id,
-          // `?? null` is load-bearing. `currentTool` is optional, and the client
-          // merges with `{ ...existing, ...updates }` — an `undefined` here is
-          // dropped by `JSON.stringify`, so the merge would PRESERVE the stale
-          // tool name. `null` is the established clearing value, so a session
-          // that finished its tool reconciles to "no tool", not to the old one.
-          // `hostPressure` joins the rebuild for the same reason and with the
-          // same `?? null` clearing semantics: it is pushed on a TRANSITION
-          // only, so a shed recovery frame has no successor — the badge would
-          // stay lit until a reconnect.
-          // See change: fix-false-unresponsive-badge.
-          updates: {
-            status: session.status,
-            currentTool: session.currentTool ?? null,
-            hostPressure: session.hostPressure ?? null,
-          },
-        },
-        { sessionId: id },
-      );
+      debt.entries.delete(id);
+      const delivered = sendTo(ws, buildReconcileFrame(id, entry), { sessionId: id });
       // Only a frame that reached the wire counts. `sendTo` re-checks the
       // threshold and can shed this very frame (the X1 race), in which case the
       // id was just re-recorded as owed — counting it as sent would report a
       // delivery that never happened and corrupt the queued/sent attribution.
       if (delivered) statusReconcileSent++;
     }
-    if (debt.ids.size === 0) dropStatusDebt(ws);
+    // Guard on identity: a delivered lifecycle frame may already have dropped
+    // the debt, and a re-record during the loop would have allocated a NEW entry
+    // map — dropping through the stale local would then destroy the wrong one.
+    if (statusDebt.get(ws) === debt && debt.entries.size === 0) dropStatusDebt(ws);
   }
 
   // ── Socket buffer occupancy (lever B) ──
@@ -996,14 +1129,19 @@ export function createBrowserGateway(
           (ctx.criticalBudget === undefined || ctx.criticalBudget.remaining > 0);
         if (!exempt) {
           recordDroppedFrame(ctx?.sessionId, ctx?.seq, ws.bufferedAmount, ctx?.critical === true ? "blocking" : "transcript");
-          // A shed status frame is a debt, not a loss — including a shed
-          // RECONCILE, which re-enters here and is re-recorded (D4).
-          if (msg.type === "session_updated") recordStatusDebt(ws, msg.sessionId);
+          // A shed registry frame is a debt, not a loss — including a shed
+          // RECONCILE, which re-enters here and is re-recorded with its kind (D2).
+          const info = deliveryInfoOf(msg);
+          if (info !== undefined) recordStatusDebt(ws, info.id, info.kind, info.spawnRequestId);
           return false;
         }
         if (ctx.criticalBudget !== undefined) ctx.criticalBudget.remaining--;
       }
       ws.send(JSON.stringify(msg));
+      // A delivered lifecycle frame is this socket's current truth for the id,
+      // so it satisfies any older debt for that id (D2).
+      const deliveredInfo = deliveryInfoOf(msg);
+      if (deliveredInfo !== undefined) clearDebtOnDelivered(ws, deliveredInfo);
       return true;
     }
     return false;
@@ -1039,12 +1177,17 @@ export function createBrowserGateway(
     const serialized = JSON.stringify(msg);
     // `fanout` sees only the serialized string and cannot recover the frame's
     // type or session id without parsing it. `broadcast` still holds the TYPED
-    // message, so the shed site's debt id is derived here and passed down (D2).
-    const dirtyId = msg.type === "session_updated" ? msg.sessionId : undefined;
-    fanout(serialized, cls === "state" ? key : undefined, dirtyId);
+    // message, so the shed site's debt identity is derived here and passed down
+    // (D2). A non-registry frame yields `undefined` and pays nothing.
+    const dirty = deliveryInfoOf(msg);
+    fanout(serialized, cls === "state" ? key : undefined, dirty);
   }
 
-  function fanout(serialized: string, stateKey?: string, dirtyId?: string) {
+  function fanout(
+    serialized: string,
+    stateKey?: string,
+    dirty?: { id: string; kind: RegistryDebtKind; spawnRequestId?: string },
+  ) {
     for (const [ws] of subscriptions) {
       if (ws.readyState !== WebSocket.OPEN) continue;
       if (stateKey !== undefined) {
@@ -1058,10 +1201,14 @@ export function createBrowserGateway(
       noteOccupancy(ws, buffered, MAX_WS_BUFFER > 0 && buffered > MAX_WS_BUFFER);
       if (shouldShed(buffered)) {
         recordDroppedFrame(undefined, undefined, buffered, "transcript");
-        if (dirtyId !== undefined) recordStatusDebt(ws, dirtyId);
+        // A shed registry frame is a debt, not a loss (D2).
+        if (dirty !== undefined) recordStatusDebt(ws, dirty.id, dirty.kind, dirty.spawnRequestId);
         continue;
       }
       ws.send(serialized);
+      // A delivered lifecycle frame is this socket's current truth for the id,
+      // so it satisfies any older debt for that id (D2).
+      if (dirty !== undefined) clearDebtOnDelivered(ws, dirty);
     }
   }
 
@@ -1818,10 +1965,23 @@ export function createBrowserGateway(
       return { entries: pending.map.size, bytes: pending.bytes };
     },
 
-    getStatusReconcileInfo(ws: WebSocket): { owed: string[]; timerActive: boolean } | undefined {
+    getStatusReconcileInfo(ws: WebSocket): {
+      owed: string[];
+      timerActive: boolean;
+      entries: StatusDebtEntryInfo[];
+    } | undefined {
       const debt = statusDebt.get(ws);
       if (!debt) return undefined;
-      return { owed: [...debt.ids], timerActive: debt.timer !== undefined };
+      return {
+        owed: [...debt.entries.keys()],
+        timerActive: debt.timer !== undefined,
+        entries: [...debt.entries].map(([id, e]) => ({
+          id,
+          kind: e.kind,
+          sawAdd: e.sawAdd,
+          ...(e.spawnRequestId !== undefined ? { spawnRequestId: e.spawnRequestId } : {}),
+        })),
+      };
     },
 
     setTestForceShed(enabled: boolean): boolean {
