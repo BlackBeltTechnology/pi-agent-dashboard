@@ -17,7 +17,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `browser-relay.spec.ts` | L3 for the browser relay (change: add-browser-relay, test-plan F1–F5 + F10). Needs the harness with… → see `browser-relay.spec.ts.AGENTS.md` |
 | `bus-client-goal-plugin-action.spec.ts` | L3/P1 (change: add-dashboard-bus-client-scripting). Drives `BusClient` from host… → see `bus-client-goal-plugin-action.spec.ts.AGENTS.md` |
 | `chat-attachment-two-phase.spec.ts` | Two-phase attachment render E2E (change: fit-attachments-for-display)… → see `chat-attachment-two-phase.spec.ts.AGENTS.md` |
-| `chat-pane-below-floor-allocation.spec.ts` | Browser E2E for below-floor chat pane allocation (change: define-chat-pane-below-floor-allocation). → see `chat-pane-below-floor-allocation.spec.ts.AGENTS.md` |
+| `chat-pane-below-floor-allocation.spec.ts` | L3 below-floor chat pane allocation. → see `chat-pane-below-floor-allocation.spec.ts.AGENTS.md` |
 | `chat-render-fx.spec.ts` | Browser E2E gate for `reduce-chat-render-cpu-umbrella` (umbrella-own surface not gated by… → see `chat-render-fx.spec.ts.AGENTS.md` |
 | `chat-render-perf.spec.ts` | ADVISORY opt-in perf probe for `reduce-chat-render-cpu-umbrella` (tasks 2.8/4.4/5.1). → see `chat-render-perf.spec.ts.AGENTS.md` |
 | `chat-transcript-virtualization.spec.ts` | Browser E2E gate for `virtualize-chat-transcript-tanstack` (Phase 2 Step B) +… → see `chat-transcript-virtualization.spec.ts.AGENTS.md` |
@@ -123,7 +123,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `recommended-local-name-match.spec.ts` | L3 spec (test-plan #F3, change: match-local-installs-by-package-name). → see `recommended-local-name-match.spec.ts.AGENTS.md` |
 | `recommended-requires.spec.ts` | Playwright E2E for recommended-extension `requires` probe (change:… → see `recommended-requires.spec.ts.AGENTS.md` |
 | `reconcile-heal.spec.ts` | Playwright spec (task 5.1, change: fix-stuck-tool-card-on-dropped-event). → see `reconcile-heal.spec.ts.AGENTS.md` |
-| `reducer-poisoned-cache-heal.spec.ts` | Playwright E2E for `fix-reducer-crash-undefined-toolname` (manual tasks 5.1+5.2). 2 tests, faux model. → see `reducer-poisoned-cache-heal.spec.ts.AGENTS.md` |
+| `reducer-poisoned-cache-heal.spec.ts` | L3 reducer-poisoned cache heal. → see `reducer-poisoned-cache-heal.spec.ts.AGENTS.md` |
 | `registry-shed-sidebar-convergence.spec.ts` | L3 #F7: shed registry burst reconciles the sidebar on drain. → see `registry-shed-sidebar-convergence.spec.ts.AGENTS.md` |
 | `remote-transcript-read.spec.ts` | L3 for the D12 READ half — the scenario deferred as 12.52 of add-pi-gateway-transport-identity. → see `remote-transcript-read.spec.ts.AGENTS.md` |
 | `replay-delta-on-reload.spec.ts` | Playwright spec. Strategy A: reload of seen session resubscribes lastSeq>0 (delta replay). → see `replay-delta-on-reload.spec.ts.AGENTS.md` |

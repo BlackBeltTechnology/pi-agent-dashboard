@@ -11,7 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BUILD_DECLARATION_SCHEMA_VERSION,
   type BuildDeclaration,
@@ -70,6 +70,13 @@ async function getHealth(app: FastifyInstance): Promise<Record<string, unknown>>
   const res = await app.inject({ method: "GET", url: "/api/health" });
   expect(res.statusCode).toBe(200);
   return JSON.parse(res.body) as Record<string, unknown>;
+}
+
+/** Median of a duration sample — robust to GC outliers under parallel load. */
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
 describe("GET /api/health.clientBuild (E12–E14, E13)", () => {
@@ -188,23 +195,43 @@ describe("clientBuild snapshot semantics and diagnostics (X1, X2, X6, P1)", () =
     expect(line).not.toMatch(/[/\\]/);
   });
 
-  it("P1 200 health reads add no measurable per-request cost", async () => {
+  it("P1 200 health reads re-read no declaration and add no measurable cost", async () => {
     const withClient = await makeApp({ clientDir: makeBuild(declaration()) });
     const withoutClient = await makeApp({ clientDir: null });
 
-    async function meanMs(app: FastifyInstance, n: number): Promise<number> {
-      // Warm the lazy 30s caches so the comparison isolates clientBuild.
-      await getHealth(app);
-      const start = performance.now();
-      for (let i = 0; i < n; i += 1) {
-        const res = await app.inject({ method: "GET", url: "/api/health" });
-        if (res.statusCode !== 200) throw new Error(`health ${res.statusCode}`);
+    // Per-request durations, plus a hard check that the declaration is never
+    // re-read: the snapshot is taken at registration, so 200 requests must do
+    // ZERO declaration I/O. This is the deterministic half — the timing half
+    // uses a median, because a mean is dominated by GC outliers when the full
+    // 20k-test suite runs in parallel on a loaded host.
+    async function measure(
+      app: FastifyInstance,
+      n: number,
+    ): Promise<{ medianMs: number; declarationReads: number }> {
+      await getHealth(app); // warm the lazy 30s caches so the comparison isolates clientBuild
+      const durations: number[] = [];
+      const spy = vi.spyOn(fs, "readFileSync");
+      try {
+        for (let i = 0; i < n; i += 1) {
+          const start = performance.now();
+          const res = await app.inject({ method: "GET", url: "/api/health" });
+          durations.push(performance.now() - start);
+          if (res.statusCode !== 200) throw new Error(`health ${res.statusCode}`);
+        }
+        const declarationReads = spy.mock.calls.filter(([target]) =>
+          String(target).includes("pi-dashboard-build.json"),
+        ).length;
+        return { medianMs: median(durations), declarationReads };
+      } finally {
+        spy.mockRestore();
       }
-      return (performance.now() - start) / n;
     }
 
-    const withMs = await meanMs(withClient, 200);
-    const withoutMs = await meanMs(withoutClient, 200);
-    expect(withMs - withoutMs).toBeLessThan(1);
+    const withClientRun = await measure(withClient, 200);
+    const withoutClientRun = await measure(withoutClient, 200);
+
+    expect(withClientRun.declarationReads).toBe(0);
+    expect(withoutClientRun.declarationReads).toBe(0);
+    expect(withClientRun.medianMs - withoutClientRun.medianMs).toBeLessThan(1);
   });
 });
