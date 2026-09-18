@@ -28,7 +28,7 @@
 
 ## 3. Validate
 
-- [ ] 3.1 Manual end-to-end Sign Out against a real contending pi session — click Sign Out during Anthropic token-refresh churn; expect success or a comprehensible lock message, no hang and no generic 500 (test-plan: manual-only, #F2)
+- [x] 3.1 Manual end-to-end Sign Out against a real contending pi session — click Sign Out during Anthropic token-refresh churn; expect success or a comprehensible lock message, no hang and no generic 500 (test-plan: manual-only, #F2)
 - [x] 3.2 Confirm no surfaced `error` string can carry credential material on either failure path — verify: X1 + X2 assertions cover the body, and the log line is inspected once by hand
 - [x] 3.3 `npm test` green (pre-existing failures unchanged: knip/lint-harness on a dirty tree, docker-dependent port derivation, `resolveRemoteBase`, faux-session integration, the `expires in 2d` time-of-day flake) and `npm run quality:changed` clean
 - [x] 3.4 `openspec validate fix-provider-auth-lock-contention --strict` passes
