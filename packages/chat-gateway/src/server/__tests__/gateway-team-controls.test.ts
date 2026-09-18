@@ -45,8 +45,11 @@ describe("gateway team-controls integration", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  function setup() {
+  function setup(
+    opts: { assignRefResult?: boolean; onTrustFailure?: (reason: string) => void } = {},
+  ) {
     const seam = createFakeSeam();
+    if (opts.assignRefResult !== undefined) seam.assignRefResult = opts.assignRefResult;
     seam.sessions.push({ id: "s1", cwd: "/repo/proj", status: "active" });
     const adapter = new RecordingAdapter();
     const store = createBindingStore({ filePath: path.join(tmpDir, "bindings.json") });
@@ -84,6 +87,7 @@ describe("gateway team-controls integration", () => {
       config: validated.value,
       log,
       listWorkspaces: () => WORKSPACES,
+      ...(opts.onTrustFailure ? { onTrustFailure: opts.onTrustFailure } : {}),
       channelBindings: () =>
         new Map([
           ["chan1", "ws_1"],
@@ -168,6 +172,27 @@ describe("gateway team-controls integration", () => {
     await gateway.handleInbound(msg("alice", "!command log"));
     expect(seam.sentPrompts).toHaveLength(0);
     expect(adapter.sent.some((m) => m.content.includes("only readable from the dashboard"))).toBe(true);
+  });
+
+  it("X10: a trusted-gated verb no-op marks the layer unhealthy and refuses the command", async () => {
+    const failures: string[] = [];
+    const { seam, adapter, gateway, team } = setup({
+      assignRefResult: false,
+      onTrustFailure: (reason) => failures.push(reason),
+    });
+    await gateway.start();
+    await gateway.handleInbound(msg("alice", "drive the session"));
+
+    // No phantom success: the prompt never reaches the session, and the
+    // refusal names the missing trust level rather than an unrelated reason.
+    expect(seam.sentPrompts).toHaveLength(0);
+    const refusal = adapter.sent.find((m) => m.content.startsWith("Refused:"));
+    expect(refusal?.content).toMatch(/trust level/);
+    expect(refusal?.content).toMatch(/assignSessionRef/);
+
+    // The plugin reports itself unhealthy exactly once, naming the same reason.
+    expect(failures).toHaveLength(1);
+    expect(team.trustHealth()).toEqual({ healthy: false, reason: failures[0] });
   });
 
   it("X19: an observer's control activation sends no response", async () => {

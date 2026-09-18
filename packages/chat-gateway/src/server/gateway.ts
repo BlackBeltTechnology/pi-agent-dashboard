@@ -41,7 +41,9 @@ import {
 } from "./prompts.js";
 import type { BindingStore, SpawnCorrelator } from "./routing.js";
 import type { HostSeam, SpawnOutcome } from "./seam.js";
+import { dispatchToSession } from "./dispatch.js";
 import { createEditThrottle, type EditThrottle, shouldSteer, stripSteerPrefix } from "./stream.js";
+import type { Grant } from "./team/authorize.js";
 import type { TeamController } from "./team/controller.js";
 
 export interface ChatGatewayDeps {
@@ -838,9 +840,10 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
 
       // Team-controls chokepoint (X11): every action-bearing request passes
       // through `authorizeRequest` BEFORE any session is spawned or driven.
+      let gate: Grant | undefined;
       if (team) {
         const existing = store.get(key);
-        const gate = team.authorizeRequest({
+        const decision = team.authorizeRequest({
           author: {
             id: msg.userId,
             ...(msg.bot === true ? { isBot: true } : {}),
@@ -852,10 +855,11 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
           verb: existing ? "send_prompt" : "spawn_session",
           ...(existing ? { targetCwd: existing.cwd, target: existing.sessionId } : {}),
         });
-        if (gate.kind === "refusal") {
-          await reply(msg.channelId, `Refused: ${gate.reason}.`);
+        if (decision.kind === "refusal") {
+          await reply(msg.channelId, `Refused: ${decision.reason}.`);
           return;
         }
+        gate = decision;
       }
 
       const binding = await ensureBinding(msg, key);
@@ -877,15 +881,28 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       // Provenance (X24): persisted, plugin-owned — never the user tag namespace.
       lastInvoker.set(binding.sessionId, msg.userId);
       if (team) {
-        seam.assignSessionRef(binding.sessionId, {
+        const assigned = seam.assignSessionRef(binding.sessionId, {
           kind: "chat-gateway-team",
           principal: msg.userId,
           channelId: msg.channelId,
           workspaceId: team.bindingFor(msg.channelId)?.workspaceId,
         });
+        // D5 call-site trust detection: `assignSessionRef` is trusted-gated, so
+        // `false` means THIS plugin lacks the required trust level — not that
+        // the ref was rejected on content. Refuse the originating command and
+        // name the missing trust level rather than driving the session while
+        // provenance silently fails to persist (a phantom success).
+        if (!assigned) {
+          await reply(msg.channelId, `Refused: ${team.reportTrustFailure("assignSessionRef")}.`);
+          return;
+        }
       }
-      const ok = seam.sendPrompt(binding.sessionId, text, steer ? "steer" : "followUp");
-      if (!ok) {
+      const res = dispatchToSession(
+        seam,
+        { teamControlled: team !== undefined, ...(gate ? { grant: gate } : {}) },
+        { sessionId: binding.sessionId, text, delivery: steer ? "steer" : "followUp" },
+      );
+      if (!res.ok) {
         await reply(msg.channelId, "That session is unreachable (no bridge connection)."); // X1
       }
     },

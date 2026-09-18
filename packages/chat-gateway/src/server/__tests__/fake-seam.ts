@@ -21,6 +21,11 @@ export interface FakeSeam extends HostSeam {
   persistedAllowlists: string[][];
   /** Provenance refs merged onto sessions. */
   assignedRefs: Array<{ sessionId: string; ref: Record<string, unknown> }>;
+  /**
+   * What `assignSessionRef` returns. `false` models an UNTRUSTED host, where a
+   * trusted-gated verb is the host's no-op (test-plan #X10).
+   */
+  assignRefResult: boolean;
   frameHandlers: Map<string, (frame: unknown) => void>;
   /** Deliver a browser-protocol frame as the host would. */
   emitFrame(sessionId: string, frame: unknown): void;
@@ -42,6 +47,7 @@ export function createFakeSeam(): FakeSeam {
     spawnResult: { success: true },
     persistedAllowlists: [],
     assignedRefs: [],
+    assignRefResult: true,
     frameHandlers,
     hasFrameSeam: () => true,
     subscribe(sessionId, handler) {
@@ -67,6 +73,7 @@ export function createFakeSeam(): FakeSeam {
       seam.sessions.find((s) => s.id === id) ?? seam.endedSessions.find((s) => s.id === id),
     mintSpawnToken: () => `tok-${++tokenSeq}`,
     assignSessionRef(sessionId, ref) {
+      if (!seam.assignRefResult) return false;
       seam.assignedRefs.push({ sessionId, ref });
       return true;
     },

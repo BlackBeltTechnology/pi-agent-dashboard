@@ -14,6 +14,7 @@
 import type { CommandLog, CommandLogEntry } from "./audit.js";
 import type { Author, AuthorizeResult, BindingContext } from "./authorize.js";
 import { authorize } from "./authorize.js";
+import { createTrustHealth, type TrustHealthSnapshot } from "./health.js";
 import type { MirrorLevel, ValidatedBinding, ValidatedTeamConfig } from "./team-config.js";
 import { DEFAULT_MIRROR_LEVEL } from "./team-config.js";
 import type { WorkspaceView } from "./workspace.js";
@@ -24,6 +25,11 @@ export interface TeamControllerDeps {
   listWorkspaces: () => WorkspaceView[];
   /** channelId → workspaceId for the layer's active bindings. */
   channelBindings: () => Map<string, string>;
+  /**
+   * Notified once when a trusted-gated verb first returns the host no-op, so
+   * the plugin can mark itself unhealthy in `/api/health.plugins[]` (D5).
+   */
+  onTrustFailure?: (reason: string) => void;
   now?: () => number;
 }
 
@@ -54,6 +60,13 @@ export interface TeamController {
   rearmFromChat(): { ok: false; reason: string };
   bindingFor(channelId: string): ResolvedBinding | undefined;
   mirrorLevel(channelId: string): MirrorLevel;
+  /**
+   * Record a trusted-gated verb's host no-op (D5). Sticky; returns the reason
+   * naming the missing trust level so the caller can refuse with it.
+   */
+  reportTrustFailure(verb: string): string;
+  /** The layer's trust state, for the health surface. */
+  trustHealth(): TrustHealthSnapshot;
   /** The chokepoint + audit in one call. */
   authorizeRequest(input: AuthorizeRequestInput): AuthorizeResult;
   /** Record a mirror (non-action) — produces NO log entry. */
@@ -63,6 +76,7 @@ export interface TeamController {
 
 export function createTeamController(deps: TeamControllerDeps): TeamController {
   const now = deps.now ?? Date.now;
+  const trust = createTrustHealth();
   let disarmed = deps.config.disarmed === true;
 
   function bindingFor(channelId: string): ResolvedBinding | undefined {
@@ -101,6 +115,15 @@ export function createTeamController(deps: TeamControllerDeps): TeamController {
     mirrorLevel(channelId) {
       return bindingFor(channelId)?.policy.mirrorLevel ?? DEFAULT_MIRROR_LEVEL;
     },
+    reportTrustFailure(verb) {
+      const wasHealthy = trust.snapshot().healthy;
+      const reason = trust.reportTrustFailure(verb);
+      // Fire once, on the healthy → unhealthy edge, so the health surface is
+      // not rewritten on every subsequent refusal.
+      if (wasHealthy) deps.onTrustFailure?.(reason);
+      return reason;
+    },
+    trustHealth: () => trust.snapshot(),
     authorizeRequest(input) {
       const resolved = bindingFor(input.channelId);
       const result = authorize({
