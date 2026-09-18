@@ -20,6 +20,7 @@ import {
   EMPTY_TRIM_STATS,
 } from "../persistence/memory-event-store.js";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
+import { effectiveServerMaxOldSpaceMb } from "../server-heap-telemetry.js";
 
 let handle: TestServerHandle | undefined;
 let savedStarter: string | undefined;
@@ -365,5 +366,89 @@ describe("GET /api/health — shape", () => {
     // Pre-existing fields unchanged (the additive half of the contract).
     expect(typeof body.storeTrim).toBe("object");
     expect(typeof body.pid).toBe("number");
+  });
+});
+
+// ── Server heap + GC telemetry (change: bound-session-heap-and-gc-telemetry) ─
+// The server is the process the 1536 ceiling bounds, and the only one in the
+// log corpus that has ever died of `Reached heap limit`. Accepting ~84%
+// occupancy is only defensible if pressure is observable here (design D13).
+describe("GET /api/health — server heap + GC telemetry", () => {
+  let handle: TestServerHandle | undefined;
+
+  afterEach(async () => {
+    if (handle) {
+      try { await handle.stop(); } catch { /* already stopped */ }
+      handle = undefined;
+    }
+  });
+
+  it("the server block carries a heap ceiling, a major-GC count and the effective ceiling (test-plan #E28)", async () => {
+    handle = await createTestServer();
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = (await res.json()) as Record<string, unknown>;
+    const server = body.server as Record<string, unknown>;
+    expect(typeof server.heapSizeLimit).toBe("number");
+    expect(typeof server.gcMajorCount).toBe("number");
+    expect(typeof server.gcMajorPauseMsTotal).toBe("number");
+    // `null` is a legitimate value: a process running at the bare V8 default
+    // has no configured ceiling, and saying so beats reporting a fiction.
+    expect(
+      server.effectiveMaxOldSpaceMb === null ||
+        typeof server.effectiveMaxOldSpaceMb === "number",
+    ).toBe(true);
+  });
+
+  it("the major-GC count is cumulative, so a second poll never erases the first (test-plan #E28)", async () => {
+    handle = await createTestServer();
+    const read = async () => {
+      const r = await fetch(`http://localhost:${handle!.httpPort}/api/health`);
+      return ((await r.json()) as { server: { gcMajorCount: number } }).server.gcMajorCount;
+    };
+    const first = await read();
+    const second = await read();
+    // A read-and-reset counter would make a polled GET non-idempotent and let
+    // two pollers wipe each other's signal.
+    expect(second).toBeGreaterThanOrEqual(first);
+  });
+
+  it("the effective ceiling tracks the PROCESS, not the config (test-plan #E29)", async () => {
+    // A configured value the running process was never started with must not
+    // be echoed back as if it were in force — `serverHeap` is cold-start-only.
+    handle = await createTestServer({ serverHeap: { maxOldSpaceMb: 4096 } } as never);
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = (await res.json()) as { server: { effectiveMaxOldSpaceMb: number | null } };
+    expect(body.server.effectiveMaxOldSpaceMb).toBe(
+      effectiveServerMaxOldSpaceMb(),
+    );
+    expect(body.server.effectiveMaxOldSpaceMb).not.toBe(4096);
+  });
+
+  it("reports no session-heap fallback on the normal argv route (test-plan #X4)", async () => {
+    handle = await createTestServer();
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = (await res.json()) as { sessionHeapFallback: { used: boolean } };
+    expect(body.sessionHeapFallback.used).toBe(false);
+  });
+});
+
+describe("effectiveServerMaxOldSpaceMb", () => {
+  it("prefers argv over NODE_OPTIONS, matching V8's own precedence", () => {
+    expect(
+      effectiveServerMaxOldSpaceMb(
+        ["--max-old-space-size=1024"],
+        "--max-old-space-size=8192",
+      ),
+    ).toBe(1024);
+  });
+
+  it("falls back to NODE_OPTIONS, which is how the wrapper delivers it", () => {
+    expect(
+      effectiveServerMaxOldSpaceMb([], "--enable-source-maps --max-old-space-size=1536"),
+    ).toBe(1536);
+  });
+
+  it("is null at the bare V8 default", () => {
+    expect(effectiveServerMaxOldSpaceMb([], "")).toBeNull();
   });
 });

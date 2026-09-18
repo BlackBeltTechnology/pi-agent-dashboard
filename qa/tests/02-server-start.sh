@@ -349,6 +349,109 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     echo "#S3: no warning and reachability.unreachable empty under PI_DASHBOARD_HOST=0.0.0.0"
 
     # =========================================================================
+    # Server heap ceiling from config (change: bound-session-heap-and-gc-telemetry)
+    # test-plan #E22, #X1, #X2, #X11
+    #
+    # These can only be proven against a REAL boot: the wrapper reads the config
+    # with plain `JSON.parse` before jiti exists, so no unit test covers the
+    # path that actually sizes the process.
+    # =========================================================================
+    echo "--- Checking serverHeap ceiling from config (E22, X1, X2, X11) ---"
+
+    # `heap_size_limit` is the REQUEST plus V8's fixed overhead (~192 MB on the
+    # measurement host) — never an exact match. The band is [request, request+300].
+    heap_limit_mb() {
+      curl -fsS http://localhost:8000/api/health 2>/dev/null \
+        | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{let j;try{j=JSON.parse(s)}catch{process.exit(2)}process.stdout.write(String(Math.round((j.server&&j.server.heapSizeLimit||0)/1048576)))})"
+    }
+    effective_mb() {
+      curl -fsS http://localhost:8000/api/health 2>/dev/null \
+        | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{let j;try{j=JSON.parse(s)}catch{process.exit(2)}process.stdout.write(String(j.server&&j.server.effectiveMaxOldSpaceMb))})"
+    }
+
+    # E22 — a configured ceiling reaches the process.
+    if ! boot_with_config '{"port":8000,"serverHeap":{"maxOldSpaceMb":4096}}'; then
+      echo "FAIL: server did not come up for the #E22 serverHeap check"
+      exit 1
+    fi
+    HEAP_MB=$(heap_limit_mb)
+    if [ "$HEAP_MB" -lt 4096 ] || [ "$HEAP_MB" -gt 4396 ]; then
+      echo "FAIL (#E22): heap_size_limit ${HEAP_MB} MB outside [4096, 4396] for a 4096 request"
+      exit 1
+    fi
+    if [ "$(effective_mb)" != "4096" ]; then
+      echo "FAIL (#E22): reported effective ceiling was '$(effective_mb)', expected 4096"
+      exit 1
+    fi
+    echo "#E22: serverHeap 4096 yields heap_size_limit ${HEAP_MB} MB and effective 4096"
+
+    # X1 — a malformed config must not stop the server booting; it takes 1536.
+    if ! boot_with_config '{"port":8000,"serverHeap":{'; then
+      echo "FAIL (#X1): server did not start with a malformed config.json"
+      exit 1
+    fi
+    HEAP_MB=$(heap_limit_mb)
+    if [ "$HEAP_MB" -lt 1536 ] || [ "$HEAP_MB" -gt 1836 ]; then
+      echo "FAIL (#X1): malformed config gave ${HEAP_MB} MB, expected the 1536 default band"
+      exit 1
+    fi
+    echo "#X1: malformed config boots at the 1536 default (${HEAP_MB} MB)"
+
+    # X2 — no config file at all behaves the same way.
+    pi-dashboard stop >/dev/null 2>&1 || true
+    sleep 2
+    rm -f "$CONFIG_PATH"
+    : > "$LOG_PATH"
+    pi-dashboard start >/dev/null 2>&1 &
+    waited=0
+    while [ $waited -lt 15 ]; do
+      curl -fsS http://localhost:8000/api/health >/dev/null 2>&1 && break
+      sleep 1
+      waited=$((waited + 1))
+    done
+    HEAP_MB=$(heap_limit_mb)
+    if [ "$HEAP_MB" -lt 1536 ] || [ "$HEAP_MB" -gt 1836 ]; then
+      echo "FAIL (#X2): absent config gave ${HEAP_MB} MB, expected the 1536 default band"
+      exit 1
+    fi
+    echo "#X2: absent config boots at the 1536 default (${HEAP_MB} MB)"
+
+    # X11 — an in-place restart inherits the environment, so it keeps the
+    # ceiling it is already running under. This is the property the settings
+    # copy promises; if the restart DID adopt the new value the copy would be
+    # wrong, so the assertion is on the restart keeping the old one.
+    if ! boot_with_config '{"port":8000,"serverHeap":{"maxOldSpaceMb":2048}}'; then
+      echo "FAIL: server did not come up for the #X11 cold-start check"
+      exit 1
+    fi
+    BEFORE=$(effective_mb)
+    printf '%s' '{"port":8000,"serverHeap":{"maxOldSpaceMb":3072}}' > "$CONFIG_PATH"
+    curl -fsS -X POST http://localhost:8000/api/restart >/dev/null 2>&1 || true
+    sleep 6
+    waited=0
+    while [ $waited -lt 20 ]; do
+      curl -fsS http://localhost:8000/api/health >/dev/null 2>&1 && break
+      sleep 1
+      waited=$((waited + 1))
+    done
+    AFTER=$(effective_mb)
+    if [ "$AFTER" != "$BEFORE" ]; then
+      echo "FAIL (#X11): in-place restart changed the ceiling from $BEFORE to $AFTER"
+      exit 1
+    fi
+    if ! boot_with_config '{"port":8000,"serverHeap":{"maxOldSpaceMb":3072}}'; then
+      echo "FAIL (#X11): server did not come up for the cold-start half"
+      exit 1
+    fi
+    if [ "$(effective_mb)" != "3072" ]; then
+      echo "FAIL (#X11): a cold start reported '$(effective_mb)', expected 3072"
+      exit 1
+    fi
+    echo "#X11: in-place restart keeps $BEFORE; a cold start adopts 3072"
+
+    restore_config
+
+    # =========================================================================
     # Docker packaging: Kroki overlay configuration assertion (test-plan #D1, #D2)
     # =========================================================================
     echo "--- Checking docker compose configurations (D1, D2) ---"

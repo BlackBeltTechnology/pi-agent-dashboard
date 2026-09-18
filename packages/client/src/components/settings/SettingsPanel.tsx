@@ -12,6 +12,13 @@ import type { HostGateMode } from "@blackbelt-technology/pi-dashboard-shared/hos
 // From the BROWSER-SAFE module, never `config.js`: a value import of the latter
 // pulls node:fs/os/path into the bundle and the SPA dies at boot with
 // `uv.homedir is not a function`. See change: fix-lazy-history-backfill-ux (D7).
+import {
+  DEFAULT_SERVER_HEAP,
+  DEFAULT_SESSION_HEAP,
+  HEAP_WARN_ABOVE_MB,
+  MIN_HEAP_MB,
+  subagentHeapBudget,
+} from "@blackbelt-technology/pi-dashboard-shared/heap-limits.js";
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import { mergeModelOptions } from "@blackbelt-technology/pi-dashboard-shared/model-catalogue.js";
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
@@ -203,6 +210,22 @@ interface Config {
   dashboardName?: string;
   auth?: AuthConfig;
   memoryLimits: MemoryLimitsConfig;
+  /**
+   * V8 heap sizing for spawned pi SESSIONS — NOT the event store (that is
+   * `memoryLimits` above, a different concern with a confusingly similar name).
+   * Applies to the next spawn. See change: bound-session-heap-and-gc-telemetry.
+   */
+  sessionHeap?: { maxOldSpaceMb?: number; initialOldSpaceMb?: number; maxSemiSpaceMb?: number };
+  /** V8 heap sizing for the dashboard SERVER. Cold-start only. */
+  serverHeap?: { maxOldSpaceMb?: number };
+  /**
+   * Subagent fan-out bound. Surfaced on Sessions beside the heap ceiling
+   * because `Agent` children run in-process and share the session's heap, so
+   * this is a memory-safety knob, not just a concurrency one.
+   * See change: bound-subagent-fanout-under-host-pressure,
+   *             bound-session-heap-and-gc-telemetry (task 10.8).
+   */
+  maxConcurrentSubagents?: number;
   trustedNetworks?: string[];
   /**
    * Bare hostnames the Host gate additionally admits (`allowedHosts`). Bound
@@ -263,6 +286,10 @@ const NEEDS_ISSUER = new Set(["keycloak", "oidc"]);
 export const CONFIG_FIELD_PAGE: Record<string, string> = {
   port: "server", piPort: "server", bindHost: "server", autoShutdown: "server", shutdownIdleSeconds: "server",
   tunnel: "server", memoryLimits: "server",
+  // TOP-LEVEL keys, because page attribution resolves per top-level key: one
+  // shared `heapLimits` block would strand the session fields on the Server
+  // page. See change: bound-session-heap-and-gc-telemetry (D7).
+  serverHeap: "server", sessionHeap: "sessions", maxConcurrentSubagents: "sessions",
   spawnStrategy: "sessions", reattachPlacement: "sessions", reopenSessionsAfterShutdown: "sessions", completedFirst: "sessions",
   questionFirst: "sessions", askUserPromptTimeoutSeconds: "sessions", spawnRegisterTimeoutMs: "sessions", sessionList: "sessions",
   gitWorktreeEnabled: "sessions", dashboardName: "general", defaultModel: "sessions", defaultThinkingLevel: "sessions",
@@ -379,6 +406,24 @@ export function computeConfigPartial(config: Config, original: Config): Record<s
       }
     }
     if (Object.keys(changed).length > 0) partial.memoryLimits = changed;
+  }
+  if ((config.maxConcurrentSubagents ?? 2) !== (original.maxConcurrentSubagents ?? 2)) {
+    partial.maxConcurrentSubagents = config.maxConcurrentSubagents ?? 2;
+  }
+  // Heap blocks: FIELD-level for the same reason as `memoryLimits` above — the
+  // server deep-merges them, so writing only what changed leaves an untouched
+  // sibling exactly as the file has it instead of pinning a materialized
+  // default. Without these branches Save silently drops the new keys.
+  // See change: bound-session-heap-and-gc-telemetry (task 10.9).
+  for (const block of ["sessionHeap", "serverHeap"] as const) {
+    const next = (config[block] ?? {}) as Record<string, unknown>;
+    const prev = (original[block] ?? {}) as Record<string, unknown>;
+    if (JSON.stringify(next) === JSON.stringify(prev)) continue;
+    const changed: Record<string, unknown> = {};
+    for (const key of Object.keys(next)) {
+      if (next[key] !== prev[key]) changed[key] = next[key];
+    }
+    if (Object.keys(changed).length > 0) partial[block] = changed;
   }
   if (JSON.stringify(config.openspec) !== JSON.stringify(original.openspec)) {
     partial.openspec = config.openspec ?? DEFAULT_OPENSPEC_UI;
@@ -673,12 +718,19 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
   // See change: add-pi-gateway-transport-identity (task 2.9).
   const [gatewayEndpoint, setGatewayEndpoint] = useState<number | string | null | undefined>(undefined);
 
+  // The ceiling the RUNNING server process was started with. `serverHeap` is
+  // cold-start-only, so a saved value can legitimately differ from this one;
+  // rides the same health read rather than adding a second poller.
+  // See change: bound-session-heap-and-gc-telemetry (D13, task 13.6).
+  const [effectiveServerHeapMb, setEffectiveServerHeapMb] = useState<number | null | undefined>(undefined);
+
   const refreshGitSourceReadout = useCallback(() => {
     return fetch(`${getApiBase()}/api/health`)
       .then((res) => (res.ok ? res.json() : null))
       .then((h) => {
         setGitSourceReadout(h?.gitSource ?? null);
         setGatewayEndpoint(h ? (h.piGatewayPort ?? null) : null);
+        setEffectiveServerHeapMb(h ? (h.server?.effectiveMaxOldSpaceMb ?? null) : undefined);
       })
       .catch(() => {});
   }, []);
@@ -840,7 +892,10 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
 
     // One commit task per dirty source. Each is independent — Save does NOT
     // claim cross-store atomicity; failed sources stay dirty for Retry.
-    type Task = { label: string; run: () => Promise<{ restartRequired?: boolean }> };
+    type Task = {
+      label: string;
+      run: () => Promise<{ restartRequired?: boolean; coldStartRequired?: boolean }>;
+    };
     const tasks: Task[] = [];
 
     if (configDirty) {
@@ -856,7 +911,14 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
           if (!data.success) throw new Error(data.error || "config");
           setOriginal(JSON.parse(JSON.stringify(config)));
           if (configPartial.windowsGitSource !== undefined) void refreshGitSourceReadout();
-          return { restartRequired: !!data.restartRequired };
+          return {
+            restartRequired: !!data.restartRequired,
+            // `serverHeap` only. Distinct from `restartRequired`, whose message
+            // promises an in-place restart is enough — which for this field is
+            // provably false (`/api/restart` inherits the current environment).
+            // See change: bound-session-heap-and-gc-telemetry.
+            coldStartRequired: !!data.coldStartRequired,
+          };
         },
       });
     }
@@ -930,8 +992,12 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     const results = await Promise.allSettled(tasks.map((tk) => tk.run()));
     const failed: string[] = [];
     let restartRequired = false;
+    let coldStartRequired = false;
     results.forEach((r, i) => {
-      if (r.status === "fulfilled") restartRequired ||= !!r.value.restartRequired;
+      if (r.status === "fulfilled") {
+        restartRequired ||= !!r.value.restartRequired;
+        coldStartRequired ||= !!r.value.coldStartRequired;
+      }
       else {
         const reason = r.reason instanceof Error ? r.reason.message : "";
         failed.push(reason ? `${tasks[i].label}: ${reason}` : tasks[i].label);
@@ -942,6 +1008,17 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
       setMessage({
         type: "error",
         text: t("settings.savePartialFail", undefined, "Couldn't save: ") + failed.join(", "),
+      });
+    } else if (coldStartRequired) {
+      // Checked BEFORE `restartRequired`: the cold-start requirement is the
+      // stronger one, and the generic message would understate it.
+      setMessage({
+        type: "warn",
+        text: t(
+          "settings.coldStartRequired",
+          undefined,
+          "Saved. The server heap ceiling takes effect on the next cold start — the in-place restart does not apply it.",
+        ),
       });
     } else if (restartRequired) {
       setMessage({ type: "warn", text: t("settings.restartRequired", undefined, "Saved. Some changes require a server restart to take effect.") });
@@ -1506,6 +1583,48 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     />
                   </div>
                 </Section>
+                {/* Server V8 heap. Separate from Memory Limits below: this
+                    bounds the PROCESS, that bounds the event store the process
+                    holds. See change: bound-session-heap-and-gc-telemetry. */}
+                <Section title={t("settings.serverHeap", undefined, "Server memory (V8 heap)")}>
+                  <p
+                    data-testid="server-heap-effect-boundary"
+                    className="text-xs text-[var(--text-tertiary)] mb-2"
+                  >
+                    {t(
+                      "settings.serverHeapDescription",
+                      undefined,
+                      "Takes effect only on a full cold start of the dashboard server. The in-place restart button inherits the current environment and will NOT apply a new value. Bounds the V8 heap only — the process also holds memory outside it.",
+                    )}
+                  </p>
+                  <HeapMbField
+                    testId="server-heap-max-old-space"
+                    label={t("settings.serverHeapMaxOldSpace", undefined, "Server heap ceiling")}
+                    value={config.serverHeap?.maxOldSpaceMb ?? DEFAULT_SERVER_HEAP.maxOldSpaceMb}
+                    hint={t(
+                      "settings.hint.serverHeapMaxOldSpace",
+                      undefined,
+                      `Old-space ceiling for the dashboard server. Default ${DEFAULT_SERVER_HEAP.maxOldSpaceMb} MB, sized to the event-store byte budget. Raise it if health shows sustained heap use or a climbing major-GC count.`,
+                    )}
+                    onChange={(v) => update((c) => {
+                      c.serverHeap = { ...(c.serverHeap ?? {}), maxOldSpaceMb: v };
+                    })}
+                  />
+                  {typeof effectiveServerHeapMb === "number" &&
+                    (config.serverHeap?.maxOldSpaceMb ?? DEFAULT_SERVER_HEAP.maxOldSpaceMb) !==
+                      effectiveServerHeapMb && (
+                      <p
+                        data-testid="server-heap-divergence"
+                        className="mt-1 text-xs text-amber-400"
+                      >
+                        {t(
+                          "settings.heap.serverDivergence",
+                          { mb: String(effectiveServerHeapMb) },
+                          `The running server was started with ${effectiveServerHeapMb} MB. The configured value takes effect on the next cold start.`,
+                        )}
+                      </p>
+                    )}
+                </Section>
                 <Section title={t("settings.memoryLimits", undefined, "Memory Limits")}>
                   <p className="text-xs text-[var(--text-tertiary)] mb-2">
                     {t("settings.memoryLimitsDescription", undefined, "Controls for bounding server memory usage. Set to 0 to disable a limit. Requires server restart.")}
@@ -1877,6 +1996,73 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                       {i18nT("common.howLongToWaitForA", undefined, "How long to wait for a spawned pi session to connect before showing a warning. Default 30000 (30s). Range 5000–120000.")}
                     </p>
                   </div>
+                </Section>
+                {/* Session V8 heap. DISTINCT from Server ▸ Memory Limits, which
+                    bounds the EVENT STORE — the names are close and the
+                    concerns are unrelated, so both sections say which is which.
+                    See change: bound-session-heap-and-gc-telemetry (D7). */}
+                <Section title={t("settings.sessionHeap", undefined, "Session memory (V8 heap)")}>
+                  <p
+                    data-testid="session-heap-effect-boundary"
+                    className="text-xs text-[var(--text-tertiary)] mb-2"
+                  >
+                    {t(
+                      "settings.sessionHeapDescription",
+                      undefined,
+                      "Applies to newly started sessions — reloading a session counts. No running session is resized. Bounds the V8 heap of the pi process only, not the tools it starts. Unrelated to Server ▸ Memory Limits, which bounds the event store.",
+                    )}
+                  </p>
+                  <HeapMbField
+                    testId="session-heap-max-old-space"
+                    label={t("settings.sessionHeapMaxOldSpace", undefined, "Session heap ceiling")}
+                    value={config.sessionHeap?.maxOldSpaceMb ?? DEFAULT_SESSION_HEAP.maxOldSpaceMb}
+                    hint={t(
+                      "settings.hint.sessionHeapMaxOldSpace",
+                      undefined,
+                      `Old-space ceiling requested for each spawned pi session. Default ${DEFAULT_SESSION_HEAP.maxOldSpaceMb} MB. V8 adds a fixed overhead, so the reported limit is higher than the request.`,
+                    )}
+                    onChange={(v) => update((c) => {
+                      c.sessionHeap = { ...(c.sessionHeap ?? {}), maxOldSpaceMb: v };
+                    })}
+                  />
+                  {/* `maxConcurrentSubagents` is a MEMORY-SAFETY knob once a
+                      ceiling is enforced: Agent children run in-process and
+                      share the parent's single heap, so there is no per-child
+                      budget to set — only this count. Surfaced here, beside the
+                      ceiling, because the coupling is invisible anywhere else. */}
+                  <NumberField
+                    label={t("settings.maxConcurrentSubagents", undefined, "Max concurrent subagents")}
+                    value={config.maxConcurrentSubagents ?? 2}
+                    hint={t(
+                      "settings.hint.maxConcurrentSubagents",
+                      undefined,
+                      "How many Agent children may run at once. They run INSIDE the session process and share its heap, so this spends the ceiling above.",
+                    )}
+                    onChange={(v) => update((c) => { c.maxConcurrentSubagents = v; })}
+                  />
+                  {(() => {
+                    // One formula, shared with the server and the tests, so the
+                    // figure the operator reads cannot drift from the asserted
+                    // one. Non-blocking: both values stay valid and saveable —
+                    // this is a risk to disclose, not an error.
+                    const budget = subagentHeapBudget(
+                      config.sessionHeap?.maxOldSpaceMb ?? DEFAULT_SESSION_HEAP.maxOldSpaceMb,
+                      config.maxConcurrentSubagents ?? 2,
+                    );
+                    if (!budget.warn) return null;
+                    return (
+                      <p
+                        data-testid="session-heap-subagent-warning"
+                        className="mt-1 text-xs text-amber-400"
+                      >
+                        {t(
+                          "settings.heap.subagentCoupling",
+                          { mb: String(budget.perChildMb) },
+                          `At this pairing each concurrent subagent is left about ${budget.perChildMb} MB. Subagents share the session's heap; consider a higher ceiling or fewer concurrent children.`,
+                        )}
+                      </p>
+                    );
+                  })()}
                 </Section>
                 <Section title={t("settings.worktrees", undefined, "Worktrees")}>
                   <ToggleField
@@ -3292,6 +3478,91 @@ export function NumberField({ label, value, onChange, disabled, hint, unit }: Fi
         onChange={(e) => onChange(parseInt(e.target.value, 10) || 0)}
       />
     </FieldShell>
+  );
+}
+
+/**
+ * A V8 old-space ceiling in MB.
+ *
+ * Bespoke rather than a `NumberField` because the two bounds behave
+ * DIFFERENTLY and that asymmetry is the requirement, not a detail:
+ * below `MIN_HEAP_MB` the value is REFUSED (V8's ~192 MB fixed overhead
+ * dominates, so the number stops meaning anything), while above
+ * `HEAP_WARN_ABOVE_MB` it is WARNED and still saved (an operator with a big
+ * host may legitimately want more). A shared NumberField would flatten both
+ * into advisory hint text.
+ *
+ * Refusal here is not the only protection — `loadConfig` falls back to the
+ * default for anything that reaches the file by another route.
+ * See change: bound-session-heap-and-gc-telemetry (task 10.3 / test-plan #E21).
+ */
+function HeapMbField({
+  label,
+  value,
+  onChange,
+  hint,
+  testId,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  hint?: React.ReactNode;
+  testId?: string;
+}) {
+  const controlId = useId();
+  const hintId = `${controlId}-hint`;
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft ?? String(value);
+  // NOT bare `parseInt`: it reads "64abc" as 64, so a typo would be accepted as
+  // a ceiling the operator never typed.
+  const parsed = /^\d+$/.test(shown.trim()) ? Number.parseInt(shown, 10) : Number.NaN;
+  const belowFloor = !Number.isFinite(parsed) || parsed < MIN_HEAP_MB;
+  const aboveGuidance = Number.isFinite(parsed) && parsed > HEAP_WARN_ABOVE_MB;
+  return (
+    <div>
+      <FieldShell label={label} unit="MB" hint={hint} controlId={controlId} hintId={hintId}>
+        <input
+          id={controlId}
+          data-testid={testId}
+          aria-describedby={hasHint(hint) ? hintId : undefined}
+          aria-invalid={belowFloor || undefined}
+          type="number"
+          className={`w-24 bg-[var(--bg-secondary)] border rounded px-2 py-1 text-sm text-right ${
+            belowFloor
+              ? "border-red-500 text-red-400"
+              : "border-[var(--border-secondary)] text-[var(--text-primary)]"
+          }`}
+          value={shown}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            const raw = e.target.value.trim();
+            const v = /^\d+$/.test(raw) ? Number.parseInt(raw, 10) : Number.NaN;
+            // A refused value is never written to the draft config, so it can
+            // neither be saved nor mark the page dirty.
+            if (Number.isFinite(v) && v >= MIN_HEAP_MB) onChange(v);
+          }}
+          onBlur={() => setDraft(null)}
+        />
+      </FieldShell>
+      {belowFloor && (
+        <p data-testid={testId ? `${testId}-error` : undefined} className="mt-1 text-xs text-red-400">
+          {i18nT(
+            "settings.heap.belowFloor",
+            { min: String(MIN_HEAP_MB) },
+            `Must be at least ${MIN_HEAP_MB} MB — below that V8's fixed overhead dominates the request.`,
+          )}
+        </p>
+      )}
+      {aboveGuidance && (
+        <p data-testid={testId ? `${testId}-warn` : undefined} className="mt-1 text-xs text-amber-400">
+          {i18nT(
+            "settings.heap.aboveGuidance",
+            { max: String(HEAP_WARN_ABOVE_MB) },
+            `Above ${HEAP_WARN_ABOVE_MB} MB is unusually large. The value is still saved.`,
+          )}
+        </p>
+      )}
+    </div>
   );
 }
 

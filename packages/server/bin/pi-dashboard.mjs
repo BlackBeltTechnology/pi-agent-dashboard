@@ -25,6 +25,7 @@
 import { createRequire } from "node:module";
 import { realpathSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 
@@ -111,13 +112,31 @@ if (!loader) {
 // `C:\…` entries directly. See change: fix-windows-standalone-spawn.
 const entry = cliPath;
 
-// Heap headroom for the standalone launch path. The bridge launcher already
-// injects this (packages/extension/src/server-launcher.ts buildSpawnEnv,
-// DEFAULT_SERVER_MAX_OLD_SPACE_MB=8192); without it a bare `pi-dashboard`
-// start runs at Node's default ~4 GB old-space and the event store's
-// worst-case per-session buffer can drive an OOM crash. Mirror the bridge:
-// append the flag only when the user has not already pinned a limit, so an
-// explicit NODE_OPTIONS override still wins.
+// Heap ceiling for the standalone launch path, from `serverHeap.maxOldSpaceMb`.
+//
+// Read by plain `JSON.parse` rather than by importing the shared config module:
+// this wrapper runs BEFORE jiti is registered, so it cannot load TypeScript at
+// all. Tolerated duplication of one integer (design D8) — the alternative is a
+// bootstrap cycle. `packages/shared/src/heap-limits.ts` holds the same literal
+// and a test asserts the two agree.
+//
+// Any failure — no config file, malformed JSON, a non-integer or below-floor
+// value — takes the default. A bad config must not stop the server starting.
+const DEFAULT_SERVER_MAX_OLD_SPACE_MB = 1536;
+const MIN_HEAP_MB = 64;
+const HEAP_FLAG_MARKER_ENV = "PI_DASHBOARD_HEAP_FLAG";
+
+function readServerMaxOldSpaceMb() {
+  try {
+    const file = join(process.env.HOME ?? homedir(), ".pi", "dashboard", "config.json");
+    const raw = JSON.parse(readFileSync(file, "utf-8"))?.serverHeap?.maxOldSpaceMb;
+    if (typeof raw === "number" && Number.isInteger(raw) && raw >= MIN_HEAP_MB) return raw;
+  } catch {
+    // absent / unreadable / malformed / not an object — all take the default
+  }
+  return DEFAULT_SERVER_MAX_OLD_SPACE_MB;
+}
+
 const existingNodeOptions = process.env.NODE_OPTIONS ?? "";
 // Enable jiti TS `paths` resolution (jiti default: off).
 //
@@ -131,9 +150,42 @@ const existingNodeOptions = process.env.NODE_OPTIONS ?? "";
 // whole relay is dead at runtime (caught by the docker harness). A caller-set
 // value wins.
 // See change: add-browser-relay.
-const childEnvBase = existingNodeOptions.includes("--max-old-space-size")
-  ? { ...process.env }
-  : { ...process.env, NODE_OPTIONS: `${existingNodeOptions} --max-old-space-size=8192`.trim() };
+// Provenance: record the exact token stamped, so the spawn-side strip in
+// `process-manager.buildSpawnEnv` can tell THIS flag from one the operator
+// pinned. A token we wrote on a previous launch (marker matches) is re-stamped
+// rather than treated as a pin, so a changed config is adopted on cold start.
+// See change: bound-session-heap-and-gc-telemetry (D4, D8).
+const heapFlag = `--max-old-space-size=${readServerMaxOldSpaceMb()}`;
+const ourPreviousFlag = process.env[HEAP_FLAG_MARKER_ENV];
+const nodeOptionTokens = existingNodeOptions.split(/\s+/).filter(Boolean);
+// BOTH spellings: V8 accepts `--max_old_space_size=N` and resolves a repeated
+// flag last-wins, so a hyphen-only detector would append our value after an
+// operator's underscore pin and silently defeat it. Kept in lockstep with
+// `MAX_OLD_SPACE_FLAG_PATTERN` in packages/shared/src/heap-flags.ts (asserted
+// by a test — this file runs before jiti and cannot import that module).
+const MAX_OLD_SPACE_RE = /^--max[-_]old[-_]space[-_]size/;
+const operatorPinned = nodeOptionTokens.some(
+  (t) => MAX_OLD_SPACE_RE.test(t) && t !== ourPreviousFlag,
+);
+// An operator pin wins, and OUR stale marker is dropped with it: a marker that
+// no longer describes a present token would let the spawn-side strip misread
+// their flag as ours.
+const childEnvBase = operatorPinned
+  ? (() => {
+      // Their pin wins, but OUR stale token goes with the marker: V8 is
+      // last-wins, so leaving it could override the pin we just honoured.
+      const e = { ...process.env };
+      const keptForPin = nodeOptionTokens.filter((t) => t !== ourPreviousFlag);
+      if (keptForPin.length === 0) delete e.NODE_OPTIONS;
+      else e.NODE_OPTIONS = keptForPin.join(" ");
+      delete e[HEAP_FLAG_MARKER_ENV];
+      return e;
+    })()
+  : {
+      ...process.env,
+      NODE_OPTIONS: [...nodeOptionTokens.filter((t) => t !== ourPreviousFlag), heapFlag].join(" "),
+      [HEAP_FLAG_MARKER_ENV]: heapFlag,
+    };
 const childEnv = {
   ...childEnvBase,
   JITI_TSCONFIG_PATHS: process.env.JITI_TSCONFIG_PATHS ?? "true",

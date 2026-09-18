@@ -3,7 +3,9 @@
 ## Purpose
 
 Defines the protocol and lifecycle invariants for restarting and shutting down the pi-dashboard server without racing connected pi bridges. Covers the `server_restarting` broadcast contract, bridge auto-start quiesce behaviour, CLI delegation to `/api/restart`, and the detached orchestrator's responsibility for terminating the previous daemon before spawning a new one.
+
 ## Requirements
+
 ### Requirement: Restart broadcast precedes process exit
 
 When the dashboard server is about to exit as part of a restart or shutdown initiated through `POST /api/restart` or `POST /api/shutdown`, the server SHALL broadcast a `server_restarting` message to every connected pi bridge before calling `process.exit(...)`. The message SHALL carry a `reason` (`"restart" | "shutdown"`) and a `quiesceMs` integer (default 5000) indicating how long bridges SHOULD pause auto-start.
@@ -104,3 +106,28 @@ The orchestrator's `PORT` constant (used by `portFree` and `healthOk` polling) S
 - **THEN** the replacement child SHALL bind on `8001` (not `8000`)
 - **AND** `/api/health` SHALL respond on `8001` after the orchestrator's health-polling window
 
+### Requirement: A changed server heap ceiling requires a cold start
+
+The in-place restart path re-launches the server with the current process's
+environment. A changed `serverHeap.maxOldSpaceMb` therefore SHALL NOT take
+effect across an in-place restart; the restarted server SHALL keep the ceiling
+the replaced process was running under.
+
+This is a documented consequence of environment inheritance, not a defect to
+work around: the environment is inherited deliberately so the restarted server
+keeps its ambient configuration.
+
+The restart SHALL NOT report the new ceiling as applied, and the surface that
+offers the setting SHALL state the cold-start requirement.
+
+#### Scenario: In-place restart keeps the previous ceiling
+- **WHEN** `serverHeap.maxOldSpaceMb` is changed and an in-place restart is triggered
+- **THEN** the restarted server SHALL run under the previous ceiling
+
+#### Scenario: Cold start adopts the new ceiling
+- **WHEN** the server is stopped and started afresh after the change
+- **THEN** it SHALL run under the newly configured ceiling
+
+#### Scenario: Restart does not misreport the change as applied
+- **WHEN** an in-place restart completes after a `serverHeap` change
+- **THEN** the dashboard SHALL NOT indicate that the new ceiling is in effect

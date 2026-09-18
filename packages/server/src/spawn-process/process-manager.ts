@@ -21,6 +21,11 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import type { SpawnFailureCode } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { loadConfig, type SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import {
+  buildSessionHeapArgs,
+  buildSessionHeapNodeOptions,
+  stripDashboardHeapFlag,
+} from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
 import { resolveLocalGatewayEndpoint } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { MANAGED_BIN } from "@blackbelt-technology/pi-dashboard-shared/managed-paths.js";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
@@ -59,6 +64,7 @@ import {
   resolveLiveSpawnRuntime,
 } from "../runtime-resolution.js";
 import { type CwdPolicyRegistry, mergeCwdPolicy } from "./cwd-policy.js";
+import { applyHeapArgsToPiArgv, recordHeapArgvFallback } from "./heap-args.js";
 
 // ── Resolver seam (injectable for tests) ────────────────────────────────────
 
@@ -293,6 +299,13 @@ export function buildSpawnEnv(
   // non-blocking finding — grandchild marker leak).
   delete env.PI_DASHBOARD_ELECTRON;
   delete env.PI_DASHBOARD_RESOURCES_PATH;
+  // Withhold the DASHBOARD'S OWN heap flag from the child. `NODE_OPTIONS` is
+  // inherited by every descendant, so the server's ceiling otherwise governs
+  // not just pi but every vitest / tsc / vite the agent runs. Provenance-gated
+  // (marker match), surgical (that token only), and a no-op on an
+  // operator-pinned flag — see `stripDashboardHeapFlag` and design D4.
+  // The session's OWN ceiling rides argv instead, so nothing is lost here.
+  stripDashboardHeapFlag(env);
   // Re-add the Electron-as-node flag that `resolver.buildSpawnEnv` strips,
   // but ONLY when the argv[0] we are about to spawn is the Electron binary.
   // The argv-aware chokepoint that keeps this builder in agreement with
@@ -467,6 +480,7 @@ export function buildTmuxCommand(
   sessionExists: boolean,
   options?: SessionOptions,
   piInvocation: string[] = ["pi"],
+  heapNodeOptions = "",
 ): string[] {
   const paneCommand = [
     ...piInvocation.map(shellEscape),
@@ -481,10 +495,18 @@ export function buildTmuxCommand(
   const tokenEnv: string[] = options?.spawnToken
     ? ["-e", `PI_DASHBOARD_SPAWN_TOKEN=${options.spawnToken}`]
     : [];
+  // The heap ceiling rides the SAME per-window `-e` mechanism, for the same
+  // reason: a pane's environment comes from the long-lived tmux SERVER, so a
+  // spawn-time env never reaches it, and `spawnWslTmux` keeps `["pi"]` literal
+  // so a host-resolved runtime path would be meaningless in the guest. Only
+  // the subset `NODE_OPTIONS` accepts can cross this boundary; inside the pane
+  // it is inherited by descendants, which is the accepted cost of reaching the
+  // pane at all (design D3).
+  const heapEnv: string[] = heapNodeOptions ? ["-e", `NODE_OPTIONS=${heapNodeOptions}`] : [];
   if (sessionExists) {
-    return ["tmux", "new-window", "-t", "pi-dashboard", ...tokenEnv, "-c", cwd, paneCommand];
+    return ["tmux", "new-window", "-t", "pi-dashboard", ...tokenEnv, ...heapEnv, "-c", cwd, paneCommand];
   }
-  return ["tmux", "new-session", "-d", "-s", "pi-dashboard", ...tokenEnv, "-c", cwd, paneCommand];
+  return ["tmux", "new-session", "-d", "-s", "pi-dashboard", ...tokenEnv, ...heapEnv, "-c", cwd, paneCommand];
 }
 
 // ── Availability probes (isolated, one place) ───────────────────────────────
@@ -569,6 +591,49 @@ function dashboardSessionExists(): boolean {
 function resolvePiCommand(rt?: ResolvedRuntime | null): string[] | null {
   const piCmd = resolver.resolvePi();
   return piCmd ? applySpawnRuntimeToPiArgv(piCmd, rt ?? null) : null;
+}
+
+/**
+ * The configured session heap flags, read fresh at spawn time so a config
+ * change takes effect on the NEXT SPAWN (a reload counts — it is a kill plus a
+ * fresh `spawnPiSession`) without a server restart.
+ * See change: bound-session-heap-and-gc-telemetry.
+ */
+function sessionHeapArgs(): string[] {
+  return buildSessionHeapArgs(loadConfig().sessionHeap);
+}
+
+/** The tmux per-window `NODE_OPTIONS` value, or `""` when nothing is configured. */
+function tmuxHeapNodeOptions(): string {
+  return buildSessionHeapNodeOptions(loadConfig().sessionHeap);
+}
+
+/**
+ * Place the configured ceiling into a resolved pi invocation.
+ *
+ * Runs AFTER `resolvePiCommand` (hence after `applySpawnRuntimeToPiArgv`), so
+ * the runtime re-point still sees the untouched `[<node>, <script>.js]` pair
+ * shape it detects by position (design D2).
+ *
+ * On a resolution with no runtime slot the ceiling cannot ride argv. The caller
+ * decides: every mechanism except headless may fall back to the `NODE_OPTIONS`
+ * subset, and the fallback is recorded in the server log AND on `/api/health`
+ * rather than being silent (design D3a).
+ */
+function applySessionHeap(
+  piCmd: string[],
+  rt: ResolvedRuntime | null,
+  mechanism: SpawnMechanism,
+): { argv: string[]; fallback: boolean } {
+  const result = applyHeapArgsToPiArgv(piCmd, sessionHeapArgs(), rt);
+  if (result.fallback) {
+    const detail = `pi resolved as [${piCmd.join(" ")}] — no runtime slot for V8 flags`;
+    recordHeapArgvFallback(mechanism, detail);
+    console.warn(
+      `[heap] session ceiling could not ride argv on mechanism "${mechanism}": ${detail}`,
+    );
+  }
+  return result;
 }
 
 // ── Mechanism dispatch ─────────────────────────────────────────────────────
@@ -681,7 +746,7 @@ export function spawnTmux(cwd: string, options?: SessionOptions): SpawnResult {
   if (!piCmd) {
     return { success: false, code: "PI_NOT_FOUND", message: `pi binary not found. Checked: ${MANAGED_BIN} and system PATH.` };
   }
-  const cmd = buildTmuxCommand(cwd, exists, options, piCmd);
+  const cmd = buildTmuxCommand(cwd, exists, options, piCmd, tmuxHeapNodeOptions());
   // Pass env explicitly so PI_DASHBOARD_SPAWN_TOKEN reaches the tmux pane's
   // pi process (tmux inherits the caller's env into new windows/sessions).
   // argv0 re-adds the Electron-as-node flag when piCmd[0] is the Electron binary.
@@ -709,7 +774,7 @@ export function spawnWslTmux(cwd: string, options?: SessionOptions): SpawnResult
     // `wsl.exe --exec <tmux argv>`: `.exe` bypasses the cmd.exe branch in
     // buildSafeArgv; `--exec` runs tmux directly instead of through WSL's
     // default shell. `pi` stays literal so it resolves inside the WSL namespace.
-    const tmuxArgv = buildTmuxCommand(cwd, false, options, ["pi"]);
+    const tmuxArgv = buildTmuxCommand(cwd, false, options, ["pi"], tmuxHeapNodeOptions());
     const env = buildSpawnEnv(process.env, {
       spawnToken: options?.spawnToken,
       spawnRuntime: spawnRuntimeForSession(),
@@ -733,8 +798,25 @@ async function spawnWt(cwd: string, options?: SessionOptions): Promise<SpawnResu
     return { success: false, code: "PI_NOT_FOUND", message: `pi binary not found. Checked: ${MANAGED_BIN} and system PATH.` };
   }
 
-  const piArgv = [...piCmd, ...buildInteractivePiArgs(options)];
+  // Windows Terminal carries a command string, so the ceiling rides argv here
+  // like every non-multiplexer mechanism.
+  const heaped = applySessionHeap(piCmd, rt, "wt");
+  const piArgv = [...heaped.argv, ...buildInteractivePiArgs(options)];
   const args = buildWtArgs({ cwd, title: path.basename(cwd) || "pi", piArgv });
+  const wtEnv = buildSpawnEnv(process.env, {
+    spawnToken: options?.spawnToken,
+    argv0: piCmd[0],
+    spawnRuntime: rt,
+  });
+  if (heaped.fallback) {
+    // Last resort (D3a): only the subset `NODE_OPTIONS` accepts, and only
+    // because the alternative is no cap at all. Permitted here — unlike
+    // headless — because no supervising process shares this environment.
+    const nodeOptions = tmuxHeapNodeOptions();
+    if (nodeOptions) {
+      wtEnv.NODE_OPTIONS = wtEnv.NODE_OPTIONS ? `${wtEnv.NODE_OPTIONS} ${nodeOptions}` : nodeOptions;
+    }
+  }
 
   const r = await spawnDetached({
     cmd: wt,
@@ -742,11 +824,7 @@ async function spawnWt(cwd: string, options?: SessionOptions): Promise<SpawnResu
     cwd,
     // pass the node-wrapped pi argv[0] so the Electron-as-node flag is
     // re-added when it is the Electron binary (execpath-fallback topology).
-    env: buildSpawnEnv(process.env, {
-      spawnToken: options?.spawnToken,
-      argv0: piCmd[0],
-      spawnRuntime: rt,
-    }),
+    env: wtEnv,
   });
 
   if (!r.ok) {
@@ -785,7 +863,13 @@ async function spawnHeadless(cwd: string, options?: SessionOptions): Promise<Spa
     extensionConfig: options?.extensionConfig,
     spawnRuntime: rt,
   });
-  return spawnHeadlessViaKeeper(cwd, env, args, piCmd);
+  // The ceiling rides the invocation handed to the keeper, so it binds pi and
+  // NOT the keeper. There is deliberately no env fallback on this strategy:
+  // the keeper re-passes its own environment to pi, so an env-borne cap would
+  // bind the supervisor too (design D3a, D5). A fallback here is recorded and
+  // the session simply runs uncapped.
+  const heaped = applySessionHeap(piCmd, rt, "headless");
+  return spawnHeadlessViaKeeper(cwd, env, args, heaped.argv);
 }
 
 /**
