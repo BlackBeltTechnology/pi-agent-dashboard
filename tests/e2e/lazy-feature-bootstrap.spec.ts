@@ -1,5 +1,6 @@
-import { byTestId, gotoDashboard } from "./helpers/index.js";
+import { byTestId, gotoDashboard, spawnFreshGitSession } from "./helpers/index.js";
 import { expect, test } from "./fixtures.js";
+import { BASE_URL } from "./lifecycle.js";
 
 /**
  * L3 cold-landing gate for change `add-lazy-terminal-diff-bootstrap`.
@@ -94,5 +95,64 @@ test.describe("lazy feature bootstrap — cold landing", () => {
       measured.total,
       `root JS transfer ${measured.total} B is not ≥30% below baseline ${BASELINE_ROOT_JS_BYTES} B (ceiling ${ceiling} B); ${detail}`,
     ).toBeLessThanOrEqual(ceiling);
+  });
+});
+
+/** The `@git-diff-view` JS chunk. Anchored on the basename so the npm `diff`
+ *  chunk (`jsdiff-*.js`, deliberately eager on the chat path) does NOT match. */
+const DIFF_JS = /\/assets\/diff-[^/]*\.js$/;
+
+test.describe("lazy feature bootstrap — boundary failure containment", () => {
+  test("X1: an aborted terminal chunk fetch is contained in the pane, not the app", async ({ page }) => {
+    test.setTimeout(180_000);
+    await page.route("**/assets/xterm-*.js", (route) => route.abort());
+
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await page.getByTestId("layout-mode-switch").waitFor({ state: "visible", timeout: 30_000 });
+    await page.getByTestId("layout-mode-split").click();
+    await expect(page.getByTestId("split-editor-pane")).toBeVisible();
+    await page.getByTestId("new-terminal-launch").click();
+
+    // The lazy `import()` REJECTS during render. The pane-local ErrorBoundary
+    // must catch it: without one this escalates to the app-level boundary and
+    // the surrounding shell goes with it.
+    await expect(page.getByTestId("terminal-layer-error")).toBeVisible({ timeout: 30_000 });
+
+    // The app is NOT blanked — shell, pane and tab strip stay mounted.
+    await expect(byTestId(page, "headerAppBar")).toBeVisible();
+    await expect(page.getByTestId("split-editor-pane")).toBeVisible();
+    await expect(page.getByRole("tab").first()).toBeVisible({ timeout: 20_000 });
+  });
+
+  test("F13: the App diff route fetches the diff chunk lazily and mounts FileDiffView", async ({ page }) => {
+    test.setTimeout(180_000);
+    const diffJs: string[] = [];
+    page.on("request", (req) => {
+      try {
+        if (DIFF_JS.test(new URL(req.url()).pathname)) diffJs.push(req.url());
+      } catch {
+        /* non-URL request */
+      }
+    });
+
+    const card = await spawnFreshGitSession(page);
+    const sessionId = await card.getAttribute("data-session-id");
+    expect(sessionId, "spawned session must expose data-session-id").toBeTruthy();
+    await card.click();
+
+    // The chat surface alone must not pull diff code.
+    expect(diffJs, `diff chunk fetched before any diff surface: ${diffJs.join(", ")}`).toEqual([]);
+
+    // Reach the diff surface through the App-level route arm, which renders
+    // `FileDiffView` directly — no Changes-rail dependency, so this stays
+    // deterministic (the rail derives from the fixture's real working tree).
+    await page.goto(`${BASE_URL}/session/${sessionId}/diff`);
+
+    await expect(page.getByTestId("file-diff-view")).toBeVisible({ timeout: 45_000 });
+    await expect(page.getByText("Loading diff…")).toHaveCount(0);
+    await expect
+      .poll(() => diffJs.length, { timeout: 30_000, message: "diff chunk never fetched on the diff route" })
+      .toBeGreaterThan(0);
   });
 });

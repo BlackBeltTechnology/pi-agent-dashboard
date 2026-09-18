@@ -51,6 +51,7 @@ import { ImageLightbox } from "../preview/ImageLightbox.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { CopyButton } from "../primitives/CopyButton.js";
 import { RetriedErrorBadge } from "../session/RetriedErrorBadge.js";
+import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
 // D2/D3b (change: add-lazy-terminal-diff-bootstrap): the inline terminal card is
 // a lazy boundary so a chat transcript without terminal history does not fetch
@@ -1835,19 +1836,31 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         if (msg.role === "inlineTerminal") {
           const args = msg.args as any;
           return (
-            // Card-local boundary: the fallback reserves the card's height so the
-            // transcript stays scrollable and does not jump while xterm loads.
-            <Suspense
-              key={msg.id}
-              fallback={<div role="status" aria-label={i18nT("status.loadingTerminal", undefined, "Loading terminal")} className="rounded border border-[var(--border-primary)] bg-[var(--bg-code)]" style={{ height: 320 }} />}
+            // Card-local boundaries: the Suspense fallback reserves the card's
+            // height so the transcript stays scrollable and does not jump while
+            // xterm loads. The ErrorBoundary contains a REJECTED chunk import —
+            // otherwise it escalates to the app-level boundary and takes the
+            // whole transcript with it. See change:
+            // add-lazy-terminal-diff-bootstrap.
+            <ErrorBoundary
+              fallback={
+                <div role="alert" className="rounded border border-[var(--border-primary)] bg-[var(--bg-code)] p-3 text-xs text-[var(--text-tertiary)]" style={{ height: 320 }}>
+                  {i18nT("status.terminalLoadFailed", undefined, "Terminal failed to load.")}
+                </div>
+              }
             >
-              <InlineTerminalCard
-                terminalId={args?.terminalId ?? ""}
-                closed={args?.closed ?? false}
-                transcript={msg.content}
-                onClose={(tid) => onCloseInlineTerminal?.(tid)}
-              />
-            </Suspense>
+              <Suspense
+                key={msg.id}
+                fallback={<div role="status" aria-label={i18nT("status.loadingTerminal", undefined, "Loading terminal")} className="rounded border border-[var(--border-primary)] bg-[var(--bg-code)]" style={{ height: 320 }} />}
+              >
+                <InlineTerminalCard
+                  terminalId={args?.terminalId ?? ""}
+                  closed={args?.closed ?? false}
+                  transcript={msg.content}
+                  onClose={(tid) => onCloseInlineTerminal?.(tid)}
+                />
+              </Suspense>
+            </ErrorBoundary>
           );
         }
 
