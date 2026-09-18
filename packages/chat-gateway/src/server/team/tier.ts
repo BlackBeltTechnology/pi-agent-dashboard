@@ -11,7 +11,7 @@
  * See change: add-chat-gateway-team-controls (D3).
  */
 import { GENERATED_TOOLS } from "@blackbelt-technology/pi-dashboard-mcp-server-plugin/manifest";
-import { type Tier, minTier, rank } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
+import { minTier, rank, type Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 
 /** Roles may never grant `operate` — see `authorize.ts` / `tier-config.ts`. */
 export type RoleTier = "observe" | "control";

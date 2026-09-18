@@ -10,9 +10,10 @@
  *
  * See change: add-chat-gateway-team-controls.
  */
+
+import type { CommandLog, CommandLogEntry } from "./audit.js";
 import type { Author, AuthorizeResult, BindingContext } from "./authorize.js";
 import { authorize } from "./authorize.js";
-import type { CommandLog, CommandLogEntry } from "./audit.js";
 import type { MirrorLevel, ValidatedBinding, ValidatedTeamConfig } from "./team-config.js";
 import { DEFAULT_MIRROR_LEVEL } from "./team-config.js";
 import type { WorkspaceView } from "./workspace.js";

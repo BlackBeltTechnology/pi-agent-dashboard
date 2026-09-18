@@ -2,8 +2,9 @@
  * Tier authorization chokepoint (change: add-chat-gateway-team-controls).
  * Scenarios: E1–E8, E10–E13, P4, X12, X16.
  */
-import { describe, expect, it } from "vitest";
+
 import type { Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
+import { describe, expect, it } from "vitest";
 import {
   type AuthorizeInput,
   authorize,

@@ -41,8 +41,8 @@ import {
 } from "./prompts.js";
 import type { BindingStore, SpawnCorrelator } from "./routing.js";
 import type { HostSeam, SpawnOutcome } from "./seam.js";
-import type { TeamController } from "./team/controller.js";
 import { createEditThrottle, type EditThrottle, shouldSteer, stripSteerPrefix } from "./stream.js";
+import type { TeamController } from "./team/controller.js";
 
 export interface ChatGatewayDeps {
   platform: ChatPlatform;

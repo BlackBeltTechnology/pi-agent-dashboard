@@ -81,7 +81,7 @@
 
 ## 9. Verification and docs
 
-- [ ] 9.1 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and verify zero failures
+- [x] 9.1 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and verify zero failures
 - [ ] 9.2 Run `npm run quality:changed` and verify no new Biome findings
 - [ ] 9.3 Invoke the `security-hardening` discipline skill against the diff (the `authorize` chokepoint, the `allowedRoots`-narrowing invariant, overwrite reconciliation, bot/webhook reject, the host seam) and resolve every finding
 - [ ] 9.4 Invoke `doubt-driven-review` on the tier model before anything rides ship/merge verbs on it, and record the outcome
