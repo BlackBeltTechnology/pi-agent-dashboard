@@ -8,11 +8,29 @@ whether `config.authConfig` is present. Within jurisdiction the guard SHALL
 deny-by-default: a request is allowed only if it satisfies a pass condition or an
 in-namespace public exception. This replaces reliance on per-route
 `preHandler: networkGuard` opt-in as the primary enforcement mechanism.
+Route files SHALL continue to receive the guard via their `RouteDeps`
+`networkGuard` field (created once from `resolvedTrustedNetworks` at startup);
+that threading remains valid but is no longer the protection boundary.
 
-The guard SHALL be registered as the **last** `onRequest` hook — after
-`registerBearerAuth`, `registerAuthPlugin` (when configured), and the model-proxy
-auth gate — so `request.isAuthenticated` reflects every auth source when the
-guard evaluates. Core route registrations MAY retain their existing
+Jurisdiction and in-namespace exception matching SHALL operate on the parsed
+request **pathname** (query string and fragment stripped), with prefix matches
+anchored on a trailing slash, so neither a query string (`/api/health?x=1`) nor a
+near-miss prefix (`/apiv2`, `/api/healthz`) changes the decision.
+
+The guard SHALL be registered as the **last** `onRequest` hook unconditionally —
+after the host gate, CORS, the mutation-origin gate, CSP, `registerBearerAuth`,
+`registerAuthPlugin` (when configured), the route-tier gate, and the model-proxy
+auth gate (when configured) — so `request.isAuthenticated` reflects every auth
+source when the guard evaluates. "Last" SHALL NOT be expressed relative to a
+conditional hook.
+
+The guard SHALL read the trusted-network set through the live thunk (the same
+source `createNetworkGuard` uses), never a boot snapshot, so a CIDR added at
+runtime admits without a restart.
+
+A denial by the universal guard SHALL preserve the existing denial contract: the
+`network_not_allowed` response body clients branch on, and the `blockEvents`
+recording that feeds `GET /api/tunnel/block-events`. Core route registrations MAY retain their existing
 `preHandler: networkGuard` as redundant defense-in-depth; these SHALL NOT be
 required for a route to be protected.
 
@@ -23,6 +41,23 @@ required for a route to be protected.
 #### Scenario: retained per-route guard is harmless
 - **WHEN** a core route still declares `preHandler: networkGuard` and the universal hook is installed
 - **THEN** the request SHALL be evaluated consistently (both agree) and SHALL NOT be double-rejected or error
+
+#### Scenario: denial keeps the existing response contract
+- **WHEN** the universal hook denies an in-jurisdiction request
+- **THEN** the response body SHALL be the existing `network_not_allowed` shape
+- **AND** the denial SHALL be recorded in the `blockEvents` buffer exposed by `GET /api/tunnel/block-events`
+
+#### Scenario: runtime-added trusted CIDR admits without restart
+- **WHEN** a CIDR is added to the trusted-network set while the server is running and a request arrives from that network
+- **THEN** the guard SHALL allow it without a restart
+
+#### Scenario: Session route uses network guard
+- **WHEN** a request to `POST /api/sessions/:id/prompt` arrives from a trusted network IP
+- **THEN** the route SHALL allow the request (guard passes)
+
+#### Scenario: File route uses network guard
+- **WHEN** a request to `GET /api/browse` arrives from an untrusted IP
+- **THEN** the route SHALL return 403
 
 ## ADDED Requirements
 
@@ -61,6 +96,22 @@ genuine-local, trusted-network IP, or `isAuthenticated`).
 #### Scenario: pairing bootstrap reachable unauthenticated
 - **WHEN** an unauthenticated request arrives at a `PUBLIC_PAIRING_PREFIXES` path (e.g. `/api/pair/redeem`)
 - **THEN** the guard SHALL allow it
+
+#### Scenario: query string does not defeat an exception
+- **WHEN** an unauthenticated, untrusted request arrives at `GET /api/health?probe=1`
+- **THEN** the guard SHALL allow it (matching is on the pathname, not the raw URL)
+
+#### Scenario: near-miss path is not treated as an exception
+- **WHEN** an unauthenticated, untrusted request arrives at `GET /api/healthz`
+- **THEN** the guard SHALL deny it (exception matching is anchored, not a loose prefix)
+
+#### Scenario: HEAD health check allowed
+- **WHEN** an unauthenticated, untrusted `HEAD /api/health` request arrives
+- **THEN** the guard SHALL allow it (the exception is not GET-only)
+
+#### Scenario: unparseable URL fails closed
+- **WHEN** a request arrives whose URL cannot be parsed into a pathname
+- **THEN** the guard SHALL treat it as in-jurisdiction and deny it
 
 #### Scenario: ws-ticket mint requires a pass condition
 - **WHEN** an unauthenticated, untrusted request arrives at the `/api` ws-ticket mint endpoint
@@ -115,13 +166,31 @@ SHALL NOT be rejected with a network-policy 403.
 
 ### Requirement: No dangerous route outside the guarded namespaces
 The codebase SHALL keep every dangerous (non-public, non-static, non-auth) HTTP
-route under a guarded jurisdiction namespace (`/api`, `/v1`, `/editor`, `/live`),
-verified by a test, so a route added outside those prefixes cannot silently bypass
-the guard.
+route under a guarded jurisdiction namespace (`/api`, `/v1`, `/editor`, `/live`)
+or inside an **explicitly enumerated independently-authenticated namespace**,
+verified by a test with plugin routes loaded, so a route added outside those
+prefixes cannot silently bypass the guard.
+
+The independently-authenticated set SHALL contain `/mcp` (which authenticates
+in-handler via the paired-device token registry and deliberately does not trust
+`request.isAuthenticated`). The static-allow set SHALL contain `/sw.js`. Adding a
+namespace to either set SHALL be an explicit code change, not an implicit
+fall-through. No client-side SPA route SHALL live under a guarded namespace,
+since an unmatched in-jurisdiction path is denied rather than falling through to
+the SPA handler.
 
 #### Scenario: namespace-coverage test
-- **WHEN** the route table is enumerated in a test
-- **THEN** every non-static, non-`/auth`, non-public route SHALL resolve under a guarded namespace, else the test SHALL fail
+- **WHEN** the route table is enumerated in a test with plugin routes registered
+- **THEN** every non-static, non-`/auth`, non-public route SHALL resolve under a guarded namespace or an enumerated independently-authenticated namespace, else the test SHALL fail
+
+#### Scenario: /mcp is enumerated, not ignored
+- **WHEN** the coverage test encounters a `/mcp*` route
+- **THEN** it SHALL pass only via the explicit independently-authenticated entry
+- **AND** a test SHALL assert every `/mcp*` route (including the bare `/mcp`) requires the plugin's own device-token auth
+
+#### Scenario: no SPA route under a guarded namespace
+- **WHEN** the client route table is enumerated
+- **THEN** no client-side route SHALL start with `/api/`, `/v1/`, `/editor/`, or `/live/`
 
 ### Requirement: Model-proxy second port stays loopback-bound or guarded
 The optional model-proxy second-port Fastify instance SHALL bind to loopback
