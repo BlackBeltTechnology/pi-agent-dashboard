@@ -374,6 +374,32 @@ function hasMermaid(content: string): boolean {
 
 const SCROLL_THRESHOLD = 50;
 
+/**
+ * A scroll event whose position is the bottom-pin's own write after a
+ * measurement clamped it: the view still sits at the value the pin ACHIEVED
+ * (within a sub-pixel tolerance), the content is taller than it was at write
+ * time, and the pin landed on real content. Only that shape is a clamp and
+ * nothing else — see the `pin-bottom` branch in `handleScroll` for the full
+ * reasoning.
+ *
+ * The tolerance is symmetric and deliberate: `scrollTop` readback is
+ * fractional under non-100 % zoom and mobile device-pixel rounding, so an exact
+ * `===` would silently reintroduce the defect on exactly those form factors,
+ * while an open upper bound would wrongly hold a view that moved ABOVE the pin.
+ * See change: fix-long-session-ux-degradation.
+ */
+function isPinnedBottomClamp(
+  snapshot: { top: number; height: number } | null,
+  el: { scrollTop: number; scrollHeight: number },
+): boolean {
+  return (
+    snapshot !== null &&
+    snapshot.height > 0 &&
+    Math.abs(el.scrollTop - snapshot.top) <= 1 &&
+    el.scrollHeight > snapshot.height
+  );
+}
+
 // Retained-row ceiling for an active selection (change:
 // preserve-chat-selection-during-churn, D3). The `rangeExtractor` keeps up to
 // this many selection-intersecting rows mounted; past it the view actively
@@ -482,12 +508,24 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
    *    started during that window and the walk stalls until they scroll again.
    *
    * Callers that ARE intent (`scrollToTop`) must stamp FIRST, then set the flag.
-   * See change: add-tail-only-replay-window (D7).
+   *
+   * `reason` tags the write for `handleScroll` via `lastProgrammaticScrollRef`:
+   * `"pin-bottom"` for the bottom-pin writers, `"jump"` (default) for every
+   * other relocating write. A `"jump"` write supersedes any pending pin
+   * snapshot — the position it achieved is no longer where the view is headed.
+   * The tag is cleared by real user input and by the session-change reset, never
+   * by the handler (a suppressed event must not consume the tag).
+   * See change: add-tail-only-replay-window (D7), fix-long-session-ux-degradation (D5).
    */
-  const stampProgrammaticScroll = useCallback((invalidateIntent = true) => {
-    programmaticScrollUntilRef.current = Date.now() + SETTLE_MS;
-    if (invalidateIntent) pendingUserIntentRef.current = false;
-  }, []);
+  const stampProgrammaticScroll = useCallback(
+    (invalidateIntent = true, reason: "pin-bottom" | "jump" = "jump") => {
+      programmaticScrollUntilRef.current = Date.now() + SETTLE_MS;
+      lastProgrammaticScrollRef.current = reason;
+      if (reason === "jump") pinnedSnapshotRef.current = null;
+      if (invalidateIntent) pendingUserIntentRef.current = false;
+    },
+    [],
+  );
   /**
    * The user has asked to go UP since the last request. Tracks INTENT, not
    * position: `scrollTop` clamps at 0, so a user parked on the loading head
@@ -784,6 +822,29 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   // cancelled by real user input (wheel / touch). See change:
   // virtualize-chat-transcript-tanstack (scroll-to-bottom regression fix).
   const descendingRef = useRef(false);
+  // The writer of the most recent programmatic scroll, kept alongside the
+  // suppression window so `handleScroll` can tell WHICH write produced the event
+  // it is processing. The pin write and a measurement interleave in a way the
+  // position-based checks cannot see: `el.scrollTop = el.scrollHeight` lands at
+  // the extent that exists AT WRITE TIME, but rows below the viewport keep
+  // measuring in, so the induced event can arrive after `scrollHeight` grew and
+  // read nearBottom=false on a correct pin. With no gesture involved, the old
+  // else-branch then cleared `stickToBottomRef` and the follow died mid-replay.
+  //   null         → no programmatic write pending; position rules apply
+  //   "pin-bottom" → a bottom-pin that landed at the then-current bottom
+  //   "jump"       → another relocation (scrollToBottom/scrollToTurn/restore/
+  //                  correction): its events are ignored, not judged.
+  // Cleared by real user input, by a "jump" stamp, and on session change.
+  // See change: fix-long-session-ux-degradation (D5).
+  const lastProgrammaticScrollRef = useRef<"pin-bottom" | "jump" | null>(null);
+  // The most recent bottom-pin write: the `scrollTop` it ACHIEVED (the write is
+  // clamped to the then-current maximum) and the `scrollHeight` at write time.
+  // `handleScroll` compares against both to separate a measurement clamp (top
+  // matches, height grew → HOLD) from a real move (anything else → RELEASE).
+  // The `height > 0` requirement guards the empty/zero-height container, where
+  // every comparison is trivially satisfiable.
+  // See change: fix-long-session-ux-degradation (D5).
+  const pinnedSnapshotRef = useRef<{ top: number; height: number } | null>(null);
   // True while a scroll-to-TOP ascent is in flight (Decision 3, change:
   // fix-chat-scroll-to-top-estimate-drift). `scrollToIndex(0)` is BOUNDED
   // (maxAttempts=10) and a late async image-load remeasure can bump the view
@@ -1192,8 +1253,9 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       // A backfill splice grows the content from ABOVE the reading position, so
       // any user inside the near-bottom band would be yanked to the bottom (D6).
       if (grew && stickToBottomRef.current && !isSelectingRef.current && !spliceSuppressRef.current) {
-        stampProgrammaticScroll();
+        stampProgrammaticScroll(true, "pin-bottom");
         el.scrollTop = el.scrollHeight;
+        pinnedSnapshotRef.current = { top: el.scrollTop, height: el.scrollHeight };
       }
       // Ascending: re-target index 0 whenever a measurement grows the total
       // size (an above-viewport row mounting/measuring, INCLUDING the async
@@ -1331,6 +1393,11 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     // Real user input also escapes an in-flight scroll-to-top ascent so the
     // onChange re-issue cannot fight the user scrolling back down.
     ascendingRef.current = false;
+    // Real user input is the one place that means "the user took over": drop
+    // the programmatic-write tag and the pin snapshot, so a gesture already
+    // seen cannot be re-attributed to our own write when its event lands.
+    lastProgrammaticScrollRef.current = null;
+    pinnedSnapshotRef.current = null;
   }, []);
 
   const handleScroll = useCallback(() => {
@@ -1338,7 +1405,44 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     if (!el) return;
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_THRESHOLD;
     const nearTop = el.scrollTop <= SCROLL_THRESHOLD;
-    if (descendingRef.current) {
+    // Classify by WRITER before the position rules run. A relocation ("jump")
+    // owns its event entirely; a bottom-pin holds only when the event is
+    // consistent with a measurement clamp.
+    const suppressed = Date.now() < programmaticScrollUntilRef.current;
+    const pinSnapshot = pinnedSnapshotRef.current;
+    const clampHolds =
+      lastProgrammaticScrollRef.current === "pin-bottom" && isPinnedBottomClamp(pinSnapshot, el);
+    // The pin's OWN immediate event, inside the suppression window, BEFORE any
+    // measurement growth: position still matches and the extent has not shrunk.
+    // Treated as pin-owned too, so the anchor-fallback's deliberate RELEASED
+    // follow is preserved rather than re-armed by the near-bottom position rule
+    // (the pin landed at the bottom, so `nearBottom` reads true with no gesture).
+    const suppressedPinHolds =
+      suppressed &&
+      lastProgrammaticScrollRef.current === "pin-bottom" &&
+      pinSnapshot !== null &&
+      pinSnapshot.height > 0 &&
+      Math.abs(el.scrollTop - pinSnapshot.top) <= 1 &&
+      el.scrollHeight >= pinSnapshot.height;
+    const pinHolds = suppressedPinHolds || clampHolds;
+    // SINGLE-USE: the first event tested against the snapshot consumes it,
+    // matched or not. Without this a stale snapshot could survive a whole
+    // scrollbar-only session and be re-matched by an unrelated event that
+    // happens to land on the same position while content grew.
+    if (lastProgrammaticScrollRef.current === "pin-bottom") pinnedSnapshotRef.current = null;
+    if (suppressed && lastProgrammaticScrollRef.current === "jump") {
+      // A relocating write owns this event. Moving the refs at all would fight
+      // the writer — in particular `scrollToBottom`'s single event lands inside
+      // the window and a position rule here could clear the pin it just ended
+      // at. Button state included: leave it to the writer.
+    } else if (pinHolds) {
+      // Measurement clamp: HOLD the follow by PRESERVING the sticky state the
+      // pin established. Never force it true — the anchor-row-not-found fallback
+      // deliberately pins while leaving `stickToBottomRef === false`, and
+      // preserving `false` is exactly as correct. Button state is deliberately
+      // untouched: flipping it here is the escape affordance the spec forbids
+      // mid-replay.
+    } else if (descendingRef.current) {
       // In-flight descent: hold the pin through intermediate (not-yet-bottom)
       // scroll events; clear the latch on arrival.
       if (nearBottom) descendingRef.current = false;
@@ -1365,7 +1469,10 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       scrollStateMap.set(sessionId, {
         anchorRowId: anchor ? String(anchor.key) : null,
         offset: anchor ? el.scrollTop - anchor.start : el.scrollTop,
-        nearBottom,
+        // A clamp-preserved event must persist the state it PRESERVED, not the
+        // raw `false`, or the follow survives in-session and is then thrown away
+        // by the next session switch (restoring mid-transcript after no gesture).
+        nearBottom: pinHolds ? stickToBottomRef.current : nearBottom,
       });
     }
     /**
@@ -1437,6 +1544,14 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       // virtual anchor on every scroll), so no re-capture here — re-capturing
       // now would read the INCOMING session's virtualizer (CR-6).
       prevSessionRef.current = sessionId;
+      // Attribution does not outlive the session it was recorded in: a snapshot
+      // from the outgoing transcript must never be tested against the incoming
+      // session's first event. Placed in the UNCONDITIONAL prologue — NOT beside
+      // the descendingRef/stickToBottomRef clears below, which run only on the
+      // scroll-locked-restore path and would skip the near-bottom/first-visit
+      // switch that needs it most.
+      lastProgrammaticScrollRef.current = null;
+      pinnedSnapshotRef.current = null;
 
       // Restore incoming session scroll state in virtual coordinates.
       const saved = sessionId ? scrollStateMap.get(sessionId) : undefined;
@@ -1461,15 +1576,29 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
             if (el) el.scrollTop += off;
           });
         } else {
-          stampProgrammaticScroll();
-          scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
+          // Anchor row not found: this pins to the bottom like any other writer,
+          // and it fires precisely in the target population (long session, anchor
+          // outside the retained window). The branch deliberately leaves
+          // `stickToBottomRef === false`; the clamp branch PRESERVES that.
+          stampProgrammaticScroll(true, "pin-bottom");
+          const node = scrollRef.current;
+          if (node) {
+            node.scrollTo(0, node.scrollHeight);
+            pinnedSnapshotRef.current = { top: node.scrollTop, height: node.scrollHeight };
+          }
         }
       } else {
-        // Near bottom or first visit: scroll to end and follow new content.
+        // Near bottom or first visit: scroll to end and follow new content. This
+        // is the write the "opens at the latest message" behavior depends on, so
+        // it claims bottom-pin attribution (not a jump).
         stickToBottomRef.current = true;
         setShowScrollButton(false);
-        stampProgrammaticScroll();
-        scrollRef.current?.scrollTo(0, scrollRef.current!.scrollHeight);
+        stampProgrammaticScroll(true, "pin-bottom");
+        const node = scrollRef.current;
+        if (node) {
+          node.scrollTo(0, node.scrollHeight);
+          pinnedSnapshotRef.current = { top: node.scrollTop, height: node.scrollHeight };
+        }
       }
     }
   }, [sessionId]);
@@ -1506,8 +1635,9 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     wasSelectingRef.current = false;
     if (resumedFromSelection && el) lastScrollHeightRef.current = el.scrollHeight;
     if (stickToBottomRef.current && el) {
-      stampProgrammaticScroll();
+      stampProgrammaticScroll(true, "pin-bottom");
       el.scrollTop = el.scrollHeight;
+      pinnedSnapshotRef.current = { top: el.scrollTop, height: el.scrollHeight };
       lastScrollHeightRef.current = el.scrollHeight;
     }
   }, [state.messages.length, state.streamingText, state.pendingPrompt, state.streamingThinking, pendingSteering, isSelecting]);
