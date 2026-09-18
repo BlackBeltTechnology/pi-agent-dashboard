@@ -1,0 +1,387 @@
+{
+  "meta": {
+    "engine": "0.1.0",
+    "mermaid": "11.17.2",
+    "source": "fixture.md",
+    "derivedHash": "41e60def25e34228d4adf2c7e9e62532070793a68f3d23591bf9d9904cd0a21f"
+  },
+  "defaults": {
+    "mode": "dark",
+    "palette": "blackbelt",
+    "material": "glass",
+    "envReflections": true,
+    "mirrorFloor": true,
+    "softShadows": true,
+    "bloom": true,
+    "rimLight": true,
+    "fog": true,
+    "backgroundIntensity": 0.7,
+    "transition": "dolly",
+    "durationSec": 1.4,
+    "depthRelief": 0.7,
+    "quality": "high",
+    "extrudeDepth": 0.18,
+    "camera": {
+      "distance": 7
+    },
+    "labels": {
+      "size": 0.28
+    },
+    "check": {
+      "ignore": []
+    }
+  },
+  "slides": [
+    {
+      "index": 1,
+      "id": "agens-munkafolyamat",
+      "title": "Ágens munkafolyamat",
+      "bullets": [
+        "Mermaid flowchart → 3D",
+        "Szemantika: diagram.db",
+        "Layout: dagre"
+      ],
+      "scene": "tokens",
+      "diagram": {
+        "kind": "flowchart",
+        "dir": "LR",
+        "nodes": [
+          {
+            "id": "U",
+            "label": "Fejlesztő",
+            "shape": "stadium",
+            "x": 52.38,
+            "y": 35,
+            "w": 88.76,
+            "h": 39
+          },
+          {
+            "id": "P",
+            "label": "Prompt",
+            "shape": "rect",
+            "x": 202.55,
+            "y": 35,
+            "w": 111.58,
+            "h": 54
+          },
+          {
+            "id": "L",
+            "label": "LLM",
+            "shape": "hexagon",
+            "x": 341.15,
+            "y": 35,
+            "w": 65.63,
+            "h": 39
+          },
+          {
+            "id": "K",
+            "label": "Kód + PR",
+            "shape": "rect",
+            "x": 488.43,
+            "y": 35,
+            "w": 128.94,
+            "h": 54
+          }
+        ],
+        "edges": [
+          {
+            "id": "U->P#0",
+            "from": "U",
+            "to": "P",
+            "kind": "normal",
+            "path": [
+              [
+                97.26,
+                35.5
+              ],
+              [
+                100.1,
+                35.44
+              ],
+              [
+                102.95,
+                35.38
+              ],
+              [
+                105.79,
+                35.33
+              ],
+              [
+                108.63,
+                35.27
+              ],
+              [
+                111.48,
+                35.22
+              ],
+              [
+                114.32,
+                35.18
+              ],
+              [
+                117.17,
+                35.13
+              ],
+              [
+                120.01,
+                35.1
+              ],
+              [
+                122.85,
+                35.07
+              ],
+              [
+                125.7,
+                35.04
+              ],
+              [
+                128.54,
+                35.02
+              ],
+              [
+                131.39,
+                35.01
+              ],
+              [
+                134.23,
+                35
+              ],
+              [
+                137.07,
+                35
+              ],
+              [
+                139.92,
+                35
+              ],
+              [
+                142.76,
+                35
+              ]
+            ]
+          },
+          {
+            "id": "P->L#0",
+            "from": "P",
+            "to": "L",
+            "kind": "normal",
+            "path": [
+              [
+                258.34,
+                35
+              ],
+              [
+                261.25,
+                35
+              ],
+              [
+                264.15,
+                35
+              ],
+              [
+                267.06,
+                35
+              ],
+              [
+                269.97,
+                35.01
+              ],
+              [
+                272.87,
+                35.01
+              ],
+              [
+                275.78,
+                35.02
+              ],
+              [
+                278.68,
+                35.04
+              ],
+              [
+                281.59,
+                35.06
+              ],
+              [
+                284.5,
+                35.09
+              ],
+              [
+                287.4,
+                35.12
+              ],
+              [
+                290.31,
+                35.16
+              ],
+              [
+                293.22,
+                35.21
+              ],
+              [
+                296.12,
+                35.25
+              ],
+              [
+                299.03,
+                35.31
+              ],
+              [
+                301.93,
+                35.36
+              ],
+              [
+                304.84,
+                35.42
+              ]
+            ]
+          },
+          {
+            "id": "L->K#0",
+            "from": "L",
+            "to": "K",
+            "kind": "normal",
+            "path": [
+              [
+                374.46,
+                35.5
+              ],
+              [
+                377.31,
+                35.44
+              ],
+              [
+                380.15,
+                35.38
+              ],
+              [
+                382.99,
+                35.33
+              ],
+              [
+                385.84,
+                35.27
+              ],
+              [
+                388.68,
+                35.22
+              ],
+              [
+                391.52,
+                35.18
+              ],
+              [
+                394.37,
+                35.13
+              ],
+              [
+                397.21,
+                35.1
+              ],
+              [
+                400.06,
+                35.07
+              ],
+              [
+                402.9,
+                35.04
+              ],
+              [
+                405.74,
+                35.02
+              ],
+              [
+                408.59,
+                35.01
+              ],
+              [
+                411.43,
+                35.01
+              ],
+              [
+                414.28,
+                35
+              ],
+              [
+                417.12,
+                35
+              ],
+              [
+                419.96,
+                35
+              ]
+            ]
+          }
+        ],
+        "groups": []
+      },
+      "camera": {
+        "distance": 7
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "tokens"
+        },
+        {
+          "id": "signal-pulse"
+        }
+      ],
+      "subtitle": "Egy ügynök munkafolyamata."
+    },
+    {
+      "index": 2,
+      "id": "osszegzes",
+      "title": "Összegzés",
+      "bullets": [],
+      "scene": "swarm",
+      "diagram": {
+        "kind": "none"
+      },
+      "camera": {
+        "distance": 7
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "swarm"
+        }
+      ],
+      "subtitle": "A jövő már itt van."
+    }
+  ],
+  "overrides": {
+    "slides": {
+      "agens-munkafolyamat": {
+        "mode": "light"
+      }
+    },
+    "nodes": {
+      "agens-munkafolyamat/L": {
+        "shape": "diamond"
+      }
+    },
+    "props": [
+      {
+        "source": "vendored",
+        "id": "brain",
+        "licence": "CC0-1.0",
+        "author": "deck3d corpus",
+        "sha256": "a942bf2afd4fde7bcc173331b27f400db9e27473966ed588766e7c309d1ee351",
+        "slide": "agens-munkafolyamat",
+        "role": "node:L",
+        "restyle": "palette"
+      }
+    ]
+  }
+}

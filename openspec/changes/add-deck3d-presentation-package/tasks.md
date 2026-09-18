@@ -68,12 +68,12 @@
 - [x] 7d.5 `parse` deterministic defaults: static table `src/fx/defaults.ts` (keyword/diagram-kind → content tags → cheapest effect per kind); tests: sequence slide gets `timeline` bg + `sequence` edge identically twice; override replaces list and survives re-parse.
 - [x] 7d.6 `render` composition: conflicts → fail naming ids+slide; mode-incompatible → skip + warn; cost sum vs quality budget (6/12/20) → warn; `check` reports skipped + `warn budget`. Unit tests per rule.
 - [ ] 7d.7 CLI `fx list [--kind] [--tag] [--json]`, `fx preview <id> [-o png]`; tests: tag+kind filter output; `--json` parses.
-- [ ] 7d.8 Skill section "Contributing an effect" (search → licence check → port → card → preview → regenerate catalogue → corpus test) with the inspiration-only list (LYGIA, Shadertoy); test: SKILL.md mentions every step and the SPDX allow-list.
+- [x] 7d.8 Skill section "Contributing an effect" (search → licence check → port → card → preview → regenerate catalogue → corpus test) with the inspiration-only list (LYGIA, Shadertoy); test: SKILL.md mentions every step and the SPDX allow-list.
 
 ## 8. Skill
 
-- [ ] 8.1 Write `.pi/skills/deck3d/SKILL.md`: when to use, markdown grammar, the tune loop (parse → validate → render → check → fix suggested keys → snapshot → edit `overrides` only → repeat), styling via `fx list` + `overrides.slides[n].effects`, forbidden edits (HTML, derived fields), pitfalls (chromium prerequisite, typeface.json corruption, bloom vs labels, mermaid pin); the prop loop (keywords from slide content → `props search` → pick by relevance then style, prefer one pack + `palette` → write `overrides.props[]` → `props fetch` → render/snapshot), licence rules; link `reference/ir-fields.md`; verify skill loads in a pi session (`/skills` lists `deck3d`).
-- [ ] 8.2 Add a worked example under `.pi/skills/deck3d/examples/` — fixture deck, its `deck.json` with three overrides (one slide `mode:light`, one node shape change, one vendored prop with `role: node:LLM`), before/after snapshots; verify `deck3d build` on the example reproduces the committed `deck.json`.
+- [x] 8.1 Write `.pi/skills/deck3d/SKILL.md`: when to use, markdown grammar, the tune loop (parse → validate → render → check → fix suggested keys → snapshot → edit `overrides` only → repeat), styling via `fx list` + `overrides.slides[n].effects`, forbidden edits (HTML, derived fields), pitfalls (chromium prerequisite, typeface.json corruption, bloom vs labels, mermaid pin); the prop loop (keywords from slide content → `props search` → pick by relevance then style, prefer one pack + `palette` → write `overrides.props[]` → `props fetch` → render/snapshot), licence rules; link `reference/ir-fields.md`; verify skill loads in a pi session (`/skills` lists `deck3d`).
+- [x] 8.2 Add a worked example under `.pi/skills/deck3d/examples/` — fixture deck, its `deck.json` with three overrides (one slide `mode:light`, one node shape change, one vendored prop with `role: node:LLM`), before/after snapshots; verify `deck3d build` on the example reproduces the committed `deck.json`.
 
 ## 9. Parity, retire lab, docs
 
