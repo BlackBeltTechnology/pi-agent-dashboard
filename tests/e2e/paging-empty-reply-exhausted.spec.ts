@@ -37,6 +37,12 @@ import { DASHBOARD_PORT } from "./lifecycle.js";
  */
 
 const STUB_DIR_CWD = "/fixtures/stub-dir";
+/**
+ * Bound on every synchronous `docker` call. Without one, a wedged Docker blocks
+ * the worker out of its own `catch` and past the test timeout; with it, the
+ * throw is an ordinary diagnostic the cleanup paths already swallow.
+ */
+const DOCKER_CALL_TIMEOUT_MS = 30_000;
 /** The seeded out-of-window ended session in that group (`seed-sessions-window.mjs`). */
 const STUB_SESSION_ID = "019f0000-0000-7000-8000-000000000001";
 /** pi's encoded session directory for `STUB_DIR_CWD` (see `session-discovery.ts`). */
@@ -57,7 +63,7 @@ function resolveContainer(): string {
   const out = execFileSync(
     "docker",
     ["ps", "--filter", `publish=${DASHBOARD_PORT}`, "--format", "{{.Names}}"],
-    { encoding: "utf8" },
+    { encoding: "utf8", timeout: DOCKER_CALL_TIMEOUT_MS },
   ).trim();
   const name = out.split("\n").filter(Boolean)[0];
   if (!name) throw new Error(`no running container publishes port ${DASHBOARD_PORT}`);
@@ -68,6 +74,9 @@ function inContainer(container: string, script: string): string {
   return execFileSync("docker", ["exec", container, "sh", "-c", script], {
     encoding: "utf8",
     maxBuffer: 8 * 1024 * 1024,
+    // Bounded like `resolveContainer`: an unbounded sync child would block the
+    // worker out of its own `catch` and past the test timeout if Docker wedged.
+    timeout: DOCKER_CALL_TIMEOUT_MS,
   }).trim();
 }
 
