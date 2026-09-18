@@ -1126,6 +1126,7 @@ describe("loadConfig memoryLimits byte budgets", () => {
     ["explicit 0", 0],
     ["negative", -3],
     ["garbage string", "many"],
+    ["a fraction that floors to 0", 0.5],
   ])("maxCachedSessions %s resolves to the default 32", (_label, input) => {
     writeLimits({ maxCachedSessions: input });
     expect(loadConfig().memoryLimits.maxCachedSessions).toBe(32);

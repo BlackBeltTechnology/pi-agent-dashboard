@@ -1338,7 +1338,10 @@ function parseByteBudget(raw: unknown, fallback: number): number {
  */
 function parsePositiveCount(raw: unknown, fallback: number): number {
   if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) return fallback;
-  return Math.floor(raw);
+  const floored = Math.floor(raw);
+  // A positive fraction that floors to 0 (e.g. `0.5`) is NOT a valid count:
+  // `0` means "evict every session", the opposite of the documented fallback.
+  return floored >= 1 ? floored : fallback;
 }
 
 function parseMemoryLimits(raw: any): MemoryLimitsConfig {
