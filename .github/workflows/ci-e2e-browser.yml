@@ -176,7 +176,7 @@ jobs:
             echo "no managed-run marker — globalTeardown (or attach mode) already handled teardown"
             exit 0
           fi
-          ws="$(node -p "require('./test-results/.e2e-managed').workspace" 2>/dev/null || true)"
+          ws="$(node -p "JSON.parse(require('node:fs').readFileSync('test-results/.e2e-managed','utf8')).workspace" 2>/dev/null || true)"
           if [ -z "$ws" ] || [ ! -d "$ws" ]; then
             echo "marker has no usable workspace — nothing to tear down"
             exit 0
@@ -266,7 +266,7 @@ jobs:
             echo "no managed-run marker — globalTeardown (or attach mode) already handled teardown"
             exit 0
           fi
-          ws="$(node -p "require('./test-results/.e2e-managed').workspace" 2>/dev/null || true)"
+          ws="$(node -p "JSON.parse(require('node:fs').readFileSync('test-results/.e2e-managed','utf8')).workspace" 2>/dev/null || true)"
           if [ -z "$ws" ] || [ ! -d "$ws" ]; then
             echo "marker has no usable workspace — nothing to tear down"
             exit 0
@@ -284,6 +284,11 @@ jobs:
     if: ${{ always() && needs.e2e.result != 'skipped' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Advisory on the PR path too: if every shard dies before its blob reporter
+    # yields a directory, `download-artifact` matches nothing and fails THIS
+    # job — a red check on a PR despite the advisory design. Dispatch/nightly
+    # still fail loudly.
+    continue-on-error: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

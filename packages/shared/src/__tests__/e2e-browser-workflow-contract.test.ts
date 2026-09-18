@@ -65,7 +65,7 @@ describe("ci-e2e-browser.yml — triggers", () => {
   });
 
   it("declares the schedule cron in exactly one of active / land-dark form", () => {
-    const active = /^schedule:/m.test(yaml);
+    const active = /^\s{2}schedule:/m.test(yaml);
     const dark = /^\s*#\s*schedule:/m.test(yaml);
     expect(
       active !== dark,
@@ -141,7 +141,7 @@ describe("ci-e2e-browser.yml — shard matrix", () => {
     // spec-sanctioned no-added-capability fallback (`cp -a` instead of overlay;
     // test-up.sh then omits compose.test.cap.yml). Costless here: globalSetup
     // boots from an EMPTY throwaway workspace, so the copy source is empty.
-    expect(yaml).toMatch(/TEST_COPY_MODE:\s*"?1"?/);
+    expect(yaml).toMatch(/TEST_COPY_MODE:\s*"1"\s*$/m);
   });
 });
 
@@ -181,6 +181,15 @@ describe("ci-e2e-browser.yml — teardown + merged report", () => {
     expect(step).toMatch(/path:\s*test-results\/harness-failure\.log/);
   });
 
+  it("parses the managed-run marker as JSON, not via require()", () => {
+    // globalSetup writes `JSON.stringify({workspace, pid, logPath})`. `require()`
+    // of an extensionless file loads it as JS and throws, so the `|| true` left
+    // the workspace empty and this belt-and-braces teardown silently no-op'd on
+    // every run — the exact case (a KILLED Playwright process) it exists for.
+    expect(yaml).toMatch(/JSON\.parse\(require\('node:fs'\)\.readFileSync\(/);
+    expect(yaml).not.toMatch(/require\(['"]\.\/test-results\/\.e2e-managed/);
+  });
+
   it("merges the shard reports into one playwright-report artifact", () => {
     expect(yaml).toMatch(/^\s{2}merge-report:/m);
     expect(yaml).toMatch(/merge-reports/);
@@ -208,6 +217,19 @@ describe("ci-e2e-browser.yml — teardown + merged report", () => {
 
   it("is advisory on the PR path (continue-on-error), not on dispatch/nightly", () => {
     expect(yaml).toMatch(
+      /continue-on-error:\s*\$\{\{\s*github\.event_name\s*==\s*'pull_request'\s*\}\}/,
+    );
+  });
+
+  it("keeps merge-report advisory on the PR path too", () => {
+    // A bare (non-advisory) merge job reds a PR whose shards all died before
+    // their blob reporter produced a directory: `download-artifact` matches
+    // nothing and this job fails — the red wall the advisory design exists to
+    // avoid.
+    const lines = yaml.split("\n");
+    const header = lines.findIndex((l) => /^\s{2}merge-report:/.test(l));
+    const body = lines.slice(header, lines.findIndex((l, i) => i > header && /^\s{2}[a-zA-Z][\w-]*:\s*$/.test(l)));
+    expect(body.join("\n")).toMatch(
       /continue-on-error:\s*\$\{\{\s*github\.event_name\s*==\s*'pull_request'\s*\}\}/,
     );
   });
