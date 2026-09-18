@@ -38,16 +38,16 @@
 
 ## 7. CLI + snapshot (spec: deck3d-skill)
 
-- [ ] 7.1 `src/cli.ts`: `parse | validate | render | build | check | snapshot`, exit codes, one-line stderr reasons; tests: `build` emits `.json` beside `.html` equal to `parse` output; `--help` exits 0.
+- [x] 7.1 `src/cli.ts`: `parse | validate | render | build | check | snapshot`, exit codes, one-line stderr reasons; tests: `build` emits `.json` beside `.html` equal to `parse` output; `--help` exits 0.
 - [ ] 7.2 `snapshot <html> [--slide n] [-o png]`: Playwright headless, hash deep-link, wait for camera arrival; test (`skipIf(!chromium)`): PNG written, non-black centre pixel.
 
 ## 7c. Check (spec: deck3d-render — measurement hook + fit/legibility check)
 
-- [ ] 7c.1 Runtime `window.__deck3d = { gotoSlide, setTime, ready, measure, peaks }`: deterministic clock replaces `performance.now` when set; `measure()` projects each labelled object's `Box3` corners to CSS px, reports label cap height (canvas plane height × projection), kind/id/text, raycast first hit; `peaks()` returns animation peak times per slide (pulse/lift). Test (jsdom-free, headless `skipIf(!chromium)`): two `measure()` calls at same slide/time deep-equal.
-- [ ] 7c.2 `src/check/rules.ts` pure functions over measurements: fit (safe margin 4 %), legibility (14 px @1080 scaled), overlap (IoU > 0.1), occlusion (hit ≠ self/own node), contrast (≥ 3:1 from sampled pixels); each returns `{severity, slide, id, text, measured, threshold, suggest}`; unit tests per rule with hand-built measurement fixtures, incl. suggestion keys.
-- [ ] 7c.3 `check <html> [--viewport ...] [--slide n] [--strict] [-o report.json]`: Playwright at dpr 1 per viewport, per slide at `t=0` + each peak, `readPixels`-style sampling via `canvas.toDataURL` crop for contrast; JSON report grouped by viewport; one stderr line per finding; exit codes per spec. Tests (`skipIf(!chromium)`): fixture deck with a deliberately oversized flowchart → fit error + `slides[n].diagram.scale` suggestion, non-zero exit; clean fixture → zero findings, exit 0; `--strict` promotes a legibility warn to failure.
-- [ ] 7c.4 `build` runs `check` after render, prints findings, exits 0 unless `--strict`; tests: build with findings exits 0 and writes html; `--strict` exits non-zero.
-- [ ] 7c.5 `snapshot` reuses `__deck3d.ready()` instead of a fixed wait (from 7.2); test unchanged.
+- [x] 7c.1 Runtime `window.__deck3d = { gotoSlide, setTime, ready, measure, peaks }`: deterministic clock replaces `performance.now` when set; `measure()` projects each labelled object's `Box3` corners to CSS px, reports label cap height (canvas plane height × projection), kind/id/text, raycast first hit; `peaks()` returns animation peak times per slide (pulse/lift). Test (jsdom-free, headless `skipIf(!chromium)`): two `measure()` calls at same slide/time deep-equal.
+- [x] 7c.2 `src/check/rules.ts` pure functions over measurements: fit (safe margin 4 %), legibility (14 px @1080 scaled), overlap (IoU > 0.1), occlusion (hit ≠ self/own node), contrast (≥ 3:1 from sampled pixels); each returns `{severity, slide, id, text, measured, threshold, suggest}`; unit tests per rule with hand-built measurement fixtures, incl. suggestion keys.
+- [x] 7c.3 `check <html> [--viewport ...] [--slide n] [--strict] [-o report.json]`: Playwright at dpr 1 per viewport, per slide at `t=0` + each peak, `readPixels`-style sampling via `canvas.toDataURL` crop for contrast; JSON report grouped by viewport; one stderr line per finding; exit codes per spec. Tests (`skipIf(!chromium)`): fixture deck with a deliberately oversized flowchart → fit error + `slides[n].diagram.scale` suggestion, non-zero exit; clean fixture → zero findings, exit 0; `--strict` promotes a legibility warn to failure.
+- [x] 7c.4 `build` runs `check` after render, prints findings, exits 0 unless `--strict`; tests: build with findings exits 0 and writes html; `--strict` exits non-zero.
+- [x] 7c.5 `snapshot` reuses `__deck3d.ready()` instead of a fixed wait (from 7.2); test unchanged.
 
 ## 7b. Props (spec: deck3d-props)
 

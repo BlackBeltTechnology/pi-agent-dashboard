@@ -25,6 +25,7 @@ interface LabelRef {
   text: string;
   object: THREE.Object3D;
   height: number;
+  color?: string;
 }
 
 interface SlideBuild {
@@ -33,6 +34,7 @@ interface SlideBuild {
   diagram: DiagramBuild | null;
   background: Animator | null;
   labels: LabelRef[];
+  nodes: Array<{ id: string; object: THREE.Object3D }>;
   cfg: SlideConfig;
   palette: PaletteColors;
 }
@@ -50,6 +52,7 @@ function addTitle(g: THREE.Group, slide: DeckSlide, isTitle: boolean, font: Font
     0.2,
   );
   g.add(title.group);
+  title.group.userData.ownerId = `${slide.id}/title`;
   labels.push({ kind: "title", id: `${slide.id}/title`, text: slide.title, object: title.group, height: (isTitle ? 0.62 : 0.5) * 1.4 });
 }
 
@@ -105,7 +108,7 @@ function addDiagram(g: THREE.Group, slide: DeckSlide, font: Font, P: PaletteColo
   disc.receiveShadow = true;
   holder.add(disc);
   g.add(holder);
-  for (const l of diagram.labels ?? []) labels.push({ kind: "label", id: l.id, text: l.text, object: l.object, height: l.height });
+  for (const l of diagram.labels ?? []) labels.push({ kind: "label", id: l.id, text: l.text, object: l.object, height: l.height, color: P.text });
   return diagram;
 }
 
@@ -121,13 +124,14 @@ function buildSlideGroup(deck: RuntimeDeck, slide: DeckSlide, index: number, fon
   addTitle(g, slide, isTitle, font, P, cfg, labels);
   addBody(g, slide, isTitle, P, cfg);
   const diagram = addDiagram(g, slide, font, P, cfg, labels);
+  const nodes = diagram?.nodes ? Object.entries(diagram.nodes).map(([id, object]) => ({ id, object })) : [];
   const profile = qualityProfile(cfg.quality ?? deck.defaults.quality);
   const background = backgroundFor(slide.scene, P, profile) ?? null;
   if (background) {
     background.g.position.z = -2;
     g.add(background.g);
   }
-  return { group: g, anchor, diagram, background, labels, cfg, palette: P };
+  return { group: g, anchor, diagram, background, labels, nodes, cfg, palette: P };
 }
 
 function projectRect(
@@ -156,6 +160,7 @@ function projectRect(
       }
     }
   }
+  if (![minX, minY, maxX, maxY].every(Number.isFinite)) return null;
   return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 }
 
@@ -253,6 +258,7 @@ async function boot(): Promise<void> {
 
   function applyTime(t: number): void {
     frozen = t;
+    anim = null; // a deterministic time cancels any in-flight transition
     const a = builds[cur].anchor;
     camState.pos.copy(a.cam);
     camState.target.copy(a.target);
@@ -279,16 +285,54 @@ async function boot(): Promise<void> {
     else requestAnimationFrame(frame);
   }
 
+  const raycaster = new THREE.Raycaster();
+  function ownerOf(object: THREE.Object3D): string | null {
+    let o: THREE.Object3D | null = object;
+    while (o) {
+      if (typeof o.userData.ownerId === "string") return o.userData.ownerId;
+      o = o.parent;
+    }
+    return null;
+  }
+
+  function raycastOwner(rect: { x: number; y: number; w: number; h: number }, width: number, height: number, target: THREE.Object3D): string | null {
+    const ndc = new THREE.Vector2(((rect.x + rect.w / 2) / width) * 2 - 1, -(((rect.y + rect.h / 2) / height) * 2 - 1));
+    raycaster.setFromCamera(ndc, rig.camera);
+    for (const h of raycaster.intersectObject(target, true)) {
+      const owner = ownerOf(h.object);
+      if (owner) return owner;
+    }
+    return null;
+  }
+
+  function labelMeasurement(ref: LabelRef, width: number, height: number, target: THREE.Object3D): Measurement | null {
+    const rect = projectRect(ref.object, rig.camera, width, height);
+    if (!rect) return null;
+    const box = new THREE.Box3().setFromObject(ref.object);
+    const worldH = Math.max(0.0001, box.max.y - box.min.y);
+    return {
+      kind: ref.kind,
+      id: ref.id,
+      text: ref.text,
+      rect,
+      capHeight: (ref.height / worldH) * rect.h,
+      hit: raycastOwner(rect, width, height, target),
+      color: ref.color ?? null,
+    };
+  }
+
   function measure(): Measurement[] {
     const width = rig.renderer.domElement.clientWidth || window.innerWidth;
     const height = rig.renderer.domElement.clientHeight || window.innerHeight;
+    const target = builds[cur].group;
     const out: Measurement[] = [];
     for (const ref of builds[cur].labels) {
-      const rect = projectRect(ref.object, rig.camera, width, height);
-      if (!rect) continue;
-      const box = new THREE.Box3().setFromObject(ref.object);
-      const worldH = Math.max(0.0001, box.max.y - box.min.y);
-      out.push({ kind: ref.kind, id: ref.id, text: ref.text, rect, capHeight: (ref.height / worldH) * rect.h });
+      const m = labelMeasurement(ref, width, height, target);
+      if (m) out.push(m);
+    }
+    for (const node of builds[cur].nodes) {
+      const rect = projectRect(node.object, rig.camera, width, height);
+      if (rect) out.push({ kind: "node", id: node.id, text: "", rect, capHeight: 0, hit: null });
     }
     return out;
   }

@@ -177,6 +177,59 @@ async function cmdRender(args: string[], io: CliIO): Promise<number> {
   }
 }
 
+async function loadReport(htmlPath: string, flags: Flags, io: CliIO, strict: boolean, failOnFinding: boolean): Promise<{ code: number; report?: import("./check/index.js").CheckReport }> {
+  const { parseViewports, runCheck, CheckUnavailableError } = await import("./check/index.js");
+  try {
+    const report = await runCheck(htmlPath, {
+      viewports: parseViewports(flags.value.viewport),
+      ...(flags.value.slide ? { slides: [Number.parseInt(flags.value.slide, 10)] } : {}),
+    });
+    return { code: 0, report };
+  } catch (err) {
+    if (err instanceof CheckUnavailableError) {
+      io.stderr("check skipped: chromium missing (npx playwright install chromium)");
+      return { code: failOnFinding && strict ? 1 : 0 };
+    }
+    io.stderr(`check failed: ${(err as Error).message}`);
+    return { code: failOnFinding ? 1 : 0 };
+  }
+}
+
+function reportFindings(
+  report: import("./check/index.js").CheckReport,
+  io: CliIO,
+  strict: boolean,
+  formatFinding: (f: import("./check/index.js").Finding) => string,
+  reportOut?: string,
+  failOnFinding = true,
+): number {
+  if (reportOut) writeFileSync(reportOut, `${JSON.stringify(report, null, 2)}\n`);
+  const findings = report.viewports.flatMap((v) => v.findings);
+  for (const f of findings) io.stderr(formatFinding(f));
+  if (failOnFinding && findings.some((f) => f.severity === "error")) return 1;
+  if (strict && findings.length) return 1;
+  io.stdout(findings.length ? `check: 0 errors, ${findings.length} warning(s)` : "check: clean");
+  return 0;
+}
+
+async function runCheckAndReport(htmlPath: string, flags: Flags, io: CliIO, failOnFinding: boolean, reportOut?: string): Promise<number> {
+  const { formatFinding } = await import("./check/index.js");
+  const strict = flags.bool.has("strict");
+  const { code, report } = await loadReport(htmlPath, flags, io, strict, failOnFinding);
+  if (!report) return code;
+  return reportFindings(report, io, strict, formatFinding, reportOut, failOnFinding);
+}
+
+async function cmdCheck(args: string[], io: CliIO): Promise<number> {
+  const flags = parseArgs(args);
+  const html = flags.positional[0];
+  if (!html) {
+    io.stderr("deck3d check: missing <deck.html>");
+    return 2;
+  }
+  return runCheckAndReport(html, flags, io, true, flags.value.out);
+}
+
 async function cmdBuild(args: string[], io: CliIO): Promise<number> {
   const flags = parseArgs(args);
   const mdPath = flags.positional[0];
@@ -188,8 +241,10 @@ async function cmdBuild(args: string[], io: CliIO): Promise<number> {
   try {
     await parseToFile(mdPath, defaultJsonPath(mdPath), flags, io);
     const code = await renderFile(defaultJsonPath(mdPath), outPath, io);
-    if (code === 0) io.stdout(`wrote ${outPath}`);
-    return code;
+    if (code !== 0) return code;
+    io.stdout(`wrote ${outPath}`);
+    // `build` runs check, but only `--strict` fails on findings.
+    return runCheckAndReport(outPath, flags, io, false);
   } catch (err) {
     io.stderr(`deck3d build: ${(err as Error).message}`);
     return 1;
@@ -248,6 +303,8 @@ export async function run(argv: string[], io: CliIO = defaultIO): Promise<number
       return cmdRender(rest, io);
     case "build":
       return cmdBuild(rest, io);
+    case "check":
+      return cmdCheck(rest, io);
     case "snapshot":
       return cmdSnapshot(rest, io);
     default:

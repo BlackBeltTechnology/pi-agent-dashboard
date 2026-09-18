@@ -223,6 +223,7 @@ function meshForNode(n: MergedNode, degree: Record<string, number>, layout: Flow
   m.position.copy(pos);
   m.castShadow = true;
   m.userData.label = n.label;
+  m.userData.ownerId = n.id;
   return m;
 }
 
@@ -247,8 +248,9 @@ function placeFlowNodes(
     meshes[n.id] = m;
     const h = (n.size?.h ?? n.h) * layout.sc * layout.scale;
     const round = n.shape === "circle" || n.shape === "doublecircle" || n.shape === "round" || n.shape === "stadium";
-    const lb = buildLabel(n.label, Math.min(0.13, h * 0.45), P);
+    const lb = buildLabel(n.label, cfg.labels?.size ?? Math.min(0.13, h * 0.45), P);
     lb.group.position.set(m.position.x, m.position.y, m.position.z + (round ? h / 2 : 0.09) + 0.01);
+    lb.group.userData.ownerId = n.id;
     g.add(lb.group);
     labels.push({ id: n.id, text: n.label, object: lb.group, height: lb.height });
   }
@@ -288,8 +290,9 @@ function buildFlowEdges(
     head.lookAt(end.clone().add(tn));
     g.add(head);
     if (e.label) {
-      const lb = buildLabel(e.label, 0.09, P);
+      const lb = buildLabel(e.label, cfg.labels?.size ?? 0.09, P);
       lb.group.position.copy(curve.getPoint(0.5)).add(new THREE.Vector3(0, 0.14, 0.05));
+      lb.group.userData.ownerId = e.id;
       g.add(lb.group);
     }
     const pm = new THREE.Mesh(new THREE.SphereGeometry(r * 2.2, 12, 12), new THREE.MeshBasicMaterial({ color: P.accent }));
@@ -327,7 +330,7 @@ function buildGroupPlates(
     );
     plate.position.set(c.x, c.y, bb.min.z - 0.08);
     g.add(plate);
-    const lb = buildLabel(sg.title, 0.09, P);
+    const lb = buildLabel(sg.title, cfg.labels?.size ?? 0.09, P);
     lb.group.position.set(c.x, bb.max.y + 0.02, bb.min.z - 0.05);
     g.add(lb.group);
   }
@@ -375,8 +378,9 @@ function buildSequence(slide: MergedSlide, P: PaletteColors, cfg: SlideConfig): 
     head.position.set(X[a.id], 1.4, 0.9);
     head.castShadow = true;
     g.add(head);
-    const lb = buildLabel(a.label, 0.13, P);
+    const lb = buildLabel(a.label, cfg.labels?.size ?? 0.13, P);
     lb.group.position.set(X[a.id], 1.4, 0.98);
+    lb.group.userData.ownerId = a.id;
     g.add(lb.group);
     labels.push({ id: a.id, text: a.label, object: lb.group, height: lb.height });
     const [y0, z0] = yz(-0.5);
@@ -395,8 +399,11 @@ function buildSequence(slide: MergedSlide, P: PaletteColors, cfg: SlideConfig): 
   });
   const msgs = messages.map((msg, k) => {
     const [y, z] = yz(k);
+    // A self-message has no horizontal span; give it a short stub so the tube
+    // is not zero-length (degenerate geometry would poison measurement/raycast).
+    const same = msg.from === msg.to;
     const a = new THREE.Vector3(X[msg.from] ?? 0, y, z);
-    const b = new THREE.Vector3(X[msg.to] ?? 0, y, z);
+    const b = new THREE.Vector3((X[msg.to] ?? 0) + (same ? 0.35 : 0), y, z);
     const dir = b.clone().sub(a).normalize();
     const dotted = msg.kind === "dotted";
     const mat = new THREE.MeshStandardMaterial({
@@ -409,6 +416,7 @@ function buildSequence(slide: MergedSlide, P: PaletteColors, cfg: SlideConfig): 
       emissiveIntensity: 0,
     });
     const mg = new THREE.Group();
+    mg.userData.ownerId = msg.id;
     g.add(mg);
     const tube = new THREE.Mesh(new THREE.TubeGeometry(new THREE.LineCurve3(a, b.clone().addScaledVector(dir, -0.14)), 1, 0.03, 10, false), mat);
     tube.castShadow = true;
@@ -417,8 +425,9 @@ function buildSequence(slide: MergedSlide, P: PaletteColors, cfg: SlideConfig): 
     head.position.copy(b).addScaledVector(dir, -0.11);
     head.lookAt(b);
     mg.add(head);
-    const lb = buildLabel(msg.text, 0.105, P);
+    const lb = buildLabel(msg.text, cfg.labels?.size ?? 0.105, P);
     lb.group.position.copy(a).lerp(b, 0.5).add(new THREE.Vector3(0, 0.15, 0.02));
+    lb.group.userData.ownerId = msg.id;
     mg.add(lb.group);
     labels.push({ id: msg.id, text: msg.text, object: lb.group, height: lb.height });
     const pulse = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 12), new THREE.MeshBasicMaterial({ color: P.accent }));

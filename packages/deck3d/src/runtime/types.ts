@@ -26,11 +26,15 @@ export interface Deck3dApi {
 }
 
 export interface Measurement {
-  kind: "title" | "label";
+  kind: "title" | "label" | "node";
   id: string;
   text: string;
   rect: { x: number; y: number; w: number; h: number };
   capHeight: number;
+  /** Owner id of the first raycast hit between camera and label centre. */
+  hit?: string | null;
+  /** Label fill colour (canvas labels only). */
+  color?: string | null;
 }
 
 declare global {

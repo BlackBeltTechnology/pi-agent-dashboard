@@ -51,6 +51,9 @@ describe.skipIf(!hasChromium)("runtime (chromium)", () => {
       expect(JSON.stringify(a)).toBe(JSON.stringify(b));
       expect(a?.length).toBeGreaterThan(0);
       expect(a?.every((m) => Number.isFinite(m.rect.x) && Number.isFinite(m.rect.y))).toBe(true);
+      // 7c.1: every labelled object reports a raycast hit; node geometry is measured too.
+      expect(a?.some((m) => m.kind === "node")).toBe(true);
+      expect(a?.every((m) => m.hit === null || typeof m.hit === "string")).toBe(true);
       const glyphs = await page.evaluate(() => window.__deck3d?.debug.titleGlyphs());
       expect(glyphs).toBeGreaterThan(0);
       expect(errors).toEqual([]);
