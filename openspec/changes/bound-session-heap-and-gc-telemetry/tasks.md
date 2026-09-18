@@ -19,7 +19,7 @@ implement.
 ## 2. Config write path (`packages/server/src/config-api.ts`)
 
 - [ ] 2.1 Test sub-block deep-merge — persisted `{maxOldSpaceMb:512, initialOldSpaceMb:64}`, save `maxOldSpaceMb:256` only · config write · `initialOldSpaceMb` still `64` · see the existing `memoryLimits` deep-merge tests in `packages/server/src/__tests__/` (test-plan #E9)
-- [ ] 2.2 Implement deep-merge for both heap keys, matching the existing `memoryLimits` handling; `serverHeap` sets the restart-required indicator, `sessionHeap` does not (design D7)
+- [ ] 2.2 Implement deep-merge for both heap keys, matching the existing `memoryLimits` handling; `serverHeap` sets the COLD-START-required indicator (not the generic restart-required banner, which promises an in-place restart that does not apply it), `sessionHeap` sets neither (design D7)
 
 ## 3. Spawn invocation (`packages/server/src/spawn-process/process-manager.ts`)
 
@@ -99,35 +99,17 @@ implement.
 - [ ] 12.3 Verify on a real Windows host with WSL + tmux that the pi process inside WSL runs under the configured ceiling (test-plan: manual-only)
 - [ ] 12.4 After the live server has run ≥24 h on the new defaults, confirm `heapUsed` holds below ~1200 MB and `gcMajorCount` is not climbing, and record **RSS alongside heap** to test the "native overhead shrinks with the string churn" hypothesis; if `heapUsed` is sustained above ~1200 MB, raise `serverHeap.maxOldSpaceMb` to `2048` (test-plan: manual-only)
 
-## 14. Server heap / store-budget coupling + ordering gate
+## 13. Server-side heap + GC telemetry (design D13)
 
-- [ ] 14.1 Test server coupling guard arithmetic — `maxTotalEventBytes` `0`, `768` MiB, `2048` MiB against a `1536` MB ceiling · compute the budget's heap-equivalent against the ceiling · `0` and `2048` warn, `768` silent, figure reported is the heap-equivalent not the raw budget · see the sibling guard test added in task 10.6 (test-plan #E25)
-- [ ] 14.2 Test server coupling warning rendered — `maxTotalEventBytes` set to `0` against the default `1536` ceiling · blur the field · non-blocking warning describes the store as unbounded (not a heap figure), value stays saveable · see `packages/client/src/components/settings/__tests__/settings-bespoke-validation.test.tsx` (test-plan #E26)
-- [ ] 14.7 Test server ceiling labelled cold-start-only — operator edits `serverHeap.maxOldSpaceMb` · blur · panel states a full cold start is required and does not imply the in-place restart suffices · see `packages/client/src/components/settings/__tests__/settings-field-contract.test.tsx` (test-plan #E31)
-- [ ] 14.8 Implement the cold-start-only labelling for `serverHeap` plus the configured-vs-effective divergence indicator, distinct from the generic restart-required banner (spec: settings-panel)
-- [ ] 14.3 Implement the server coupling guard as a pure shared helper alongside the fan-out helper from task 10.8, applying the budget→heap conversion before comparing, surfaced on both the Server heap field and the Memory Limits budget field (design D10)
-- [ ] 14.4 Test the ordering invariant — shared server-heap default below `8192` while shared memory-limits carries no `maxTotalEventBytes` · evaluate the invariant assertion · the assertion fails · see `packages/shared/src/__tests__/` alongside the task 1.1 defaults test (test-plan #X16)
-- [ ] 14.5 Implement the ordering invariant as a build-time assertion in shared, tying the lowered `DEFAULT_SERVER_MAX_OLD_SPACE_MB` to the presence of `maxTotalEventBytes` in `DEFAULT_MEMORY_LIMITS` — both launch paths read the same shared default, so the wrapper is covered without a runtime probe (design D11)
-- [ ] 14.6 Export `HEAP_PER_BUDGET_BYTE` (1.33), `BASELINE_MB` (112) and `CRASH_RATIO` (0.82) as named shared constants so the coupling guard, its tests, and any future re-derivation read one source (design D9/D10)
+- [ ] 13.1 Test server health telemetry — a running dashboard server · request `/api/health` · the server block carries `heapSizeLimit`, a major-GC count, and the effective starting ceiling · see the existing health-route tests for `packages/server/src/routes/system-routes.ts` (test-plan #E28)
+- [ ] 13.2 Test effective ceiling tracks the process — configured ceiling changed without a cold start · request `/api/health` · reported effective ceiling is still the running process's value · see the same health-route test file (test-plan #E29)
+- [ ] 13.4 Test configured-vs-effective divergence surfaced — configured ceiling differs from the running process's effective ceiling · render the Server settings page · the panel surfaces that the running value differs · see `packages/client/src/components/settings/__tests__/settings-field-contract.test.tsx` (test-plan #E32)
+- [ ] 13.5 Test server ceiling labelled cold-start-only — operator edits `serverHeap.maxOldSpaceMb` · blur · panel states a full cold start is required and does not imply the in-place restart suffices · see `packages/client/src/components/settings/__tests__/settings-field-contract.test.tsx` (test-plan #E31)
+- [ ] 13.6 Implement the cold-start-only labelling for `serverHeap` plus the configured-vs-effective divergence indicator, distinct from the generic restart-required banner (spec: settings-panel)
+- [ ] 13.3 Implement server-side `v8.getHeapStatistics()` and a major-GC `PerformanceObserver` in `packages/server/src`, surfaced on `/api/health` — neither exists there today; mirror the session-side shape from `packages/extension/src/process-metrics.ts` (design D13)
 
-## 16. Server-side heap + GC telemetry (design D13)
+## 14. Documentation
 
-- [ ] 16.1 Test server health telemetry — a running dashboard server · request `/api/health` · the server block carries `heapSizeLimit`, a major-GC count, and the effective starting ceiling · see the existing health-route tests for `packages/server/src/routes/system-routes.ts` (test-plan #E28)
-- [ ] 16.2 Test effective ceiling tracks the process — configured ceiling changed without a cold start · request `/api/health` · reported effective ceiling is still the running process's value · see the same health-route test file (test-plan #E29)
-- [ ] 16.3 Implement server-side `v8.getHeapStatistics()` and a major-GC `PerformanceObserver` in `packages/server/src`, surfaced on `/api/health` — neither exists there today; mirror the session-side shape from `packages/extension/src/process-metrics.ts` (design D13)
-
-## 17. Terminal environment strip
-
-- [ ] 17.1 Test dashboard terminals do not inherit the ceiling — server under a stamped ceiling plus an operator-set heap flag · build a dashboard terminal environment · server flag absent, operator flag preserved · see the `buildSpawnEnv` strip tests from task 4.2 for the strip-assertion shape (test-plan #E30)
-- [ ] 17.2 Apply the same surgical strip used at the session-spawn site to the dashboard terminal environment in `packages/server/src/terminal/terminal-manager.ts`, which currently spreads `process.env` wholesale
-
-## 15. Electron launch path
-
-- [ ] 15.1 Test the Electron launch invocation carries the ceiling — Electron shell launching via `launchDashboardServer` · build the launch invocation · invocation carries the configured ceiling, no fallback to the runtime default · see `packages/extension/src/__tests__/server-launcher.test.ts` for the stamp-assertion shape (test-plan #E27)
-- [ ] 15.2 Implement the heap stamp on the Electron path (`packages/electron/src/lib/launch-source.ts` → `launchDashboardServer`), which today applies none — so an Electron-spawned server gets neither the new default nor the old `8192`
-
-## 13. Documentation
-
-- [ ] 13.3 Delegate to DocScribe: document in `docker/README.md` that a 1536 MB heap implies ~2.5-3 GB RSS, so a container memory limit below that is SIGKILLed by the kernel before V8 reaches its ceiling — no heap dump, no GC telemetry, no `FATAL ERROR` line; state a memory floor (design D12)
-- [ ] 13.1 Delegate to DocScribe: document the two heap config keys, the argv-vs-environment transport and why, the effect boundaries (next spawn; cold start for the server), and the distinction from the existing `memoryLimits` key
-- [ ] 13.2 Update the directory `AGENTS.md` rows for every file this change touches
+- [ ] 14.3 Delegate to DocScribe: document in `docker/README.md` that a 1536 MB heap implies ~2.5-3 GB RSS, so a container memory limit below that is SIGKILLed by the kernel before V8 reaches its ceiling — no heap dump, no GC telemetry, no `FATAL ERROR` line; state a memory floor (design D12)
+- [ ] 14.1 Delegate to DocScribe: document the two heap config keys, the argv-vs-environment transport and why, the effect boundaries (next spawn; cold start for the server), and the distinction from the existing `memoryLimits` key
+- [ ] 14.2 Update the directory `AGENTS.md` rows for every file this change touches

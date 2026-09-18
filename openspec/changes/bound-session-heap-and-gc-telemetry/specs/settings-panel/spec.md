@@ -77,29 +77,6 @@ non-blocking warning naming the computed per-child figure.
 - **WHEN** the ceiling is `512` and `maxConcurrentSubagents` is the default `2`
 - **THEN** no coupling warning SHALL be shown
 
-### Requirement: The panel SHALL disclose the server-heap/store-budget coupling
-
-The same disclosure applies to the server pair. Both keys live on the Server
-page, but they multiply into a third quantity — the heap the store will actually
-occupy — that neither field displays, so a pairing that guarantees an OOM looks
-unremarkable at the point of either edit. When the store budget converted to
-heap leaves insufficient room under the server ceiling — including the unlimited
-case, `maxTotalEventBytes` of `0` — the panel SHALL surface a non-blocking
-warning naming the heap-equivalent figure.
-
-#### Scenario: Unlimited store budget is disclosed
-- **WHEN** the operator sets `maxTotalEventBytes` to `0` against the default `1536` MB ceiling
-- **THEN** the panel SHALL warn that the store is unbounded under a bounded ceiling
-- **AND** the value SHALL remain saveable
-
-#### Scenario: Warning names the heap-equivalent, not the budget
-- **WHEN** the operator raises `maxTotalEventBytes` to `2048` MiB against a `1536` MB ceiling
-- **THEN** the warning SHALL report the budget's heap-equivalent rather than the raw budget
-
-#### Scenario: Unlimited budget is described as unbounded, not as a figure
-- **WHEN** `maxTotalEventBytes` is `0`
-- **THEN** the warning SHALL describe the store as unbounded rather than reporting a heap-equivalent number
-
 ### Requirement: The server ceiling SHALL be labelled cold-start-only, not restart-required
 
 `serverHeap.maxOldSpaceMb` does not take effect on the in-place restart the
@@ -117,7 +94,3 @@ observable so a divergence between configured and running value is visible.
 #### Scenario: A configured value that is not yet running is visible
 - **WHEN** the configured ceiling differs from the running process's effective ceiling
 - **THEN** the panel SHALL surface that the running value differs
-
-#### Scenario: Default server pairing is silent
-- **WHEN** `maxTotalEventBytes` is the default `768` MiB and the ceiling is the default `1536`
-- **THEN** no coupling warning SHALL be shown

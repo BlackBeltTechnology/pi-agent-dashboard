@@ -1,0 +1,60 @@
+## Purpose
+
+The Deck IR (`deck.json`) is the documented, validated intermediate representation between a markdown slide source and the rendered 3D deck. It is the surface an LLM (or a human) edits to fine-tune the converted result without touching engine code.
+
+## ADDED Requirements
+
+### Requirement: Parse is deterministic
+The parse step SHALL produce a byte-identical `deck.json` for the same markdown input, same package version, and same pinned diagram-engine version. The IR SHALL NOT contain timestamps, random ids, or host-specific paths.
+
+#### Scenario: Re-parse of unchanged source
+- **WHEN** the same `deck.md` is parsed twice
+- **THEN** the two `deck.json` outputs are byte-identical
+
+#### Scenario: Node ids are stable
+- **WHEN** a slide contains a diagram
+- **THEN** every node and edge id in the IR derives from the author's diagram source (node names, message order), not from render-time counters
+
+### Requirement: IR carries every visual knob the renderer consumes
+The IR SHALL expose, as plain JSON, every parameter the renderer reads: deck-level defaults (mode, palette, material, transition, camera rail, depth relief, background intensity, quality), per-slide values (title, subtitle, bullets, background scene, diagram, `diagram.scale`/`diagram.offset`, `camera.distance`, `labels.size`, `check.ignore` id list), and per-diagram geometry (node position/size/shape/group, edge path samples/kind/label, layout direction). The renderer SHALL NOT read hidden state outside the IR.
+
+#### Scenario: Knob edit is visible in output
+- **WHEN** a node's `shape` is changed from `rect` to `circle` in `deck.json` and the deck is re-rendered
+- **THEN** the rendered node uses the circle primitive and no other slide differs
+
+#### Scenario: Reworded label
+- **WHEN** a diagram label text in the IR is edited
+- **THEN** the rendered label shows the edited text with the same font and outline treatment
+
+#### Scenario: Check suggestions are real keys
+- **WHEN** `check` suggests an `overrides` key for a finding
+- **THEN** that key is defined in the schema and documented in the field reference
+
+### Requirement: Overrides survive re-parse
+User edits SHALL be recorded under a dedicated `overrides` block (deck-level and per-slide / per-node keyed by stable id). Re-running parse on updated markdown SHALL regenerate derived fields and reapply every override whose target id still exists.
+
+#### Scenario: Slide re-parsed after override
+- **WHEN** a slide has an override `mode: light` and its bullets are edited in markdown, then parse runs again
+- **THEN** the new bullets appear and the slide is still in light mode
+
+#### Scenario: Override target vanished
+- **WHEN** an override targets a node id that no longer exists in the diagram source
+- **THEN** parse keeps the override, emits a warning naming the orphan id, and exits 0
+
+### Requirement: IR is schema-validated
+A JSON Schema SHALL define the IR. `validate` SHALL reject unknown fields, wrong types, out-of-range values, and dangling id references, reporting the JSON path of each violation. `render` SHALL run the same validation before rendering.
+
+#### Scenario: Bad edit fails before render
+- **WHEN** `deck.json` sets `depthRelief: "high"` (string where a number is required)
+- **THEN** `render` exits non-zero and prints the offending JSON path and expected type; no HTML is written
+
+#### Scenario: Valid IR passes
+- **WHEN** an unmodified parse output is validated
+- **THEN** `validate` exits 0 with no warnings
+
+### Requirement: Field reference is documented
+Every IR field SHALL have a one-line description of its visual effect and allowed values, published with the skill so an editing agent can choose a knob without reading engine source.
+
+#### Scenario: Agent looks up a knob
+- **WHEN** the skill's IR reference is opened
+- **THEN** each field of the schema appears with its effect, type, default, and range

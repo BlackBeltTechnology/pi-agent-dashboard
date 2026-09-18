@@ -27,14 +27,26 @@ point: **~84% occupancy, an accepted trade-off rather than a comfortable
 margin**. Operators whose telemetry shows sustained pressure SHALL raise the
 value; `2048` restores ~65% occupancy.
 
-The lowered default SHALL NOT be shipped without the event-store byte bound. The
-two defaults SHALL be tied by a build-time invariant rather than a runtime probe,
-so that the guarantee also covers the standalone launcher, which cannot consult
-the store before it starts.
+The lowered default depends on the event store being byte-bounded. Enforcing
+that pairing requires `maxTotalEventBytes`, which does not exist until
+`bound-event-store-by-bytes` merges, so the enforcing invariant ships in
+`guard-server-heap-and-store-coupling`. Until then the pairing is a release
+ordering constraint, not a mechanism.
 
-#### Scenario: Shipping the lowered default without the byte bound fails the build
-- **WHEN** the shared server-heap default is below `8192` and the shared memory-limits default carries no `maxTotalEventBytes`
-- **THEN** the invariant assertion SHALL fail
+#### Scenario: Defaults apply when the config omits the blocks
+- **WHEN** the config file contains neither `sessionHeap` nor `serverHeap`
+- **THEN** a spawned pi session SHALL be started with a `512` MB old-space request
+- **AND** the dashboard server SHALL be started with a `1536` MB old-space request
+
+#### Scenario: Operator lowers the session ceiling
+- **WHEN** the config sets `sessionHeap.maxOldSpaceMb` to `512`
+- **THEN** a subsequently spawned pi session SHALL be started with a `512` MB old-space request
+- **AND** the dashboard server's own ceiling SHALL be unaffected
+
+#### Scenario: Optional young-generation and initial-size fields
+- **WHEN** the config sets `sessionHeap.initialOldSpaceMb` and `sessionHeap.maxSemiSpaceMb`
+- **THEN** the spawned pi session SHALL be started with the corresponding V8 sizing requests
+- **AND** omitting either field SHALL leave that V8 default untouched
 
 ### Requirement: The dashboard server SHALL report its own heap and GC telemetry
 
@@ -52,44 +64,6 @@ ceiling the running process was started with.
 #### Scenario: Effective ceiling reflects the running process, not the config
 - **WHEN** the configured ceiling has been changed but the process has not been cold-started
 - **THEN** the reported effective ceiling SHALL remain the value the running process was started with
-
-### Requirement: The server ceiling and the store budget SHALL be guarded as a pair
-
-`serverHeap.maxOldSpaceMb` and `memoryLimits.maxTotalEventBytes` jointly
-determine whether the server fits in its heap. The system SHALL warn when the
-store budget converted to heap, plus the baseline, exceeds the ceiling's
-effective crash point — that is, when
-`budgetMiB × 1.33 + 112 > ceilingMB × 0.82`. `maxTotalEventBytes` of `0` means
-unlimited and SHALL always warn, at any ceiling, since no finite budget
-satisfies the comparison. The warning SHALL NOT block the save.
-
-#### Scenario: Unlimited store budget under a bounded ceiling
-- **WHEN** `maxTotalEventBytes` is `0` and `serverHeap.maxOldSpaceMb` is `1536`
-- **THEN** a non-blocking warning SHALL state that the store is unbounded under a bounded ceiling
-- **AND** the value SHALL remain saveable
-
-#### Scenario: Budget raised past what the ceiling can hold
-- **WHEN** the operator raises `maxTotalEventBytes` to `2048` MiB against a `1536` MB ceiling
-- **THEN** the guard SHALL warn, reporting the budget's heap-equivalent against the ceiling
-
-#### Scenario: Default pairing is silent
-- **WHEN** `maxTotalEventBytes` is the default `768` MiB and the ceiling is the default `1536`
-- **THEN** no warning SHALL be shown
-
-#### Scenario: Defaults apply when the config omits the blocks
-- **WHEN** the config file contains neither `sessionHeap` nor `serverHeap`
-- **THEN** a spawned pi session SHALL be started with a `512` MB old-space request
-- **AND** the dashboard server SHALL be started with a `1536` MB old-space request
-
-#### Scenario: Operator lowers the session ceiling
-- **WHEN** the config sets `sessionHeap.maxOldSpaceMb` to `512`
-- **THEN** a subsequently spawned pi session SHALL be started with a `512` MB old-space request
-- **AND** the dashboard server's own ceiling SHALL be unaffected
-
-#### Scenario: Optional young-generation and initial-size fields
-- **WHEN** the config sets `sessionHeap.initialOldSpaceMb` and `sessionHeap.maxSemiSpaceMb`
-- **THEN** the spawned pi session SHALL be started with the corresponding V8 sizing requests
-- **AND** omitting either field SHALL leave that V8 default untouched
 
 ### Requirement: Invalid heap configuration falls back to the default
 
@@ -191,22 +165,6 @@ and the pairing is a risk to disclose rather than an error.
 #### Scenario: No fallback is reported on the normal path
 - **WHEN** every session was spawned through an argument position or a per-window environment
 - **THEN** the health endpoint SHALL NOT report the fallback as in use
-
-### Requirement: The dashboard's heap flag SHALL NOT reach dashboard terminals
-
-A dashboard terminal's environment SHALL NOT carry the dashboard's own
-old-space flag, and an operator-set heap flag SHALL be preserved.
-
-The stamped ceiling lives in the server's own `NODE_OPTIONS`, and dashboard
-terminals are spawned from `process.env`, so without a strip every Node tool a
-user runs in a dashboard terminal inherits the server's ceiling. This is the
-same grandchild-capping failure the session-spawn strip prevents, on a second
-path.
-
-#### Scenario: Terminal environment carries no inherited ceiling
-- **WHEN** a dashboard terminal is created while the server runs under a stamped ceiling
-- **THEN** the terminal's environment SHALL NOT carry the server's old-space flag
-- **AND** an operator-set heap flag SHALL be preserved
 
 ### Requirement: An inherited dashboard heap flag is not propagated to sessions
 

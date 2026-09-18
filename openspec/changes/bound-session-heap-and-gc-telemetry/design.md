@@ -235,51 +235,16 @@ sooner. D11 turns that from prose into an enforced gate.
 It also bounds V8 only: the live server carries ~1.07 GB outside the heap, so
 `serverHeap` is not an RSS budget — see D12 for the container consequence.
 
-### D10 — `serverHeap` × `maxTotalEventBytes` coupling guard
+### D10, D11 — moved out
 
-The two keys are independently editable and jointly decide whether the server
-fits. `maxTotalEventBytes: 0` means *unlimited*, which under a 1536 ceiling is a
-guaranteed OOM rather than a degraded-retention mode.
-
-This change already builds exactly this guard for `sessionHeap` ×
-`maxConcurrentSubagents`; omitting the server-side twin would be an internal
-inconsistency. Same shape: a pure shared helper, a non-blocking warning, the
-value stays saveable.
-
-**The predicate is pinned** so the implementer is not left to choose between two
-formulas that diverge in the middle of the range. The guard warns when
-
-```
-budgetMiB × HEAP_PER_BUDGET_BYTE + BASELINE_MB > ceilingMB × CRASH_RATIO
-```
-
-with `HEAP_PER_BUDGET_BYTE = 1.33`, `BASELINE_MB = 112`, `CRASH_RATIO = 0.82` —
-the same three constants D9 derives from, exported once from shared so the
-guard, the tests and any future re-derivation read one source. `maxTotalEventBytes`
-of `0` (unlimited) short-circuits to "warn" since no finite budget satisfies it.
-
-Note both keys live on the **Server** settings page (`CONFIG_FIELD_PAGE` maps
-`memoryLimits` and `serverHeap` alike to `server`), so this is not a cross-page
-invisibility problem — it is that two adjacent fields multiply into a third
-quantity neither displays.
-
-### D11 — The ordering dependency is a static invariant, not a runtime probe
-
-D9's correctness rests entirely on the store being byte-bounded, and prose in a
-spec with no WHEN/THEN stops nothing. A **runtime** gate was considered and
-rejected: the standalone wrapper runs before jiti (D8) and cannot import the
-store to ask whether a bound is in effect, so a runtime gate would be
-unimplementable on exactly the path that most needs it — and it would contradict
-this change's own X1/X2, which assert the wrapper starts at the default on an
-absent or malformed config.
-
-Instead the two defaults are tied together **where they are both already
-static**: in shared. A unit assertion fails the build if the lowered
-`DEFAULT_SERVER_MAX_OLD_SPACE_MB` is shipped while `DEFAULT_MEMORY_LIMITS`
-carries no `maxTotalEventBytes`. Both launch paths read the same shared default,
-so the invariant covers the wrapper for free, with no bootstrap cycle and no new
-probe API. It is a release-ordering guarantee, which is exactly the risk — the
-inversion can only happen by shipping one change without the other.
+The `serverHeap` × `maxTotalEventBytes` coupling guard and the ordering
+invariant both key on `maxTotalEventBytes`, which does not exist in
+`packages/shared/src` until `bound-event-store-by-bytes` merges. They cannot be
+implemented or tested from this change and have moved to
+`guard-server-heap-and-store-coupling`, which lands after it. The terminal
+environment strip and the Electron launch path moved with them: neither depends
+on this change's ceiling value, and both were pulling scope into a change that
+review had already overloaded.
 
 ### D12 — A heap ceiling is not a container memory limit
 
@@ -291,8 +256,9 @@ telemetry, no `FATAL ERROR` line.
 **The floor is 4 GB for the all-in-one image, and `docker/compose.yml` already
 ships `MEM_LIMIT:-4g`** — so the default is adequate and the doc states why
 rather than inventing a number. The caveat that belongs with it: 4 GB is shared
-with the co-tenants (pi sessions at a 512 ceiling each, code-server, zrok,
-tmux), so a server alone at ~2.5-3 GB leaves under 1 GB for everything else.
+with the co-tenants (pi sessions at a 512 ceiling each plus their uncapped
+keepers, zrok, tmux), so a server alone at ~2.5-3 GB leaves under 1 GB for
+everything else.
 Operators running several concurrent sessions raise `MEM_LIMIT`, and the doc
 says so.
 
@@ -311,10 +277,26 @@ The existing telemetry work in this change instruments **pi sessions**
 That gap invalidates D9's premise as originally written: 84% occupancy was
 accepted *because* thrash would be visible before it became an OOM, and the
 instrument to see it did not exist for the process being bounded. The server
-therefore gains the same two signals the sessions get — `heapSizeLimit` and
-`gcMajorCount` on its own `/api/health` — plus the **effective** ceiling, so a
-config value that diverges from the running process (the cold-start-only case)
-is observable instead of silent.
+therefore gains `heapSizeLimit` and a major-GC count on its own `/api/health`,
+plus the **effective** ceiling, so a config value that diverges from the running
+process (the cold-start-only case) is observable instead of silent.
+
+Three semantics are pinned, because the session-side shape does not transfer:
+
+- **`heapSizeLimit` is not the request.** It carries V8's own overhead (~192 MB
+  on the measurement host) and semi-space. The **effective ceiling** is a
+  distinct field, derived from the process's own argv/`NODE_OPTIONS` — not from
+  the config file, which is exactly the value that may have diverged.
+- **The GC count is cumulative, never read-and-reset.** The session-side counter
+  resets on a heartbeat read; `/api/health` is a polled HTTP GET, so a
+  read-and-reset counter would make the endpoint non-idempotent and let two
+  pollers erase each other's signal. A monotonic counter is what "is it
+  climbing?" requires.
+- **Percentages are reported against `heapSizeLimit`.** D9's 84% is measured
+  against the *estimated crash point* (~1417 MB), while the panel can only show
+  `heapUsed / heapSizeLimit` — the same working set reads **~69%** there. Both
+  are correct and they are not comparable; the doc states the pair so an operator
+  does not read 69% as disagreement.
 
 ## Risks / Trade-offs
 
@@ -354,5 +336,7 @@ key, and unlike `sessionHeap` it is **cold-start-only**: an in-place
 `/api/restart` inherits the current env, so the new ceiling requires a full
 process start. Reverting `bound-event-store-by-bytes` after this change has
 shipped leaves `1536` over an unbounded store — D9's "strictly worse than 8192"
-case — so that revert MUST also restore `serverHeap` to `8192`; D11's runtime
-gate makes this automatic rather than a checklist item.
+case — so that revert MUST also restore `serverHeap` to `8192`. Nothing in this
+change enforces that: the invariant that would have caught it moved to
+`guard-server-heap-and-store-coupling`. Until that lands, the pairing is a
+release checklist item, stated here so it is not mistaken for an automatic one.

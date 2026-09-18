@@ -27,19 +27,16 @@ The standalone launcher runs before the project's TypeScript loader is
 installed, so it SHALL read the value without importing the shared
 TypeScript configuration module.
 
-There are **three** launch paths, not two: the standalone wrapper, the
-bridge-initiated launch, and the Electron shell, which spawns the server via
-the shared `launchDashboardServer` primitive and currently applies no heap
-stamp at all. All three SHALL derive the ceiling from the same configuration.
+There are in fact **three** launch paths: the standalone wrapper, the
+bridge-initiated launch, and the Electron shell, which spawns the server via the
+shared `launchDashboardServer` primitive and applies no heap stamp at all. This
+change covers the first two; the Electron path is carried by
+`guard-server-heap-and-store-coupling`, so an Electron-spawned server keeps
+running at the runtime default until that lands.
 
 #### Scenario: No configuration applies the lowered default
 - **WHEN** the server is launched with no `serverHeap` in the config
-- **THEN** it SHALL run with the `1536` MB request on all three launch paths
-
-#### Scenario: Electron-spawned server is stamped
-- **WHEN** the Electron shell launches the dashboard server
-- **THEN** that server SHALL run under the configured ceiling
-- **AND** it SHALL NOT fall back to the runtime's own default
+- **THEN** it SHALL run with the `1536` MB request on the wrapper and bridge launch paths
 
 #### Scenario: Bridge auto-start does not fall back to the runtime default
 - **WHEN** a pi session whose environment carries no heap flag auto-starts a dashboard server
