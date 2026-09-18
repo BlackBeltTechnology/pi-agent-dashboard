@@ -1411,6 +1411,19 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     const pinSnapshot = pinnedSnapshotRef.current;
     const clampHolds =
       lastProgrammaticScrollRef.current === "pin-bottom" && isPinnedBottomClamp(pinSnapshot, el);
+    // The pin's OWN immediate event, inside the suppression window, BEFORE any
+    // measurement growth: position still matches and the extent has not shrunk.
+    // Treated as pin-owned too, so the anchor-fallback's deliberate RELEASED
+    // follow is preserved rather than re-armed by the near-bottom position rule
+    // (the pin landed at the bottom, so `nearBottom` reads true with no gesture).
+    const suppressedPinHolds =
+      suppressed &&
+      lastProgrammaticScrollRef.current === "pin-bottom" &&
+      pinSnapshot !== null &&
+      pinSnapshot.height > 0 &&
+      Math.abs(el.scrollTop - pinSnapshot.top) <= 1 &&
+      el.scrollHeight >= pinSnapshot.height;
+    const pinHolds = suppressedPinHolds || clampHolds;
     // SINGLE-USE: the first event tested against the snapshot consumes it,
     // matched or not. Without this a stale snapshot could survive a whole
     // scrollbar-only session and be re-matched by an unrelated event that
@@ -1421,7 +1434,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       // the writer — in particular `scrollToBottom`'s single event lands inside
       // the window and a position rule here could clear the pin it just ended
       // at. Button state included: leave it to the writer.
-    } else if (clampHolds) {
+    } else if (pinHolds) {
       // Measurement clamp: HOLD the follow by PRESERVING the sticky state the
       // pin established. Never force it true — the anchor-row-not-found fallback
       // deliberately pins while leaving `stickToBottomRef === false`, and
@@ -1458,7 +1471,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         // A clamp-preserved event must persist the state it PRESERVED, not the
         // raw `false`, or the follow survives in-session and is then thrown away
         // by the next session switch (restoring mid-transcript after no gesture).
-        nearBottom: clampHolds ? stickToBottomRef.current : nearBottom,
+        nearBottom: pinHolds ? stickToBottomRef.current : nearBottom,
       });
     }
     /**

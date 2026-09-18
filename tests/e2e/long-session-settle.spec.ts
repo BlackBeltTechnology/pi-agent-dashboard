@@ -81,6 +81,11 @@ test.describe("chat transcript — long-session settle", () => {
     await page.locator(`[data-session-id="${sessionId}"]`).first().click();
     await chatScroll(page).waitFor({ state: "visible", timeout: 60_000 });
 
+    // Wait for the FINAL tail marker before sampling: `waitForSettle` can return
+    // after 500 ms of unchanged scrolling BETWEEN replay batches, so without this
+    // the assertion could inspect a partial replay.
+    await expect(page.getByText(TAIL).nth(TRANSCRIPTS - 1)).toBeVisible({ timeout: 300_000 });
+
     await waitForSettle(page);
 
     const { scrollTop, scrollHeight, clientHeight } = await metrics(page);

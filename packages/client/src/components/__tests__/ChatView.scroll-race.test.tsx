@@ -435,6 +435,32 @@ describe("ChatView bottom-pin measurement clamp", () => {
     expect(bScrollEl.scrollTop).toBe(500);
   });
 
+  it("F6b2: the anchor-fallback's immediate pin event preserves the released follow", async () => {
+    const { container, rerender } = render(view(stateWith(50), "f6b2-b"));
+    await flushRaf();
+    const scrollEl = getScrollContainer(container);
+
+    // Persist a mid-transcript anchor for f6b2-b (follow released).
+    setScrollPosition(scrollEl, 0, 2000, 400);
+    fireEvent.scroll(scrollEl);
+    expect(scrollBottomButton(container)).not.toBeNull();
+
+    // Switch away, then return with DIFFERENT row ids so the anchor cannot
+    // resolve → the bottom-pin fallback, which pins while leaving the follow
+    // released. The pre-pin geometry sits at the BOTTOM (as the browser's clamp
+    // leaves it after the fallback's `scrollTo(0, scrollHeight)`), so the pin's
+    // own immediate event reads `nearBottom === true` with NO height growth.
+    rerender(view(stateWith(50), "f6b2-x"));
+    setScrollPosition(scrollEl, 800, 1200, 400);
+    rerender(view(stateWithIds("z", 50), "f6b2-b"));
+    const bScrollEl = getScrollContainer(container);
+
+    // That immediate event must PRESERVE the released follow, not re-arm it via
+    // the near-bottom position branch.
+    fireEvent.scroll(bScrollEl);
+    expect(scrollBottomButton(container)).not.toBeNull();
+  });
+
   it("F6c: the follow-effect pin is attributable", async () => {
     const { container, rerender } = render(view(stateWith(50)));
     await flushRaf();
