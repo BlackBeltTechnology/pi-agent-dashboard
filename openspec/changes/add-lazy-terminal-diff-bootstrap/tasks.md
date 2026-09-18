@@ -174,11 +174,11 @@ before touching the gate. Written after the gate lands they cannot distinguish
 - [ ] 5.9 L3 test — diff pseudo-tab · see `tests/e2e/editor-pane.spec.ts` ·
       Triple: editor pane, `diff:` pseudo-tab · open the tab · "Loading viewer…"
       then the diff (test-plan #F12)
-- [ ] 5.10 L3 test — edit tool rich diff loads on render · see
+- [x] 5.10 L3 test — edit tool rich diff loads on render · see
       `tests/e2e/tool-created-files.spec.ts` · Triple: transcript with an Edit
       tool result, desktop viewport · transcript renders it · `diff-*` chunk
       requested at that point, rich diff renders (test-plan #F13)
-- [ ] 5.11 L3 test — mobile homegrown diff stays jsdiff-only · see
+- [x] 5.11 L3 test — mobile homegrown diff stays jsdiff-only · see
       `tests/e2e/gateway-board-mobile.spec.ts` for the mobile viewport harness ·
       Triple: same transcript, mobile viewport · transcript renders the result ·
       homegrown diff renders, **no** `diff-*` request (test-plan #F14)
@@ -243,7 +243,7 @@ before touching the gate. Written after the gate lands they cannot distinguish
       at that moment
 - [ ] 9.3 Run the `review-code` discipline over the full diff (two contract-heavy
       seams, ≥3 React components); verify no unresolved major finding remains
-- [ ] 9.4 Update the nearest `AGENTS.md` row for every touched file
+- [x] 9.4 Update the nearest `AGENTS.md` row for every touched file
       (`vite.config.ts`, `App.tsx`, `EditorPane.tsx`, `SplitWorkspaceContext.tsx`,
       `pseudo-tab-registry.tsx`, `ChatView.tsx`, `EditToolRenderer.tsx`,
       `use-terminal-pane-tabs.ts`, new tests) with

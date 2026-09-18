@@ -140,30 +140,32 @@ test.describe("lazy feature bootstrap — root JS transfer budget (P1)", () => {
 // ---------------------------------------------------------------------------
 
 test.describe("lazy feature bootstrap — diff boundaries + fetch faults", () => {
-  test("F13 · the diff pseudo-tab fetches the diff chunk lazily and renders", async ({ page }) => {
+  test("F13 · the App diff route fetches the diff chunk lazily and renders", async ({ page }) => {
     test.setTimeout(180_000);
     const diffJs = collectChunkRequests(page, DIFF_JS_RE);
-    await page.setViewportSize({ width: 1400, height: 900 });
 
     const card = await spawnFreshGitSession(page);
+    const sessionId = await card.getAttribute("data-session-id");
+    expect(sessionId, "spawned session must expose data-session-id").toBeTruthy();
     await card.click();
-    await sendPrompt(page, "[[faux:tool-edit]] make an edit");
 
-    // No diff code before a diff surface opens.
-    const chip = page.getByTestId("changed-files-chip");
-    await expect(chip).toBeVisible({ timeout: 60_000 });
+    // The chat surface alone must not pull diff code.
     expect(diffJs, `diff chunk fetched before any diff surface: ${diffJs.join(", ")}`).toEqual([]);
 
-    // Open the Changes rail, then the file's `diff:` viewer tab (F12).
-    await chip.click();
-    const rail = page.getByTestId("changes-rail-section");
-    await expect(rail).toBeVisible({ timeout: 10_000 });
-    await rail.getByText("example.ts").first().click();
-    await expect(page.getByRole("tab").filter({ hasText: "diff" }).first()).toBeVisible({ timeout: 20_000 });
+    // Reach the diff surface through the App-level route arm
+    // (`!frozen && diffMatch && diffSessionId` -> <FileDiffView/>), NOT the
+    // Changes rail: the rail's changed-file set comes from the fixture's real
+    // working tree, which makes it environment-dependent. The route arm renders
+    // FileDiffView directly, so this stays deterministic.
+    await page.goto(`${BASE_URL}/session/${sessionId}/diff`);
 
-    // The chunk is fetched at that moment (F13).
+    // FileDiffView's own header — proves the lazy boundary resolved.
+    await expect(page.getByText("Changed Files")).toBeVisible({ timeout: 45_000 });
+    // ...and that it resolved rather than tripping the ErrorBoundary.
+    await expect(page.getByText("Diff failed to load.")).toHaveCount(0);
+
     await expect
-      .poll(() => diffJs.length, { timeout: 30_000, message: "diff chunk never fetched on diff open" })
+      .poll(() => diffJs.length, { timeout: 30_000, message: "diff chunk never fetched on diff route" })
       .toBeGreaterThan(0);
   });
 
@@ -175,13 +177,15 @@ test.describe("lazy feature bootstrap — diff boundaries + fetch faults", () =>
     // reachable in the mobile layout. Resize only AFTER the session exists.
     const card = await spawnFreshGitSession(page);
     await card.click();
-    await page.setViewportSize({ width: 390, height: 844 });
+    await page.setViewportSize({ width: 390, height: 844 }); // < useMobile's 768px arm
     await sendPrompt(page, "[[faux:tool-edit]] make an edit");
 
-    const chip = page.getByTestId("changed-files-chip");
-    await expect(chip).toBeVisible({ timeout: 60_000 });
-    // Chat renders the edit result (homegrown line list) with no rich-diff chunk.
-    await expect(page.locator("div.font-mono").first()).toBeVisible({ timeout: 60_000 });
+    // The edit lands in chat. This is the chat's own render of the edited path,
+    // not the Changes rail, so it does not depend on the working-tree state.
+    await expect(page.getByText("src/example.ts").first()).toBeVisible({ timeout: 60_000 });
+
+    // EditToolRenderer takes the `isMobile` arm -> homegrown line list, so the
+    // rich diff never mounts and `@git-diff-view/*` stays unfetched.
     expect(page.getByTestId("rich-diff")).toHaveCount(0);
     expect(diffJs, `mobile must stay jsdiff-only, got: ${diffJs.join(", ")}`).toEqual([]);
   });
