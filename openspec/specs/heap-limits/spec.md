@@ -127,8 +127,13 @@ environment-borne limit would also bind the supervising process.
 > behavioral regression.
 
 #### Scenario: Tooling started by the session is not capped
-- **WHEN** a spawned pi session starts a Node subprocess, such as a test runner or a build
+- **WHEN** a session spawned through an argument position starts a Node subprocess, such as a test runner or a build
 - **THEN** that subprocess SHALL NOT inherit the session's heap ceiling through the environment
+
+> Scoped to the argv-carrying strategies on purpose. The multiplexer
+> requirement above delivers the ceiling through the pane's own environment, so
+> descendants inside that pane DO inherit it — stated there as an accepted cost
+> rather than contradicted here.
 
 #### Scenario: Multiplexer strategy delivers the ceiling per window
 - **WHEN** a session is spawned into a multiplexer pane

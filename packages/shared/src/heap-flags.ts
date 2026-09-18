@@ -129,6 +129,32 @@ export function stampHeapFlag<T extends Record<string, string>>(
 }
 
 /**
+ * ONE provenance-aware merge for every env-borne delivery route (the tmux
+ * per-window `-e` value and the last-resort `wt` fallback).
+ *
+ * Two bugs it exists to prevent, both found in review: overwriting
+ * `NODE_OPTIONS` wholesale DISCARDS unrelated operator options, and blindly
+ * appending our flag after an operator's pin OVERRIDES it (V8 is last-wins).
+ *
+ * Rules, in order:
+ *  1. our own marker-matched token is dropped (it is being replaced),
+ *  2. an operator heap flag that survives that drop WINS — ours is not added,
+ *  3. otherwise ours is appended and every unrelated option is preserved.
+ *
+ * Returns `""` when nothing should be set.
+ */
+export function mergeHeapIntoNodeOptions(
+  existing: string | undefined,
+  heapOptions: string,
+  ourToken?: string,
+): string {
+  const kept = (existing ?? "").split(/\s+/).filter((t) => t && t !== ourToken);
+  if (kept.some((t) => MAX_OLD_SPACE_RE.test(t))) return kept.join(" ");
+  if (!heapOptions) return kept.join(" ");
+  return [...kept, heapOptions].join(" ").trim();
+}
+
+/**
  * Remove the dashboard's OWN heap token — and only it — from a child
  * environment, so the server's ceiling stops reaching pi sessions and, through
  * them, every Node tool an agent runs.

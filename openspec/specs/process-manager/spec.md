@@ -190,9 +190,17 @@ route.
 - **WHEN** pi resolves to an explicit runtime and script pair
 - **THEN** the heap arguments SHALL be inserted between them
 
-#### Scenario: Single-element executable invocation
-- **WHEN** pi resolves to a single executable script path
+#### Scenario: Single-element executable invocation that is a Node script
+- **WHEN** pi resolves to a single executable path whose shebang names the Node runtime
 - **THEN** the invocation SHALL be rewritten to lead with the resolved runtime followed by the heap arguments and that path
+
+#### Scenario: Single-element executable invocation that is not a Node script
+- **WHEN** pi resolves to a single executable path that is a shell wrapper or a command shim
+- **THEN** the invocation SHALL be left unchanged and the fallback route selected
+
+> Prepending a runtime to a wrapper or a `.cmd` shim produces an invocation that
+> cannot run at all, so the rewrite is conditional on the entry actually being a
+> Node script rather than assumed from the argv shape.
 
 #### Scenario: Pi's own arguments are unchanged
 - **WHEN** heap arguments are inserted

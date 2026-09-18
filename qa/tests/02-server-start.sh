@@ -424,8 +424,15 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
       echo "FAIL: server did not come up for the #X11 cold-start check"
       exit 1
     fi
+    identity() {
+      curl -fsS http://localhost:8000/api/health 2>/dev/null \
+        | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{let j;try{j=JSON.parse(s)}catch{process.exit(2)}process.stdout.write(j.pid+'@'+j.startedAt)})"
+    }
     BEFORE=$(effective_mb)
+    BEFORE_ID=$(identity)
     printf '%s' '{"port":8000,"serverHeap":{"maxOldSpaceMb":3072}}' > "$CONFIG_PATH"
+    # The handler spawns the replacement and then exits, so curl's own status is
+    # meaningless here — a closed connection is the SUCCESS path.
     curl -fsS -X POST http://localhost:8000/api/restart >/dev/null 2>&1 || true
     sleep 6
     waited=0
@@ -434,6 +441,13 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
       sleep 1
       waited=$((waited + 1))
     done
+    AFTER_ID=$(identity)
+    # Without this, "the POST never arrived" is indistinguishable from "the
+    # replacement kept the ceiling" — both leave the number unchanged.
+    if [ "$AFTER_ID" = "$BEFORE_ID" ]; then
+      echo "FAIL (#X11): no replacement process observed ($BEFORE_ID unchanged) — the restart did not happen"
+      exit 1
+    fi
     AFTER=$(effective_mb)
     if [ "$AFTER" != "$BEFORE" ]; then
       echo "FAIL (#X11): in-place restart changed the ceiling from $BEFORE to $AFTER"

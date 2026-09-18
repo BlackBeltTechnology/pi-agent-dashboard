@@ -24,6 +24,8 @@ import { loadConfig, type SpawnStrategy } from "@blackbelt-technology/pi-dashboa
 import {
   buildSessionHeapArgs,
   buildSessionHeapNodeOptions,
+  HEAP_FLAG_MARKER_ENV,
+  mergeHeapIntoNodeOptions,
   stripDashboardHeapFlag,
 } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
 import { resolveLocalGatewayEndpoint } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
@@ -603,9 +605,19 @@ function sessionHeapArgs(): string[] {
   return buildSessionHeapArgs(loadConfig().sessionHeap);
 }
 
-/** The tmux per-window `NODE_OPTIONS` value, or `""` when nothing is configured. */
-function tmuxHeapNodeOptions(): string {
-  return buildSessionHeapNodeOptions(loadConfig().sessionHeap);
+/**
+ * The tmux per-window `NODE_OPTIONS` value, or `""` when nothing should be set.
+ *
+ * MERGED over the environment the pane would otherwise inherit rather than
+ * replacing it: a bare overwrite would discard unrelated operator options, and
+ * an operator-pinned heap flag must still win. See `mergeHeapIntoNodeOptions`.
+ */
+function tmuxHeapNodeOptions(env: NodeJS.ProcessEnv = process.env): string {
+  return mergeHeapIntoNodeOptions(
+    env.NODE_OPTIONS,
+    buildSessionHeapNodeOptions(loadConfig().sessionHeap),
+    env[HEAP_FLAG_MARKER_ENV],
+  );
 }
 
 /**
@@ -746,7 +758,6 @@ export function spawnTmux(cwd: string, options?: SessionOptions): SpawnResult {
   if (!piCmd) {
     return { success: false, code: "PI_NOT_FOUND", message: `pi binary not found. Checked: ${MANAGED_BIN} and system PATH.` };
   }
-  const cmd = buildTmuxCommand(cwd, exists, options, piCmd, tmuxHeapNodeOptions());
   // Pass env explicitly so PI_DASHBOARD_SPAWN_TOKEN reaches the tmux pane's
   // pi process (tmux inherits the caller's env into new windows/sessions).
   // argv0 re-adds the Electron-as-node flag when piCmd[0] is the Electron binary.
@@ -756,6 +767,10 @@ export function spawnTmux(cwd: string, options?: SessionOptions): SpawnResult {
     argv0: piCmd[0],
     spawnRuntime: rt,
   });
+  // Built AFTER `env` so the per-window value merges over the ALREADY-STRIPPED
+  // child environment — unrelated operator options survive into the pane, and
+  // the dashboard's own flag is already gone.
+  const cmd = buildTmuxCommand(cwd, exists, options, piCmd, tmuxHeapNodeOptions(env));
   try {
     const { argv, spawnOptions } = buildSafeArgv(cmd[0], cmd.slice(1));
     execFileSync(argv[0], argv.slice(1), { stdio: "ignore", env, ...spawnOptions });
@@ -774,11 +789,11 @@ export function spawnWslTmux(cwd: string, options?: SessionOptions): SpawnResult
     // `wsl.exe --exec <tmux argv>`: `.exe` bypasses the cmd.exe branch in
     // buildSafeArgv; `--exec` runs tmux directly instead of through WSL's
     // default shell. `pi` stays literal so it resolves inside the WSL namespace.
-    const tmuxArgv = buildTmuxCommand(cwd, false, options, ["pi"], tmuxHeapNodeOptions());
     const env = buildSpawnEnv(process.env, {
       spawnToken: options?.spawnToken,
       spawnRuntime: spawnRuntimeForSession(),
     });
+    const tmuxArgv = buildTmuxCommand(cwd, false, options, ["pi"], tmuxHeapNodeOptions(env));
     const { argv, spawnOptions } = buildSafeArgv("wsl.exe", ["--exec", ...tmuxArgv]);
     execFileSync(argv[0], argv.slice(1), { stdio: "ignore", env, ...spawnOptions });
     return { success: true, dashboardSpawned: true, message: "Pi session spawned via WSL tmux" };
@@ -812,10 +827,14 @@ async function spawnWt(cwd: string, options?: SessionOptions): Promise<SpawnResu
     // Last resort (D3a): only the subset `NODE_OPTIONS` accepts, and only
     // because the alternative is no cap at all. Permitted here — unlike
     // headless — because no supervising process shares this environment.
-    const nodeOptions = tmuxHeapNodeOptions();
-    if (nodeOptions) {
-      wtEnv.NODE_OPTIONS = wtEnv.NODE_OPTIONS ? `${wtEnv.NODE_OPTIONS} ${nodeOptions}` : nodeOptions;
-    }
+    // The SAME provenance-aware merge as the tmux path: appending blindly would
+    // land our flag after an operator pin and, V8 being last-wins, override it.
+    const merged = mergeHeapIntoNodeOptions(
+      wtEnv.NODE_OPTIONS,
+      buildSessionHeapNodeOptions(loadConfig().sessionHeap),
+      wtEnv[HEAP_FLAG_MARKER_ENV],
+    );
+    if (merged) wtEnv.NODE_OPTIONS = merged;
   }
 
   const r = await spawnDetached({

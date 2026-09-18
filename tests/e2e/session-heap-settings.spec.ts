@@ -52,23 +52,35 @@ test.describe("heap settings", () => {
     await openSettingsPage(page, "Sessions");
     const field = page.getByTestId("session-heap-max-old-space");
     await expect(field).toBeVisible({ timeout: 20_000 });
-    await field.fill("1024");
-    await field.blur();
+    // The ORIGINAL value, not an assumed default: this config is shared with
+    // every other spec in the run, so restoring a guess would silently change
+    // the harness for them.
+    const original = await field.inputValue();
 
-    await page.getByTestId("save-btn").first().click();
-    await expect(page.getByTestId("settings-save-bar")).toBeHidden({ timeout: 20_000 });
+    try {
+      await field.fill("1024");
+      await field.blur();
 
-    await openSettingsPage(page, "Sessions");
-    await expect(page.getByTestId("session-heap-max-old-space")).toHaveValue("1024", {
-      timeout: 20_000,
-    });
+      await page.getByTestId("save-btn").first().click();
+      await expect(page.getByTestId("settings-save-bar")).toBeHidden({ timeout: 20_000 });
 
-    // Restore the shipped default so the spec leaves the harness as it found it.
-    const restore = page.getByTestId("session-heap-max-old-space");
-    await restore.fill("512");
-    await restore.blur();
-    await page.getByTestId("save-btn").first().click();
-    await expect(page.getByTestId("settings-save-bar")).toBeHidden({ timeout: 20_000 });
+      await openSettingsPage(page, "Sessions");
+      await expect(page.getByTestId("session-heap-max-old-space")).toHaveValue("1024", {
+        timeout: 20_000,
+      });
+    } finally {
+      // `finally`, so a failed assertion above cannot leak the changed ceiling
+      // into every later spec in the run.
+      await openSettingsPage(page, "Sessions");
+      const restore = page.getByTestId("session-heap-max-old-space");
+      await restore.fill(original);
+      await restore.blur();
+      const save = page.getByTestId("save-btn").first();
+      if (await save.isVisible().catch(() => false)) {
+        await save.click();
+        await expect(page.getByTestId("settings-save-bar")).toBeHidden({ timeout: 20_000 });
+      }
+    }
   });
 
   // test-plan #E24 — `maxConcurrentSubagents` becomes a memory-safety knob once

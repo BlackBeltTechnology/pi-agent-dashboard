@@ -1008,6 +1008,7 @@ const zhCN: Record<string, string> = {
   "settings.providers": "提供商",
   "settings.providerAuth": "提供商认证",
   "settings.restartFailed": "重启失败",
+  "settings.subagentCap.invalid": "请输入非负整数。0 表示禁用子代理。",
   "settings.coldStartRequired": "已保存。服务器堆上限将在下次冷启动时生效 —— 就地重启不会应用该值。",
   "settings.sessionHeap": "会话内存（V8 堆）",
   "settings.sessionHeapDescription": "适用于新启动的会话 —— 重新加载会话也算。不会调整正在运行的会话。仅限制 pi 进程本身的 V8 堆，不影响它启动的工具。与“服务器 ▸ 内存限制”无关，后者限制的是事件存储。",

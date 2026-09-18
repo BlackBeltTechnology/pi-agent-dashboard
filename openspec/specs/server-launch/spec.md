@@ -309,9 +309,19 @@ change covers the first two; the Electron path is carried by
 `guard-server-heap-and-store-coupling`, so an Electron-spawned server keeps
 running at the runtime default until that lands.
 
+**This requirement is therefore scoped to the wrapper and bridge paths**, and
+`guard-server-heap-and-store-coupling` is a NAMED RELEASE DEPENDENCY for the
+Electron arm: until it ships, an Electron deployment does not honour
+`serverHeap` and reports `effectiveMaxOldSpaceMb: null`, which is the honest
+answer rather than a silent divergence.
+
 #### Scenario: No configuration applies the lowered default
 - **WHEN** the server is launched with no `serverHeap` in the config
 - **THEN** it SHALL run with the `1536` MB request on the wrapper and bridge launch paths
+
+#### Scenario: The Electron arm reports that it carries no ceiling
+- **WHEN** an Electron-spawned server is asked for its effective ceiling
+- **THEN** it SHALL report that no dashboard heap flag is in force rather than echoing the configured value
 
 #### Scenario: Bridge auto-start does not fall back to the runtime default
 - **WHEN** a pi session whose environment carries no heap flag auto-starts a dashboard server

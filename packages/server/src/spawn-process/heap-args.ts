@@ -47,10 +47,14 @@ export interface HeapArgvResult {
  * the pair shape. pi ships a plain `node` shebang, so this is an accepted
  * equivalence rather than a silent loss.
  */
-function hasNodeShebang(entry: string, read: typeof readFirstLine = readFirstLine): boolean {
+export function hasNodeShebang(entry: string, read: typeof readFirstLine = readFirstLine): boolean {
   const first = read(entry);
   if (first === null) return false;
-  return /^#!.*\bnode(\.exe)?\b/.test(first);
+  // `\bnode\b` would accept `#!/usr/bin/my-node` and `#!/usr/bin/env node-wrapper`
+  // and then re-point that interpreter at the resolved node binary — a silent
+  // behaviour change, or a session that cannot start. Require a path or space
+  // BEFORE `node` and a space or end-of-line AFTER it.
+  return /^#!.*(?:[/\s])node(?:\.exe)?(?:\s|$)/.test(first);
 }
 
 /** Read the first line of a file without pulling the whole file into memory. */

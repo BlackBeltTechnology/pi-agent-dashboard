@@ -16,6 +16,7 @@ import {
   buildSessionHeapArgs,
   HEAP_FLAG_MARKER_ENV,
   MAX_OLD_SPACE_FLAG_PATTERN,
+  mergeHeapIntoNodeOptions,
   stampHeapFlag,
   stripDashboardHeapFlag,
 } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
@@ -28,6 +29,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   _resetHeapFallbackForTests,
   applyHeapArgsToPiArgv,
+  hasNodeShebang,
   heapFallbackStatus,
   recordHeapArgvFallback,
 } from "../spawn-process/heap-args.js";
@@ -73,6 +75,8 @@ const runtime = (nodeBinary: string): ResolvedRuntime =>
 const HEAP = ["--max-old-space-size=512"];
 /** Stand-in for the on-disk read: the bare entry IS a node script. */
 const isNodeScript = () => true;
+/** Drive the shebang predicate with a literal first line instead of a file. */
+const hasNodeShebangForTests = (line: string) => hasNodeShebang("/unused", () => line);
 
 describe("argv normalization (test-plan #E10)", () => {
   it("the node-wrapped pair gains a heap slot before the entry", () => {
@@ -335,5 +339,55 @@ describe("fallback reporting (test-plan #X4)", () => {
       mechanism: "wt",
       detail: "no runtime slot",
     });
+  });
+});
+
+// ── Env-borne delivery preserves what it finds (CodeRabbit review) ─────────
+// Both env routes (tmux per-window `-e`, the wt fallback) previously either
+// OVERWROTE `NODE_OPTIONS` wholesale — discarding unrelated operator options —
+// or appended blindly after an operator pin, which V8's last-wins resolution
+// turns into an override. One merge now owns both.
+describe("mergeHeapIntoNodeOptions", () => {
+  const HEAP = "--max-old-space-size=512";
+
+  it("preserves unrelated operator options alongside the ceiling", () => {
+    expect(mergeHeapIntoNodeOptions("--enable-source-maps", HEAP)).toBe(
+      "--enable-source-maps --max-old-space-size=512",
+    );
+  });
+
+  it("an operator pin WINS — ours is not appended after it", () => {
+    for (const pin of ["--max-old-space-size=2048", "--max_old_space_size=2048"]) {
+      expect(mergeHeapIntoNodeOptions(`--enable-source-maps ${pin}`, HEAP)).toBe(
+        `--enable-source-maps ${pin}`,
+      );
+    }
+  });
+
+  it("replaces OUR OWN marker-matched token rather than stacking on it", () => {
+    const ours = "--max-old-space-size=8192";
+    expect(mergeHeapIntoNodeOptions(`--enable-source-maps ${ours}`, HEAP, ours)).toBe(
+      "--enable-source-maps --max-old-space-size=512",
+    );
+  });
+
+  it("returns the surviving options when nothing is configured", () => {
+    expect(mergeHeapIntoNodeOptions("--enable-source-maps", "")).toBe("--enable-source-maps");
+    expect(mergeHeapIntoNodeOptions(undefined, "")).toBe("");
+  });
+});
+
+describe("hasNodeShebang rejects a look-alike interpreter", () => {
+  // `\bnode\b` accepted `#!/usr/bin/my-node`, and the rewrite would then swap
+  // that interpreter for the resolved node binary — a silent behaviour change.
+  it.each([
+    ["#!/usr/bin/env node", true],
+    ["#!/usr/bin/node", true],
+    ["#!/usr/bin/env -S node --enable-source-maps", true],
+    ["#!/usr/bin/my-node", false],
+    ["#!/usr/bin/env node-wrapper", false],
+    ["#!/bin/sh", false],
+  ])("%s → %s", (line, expected) => {
+    expect(hasNodeShebangForTests(line)).toBe(expected);
   });
 });

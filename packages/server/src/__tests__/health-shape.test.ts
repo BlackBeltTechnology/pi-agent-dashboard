@@ -415,13 +415,15 @@ describe("GET /api/health — server heap + GC telemetry", () => {
   it("the effective ceiling tracks the PROCESS, not the config (test-plan #E29)", async () => {
     // A configured value the running process was never started with must not
     // be echoed back as if it were in force — `serverHeap` is cold-start-only.
-    handle = await createTestServer({ serverHeap: { maxOldSpaceMb: 4096 } } as never);
+    // Pick a CONFIGURED value the test process is not already running at, so
+    // the assertion cannot pass or fail on the ambient ceiling.
+    const effective = effectiveServerMaxOldSpaceMb();
+    const configured = effective === 4096 ? 3072 : 4096;
+    handle = await createTestServer({ serverHeap: { maxOldSpaceMb: configured } } as never);
     const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
     const body = (await res.json()) as { server: { effectiveMaxOldSpaceMb: number | null } };
-    expect(body.server.effectiveMaxOldSpaceMb).toBe(
-      effectiveServerMaxOldSpaceMb(),
-    );
-    expect(body.server.effectiveMaxOldSpaceMb).not.toBe(4096);
+    expect(body.server.effectiveMaxOldSpaceMb).toBe(effective);
+    expect(body.server.effectiveMaxOldSpaceMb).not.toBe(configured);
   });
 
   it("reports no session-heap fallback on the normal argv route (test-plan #X4)", async () => {

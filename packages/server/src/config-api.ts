@@ -8,6 +8,7 @@ import { redactPluginConfigForClient } from "@blackbelt-technology/dashboard-plu
 import {
   type AuthConfig,
   type DashboardConfig,
+  DEFAULT_SERVER_HEAP,
   DEFAULT_SUBAGENT_TICK_THROTTLE_MS,
   loadConfig,
 } from "@blackbelt-technology/pi-dashboard-shared/config.js";
@@ -281,7 +282,8 @@ export function writeConfigPartial(partial: Record<string, any>): WriteConfigRes
       // `RESTART_FIELDS` above follows).
       const changed =
         partial.serverHeap.maxOldSpaceMb !== undefined &&
-        partial.serverHeap.maxOldSpaceMb !== existing.serverHeap?.maxOldSpaceMb;
+        partial.serverHeap.maxOldSpaceMb !==
+          (existing.serverHeap?.maxOldSpaceMb ?? DEFAULT_SERVER_HEAP.maxOldSpaceMb);
       partial.serverHeap = { ...existing.serverHeap, ...partial.serverHeap };
       if (changed) coldStartRequired = true;
     }

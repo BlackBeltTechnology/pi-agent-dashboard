@@ -1342,6 +1342,7 @@ export const huCatalog: Record<string, string> = {
   "settings.remoteServers": "Távoli szerverek",
   "settings.resetDefaults": "Visszaállítás alapértékekre",
   "settings.restartFailed": "Az újraindítás sikertelen",
+  "settings.subagentCap.invalid": "Nem negatív egész számot adj meg. A 0 letiltja az alügynököket.",
   "settings.coldStartRequired": "Mentve. A szerver heap-plafonja a következő hidegindításkor lép életbe — a helyben történő újraindítás nem alkalmazza.",
   "settings.sessionHeap": "Munkamenet-memória (V8 heap)",
   "settings.sessionHeapDescription": "Az ezután indított munkamenetekre vonatkozik — az újratöltés is ilyennek számít. Futó munkamenet mérete nem változik. Csak a pi folyamat V8 heapjét korlátozza, az általa indított eszközöket nem. Nem azonos a Szerver ▸ Memóriakorlátok beállítással, amely az eseménytárat korlátozza.",

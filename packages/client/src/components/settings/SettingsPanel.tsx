@@ -519,6 +519,16 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [spawnTimeoutInvalid, setSpawnTimeoutInvalid] = useState(false);
+  // Heap-field validity, reported up by `HeapMbField`. A refused value never
+  // reaches the draft, so without these Save would persist the last VALID value
+  // while the field displays an error on a different one.
+  // See change: bound-session-heap-and-gc-telemetry (CodeRabbit review).
+  const [sessionHeapInvalid, setSessionHeapInvalid] = useState(false);
+  const [serverHeapInvalid, setServerHeapInvalid] = useState(false);
+  // `maxConcurrentSubagents` must be a NON-NEGATIVE integer: a negative value
+  // is written verbatim and `resolveMaxConcurrentSubagents` then reads it as
+  // malformed and fails OPEN (uncapped) — the opposite of what was typed.
+  const [subagentCapInvalid, setSubagentCapInvalid] = useState(false);
   // archive-sessions-lazy-load field validation: days ≥ 0 (0 disables),
   // sweep interval ≥ 1 min. Invalid → field error + Save disabled.
   const [archiveDaysInvalid, setArchiveDaysInvalid] = useState(false);
@@ -1599,6 +1609,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   </p>
                   <HeapMbField
                     testId="server-heap-max-old-space"
+                    onValidityChange={setServerHeapInvalid}
                     label={t("settings.serverHeapMaxOldSpace", undefined, "Server heap ceiling")}
                     value={config.serverHeap?.maxOldSpaceMb ?? DEFAULT_SERVER_HEAP.maxOldSpaceMb}
                     hint={t(
@@ -2014,6 +2025,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   </p>
                   <HeapMbField
                     testId="session-heap-max-old-space"
+                    onValidityChange={setSessionHeapInvalid}
                     label={t("settings.sessionHeapMaxOldSpace", undefined, "Session heap ceiling")}
                     value={config.sessionHeap?.maxOldSpaceMb ?? DEFAULT_SESSION_HEAP.maxOldSpaceMb}
                     hint={t(
@@ -2030,16 +2042,43 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                       share the parent's single heap, so there is no per-child
                       budget to set — only this count. Surfaced here, beside the
                       ceiling, because the coupling is invisible anywhere else. */}
-                  <NumberField
-                    label={t("settings.maxConcurrentSubagents", undefined, "Max concurrent subagents")}
-                    value={config.maxConcurrentSubagents ?? 2}
-                    hint={t(
-                      "settings.hint.maxConcurrentSubagents",
-                      undefined,
-                      "How many Agent children may run at once. They run INSIDE the session process and share its heap, so this spends the ceiling above.",
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm text-[var(--text-secondary)]" htmlFor="max-concurrent-subagents">
+                        {t("settings.maxConcurrentSubagents", undefined, "Max concurrent subagents")}
+                      </label>
+                      <input
+                        id="max-concurrent-subagents"
+                        data-testid="max-concurrent-subagents"
+                        type="number"
+                        className={`w-24 bg-[var(--bg-secondary)] border rounded px-2 py-1 text-sm text-right ${
+                          subagentCapInvalid
+                            ? "border-red-500 text-red-400"
+                            : "border-[var(--border-secondary)] text-[var(--text-primary)]"
+                        }`}
+                        value={config.maxConcurrentSubagents ?? 2}
+                        onChange={(e) => {
+                          const raw = e.target.value.trim();
+                          const v = /^\d+$/.test(raw) ? Number.parseInt(raw, 10) : Number.NaN;
+                          const invalid = !Number.isFinite(v);
+                          setSubagentCapInvalid(invalid);
+                          if (!invalid) update((c) => { c.maxConcurrentSubagents = v; });
+                        }}
+                      />
+                    </div>
+                    {subagentCapInvalid && (
+                      <p data-testid="max-concurrent-subagents-error" className="mt-1 text-xs text-red-400">
+                        {t("settings.subagentCap.invalid", undefined, "Must be a non-negative whole number. 0 disables subagents.")}
+                      </p>
                     )}
-                    onChange={(v) => update((c) => { c.maxConcurrentSubagents = v; })}
-                  />
+                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                      {t(
+                        "settings.hint.maxConcurrentSubagents",
+                        undefined,
+                        "How many Agent children may run at once. They run INSIDE the session process and share its heap, so this spends the ceiling above.",
+                      )}
+                    </p>
+                  </div>
                   {(() => {
                     // One formula, shared with the server and the tests, so the
                     // figure the operator reads cannot drift from the asserted
@@ -2472,7 +2511,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
 
       {/* Save Bar — present only while dirty (dirty-gated friction) or a
           numeric field is invalid (so the disabled Save explains why). */}
-      {(isDirty || spawnTimeoutInvalid || archiveDaysInvalid || archiveSweepInvalid) && (
+      {(isDirty || spawnTimeoutInvalid || archiveDaysInvalid || archiveSweepInvalid || sessionHeapInvalid || serverHeapInvalid || subagentCapInvalid) && (
         <div
           data-testid="settings-save-bar"
           className="shrink-0 flex items-center gap-3 px-4 py-3 border-t border-[var(--border-primary)] bg-[var(--bg-secondary)]"
@@ -2508,7 +2547,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || restarting || spawnTimeoutInvalid || archiveDaysInvalid || archiveSweepInvalid}
+            disabled={saving || restarting || spawnTimeoutInvalid || archiveDaysInvalid || archiveSweepInvalid || sessionHeapInvalid || serverHeapInvalid || subagentCapInvalid}
             data-testid="save-btn"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium disabled:opacity-50"
           >
@@ -3500,12 +3539,19 @@ function HeapMbField({
   label,
   value,
   onChange,
+  onValidityChange,
   hint,
   testId,
 }: {
   label: string;
   value: number;
   onChange: (v: number) => void;
+  /**
+   * Reported UP so Save can be blocked. A refused value never reaches the
+   * draft, so without this the panel would happily persist the LAST VALID
+   * value while the field shows an error on a different one.
+   */
+  onValidityChange?: (invalid: boolean) => void;
   hint?: React.ReactNode;
   testId?: string;
 }) {
@@ -3518,6 +3564,10 @@ function HeapMbField({
   const parsed = /^\d+$/.test(shown.trim()) ? Number.parseInt(shown, 10) : Number.NaN;
   const belowFloor = !Number.isFinite(parsed) || parsed < MIN_HEAP_MB;
   const aboveGuidance = Number.isFinite(parsed) && parsed > HEAP_WARN_ABOVE_MB;
+  useEffect(() => {
+    onValidityChange?.(belowFloor);
+    return () => onValidityChange?.(false);
+  }, [belowFloor, onValidityChange]);
   return (
     <div>
       <FieldShell label={label} unit="MB" hint={hint} controlId={controlId} hintId={hintId}>

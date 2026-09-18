@@ -22,16 +22,27 @@ import {
 } from "../config.js";
 
 let tmpHome: string;
-let realHome: string;
+let realHome: string | undefined;
+let realUserProfile: string | undefined;
 
 beforeEach(() => {
   tmpHome = mkdtempSync(path.join(os.tmpdir(), "heap-cfg-"));
-  realHome = process.env.HOME ?? "";
+  realHome = process.env.HOME;
+  realUserProfile = process.env.USERPROFILE;
   process.env.HOME = tmpHome;
+  // `loadConfig` goes through `os.homedir()`, which reads USERPROFILE on
+  // Windows — setting HOME alone would leave these tests reading the REAL
+  // config there.
+  if (process.platform === "win32") process.env.USERPROFILE = tmpHome;
 });
 
 afterEach(() => {
-  process.env.HOME = realHome;
+  // Restore ABSENCE as absence: writing "" would leave a variable the process
+  // never had.
+  if (realHome === undefined) delete process.env.HOME;
+  else process.env.HOME = realHome;
+  if (realUserProfile === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = realUserProfile;
   rmSync(tmpHome, { recursive: true, force: true });
 });
 

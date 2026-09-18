@@ -64,10 +64,14 @@ export function startMetricsMonitor(): void {
     // monitorEventLoopDelay not available in older Node versions
   }
   try {
-    gcObserver = new PerformanceObserver((list) => {
+    // Assigned only AFTER observe() succeeds: a constructed-but-unsubscribed
+    // observer would make `collectMetrics` report `gcCount: 0` — "no GC
+    // happened" — when in truth nothing is counting.
+    const observer = new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) foldGcEntry(entry);
     });
-    gcObserver.observe({ entryTypes: ["gc"] });
+    observer.observe({ entryTypes: ["gc"] });
+    gcObserver = observer;
   } catch {
     // GC entry type unavailable — the counters simply stay absent.
   }
