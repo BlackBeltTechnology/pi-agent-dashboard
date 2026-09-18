@@ -1,11 +1,16 @@
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import { describe, expect, it, vi } from "vitest";
 import {
   __testEndSubsumes as endSubsumes,
+  byteTrimSlack,
   capString,
   createMemoryEventStore,
+  DEFAULT_MAX_CACHED_SESSIONS,
   DEFAULT_MAX_EVENT_DATA_SIZE,
   exceedsSerializedSize,
+  globalTrimSlack,
+  MEASURE_CEILING_FALLBACK,
   measureBytes,
   reduceSubagentEvent,
   shrinkEntryToBudget,
@@ -17,6 +22,19 @@ function makeEvent(type: string = "test"): DashboardEvent {
 
 describe("memory-event-store", () => {
   const neverPinned = () => false;
+
+  /**
+   * #E14 — the store's constructor default and the config default live in
+   * DIFFERENT packages (`memory-limits.ts` is browser-safe and cannot import
+   * the store), so nothing but this assertion keeps them in step. A divergence
+   * would give every direct `createMemoryEventStore` call site a different
+   * resident bound from the dashboard's.
+   * See change: bound-event-store-by-bytes (D8).
+   */
+  it("store and config agree on the maxCachedSessions default", () => {
+    expect(DEFAULT_MAX_CACHED_SESSIONS).toBe(DEFAULT_MEMORY_LIMITS.maxCachedSessions);
+    expect(DEFAULT_MAX_CACHED_SESSIONS).toBe(32);
+  });
 
   it("inserts and retrieves events", () => {
     const store = createMemoryEventStore(neverPinned);
@@ -693,6 +711,9 @@ describe("memory-event-store", () => {
         evictedSessions: 0,
         // Additive. See change: collapse-superseded-tool-execution-updates.
         collapsedUpdates: 0,
+        // Additive. See change: bound-event-store-by-bytes (D4).
+        trimmedBytes: 0,
+        evictedBytes: 0,
         // Additive. See change: reduce-subagent-details-payload (D6).
         subagentTicks: 0,
         subagentTickBytes: 0,
@@ -2153,5 +2174,529 @@ describe("end-triggered tail drop — post-drop index (D3)", () => {
     store.insertEvent("s", mkSubsumingEnd("tc1"));
     expect(updatesFor(store, "s", "tc1").map((e) => e.seq)).toEqual([tick]);
     expect(store.getTrimStats().collapsedUpdates).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-session aggregate serialized-byte budget.
+// See change: bound-event-store-by-bytes (D1-D5, D9).
+// ---------------------------------------------------------------------------
+
+/**
+ * A non-essential event whose serialized `data` measures EXACTLY `bytes`.
+ * `{p:"x".repeat(n)}` walks to `2 (braces) + 4 ("p":) + (n + 2) (quoted string)
+ * + 1 (comma) = n + 9` bytes, so `n = bytes - 9`.
+ */
+function mkSized(type: string, bytes: number): DashboardEvent {
+  return { eventType: type, timestamp: Date.now(), data: { p: "x".repeat(bytes - 9) } };
+}
+
+describe("memory-event-store — per-session byte budget", () => {
+  const budget = 1024 * 1024;
+  const ceiling = 256 * 1024;
+
+  it("E1: near-ceiling flood stays under budget + slack after every insert", () => {
+    const slack = byteTrimSlack(budget);
+    const store = createMemoryEventStore(neverPinnedFn, 100, 100_000, 0, ceiling, budget, 0);
+    const seqs: number[] = [];
+    for (let i = 0; i < 100; i++) {
+      seqs.push(store.insertEvent("s", mkSized("stats_update", 200 * 1024)));
+      expect(store.getBufferBytes("s")).toBeLessThanOrEqual(budget + slack);
+    }
+    // The surviving events are the NEWEST.
+    expect(store.getEvents("s", 0).map((e) => e.seq)).toContain(seqs[seqs.length - 1]);
+  });
+
+  it("E2: a pass reclaims to the budget, not merely to the trigger threshold", () => {
+    const store = createMemoryEventStore(neverPinnedFn, 100, 100_000, 0, ceiling, budget, 0);
+    while (store.getTrimPassProbe().perSession === 0) {
+      store.insertEvent("s", mkSized("stats_update", 200 * 1024));
+    }
+    expect(store.getBufferBytes("s")).toBeLessThanOrEqual(budget);
+  });
+
+  it("E3: the slack window suppresses the next pass", () => {
+    const slack = byteTrimSlack(budget);
+    const store = createMemoryEventStore(neverPinnedFn, 100, 100_000, 0, ceiling, budget, 0);
+    while (store.getTrimPassProbe().perSession === 0) {
+      store.insertEvent("s", mkSized("stats_update", 200 * 1024));
+    }
+    const passesAfter = store.getTrimPassProbe().perSession;
+    // Insert events totalling less than the slack margin.
+    const perEvent = 1024;
+    const count = Math.floor((slack - 1) / perEvent);
+    for (let i = 0; i < count; i++) {
+      store.insertEvent("s", mkSized("stats_update", perEvent));
+    }
+    expect(store.getTrimPassProbe().perSession).toBe(passesAfter);
+  });
+
+  it("E4: at exactly budget + slack no pass runs", () => {
+    const smallBudget = 2000; // ceiling 400 => floor 1600 <= budget
+    const smallCeiling = 400;
+    const slack = byteTrimSlack(smallBudget);
+    expect(slack).toBe(100);
+    const store = createMemoryEventStore(
+      neverPinnedFn,
+      100,
+      100_000,
+      0,
+      smallCeiling,
+      smallBudget,
+      0,
+    );
+    for (let i = 0; i < 5; i++) store.insertEvent("s", mkSized("stats_update", 400));
+    expect(store.getBufferBytes("s")).toBe(smallBudget);
+    store.insertEvent("s", mkSized("stats_update", slack));
+    expect(store.getBufferBytes("s")).toBe(smallBudget + slack);
+    expect(store.getTrimPassProbe().perSession).toBe(0);
+    expect(store.getEvents("s", 0)).toHaveLength(6);
+  });
+
+  it("E5: budget 0 disables the byte bound, including on the first event", () => {
+    const store = createMemoryEventStore(neverPinnedFn, 100, 100, 0, 262_144, 0, 0);
+    store.insertEvent("s", mkSized("stats_update", 200 * 1024));
+    expect(store.getTrimPassProbe().perSession).toBe(0);
+    for (let i = 1; i < 100; i++) {
+      store.insertEvent("s", mkSized("stats_update", 200 * 1024));
+    }
+    expect(store.getEvents("s", 0)).toHaveLength(100);
+    expect(store.getTrimPassProbe().perSession).toBe(0);
+    expect(store.getRetention().effective.maxBytesPerSession).toBe(0);
+  });
+
+  it("E6: a single event larger than the configured budget is admitted and retained", () => {
+    // The floor clamp raises the effective budget above 4x the ceiling, so the
+    // 2 MiB event is admitted and the buffer is never emptied to reach a budget.
+    const store = createMemoryEventStore(
+      neverPinnedFn,
+      100,
+      100_000,
+      0,
+      4 * 1024 * 1024,
+      budget,
+      0,
+    );
+    const seq = store.insertEvent("s", mkSized("stats_update", 2 * 1024 * 1024));
+    expect(store.getEvent("s", seq)).toBeDefined();
+    expect(store.getEvents("s", 0)).toHaveLength(1);
+    expect(store.getBufferBytes("s")).toBeGreaterThan(0);
+  });
+
+  it("E6b: the post-insert invariant holds as <= budget + slack OR exactly one event", () => {
+    const slack = byteTrimSlack(budget);
+    const store = createMemoryEventStore(neverPinnedFn, 100, 100_000, 0, ceiling, budget, 0);
+    for (let i = 0; i < 50; i++) {
+      store.insertEvent("s", mkSized("stats_update", 200 * 1024));
+      const n = store.getEvents("s", 0).length;
+      expect(store.getBufferBytes("s") <= budget + slack || n === 1).toBe(true);
+    }
+  });
+
+  it("E7: chat head survives an ordinary byte trim", () => {
+    const store = createMemoryEventStore(neverPinnedFn, 100, 100_000, 0, ceiling, budget, 0);
+    const s1 = store.insertEvent("s", mkSized("message_start", 1024));
+    const s2 = store.insertEvent("s", mkSized("message_end", 1024));
+    for (let i = 0; i < 20; i++) {
+      store.insertEvent("s", mkSized("stats_update", 200 * 1024));
+    }
+    expect(store.getEvent("s", s1)).toBeDefined();
+    expect(store.getEvent("s", s2)).toBeDefined();
+    for (const e of store.getEvents("s", 0)) {
+      if (e.seq === s1 || e.seq === s2) continue;
+      expect(["message_start", "message_end"].includes(e.event.eventType)).toBe(false);
+    }
+  });
+
+  it("E8: essentials drop only when essentials alone exceed the budget", () => {
+    const store = createMemoryEventStore(neverPinnedFn, 100, 100_000, 0, ceiling, budget, 0);
+    for (let i = 0; i < 10; i++) store.insertEvent("s", mkSized("message_start", 200 * 1024));
+    expect(store.getBufferBytes("s")).toBeLessThanOrEqual(budget);
+    expect(store.getEvents("s", 0).length).toBeLessThan(10);
+  });
+
+  it("E9: the floor clamp does not touch 0", () => {
+    const store = createMemoryEventStore(neverPinnedFn, 100, 100_000, 0, ceiling, 0, 0);
+    expect(store.getRetention().effective.maxBytesPerSession).toBe(0);
+  });
+
+  it("E10: the floor is meaningful when the per-event ceiling is disabled", () => {
+    const store = createMemoryEventStore(neverPinnedFn, 100, 100_000, 0, 0, budget, 0);
+    expect(store.getRetention().effective.maxBytesPerSession).toBeGreaterThan(
+      MEASURE_CEILING_FALLBACK,
+    );
+  });
+
+  it("E15: configured resident count is honoured", () => {
+    const store = createMemoryEventStore(neverPinnedFn, 8, 100_000, 0, ceiling, 0, 0);
+    for (let i = 0; i < 8; i++) store.insertEvent(`s${i}`, mkSized("stats_update", 100));
+    expect(store.sessionCount()).toBe(8);
+    store.insertEvent("s8", mkSized("stats_update", 100));
+    expect(store.sessionCount()).toBe(8);
+    expect(store.hasEvents("s0")).toBe(false);
+  });
+
+  it("E16: only the enabled bound(s) trigger a pass; both-disabled retains everything", () => {
+    // Both disabled — everything retained.
+    const none = createMemoryEventStore(neverPinnedFn, 100, 0, 0, 400, 0, 0);
+    for (let i = 0; i < 50; i++) none.insertEvent("s", mkSized("stats_update", 100));
+    expect(none.getEvents("s", 0)).toHaveLength(50);
+    expect(none.getTrimPassProbe().perSession).toBe(0);
+
+    // Count only.
+    const countOnly = createMemoryEventStore(neverPinnedFn, 100, 10, 0, 400, 0, 0);
+    for (let i = 0; i < 20; i++) countOnly.insertEvent("s", mkSized("stats_update", 100));
+    expect(countOnly.getEvents("s", 0)).toHaveLength(10);
+    expect(countOnly.getTrimPassProbe().perSession).toBeGreaterThan(0);
+
+    // Bytes only (count cap high).
+    const bytesOnly = createMemoryEventStore(neverPinnedFn, 100, 100_000, 0, 400, 2000, 0);
+    for (let i = 0; i < 20; i++) bytesOnly.insertEvent("s", mkSized("stats_update", 400));
+    expect(bytesOnly.getBufferBytes("s")).toBeLessThanOrEqual(2000);
+    expect(bytesOnly.getTrimPassProbe().perSession).toBeGreaterThan(0);
+
+    // Both.
+    const both = createMemoryEventStore(neverPinnedFn, 100, 10, 0, 400, 2000, 0);
+    for (let i = 0; i < 20; i++) both.insertEvent("s", mkSized("stats_update", 400));
+    expect(both.getEvents("s", 0).length).toBeLessThanOrEqual(10);
+    expect(both.getBufferBytes("s")).toBeLessThanOrEqual(2000);
+  });
+
+  it("E21: accounting is exact after every removal path", () => {
+    const store = createMemoryEventStore(neverPinnedFn, 100, 20, 0, 262_144, budget, 0);
+    const sumBytes = (sid: string) =>
+      store.getEvents(sid, 0).reduce((a, e) => a + e.bytes, 0);
+
+    // Count trim.
+    for (let i = 0; i < 30; i++) store.insertEvent("s", mkSized("stats_update", 100));
+    expect(store.getBufferBytes("s")).toBe(sumBytes("s"));
+
+    // collapseSuperseded.
+    store.insertEvent("s", mkUpdate("tc1"));
+    store.insertEvent("s", mkUpdate("tc1"));
+    expect(store.getBufferBytes("s")).toBe(sumBytes("s"));
+
+    // collapseOnEnd.
+    store.insertEvent("s", mkSubsumingEnd("tc1"));
+    expect(store.getBufferBytes("s")).toBe(sumBytes("s"));
+
+    // deleteEventsForSession.
+    store.deleteEventsForSession("s");
+    expect(store.getBufferBytes("s")).toBe(0);
+  });
+
+  it("P1: byte reclaim is amortized O(1) per insert", () => {
+    const store = createMemoryEventStore(neverPinnedFn, 100, 1_000_000, 0, 4096, budget, 0);
+    const N = 10_000;
+    for (let i = 0; i < N; i++) store.insertEvent("s", mkSized("stats_update", 1000));
+    const passes = store.getTrimPassProbe().perSession;
+    expect(passes).toBeGreaterThan(0);
+    expect(passes).toBeLessThan(N / 10);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Global aggregate byte budget across all sessions.
+// See change: bound-event-store-by-bytes (D7/D8).
+// ---------------------------------------------------------------------------
+
+describe("memory-event-store — global byte budget", () => {
+  const GLOBAL = 4 * 1024 * 1024;
+  const PER_EVENT = 200 * 1024;
+
+  const fill = (
+    store: ReturnType<typeof createMemoryEventStore>,
+    sid: string,
+    count: number,
+    type = "stats_update",
+  ) => {
+    for (let i = 0; i < count; i++) store.insertEvent(sid, mkSized(type, PER_EVENT));
+  };
+
+  it("E17: global budget evicts LRU-first, newest intact", () => {
+    const store = createMemoryEventStore(neverPinnedFn, 100, 1_000_000, 0, 256 * 1024, 0, GLOBAL);
+    fill(store, "s0", 8);
+    fill(store, "s1", 8);
+    fill(store, "s2", 8);
+    fill(store, "s3", 8);
+    expect(store.getRetention().residentBytes).toBeLessThanOrEqual(GLOBAL);
+    expect(store.hasEvents("s0")).toBe(false);
+    expect(store.hasEvents("s3")).toBe(true);
+  });
+
+  it("E18: pinned sessions survive global reclaim", () => {
+    const pinned = new Set(["s0"]);
+    const store = createMemoryEventStore(
+      (id) => pinned.has(id),
+      100,
+      1_000_000,
+      0,
+      256 * 1024,
+      0,
+      GLOBAL,
+    );
+    fill(store, "s0", 8);
+    fill(store, "s1", 8);
+    fill(store, "s2", 8);
+    fill(store, "s3", 8);
+    expect(store.hasEvents("s0")).toBe(true);
+    expect(store.getRetention().residentBytes).toBeLessThanOrEqual(GLOBAL);
+  });
+
+  it("E19: global budget 0 disables global reclaim", () => {
+    const store = createMemoryEventStore(neverPinnedFn, 100, 1_000_000, 0, 256 * 1024, 0, 0);
+    for (let i = 0; i < 10; i++) fill(store, `s${i}`, 4);
+    expect(store.sessionCount()).toBe(10);
+    expect(store.getTrimPassProbe().global).toBe(0);
+    expect(store.getTrimPassProbe().fallback).toBe(0);
+  });
+
+  it("E20: the per-session budget never byte-trims under the global bound", () => {
+    const perSession = 2 * 1024 * 1024;
+    const global = 2 * 1024 * 1024;
+    const store = createMemoryEventStore(
+      neverPinnedFn,
+      100,
+      1_000_000,
+      0,
+      256 * 1024,
+      perSession,
+      global,
+    );
+    fill(store, "s0", 5);
+    fill(store, "s1", 5);
+    fill(store, "s2", 5);
+    fill(store, "s3", 5);
+    for (const sid of ["s0", "s1", "s2", "s3"]) {
+      const b = store.getBufferBytes(sid);
+      // A resident session was never byte-trimmed: its total is the untrimmed 5 events.
+      if (b > 0) expect(b).toBe(5 * PER_EVENT);
+    }
+    expect(store.getRetention().residentBytes).toBeLessThanOrEqual(global);
+  });
+
+  it("E22: global total exactness across removal paths", () => {
+    const store = createMemoryEventStore(neverPinnedFn, 100, 20, 0, 262_144, 1024 * 1024, 8 * 1024 * 1024);
+    const sids = ["a", "b", "c"];
+    const sum = () =>
+      sids.reduce(
+        (acc, sid) => acc + store.getEvents(sid, 0).reduce((x, e) => x + e.bytes, 0),
+        0,
+      );
+    for (const sid of sids) {
+      for (let i = 0; i < 30; i++) store.insertEvent(sid, mkSized("stats_update", 100));
+    }
+    expect(store.getRetention().residentBytes).toBe(sum());
+    store.deleteEventsForSession("b");
+    expect(store.getRetention().residentBytes).toBe(sum());
+  });
+
+  it("P2: global reclaim is amortized, not per-insert", () => {
+    const store = createMemoryEventStore(
+      neverPinnedFn,
+      100,
+      1_000_000,
+      0,
+      4096,
+      0,
+      2 * 1024 * 1024,
+    );
+    const N = 5000;
+    for (let i = 0; i < N; i++) store.insertEvent(`s${i % 5}`, mkSized("stats_update", 1000));
+    const passes = store.getTrimPassProbe().global;
+    expect(passes).toBeGreaterThan(0);
+    expect(passes).toBeLessThan(N / 10);
+  });
+
+  it("X1: all-pinned fallback spares essentials", () => {
+    const pinned = new Set(["a"]);
+    const store = createMemoryEventStore(
+      (id) => pinned.has(id),
+      100,
+      1_000_000,
+      0,
+      262_144,
+      0,
+      2 * 1024 * 1024,
+    );
+    const s1 = store.insertEvent("a", mkSized("message_start", 1024));
+    const s2 = store.insertEvent("a", mkSized("message_end", 1024));
+    fill(store, "a", 20);
+    expect(store.getEvent("a", s1)).toBeDefined();
+    expect(store.getEvent("a", s2)).toBeDefined();
+    expect(store.getTrimPassProbe().fallback).toBeGreaterThan(0);
+    expect(store.getRetention().residentBytes).toBeLessThanOrEqual(2 * 1024 * 1024);
+  });
+
+  it("X2: fallback reclaims below the budget, not to it", () => {
+    const global = 2 * 1024 * 1024;
+    const pinned = new Set(["a"]);
+    const store = createMemoryEventStore(
+      (id) => pinned.has(id),
+      100,
+      1_000_000,
+      0,
+      262_144,
+      0,
+      global,
+    );
+    store.insertEvent("a", mkSized("message_start", 1024));
+    fill(store, "a", 20);
+    expect(store.getRetention().residentBytes).toBeLessThanOrEqual(
+      global - globalTrimSlack(global),
+    );
+    const before = store.getTrimPassProbe().fallback;
+    store.insertEvent("a", mkSized("stats_update", 1024));
+    expect(store.getTrimPassProbe().fallback).toBe(before);
+  });
+
+  it("X3: exhausted fallback accepts overshoot and latches", () => {
+    const global = 1024 * 1024;
+    const pinned = new Set(["a"]);
+    const store = createMemoryEventStore(
+      (id) => pinned.has(id),
+      100,
+      1_000_000,
+      0,
+      262_144,
+      0,
+      global,
+    );
+    for (let i = 0; i < 10; i++) store.insertEvent("a", mkSized("message_start", PER_EVENT));
+    expect(store.getRetention().globalBudgetExceeded).toBe(true);
+    expect(store.getRetention().residentBytes).toBeGreaterThan(global);
+    expect(store.getEvents("a", 0).every((e) => e.event.eventType === "message_start")).toBe(true);
+  });
+
+  it("X4: latch clears on a state change", () => {
+    const pinned = new Set(["a"]);
+    const store = createMemoryEventStore(
+      (id) => pinned.has(id),
+      100,
+      1_000_000,
+      0,
+      262_144,
+      0,
+      1024 * 1024,
+    );
+    for (let i = 0; i < 10; i++) store.insertEvent("a", mkSized("message_start", PER_EVENT));
+    expect(store.getRetention().globalBudgetExceeded).toBe(true);
+    pinned.delete("a");
+    store.insertEvent("a", mkSized("stats_update", 100));
+    expect(store.getRetention().globalBudgetExceeded).toBe(false);
+
+    // And on an explicit delete (re-pin so the latch can be set again).
+    pinned.add("a");
+    for (let i = 0; i < 10; i++) store.insertEvent("a", mkSized("message_start", PER_EVENT));
+    expect(store.getRetention().globalBudgetExceeded).toBe(true);
+    store.deleteEventsForSession("a");
+    expect(store.getRetention().globalBudgetExceeded).toBe(false);
+  });
+
+  it("P3: the latch stops the rescan", () => {
+    const pinned = new Set(["a"]);
+    const store = createMemoryEventStore(
+      (id) => pinned.has(id),
+      100,
+      1_000_000,
+      0,
+      262_144,
+      0,
+      1024 * 1024,
+    );
+    for (let i = 0; i < 10; i++) store.insertEvent("a", mkSized("message_start", PER_EVENT));
+    const after = store.getTrimPassProbe().fallback;
+    expect(after).toBeGreaterThan(0);
+    for (let i = 0; i < 100; i++) store.insertEvent("a", mkSized("message_start", PER_EVENT));
+    expect(store.getTrimPassProbe().fallback).toBe(after);
+  });
+
+  it("X5: measurement stays bounded with the ceiling disabled", () => {
+    const store = createMemoryEventStore(neverPinnedFn, 100, 1_000_000, 0, 0, 0, 0);
+    const huge = { p: "x".repeat(MEASURE_CEILING_FALLBACK + 1024) };
+    store.insertEvent("a", { eventType: "stats_update", timestamp: Date.now(), data: huge });
+    expect(store.getBufferBytes("a")).toBe(MEASURE_CEILING_FALLBACK + 1);
+  });
+
+  it("X7: a bulk insert loop (the hydration path) respects the budget", () => {
+    const budget = 1024 * 1024;
+    const store = createMemoryEventStore(neverPinnedFn, 100, 1_000_000, 0, 256 * 1024, budget, 0);
+    const total = 100;
+    for (let i = 0; i < total; i++) store.insertEvent("a", mkSized("stats_update", PER_EVENT));
+    expect(store.getBufferBytes("a")).toBeLessThanOrEqual(budget + byteTrimSlack(budget));
+    expect(store.getEvents("a", 0).length).toBeLessThan(total);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Byte-trim telemetry attribution.
+// See change: bound-event-store-by-bytes (D4).
+// ---------------------------------------------------------------------------
+
+describe("memory-event-store — byte-trim telemetry", () => {
+  const size = 200 * 1024;
+  const budget = 1024 * 1024;
+
+  it("T1: a byte-triggered pass moves both counters", () => {
+    const store = createMemoryEventStore(neverPinnedFn, 100, 1_000_000, 0, 256 * 1024, budget, 0);
+    let bytesBefore = store.getBufferBytes("s");
+    let countBefore = store.getEvents("s", 0).length;
+    let before = store.getTrimStats();
+    while (store.getTrimPassProbe().perSession === 0) {
+      bytesBefore = store.getBufferBytes("s");
+      countBefore = store.getEvents("s", 0).length;
+      before = store.getTrimStats();
+      store.insertEvent("s", mkSized("stats_update", size));
+    }
+    const after = store.getTrimStats();
+    const bytesAfter = store.getBufferBytes("s");
+    const countAfter = store.getEvents("s", 0).length;
+    expect(after.trimmedBytes - before.trimmedBytes).toBe(bytesBefore + size - bytesAfter);
+    expect(after.trimmedEvents.total - before.trimmedEvents.total).toBe(
+      countBefore + 1 - countAfter,
+    );
+  });
+
+  it("T2: count-only trim does not move the byte counter", () => {
+    const store = createMemoryEventStore(neverPinnedFn, 100, 5, 0, 262_144, 0, 0);
+    for (let i = 0; i < 20; i++) store.insertEvent("s", mkSized("stats_update", 100));
+    const stats = store.getTrimStats();
+    expect(stats.trimmedEvents.total).toBeGreaterThan(0);
+    expect(stats.trimmedBytes).toBe(0);
+  });
+
+  it("T3: whole-buffer eviction is counted in bytes separately", () => {
+    const store = createMemoryEventStore(
+      neverPinnedFn,
+      100,
+      1_000_000,
+      0,
+      256 * 1024,
+      0,
+      2 * 1024 * 1024,
+    );
+    for (const sid of ["a", "b", "c"]) {
+      for (let i = 0; i < 8; i++) store.insertEvent(sid, mkSized("stats_update", size));
+    }
+    const stats = store.getTrimStats();
+    expect(stats.evictedSessions).toBeGreaterThan(0);
+    expect(stats.evictedBytes).toBeGreaterThan(0);
+    expect(stats.trimmedBytes).toBe(0);
+  });
+
+  it("T4: the all-pinned fallback reclaim counts as a byte trim", () => {
+    const pinned = new Set(["a"]);
+    const store = createMemoryEventStore(
+      (id) => pinned.has(id),
+      100,
+      1_000_000,
+      0,
+      262_144,
+      0,
+      1024 * 1024,
+    );
+    store.insertEvent("a", mkSized("message_start", 1024));
+    for (let i = 0; i < 10; i++) store.insertEvent("a", mkSized("stats_update", size));
+    expect(store.getTrimStats().trimmedBytes).toBeGreaterThan(0);
   });
 });

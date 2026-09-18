@@ -77,6 +77,35 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     fi
     echo "No blocking pi compatibility error"
 
+    # --- Retention + heap-headroom health fields (test-plan #T8) -----------
+    # See change: bound-event-store-by-bytes (D4).
+    #
+    # Process-level smoke: the aggregate byte budget is only observable
+    # through /api/health, so assert on a REAL boot that the retention gauge,
+    # the effective budgets and the V8 heap ceiling are all present and
+    # non-null. Unit tests cover their values; only a boot proves the wiring.
+    RETENTION_VERDICT=$(printf '%s' "$HEALTH_JSON" | node -e '
+      let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+        let j;try{j=JSON.parse(s)}catch{console.log("FAIL: /api/health body is not JSON");return;}
+        const r=j.storeRetention;
+        if(!r||typeof r!=="object"){console.log("FAIL: storeRetention missing from /api/health");return;}
+        if(typeof r.residentBytes!=="number"){console.log("FAIL: storeRetention.residentBytes is not a number ("+r.residentBytes+")");return;}
+        const e=r.effective;
+        if(!e||typeof e!=="object"){console.log("FAIL: storeRetention.effective missing");return;}
+        for(const k of ["maxBytesPerSession","maxTotalEventBytes","maxCachedSessions"]){
+          if(typeof e[k]!=="number"){console.log("FAIL: storeRetention.effective."+k+" is not a number ("+e[k]+")");return;}
+        }
+        if(typeof r.globalBudgetExceeded!=="boolean"){console.log("FAIL: storeRetention.globalBudgetExceeded is not a boolean");return;}
+        const hsl=j.server&&j.server.heapSizeLimit;
+        if(typeof hsl!=="number"||!(hsl>0)){console.log("FAIL: server.heapSizeLimit is not a positive number ("+hsl+")");return;}
+        console.log("OK: storeRetention residentBytes="+r.residentBytes+", effective="+JSON.stringify(e)+", heapSizeLimit="+hsl);
+      });
+    ')
+    case "$RETENTION_VERDICT" in
+      OK*) echo "$RETENTION_VERDICT" ;;
+      *) echo "$RETENTION_VERDICT"; exit 1 ;;
+    esac
+
     # --- Resolved spawn-runtime publication (test-plan #X7) ---------------
     # See change: unify-pi-runtime-identity (task 9.25).
     #

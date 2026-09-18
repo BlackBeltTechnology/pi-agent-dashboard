@@ -41,7 +41,7 @@ Global pi extension running in every pi session. It:
 Node.js HTTP + WebSocket server that:
 - Accepts connections from bridge extensions (Pi Gateway, port 9999)
 - Accepts connections from web browsers (Browser Gateway, port 8000)
-- Stores events in an in-memory buffer with LRU eviction (max 100 sessions, 5000 events per session)
+- Stores events in an in-memory buffer with LRU eviction (default 32 sessions via `memoryLimits.maxCachedSessions`; bounded by count and serialized byte budgets)
 - Truncates large event payloads (tool results, file content, thinking blocks) to bound memory
 - Applies WebSocket backpressure on browser connections (drops messages when send buffer > 4MB)
 - Manages sessions in a pure in-memory registry (populated from bridge connections and direct disk discovery)
@@ -797,12 +797,14 @@ Descriptor-only slots (existing in `extension-ui-system`): `management-modal`, `
 
 #### Health endpoint observability
 
-`/api/health` exposes five additive measurement fields (no behavior change). Existing clients ignore unknown fields. See change: instrument-session-hydration-timing.
+`/api/health` exposes additive measurement fields (no behavior change). Existing clients ignore unknown fields. See change: instrument-session-hydration-timing.
+- `server.heapSizeLimit` — `v8.getHeapStatistics().heap_size_limit`. Process heap ceiling. Sits with process memory gauges (`rss`, `heapUsed`) for computing memory headroom. See change: `bound-event-store-by-bytes`.
+- `storeRetention: { residentBytes, effective: { maxBytesPerSession, maxTotalEventBytes, maxCachedSessions }, globalBudgetExceeded }` — from `eventStore.getRetention()`. `residentBytes` = gauge of resident event bytes. `effective.*` = enforced budgets after store floor clamp. `globalBudgetExceeded` = boolean latch set when all-pinned fallback cannot reach budget. Grouped separately from `storeTrim` counters. See change: `bound-event-store-by-bytes`.
 - `eventLoopDelay: { meanMs, p99Ms, maxMs }` — `perf_hooks.monitorEventLoopDelay` histogram, ns→ms. Resets window each read.
 - `hydration: HydrationSample[]` — ring buffer, ≤20 newest-first samples. Process-local, no persistence. Sample `{ sessionId, wallMs, fileBytes, entryCount, eventCount, at }` recorded by `loadSessionEvents`.
 - `eventLoopSpikes: { at, ms, turn }[]` — ring buffer, ≤50 newest-first, process-local, additive. Retains worst-case event-loop stalls. Two feeds: dedicated `monitorEventLoopDelay` sampler (own instance, never the boot histogram `/api/health` resets → no reset race; records `turn: null` for stalls no poll turn owns) + per-turn self-records from the openspec poll path (`turn: "tickOpen" \| "dirPollPre" \| "dirPollPost"`). Sub-threshold ~700 ms stall retained even when nobody polls `/api/health`. See change: attribute-openspec-poll-eventloop-stalls.
 - `notifyLog: { evictedEntries, bySession }` — from `browserGateway.getNotifyLogStats()` (`packages/server/src/pairing/notify-log.ts` `getStats()`). `evictedEntries` = total cap-50 evictions; `bySession` = per-session counts. Cap-50 eviction = silent transcript loss → counted beside `droppedFrames` / `storeTrim`. See change: split-notify-from-prompt-request.
-- `storeTrim: { trimmedEvents: { total, toolExecutionEnd, bySession }, evictedSessions, collapsedUpdates }` — from `eventStore.getTrimStats()` (`packages/server/src/persistence/memory-event-store.ts`). `trimmedEvents` + `evictedSessions` pre-existing: per-session cap trims, whole-session LRU evictions. See change: instrument-event-store-trim. NEW `collapsedUpdates`: cumulative count of superseded `tool_execution_update` events dropped at retention. Collapse retains per `toolCallId`: pinned creating tick (first-wins `type`/`description`) + newest tail + any non-subsumed intermediate updates — commonly ≤2, not hard bound. Retention-only — never suppresses live broadcast; browser still receives every tick. Predecessor dropped only when successor subsumes it (superset gate on `partialResult.details`). Counters cumulative for process lifetime, never reset on read. No event store wired → `EMPTY_TRIM_STATS` (all-zero), exported from store. Harness A/B (4 sessions × 4 sustained subagent rounds): retained `tool_execution_update` per buffer 36 → 2; buffer share 18.4% → 1.2%. See change: collapse-superseded-tool-execution-updates. NEW `collapseOnEnd` — `tool_execution_end` drops retained tail `tool_execution_update` for a `toolCallId` when end subsumes it; same superset gate (key survival, entries survival, rendered-result implication) resolved END-side on top-level `data.details` (plain object) + `data.result`, updates still resolve `data.partialResult.details`. Additive fail-closed: presence — truthy tail `partialResult.details` + end without `data.details` ⇒ retain (tail replaces `toolDetails` wholesale; detail-less end merges prior); identity — tail `details.agentId` string ⇒ end `toolName === "Agent"` + equal `agentId` + equal `agentSessionId` when present. Agent-shaped tail drops only with resident pinned creating tick (absent ⇒ retain); non-Agent (no `agentId`) tail drops freely; `activity` cleared on end ⇒ tail retained (spec scenario 2 — subagent's last inner event commonly a tool end). Drops fold into `collapsedUpdates` (no new key); fail-open — retain, no throw — on missing `toolCallId` (incl. `{__truncated}`), absent index entry, trimmed tail; `tool_execution_end` itself never a drop candidate; `collapseOnEnd` runs in `insertEvent` immediately after `collapseSuperseded`, after truncation, before trim/evict. Cross-version verification (`openspec/changes/archive/2026-09-13-drop-final-update-on-tool-execution-end/verification.md`): producer `@blackbelt-technology/pi-dashboard-subagents` 0.2.0–0.2.4 — gate sound; only absent-on-end key = `activity`. See change: drop-final-update-on-tool-execution-end.
+- `storeTrim: { trimmedEvents: { total, toolExecutionEnd, bySession }, evictedSessions, collapsedUpdates, trimmedBytes, evictedBytes }` — from `eventStore.getTrimStats()` (`packages/server/src/persistence/memory-event-store.ts`). `trimmedEvents` + `evictedSessions` pre-existing: per-session cap trims, whole-session LRU evictions. `trimmedBytes`: cumulative bytes released by byte-triggered trims. `evictedBytes`: cumulative bytes released by whole-buffer LRU evictions. See change: `bound-event-store-by-bytes`. NEW `collapsedUpdates`: cumulative count of superseded `tool_execution_update` events dropped at retention. Collapse retains per `toolCallId`: pinned creating tick (first-wins `type`/`description`) + newest tail + any non-subsumed intermediate updates — commonly ≤2, not hard bound. Retention-only — never suppresses live broadcast; browser still receives every tick. Predecessor dropped only when successor subsumes it (superset gate on `partialResult.details`). Counters cumulative for process lifetime, never reset on read. No event store wired → `EMPTY_TRIM_STATS` (all-zero), exported from store. Harness A/B (4 sessions × 4 sustained subagent rounds): retained `tool_execution_update` per buffer 36 → 2; buffer share 18.4% → 1.2%. See change: collapse-superseded-tool-execution-updates. NEW `collapseOnEnd` — `tool_execution_end` drops retained tail `tool_execution_update` for a `toolCallId` when end subsumes it; same superset gate (key survival, entries survival, rendered-result implication) resolved END-side on top-level `data.details` (plain object) + `data.result`, updates still resolve `data.partialResult.details`. Additive fail-closed: presence — truthy tail `partialResult.details` + end without `data.details` ⇒ retain (tail replaces `toolDetails` wholesale; detail-less end merges prior); identity — tail `details.agentId` string ⇒ end `toolName === "Agent"` + equal `agentId` + equal `agentSessionId` when present. Agent-shaped tail drops only with resident pinned creating tick (absent ⇒ retain); non-Agent (no `agentId`) tail drops freely; `activity` cleared on end ⇒ tail retained (spec scenario 2 — subagent's last inner event commonly a tool end). Drops fold into `collapsedUpdates` (no new key); fail-open — retain, no throw — on missing `toolCallId` (incl. `{__truncated}`), absent index entry, trimmed tail; `tool_execution_end` itself never a drop candidate; `collapseOnEnd` runs in `insertEvent` immediately after `collapseSuperseded`, after truncation, before trim/evict. Cross-version verification (`openspec/changes/archive/2026-09-13-drop-final-update-on-tool-execution-end/verification.md`): producer `@blackbelt-technology/pi-dashboard-subagents` 0.2.0–0.2.4 — gate sound; only absent-on-end key = `activity`. See change: drop-final-update-on-tool-execution-end.
 
 **Bundled-by-default plugins:** The plugin loader treats all plugins identically (same manifest, same discovery, same `enabled` flag, same failure isolation). What distinguishes "bundled-by-default" plugins (initial set: `git-plugin`) is purely operational — the build pipeline always includes them in `packages/`. Their absence is a deliberate user opt-out, not a normal state. OpenSpec, Flows, and Subagents plugins are bundled in standard builds but their absence is a normal use case (e.g. a workspace without OpenSpec).
 
@@ -3106,7 +3108,7 @@ flowchart LR
 
 | Data | Storage | Details |
 |------|---------|---------|
-| Events | In-memory Map | LRU eviction, max 100 sessions. Pinned if active bridge or browser subscribers. |
+| Events | In-memory Map | LRU eviction, max resident sessions (`memoryLimits.maxCachedSessions`, default 32). Pinned if active bridge or browser subscribers. Bounded by count and byte budgets. |
 | Sessions | In-memory Map + `.meta.json` | In-memory registry. Each session's state cached in per-session `.meta.json` sidecar next to `.jsonl`. On startup, `session-scanner.ts` scans `~/.pi/agent/sessions/*/` to restore all sessions from cached meta. Archived sessions evicted to the in-memory archive index (`session-archive.ts`). See Session Archiving. |
 | Session meta | `~/.pi/agent/sessions/…/<id>.meta.json` | Per-session sidecar: dashboard-owned state (name, attachedProposal, hidden, source) + cached stats (tokens, cost, model, status) + archive flags (`archived`, `archivedAt`, `restoredAt`). Debounced per-session writes (max 1/sec). Stale cache detected via `cachedAt` vs `.jsonl` mtime. |
 | Namer stop state | `~/.pi/agent/sessions/…/<id>.meta.json` (`autoNamerState`) | Auto-naming permanent stop + counters (attemptsUsed, starvedCount, waitingCount, stoppedModelRef, stopCause). Survives process restart; restored via `auto_name_state_restore` at register. Cleared on naming re-resolution or blocking-cause resolution. See change: fix-auto-naming-reasoning-model. |
@@ -3144,6 +3146,9 @@ Precedence: CLI flags → environment variables → config file (`~/.pi/dashboar
 | `publicBaseUrls` | — | Top-level reachable base URLs. Pairing QR + `GET /api/tunnel/endpoints` surfaces. `resolvePublicBaseUrls` reads top-level first, legacy `pairing.publicBaseUrls` fallback, else `[]`. No default; absent = legacy. Not an OAuth tier (D7) |
 | `memoryLimits.maxReplayEvents` | 2000 | Max events in full-stream replay window. Default `2000`; explicit `0` = unlimited (rollback lever). Absent/negative/non-numeric → `2000`; explicit `0` → `0`. Requires server restart. UI: Settings → Server → Memory Limits |
 | `memoryLimits.replayWindowMode` | `head-tail` | Replay window shape: `"head-tail"` default or `"tail-only"`. Unknown value coerced to default, never throws. Requires server restart. UI: Settings → Server → Memory Limits |
+| `memoryLimits.maxBytesPerSession` | 33554432 (32 MiB) | Max serialized `data` bytes per session (`0` = unlimited). Drops oldest non-essential first. Requires server restart. UI: Settings → Server → Memory Limits |
+| `memoryLimits.maxTotalEventBytes` | 805306368 (768 MiB) | Global aggregate across all resident sessions (`0` = unlimited). Binding constraint. LRU buffer eviction. Requires server restart. UI: Settings → Server → Memory Limits |
+| `memoryLimits.maxCachedSessions` | 32 | Max resident session buffers (was hardcoded 100). LRU eviction of unpinned buffers. Requires server restart. UI: Settings → Server → Memory Limits |
 
 ### Memory Limits
 
@@ -3172,6 +3177,34 @@ Threading:
 - Programmatic server falls back to shared DEFAULT, not `0`; stays unlimited only when threaded explicitly.
 
 See change: `lazy-load-session-history`, `fix-lazy-history-backfill-ux`, `add-tail-only-replay-window`.
+
+#### Event store byte budgets (`bound-event-store-by-bytes`)
+
+Resident envelope is product of per-session budget and resident count (`maxBytesPerSession × maxCachedSessions`); global `maxTotalEventBytes` bounds envelope.
+Budget counts SERIALIZED `data` bytes, NOT RSS/heap bytes; `rss` ran ~1867 MB against `heapUsed` ~818 MB, so 768 MiB budget is roughly 1 GiB heap / ~2 GiB RSS.
+
+**Keys and defaults:**
+- `memoryLimits.maxBytesPerSession`: default `33554432` (32 MiB). Bounds per-session aggregate serialized `data` bytes. `0` = unlimited.
+- `memoryLimits.maxTotalEventBytes`: default `805306368` (768 MiB). Bounds global aggregate across all resident sessions. `0` = unlimited. Binding constraint.
+- `memoryLimits.maxCachedSessions`: default `32` (was hardcoded 100 in `server.ts`). Bounds resident session-buffer count.
+
+**`0` semantics:**
+- `0` means unlimited for both byte budgets (`maxBytesPerSession`, `maxTotalEventBytes`).
+- `0` never clamped up by floor clamp.
+
+**In-store floor clamp:**
+- Store clamps positive `maxBytesPerSession` up to `4 × effective per-event ceiling`.
+- Effective ceiling = `maxEventDataSize`, or finite 16 MiB `MEASURE_CEILING_FALLBACK` when `maxEventDataSize` is `0`.
+- Clamp lives in `createMemoryEventStore`, NOT shared loader; `maxEventDataSize` is top-level `DashboardConfig` field invisible to browser-safe `memory-limits.ts`.
+- Effective budgets published on `/api/health` `storeRetention.effective.*`.
+
+**Shed order and reclaim policy:**
+- Per-session byte trim drops oldest non-essential events first (tool/subagent/flow/reasoning/stats/streaming noise).
+- Drops oldest essential chat events (`message_start`/`message_end`/inline-terminal open/close) ONLY when essentials alone exceed budget. Matches count trim policy.
+- Per-session reclaim hysteretic: fires above `budget + byteTrimSlack` (5% of budget, max 4 MiB); reclaims down to budget.
+- Global reclaim evicts whole UNPINNED session buffers LRU-first.
+- All-pinned fallback: when every resident session pinned, reclaims non-essential events only from LRU pinned buffers.
+- Latches `globalBudgetExceeded` true when fallback cannot reach budget; clears on buffer removal/unpin/drop below budget.
 
 ### Tunnel Lifecycle
 

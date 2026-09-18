@@ -1315,6 +1315,35 @@ function parseReplayWindowMode(raw: unknown): ReplayWindowMode {
   return raw === "tail-only" || raw === "head-tail" ? raw : DEFAULT_MEMORY_LIMITS.replayWindowMode;
 }
 
+/**
+ * A byte budget with an "unlimited" sentinel: absent / negative / non-numeric →
+ * the DEFAULT; explicit `0` preserved; any other number loaded AS-IS.
+ *
+ * The loader does type/negative validation ONLY. The floor clamp lives in the
+ * store, which alone can see `maxEventDataSize` (a top-level `DashboardConfig`
+ * field, invisible to this browser-safe module).
+ * See change: bound-event-store-by-bytes (D5/D6, E11/E12).
+ */
+function parseByteBudget(raw: unknown, fallback: number): number {
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) return fallback;
+  if (raw === 0) return 0;
+  return Math.floor(raw);
+}
+
+/**
+ * A plain positive COUNT with no unlimited sentinel: a finite positive number
+ * is floored, and EVERYTHING else (absent / `0` / negative / non-numeric)
+ * resolves to the default.
+ * See change: bound-event-store-by-bytes (D8, E13).
+ */
+function parsePositiveCount(raw: unknown, fallback: number): number {
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) return fallback;
+  const floored = Math.floor(raw);
+  // A positive fraction that floors to 0 (e.g. `0.5`) is NOT a valid count:
+  // `0` means "evict every session", the opposite of the documented fallback.
+  return floored >= 1 ? floored : fallback;
+}
+
 function parseMemoryLimits(raw: any): MemoryLimitsConfig {
   if (!raw || typeof raw !== "object") return { ...DEFAULT_MEMORY_LIMITS };
   return {
@@ -1326,6 +1355,21 @@ function parseMemoryLimits(raw: any): MemoryLimitsConfig {
     // See change: lazy-load-session-history (D3), fix-lazy-history-backfill-ux (D7).
     maxReplayEvents: parseMaxReplayEvents(raw.maxReplayEvents),
     replayWindowMode: parseReplayWindowMode(raw.replayWindowMode),
+    // Byte budgets: explicit 0 = unlimited (rollback lever); a positive value
+    // is loaded as-is so the STORE applies the floor clamp.
+    // See change: bound-event-store-by-bytes (D5/D6/D7/D8).
+    maxBytesPerSession: parseByteBudget(
+      raw.maxBytesPerSession,
+      DEFAULT_MEMORY_LIMITS.maxBytesPerSession,
+    ),
+    maxTotalEventBytes: parseByteBudget(
+      raw.maxTotalEventBytes,
+      DEFAULT_MEMORY_LIMITS.maxTotalEventBytes,
+    ),
+    maxCachedSessions: parsePositiveCount(
+      raw.maxCachedSessions,
+      DEFAULT_MEMORY_LIMITS.maxCachedSessions,
+    ),
   };
 }
 

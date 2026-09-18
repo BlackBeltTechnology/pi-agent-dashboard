@@ -29,7 +29,7 @@ function makeEvent(eventType = "turn_start", data: Record<string, unknown> = {})
 
 /** Non-compactable filler, so window maths is never confounded by compaction. */
 function filler(n: number, startSeq = 1): StoredEvent[] {
-  return Array.from({ length: n }, (_, i) => ({ seq: startSeq + i, event: makeEvent("tool_execution_end") }));
+  return Array.from({ length: n }, (_, i) => ({ bytes: 0, seq: startSeq + i, event: makeEvent("tool_execution_end") }));
 }
 
 const openWs = () => ({ readyState: 1, OPEN: 1, bufferedAmount: 0 }) as any;
@@ -97,7 +97,7 @@ describe("replay windowing — edge snapping (E18, E19, E20, E21)", () => {
     const stored = filler(5000);
     // Nominal tail cut for limit 500 over 5000 events is index 4550.
     const boundary = 4562; // 12 events later
-    stored[boundary] = { seq: boundary + 1, event: makeEvent("message_start") };
+    stored[boundary] = { bytes: 0, seq: boundary + 1, event: makeEvent("message_start") };
     const win = computeReplayWindow(stored, 500);
     if (!win) throw new Error("expected a window");
     expect(win.tailStart).toBe(boundary);
@@ -113,8 +113,8 @@ describe("replay windowing — edge snapping (E18, E19, E20, E21)", () => {
     const stored = filler(50000);
     const headTarget = HEAD_CAP - SNAP_LOOKUP; // index 0, the furthest reachable
     const tailTarget = 45000 + SNAP_LOOKUP;
-    stored[headTarget] = { seq: headTarget + 1, event: makeEvent("message_end") };
-    stored[tailTarget] = { seq: tailTarget + 1, event: makeEvent("message_start") };
+    stored[headTarget] = { bytes: 0, seq: headTarget + 1, event: makeEvent("message_end") };
+    stored[tailTarget] = { bytes: 0, seq: tailTarget + 1, event: makeEvent("message_start") };
     const win = computeReplayWindow(stored, 5000);
     if (!win) throw new Error("expected a window");
     // Both snaps actually MOVED — otherwise the budget assertion below would be
@@ -136,8 +136,8 @@ describe("replay windowing — edge snapping (E18, E19, E20, E21)", () => {
 
   it("E21: a head cut landing after an unterminated message_start snaps back to a message_end", () => {
     const stored = filler(5000);
-    stored[40] = { seq: 41, event: makeEvent("message_end") };
-    stored[45] = { seq: 46, event: makeEvent("message_start") }; // never terminated
+    stored[40] = { bytes: 0, seq: 41, event: makeEvent("message_end") };
+    stored[45] = { bytes: 0, seq: 46, event: makeEvent("message_start") }; // never terminated
     const win = computeReplayWindow(stored, 500);
     if (!win) throw new Error("expected a window");
     // Ends ON the completed message_end, not on the dangling start — a head
@@ -154,8 +154,9 @@ describe("replay windowing — the D4 high-water contract (E17, X7, E26)", () =>
     // delivered array would return a lower seq and make `clearReplaying`
     // re-send events the client already has.
     const stored = filler(5000);
-    stored[4000] = { seq: 4001, event: makeEvent("message_end") };
+    stored[4000] = { bytes: 0, seq: 4001, event: makeEvent("message_end") };
     stored[4999] = {
+      bytes: 0,
       seq: 5000,
       event: makeEvent("message_update", { message: { role: "assistant", content: [{ type: "text", text: "x" }] } }),
     };
@@ -175,12 +176,13 @@ describe("replay windowing — the D4 high-water contract (E17, X7, E26)", () =>
     const stored: StoredEvent[] = [];
     for (let i = 0; i < 19000; i++) {
       stored.push({
+        bytes: 0,
         seq: i + 1,
         event: makeEvent("message_update", { message: { role: "assistant", content: [{ type: "text", text: `t${i}` }] } }),
       });
     }
-    stored.push({ seq: 19001, event: makeEvent("message_end") });
-    for (let i = 0; i < 999; i++) stored.push({ seq: 19002 + i, event: makeEvent("tool_execution_end") });
+    stored.push({ bytes: 0, seq: 19001, event: makeEvent("message_end") });
+    for (let i = 0; i < 999; i++) stored.push({ bytes: 0, seq: 19002 + i, event: makeEvent("tool_execution_end") });
 
     const { events } = await deliver(stored, 500);
     expect(events.length).toBeLessThanOrEqual(500);
@@ -340,7 +342,7 @@ describe("replay windowing — the tail-only shape (E5, E6, E7, E8, E9)", () => 
     const events = filler(n);
     // Naive tail cut, then a `message_start` 30 events forward of it.
     const naiveStart = n - limit;
-    events[naiveStart + 30] = { seq: naiveStart + 31, event: makeEvent("message_start") };
+    events[naiveStart + 30] = { bytes: 0, seq: naiveStart + 31, event: makeEvent("message_start") };
 
     const win = computeReplayWindow(events, limit, "tail-only");
     if (!win) throw new Error("expected a window");
@@ -428,12 +430,13 @@ describe("windowed replay resets client state explicitly (X1, X2, X3, X4)", () =
     // 600 superseded `message_update` snapshots inside one message compact away
     // to a handful, leaving the compacted array under the limit.
     const stored: StoredEvent[] = [
-      { seq: 1, event: makeEvent("message_start", { messageId: "m1" }) },
+      { bytes: 0, seq: 1, event: makeEvent("message_start", { messageId: "m1" }) },
       ...Array.from({ length: 600 }, (_, i) => ({
+        bytes: 0,
         seq: 2 + i,
         event: makeEvent("message_update", { messageId: "m1", content: `c${i}` }),
       })),
-      { seq: 602, event: makeEvent("message_end", { messageId: "m1" }) },
+      { bytes: 0, seq: 602, event: makeEvent("message_end", { messageId: "m1" }) },
     ];
     expect(stored.length).toBeGreaterThan(500);
 
@@ -457,6 +460,7 @@ describe("windowed replay resets client state explicitly (X1, X2, X3, X4)", () =
     const stored = filler(n);
     // A token-bearing event inside the tail segment.
     stored[n - 10] = {
+      bytes: 0,
       seq: n - 9,
       event: makeEvent("message_end", { messageId: "m1", content: "![x](pi-asset:abc123)" }),
     };

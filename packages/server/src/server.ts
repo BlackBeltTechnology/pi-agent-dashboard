@@ -16,6 +16,7 @@ import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashb
 import { CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
 import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
+import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import {
   reconcilePluginBridgePackages,
@@ -260,6 +261,13 @@ export interface ServerConfig {
   /** Memory limit overrides from config */
   maxEventsPerSession?: number;
   maxStringFieldSize?: number;
+  /**
+   * The whole `memoryLimits` block. Carried (like `maxReplayEvents`) so the
+   * byte budgets and the resident-session count thread from config without
+   * re-loading. Absent → each `createMemoryEventStore` default applies.
+   * See change: bound-event-store-by-bytes (D6/D8, task 5.1).
+   */
+  memoryLimits?: import("@blackbelt-technology/pi-dashboard-shared/memory-limits.js").MemoryLimitsConfig;
   /** Override the event-store per-event data byte ceiling. Default DEFAULT_MAX_EVENT_DATA_SIZE. */
   maxEventDataSize?: number;
   maxWsBufferBytes?: number;
@@ -922,10 +930,20 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     (sessionId) =>
       piGateway.isSessionConnected(sessionId) ||
       browserGateway.getSubscriberCount(sessionId) > 0,
-    undefined, // maxCachedSessions (use default)
+    // Operator-configurable resident count (was a hardcoded `undefined`,
+    // silently defaulting to 100). The direct multiplier on every per-session
+    // bound. See change: bound-event-store-by-bytes (D8, task 5.1).
+    config.memoryLimits?.maxCachedSessions ?? DEFAULT_MEMORY_LIMITS.maxCachedSessions,
     config.maxEventsPerSession,
     config.maxStringFieldSize,
     eventDataCeiling,
+    // Per-session and global serialized-byte budgets. Fall back to the SHARED
+    // config defaults when `memoryLimits` is absent (a bare ServerConfig, e.g.
+    // the docker test harness): the store factory default is `0`/unbounded so
+    // that direct call sites opt in, but a server must be bounded by default.
+    // See change: bound-event-store-by-bytes (D5/D7).
+    config.memoryLimits?.maxBytesPerSession ?? DEFAULT_MEMORY_LIMITS.maxBytesPerSession,
+    config.memoryLimits?.maxTotalEventBytes ?? DEFAULT_MEMORY_LIMITS.maxTotalEventBytes,
   );
 
   // Derive the inline-terminal transcript byte budget from the event-store

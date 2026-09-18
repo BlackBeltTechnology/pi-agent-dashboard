@@ -549,8 +549,8 @@ describe("sendEventBatches — every replay terminates exactly once", () => {
   const openWs = () => ({ readyState: 1, OPEN: 1, bufferedAmount: 0 }) as any;
 
   // Non-compactable events so batch maths is not confounded by compaction.
-  function window(n: number): Array<{ seq: number; event: DashboardEvent }> {
-    return Array.from({ length: n }, (_, i) => ({ seq: i + 1, event: makeEvent("turn_start") }));
+  function window(n: number): Array<{ seq: number; event: DashboardEvent; bytes: number }> {
+    return Array.from({ length: n }, (_, i) => ({ seq: i + 1, event: makeEvent("turn_start"), bytes: 0 }));
   }
 
   async function sendAll(n: number) {

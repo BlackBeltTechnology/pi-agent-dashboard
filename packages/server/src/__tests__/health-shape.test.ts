@@ -14,6 +14,7 @@
  * under Electron, since bundled node_modules/ is read-only there).
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import {
   createMemoryEventStore,
   EMPTY_TRIM_STATS,
@@ -105,6 +106,79 @@ describe("GET /api/health — shape", () => {
     // Fresh server: no drops yet.
     expect(dropped.serverToBrowser.total).toBe(0);
     expect(dropped.bridgeToServer).toBe(0);
+  });
+
+  // T5 — the byte counters are ADDITIVE on `storeTrim`: present, and every
+  // pre-existing field keeps its original name and type.
+  // See change: bound-event-store-by-bytes (D4).
+  it("storeTrim gains trimmedBytes and evictedBytes additively (bound-event-store-by-bytes)", async () => {
+    delete process.env.DASHBOARD_STARTER;
+    handle = await createTestServer();
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = (await res.json()) as Record<string, unknown>;
+    const storeTrim = body.storeTrim as Record<string, unknown>;
+    expect(typeof storeTrim.trimmedBytes).toBe("number");
+    expect(storeTrim.trimmedBytes).toBe(0);
+    expect(typeof storeTrim.evictedBytes).toBe("number");
+    expect(storeTrim.evictedBytes).toBe(0);
+    // Every pre-existing field keeps its original name and type.
+    const trimmed = storeTrim.trimmedEvents as Record<string, unknown>;
+    expect(typeof trimmed.total).toBe("number");
+    expect(typeof trimmed.toolExecutionEnd).toBe("number");
+    expect(typeof trimmed.bySession).toBe("object");
+    expect(typeof storeTrim.evictedSessions).toBe("number");
+    expect(typeof storeTrim.collapsedUpdates).toBe("number");
+  });
+
+  // T6 — retention signals sit in their OWN block, NOT inside the cumulative
+  // counter struct; the process heap ceiling sits beside the process gauges.
+  // See change: bound-event-store-by-bytes (D4).
+  it("storeRetention groups gauges outside storeTrim; heapSizeLimit beside the process gauges", async () => {
+    delete process.env.DASHBOARD_STARTER;
+    handle = await createTestServer();
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = (await res.json()) as Record<string, unknown>;
+    const retention = body.storeRetention as {
+      residentBytes: number;
+      effective: {
+        maxBytesPerSession: number;
+        maxTotalEventBytes: number;
+        maxCachedSessions: number;
+      };
+      globalBudgetExceeded: boolean;
+    };
+    expect(typeof retention.residentBytes).toBe("number");
+    expect(typeof retention.effective.maxBytesPerSession).toBe("number");
+    expect(typeof retention.effective.maxTotalEventBytes).toBe("number");
+    expect(typeof retention.effective.maxCachedSessions).toBe("number");
+    expect(typeof retention.globalBudgetExceeded).toBe("boolean");
+    // storeTrim carries NONE of the retention signals.
+    const storeTrim = body.storeTrim as Record<string, unknown>;
+    expect(storeTrim.residentBytes).toBeUndefined();
+    expect(storeTrim.effective).toBeUndefined();
+    expect(storeTrim.globalBudgetExceeded).toBeUndefined();
+    // The heap ceiling sits with the process gauges.
+    const server = body.server as Record<string, unknown>;
+    expect(typeof server.heapSizeLimit).toBe("number");
+    expect(server.heapSizeLimit as number).toBeGreaterThan(0);
+    expect(typeof server.rss).toBe("number");
+    expect(typeof server.heapUsed).toBe("number");
+  });
+
+  // T7 — the EFFECTIVE budget is the clamped one the store enforces, because
+  // the floor clamp runs in the store and configured != enforced.
+  // See change: bound-event-store-by-bytes (D5).
+  it("the reported effective budget reflects the store's floor clamp", async () => {
+    delete process.env.DASHBOARD_STARTER;
+    handle = await createTestServer({
+      maxEventDataSize: 262_144,
+      memoryLimits: { ...DEFAULT_MEMORY_LIMITS, maxBytesPerSession: 1000 },
+    });
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = (await res.json()) as Record<string, unknown>;
+    const retention = body.storeRetention as { effective: { maxBytesPerSession: number } };
+    expect(retention.effective.maxBytesPerSession).toBe(4 * 262_144);
+    expect(retention.effective.maxBytesPerSession).toBeGreaterThan(1000);
   });
 
   it("surfaces store-trim counters (instrument-event-store-trim)", async () => {
