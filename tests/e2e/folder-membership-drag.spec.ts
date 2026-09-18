@@ -272,6 +272,7 @@ test.describe("folder membership drag", () => {
   // #F13 — proves dnd-kit remeasured droppables mounted MID-DRAG: without
   // MeasuringStrategy.Always the drop resolves against stale rects.
   test("drops positionally into a spring-expanded workspace body", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const { idA, idB } = await setupWorkspaces(page);
     await setCollapsed(page, idB, true);
 

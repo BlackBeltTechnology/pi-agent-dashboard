@@ -103,6 +103,19 @@
 - [x] 4.3 Fix every `drift` spec; file an issue for every `bug` and annotate `test.fixme(true, "<issue url>")`. Verify: the affected specs pass or report fixme locally with `PW_E2E_USE_RUNNING=1`. Drift fixed + verified locally: `bus-client-goal-plugin-action`, `folder-status-capsule` (12/12), `error-lifecycle` (4/4), `change-summary-table`, `enhance-tool-call-grouping`, `editor-pane` F3, `tool-output-links`, `tool-output-selection`, `file-preview-survives-churn`. Product bug fixed: `event-reducer` `message_end` over-eager clear. Residual (~32) quarantined behind #683; `e2e-fixme-guard` + `lint:e2e` clean.
 - [ ] 4.4 Dispatch the workflow again on the branch. Verify every shard green (fixme counted as skipped) and the merged report shows zero failures.
 
+  **Status 2026-09-18: advisory, not green.** The change's infrastructure is
+  complete (12-shard matrix, no `globalTimeout`, co-resident guard,
+  `harness-audit.sh`) and four systemic causes (S1-S4) plus ~10 drift specs and
+  one product bug are fixed. 73 tests are quarantined behind #683. But each
+  12-shard dispatch still surfaces 1-4 NEW single-test reds in different
+  shards (folder-actions-menu, followup-image-queue, openspec-init-affordances,
+  inline-terminal-transcript P1, folder-membership-drag, …) — the CI baseline is
+  BROADLY FLAKY, not a fixed red set, so per-test quarantine is a moving target
+  and full-green was not reached in this change. The workflow is ADVISORY on the
+  PR path (`continue-on-error`) and the `schedule` cron stays COMMENTED (task
+  5.5), so nothing depends on a green run; the residual flakiness is tracked in
+  #683. Re-run the dispatch and keep un-quarantining specs as their fixes land.
+
 ## 5. Docs, skills, closeout
 
 - [x] 5.1 Delegate to `DocScribe`: `docs/faq.md` entry "E2E run refused: another harness is up" (override var, arithmetic); `docker/TESTING.md` guard + audit sections. Verify grep for `PI_HARNESS_ALLOW_OVERSUBSCRIBE` in `docs/faq.md` and `docker/TESTING.md`.
