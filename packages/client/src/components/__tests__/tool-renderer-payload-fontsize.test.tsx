@@ -98,9 +98,9 @@ describe("tool renderer code/diff payload — unified 12 px", () => {
     expect(styledNode).not.toBeNull();
   });
 
-  it("EditToolRenderer desktop (RichDiff path): wrapper has text-code + inline fontSize fallback", () => {
+  it("EditToolRenderer desktop (RichDiff path): wrapper has text-code + inline fontSize fallback", async () => {
     mockIsMobile = false;
-    const { getByTestId } = render(
+    const { findByTestId } = render(
       <EditToolRenderer
         toolName="edit"
         args={{ path: "file.ts", oldText: "a", newText: "b" }}
@@ -108,7 +108,8 @@ describe("tool renderer code/diff payload — unified 12 px", () => {
         context={ctx}
       />,
     );
-    const wrapper = getByTestId("rich-diff").parentElement;
+    // RichDiff is a lazy boundary now (change: add-lazy-terminal-diff-bootstrap).
+    const wrapper = (await findByTestId("rich-diff")).parentElement;
     expect(hasUnifiedFontSize(wrapper)).toBe(true);
   });
 

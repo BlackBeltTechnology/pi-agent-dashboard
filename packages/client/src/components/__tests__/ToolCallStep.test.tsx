@@ -1,7 +1,7 @@
 import { type ClaimEntry, createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { DemoToolRenderer } from "@blackbelt-technology/demo-plugin";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
@@ -589,7 +589,7 @@ describe("ToolCallStep lazy-mount — <RichDiff> only mounts when expanded", () 
   });
 
   // 6.2: After clicking the chevron, <RichDiff> appears in DOM
-  it("6.2 Clicking expand chevron mounts <RichDiff>", () => {
+  it("6.2 Clicking expand chevron mounts <RichDiff>", async () => {
     mockIsMobileForToolCallStep = false; // desktop
     const { container } = render(
       <ThemeProvider>
@@ -607,7 +607,9 @@ describe("ToolCallStep lazy-mount — <RichDiff> only mounts when expanded", () 
 
     // Click the summary button to expand
     fireEvent.click(container.querySelector("button")!);
-    expect(container.querySelector('[data-testid="rich-diff"]')).not.toBeNull();
+    // RichDiff is lazy now (change: add-lazy-terminal-diff-bootstrap) — await the
+    // chunk rather than asserting synchronously on the Suspense fallback.
+    await waitFor(() => expect(container.querySelector('[data-testid="rich-diff"]')).not.toBeNull());
   });
 
   it("renders the 'recovered' badge when the row was healed by supersede", () => {

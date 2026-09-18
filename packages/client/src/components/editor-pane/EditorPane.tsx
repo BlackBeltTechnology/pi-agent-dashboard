@@ -17,7 +17,7 @@
 import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import { mdiClose, mdiConsoleLine, mdiFileTreeOutline, mdiMagnify, mdiRefresh, mdiWeb } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import { grepContents } from "../../lib/api/grep-api.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { useRailWidth } from "../../lib/layout/rail-width.js";
@@ -26,16 +26,25 @@ import { stripTermId } from "../../lib/layout/use-terminal-pane-tabs.js";
 import { SplitDivider } from "../split/SplitDivider.js";
 import { useSplitWorkspace } from "../split/SplitWorkspaceContext.js";
 import { ChangedOnDiskBanner } from "./ChangedOnDiskBanner.js";
+import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { ChangesRailSection } from "./ChangesRailSection.js";
 import { EditorFileTree } from "./EditorFileTree.js";
 import { EditorSearchPanel } from "./EditorSearchPanel.js";
 import { EditorTabs } from "./EditorTabs.js";
-import { TerminalPaneLayer } from "./TerminalPaneLayer.js";
 import { useServerCapabilities } from "../../hooks/useServerCapabilities.js";
 import { CappedViewer } from "./CappedViewer.js";
 import { pseudoTabRegistry } from "./pseudo-tab-registry.js";
 import { isPseudoTabViewer, type OpenPathViewer } from "./viewer-kinds.js";
 import { TabActions, type TabActionTarget } from "./TabActions.js";
+
+/**
+ * Keep-alive terminal layer, deferred. `TerminalPaneLayer` pulls in
+ * `TerminalView` → `@xterm/*`; it must stay off the cold-landing graph, so it
+ * loads only once the pane has actually shown a `term:` tab.
+ *
+ * See change: add-lazy-terminal-diff-bootstrap (D2/D3).
+ */
+const TerminalPaneLayer = lazy(() => import("./TerminalPaneLayer.js").then((m) => ({ default: m.TerminalPaneLayer })));
 
 const absOf = (cwd: string, rel: string): string => (rel ? `${cwd}/${rel}` : cwd);
 
@@ -57,6 +66,7 @@ export function EditorPane() {
     changesRevealSignal,
     openDiffTab,
     terminal,
+    terminalLatched,
   } = useSplitWorkspace();
   const terminalTitle = useCallback(
     (id: string) => {
@@ -330,10 +340,36 @@ export function EditorPane() {
           {/* File viewer + keep-alive terminal layer share the body region.
               When a file tab is active the terminals are display:none; when a
               term tab is active `body` is the null placeholder and the layer's
-              active terminal fills. See change: terminals-in-tabbed-panes. */}
+              active terminal fills. See change: terminals-in-tabbed-panes.
+
+              The layer itself is DEFERRED (design D3): it is not rendered — and
+              therefore its xterm chunk is not fetched — until a `term:` tab has
+              been the active tab at least once in this page session (the sticky
+              provider-scoped `terminalLatched`). Rendering it unconditionally
+              would fetch xterm on every cold landing, because `React.lazy`
+              fires its import as soon as the component renders, even though
+              `TerminalPaneLayer` self-nulls on an empty terminal set.
+              See change: add-lazy-terminal-diff-bootstrap (D2/D3). */}
           <div className="min-h-0 flex-1 flex flex-col">
             {body}
-            <TerminalPaneLayer />
+            {terminalLatched && (
+              // ErrorBoundary guards the chunk-fetch FETCH phase: a failed
+              // `import()` rejects during render, and without a boundary React
+              // would unmount the whole tree (blank app). Contained here, the
+              // shell, tab strip and chat stay interactive.
+              // See change: add-lazy-terminal-diff-bootstrap (test-plan X1).
+              <ErrorBoundary
+                fallback={
+                  <div className="min-h-0 flex-1 p-3 text-xs text-[var(--text-tertiary)]">
+                    {t("editor.terminalLoadFailed", undefined, "Terminal failed to load.")}
+                  </div>
+                }
+              >
+                <Suspense fallback={<div className="min-h-0 flex-1" />}>
+                  <TerminalPaneLayer />
+                </Suspense>
+              </ErrorBoundary>
+            )}
           </div>
         </div>
       </div>

@@ -15,8 +15,7 @@
  * See change: cleanup-import-cycles (D3).
  */
 
-import type { ComponentType } from "react";
-import DiffViewer from "./DiffViewer.js";
+import { type ComponentType, lazy } from "react";
 import LiveServerViewer from "./LiveServerViewer.js";
 import type { ViewerProps } from "./types.js";
 import UrlViewer from "./UrlViewer.js";
@@ -28,6 +27,16 @@ import type { PseudoTabViewer } from "./viewer-kinds.js";
  * terminals-in-tabbed-panes), so the registry entry renders nothing.
  */
 const TerminalPlaceholder = (_p: ViewerProps) => null;
+
+/**
+ * `diff:` pseudo-tab viewer, deferred. A lazy entry here keeps the
+ * `DiffViewer` import off the cold graph while preserving the registry split
+ * this file exists to enforce (see header) — `EditorPane.tsx` already wraps the
+ * pseudo-tab render in a `<Suspense>`, so this entry adds NO new boundary.
+ *
+ * See change: add-lazy-terminal-diff-bootstrap (D4).
+ */
+const DiffViewer = lazy(() => import("./DiffViewer.js"));
 
 export const pseudoTabRegistry: Record<PseudoTabViewer, ComponentType<ViewerProps>> = {
   "live-server": LiveServerViewer,

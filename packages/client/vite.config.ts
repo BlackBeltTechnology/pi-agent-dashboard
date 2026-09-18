@@ -98,8 +98,15 @@ export default defineConfig({
               "@git-diff-view/file",
               "@git-diff-view/lowlight",
               "@git-diff-view/react",
-              "diff",
             ],
+            // npm `diff` (jsdiff) is a SEPARATE chunk from `@git-diff-view/*`.
+            // `lib/util/lineDelta.ts` imports `structuredPatch` on the always-hot
+            // chat path, so keeping it in the `diff` chunk would pin the whole
+            // git-diff-view family into the entry graph and defeat every lazy
+            // boundary below. Chunk key MUST NOT start with `diff` — the
+            // preload guard matches `/^diff-/` on the asset basename.
+            // See change: add-lazy-terminal-diff-bootstrap (D1).
+            "jsdiff": ["diff"],
             "xterm": [
               "@xterm/xterm",
               "@xterm/addon-attach",

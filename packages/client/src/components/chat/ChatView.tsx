@@ -8,7 +8,7 @@ import {
 import { mdiAlertCircleOutline, mdiCheck, mdiChevronDown, mdiChevronUp, mdiClose, mdiCommentQuestionOutline, mdiContentCopy, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
-import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { forwardRef, lazy, Suspense, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useActiveChatSelection } from "../../hooks/useActiveChatSelection.js";
 import { isDebugTool } from "../../hooks/useDebugToolsVisible.js";
 import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";
@@ -52,7 +52,6 @@ import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { CopyButton } from "../primitives/CopyButton.js";
 import { RetriedErrorBadge } from "../session/RetriedErrorBadge.js";
 import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
-import { InlineTerminalCard } from "../terminal/InlineTerminalCard.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 import { withDefaultFileLink } from "../tool-renderers/make-tool-context.js";
 import { BashOutputCard } from "./BashOutputCard.js";
@@ -66,7 +65,27 @@ import { RawEventCard } from "./RawEventCard.js";
 import { SkillInvocationCard } from "./SkillInvocationCard.js";
 import { ThinkingBlock } from "./ThinkingBlock.js";
 import { ToolBurstGroup } from "./ToolBurstGroup.js";
+import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { ToolCallStep } from "./ToolCallStep.js";
+
+/**
+ * Inline terminal card, deferred. A transcript with terminal history DOES fetch
+ * the terminal chunk during replay (design D3b — a deliberate scoped carve-out);
+ * a transcript without one never reaches `@xterm/*`. Card-LOCAL boundary so the
+ * transcript stays scrollable while the chunk loads.
+ *
+ * See change: add-lazy-terminal-diff-bootstrap (D2/D3b).
+ */
+const InlineTerminalCard = lazy(() => import("../terminal/InlineTerminalCard.js").then((m) => ({ default: m.InlineTerminalCard })));
+
+/** In-surface loading affordance for the inline terminal card. */
+function InlineTerminalCardFallback({ failed = false }: { failed?: boolean }) {
+  return (
+    <div className="rounded border border-[var(--border-secondary)] p-3 text-xs text-[var(--text-tertiary)]">
+      {failed ? "Terminal failed to load." : "Loading terminal…"}
+    </div>
+  );
+}
 
 interface Props {
   sessionId?: string;
@@ -1829,13 +1848,17 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         if (msg.role === "inlineTerminal") {
           const args = msg.args as any;
           return (
-            <InlineTerminalCard
-              key={msg.id}
-              terminalId={args?.terminalId ?? ""}
-              closed={args?.closed ?? false}
-              transcript={msg.content}
-              onClose={(tid) => onCloseInlineTerminal?.(tid)}
-            />
+            <ErrorBoundary fallback={<InlineTerminalCardFallback failed />}>
+              <Suspense fallback={<InlineTerminalCardFallback />}>
+                <InlineTerminalCard
+                  key={msg.id}
+                  terminalId={args?.terminalId ?? ""}
+                  closed={args?.closed ?? false}
+                  transcript={msg.content}
+                  onClose={(tid) => onCloseInlineTerminal?.(tid)}
+                />
+              </Suspense>
+            </ErrorBoundary>
           );
         }
 

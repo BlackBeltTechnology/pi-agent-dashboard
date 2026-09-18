@@ -3,7 +3,7 @@ import { inferPlatform, pathKey } from "@blackbelt-technology/pi-dashboard-share
 import { mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Redirect, Route, Switch, useLocation, useRoute, useSearch, useSearchParams } from "wouter";
 import { CanvasDriver } from "./components/canvas/CanvasDriver.js";
 import { ChatView, type ChatViewHandle } from "./components/chat/ChatView.js";
@@ -12,7 +12,6 @@ import { CommandInput } from "./components/chat/CommandInput.js";
 import { ConnectionStatusBanner } from "./components/connectivity/ConnectionStatusBanner.js";
 import { ServerSelector } from "./components/connectivity/ServerSelector.js";
 import { DirectorySettings, type DirectorySettingsPage } from "./components/DirectorySettings/DirectorySettings.js";
-import { FileDiffView } from "./components/diff/FileDiffView.js";
 import { SessionDiffProvider } from "./components/diff/SessionDiffContext.js";
 import { DirectoryHomeView } from "./components/folder/DirectoryHomeView.js";
 import { FolderEditorView } from "./components/folder/FolderEditorView.js";
@@ -182,6 +181,25 @@ import { PLUGIN_REGISTRY } from "./generated/plugin-registry.js";
 import { usePluginEnabledSet } from "./hooks/usePluginEnabledSet.js";
 import { registerPluginRouteDescriptors } from "./lib/nav/back-target.js";
 import { logRejection } from "./lib/report-error.js";
+
+/**
+ * Diff view, deferred. `FileDiffView` (and `@git-diff-view/*` beneath it) must
+ * not be in the cold-landing graph, so it loads on first render of either call
+ * site — each of which supplies its OWN `<Suspense>` boundary (a shared
+ * app-level boundary would blank the shell around `renderDiff`).
+ *
+ * See change: add-lazy-terminal-diff-bootstrap (D2).
+ */
+const FileDiffView = lazy(() => import("./components/diff/FileDiffView.js").then((m) => ({ default: m.FileDiffView })));
+
+/** In-surface loading affordance for both diff boundaries above. */
+function DiffRouteFallback({ failed = false }: { failed?: boolean }) {
+  return (
+    <div className="flex flex-1 items-center justify-center p-6 text-sm text-[var(--text-tertiary)]">
+      {failed ? "Diff failed to load." : "Loading diff…"}
+    </div>
+  );
+}
 
 // Populate the slot registry from the build-time generated plugin manifest.
 // PLUGIN_REGISTRY is `[]` on a fresh checkout (committed stub) — slot consumers
@@ -2240,7 +2258,11 @@ export default function App() {
           onBack={goBack}
         />
       ) : !frozen && diffMatch && diffSessionId ? (
-        <FileDiffView sessionId={diffSessionId} onBack={goBack} />
+        <ErrorBoundary fallback={<DiffRouteFallback failed />}>
+          <Suspense fallback={<DiffRouteFallback />}>
+            <FileDiffView sessionId={diffSessionId} onBack={goBack} />
+          </Suspense>
+        </ErrorBoundary>
       ) : (
         <SessionSplitView
           chat={
@@ -2587,7 +2609,16 @@ export default function App() {
     renderOpenSpecBoard: (cwd) => renderOpenSpecBoardView(cwd),
     renderArchive: (cwd) => <ArchiveBrowserView cwd={cwd} onBack={goBack} />,
     renderSpecs: (cwd) => <SpecsBrowserView cwd={cwd} onBack={goBack} />,
-    renderDiff: (sessionId) => <FileDiffView sessionId={sessionId} onBack={goBack} />,
+    // Own boundary: this callback's JSX renders INSIDE the shell, so without a
+    // local Suspense a suspension would escape upward and blank the shell
+    // chrome. See change: add-lazy-terminal-diff-bootstrap (D2).
+    renderDiff: (sessionId) => (
+      <ErrorBoundary fallback={<DiffRouteFallback failed />}>
+        <Suspense fallback={<DiffRouteFallback />}>
+          <FileDiffView sessionId={sessionId} onBack={goBack} />
+        </Suspense>
+      </ErrorBoundary>
+    ),
     renderPiResourceFile: (filePath, title) => (
       <PiResourceFileRoute filePath={filePath} title={title} onBack={goBack} />
     ),

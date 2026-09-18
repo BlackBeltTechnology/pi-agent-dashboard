@@ -46,9 +46,9 @@ afterEach(() => cleanup());
 
 describe("EditToolRenderer — viewport branching", () => {
   // 5.2: desktop + oldText/newText → <RichDiff>, no homegrown DiffView
-  it("desktop: renders <RichDiff> for oldText/newText args", () => {
+  it("desktop: renders <RichDiff> for oldText/newText args", async () => {
     mockIsMobile = false;
-    const { getAllByTestId, container } = render(
+    const { findAllByTestId, container } = render(
       <EditToolRenderer
         toolName="edit"
         args={{ path: "file.ts", oldText: "const a = 1;", newText: "const a = 2;" }}
@@ -56,7 +56,11 @@ describe("EditToolRenderer — viewport branching", () => {
         context={ctx}
       />,
     );
-    expect(getAllByTestId("rich-diff").length).toBe(1);
+    // RichDiff is a React.lazy boundary now (change:
+    // add-lazy-terminal-diff-bootstrap) — await the chunk instead of asserting
+    // synchronously on the Suspense fallback.
+    const diffs = await findAllByTestId("rich-diff");
+    expect(diffs.length).toBe(1);
     // homegrown diff renders .font-mono; should be absent on desktop
     expect(container.querySelectorAll("div.font-mono").length).toBe(0);
   });

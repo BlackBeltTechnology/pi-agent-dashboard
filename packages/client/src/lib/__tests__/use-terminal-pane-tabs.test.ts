@@ -257,15 +257,19 @@ const props = (over: Partial<FocusHarnessProps> = {}): FocusHarnessProps => ({
 });
 
 describe("useTerminalPaneTabs — terminal-focused entry one-shot", () => {
-  it("E1: focusOnMount:false is inert — auto-surface alone decides the active tab", () => {
-    // t1 is the NEWEST but sits first; auto-surface activates the LAST id (t2).
-    // If the one-shot ran it would activate t1, so active=t2 proves it did not.
+  it("E1: focusOnMount:false is inert — the one-shot activates nothing", () => {
+    // t1 is the NEWEST but sits first; the one-shot would activate t1. Since D3a
+    // (change: add-lazy-terminal-diff-bootstrap) auto-surface opens its tabs in
+    // the BACKGROUND, a correctly-inert one-shot leaves NO tab active. An active
+    // `term:t1` here would mean the one-shot fired.
     const { result, mocks } = focusHarness({
       terminals: [session("t1", { createdAt: 2000 }), session("t2", { createdAt: 1000 })],
       focusOnMount: false,
       terminalsReady: true,
     });
-    expect(activePath(result.current.paneState)).toBe("term:t2");
+    expect(activePath(result.current.paneState)).toBeUndefined();
+    // Both live terminals still get tabs — background, not dropped.
+    expect(openTerminalIds(result.current.paneState.openFiles).sort()).toEqual(["t1", "t2"]);
     expect(mocks.onCreateTerminal).not.toHaveBeenCalled();
     expect(mocks.onFocusConsumed).not.toHaveBeenCalled();
   });
@@ -333,6 +337,20 @@ describe("useTerminalPaneTabs — terminal-focused entry one-shot", () => {
     expect(mocks.onCreateTerminal).toHaveBeenCalledTimes(1);
     rerender(props({ terminals: [session("t1", { title: "zsh" })] }));
     expect(mocks.onCreateTerminal).toHaveBeenCalledTimes(1);
+    // The created terminal gets a tab…
+    expect(openTerminalIds(result.current.paneState.openFiles)).toEqual(["t1"]);
+    // …but this harness is the auto-surface (folder) path, so D3a opens it in the
+    // BACKGROUND rather than stealing focus.
+    expect(activePath(result.current.paneState)).toBeUndefined();
+  });
+
+  it("D3a: the session-split create path STILL activates the new terminal", () => {
+    // autoSurface:false is the session split — the user just asked for a
+    // terminal, so focusing it is correct. D3a's background dispatch is scoped to
+    // the auto-surface (folder) branch ONLY; this pins that boundary.
+    const { result, rerender, mocks } = focusHarness({ terminals: [], autoSurface: false });
+    expect(mocks.onCreateTerminal).toHaveBeenCalledTimes(1);
+    rerender(props({ terminals: [session("t1")] }));
     expect(activePath(result.current.paneState)).toBe("term:t1");
   });
 

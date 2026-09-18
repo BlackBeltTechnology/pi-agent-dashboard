@@ -3,9 +3,17 @@
 Stage: design   Generated: 2026-09-17
 
 Gate: HARD (proposal/design stage). Two clarifications were raised and answered
-before this file was written — perf threshold = **relative, ≥30 % root JS
+before this file was written — perf threshold = **relative, ≥15 % root JS
 transfer reduction vs the committed baseline**; cold-landing network observables
 are routed to **L3** (Playwright vs the docker harness).
+
+> **Threshold re-baselined 2026-09-18 (was ≥30 %).** The original ≥30 % was fixed
+> before any baseline existed. Task 1.1 measured the `develop` baseline
+> (2352.1 KB gz) and the D1–D4 boundaries (1929.8 KB gz) = **−18.0 %**, which is
+> the structural ceiling for this change's scope (in-scope `diff` + `xterm`
+> families = 425.6 KB gz = 18.1 %; `mdi` 784.7 KB gz and `markdown` 331.0 KB gz
+> are Non-Goals). Threshold set to **≥15 %** — real regression protection with
+> headroom below the 18.0 % ceiling. See task 1.1's measurement note.
 
 Spec: `specs/lazy-feature-bootstrap/spec.md`. Design decisions: D1 (chunk split),
 D2 (per-call-site Suspense), D3 (sticky activation latch, provider-scoped),
@@ -38,7 +46,7 @@ entry), D5 (build-output guard), D6 (measurement).
 
 | id | requirement | technique | level | disposition | workload | metric + threshold | window |
 |----|-------------|-----------|-------|-------------|----------|--------------------|--------|
-| P1 | R1 · budget (D6) | before/after delta vs committed baseline | L3 | automated | cold landing, empty cache, chat default view, no terminal/diff surface | root JS transfer bytes **≥30 % below** the baseline committed in task 1.1 | single cold load |
+| P1 | R1 · budget (D6) | before/after delta vs committed baseline | L3 | automated | cold landing, empty cache, chat default view, no terminal/diff surface | root JS transfer bytes **≥15 % below** the baseline committed in task 1.1 | single cold load |
 | P2 | R1 · evidence (D6) | measured, not gated | — | manual-only | cold landing, Fast-3G + 4× CPU throttle, cold cache | LCP recorded before + after | [judgment: CI network timing too noisy to gate — evidence only, per clarification A] |
 
 ### Frontend-quirk

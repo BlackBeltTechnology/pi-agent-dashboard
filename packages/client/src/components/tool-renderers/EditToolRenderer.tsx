@@ -1,9 +1,27 @@
-import React from "react";
+import React, { lazy, Suspense } from "react";
 import { createTwoFilesPatch } from "diff";
 import type { ToolRendererProps } from "./types.js";
 import { OpenFileButton } from "./OpenFileButton.js";
 import { useMobile } from "../../hooks/useMobile.js";
-import { RichDiff } from "../diff/RichDiff.js";
+import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
+/**
+ * Rich (git-diff-view) diff, deferred. Only the DESKTOP branch renders it — the
+ * mobile `HomegrownDiff` path uses npm `diff` and must stay chunk-free. Each
+ * render site wraps it in a renderer-local `<Suspense>` so a slow chunk does not
+ * blank the surrounding transcript.
+ *
+ * See change: add-lazy-terminal-diff-bootstrap (D2/D4).
+ */
+const RichDiff = lazy(() => import("../diff/RichDiff.js").then((m) => ({ default: m.RichDiff })));
+
+/** In-surface loading affordance for the rich-diff boundaries below. */
+function RichDiffFallback({ failed = false }: { failed?: boolean }) {
+  return (
+    <div className="p-2 text-xs text-[var(--text-tertiary)]">
+      {failed ? "Diff failed to load." : "Loading diff…"}
+    </div>
+  );
+}
 
 // --- Mobile-only diff renderer ---
 
@@ -138,7 +156,7 @@ export function EditToolRenderer({ args, status, result, toolDetails, context }:
         <div className="rounded bg-[var(--bg-code)] overflow-hidden text-code" style={{ fontSize: "12px" }}>
           {isMobile
             ? <HomegrownDiff oldText={oldText} newText={newText} filePath={filePath ?? "file"} />
-            : <RichDiff oldText={oldText} newText={newText} filePath={filePath ?? "file"} maxHeight="20rem" />}
+            : <ErrorBoundary fallback={<RichDiffFallback failed />}><Suspense fallback={<RichDiffFallback />}><RichDiff oldText={oldText} newText={newText} filePath={filePath ?? "file"} maxHeight="20rem" /></Suspense></ErrorBoundary>}
         </div>
       );
     }
@@ -151,7 +169,7 @@ export function EditToolRenderer({ args, status, result, toolDetails, context }:
             <div key={i} className={i > 0 ? "border-t border-[var(--border-secondary)]" : ""}>
               {isMobile
                 ? <HomegrownDiff oldText={edit.oldText} newText={edit.newText} filePath={filePath ?? "file"} />
-                : <RichDiff oldText={edit.oldText} newText={edit.newText} filePath={filePath ?? "file"} maxHeight="20rem" />}
+                : <ErrorBoundary fallback={<RichDiffFallback failed />}><Suspense fallback={<RichDiffFallback />}><RichDiff oldText={edit.oldText} newText={edit.newText} filePath={filePath ?? "file"} maxHeight="20rem" /></Suspense></ErrorBoundary>}
             </div>
           ))}
         </div>

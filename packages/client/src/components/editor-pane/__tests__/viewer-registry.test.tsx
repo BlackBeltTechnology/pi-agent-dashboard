@@ -7,7 +7,7 @@
  */
 
 import { cleanup, render, waitFor } from "@testing-library/react";
-import React from "react";
+import React, { Suspense } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../lib/api/api-context.js", () => ({ getApiBase: () => "" }));
@@ -253,3 +253,40 @@ type _NoOverlap = _AssertNever<Extract<(typeof OPEN_PATH_VIEWERS)[number],(typeo
     expect(compile('"monaco","image","diff"')).not.toBe(0);
   });
 }, 120_000);
+
+describe("lazy diff entry keeps the registry partition (terminal-lazy-bootstrap E9/E10)", () => {
+  const fs = require("node:fs") as typeof import("node:fs");
+  const path = require("node:path") as typeof import("node:path");
+  const dir = path.dirname(new URL(import.meta.url).pathname);
+
+  it("E9 · neither cycle-boundary half statically imports DiffViewer/DiffPanel", () => {
+    for (const file of ["viewer-registry.tsx", "CappedViewer.tsx"]) {
+      const src = fs.readFileSync(path.join(dir, "..", file), "utf8");
+      // Static imports only — the barrier is that NEITHER half pulls the diff
+      // viewer into the entry graph. A lazy/dynamic import would be fine.
+      const staticImports = [...src.matchAll(/(?:^|\n)\s*import\s[^;]*?from\s+"([^"]+)"/g)].map((m) => m[1]);
+      for (const spec of staticImports) {
+        expect(`${file}:${spec}`).not.toMatch(/DiffViewer|DiffPanel/);
+      }
+      expect(staticImports.length).toBeGreaterThan(0); // non-vacuous
+    }
+  });
+
+  it("E10 · key `diff` resolves to a RENDERABLE component (not an identity match)", async () => {
+    const DiffEntry = pseudoTabRegistry.diff;
+    expect(DiffEntry).toBeTruthy();
+    // Deliberately NOT `expect(DiffEntry).toBe(DiffViewer)` — the entry is a
+    // React.lazy wrapper now, so identity is expected to differ. Assert the
+    // thing that actually matters: rendering it produces the diff surface.
+    // No SessionDiffProvider here, so DiffViewer renders its fallback message —
+    // which only appears AFTER the lazy chunk resolves.
+    render(
+      <ThemeProvider>
+        <Suspense fallback={<div data-testid="diff-suspense" />}>
+          <DiffEntry cwd="/repo" path="diff:src/a.ts" kind="binary" mimeType="x" size={0} />
+        </Suspense>
+      </ThemeProvider>,
+    );
+    await waitFor(() => expect(document.body.textContent).toContain("Diff unavailable"));
+  });
+});

@@ -84,6 +84,22 @@ export interface SplitWorkspaceContextValue {
    * See change: terminals-in-tabbed-panes.
    */
   terminal: TerminalPaneTabs;
+  /**
+   * Sticky "the user has looked at a terminal" latch, provider-scoped so it
+   * survives the `EditorPane` unmount that a pane collapse causes
+   * (`SplitWorkspace.tsx:128`). Latches `true` the first time a `term:` tab is
+   * the ACTIVE tab and never resets while the provider lives; deliberately NOT
+   * persisted, so a fresh page load starts unlatched. `EditorPane` uses it to
+   * decide whether to mount the lazily-imported `TerminalPaneLayer`.
+   *
+   * Why sticky-on-activation rather than tab-existence: persisted `term:` tabs
+   * survive a reload and folder panes auto-surface every live terminal, so
+   * "a terminal tab is open" is already true on landing — and a `React.lazy`
+   * component fires its import as soon as it renders, even if it returns null.
+   *
+   * See change: add-lazy-terminal-diff-bootstrap (D3).
+   */
+  terminalLatched: boolean;
 }
 
 const SplitWorkspaceContext = createContext<SplitWorkspaceContextValue | null>(null);
@@ -167,6 +183,17 @@ export function SplitWorkspaceProvider({
     onFocusConsumed,
   });
   const [pendingScroll, setPendingScroll] = useState<PendingScroll | null>(null);
+
+  // Sticky terminal-activation latch (design D3). Set once, never cleared for
+  // the life of the provider — an un-sticky predicate would unmount the whole
+  // keep-alive layer (and every terminal WS) when the user switches to a file
+  // tab. Lives here, NOT in `EditorPane`, because a pane collapse unmounts
+  // `EditorPane` while this provider survives. Not persisted.
+  const [terminalLatched, setTerminalLatched] = useState(false);
+  const activeViewer = paneState.openFiles[paneState.activeIndex]?.viewer;
+  useEffect(() => {
+    if (activeViewer === "terminal") setTerminalLatched(true);
+  }, [activeViewer]);
 
   // Keep the persisted orientation in step with the responsive layout so a
   // reload on the same device restores a sensible divider axis.
@@ -299,8 +326,9 @@ export function SplitWorkspaceProvider({
       changedFiles,
       clearChanged,
       terminal,
+      terminalLatched,
     }),
-    [sessionId, cwd, split, updateSplit, setMode, paneState, dispatch, ensureRevealed, openInSplit, openLiveTarget, openUrlTarget, openDiffTab, openChanges, changesRevealSignal, pendingScroll, consumePendingScroll, fileResults, filenameSearch, changedFiles, clearChanged, terminal],
+    [sessionId, cwd, split, updateSplit, setMode, paneState, dispatch, ensureRevealed, openInSplit, openLiveTarget, openUrlTarget, openDiffTab, openChanges, changesRevealSignal, pendingScroll, consumePendingScroll, fileResults, filenameSearch, changedFiles, clearChanged, terminal, terminalLatched],
   );
 
   return <SplitWorkspaceContext.Provider value={value}>{children}</SplitWorkspaceContext.Provider>;

@@ -173,7 +173,14 @@ export function useTerminalPaneTabs({
     const live = new Set(idSig ? idSig.split("\u0000") : []);
     const { closePaths, openIds } = reconcileTerminalTabs(paneStateRef.current.openFiles, live, autoSurface);
     for (const path of closePaths) dispatch({ type: "closeByPath", path });
-    for (const id of openIds) dispatch({ type: "openFile", path: `${TERM_TAB_PREFIX}${id}`, viewer: "terminal" });
+    // Auto-surfaced tabs open in the BACKGROUND (`activate: false`, design D3a).
+    // Auto-surface is the folder pane's "show me my terminals" affordance, not a
+    // request to look at one: focusing it would latch the lazy terminal layer
+    // (D3) and fetch xterm on a cold landing, which is the whole point of this
+    // change. The tab still opens, unread-badged. The session-split
+    // "open the freshly created terminal" branch below KEEPS activating — there
+    // the user just asked for a terminal.
+    for (const id of openIds) dispatch({ type: "openFile", path: `${TERM_TAB_PREFIX}${id}`, viewer: "terminal", activate: false });
     // Session split: open the freshly-created terminal (a live id we had not
     // seen before and is not already tabbed) exactly once per create.
     if (!autoSurface && pendingCreateRef.current) {

@@ -7,10 +7,39 @@
  * See change: improve-content-editor (tasks §3.3).
  */
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../lib/api/api-context.js", () => ({ getApiBase: () => "" }));
+
+// Keep-alive contract instrumentation (change: add-lazy-terminal-diff-bootstrap).
+// `TerminalView` is the single mount point per terminal id, so count mounts AND
+// connect-effect runs — a remount or a WS reconnect regression must be
+// observable, not inferred from DOM shape.
+const tv = vi.hoisted(() => ({
+  mounts: {} as Record<string, number>,
+  connects: {} as Record<string, number>,
+}));
+
+vi.mock("../../terminal/TerminalView.js", async () => {
+  const React = await import("react");
+  return {
+    TerminalView: ({ terminalId, visible }: { terminalId: string; visible: boolean }) => {
+      // Count MOUNTS, not renders: an empty-dep effect re-runs only when the
+      // component instance is created again (i.e. a real remount). `connects`
+      // models the xterm WS connect effect, which must not re-run on a tab
+      // switch either.
+      React.useEffect(() => {
+        tv.mounts[terminalId] = (tv.mounts[terminalId] ?? 0) + 1;
+        tv.connects[terminalId] = (tv.connects[terminalId] ?? 0) + 1;
+      }, [terminalId]);
+      return React.createElement("div", {
+        "data-testid": `tv-${terminalId}`,
+        "data-visible": String(visible),
+      });
+    },
+  };
+});
 
 import { TREE_VISIBLE_KEY_PREFIX } from "../../../lib/util/tree-visible.js";
 import { SplitWorkspaceProvider, useSplitWorkspace } from "../../split/SplitWorkspaceContext.js";
@@ -28,6 +57,8 @@ function renderPane(sessionId = "s1") {
 
 beforeEach(() => {
   localStorage.clear();
+  tv.mounts = {};
+  tv.connects = {};
   globalThis.fetch = vi.fn(() =>
     Promise.resolve({ json: () => Promise.resolve({ success: true, data: { entries: [] } }) }),
   ) as unknown as typeof fetch;
@@ -65,6 +96,113 @@ describe("EditorPane — openChanges reveals the rail (collapse-diff-file-tree F
     // Rail revealed; no diff tab opened by openChanges itself.
     expect(screen.queryByTestId("rail-divider")).toBeTruthy();
     expect(screen.getByTestId("open-tabs").textContent).toBe("");
+  });
+});
+
+describe("EditorPane — terminal keep-alive contract (terminal-lazy-bootstrap E7/F6/F7)", () => {
+  function TerminalProbe() {
+    const { terminal, openInSplit, paneState, dispatch } = useSplitWorkspace();
+    return (
+      <>
+        <button type="button" data-testid="open-t1" onClick={() => terminal.openTerminal("t1")}>
+          open t1
+        </button>
+        <button type="button" data-testid="open-t2" onClick={() => terminal.openTerminal("t2")}>
+          open t2
+        </button>
+        <button type="button" data-testid="open-f1" onClick={() => openInSplit("f1.md")}>
+          open f1
+        </button>
+        <button
+          type="button"
+          data-testid="bg-term"
+          onClick={() => dispatch({ type: "openFile", path: "term:tbg", viewer: "terminal", activate: false })}
+        >
+          background terminal
+        </button>
+        <button
+          type="button"
+          data-testid="activate-t1"
+          onClick={() => {
+            const i = paneState.openFiles.findIndex((f) => f.path === "term:t1");
+            if (i >= 0) dispatch({ type: "setActive", index: i });
+          }}
+        >
+          activate t1
+        </button>
+        <button
+          type="button"
+          data-testid="close-t1"
+          onClick={() => dispatch({ type: "closeByPath", path: "term:t1" })}
+        >
+          close t1
+        </button>
+      </>
+    );
+  }
+
+  function renderKeepAlive(sessionId = "sKeep") {
+    return render(
+      <SplitWorkspaceProvider sessionId={sessionId} cwd="/proj" orientation="h">
+        <EditorPane />
+        <TerminalProbe />
+      </SplitWorkspaceProvider>,
+    );
+  }
+
+  it("E7 · mounts exactly one TerminalView per terminal id", async () => {
+    renderKeepAlive("sE7");
+    fireEvent.click(screen.getByTestId("open-t1"));
+    fireEvent.click(screen.getByTestId("open-t2"));
+    await screen.findByTestId("tv-t1");
+    await screen.findByTestId("tv-t2");
+
+    expect(tv.mounts.t1).toBe(1);
+    expect(tv.mounts.t2).toBe(1);
+    expect(screen.getAllByTestId(/^tv-/)).toHaveLength(2);
+  });
+
+  it("F6 · keep-alive across a tab switch: no remount, no reconnect", async () => {
+    renderKeepAlive("sF6");
+    fireEvent.click(screen.getByTestId("open-t1"));
+    await screen.findByTestId("tv-t1");
+    expect(tv.mounts.t1).toBe(1);
+    expect(tv.connects.t1).toBe(1);
+
+    // Away to a file tab…
+    fireEvent.click(screen.getByTestId("open-f1"));
+    // …and back to the terminal.
+    fireEvent.click(screen.getByTestId("activate-t1"));
+    await screen.findByTestId("tv-t1");
+
+    expect(tv.mounts.t1).toBe(1);
+    expect(tv.connects.t1).toBe(1);
+  });
+
+  it("F7 · closing the terminal tab unmounts its TerminalView", async () => {
+    renderKeepAlive("sF7");
+    fireEvent.click(screen.getByTestId("open-t1"));
+    await screen.findByTestId("tv-t1");
+    expect(tv.mounts.t1).toBe(1);
+
+    fireEvent.click(screen.getByTestId("close-t1"));
+    await waitFor(() => expect(screen.queryByTestId("tv-t1")).toBeNull());
+  });
+
+  it("D3 · a BACKGROUND terminal tab does not mount the layer (no xterm fetch on landing)", async () => {
+    renderKeepAlive("sD3");
+    // A background `term:` tab is exactly the reload-with-persisted-tab and the
+    // folder auto-surface case. It must NOT latch, so the lazy terminal chunk is
+    // never requested. Against the pre-change unconditional render this FAILS
+    // (the layer mounts a TerminalView for the open tab), which is what makes
+    // this test a genuine gate on D3 rather than a restatement of "no terminal
+    // tab, no terminal".
+    fireEvent.click(screen.getByTestId("bg-term"));
+    // Deterministic flush of pending React work (the repo bans bare-resolve
+    // setTimeout barriers — see scripts/check-fixed-tick-waits.mjs).
+    await act(async () => {});
+    expect(screen.queryByTestId(/^tv-/)).toBeNull();
+    expect(tv.mounts.tbg).toBeUndefined();
   });
 });
 
