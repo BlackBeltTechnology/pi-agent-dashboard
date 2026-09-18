@@ -1,0 +1,40 @@
+[dashboard] endpoint ws+unix:///Users/robson/.pi/dashboard/gateway-9999.sock:/ (source=PI_DASHBOARD_SOCKET pinned=true)
+[dashboard] sendFlowsList: 0 flows, sessionId=01a0a224
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+A change to `packages/server/src` reaches the running server by triggering a server restart, which causes Node to re-execute the TypeScript sources directly from disk through the `jiti` runtime loader.
+
+### 1. Direct Execution via `jiti` (No Build Step)
+The dashboard server has no compile or bundle step for its backend code. When launched (via `bin/pi-dashboard.mjs` or `cli.ts`), Node runs with `--import <jiti-url>`, where `jiti` transpiles TypeScript files in memory on import.
+
+Because Node caches loaded modules in memory, edits to `.ts` files on disk do not automatically hot-reload into the running Node process.
+
+### 2. The Restart Trigger
+To pick up changes, you issue a restart command:
+```bash
+curl -X POST http://localhost:8000/api/restart
+# or: pi-dashboard restart
+```
+`pi-dashboard restart` delegates to `POST /api/restart` when the server is reachable.
+
+### 3. The Orchestration Mechanism
+Inside `packages/server/src/routes/system-routes.ts`, the `/api/restart` handler coordinates a zero-race process replacement:
+
+1. **State Preservation**: Calls `recordExitIntent("restart")` so surviving sessions are not flagged as crashed on reboot, then flushes `metaPersistence` and `preferencesStore`.
+2. **Bridge Quiesce Broadcast**: Sends a `server_restarting` WebSocket broadcast with a 5-second quiesce window (`RESTART_QUIESCE_MS`) to connected pi bridge extensions, instructing them to suppress automatic server-spawn attempts during the transition.
+3. **Detached Orchestrator**: Calls `spawnRestart()` (`packages/server/src/spawn-process/restart-helper.ts`), which spawns an independent, detached Node subprocess (`node -e "..."`).
+4. **Current Process Exit**: The existing server process calls `process.exit(0)` after 200 ms.
+5. **Port Polling & Re-exec**: The detached orchestrator polls the server port using `net.createConnection` until the old process exits and frees the socket. It then spawns the new server process with the same CLI path (`process.argv[1]`), preserved flags (e.g. `--port`, `--pi-port`, `--dev`), and Node loader arguments (`--import <jiti-url>`).
+6. **Fresh Loading**: As the new Node process boots `packages/server/src/cli.ts` and its dependency graph, `jiti` reads and compiles the modified TypeScript files directly from disk.
+7. **Health Verification**: The orchestrator polls `GET /api/health` until the replacement process reports ready.

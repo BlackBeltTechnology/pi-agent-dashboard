@@ -1,0 +1,21 @@
+[dashboard] endpoint ws+unix:///Users/robson/.pi/dashboard/gateway-9999.sock:/ (source=PI_DASHBOARD_SOCKET pinned=true)
+[dashboard] sendFlowsList: 0 flows, sessionId=01a0a25b
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+This proposal fixes a bug where completed worktree sessions lose their parent repository grouping and display as standalone top-level folder cards in the dashboard sidebar.
+
+### Root Cause
+When tools such as `ship-it` run `git worktree remove` from inside a session's working directory (`cwd`), the `.git` pointer file disappears while residual build artifacts remain.
+During the next git poll, the bridge inspects the residual directory, finds no linked worktree, and emits `git_info_update` with `gitWorktree: null`.
+The server cleared `session.gitWorktree` upon receiving that payload.
+When the session closed, `sessionToMeta()` wrote `.meta.json` without worktree metadata, permanently stranding the session under its own `cwd` on subsequent restarts.
+
+### Core Changes
+- **Immutable parentage guard:** `composeWorktreePayload` in `packages/server/src/git-worktree/git-worktree-compose.ts` now inspects the session's prior `gitWorktree` state. An incoming wire `null` is ignored if worktree parentage was already resolved for that session.
+- **Session reattach preservation:** `MemorySessionManager.register()` in `packages/server/src/session/memory-session-manager.ts` now retains `gitWorktree` across session re-registrations whenever `existing.cwd === params.cwd`.
+- **Read-time cold-start repair:** `packages/server/src/session/session-scanner.ts` dynamically synthesizes `{ mainPath: X, name }` when loading persisted sessions whose `cwd` matches `<X>/.worktrees/<name>` and `<X>/.git` exists on disk.
+
+### Scope & Impact
+- Implementation was strictly server-side across `git-worktree-compose.ts`, `event-wiring.ts`, `memory-session-manager.ts`, and `session-scanner.ts`.
+- The wire protocol shape, `.meta.json` format, client UI, and extension behavior remained unchanged.
+- The cold-start scanner healed 57 existing orphaned worktree sessions upon server restart without rewriting metadata files.

@@ -1,0 +1,48 @@
+[dashboard] endpoint ws+unix:///Users/robson/.pi/dashboard/gateway-9999.sock:/ (source=PI_DASHBOARD_SOCKET pinned=true)
+[dashboard] sendFlowsList: 0 flows, sessionId=01a0a237
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+Changes to files under `packages/server/src/` reach the running dashboard server by triggering a server restart via `POST /api/restart`.
+
+The exact mechanism works in four phases:
+
+### 1. In-Memory TypeScript Execution via `jiti` (No Build Step)
+* The dashboard server does not compile TypeScript to disk before running.
+* Node executes `packages/server/src/cli.ts` directly via the module loader hook `--import <jiti-url>`.
+* `jiti` resolves, transpiles, and caches TypeScript files on-the-fly into process memory when imported.
+* Because imported modules stay cached in the Node process memory, code edits on disk do not hot-reload automatically while the server process runs.
+
+### 2. Triggering the Reload
+* You trigger a restart by calling the REST endpoint:
+  ```bash
+  curl -X POST http://localhost:8000/api/restart
+  ```
+  *(Or via the CLI `pi-dashboard restart`, which probes the port and delegates to `/api/restart`)*.
+
+### 3. Graceful Teardown and Quiesce
+When `/api/restart` handles the request in `packages/server/src/routes/system-routes.ts`:
+1. **Exit intent & state flush**: It writes `recordExitIntent("restart")`, flushes session state via `metaPersistence.flushAll()`, and flushes `preferencesStore.flush()`.
+2. **Quiesce broadcast**: It broadcasts a `server_restarting` message over WebSocket with `quiesceMs` (5000ms) to connected pi bridge sessions and browser clients. This prevents connected bridge extensions from attempting immediate auto-reconnects or racing new spawns.
+3. **Tunnel cleanup**: It tears down active zrok tunnels to avoid port collisions.
+
+### 4. Detached Orchestrator Hand-off (`packages/server/src/spawn-process/restart-helper.ts`)
+1. **Spawns detached supervisor**: The server runs `spawnRestart()`, which starts a detached Node script (`node -e`) independent of the parent process.
+2. **Parent exit**: The running server exits with `process.exit(0)`.
+3. **Process termination & port drain**: The orchestrator checks `dashboard.pid`, terminates any lingering prior daemon (`SIGTERM` → `SIGKILL`), and polls the TCP port with `net.createConnection` until it is free.
+4. **Spawns new server with `jiti`**: The orchestrator spawns a new Node process passing identical runtime arguments (`--import <jiti-url>`, `cli.ts`, `--port`, `--pi-port`, and optional flags like `--dev`).
+5. **Fresh module evaluation**: The new process boots and `jiti` reads and compiles the modified `.ts` files on disk.
+6. **Health polling & client reconnect**: The orchestrator polls `http://localhost:<port>/api/health` until HTTP 200 is returned (up to 15s in production, 60s in dev mode). Connected bridge extensions and web clients reconnect to the fresh server over WebSocket.

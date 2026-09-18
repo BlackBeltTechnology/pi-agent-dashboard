@@ -1,0 +1,77 @@
+[dashboard] endpoint ws+unix:///Users/robson/.pi/dashboard/gateway-9999.sock:/ (source=PI_DASHBOARD_SOCKET pinned=true)
+[dashboard] sendFlowsList: 0 flows, sessionId=01a0a300
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The `SessionCard` status badge is rendered in Line 1 of `packages/client/src/components/session/SessionCard.tsx` as a status chip containing the source icon and an overlaid `StatusShapeBadge`, with its color derived in `packages/client/src/lib/session/session-status-visuals.ts`.
+
+### Exact Files
+
+- **Rendering**: `packages/client/src/components/session/SessionCard.tsx`
+- **Color and shape derivation**: `packages/client/src/lib/session/session-status-visuals.ts`
+- **Theme color tokens**: `packages/client/src/lib/theme/themes.ts` and `packages/client/src/index.css`
+
+---
+
+### Where It Is Rendered
+
+In `packages/client/src/components/session/SessionCard.tsx`:
+
+- **Desktop view** (lines 846–854):
+  ```tsx
+  <span
+    className={`relative inline-flex flex-shrink-0 items-center justify-center w-4 h-4 rounded-full bg-[var(--bg-tertiary)] shadow-sm ${iconStatusColor}`}
+    data-testid="session-status-icon"
+    data-status-shape={statusShape}
+    title={`${sourceLabels[session.source] ?? session.source} — ${session.status}`}
+  >
+    <Icon path={sourceIcons[session.source] ?? mdiConsoleLine} size={0.45} />
+    <StatusShapeBadge shape={statusShape} colorClass={iconStatusColor} />
+  </span>
+  ```
+- **Mobile view** (lines 683–691):
+  ```tsx
+  <span
+    className={`relative flex-shrink-0 ${iconStatusColor}`}
+    title={`${sourceLabels[session.source] ?? session.source} — ${session.status}`}
+    data-testid="session-status-icon"
+    data-status-shape={statusShape}
+  >
+    <Icon path={sourceIcons[session.source] ?? mdiConsoleLine} size={0.5} />
+    <StatusShapeBadge shape={statusShape} colorClass={iconStatusColor} />
+  </span>
+  ```
+- **`StatusShapeBadge`** definition (lines 119–131):
+  Renders the shape glyph icon (`statusShapeIcon[shape]`) in an absolute corner badge using `colorClass` (`iconStatusColor`).
+
+---
+
+### How Its Color Is Chosen
+
+The color is derived in two steps:
+
+1. **`deriveDotColorWithFlags(session, flags)`** in `packages/client/src/lib/session/session-status-visuals.ts` (lines 100–111) computes the base background token by strict precedence:
+   - `flags.hasError` → `"bg-[var(--status-error)]"`
+   - `isChatRoutedAskUser(session, flags.hasWidgetBarPrompt)` (`currentTool === "ask_user"` when alive and not in a widget bar) → `"bg-[var(--status-needs-you)]"`
+   - `session.resuming` → `"bg-[var(--status-working)] animate-pulse"`
+   - `flags.isRetrying` → `"bg-[var(--status-working)] animate-pulse"`
+   - `flags.hasNotice` → `"bg-[var(--status-notice)]"`
+   - `statusColors[session.status]` map:
+     - `streaming` → `"bg-[var(--status-working)] animate-pulse"`
+     - `active` / `idle` → `"bg-[var(--status-idle)]"`
+     - `ended` → `"bg-[var(--bg-surface)]"`
+     - fallback → `"bg-[var(--bg-surface)]"`
+
+2. **`deriveIconStatusColor(dotColor, status)`** in `packages/client/src/lib/session/session-status-visuals.ts` (lines 124–135) transforms the background class into text color:
+   - If `status === "ended"` and `dotColor` starts with `"bg-[var(--bg-surface)]"`, it returns `"text-[var(--text-muted)]"`.
+   - Otherwise, it replaces the leading `bg-` prefix with `text-` (e.g. `"text-[var(--status-working)] animate-pulse"`), which colors the icon and shape badge.
+
+Theme CSS variables (`--status-needs-you`, `--status-working`, `--status-idle`, `--status-error`, `--status-notice`) resolve in `packages/client/src/lib/theme/themes.ts` to `--accent-purple`, `--accent-yellow`, `--accent-green`, `--accent-red`, and `--accent-blue`.

@@ -1,6 +1,6 @@
 # DOX — scripts/ab-context
 
-A/B behavior harness measuring whether trimming per-turn context injections (root `AGENTS.md`, tool schemas) changes agent behavior — framed as a non-inferiority test (arm B trimmed vs arm A full). Driven by the global `ab-test-context-injections` skill. Runtime outputs (`runs/`, `runs-calibration/`, `rows*.jsonl`, `report*.txt`, `paired-report.txt`, `*.log`) are gitignored via the local `.gitignore`. One row per tracked source file.
+A/B behavior harness measuring whether trimming per-turn context injections (root `AGENTS.md`, tool schemas) changes agent behavior — framed as a non-inferiority test (arm B trimmed vs arm A full). Driven by the global `ab-test-context-injections` skill. Runtime outputs (`runs/`, `runs-calibration/`, `rows*.jsonl`, `report*.txt`, `paired-report.txt`, `*.log`) are gitignored via the local `.gitignore`. Exception: `runs-plain-language/` is committed — retained transcripts of the plain-language battery, kept as a reference corpus. One row per tracked source file.
 
 | File | Purpose |
 |------|---------|
