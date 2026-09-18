@@ -127,6 +127,7 @@
       "includes": [
         "examples/**",
         "openspec/changes/**/spike/**",
+        "openspec/changes/**/mockup/**",
         ".pi/flows/**",
         "tests/e2e/**",
         "qa/scripts/**",

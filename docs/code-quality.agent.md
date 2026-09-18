@@ -39,7 +39,7 @@ Pull-only condensed map. Source: docs/code-quality.md. Rule → severity tier + 
 
 ## Overrides
 - `__tests__/**` + `*.test.{ts,tsx}` → noExplicitAny off. noConsole never enabled.
-- noUndeclaredDependencies off — tests; build/config (`**/vitest.config.ts`, `**/vite.config.ts`, `**/forge.config.ts`, `packages/*/scripts/**`); non-published (`examples/**`, `openspec/changes/**/spike/**`, `.pi/flows/**`, `tests/e2e/**`, `qa/scripts/**`, `.pi/skills/**/scripts/**`).
+- noUndeclaredDependencies off — tests; build/config (`**/vitest.config.ts`, `**/vite.config.ts`, `**/forge.config.ts`, `packages/*/scripts/**`); non-published (`examples/**`, `openspec/changes/**/spike/**`, `openspec/changes/**/mockup/**`, `.pi/flows/**`, `tests/e2e/**`, `qa/scripts/**`, `.pi/skills/**/scripts/**`).
 
 ## Blind spot — undeclared deps in test files
 - Override silences 911 of 965 probe sites (891 `from "vitest"`). Zero under real config ≠ clean tree.
