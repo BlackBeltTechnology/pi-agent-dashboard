@@ -24,6 +24,8 @@ export interface SeamSession {
   id: string;
   cwd?: string;
   status?: string;
+  /** Transcript path, present when the session is resumable (`mode: continue`). */
+  sessionFile?: string;
 }
 
 export interface SeamSpawnOptions {
@@ -34,6 +36,8 @@ export interface SeamSpawnOptions {
   /** Plugin-owned ref the host merges onto the session; the correlation payload. */
   pluginRef?: Record<string, unknown>;
   initialPrompt?: string;
+  /** Resume a prior pi session instead of creating a fresh one (task 4.3). */
+  resume?: { sessionFile: string };
   /** Additive extension allowlist (the L3 tool guard rides here). */
   extensions?: string[];
   /**
@@ -58,8 +62,16 @@ export interface HostSeam {
   spawn(opts: SeamSpawnOptions): Promise<SpawnOutcome>;
   /** Live sessions, for the attach-to-existing source. */
   listSessions(): SeamSession[];
+  /**
+   * Any registered session by id — active OR ended. The ended case is the
+   * `resume(continue)` transition: a persisted binding whose session ended can
+   * be resumed from its `sessionFile` (task 4.3).
+   */
+  getSession(id: string): SeamSession | undefined;
   /** Mint a fresh spawn-correlation token. */
   mintSpawnToken(): string;
+  /** Persist the plugin allowlist after a successful pairing redemption. */
+  persistAllowlist(ids: string[]): void;
   /** Subscribe to resolution of THIS plugin's own spawned sessions. */
   onSessionResolved(handler: (sessionId: string, pluginRef: Record<string, unknown>) => void): () => void;
   log(level: "info" | "warn" | "error", message: string): void;
@@ -74,6 +86,7 @@ function sessionShape(raw: unknown): SeamSession | null {
     id,
     cwd: typeof r.cwd === "string" ? r.cwd : undefined,
     status: typeof r.status === "string" ? r.status : undefined,
+    sessionFile: typeof r.sessionFile === "string" ? r.sessionFile : undefined,
   };
 }
 
@@ -116,6 +129,7 @@ export function createHostSeam(ctx: ServerPluginContext): HostSeam {
         spawnToken: opts.spawnToken,
         pluginRef: opts.pluginRef,
         initialPrompt: opts.initialPrompt,
+        resume: opts.resume,
         scope:
           opts.extensions || opts.extensionConfig
             ? { extensions: opts.extensions, extensionConfig: opts.extensionConfig }
@@ -131,7 +145,16 @@ export function createHostSeam(ctx: ServerPluginContext): HostSeam {
       }
       return out;
     },
+    getSession(id) {
+      const s = sessionShape(ctx.sessionManager.getSession(id));
+      return s ?? undefined;
+    },
     mintSpawnToken: () => ctx.mintSpawnToken(),
+    persistAllowlist(ids) {
+      void Promise.resolve(ctx.updatePluginConfig({ allowlist: ids })).catch((err) =>
+        ctx.logger.warn(`chat-gateway: could not persist allowlist: ${String(err)}`),
+      );
+    },
     onSessionResolved(handler) {
       return ctx.onSessionResolved(handler);
     },

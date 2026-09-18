@@ -10,8 +10,8 @@
  */
 
 import {
-  CONFIG_DEFAULTS,
   type ChatGatewayConfig,
+  CONFIG_DEFAULTS,
   type ResolvedConfig,
 } from "../shared/types.js";
 

@@ -68,6 +68,7 @@
     "discord.js": "^14.27.0"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.1.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "react": "^19.0.0",

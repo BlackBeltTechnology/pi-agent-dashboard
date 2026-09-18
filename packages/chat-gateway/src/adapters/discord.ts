@@ -23,18 +23,18 @@ import {
   Client,
   Events,
   GatewayIntentBits,
+  type Interaction,
+  type Message,
   ModalBuilder,
   Partials,
+  type SendableChannels,
   StringSelectMenuBuilder,
   TextInputBuilder,
   TextInputStyle,
-  type Interaction,
-  type Message,
-  type SendableChannels,
 } from "discord.js";
 import {
-  BaseAdapter,
   type AdapterCallbacks,
+  BaseAdapter,
   type InteractivePrompt,
   type PlatformConfig,
   type PlatformMessage,
@@ -42,9 +42,9 @@ import {
 import {
   chunkForDiscord,
   customIdFor,
+  type DiscordControlSpec,
   parseCustomId,
   toDiscordControl,
-  type DiscordControlSpec,
 } from "./discord-payload.js";
 
 export interface DiscordAdapterConfig extends PlatformConfig {

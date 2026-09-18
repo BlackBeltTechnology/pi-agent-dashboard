@@ -46,11 +46,18 @@ export function authorize(input: AuthorizeInput): AuthDecision {
   return { allowed: true, reason: "authorized" };
 }
 
-export interface PairingState {
+interface PairingState {
   code: string;
   expiresAt: number;
   attempts: number;
   locked: boolean;
+}
+
+export interface Pairing {
+  state(): Readonly<PairingState>;
+  currentCode(): string;
+  /** Redeem a code. Consumes it on success; locks out after maxAttempts. */
+  attempt(code: string): boolean;
 }
 
 const DEFAULT_TTL_MS = 15 * 60_000;
@@ -64,11 +71,7 @@ export function createPairing(opts: {
   now?: () => number;
   ttlMs?: number;
   maxAttempts?: number;
-}): {
-  state(): Readonly<PairingState>;
-  currentCode(): string;
-  attempt(code: string): boolean;
-} {
+}): Pairing {
   const now = opts.now ?? Date.now;
   const ttlMs = opts.ttlMs ?? DEFAULT_TTL_MS;
   const maxAttempts = opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;

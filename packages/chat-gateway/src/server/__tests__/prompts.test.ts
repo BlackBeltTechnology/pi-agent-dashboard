@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   batchToSequence,
   composeBatchAnswer,
+  composeBatchAnswers,
+  composeMultiselectAnswer,
   multiselectToSequence,
   toPromptControl,
 } from "../prompts.js";
@@ -174,5 +176,21 @@ describe("batchToSequence / composeBatchAnswer (F4)", () => {
 
   it("out-of-range index yields an empty value, never throws", () => {
     expect(composeBatchAnswer(9, ["a"])).toEqual({ index: 9, value: "" });
+  });
+});
+
+describe("composeMultiselectAnswer / composeBatchAnswers (7.2)", () => {
+  it("multiselect keeps only the toggled-yes options, as JSON values", () => {
+    expect(composeMultiselectAnswer(["a", "b", "c"], [true, false, true])).toBe('["a","c"]');
+  });
+
+  it("empty multiselect encodes as [] (distinct from cancellation)", () => {
+    expect(composeMultiselectAnswer(["a"], [false])).toBe("[]");
+    expect(composeMultiselectAnswer([], [])).toBe("[]");
+  });
+
+  it("batch encodes index-aligned answers as JSON", () => {
+    expect(composeBatchAnswers(["Ada", "blue"])).toBe('["Ada","blue"]');
+    expect(composeBatchAnswers([])).toBe("[]");
   });
 });

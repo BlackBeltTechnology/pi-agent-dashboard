@@ -85,7 +85,16 @@ export default async function registerChatGateway(ctx: ServerPluginContext): Pro
   });
 
   await gateway.start();
+
+  // Read-only bindings + status surface for the settings panel (task 10.1).
+  // Registered only once configured + started, so an inert install exposes
+  // nothing (task 1.3).
+  ctx.fastify.get("/api/chat-gateway/bindings", async () => ({
+    bindings: store.all(),
+    status: gateway.status(),
+  }));
+
   ctx.logger.info(
-    `chat-gateway: started (${store.all().length} bound channel(s), allowedRoots=${config.allowedRoots.length})`,
+    `chat-gateway: started (${store.all().length} bound channel(s), allowedRoots=${config.allowedRoots.length}); pairing code available in Settings`,
   );
 }

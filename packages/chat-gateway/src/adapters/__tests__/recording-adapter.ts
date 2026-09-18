@@ -9,8 +9,8 @@
  */
 
 import {
-  BaseAdapter,
   type AdapterCallbacks,
+  BaseAdapter,
   type InteractivePrompt,
   type InteractiveResponse,
   type PlatformConfig,

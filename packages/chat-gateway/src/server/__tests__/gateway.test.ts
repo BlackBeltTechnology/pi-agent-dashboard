@@ -13,8 +13,8 @@ import { RecordingAdapter } from "../../adapters/__tests__/recording-adapter.js"
 import type { Binding } from "../../shared/types.js";
 import { resolveConfig } from "../config.js";
 import { createChatGateway } from "../gateway.js";
-import { createSpawnCorrelator } from "../routing.js";
 import type { BindingStore } from "../routing.js";
+import { createSpawnCorrelator } from "../routing.js";
 import { createFakeSeam } from "./fake-seam.js";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -367,5 +367,285 @@ describe("chat-gateway orchestrator", () => {
     expect(seam.sentResponses).toEqual([
       { sessionId: "s1", response: { promptId: "p1", answer: "b", cancelled: false, source: "discord" } },
     ]);
+  });
+
+  it("4.3 resume: an ended bound session is continued from its transcript", async () => {
+    const seam = createFakeSeam();
+    // Session s1 is registered but ENDED, with a transcript on disk (host-recorded).
+    seam.endedSessions = [
+      { id: "s1", cwd: "/repos/proj", status: "ended", sessionFile: "/home/pi/.pi/s1.jsonl" },
+    ];
+    const { gateway, adapter } = makeGateway({
+      seam,
+      store: memoryStore([boundBinding()]),
+    });
+
+    await gateway.handleInbound({
+      platform: "discord",
+      channelId: "c1",
+      userId: "u1",
+      text: "keep going",
+      isDM: true,
+      startedAt: 0,
+    });
+
+    expect(seam.spawns).toHaveLength(1);
+    expect(seam.spawns[0].resume).toEqual({ sessionFile: "/home/pi/.pi/s1.jsonl" });
+    expect(seam.spawns[0].cwd).toBe("/repos/proj");
+    expect(seam.sentPrompts).toEqual([]);
+    expect(adapter.sent[0].content).toMatch(/resuming/i);
+  });
+
+  it("4.3 resume: an ended session whose cwd left allowedRoots is refused, no spawn", async () => {
+    const seam = createFakeSeam();
+    seam.endedSessions = [
+      { id: "s1", cwd: "/outside", status: "ended", sessionFile: "/home/pi/.pi/s1.jsonl" },
+    ];
+    const { gateway, adapter } = makeGateway({
+      seam,
+      store: memoryStore([boundBinding({ cwd: "/outside" })]),
+    });
+
+    await gateway.handleInbound({
+      platform: "discord",
+      channelId: "c1",
+      userId: "u1",
+      text: "hi",
+      isDM: true,
+      startedAt: 0,
+    });
+
+    expect(seam.spawns).toHaveLength(0);
+    expect(adapter.sent[0].content).toContain("allowedRoots");
+  });
+
+  it("4.3 502: a live-but-disconnected session is NOT resumed and surfaces unreachable", async () => {
+    const seam = createFakeSeam();
+    // Registered but neither live nor ended -> no bridge connection (X1).
+    seam.endedSessions = [{ id: "s1", cwd: "/repos/proj", status: "active" }];
+    const { gateway, adapter } = makeGateway({
+      seam,
+      store: memoryStore([boundBinding()]),
+    });
+
+    await gateway.handleInbound({
+      platform: "discord",
+      channelId: "c1",
+      userId: "u1",
+      text: "hi",
+      isDM: true,
+      startedAt: 0,
+    });
+
+    expect(seam.spawns).toHaveLength(0);
+    expect(adapter.sent[0].content).toMatch(/unreachable/i);
+  });
+
+  it("7.2/F3: multiselect sequences toggles then submits JSON values as ONE response", async () => {
+    const { gateway, seam, adapter } = makeGateway({ store: memoryStore([boundBinding()]) });
+    seam.sessions = [{ id: "s1", cwd: "/repos/proj" }];
+    adapter.reset();
+    await gateway.start();
+
+    gateway.handleFrame("s1", {
+      type: "prompt_request",
+      sessionId: "s1",
+      promptId: "pm1",
+      prompt: { type: "multiselect", title: "Pick many", options: ["a", "b"] },
+    });
+    await flush();
+    // Only the FIRST toggle is rendered, not the whole sequence at once.
+    expect(adapter.interactive).toHaveLength(1);
+    expect(adapter.interactive[0].prompt.message).toBe("a");
+
+    adapter.emitInteractiveResponse({ requestId: "pm1:0", confirmed: true });
+    await flush();
+    expect(adapter.interactive).toHaveLength(2);
+    expect(adapter.interactive[1].prompt.message).toBe("b");
+
+    adapter.emitInteractiveResponse({ requestId: "pm1:1", confirmed: false });
+    await flush();
+    expect(adapter.interactive).toHaveLength(3);
+    expect(adapter.interactive[2].prompt.requestId).toBe("pm1:confirm");
+
+    adapter.emitInteractiveResponse({ requestId: "pm1:confirm", confirmed: true });
+    await flush();
+
+    expect(seam.sentResponses).toEqual([
+      { sessionId: "s1", response: { promptId: "pm1", answer: '["a"]', cancelled: false, source: "discord" } },
+    ]);
+  });
+
+  it("7.2/F3: cancelling the multiselect submit converges on the same root id, cancelled", async () => {
+    const { gateway, seam, adapter } = makeGateway({ store: memoryStore([boundBinding()]) });
+    seam.sessions = [{ id: "s1", cwd: "/repos/proj" }];
+    adapter.reset();
+    await gateway.start();
+
+    gateway.handleFrame("s1", {
+      type: "prompt_request",
+      sessionId: "s1",
+      promptId: "pm2",
+      prompt: { type: "multiselect", title: "Pick", options: ["a"] },
+    });
+    await flush();
+    adapter.emitInteractiveResponse({ requestId: "pm2:0", confirmed: true });
+    await flush();
+    adapter.emitInteractiveResponse({ requestId: "pm2:confirm", confirmed: false });
+    await flush();
+
+    expect(seam.sentResponses).toEqual([
+      { sessionId: "s1", response: { promptId: "pm2", answer: undefined, cancelled: true, source: "discord" } },
+    ]);
+  });
+
+  it("7.2/F4: batch sequences sub-prompts and returns index-aligned JSON answers", async () => {
+    const { gateway, seam, adapter } = makeGateway({ store: memoryStore([boundBinding()]) });
+    seam.sessions = [{ id: "s1", cwd: "/repos/proj" }];
+    adapter.reset();
+    await gateway.start();
+
+    gateway.handleFrame("s1", {
+      type: "prompt_request",
+      sessionId: "s1",
+      promptId: "pb1",
+      prompt: {
+        type: "batch",
+        title: "Survey",
+        metadata: { questions: [{ title: "Name" }, { title: "Colour", options: ["red", "blue"] }] },
+      },
+    });
+    await flush();
+    expect(adapter.interactive).toHaveLength(1);
+    expect(adapter.interactive[0].prompt.method).toBe("input");
+
+    adapter.emitInteractiveResponse({ requestId: "pb1:0", value: "Ada" });
+    await flush();
+    expect(adapter.interactive).toHaveLength(2);
+    expect(adapter.interactive[1].prompt.method).toBe("select");
+
+    adapter.emitInteractiveResponse({ requestId: "pb1:1", value: "blue" });
+    await flush();
+
+    expect(seam.sentResponses).toEqual([
+      { sessionId: "s1", response: { promptId: "pb1", answer: '["Ada","blue"]', cancelled: false, source: "discord" } },
+    ]);
+  });
+
+  it("7.2/F4: a batch with no questions answers immediately with an empty array", async () => {
+    const { gateway, seam, adapter } = makeGateway({ store: memoryStore([boundBinding()]) });
+    seam.sessions = [{ id: "s1", cwd: "/repos/proj" }];
+    adapter.reset();
+    await gateway.start();
+
+    gateway.handleFrame("s1", {
+      type: "prompt_request",
+      sessionId: "s1",
+      promptId: "pb2",
+      prompt: { type: "batch", title: "Empty", metadata: { questions: [] } },
+    });
+    await flush();
+
+    expect(adapter.interactive).toHaveLength(0);
+    expect(seam.sentResponses).toEqual([
+      { sessionId: "s1", response: { promptId: "pb2", answer: "[]", cancelled: false, source: "discord" } },
+    ]);
+  });
+
+  it("7.2/F2: a web-first dismiss of the ROOT drops the sequence controls, no response", async () => {
+    const { gateway, seam, adapter } = makeGateway({ store: memoryStore([boundBinding()]) });
+    seam.sessions = [{ id: "s1", cwd: "/repos/proj" }];
+    adapter.reset();
+    await gateway.start();
+
+    gateway.handleFrame("s1", {
+      type: "prompt_request",
+      sessionId: "s1",
+      promptId: "pm3",
+      prompt: { type: "multiselect", title: "Pick", options: ["a", "b"] },
+    });
+    await flush();
+    expect(adapter.interactive).toHaveLength(1);
+
+    gateway.handleFrame("s1", { type: "prompt_dismiss", sessionId: "s1", promptId: "pm3" });
+    await flush();
+
+    expect(adapter.cleaned).toHaveLength(1);
+    expect(seam.sentResponses).toEqual([]);
+  });
+
+  it("8.1/E13: an unknown DM redeems the pairing code, is allowlisted and persisted", async () => {
+    const seam = createFakeSeam();
+    const { gateway, adapter } = makeGateway({ seam, store: memoryStore([boundBinding()]) });
+    seam.sessions = [{ id: "s1", cwd: "/repos/proj" }];
+    const code = gateway.status().pairingCode;
+    expect(code).toMatch(/^\d{6}$/);
+
+    await gateway.handleInbound({
+      platform: "discord",
+      channelId: "c1",
+      userId: "newbie",
+      text: code,
+      isDM: true,
+      startedAt: 0,
+    });
+
+    expect(seam.persistedAllowlists).toEqual([["u1", "newbie"]]);
+    expect(adapter.sent[0].content).toMatch(/paired/i);
+    expect(seam.sentPrompts).toEqual([]); // the code message is not a prompt
+
+    // Now allowlisted: the next message reaches the session.
+    await gateway.handleInbound({
+      platform: "discord",
+      channelId: "c1",
+      userId: "newbie",
+      text: "hello",
+      isDM: true,
+      startedAt: 0,
+    });
+    expect(seam.sentPrompts).toEqual([
+      { sessionId: "s1", text: "hello", delivery: "followUp" },
+    ]);
+  });
+
+  it("8.1: a wrong pairing code never grants access", async () => {
+    const { gateway, seam, adapter } = makeGateway({ store: memoryStore([boundBinding()]) });
+    seam.sessions = [{ id: "s1", cwd: "/repos/proj" }];
+
+    await gateway.handleInbound({
+      platform: "discord",
+      channelId: "c1",
+      userId: "newbie",
+      text: "not-a-code",
+      isDM: true,
+      startedAt: 0,
+    });
+
+    expect(seam.persistedAllowlists).toEqual([]);
+    expect(seam.sentPrompts).toEqual([]);
+    expect(adapter.sent[0].content).toContain("not_allowlisted");
+  });
+
+  it("8.1: pairing is refused in a group channel (code would leak publicly)", async () => {
+    const seam = createFakeSeam();
+    const { gateway, seam: s, adapter } = makeGateway({
+      seam,
+      store: memoryStore([boundBinding()]),
+      config: baseConfig({ groupChannels: ["c1"] }),
+    });
+    s.sessions = [{ id: "s1", cwd: "/repos/proj" }];
+    const code = gateway.status().pairingCode;
+
+    await gateway.handleInbound({
+      platform: "discord",
+      channelId: "c1",
+      userId: "newbie",
+      text: code,
+      isDM: false,
+      startedAt: 0,
+    });
+
+    expect(seam.persistedAllowlists).toEqual([]);
+    expect(adapter.sent[0].content).toContain("not_allowlisted");
   });
 });

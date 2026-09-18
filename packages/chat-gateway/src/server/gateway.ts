@@ -21,21 +21,27 @@
  * See change: add-chat-gateway.
  */
 
-import type { PlatformAdapter, PlatformMessage } from "../adapters/base.js";
+import type { InteractiveResponse, PlatformAdapter, PlatformMessage } from "../adapters/base.js";
 import { chunkForDiscord } from "../adapters/discord-payload.js";
-import { authorize } from "./auth.js";
-import { isWithinAllowedRoots, resolveCwd } from "./binding.js";
 import type { ResolvedConfig } from "../shared/types.js";
 import {
   type Binding,
+  bindingKey,
   type ChatPlatform,
   type InboundMessage,
-  bindingKey,
 } from "../shared/types.js";
-import { toPromptControl, type PromptControl } from "./prompts.js";
+import { authorize, createPairing, type Pairing } from "./auth.js";
+import { isWithinAllowedRoots, resolveCwd } from "./binding.js";
+import {
+  composeBatchAnswers,
+  composeMultiselectAnswer,
+  multiselectToSequence,
+  type PromptControl,
+  toPromptControl,
+} from "./prompts.js";
 import type { BindingStore, SpawnCorrelator } from "./routing.js";
-import type { HostSeam } from "./seam.js";
-import { createEditThrottle, shouldSteer, stripSteerPrefix, type EditThrottle } from "./stream.js";
+import type { HostSeam, SpawnOutcome } from "./seam.js";
+import { createEditThrottle, type EditThrottle, shouldSteer, stripSteerPrefix } from "./stream.js";
 
 export interface ChatGatewayDeps {
   platform: ChatPlatform;
@@ -45,12 +51,16 @@ export interface ChatGatewayDeps {
   store: BindingStore;
   correlator: SpawnCorrelator;
   now?: () => number;
+  /** The L1 pairing code state machine; a fresh one is minted by default. */
+  pairing?: Pairing;
 }
 
 interface GatewayStatus {
   running: boolean;
   boundChannels: number;
   pendingSpawns: number;
+  /** The live L1 pairing code ("" once consumed/locked/expired). */
+  pairingCode: string;
 }
 
 /** Per-channel outbound rendering state. */
@@ -68,6 +78,32 @@ interface PendingPrompt {
   sessionId: string;
   channelId: string;
   messageId: string;
+  /** Set when this prompt is one step of a multiselect/batch sequence (7.2). */
+  sequenceRootId?: string;
+}
+
+/**
+ * 7.2 composition shim: `multiselect`/`batch` are not adapter primitives, so
+ * they are rendered as an ordered sequence of supported prompts. Answers are
+ * accumulated here and submitted as ONE `prompt_response` under the root id —
+ * the same shape the web UI's encoder produces.
+ */
+interface SequenceState {
+  rootId: string;
+  sessionId: string;
+  channelId: string;
+  kind: "multiselect" | "batch";
+  /** Ordered sub-prompts (multiselect toggles exclude the trailing submit). */
+  steps: PromptControl[];
+  /** Present for multiselect: the trailing "confirm selection" gate. */
+  submit?: PromptControl;
+  /** Index of the next un-answered step. */
+  index: number;
+  /** Index-aligned batch answers. */
+  answers: string[];
+  /** Per-option multiselect toggles, index-aligned with `optionValues`. */
+  toggles: boolean[];
+  optionValues: string[];
 }
 
 export interface ChatGateway {
@@ -129,9 +165,12 @@ function toInteractivePrompt(control: PromptControl) {
 export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
   const { seam, adapter, config, store, correlator, platform } = deps;
   const now = deps.now ?? Date.now;
+  const pairing = deps.pairing ?? createPairing({ now });
 
   const outbound = new Map<string, OutboundState>();
   const prompts = new Map<string, PendingPrompt>();
+  /** rootRequestId → in-flight multiselect/batch sequence (7.2). */
+  const sequences = new Map<string, SequenceState>();
   const unsubscribes = new Map<string, () => void>();
   const subscriptions = new Set<string>();
   /** channelKey → the in-flight spawn correlation token. */
@@ -247,21 +286,18 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
     return binding;
   }
 
-  /** Spawn a session in `cwd`; correlate it via the token echoed on resolution. */
-  async function spawnIn(
+  /**
+   * Mint a correlation token, register the pending spawn, and issue the spawn.
+   * Shared by the fresh-spawn and resume transitions so the L3 guard wiring and
+   * the no-dangling-binding invariant live in exactly one place.
+   */
+  async function spawnCorrelated(
     msg: InboundMessage,
     channelKey: string,
     cwd: string,
     source: string,
-  ): Promise<boolean> {
-    if (config.allowedRoots.length === 0) {
-      await reply(msg.channelId, "Spawn refused: allowedRoots is empty. An operator must configure it.");
-      return false;
-    }
-    if (!isWithinAllowedRoots(cwd, config.allowedRoots)) {
-      await reply(msg.channelId, `Refused: ${cwd} is not inside allowedRoots.`);
-      return false;
-    }
+    resume?: { sessionFile: string },
+  ): Promise<SpawnOutcome> {
     const token = seam.mintSpawnToken();
     correlator.expect(token, { channelKey, cwd, by: msg.userId });
     pendingSpawns.set(channelKey, token);
@@ -276,6 +312,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       name: `chat:${channelKey}`,
       spawnToken: token,
       pluginRef: { kind: "chat-gateway", channelKey, spawnToken: token, source },
+      ...(resume ? { resume } : {}),
       ...(guardRef
         ? {
             extensions: [guardRef],
@@ -289,9 +326,60 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       // X8: no dangling binding, no half-correlated spawn.
       correlator.reject(token);
       pendingSpawns.delete(channelKey);
+    }
+    return res;
+  }
+
+  /** Spawn a fresh session in `cwd`; correlate it via the token echoed on resolution. */
+  async function spawnIn(
+    msg: InboundMessage,
+    channelKey: string,
+    cwd: string,
+    source: string,
+  ): Promise<boolean> {
+    if (config.allowedRoots.length === 0) {
+      await reply(msg.channelId, "Spawn refused: allowedRoots is empty. An operator must configure it.");
+      return false;
+    }
+    if (!isWithinAllowedRoots(cwd, config.allowedRoots)) {
+      await reply(msg.channelId, `Refused: ${cwd} is not inside allowedRoots.`);
+      return false;
+    }
+    const res = await spawnCorrelated(msg, channelKey, cwd, source);
+    if (!res.success) {
       await reply(msg.channelId, `Spawn failed: ${res.message ?? "unknown error"}`);
       return false;
     }
+    return true;
+  }
+
+  /**
+   * Task 4.3 `resume(continue)` transition: a persisted binding whose session
+   * ENDED is resumed from its transcript rather than treated as unreachable. A
+   * live-but-disconnected session is NEVER silently replaced — that is the
+   * 502/X1 case and stays an in-channel error. Returns true when the message
+   * was handled (resumed OR refused with a reason).
+   */
+  async function resumeIn(
+    msg: InboundMessage,
+    channelKey: string,
+    binding: Binding,
+  ): Promise<boolean> {
+    const rec = seam.getSession(binding.sessionId);
+    if (!rec || rec.status !== "ended" || !rec.sessionFile) return false;
+    // Every cwd passes the boundary on every transition, not just at bind time.
+    if (!isWithinAllowedRoots(binding.cwd, config.allowedRoots)) {
+      await reply(msg.channelId, `Refused: ${binding.cwd} is not inside allowedRoots.`);
+      return true;
+    }
+    const res = await spawnCorrelated(msg, channelKey, binding.cwd, "resume", {
+      sessionFile: rec.sessionFile,
+    });
+    if (!res.success) {
+      await reply(msg.channelId, `Resume failed: ${res.message ?? "unknown error"}`);
+      return true;
+    }
+    await reply(msg.channelId, "Resuming the session… answer again in a moment.");
     return true;
   }
 
@@ -307,6 +395,152 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       if (b.sessionId === sessionId) return bindingKey(b);
     }
     return undefined;
+  }
+
+  /** Render the next un-answered sub-prompt (or the multiselect submit gate). */
+  async function renderSequenceStep(state: SequenceState): Promise<void> {
+    const next =
+      state.index < state.steps.length
+        ? state.steps[state.index]
+        : state.kind === "multiselect"
+          ? state.submit
+          : undefined;
+    if (!next) {
+      finishSequence(state, composeBatchAnswers(state.answers));
+      return;
+    }
+    const { messageId } = await adapter.sendInteractive(state.channelId, toInteractivePrompt(next));
+    prompts.set(next.requestId, {
+      sessionId: state.sessionId,
+      channelId: state.channelId,
+      messageId,
+      sequenceRootId: state.rootId,
+    });
+  }
+
+  /**
+   * 7.2: `multiselect`/`batch` are not adapter primitives, so render them as an
+   * ordered sequence of supported prompts and submit ONE root `prompt_response`
+   * on completion — the shape the web UI's encoder produces.
+   */
+  function beginSequence(control: PromptControl, sessionId: string, channelId: string): void {
+    if (control.kind === "multiselect") {
+      const seq = multiselectToSequence(control.requestId, control.title, control.options ?? []);
+      const submit = seq[seq.length - 1];
+      const state: SequenceState = {
+        rootId: control.requestId,
+        sessionId,
+        channelId,
+        kind: "multiselect",
+        steps: seq.slice(0, seq.length - 1),
+        submit,
+        index: 0,
+        answers: [],
+        toggles: [],
+        optionValues: control.options ?? [],
+      };
+      sequences.set(state.rootId, state);
+      void renderSequenceStep(state).catch((err) =>
+        seam.log("error", `sequence render failed: ${String(err)}`),
+      );
+      return;
+    }
+
+    const steps = control.subPrompts ?? [];
+    if (steps.length === 0) {
+      // No questions → the empty answer IS the answer; never leave the session hanging.
+      seam.sendPromptResponse(sessionId, {
+        promptId: control.requestId,
+        answer: "[]",
+        cancelled: false,
+        source: "discord",
+      });
+      return;
+    }
+    const state: SequenceState = {
+      rootId: control.requestId,
+      sessionId,
+      channelId,
+      kind: "batch",
+      steps,
+      index: 0,
+      answers: [],
+      toggles: [],
+      optionValues: [],
+    };
+    sequences.set(state.rootId, state);
+    void renderSequenceStep(state).catch((err) =>
+      seam.log("error", `sequence render failed: ${String(err)}`),
+    );
+  }
+
+  function finishSequence(state: SequenceState, answer: string): void {
+    sequences.delete(state.rootId);
+    seam.sendPromptResponse(state.sessionId, {
+      promptId: state.rootId,
+      answer,
+      cancelled: false,
+      source: "discord",
+    });
+  }
+
+  /** A user cancelled mid-sequence → converge on the SAME root id, cancelled. */
+  function cancelSequence(state: SequenceState): void {
+    sequences.delete(state.rootId);
+    seam.sendPromptResponse(state.sessionId, {
+      promptId: state.rootId,
+      answer: undefined,
+      cancelled: true,
+      source: "discord",
+    });
+  }
+
+  /**
+   * The prompt was answered/dismissed on ANOTHER surface (web first): drop the
+   * sequence and its controls WITHOUT a further response — the session already
+   * has its answer (F2).
+   */
+  function dropSequence(rootId: string): void {
+    sequences.delete(rootId);
+    for (const [rid, rec] of prompts) {
+      if (rec.sequenceRootId === rootId) {
+        prompts.delete(rid);
+        void adapter.cleanupInteractive?.(rec.channelId, rec.messageId).catch(() => {});
+      }
+    }
+  }
+
+  async function advanceSequence(
+    state: SequenceState,
+    resp: InteractiveResponse,
+  ): Promise<void> {
+    const isSubmit =
+      state.kind === "multiselect" && resp.requestId === state.submit?.requestId;
+    if (resp.cancelled) {
+      cancelSequence(state);
+      return;
+    }
+    if (isSubmit) {
+      if (resp.confirmed === false) {
+        cancelSequence(state);
+        return;
+      }
+      finishSequence(state, composeMultiselectAnswer(state.optionValues, state.toggles));
+      return;
+    }
+    if (state.kind === "multiselect") {
+      state.toggles.push(resp.confirmed === true);
+    } else {
+      state.answers.push(
+        resp.value !== undefined ? resp.value : resp.confirmed === true ? "yes" : "no",
+      );
+    }
+    state.index += 1;
+    if (state.kind === "batch" && state.index >= state.steps.length) {
+      finishSequence(state, composeBatchAnswers(state.answers));
+      return;
+    }
+    await renderSequenceStep(state);
   }
 
   const gateway: ChatGateway = {
@@ -350,6 +584,18 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
           const rec = prompts.get(resp.requestId);
           if (!rec) return;
           prompts.delete(resp.requestId);
+          if (rec.sequenceRootId) {
+            // A sub-prompt of a multiselect/batch sequence: drop its controls
+            // and advance the sequence (7.2).
+            void adapter.cleanupInteractive?.(rec.channelId, rec.messageId).catch(() => {});
+            const state = sequences.get(rec.sequenceRootId);
+            if (state) {
+              void advanceSequence(state, resp).catch((err) =>
+                seam.log("error", `sequence advance failed: ${String(err)}`),
+              );
+            }
+            return;
+          }
           const answer = resp.cancelled
             ? undefined
             : resp.value !== undefined
@@ -377,10 +623,23 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       for (const st of outbound.values()) st.throttle.dispose();
       outbound.clear();
       prompts.clear();
+      sequences.clear();
       await adapter.stop();
     },
 
     async handleInbound(msg: InboundMessage) {
+      // L1 pairing (spec R7): the allowlist is ESTABLISHED by redeeming the
+      // current code. Only a DM may pair — a code redeemed in a public group
+      // channel would leak access to everyone reading it.
+      if (msg.isDM && !config.allowlist.includes(msg.userId)) {
+        if (pairing.attempt(msg.text.trim())) {
+          config.allowlist = [...config.allowlist, msg.userId];
+          seam.persistAllowlist(config.allowlist);
+          await reply(msg.channelId, "Paired. You can now talk to sessions.");
+          return;
+        }
+      }
+
       // L1 identity + L4 isolation. A refusal NEVER reaches a session (X10).
       const decision = authorize({
         config: { allowlist: config.allowlist, admins: config.admins, groupChannels: config.groupChannels },
@@ -401,7 +660,12 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
 
       const live = seam.listSessions().some((s) => s.id === binding.sessionId);
       if (!live) {
-        await reply(msg.channelId, "That session is unreachable (no bridge connection)."); // X1
+        // 4.3: an ENDED session is resumed (continue); a live-but-disconnected
+        // one is genuinely unreachable and produces the in-channel error (X1).
+        const handled = await resumeIn(msg, key, binding);
+        if (!handled) {
+          await reply(msg.channelId, "That session is unreachable (no bridge connection)."); // X1
+        }
         return;
       }
 
@@ -447,6 +711,10 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
         );
         const channelId = store.get(key)?.channelId;
         if (!channelId) return;
+        if (control.kind === "multiselect" || control.kind === "batch") {
+          beginSequence(control, sessionId, channelId);
+          return;
+        }
         void adapter
           .sendInteractive(channelId, toInteractivePrompt(control))
           .then(({ messageId }) => {
@@ -459,6 +727,12 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       if (type === "prompt_dismiss" || type === "prompt_cancel") {
         const promptId = (frame as Record<string, unknown>).promptId;
         if (typeof promptId !== "string") return;
+        // F2: a multiselect/batch is dismissed by its ROOT id, which no sub-
+        // prompt registers; drop the whole sequence without a further response.
+        if (sequences.has(promptId)) {
+          dropSequence(promptId);
+          return;
+        }
         const rec = prompts.get(promptId);
         if (!rec) return;
         prompts.delete(promptId);
@@ -472,6 +746,9 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
         st.text = "";
         st.typing = false;
         st.throttle.dispose();
+        for (const [rid, seq] of sequences) {
+          if (seq.sessionId === sessionId) dropSequence(rid);
+        }
       }
     },
 
@@ -480,6 +757,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
         running,
         boundChannels: store.all().length,
         pendingSpawns: pendingSpawns.size,
+        pairingCode: pairing.currentCode(),
       };
     },
   };

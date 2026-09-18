@@ -5,16 +5,20 @@
  *
  * See change: add-chat-gateway.
  */
-import type { HostSeam, SeamSpawnOptions, SeamSession, SpawnOutcome } from "../seam.js";
+import type { HostSeam, SeamSession, SeamSpawnOptions, SpawnOutcome } from "../seam.js";
 
 export interface FakeSeam extends HostSeam {
   /** Live sessions returned by listSessions(). */
   sessions: SeamSession[];
+  /** Ended (resumable) sessions returned by getSession() only. */
+  endedSessions: SeamSession[];
   /** Prompts that reached a session (must be EMPTY for a refused message). */
   sentPrompts: Array<{ sessionId: string; text: string; delivery: "followUp" | "steer" }>;
   sentResponses: Array<{ sessionId: string; response: Record<string, unknown> }>;
   spawns: SeamSpawnOptions[];
   spawnResult: SpawnOutcome;
+  /** Allowlists persisted via a pairing redemption (empty until one happens). */
+  persistedAllowlists: string[][];
   frameHandlers: Map<string, (frame: unknown) => void>;
   /** Deliver a browser-protocol frame as the host would. */
   emitFrame(sessionId: string, frame: unknown): void;
@@ -29,10 +33,12 @@ export function createFakeSeam(): FakeSeam {
 
   const seam: FakeSeam = {
     sessions: [],
+    endedSessions: [],
     sentPrompts: [],
     sentResponses: [],
     spawns: [],
     spawnResult: { success: true },
+    persistedAllowlists: [],
     frameHandlers,
     hasFrameSeam: () => true,
     subscribe(sessionId, handler) {
@@ -54,7 +60,12 @@ export function createFakeSeam(): FakeSeam {
       return seam.spawnResult;
     },
     listSessions: () => seam.sessions,
+    getSession: (id) =>
+      seam.sessions.find((s) => s.id === id) ?? seam.endedSessions.find((s) => s.id === id),
     mintSpawnToken: () => `tok-${++tokenSeq}`,
+    persistAllowlist(ids) {
+      seam.persistedAllowlists.push([...ids]);
+    },
     onSessionResolved(handler) {
       resolvedHandlers.push(handler);
       return () => {

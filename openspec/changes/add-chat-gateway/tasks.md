@@ -16,7 +16,7 @@
 ## 4. Channel→session routing
 - [x] 4.1 Sticky routing table `(platform, channelId, threadId?) → {sessionId, cwd, boundBy, source}`, persisted to `~/.pi/dashboard/chat-gateway/bindings.json`. → verify: second message reuses the same sessionId; binding survives restart.
 - [x] 4.2 Per-thread vs per-channel granularity. → verify: new thread resolves an independent binding.
-- [ ] 4.3 State machine: attach / spawn / resume(continue) / 502-unreachable handling. → verify: each transition covered by a unit test.
+- [x] 4.3 State machine: attach / spawn / resume(continue) / 502-unreachable handling. → verify: each transition covered by a unit test.
 
 ## 5. cwd-binding resolver (+ allowedRoots invariant)
 - [x] 5.1 Precedence resolver (persisted → fixed map → default → interactive). → verify: unit tests per precedence branch.
@@ -31,7 +31,7 @@
 
 ## 7. Interactive via PromptBus
 - [x] 7.1 Render `prompt_request` types `select`/`confirm`/`input`/`editor` as Discord controls/modals; return `prompt_response`. → verify: select renders buttons; chosen value returned.
-- [ ] 7.2 `multiselect`/`batch` composition shim. → verify: multiselect returns multiple values; batch sequences sub-prompts.
+- [x] 7.2 `multiselect`/`batch` composition shim. → verify: multiselect returns multiple values; batch sequences sub-prompts.
 - [x] 7.3 On `prompt_dismiss`/`prompt_cancel`, disable/remove controls. → verify: answering on the web UI first disables the Discord controls.
 
 ## 8. Authorization (L1/L2/L4)
@@ -45,7 +45,7 @@
 - [x] 9.3 Attach-to-existing (source a) sessions are ungated. → verify: no guard loaded for attached sessions.
 
 ## 10. Settings surface
-- [ ] 10.1 Settings panel: Discord token, `allowedRoots`, fixed map, allowlist/admins, bindings view. → verify: panel renders in Settings; edits persist.
+- [x] 10.1 Settings panel: Discord token, `allowedRoots`, fixed map, allowlist/admins, bindings view. → verify: panel renders in Settings; edits persist.
 - [x] 10.2 Token stored with restrictive perms; never returned in plaintext or logged. → verify: config read-back omits the token.
 
 ## 11. Docs

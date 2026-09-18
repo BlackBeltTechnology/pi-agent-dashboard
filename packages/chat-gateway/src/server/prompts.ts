@@ -167,3 +167,23 @@ export function composeBatchAnswer(
   const value = typeof list[index] === "string" ? list[index] : "";
   return { index, value };
 }
+
+/**
+ * F3 final composition: option values whose toggle was answered "yes",
+ * JSON-encoded exactly like the web UI's multiselect arm (`values[]`), so the
+ * PromptBus decodes both surfaces identically. An empty selection encodes as
+ * `"[]"` — distinct from cancellation.
+ */
+export function composeMultiselectAnswer(options: string[], toggles: boolean[]): string {
+  const opts = Array.isArray(options) ? options : [];
+  return JSON.stringify(opts.filter((_, i) => toggles[i] === true));
+}
+
+/**
+ * F4 final composition: index-aligned batch answers, JSON-encoded (`answers[]`)
+ * so a batch surfaces as one `prompt_response` carrying every sub-answer.
+ */
+export function composeBatchAnswers(answers: string[]): string {
+  const list = Array.isArray(answers) ? answers : [];
+  return JSON.stringify(list.map((a) => (typeof a === "string" ? a : "")));
+}
