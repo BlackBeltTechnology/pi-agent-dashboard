@@ -162,7 +162,7 @@ Read-only inspection API for monitoring and settings integration:
 
 ## Team Controls
 
-> **Status.** Implemented: tier model + authorization chokepoint, workspace scoping and `allowedRoots` narrowing, outbound filter + pacing, append-only command log, disarm, question gating, trust-failure detection. Not yet wired: channel provisioning and the workspace↔channel binding store (tasks 2.5, 4.4–4.8), and the dashboard configuration surface (tasks 8.x). Statements below about those describe the layer's contract, not behaviour reachable today.
+> **Status.** Implemented: tier model + authorization chokepoint, workspace scoping and `allowedRoots` narrowing, outbound filter + pacing, append-only command log, disarm, question gating, trust-failure detection, channel provisioning with create-time overwrites, access reconciliation, and the workspace↔channel binding store. Not yet wired: the dashboard configuration surface (tasks 8.x) and its Playwright specs — so reconciliation currently runs at activation and on every workspace change, and the config-write path will call it once that surface lands.
 
 Layered multi-user governance under L1 allowlist and L2 admins. Enforces role-based tiering, workspace scoping, outbound payload filtering, and rate pacing.
 
@@ -204,7 +204,7 @@ flowchart TD
 - Narrowing invariant: workspace binding only narrows `allowedRoots`, never widens. Workspace folders outside `allowedRoots` remain inert and skipped during spawn/attach.
 - Real-path (`fs.realpathSync.native`) containment checked on every transition and resume.
 - Scope containment evaluated inside chokepoint: target session cwd must reside inside bound workspace folders, else `scope_violation`. Free-text cwd in chat never resolves targets.
-- Not yet wired — Channel→workspace bindings stored in separate plugin store (`bindings.json`). Session↔thread routing remains in gateway routing table.
+- Channel→workspace bindings in the separate provisioning store `channels.json`; session↔thread routing stays in `bindings.json`. One channel per workspace; records retained after a binding goes inactive. Channel and history never deleted.
 - Trust failure: host trust-gated verb returning no-op (e.g. `assignSessionRef` returning `false`) marks layer unhealthy and refuses command. Requires plugin manifest `priority: 100` (`<= 100`). Sticky; first cause wins.
 
 ### Output Filtering & Pacing
@@ -223,7 +223,7 @@ flowchart TD
 - Disarm switch: any principal at `>= observe` can disarm via chat; re-arm allowed from dashboard only. Chat re-arm refused.
 - Disarm blocks action requests; passive mirroring continues.
 - Workspace deletion marks binding inactive; leaves channel and message history intact. Channel deletion drops binding; leaves running sessions active.
-- Not yet wired — Channel provisioning executes atomic create-with-overwrites (`@everyone` view denied); missing overwrite permissions aborts channel creation and flags plugin health.
+- Channel provisioning executes atomic create-with-overwrites (`@everyone` view denied); missing overwrite permissions aborts channel creation and flags plugin health.
 - Missing bot token leaves plugin inert (no adapter, socket, or timers).
 - Team layer optional to `createChatGateway`; omitting `teamControls` restores baseline L1/L2 operation.
 - Command log: append-only ring buffer bounded by `auditRetention` (default 10000, max 1000000); no edit or delete operations.
@@ -250,6 +250,7 @@ Derived from `packages/chat-gateway/src/configSchema.json`:
 | `toolPolicy.defaultAction` | `string` | `"deny"` | Disposition for unlisted tool names. Enum: `"deny"`, `"approve"`. |
 | `guardExtension` | `string` | - | Package subpath (`@blackbelt-technology/pi-dashboard-chat-gateway-plugin/guard`) or absolute file path to guard entry. Required for guard loading. |
 | `teamControls` | `object` | - | Team-controls governance layer. Absent config defaults to fail-closed (`ceiling: observe`, no bindings). |
+| `teamControls.guildId` | `string` | - | Discord guild a workspace channel is provisioned in. Required for provisioning (`@everyone` is this guild's id); a binding without it is reported as a failure, not silently skipped. |
 | `teamControls.ceiling` | `string` | `"observe"` | Global tier ceiling (`observe`, `control`, `operate`). Caps resolved principal tier. |
 | `teamControls.disarmed` | `boolean` | `false` | Emergency kill switch. Refuses action requests while continuing passive mirroring. Re-armed from dashboard only. |
 | `teamControls.auditRetention` | `integer` | `10000` | In-memory command-log ring-buffer capacity. Range `1` to `1000000`. |

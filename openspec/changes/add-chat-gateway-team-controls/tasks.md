@@ -17,7 +17,7 @@
 - [x] 2.2 Ensure the manifest declares a priority inside the host's trusted range (`priority <= 100`) and verify `assignSessionRef` is available at runtime rather than silently no-opping
 - [x] 2.3 Add a dependency on `@blackbelt-technology/pi-dashboard-mcp-server-plugin` for its `./manifest` export and verify `pnpm install` resolves and the package builds
 - [x] 2.4 Define the layer's config schema (per-binding principals + role maps, ceiling, mirror levels, disarm flag) with validation, and verify invalid configs are rejected
-- [ ] 2.5 Implement the plugin-owned binding store (workspace↔channel) with atomic write, and verify a restart round-trip preserves bindings and provisions no duplicate channels
+- [x] 2.5 Implement the plugin-owned binding store (workspace↔channel) with atomic write, and verify a restart round-trip preserves bindings and provisions no duplicate channels
 - [x] 2.6 Add `AGENTS.md` rows for every new source file and verify `kb dox lint` reports no missing rows
 
 ## 3. Authorization chokepoint (D2, D3) — build before anything can act
@@ -42,11 +42,11 @@
 - [x] 4.1 Insert the workspace source into chat-gateway's cwd-resolver precedence chain and verify resolution order against the modified requirement
 - [x] 4.2 Enforce the `allowedRoots`-narrowing invariant: a workspace folder outside `allowedRoots` is inert — verify it never resolves, never spawns, and is reported as inert on the configuration surface
 - [x] 4.3 Implement the cwd→workspace matcher (symlinks resolved, segment-boundary match, longest match wins) and verify sibling-prefix non-match (`/a/foo` vs folder `/a/fo`), nested folders across workspaces, symlinked cwd, and unbound cwd
-- [ ] 4.4 Implement channel provisioning with `permission_overwrites` in the create payload and verify against a stubbed REST client that the `@everyone` view deny is in the create call and no follow-up permission PATCH is issued
-- [ ] 4.5 Implement provisioning-failure handling when overwrites cannot be set and verify no channel is created and the reason appears in the plugin health entry
-- [ ] 4.6 Implement overwrite reconciliation on the layer's own config-write path plus an activation sweep, and verify a removed principal loses access, an added one gains it without recreation, and a change made while down is reconciled at activation
-- [ ] 4.7 Implement rename-on-workspace-rename and inactive-on-workspace-delete driven by `onWorkspacesChanged` + a `listWorkspaces()` re-read (idempotent, tolerant of coalesced and irrelevant fires) and verify both, plus that a collapse/reorder fire causes no platform call
-- [ ] 4.8 Implement channel-deleted-drops-binding without touching sessions and verify sessions keep running
+- [x] 4.4 Implement channel provisioning with `permission_overwrites` in the create payload and verify against a stubbed REST client that the `@everyone` view deny is in the create call and no follow-up permission PATCH is issued
+- [x] 4.5 Implement provisioning-failure handling when overwrites cannot be set and verify no channel is created and the reason appears in the plugin health entry
+- [x] 4.6 Implement overwrite reconciliation on the layer's own config-write path plus an activation sweep, and verify a removed principal loses access, an added one gains it without recreation, and a change made while down is reconciled at activation
+- [x] 4.7 Implement rename-on-workspace-rename and inactive-on-workspace-delete driven by `onWorkspacesChanged` + a `listWorkspaces()` re-read (idempotent, tolerant of coalesced and irrelevant fires) and verify both, plus that a collapse/reorder fire causes no platform call
+- [x] 4.8 Implement channel-deleted-drops-binding without touching sessions and verify sessions keep running
 
 ## 5. Output filter (D9)
 
@@ -127,15 +127,15 @@ Exemplars to copy harness glue from: **L1 authorization/binding/filter/audit** �
 - [x] 10b.5 Test cwd outside every binding: ws folder `/a/b`, cwd `/x/y` · resolve · no match and not surfaced (test-plan #E18; see `preferences-store.test.ts`)
 - [x] 10b.6 Test allowedRoots narrowing: `allowedRoots=['/srv/ok']`, ws folders `['/srv/ok/p','/home/secret']` · resolve a bind for each · first resolves, second inert with no spawn (test-plan #E19; see `plugin-action-handler.test.ts`)
 - [x] 10b.7 Test resolver precedence with the workspace source: persisted binding + workspace + fixed map + default workspace all applicable · resolve an unbound then a bound channel · persisted binding wins and workspace precedes the fixed map (test-plan #E20; see `plugin-action-handler.test.ts`)
-- [ ] 10b.8 Test no create-then-patch window: REST stub recording the call sequence · provision a channel · create call carries the `@everyone` view deny and zero permission-PATCH calls follow (test-plan #X2; see `plugin-action-handler.test.ts`)
-- [ ] 10b.9 Test provisioning without overwrite permission: REST stub rejects create-with-overwrites · provision a binding · no channel created and the health entry names the reason (test-plan #X1; see `plugin-enabled.test.ts`)
-- [ ] 10b.10 Test synchronous revocation: binding with principal P, REST stub with a delayed overwrite update · remove P and await the config write · at write-success the overwrite is already applied, no interval of retained access (test-plan #X3; see `plugin-action-handler.test.ts`)
-- [ ] 10b.11 Test reconciliation failure: REST stub rejects the overwrite update · change a mapping · config write fails with the reason and mapping/access stay consistent (test-plan #X4; see `plugin-action-handler.test.ts`)
-- [ ] 10b.12 Test reconcile-at-activation: mapping changed on disk while inactive · activate · overwrites reconciled to the current mapping (test-plan #X5; see `plugin-enabled.test.ts`)
-- [ ] 10b.13 Test workspace deleted: bound workspace deleted · seam notification fires · binding inactive, zero channel-delete calls, history untouched (test-plan #X6; see `preferences-store.test.ts`)
-- [ ] 10b.14 Test channel deleted on the platform: bound channel deleted · next mirrorable event · binding dropped, session still running, no abort issued (test-plan #X7; see `plugin-action-handler.test.ts`)
-- [ ] 10b.15 Test irrelevant workspace fires: `setWorkspaceCollapsed` and a folder reorder · seam notification fires · zero platform calls (test-plan #X8; see `preferences-store.test.ts`)
-- [ ] 10b.16 Test coalesced fires: rename + folder-add + rename delivered as one notification · reconcile · converges to the final state and is idempotent under replay (test-plan #X9; see `preferences-store-move-folder.test.ts`)
+- [x] 10b.8 Test no create-then-patch window: REST stub recording the call sequence · provision a channel · create call carries the `@everyone` view deny and zero permission-PATCH calls follow (test-plan #X2; see `plugin-action-handler.test.ts`)
+- [x] 10b.9 Test provisioning without overwrite permission: REST stub rejects create-with-overwrites · provision a binding · no channel created and the health entry names the reason (test-plan #X1; see `plugin-enabled.test.ts`)
+- [x] 10b.10 Test synchronous revocation: binding with principal P, REST stub with a delayed overwrite update · remove P and await the config write · at write-success the overwrite is already applied, no interval of retained access (test-plan #X3; see `plugin-action-handler.test.ts`)
+- [x] 10b.11 Test reconciliation failure: REST stub rejects the overwrite update · change a mapping · config write fails with the reason and mapping/access stay consistent (test-plan #X4; see `plugin-action-handler.test.ts`)
+- [x] 10b.12 Test reconcile-at-activation: mapping changed on disk while inactive · activate · overwrites reconciled to the current mapping (test-plan #X5; see `plugin-enabled.test.ts`)
+- [x] 10b.13 Test workspace deleted: bound workspace deleted · seam notification fires · binding inactive, zero channel-delete calls, history untouched (test-plan #X6; see `preferences-store.test.ts`)
+- [x] 10b.14 Test channel deleted on the platform: bound channel deleted · next mirrorable event · binding dropped, session still running, no abort issued (test-plan #X7; see `plugin-action-handler.test.ts`)
+- [x] 10b.15 Test irrelevant workspace fires: `setWorkspaceCollapsed` and a folder reorder · seam notification fires · zero platform calls (test-plan #X8; see `preferences-store.test.ts`)
+- [x] 10b.16 Test coalesced fires: rename + folder-add + rename delivered as one notification · reconcile · converges to the final state and is idempotent under replay (test-plan #X9; see `preferences-store-move-folder.test.ts`)
 
 ### 10c. Output filter (L1)
 
@@ -191,4 +191,4 @@ Exemplars to copy harness glue from: **L1 authorization/binding/filter/audit** �
 
 ### 10i. Test infra
 
-- [ ] 10i.1 Extend chat-gateway's adapter stub into a Discord REST/gateway fixture that records the full call sequence (required by the create-then-patch and rate-budget rows), and verify it captures create-call payloads and post timestamps
+- [x] 10i.1 Extend chat-gateway's adapter stub into a Discord REST/gateway fixture that records the full call sequence (required by the create-then-patch and rate-budget rows), and verify it captures create-call payloads and post timestamps
