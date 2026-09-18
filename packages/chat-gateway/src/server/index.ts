@@ -86,15 +86,20 @@ export default async function registerChatGateway(ctx: ServerPluginContext): Pro
 
   await gateway.start();
 
-  // Read-only bindings + status surface for the settings panel (task 10.1).
-  // Registered only once configured + started, so an inert install exposes
-  // nothing (task 1.3).
-  ctx.fastify.get("/api/chat-gateway/bindings", async () => ({
-    bindings: store.all(),
-    status: gateway.status(),
-  }));
+  // Read-only bindings surface for the settings panel (task 10.1). Registered
+  // only once configured + started, so an inert install exposes nothing (task
+  // 1.3). networkGuard matches every core /api route; the live L1 pairing code
+  // is deliberately NOT returned (an unauthenticated read would be a pairing
+  // bypass) — the operator reads it from server.log at startup.
+  ctx.fastify.get("/api/chat-gateway/bindings", { preHandler: ctx.networkGuard }, async () => {
+    const s = gateway.status();
+    return {
+      bindings: store.all(),
+      status: { running: s.running, boundChannels: s.boundChannels, pendingSpawns: s.pendingSpawns },
+    };
+  });
 
   ctx.logger.info(
-    `chat-gateway: started (${store.all().length} bound channel(s), allowedRoots=${config.allowedRoots.length}); pairing code available in Settings`,
+    `chat-gateway: started (${store.all().length} bound channel(s), allowedRoots=${config.allowedRoots.length}); L1 pairing code ${gateway.status().pairingCode} — DM it to the bot to pair a new user`,
   );
 }

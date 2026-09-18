@@ -112,9 +112,32 @@ export function createToolCallGuard(opts: GuardOptions) {
 /**
  * The pi extension entrypoint. `pi-extension` packages load this as their
  * default export; the policy comes from the gateway's config, projected into
- * the spawned session's environment at spawn time.
+ * the spawned session's environment at spawn time as
+ * `PI_EXT_CHAT_GATEWAY_GUARD_POLICY` (the host maps
+ * `extensionConfig["chat-gateway-guard"].policy` to that env name).
+ *
+ * pi invokes the factory with ONE argument (its API), so `options` from the
+ * loader is effectively empty on a real session — the ENV is the real channel.
+ * A missing/unparseable policy defaults to `{ defaultAction: "deny" }` (deny
+ * everything), so a delivery failure fails CLOSED rather than disabling the
+ * guard's decisions.
  */
+export function policyFromEnv(
+  env: Record<string, string | undefined> = process.env,
+): ToolPolicy {
+  const raw = env.PI_EXT_CHAT_GATEWAY_GUARD_POLICY;
+  if (typeof raw === "string" && raw.trim() !== "") {
+    try {
+      const parsed = JSON.parse(raw) as ToolPolicy;
+      if (parsed && typeof parsed === "object") return parsed;
+    } catch {
+      // fall through to deny-all
+    }
+  }
+  return { defaultAction: "deny" };
+}
+
 export default function chatGatewayGuard(pi: GuardPi, options?: Partial<GuardOptions>): void {
-  const policy: ToolPolicy = options?.policy ?? { defaultAction: "deny" };
+  const policy: ToolPolicy = options?.policy ?? policyFromEnv();
   pi.on("tool_call", createToolCallGuard({ ...options, policy }));
 }

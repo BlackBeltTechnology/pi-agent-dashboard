@@ -361,7 +361,7 @@ describe("chat-gateway orchestrator", () => {
     });
     await flush();
 
-    adapter.emitInteractiveResponse({ requestId: "p1", value: "b" });
+    adapter.emitInteractiveResponse({ userId: "u1", requestId: "p1", value: "b" });
     await flush();
 
     expect(seam.sentResponses).toEqual([
@@ -458,17 +458,17 @@ describe("chat-gateway orchestrator", () => {
     expect(adapter.interactive).toHaveLength(1);
     expect(adapter.interactive[0].prompt.message).toBe("a");
 
-    adapter.emitInteractiveResponse({ requestId: "pm1:0", confirmed: true });
+    adapter.emitInteractiveResponse({ userId: "u1", requestId: "pm1:0", confirmed: true });
     await flush();
     expect(adapter.interactive).toHaveLength(2);
     expect(adapter.interactive[1].prompt.message).toBe("b");
 
-    adapter.emitInteractiveResponse({ requestId: "pm1:1", confirmed: false });
+    adapter.emitInteractiveResponse({ userId: "u1", requestId: "pm1:1", confirmed: false });
     await flush();
     expect(adapter.interactive).toHaveLength(3);
     expect(adapter.interactive[2].prompt.requestId).toBe("pm1:confirm");
 
-    adapter.emitInteractiveResponse({ requestId: "pm1:confirm", confirmed: true });
+    adapter.emitInteractiveResponse({ userId: "u1", requestId: "pm1:confirm", confirmed: true });
     await flush();
 
     expect(seam.sentResponses).toEqual([
@@ -489,9 +489,9 @@ describe("chat-gateway orchestrator", () => {
       prompt: { type: "multiselect", title: "Pick", options: ["a"] },
     });
     await flush();
-    adapter.emitInteractiveResponse({ requestId: "pm2:0", confirmed: true });
+    adapter.emitInteractiveResponse({ userId: "u1", requestId: "pm2:0", confirmed: true });
     await flush();
-    adapter.emitInteractiveResponse({ requestId: "pm2:confirm", confirmed: false });
+    adapter.emitInteractiveResponse({ userId: "u1", requestId: "pm2:confirm", confirmed: false });
     await flush();
 
     expect(seam.sentResponses).toEqual([
@@ -519,12 +519,12 @@ describe("chat-gateway orchestrator", () => {
     expect(adapter.interactive).toHaveLength(1);
     expect(adapter.interactive[0].prompt.method).toBe("input");
 
-    adapter.emitInteractiveResponse({ requestId: "pb1:0", value: "Ada" });
+    adapter.emitInteractiveResponse({ userId: "u1", requestId: "pb1:0", value: "Ada" });
     await flush();
     expect(adapter.interactive).toHaveLength(2);
     expect(adapter.interactive[1].prompt.method).toBe("select");
 
-    adapter.emitInteractiveResponse({ requestId: "pb1:1", value: "blue" });
+    adapter.emitInteractiveResponse({ userId: "u1", requestId: "pb1:1", value: "blue" });
     await flush();
 
     expect(seam.sentResponses).toEqual([
@@ -647,5 +647,138 @@ describe("chat-gateway orchestrator", () => {
 
     expect(seam.persistedAllowlists).toEqual([]);
     expect(adapter.sent[0].content).toContain("not_allowlisted");
+  });
+
+  it("13.1/X7: a restarted gateway reuses the persisted binding (no re-create, no re-spawn)", async () => {
+    const seam1 = createFakeSeam();
+    const store1 = memoryStore();
+    const g1 = makeGateway({ seam: seam1, store: store1 });
+    seam1.sessions = [{ id: "s1", cwd: "/repos/proj" }];
+
+    // First inbound attaches to the single live in-range session.
+    await g1.gateway.handleInbound({
+      platform: "discord",
+      channelId: "c1",
+      userId: "u1",
+      text: "first",
+      isDM: true,
+      startedAt: 0,
+    });
+    expect(store1.all()).toHaveLength(1);
+
+    // "Restart": a fresh gateway loads the same bindings from disk and reuses
+    // them — a second message must NOT re-create or re-spawn.
+    const seam2 = createFakeSeam();
+    seam2.sessions = [{ id: "s1", cwd: "/repos/proj" }];
+    const g2 = makeGateway({ seam: seam2, store: memoryStore(store1.all()) });
+    await g2.gateway.handleInbound({
+      platform: "discord",
+      channelId: "c1",
+      userId: "u1",
+      text: "second",
+      isDM: true,
+      startedAt: 0,
+    });
+
+    expect(seam2.spawns).toHaveLength(0);
+    expect(seam2.sentPrompts).toEqual([
+      { sessionId: "s1", text: "second", delivery: "followUp" },
+    ]);
+  });
+
+  it("14.4/F6: a reply past the Discord limit continues in a NEW message, never truncated", async () => {
+    const { gateway, seam, adapter } = makeGateway({ store: memoryStore([boundBinding()]) });
+    seam.sessions = [{ id: "s1", cwd: "/repos/proj" }];
+    adapter.reset();
+
+    const text = "x".repeat(2500);
+    gateway.handleFrame("s1", {
+      type: "event",
+      sessionId: "s1",
+      seq: 1,
+      event: {
+        eventType: "message_update",
+        timestamp: 0,
+        data: { message: { role: "assistant", content: [{ type: "text", text }] } },
+      },
+    });
+    await flush();
+
+    expect(adapter.sent.length).toBeGreaterThan(1);
+    expect(adapter.sent.map((m) => m.content).join("")).toBe(text);
+  });
+
+  it("V.2/L3: toolPolicy without guardExtension refuses the spawn (never an ungated session)", async () => {
+    const seam = createFakeSeam();
+    const { gateway, adapter } = makeGateway({
+      seam,
+      config: baseConfig({
+        fixedMap: { "discord:c1:-": "/repos/proj" },
+        toolPolicy: { approval: ["bash"], defaultAction: "deny" },
+        // guardExtension deliberately absent
+      }),
+    });
+
+    await gateway.handleInbound({
+      platform: "discord",
+      channelId: "c1",
+      userId: "u1",
+      text: "hi",
+      isDM: true,
+      startedAt: 0,
+    });
+
+    expect(seam.spawns).toHaveLength(0);
+    expect(adapter.sent[0].content).toMatch(/guardExtension/i);
+  });
+
+  it("V.2/L1: a click from a NON-allowlisted user is refused and does not consume the prompt", async () => {
+    const { gateway, seam, adapter } = makeGateway({ store: memoryStore([boundBinding()]) });
+    seam.sessions = [{ id: "s1", cwd: "/repos/proj" }];
+    adapter.reset();
+    await gateway.start();
+
+    gateway.handleFrame("s1", {
+      type: "prompt_request",
+      sessionId: "s1",
+      promptId: "pz",
+      prompt: { type: "select", title: "Pick one", options: ["a", "b"] },
+    });
+    await flush();
+
+    // Intruder sees the buttons in an opted-in group channel and clicks.
+    adapter.emitInteractiveResponse({ userId: "intruder", requestId: "pz", value: "b", });
+    await flush();
+    expect(seam.sentResponses).toEqual([]);
+
+    // The prompt survives; the allowlisted user can still answer it.
+    adapter.emitInteractiveResponse({ userId: "u1", requestId: "pz", value: "a", });
+    await flush();
+    expect(seam.sentResponses).toEqual([
+      { sessionId: "s1", response: { promptId: "pz", answer: "a", cancelled: false, source: "discord" } },
+    ]);
+  });
+
+  it("E12/L2: an allowlisted NON-admin cannot create a binding (admin-only bind)", async () => {
+    const seam = createFakeSeam();
+    const { gateway, adapter } = makeGateway({
+      seam,
+      config: baseConfig({
+        admins: ["admin1"],
+        fixedMap: { "discord:c1:-": "/repos/proj" },
+      }),
+    });
+
+    await gateway.handleInbound({
+      platform: "discord",
+      channelId: "c1",
+      userId: "u1",
+      text: "hi",
+      isDM: true,
+      startedAt: 0,
+    });
+
+    expect(seam.spawns).toHaveLength(0);
+    expect(adapter.sent[0].content).toContain("not_admin");
   });
 });

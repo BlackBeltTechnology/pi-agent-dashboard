@@ -13,14 +13,13 @@ drives sessions through the **existing browser-protocol seam** — the same
 client uses. This is why **no bridge/server protocol change is needed**: the gateway is
 just another consumer of streams the server already fans out.
 
-```
- Discord ─▶ [vendored Discord adapter] ─┐ send_prompt / prompt_response
-                                        ▼
-   chat-gateway plugin  ── subscribe/abort ──▶ Dashboard Server (UNCHANGED)
-   (routing · binding · auth · guard)  ◀── event/prompt_request/prompt_dismiss
-                                             │ (sendToSubscribers fan-out, PromptBus relay)
-                                             ▼
-                             Bridge + PromptBus in each pi session (UNCHANGED)
+```mermaid
+flowchart TB
+  Discord["Discord"] -->|inbound message| Adapter["vendored Discord adapter"]
+  Adapter -->|send_prompt / prompt_response| GW["chat-gateway plugin<br/>routing · binding · auth · guard"]
+  GW -->|subscribe / abort| Server["Dashboard Server (UNCHANGED)"]
+  Server -->|event / prompt_request / prompt_dismiss| GW
+  Server -->|sendToSubscribers fan-out · PromptBus relay| Bridge["Bridge + PromptBus<br/>in each pi session (UNCHANGED)"]
 ```
 
 In-process (plugin calls the server's internal subscriber API) vs. loopback WS client are
@@ -96,6 +95,21 @@ the session). The only real enforcement point is pi's `tool_call` event
 (`return {block:true}`), documented in `extensions.md` as a permission gate. So a companion
 extension is loaded into spawned sessions carrying the policy; escalation uses
 `ctx.ui.confirm` which the bridge routes through PromptBus → the gateway → Discord.
+
+## Security review (V.2) — controls verified, gaps closed
+
+Adversarial review (independent pass) of the implemented diff. Claims and outcome:
+
+| Claim | Verdict |
+|---|---|
+| `allowedRoots` non-bypassable | **HELD** — every spawn path funnels through `spawnIn`/`resumeIn`; attach filters candidates; `resolveCwd` refuses rather than falls through; now also returns the CANONICAL (symlink-resolved) path so the spawned cwd equals the validated one. |
+| L3 guard hard-blocks | **FIXED** — the pure engine was deny-first but the wiring failed open. `spawnCorrelated` now REFUSES to spawn when `toolPolicy` is set without `guardExtension` (pi treats an unresolvable `-e` as non-fatal), and the guard reads the host-projected `PI_EXT_CHAT_GATEWAY_GUARD_POLICY` env (default deny-all) instead of a factory arg pi never passes. |
+| Secrets / authorization | **FIXED** — every `onInteractiveResponse` is RE-AUTHORIZED at the edge (a group member who is not allowlisted can see the buttons; rendering is not a grant); binding is now admin-gated (L2); `GET /api/chat-gateway/bindings` carries the same `networkGuard` as every core route and no longer returns the pairing code; the pairing code is CSPRNG. |
+
+Residual / accepted (documented, low):
+
+- **Resolvable-guard verification.** The gateway cannot confirm that a supplied `guardExtension` actually loaded; a typo'd id yields an ungated spawned session. Mitigated by refusing the no-id case and by the guard's deny-all default; verifying load needs host support and is a follow-up.
+- **Unbounded in-memory maps.** `sequences`/`prompts` are cleared on `session_state_reset` and `stop()`; the spawn correlator / `pendingSpawns` entry for a spawn that never resolves is bounded by spawn attempts, not swept on a timer.
 
 ## Deferred (explicit)
 

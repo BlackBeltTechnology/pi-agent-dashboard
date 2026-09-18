@@ -20,13 +20,7 @@ import type { Binding, ChatGatewayConfig } from "../shared/types.js";
 
 interface BindingsResponse {
   bindings: Binding[];
-  status: {
-    running: boolean;
-    boundChannels: number;
-    pendingSpawns: number;
-    /** Live L1 pairing code; "" once redeemed/expired/locked. */
-    pairingCode: string;
-  };
+  status: { running: boolean; boundChannels: number; pendingSpawns: number };
 }
 
 function parseList(value: string): string[] {
@@ -291,16 +285,11 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
       </div>
 
       <div>
-        <span className={label}>Pairing code (L1)</span>
-        {bindings?.status.pairingCode ? (
-          <code data-testid="chat-gateway-pairing-code" className="text-xs">
-            {bindings.status.pairingCode}
-          </code>
-        ) : (
-          <span data-testid="chat-gateway-pairing-code-empty" className="text-[11px] text-[var(--text-tertiary)]">
-            A DM from an unknown user with this code pairs them; the code is minted at startup.
-          </span>
-        )}
+        <span className={label}>Pairing (L1)</span>
+        <span data-testid="chat-gateway-pairing-hint" className="text-[11px] text-[var(--text-tertiary)]">
+          A DM from an unknown user is paired only when it matches the current pairing code.
+          The code is printed to the server log at gateway startup (never returned over the API).
+        </span>
       </div>
 
       <div>

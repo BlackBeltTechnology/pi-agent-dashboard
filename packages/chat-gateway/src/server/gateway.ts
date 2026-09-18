@@ -238,6 +238,21 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
     const existing = store.get(channelKey);
     if (existing) return existing;
 
+    // L2: CREATING a binding is a privileged op. An allowlisted non-admin may
+    // TALK on an already-bound channel but may not bind a new one; otherwise
+    // the admin allowlist would gate nothing (E12).
+    const bindDecision = authorize({
+      config: { allowlist: config.allowlist, admins: config.admins, groupChannels: config.groupChannels },
+      userId: msg.userId,
+      action: "bind",
+      channelId: msg.channelId,
+      isDM: msg.isDM,
+    });
+    if (!bindDecision.allowed) {
+      await reply(msg.channelId, `Refused: ${bindDecision.reason}. An admin must bind this channel first.`);
+      return null;
+    }
+
     const resolved = resolveCwd({
       persisted: undefined,
       fixedMap: config.fixedMap,
@@ -298,6 +313,20 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
     source: string,
     resume?: { sessionFile: string },
   ): Promise<SpawnOutcome> {
+    // Fail CLOSED on a misconfigured guard: pi treats an unresolvable `-e <ref>`
+    // as non-fatal and keeps spawning, so a policy without a guard would run an
+    // UNGATED session that looks protected. Refuse instead.
+    if (config.toolPolicy && !config.guardExtension) {
+      seam.log(
+        "error",
+        "chat-gateway: toolPolicy is set but guardExtension is missing — refusing to spawn an ungated session",
+      );
+      return {
+        success: false,
+        message:
+          "L3 toolPolicy is configured but guardExtension is not — refusing to spawn an ungated session.",
+      };
+    }
     const token = seam.mintSpawnToken();
     correlator.expect(token, { channelKey, cwd, by: msg.userId });
     pendingSpawns.set(channelKey, token);
@@ -583,6 +612,24 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
         onInteractiveResponse: (resp) => {
           const rec = prompts.get(resp.requestId);
           if (!rec) return;
+          // L1/L4: a click is an ACTOR's action, so re-authorize it. Rendering
+          // the prompt is NOT a grant — any member of an opted-in group channel
+          // can see the bot's buttons. A refused click must NOT consume the
+          // prompt (an authorized user may still answer it).
+          const decision = authorize({
+            config: { allowlist: config.allowlist, admins: config.admins, groupChannels: config.groupChannels },
+            userId: resp.userId ?? "",
+            action: "talk",
+            channelId: rec.channelId,
+            isDM: !config.groupChannels.includes(rec.channelId),
+          });
+          if (!decision.allowed) {
+            seam.log(
+              "info",
+              `chat-gateway refused prompt response (${decision.reason}) channel=${rec.channelId}`,
+            );
+            return;
+          }
           prompts.delete(resp.requestId);
           if (rec.sequenceRootId) {
             // A sub-prompt of a multiselect/batch sequence: drop its controls

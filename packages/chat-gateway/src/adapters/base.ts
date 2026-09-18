@@ -31,6 +31,13 @@ export interface InteractiveResponse {
 	value?: string;
 	confirmed?: boolean;
 	cancelled?: boolean;
+	/**
+	 * Platform user id of the actor. REQUIRED for L1/L4 authorization at the
+	 * gateway edge: a group-channel member who is not allowlisted can SEE the
+	 * bot's buttons, so a click must be re-authorized, not trusted from the
+	 * fact that the prompt was rendered. Missing ⇒ treated as unknown ⇒ refused.
+	 */
+	userId?: string;
 }
 
 // ── Message types ─────────────────────────────────────────────────────────

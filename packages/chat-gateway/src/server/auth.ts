@@ -9,6 +9,8 @@
  * See change: add-chat-gateway.
  */
 
+import { randomInt } from "node:crypto";
+
 import type { AuthAction, AuthDecision } from "../shared/types.js";
 
 export interface AuthorizeInput {
@@ -64,7 +66,9 @@ const DEFAULT_TTL_MS = 15 * 60_000;
 const DEFAULT_MAX_ATTEMPTS = 10;
 
 function generateCode(): string {
-  return String(Math.floor(Math.random() * 1_000_000)).padStart(6, "0");
+  // CSPRNG, not Math.random: a predictable 6-digit code is guessable from a
+  // few observed outputs, defeating the TTL/lockout budget.
+  return String(randomInt(0, 1_000_000)).padStart(6, "0");
 }
 
 export function createPairing(opts: {

@@ -68,21 +68,21 @@ Authored from `test-plan.md` (stable ids E#/P#/F#/X#). Falsify-don't-confirm: ea
 - [x] 12.9 Spawn 500 → in-channel error, no dangling binding. → X8.
 
 ### 13. L2 smoke (`qa/tests/` — process/perf, NO rendered-UI asserts)
-- [ ] 13.1 Binding persistence across gateway restart (attach/resume, no re-create). → X7.
-- [ ] 13.2 Perf: edit throttle ≥1000ms, zero Discord 429, p95 edit latency < 1.5s over 5 min. → P1.
-- [ ] 13.3 Perf: 20 concurrent bound channels, p95 chat-delivery < 2s, RSS flat, 10 min. → P2.
-- [ ] 13.4 Adapter drop mid-session → reconnect, no duplicate delivery. → X9.
+- [x] 13.1 Binding persistence across gateway restart (attach/resume, no re-create). → X7.
+- [ ] 13.2 Perf: edit throttle ≥1000ms, zero Discord 429, p95 edit latency < 1.5s over 5 min. → P1 (test-plan #P1).
+- [ ] 13.3 Perf: 20 concurrent bound channels, p95 chat-delivery < 2s, RSS flat, 10 min. → P2 (test-plan #P2).
+- [ ] 13.4 Adapter drop mid-session → reconnect, no duplicate delivery. → X9 (test-plan #X9).
 
 ### 14. L3 e2e (Discord bot harness — adapter-level fake in CI; one real-guild smoke)
-- [ ] 14.1 `select` renders controls, chosen value → `prompt_response`; multiselect/batch. → F1, F3, F4.
-- [ ] 14.2 Cross-surface dismiss: web answers first → Discord controls disabled. → F2.
-- [ ] 14.3 Interaction ack: round-trip > 3s → deferred-ack then edit, no "interaction failed". → F5.
-- [ ] 14.4 Streaming invariants: single edited message (not N posts); >2000 chars chunks to a new message. → F7, F6.
-- [ ] 14.5 Unreachable session (502) → in-channel error. → X1.
-- [ ] 14.6 Approval flow over chat: deny blocks, allow runs. → X3.
-- [ ] 14.7 New infra: build the Discord bot test harness (adapter-level fake recording `sendMessage`/`editMessage`/`sendInteractive`; one real-guild smoke reserved for X9). → verify: harness drives F/X rows deterministically in CI.
+- [x] 14.1 `select` renders controls, chosen value → `prompt_response`; multiselect/batch. → F1, F3, F4.
+- [x] 14.2 Cross-surface dismiss: web answers first → Discord controls disabled. → F2.
+- [ ] 14.3 Interaction ack: round-trip > 3s → deferred-ack then edit, no "interaction failed". → F5 (test-plan #F5).
+- [x] 14.4 Streaming invariants: single edited message (not N posts); >2000 chars chunks to a new message. → F7, F6.
+- [x] 14.5 Unreachable session (502) → in-channel error. → X1.
+- [x] 14.6 Approval flow over chat: deny blocks, allow runs. → X3.
+- [x] 14.7 New infra: build the Discord bot test harness (adapter-level fake recording `sendMessage`/`editMessage`/`sendInteractive`; one real-guild smoke reserved for X9). → verify: harness drives F/X rows deterministically in CI.
 
 ## Validation
 - [x] V.1 `openspec validate add-chat-gateway --strict` passes.
-- [ ] V.2 Security review (`security-hardening`): allowedRoots non-bypassable, guard hard-blocks, secrets not leaked.
-- [ ] V.3 Manual E2E: bind a Discord channel to a repo in allowedRoots, drive a session, answer an `ask_user` prompt from Discord, trigger + approve a gated tool.
+- [x] V.2 Security review (`security-hardening`): allowedRoots non-bypassable, guard hard-blocks, secrets not leaked.
+- [ ] V.3 Manual E2E: bind a Discord channel to a repo in allowedRoots, drive a session, answer an `ask_user` prompt from Discord, trigger + approve a gated tool (test-plan: manual-only).

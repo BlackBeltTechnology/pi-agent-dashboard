@@ -95,10 +95,13 @@ export function resolveCwd(input: ResolveCwdInput): ResolveOutcome {
 
   const first = candidates[0];
   if (!first) return { kind: "refused", reason: "no_binding_source" };
-  if (!isWithinAllowedRoots(first.cwd, input.allowedRoots)) {
+  const canonical = realOrResolved(first.cwd);
+  if (!isWithinAllowedRoots(canonical, input.allowedRoots)) {
     return { kind: "refused", reason: first.reason };
   }
-  return { kind: "resolved", cwd: first.cwd, source: first.source };
+  // Return the CANONICAL path (symlinks resolved), not the operator's original
+  // string, so the path that is spawned is exactly the path that was validated.
+  return { kind: "resolved", cwd: canonical, source: first.source };
 }
 
 /** Gate a candidate produced by attach-or-spawn. */

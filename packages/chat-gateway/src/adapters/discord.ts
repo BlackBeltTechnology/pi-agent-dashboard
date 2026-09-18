@@ -322,6 +322,7 @@ export class DiscordAdapter extends BaseAdapter {
           requestId: parsed.requestId,
           value: parsed.value,
           confirmed: parsed.value === "yes",
+          userId: interaction.user.id,
         });
         await safeEditReply(interaction, `${interaction.message.content}\n\n_→ ${parsed.value}_`);
         return;
@@ -331,7 +332,11 @@ export class DiscordAdapter extends BaseAdapter {
         await interaction.deferUpdate();
         const chosen = parseCustomId(interaction.values[0] ?? "");
         if (!chosen) return;
-        this.emitInteractive({ requestId: chosen.requestId, value: chosen.value });
+        this.emitInteractive({
+          requestId: chosen.requestId,
+          value: chosen.value,
+          userId: interaction.user.id,
+        });
         await safeEditReply(interaction, `${interaction.message.content}\n\n_→ ${chosen.value}_`);
         return;
       }
@@ -348,7 +353,11 @@ export class DiscordAdapter extends BaseAdapter {
         } catch {
           // Field missing (user submitted an empty optional input).
         }
-        this.emitInteractive({ requestId: parsed.requestId, value });
+        this.emitInteractive({
+          requestId: parsed.requestId,
+          value,
+          userId: interaction.user.id,
+        });
         await safeEditReply(interaction, "_Response received._");
       }
     } catch (err) {
@@ -360,6 +369,7 @@ export class DiscordAdapter extends BaseAdapter {
     requestId: string;
     value?: string;
     confirmed?: boolean;
+    userId: string;
   }): void {
     this.callbacks?.onInteractiveResponse?.(response);
   }

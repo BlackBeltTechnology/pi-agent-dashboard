@@ -5,11 +5,25 @@
  * See change: add-chat-gateway.
  */
 import { describe, expect, it, vi } from "vitest";
-import { createToolCallGuard } from "../index.js";
+import { createToolCallGuard, policyFromEnv } from "../index.js";
 
 function ctxWithConfirm(confirm: (title: string, message?: string) => Promise<boolean>) {
   return { ui: { confirm, notify: vi.fn() } };
 }
+
+describe("policyFromEnv (V.2 wiring)", () => {
+  it("parses the host-projected policy", () => {
+    const env = { PI_EXT_CHAT_GATEWAY_GUARD_POLICY: '{"allow":["read"],"approval":["bash"]}' };
+    expect(policyFromEnv(env)).toEqual({ allow: ["read"], approval: ["bash"] });
+  });
+
+  it("defaults to deny-all when the env is absent or unparseable (fails CLOSED)", () => {
+    expect(policyFromEnv({})).toEqual({ defaultAction: "deny" });
+    expect(policyFromEnv({ PI_EXT_CHAT_GATEWAY_GUARD_POLICY: "{not json" })).toEqual({
+      defaultAction: "deny",
+    });
+  });
+});
 
 describe("createToolCallGuard", () => {
   it("X2: a denied tool is blocked BEFORE execution and never prompts", async () => {
