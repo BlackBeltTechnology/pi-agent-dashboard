@@ -35,20 +35,21 @@ OVERRIDES_PATH="$HOME/.pi/dashboard/tool-overrides.json"
 LOG_PATH="$HOME/.pi/dashboard/server.log"
 WORKDIR="$(mktemp -d)"
 
-# Presence is tracked SEPARATELY from content: an existing but empty file gives
-# an empty backup string, which a content-only check would restore as "absent"
-# by deleting the operator's file.
-CONFIG_BACKUP=""; CONFIG_PRESENT=0
-[ -f "$CONFIG_PATH" ] && { CONFIG_PRESENT=1; CONFIG_BACKUP="$(cat "$CONFIG_PATH")"; }
-OVERRIDES_BACKUP=""; OVERRIDES_PRESENT=0
-[ -f "$OVERRIDES_PATH" ] && { OVERRIDES_PRESENT=1; OVERRIDES_BACKUP="$(cat "$OVERRIDES_PATH")"; }
+# Backups are FILE COPIES, not captured strings: `$(cat ...)` strips trailing
+# newlines, so a string round-trip rewrites the operator's file with different
+# bytes. Presence is tracked separately so an existing EMPTY file is restored as
+# empty rather than deleted.
+CONFIG_PRESENT=0
+[ -f "$CONFIG_PATH" ] && { CONFIG_PRESENT=1; cp -p "$CONFIG_PATH" "$WORKDIR/config.json.bak"; }
+OVERRIDES_PRESENT=0
+[ -f "$OVERRIDES_PATH" ] && { OVERRIDES_PRESENT=1; cp -p "$OVERRIDES_PATH" "$WORKDIR/tool-overrides.json.bak"; }
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 cleanup() {
   pi-dashboard stop >/dev/null 2>&1 || true
-  if [ "$CONFIG_PRESENT" = 1 ]; then printf '%s' "$CONFIG_BACKUP" > "$CONFIG_PATH"; else rm -f "$CONFIG_PATH"; fi
-  if [ "$OVERRIDES_PRESENT" = 1 ]; then printf '%s' "$OVERRIDES_BACKUP" > "$OVERRIDES_PATH"; else rm -f "$OVERRIDES_PATH"; fi
+  if [ "$CONFIG_PRESENT" = 1 ]; then cp -p "$WORKDIR/config.json.bak" "$CONFIG_PATH"; else rm -f "$CONFIG_PATH"; fi
+  if [ "$OVERRIDES_PRESENT" = 1 ]; then cp -p "$WORKDIR/tool-overrides.json.bak" "$OVERRIDES_PATH"; else rm -f "$OVERRIDES_PATH"; fi
   rm -rf "$WORKDIR"
 }
 trap cleanup EXIT

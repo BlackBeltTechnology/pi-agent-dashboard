@@ -49,12 +49,36 @@ export interface HeapArgvResult {
  */
 export function hasNodeShebang(entry: string, read: typeof readFirstLine = readFirstLine): boolean {
   const first = read(entry);
-  if (first === null) return false;
-  // `\bnode\b` would accept `#!/usr/bin/my-node` and `#!/usr/bin/env node-wrapper`
-  // and then re-point that interpreter at the resolved node binary — a silent
-  // behaviour change, or a session that cannot start. Require a path or space
-  // BEFORE `node` and a space or end-of-line AFTER it.
-  return /^#!.*(?:[/\s])node(?:\.exe)?(?:\s|$)/.test(first);
+  if (first === null || !first.startsWith("#!")) return false;
+  return interpreterIsNode(first.slice(2).trim());
+}
+
+/**
+ * Classify a shebang by its INTERPRETER POSITION, not by looking for `node`
+ * anywhere in the line.
+ *
+ * A regex over the whole line is not good enough at any level of tightening:
+ * `#!/bin/sh node` and `#!/usr/bin/env node-wrapper node` both contain a
+ * free-standing `node` token while naming a completely different interpreter,
+ * and answering "yes" there swaps that interpreter for the resolved node
+ * binary. So the line is parsed instead: take the first token, and when it is
+ * `env`, skip `env`'s own flags (`-S`, `-i`, `VAR=value` assignments) to reach
+ * the program `env` would actually exec.
+ */
+function interpreterIsNode(shebang: string): boolean {
+  const tokens = shebang.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return false;
+  const basename = (t: string) => t.split(/[/\\]/).pop() ?? t;
+  let i = 0;
+  if (basename(tokens[i]) === "env") {
+    i += 1;
+    // `env -S "node --flag"` splits into further tokens; `env FOO=bar node`
+    // carries assignments first. Skip both to find the program name.
+    while (i < tokens.length && (tokens[i].startsWith("-") || tokens[i].includes("="))) i += 1;
+  }
+  if (i >= tokens.length) return false;
+  const name = basename(tokens[i]);
+  return name === "node" || name === "node.exe";
 }
 
 /** Read the first line of a file without pulling the whole file into memory. */

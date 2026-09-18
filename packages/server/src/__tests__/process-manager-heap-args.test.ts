@@ -384,9 +384,17 @@ describe("hasNodeShebang rejects a look-alike interpreter", () => {
     ["#!/usr/bin/env node", true],
     ["#!/usr/bin/node", true],
     ["#!/usr/bin/env -S node --enable-source-maps", true],
+    ["#!/usr/bin/env -S node --enable-source-maps --no-warnings", true],
+    ["#!/usr/bin/env NODE_ENV=production node", true],
     ["#!/usr/bin/my-node", false],
     ["#!/usr/bin/env node-wrapper", false],
     ["#!/bin/sh", false],
+    // `node` appears, but NOT in the interpreter position — a whole-line regex
+    // says yes here and the rewrite then replaces the real interpreter.
+    ["#!/bin/sh node", false],
+    ["#!/usr/bin/env node-wrapper node", false],
+    ["#!/usr/bin/python3 -m nodething", false],
+    ["not a shebang", false],
   ])("%s → %s", (line, expected) => {
     expect(hasNodeShebangForTests(line)).toBe(expected);
   });
