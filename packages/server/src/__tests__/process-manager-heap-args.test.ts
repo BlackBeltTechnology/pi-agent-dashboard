@@ -227,7 +227,7 @@ describe("operator pins in EITHER spelling survive (review round 1)", () => {
   it.each(["--max-old-space-size=2048", "--max_old_space_size=2048"])(
     "%s is treated as an operator pin and never overridden",
     (pin) => {
-      const env = stampHeapFlag({ NODE_OPTIONS: pin }, 1536);
+      const env = stampHeapFlag<Record<string, string>>({ NODE_OPTIONS: pin }, 1536);
       expect(env.NODE_OPTIONS).toBe(pin);
       expect(env[HEAP_FLAG_MARKER_ENV]).toBeUndefined();
     },
