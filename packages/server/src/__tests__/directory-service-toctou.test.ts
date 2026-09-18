@@ -63,6 +63,8 @@ function createMockPreferencesStore(): PreferencesStore {
     pinDirectory: vi.fn(),
     unpinDirectory: vi.fn(),
     reorderPinnedDirs: vi.fn(),
+    getCollapsedFolders: vi.fn(() => []),
+    setFolderCollapsed: vi.fn(() => false),
     getFavoriteModels: vi.fn(() => []),
     setFavoriteModels: vi.fn(),
     addFavoriteModel: vi.fn(),

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { decodeFolderPath, encodeFolderPath } from "../util/folder-encoding.js";
 import {
   buildEditorUrl,
+  buildFolderEditorUrl,
   buildFolderSettingsUrl,
   buildOpenSpecArchiveUrl,
   buildOpenSpecPreviewUrl,
@@ -10,6 +10,7 @@ import {
   buildPiResourcesUrl,
   buildSessionDiffUrl,
 } from "../nav/route-builders.js";
+import { decodeFolderPath, encodeFolderPath } from "../util/folder-encoding.js";
 
 describe("route-builders", () => {
   describe("buildOpenSpecPreviewUrl", () => {
@@ -62,6 +63,16 @@ describe("route-builders", () => {
       expect(m).not.toBeNull();
       expect(decodeFolderPath(m![1])).toBe(cwd);
       expect(m![2]).toBe("a%20b%2Fc");
+    });
+  });
+
+  describe("buildFolderEditorUrl", () => {
+    it("omits the focus param by default", () => {
+      expect(buildFolderEditorUrl("/proj")).toBe(`/folder/${encodeFolderPath("/proj")}/editor`);
+    });
+
+    it("appends ?focus=terminal when requested", () => {
+      expect(buildFolderEditorUrl("/proj", true)).toBe(`/folder/${encodeFolderPath("/proj")}/editor?focus=terminal`);
     });
   });
 

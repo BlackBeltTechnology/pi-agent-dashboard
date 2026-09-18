@@ -115,6 +115,7 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "session_view", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "sessions_page", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "setSessionDisplayPrefs", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
+  { pattern: "set_folder_collapsed", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "set_model", reason: "duplicate-of:set_model" },
   { pattern: "set_session_process_drawer", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "set_thinking_level", reason: "duplicate-of:set_thinking_level" },

@@ -28,6 +28,8 @@ function makePrefs(): PreferencesStore {
     pinDirectory: () => {},
     unpinDirectory: () => {},
     reorderPinnedDirs: () => {},
+    getCollapsedFolders: () => [],
+    setFolderCollapsed: () => false,
     getFavoriteModels: () => [],
     setFavoriteModels: () => {},
     addFavoriteModel: () => {},

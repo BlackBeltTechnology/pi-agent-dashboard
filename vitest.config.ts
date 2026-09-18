@@ -16,6 +16,17 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     globalSetup: ["./scripts/mutation-journal-global-setup.mjs"],
+    // Under CI the run also emits a machine-readable report, uploaded by
+    // ci.yml as an artifact on success AND failure. A test that passed on
+    // retry is attributable from it (`status: passed` + a retained
+    // `failureMessages` entry — vitest 4 has no `retryCount` field) without
+    // log mining. See change: isolate-real-process-tests.
+    ...(process.env.CI
+      ? {
+          reporters: ["default", "json"] as const,
+          outputFile: { json: "test-results/vitest.json" },
+        }
+      : {}),
     projects: [
       "packages/shared",
       "packages/bus-client",

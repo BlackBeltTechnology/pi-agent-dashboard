@@ -41,7 +41,7 @@ Global pi extension running in every pi session. It:
 Node.js HTTP + WebSocket server that:
 - Accepts connections from bridge extensions (Pi Gateway, port 9999)
 - Accepts connections from web browsers (Browser Gateway, port 8000)
-- Stores events in an in-memory buffer with LRU eviction (max 100 sessions, 5000 events per session)
+- Stores events in an in-memory buffer with LRU eviction (default 32 sessions via `memoryLimits.maxCachedSessions`; bounded by count and serialized byte budgets)
 - Truncates large event payloads (tool results, file content, thinking blocks) to bound memory
 - Applies WebSocket backpressure on browser connections (drops messages when send buffer > 4MB)
 - Manages sessions in a pure in-memory registry (populated from bridge connections and direct disk discovery)
@@ -504,13 +504,13 @@ sequenceDiagram
 
 See change: `fix-pending-prompt-lost-on-replay`.
 
-### Frame delivery policy (change: fix-connect-snapshot-frame-loss)
+### Frame delivery policy (changes: fix-connect-snapshot-frame-loss, close-registry-frame-shed-gaps)
 
 Every server→browser frame carries exactly one delivery class. `frameClassOf(msg) -> { cls, key }` (`packages/server/src/pairing/browser-gateway.ts`) — static `switch` on `msg.type`, never on socket condition. No `cls` field on the wire (server concern; old bundles untouched).
 
-- **`transcript`** — per-session event stream + session-registry broadcasts (`session_updated`, `sessions_reordered`, `session_added`, `session_removed`). Recoverable via history backfill / replay.
+- **`transcript`** — per-session event stream + session-registry broadcasts (`session_updated`, `session_added`, `session_removed`). Recoverable via history backfill / replay.
 - **`blocking`** — pending-prompt frames only (`ctx.critical === true`). Exempt from shed under pending-prompt-recovery bounds (4 frames/delivery, `MAX_WS_BUFFER + 1 MB` ceiling). Unchanged.
-- **`state`** — idempotent snapshots keyed by `(type, entityKey)`: `sessions_snapshot`, `pinned_dirs_updated`, `workspaces_updated`, `favorite_models_updated`, `display_prefs_updated`, `reachability_updated`, `openspec_update` / `openspec_get_result` / `git_head_update` / `sessions_page_result` (key `cwd`), `terminal_added` / `terminal_updated` / `terminal_removed` (one shared key `terminal:<id>` per terminal, later lifecycle frame supersedes earlier).
+- **`state`** — idempotent snapshots keyed by `(type, entityKey)`: `sessions_snapshot`, `pinned_dirs_updated`, `workspaces_updated`, `favorite_models_updated`, `display_prefs_updated`, `reachability_updated`, `openspec_update` / `openspec_get_result` / `git_head_update` / `sessions_page_result` / `sessions_reordered` (key `cwd`, `sessions_reordered:<cwd>`), `terminal_added` / `terminal_updated` / `terminal_removed` (one shared key `terminal:<id>` per terminal, later lifecycle frame supersedes earlier). `sessions_reordered` is already a window-projected FULL per-cwd ordering snapshot at the `broadcast()` choke point, so per-cwd latest-wins is exact; deferred under back-pressure, never shed.
 
 **Shed rule per class.** Socket over threshold (`ws.bufferedAmount > MAX_WS_BUFFER`, 4 MB default): `transcript` frame dropped + counted (pre-change counters `total`/`bySession`); `state` frame NEVER shed — deferred; `blocking` exempt within bounds. Transcript sends first flush the socket's pending map — a flushable state frame is never overtaken by a later transcript frame.
 
@@ -518,35 +518,45 @@ Every server→browser frame carries exactly one delivery class. `frameClassOf(m
 
 **Connect bootstrap order.** `sessions_snapshot` last — after `terminal_added` loop and `gateway.onConnect(ws)`. Every other bootstrap frame (`pinned_dirs_updated`, `workspaces_updated`, `favorite_models_updated`, `display_prefs_updated`, `reachability_updated`, per-cwd `openspec_update`, per-cwd `git_head_update`, `terminal_added`) precedes it. No session-registry send before `sessions_snapshot`.
 
-**Health.** `/api/health#droppedFrames` gains `coalescedState` (superseded pending entries) + `stalledSocketsTerminated` beside transcript/blocking counters. No dropped-state counter — no code path drops one. Coalesce ≠ drop: `total` does not increment.
+**Health.** `/api/health#droppedFrames` gains `coalescedState` (superseded pending entries) + `stalledSocketsTerminated` beside transcript/blocking counters. No dropped-state counter — no code path drops one. Coalesce ≠ drop: `total` does not increment. Accepted counter shift: shed reorders move from `droppedFrames.total` to `coalescedState`.
 
-### Status reconcile — shed `session_updated` is a debt (change: fix-backpressure-status-and-subagent-frames)
+### Status reconcile — shed session-registry frame is a debt (changes: fix-backpressure-status-and-subagent-frames, close-registry-frame-shed-gaps)
 
-`session_updated` stays transcript-class. Carries no seq. No backfill answers it. No successor frame guaranteed. Long tool call emits status once, then session goes quiet — so ONE shed frame leaves the badge stale until reconnect/reload. Server therefore treats a shed `session_updated` as a **debt owed to that socket**.
+`session_updated`, `session_added`, and `session_removed` stay transcript-class. Carry no seq. No backfill answers them. No successor frame guaranteed. Long tool call emits status once, or session spawns/ends during saturation — shed registry frame leaves browser state unbounded-stale until reconnect/reload. Server treats shed session-registry frame as **debt owed to that socket**. `sessions_reordered` is `state`-class, never shed, needs no debt.
 
-**Debt capture.** `broadcast()` derives `dirtyId = msg.type === "session_updated" ? msg.sessionId : undefined`, passes it to `fanout(serialized, stateKey, dirtyId)`. `fanout()` sees only the serialized string — cannot recover type or session id without parsing, so the id must come from the typed caller. Every other `fanout` caller (incl. `broadcastOpenSpecUpdateImpl`) passes `undefined`. Shed site records the id in per-socket `statusDebt: Map<WebSocket, { ids: Set<string>, timer }>`. **Ids only, never a payload** — cannot reach the pending-state byte ceiling, cannot move `stalledSocketsTerminated`.
+**Debt shape.** Per-socket `statusDebt: Map<WebSocket, { entries: Map<string, { kind: "updated" | "added" | "removed", spawnRequestId?: string, sawAdd: boolean }>, timer }>`. Identifiers + kind tag + boolean + at most one short correlation id. Still zero payload bytes; cannot reach pending-state byte ceiling; cannot move `stalledSocketsTerminated`.
 
-**Own timer.** `STATUS_RECONCILE_INTERVAL_MS = 250`, started when the set becomes non-empty, stopped when it empties. Deliberately NOT the pending-state interval: that one exists only when a *state* frame defers, and a socket saturated purely by transcript traffic never creates it.
+**Debt capture.** `broadcast()` derives delivery info (`id`, `kind`, `spawnRequestId`) via `deliveryInfoOf(msg)`. `session_added` carries id at `msg.session.id` (NOT top-level `msg.sessionId`), so shared `deliveryInfoOf` derivation must not read `msg.sessionId` blindly. Shed site records entry in `statusDebt.entries`.
 
-**Flush.** `flushStatusDebt(ws)` rebuilds `session_updated` from `sessionManager.get(id)` (`updates: { status, currentTool }`) while the socket is under threshold. Nothing stale is queued, so two partial `updates` never have to be merged. Missing session → debt discarded, no frame, `statusReconcileSent` not incremented.
+**Kind precedence.** Last-write-wins across lifecycle kinds `added` / `removed`; newly recorded `updated` overwrites existing `updated`, never downgrades pending `added` or `removed`. `sawAdd` set when `added` recorded; survives supersede by `removed` (preserves memory that browser never received creation); shed `session_added`'s `spawnRequestId` also survives supersede by `removed` (`sawAdd`-branch reconcile clears matching spawn placeholder instead of waiting for timeout).
 
-**Loop-safe.** Reconcile send carries `ctx.sessionId`, so a reconcile that is itself shed re-enters the debt at the drop site — eventually-delivered, not check-once. Re-entry is idempotent (a `Set`), so a persistent flood costs one id, not a growing queue.
+**Own timer.** `STATUS_RECONCILE_INTERVAL_MS = 250`, started when entries map becomes non-empty, stopped when it empties. Deliberately NOT pending-state interval: that one exists only when *state* frame defers, and socket saturated purely by transcript traffic never creates it.
 
-**Settled-value semantics.** Reconcile carries the CURRENT value. `idle → streaming → idle` entirely inside one shed window delivers one `idle`; the intermediate edge is not recovered.
+**Flush dispatch order.** `flushStatusDebt(ws)` rebuilds from CURRENT server state while socket is under threshold:
+1. Owed `removed`, record `s = sessionManager.get(id)` absent → send `session_removed {sessionId}`.
+2. Owed `removed`, `s.status !== "ended"` → re-registered after removal, removal superseded → send `session_added {session: s, reconciled: true}`.
+3. Owed `removed`, `s.status === "ended"`, `sawAdd: true` → creation and ending both shed, browser holds no row → send `session_added {session: s, reconciled: true, spawnRequestId?}` carrying ended record (creation and ending both shed; renders in ended tier).
+4. Owed `removed`, `s.status === "ended"`, `!sawAdd` → browser holds row, removal stands → send `session_removed {sessionId}`.
+5. Otherwise record `!s` → send `session_removed {sessionId}`.
+6. Otherwise owed `added` → send `session_added {session: s, spawnRequestId?, reconciled: true}`.
+7. Otherwise owed `updated` → send `session_updated {status, currentTool, hostPressure}`. Both optional fields use `null`, never `undefined`, as clearing value (`?? null` preserves fix from `fix-false-unresponsive-badge`).
+Status-based dispatch rests on invariant: `register()` is only path to non-ended record.
 
-**Teardown.** Set + timer released on socket `close`, on socket `error`, and on the `sendState` stalled-socket `ws.terminate()` path.
+**Lifecycle clear and self-healing.** Delivered lifecycle frame (`session_added`, `session_removed`) clears socket's debt for that id (delivered frame is socket's current truth). Delivered `session_updated` is partial; does NOT clear. Reconcile sends via `sendTo`; `sendTo` shed site re-records SAME kind (all three kinds, `sendTo` shed site widened) — self-healing, eventually-delivered. Reconcile carries CURRENT value; intermediate transitions within single flood window not recovered.
 
-**Scope.** `session_updated` ONLY. `session_added` / `session_removed` / `sessions_reordered` stay transcript-class and stay unrecovered — create/delete/reorder are not idempotent re-pushes of one row.
+**Client handling (`reconciled: true`).** Additive flag on `session_added`. Reconciled payload carries server's authoritative full current record: client replaces server-owned fields; absent `currentTool`/`hostPressure` clears on re-registered row (plain merge retains previous incarnation's stale value). Client carries over only client-local fields server record does not own: `resuming`, `closing`, `assets`. Add flipping held ended row to non-ended status (owed removal superseded by re-registration) removes group `endedTotals` contribution (prevents stale count; expander never offers page that cannot fill). On `reconciled: true`, client clears spawn placeholder and consumes pending spawn ONLY on exact `spawnRequestId` match (no match → touches no spawn state; prevents clearing unrelated concurrent user spawn in same cwd). Client navigates on NO tier (`reconciled: true` suppresses exact-match, cwd fallback, worktree fallback).
 
-**No client change.** `useMessageHandler`'s `if (existing)` guard makes a reconcile for an unknown row a no-op. That guard is what stops a re-push resurrecting a row a shed `session_removed` deleted.
+**Teardown.** Map + timer released on socket `close`, on socket `error`, and on `sendState` stalled-socket `ws.terminate()` path.
 
-**Health.** `/api/health#droppedFrames` gains `statusReconcileQueued` (ids recorded owed) + `statusReconcileSent` (reconcile frames re-sent). Both sit BESIDE the drop counters, never folded in — the reconcile must not mask the shed it recovers from. `/api/health#socketBufferOccupancy` = `{ max, p95, msAboveThreshold }` over browser-socket `bufferedAmount`; typed-zero fallback `EMPTY_SOCKET_BUFFER_OCCUPANCY`. Sampled at the send-decision sites, which already read `bufferedAmount` for the shed predicate — **not** on a timer. A periodic sampler was implemented first and rejected: it breaks the "zero timers on an unsaturated socket" invariant (`browser-gateway-critical-frames` P3/E9). Time-above-threshold uses a per-socket entry/exit span (`occupancyAboveSince`); the hot exit branch is gated on `size > 0`.
+**Scope.** `session_updated`, `session_added`, `session_removed`. `sessions_reordered` is `state`-class, never shed, needs no debt.
+
+**Health.** `/api/health#droppedFrames` counters `statusReconcileQueued` (entries recorded owed) + `statusReconcileSent` (reconcile frames re-sent) count every registry kind. No new `/api/health` field. Accepted health-counter shift: shed reorders move from `droppedFrames.total` to `coalescedState`. `/api/health#socketBufferOccupancy` = `{ max, p95, msAboveThreshold }` over browser-socket `bufferedAmount`; typed-zero fallback `EMPTY_SOCKET_BUFFER_OCCUPANCY`. Sampled at the send-decision sites, which already read `bufferedAmount` for the shed predicate — **not** on a timer. A periodic sampler was implemented first and rejected: it breaks the "zero timers on an unsaturated socket" invariant (`browser-gateway-critical-frames` P3/E9). Time-above-threshold uses a per-socket entry/exit span (`occupancyAboveSince`); the hot exit branch is gated on `size > 0`.
 
 **`msAboveThreshold` is OBSERVATION-based, not continuous wall-clock.** Sampling happens at send decisions, so a crossing that starts and ends between two decisions is never observed, and a reported duration is bounded by the samples that delimit it. `getSocketBufferOccupancy()` adds spans still open at read time (else an in-progress stall reports 0), and SETTLES a span whose socket has since drained or closed — without that, an event-driven sampler leaves such a span open forever and it grows on every health read (unbounded over-report). Settling deletes the entry, so a later exit cannot accrue it twice.
 
 **Test-only injector.** `POST /api/test/force-shed { enabled }` forces transcript-class frames to shed while leaving `bufferedAmount` untouched. Registered ONLY under `PI_E2E_FORCE_SHED=1` (set in `docker/compose.test.yml`, never a real image); still `networkGuard`-gated. Returns the effective state, so an unflagged server reports refusal instead of a silent no-op. Exists because real saturation is a browser failing to drain its own socket, which Playwright cannot induce. Drives `tests/e2e/status-reconcile.spec.ts`.
 
-### Sessions snapshot window + paging (change: fix-connect-snapshot-frame-loss)
+### Sessions snapshot window + paging (changes: fix-connect-snapshot-frame-loss, close-registry-frame-shed-gaps)
 
 On browser connect, gateway emits ONE `sessions_snapshot { sessions, orders, endedTotals }` — replaces per-session `session_added` / per-cwd `sessions_reordered` bootstrap loops; sent LAST (see Frame delivery policy). Live updates after snapshot keep incremental `session_added` / `session_updated` / `session_removed` / `sessions_reordered`.
 
@@ -558,7 +568,7 @@ On browser connect, gateway emits ONE `sessions_snapshot { sessions, orders, end
 - **Live reorder projection.** `sessions_reordered` broadcast rewritten through the window at the `broadcast()` choke point (`projectOrderThroughWindow` → `snapshotVisibleIds`); all broadcast sites covered, none touched individually.
 - **Bound.** Snapshot ≤ 400 KB at 25 live + 4,000 ended / 400 groups / 20 pinned — L1 bound test pins it; row-shape growth fails loudly.
 - **Paging.** `sessions_page { cwd: groupKey, offset }` served from in-memory registry (`packages/server/src/browser-handlers/session-meta-handler.ts`, `SESSIONS_PAGE_SIZE = 50`); `pageable(g)` = `endedSequence(g)` minus window ids; reply `sessions_page_result { cwd, sessions, order, hasMore }` unicast (state class, key `sessions_page_result:<g>`), rows `stripNotifyLog`, `order` = page ids in sequence order.
-- **Client merge semantics.** Snapshot REPLACES `sessions` + `sessionOrderMap` atomically (paged rows discarded on reconnect — documented trade-off); `sessions_page_result` merges — sessions overwrite by id, order appends after current with held ids deduped. Stub group renders for any group key with `endedTotals > 0` and no held session (header + ended expander only); expander / "more" click pages while `heldEnded < endedTotal`; one in-flight `sessions_page` per cwd (released on reply, 15 s timeout, socket open).
+- **Client merge semantics.** Snapshot REPLACES `sessions` + `sessionOrderMap` atomically (paged rows discarded on reconnect — documented trade-off); `sessions_page_result` merges — sessions overwrite by id, order appends after current with held ids deduped. Stub group renders for any group key with `endedTotals > 0` and no held session (header + ended expander only); expander / "more" click pages while `heldEnded < endedTotal`; one in-flight `sessions_page` per cwd: in-flight mark released on ANY `sessions_page_result` for cwd via per-group reply generation `pageReplyGen` (incl. empty reply), plus 15 s timeout and socket-open reset. `hasMore: false` reply marks group `pageExhausted` — hides "more" affordance and suppresses `sessions_page` until `endedTotals` for that group changes by ANY path (ended transition, removal, archive, `session_added` of not-previously-held ended session, snapshot); snapshot clears it unconditionally (snapshot also resets offset). Both marks keyed in same group-key space as `endedTotals`.
 
 See change: `fix-connect-snapshot-frame-loss`.
 
@@ -797,12 +807,14 @@ Descriptor-only slots (existing in `extension-ui-system`): `management-modal`, `
 
 #### Health endpoint observability
 
-`/api/health` exposes five additive measurement fields (no behavior change). Existing clients ignore unknown fields. See change: instrument-session-hydration-timing.
+`/api/health` exposes additive measurement fields (no behavior change). Existing clients ignore unknown fields. See change: instrument-session-hydration-timing.
+- `server.heapSizeLimit` — `v8.getHeapStatistics().heap_size_limit`. Process heap ceiling. Sits with process memory gauges (`rss`, `heapUsed`) for computing memory headroom. See change: `bound-event-store-by-bytes`.
+- `storeRetention: { residentBytes, effective: { maxBytesPerSession, maxTotalEventBytes, maxCachedSessions }, globalBudgetExceeded }` — from `eventStore.getRetention()`. `residentBytes` = gauge of resident event bytes. `effective.*` = enforced budgets after store floor clamp. `globalBudgetExceeded` = boolean latch set when all-pinned fallback cannot reach budget. Grouped separately from `storeTrim` counters. See change: `bound-event-store-by-bytes`.
 - `eventLoopDelay: { meanMs, p99Ms, maxMs }` — `perf_hooks.monitorEventLoopDelay` histogram, ns→ms. Resets window each read.
 - `hydration: HydrationSample[]` — ring buffer, ≤20 newest-first samples. Process-local, no persistence. Sample `{ sessionId, wallMs, fileBytes, entryCount, eventCount, at }` recorded by `loadSessionEvents`.
 - `eventLoopSpikes: { at, ms, turn }[]` — ring buffer, ≤50 newest-first, process-local, additive. Retains worst-case event-loop stalls. Two feeds: dedicated `monitorEventLoopDelay` sampler (own instance, never the boot histogram `/api/health` resets → no reset race; records `turn: null` for stalls no poll turn owns) + per-turn self-records from the openspec poll path (`turn: "tickOpen" \| "dirPollPre" \| "dirPollPost"`). Sub-threshold ~700 ms stall retained even when nobody polls `/api/health`. See change: attribute-openspec-poll-eventloop-stalls.
 - `notifyLog: { evictedEntries, bySession }` — from `browserGateway.getNotifyLogStats()` (`packages/server/src/pairing/notify-log.ts` `getStats()`). `evictedEntries` = total cap-50 evictions; `bySession` = per-session counts. Cap-50 eviction = silent transcript loss → counted beside `droppedFrames` / `storeTrim`. See change: split-notify-from-prompt-request.
-- `storeTrim: { trimmedEvents: { total, toolExecutionEnd, bySession }, evictedSessions, collapsedUpdates }` — from `eventStore.getTrimStats()` (`packages/server/src/persistence/memory-event-store.ts`). `trimmedEvents` + `evictedSessions` pre-existing: per-session cap trims, whole-session LRU evictions. See change: instrument-event-store-trim. NEW `collapsedUpdates`: cumulative count of superseded `tool_execution_update` events dropped at retention. Collapse retains per `toolCallId`: pinned creating tick (first-wins `type`/`description`) + newest tail + any non-subsumed intermediate updates — commonly ≤2, not hard bound. Retention-only — never suppresses live broadcast; browser still receives every tick. Predecessor dropped only when successor subsumes it (superset gate on `partialResult.details`). Counters cumulative for process lifetime, never reset on read. No event store wired → `EMPTY_TRIM_STATS` (all-zero), exported from store. Harness A/B (4 sessions × 4 sustained subagent rounds): retained `tool_execution_update` per buffer 36 → 2; buffer share 18.4% → 1.2%. See change: collapse-superseded-tool-execution-updates. NEW `collapseOnEnd` — `tool_execution_end` drops retained tail `tool_execution_update` for a `toolCallId` when end subsumes it; same superset gate (key survival, entries survival, rendered-result implication) resolved END-side on top-level `data.details` (plain object) + `data.result`, updates still resolve `data.partialResult.details`. Additive fail-closed: presence — truthy tail `partialResult.details` + end without `data.details` ⇒ retain (tail replaces `toolDetails` wholesale; detail-less end merges prior); identity — tail `details.agentId` string ⇒ end `toolName === "Agent"` + equal `agentId` + equal `agentSessionId` when present. Agent-shaped tail drops only with resident pinned creating tick (absent ⇒ retain); non-Agent (no `agentId`) tail drops freely; `activity` cleared on end ⇒ tail retained (spec scenario 2 — subagent's last inner event commonly a tool end). Drops fold into `collapsedUpdates` (no new key); fail-open — retain, no throw — on missing `toolCallId` (incl. `{__truncated}`), absent index entry, trimmed tail; `tool_execution_end` itself never a drop candidate; `collapseOnEnd` runs in `insertEvent` immediately after `collapseSuperseded`, after truncation, before trim/evict. Cross-version verification (`openspec/changes/archive/2026-09-13-drop-final-update-on-tool-execution-end/verification.md`): producer `@blackbelt-technology/pi-dashboard-subagents` 0.2.0–0.2.4 — gate sound; only absent-on-end key = `activity`. See change: drop-final-update-on-tool-execution-end.
+- `storeTrim: { trimmedEvents: { total, toolExecutionEnd, bySession }, evictedSessions, collapsedUpdates, trimmedBytes, evictedBytes }` — from `eventStore.getTrimStats()` (`packages/server/src/persistence/memory-event-store.ts`). `trimmedEvents` + `evictedSessions` pre-existing: per-session cap trims, whole-session LRU evictions. `trimmedBytes`: cumulative bytes released by byte-triggered trims. `evictedBytes`: cumulative bytes released by whole-buffer LRU evictions. See change: `bound-event-store-by-bytes`. NEW `collapsedUpdates`: cumulative count of superseded `tool_execution_update` events dropped at retention. Collapse retains per `toolCallId`: pinned creating tick (first-wins `type`/`description`) + newest tail + any non-subsumed intermediate updates — commonly ≤2, not hard bound. Retention-only — never suppresses live broadcast; browser still receives every tick. Predecessor dropped only when successor subsumes it (superset gate on `partialResult.details`). Counters cumulative for process lifetime, never reset on read. No event store wired → `EMPTY_TRIM_STATS` (all-zero), exported from store. Harness A/B (4 sessions × 4 sustained subagent rounds): retained `tool_execution_update` per buffer 36 → 2; buffer share 18.4% → 1.2%. See change: collapse-superseded-tool-execution-updates. NEW `collapseOnEnd` — `tool_execution_end` drops retained tail `tool_execution_update` for a `toolCallId` when end subsumes it; same superset gate (key survival, entries survival, rendered-result implication) resolved END-side on top-level `data.details` (plain object) + `data.result`, updates still resolve `data.partialResult.details`. Additive fail-closed: presence — truthy tail `partialResult.details` + end without `data.details` ⇒ retain (tail replaces `toolDetails` wholesale; detail-less end merges prior); identity — tail `details.agentId` string ⇒ end `toolName === "Agent"` + equal `agentId` + equal `agentSessionId` when present. Agent-shaped tail drops only with resident pinned creating tick (absent ⇒ retain); non-Agent (no `agentId`) tail drops freely; `activity` cleared on end ⇒ tail retained (spec scenario 2 — subagent's last inner event commonly a tool end). Drops fold into `collapsedUpdates` (no new key); fail-open — retain, no throw — on missing `toolCallId` (incl. `{__truncated}`), absent index entry, trimmed tail; `tool_execution_end` itself never a drop candidate; `collapseOnEnd` runs in `insertEvent` immediately after `collapseSuperseded`, after truncation, before trim/evict. Cross-version verification (`openspec/changes/archive/2026-09-13-drop-final-update-on-tool-execution-end/verification.md`): producer `@blackbelt-technology/pi-dashboard-subagents` 0.2.0–0.2.4 — gate sound; only absent-on-end key = `activity`. See change: drop-final-update-on-tool-execution-end.
 
 **Bundled-by-default plugins:** The plugin loader treats all plugins identically (same manifest, same discovery, same `enabled` flag, same failure isolation). What distinguishes "bundled-by-default" plugins (initial set: `git-plugin`) is purely operational — the build pipeline always includes them in `packages/`. Their absence is a deliberate user opt-out, not a normal state. OpenSpec, Flows, and Subagents plugins are bundled in standard builds but their absence is a normal use case (e.g. a workspace without OpenSpec).
 
@@ -3106,7 +3118,7 @@ flowchart LR
 
 | Data | Storage | Details |
 |------|---------|---------|
-| Events | In-memory Map | LRU eviction, max 100 sessions. Pinned if active bridge or browser subscribers. |
+| Events | In-memory Map | LRU eviction, max resident sessions (`memoryLimits.maxCachedSessions`, default 32). Pinned if active bridge or browser subscribers. Bounded by count and byte budgets. |
 | Sessions | In-memory Map + `.meta.json` | In-memory registry. Each session's state cached in per-session `.meta.json` sidecar next to `.jsonl`. On startup, `session-scanner.ts` scans `~/.pi/agent/sessions/*/` to restore all sessions from cached meta. Archived sessions evicted to the in-memory archive index (`session-archive.ts`). See Session Archiving. |
 | Session meta | `~/.pi/agent/sessions/…/<id>.meta.json` | Per-session sidecar: dashboard-owned state (name, attachedProposal, hidden, source) + cached stats (tokens, cost, model, status) + archive flags (`archived`, `archivedAt`, `restoredAt`). Debounced per-session writes (max 1/sec). Stale cache detected via `cachedAt` vs `.jsonl` mtime. |
 | Namer stop state | `~/.pi/agent/sessions/…/<id>.meta.json` (`autoNamerState`) | Auto-naming permanent stop + counters (attemptsUsed, starvedCount, waitingCount, stoppedModelRef, stopCause). Survives process restart; restored via `auto_name_state_restore` at register. Cleared on naming re-resolution or blocking-cause resolution. See change: fix-auto-naming-reasoning-model. |
@@ -3144,6 +3156,9 @@ Precedence: CLI flags → environment variables → config file (`~/.pi/dashboar
 | `publicBaseUrls` | — | Top-level reachable base URLs. Pairing QR + `GET /api/tunnel/endpoints` surfaces. `resolvePublicBaseUrls` reads top-level first, legacy `pairing.publicBaseUrls` fallback, else `[]`. No default; absent = legacy. Not an OAuth tier (D7) |
 | `memoryLimits.maxReplayEvents` | 2000 | Max events in full-stream replay window. Default `2000`; explicit `0` = unlimited (rollback lever). Absent/negative/non-numeric → `2000`; explicit `0` → `0`. Requires server restart. UI: Settings → Server → Memory Limits |
 | `memoryLimits.replayWindowMode` | `head-tail` | Replay window shape: `"head-tail"` default or `"tail-only"`. Unknown value coerced to default, never throws. Requires server restart. UI: Settings → Server → Memory Limits |
+| `memoryLimits.maxBytesPerSession` | 33554432 (32 MiB) | Max serialized `data` bytes per session (`0` = unlimited). Drops oldest non-essential first. Requires server restart. UI: Settings → Server → Memory Limits |
+| `memoryLimits.maxTotalEventBytes` | 805306368 (768 MiB) | Global aggregate across all resident sessions (`0` = unlimited). Binding constraint. LRU buffer eviction. Requires server restart. UI: Settings → Server → Memory Limits |
+| `memoryLimits.maxCachedSessions` | 32 | Max resident session buffers (was hardcoded 100). LRU eviction of unpinned buffers. Requires server restart. UI: Settings → Server → Memory Limits |
 
 ### Memory Limits
 
@@ -3172,6 +3187,34 @@ Threading:
 - Programmatic server falls back to shared DEFAULT, not `0`; stays unlimited only when threaded explicitly.
 
 See change: `lazy-load-session-history`, `fix-lazy-history-backfill-ux`, `add-tail-only-replay-window`.
+
+#### Event store byte budgets (`bound-event-store-by-bytes`)
+
+Resident envelope is product of per-session budget and resident count (`maxBytesPerSession × maxCachedSessions`); global `maxTotalEventBytes` bounds envelope.
+Budget counts SERIALIZED `data` bytes, NOT RSS/heap bytes; `rss` ran ~1867 MB against `heapUsed` ~818 MB, so 768 MiB budget is roughly 1 GiB heap / ~2 GiB RSS.
+
+**Keys and defaults:**
+- `memoryLimits.maxBytesPerSession`: default `33554432` (32 MiB). Bounds per-session aggregate serialized `data` bytes. `0` = unlimited.
+- `memoryLimits.maxTotalEventBytes`: default `805306368` (768 MiB). Bounds global aggregate across all resident sessions. `0` = unlimited. Binding constraint.
+- `memoryLimits.maxCachedSessions`: default `32` (was hardcoded 100 in `server.ts`). Bounds resident session-buffer count.
+
+**`0` semantics:**
+- `0` means unlimited for both byte budgets (`maxBytesPerSession`, `maxTotalEventBytes`).
+- `0` never clamped up by floor clamp.
+
+**In-store floor clamp:**
+- Store clamps positive `maxBytesPerSession` up to `4 × effective per-event ceiling`.
+- Effective ceiling = `maxEventDataSize`, or finite 16 MiB `MEASURE_CEILING_FALLBACK` when `maxEventDataSize` is `0`.
+- Clamp lives in `createMemoryEventStore`, NOT shared loader; `maxEventDataSize` is top-level `DashboardConfig` field invisible to browser-safe `memory-limits.ts`.
+- Effective budgets published on `/api/health` `storeRetention.effective.*`.
+
+**Shed order and reclaim policy:**
+- Per-session byte trim drops oldest non-essential events first (tool/subagent/flow/reasoning/stats/streaming noise).
+- Drops oldest essential chat events (`message_start`/`message_end`/inline-terminal open/close) ONLY when essentials alone exceed budget. Matches count trim policy.
+- Per-session reclaim hysteretic: fires above `budget + byteTrimSlack` (5% of budget, max 4 MiB); reclaims down to budget.
+- Global reclaim evicts whole UNPINNED session buffers LRU-first.
+- All-pinned fallback: when every resident session pinned, reclaims non-essential events only from LRU pinned buffers.
+- Latches `globalBudgetExceeded` true when fallback cannot reach budget; clears on buffer removal/unpin/drop below budget.
 
 ### Tunnel Lifecycle
 

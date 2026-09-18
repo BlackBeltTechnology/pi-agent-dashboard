@@ -118,6 +118,13 @@ interface ProviderProps {
   onKillTerminal?: (terminalId: string) => void;
   onRenameTerminal?: (terminalId: string, title: string) => void;
   onTerminalTitle?: (terminalId: string, title: string) => void;
+  /** One-shot terminal-focused entry (`?focus=terminal`). See change:
+   *  fix-terminals-action-opens-terminal. */
+  focusOnMount?: boolean;
+  /** Terminal snapshot applied — gates the one-shot. */
+  terminalsReady?: boolean;
+  /** Fired once the one-shot is honoured (URL param consumption). */
+  onFocusConsumed?: () => void;
   children: React.ReactNode;
 }
 
@@ -136,6 +143,9 @@ export function SplitWorkspaceProvider({
   onKillTerminal,
   onRenameTerminal,
   onTerminalTitle,
+  focusOnMount,
+  terminalsReady,
+  onFocusConsumed,
   children,
 }: ProviderProps) {
   const [split, updateSplit] = useSplitState(sessionId);
@@ -152,6 +162,9 @@ export function SplitWorkspaceProvider({
     onKillTerminal,
     onRenameTerminal,
     onTerminalTitle,
+    focusOnMount,
+    terminalsReady,
+    onFocusConsumed,
   });
   const [pendingScroll, setPendingScroll] = useState<PendingScroll | null>(null);
 

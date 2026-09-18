@@ -27,7 +27,7 @@ Repo-lint test (`packages/shared/src/__tests__/real-process-project-guard.test.t
 
 ### D3 — Retry is reported, not hidden
 
-Vitest prints `(retry x1)` on the list reporter; the JSON reporter (`--reporter=default --reporter=json --outputFile=test-results/vitest.json`) records `retryCount`. `ci.yml` adds `actions/upload-artifact` with `if: always()` for `test-results/vitest*.json`. Only the real-process config sets `retry`; the guard asserts no other vitest config in the tree contains `retry:`.
+Vitest prints `(retry x1)` on the list reporter — but only for tests it LISTS, so a retried PASS is console-invisible; the artifact is the real attribution path. Corrected during implementation: vitest 4's JSON reporter has NO `retryCount` field (keys are `ancestorTitles`, `fullName`, `status`, `title`, `duration`, `failureMessages`, `meta`, `tags`). A retried pass is `status: "passed"` with the failed attempt's error retained in `failureMessages`; that pair is the signature the triage recipe greps. `ci.yml` adds `actions/upload-artifact` with `if: always()` for `test-results/vitest*.json`. Only the real-process config sets `retry`; the guard asserts no other vitest config in the tree contains `retry:`.
 
 ### D4 — jsdom members: poll-not-guess, per member
 

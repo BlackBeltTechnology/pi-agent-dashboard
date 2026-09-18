@@ -1,4 +1,5 @@
 import type { OpenSpecArtifact } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { inferPlatform, pathKey } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
 import { mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
@@ -101,6 +102,7 @@ import {
   resolveDismissTarget,
 } from "./lib/nav/overlay-background.js";
 import {
+  buildFolderEditorUrl,
   buildFolderSettingsUrl,
   buildOpenSpecArchiveUrl,
   buildOpenSpecBoardUrl,
@@ -120,7 +122,7 @@ import { createReplayPersister } from "./lib/replay/replay-persist.js";
 import { deleteDraft, readAllDrafts, writeDraft } from "./lib/state/draft-storage.js";
 import { ModelConfigProvider, type ModelConfigValue } from "./lib/state/ModelConfigContext.js";
 import { clearRecoveryOffer } from "./lib/state/recovery-offer-bus.js";
-import { decodeFolderPath, encodeFolderPath } from "./lib/util/folder-encoding.js";
+import { decodeFolderPath } from "./lib/util/folder-encoding.js";
 
 // Stable tracker facade for the depth-aware back action
 // (change: fix-mobile-back-depth-aware).
@@ -149,6 +151,7 @@ import { ApiContext, deriveApiBase, setGlobalApiBase, VITE_API_URL } from "./lib
 import { buildContextUsageMap } from "./lib/context-usage.js";
 import { registerPluginCatalog, useI18n } from "./lib/i18n/i18n.js";
 import { deriveRetryProjection } from "./lib/session/retry-projection.js";
+import { clearLegacyCollapsedGroups, decideCollapsedFoldersMigration, readLegacyCollapsedGroups, writeLegacyCollapsedGroups } from "./lib/session/session-filter-storage.js";
 import { SessionAssetsProvider } from "./lib/session/SessionAssetsContext.js";
 import { deriveSelectedSessionId } from "./lib/session/selectedSessionId.js";
 import { selectViewedSessionId } from "./lib/session/selectViewedSessionId.js";
@@ -560,6 +563,10 @@ export default function App() {
   });
   const folderHomeCwd = folderHomeMatch ? decodeFolderPath(folderHomeParams?.encodedCwd ?? "") : null;
   const folderEditorCwd = folderEditorMatch ? decodeFolderPath(folderEditorParams?.encodedCwd ?? "") : null;
+  // One-shot terminal-focused entry: `?focus=terminal` on the folder editor
+  // route. See change: fix-terminals-action-opens-terminal (D1).
+  const [folderEditorSearch] = useSearchParams();
+  const focusTerminalRequest = !!folderEditorMatch && folderEditorSearch.get("focus") === "terminal";
   const sidebar = useSidebarState();
   const chatViewRef = useRef<ChatViewHandle>(null);
   const isMobile = useMobile();
@@ -641,6 +648,12 @@ export default function App() {
   // re-runs OpenSpec reconciliation after every applied snapshot.
   const [endedTotalsMap, setEndedTotalsMap] = useState<Map<string, number>>(new Map());
   const [pagedCount, setPagedCount] = useState<Map<string, number>>(new Map());
+  // close-registry-frame-shed-gaps (D3): paging reply generation (releases the
+  // in-flight mark on ANY reply, incl. an empty one) and the per-group
+  // exhausted marks (server reported `hasMore:false`). Owned here, derived in
+  // `useMessageHandler`, consumed by `SessionList`.
+  const [pageReplyGen, setPageReplyGen] = useState<Map<string, number>>(new Map());
+  const [pageExhausted, setPageExhausted] = useState<Set<string>>(new Set());
   // archive-sessions-lazy-load: folder group key → archived count, replaced
   // by `sessions_snapshot`, maintained by `session_archived` /
   // `archived_count_updated`. Drives the per-folder `Archive (N)` fold.
@@ -667,6 +680,12 @@ export default function App() {
     };
   }, [archivedReadOnlyId, sessions, archivedSummaryById]);
   const [snapshotGeneration, setSnapshotGeneration] = useState(0);
+  // Terminal snapshot applied ON THE CURRENT CONNECTION — the readiness gate
+  // for the one-shot `?focus=terminal` entry (design D2a). Gated on
+  // `status === "connected"` so a focus entry during an offline/connecting
+  // window cannot act on the previous connection's stale terminal set. See
+  // change: fix-terminals-action-opens-terminal.
+  const terminalsReady = status === "connected" && snapshotGeneration > 0;
   // Live `sessions` mirror for useMessageHandler (order filtering + live
   // endedTotals transitions read it synchronously outside setState updaters).
   const sessionsRef = useRef(sessions);
@@ -681,6 +700,11 @@ export default function App() {
   const [favoriteModels, setFavoriteModels] = useState<string[]>([]);
   // folder-workspaces: full workspace list, kept in sync via workspaces_updated broadcast.
   const [workspaces, setWorkspaces] = useState<import("@blackbelt-technology/pi-dashboard-shared/browser-protocol.js").Workspace[]>([]);
+  // persist-folder-collapse-server-side: canonical collapsed folder keys, kept
+  // in sync via the `collapsed_folders_updated` broadcast (delivered in the
+  // connect snapshot too). Server is the single source of truth — no optimistic
+  // mirror, matching the `workspaces_updated` convention below.
+  const [collapsedFolders, setCollapsedFolders] = useState<string[]>([]);
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
   const providersReady = useProvidersReady();
   const [terminals, setTerminals] = useState<Map<string, TerminalSession>>(new Map());
@@ -782,6 +806,13 @@ export default function App() {
           setFolderGitMap(new Map());
           setOpenspecGroupsMap(new Map());
           setTerminals(new Map());
+          // Readiness must be connection-scoped: clearing terminals without
+          // zeroing the snapshot generation leaves `terminalsReady` (`
+          // snapshotGeneration > 0`) true against an empty set, so a
+          // `?focus=terminal` entry would create a terminal instead of waiting
+          // for the new server's snapshot. See change:
+          // fix-terminals-action-opens-terminal.
+          setSnapshotGeneration(0);
           // Snapshot-window bookkeeping is scoped to one server's registry —
           // stale endedTotals / page offsets from server A must not render
           // against server B. See change: fix-connect-snapshot-frame-loss.
@@ -1014,8 +1045,8 @@ export default function App() {
   }, [send, historyGaps]);
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPagedCount, setSnapshotGeneration },
-    { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast, sessionsRef, openspecGetInflightRef },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPagedCount, setPageReplyGen, setPageExhausted, setSnapshotGeneration },
+    { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap },
   );
 
   // D7: rendered cwds the OpenSpec reconciliation may pull for — non-ended
@@ -1146,6 +1177,49 @@ export default function App() {
     return () => { cancelled = true; };
   }, [apiBase]);
 
+  // persist-folder-collapse-server-side: one-shot migration of a pre-change
+  // `dashboard:collapsedGroups` localStorage value up to the server.
+  //
+  // Runs only AFTER the connect snapshot (`snapshotGeneration > 0`), so the
+  // server's current set is known and the merge is a UNION rather than a blind
+  // overwrite. Sends only keys the server is known to lack — a no-op mutation
+  // emits no echo (see `handleSetFolderCollapsed`), which would hang the
+  // handshake — and clears the legacy key once every canonical legacy key is
+  // present in the latest known set. A dropped socket leaves the key for the
+  // next load; a 10-load attempt backstop drops it regardless.
+  const migrationSentKeysRef = useRef<Set<string>>(new Set());
+  const migrationCountedRef = useRef(false);
+  useEffect(() => {
+    if (snapshotGeneration === 0) return;
+    const legacy = readLegacyCollapsedGroups();
+    if (!legacy) return;
+    const platform = inferPlatform([...legacy.keys, ...collapsedFolders]);
+    const known = new Set(collapsedFolders.map((k) => pathKey(k, platform)));
+    const countAttempt = !migrationCountedRef.current;
+    const decision = decideCollapsedFoldersMigration({
+      legacy,
+      knownServerKeys: known,
+      sentKeys: migrationSentKeysRef.current,
+      platform,
+      countAttempt,
+    });
+    if (countAttempt) migrationCountedRef.current = true;
+    if (decision.clearLegacy) {
+      if (decision.backstopDropped) {
+        console.warn(
+          "[collapsed-folders-migration] dropped unconfirmed legacy keys after the attempt backstop",
+        );
+      }
+      clearLegacyCollapsedGroups();
+      return;
+    }
+    for (const path of decision.toSend) {
+      migrationSentKeysRef.current.add(path);
+      send({ type: "set_folder_collapsed", path, collapsed: true });
+    }
+    if (decision.nextRecord) writeLegacyCollapsedGroups(decision.nextRecord);
+  }, [snapshotGeneration, collapsedFolders, send]);
+
   // Clear subscriptions on reconnect so sessions get re-subscribed
   const prevStatusRef = useRef(status);
   useEffect(() => {
@@ -1155,6 +1229,11 @@ export default function App() {
       // `sessions_snapshot` message — no pre-reset needed.
       // See change: fix-stale-sessions-on-reconnect.
       setTerminals(new Map());
+      // Re-scope the snapshot generation to this connection so the
+      // `?focus=terminal` readiness gate waits for the reconnect snapshot
+      // instead of acting on the stale generation. See change:
+      // fix-terminals-action-opens-terminal.
+      setSnapshotGeneration(0);
     }
     prevStatusRef.current = status;
   }, [status]);
@@ -1780,6 +1859,8 @@ export default function App() {
       sessionOrderMap={sessionOrderMap}
       endedTotalsMap={endedTotalsMap}
       pagedCount={pagedCount}
+      pageReplyGen={pageReplyGen}
+      pageExhausted={pageExhausted}
       connected={status === "connected"}
       onSessionsPage={(cwd, offset) => send({ type: "sessions_page", cwd, offset })}
       onReorderSessions={(cwd, sessionIds) => {
@@ -1831,6 +1912,11 @@ export default function App() {
       onReorderWorkspaces={(ids) => send({ type: "reorder_workspaces", ids })}
       onReorderWorkspaceFolders={(id, paths) => send({ type: "reorder_workspace_folders", id, paths })}
       onMoveFolderToWorkspace={(path, toWorkspaceId, index) => send({ type: "move_folder_to_workspace", path, toWorkspaceId, index })}
+      // persist-folder-collapse-server-side — server-owned state, no optimistic
+      // mirror: dispatch `set_folder_collapsed` and let `collapsed_folders_updated`
+      // arrive (matches the workspace-collapse convention below).
+      collapsedGroups={collapsedFolders}
+      onSetFolderCollapsed={(path, collapsed) => send({ type: "set_folder_collapsed", path, collapsed })}
       // folder-workspaces — optimistic UI is intentionally omitted: server
       // is the single source of truth and broadcasts `workspaces_updated`
       // for every mutation, so we just dispatch and let the broadcast
@@ -2410,6 +2496,14 @@ export default function App() {
   navigateRef.current = navigate;
   const handleEditorClose = useCallback(() => navigateRef.current("/"), []);
 
+  // (D3) Consume `?focus=terminal` once honoured: strip it with a REPLACE
+  // navigation so no history entry is added and an overlay-remount cannot
+  // re-fire the one-shot. See change: fix-terminals-action-opens-terminal.
+  const handleFolderFocusConsumed = useCallback(() => {
+    if (!folderEditorCwd) return;
+    navigateRef.current(buildFolderEditorUrl(folderEditorCwd), { replace: true });
+  }, [folderEditorCwd]);
+
   // Folder view content (folder-scoped editor pane — hosts terminal tabs).
   const folderViewContent = useMemo(() => {
     if (folderEditorCwd) {
@@ -2422,11 +2516,14 @@ export default function App() {
           onKillTerminal={handleKillTerminal}
           onRenameTerminal={handleRenameTerminal}
           onTerminalTitle={handleTerminalTitle}
+          focusTerminal={focusTerminalRequest}
+          terminalsReady={terminalsReady}
+          onFocusConsumed={handleFolderFocusConsumed}
         />
       );
     }
     return null;
-  }, [folderEditorCwd, getTerminalsForCwd, handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle, handleEditorClose]);
+  }, [folderEditorCwd, focusTerminalRequest, terminalsReady, handleFolderFocusConsumed, getTerminalsForCwd, handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle, handleEditorClose]);
 
   const allSessionsList = useMemo(() => Array.from(sessions.values()), [sessions]);
 
@@ -2466,8 +2563,8 @@ export default function App() {
       sessions={allSessionsList.filter((s) => s.cwd === cwd)}
       onSpawnSession={handleSpawnSession}
       onSelectSession={handleSelect}
-      onOpenTerminals={(c) => navigate(`/folder/${encodeFolderPath(c)}/editor`)}
-      onOpenEditor={(c) => navigate(`/folder/${encodeFolderPath(c)}/editor`)}
+      onOpenTerminals={(c) => navigate(buildFolderEditorUrl(c, true))}
+      onOpenEditor={(c) => navigate(buildFolderEditorUrl(c))}
       onOpenSettings={(c) => navigate(buildFolderSettingsUrl(c))}
     />
   );
@@ -2520,6 +2617,9 @@ export default function App() {
         onKillTerminal={handleKillTerminal}
         onRenameTerminal={handleRenameTerminal}
         onTerminalTitle={handleTerminalTitle}
+        focusTerminal={focusTerminalRequest}
+        terminalsReady={terminalsReady}
+        onFocusConsumed={handleFolderFocusConsumed}
       />
     ),
     renderFolderHome: (cwd) => renderDirectoryHome(cwd),
