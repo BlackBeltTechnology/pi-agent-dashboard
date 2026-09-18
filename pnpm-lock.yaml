@@ -248,6 +248,9 @@ importers:
       '@blackbelt-technology/dashboard-plugin-runtime':
         specifier: ^0.8.0
         version: link:../dashboard-plugin-runtime
+      '@blackbelt-technology/pi-dashboard-mcp-server-plugin':
+        specifier: ^0.8.0
+        version: link:../mcp-server-plugin
       '@blackbelt-technology/pi-dashboard-shared':
         specifier: ^0.8.0
         version: link:../shared

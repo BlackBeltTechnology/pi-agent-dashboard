@@ -15,24 +15,24 @@
 
 - [ ] 2.1 Add the team-controls modules to chat-gateway's package (no second plugin, no second gateway connection) and verify the plugin still activates with one gateway connection and one routing table
 - [ ] 2.2 Ensure the manifest declares a priority inside the host's trusted range (`priority <= 100`) and verify `assignSessionRef` is available at runtime rather than silently no-opping
-- [ ] 2.3 Add a dependency on `@blackbelt-technology/pi-dashboard-mcp-server-plugin` for its `./manifest` export and verify `pnpm install` resolves and the package builds
+- [x] 2.3 Add a dependency on `@blackbelt-technology/pi-dashboard-mcp-server-plugin` for its `./manifest` export and verify `pnpm install` resolves and the package builds
 - [ ] 2.4 Define the layer's config schema (per-binding principals + role maps, ceiling, mirror levels, disarm flag) with validation, and verify invalid configs are rejected
 - [ ] 2.5 Implement the plugin-owned binding store (workspace↔channel) with atomic write, and verify a restart round-trip preserves bindings and provisions no duplicate channels
 - [ ] 2.6 Add `AGENTS.md` rows for every new source file and verify `kb dox lint` reports no missing rows
 
 ## 3. Authorization chokepoint (D2, D3) — build before anything can act
 
-- [ ] 3.1 Import `GENERATED_TOOLS` from `…/mcp-server-plugin/manifest` as the verb→tier lookup (NOT `MANIFEST` — its `tier` is absent on 144/156 rows) and verify a test asserts every allowlisted command's verb resolves to a tier there
-- [ ] 3.2 Define the curated command allowlist and verify a verb outside it is refused even when the principal's tier would permit that verb's tier
-- [ ] 3.3 Implement `authorize()` returning a discriminated `Grant | Refusal` (never a nullable tier) with reasons `non_human_author`, `unbound_channel`, `no_principal_mapping`, `scope_violation`, `disarmed`, `non_delegable_verb`, `insufficient_tier` — verify a table-driven test covers every reason
-- [ ] 3.4 Implement scope containment inside the chokepoint (step 7) and verify a cross-workspace target refuses with `scope_violation`, and that no separate call site can skip it
-- [ ] 3.5 Implement per-binding principal/role scoping and verify a principal mapped at `control` for one binding refuses in another
-- [ ] 3.6 Implement the bot/webhook hard reject as the first branch and verify it refuses even when the bot's identifier matches a configured principal
-- [ ] 3.7 Implement role-map bounds (roles cap at `control`; `operate` requires an explicit identifier) and verify config validation rejects a role mapped to `operate`
-- [ ] 3.8 Implement the ceiling with an `observe` default and verify clamping plus the default on a fresh install
-- [ ] 3.9 Implement the `NON_DELEGABLE` constant (`mint_device_token`, `set_providers`, `install_package`, `tunnel_connect`) and verify an `operate` principal is refused each
+- [x] 3.1 Import `GENERATED_TOOLS` from `…/mcp-server-plugin/manifest` as the verb→tier lookup (NOT `MANIFEST` — its `tier` is absent on 144/156 rows) and verify a test asserts every allowlisted command's verb resolves to a tier there
+- [x] 3.2 Define the curated command allowlist and verify a verb outside it is refused even when the principal's tier would permit that verb's tier
+- [x] 3.3 Implement `authorize()` returning a discriminated `Grant | Refusal` (never a nullable tier) with reasons `non_human_author`, `unbound_channel`, `no_principal_mapping`, `scope_violation`, `disarmed`, `non_delegable_verb`, `insufficient_tier` — verify a table-driven test covers every reason
+- [x] 3.4 Implement scope containment inside the chokepoint (step 7) and verify a cross-workspace target refuses with `scope_violation`, and that no separate call site can skip it
+- [x] 3.5 Implement per-binding principal/role scoping and verify a principal mapped at `control` for one binding refuses in another
+- [x] 3.6 Implement the bot/webhook hard reject as the first branch and verify it refuses even when the bot's identifier matches a configured principal
+- [x] 3.7 Implement role-map bounds (roles cap at `control`; `operate` requires an explicit identifier) and verify config validation rejects a role mapped to `operate`
+- [x] 3.8 Implement the ceiling with an `observe` default and verify clamping plus the default on a fresh install
+- [x] 3.9 Implement the `NON_DELEGABLE` constant (`mint_device_token`, `set_providers`, `install_package`, `tunnel_connect`) and verify an `operate` principal is refused each
 - [ ] 3.10 Implement disarm (any `observe`+ principal from chat; only the dashboard re-arms) and verify both directions plus that mirroring continues while disarmed
-- [ ] 3.11 Verify tier is re-resolved per request by changing the role set between two dispatches
+- [x] 3.11 Verify tier is re-resolved per request by changing the role set between two dispatches
 - [ ] 3.12 Verify the layering invariants: the tier layer never admits a principal L1 rejected, and never permits a binding L2 refused
 - [ ] 3.13 Implement the trust-failure rule — a trusted-gated verb returning the host's no-op marks the plugin unhealthy naming the missing trust level and refuses the originating command — and verify a stubbed untrusted context yields a refusal, not a phantom success
 - [ ] 3.14 Verify no action path reaches a session without a `Grant`, by making the dispatcher require one as an argument and asserting it in test
@@ -41,7 +41,7 @@
 
 - [ ] 4.1 Insert the workspace source into chat-gateway's cwd-resolver precedence chain and verify resolution order against the modified requirement
 - [ ] 4.2 Enforce the `allowedRoots`-narrowing invariant: a workspace folder outside `allowedRoots` is inert — verify it never resolves, never spawns, and is reported as inert on the configuration surface
-- [ ] 4.3 Implement the cwd→workspace matcher (symlinks resolved, segment-boundary match, longest match wins) and verify sibling-prefix non-match (`/a/foo` vs folder `/a/fo`), nested folders across workspaces, symlinked cwd, and unbound cwd
+- [x] 4.3 Implement the cwd→workspace matcher (symlinks resolved, segment-boundary match, longest match wins) and verify sibling-prefix non-match (`/a/foo` vs folder `/a/fo`), nested folders across workspaces, symlinked cwd, and unbound cwd
 - [ ] 4.4 Implement channel provisioning with `permission_overwrites` in the create payload and verify against a stubbed REST client that the `@everyone` view deny is in the create call and no follow-up permission PATCH is issued
 - [ ] 4.5 Implement provisioning-failure handling when overwrites cannot be set and verify no channel is created and the reason appears in the plugin health entry
 - [ ] 4.6 Implement overwrite reconciliation on the layer's own config-write path plus an activation sweep, and verify a removed principal loses access, an added one gains it without recreation, and a change made while down is reconciled at activation
@@ -50,10 +50,10 @@
 
 ## 5. Output filter (D9)
 
-- [ ] 5.1 Implement the structured-payload filter with names-only as default and verify tool arguments, tool results, diffs, and terminal output are absent at that level
-- [ ] 5.2 Verify the stated boundary: assistant prose quoting a diff is mirrored as written, and the configuration surface states the filter bounds structured payloads only
-- [ ] 5.3 Implement per-thread coalescing with a single in-flight post and verify a burst produces a bounded number of posts within the rate budget
-- [ ] 5.4 Implement elision markers for length- and rate-driven truncation and verify no case produces a silently shortened message
+- [x] 5.1 Implement the structured-payload filter with names-only as default and verify tool arguments, tool results, diffs, and terminal output are absent at that level
+- [x] 5.2 Verify the stated boundary: assistant prose quoting a diff is mirrored as written, and the configuration surface states the filter bounds structured payloads only
+- [x] 5.3 Implement per-thread coalescing with a single in-flight post and verify a burst produces a bounded number of posts within the rate budget
+- [x] 5.4 Implement elision markers for length- and rate-driven truncation and verify no case produces a silently shortened message
 - [ ] 5.5 Implement level changes applying to subsequent events only and verify already-posted messages are not rewritten
 - [ ] 5.6 Implement tier-gated pulls and verify an untiered user's pull is refused while a permitted pull succeeds under a names-only filter
 
@@ -69,7 +69,7 @@
 - [ ] 7.1 Attach provenance via `ctx.assignSessionRef` (plugin-owned ref, not the user-curated tag namespace) carrying principal + channel + binding, and verify it persists across a dashboard restart and is absent for dashboard-only sessions
 - [ ] 7.2 Implement the append-only command log (principal, channel, thread, tier, verb, target, outcome, refusal reason) with no edit or delete interface and verify one entry per action-bearing request, permitted or refused
 - [ ] 7.3 Verify mirroring produces no log entries and that each refusal class records its own distinct reason
-- [ ] 7.4 Implement restart persistence and ring-buffer retention and verify oldest-first discard at the bound
+- [x] 7.4 Implement restart persistence and ring-buffer retention and verify oldest-first discard at the bound
 
 ## 8. Configuration surface
 
