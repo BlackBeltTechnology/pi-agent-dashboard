@@ -3,8 +3,9 @@
 //
 // Production / published package: run the built `dist/cli.js` (prepublishOnly
 // runs `npm run build`). Dev checkout (no dist): run the TypeScript entry
-// through tsx, which resolves from the hoisted workspace node_modules.
+// through tsx, resolved to an absolute path so it works from any cwd.
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -14,10 +15,18 @@ const distCli = join(pkgRoot, "dist", "cli.js");
 if (existsSync(distCli)) {
   await import(pathToFileURL(distCli).href);
 } else {
+  const require = createRequire(import.meta.url);
+  let tsxLoader;
+  try {
+    tsxLoader = require.resolve("tsx");
+  } catch {
+    console.error("[deck3d] dist/cli.js missing and tsx not installed — run `npm run build` in this package");
+    process.exit(1);
+  }
   const { spawnSync } = await import("node:child_process");
   const r = spawnSync(
     process.execPath,
-    ["--import", "tsx", join(pkgRoot, "src", "cli.ts"), ...process.argv.slice(2)],
+    ["--import", tsxLoader, join(pkgRoot, "src", "cli.ts"), ...process.argv.slice(2)],
     { stdio: "inherit" },
   );
   process.exit(r.status ?? 1);
