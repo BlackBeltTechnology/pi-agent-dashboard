@@ -72,6 +72,11 @@ export default defineConfig({
       // workstream 2c. A package absent here never runs its tests.
       "packages/browser-plugin",
       "packages/blackhole-plugin",
+      // chat-gateway (change: add-chat-gateway): the inbound chat control plane.
+      // A package absent here never runs its tests — its L1 suites (allowedRoots
+      // containment, binding precedence, auth decision table, edit throttle,
+      // prompt mapping, adapter payload codec) gate real spawn boundaries.
+      "packages/chat-gateway",
       "packages/mcp-server-plugin",
       // Owns the pi-mcp-adapter config surface + version floor. See change:
       // extract-mcp-client-plugin.

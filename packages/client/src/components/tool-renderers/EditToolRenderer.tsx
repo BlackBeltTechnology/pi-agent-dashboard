@@ -1,9 +1,17 @@
-import React from "react";
+import React, { lazy, Suspense } from "react";
 import { createTwoFilesPatch } from "diff";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import type { ToolRendererProps } from "./types.js";
 import { OpenFileButton } from "./OpenFileButton.js";
 import { useMobile } from "../../hooks/useMobile.js";
-import { RichDiff } from "../diff/RichDiff.js";
+
+// D2/D4-adjacent (change: add-lazy-terminal-diff-bootstrap): the rich diff
+// viewer is a lazy boundary so the @git-diff-view chunk is not reached from the
+// chat transcript's cold graph. The mobile `HomegrownDiff` path stays eager
+// (npm `diff` only, its own `jsdiff` chunk).
+const RichDiff = lazy(() =>
+  import("../diff/RichDiff.js").then((m) => ({ default: m.RichDiff })),
+);
 
 // --- Mobile-only diff renderer ---
 
@@ -182,7 +190,13 @@ export function EditToolRenderer({ args, status, result, toolDetails, context }:
         <OpenFileButton filePath={filePath} context={context} />
       </div>
 
-      {renderDiffs()}
+      <Suspense
+        fallback={
+          <div className="p-4 text-sm text-[var(--text-tertiary)]">{i18nT("status.loadingDiff", undefined, "Loading diff…")}</div>
+        }
+      >
+        {renderDiffs()}
+      </Suspense>
 
       {result && status !== "running" && (
         result.startsWith("---")

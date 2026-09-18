@@ -1,0 +1,29 @@
+chat-gateway vendors the platform-adapter contract from @gamalan/pi-gateway.
+
+Upstream:  @gamalan/pi-gateway
+Version:   1.10.1
+License:   MIT
+Copyright: (c) the pi-gateway authors
+
+Vendored files:
+  - src/adapters/base.ts  — the `PlatformAdapter` contract / `BaseAdapter`
+                            abstract class. Copied VERBATIM (it is pure: no
+                            imports, no side effects).
+
+NOT vendored (deliberately), and why:
+  - upstream `index.ts`            — its hub. The dashboard is the hub.
+  - upstream `sessions/store.ts`   — SQLite session store. The dashboard
+                                     already owns a session registry.
+  - upstream `extensions/pi-gateway-ask-user-rpc.ts`
+                                   — an rpc-mode hack. Replaced by the
+                                     dashboard's PromptBus path.
+  - upstream `adapters/discord.ts`  — its transport is the ambient global
+                                     `WebSocket` + `fetch`, it derives the bot
+                                     id from the token prefix (incorrect), and
+                                     its `stop()` leaks a reconnect timer
+                                     (`onclose` unconditionally re-arms
+                                     `setTimeout(start, 5000)`). This package
+                                     implements the SAME contract on `discord.js`
+                                     instead (see design.md, "Vendoring").
+
+The MIT license requires this attribution to travel with the derived work.

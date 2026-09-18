@@ -12,15 +12,22 @@
  * the cycle imports). `CappedViewer` importing this file would re-form
  * `CappedViewer -> DiffViewer -> DiffPanel -> DiffFilePreview -> CappedViewer`.
  *
+ * D4 (change: add-lazy-terminal-diff-bootstrap): the `DiffViewer` value is a
+ * `React.lazy` wrapper, so the rich diff-viewer chunk is not in the cold graph.
+ * The cycle boundary is unchanged — this module still owns the (now dynamic)
+ * import. No local `Suspense` — `EditorPane.tsx` already wraps the pseudo-tab
+ * body in one with a "Loading viewer…" fallback.
+ *
  * See change: cleanup-import-cycles (D3).
  */
 
-import type { ComponentType } from "react";
-import DiffViewer from "./DiffViewer.js";
-import LiveServerViewer from "./LiveServerViewer.js";
+import { type ComponentType, lazy } from "react";
 import type { ViewerProps } from "./types.js";
+import LiveServerViewer from "./LiveServerViewer.js";
 import UrlViewer from "./UrlViewer.js";
 import type { PseudoTabViewer } from "./viewer-kinds.js";
+
+const DiffViewer = lazy(() => import("./DiffViewer.js"));
 
 /**
  * `terminal` viewer placeholder. A `term:<id>` tab's real xterm mount lives in
