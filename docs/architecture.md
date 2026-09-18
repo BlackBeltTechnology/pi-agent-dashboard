@@ -156,6 +156,75 @@ TypeScript type definitions shared across all components:
 - **Folder status capsule** (change: unify-folder-status-capsule). `FolderStatusCapsule` = folder header's ONLY liveness surface. Renders in BOTH collapse states. Replaces `FolderNeedsYouPill` + collapsed-only `FolderStatusRollup` + raw `(N)` count — all DELETED, incl. `countStatusRollup`. Segments by `countStatusCapsule(sessions, flags)` (`packages/client/src/lib/session/session-status-visuals.ts`). Fixed severity order `CAPSULE_SEGMENT_ORDER` = needs-you > error > working > idle; magnitude never reorders. Zero-count segments absent; no countable sessions → no capsule at all (all-ended folder shows none; its `N ended` disclosure row still reports size). Excludes `ended` + `hidden` before shape derivation. `flags.widgetBar` tri-state `(id) => boolean | undefined`; `true` or `undefined` excludes that ask_user session from EVERY bucket. Still per-session `WidgetBarProbe` + `useHasWidgetBarPrompt`, now capsule-owned. needs-you uses explicit predicate, not `deriveStatusShape`; re-adds `!hasError` guard — errored ask_user counts once, as error. `notice` shape folds into `idle` bucket; retrying counts as `working`. Counts cap at `999+`. Non-idle segments = `<button>`s → first session of that state via `firstIds[bucket]`; idle = inert `<span>` + aria-label. Activation `stopPropagation()` → SessionList reveal path (`onSeekToCard` / `revealRequest`): inherits guarded expand, layout-settled scroll, hidden/filtered degrade toasts. Colors from `--status-*` family only, never `--severity-*`; no new CSS custom property. Capsule `flex-none` + `whitespace-nowrap`; sheds nothing; folder name absorbs width pressure. Test ids: `folder-status-capsule-<cwd>`, `folder-capsule-seg-{needs-you,error,working,idle}-<cwd>`.
 - **Opt-in urgency sort.** `useFolderUrgencySort` per-folder pref, default off, localStorage `dashboard:folder-urgency-sort`. When on, `SessionList` floats ask_user sessions first within active tier via `floatAskUserFirst`. Toggle = folder actions menu item `urgency-sort` (`mdiSortVariant`), `aria-pressed` bound to `urgencySort.isOn(cwd)`. Per-folder persisted preference unchanged.
 
+### Bridge Streaming Coalescing (change: coalesce-bridge-message-update-snapshots)
+
+**Problem.**
+- pi `message_update` carries FULL accumulated text snapshot, not delta.
+- Bridge forwarded every update synchronously on pi single-threaded loop.
+- Paid `JSON.stringify` + `ws.send` per source token.
+- Strings grow O(N) over N tokens → O(N²) bytes per turn; stalled host event loop.
+
+**Mechanism & state machine.**
+- File: `packages/extension/src/message-update-coalescer.ts`.
+- Transport-agnostic single-slot state machine (`MessageUpdateCoalescer`).
+- Bridge injects callbacks: `send`, `setTimer`, `clearTimer`, `isActive`.
+- `COALESCE_WINDOW_MS = 50`.
+- FIXED window anchored at FIRST pending update arrival.
+- NOT debounce: continuous stream never gaps; debounce starves stream until `message_end`.
+- Fixed window caps added latency at ≤ 50 ms non-cumulative.
+- Last-wins single slot; stores live event reference; client takes cumulative latest snapshot.
+
+**Family split (sub-event routing).**
+- Text-carrying sub-events park: `text_start`, `text_delta`, `text_end`.
+- Non-text sub-events bypass park: `thinking_start`, `thinking_delta`, `thinking_end`, `toolcall_start`, `toolcall_delta`, `toolcall_end`, `start`, and unknown types.
+- Non-text handler flushes parked text snapshot first, then forwards immediately and unmodified.
+- Preserves thinking deltas: thinking deltas ADDITIVE, not snapshots; coalescing drops tokens.
+- Unknown sub-events fail-safe: pass through immediately to prevent swallowing additive extensions.
+
+**Identity barrier.**
+- Per-message generation counter `assistantMessageGen` in `bridge.ts`.
+- Increments on EVERY `message_start` (user + assistant) across turns and retries.
+- Key format: `${gen}:${role}:${timestamp}` via `messageKeyOf`.
+- `message.id` unusable: pi assigns id post-handler during session persistence.
+- `timestamp` required on `AssistantMessage`/`UserMessage`; fallback uses WeakMap object counter.
+
+**Drop rule & fail-open lifecycle.**
+- ONLY updates whose identity closed via `messageEnd` drop.
+- Updates with unknown identity or no open message open new slot instead (fail-open).
+- Guard: `npm run reload` re-initializes bridge mid-turn; dropping unknown identity silences active turn.
+- Bounded FIFO (`CLOSED_KEY_MEMORY = 64`) retains closed keys.
+
+**Flush choke points.**
+- Entry choke point: enriched + pass-through loops call `if (flushesParkedText(eventType)) coalescer.flush()` at handler entry.
+- Runs before ANY early return; prevents latent ordering bugs from new branches.
+- Out-of-loop chat sinks flush explicitly: `wrapCustomPersistenceForCtx` (`appendCustomMessageEntry`, `appendCustomEntry`) and `sendSyntheticRetryEvent`.
+- `message_end` flushes text before scheduling deferred id-stamping `setTimeout(0)`.
+
+**Lifecycle & transport boundaries.**
+- `onReconnect`: flushes pending text BEFORE `sendStateSync()` + replay. Reconnect = transport boundary; preserves in-flight turn tail, forbids post-replay delivery.
+- Session change / `session_shutdown`: call `coalescer.clear()`. Session transition = state invalidation; discards parked snapshot, cancels window.
+- Window timer registered in bridge registry (`prev.timers`); released on fire/clear to prevent leak across reload.
+- Timer callback re-checks `isActive()` at fire time; prevents writing to closed socket after bridge teardown.
+- Image inliner: `maybeInlineAssistantImages` runs inside `coalescer.send` callback; executes once per flushed window instead of once per token. Authoritative `message_end` inliner retained.
+
+**Architectural boundary (scope).**
+- Cuts BRIDGE forwarding cost only (`JSON.stringify` + wire transmission).
+- Does NOT replace server fold (`live-event-frame-coalescing-fold`) or client batching (`chat-event-render-batching`).
+- Downstream layers cut RENDER cost; bridge coalescer cuts WIRE/SERIALIZATION cost.
+- Wire protocol format unchanged (`event_forward` message carrying `message_update`).
+
+**Measured baseline & scaling.**
+- Baseline (harness uncoalesced): 169 `message_update` frames, 616,534 bytes over 13.4 s stream = 12.6 deltas/s, 1:1 forward.
+- Reduction factor: `min(1, sourceDeltasPerSecond ÷ 20)`.
+- Win activates when provider emits > 20 deltas/s (< 50 ms delta interval). Real providers stream 1–4-token deltas at 20–150 tok/s (2.5×–7.5× reduction).
+- `FAUX_TPS=50` chunks 3–5 tokens (~12.5 deltas/s); harness measures ~1× by design.
+
+**References.**
+- Spec: `openspec/changes/coalesce-bridge-message-update-snapshots/specs/bridge-message-update-coalescing/spec.md`.
+- Design decisions: `openspec/changes/coalesce-bridge-message-update-snapshots/design.md` (D1–D9).
+- Unit tests: `packages/extension/src/__tests__/message-update-coalescer.test.ts`, `packages/extension/src/__tests__/bridge-coalesced-chat-order.test.ts`.
+- E2E test: `tests/e2e/coalesced-streaming.spec.ts`.
+
 ### EventBus Forwarding Mechanism (subscription-based, change: fix-automation-run-lifecycle)
 
 **Host topology.**

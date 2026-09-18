@@ -448,11 +448,75 @@ function fanoutWidthStep(context: FauxContext): unknown {
   );
 }
 
+/**
+ * Bridge-coalescing streaming fixtures (change:
+ * coalesce-bridge-message-update-snapshots).
+ *
+ * `COALESCE_PARAGRAPHS` is a several-paragraph assistant reply long enough to
+ * stream for ~10 s at the default `FAUX_TPS=50` (~500 tokens), so the bridge
+ * sees a sustained `message_update` run: the D0 baseline workload and the L3
+ * F1/F4/X4 rows (text converges to the full content, no ghost streaming
+ * bubble; transport boundary + mid-turn reload).
+ *
+ * The paragraphs are deterministic and individually numbered so a spec can
+ * assert the FINAL rendered text equals the whole streamed text rather than
+ * merely that some marker appeared.
+ */
+export const COALESCE_PARAGRAPHS_TAIL = "coalesce stream complete";
+
+const COALESCE_PARAGRAPHS =
+  Array.from(
+    { length: 8 },
+    (_unused, index) =>
+      `Coalesce paragraph ${index + 1}. ` +
+      "The bridge holds at most one pending text snapshot per window, so this " +
+      "sentence streams token by token while only the newest accumulated " +
+      "snapshot reaches the wire at the end of each fifty millisecond window. " +
+      "Nothing in this paragraph is allowed to go missing, and nothing here is " +
+      "allowed to render twice.",
+  ).join("\n\n") +
+  `\n\n${COALESCE_PARAGRAPHS_TAIL}`;
+
+/** Reasoning that must render in full ahead of the tool row (L3 F2). */
+export const COALESCE_REASONING_TAIL = "coalesce reasoning complete";
+const COALESCE_REASONING =
+  "Reasoning about the coalescing boundary. " +
+  Array.from(
+    { length: 12 },
+    (_unused, index) => `Reasoning step ${index + 1} weighs the ordering tradeoff.`,
+  ).join(" ");
+
+/** Text preceding the tool call; must survive replay above the tool row (L3 F3). */
+export const COALESCE_PRE_TOOL_TEXT = "coalesce pre-tool text";
+export const COALESCE_TOOL_COMMAND = "echo coalesce-tool-ran";
+
 export const SCENARIOS: Record<string, Scenario> = {
   // ── Server-side round-trip scenarios ────────────────────────────────────
   "plain-text": {
     script: [fauxAssistantMessage([fauxText(PLAIN_TEXT_MARKER)])],
     expect: { text: PLAIN_TEXT_MARKER },
+  },
+
+  // Bridge-coalescing streaming fixtures (change:
+  // coalesce-bridge-message-update-snapshots). See the constants above.
+  "coalesce-multiparagraph": {
+    script: [fauxAssistantMessage([fauxText(COALESCE_PARAGRAPHS)])],
+    expect: { text: COALESCE_PARAGRAPHS_TAIL },
+  },
+
+  "coalesce-reasoning-tool": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxThinking(COALESCE_REASONING),
+          fauxText(COALESCE_PRE_TOOL_TEXT),
+          fauxToolCall("bash", { command: COALESCE_TOOL_COMMAND }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(COALESCE_REASONING_TAIL)]),
+    ],
+    expect: { text: COALESCE_REASONING_TAIL },
   },
 
   // Echoes the dashboard session-context fragment out of the live system
