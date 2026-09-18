@@ -63,6 +63,7 @@ function createMockPrefs(pinned: string[]): PreferencesStore {
     removeFolderFromWorkspace: vi.fn(() => false),
     reorderWorkspaceFolders: vi.fn(() => false),
     reorderWorkspaces: vi.fn(() => false),
+    onWorkspacesChanged: vi.fn(() => () => {}),
     flush: vi.fn(),
     dispose: vi.fn(),
   } as unknown as PreferencesStore;

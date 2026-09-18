@@ -2638,6 +2638,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   pluginShutdownSubs.delete(fn);
                 };
               },
+              // Workspace seam (add-chat-gateway-team-controls): read-only,
+              // store-anchored, over-fire tolerant. Not trust-gated. The
+              // accessor maps to `{id,name,folders}` and re-clones so the
+              // plugin can never mutate host state.
+              listWorkspaces: () =>
+                preferencesStore.getWorkspaces().map((w) => ({
+                  id: w.id,
+                  name: w.name,
+                  folders: [...w.folders],
+                })),
+              onWorkspacesChanged: (handler) => preferencesStore.onWorkspacesChanged(handler),
               // The host's network guard — the SAME instance core mounts on
               // its own route groups. Attaching a guard only tightens, so
               // this is NOT trust-gated. See change:

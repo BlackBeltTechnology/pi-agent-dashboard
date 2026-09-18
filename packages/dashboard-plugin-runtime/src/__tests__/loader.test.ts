@@ -41,6 +41,8 @@ function makeFakeContext(): ServerPluginContext {
     assignSessionRef: () => false,
     networkGuard: async () => {},
     onShutdown: () => () => {},
+    listWorkspaces: () => [],
+    onWorkspacesChanged: () => () => {},
     registerWsRoute: () => {},
     logger: { info: () => {}, warn: () => {}, error: () => {} },
   };

@@ -28,6 +28,7 @@ function createMockPreferencesStore(initialOrder: Record<string, string[]> = {})
     moveFolderToWorkspace: vi.fn(() => false),
     reorderWorkspaceFolders: vi.fn(() => false),
     reorderWorkspaces: vi.fn(() => false),
+    onWorkspacesChanged: vi.fn(() => () => {}),
     flush: vi.fn(),
     getDisplayPrefs: vi.fn(() => undefined),
     getOpenSpecUpdateSignature: vi.fn(() => undefined),

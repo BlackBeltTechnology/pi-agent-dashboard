@@ -4,12 +4,12 @@
 
 ## 1. Host workspace seam (D4, spec `plugin-workspace-seam`)
 
-- [ ] 1.1 Add `listWorkspaces()` to `ServerPluginContext` + `ServerContextDeps` returning a defensive copy of `{ id, name, folders }`, and verify a unit test proves mutating the returned value leaves the preferences store unchanged
-- [ ] 1.2 Add `onWorkspacesChanged(handler): () => void` fired from **all nine** preferences-store mutators (`createWorkspace`, `renameWorkspace`, `deleteWorkspace`, `setWorkspaceCollapsed`, `addFolderToWorkspace`, `removeFolderFromWorkspace`, `moveFolderToWorkspace`, `reorderWorkspaceFolders`, `reorderWorkspaces`) — NOT from `broadcastWorkspaces()` — and verify a test asserts notification for each mutator by name, including a mutation path that performs no client broadcast
-- [ ] 1.3 Add a completeness guard test that enumerates the store's mutator surface and fails when a mutator exists without notification wiring, and verify it fails when one wiring is removed
-- [ ] 1.4 Wire per-subscriber try/catch and verify a throwing handler neither blocks other subscribers nor fails the workspace mutation
-- [ ] 1.5 Verify additivity: run the existing `dashboard-plugin-runtime` + `server` suites and confirm no existing context member changed shape
-- [ ] 1.6 Update `packages/dashboard-plugin-runtime/src/server/AGENTS.md` + the `packages/server/src/` rows for the seam and verify `kb dox lint` reports no missing/stale rows
+- [x] 1.1 Add `listWorkspaces()` to `ServerPluginContext` + `ServerContextDeps` returning a defensive copy of `{ id, name, folders }`, and verify a unit test proves mutating the returned value leaves the preferences store unchanged
+- [x] 1.2 Add `onWorkspacesChanged(handler): () => void` fired from **all nine** preferences-store mutators (`createWorkspace`, `renameWorkspace`, `deleteWorkspace`, `setWorkspaceCollapsed`, `addFolderToWorkspace`, `removeFolderFromWorkspace`, `moveFolderToWorkspace`, `reorderWorkspaceFolders`, `reorderWorkspaces`) — NOT from `broadcastWorkspaces()` — and verify a test asserts notification for each mutator by name, including a mutation path that performs no client broadcast
+- [x] 1.3 Add a completeness guard test that enumerates the store's mutator surface and fails when a mutator exists without notification wiring, and verify it fails when one wiring is removed
+- [x] 1.4 Wire per-subscriber try/catch and verify a throwing handler neither blocks other subscribers nor fails the workspace mutation
+- [x] 1.5 Verify additivity: run the existing `dashboard-plugin-runtime` + `server` suites and confirm no existing context member changed shape
+- [x] 1.6 Update `packages/dashboard-plugin-runtime/src/server/AGENTS.md` + the `packages/server/src/` rows for the seam and verify `kb dox lint` reports no missing/stale rows
 
 ## 2. Layer scaffold inside chat-gateway's plugin (D1, D5, D6)
 
