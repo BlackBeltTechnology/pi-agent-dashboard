@@ -55,18 +55,19 @@ describe("auth.json single-writer contract (task 2.12)", () => {
     await writeCredential("anthropic", { type: "oauth", refresh: "r0", access: "a0", expires: Date.now() + 100 });
     await writeCredential("openai", { type: "api_key", key: "sk-old" });
 
-    // Simulate two concurrent writes
-    const write1 = new Promise<void>((resolve) => {
-      setTimeout(async () => {
-        await writeCredential("anthropic", { type: "oauth", refresh: "r1", access: "a1", expires: Date.now() + 3600_000 });
-        resolve();
+    // Simulate two concurrent writes. The write is chained to the outer promise
+    // so a rejection fails this test loudly instead of leaving it pending on an
+    // unhandled rejection and timing out.
+    const write1 = new Promise<void>((resolve, reject) => {
+      setTimeout(() => {
+        writeCredential("anthropic", { type: "oauth", refresh: "r1", access: "a1", expires: Date.now() + 3600_000 })
+          .then(resolve, reject);
       }, 0);
     });
 
-    const write2 = new Promise<void>((resolve) => {
-      setTimeout(async () => {
-        await writeCredential("openai", { type: "api_key", key: "sk-new" });
-        resolve();
+    const write2 = new Promise<void>((resolve, reject) => {
+      setTimeout(() => {
+        writeCredential("openai", { type: "api_key", key: "sk-new" }).then(resolve, reject);
       }, 0);
     });
 
