@@ -19,13 +19,20 @@ export function glyphText(merged: MergedDeck): string {
     out.push(s.title);
     if (s.subtitle) out.push(s.subtitle);
     out.push(...s.bullets);
-    for (const n of s.diagram.nodes ?? []) out.push(n.label);
-    for (const e of s.diagram.edges ?? []) if (e.label) out.push(e.label);
-    for (const a of s.diagram.actors ?? []) out.push(a.label);
-    for (const m of s.diagram.messages ?? []) out.push(m.text);
-    for (const g of s.diagram.groups ?? []) out.push(g.title);
+    out.push(...diagramText(s));
   }
   return out.join("");
+}
+
+function diagramText(slide: MergedDeck["slides"][number]): string[] {
+  const d = slide.diagram;
+  const out: string[] = [];
+  for (const n of d.nodes ?? []) out.push(n.label);
+  for (const e of d.edges ?? []) if (e.label) out.push(e.label);
+  for (const a of d.actors ?? []) out.push(a.label);
+  for (const m of d.messages ?? []) out.push(m.text);
+  for (const g of d.groups ?? []) out.push(g.title);
+  return out;
 }
 
 /** Build a TTF containing only `text`'s code points (plus `.notdef`/space). */
