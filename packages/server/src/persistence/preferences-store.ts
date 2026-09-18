@@ -417,7 +417,7 @@ export function createPreferencesStore(
     ? data.collapsedFolders.filter((p): p is string => typeof p === "string")
     : [];
   const collapsedPlatform = inferPlatform(rawCollapsed);
-  let collapsedFolders: string[] = dedupePreserveOrder(
+  const collapsedFolders: string[] = dedupePreserveOrder(
     rawCollapsed.map((p) => pathKey(p, collapsedPlatform)),
   );
   // Favorite model labels — deduped, insertion-ordered. Default [] for legacy files.
