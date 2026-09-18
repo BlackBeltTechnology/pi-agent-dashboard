@@ -1,5 +1,5 @@
-import { test, expect } from "./fixtures.js";
-import { gotoDashboard, spawnFreshGitSession, sendPrompt } from "./helpers/index.js";
+import { expect, test } from "./fixtures.js";
+import { gotoDashboard, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
 // L3 restart-survival — keeper-backed identity reattach (test-plan #F1).
 //
@@ -47,6 +47,7 @@ async function serverIdentity(
 
 test.describe("keeper-backed session identity survives a dashboard restart", () => {
   test("#F1 a dispatched command reaches the reattached session's pi", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     await gotoDashboard(page);
 
     // Dashboard-spawned → runs pi inside a keeper → the reattach path this

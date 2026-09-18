@@ -1,0 +1,322 @@
+name: CI E2E Browser
+
+# Sharded browser-E2E suite (tests/e2e/, 168+ Playwright specs) against the
+# Docker test harness. A single job cannot produce a verdict: the suite is
+# ~168 specs and `--shard` splits by CONTIGUOUS file order, so one shard can
+# inherit a cluster of slow files. At N=6 the measured spread was 38 min
+# (fastest) to ~115 min (slowest, at the cap); at N=12 shard 6 still hit the
+# 120-min cap every dispatch (its mcp-*/model-*/notify-* block) while the other
+# 11 finished in ~40-60 min. N=18 cuts that shard's spec count by a third. Each
+# shard gets its OWN runner and OWN harness container. Shards are independent
+# by construction, so one shard's death cannot cascade into another.
+#
+# Why this exists (issue #433 part 2): `tests/e2e/` is the strongest gate on the
+# ship-it path, yet nothing ran it on develop — only the Electron-E2E workflow
+# was wired — so the baseline drifted red without anyone noticing.
+#
+# ADVISORY: this workflow is NOT a required check. The PR path is opt-in via the
+# `e2e-browser` label and `continue-on-error`; it is flipped to required in a
+# separate change after two consecutive green nightlies.
+#
+# Contract locked by
+# packages/shared/src/__tests__/e2e-browser-workflow-contract.test.ts:
+#   - the matrix length MUST equal every `--shard=i/N` denominator
+#   - every job carries `timeout-minutes` (the only whole-run budget left now
+#     that playwright.config.ts sets no `globalTimeout` — see #450)
+#   - the harness is torn down `if: always()`
+#   - a `merge-report` job joins the per-shard blob reports into one artifact
+#
+# See change: stabilize-browser-e2e (design D2).
+
+on:
+  # Land dark, like nightly.yml: dispatch first. Enable the nightly cron only
+  # after the baseline triage is green (task 5.5) — the first scheduled run
+  # after merge SHALL be green, not a 6-shard red wall.
+  # schedule:
+  #   - cron: '30 7 * * *'
+  workflow_dispatch:
+    inputs:
+      shards:
+        description: "Matrix length to document in this dispatch (informational; the matrix itself is fixed below)"
+        required: false
+        default: "18"
+  pull_request:
+    branches: [develop]
+    types: [opened, synchronize, reopened, labeled]
+
+# One run per ref; a newer push supersedes an in-flight one.
+concurrency:
+  group: ci-e2e-browser-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ── e2e: one shard per runner, one harness per shard ──────────────────────
+  e2e:
+    name: e2e (shard ${{ matrix.shard }})
+    # Label-gated on PRs; always on for dispatch/nightly.
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'e2e-browser')
+    runs-on: ubuntu-latest
+    # One shard per runner is about ISOLATION: each shard gets its own harness
+    # container, so a shard's death cannot cascade. `test-up.sh` reads the
+    # runner's real MemTotal at boot and refuses an oversubscribing start, so
+    # the runner's RAM figure is not the constraint here.
+    #
+    # 18 shards, not 6 or 12: `--shard` splits by CONTIGUOUS file order, not
+    # round-robin, so one shard can inherit a cluster of slow L3 files. At N=6
+    # shards 3/6 ran 100-115 min (the cap); at N=12 shard 6 STILL hit the
+    # 120-min cap on every dispatch while the other 11 finished in ~40-60 min
+    # (run 35302540253: 11/12 green, shard 6 cancelled) — its alphabetical
+    # mcp-*/model-*/notify-* block spawns a real session per test. N=18 cuts
+    # shard 6's spec count by a third. 120 min remains the cap; the re-measured
+    # per-shard wall clock is in
+    # openspec/changes/stabilize-browser-e2e/measurements.md.
+    timeout-minutes: 120
+    # ADVISORY on the PR path only; dispatch/nightly fail loudly.
+    continue-on-error: ${{ github.event_name == 'pull_request' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # System libs + a hermetic bundled Chromium (PW_CHANNEL is left unset so
+      # the config picks the bundled browser, not a system channel).
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      # Managed mode: globalSetup boots the harness (test-up.sh --build builds
+      # the image from THIS checked-out tree) and globalTeardown tears it down.
+      # No --global-timeout: the job's timeout-minutes is the budget.
+      #
+      # PW_E2E_BOOT_TIMEOUT_MS: the runner has NO Docker layer cache, so the
+      # first build of the dashboard image is ~6-8 min. The 180s local default
+      # starts polling right after the detached build is spawned, so every shard
+      # died at exactly 180s with "container never became healthy". 20 min is
+      # ~2.5x the measured build and well inside the 75-min job budget.
+      - name: Run browser E2E shard
+        run: pnpm exec playwright test --shard=${{ matrix.shard }}/18
+        env:
+          CI: "1"
+          PI_E2E_SEED: "1"
+          PW_E2E_BOOT_TIMEOUT_MS: "1200000"
+          # GitHub-hosted runners refuse the entrypoint's `mount -t overlay`
+          # ("cannot mount overlay read-only", exit 32), so the container
+          # crash-looped 6x per shard and never answered /api/health.
+          # TEST_COPY_MODE=1 is the spec-sanctioned no-capability fallback
+          # (`cp -a` instead of overlay; test-up.sh then omits
+          # compose.test.cap.yml). Costless here: globalSetup boots from an
+          # EMPTY throwaway workspace, so the copy source is empty.
+          TEST_COPY_MODE: "1"
+
+      - name: Upload blob report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: blob-report-${{ matrix.shard }}
+          path: blob-report
+          # A shard that dies before the blob reporter's onEnd (install failure,
+          # globalSetup crash) has no report: ignore it rather than adding a
+          # second red step on top of the real failure.
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # globalSetup sends the detached `test-up.sh` output to a FILE, so a boot
+      # failure otherwise shows only "container never became healthy" with no
+      # cause. Without this the first red run was undiagnosable from the logs.
+      - name: Upload harness boot log
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-up-log-${{ matrix.shard }}
+          path: test-results/test-up.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # test-up.sh's output ends at "Container ... Started" (compose returns as
+      # soon as the container is up), so an entrypoint that then crash-loops has
+      # NO trace in test-up.log. globalSetup snapshots the container's state +
+      # log tail into this bundle on a boot failure; without it the first CI
+      # dispatches died with "container never became healthy" and no cause.
+      - name: Upload harness failure bundle
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-failure-${{ matrix.shard }}
+          path: test-results/harness-failure.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # Belt-and-braces: globalTeardown already runs, but a KILLED Playwright
+      # process skips it, and a leaked 4 GiB container would poison the next
+      # matrix leg on a reused runner. test-down.sh re-derives the compose
+      # project from $PWD, so it must run from the workspace globalSetup
+      # recorded in the marker — never from the repo root.
+      - name: Tear down harness
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          marker="test-results/.e2e-managed"
+          if [ ! -f "$marker" ]; then
+            echo "no managed-run marker — globalTeardown (or attach mode) already handled teardown"
+            exit 0
+          fi
+          ws="$(node -p "JSON.parse(require('node:fs').readFileSync('test-results/.e2e-managed','utf8')).workspace" 2>/dev/null || true)"
+          if [ -z "$ws" ] || [ ! -d "$ws" ]; then
+            echo "marker has no usable workspace — nothing to tear down"
+            exit 0
+          fi
+          (cd "$ws" && "$GITHUB_WORKSPACE/docker/test-down.sh")
+
+  # ── e2e-browser-relay: the VARIANT-harness leg ────────────────────────────
+  # `tests/e2e/browser-relay.spec.ts` needs a harness booted with
+  # PI_BROWSER_RELAY_FAKE=1, which seeds the plugin's socket-less Fake relay
+  # instance. That faucet CANNOT be a shared-harness default: a live relay makes
+  # `isLiveViewActive()` true for EVERY session, so the `content-view` slot
+  # renders the live-browser tile instead of the composer and occludes the chat
+  # for every other spec (systemic cause S2). It therefore gets its OWN runner +
+  # harness, and the relay spec skips everywhere else. Without this leg the file
+  # would be silently dropped from CI entirely.
+  e2e-browser-relay:
+    name: e2e (browser relay, variant harness)
+    # Same label gate as the shard matrix: dispatch/nightly always, PRs opt-in.
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'e2e-browser')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      # Same managed-mode contract as the shards (globalSetup boots + tears down,
+      # cold-build timeout, copy mode), plus the relay faucet. PI_E2E_SEED is
+      # mandatory: without it the onboarding "Add folder" CTA is disabled and
+      # every scenario spec times out.
+      - name: Run browser-relay E2E (variant harness)
+        run: pnpm exec playwright test tests/e2e/browser-relay.spec.ts
+        env:
+          CI: "1"
+          PI_E2E_SEED: "1"
+          PI_BROWSER_RELAY_FAKE: "1"
+          PW_E2E_BOOT_TIMEOUT_MS: "1200000"
+          TEST_COPY_MODE: "1"
+
+      - name: Upload blob report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: blob-report-relay
+          path: blob-report
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload harness boot log
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-up-log-relay
+          path: test-results/test-up.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload harness failure bundle
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-failure-relay
+          path: test-results/harness-failure.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Tear down harness
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          marker="test-results/.e2e-managed"
+          if [ ! -f "$marker" ]; then
+            echo "no managed-run marker — globalTeardown (or attach mode) already handled teardown"
+            exit 0
+          fi
+          ws="$(node -p "JSON.parse(require('node:fs').readFileSync('test-results/.e2e-managed','utf8')).workspace" 2>/dev/null || true)"
+          if [ -z "$ws" ] || [ ! -d "$ws" ]; then
+            echo "marker has no usable workspace — nothing to tear down"
+            exit 0
+          fi
+          (cd "$ws" && "$GITHUB_WORKSPACE/docker/test-down.sh")
+
+  # ── merge-report: one HTML artifact for the whole sharded run ─────────────
+  merge-report:
+    needs: [e2e, e2e-browser-relay]
+    # NOT a bare `always()`: that also runs this job when the label gate SKIPPED
+    # `e2e`. There are then zero blob artifacts, `merge-reports` fails, and every
+    # UNLABELED PR grows a red "CI E2E Browser / merge-report" check — exactly
+    # the red wall the advisory + land-dark design exists to avoid. Both legs
+    # share the same label gate, so either being non-skipped is sufficient.
+    if: ${{ always() && needs.e2e.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Advisory on the PR path too: if every shard dies before its blob reporter
+    # yields a directory, `download-artifact` matches nothing and fails THIS
+    # job — a red check on a PR despite the advisory design. Dispatch/nightly
+    # still fail loudly.
+    continue-on-error: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Same toolchain as the shards. The merger's playwright version must match
+      # the one that WROTE the blobs, so it comes from the lockfile rather than a
+      # hardcoded literal that drifts on the next pin bump.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download shard blob reports
+        uses: actions/download-artifact@v4
+        with:
+          path: all-blobs
+          pattern: blob-report-*
+          merge-multiple: true
+
+      - name: Merge into one HTML report
+        run: pnpm exec playwright merge-reports --reporter html ./all-blobs
+
+      - name: Upload merged report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report
+          retention-days: 14

@@ -20,11 +20,9 @@
  */
 
 import { execFileSync } from "node:child_process";
-import fs from "node:fs";
-import path from "node:path";
 import { expect, type Page, test } from "./fixtures.js";
 import { ensureGitSession, gotoDashboard } from "./helpers/index.js";
-import { REPO_ROOT } from "./lifecycle.js";
+import { harnessProject } from "./lifecycle.js";
 
 /**
  * The harness container id, resolved from the compose project recorded in
@@ -33,16 +31,13 @@ import { REPO_ROOT } from "./lifecycle.js";
 let containerId: string | undefined;
 function harnessContainer(): string {
   if (containerId) return containerId;
-  const state = JSON.parse(
-    fs.readFileSync(path.join(REPO_ROOT, ".pi-test-harness.json"), "utf8"),
-  ) as { project?: string };
-  if (!state.project) throw new Error(".pi-test-harness.json carries no compose project");
+  const project = harnessProject();
   const id = execFileSync(
     "docker",
-    ["ps", "-q", "--filter", `label=com.docker.compose.project=${state.project}`],
+    ["ps", "-q", "--filter", `label=com.docker.compose.project=${project}`],
     { encoding: "utf8", timeout: 30_000 },
   ).trim().split("\n")[0];
-  if (!id) throw new Error(`no running container for compose project ${state.project}`);
+  if (!id) throw new Error(`no running container for compose project ${project}`);
   containerId = id;
   return id;
 }

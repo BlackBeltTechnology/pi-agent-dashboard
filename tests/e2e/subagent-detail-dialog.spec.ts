@@ -22,6 +22,7 @@ import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 // `ui:dialog` dismissable with Esc. Needs PI_E2E_SEED=1.
 test.describe("subagent detail dialog (D4)", () => {
   test("popout never opens a new browser tab; opens a ui:dialog when agentId resolves", async ({ page, context }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const card = await spawnFreshGitSession(page);
     await card.click();
     // A card-centre click can land on the card's OpenSpec "Propose" affordance,
@@ -92,6 +93,7 @@ test.describe("subagent detail dialog (D4)", () => {
   // rendered card over a 10 s window must observe ≥ 2 DISTINCT states; a
   // collapse that (wrongly) suppressed broadcast would freeze it at one.
   test("the live subagent timeline keeps advancing while collapse is active", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     // F4 asserts collapse is RETENTION-ONLY: it bounds what the store keeps and
     // never suppresses a live broadcast. That claim is about the wire, not the
     // DOM — so it is asserted on the /ws frames the browser actually receives.

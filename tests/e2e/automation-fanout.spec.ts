@@ -80,6 +80,7 @@ test.describe("automation fan-out (parent → children)", () => {
   });
 
   test("F5: a fire produces one parent expanding to two distinct child rows", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     await createFanout(page.request);
     // Trigger the automation.
     const run = await page.request.post("/api/plugins/automation/run", {

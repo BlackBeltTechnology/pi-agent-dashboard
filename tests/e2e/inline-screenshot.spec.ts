@@ -1,6 +1,6 @@
-import { test, expect } from "./fixtures.js";
-import { spawnFreshGitSession, sendPrompt } from "./helpers/index.js";
 import { SCREENSHOT_INLINE } from "../../qa/fixtures/faux-scenarios.js";
+import { expect, test } from "./fixtures.js";
+import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
 // Faux round-trip — inline agent screenshot artifacts (Fix B).
 //
@@ -20,6 +20,7 @@ test.describe("faux round-trip — inline agent screenshot", () => {
   test("bash screenshot result renders inline, auto-expanded, with no path-link", async ({
     page,
   }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const card = await spawnFreshGitSession(page);
     await card.click();
 

@@ -21,10 +21,8 @@
 
 import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
-import { expect, test, type APIRequestContext } from "./fixtures.js";
-import { REPO_ROOT } from "./lifecycle.js";
+import { type APIRequestContext, expect, test } from "./fixtures.js";
+import { harnessProject } from "./lifecycle.js";
 
 interface KeeperLogStats {
   totalBytes: number;
@@ -53,16 +51,13 @@ async function health(request: APIRequestContext): Promise<HealthBody> {
 let containerId: string | undefined;
 function harnessContainer(): string {
   if (containerId) return containerId;
-  const state = JSON.parse(
-    fs.readFileSync(path.join(REPO_ROOT, ".pi-test-harness.json"), "utf8"),
-  ) as { project?: string };
-  if (!state.project) throw new Error(".pi-test-harness.json carries no compose project");
+  const project = harnessProject();
   const id = execFileSync(
     "docker",
-    ["ps", "-q", "--filter", `label=com.docker.compose.project=${state.project}`],
+    ["ps", "-q", "--filter", `label=com.docker.compose.project=${project}`],
     { encoding: "utf8", timeout: 30_000 },
   ).trim().split("\n")[0];
-  if (!id) throw new Error(`no running container for compose project ${state.project}`);
+  if (!id) throw new Error(`no running container for compose project ${project}`);
   containerId = id;
   return id;
 }

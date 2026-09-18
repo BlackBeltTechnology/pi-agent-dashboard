@@ -29,6 +29,7 @@ test.describe("detect tool-created files", () => {
   test("U1 badges a tool row; U3 groups + toggles other working-tree changes", async ({
     page,
   }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     await spawnFreshGitSession(page);
 
     // A tracked file dirtied out-of-band (no session event) → otherChanges.

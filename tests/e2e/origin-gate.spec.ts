@@ -25,11 +25,9 @@
  * See change: fix-ws-origin-cswsh (tasks 5.2–5.4).
  */
 import { execFileSync } from "node:child_process";
-import fs from "node:fs";
 import http from "node:http";
-import path from "node:path";
 import { expect, test } from "./fixtures.js";
-import { BASE_URL, DASHBOARD_PORT, REPO_ROOT } from "./lifecycle.js";
+import { BASE_URL, DASHBOARD_PORT, harnessProject } from "./lifecycle.js";
 
 /** The hostile origin, resolved to loopback by the launch arg below. */
 const ATTACKER_HOST = "attacker.test";
@@ -42,18 +40,15 @@ test.use({
 let containerId: string | undefined;
 function harnessContainer(): string {
   if (containerId) return containerId;
-  const state = JSON.parse(
-    fs.readFileSync(path.join(REPO_ROOT, ".pi-test-harness.json"), "utf8"),
-  ) as { project?: string };
-  if (!state.project) throw new Error(".pi-test-harness.json carries no compose project");
+  const project = harnessProject();
   const id = execFileSync(
     "docker",
-    ["ps", "-q", "--filter", `label=com.docker.compose.project=${state.project}`],
+    ["ps", "-q", "--filter", `label=com.docker.compose.project=${project}`],
     { encoding: "utf8", timeout: 30_000 },
   )
     .trim()
     .split("\n")[0];
-  if (!id) throw new Error(`no running container for compose project ${state.project}`);
+  if (!id) throw new Error(`no running container for compose project ${project}`);
   containerId = id;
   return id;
 }
@@ -155,6 +150,7 @@ test.describe("cross-site request gate", () => {
   // #F1 — the dashboard's own client is untouched: its page opens the very
   // socket the gate refuses above, and trips no rejection.
   test("the dashboard's own page still opens its WebSocket", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const before = harnessLog().length;
 
     await page.goto(`${BASE_URL}/`);

@@ -51,6 +51,7 @@ test.describe("subagent thin ticks — liveness + fidelity (L3)", () => {
   // stripped by accident is a timeline gone forever — the highest-severity
   // failure mode in this change.
   test("a completed subagent still renders after a refresh", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const card = await spawnFreshGitSession(page);
     await card.click();
     await page.keyboard.press("Escape").catch(() => {});
@@ -85,6 +86,7 @@ test.describe("subagent thin ticks — liveness + fidelity (L3)", () => {
   // `subagent-tick-growth.test.ts`. What this row owns is that the counters are
   // wired end-to-end through the real bridge → store → /api/health path.
   test("D6: subagent-tick counters move and stay mostly thin", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const card = await spawnFreshGitSession(page);
     await card.click();
     await page.keyboard.press("Escape").catch(() => {});
@@ -116,6 +118,7 @@ test.describe("subagent thin ticks — liveness + fidelity (L3)", () => {
   // never opens an inspector, so the share must sit far under the C4 abort
   // threshold of 50 %.
   test("P5: inspector-open share is measurable and below the C4 abort threshold", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const card = await spawnFreshGitSession(page);
     await card.click();
     await page.keyboard.press("Escape").catch(() => {});

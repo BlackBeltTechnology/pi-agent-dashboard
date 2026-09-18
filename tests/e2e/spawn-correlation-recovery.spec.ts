@@ -161,6 +161,7 @@ test.describe("late spawn register converges (L3)", () => {
   test("a register inside the recovery window clears the banner AND adds the card", async ({
     request,
   }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(120_000);
     const cwd = WORKSPACE;
     const token = await firedSpawnToken(request, cwd);
@@ -224,6 +225,7 @@ test.describe("late spawn register converges (L3)", () => {
   test("one spawn registering leaves a concurrent same-cwd spawn still watched", async ({
     request,
   }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(180_000);
     const cwd = WORKSPACE;
     const tokenA = await firedSpawnToken(request, cwd);

@@ -1880,13 +1880,27 @@ export function reduceEvent(
         break;
       }
       if (msg?.role === "assistant") {
-        // Any structurally valid non-error, non-aborted assistant completion
-        // confirms provider recovery, including pi-owned continuation without
-        // a user message. Missing/non-string runtime data proves no disposition
-        // and must preserve the unresolved lifecycle.
-        // See change: fix-retry-error-lifecycle.
+        // A confirmed-good TERMINAL stop (`stop`/`end_turn`) always confirms
+        // provider recovery, including pi-owned continuation without a user
+        // message. A mid-turn stop (e.g. `toolUse` at an interactive
+        // `ask_user`) clears ONLY while a retry chain is active — there it
+        // closes the chain successfully (fix-retry-error-lifecycle), but
+        // OUTSIDE a chain it is a pause, not recovery, and must NOT clear the
+        // settled error anchor. Missing/non-string runtime data proves no
+        // disposition and preserves the unresolved lifecycle.
+        // See change: unify-error-retry-lifecycle (CONFIRMED_GOOD_STOP_REASONS),
+        // stabilize-browser-e2e (baseline triage: the `message_end` path used
+        // "any non-error stop", so an ask_user pause silently cleared the
+        // banner — contradicting the CONFIRMED_GOOD_STOP_REASONS intent the
+        // `agent_end` path already honours).
         const stopReason = typeof msg.stopReason === "string" ? msg.stopReason : undefined;
-        if (!state.retryCancelled && stopReason && stopReason !== "error" && stopReason !== "aborted") {
+        if (
+          !state.retryCancelled &&
+          stopReason &&
+          stopReason !== "error" &&
+          stopReason !== "aborted" &&
+          (CONFIRMED_GOOD_STOP_REASONS.has(stopReason) || state.retryState !== undefined)
+        ) {
           next.lastError = undefined;
           next.retryState = undefined;
         }

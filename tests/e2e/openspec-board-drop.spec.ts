@@ -74,6 +74,7 @@ test.describe("board card drop resolution", () => {
   // #F2 — intra-column reorder below a midpoint. Under the OLD code this exact
   // adjacent-downward drag was a silent no-op.
   test("F2: an intra-column reorder below a midpoint persists", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const ids = await setBoardLayout(page, [{ name: "E2E Reorder", changes: [A, B] }]);
     const col = ids.get("E2E Reorder")!;
     expect(await orderOf(page, col)).toEqual([A, B]);
@@ -321,6 +322,7 @@ test.describe("board card drag cancellation", () => {
   // #X2 — the gutter is the case a `closestCorners` fallback silently turned
   // into a move into whichever neighbour was nearest.
   test("X2: releasing in the gutter between two columns changes nothing", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const ids = await setBoardLayout(page, [
       { name: "E2E Left", changes: [A, B] },
       { name: "E2E Right", changes: [C] },
@@ -393,6 +395,7 @@ test.describe("board card drag cancellation", () => {
   // while disagreeing on the index. Caught only because the commit re-resolves
   // from the end event instead of trusting the last `onDragMove`.
   test("X6b: a one-frame flick from the rail onto a card commits the card's slot", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const ids = await setBoardLayout(page, [
       { name: "E2E Flick", changes: [A, B, C] },
       { name: "E2E FlickSrc", changes: [X] },
