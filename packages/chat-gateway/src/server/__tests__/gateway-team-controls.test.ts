@@ -103,7 +103,7 @@ describe("gateway team-controls integration", () => {
       correlator: createSpawnCorrelator(),
       team,
     });
-    return { seam, adapter, gateway, log, team };
+    return { seam, adapter, gateway, log, team, teamConfig: validated.value };
   }
 
   const msg = (userId: string, text: string): InboundMessage => ({
@@ -193,6 +193,87 @@ describe("gateway team-controls integration", () => {
     // The plugin reports itself unhealthy exactly once, naming the same reason.
     expect(failures).toHaveLength(1);
     expect(team.trustHealth()).toEqual({ healthy: false, reason: failures[0] });
+  });
+
+  /** Flush the mirror lane's async posts (microtasks + one macrotask). */
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  /** A bridge event frame carrying a tool call, as `subscribeSession` delivers it. */
+  const toolFrame = (toolName: string, args: Record<string, unknown>) => ({
+    type: "event",
+    event: { eventType: "tool_execution_start", data: { toolName, args } },
+  });
+
+  const toolEndFrame = (toolName: string, output: string) => ({
+    type: "event",
+    event: { eventType: "tool_execution_end", data: { toolName, output } },
+  });
+
+  const allSent = (adapter: { sent: Array<{ content: string }> }) =>
+    adapter.sent.map((m) => m.content).join("\n");
+
+  it("E24: at the default level the thread shows the tool and target basename, never the diff or output", async () => {
+    const { adapter, gateway } = setup();
+    await gateway.start();
+    gateway.handleFrame(
+      "s1",
+      toolFrame("Edit", {
+        file_path: "/repo/src/foo.ts",
+        oldText: "SECRET_OLD",
+        newText: "SECRET_NEW",
+      }),
+    );
+    gateway.handleFrame("s1", toolEndFrame("Bash", "SECRET_OUTPUT"));
+    await flush();
+
+    const out = allSent(adapter);
+    // The thread shows that an edit tool ran and its target's basename...
+    expect(out).toContain("Edit");
+    expect(out).toContain("foo.ts");
+    // ...and not the file's contents, the diff, or the command's output.
+    expect(out).not.toContain("SECRET_OLD");
+    expect(out).not.toContain("SECRET_NEW");
+    expect(out).not.toContain("SECRET_OUTPUT");
+  });
+
+  it("E25: a level change is forward-only — already-posted messages are not rewritten", async () => {
+    const { adapter, gateway, teamConfig } = setup();
+    await gateway.start();
+    for (let i = 0; i < 3; i++) {
+      gateway.handleFrame("s1", toolFrame("Read", { file_path: `/repo/f${i}.ts` }));
+      await flush();
+    }
+    const before = adapter.sent.map((m) => m.content);
+    expect(before).toHaveLength(3);
+    expect(before[0]).not.toContain("args");
+
+    // Raise the level mid-session, then emit ONE further event.
+    teamConfig.bindings.ws_1.mirrorLevel = "full-transcript";
+    gateway.handleFrame("s1", toolFrame("Edit", { file_path: "/repo/new.ts", newText: "FRESH" }));
+    await flush();
+
+    // The new event renders in full...
+    const last = adapter.sent[adapter.sent.length - 1].content;
+    expect(last).toContain("FRESH");
+    // ...and the three earlier posts are byte-identical (not back-filled).
+    expect(adapter.sent.slice(0, 3).map((m) => m.content)).toEqual(before);
+  });
+
+  it("X15: mirroring survives disarm while every action-bearing request refuses", async () => {
+    const { seam, adapter, gateway, team } = setup();
+    await gateway.start();
+    team.disarm();
+
+    // The passive stream is not an action: activity still appears.
+    gateway.handleFrame("s1", toolFrame("Read", { file_path: "/repo/a.ts" }));
+    await flush();
+    expect(allSent(adapter)).toContain("Read");
+
+    // Every action-bearing request in the same channel is refused.
+    const before = seam.sentPrompts.length;
+    await gateway.handleInbound(msg("alice", "keep going"));
+    expect(seam.sentPrompts).toHaveLength(before);
+    expect(allSent(adapter)).toContain("disarmed");
   });
 
   it("X19: an observer's control activation sends no response", async () => {

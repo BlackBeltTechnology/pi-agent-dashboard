@@ -45,6 +45,8 @@ import { dispatchToSession } from "./dispatch.js";
 import { createEditThrottle, type EditThrottle, shouldSteer, stripSteerPrefix } from "./stream.js";
 import type { Grant } from "./team/authorize.js";
 import type { TeamController } from "./team/controller.js";
+import { createPacer } from "./team/pacing.js";
+import { type MirrorEvent, renderMirror } from "./team/output-filter.js";
 
 export interface ChatGatewayDeps {
   platform: ChatPlatform;
@@ -155,6 +157,66 @@ function assistantTextFrom(frame: unknown): string | null {
   return typeof content === "string" ? content : "";
 }
 
+/** File/dir a tool call targeted, when the args name one. */
+function toolTarget(args: Record<string, unknown> | undefined): string | undefined {
+  if (!args) return undefined;
+  for (const k of ["file_path", "filePath", "path", "target"]) {
+    const v = args[k];
+    if (typeof v === "string" && v !== "") return v;
+  }
+  return undefined;
+}
+
+/** The edit payload a names-and-diffs binding may reveal. `null` when none. */
+function editDiff(toolName: string, args: Record<string, unknown> | undefined): string | null {
+  if (!args) return null;
+  if (!/^(edit|write|patch|apply_patch|str_replace)/i.test(toolName)) return null;
+  const oldText = typeof args.oldText === "string" ? args.oldText : undefined;
+  const newText = typeof args.newText === "string" ? args.newText : undefined;
+  if (oldText !== undefined || newText !== undefined) {
+    return [`- ${oldText ?? ""}`, `+ ${newText ?? ""}`].join("\n");
+  }
+  return typeof args.content === "string" ? args.content : null;
+}
+
+/**
+ * Map a bridge event frame onto a `MirrorEvent` for the team-controls mirror
+ * lane. Assistant prose is NOT mapped here — it keeps chat-gateway's existing
+ * edit-in-place streaming path (F6/F7/F10); only STRUCTURED activity is posted.
+ * Returns null for any frame the filter has no opinion about.
+ */
+function mirrorEventFrom(frame: unknown): MirrorEvent | null {
+  const event = (frame as Record<string, unknown>).event as Record<string, unknown> | undefined;
+  if (!event) return null;
+  const data = (event.data ?? {}) as Record<string, unknown>;
+  const eventType = event.eventType;
+
+  if (eventType === "tool_execution_start") {
+    const toolName = typeof data.toolName === "string" ? data.toolName : undefined;
+    if (!toolName) return null;
+    const args = data.args as Record<string, unknown> | undefined;
+    const target = toolTarget(args);
+    const diff = editDiff(toolName, args);
+    return {
+      kind: "tool_call",
+      toolName,
+      ...(target ? { target } : {}),
+      ...(args !== undefined ? { args } : {}),
+      ...(diff ? { diff } : {}),
+    };
+  }
+
+  if (eventType === "tool_execution_end") {
+    const output = typeof data.output === "string" ? data.output : undefined;
+    if (output === undefined) return null;
+    const toolName = typeof data.toolName === "string" ? data.toolName : "";
+    // A shell's stdout is TERMINAL output; anything else is a tool result.
+    return { kind: /^(bash|shell|exec)$/i.test(toolName) ? "terminal" : "tool_result", output };
+  }
+
+  return null;
+}
+
 /** Map a normalized prompt control onto the vendored adapter's prompt shape. */
 function toInteractivePrompt(control: PromptControl) {
   const method =
@@ -197,6 +259,23 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
   const pendingSpawnAt = new Map<string, number>();
   /** A spawn that never resolves must not block its channel forever. */
   const SPAWN_TTL_MS = 5 * 60_000;
+
+  /**
+   * Team-controls mirror lane (D9): STRUCTURED session activity posted into the
+   * bound thread at the binding's mirror level. Assistant prose keeps its own
+   * edit-in-place path below (F6/F7/F10) — this lane only ADDS the tool
+   * activity that path never rendered. Posted through the pacer so a burst
+   * cannot exceed Discord's per-channel budget. Present only with the layer.
+   */
+  const mirrorPacer = team
+    ? createPacer({
+        send: async (channelKey, content) => {
+          const channelId = store.get(channelKey)?.channelId;
+          if (!channelId) return;
+          await adapter.sendMessage(channelId, content);
+        },
+      })
+    : undefined;
 
   /** Drop spawn entries older than the TTL so a lost resolution cannot wedge a channel. */
   function sweepStaleSpawns(): void {
@@ -791,6 +870,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       pendingSpawns.clear();
       pendingSpawnAt.clear();
       lastInvoker.clear();
+      await mirrorPacer?.drain();
       await adapter.stop();
     },
 
@@ -912,6 +992,24 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       const key = channelKeyFor(sessionId);
       if (!key) return;
       const st = stateFor(key);
+
+      // Team-controls mirror lane (D9): structured activity — tool calls,
+      // results, terminal output — rendered at the binding's mirror level. It
+      // runs BEFORE the assistant-text early return below, which would
+      // otherwise drop a tool frame as "not assistant text". Mirroring is
+      // deliberately independent of disarm and of any principal's tier (X15):
+      // the passive stream is not an action, so it is never gated.
+      if (mirrorPacer && team) {
+        const channelId = store.get(key)?.channelId;
+        const mirrorEvent = mirrorEventFrom(frame);
+        if (channelId && mirrorEvent) {
+          const rendered = renderMirror(mirrorEvent, team.mirrorLevel(channelId));
+          if (rendered !== null && rendered !== "") {
+            mirrorPacer.submit(key, rendered);
+            void mirrorPacer.pump(key);
+          }
+        }
+      }
 
       if (type === "event") {
         const text = assistantTextFrom(frame);
