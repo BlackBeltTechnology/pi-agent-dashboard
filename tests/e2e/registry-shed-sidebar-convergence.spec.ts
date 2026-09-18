@@ -130,6 +130,11 @@ test.describe("shed registry frames reconcile into a complete sidebar", () => {
 
     // (2) Spawn B while still shed. Driven over REST so the spawn does not
     //     depend on the (blacked-out) browser socket at all.
+    // Snapshot the server's ids FIRST, so B is identified as the id that
+    // APPEARED — not merely "some live session in this cwd except A". A
+    // pre-existing live session in the same cwd would otherwise be misread as
+    // B and fail the row assertion below while reconciliation actually worked.
+    const idsBeforeSpawn = new Set((await serverSessions(page)).map((s) => s.id));
     const spawn = await page.evaluate(
       async (dir) =>
         (
@@ -149,7 +154,7 @@ test.describe("shed registry frames reconcile into a complete sidebar", () => {
       .poll(
         async () => {
           const fresh = (await serverSessions(page)).find(
-            (s) => s.cwd === cwd && s.id !== idA && s.status !== "ended" && !s.hidden,
+            (s) => s.cwd === cwd && !idsBeforeSpawn.has(s.id) && s.status !== "ended" && !s.hidden,
           );
           if (fresh) idB = fresh.id;
           return Boolean(fresh);

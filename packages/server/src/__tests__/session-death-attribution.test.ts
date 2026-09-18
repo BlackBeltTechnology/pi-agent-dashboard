@@ -155,14 +155,20 @@ describe("sessionFromMeta — cold start does not retro-label", () => {
 });
 
 /**
- * E12 — registration is the ONLY path to a non-ended record. The registry
- * reconcile rule "a record that is no longer ended means the id was
- * re-registered" depends on this invariant; without it a revived record would
- * silently falsify the removal-vs-re-registration decision at flush time.
- * See change: close-registry-frame-shed-gaps (test-plan #E12).
+ * E12 — no IMPLICIT write path revives an ended record. The registry reconcile
+ * rule "a record that is no longer ended means the id was re-registered"
+ * depends on this: `unregister`, `remove`, and `restore` all leave an ended
+ * record ended. See change: close-registry-frame-shed-gaps (test-plan #E12).
+ *
+ * Scope, deliberately: a partial `update` carrying an explicit non-ended
+ * `status` is OUTSIDE the invariant — the event path really does write status
+ * deltas through `update` (`event-wiring.ts`), so guarding it here would change
+ * event-application semantics well beyond this change. The reconcile rule is
+ * unharmed either way, because it reads the record's status AT FLUSH TIME and
+ * so delivers whatever the record actually holds.
  */
-describe("registration is the only path to a non-ended record (E12)", () => {
-  it("enumerates every write path: only register yields a non-ended status", () => {
+describe("no write path revives an ended record implicitly (E12)", () => {
+  it("enumerates every write path: none of the implicit paths yields a non-ended status", () => {
     // register → active
     const a = createMemorySessionManager();
     expect(a.register({ id: "r", cwd: "/a", source: "tui" }).status).not.toBe("ended");
@@ -189,6 +195,17 @@ describe("registration is the only path to a non-ended record (E12)", () => {
     e.register({ id: "r", cwd: "/a", source: "tui" });
     e.remove("r");
     expect(e.get("r")).toBeUndefined();
+
+    // The documented EXCEPTION: an explicit non-ended `status` through the
+    // generic partial `update`. Pinned so the boundary is deliberate: if a
+    // future change starts enforcing the invariant inside `update`, this
+    // assertion is the one that fails and forces the decision to be made
+    // consciously (the event path depends on the current behaviour).
+    const f = createMemorySessionManager();
+    f.register({ id: "r", cwd: "/a", source: "tui" });
+    f.unregister("r");
+    f.update("r", { status: "streaming" });
+    expect(f.get("r")!.status).toBe("streaming");
   });
 
   it("a restored ended record is not silently revived by a later unrelated write", () => {

@@ -350,11 +350,12 @@ closes, errors, or is terminated as stalled.
 - **WHEN** the socket drains
 - **THEN** that socket SHALL receive a `session_removed` for `s10`
 
-#### Scenario: Registration is the only path to a non-ended record
+#### Scenario: No write path revives an ended record implicitly
 
 - **WHEN** the session manager's write paths are enumerated
-- **THEN** only registration SHALL put a session record into a non-ended status
+- **THEN** `unregister`, `remove`, and `restore` SHALL each leave an ended record ended — none of them revives it
 - **AND** a session restored from persistence without registering SHALL remain ended
+- **AND** a partial `update` carrying an explicit non-ended `status` is the ONLY path that can move a record out of `ended`; the reconcile reads the record's status at FLUSH time, so it delivers whatever status the record actually holds either way
 
 #### Scenario: A reconciled status frame carries the host-pressure clearing value
 
