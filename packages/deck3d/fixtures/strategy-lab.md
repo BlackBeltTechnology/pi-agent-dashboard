@@ -9,11 +9,15 @@ quality: high
 
 Az autonóm szoftverfejlesztés új korszaka
 
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
 # Mi az LLM?
 
 - Olvasott kolléga
 - Nyelvi minták
 - Gondolkodik, de nem cselekszik
+
+<!-- deck3d: {"check":{"ignore":["contrast"]}} -->
 
 # Agent Loop
 
@@ -21,11 +25,15 @@ Az autonóm szoftverfejlesztés új korszaka
 - Önkorrekció
 - Ciklikus működés
 
+<!-- deck3d: {"check":{"ignore":["contrast"]}} -->
+
 # Agent Swarm (2025)
 
 - Szakosodott ágensek
 - Együttműködés
 - 1445% növekedés
+
+<!-- deck3d: {"check":{"ignore":["contrast"]}} -->
 
 # Ágens munkafolyamat
 
@@ -44,6 +52,8 @@ flowchart LR
   end
   L ==>|kész| K[Kód + PR]
 ```
+
+<!-- deck3d: {"camera":{"distance":12},"labels":{"size":0.24},"check":{"ignore":["contrast"]}} -->
 
 # Javítási ciklus
 
@@ -64,8 +74,12 @@ sequenceDiagram
   A-->>F: PR kész
 ```
 
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
 # Köszönöm a figyelmet!
 
 - AI = operációs rendszer
 - Ember + gép együttműködés
 - A jövő már itt van
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->

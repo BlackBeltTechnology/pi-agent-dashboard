@@ -8,19 +8,19 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import opentype from "opentype.js";
 import { canonicalJson } from "../ir/hash.js";
 import { applyOverrides } from "../ir/merge.js";
 import type { DeckIR } from "../ir/types.js";
+import { activeProps, creditsSlide } from "../props/embed.js";
+import { pkgRoot } from "../util/paths.js";
 import { glyphText, subsetFont } from "./font.js";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-/** Package root: `src/render` → up two. */
-const ROOT = join(HERE, "..", "..");
+/** Package root — correct both unbundled (src) and bundled (`dist/cli.js`). */
+const ROOT = pkgRoot();
 
 export const RUNTIME_PATH = join(ROOT, "dist", "runtime.js");
-export const TEMPLATE_PATH = join(HERE, "template.html");
+export const TEMPLATE_PATH = join(ROOT, "src", "render", "template.html");
 export const FONT_PATH = join(ROOT, "assets", "Poppins-Bold.ttf");
 
 export function runtimeSource(path = RUNTIME_PATH): string {
@@ -71,25 +71,39 @@ export interface RenderOptions {
   runtime?: string;
   font?: string;
   template?: string;
+  /** Base64 GLB bytes keyed `<source>-<id>` (from `loadProps`). */
+  props?: Record<string, string>;
 }
 
-function substitute(template: string, token: string, value: string): string {
-  return template.split(token).join(value);
+/**
+ * Replace every template token in ONE pass over the original template, so a
+ * substituted value that itself contains a later token is never rescanned
+ * (e.g. a slide documenting deck3d's own `__FONT__` placeholder).
+ */
+function substituteTokens(template: string, values: Record<string, string>): string {
+  return template.replace(/__(?:DECK_PROPS|DECK|FONT|RUNTIME|TITLE)__/g, (token) => values[token] ?? token);
 }
 
 /** Deck IR → self-contained `deck.html` string. */
 export function renderDeck(ir: DeckIR, opts: RenderOptions = {}): string {
   const merged = applyOverrides(ir);
+  // Only placeable props are embedded; a dangling `node:<id>` role is inert.
+  const props = activeProps(merged);
+  merged.props = props;
+  const credits = creditsSlide(props, merged.slides.length);
+  if (credits) merged.slides.push(credits);
   const template = opts.template ?? readFileSync(TEMPLATE_PATH, "utf8");
   const runtime = opts.runtime ?? runtimeSource();
   const font = opts.font ?? subsetFontBase64(glyphText(merged));
   const title = opts.title ?? merged.slides[0]?.title ?? "deck3d";
   const deckJson = jsonForScript(merged);
+  const propsJson = jsonForScript(opts.props ?? {});
 
-  let html = template;
-  html = substitute(html, "__DECK__", deckJson);
-  html = substitute(html, "__FONT__", font);
-  html = substitute(html, "__RUNTIME__", runtime.replace(/<\/script/gi, "<\\/script"));
-  html = substitute(html, "__TITLE__", title.replace(/</g, "&lt;"));
-  return html;
+  return substituteTokens(template, {
+    __DECK__: deckJson,
+    __DECK_PROPS__: propsJson,
+    __FONT__: font,
+    __RUNTIME__: runtime.replace(/<\/script/gi, "<\\/script"),
+    __TITLE__: title.replace(/</g, "&lt;"),
+  });
 }

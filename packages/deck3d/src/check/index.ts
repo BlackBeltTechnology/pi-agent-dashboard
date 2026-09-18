@@ -6,8 +6,11 @@
 import { pathToFileURL } from "node:url";
 import { chromium, type Page } from "playwright";
 import {
+  type BudgetInfo,
+  budgetFindings,
   contrastFindings,
   type Finding,
+  filterIgnored,
   fitFindings,
   legibilityFindings,
   type Measurement,
@@ -137,17 +140,26 @@ async function annotate(page: Page, measurements: Measurement[]): Promise<Array<
 
 async function checkSlide(page: Page, index: number, ids: string[], viewport: Viewport, findings: Finding[]): Promise<void> {
   await page.evaluate((n) => window.__deck3d?.gotoSlide(n), index);
+  const slideRef = { id: ids[index - 1] ?? `slide-${index}`, index };
+  // Merged per-slide `check.ignore` (derived slide + override), applied per viewport.
+  const ignore = (await page.evaluate((i) => (window.__DECK.slides[i - 1]?.check?.ignore ?? []) as string[], index)) as string[];
+  const slideFindings: Finding[] = [];
   const peaks = await page.evaluate(() => window.__deck3d?.peaks() ?? [0]);
   const times = [...new Set([0, ...peaks.filter((t) => t > 0)])];
   for (const t of times) {
     await page.evaluate((time) => window.__deck3d?.setTime(time), t);
     const measurements = (await page.evaluate(() => window.__deck3d?.measure() ?? [])) as Measurement[];
     const annotated = await annotate(page, measurements);
-    findings.push(...ruleFindings(annotated, viewport, { id: ids[index - 1] ?? `slide-${index}`, index }));
+    slideFindings.push(...ruleFindings(annotated, viewport, slideRef));
   }
-  const slideRef = { id: ids[index - 1] ?? `slide-${index}`, index };
-  const skipped = (await page.evaluate(() => window.__deck3d?.effects()?.skipped ?? [])) as string[];
-  findings.push(...skippedFindings(skipped, slideRef));
+  const effects = (await page.evaluate(() => window.__deck3d?.effects() ?? {
+    active: [],
+    skipped: [],
+    budget: { sum: 0, limit: 0 },
+  })) as { skipped: string[]; budget: BudgetInfo };
+  slideFindings.push(...skippedFindings(effects.skipped ?? [], slideRef));
+  slideFindings.push(...budgetFindings(effects.budget, slideRef));
+  findings.push(...filterIgnored(slideFindings, ignore));
 }
 
 async function checkViewport(browser: Awaited<ReturnType<typeof chromium.launch>>, htmlPath: string, viewport: Viewport, slides: number[] | undefined): Promise<ViewportReport> {

@@ -3,7 +3,7 @@
     "engine": "0.1.0",
     "mermaid": "11.17.2",
     "source": "fixtures/strategy-lab.md",
-    "derivedHash": "6c0f8e30019e40a94c98b6f78dcb6d20be8381fc8d120d054df14e390799c38c"
+    "derivedHash": "a0b53624f10788f7bbe8cc63ff777f4ccec9cf3a37ccc19f7d3424266828bee9"
   },
   "defaults": {
     "mode": "dark",
@@ -22,7 +22,7 @@
     "quality": "high",
     "extrudeDepth": 0.18,
     "camera": {
-      "distance": 7
+      "distance": 9
     },
     "labels": {
       "size": 0.28
@@ -42,7 +42,7 @@
         "kind": "none"
       },
       "camera": {
-        "distance": 7
+        "distance": 9
       },
       "labels": {
         "size": 0.28
@@ -71,7 +71,7 @@
         "kind": "none"
       },
       "camera": {
-        "distance": 7
+        "distance": 9
       },
       "labels": {
         "size": 0.28
@@ -99,7 +99,7 @@
         "kind": "none"
       },
       "camera": {
-        "distance": 7
+        "distance": 9
       },
       "labels": {
         "size": 0.28
@@ -127,7 +127,7 @@
         "kind": "none"
       },
       "camera": {
-        "distance": 7
+        "distance": 9
       },
       "labels": {
         "size": 0.28
@@ -685,7 +685,7 @@
         ]
       },
       "camera": {
-        "distance": 7
+        "distance": 9
       },
       "labels": {
         "size": 0.28
@@ -774,7 +774,7 @@
         ]
       },
       "camera": {
-        "distance": 7
+        "distance": 9
       },
       "labels": {
         "size": 0.28
@@ -805,7 +805,7 @@
         "kind": "none"
       },
       "camera": {
-        "distance": 7
+        "distance": 9
       },
       "labels": {
         "size": 0.28
@@ -821,6 +821,71 @@
     }
   ],
   "overrides": {
-    "slides": {}
+    "slides": {
+      "az-llm-tol-az-agensrajokig": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        }
+      },
+      "mi-az-llm": {
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        }
+      },
+      "agent-loop": {
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        }
+      },
+      "agent-swarm-2025": {
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        }
+      },
+      "agens-munkafolyamat": {
+        "camera": {
+          "distance": 12
+        },
+        "labels": {
+          "size": 0.24
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        }
+      },
+      "javitasi-ciklus": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        }
+      },
+      "koszonom-a-figyelmet": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        }
+      }
+    }
   }
 }

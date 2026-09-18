@@ -6,6 +6,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { propKey } from "./key.js";
 import { type PropCandidate, vendoredPath } from "./search.js";
 
 export const DEFAULT_PROP_SIZE_CAP = 8 * 1024 * 1024;
@@ -18,10 +19,6 @@ export class PropFetchError extends Error {
   }
 }
 
-function slug(value: string): string {
-  return value.replace(/[^a-z0-9-]/gi, "-").replace(/-+/g, "-");
-}
-
 export function sha256(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
@@ -30,16 +27,24 @@ function isGlb(bytes: Uint8Array): boolean {
   return bytes.length >= 4 && bytes[0] === 0x67 && bytes[1] === 0x6c && bytes[2] === 0x54 && bytes[3] === 0x46;
 }
 
-/** Validate glTF/GLB self-containment; throws `PropFetchError`. */
+/**
+ * Validate glTF/GLB self-containment; throws `PropFetchError`.
+ *
+ * Both `buffers[].uri` (geometry) and `images[].uri` (textures) must be absent
+ * or a `data:` URI — any other reference breaks the offline-open guarantee (an
+ * external side-car is never embedded) and the content hash's meaning.
+ */
 function assertGltf(bytes: Uint8Array): void {
   if (isGlb(bytes)) return;
-  let json: { buffers?: Array<{ uri?: string }> };
+  let json: { buffers?: Array<{ uri?: string }>; images?: Array<{ uri?: string }> };
   try {
     json = JSON.parse(new TextDecoder().decode(bytes)) as typeof json;
   } catch {
     throw new PropFetchError("not a glTF/GLB");
   }
-  const external = (json.buffers ?? []).map((b) => b.uri).filter((u): u is string => typeof u === "string" && !u.startsWith("data:"));
+  const external = [...(json.buffers ?? []), ...(json.images ?? [])]
+    .map((r) => r.uri)
+    .filter((u): u is string => typeof u === "string" && !u.startsWith("data:"));
   if (external.length) throw new PropFetchError(`glTF has an external URI (self-containment): ${external[0]}`);
 }
 
@@ -80,7 +85,7 @@ export async function fetchProp(candidate: PropCandidate, opts: FetchPropOptions
   const hash = sha256(bytes);
   if (opts.sha256 && opts.sha256 !== hash) throw new PropFetchError(`${candidate.source}-${candidate.id}: sha256 ${hash} ≠ pinned ${opts.sha256}`);
 
-  const dest = join(opts.destDir, `${slug(candidate.source)}-${slug(candidate.id)}.glb`);
+  const dest = join(opts.destDir, `${propKey(candidate)}.glb`);
   if (existsSync(dest)) {
     const existing = sha256(readFileSync(dest));
     if (existing !== hash) throw new PropFetchError(`${candidate.source}-${candidate.id}: cached hash ${existing} ≠ fetched ${hash}`);

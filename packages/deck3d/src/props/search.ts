@@ -5,11 +5,10 @@
  * first) and Poly Pizza (optional, `POLY_PIZZA_KEY`).
  */
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { pkgRoot } from "../util/paths.js";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(HERE, "..", "..");
+const ROOT = pkgRoot();
 
 export type PropSource = "vendored" | "poly-pizza" | "generated";
 
@@ -111,7 +110,7 @@ export async function searchPolyPizza(query: string, opts: { timeoutMs?: number;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const url = `${opts.endpoint ?? POLY_PIZZA_ENDPOINT}?${new URLSearchParams({ query, limit: "20" }).toString()}`;
+    const url = `${opts.endpoint ?? process.env.POLY_PIZZA_ENDPOINT ?? POLY_PIZZA_ENDPOINT}?${new URLSearchParams({ query, limit: "20" }).toString()}`;
     const res = await fetch(url, { headers: { "x-auth-token": key }, signal: controller.signal });
     if (!res.ok) return { candidates: [], notice: `online source skipped (HTTP ${res.status})` };
     return { candidates: parsePolyResponse((await res.json()) as PolyResponse) };

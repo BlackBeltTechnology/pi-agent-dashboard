@@ -1,8 +1,9 @@
-## Purpose
+# deck3d-props Specification
 
+## Purpose
 Illustrate slides and diagram nodes with reusable, content-related 3D models: an agent searches and picks a model, the deterministic engine fetches, pins, normalises, restyles, animates and embeds it.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Prop search lists candidates for the agent
 `props search <keywords...>` SHALL query the configured sources (an online CC0/CC-BY model catalogue and a vendored offline CC0 set) and print candidates with: source, id, name, licence, author, triangle count, download size, thumbnail URL. Results SHALL be sorted vendored-first, then by relevance; the command SHALL never download model binaries. The online query SHALL time out after 10 s and fall back to vendored-only results with the skip notice.
@@ -56,7 +57,7 @@ A prop SHALL be attached by writing an entry under `overrides.props[]` with: `so
 - **THEN** the command exits non-zero with the reason and the install/retry hint; nothing else changes
 
 ### Requirement: Licence credits are automatic
-When any embedded prop has an attribution-requiring licence, `parse` SHALL append a derived slide with id `credits` to `slides[]` (so it is in the IR, addressable by deep link and measurable by `check`) listing name, author, source, licence and "modified: restyled" when `restyle: palette` applied, per prop. CC0 and generated props SHALL not require a credits slide.
+When any embedded prop has an attribution-requiring licence, `render` SHALL append a derived slide with id `credits` to the merged view (never written to `deck.json`) — so it is addressable by deep link and measurable by `check` — listing name, author, source, licence and "modified: restyled" when `restyle: palette` applied, per prop. CC0 and generated props SHALL not require a credits slide.
 
 #### Scenario: CC-BY prop present
 - **WHEN** one prop has `licence: CC-BY-4.0`

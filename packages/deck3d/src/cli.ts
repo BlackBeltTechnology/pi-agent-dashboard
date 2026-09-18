@@ -4,7 +4,8 @@
  *
  * Exit codes: 0 success, 1 failure (with a one-line reason on stderr), 2 usage.
  */
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { DeckIR } from "./ir/types.js";
@@ -37,6 +38,12 @@ Commands:
   fx <list|preview>                          Inspect the effects corpus
   props <search|fetch|generate>              Illustrate slides with glTF models
 
+fx options:
+  fx list [--kind k] [--tag t] [--json]      List effects (optionally filtered)
+  fx preview <id> [-o out.png]               Render one effect to a PNG
+props options:
+  props generate --from-image <img> --name <n>   Geometry-only GLB via Hunyuan3D-2
+
 Options:
   -h, --help                                 Show this help
   -v, --version                              Print the version
@@ -52,7 +59,7 @@ function parseArgs(args: string[]): Flags {
   const flags: Flags = { positional: [], bool: new Set(), value: {} };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg === "-o" || arg === "--out" || arg === "--viewport" || arg === "--slide" || arg === "--kind" || arg === "--tag") {
+    if (arg === "-o" || arg === "--out" || arg === "--viewport" || arg === "--slide" || arg === "--kind" || arg === "--tag" || arg === "--from-image" || arg === "--name" || arg === "--role") {
       const key = arg === "-o" ? "out" : arg.replace(/^--?/, "");
       flags.value[key] = args[++i] ?? "";
     } else if (arg.startsWith("-")) {
@@ -167,7 +174,11 @@ async function renderFile(jsonPath: string, outPath: string, io: CliIO): Promise
     for (const v of violations) io.stderr(`error ${v.path}: ${v.message}`);
     return 1;
   }
-  for (const slide of ir.slides) {
+  // Compose the MERGED view: `overrides.effects` + `overrides.slides[id].effects`
+  // are already folded into each slide's effective list by `applyOverrides`.
+  const { applyOverrides } = await import("./ir/merge.js");
+  const merged = applyOverrides(ir);
+  for (const slide of merged.slides) {
     const ov = ir.overrides.slides?.[slide.id];
     const mode = ov?.mode ?? ir.overrides.deck?.mode ?? ir.defaults.mode ?? "dark";
     const quality = ov?.quality ?? ir.overrides.deck?.quality ?? ir.defaults.quality ?? "high";
@@ -179,8 +190,10 @@ async function renderFile(jsonPath: string, outPath: string, io: CliIO): Promise
     }
   }
   const { ensureRuntime, renderDeck, fontBase64 } = await import("./render/index.js");
+  const { loadProps } = await import("./props/embed.js");
   const runtime = await ensureRuntime();
-  const html = renderDeck(ir, { runtime, font: fontBase64(), title: basename(jsonPath, ".json") });
+  const props = loadProps(ir, jsonPath);
+  const html = renderDeck(ir, { runtime, font: fontBase64(), title: basename(jsonPath, ".json"), props });
   writeFileSync(outPath, html);
   return 0;
 }
@@ -214,7 +227,9 @@ async function loadReport(htmlPath: string, flags: Flags, io: CliIO, strict: boo
   } catch (err) {
     if (err instanceof CheckUnavailableError) {
       io.stderr("check skipped: chromium missing (npx playwright install chromium)");
-      return { code: failOnFinding && strict ? 1 : 0 };
+      // `--strict` makes an unrunnable check a failure even for `build`
+      // (which otherwise ignores findings). See spec deck3d-render: Build runs check.
+      return { code: strict ? 1 : 0 };
     }
     io.stderr(`check failed: ${(err as Error).message}`);
     return { code: failOnFinding ? 1 : 0 };
@@ -250,8 +265,9 @@ async function runCheckAndReport(htmlPath: string, flags: Flags, io: CliIO, fail
 async function cmdFx(args: string[], io: CliIO): Promise<number> {
   const flags = parseArgs(args);
   const sub = flags.positional[0];
+  if (sub === "preview") return fxPreview(flags, io);
   if (sub !== "list") {
-    io.stderr(`deck3d fx: unknown subcommand '${sub ?? ""}' (try list)`);
+    io.stderr(`deck3d fx: unknown subcommand '${sub ?? ""}' (try list|preview)`);
     return 2;
   }
   const { catalogue } = await import("./fx/catalogue.js");
@@ -266,6 +282,69 @@ async function cmdFx(args: string[], io: CliIO): Promise<number> {
   return 0;
 }
 
+/** One-slide deck whose only effect is `id` (design D9 / 7d.3 preview). */
+async function previewDeck(id: string): Promise<DeckIR> {
+  const { resolveDefaults } = await import("./ir/defaults.js");
+  return {
+    meta: { engine: VERSION, mermaid: "11.17.2" },
+    defaults: resolveDefaults({}),
+    slides: [
+      {
+        index: 0,
+        id: "fx-preview",
+        kind: "title",
+        title: `fx ${id}`,
+        subtitle: "preview",
+        bullets: [],
+        scene: "tokens",
+        diagram: { kind: "none" },
+        effects: [{ id }],
+      },
+    ],
+    overrides: {},
+  };
+}
+
+/** `fx preview <id> [-o png]` — render one effect and screenshot it (7d.7). */
+async function fxPreview(flags: Flags, io: CliIO): Promise<number> {
+  const id = flags.positional[1];
+  if (!id) {
+    io.stderr("deck3d fx preview: missing <id>");
+    return 2;
+  }
+  const { REGISTRY } = await import("./fx/index.js");
+  if (!REGISTRY[id]) {
+    io.stderr(`deck3d fx preview: unknown effect '${id}' (try fx list)`);
+    return 1;
+  }
+  const out = flags.value.out ?? `${id}.png`;
+  try {
+    const { ensureRuntime, renderDeck, fontBase64 } = await import("./render/index.js");
+    const deck = await previewDeck(id);
+    const html = renderDeck(deck, { runtime: await ensureRuntime(), font: fontBase64(), title: `fx ${id}` });
+    const htmlPath = join(mkdtempSync(join(tmpdir(), "deck3d-fx-")), "fx.html");
+    writeFileSync(htmlPath, html);
+    const { chromium } = await import("playwright");
+    const browser = await chromium.launch({ channel: "chromium" });
+    try {
+      const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
+      await page.goto(pathToFileURL(htmlPath).href);
+      await page.waitForFunction(() => window.__deck3d !== undefined, undefined, { timeout: 30_000 });
+      await page.evaluate(() => window.__deck3d?.ready());
+      await page.evaluate(() => window.__deck3d?.setTime(0));
+      await page.waitForTimeout(200);
+      await page.screenshot({ path: out });
+    } finally {
+      await browser.close();
+    }
+    io.stdout(`wrote ${out}`);
+    return 0;
+  } catch (err) {
+    io.stderr(`deck3d fx preview: ${(err as Error).message}`);
+    return 1;
+  }
+}
+
 /** Cached `.glb` byte counts beside a deck.json, keyed `<source>-<id>`. */
 function cachedPropBytes(jsonFile: string): Record<string, number> {
   const dir = join(dirname(jsonFile), ".deck3d", "props");
@@ -277,7 +356,7 @@ function cachedPropBytes(jsonFile: string): Record<string, number> {
   return out;
 }
 
-async function propsFetch(rest: string[], io: CliIO): Promise<number> {
+async function propsFetch(rest: string[], flags: Flags, io: CliIO): Promise<number> {
   const [source, id] = rest;
   if (!source || !id) {
     io.stderr("deck3d props fetch: missing <source> <id>");
@@ -297,7 +376,15 @@ async function propsFetch(rest: string[], io: CliIO): Promise<number> {
     const result = await fetchProp(candidate, { destDir: join(process.cwd(), ".deck3d", "props") });
     io.stdout(
       JSON.stringify(
-        { source: candidate.source, id: candidate.id, licence: candidate.licence, author: candidate.author, sha256: result.sha256, bytes: result.bytes },
+        {
+          source: candidate.source,
+          id: candidate.id,
+          licence: candidate.licence,
+          author: candidate.author,
+          sha256: result.sha256,
+          slide: flags.value.slide ?? "",
+          role: flags.value.role ?? "illustration",
+        },
         null,
         2,
       ),
@@ -319,9 +406,29 @@ async function cmdProps(args: string[], io: CliIO): Promise<number> {
     for (const c of result.candidates) io.stdout(`${c.source}\t${c.id}\t${c.name}\t${c.licence}\t${c.bytes}b`);
     return 0;
   }
-  if (sub === "fetch") return propsFetch(rest, io);
-  io.stderr(`deck3d props: unknown subcommand '${sub ?? ""}' (try search|fetch)`);
+  if (sub === "fetch") return propsFetch(rest, flags, io);
+  if (sub === "generate") return propsGenerate(flags, io);
+  io.stderr(`deck3d props: unknown subcommand '${sub ?? ""}' (try search|fetch|generate)`);
   return 2;
+}
+
+/** `props generate --from-image <img> --name <n>` (7b.7). */
+async function propsGenerate(flags: Flags, io: CliIO): Promise<number> {
+  const fromImage = flags.value["from-image"];
+  const name = flags.value.name;
+  if (!fromImage || !name) {
+    io.stderr("deck3d props generate: missing --from-image <img> --name <n>");
+    return 2;
+  }
+  const { generateProp } = await import("./props/generate.js");
+  try {
+    const result = await generateProp({ fromImage, name, destDir: join(process.cwd(), ".deck3d", "props") });
+    io.stdout(JSON.stringify(result.entry, null, 2));
+    return 0;
+  } catch (err) {
+    io.stderr(`deck3d props generate: ${(err as Error).message}`);
+    return 1;
+  }
 }
 
 async function cmdCheck(args: string[], io: CliIO): Promise<number> {

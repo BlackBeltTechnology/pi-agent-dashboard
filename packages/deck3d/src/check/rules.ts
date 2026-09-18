@@ -6,7 +6,7 @@
  * it is excluded from the report byte-equality guarantee.
  */
 export type Severity = "error" | "warn";
-export type RuleName = "fit" | "legibility" | "overlap" | "occlusion" | "contrast" | "skipped";
+export type RuleName = "fit" | "legibility" | "overlap" | "occlusion" | "contrast" | "skipped" | "budget";
 
 export interface Rect {
   x: number;
@@ -227,4 +227,38 @@ export function skippedFindings(skipped: string[], slide: SlideRef): Finding[] {
     detail: `skipped ${entry}`,
     suggest: slideKnob(slide.id, "mode"),
   }));
+}
+
+/** Summed effect cost vs the quality-tier budget, reported by the runtime. */
+export interface BudgetInfo {
+  sum: number;
+  limit: number;
+  /** Present when over budget: the render CLI's exact `warn budget …` line. */
+  warning?: string;
+}
+
+/** Over-budget effects become a warn finding (`warn budget slide <n> <sum> > <budget>`). */
+export function budgetFindings(budget: BudgetInfo | undefined | null, slide: SlideRef): Finding[] {
+  if (!budget || budget.sum <= budget.limit) return [];
+  return [
+    {
+      severity: "warn" as const,
+      rule: "budget" as const,
+      slide: slide.id,
+      slideIndex: slide.index,
+      measured: String(budget.sum),
+      threshold: String(budget.limit),
+      detail: `${budget.sum} > ${budget.limit}`,
+      suggest: slideKnob(slide.id, "quality"),
+    },
+  ];
+}
+
+/**
+ * Drop findings a slide's merged `check.ignore` suppresses: an entry matches
+ * either the finding's `rule` (e.g. `contrast`) or its object `id`.
+ */
+export function filterIgnored(findings: Finding[], ignore: string[] | undefined): Finding[] {
+  if (!ignore?.length) return findings;
+  return findings.filter((f) => !(ignore.includes(f.rule) || (f.id != null && ignore.includes(f.id))));
 }

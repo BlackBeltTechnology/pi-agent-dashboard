@@ -154,7 +154,7 @@
             "distance": {
               "type": "number",
               "exclusiveMinimum": 0,
-              "default": 7,
+              "default": 9,
               "description": "Distance from the slide's focal plane. Larger = more content in frame but smaller labels."
             }
           }

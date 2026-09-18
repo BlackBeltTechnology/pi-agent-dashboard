@@ -6,13 +6,13 @@
  */
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { pkgRoot } from "../../util/paths.js";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-/** Package root: `src/parse/harvest` → up three. */
-export const PACKAGE_ROOT = join(HERE, "..", "..", "..");
-export const HARNESS_SRC = join(HERE, "harness.ts");
-export const HARNESS_HTML = join(HERE, "harness.html");
+/** Package root — correct both unbundled (src) and bundled (`dist/cli.js`). */
+export const PACKAGE_ROOT = pkgRoot();
+const HARNESS_DIR = join(PACKAGE_ROOT, "src", "parse", "harvest");
+export const HARNESS_SRC = join(HARNESS_DIR, "harness.ts");
+export const HARNESS_HTML = join(HARNESS_DIR, "harness.html");
 export const BUNDLE_PATH = join(PACKAGE_ROOT, "dist", "harvest", "harness.js");
 
 /** Bundle `harness.ts` to an IIFE string and write it to `dist/harvest/`. */

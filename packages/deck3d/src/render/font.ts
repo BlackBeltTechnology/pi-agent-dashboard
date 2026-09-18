@@ -70,6 +70,10 @@ export function freezeHead(buffer: ArrayBuffer): ArrayBuffer {
     const tag = String.fromCharCode(view.getUint8(rec), view.getUint8(rec + 1), view.getUint8(rec + 2), view.getUint8(rec + 3));
     if (tag !== "head") continue;
     const headOffset = view.getUint32(rec + 8);
+    // The `head` table's directory checksum is computed over its clock-stamped
+    // dates, so zero it alongside them (the dates and checkSumAdjustment too),
+    // otherwise the bytes differ across calls.
+    for (let b = 0; b < 4; b++) view.setUint8(rec + 4 + b, 0);
     // head: version(4) fontRevision(4) checkSumAdjustment(4) magicNumber(4) flags(2)
     // unitsPerEm(2) → created at +20 (8 B) and modified at +28 (8 B).
     // opentype computes checkSumAdjustment from the (clock-stamped) dates, so it

@@ -43,7 +43,7 @@ export const DECK_DEFAULTS: Required<
   depthRelief: 0.7,
   quality: "high",
   extrudeDepth: 0.18,
-  camera: { distance: 7 },
+  camera: { distance: 9 },
   labels: { size: 0.28 },
   check: { ignore: [] },
 };

@@ -32,7 +32,7 @@
 | `defaults.quality` | low \\| medium \\| high | `"high"` | Quality tier: scales bloom, reflections, shadow resolution and particle count, and sets the effect cost budget (low 6 / medium 12 / high 20). |
 | `defaults.extrudeDepth` | number | `0.18` | Extrusion depth of 3D title glyphs. |
 | `defaults.camera` | object |  | Default camera framing. |
-| `defaults.camera.distance` | number | `7` | Distance from the slide's focal plane. Larger = more content in frame but smaller labels. |
+| `defaults.camera.distance` | number | `9` | Distance from the slide's focal plane. Larger = more content in frame but smaller labels. |
 | `defaults.labels` | object |  | Default diagram-label treatment. |
 | `defaults.labels.size` | number | `0.28` | World-space cap height of diagram label planes. Projected cap height must stay ≥ 14 px at 1920×1080. |
 | `defaults.check` | object |  | Per-slide check configuration. |
@@ -125,7 +125,7 @@
 | `overrides.deck.quality` | low \\| medium \\| high | `"high"` | Quality tier: scales bloom, reflections, shadow resolution and particle count, and sets the effect cost budget (low 6 / medium 12 / high 20). |
 | `overrides.deck.extrudeDepth` | number | `0.18` | Extrusion depth of 3D title glyphs. |
 | `overrides.deck.camera` | object |  | Default camera framing. |
-| `overrides.deck.camera.distance` | number | `7` | Distance from the slide's focal plane. Larger = more content in frame but smaller labels. |
+| `overrides.deck.camera.distance` | number | `9` | Distance from the slide's focal plane. Larger = more content in frame but smaller labels. |
 | `overrides.deck.labels` | object |  | Default diagram-label treatment. |
 | `overrides.deck.labels.size` | number | `0.28` | World-space cap height of diagram label planes. Projected cap height must stay ≥ 14 px at 1920×1080. |
 | `overrides.deck.check` | object |  | Per-slide check configuration. |

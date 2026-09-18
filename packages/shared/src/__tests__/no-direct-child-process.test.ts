@@ -29,6 +29,10 @@ const ALLOWLIST: readonly string[] = [
   // ab711621 (feat(bootstrap): detect + one-click cleanup of legacy
   // @mariozechner/pi-coding-agent).
   "packages/server/src/legacy-pi-cleanup.ts",
+  // deck3d is a standalone publishable package with no dependency edge on
+  // the dashboard shared package; `props generate` shells to python3. See
+  // change: add-deck3d-presentation-package.
+  "packages/deck3d/src/props/generate.ts",
   // The startup recovery HTTP server runs precisely when top-level
   // dependencies are missing (corrupted node_modules) — importing the
   // platform/exec wrapper there would defeat the recovery flow because

@@ -4,6 +4,8 @@
  * so the field reference can never drift from what `validate` enforces.
  */
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { pkgRoot } from "../util/paths.js";
 
 export interface SchemaNode {
   $ref?: string;
@@ -24,8 +26,8 @@ export interface FieldRow {
 }
 
 export function loadSchema(): { properties: Record<string, SchemaNode>; definitions: Record<string, SchemaNode> } {
-  const url = new URL("./schema.json", import.meta.url);
-  return JSON.parse(readFileSync(url, "utf8")) as {
+  const path = join(pkgRoot(), "src", "ir", "schema.json");
+  return JSON.parse(readFileSync(path, "utf8")) as {
     properties: Record<string, SchemaNode>;
     definitions: Record<string, SchemaNode>;
   };

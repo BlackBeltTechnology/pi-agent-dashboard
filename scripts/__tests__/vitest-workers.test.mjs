@@ -20,6 +20,7 @@ const REPO_ROOT = join(import.meta.dirname, '..', '..');
 
 /** The 7 projects that run serial by design — pinned by the spec delta. */
 const SERIAL_PROJECTS = [
+  'deck3d',
   'electron',
   'image-fit-extension',
   'kb-extension',

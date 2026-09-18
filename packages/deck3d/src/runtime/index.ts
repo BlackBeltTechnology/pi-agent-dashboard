@@ -6,7 +6,7 @@
  */
 import type { Font } from "opentype.js";
 import * as THREE from "three";
-import { composeEffects } from "../fx/compose.js";
+import { composeEffects, QUALITY_BUDGET } from "../fx/compose.js";
 import { REGISTRY } from "../fx/index.js";
 import type { FxParams } from "../fx/types.js";
 import { type Animator, backgroundFor } from "./backgrounds.js";
@@ -14,6 +14,7 @@ import { buildDiagram, type DiagramBuild } from "./builders.js";
 import { anchorFor, CULL_RADIUS } from "./camera.js";
 import { diagramMaterial, titleMaterial } from "./materials.js";
 import { type PaletteColors, resolvePalette } from "./palette.js";
+import { applyProps, createPropMaterials, loadPropModels, type PropLayer, type PropMaterials } from "./props.js";
 import { type QualityProfile, qualityProfile } from "./quality.js";
 import { createSceneRig } from "./scene.js";
 import { buildTitle, bulletTexture, loadFont } from "./text.js";
@@ -36,11 +37,13 @@ interface SlideBuild {
   anchor: ReturnType<typeof anchorFor>;
   diagram: DiagramBuild | null;
   background: Animator | null;
+  props: PropLayer | null;
   labels: LabelRef[];
   nodes: Array<{ id: string; object: THREE.Object3D }>;
   cfg: SlideConfig;
   palette: PaletteColors;
   skipped: string[];
+  budget: { sum: number; limit: number; warning?: string };
 }
 
 function effective(defaults: SlideConfig, slide: DeckSlide): SlideConfig {
@@ -127,11 +130,18 @@ function backgroundFromEffects(slide: DeckSlide, P: PaletteColors, profile: Qual
   return null;
 }
 
-function buildSlideGroup(deck: RuntimeDeck, slide: DeckSlide, index: number, font: Font): SlideBuild {
+function buildSlideGroup(
+  deck: RuntimeDeck,
+  slide: DeckSlide,
+  index: number,
+  font: Font,
+  models: Map<string, THREE.Object3D>,
+  propMaterials: PropMaterials,
+): SlideBuild {
   const cfg = effective(deck.defaults, slide);
   const P = resolvePalette(cfg);
   const g = new THREE.Group();
-  const anchor = anchorFor(index);
+  const anchor = anchorFor(index, cfg.camera?.distance);
   g.position.copy(anchor.pos);
   g.rotation.y = anchor.rotY;
   const labels: LabelRef[] = [];
@@ -139,6 +149,7 @@ function buildSlideGroup(deck: RuntimeDeck, slide: DeckSlide, index: number, fon
   addTitle(g, slide, isTitle, font, P, cfg, labels);
   addBody(g, slide, isTitle, P, cfg);
   const diagram = addDiagram(g, slide, font, P, cfg, labels);
+  const props = applyProps(deck, slide.id, g, diagram, models, propMaterials);
   const nodes = diagram?.nodes ? Object.entries(diagram.nodes).map(([id, object]) => ({ id, object })) : [];
   const profile = qualityProfile(cfg.quality ?? deck.defaults.quality);
   const mode = (cfg.mode ?? "dark") as "dark" | "light";
@@ -147,10 +158,18 @@ function buildSlideGroup(deck: RuntimeDeck, slide: DeckSlide, index: number, fon
     background.g.position.z = -2;
     g.add(background.g);
   }
-  const skipped = composeEffects(slide.effects, mode, cfg.quality ?? deck.defaults.quality ?? "high", slide.id).skipped.map(
-    (s) => `${s.id}: ${s.reason}`,
-  );
-  return { group: g, anchor, diagram, background, labels, nodes, cfg, palette: P, skipped };
+  const quality = cfg.quality ?? deck.defaults.quality ?? "high";
+  const comp = composeEffects(slide.effects, mode, quality, slide.id);
+  const skipped = comp.skipped.map((s) => `${s.id}: ${s.reason}`);
+  // The budget warning text is `composeEffects`' own, so the runtime and the
+  // render CLI agree byte-for-byte (`warn budget slide <id> <sum> > <limit>`).
+  const warning = comp.warnings.find((w) => w.startsWith("warn budget"));
+  const budget = {
+    sum: comp.active.reduce((total, e) => total + (REGISTRY[e.id]?.card.cost ?? 0), 0),
+    limit: QUALITY_BUDGET[quality],
+    ...(warning ? { warning } : {}),
+  };
+  return { group: g, anchor, diagram, background, props, labels, nodes, cfg, palette: P, skipped, budget };
 }
 
 function projectRect(
@@ -193,10 +212,16 @@ async function boot(): Promise<void> {
   }
 
   const deckProfile = qualityProfile(deck.defaults.quality);
-  const rig = createSceneRig(deckProfile);
+  // `overrides.effects` (folded into each slide's list by `applyOverrides`) may
+  // request the `bloom` post effect even at `quality: low`; honour it so the
+  // composer pass and `effects().active` agree with the composed effect list.
+  const wantsBloom = deck.slides.some((slide) => (slide.effects ?? []).some((e) => e.id === "bloom"));
+  const rig = createSceneRig(wantsBloom ? { ...deckProfile, bloom: true } : deckProfile);
   document.body.appendChild(rig.renderer.domElement);
 
-  const builds = deck.slides.map((slide, i) => buildSlideGroup(deck, slide, i, font));
+  const propModels = await loadPropModels(deck);
+  const propMaterials = createPropMaterials(resolvePalette(deck.defaults), deck.defaults);
+  const builds = deck.slides.map((slide, i) => buildSlideGroup(deck, slide, i, font, propModels, propMaterials));
   for (const b of builds) rig.world.add(b.group);
   rig.world.children.forEach((g, i) => {
     g.userData.index = i;
@@ -270,6 +295,7 @@ async function boot(): Promise<void> {
     const slide = builds[cur];
     slide.diagram?.tick(t);
     slide.background?.tick(t * 0.7);
+    slide.props?.tick(t);
     rig.updateFloor(camState.target);
     cullNeighbours();
     rig.render();
@@ -299,6 +325,7 @@ async function boot(): Promise<void> {
     rig.updateFloor(camState.target);
     builds[cur].diagram?.tick(t);
     builds[cur].background?.tick(t * 0.7);
+    builds[cur].props?.tick(t);
     rig.render();
     if (document.hidden) setTimeout(frame, 66);
     else requestAnimationFrame(frame);
@@ -367,8 +394,7 @@ async function boot(): Promise<void> {
     if (!raw) return null;
     const n = Number.parseInt(raw, 10);
     if (!Number.isFinite(n)) return null;
-    if (n < 1) return 0;
-    if (n > builds.length) return builds.length - 1;
+    if (n < 1 || n > builds.length) return 0;
     return n - 1;
   }
 
@@ -386,7 +412,7 @@ async function boot(): Promise<void> {
     ready: () => Promise.resolve(),
     measure,
     peaks,
-    effects: () => ({ active: rig.passNames(), skipped: builds[cur].skipped }),
+    effects: () => ({ active: rig.passNames(), skipped: builds[cur].skipped, budget: builds[cur].budget }),
     debug: {
       titleGlyphs: () => {
         const title = builds[cur].labels.find((l) => l.kind === "title");
@@ -397,6 +423,7 @@ async function boot(): Promise<void> {
         });
         return count;
       },
+      liftedMessage: () => builds[cur].diagram?.lifted?.() ?? null,
     },
     current: () => cur + 1,
   };

@@ -8,7 +8,9 @@
  *  4. `meta.derivedHash` mismatch is a WARNING (edited outside `overrides`).
  */
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import Ajv, { type ErrorObject } from "ajv";
+import { pkgRoot } from "../util/paths.js";
 import { computeDerivedHash } from "./hash.js";
 import { findOrphanOverrides, orphanOverridePath } from "./merge.js";
 import type { DeckIR } from "./types.js";
@@ -25,8 +27,10 @@ export interface ValidationResult {
 }
 
 function loadSchema(): object {
-  const url = new URL("./schema.json", import.meta.url);
-  return JSON.parse(readFileSync(url, "utf8")) as object;
+  // Package-root-relative, not `import.meta.url`: the bundled `dist/cli.js`
+  // would otherwise look for `dist/schema.json`.
+  const path = join(pkgRoot(), "src", "ir", "schema.json");
+  return JSON.parse(readFileSync(path, "utf8")) as object;
 }
 
 const ajv = new Ajv({ allErrors: true, strict: false });

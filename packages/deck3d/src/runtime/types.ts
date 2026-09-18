@@ -4,11 +4,13 @@
  * Structural copies of `DeckIR` types; the runtime bundle is compiled with
  * esbuild from `src/runtime/index.ts` and receives `window.__DECK`.
  */
-import type { Defaults, MergedSlide } from "../ir/types.js";
+import type { Defaults, MergedSlide, PropOverride } from "../ir/types.js";
 
 export interface RuntimeDeck {
   defaults: Defaults;
   slides: MergedSlide[];
+  /** Prop placements from `overrides.props` (design D7). */
+  props?: PropOverride[];
 }
 
 /** Deck defaults with one slide's overrides folded in. */
@@ -20,8 +22,8 @@ export interface Deck3dApi {
   ready: () => Promise<void>;
   measure: () => Measurement[];
   peaks: () => number[];
-  effects: () => { active: string[]; skipped: string[] };
-  debug: { titleGlyphs: () => number };
+  effects: () => { active: string[]; skipped: string[]; budget: { sum: number; limit: number; warning?: string } };
+  debug: { titleGlyphs: () => number; liftedMessage: () => string | null };
   current: () => number;
 }
 
@@ -41,6 +43,8 @@ declare global {
   interface Window {
     __DECK: RuntimeDeck;
     __DECK_FONT?: string;
+    /** Base64 GLB bytes keyed `<source>-<id>`. */
+    __DECK_PROPS?: Record<string, string>;
     __deck3d?: Deck3dApi;
   }
 }

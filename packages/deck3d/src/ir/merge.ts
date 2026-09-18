@@ -72,11 +72,13 @@ export function applyOverrides(ir: DeckIR): MergedDeck {
       base.diagram.nodes = mergeNodeOverrides(base.diagram.nodes as MergedNode[] | undefined, slide.id, ir.overrides.nodes);
       base.diagram.edges = mergeEdgeKinds(base.diagram.edges, slide.id, ir.overrides.edges);
     }
-    // arrays replace: a slide `effects` override is the whole list.
-    if (slideOv?.effects) base.effects = clone(slideOv.effects);
+    // Effective effects: deck-level list first, then this slide's own list
+    // (a slide `effects` override replaces the derived list). Arrays replace —
+    // the objects are never merged.
+    base.effects = [...clone(ir.overrides.effects ?? []), ...clone(base.effects ?? [])];
     return base;
   });
-  return { defaults, slides };
+  return { defaults, slides, effects: clone(ir.overrides.effects ?? []), props: clone(ir.overrides.props ?? []) };
 }
 
 function mergeEdgeKinds(edges: DiagramEdge[] | undefined, slideId: string, map: Record<string, { kind?: DiagramEdge["kind"] }> | undefined): DiagramEdge[] | undefined {

@@ -9,4 +9,5 @@
 | `render/AGENTS.md` | Subfolder — deck.html renderer (template + inline runtime + IR + font). |
 | `check/AGENTS.md` | Subfolder — browser fit/legibility/overlap/occlusion/contrast rules + driver. |
 | `fx/AGENTS.md` | Subfolder — effect corpus (cards + modules), defaults, composition, catalogue. |
-| `props/AGENTS.md` | Subfolder — glTF prop search (vendored + Poly Pizza) and fetch/hash-pin. |
+| `props/AGENTS.md` | Subfolder — glTF prop search (vendored + Poly Pizza), fetch/hash-pin, embed + credits, generate fallback. |
+| `util/AGENTS.md` | Subfolder — `pkgRoot()` so bundled `dist/cli.js` and `src/` resolve package assets identically. |

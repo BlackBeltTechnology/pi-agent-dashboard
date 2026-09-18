@@ -27,6 +27,8 @@ export interface DiagramBuild {
   nodes?: Record<string, THREE.Mesh>;
   /** Labelled objects (node/actor/message) for `measure()`. */
   labels?: BuiltLabel[];
+  /** Sequence only: id of the currently lifted message group (F7). */
+  lifted?: () => string | null;
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -436,11 +438,14 @@ function buildSequence(slide: MergedSlide, P: PaletteColors, cfg: SlideConfig): 
     return { mat, mg, pulse, a, b };
   });
   const period = 1.1;
+  let active: string | null = null;
   return {
     g,
     labels,
+    lifted: () => active,
     tick(t) {
       const act = Math.floor(t / period) % Math.max(1, m);
+      active = messages[act]?.id ?? null;
       const ph = (t / period) % 1;
       msgs.forEach((x, k) => {
         const on = k === act;

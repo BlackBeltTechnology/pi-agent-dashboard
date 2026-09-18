@@ -3,7 +3,7 @@
     "engine": "0.1.0",
     "mermaid": "11.17.2",
     "source": "fixture.md",
-    "derivedHash": "41e60def25e34228d4adf2c7e9e62532070793a68f3d23591bf9d9904cd0a21f"
+    "derivedHash": "40f1337aff8abb966b64e0dadced4308b34cd3062e14418cce882e97d2639680"
   },
   "defaults": {
     "mode": "dark",
@@ -22,7 +22,7 @@
     "quality": "high",
     "extrudeDepth": 0.18,
     "camera": {
-      "distance": 7
+      "distance": 9
     },
     "labels": {
       "size": 0.28
@@ -316,7 +316,7 @@
         "groups": []
       },
       "camera": {
-        "distance": 7
+        "distance": 9
       },
       "labels": {
         "size": 0.28
@@ -344,7 +344,7 @@
         "kind": "none"
       },
       "camera": {
-        "distance": 7
+        "distance": 9
       },
       "labels": {
         "size": 0.28

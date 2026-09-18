@@ -210,4 +210,8 @@ export interface MergedSlide extends Omit<Slide, "diagram"> {
 export interface MergedDeck {
   defaults: Defaults;
   slides: MergedSlide[];
+  /** Deck-level effect list applied to every slide (render-only runtime input). */
+  effects?: EffectRef[];
+  /** Prop placements from `overrides.props` (render-only runtime input). */
+  props?: PropOverride[];
 }

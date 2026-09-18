@@ -36,7 +36,7 @@
   "files": [
     "bin/",
     "src/",
-    "!src/__tests__",
+    "!**/__tests__",
     "dist/",
     "scripts/",
     "assets/",
@@ -50,9 +50,10 @@
     "test": "vitest run",
     "build:harvest": "tsx scripts/build-harvest.ts",
     "build:runtime": "node scripts/build-runtime.mjs",
+    "build:cli": "node scripts/build-cli.mjs",
     "gen:ir-fields": "tsx scripts/gen-ir-fields.ts",
     "gen:effects": "tsx scripts/gen-effects.ts",
-    "build": "npm run build:harvest && npm run build:runtime && npm run gen:ir-fields && npm run gen:effects",
+    "build": "npm run build:harvest && npm run build:runtime && npm run build:cli && npm run gen:ir-fields && npm run gen:effects",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {

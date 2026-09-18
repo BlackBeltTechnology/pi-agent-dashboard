@@ -1,0 +1,66 @@
+/**
+ * F7 (task 10.57) — render: message order animation.
+ *
+ * A sequence with 5 messages advances the highlight on a fixed 1.1 s pulse
+ * period. At `setTime(k * 1.1)` the lifted message group must be `m<k>` — one
+ * message at a time, in source order. The runtime exposes the currently lifted
+ * group via `__deck3d.debug.liftedMessage()` (added for this scenario; the
+ * `measure()` rects cannot isolate it because the diagram rotates with time).
+ */
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { chromium } from "playwright";
+import { describe, expect, it } from "vitest";
+import { chromiumAvailable } from "../../__tests__/helpers/chromium.js";
+
+const BIN = new URL("../../../bin/deck3d", import.meta.url).pathname;
+const hasChromium = await chromiumAvailable();
+
+const MD = `# Ciklus
+
+\`\`\`mermaid
+sequenceDiagram
+  participant F as Fejlesztő
+  participant A as Ágens
+  participant E as Eszközök
+  F->>A: egy
+  A->>E: kettő
+  E-->>A: három
+  A->>E: négy
+  A-->>F: öt
+\`\`\`
+`;
+
+function runCli(args: string[], cwd: string) {
+  return spawnSync(BIN, args, { cwd, encoding: "utf8" });
+}
+
+describe.skipIf(!hasChromium)("F7 message order animation (chromium)", () => {
+  it("lifts exactly m<k> at step time k * 1.1", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "deck3d-render-f7-"));
+    writeFileSync(join(dir, "ciklus.md"), MD);
+    expect(runCli(["parse", "ciklus.md", "-o", "ciklus.json"], dir).status).toBe(0);
+    expect(runCli(["render", "ciklus.json", "-o", "ciklus.html"], dir).status).toBe(0);
+
+    const browser = await chromium.launch({ channel: "chromium" });
+    try {
+      const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
+      await page.goto(pathToFileURL(join(dir, "ciklus.html")).href);
+      await page.waitForFunction(() => window.__deck3d !== undefined, undefined, { timeout: 30_000 });
+      await page.evaluate(() => window.__deck3d?.gotoSlide(1));
+
+      const peaks = await page.evaluate(() => window.__deck3d?.peaks() ?? [0]);
+      expect(peaks.map((t) => Number(t.toFixed(1)))).toEqual([0, 1.1, 2.2, 3.3, 4.4]);
+
+      for (let k = 0; k < 5; k++) {
+        await page.evaluate((t) => window.__deck3d?.setTime(t), k * 1.1);
+        expect(await page.evaluate(() => window.__deck3d?.debug.liftedMessage()), `step ${k}`).toBe(`m${k}`);
+      }
+    } finally {
+      await browser.close();
+    }
+  }, 120_000);
+});
