@@ -20,7 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { BrowserGateway } from "../pairing/browser-gateway.js";
-import { createBrowserGateway } from "../pairing/browser-gateway.js";
+import { createBrowserGateway, frameClassOf } from "../pairing/browser-gateway.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 // Aliased: this file already owns a StateWs-typed `asWs` for its own fixtures.
@@ -682,5 +682,36 @@ describe("status-reconcile is loop-safe and releases on abnormal teardown (X1/X3
     expect(gateway.getStatusReconcileInfo(debtAsWs(client.ws))).toBeUndefined();
     vi.advanceTimersByTime(10 * 250);
     expect(client.statusFrames()).toHaveLength(0);
+  });
+});
+
+describe("collapsed-folder frames (X7)", () => {
+  it("X7: collapsed_folders_updated is state-class — coalesced by type, never shed as transcript", () => {
+    const cf = (k: string): ServerToBrowserMessage =>
+      ({ type: "collapsed_folders_updated", collapsedFolders: [k] }) as ServerToBrowserMessage;
+
+    // Classification is the load-bearing half: the `default` branch is
+    // `transcript`, which is shed under buffer pressure and lost outright.
+    expect(frameClassOf(cf("/a"))).toEqual({ cls: "state", key: "collapsed_folders_updated" });
+
+    vi.useFakeTimers();
+    try {
+      const { gateway, ws, base } = stateRig(1000);
+      ws.bufferedAmount = 1001; // saturate
+      gateway.sendToClient(asWs(ws), cf("/a"));
+      gateway.sendToClient(asWs(ws), cf("/b")); // supersedes the first
+      expect(gateway.getPendingStateInfo(asWs(ws))?.entries).toBe(1);
+
+      ws.bufferedAmount = 0;
+      vi.advanceTimersByTime(250); // periodic flush
+
+      const flushed = ws.frames.slice(base).map((f) => JSON.parse(f));
+      expect(flushed).toHaveLength(1);
+      expect(flushed[0].type).toBe("collapsed_folders_updated");
+      expect(gateway.getDroppedFrameStats().coalescedState).toBe(1);
+      expect(gateway.getDroppedFrameStats().total).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

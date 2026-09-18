@@ -74,6 +74,35 @@ function collectStatusFrames(page: Page): { seen: StatusFrame[]; forSession: (id
 }
 
 /**
+ * Every `session_removed` frame this PAGE receives, in arrival order.
+ *
+ * Sibling of `collectStatusFrames`, and installed the same way (before
+ * navigation, since `page.on("websocket")` fires on socket creation only).
+ * A shed `session_removed` is a reconcile debt too now, and because the debt
+ * register keeps ONE kind per id (last-write-wins, `updated` cannot downgrade a
+ * pending lifecycle kind), a teardown that sheds both `session_updated{ended}`
+ * and the following `session_removed` reconciles to exactly this frame — the
+ * status update is superseded, never emitted alongside it.
+ * See change: close-registry-frame-shed-gaps.
+ */
+function collectRemovedFrames(page: Page): { seen: string[]; forSession: (id: string) => string[] } {
+  const seen: string[] = [];
+  page.on("websocket", (ws) => {
+    ws.on("framereceived", (frame) => {
+      const raw = String(frame.payload);
+      if (!raw.includes("session_removed")) return;
+      try {
+        const msg = JSON.parse(raw) as { type?: string; sessionId?: string };
+        if (msg.type === "session_removed" && msg.sessionId) seen.push(msg.sessionId);
+      } catch {
+        /* non-JSON frame */
+      }
+    });
+  });
+  return { seen, forSession: (id) => seen.filter((s) => s === id) };
+}
+
+/**
  * Toggle the injector. Asserts the ENABLE call reports `forceShed: true`, which
  * is what proves `PI_E2E_FORCE_SHED=1` actually reached the server — without
  * that check a harness booted without the flag would silently turn every
@@ -154,15 +183,24 @@ test.describe("shed session_updated is reconciled in the rendered UI", () => {
   });
 
   /**
-   * The `ended` edge is asserted on the WIRE plus the live-card claim, not on an
-   * `ended` badge. Once a session ends its card leaves the live folder body for
-   * the per-folder ended bucket, which is collapsed by default and server-paged
-   * — so "is the badge `ended`" measures that disclosure affordance, which this
-   * change does not touch. What the change owes is: the edge is delivered
-   * exactly once after the drain, and the row stops rendering as live.
+   * The terminal edge is asserted on the WIRE plus the live-card claim, not on
+   * an `ended` badge. Once a session ends its card leaves the live folder body
+   * for the per-folder ended bucket, which is collapsed by default and
+   * server-paged — so "is the badge `ended`" measures that disclosure
+   * affordance, which this change does not touch. What the change owes is: the
+   * edge is delivered exactly once after the drain, and the row stops rendering
+   * as live.
+   *
+   * Since `close-registry-frame-shed-gaps` BOTH teardown frames are registry
+   * frames, so the shed pair (`session_updated{ended}` then `session_removed`)
+   * collapses in the debt register to one owed `removed`: the delivered frame is
+   * the removal, and the superseded status frame is ABSENT (asserted — a
+   * register that kept the first kind would emit the status frame instead, and
+   * one that kept both would emit both).
    */
   test("an ended transition converges exactly once (test-plan #F2)", async ({ page }) => {
     const received = collectStatusFrames(page); // before any navigation
+    const removed = collectRemovedFrames(page); // before any navigation
     await gotoDashboard(page);
     const card = await spawnFreshGitSession(page);
     const sessionId = (await card.getAttribute("data-session-id"))!;
@@ -172,11 +210,13 @@ test.describe("shed session_updated is reconciled in the rendered UI", () => {
     const before = await reconcileCounters(page);
     await setForceShed(page, true);
     received.seen.length = 0; // only frames from here on are under test
+    removed.seen.length = 0;
 
     // End the session while its frames are being shed. The bridge teardown
-    // emits `session_updated {status:"ended"}` (event-wiring) — the edge under
-    // test. The `session_removed` that follows is a transcript-class sibling
-    // this change deliberately leaves unrecovered (design D6).
+    // emits `session_updated {status:"ended"}` (event-wiring) followed by
+    // `session_removed`. Both are registry frames now, so both are shed and
+    // owed — and the register keeps ONE kind per id, so the pair collapses to a
+    // single owed `removed`. See change: close-registry-frame-shed-gaps.
     const shutdown = await page.evaluate(
       async (id) => (await fetch(`/api/session/${id}/shutdown`, { method: "POST" })).status,
       sessionId,
@@ -185,21 +225,23 @@ test.describe("shed session_updated is reconciled in the rendered UI", () => {
 
     // The edge was SHED AND OWED — not merely absent. Without this the
     // "no frame arrived" assertion below would also pass if the server had
-    // never emitted the `ended` update at all, making the release step's
+    // never emitted the teardown frames at all, making the release step's
     // delivery unattributable to the reconcile.
     await expect
       .poll(async () => (await reconcileCounters(page)).queued, { timeout: 30_000 })
       .toBeGreaterThan(before.queued);
 
-    // The edge did NOT land, and the card is still rendering as live.
+    // Neither frame landed, and the card is still rendering as live.
     expect(received.forSession(sessionId)).toHaveLength(0);
+    expect(removed.forSession(sessionId)).toHaveLength(0);
     expect(await statusShape(page, sessionId)).toBe("idle");
 
     await setForceShed(page, false);
 
-    // Delivered after the drain, carrying the settled value.
-    await expect.poll(() => received.forSession(sessionId).length, { timeout: 10_000 }).toBe(1);
-    expect(received.forSession(sessionId)[0].updates.status).toBe("ended");
+    // Delivered after the drain: the settled truth is the REMOVAL. The shed
+    // `session_updated{ended}` is superseded by it, so no status frame arrives.
+    await expect.poll(() => removed.forSession(sessionId).length, { timeout: 10_000 }).toBe(1);
+    expect(received.forSession(sessionId)).toHaveLength(0);
 
     // …and the row stopped rendering as live.
     await expect
@@ -210,6 +252,6 @@ test.describe("shed session_updated is reconciled in the rendered UI", () => {
     // loop that failed to clear the debt would keep re-pushing the same row —
     // which shows up here as a second frame.
     await page.waitForTimeout(2_000);
-    expect(received.forSession(sessionId)).toHaveLength(1);
+    expect(removed.forSession(sessionId)).toHaveLength(1);
   });
 });

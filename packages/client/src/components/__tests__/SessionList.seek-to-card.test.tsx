@@ -92,8 +92,9 @@ function s(overrides: Partial<DashboardSession> = {}): DashboardSession {
   } as DashboardSession;
 }
 
-function seedCollapsed(cwds: string[]) {
-  localStorage.setItem("dashboard:collapsedGroups", JSON.stringify(cwds));
+/** Collapse state for the harness, passed as a prop (was localStorage). */
+function seedCollapsed(cwds: string[]): string[] {
+  return cwds;
 }
 
 interface Ctl {
@@ -104,6 +105,7 @@ interface Ctl {
 const Harness = React.forwardRef<Ctl, {
   sessions: DashboardSession[];
   workspaces?: Workspace[];
+  initialCollapsedGroups?: string[];
   initialSelectedId?: string;
   onSelect?: (id: string) => void;
   onSetWorkspaceCollapsed?: (id: string, collapsed: boolean) => void;
@@ -111,6 +113,9 @@ const Harness = React.forwardRef<Ctl, {
   const [selectedId, setSelectedId] = React.useState<string | undefined>(props.initialSelectedId);
   const [revealRequest, setRevealRequest] = React.useState<{ sessionId: string; nonce: number } | null>(null);
   const [workspaces, setWorkspaces] = React.useState<Workspace[] | undefined>(props.workspaces);
+  // persist-folder-collapse-server-side: collapse state now arrives via a prop.
+  // The harness mirrors the server echo synchronously (as on a fast local socket).
+  const [collapsedGroups, setCollapsedGroups] = React.useState<string[]>(props.initialCollapsedGroups ?? []);
   const seek = React.useCallback(
     (id: string) => setRevealRequest((p) => ({ sessionId: id, nonce: (p?.nonce ?? 0) + 1 })),
     [],
@@ -127,6 +132,11 @@ const Harness = React.forwardRef<Ctl, {
           onSeekToCard={seek}
           workspaces={workspaces}
           onSetWorkspaceCollapsed={props.onSetWorkspaceCollapsed}
+          collapsedGroups={collapsedGroups}
+          onSetFolderCollapsed={(path, collapsed) =>
+            setCollapsedGroups((prev) =>
+              collapsed ? (prev.includes(path) ? prev : [...prev, path]) : prev.filter((p) => p !== path),
+            )}
         />
       </ThemeProvider>
     </TestRouter>
@@ -150,12 +160,12 @@ const hasActionToast = (c: HTMLElement) => !!c.querySelector('[data-testid="toas
 describe("SessionList seek-to-card", () => {
   // ── T.1 / F1 ──────────────────────────────────────────────────────────
   it("reveals a card buried under collapsed workspace + folder + ended group", () => {
-    seedCollapsed(["/proj"]);
+    const initialCollapsedGroups = seedCollapsed(["/proj"]);
     const onSetWorkspaceCollapsed = vi.fn();
     const onSelect = vi.fn();
     const sessions = [s({ id: "s1", status: "ended", sessionFile: "/x.jsonl" })];
     const ws: Workspace = { id: "w1", name: "WS", collapsed: true, folders: ["/proj"] };
-    const { container, ctl } = mount({ sessions, workspaces: [ws], onSelect, onSetWorkspaceCollapsed });
+    const { container, ctl } = mount({ sessions, workspaces: [ws], initialCollapsedGroups, onSelect, onSetWorkspaceCollapsed });
 
     act(() => { ctl.seek("s1"); });
     // Ancestor guards fired synchronously.

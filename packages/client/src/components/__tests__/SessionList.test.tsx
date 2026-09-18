@@ -1,6 +1,7 @@
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type React from "react";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router, useLocation } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -51,6 +52,29 @@ function makeSession(overrides: Partial<DashboardSession> = {}): DashboardSessio
     cost: 0,
     ...overrides,
   };
+}
+
+/**
+ * SessionList wrapped in local collapse state. Collapse moved from
+ * `localStorage` to a server-fed prop (change: persist-folder-collapse-server-side),
+ * so tests seed it here and mirror the server echo synchronously.
+ */
+function CollapseHarness({
+  initialCollapsedGroups,
+  ...props
+}: React.ComponentProps<typeof SessionList> & { initialCollapsedGroups: string[] }) {
+  const [collapsedGroups, setCollapsedGroups] = useState(initialCollapsedGroups);
+  return (
+    <SessionList
+      {...props}
+      collapsedGroups={collapsedGroups}
+      onSetFolderCollapsed={(path, collapsed) =>
+        setCollapsedGroups((prev) =>
+          collapsed ? (prev.includes(path) ? prev : [...prev, path]) : prev.filter((p) => p !== path),
+        )
+      }
+    />
+  );
 }
 
 describe("SessionList spawn button", () => {
@@ -105,19 +129,32 @@ describe("SessionList spawn button", () => {
     fireEvent.click(btn);
     expect(onSpawn).toHaveBeenCalledWith("/my/project");
   });
+
+  it("F10: a folder with no stored entry renders expanded by default", () => {
+    const { container } = render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList sessions={[makeSession({ cwd: "/my/project" })]} onSelect={() => {}} />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    expect(container.querySelector(".group-collapse.expanded")).toBeTruthy();
+    expect(container.querySelector(".group-collapse.collapsed")).toBeNull();
+  });
 });
 
 describe("SessionList elevated spawn buttons", () => {
   it("hides the spawn button while collapsed; expanding reveals it and spawns", () => {
-    // Seed the folder as collapsed. Variant B (condense-collapsed-folder-header)
-    // hides the elevated spawn buttons (and all heavy slots) when collapsed —
-    // the header keeps only name + status. Expanding restores them.
-    localStorage.setItem("dashboard:collapsedGroups", JSON.stringify(["/my/project"]));
+    // Seed the folder as collapsed via the prop (was a localStorage seed).
+    // Variant B (condense-collapsed-folder-header) hides the elevated spawn
+    // buttons (and all heavy slots) when collapsed — the header keeps only
+    // name + status. Expanding restores them.
     const onSpawn = vi.fn();
     const { container } = render(
       <TestRouter>
         <ThemeProvider>
-          <SessionList
+          <CollapseHarness
+            initialCollapsedGroups={["/my/project"]}
             sessions={[makeSession({ cwd: "/my/project" })]}
             onSelect={() => {}}
             onSpawnSession={onSpawn}
@@ -1398,5 +1435,126 @@ describe("SessionList — archive fold + hidden-workers footer (archive-sessions
     expect(screen.getByTestId("folder-archive-toggle-/home/user/project").textContent).toContain("Archive (30)");
     expect(fetchImpl.mock.calls.filter((c) => String(c[0]).includes("/api/sessions/archived"))).toHaveLength(0);
     vi.unstubAllGlobals();
+  });
+});
+
+// ── close-registry-frame-shed-gaps (D3, test-plan F1/F2) ────────────────
+// The in-flight page mark releases on ANY `sessions_page_result` (signalled
+// by a `pageReplyGen` bump), NOT on `pagedCount` advancing and NOT after the
+// 15 s timeout. An exhausted group (last reply `hasMore:false`) hides the
+// "more" affordance and suppresses the request until `endedTotals` changes.
+describe("SessionList — ended paging release + exhausted (close-registry-frame-shed-gaps)", () => {
+  const CWD = "/repoA";
+
+  interface PagingProps {
+    endedTotals?: Map<string, number>;
+    pagedCount?: Map<string, number>;
+    pageReplyGen?: Map<string, number>;
+    pageExhausted?: Set<string>;
+    connected?: boolean;
+    onSessionsPage: (cwd: string, offset: number) => void;
+  }
+
+  function pagingTree(props: PagingProps) {
+    return (
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[]}
+            onSelect={() => {}}
+            endedTotalsMap={props.endedTotals}
+            pagedCount={props.pagedCount}
+            pageReplyGen={props.pageReplyGen}
+            pageExhausted={props.pageExhausted}
+            connected={props.connected}
+            onSessionsPage={props.onSessionsPage}
+          />
+        </ThemeProvider>
+      </TestRouter>
+    );
+  }
+
+  it("F1: a reply releases the in-flight mark immediately — the next click sends without the 15s timeout", () => {
+    vi.useFakeTimers();
+    try {
+      const onSessionsPage = vi.fn();
+      const { rerender } = render(
+        pagingTree({
+          onSessionsPage,
+          endedTotals: new Map([[CWD, 10]]),
+          pagedCount: new Map(),
+          pageReplyGen: new Map([[CWD, 0]]),
+          pageExhausted: new Set(),
+        }),
+      );
+
+      // Expand → page 1 in flight, 15 s timer armed.
+      fireEvent.click(screen.getByTestId(`folder-ended-toggle-${CWD}`));
+      expect(onSessionsPage).toHaveBeenCalledTimes(1);
+      expect(onSessionsPage).toHaveBeenCalledWith(CWD, 0);
+
+      // Empty reply (hasMore:false). `pagedCount` is UNCHANGED — only the
+      // reply generation bumps.
+      rerender(
+        pagingTree({
+          onSessionsPage,
+          endedTotals: new Map([[CWD, 10]]),
+          pagedCount: new Map(),
+          pageReplyGen: new Map([[CWD, 1]]),
+          pageExhausted: new Set([CWD]),
+        }),
+      );
+
+      // Re-arm the affordance via an endedTotals change (the exhausted mark
+      // clears) — the 15 s timer is NEVER advanced.
+      rerender(
+        pagingTree({
+          onSessionsPage,
+          endedTotals: new Map([[CWD, 11]]),
+          pagedCount: new Map(),
+          pageReplyGen: new Map([[CWD, 1]]),
+          pageExhausted: new Set(),
+        }),
+      );
+
+      fireEvent.click(screen.getByTestId(`folder-ended-more-${CWD}`));
+      // A second request went out ⇒ the in-flight mark was already released.
+      expect(onSessionsPage).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("F2: an exhausted cwd suppresses the affordance + request, and re-arms on an endedTotals change", () => {
+    const onSessionsPage = vi.fn();
+    const { rerender } = render(
+      pagingTree({
+        onSessionsPage,
+        endedTotals: new Map([[CWD, 10]]),
+        pagedCount: new Map(),
+        pageReplyGen: new Map([[CWD, 1]]),
+        pageExhausted: new Set([CWD]),
+      }),
+    );
+
+    // Exhausted: the "more" control is gone.
+    expect(screen.queryByTestId(`folder-ended-more-${CWD}`)).toBeNull();
+
+    // Expanding sends nothing while exhausted, and never reveals "more".
+    fireEvent.click(screen.getByTestId(`folder-ended-toggle-${CWD}`));
+    expect(onSessionsPage).not.toHaveBeenCalled();
+    expect(screen.queryByTestId(`folder-ended-more-${CWD}`)).toBeNull();
+
+    // endedTotals changes → exhausted clears → control returns.
+    rerender(
+      pagingTree({
+        onSessionsPage,
+        endedTotals: new Map([[CWD, 11]]),
+        pagedCount: new Map(),
+        pageReplyGen: new Map([[CWD, 1]]),
+        pageExhausted: new Set(),
+      }),
+    );
+    expect(screen.getByTestId(`folder-ended-more-${CWD}`)).toBeTruthy();
   });
 });

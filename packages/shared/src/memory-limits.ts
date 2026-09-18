@@ -33,6 +33,32 @@ export interface MemoryLimitsConfig {
    */
   maxReplayEvents: number;
   /**
+   * Max total SERIALIZED bytes retained per session, after per-event truncation
+   * (`0` = unlimited). Default: 33554432 (32 MiB).
+   *
+   * ABSENT is not the same as an explicit `0`: absent (and negative /
+   * non-numeric) falls back to the default, while an explicit `0` is preserved
+   * as the documented rollback lever. The STORE — not this loader — clamps a
+   * positive value up to a floor derived from the per-event ceiling, because
+   * `maxEventDataSize` is a top-level `DashboardConfig` field this browser-safe
+   * module cannot see.
+   * See change: bound-event-store-by-bytes (D5/D6).
+   */
+  maxBytesPerSession: number;
+  /**
+   * Max total serialized event bytes across ALL resident sessions (`0` =
+   * unlimited). Default: 805306368 (768 MiB). Presence rule as
+   * `maxBytesPerSession`. See change: bound-event-store-by-bytes (D7).
+   */
+  maxTotalEventBytes: number;
+  /**
+   * Max resident session buffers; beyond this the least-recently-accessed
+   * UNPINNED buffer is evicted. A plain count with no "unlimited" sentinel:
+   * absent / `0` / negative / non-numeric all resolve to the default 32.
+   * See change: bound-event-store-by-bytes (D8).
+   */
+  maxCachedSessions: number;
+  /**
    * SHAPE of the replay window when one applies (`maxReplayEvents > 0`); inert
    * otherwise, like the rest of the window machinery.
    *
@@ -86,4 +112,29 @@ export const DEFAULT_MEMORY_LIMITS: MemoryLimitsConfig = {
   // The shipped shape stays the default; `tail-only` is opt-in and is also the
   // rollback lever (unset the field). See change: add-tail-only-replay-window.
   replayWindowMode: "head-tail",
+  /**
+   * 32 MiB. BELOW the 36 MB measured per pegged session on the live server
+   * (heap snapshot, 35.8 h uptime) ON PURPOSE: a default above the observed
+   * occupancy never fires, and the sessions that filled the heap were each
+   * individually legal. A normal 1–3 KiB-event session is 20–60 MiB, so this
+   * binds on exactly the chatty sessions that caused the OOM.
+   * See change: bound-event-store-by-bytes (D5).
+   */
+  maxBytesPerSession: 32 * 1024 * 1024,
+  /**
+   * 768 MiB, sized to the 686 MB currently resident on the live server. The
+   * per-session budget alone is insufficient — `maxBytesPerSession ×
+   * maxCachedSessions` is the true envelope, and 32 × 32 MiB = 1 GiB exceeds
+   * the global budget, so this is the binding constraint.
+   * See change: bound-event-store-by-bytes (D7).
+   */
+  maxTotalEventBytes: 768 * 1024 * 1024,
+  /**
+   * 32 (was hardcoded 100 at `server.ts:925`). Covers the observed 13 active /
+   * 19 pegged sessions with headroom; evicted sessions rehydrate from their
+   * transcript on reopen, so the cost is latency on an old session, not loss.
+   * MUST equal the store's `DEFAULT_MAX_CACHED_SESSIONS` (asserted by a test).
+   * See change: bound-event-store-by-bytes (D8).
+   */
+  maxCachedSessions: 32,
 };

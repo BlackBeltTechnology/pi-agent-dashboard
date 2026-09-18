@@ -653,3 +653,85 @@ describe("browser-gateway load — P1 (status-reconcile flush stays off the hot 
     expect(median).toBeLessThan(BUDGET_RECONCILE_FLUSH_MS);
   });
 });
+
+// ── P1: reorder retention is coalesced, not accumulated ─────────────────
+// `sessions_reordered` became state-class, so a saturated socket RETAINS the
+// latest ordering per cwd instead of shedding it. Retention must be bounded by
+// the number of delivery keys, not by the event rate.
+// See change: close-registry-frame-shed-gaps (test-plan #P1).
+
+describe("browser-gateway load — P1 (reorder retention is coalesced)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("200 reorders across 20 cwds retain ONE state frame per cwd, independent of event count", () => {
+    const MAX = 20 * 1024;
+    const ids = Array.from({ length: 20 }, (_, i) => `g${i}`);
+    const { gateway } = buildDebtGateway(ids, MAX);
+    const client = attachCapturedWs(gateway, MAX);
+    client.saturate();
+
+    for (let i = 0; i < 200; i++) {
+      const k = i % 20;
+      gateway.broadcastToAll({ type: "sessions_reordered", cwd: `/repo/${k}`, sessionIds: [ids[k]] });
+    }
+
+    // ONE retained frame per delivery key, not one per event.
+    const info = gateway.getPendingStateInfo(asWs(client.ws));
+    expect(info?.entries).toBe(20);
+    // Coalesced, NOT dropped: 200 events − 20 keys.
+    expect(gateway.getDroppedFrameStats().coalescedState).toBe(180);
+    expect(gateway.getDroppedFrameStats().total).toBe(0);
+
+    // On drain exactly one reorder per cwd reaches the wire.
+    client.drain();
+    vi.advanceTimersByTime(250);
+    expect(client.framesOfType<{ cwd: string }>("sessions_reordered")).toHaveLength(20);
+  });
+});
+
+// ── P2: the debt register stays O(ids) under a three-kind flood ──────────
+// The register widened from ids to `{kind, spawnRequestId?, sawAdd}`, and each
+// key of three registry kinds is shed for every session. Entry count must still
+// track the session count, never the frame count, and retain no payload bytes.
+// See change: close-registry-frame-shed-gaps (test-plan #P2).
+
+describe("browser-gateway load — P2 (debt register is O(ids), no payload bytes)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("1000 sessions shedding every kind retain ≤1000 id entries and no queued frame", () => {
+    const ids = Array.from({ length: 1000 }, (_, i) => `s${i}`);
+    const { gateway } = buildDebtGateway(ids);
+    const client = attachCapturedWs(gateway);
+    client.saturate();
+
+    for (const id of ids) {
+      gateway.broadcastSessionUpdated(id, { status: "streaming" });
+      gateway.broadcastSessionAdded({ id, cwd: "/repo/a" });
+      gateway.broadcastSessionRemoved(id);
+    }
+
+    const info = gateway.getStatusReconcileInfo(asWs(client.ws));
+    // 3000 sheds collapse to 1000 per-id entries — a Map of entries, not a
+    // queue of frames. The last lifecycle kind (`removed`) wins per id.
+    expect(info?.entries.length).toBe(1000);
+    expect(new Set(info?.entries.map((e) => e.id)).size).toBe(1000);
+    expect(info?.entries.every((e) => e.kind === "removed")).toBe(true);
+    // No queued frame is retained, and the register cannot stall the socket.
+    expect(gateway.getPendingStateInfo(asWs(client.ws))).toBeUndefined();
+    expect(gateway.getDroppedFrameStats().stalledSocketsTerminated).toBe(0);
+  });
+});

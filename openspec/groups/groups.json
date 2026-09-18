@@ -209,20 +209,17 @@
     "widen-containment-to-resolved-checkout": "ui",
     "apply-checkout-root-to-worktree-ops": "ui",
     "add-speaker-id-enrollment": "ui",
-    "relocate-goal-product-to-plugin": "ui"
+    "relocate-goal-product-to-plugin": "ui",
+    "stabilize-browser-e2e": "ui",
+    "isolate-real-process-tests": "ui",
+    "harden-server-request-surfaces": "ui",
+    "fix-terminals-action-opens-terminal": "ui",
+    "fix-ci-pipeline-followups": "ui",
+    "close-registry-frame-shed-gaps": "ui",
+    "bound-event-store-by-bytes": "ui"
   },
   "changeOrder": {
-    "__ungrouped__": [
-      "add-microservice-pattern-selection-skill",
-      "add-session-step-table",
-      "implement-it",
-      "ab-test-rlm-delegation-claim",
-      "drop-final-update-on-tool-execution-end",
-      "investigate-auto-name-provenance-relabel",
-      "serve-retained-remote-transcripts",
-      "add-native-pi-tui-view",
-      "add-voice-assistant-dashboard-plugin"
-    ],
+    "__ungrouped__": [],
     "kowledge-base": [
       "consolidate-retrieval-planes",
       "add-lora-dataset-export-skill",
@@ -232,13 +229,13 @@
       "memory-retrieval-injection"
     ],
     "ui": [
-      "add-speaker-id-enrollment",
-      "replay-compaction-boundary",
-      "relocate-goal-product-to-plugin",
-      "contention-harden-real-process-tests",
-      "verify-windows-credential-acls",
-      "widen-containment-to-resolved-checkout",
-      "apply-checkout-root-to-worktree-ops"
+      "close-registry-frame-shed-gaps",
+      "fix-ci-pipeline-followups",
+      "fix-terminals-action-opens-terminal",
+      "harden-server-request-surfaces",
+      "bound-event-store-by-bytes",
+      "isolate-real-process-tests",
+      "stabilize-browser-e2e"
     ],
     "next-phase": [
       "add-session-trajectory-view",

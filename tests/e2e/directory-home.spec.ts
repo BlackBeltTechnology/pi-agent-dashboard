@@ -1,5 +1,9 @@
-import { expect, test } from "./fixtures.js";
-import { ensureGitSession, FIXTURE_GIT, gotoDashboard } from "./helpers/index.js";
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { expect, type Page, test } from "./fixtures.js";
+import { ensureGitSession, FIXTURE_GIT, gotoDashboard, pinDirectory } from "./helpers/index.js";
+import { REPO_ROOT } from "./lifecycle.js";
 
 // Mirror of packages/client/src/lib/folder-encoding.ts::encodeFolderPath — the
 // web package does not export internals, and duplicating this 6-line pure fn is
@@ -82,6 +86,198 @@ test.describe("directory home page (mobile)", () => {
     await expect(page.getByTestId(`folder-home-row-${FIXTURE_GIT}`)).toBeVisible({
       timeout: 15_000,
     });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// fix-terminals-action-opens-terminal — the Terminals quick action now targets
+// a terminal-focused editor entry (`?focus=terminal`), distinct from Editor,
+// and the parameter is consumed once honoured. Folds test-plan F5–F9.
+//
+// SELF-ISOLATION: terminals are per-cwd and persist in the shared container, so
+// these tests pin a UNIQUE fixture cwd per run — it starts with zero terminals,
+// making the create path (F7) and the "no duplicate" deltas deterministic.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Container id resolved from the compose project recorded in the harness state. */
+let harnessContainerId: string | undefined;
+function harnessContainer(): string {
+  if (harnessContainerId) return harnessContainerId;
+  const state = JSON.parse(
+    fs.readFileSync(path.join(REPO_ROOT, ".pi-test-harness.json"), "utf8"),
+  ) as { project?: string };
+  if (!state.project) throw new Error(".pi-test-harness.json carries no compose project");
+  const id = execFileSync(
+    "docker",
+    ["ps", "-q", "--filter", `label=com.docker.compose.project=${state.project}`],
+    { encoding: "utf8", timeout: 30_000 },
+  )
+    .trim()
+    .split("\n")[0];
+  if (!id) throw new Error(`no running container for compose project ${state.project}`);
+  harnessContainerId = id;
+  return id;
+}
+
+function inContainer(script: string): string {
+  return execFileSync("docker", ["exec", harnessContainer(), "sh", "-c", script], {
+    encoding: "utf8",
+    timeout: 60_000,
+  }).trim();
+}
+
+const FOCUS_TOKEN = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+const FOCUS_CWD = `/fixtures/e2e-terminal-focus-${FOCUS_TOKEN}`;
+const FOCUS_ENC = encodeFolderPath(FOCUS_CWD);
+const FOCUS_HOME_URL = new RegExp(`/folder/${FOCUS_ENC}$`);
+const FOCUS_EDITOR_URL = new RegExp(`/folder/${FOCUS_ENC}/editor$`);
+
+// F6 needs a file TREE, and `/api/file/tree` only serves a known-session cwd —
+// so it runs on the fixture folder (which has a session) and asserts deltas.
+const DIR_ENC = encodeFolderPath(FIXTURE_GIT);
+const DIR_HOME_URL = new RegExp(`/folder/${DIR_ENC}$`);
+const DIR_EDITOR_URL = new RegExp(`/folder/${DIR_ENC}/editor$`);
+
+/** `term:`-tab locator (EditorTabs carries the stable D4 testids). */
+function termTabs(page: Page) {
+  return page.locator('[data-testid="editor-tab"][data-tab-path^="term:"]');
+}
+
+/** The active editor tab. */
+function activeTab(page: Page) {
+  return page.locator('[data-testid="editor-tab"][aria-selected="true"]');
+}
+
+async function dismissToasts(page: Page): Promise<void> {
+  for (const btn of await page.getByRole("button", { name: "Dismiss" }).all()) {
+    await btn.click().catch(() => {});
+  }
+}
+
+/** Click a testid, dismissing overlapping spawn toasts and retrying until it lands. */
+async function robustClick(page: Page, testid: string): Promise<void> {
+  const target = page.getByTestId(testid);
+  await expect(async () => {
+    await dismissToasts(page);
+    await target.click({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+}
+
+/** Navigate to the bare directory home for this run's unique focus fixture. */
+async function openFocusDirectoryHome(page: Page): Promise<void> {
+  await gotoDashboard(page);
+  const row = page.getByTestId(`folder-home-row-${FOCUS_CWD}`);
+  // Bounded wait: a later test in this run reuses the pin from the first one.
+  const present = await row
+    .waitFor({ state: "visible", timeout: 5_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!present) await pinDirectory(page, FOCUS_CWD);
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await row.click();
+  await expect(page).toHaveURL(FOCUS_HOME_URL, { timeout: 15_000 });
+  await expect(page.getByTestId("directory-home")).toBeVisible({ timeout: 15_000 });
+}
+
+/** Reveal the editor pane's file-tree rail (its visible state persists). */
+async function ensureTreeVisible(page: Page): Promise<void> {
+  const toggle = page.getByTestId("tree-toggle");
+  await expect(toggle).toBeVisible({ timeout: 20_000 });
+  if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click();
+}
+
+/** Navigate to the bare directory home for the fixture folder (has a session). */
+async function openFixtureDirectoryHome(page: Page): Promise<void> {
+  await ensureGitSession(page);
+  await gotoDashboard(page);
+  const row = page.getByTestId(`folder-home-row-${FIXTURE_GIT}`);
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await row.click();
+  await expect(page).toHaveURL(DIR_HOME_URL, { timeout: 15_000 });
+  await expect(page.getByTestId("directory-home")).toBeVisible({ timeout: 15_000 });
+}
+
+/** Click Terminals and wait for the terminal-focused entry to converge (≥1 tab). */
+async function openTerminals(page: Page, editorUrl: RegExp): Promise<void> {
+  await robustClick(page, "directory-home-open-terminals");
+  await expect(page).toHaveURL(editorUrl, { timeout: 15_000 });
+  await expect(termTabs(page).first()).toBeVisible({ timeout: 30_000 });
+}
+
+test.describe("terminal-focused editor entry", () => {
+  test.setTimeout(120_000);
+
+  test.beforeAll(() => {
+    // A fresh cwd per run → zero terminals, so the create path is deterministic.
+    inContainer(`mkdir -p ${FOCUS_CWD}`);
+  });
+
+  // F7 — Terminals lands on an active term: tab (create path on a clean cwd).
+  test("F7: Terminals converges on exactly one active term: tab", async ({ page }) => {
+    await openFocusDirectoryHome(page);
+    await openTerminals(page, FOCUS_EDITOR_URL);
+    await expect(termTabs(page)).toHaveCount(1);
+    await expect(termTabs(page).first()).toHaveAttribute("aria-selected", "true");
+  });
+
+  // F8 — a second Terminals entry activates the existing terminal, never duplicates it.
+  test("F8: a second Terminals entry reuses the existing terminal", async ({ page }) => {
+    await openFocusDirectoryHome(page);
+    await openTerminals(page, FOCUS_EDITOR_URL);
+    // Back to the directory home (history holds the bare URL, not `?focus=terminal`).
+    await page.goBack();
+    await expect(page).toHaveURL(FOCUS_HOME_URL, { timeout: 15_000 });
+    await openTerminals(page, FOCUS_EDITOR_URL);
+    await expect(termTabs(page)).toHaveCount(1);
+    await expect(termTabs(page).first()).toHaveAttribute("aria-selected", "true");
+  });
+
+  // F9 — Editor lands on the file editor and creates no terminal.
+  test("F9: Editor lands on the file editor without creating a terminal", async ({ page }) => {
+    await openFocusDirectoryHome(page);
+    await openTerminals(page, FOCUS_EDITOR_URL);
+    const n = await termTabs(page).count();
+    await page.goBack();
+    await expect(page).toHaveURL(FOCUS_HOME_URL, { timeout: 15_000 });
+    await robustClick(page, "directory-home-open-editor");
+    await expect(page).toHaveURL(FOCUS_EDITOR_URL, { timeout: 15_000 });
+    expect(page.url()).not.toContain("focus");
+    // The folder EditorPane mounted (its header controls are present).
+    await expect(page.getByTestId("new-terminal-launch")).toBeVisible({ timeout: 20_000 });
+    await expect(termTabs(page)).toHaveCount(n);
+  });
+
+  // F5 — the parameter is consumed with a REPLACE navigation (no history entry).
+  test("F5: ?focus=terminal is stripped; Back returns to the directory home", async ({ page }) => {
+    await openFocusDirectoryHome(page);
+    await openTerminals(page, FOCUS_EDITOR_URL);
+    expect(page.url()).not.toContain("focus");
+    await page.goBack();
+    await expect(page).toHaveURL(FOCUS_HOME_URL, { timeout: 15_000 });
+    expect(page.url()).not.toContain("focus");
+  });
+
+  // F6 — a remount after consumption keeps the user's file tab and creates nothing.
+  // Runs on the fixture folder so the file tree resolves (known-session cwd).
+  test("F6: remount after consumption does not re-focus", async ({ page }) => {
+    await openFixtureDirectoryHome(page);
+    await openTerminals(page, DIR_EDITOR_URL);
+
+    // Open a real fixture file from the tree → the file tab becomes active.
+    await ensureTreeVisible(page);
+    await page.getByText("hello.txt", { exact: true }).first().click();
+    await expect(activeTab(page)).toHaveAttribute("data-tab-path", "hello.txt", { timeout: 30_000 });
+    const n = await termTabs(page).count();
+
+    // Remount the folder pane: out to the directory home, forward to the same
+    // (now param-less) editor URL.
+    await page.goBack();
+    await expect(page).toHaveURL(DIR_HOME_URL, { timeout: 15_000 });
+    await page.goForward();
+    await expect(page).toHaveURL(DIR_EDITOR_URL, { timeout: 15_000 });
+
+    await expect(activeTab(page)).toHaveAttribute("data-tab-path", "hello.txt", { timeout: 30_000 });
+    await expect(termTabs(page)).toHaveCount(n, { timeout: 20_000 });
   });
 });
 

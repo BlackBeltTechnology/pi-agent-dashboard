@@ -24,7 +24,7 @@ export class StreamBuilder {
   push(eventType: string, data: Record<string, unknown>): this {
     this.seq += 1;
     const event: DashboardEvent = { eventType, timestamp: T0 + this.seq, data };
-    this.events.push({ seq: this.seq, event });
+    this.events.push({ bytes: 0, seq: this.seq, event });
     return this;
   }
 

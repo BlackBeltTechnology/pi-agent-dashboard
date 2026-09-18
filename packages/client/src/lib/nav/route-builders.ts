@@ -65,6 +65,14 @@ export function buildFolderSettingsUrl(cwd: string, page?: string): string {
   return page === undefined ? base : `${base}/${encodeURIComponent(page)}`;
 }
 
+/** `/folder/:encodedCwd/editor[?focus=terminal]` — folder editor pane. The
+ *  optional `focus=terminal` search param requests a one-shot terminal-focused
+ *  entry. See change: fix-terminals-action-opens-terminal. */
+export function buildFolderEditorUrl(cwd: string, focusTerminal = false): string {
+  const base = `/folder/${encodeFolderPath(cwd)}/editor`;
+  return focusTerminal ? `${base}?focus=terminal` : base;
+}
+
 /** `/pi-resource?path=...&title=...` */
 export function buildPiResourceFileUrl(path: string, title: string): string {
   const params = new URLSearchParams();

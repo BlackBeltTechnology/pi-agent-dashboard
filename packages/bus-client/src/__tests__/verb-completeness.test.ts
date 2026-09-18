@@ -29,15 +29,35 @@ function collectReceivers(): Set<string> {
   for (const m of `${gw}${dh}`.matchAll(/case\s+"([a-zA-Z_]+)"/g)) recv.add(m[1]);
   for (const m of srv.matchAll(/registerHandler\(\s*"([a-zA-Z_]+)"/g)) recv.add(m[1]);
 
-  // Plugin server entries register handlers via the plugin runtime.
+  // Plugin server entries register handlers via the plugin runtime. The doc
+  // above says `<plugin>/src/server/*` — walk the whole server subtree, not
+  // just `index.ts`. The browser-relay plugin registers its three verbs in
+  // `status.ts` (`browser_relay_subscribe|unsubscribe|input`), so an
+  // index-only scan reported them missing and silently kept the generated verb
+  // file stale (a `codegen` run produced a file this test rejected).
+  // See change: persist-folder-collapse-server-side (regenerated `verbs.ts`).
   const pkgsDir = path.join(REPO_ROOT, "packages");
   for (const pkg of fs.readdirSync(pkgsDir)) {
-    const entry = path.join(pkgsDir, pkg, "src", "server", "index.ts");
-    if (!fs.existsSync(entry)) continue;
-    const src = fs.readFileSync(entry, "utf8");
-    for (const m of src.matchAll(/registerBrowserHandler\(\s*"([a-zA-Z_]+)"/g)) recv.add(m[1]);
+    const serverDir = path.join(pkgsDir, pkg, "src", "server");
+    if (!fs.existsSync(serverDir)) continue;
+    for (const file of serverTsFiles(serverDir)) {
+      const src = fs.readFileSync(file, "utf8");
+      for (const m of src.matchAll(/registerBrowserHandler\(\s*"([a-zA-Z_]+)"/g)) recv.add(m[1]);
+    }
   }
   return recv;
+}
+
+/** All non-test `.ts` files under `dir`, recursively. */
+function serverTsFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === "__tests__") continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...serverTsFiles(full));
+    else if (entry.name.endsWith(".ts")) out.push(full);
+  }
+  return out;
 }
 
 describe("verb completeness (S2)", () => {

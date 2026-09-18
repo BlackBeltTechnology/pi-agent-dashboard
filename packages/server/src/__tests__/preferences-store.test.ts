@@ -4,10 +4,13 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isNotifyRowVisible } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { createPreferencesStore } from "../persistence/preferences-store.js";
+import { safeRealpathSync } from "../resolve-path.js";
 
-// Mock resolve-path to be a no-op (no symlink resolution in tests)
+// Mock resolve-path to be a no-op (no symlink resolution in tests). The
+// `vi.fn` wrapper lets the collapsedFolders suite assert the realpath helper is
+// NOT invoked for collapsed paths (design D3 invariant).
 vi.mock("../resolve-path.js", () => ({
-  safeRealpathSync: (p: string) => p,
+  safeRealpathSync: vi.fn((p: string) => p),
 }));
 
 // Canonical host-platform absolute paths. Using raw POSIX strings like
@@ -862,6 +865,127 @@ describe("preferences-store", () => {
       fs.writeFileSync(filePath, JSON.stringify({ pinnedDirectories: [], sessionOrder: {} }));
       const store = createPreferencesStore(filePath);
       expect(store.getFavoriteModels()).toEqual([]);
+      store.dispose();
+    });
+  });
+
+  // ── persist-folder-collapse-server-side ──────────────────────────────
+  describe("collapsedFolders", () => {
+    it("E1: a legacy file without the field loads as []", () => {
+      fs.writeFileSync(filePath, JSON.stringify({ pinnedDirectories: [], sessionOrder: {} }));
+      const store = createPreferencesStore(filePath);
+      expect(store.getCollapsedFolders()).toEqual([]);
+      store.dispose();
+    });
+
+    it("E2: collapse from empty returns true and stores exactly the canonical key", () => {
+      const store = createPreferencesStore(filePath);
+      expect(store.setFolderCollapsed(A_PATH, true)).toBe(true);
+      expect(store.getCollapsedFolders()).toEqual([A_PATH]);
+      store.dispose();
+    });
+
+    it("E3: collapsing an already-collapsed folder is a no-op (false → no broadcast)", () => {
+      const store = createPreferencesStore(filePath);
+      store.setFolderCollapsed(A_PATH, true);
+      expect(store.setFolderCollapsed(A_PATH, true)).toBe(false);
+      expect(store.getCollapsedFolders()).toEqual([A_PATH]);
+      store.dispose();
+    });
+
+    it("E4: expanding a collapsed folder returns true and empties the array", () => {
+      const store = createPreferencesStore(filePath);
+      store.setFolderCollapsed(A_PATH, true);
+      expect(store.setFolderCollapsed(A_PATH, false)).toBe(true);
+      expect(store.getCollapsedFolders()).toEqual([]);
+      store.dispose();
+    });
+
+    it("E5: expanding a folder that is not collapsed is a no-op", () => {
+      const store = createPreferencesStore(filePath);
+      expect(store.setFolderCollapsed(A_PATH, false)).toBe(false);
+      expect(store.getCollapsedFolders()).toEqual([]);
+      store.dispose();
+    });
+
+    it("E10: stores the path as given, NOT symlink-resolved", () => {
+      const store = createPreferencesStore(filePath);
+      vi.mocked(safeRealpathSync).mockClear();
+      store.setFolderCollapsed(A_PATH, true);
+      expect(store.getCollapsedFolders()).toEqual([A_PATH]);
+      // Unlike `pinnedDirectories`, a collapsed path must never be realpath'd —
+      // the browser cannot resolve symlinks. See design D3 invariant.
+      expect(vi.mocked(safeRealpathSync)).not.toHaveBeenCalled();
+      store.dispose();
+    });
+
+    it("E11: 1,000 persisted entries all load without truncation", () => {
+      const many = Array.from({ length: 1000 }, (_, i) => path.join(tmpDir, `f-${i}`));
+      fs.writeFileSync(
+        filePath,
+        JSON.stringify({ pinnedDirectories: [], sessionOrder: {}, collapsedFolders: many }),
+      );
+      const store = createPreferencesStore(filePath);
+      const got = store.getCollapsedFolders();
+      expect(got).toHaveLength(1000);
+      expect(got).toContain(many[0]);
+      expect(got).toContain(many[999]);
+      store.dispose();
+    });
+
+    it("E12: survives the debounced-write restart round-trip", () => {
+      const store = createPreferencesStore(filePath);
+      store.setFolderCollapsed(A_PATH, true);
+      store.flush();
+      store.dispose();
+      const reloaded = createPreferencesStore(filePath);
+      expect(reloaded.getCollapsedFolders()).toEqual([A_PATH]);
+      reloaded.dispose();
+    });
+
+    it("E13: a group key no session reports survives session-list churn (no prune)", () => {
+      const store = createPreferencesStore(filePath);
+      store.setFolderCollapsed(A_PATH, true);
+      // Spawn/archive churn touches the order map only; the store exposes no
+      // prune API and must retain the entry.
+      store.setSessionOrder({ [B_PATH]: ["s1"] });
+      store.setSessionOrder({ [B_PATH]: ["s2"] });
+      expect(store.getCollapsedFolders()).toEqual([A_PATH]);
+      store.dispose();
+    });
+
+    it("X8: a corrupt (non-array) field falls back to [] without failing the load", () => {
+      fs.writeFileSync(
+        filePath,
+        JSON.stringify({ pinnedDirectories: [A_PATH], collapsedFolders: "/repo/a" }),
+      );
+      const store = createPreferencesStore(filePath);
+      expect(store.getCollapsedFolders()).toEqual([]);
+      // The rest of the file still loads.
+      expect(store.getPinnedDirectories()).toEqual([A_PATH]);
+      store.dispose();
+    });
+
+    it("canonicalizes separator drift on load (dedupes spellings)", () => {
+      fs.writeFileSync(
+        filePath,
+        JSON.stringify({
+          pinnedDirectories: [],
+          sessionOrder: {},
+          collapsedFolders: [`${A_PATH}/`, A_PATH],
+        }),
+      );
+      const store = createPreferencesStore(filePath);
+      expect(store.getCollapsedFolders()).toEqual([A_PATH]);
+      store.dispose();
+    });
+
+    it("collapses/expands idempotently across path spellings", () => {
+      const store = createPreferencesStore(filePath);
+      store.setFolderCollapsed(A_PATH, true);
+      // Same directory, trailing-separator spelling: recognised, one entry.
+      expect(store.setFolderCollapsed(`${A_PATH}/`, false)).toBe(true);
+      expect(store.getCollapsedFolders()).toEqual([]);
       store.dispose();
     });
   });

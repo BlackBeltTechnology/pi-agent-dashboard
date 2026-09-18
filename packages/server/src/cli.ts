@@ -200,6 +200,11 @@ export function buildConfig(flags: Partial<ServerConfig>): ServerConfig {
     maxWsBufferBytes: fileConfig.memoryLimits.maxWsBufferBytes,
     maxReplayEvents: fileConfig.memoryLimits.maxReplayEvents,
     replayWindowMode: fileConfig.memoryLimits.replayWindowMode,
+    // Carry the WHOLE block too: the byte budgets and resident count are read
+    // from `config.memoryLimits` by `createServer`, and rebuilding the block
+    // field-by-field here silently dropped them (byte budgets fell back to the
+    // store's unbounded default). See change: bound-event-store-by-bytes (task 5.1).
+    memoryLimits: fileConfig.memoryLimits,
     openspec: fileConfig.openspec,
     sessions: fileConfig.sessions,
     reattachPlacement: fileConfig.reattachPlacement,
