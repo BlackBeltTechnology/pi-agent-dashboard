@@ -22,12 +22,23 @@
  */
 import { homedir } from "node:os";
 import path from "node:path";
-import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import {
+  getPluginStatusStore,
+  type ServerPluginContext,
+} from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { ChatGatewayConfig } from "../shared/types.js";
 import { isConfigured, resolveConfig } from "./config.js";
 import { createChatGateway } from "./gateway.js";
 import { createBindingStore, createSpawnCorrelator } from "./routing.js";
 import { createHostSeam } from "./seam.js";
+import { createCommandLog } from "./team/audit.js";
+import { createTeamController } from "./team/controller.js";
+import { createProvisioner } from "./team/provisioner.js";
+import { createProvisioningStore } from "./team/provisioning-store.js";
+import { FAIL_CLOSED_TEAM_CONFIG, validateTeamControls } from "./team/team-config.js";
+
+/** The plugin id used by `/api/health.plugins[]`. */
+const PLUGIN_ID = "chat-gateway";
 
 /** Dashboard-owned state directory for the gateway's sticky bindings. */
 export function chatGatewayStateDir(): string {
@@ -38,8 +49,22 @@ export function bindingsFilePath(): string {
   return path.join(chatGatewayStateDir(), "bindings.json");
 }
 
+/**
+ * Workspace↔channel records. Deliberately NOT `bindings.json`: that file routes
+ * a channel to a session cwd, this one records the channel the layer owns.
+ */
+export function channelsFilePath(): string {
+  return path.join(chatGatewayStateDir(), "channels.json");
+}
+
+/** Append-only command log (D6). */
+export function commandLogFilePath(): string {
+  return path.join(chatGatewayStateDir(), "command-log.json");
+}
+
 export default async function registerChatGateway(ctx: ServerPluginContext): Promise<void> {
-  const config = resolveConfig(ctx.getPluginConfig<ChatGatewayConfig>());
+  const rawConfig = ctx.getPluginConfig<ChatGatewayConfig>();
+  const config = resolveConfig(rawConfig);
 
   // Inert by design: no token, no work. This is the ONLY early return that is
   // not an error.
@@ -61,6 +86,28 @@ export default async function registerChatGateway(ctx: ServerPluginContext): Pro
 
   const store = createBindingStore({ filePath: bindingsFilePath() });
   store.load();
+
+  // ── Team controls (D6) + channel provisioning (D7) ──────────────────────
+  //
+  // Config is validated TOTAL-ly; a rejected config degrades to the fail-closed
+  // default (nobody may act, nothing is provisioned) rather than to a live but
+  // unconfigured layer.
+  const parsedTeam = validateTeamControls(rawConfig?.teamControls);
+  if (!parsedTeam.ok) {
+    ctx.logger.error(
+      `chat-gateway: team-controls config rejected (${parsedTeam.reason} at ${parsedTeam.path}) — running fail-closed`,
+    );
+  }
+  const teamConfig = parsedTeam.ok ? parsedTeam.value : FAIL_CLOSED_TEAM_CONFIG;
+
+  /** Report a layer failure on `/api/health.plugins[]`, preserving the rest. */
+  function reportLayerFailure(reason: string): void {
+    ctx.logger.error(`chat-gateway: team-controls — ${reason}`);
+    const status = getPluginStatusStore();
+    const previous = status.getStatus(PLUGIN_ID);
+    // Merge: the loader owns displayName/claims/dependsOn, we only add the error.
+    if (previous) status.setStatus({ ...previous, error: reason });
+  }
 
   const seam = createHostSeam(ctx);
   // Deferred so an unconfigured install never loads discord.js.
@@ -87,6 +134,34 @@ export default async function registerChatGateway(ctx: ServerPluginContext): Pro
     return;
   }
 
+  // Provisioning + the team controller. Both read the SAME workspace list the
+  // dashboard owns, and the controller's channel→workspace map comes from the
+  // provisioning store, so authorization can only ever see a binding the layer
+  // actually owns.
+  const channels = createProvisioningStore({ filePath: channelsFilePath() });
+  channels.load();
+
+  const commandLog = createCommandLog({
+    filePath: commandLogFilePath(),
+    limit: teamConfig.auditRetention,
+  });
+
+  const provisioner = createProvisioner({
+    adapter,
+    store: channels,
+    config: () => teamConfig,
+    listWorkspaces: () => ctx.listWorkspaces(),
+    onFailure: reportLayerFailure,
+  });
+
+  const team = createTeamController({
+    config: teamConfig,
+    log: commandLog,
+    listWorkspaces: () => ctx.listWorkspaces(),
+    channelBindings: provisioner.channelBindings,
+    onTrustFailure: reportLayerFailure,
+  });
+
   const gateway = createChatGateway({
     platform: "discord",
     seam,
@@ -94,6 +169,7 @@ export default async function registerChatGateway(ctx: ServerPluginContext): Pro
     config,
     store,
     correlator: createSpawnCorrelator(),
+    team,
   });
 
   ctx.onShutdown(() => {
@@ -101,6 +177,25 @@ export default async function registerChatGateway(ctx: ServerPluginContext): Pro
   });
 
   await gateway.start();
+
+  // Activation sweep (D7): a mapping changed while the dashboard was down takes
+  // effect here. Awaited, so the layer is not reported started until the
+  // platform matches the configuration.
+  const sweep = await provisioner.reconcile();
+  if (!sweep.ok) {
+    ctx.logger.error(`chat-gateway: provisioning did not converge — ${sweep.reason}`);
+  }
+
+  // A workspace mutation is a HINT to re-read, not a description of the change:
+  // it may coalesce and may fire for something this layer does not care about.
+  // `reconcile` is idempotent and issues a platform call only where the desired
+  // state differs, so replaying it is free.
+  const unsubscribeWorkspaces = ctx.onWorkspacesChanged(() => {
+    void provisioner.reconcile();
+  });
+  ctx.onShutdown(() => {
+    unsubscribeWorkspaces();
+  });
 
   // Read-only bindings surface for the settings panel (task 10.1). Registered
   // only once configured + started, so an inert install exposes nothing (task

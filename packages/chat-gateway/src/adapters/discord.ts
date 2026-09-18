@@ -26,6 +26,7 @@ import {
   type Interaction,
   type Message,
   ModalBuilder,
+  OverwriteType,
   Partials,
   type SendableChannels,
   StringSelectMenuBuilder,
@@ -35,14 +36,22 @@ import {
 import {
   type AdapterCallbacks,
   BaseAdapter,
+  type ChannelOverwrite,
   type InteractivePrompt,
   type PlatformConfig,
   type PlatformMessage,
+  type ProvisionChannelInput,
 } from "./base.js";
 import {
+  channelCreatePayload,
+  channelNameFor,
+  channelOverwrites,
   chunkForDiscord,
   customIdFor,
+  type DiscordChannelCreatePayload,
+  type DiscordChannelUpdatePayload,
   type DiscordControlSpec,
+  type DiscordOverwrite,
   parseCustomId,
   toDiscordControl,
 } from "./discord-payload.js";
@@ -64,6 +73,42 @@ const BUTTON_STYLES = {
   danger: ButtonStyle.Danger,
 } as const;
 
+/**
+ * Channel management, split out from the adapter so a test can record the FULL
+ * call sequence (create payloads and their order) with no Discord connection —
+ * the fixture the create-then-patch and rate-budget rows require.
+ *
+ * Deliberately has NO `createThenSetPermissions` convenience: the only way to
+ * get a private channel is `create` with its overwrites already attached.
+ */
+export interface DiscordChannelOps {
+  create(
+    guildId: string,
+    payload: DiscordChannelCreatePayload,
+  ): Promise<{ channelId: string }>;
+  update(channelId: string, payload: DiscordChannelUpdatePayload): Promise<void>;
+  /**
+   * The guild a channel lives in. Required because the `@everyone` overwrite id
+   * IS the guild id, so a reconcile must name it even for an existing channel.
+   */
+  guildIdFor(channelId: string): Promise<string>;
+}
+
+/** Map our dependency-free overwrite data onto discord.js's resolvable shape. */
+function toResolvable(overwrite: DiscordOverwrite) {
+  return {
+    id: overwrite.id,
+    type: overwrite.type === 0 ? OverwriteType.Role : OverwriteType.Member,
+    allow: overwrite.allow,
+    deny: overwrite.deny,
+  };
+}
+
+/** Minimal structural view of a channel we may edit. */
+type EditableChannel = {
+  edit: (payload: DiscordChannelUpdatePayload) => Promise<unknown>;
+};
+
 /** Bound the ClientReady wait so a stuck login cannot hang the plugin entry. */
 const READY_TIMEOUT_MS = 30_000;
 /** Cap on tracked interactive specs (both maps); older entries are evicted. */
@@ -76,6 +121,8 @@ export class DiscordAdapter extends BaseAdapter {
   private client: Client | null = null;
   /** Set BEFORE disconnecting so nothing re-arms a reconnect/heartbeat. */
   private stopped = false;
+  /** Channel management, injected in tests; defaults to discord.js. */
+  private readonly ops: DiscordChannelOps | null;
   private onMessageCreate: ((message: Message) => void) | null = null;
   private onInteractionCreate: ((interaction: Interaction) => void) | null = null;
   /** requestId → the control spec we rendered, for modal re-hydration. */
@@ -97,9 +144,10 @@ export class DiscordAdapter extends BaseAdapter {
     return { messageId };
   }
 
-  constructor(config: DiscordAdapterConfig) {
+  constructor(config: DiscordAdapterConfig, ops?: DiscordChannelOps) {
     super();
     this.config = config;
+    this.ops = ops ?? null;
   }
 
   // ── Lifecycle ───────────────────────────────────────────────────────────
@@ -240,6 +288,74 @@ export class DiscordAdapter extends BaseAdapter {
     if ("sendTyping" in channel && typeof channel.sendTyping === "function") {
       await channel.sendTyping();
     }
+  }
+
+  // ── Channel provisioning ────────────────────────────────────────────────
+
+  /**
+   * Create a PRIVATE channel in one call. The `@everyone` view deny is built
+   * into the payload by `channelCreatePayload`, so no code path can create a
+   * channel and then adjust its permissions (D7).
+   */
+  async provisionChannel(
+    input: ProvisionChannelInput,
+  ): Promise<{ channelId: string }> {
+    const payload = channelCreatePayload(input);
+    return this.channelOps().create(input.guildId, payload);
+  }
+
+  /**
+   * Replace a channel's access list to match a changed mapping. One call — no
+   * delete/recreate, so channel history survives a revocation.
+   */
+  async setChannelOverwrites(
+    channelId: string,
+    overwrites: ChannelOverwrite[],
+  ): Promise<void> {
+    const guildId = await this.channelOps().guildIdFor(channelId);
+    await this.channelOps().update(channelId, {
+      permissionOverwrites: channelOverwrites(guildId, overwrites),
+    });
+  }
+
+  async renameChannel(channelId: string, name: string): Promise<void> {
+    await this.channelOps().update(channelId, { name: channelNameFor(name) });
+  }
+
+  private channelOps(): DiscordChannelOps {
+    return this.ops ?? this.defaultOps();
+  }
+
+  /** Real Discord channel management. */
+  private defaultOps(): DiscordChannelOps {
+    return {
+      create: async (guildId, payload) => {
+        const guild = await this.requireClient().guilds.fetch(guildId);
+        const created = await guild.channels.create({
+          name: payload.name,
+          permissionOverwrites: payload.permissionOverwrites.map(toResolvable),
+        });
+        return { channelId: created.id };
+      },
+      update: async (channelId, payload) => {
+        const channel = (await this.requireClient().channels.fetch(
+          channelId,
+        )) as unknown as EditableChannel | null;
+        if (!channel || typeof channel.edit !== "function") {
+          throw new Error(`[discord] channel ${channelId} is not editable`);
+        }
+        await channel.edit(payload);
+      },
+      guildIdFor: async (channelId) => {
+        const channel = await this.requireClient().channels.fetch(channelId);
+        // `Channel` is a union whose DM members have no guild; ask structurally.
+        const guildId = (channel as { guildId?: string } | null)?.guildId;
+        if (!guildId) {
+          throw new Error(`[discord] channel ${channelId} is not in a guild`);
+        }
+        return guildId;
+      },
+    };
   }
 
   // ── Interactive ─────────────────────────────────────────────────────────

@@ -57,3 +57,28 @@ describe("validateTeamControls", () => {
     expect(validateTeamControls({ auditRetention: "many" }).ok).toBe(false);
   });
 });
+
+describe("validateTeamControls — provisioning guild", () => {
+  it("accepts an absent guildId (the layer then reports it cannot provision)", () => {
+    const result = validateTeamControls({ bindings: { ws_1: {} } });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.guildId).toBeUndefined();
+  });
+
+  it("accepts and trims a guildId", () => {
+    const result = validateTeamControls({ guildId: " 123456789 " });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.guildId).toBe("123456789");
+  });
+
+  it("rejects a blank or non-string guildId", () => {
+    for (const guildId of ["", "   ", 42, {}, []]) {
+      const result = validateTeamControls({ guildId });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe("invalid_guild_id");
+        expect(result.path).toBe("teamControls.guildId");
+      }
+    }
+  });
+});

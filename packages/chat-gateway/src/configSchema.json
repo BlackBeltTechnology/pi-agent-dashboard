@@ -92,6 +92,10 @@
       "additionalProperties": false,
       "description": "Team-controls layer (change: add-chat-gateway-team-controls). Absent => fail-closed defaults (ceiling observe, no bindings, retention 10000).",
       "properties": {
+        "guildId": {
+          "type": "string",
+          "description": "Discord guild a workspace channel is provisioned in. Required for provisioning: a binding configured without it cannot produce a channel and is reported as a failure. The `@everyone` overwrite id is this guild's id."
+        },
         "ceiling": {
           "type": "string",
           "enum": ["observe", "control", "operate"],

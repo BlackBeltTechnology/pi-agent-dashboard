@@ -68,6 +68,12 @@ export interface ChatGatewayConfig {
    * `configSchema.json`; validated by `team-config.ts`, not by this type.
    */
   teamControls?: {
+    /**
+     * Discord guild a workspace channel is provisioned in. Required for
+     * provisioning; a binding without it is reported as a failure rather than
+     * silently producing no channel.
+     */
+    guildId?: string;
     ceiling?: "observe" | "control" | "operate";
     disarmed?: boolean;
     auditRetention?: number;

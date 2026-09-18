@@ -22,6 +22,19 @@ export const DEFAULT_AUDIT_RETENTION = 10_000;
 /** A hard upper bound so a typo cannot ask for an unbounded in-memory log. */
 export const MAX_AUDIT_RETENTION = 1_000_000;
 
+/**
+ * The fail-closed default: ceiling `observe` (no one may act), no bindings (no
+ * channel is provisioned), retention at the default. Used when operator config
+ * is rejected, so a bad config degrades to "nobody can do anything" rather than
+ * to an unconfigured-but-live layer.
+ */
+export const FAIL_CLOSED_TEAM_CONFIG: ValidatedTeamConfig = {
+  ceiling: DEFAULT_CEILING,
+  disarmed: false,
+  auditRetention: DEFAULT_AUDIT_RETENTION,
+  bindings: {},
+};
+
 export interface ValidatedBinding {
   principals: Record<string, Tier>;
   roles: Record<string, RoleTier>;
@@ -35,6 +48,12 @@ export interface ValidatedTeamConfig {
   auditRetention: number;
   /** Keyed by workspace id — the binding unit. */
   bindings: Record<string, ValidatedBinding>;
+  /**
+   * Guild a workspace channel is provisioned in. Absent ⇒ provisioning cannot
+   * run, so a configured binding is reported as a failure rather than silently
+   * producing no channel.
+   */
+  guildId?: string;
 }
 
 export interface ValidationOk {
@@ -105,6 +124,15 @@ function parseAuditRetention(raw: unknown): Checked<number> {
   return { ok: true, value: raw };
 }
 
+/** Validate the optional provisioning guild id. */
+function parseGuildId(raw: unknown): Checked<string | undefined> {
+  if (raw === undefined || raw === null) return { ok: true, value: undefined };
+  if (typeof raw !== "string" || raw.trim() === "") {
+    return { ok: false, reason: "invalid_guild_id", path: "teamControls.guildId" };
+  }
+  return { ok: true, value: raw.trim() };
+}
+
 /** Validate one workspace's binding, defaulting the per-binding ceiling. */
 function parseBinding(rawBinding: unknown, ceiling: Tier, base: string): Checked<ValidatedBinding> {
   const b = isObject(rawBinding) ? rawBinding : {};
@@ -142,6 +170,9 @@ export function validateTeamControls(raw: unknown): ValidationResult {
   const retention = parseAuditRetention(src.auditRetention);
   if (!retention.ok) return retention;
 
+  const guildId = parseGuildId(src.guildId);
+  if (!guildId.ok) return guildId;
+
   const bindings: Record<string, ValidatedBinding> = {};
   const rawBindings = isObject(src.bindings) ? src.bindings : {};
   for (const [workspaceId, rawBinding] of Object.entries(rawBindings)) {
@@ -150,5 +181,14 @@ export function validateTeamControls(raw: unknown): ValidationResult {
     bindings[workspaceId] = parsed.value;
   }
 
-  return { ok: true, value: { ceiling, disarmed, auditRetention: retention.value, bindings } };
+  return {
+    ok: true,
+    value: {
+      ceiling,
+      disarmed,
+      auditRetention: retention.value,
+      bindings,
+      ...(guildId.value ? { guildId: guildId.value } : {}),
+    },
+  };
 }

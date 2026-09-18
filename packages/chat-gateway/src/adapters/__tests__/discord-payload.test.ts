@@ -7,6 +7,9 @@
 import { describe, expect, it } from "vitest";
 import type { InteractivePrompt, InteractiveResponse, PlatformMessage } from "../base.js";
 import {
+  channelCreatePayload,
+  channelNameFor,
+  channelOverwrites,
   chunkForDiscord,
   customIdFor,
   DISCORD_CUSTOM_ID_LIMIT,
@@ -253,5 +256,52 @@ describe("RecordingAdapter", () => {
 
     await adapter.stop();
     expect(await adapter.getStatus()).toMatchObject({ connected: false });
+  });
+});
+
+const VIEW = 1n << 10n;
+
+describe("channel provisioning payload", () => {
+  it("channelNameFor slugifies, never returns empty, and caps at the limit", () => {
+    expect(channelNameFor("Platform Team")).toBe("platform-team");
+    expect(channelNameFor("  My  Team!! ")).toBe("my-team");
+    expect(channelNameFor("a--b")).toBe("a-b");
+    expect(channelNameFor("---")).toBe("workspace");
+    expect(channelNameFor("!!!")).toBe("workspace");
+    expect(channelNameFor("")).toBe("workspace");
+    expect(channelNameFor("x".repeat(200))).toHaveLength(100);
+  });
+
+  it("channelOverwrites PREPENDS the platform-default-role deny", () => {
+    const out = channelOverwrites("guild-1", [
+      { targetId: "u1", kind: "member", viewChannel: true },
+    ]);
+    expect(out[0]).toEqual({ id: "guild-1", type: 0, allow: 0n, deny: VIEW });
+    expect(out[1]).toEqual({ id: "u1", type: 1, allow: VIEW, deny: 0n });
+  });
+
+  it("channelOverwrites denies a grant flagged viewChannel:false", () => {
+    const out = channelOverwrites("g", [{ targetId: "u1", kind: "member", viewChannel: false }]);
+    expect(out[1]).toEqual({ id: "u1", type: 1, allow: 0n, deny: VIEW });
+  });
+
+  it("an empty access list still denies @everyone — a private channel, always", () => {
+    const payload = channelCreatePayload({ guildId: "g", name: "ws", overwrites: [] });
+    expect(payload.permissionOverwrites).toEqual([
+      { id: "g", type: 0, allow: 0n, deny: VIEW },
+    ]);
+  });
+
+  it("the create payload carries the overwrites by construction", () => {
+    // There is deliberately no create-without-overwrites shape: every create
+    // path goes through this function, so the deny cannot be omitted.
+    const payload = channelCreatePayload({
+      guildId: "g",
+      name: "ws",
+      overwrites: [{ targetId: "r1", kind: "role", viewChannel: true }],
+    });
+    expect(payload.name).toBe("ws");
+    expect(payload.permissionOverwrites).toHaveLength(2);
+    expect(payload.permissionOverwrites[0].deny).toBe(VIEW);
   });
 });
