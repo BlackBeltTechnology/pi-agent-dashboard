@@ -9,8 +9,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   type DashboardConfig,
+  DEFAULT_SERVER_HEAP,
   HEALTH_CHECK_TIMEOUT_MS,
 } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { stampHeapFlag } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
 import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import {
   EarlyExitError,
@@ -67,21 +69,29 @@ export function resolveServerCliPath(): string {
 }
 
 /**
- * Default V8 old-space ceiling (MB) for the dashboard server. Guards against a
- * single oversized forwarded event OOM-ing the process before the per-event
- * size cap can degrade it — belt-and-braces, not the primary fix.
- * See change: bound-subagent-event-serialization.
+ * Default V8 old-space ceiling (MB) for the dashboard server.
+ *
+ * WAS a hardcoded `8192`. Now config-derived (`serverHeap.maxOldSpaceMb`) with
+ * this as the fallback, and the default itself dropped to 1536 — sized to the
+ * byte-bounded event store rather than to "a big number". The 8192 ceiling was
+ * not headroom: every `FATAL ERROR: Reached heap limit` in the log corpus is
+ * the dashboard server, several of them dying AT the 8192 stamp.
+ * See change: bound-subagent-event-serialization,
+ *             bound-session-heap-and-gc-telemetry (D8, D9).
  */
-export const DEFAULT_SERVER_MAX_OLD_SPACE_MB = 8192;
+export const DEFAULT_SERVER_MAX_OLD_SPACE_MB = DEFAULT_SERVER_HEAP.maxOldSpaceMb;
 
 /**
  * Build the environment object passed to the spawned server process.
  * Always stamps DASHBOARD_STARTER=Bridge so the server knows it was
  * launched by the pi bridge extension. Adds `--max-old-space-size` to
- * NODE_OPTIONS for heap headroom, but never overrides a user-supplied value.
+ * NODE_OPTIONS from `serverHeap.maxOldSpaceMb`, but never overrides a
+ * user-supplied value — and records the exact token it wrote in the provenance
+ * marker so the spawn-side strip can tell its own flag from an operator's.
  */
 export function buildSpawnEnv(
   baseEnv: NodeJS.ProcessEnv = process.env,
+  maxOldSpaceMb: number = DEFAULT_SERVER_MAX_OLD_SPACE_MB,
 ): Record<string, string> {
   // Spread process.env (may contain undefined values); filter them out.
   const out: Record<string, string> = {};
@@ -96,13 +106,12 @@ export function buildSpawnEnv(
   // finding — grandchild marker leak).
   delete out.PI_DASHBOARD_ELECTRON;
   delete out.PI_DASHBOARD_RESOURCES_PATH;
-  // Only add heap headroom when the user has not already pinned a limit.
-  const existing = out["NODE_OPTIONS"] ?? "";
-  if (!/--max[-_]old[-_]space[-_]size/.test(existing)) {
-    const flag = `--max-old-space-size=${DEFAULT_SERVER_MAX_OLD_SPACE_MB}`;
-    out["NODE_OPTIONS"] = existing ? `${existing} ${flag}` : flag;
-  }
-  return out;
+  // Stamp the configured ceiling. The dash-or-underscore regex that used to
+  // guard this is gone: it could not tell the dashboard's own stamp from an
+  // operator's pin, and the two detectors (this one and the wrapper's substring
+  // test) had already drifted apart. `stampHeapFlag` owns the single rule and
+  // records provenance. See change: bound-session-heap-and-gc-telemetry (D4).
+  return stampHeapFlag(out, maxOldSpaceMb);
 }
 
 /**
@@ -139,6 +148,13 @@ export async function launchServer(config: DashboardConfig): Promise<LaunchResul
     const result = await launchDashboardServer({
       cliPath,
       extraArgs: args,
+      // `buildSpawnEnv` was exported and tested but NEVER ran in production:
+      // this call passed no `env`, so only the standalone wrapper ever stamped
+      // a ceiling. That is not tidying — once the spawn-side strip lands, a
+      // bridge-auto-started server inherits a STRIPPED environment and would
+      // otherwise run at the bare V8 default on exactly the recovery path where
+      // the event store is hottest. See change: bound-session-heap-and-gc-telemetry (D5a).
+      env: buildSpawnEnv(process.env, config.serverHeap?.maxOldSpaceMb),
       stdio: { logFile: getDashboardServerLogPath() },
       healthTimeoutMs: config.readinessTimeoutMs ?? HEALTH_CHECK_TIMEOUT_MS,
       port: config.port,

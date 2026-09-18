@@ -1,3 +1,5 @@
 # process-metrics.ts — index
 
 Lightweight process metrics collector for bridge heartbeats. Exports `startMetricsMonitor`, `stopMetricsMonitor`, `collectMetrics`. Returns `ProcessMetrics` (rss, heap, cpuPercent, eventLoopMaxMs, loadAvg1m) via Node built-ins; event-loop-delay monitor opt-in.
+
+Gains `heapSizeLimit` (`v8.getHeapStatistics().heap_size_limit`), `external`, `arrayBuffers`, and three GC scalars folded in a `PerformanceObserver("gc")` callback (`foldGcEntry` + `resetGcCounters`, both exported). Counters are READ-AND-RESET on each `collectMetrics()`, the same shape as the event-loop histogram — nothing accumulates between heartbeats, so the memory-observation path cannot itself leak. Major collections classify on `entry.detail.kind === NODE_PERFORMANCE_GC_MAJOR`; `entry.kind` is `undefined` on the supported runtime and reading it would score every GC as minor. A `detail`-less entry counts in `gcCount` and is skipped for `gcMajorCount` rather than throwing. No observer ⇒ the three fields are ABSENT, not `0` (`0` would claim "no GC happened"). See change: bound-session-heap-and-gc-telemetry.

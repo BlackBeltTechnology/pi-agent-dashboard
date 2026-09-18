@@ -4,12 +4,12 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 
 | File | Purpose |
 |------|---------|
-| `README.md` | Docs for browser E2E. Prerequisites: Docker, `npx playwright install chromium`. Run via `npm run test:e2e`. → see `README.md.AGENTS.md` |
-| `anthropic-bridge-activation.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Asserts the flows-anthropic-bridge regression via… → see `anthropic-bridge-activation.spec.ts.AGENTS.md` |
-| `archive-fold.spec.ts` | L3 for the per-folder `Archive (N)` fold (test-plan #F4, #F8, #F9, #F10, #F14, #F15, #X8, #P3): seeds… → see `archive-fold.spec.ts.AGENTS.md` |
+| `README.md` | Docs for browser E2E. Prerequisites: Docker, `npx playwright install chromium`. → see `README.md.AGENTS.md` |
+| `anthropic-bridge-activation.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). → see `anthropic-bridge-activation.spec.ts.AGENTS.md` |
+| `archive-fold.spec.ts` | L3 for the per-folder `Archive (N)` fold (test-plan #F4, #F8, #F9, #F10, #F14, #… → see `archive-fold.spec.ts.AGENTS.md` |
 | `asciidoc-preview.spec.ts` | L3 AsciiDoc preview styling (change: asciidoc-support, test-plan #F1–#F6). → see `asciidoc-preview.spec.ts.AGENTS.md` |
-| `diagram-preview.spec.ts` | L3 diagram preview (.puml and adoc hydration) in the editor pane (change: diagram-rendering, test-plan… → see `diagram-preview.spec.ts.AGENTS.md` |
-| `automation-fanout.spec.ts` | L3 fan-out E2E (test-plan F5/F6). Creates an `actions:` fan-out automation via `page.request`, fires it, and… → see `automation-fanout.spec.ts.AGENTS.md` |
+| `diagram-preview.spec.ts` | L3 diagram preview (.puml and adoc hydration) in the editor pane (change: diagra… → see `diagram-preview.spec.ts.AGENTS.md` |
+| `automation-fanout.spec.ts` | L3 fan-out E2E (test-plan F5/F6). Creates an `actions:` fan-out automation via `… → see `automation-fanout.spec.ts.AGENTS.md` |
 | `bind-reachability-advisory.spec.ts` | L3 for the bind-vs-trust advisory (test-plan F1–F19, X5, X6): visibility, draft… → see `bind-reachability-advisory.spec.ts.AGENTS.md` |
 | `blackhole-settings.spec.ts` | L3 spec (change: add-blackhole-plugin). Covers test-plan X3 + F1-F9 for `/settings/plugins/blackhole`. → see `blackhole-settings.spec.ts.AGENTS.md` |
 | `blackhole-session-pipeline.spec.ts` | L3 (add-blackhole-session-pipeline, F9; task 7.0). pi-blackhole NOT installed in harness: probes… → see `blackhole-session-pipeline.spec.ts.AGENTS.md` |
@@ -48,7 +48,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `flow-roundtrip.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Real pi-flows engine + faux agents. → see `flow-roundtrip.spec.ts.AGENTS.md` |
 | `folder-action-banner.spec.ts` | L3 for `add-folder-action-banner` (test-plan #E6, #F1, #F3, #F9, #F10). → see `folder-action-banner.spec.ts.AGENTS.md` |
 | `folder-actions-menu.spec.ts` | Playwright spec. Folder actions menu after the slot-pill controls moved in (test-plan #E1, #E2, #F7, #F8,… → see `folder-actions-menu.spec.ts.AGENTS.md` |
-| `folder-collapse-persistence.spec.ts` | L3 `persist-folder-collapse-server-side` #F1-#F3/#F9: collapse survives reload, fresh context, zero-session pin. → see `folder-collapse-persistence.spec.ts.AGENTS.md` |
+| `folder-collapse-persistence.spec.ts` | L3 `persist-folder-collapse-server-side` #F1-#F3/#F9. → see `folder-collapse-persistence.spec.ts.AGENTS.md` |
 | `folder-collapse-seek.spec.ts` | L3 `persist-folder-collapse-server-side` #F5/#F6/#F8: Seek into a collapsed folder, held echo. → see `folder-collapse-seek.spec.ts.AGENTS.md` |
 | `folder-collapse-worktree.spec.ts` | L3 `persist-folder-collapse-server-side` #F4/#F7: group rendered under `gitWorktree.mainPath`. → see `folder-collapse-worktree.spec.ts.AGENTS.md` |
 | `folder-membership-drag.spec.ts` | L3 for `drag-folders-across-workspaces` (test-plan #F11-#F13, #F16, #F18, #F20, #X6) — the scenarios needing… → see `folder-membership-drag.spec.ts.AGENTS.md` |
@@ -133,6 +133,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `scroll-to-top.spec.ts` | Browser E2E gate for `fix-chat-scroll-to-top-estimate-drift` (the ONLY layer that reproduces the… → see `scroll-to-top.spec.ts.AGENTS.md` |
 | `session-context-injection.spec.ts` | Playwright spec. Spawns session, sends `[[faux:echo-system-context]]`, asserts rendered text contains… → see `session-context-injection.spec.ts.AGENTS.md` |
 | `session-ended-orphan-heal.spec.ts` | L3 #F6/#F7: a session killed while holding a long-running bash call heals live and… → see `session-ended-orphan-heal.spec.ts.AGENTS.md` |
+| `session-heap-settings.spec.ts` | L3 heap settings copy, save round-trip, coupling warning, health telemetry. → see `session-heap-settings.spec.ts.AGENTS.md` |
 | `session-reap.spec.ts` | L3 gate on the reap fixture itself, driven headless over `BusClient` (no browser page); port from… → see `session-reap.spec.ts.AGENTS.md` |
 | `session-spawn.spec.ts` | Scenario spec 5.1, authoritative WS round-trip. Clears onboarding gate, clicks `onboarding-step-2-cta` opens… → see `session-spawn.spec.ts.AGENTS.md` |
 | `session-state-honesty.spec.ts` | L3 rendered-honesty gate (change: stop-discarding-known-session-state, test-plan Q1/Q2/Q3): offline prompt… → see `session-state-honesty.spec.ts.AGENTS.md` |
