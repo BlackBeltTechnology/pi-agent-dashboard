@@ -233,6 +233,24 @@ describe("team authorize", () => {
     expect(second).toMatchObject({ kind: "refusal", reason: "no_principal_mapping" });
   });
 
+  it("X28: an untiered user's explicit pull is refused", () => {
+    const { result } = run({
+      author: { id: "nobody" },
+      binding: binding({ principals: {} }),
+      verb: "get_session_diff",
+    });
+    expect(result).toMatchObject({ kind: "refusal", reason: "no_principal_mapping" });
+  });
+
+  it("X29: a control principal's explicit pull is granted (tier-gated, not filter-gated)", () => {
+    const { result } = run({
+      author: { id: "u1" },
+      binding: binding({ principals: { u1: "control" } }),
+      verb: "get_session_diff",
+    });
+    expect(result).toMatchObject({ kind: "grant" });
+  });
+
   it("P4: 10k sequential authorizations over 50 principals × 20 roles, p95 < 1ms", () => {
     const principals: Record<string, Tier> = {};
     for (let i = 0; i < 50; i++) principals[`u${i}`] = "control";

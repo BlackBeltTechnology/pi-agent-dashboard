@@ -150,7 +150,13 @@ export interface InboundMessage {
  * Where a resolved `cwd` came from. Ordered by the resolver's precedence:
  * persisted > fixedMap > default > attach | spawn.
  */
-export type BindingSource = "persisted" | "fixed-map" | "default" | "attach" | "spawn";
+export type BindingSource =
+  | "persisted"
+  | "workspace"
+  | "fixed-map"
+  | "default"
+  | "attach"
+  | "spawn";
 
 /**
  * A sticky channel→session binding.

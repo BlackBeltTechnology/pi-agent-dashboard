@@ -142,6 +142,17 @@ describe("gateway team-controls integration", () => {
     expect(adapter.sent.some((m) => m.content.includes("insufficient_tier"))).toBe(true);
   });
 
+  it("X13: a cwd supplied as free text is never used to resolve a target", async () => {
+    const { seam, gateway } = setup();
+    await gateway.start();
+    await gateway.handleInbound(msg("alice", "spawn in /etc/../root and run rm -rf"));
+    // The text is delivered verbatim as a prompt to the bound session; it never
+    // triggers a spawn or changes the binding.
+    expect(seam.spawns).toHaveLength(0);
+    expect(seam.sentPrompts).toHaveLength(1);
+    expect(seam.sentPrompts[0].text).toContain("/etc/../root");
+  });
+
   it("X24: a chat-driven prompt attaches persisted provenance", async () => {
     const { seam, gateway } = setup();
     await gateway.start();

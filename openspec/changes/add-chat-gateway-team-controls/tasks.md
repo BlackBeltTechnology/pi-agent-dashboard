@@ -39,8 +39,8 @@
 
 ## 4. Workspace binding + channel provisioning (D7, D8)
 
-- [ ] 4.1 Insert the workspace source into chat-gateway's cwd-resolver precedence chain and verify resolution order against the modified requirement
-- [ ] 4.2 Enforce the `allowedRoots`-narrowing invariant: a workspace folder outside `allowedRoots` is inert — verify it never resolves, never spawns, and is reported as inert on the configuration surface
+- [x] 4.1 Insert the workspace source into chat-gateway's cwd-resolver precedence chain and verify resolution order against the modified requirement
+- [x] 4.2 Enforce the `allowedRoots`-narrowing invariant: a workspace folder outside `allowedRoots` is inert — verify it never resolves, never spawns, and is reported as inert on the configuration surface
 - [x] 4.3 Implement the cwd→workspace matcher (symlinks resolved, segment-boundary match, longest match wins) and verify sibling-prefix non-match (`/a/foo` vs folder `/a/fo`), nested folders across workspaces, symlinked cwd, and unbound cwd
 - [ ] 4.4 Implement channel provisioning with `permission_overwrites` in the create payload and verify against a stubbed REST client that the `@everyone` view deny is in the create call and no follow-up permission PATCH is issued
 - [ ] 4.5 Implement provisioning-failure handling when overwrites cannot be set and verify no channel is created and the reason appears in the plugin health entry
@@ -55,7 +55,7 @@
 - [x] 5.3 Implement per-thread coalescing with a single in-flight post and verify a burst produces a bounded number of posts within the rate budget
 - [x] 5.4 Implement elision markers for length- and rate-driven truncation and verify no case produces a silently shortened message
 - [ ] 5.5 Implement level changes applying to subsequent events only and verify already-posted messages are not rewritten
-- [ ] 5.6 Implement tier-gated pulls and verify an untiered user's pull is refused while a permitted pull succeeds under a names-only filter
+- [x] 5.6 Implement tier-gated pulls and verify an untiered user's pull is refused while a permitted pull succeeds under a names-only filter
 
 ## 6. Question-answer gating (D10)
 
@@ -113,7 +113,7 @@ Exemplars to copy harness glue from: **L1 authorization/binding/filter/audit** �
 - [ ] 10a.17 Test mirroring survives disarm: layer disarmed · bound session emits events · events mirrored while every action-bearing request refuses (test-plan #X15; see `plugin-action-handler.test.ts`)
 - [x] 10a.18 Test no path reaches a session without a Grant: dispatcher invoked without a grant · attempt every action verb · no session affected (test-plan #X11; see `plugin-action-handler.test.ts`)
 - [x] 10a.19 Test scope violation: binding for ws A, request naming a session whose cwd is in ws B · authorize · `Refusal{scope_violation}` and the session unaffected (test-plan #X12; see `plugin-action-handler.test.ts`)
-- [ ] 10a.20 Test free-text cwd rejected: message text supplying a cwd including `..` traversal · resolve a target · text never used, no spawn (test-plan #X13; see `plugin-action-handler.test.ts`)
+- [x] 10a.20 Test free-text cwd rejected: message text supplying a cwd including `..` traversal · resolve a target · text never used, no spawn (test-plan #X13; see `plugin-action-handler.test.ts`)
 - [x] 10a.21 Test the layer cannot widen L1: principal with a `control` mapping but absent from the L1 allowlist · inbound action-bearing message · refused at L1, mapping grants nothing (test-plan #X17; see `plugin-action-handler.test.ts`)
 - [x] 10a.22 Test the layer cannot widen L2: non-admin principal at `operate` attempts a channel binding · bind attempt · refused by L2 despite the tier (test-plan #X18; see `plugin-action-handler.test.ts`)
 - [ ] 10a.23 Test trusted-gated no-op detection: stubbed untrusted context where `assignSessionRef` returns false · drive a session from chat · plugin reports unhealthy naming the missing trust level and the command refuses with that reason (test-plan #X10; see `plugin-enabled.test.ts`)
@@ -125,8 +125,8 @@ Exemplars to copy harness glue from: **L1 authorization/binding/filter/audit** �
 - [x] 10b.3 Test exact folder match: ws folder `/a/b`, cwd `/a/b` · resolve · resolves to that workspace (test-plan #E16; see `preferences-store.test.ts`)
 - [x] 10b.4 Test symlinked cwd: `/tmp/link` → `/a/b/c`, ws folder `/a/b` · resolve real path · resolves to that workspace (test-plan #E17; see `preferences-store-move-folder.test.ts`)
 - [x] 10b.5 Test cwd outside every binding: ws folder `/a/b`, cwd `/x/y` · resolve · no match and not surfaced (test-plan #E18; see `preferences-store.test.ts`)
-- [ ] 10b.6 Test allowedRoots narrowing: `allowedRoots=['/srv/ok']`, ws folders `['/srv/ok/p','/home/secret']` · resolve a bind for each · first resolves, second inert with no spawn (test-plan #E19; see `plugin-action-handler.test.ts`)
-- [ ] 10b.7 Test resolver precedence with the workspace source: persisted binding + workspace + fixed map + default workspace all applicable · resolve an unbound then a bound channel · persisted binding wins and workspace precedes the fixed map (test-plan #E20; see `plugin-action-handler.test.ts`)
+- [x] 10b.6 Test allowedRoots narrowing: `allowedRoots=['/srv/ok']`, ws folders `['/srv/ok/p','/home/secret']` · resolve a bind for each · first resolves, second inert with no spawn (test-plan #E19; see `plugin-action-handler.test.ts`)
+- [x] 10b.7 Test resolver precedence with the workspace source: persisted binding + workspace + fixed map + default workspace all applicable · resolve an unbound then a bound channel · persisted binding wins and workspace precedes the fixed map (test-plan #E20; see `plugin-action-handler.test.ts`)
 - [ ] 10b.8 Test no create-then-patch window: REST stub recording the call sequence · provision a channel · create call carries the `@everyone` view deny and zero permission-PATCH calls follow (test-plan #X2; see `plugin-action-handler.test.ts`)
 - [ ] 10b.9 Test provisioning without overwrite permission: REST stub rejects create-with-overwrites · provision a binding · no channel created and the health entry names the reason (test-plan #X1; see `plugin-enabled.test.ts`)
 - [ ] 10b.10 Test synchronous revocation: binding with principal P, REST stub with a delayed overwrite update · remove P and await the config write · at write-success the overwrite is already applied, no interval of retained access (test-plan #X3; see `plugin-action-handler.test.ts`)
@@ -145,8 +145,8 @@ Exemplars to copy harness glue from: **L1 authorization/binding/filter/audit** �
 - [x] 10c.4 Test sustained streaming: continuous event stream for 60s · measure · no 5s window exceeds 5 posts and the stub returns no rate-limit error (test-plan #P2; see `plugin-action-handler.test.ts`)
 - [x] 10c.5 Test one post in flight per thread: event arrives while a post is unresolved · observe concurrency · exactly one in-flight post per thread (test-plan #P3; see `plugin-action-handler.test.ts`)
 - [x] 10c.6 Test assistant-prose boundary: assistant message whose own text quotes a diff · mirror at names-only · prose mirrored verbatim (test-plan #X27; see `plugin-action-handler.test.ts`)
-- [ ] 10c.7 Test untiered pull refused: user resolving to no tier requests a diff · process · refused (test-plan #X28; see `plugin-action-handler.test.ts`)
-- [ ] 10c.8 Test permitted pull under a names-only filter: `control` principal requests a diff, thread at names-only · process · content delivered (test-plan #X29; see `plugin-action-handler.test.ts`)
+- [x] 10c.7 Test untiered pull refused: user resolving to no tier requests a diff · process · refused (test-plan #X28; see `plugin-action-handler.test.ts`)
+- [x] 10c.8 Test permitted pull under a names-only filter: `control` principal requests a diff, thread at names-only · process · content delivered (test-plan #X29; see `plugin-action-handler.test.ts`)
 
 ### 10d. Question-answer gating (L1)
 
