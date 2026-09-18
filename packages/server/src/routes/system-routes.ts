@@ -214,6 +214,15 @@ export function registerSystemRoutes(
       runtimePluginRegistryHash(policy === "excluded"),
     );
 
+  // Hoisted for the same reason as `clientBuild`: `runtimePluginRegistryHash`
+  // calls `findMonorepoRoot()`, which synchronously walks parent directories
+  // with `fs.existsSync`/`readFileSync`. Evaluating it inside the unguarded,
+  // frequently-polled `/api/health` handler made every poll do filesystem I/O.
+  // The plugin set is process-stable (`discoverPlugins` is cached and only the
+  // build-side vite-plugin clears it), so a registration-time snapshot is both
+  // cheaper and equivalent. See change: add-served-build-coherence-and-hash-parity.
+  const bundleHash = runtimePluginRegistryHash(!config.dev);
+
   // Quiesce windows for the bridge `server_restarting` broadcast. See change
   // `fix-restart-bridge-auto-start-race`. Bridges that receive this message
   // suppress only the spawn step in `server-auto-start.ts` for `quiesceMs`;
@@ -940,7 +949,7 @@ export function registerSystemRoutes(
       // See change: bound-session-heap-and-gc-telemetry (D3a).
       sessionHeapFallback: heapFallbackStatus(),
       plugins: enrichWithBridgeSource(getPluginStatusStore().listAll()),
-      bundleHash: runtimePluginRegistryHash(!config.dev),
+      bundleHash,
       // Served-artifact coherence (design D4). Additive; `bundleHash` above
       // keeps its shape and meaning. No filesystem path is exposed.
       // See change: add-served-build-coherence-and-hash-parity.

@@ -158,28 +158,31 @@ describe("syncServedClient refusals (E16, X3, X4)", () => {
     expect(result.message).toContain("malformed");
   });
 
-  it("X3 refuses a non-writable destination with a remediation hint and no partial write", async () => {
-    const root = tmpDir();
-    const source = makeBuild(root, "source", { hash: HASH_A, asset: "new.js" });
-    const dest = makeBuild(root, "dest", { hash: HASH_B, asset: "old.js" });
-    const before = fs.readFileSync(path.join(dest, "pi-dashboard-build.json"), "utf-8");
+  it.skipIf(typeof process.getuid === "function" && process.getuid() === 0)(
+    "X3 refuses a non-writable destination with a remediation hint and no partial write",
+    async () => {
+      const root = tmpDir();
+      const source = makeBuild(root, "source", { hash: HASH_A, asset: "new.js" });
+      const dest = makeBuild(root, "dest", { hash: HASH_B, asset: "old.js" });
+      const before = fs.readFileSync(path.join(dest, "pi-dashboard-build.json"), "utf-8");
 
-    const nested = path.join(dest, "assets");
-    fs.chmodSync(nested, 0o555);
-    fs.chmodSync(dest, 0o555);
-    try {
-      const result = await run(source, dest);
-      expect(result.status).toBe(SYNC_STATUS.REFUSED);
-      expect(result.message).toMatch(/not writable|EACCES|EPERM/i);
-    } finally {
-      fs.chmodSync(dest, 0o755);
-      fs.chmodSync(nested, 0o755);
-    }
-    // Contents unchanged — the old asset is still there, the new one is not.
-    expect(fs.readFileSync(path.join(dest, "pi-dashboard-build.json"), "utf-8")).toBe(before);
-    expect(fs.existsSync(path.join(dest, "assets", "old.js"))).toBe(true);
-    expect(fs.existsSync(path.join(dest, "assets", "new.js"))).toBe(false);
-  });
+      const nested = path.join(dest, "assets");
+      fs.chmodSync(nested, 0o555);
+      fs.chmodSync(dest, 0o555);
+      try {
+        const result = await run(source, dest);
+        expect(result.status).toBe(SYNC_STATUS.REFUSED);
+        expect(result.message).toMatch(/not writable|EACCES|EPERM/i);
+      } finally {
+        fs.chmodSync(dest, 0o755);
+        fs.chmodSync(nested, 0o755);
+      }
+      // Contents unchanged — the old asset is still there, the new one is not.
+      expect(fs.readFileSync(path.join(dest, "pi-dashboard-build.json"), "utf-8")).toBe(before);
+      expect(fs.existsSync(path.join(dest, "assets", "old.js"))).toBe(true);
+      expect(fs.existsSync(path.join(dest, "assets", "new.js"))).toBe(false);
+    },
+  );
 
   it("X4 reports a post-copy mismatch as a refusal, never as success", async () => {
     const root = tmpDir();

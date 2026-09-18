@@ -410,7 +410,10 @@ export function viteDashboardPluginsPlugin(repoRoot?: string): Plugin {
     // Production-only: `writeBundle` never runs in dev, and the emit helper
     // additionally refuses `isProd: false`.
     writeBundle(options) {
-      const target = outDir ?? options.dir;
+      // `options.dir` is rollup's authoritative output directory for THIS build
+      // (it already accounts for any CLI/config override); the captured
+      // `config.build.outDir` is the fallback for the single-file case.
+      const target = options.dir ?? outDir;
       if (!target) return;
       const declaration = emitBuildDeclaration({
         outDir: target,

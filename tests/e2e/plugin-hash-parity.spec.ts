@@ -40,10 +40,16 @@ test.describe("plugin registry hash parity (L3)", () => {
     expect(body.clientBuild?.pluginRegistryHash).toMatch(/^[0-9a-f]{64}$/);
     expect(body.bundleHash).toMatch(/^[0-9a-f]{64}$/);
 
+    // Await the BROWSER's own health probe rather than sleeping: the banner
+    // mounts and fetches `/api/health` on load, so waiting for that response
+    // proves the probe ran. A fixed delay could pass simply because the request
+    // never fired.
+    const healthProbe = page.waitForResponse(
+      (res) => res.url().includes("/api/health") && res.status() === 200,
+      { timeout: 20_000 },
+    );
     await gotoDashboard(page);
-    // Let the banner's own health probe resolve (it fetches on mount); a stale
-    // banner would persist, not flash.
-    await page.waitForTimeout(2_500);
+    await healthProbe;
     await expect(page.getByTestId("plugin-staleness-banner")).toHaveCount(0);
   });
 });

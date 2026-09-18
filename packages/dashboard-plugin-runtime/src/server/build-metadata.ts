@@ -16,6 +16,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 
 /** Filename of the declaration, written into the client build output directory. */
 export const BUILD_DECLARATION_FILENAME = "pi-dashboard-build.json";
@@ -122,12 +123,19 @@ export function isUsableDeclaration(
  * Write a declaration into `dir`, creating the directory if needed. Key order
  * is fixed by the object literal at every call site, so repeated writes are
  * byte-identical.
+ *
+ * Written through a temp file + atomic rename: a crash mid-write must never
+ * leave partial JSON at the final path — the server would then report
+ * `metadata-missing` and the sync would reject the build.
  */
 export function writeBuildDeclaration(dir: string, declaration: BuildDeclaration): void {
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(
-    buildDeclarationPath(dir),
-    `${JSON.stringify(declaration, null, 2)}\n`,
-    "utf-8",
-  );
+  const target = buildDeclarationPath(dir);
+  const temporary = path.join(dir, `.${BUILD_DECLARATION_FILENAME}.${process.pid}.${randomUUID()}.tmp`);
+  try {
+    fs.writeFileSync(temporary, `${JSON.stringify(declaration, null, 2)}\n`, "utf-8");
+    fs.renameSync(temporary, target);
+  } finally {
+    fs.rmSync(temporary, { force: true });
+  }
 }

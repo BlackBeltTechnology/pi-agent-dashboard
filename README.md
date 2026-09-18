@@ -760,11 +760,11 @@ pi -e packages/extension/src/bridge.ts   # or just `pi` if installed
 - **Verified local deployment:** when an installed web package is present, the server serves its `dist/` rather than the workspace. Run `scripts/sync-served-client.mjs` between build and restart (or use `./scripts/rebuild-restart.sh`). This mirrors the workspace build into the server's resolved directory and verifies matching declarations (`pi-dashboard-build.json`) before restarting.
 
 ```bash
-# Verified client deployment (build + sync served directory + restart)
-pnpm run build
-node scripts/sync-served-client.mjs
-curl -X POST http://localhost:8000/api/restart
-
+# Verified client deployment (build + sync served directory + restart).
+# Chained with && so a refused sync aborts before the restart.
+pnpm run build \
+  && node scripts/sync-served-client.mjs \
+  && curl -X POST http://localhost:8000/api/restart
 # Full verified rebuild script (build + sync + restart + reload)
 ./scripts/rebuild-restart.sh
 
