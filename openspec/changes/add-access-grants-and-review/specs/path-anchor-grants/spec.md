@@ -249,6 +249,31 @@ This constrains callers that cannot observe the denial body. It SHALL NOT be cla
 - **WHEN** a grant request arrives from a disallowed origin, or without authentication
 - **THEN** it SHALL be refused and no grant SHALL be recorded
 
+### Requirement: Multiply-linked content is a stated limitation, not a silent one
+
+Resolving a real path does not resolve a hard link: a second link to a file has
+its own path and that path is where resolution stops. A containment rule
+expressed over paths therefore cannot, by itself, prevent content that also lives
+under a forbidden directory from being reachable through a link inside an
+admitted subtree.
+
+This SHALL be recorded as a limitation of the path model rather than left to be
+discovered. The system SHALL NOT claim that path containment alone proves the
+content was never reachable from a forbidden location.
+
+The limitation is bounded by what creating such a link requires: permission to
+traverse the forbidden directory, which for the directories on the list means
+acting as the owning user. An actor that can already act as that user does not
+need this system to read those files. The case this does **not** cover — a
+constrained or sandboxed process running as the same user — is the same residual
+recorded against capability issuance, and SHALL be assessed with it rather than
+separately.
+
+#### Scenario: The limitation is documented, not implied
+
+- **WHEN** the containment model is described to operators or implementers
+- **THEN** it SHALL state that a hard link to content under a forbidden directory is not detected by path containment
+
 ### Requirement: A denial offers a bounded ladder of ancestor subjects
 
 Without this, an operator working across a directory tree is denied — and asked —
@@ -276,6 +301,113 @@ The forbidden-subject rule SHALL apply to an ancestor exactly as to a named
 subject: no ladder SHALL ever offer the filesystem root, the home directory,
 `~/.ssh`, `~/.pi`, or a platform system directory, regardless of how the ladder
 was computed.
+
+**The boundary SHALL be defined in every case, not only the common one.** An
+ambiguous boundary makes the offered set non-deterministic, and the offered set
+is the only thing standing between a verdict and an arbitrary directory:
+
+- **Nested checkouts and submodules** — the boundary SHALL be the **nearest**
+  enclosing checkout root, not the outermost. A submodule is a narrower blast
+  radius than its superproject, and the ladder's purpose is the narrowest
+  sufficient widening.
+- **Linked worktrees** — a checkout root SHALL be recognised whether its marker
+  is a directory or a file.
+- **Symlinked checkouts** — the checkout root SHALL be detected on the **real**
+  path, the same path the candidates are derived from. Detecting it on the
+  lexical path can yield a root that is not an ancestor of any candidate.
+- **Mount points, bind mounts, and firmlinks** — where a platform presents a
+  user's data on a different device from the filesystem root, the device boundary
+  SHALL NOT be used to justify offering a directory the home-directory rule would
+  refuse. Where the two disagree, the **more restrictive** boundary SHALL win.
+- **No home directory** — where no home directory is resolvable, the absence
+  SHALL NOT remove the boundary. The ladder SHALL truncate at the mount point,
+  and the forbidden-subject rule SHALL still apply to every rung.
+- **The subject is itself the boundary** — where the subject **is** the checkout
+  root, the ladder SHALL contain exactly that subject. Where the subject is an
+  exclusive boundary, the ladder SHALL be empty.
+
+**The forbidden-subject rule SHALL be a real-path subtree relation in both
+directions.** A candidate SHALL be refused when, comparing real paths, it **is**
+a forbidden directory, lies **inside** one, or **contains** one. An equality test
+is insufficient in both directions: a candidate inside a forbidden directory
+admits that directory's contents, and a candidate containing one admits the
+forbidden directory itself. This SHALL hold for named subjects and ladder rungs
+alike.
+
+**Path comparison SHALL be performed on a form the filesystem itself would treat
+as identical**, not on the byte string the caller supplied. Resolving a real path
+preserves the spelling it was given, so a byte comparison is not a containment
+decision:
+
+- On a **case-insensitive** filesystem, comparison SHALL be case-insensitive.
+  `~/.SSH` and `~/.ssh` name one directory there, and a byte comparison admits
+  one while refusing the other.
+- Where the filesystem normalises **Unicode**, comparison SHALL apply the same
+  normalisation before comparing.
+- Comparison SHALL be **component-wise**, never string-prefix. A string prefix
+  test treats `/repo-secrets` as inside `/repo`.
+- Case- and normalisation-sensitivity SHALL be determined from the filesystem
+  being compared on, not assumed from the host platform — a case-sensitive volume
+  can be mounted on a case-insensitive system and the reverse.
+
+**Where a path alone is ambiguous, the decision SHALL be made on identity.** A
+resolved path is a name for content, not the content itself; two names may denote
+one file. Where the implementation can compare the identity of the object it
+actually opened against the identity of the subtree it admitted, it SHALL do so
+rather than re-deriving a decision from the path string a second time.
+
+#### Scenario: Case-insensitive spelling does not evade the rule
+
+- **GIVEN** a case-insensitive filesystem
+- **WHEN** a candidate names a forbidden directory in a different case
+- **THEN** it SHALL be refused
+
+#### Scenario: A sibling sharing a name prefix is not treated as contained
+
+- **GIVEN** a granted subtree
+- **WHEN** a path shares its leading characters but not its path components
+- **THEN** it SHALL NOT be treated as inside that subtree
+
+#### Scenario: A subject that cannot be resolved is refused
+
+- **WHEN** the real path of a candidate cannot be resolved
+- **THEN** it SHALL be refused rather than compared on its unresolved form
+
+#### Scenario: A descendant of a forbidden directory is refused
+
+- **GIVEN** a denial whose containing directory lies inside a forbidden directory
+- **WHEN** the forbidden-subject rule is applied
+- **THEN** it SHALL be refused, and SHALL NOT be offered as a subject or a rung
+
+#### Scenario: An ancestor containing a forbidden directory is not offered
+
+- **GIVEN** a candidate rung that contains a forbidden directory beneath it
+- **WHEN** the ladder is computed
+- **THEN** that rung SHALL NOT be offered
+
+#### Scenario: The nearest checkout root bounds a nested checkout
+
+- **GIVEN** a subject inside a checkout that is itself inside another checkout
+- **WHEN** the ladder is computed
+- **THEN** it SHALL truncate at the nearer root
+
+#### Scenario: A symlinked checkout is bounded on its real path
+
+- **GIVEN** a subject reached through a symlinked checkout directory
+- **WHEN** the ladder is computed
+- **THEN** the checkout root SHALL be detected on the real path
+
+#### Scenario: A missing home directory does not remove the boundary
+
+- **GIVEN** an environment with no resolvable home directory
+- **WHEN** the ladder is computed for a subject outside any checkout
+- **THEN** it SHALL still be bounded, and every rung SHALL still pass the forbidden-subject rule
+
+#### Scenario: A subject that is the checkout root offers only itself
+
+- **GIVEN** a denial naming a directory that is itself a checkout root
+- **WHEN** the ladder is computed
+- **THEN** it SHALL contain exactly that subject
 
 A grant for an offered ancestor SHALL be recorded exactly like any other grant —
 same subtree semantics, same `realpath` storage, same scope, same revocation —
