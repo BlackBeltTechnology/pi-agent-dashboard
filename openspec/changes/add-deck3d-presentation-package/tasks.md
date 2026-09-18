@@ -33,7 +33,7 @@
 ## 6. Renderer (spec: deck3d-render)
 
 - [x] 6.1 `src/render/index.ts`: template + `dist/runtime.js` (esbuild, fixed options, no hashes) + sorted-key IR JSON + subset Poppins (glyph set from merged IR) as base64; test: render twice → byte-identical; output contains no `mermaid` reference and no `http(s)://` resource URLs.
-- [ ] 6.2 Font subset: compute glyph set from all merged IR strings (titles, bullets, labels incl. overrides); test: override adding `ű` yields a subset containing that glyph.
+- [x] 6.2 Font subset: compute glyph set from all merged IR strings (titles, bullets, labels incl. overrides); test: override adding `ű` yields a subset containing that glyph.
 - [x] 6.3 Offline check test: serve `deck.html` with Playwright `route` blocking all network, assert no failed requests and slide 1 title mesh count > 0.
 
 ## 7. CLI + snapshot (spec: deck3d-skill)

@@ -9,9 +9,11 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import opentype from "opentype.js";
 import { canonicalJson } from "../ir/hash.js";
 import { applyOverrides } from "../ir/merge.js";
 import type { DeckIR } from "../ir/types.js";
+import { glyphText, subsetFont } from "./font.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 /** Package root: `src/render` → up two. */
@@ -49,6 +51,13 @@ export function fontBase64(path = FONT_PATH): string {
   return readFileSync(path).toString("base64");
 }
 
+/** Full TTF parsed, then subset to `text` and base64-encoded (deterministic). */
+export function subsetFontBase64(text: string, path = FONT_PATH): string {
+  const bytes = new Uint8Array(readFileSync(path));
+  const font = opentype.parse(bytes.buffer);
+  return Buffer.from(subsetFont(font, text)).toString("base64");
+}
+
 /** JSON safe to inline in a `<script>`: sorted keys, `<`/U+2028/U+2029 escaped. */
 export function jsonForScript(value: unknown): string {
   return canonicalJson(value)
@@ -73,7 +82,7 @@ export function renderDeck(ir: DeckIR, opts: RenderOptions = {}): string {
   const merged = applyOverrides(ir);
   const template = opts.template ?? readFileSync(TEMPLATE_PATH, "utf8");
   const runtime = opts.runtime ?? runtimeSource();
-  const font = opts.font ?? fontBase64();
+  const font = opts.font ?? subsetFontBase64(glyphText(merged));
   const title = opts.title ?? merged.slides[0]?.title ?? "deck3d";
   const deckJson = jsonForScript(merged);
 

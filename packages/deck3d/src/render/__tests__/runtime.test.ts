@@ -8,7 +8,7 @@ import type { Defaults } from "../../ir/types.js";
 import { deriveDeckIR } from "../../parse/derive.js";
 import { harvestDiagram } from "../../parse/harvest/index.js";
 import { parseMarkdown } from "../../parse/markdown.js";
-import { ensureRuntime, fontBase64, renderDeck } from "../index.js";
+import { ensureRuntime, renderDeck } from "../index.js";
 
 const hasChromium = await chromiumAvailable();
 const FIXTURE = readFileSync(new URL("../../../fixtures/harvest.md", import.meta.url), "utf8");
@@ -18,7 +18,7 @@ async function writeDeck(overrides: Defaults = {}): Promise<string> {
     harvest: (src, id) => harvestDiagram(src, id),
   });
   ir.defaults = { ...ir.defaults, ...overrides };
-  const html = renderDeck(ir, { runtime: await ensureRuntime(), font: fontBase64() });
+  const html = renderDeck(ir, { runtime: await ensureRuntime() });
   const path = join(mkdtempSync(join(tmpdir(), "deck3d-rt-")), "deck.html");
   writeFileSync(path, html);
   return path;
