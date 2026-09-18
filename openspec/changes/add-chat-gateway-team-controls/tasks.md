@@ -34,8 +34,8 @@
 - [x] 3.10 Implement disarm (any `observe`+ principal from chat; only the dashboard re-arms) and verify both directions plus that mirroring continues while disarmed
 - [x] 3.11 Verify tier is re-resolved per request by changing the role set between two dispatches
 - [x] 3.12 Verify the layering invariants: the tier layer never admits a principal L1 rejected, and never permits a binding L2 refused
-- [ ] 3.13 Implement the trust-failure rule — a trusted-gated verb returning the host's no-op marks the plugin unhealthy naming the missing trust level and refuses the originating command — and verify a stubbed untrusted context yields a refusal, not a phantom success
-- [ ] 3.14 Verify no action path reaches a session without a `Grant`, by making the dispatcher require one as an argument and asserting it in test
+- [x] 3.13 Implement the trust-failure rule — a trusted-gated verb returning the host's no-op marks the plugin unhealthy naming the missing trust level and refuses the originating command — and verify a stubbed untrusted context yields a refusal, not a phantom success
+- [x] 3.14 Verify no action path reaches a session without a `Grant`, by making the dispatcher require one as an argument and asserting it in test
 
 ## 4. Workspace binding + channel provisioning (D7, D8)
 
@@ -54,7 +54,7 @@
 - [x] 5.2 Verify the stated boundary: assistant prose quoting a diff is mirrored as written, and the configuration surface states the filter bounds structured payloads only
 - [x] 5.3 Implement per-thread coalescing with a single in-flight post and verify a burst produces a bounded number of posts within the rate budget
 - [x] 5.4 Implement elision markers for length- and rate-driven truncation and verify no case produces a silently shortened message
-- [ ] 5.5 Implement level changes applying to subsequent events only and verify already-posted messages are not rewritten
+- [x] 5.5 Implement level changes applying to subsequent events only and verify already-posted messages are not rewritten
 - [x] 5.6 Implement tier-gated pulls and verify an untiered user's pull is refused while a permitted pull succeeds under a names-only filter
 
 ## 6. Question-answer gating (D10)
@@ -62,7 +62,7 @@
 - [x] 6.1 Gate `prompt_response` submission at `control` and verify a below-`control` principal's control activation sends no response and leaves the session blocked
 - [x] 6.2 Implement invoker-only for invoker-raised questions and verify a bystander's activation sends nothing
 - [x] 6.3 Implement any-`control` answering for questions no chat principal invoked and verify an attached-session question does not deadlock
-- [ ] 6.4 Verify the gate composes with chat-gateway's existing defer/dismiss machinery without respecifying it: a refused activation still acknowledges the interaction and produces no "interaction failed"
+- [x] 6.4 Verify the gate composes with chat-gateway's existing defer/dismiss machinery without respecifying it: a refused activation still acknowledges the interaction and produces no "interaction failed"
 
 ## 7. Audit (D11)
 
@@ -82,7 +82,7 @@
 ## 9. Verification and docs
 
 - [x] 9.1 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and verify zero failures
-- [ ] 9.2 Run `npm run quality:changed` and verify no new Biome findings
+- [x] 9.2 Run `npm run quality:changed` and verify no new Biome findings
 - [ ] 9.3 Invoke the `security-hardening` discipline skill against the diff (the `authorize` chokepoint, the `allowedRoots`-narrowing invariant, overwrite reconciliation, bot/webhook reject, the host seam) and resolve every finding
 - [ ] 9.4 Invoke `doubt-driven-review` on the tier model before anything rides ship/merge verbs on it, and record the outcome
 - [ ] 9.5 Delegate the team-controls section of chat-gateway's doc to DocScribe (caveman style) covering the tier model, per-binding mappings, the `allowedRoots`-narrowing rule, the structured-payload-only filter boundary, and rollback; verify the file exists and the architecture pointer row is added
@@ -110,13 +110,13 @@ Exemplars to copy harness glue from: **L1 authorization/binding/filter/audit** �
 - [x] 10a.14 Test per-request re-resolution latency: 10,000 sequential authorize calls over 50 principals × 20 roles · measure · p95 under 1ms with no caching (test-plan #P4; see `plugin-action-handler.test.ts`)
 - [x] 10a.15 Test role removed mid-conversation: principal whose only `control` grant is a role · remove the role and send a second request · second resolves lower or refuses, no restart (test-plan #X16; see `plugin-action-handler.test.ts`)
 - [x] 10a.16 Test disarm then re-arm: `observe` principal disarms · `control` principal attempts chat re-arm, then the dashboard re-arms · chat refused and state persists, dashboard restores action handling (test-plan #X14; see `plugin-action-handler.test.ts`)
-- [ ] 10a.17 Test mirroring survives disarm: layer disarmed · bound session emits events · events mirrored while every action-bearing request refuses (test-plan #X15; see `plugin-action-handler.test.ts`)
+- [x] 10a.17 Test mirroring survives disarm: layer disarmed · bound session emits events · events mirrored while every action-bearing request refuses (test-plan #X15; see `plugin-action-handler.test.ts`)
 - [x] 10a.18 Test no path reaches a session without a Grant: dispatcher invoked without a grant · attempt every action verb · no session affected (test-plan #X11; see `plugin-action-handler.test.ts`)
 - [x] 10a.19 Test scope violation: binding for ws A, request naming a session whose cwd is in ws B · authorize · `Refusal{scope_violation}` and the session unaffected (test-plan #X12; see `plugin-action-handler.test.ts`)
 - [x] 10a.20 Test free-text cwd rejected: message text supplying a cwd including `..` traversal · resolve a target · text never used, no spawn (test-plan #X13; see `plugin-action-handler.test.ts`)
 - [x] 10a.21 Test the layer cannot widen L1: principal with a `control` mapping but absent from the L1 allowlist · inbound action-bearing message · refused at L1, mapping grants nothing (test-plan #X17; see `plugin-action-handler.test.ts`)
 - [x] 10a.22 Test the layer cannot widen L2: non-admin principal at `operate` attempts a channel binding · bind attempt · refused by L2 despite the tier (test-plan #X18; see `plugin-action-handler.test.ts`)
-- [ ] 10a.23 Test trusted-gated no-op detection: stubbed untrusted context where `assignSessionRef` returns false · drive a session from chat · plugin reports unhealthy naming the missing trust level and the command refuses with that reason (test-plan #X10; see `plugin-enabled.test.ts`)
+- [x] 10a.23 Test trusted-gated no-op detection: stubbed untrusted context where `assignSessionRef` returns false · drive a session from chat · plugin reports unhealthy naming the missing trust level and the command refuses with that reason (test-plan #X10; see `plugin-enabled.test.ts`)
 
 ### 10b. Workspace binding and channel provisioning (L1)
 
@@ -140,7 +140,7 @@ Exemplars to copy harness glue from: **L1 authorization/binding/filter/audit** �
 ### 10c. Output filter (L1)
 
 - [x] 10c.1 Test default level omits structured payloads: file-edit call with args+diff, shell call with output, assistant text · render at names-only · tool names present, args/diff/output absent (test-plan #E24; see `plugin-action-handler.test.ts`)
-- [ ] 10c.2 Test forward-only level change: thread with 3 posted messages at names-only · raise to full transcript and emit one event · new event full, prior three unchanged (test-plan #E25; see `plugin-action-handler.test.ts`)
+- [x] 10c.2 Test forward-only level change: thread with 3 posted messages at names-only · raise to full transcript and emit one event · new event full, prior three unchanged (test-plan #E25; see `plugin-action-handler.test.ts`)
 - [x] 10c.3 Test burst pacing: 100 mirrorable events within 1s to one thread on a stubbed REST clock · measure posts · at most 5 in any 5s window (test-plan #P1; see `plugin-action-handler.test.ts`)
 - [x] 10c.4 Test sustained streaming: continuous event stream for 60s · measure · no 5s window exceeds 5 posts and the stub returns no rate-limit error (test-plan #P2; see `plugin-action-handler.test.ts`)
 - [x] 10c.5 Test one post in flight per thread: event arrives while a post is unresolved · observe concurrency · exactly one in-flight post per thread (test-plan #P3; see `plugin-action-handler.test.ts`)
