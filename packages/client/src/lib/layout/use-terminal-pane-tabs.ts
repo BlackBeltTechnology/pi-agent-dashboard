@@ -173,10 +173,17 @@ export function useTerminalPaneTabs({
     const live = new Set(idSig ? idSig.split("\u0000") : []);
     const { closePaths, openIds } = reconcileTerminalTabs(paneStateRef.current.openFiles, live, autoSurface);
     for (const path of closePaths) dispatch({ type: "closeByPath", path });
-    for (const id of openIds) dispatch({ type: "openFile", path: `${TERM_TAB_PREFIX}${id}`, viewer: "terminal" });
-    // Session split: open the freshly-created terminal (a live id we had not
-    // seen before and is not already tabbed) exactly once per create.
-    if (!autoSurface && pendingCreateRef.current) {
+    // D3a (change: add-lazy-terminal-diff-bootstrap): auto-surfaced terminal tabs
+    // open in the BACKGROUND (`activate: false`) so a folder pane no longer
+    // focuses a terminal the user did not ask for. The tab is still opened and
+    // unread-badged; the previously active tab stays active. Without this the
+    // D3 activation latch fires on mount and cold landing fetches xterm.
+    for (const id of openIds) dispatch({ type: "openFile", path: `${TERM_TAB_PREFIX}${id}`, viewer: "terminal", activate: false });
+    // A freshly-created terminal is always the one the user asked for (the
+    // `+ Terminal` button or the `?focus=terminal` one-shot), so activating it
+    // is correct in BOTH pane modes. Without this, D3a's background auto-surface
+    // would leave a user-requested new terminal unfocused in a folder pane.
+    if (pendingCreateRef.current) {
       const open = new Set(openTerminalIds(paneStateRef.current.openFiles));
       const created = [...live].find((id) => !knownIdsRef.current.has(id) && !open.has(id));
       if (created) {

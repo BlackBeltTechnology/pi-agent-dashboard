@@ -8,7 +8,7 @@ import {
 import { mdiAlertCircleOutline, mdiCheck, mdiChevronDown, mdiChevronUp, mdiClose, mdiCommentQuestionOutline, mdiContentCopy, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
-import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { forwardRef, lazy, Suspense, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useActiveChatSelection } from "../../hooks/useActiveChatSelection.js";
 import { isDebugTool } from "../../hooks/useDebugToolsVisible.js";
 import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";
@@ -52,7 +52,13 @@ import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { CopyButton } from "../primitives/CopyButton.js";
 import { RetriedErrorBadge } from "../session/RetriedErrorBadge.js";
 import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
-import { InlineTerminalCard } from "../terminal/InlineTerminalCard.js";
+// D2/D3b (change: add-lazy-terminal-diff-bootstrap): the inline terminal card is
+// a lazy boundary so a chat transcript without terminal history does not fetch
+// xterm. A session whose history DOES contain a terminal card legitimately pays
+// the fetch (Requirement-1 scoping, design D3b).
+const InlineTerminalCard = lazy(() =>
+  import("../terminal/InlineTerminalCard.js").then((m) => ({ default: m.InlineTerminalCard })),
+);
 import type { ToolContext } from "../tool-renderers/index.js";
 import { withDefaultFileLink } from "../tool-renderers/make-tool-context.js";
 import { BashOutputCard } from "./BashOutputCard.js";
@@ -1829,13 +1835,19 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         if (msg.role === "inlineTerminal") {
           const args = msg.args as any;
           return (
-            <InlineTerminalCard
+            // Card-local boundary: the fallback reserves the card's height so the
+            // transcript stays scrollable and does not jump while xterm loads.
+            <Suspense
               key={msg.id}
-              terminalId={args?.terminalId ?? ""}
-              closed={args?.closed ?? false}
-              transcript={msg.content}
-              onClose={(tid) => onCloseInlineTerminal?.(tid)}
-            />
+              fallback={<div role="status" aria-label={i18nT("status.loadingTerminal", undefined, "Loading terminal")} className="rounded border border-[var(--border-primary)] bg-[var(--bg-code)]" style={{ height: 320 }} />}
+            >
+              <InlineTerminalCard
+                terminalId={args?.terminalId ?? ""}
+                closed={args?.closed ?? false}
+                transcript={msg.content}
+                onClose={(tid) => onCloseInlineTerminal?.(tid)}
+              />
+            </Suspense>
           );
         }
 

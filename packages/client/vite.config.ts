@@ -93,13 +93,20 @@ export default defineConfig({
             // both — a separate `syntax` chunk only re-created a
             // `syntax → markdown → syntax` circular-chunk warning.
             "markdown": ["react-markdown", "remark-gfm", "rehype-raw", "dompurify", "react-syntax-highlighter"],
+            // D1 (change: add-lazy-terminal-diff-bootstrap): the npm `diff`
+            // package is split OUT of the `diff` chunk. `lineDelta.ts` and the
+            // mobile HomegrownDiff path import it on the always-hot chat path,
+            // so keeping it beside `@git-diff-view/*` pinned the whole rich
+            // viewer family into the entry graph and no lazy boundary could
+            // pay off. `jsdiff` is a cheap standalone chunk; the chunk key must
+            // NOT start with `diff` (the build guard matches /^diff-/).
             "diff": [
               "@git-diff-view/core",
               "@git-diff-view/file",
               "@git-diff-view/lowlight",
               "@git-diff-view/react",
-              "diff",
             ],
+            "jsdiff": ["diff"],
             "xterm": [
               "@xterm/xterm",
               "@xterm/addon-attach",

@@ -17,7 +17,7 @@
 import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import { mdiClose, mdiConsoleLine, mdiFileTreeOutline, mdiMagnify, mdiRefresh, mdiWeb } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { grepContents } from "../../lib/api/grep-api.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { useRailWidth } from "../../lib/layout/rail-width.js";
@@ -30,7 +30,12 @@ import { ChangesRailSection } from "./ChangesRailSection.js";
 import { EditorFileTree } from "./EditorFileTree.js";
 import { EditorSearchPanel } from "./EditorSearchPanel.js";
 import { EditorTabs } from "./EditorTabs.js";
-import { TerminalPaneLayer } from "./TerminalPaneLayer.js";
+// D3 (change: add-lazy-terminal-diff-bootstrap): the keep-alive terminal layer
+// is a lazy boundary. `React.lazy` fires its import as soon as it is rendered,
+// so the mount is gated on the sticky `terminalActivated` latch — NOT on "a
+// terminal tab exists" (already true on a reload with persisted term tabs and
+// on every folder pane).
+const TerminalPaneLayer = lazy(() => import("./TerminalPaneLayer.js").then((m) => ({ default: m.TerminalPaneLayer })));
 import { useServerCapabilities } from "../../hooks/useServerCapabilities.js";
 import { CappedViewer } from "./CappedViewer.js";
 import { pseudoTabRegistry } from "./pseudo-tab-registry.js";
@@ -57,6 +62,7 @@ export function EditorPane() {
     changesRevealSignal,
     openDiffTab,
     terminal,
+    terminalActivated,
   } = useSplitWorkspace();
   const terminalTitle = useCallback(
     (id: string) => {
@@ -333,7 +339,16 @@ export function EditorPane() {
               active terminal fills. See change: terminals-in-tabbed-panes. */}
           <div className="min-h-0 flex-1 flex flex-col">
             {body}
-            <TerminalPaneLayer />
+            {/* D3: mount the lazy layer only once a terminal tab has been the
+                active tab. The `Suspense` fallback fills the same pane-body
+                region (`min-h-0 flex-1`) so the pane does not collapse while
+                the chunk loads. Once latched it stays mounted, preserving the
+                keep-alive contract on file-tab switches. */}
+            {terminalActivated && (
+              <Suspense fallback={<div className="min-h-0 flex-1" data-testid="terminal-layer-loading" />}>
+                <TerminalPaneLayer />
+              </Suspense>
+            )}
           </div>
         </div>
       </div>
