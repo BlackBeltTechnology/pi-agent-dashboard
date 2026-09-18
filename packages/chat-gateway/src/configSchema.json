@@ -1,0 +1,91 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Chat Gateway plugin configuration",
+  "description": "Discord chat gateway settings. The gateway is INERT until a bot token is set. `token` is writeOnly: the host strips it from every client-facing document. See change: add-chat-gateway.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Master switch. With no token the gateway is inert regardless."
+    },
+    "token": {
+      "type": "string",
+      "writeOnly": true,
+      "description": "Discord bot token. SECRET — never returned to a client, never logged."
+    },
+    "allowedRoots": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Mandatory whitelist of directories a session may be spawned in. Empty refuses every spawn. Candidate paths are real-path (symlink) resolved before containment."
+    },
+    "fixedMap": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "default": {},
+      "description": "Fixed channelKey -> cwd map. A binding source, still constrained by allowedRoots."
+    },
+    "defaultCwd": {
+      "type": "string",
+      "description": "Preferred cwd when no more specific binding resolves. Still constrained by allowedRoots."
+    },
+    "allowlist": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "L1 identity allowlist: Discord user ids permitted to talk to sessions."
+    },
+    "admins": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "L2 binding authority: Discord user ids permitted to bind a channel to a cwd."
+    },
+    "groupChannels": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "L4: guild channel ids explicitly opted in. Any other guild channel is inert; DMs are isolated."
+    },
+    "steerPrefix": {
+      "type": "string",
+      "default": "!",
+      "description": "Prefix forcing delivery:steer for a message arriving mid-turn (default followUp)."
+    },
+    "editThrottleMs": {
+      "type": "number",
+      "default": 1000,
+      "minimum": 0,
+      "description": "Minimum ms between editMessage calls on one channel (rate-limit guard)."
+    },
+    "toolPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "L3 deny-first tool policy enforced in gateway-SPAWNED sessions by the companion guard extension. Attached sessions are owner-trusted and ungated. A tool in neither list is denied unless defaultAction widens it.",
+      "properties": {
+        "allow": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Tools permitted without a prompt."
+        },
+        "approval": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Tools requiring interactive approval before running."
+        },
+        "defaultAction": {
+          "type": "string",
+          "enum": ["deny", "approve"],
+          "default": "deny",
+          "description": "Disposition of a tool named by neither list. Defaults to deny (deny-first)."
+        }
+      }
+    },
+    "guardExtension": {
+      "type": "string",
+      "description": "Installed identifier (package name or absolute path) of the companion L3 guard extension. Required for the guard to load into spawned sessions; never invented by the gateway."
+    }
+  }
+}

@@ -31,6 +31,7 @@
     "@blackbelt-technology/pi-dashboard-apple-tools": "^0.8.0",
     "@blackbelt-technology/pi-dashboard-automation-plugin": "^0.8.0",
     "@blackbelt-technology/pi-dashboard-blackhole-plugin": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-chat-gateway-plugin": "^0.8.0",
     "@blackbelt-technology/pi-dashboard-browser-plugin": "^0.8.0",
     "@blackbelt-technology/pi-dashboard-client-utils": "^0.8.0",
     "@blackbelt-technology/pi-dashboard-cost-estimator": "^0.8.0",

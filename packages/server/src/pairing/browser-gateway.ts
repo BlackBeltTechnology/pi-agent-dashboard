@@ -241,6 +241,29 @@ export interface BrowserGateway {
    */
   shutdownSession(sessionId: string): Promise<void>;
   sendToSubscribers(sessionId: string, msg: ServerToBrowserMessage): void;
+  /**
+   * Register an IN-PROCESS subscriber for one session's live server→browser
+   * frames — for a headless plugin acting as a browser-protocol client without
+   * a WebSocket. Receives the same frames `sendToSubscribers`/`broadcastEvent`
+   * fan out to browser sockets (`event`, `prompt_request`, `prompt_dismiss`,
+   * `session_state_reset`). Returns an idempotent unsubscribe fn.
+   * See change: add-chat-gateway.
+   */
+  addInProcessSubscriber(
+    sessionId: string,
+    handler: (msg: ServerToBrowserMessage) => void,
+  ): () => void;
+  /**
+   * Replay currently-pending PromptBus requests for `sessionId` to ONE
+   * in-process subscriber, so a gateway that (re)subscribes renders an
+   * already-open `ask_user`. The in-process sibling of
+   * `replayPendingUiRequests`.
+   * See change: add-chat-gateway.
+   */
+  replayPendingPromptsTo(
+    sessionId: string,
+    handler: (msg: ServerToBrowserMessage) => void,
+  ): void;
   broadcastToAll(msg: ServerToBrowserMessage): void;
   /**
    * Broadcast an `openspec_update` envelope using a pre-stringified `data`
@@ -502,6 +525,11 @@ export function createBrowserGateway(
 
   // Track subscriptions: ws → Set<sessionId>
   const subscriptions = new Map<WebSocket, Set<string>>();
+  // In-process (non-WebSocket) subscribers: sessionId → handlers. A headless
+  // plugin acting as a browser-protocol client consumes the same live frames a
+  // browser socket does, without opening a socket.
+  // See change: add-chat-gateway.
+  const inProcessSubscribers = new Map<string, Set<(msg: ServerToBrowserMessage) => void>>();
   // Track which sessions are mid-replay per WebSocket (suppress live events)
   const replayingSessions = new Map<WebSocket, Set<string>>();
 
@@ -674,6 +702,30 @@ export function createBrowserGateway(
       }
     }
     return result;
+  }
+
+  /**
+   * Fan one live server→browser frame to every IN-PROCESS subscriber of the
+   * session. A headless plugin (chat-gateway) that consumes the browser
+   * protocol without a WebSocket receives the same frames a browser socket
+   * does. Called from the live-frame choke points — `broadcastEvent` (live
+   * `event`) and `sendToSubscribers` (`prompt_request`/`prompt_dismiss`/ui
+   * frames) — plus `broadcastSessionStateReset`.
+   *
+   * A throwing subscriber NEVER breaks the browser fan-out: each handler is
+   * isolated, mirroring the failure-isolation rule for plugin server entries.
+   * See change: add-chat-gateway.
+   */
+  function deliverInProcess(sessionId: string, msg: ServerToBrowserMessage): void {
+    const handlers = inProcessSubscribers.get(sessionId);
+    if (!handlers) return;
+    for (const handler of handlers) {
+      try {
+        handler(msg);
+      } catch (err) {
+        console.error(`[browser-gw] in-process subscriber threw for ${sessionId}:`, err);
+      }
+    }
   }
 
   /** Max buffered bytes per browser WebSocket before dropping messages (0 = no limit) */
@@ -1874,6 +1926,10 @@ export function createBrowserGateway(
         seq,
         event,
       };
+      // In-process subscribers always get the frame — the requester-scoped
+      // resync narrowing below is a WebSocket concern only.
+      // See change: add-chat-gateway.
+      deliverInProcess(sessionId, msg);
       // Requester-scoped resync delivery (C5): a reply carrying a known
       // correlation token goes to the ONE connection that asked, so a cadence
       // of fat replies is not multiplied by the number of viewers. An unknown
@@ -1935,12 +1991,45 @@ export function createBrowserGateway(
       for (const ws of subscribers) {
         sendTo(ws, msg);
       }
+      deliverInProcess(sessionId, msg);
     },
 
     sendToSubscribers(sessionId: string, msg: ServerToBrowserMessage) {
       const subscribers = getSubscribers(sessionId);
       for (const ws of subscribers) {
         sendTo(ws, msg);
+      }
+      deliverInProcess(sessionId, msg);
+    },
+
+    addInProcessSubscriber(sessionId: string, handler: (msg: ServerToBrowserMessage) => void) {
+      let handlers = inProcessSubscribers.get(sessionId);
+      if (!handlers) {
+        handlers = new Set();
+        inProcessSubscribers.set(sessionId, handlers);
+      }
+      handlers.add(handler);
+      let active = true;
+      return () => {
+        // Idempotent: a second call must not evict a sibling unsubscribe.
+        if (!active) return;
+        active = false;
+        const current = inProcessSubscribers.get(sessionId);
+        if (!current) return;
+        current.delete(handler);
+        if (current.size === 0) inProcessSubscribers.delete(sessionId);
+      };
+    },
+
+    replayPendingPromptsTo(sessionId: string, handler: (msg: ServerToBrowserMessage) => void) {
+      const sessionPrompts = pendingPromptRequests.get(sessionId);
+      if (!sessionPrompts) return;
+      for (const msg of sessionPrompts.values()) {
+        try {
+          handler(msg as unknown as ServerToBrowserMessage);
+        } catch (err) {
+          console.error(`[browser-gw] in-process prompt replay threw for ${sessionId}:`, err);
+        }
       }
     },
 
