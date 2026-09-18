@@ -198,7 +198,12 @@ describe("DirectoryService — per-turn event-loop attribution", () => {
       createMockPrefs([tmpCwd]),
       createMockSessions(),
       { pollIntervalSeconds: 0.05, jitterSeconds: 0, useWorker: false },
-      { changeWatcher: createStubWatcher() as any, eventLoopSpikes: spikes, eventLoopSpikeFloorMs: 100, perTurnWarnMs: 250 },
+      // Thresholds sit far above any plausible work in this tick. `recordTurn`
+      // measures wall-clock across the synchronous span, so a descheduled
+      // worker thread on a saturated box inflates `ms` with pure scheduler
+      // jitter rather than poll-path work. A 100ms floor flaked under
+      // full-suite parallelism; 1000ms exceeds plausible preemption.
+      { changeWatcher: createStubWatcher() as any, eventLoopSpikes: spikes, eventLoopSpikeFloorMs: 1000, perTurnWarnMs: 2500 },
     );
     service.startPolling(() => { /* no work */ });
     await new Promise((r) => setTimeout(r, 130)); // a couple of ticks
