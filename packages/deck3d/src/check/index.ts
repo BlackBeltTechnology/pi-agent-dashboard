@@ -14,6 +14,7 @@ import {
   occlusionFindings,
   overlapFindings,
   type SlideRef,
+  skippedFindings,
 } from "./rules.js";
 
 export type { Finding, Measurement, RuleName, Severity } from "./rules.js";
@@ -80,6 +81,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 }
 
 async function sampleLuminance(page: Page, rects: Array<{ x: number; y: number; w: number; h: number }>): Promise<number[]> {
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pixel sampling is inherently branchy (guard + try/catch + loop)
   return page.evaluate((list) => {
     const src = document.querySelector("canvas");
     const out: number[] = [];
@@ -143,6 +145,9 @@ async function checkSlide(page: Page, index: number, ids: string[], viewport: Vi
     const annotated = await annotate(page, measurements);
     findings.push(...ruleFindings(annotated, viewport, { id: ids[index - 1] ?? `slide-${index}`, index }));
   }
+  const slideRef = { id: ids[index - 1] ?? `slide-${index}`, index };
+  const skipped = (await page.evaluate(() => window.__deck3d?.effects()?.skipped ?? [])) as string[];
+  findings.push(...skippedFindings(skipped, slideRef));
 }
 
 async function checkViewport(browser: Awaited<ReturnType<typeof chromium.launch>>, htmlPath: string, viewport: Viewport, slides: number[] | undefined): Promise<ViewportReport> {

@@ -5,4 +5,5 @@
 | `AGENTS.md` | This file. |
 | `build-harvest.ts` | Bundles `src/parse/harvest/harness.ts` → `dist/harvest/harness.js` (mermaid + harvest logic). Run by `npm run build:harvest`. |
 | `build-runtime.mjs` | Bundles `src/runtime/index.ts` → `dist/runtime.js` (three.js engine, IIFE, no hashes) with esbuild. Run by `npm run build:runtime`. |
+| `gen-effects.ts` | Regenerates `../.pi/skills/deck3d/reference/effects.md` from the effect cards. Run by `npm run gen:effects`. |
 | `gen-ir-fields.ts` | Regenerates `../.pi/skills/deck3d/reference/ir-fields.md` from `src/ir/schema.json` descriptions; `--check` fails when stale. Delegates to `src/ir/field-reference.ts`. |

@@ -10,6 +10,7 @@ import {
   occlusionFindings,
   overlapFindings,
   type SlideRef,
+  skippedFindings,
 } from "../rules.js";
 
 const SLIDE: SlideRef = { id: "arch", index: 2 };
@@ -102,6 +103,7 @@ describe("suggestions resolve in the schema (E40)", () => {
     overlapFindings([label("A", { x: 0, y: 0, w: 1, h: 1 }, 20), label("B", { x: 0.5, y: 0, w: 1, h: 1 }, 20)], SLIDE)[0],
     occlusionFindings([label("A", { x: 0, y: 0, w: 10, h: 10 }, 20, { hit: "B" })], SLIDE)[0],
     contrastFindings([label("A", { x: 0, y: 0, w: 10, h: 10 }, 20, { color: "#888888", bgLuminance: 0.5 })], SLIDE)[0],
+    skippedFindings(["glyph-rain: dark only"], SLIDE)[0],
   ];
 
   it("every kind carries an overrides key that resolves", () => {

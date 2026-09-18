@@ -6,12 +6,15 @@
  */
 import type { Font } from "opentype.js";
 import * as THREE from "three";
+import { composeEffects } from "../fx/compose.js";
+import { REGISTRY } from "../fx/index.js";
+import type { FxParams } from "../fx/types.js";
 import { type Animator, backgroundFor } from "./backgrounds.js";
 import { buildDiagram, type DiagramBuild } from "./builders.js";
 import { anchorFor, CULL_RADIUS } from "./camera.js";
 import { diagramMaterial, titleMaterial } from "./materials.js";
 import { type PaletteColors, resolvePalette } from "./palette.js";
-import { qualityProfile } from "./quality.js";
+import { type QualityProfile, qualityProfile } from "./quality.js";
 import { createSceneRig } from "./scene.js";
 import { buildTitle, bulletTexture, loadFont } from "./text.js";
 import "./types.js";
@@ -37,6 +40,7 @@ interface SlideBuild {
   nodes: Array<{ id: string; object: THREE.Object3D }>;
   cfg: SlideConfig;
   palette: PaletteColors;
+  skipped: string[];
 }
 
 function effective(defaults: SlideConfig, slide: DeckSlide): SlideConfig {
@@ -112,6 +116,17 @@ function addDiagram(g: THREE.Group, slide: DeckSlide, font: Font, P: PaletteColo
   return diagram;
 }
 
+function backgroundFromEffects(slide: DeckSlide, P: PaletteColors, profile: QualityProfile, mode: "dark" | "light"): Animator | null {
+  for (const ref of slide.effects ?? []) {
+    const entry = REGISTRY[ref.id];
+    if (entry?.card.kind !== "background") continue;
+    const handle = entry.create({ THREE, palette: P, mode, quality: profile }, (ref.params ?? {}) as FxParams);
+    if (!handle.object) continue;
+    return { g: handle.object as THREE.Group, tick: handle.tick ?? (() => {}) };
+  }
+  return null;
+}
+
 function buildSlideGroup(deck: RuntimeDeck, slide: DeckSlide, index: number, font: Font): SlideBuild {
   const cfg = effective(deck.defaults, slide);
   const P = resolvePalette(cfg);
@@ -126,12 +141,16 @@ function buildSlideGroup(deck: RuntimeDeck, slide: DeckSlide, index: number, fon
   const diagram = addDiagram(g, slide, font, P, cfg, labels);
   const nodes = diagram?.nodes ? Object.entries(diagram.nodes).map(([id, object]) => ({ id, object })) : [];
   const profile = qualityProfile(cfg.quality ?? deck.defaults.quality);
-  const background = backgroundFor(slide.scene, P, profile) ?? null;
+  const mode = (cfg.mode ?? "dark") as "dark" | "light";
+  const background = backgroundFromEffects(slide, P, profile, mode) ?? backgroundFor(slide.scene, P, profile) ?? null;
   if (background) {
     background.g.position.z = -2;
     g.add(background.g);
   }
-  return { group: g, anchor, diagram, background, labels, nodes, cfg, palette: P };
+  const skipped = composeEffects(slide.effects, mode, cfg.quality ?? deck.defaults.quality ?? "high", slide.id).skipped.map(
+    (s) => `${s.id}: ${s.reason}`,
+  );
+  return { group: g, anchor, diagram, background, labels, nodes, cfg, palette: P, skipped };
 }
 
 function projectRect(
@@ -367,7 +386,7 @@ async function boot(): Promise<void> {
     ready: () => Promise.resolve(),
     measure,
     peaks,
-    effects: () => ({ active: rig.passNames(), skipped: [] }),
+    effects: () => ({ active: rig.passNames(), skipped: builds[cur].skipped }),
     debug: {
       titleGlyphs: () => {
         const title = builds[cur].labels.find((l) => l.kind === "title");

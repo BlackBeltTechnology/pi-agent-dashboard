@@ -1,0 +1,28 @@
+{
+  "id": "god-rays",
+  "kind": "post",
+  "tags": {
+    "mood": [
+      "dramatic",
+      "premium"
+    ],
+    "content": [
+      "highlight"
+    ]
+  },
+  "cost": 3,
+  "modes": "dark",
+  "params": {
+    "intensity": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 3
+    }
+  },
+  "conflicts": [
+    "depth-of-field"
+  ],
+  "source": "https://github.com/pmndrs/postprocessing",
+  "licence": "Zlib"
+}

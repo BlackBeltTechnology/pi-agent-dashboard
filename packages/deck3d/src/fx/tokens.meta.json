@@ -1,0 +1,27 @@
+{
+  "id": "tokens",
+  "kind": "background",
+  "tags": {
+    "mood": [
+      "ambient",
+      "technical"
+    ],
+    "content": [
+      "patterns",
+      "code"
+    ]
+  },
+  "cost": 1,
+  "modes": "both",
+  "params": {
+    "intensity": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 2
+    }
+  },
+  "conflicts": [],
+  "source": "https://threejs.org/examples/",
+  "licence": "MIT"
+}

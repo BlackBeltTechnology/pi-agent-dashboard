@@ -1,0 +1,26 @@
+{
+  "id": "smaa",
+  "kind": "post",
+  "tags": {
+    "mood": [
+      "clean",
+      "premium"
+    ],
+    "content": [
+      "quality"
+    ]
+  },
+  "cost": 1,
+  "modes": "both",
+  "params": {
+    "intensity": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 2
+    }
+  },
+  "conflicts": [],
+  "source": "https://github.com/pmndrs/postprocessing",
+  "licence": "Zlib"
+}

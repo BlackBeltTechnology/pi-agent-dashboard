@@ -8,3 +8,4 @@
 | `runtime/AGENTS.md` | Subfolder — bundler-inlined browser engine (three.js). |
 | `render/AGENTS.md` | Subfolder — deck.html renderer (template + inline runtime + IR + font). |
 | `check/AGENTS.md` | Subfolder — browser fit/legibility/overlap/occlusion/contrast rules + driver. |
+| `fx/AGENTS.md` | Subfolder — effect corpus (cards + modules), defaults, composition, catalogue. |

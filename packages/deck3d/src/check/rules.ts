@@ -6,7 +6,7 @@
  * it is excluded from the report byte-equality guarantee.
  */
 export type Severity = "error" | "warn";
-export type RuleName = "fit" | "legibility" | "overlap" | "occlusion" | "contrast";
+export type RuleName = "fit" | "legibility" | "overlap" | "occlusion" | "contrast" | "skipped";
 
 export interface Rect {
   x: number;
@@ -213,4 +213,18 @@ export function contrastFindings(
 
 export function formatFinding(f: Finding): string {
   return `${f.severity} ${f.rule} slide ${f.slideIndex} ${f.detail}`;
+}
+
+/** Mode-incompatible / skipped effects become warn findings in the report. */
+export function skippedFindings(skipped: string[], slide: SlideRef): Finding[] {
+  return skipped.map((entry) => ({
+    severity: "warn" as const,
+    rule: "skipped" as const,
+    slide: slide.id,
+    slideIndex: slide.index,
+    measured: entry.split(":")[0],
+    threshold: "mode",
+    detail: `skipped ${entry}`,
+    suggest: slideKnob(slide.id, "mode"),
+  }));
 }

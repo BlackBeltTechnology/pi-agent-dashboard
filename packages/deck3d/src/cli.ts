@@ -52,7 +52,7 @@ function parseArgs(args: string[]): Flags {
   const flags: Flags = { positional: [], bool: new Set(), value: {} };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg === "-o" || arg === "--out" || arg === "--viewport" || arg === "--slide") {
+    if (arg === "-o" || arg === "--out" || arg === "--viewport" || arg === "--slide" || arg === "--kind" || arg === "--tag") {
       const key = arg === "-o" ? "out" : arg.replace(/^--?/, "");
       flags.value[key] = args[++i] ?? "";
     } else if (arg.startsWith("-")) {
@@ -88,6 +88,9 @@ async function parseToFile(mdPath: string, outPath: string, flags: Flags, io: Cl
     const { harvestDiagram } = await import("./parse/harvest/index.js");
     opts.harvest = (mermaidSource, slideId) => harvestDiagram(mermaidSource, slideId);
   }
+  const { defaultEffectsFor, defaultSceneFor } = await import("./fx/defaults.js");
+  opts.effectsForSlide = (slide) => defaultEffectsFor(slide);
+  opts.sceneForSlide = (slide) => defaultSceneFor(slide);
   const { ir, warnings } = await parseDeck(source, opts);
   for (const warning of warnings) io.stderr(warning);
   writeJson(outPath, ir);
@@ -112,7 +115,7 @@ async function cmdParse(args: string[], io: CliIO): Promise<number> {
   }
 }
 
-function cmdValidate(args: string[], io: CliIO): number {
+async function cmdValidate(args: string[], io: CliIO): Promise<number> {
   const file = parseArgs(args).positional[0];
   if (!file) {
     io.stderr("deck3d validate: missing <deck.json>");
@@ -128,6 +131,12 @@ function cmdValidate(args: string[], io: CliIO): number {
   const result = validate(parsed);
   for (const issue of result.errors) io.stderr(formatIssue("error", issue));
   for (const warning of result.warnings) io.stderr(formatIssue("warn", warning));
+  if (result.ok) {
+    const { validateEffectParams } = await import("./fx/compose.js");
+    const violations = validateEffectParams(parsed as Parameters<typeof validateEffectParams>[0]);
+    for (const v of violations) io.stderr(`error ${v.path}: ${v.message}`);
+    if (violations.length) return 1;
+  }
   if (result.errors.length === 0) io.stdout(`${file}: valid`);
   return result.ok ? 0 : 1;
 }
@@ -152,6 +161,23 @@ function loadValidated(file: string, io: CliIO): DeckIR | undefined {
 async function renderFile(jsonPath: string, outPath: string, io: CliIO): Promise<number> {
   const ir = loadValidated(jsonPath, io);
   if (!ir) return 1;
+  const { composeEffects, validateEffectParams } = await import("./fx/compose.js");
+  const violations = validateEffectParams(ir);
+  if (violations.length) {
+    for (const v of violations) io.stderr(`error ${v.path}: ${v.message}`);
+    return 1;
+  }
+  for (const slide of ir.slides) {
+    const ov = ir.overrides.slides?.[slide.id];
+    const mode = ov?.mode ?? ir.overrides.deck?.mode ?? ir.defaults.mode ?? "dark";
+    const quality = ov?.quality ?? ir.overrides.deck?.quality ?? ir.defaults.quality ?? "high";
+    const comp = composeEffects(slide.effects, mode, quality, slide.id);
+    for (const warning of comp.warnings) io.stderr(warning);
+    if (comp.conflicts.length) {
+      for (const c of comp.conflicts) io.stderr(`error conflict ${c}`);
+      return 1;
+    }
+  }
   const { ensureRuntime, renderDeck, fontBase64 } = await import("./render/index.js");
   const runtime = await ensureRuntime();
   const html = renderDeck(ir, { runtime, font: fontBase64(), title: basename(jsonPath, ".json") });
@@ -206,9 +232,10 @@ function reportFindings(
   if (reportOut) writeFileSync(reportOut, `${JSON.stringify(report, null, 2)}\n`);
   const findings = report.viewports.flatMap((v) => v.findings);
   for (const f of findings) io.stderr(formatFinding(f));
-  if (failOnFinding && findings.some((f) => f.severity === "error")) return 1;
+  const errors = findings.filter((f) => f.severity === "error").length;
+  if (failOnFinding && errors > 0) return 1;
   if (strict && findings.length) return 1;
-  io.stdout(findings.length ? `check: 0 errors, ${findings.length} warning(s)` : "check: clean");
+  io.stdout(findings.length ? `check: ${errors} error(s), ${findings.length - errors} warning(s)` : "check: clean");
   return 0;
 }
 
@@ -218,6 +245,25 @@ async function runCheckAndReport(htmlPath: string, flags: Flags, io: CliIO, fail
   const { code, report } = await loadReport(htmlPath, flags, io, strict, failOnFinding);
   if (!report) return code;
   return reportFindings(report, io, strict, formatFinding, reportOut, failOnFinding);
+}
+
+async function cmdFx(args: string[], io: CliIO): Promise<number> {
+  const flags = parseArgs(args);
+  const sub = flags.positional[0];
+  if (sub !== "list") {
+    io.stderr(`deck3d fx: unknown subcommand '${sub ?? ""}' (try list)`);
+    return 2;
+  }
+  const { catalogue } = await import("./fx/catalogue.js");
+  let rows = catalogue();
+  if (flags.value.kind) rows = rows.filter((r) => r.kind === flags.value.kind);
+  if (flags.value.tag) rows = rows.filter((r) => r.content.includes(flags.value.tag) || r.mood.includes(flags.value.tag));
+  if (flags.bool.has("json")) {
+    io.stdout(JSON.stringify(rows, null, 2));
+    return 0;
+  }
+  for (const r of rows) io.stdout(`${r.id}\t${r.kind}\tcost ${r.cost}\t${r.modes}`);
+  return 0;
 }
 
 async function cmdCheck(args: string[], io: CliIO): Promise<number> {
@@ -298,13 +344,15 @@ export async function run(argv: string[], io: CliIO = defaultIO): Promise<number
     case "parse":
       return cmdParse(rest, io);
     case "validate":
-      return cmdValidate(rest, io);
+      return await cmdValidate(rest, io);
     case "render":
       return cmdRender(rest, io);
     case "build":
       return cmdBuild(rest, io);
     case "check":
       return cmdCheck(rest, io);
+    case "fx":
+      return cmdFx(rest, io);
     case "snapshot":
       return cmdSnapshot(rest, io);
     default:

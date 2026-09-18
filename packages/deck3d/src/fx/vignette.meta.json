@@ -1,0 +1,26 @@
+{
+  "id": "vignette",
+  "kind": "post",
+  "tags": {
+    "mood": [
+      "cinematic",
+      "calm"
+    ],
+    "content": [
+      "framing"
+    ]
+  },
+  "cost": 1,
+  "modes": "both",
+  "params": {
+    "darkness": {
+      "type": "number",
+      "default": 0.5,
+      "minimum": 0,
+      "maximum": 1
+    }
+  },
+  "conflicts": [],
+  "source": "https://github.com/pmndrs/postprocessing",
+  "licence": "Zlib"
+}

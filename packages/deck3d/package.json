@@ -51,7 +51,8 @@
     "build:harvest": "tsx scripts/build-harvest.ts",
     "build:runtime": "node scripts/build-runtime.mjs",
     "gen:ir-fields": "tsx scripts/gen-ir-fields.ts",
-    "build": "npm run build:harvest && npm run build:runtime && npm run gen:ir-fields",
+    "gen:effects": "tsx scripts/gen-effects.ts",
+    "build": "npm run build:harvest && npm run build:runtime && npm run gen:ir-fields && npm run gen:effects",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {

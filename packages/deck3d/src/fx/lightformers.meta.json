@@ -1,0 +1,26 @@
+{
+  "id": "lightformers",
+  "kind": "light",
+  "tags": {
+    "mood": [
+      "premium",
+      "cinematic"
+    ],
+    "content": [
+      "staging"
+    ]
+  },
+  "cost": 2,
+  "modes": "both",
+  "params": {
+    "intensity": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 2
+    }
+  },
+  "conflicts": [],
+  "source": "https://github.com/pmndrs/drei",
+  "licence": "MIT"
+}

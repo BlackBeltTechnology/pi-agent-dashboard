@@ -1,0 +1,26 @@
+{
+  "id": "stagger-reveal",
+  "kind": "motion",
+  "tags": {
+    "mood": [
+      "active",
+      "technical"
+    ],
+    "content": [
+      "reveal"
+    ]
+  },
+  "cost": 2,
+  "modes": "both",
+  "params": {
+    "step": {
+      "type": "number",
+      "default": 0.15,
+      "minimum": 0,
+      "maximum": 1
+    }
+  },
+  "conflicts": [],
+  "source": "https://threejs.org/examples/",
+  "licence": "MIT"
+}
