@@ -5,6 +5,7 @@
 
 import crypto from "node:crypto";
 import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import cookie from "@fastify/cookie";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { PUBLIC_PAIRING_PREFIXES } from "../routes/pairing-routes.js";
@@ -27,7 +28,7 @@ import {
 } from "./auth.js";
 import { verifyLocalToken } from "./local-token.js";
 import { isBypassedHost, isGenuinelyLocal } from "./localhost-guard.js";
-import type { CoreWsRouteScope } from "./ws-ticket.js";
+import type { CoreWsRouteScope, TicketConsumption } from "./ws-ticket.js";
 
 /**
  * Returns true if the request URL matches any of the configured bypass prefixes.
@@ -380,4 +381,85 @@ export function validateWsUpgrade(
   const token = parseAuthCookie(cookieHeader);
   if (!token) return false;
   return verifyToken(token, secret) !== null;
+}
+
+/** Result of an identity-aware WS upgrade authorization (§9.2/§9.3). */
+export interface WsUpgradeAuthResult {
+  ok: boolean;
+  /** Human principal bound to the consumed ticket, when one rode it. */
+  principal?: Principal;
+  /** The principal's own expiry (ms epoch) — bounds the socket lifetime (§9.4). */
+  principalExpiresAt?: number;
+}
+
+/**
+ * Identity-aware WS upgrade authorization (openspec §9.2–§9.3 / design D12).
+ *
+ * A superset of {@link validateWsUpgrade} that (a) surfaces the principal bound
+ * to a consumed ticket and (b) supports an identity-ticket-ONLY mode. Kept as a
+ * sibling so the many boolean `validateWsUpgrade` call sites/tests are
+ * untouched.
+ *
+ * Identity mode (`requireIdentityTicket`, set when the resolver is active AND
+ * the scope is `browser`): ONLY a principal-bearing single-use ticket
+ * authorizes. Cookie, local-IPC token, genuine-local, trusted-network, and
+ * no-ticket upgrades are ALL refused — a browser socket never exists without a
+ * human identity. Otherwise the legacy allowances apply unchanged, additionally
+ * surfacing a ticket principal when one is present.
+ *
+ * `secret` null/undefined ⇒ no-auth mode (the cookie branch is skipped),
+ * mirroring the server's no-`authConfig.secret` upgrade branch.
+ */
+export function authorizeWsUpgrade(opts: {
+  cookieHeader?: string;
+  remoteAddress: string;
+  secret?: string | null;
+  trustedNetworks?: string[];
+  ticket?: string | null;
+  scope?: CoreWsRouteScope | null;
+  consumeTicket?: (ticket: string, scope: CoreWsRouteScope) => TicketConsumption;
+  headers?: Record<string, unknown>;
+  localToken?: string;
+  requireIdentityTicket?: boolean;
+}): WsUpgradeAuthResult {
+  const {
+    cookieHeader,
+    remoteAddress,
+    secret,
+    trustedNetworks = [],
+    ticket,
+    scope,
+    consumeTicket,
+    headers,
+    localToken,
+    requireIdentityTicket,
+  } = opts;
+
+  // Identity-ticket-only mode (§9.2): a principal-bearing ticket is the sole
+  // authorizer. Consume it (single-use) and require a bound principal. Every
+  // other branch is skipped so a used/absent/principal-less ticket is refused.
+  if (requireIdentityTicket) {
+    if (!consumeTicket || !scope || !ticket) return { ok: false };
+    const consumed = consumeTicket(ticket, scope);
+    if (!consumed.ok || !consumed.principal) return { ok: false };
+    return { ok: true, principal: consumed.principal, principalExpiresAt: consumed.principalExpiresAt };
+  }
+
+  // Legacy allowances (order preserved from validateWsUpgrade), now surfacing
+  // any ticket principal so an identity-bearing ticket in inert/mixed mode
+  // still binds the socket.
+  if (isGenuinelyLocal(remoteAddress, headers)) return { ok: true };
+  if (localToken && verifyLocalToken(headers, localToken)) return { ok: true };
+  if (trustedNetworks.length > 0 && isBypassedHost(remoteAddress, trustedNetworks)) return { ok: true };
+  if (consumeTicket && scope && ticket) {
+    const consumed = consumeTicket(ticket, scope);
+    if (consumed.ok) {
+      return { ok: true, principal: consumed.principal, principalExpiresAt: consumed.principalExpiresAt };
+    }
+  }
+  if (secret) {
+    const token = parseAuthCookie(cookieHeader);
+    if (token && verifyToken(token, secret) !== null) return { ok: true };
+  }
+  return { ok: false };
 }

@@ -21,7 +21,8 @@ import {
   mdiSourcePull,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useEffect, useState } from "react";
+import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
+import React, { useEffect, useRef, useState } from "react";
 import { useMobile } from "../../hooks/useMobile.js";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
@@ -112,6 +113,7 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
   const [ghAvailable, setGhAvailable] = useState<boolean | undefined>(ghAvailableCache);
   const isMobile = useMobile();
   const sheetTriggerRef = React.useRef<HTMLButtonElement>(null);
+  const sheetPanelRef = useRef<HTMLDivElement>(null);
   // The `right-0` sheet can render in a slim, offset session-card rail; measure
   // against that pane when a provider supplies it (else viewport). See change:
   // fix-popover-container-clip.
@@ -122,7 +124,27 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
     minHeight: sheetMinHeight,
     anchorRight: sheetAnchorRight,
     maxWidth: sheetMaxWidth,
+    triggerRect: sheetTriggerRect,
   } = usePopoverFlip(sheetTriggerRef, { open: sheetOpen, estimatedWidth: 140, boundaryRef });
+
+  useEffect(() => {
+    if (!sheetOpen) return;
+    function onDown(e: MouseEvent) {
+      const target = e.target as Node;
+      if (sheetPanelRef.current?.contains(target)) return;
+      if (sheetTriggerRef.current?.contains(target)) return;
+      setSheetOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setSheetOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [sheetOpen]);
 
   useEffect(() => {
     if (ghAvailable !== undefined) return;
@@ -254,15 +276,32 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
             <Icon path={mdiDotsHorizontal} size={0.5} />
           </button>
           {sheetOpen && (
+            <LayerPortal>
             <div
+              ref={sheetPanelRef}
               data-testid="worktree-actions-mobile-sheet"
-              style={{ maxHeight: sheetMaxHeight, minHeight: sheetMinHeight, maxWidth: sheetMaxWidth }}
-              className={`absolute z-50 flex flex-col gap-1 overflow-y-auto bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded p-1 min-w-[140px] ${
-                sheetAnchorRight ? "right-0" : "left-0"
-              } ${sheetFlipUp ? "bottom-full mb-1" : "top-full mt-1"}`}
+              style={{
+                minWidth: 140,
+                maxHeight: sheetMaxHeight,
+                minHeight: sheetMinHeight,
+                maxWidth: sheetMaxWidth,
+                visibility: sheetTriggerRect ? "visible" : "hidden",
+                ...(sheetTriggerRect
+                  ? sheetFlipUp
+                    ? { bottom: Math.round(window.innerHeight - sheetTriggerRect.top + 4) }
+                    : { top: Math.round(sheetTriggerRect.bottom + 4) }
+                  : {}),
+                ...(sheetTriggerRect
+                  ? sheetAnchorRight
+                    ? { right: Math.max(0, Math.round(window.innerWidth - sheetTriggerRect.right)) }
+                    : { left: Math.round(sheetTriggerRect.left) }
+                  : {}),
+              }}
+              className="fixed z-popover flex flex-col gap-1 overflow-y-auto bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded p-1"
             >
               {buttons.map(renderButton)}
             </div>
+            </LayerPortal>
           )}
         </div>
       ) : (

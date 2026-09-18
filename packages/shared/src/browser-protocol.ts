@@ -614,6 +614,14 @@ export interface ArchivedSessionSummary {
    * See change: serve-retained-remote-transcripts (task 2.2).
    */
   retainedTranscript?: "complete" | "incomplete" | "absent";
+  /**
+   * Human owner `(iss, sub)` carried through archiving so an archived session
+   * stays owner-gated (§8.1 / D11). Without it an archived session would read
+   * as ownerless and become invisible to its own owner under an active
+   * resolver. Absent ⇒ ownerless (inert-era / automation), same as live.
+   * See change: add-multi-user-identity-plane.
+   */
+  principalOwner?: { iss: string; sub: string };
 }
 
 /**

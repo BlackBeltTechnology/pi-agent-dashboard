@@ -2,7 +2,7 @@
  * Tests for handleSpawnSession — preflight gate, watchdog arming, failure log.
  * See change: spawn-failure-diagnostics.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 
 // Mock everything the handler depends on.
@@ -42,9 +42,9 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js", (
 
 import { handleSpawnSession } from "../browser-handlers/session-action-handler.js";
 import { spawnPiSession } from "../spawn-process/process-manager.js";
+import { appendSpawnFailure } from "../spawn-process/spawn-failure-log.js";
 import { preflightSpawn } from "../spawn-process/spawn-preflight.js";
 import { getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
-import { appendSpawnFailure } from "../spawn-process/spawn-failure-log.js";
 
 const mockSpawnPiSession = vi.mocked(spawnPiSession);
 const mockPreflightSpawn = vi.mocked(preflightSpawn);
@@ -146,5 +146,72 @@ describe("handleSpawnSession", () => {
     await handleSpawnSession({ type: "spawn_session", cwd: "/p/x" } as never, ctx as never);
 
     expect(mockAppendSpawnFailure).toHaveBeenCalledWith(expect.objectContaining({ code: "SPAWN_ERRNO" }));
+  });
+});
+
+describe("handleSpawnSession — owner stamping (§6.2 / D11)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const principal = { iss: "https://kc/realms/app", sub: "user-1", email: "u@x" };
+
+  /** Build a ctx with an owner registry + resolver-active predicate + optional socket principal. */
+  function ownerCtx(opts: { active: boolean; withPrincipal: boolean }) {
+    const base = makeCtx();
+    const owners = { file: vi.fn(), resolve: vi.fn(), remove: vi.fn(), size: vi.fn() };
+    if (opts.withPrincipal) (base.ws as unknown as { principal?: unknown }).principal = principal;
+    return {
+      ...base,
+      pendingPrincipalOwnerRegistry: owners as never,
+      isResolverActive: () => opts.active,
+      owners,
+    };
+  }
+
+  it("files the owner (iss,sub only) + passes a spawnToken when active and principal present", async () => {
+    mockPreflightSpawn.mockReturnValue({ ok: true, reasons: [] });
+    mockSpawnPiSession.mockResolvedValue({ success: true, pid: 1, process: {} as never, message: "ok" });
+    const ctx = ownerCtx({ active: true, withPrincipal: true });
+    await handleSpawnSession({ type: "spawn_session", cwd: "/p/x" } as never, ctx as never);
+    expect(ctx.owners.file).toHaveBeenCalledTimes(1);
+    const [token, owner] = ctx.owners.file.mock.calls[0]!;
+    expect(owner).toEqual({ iss: principal.iss, sub: principal.sub }); // no email
+    expect(typeof token).toBe("string");
+    // The same token rode the spawn so event-wiring can correlate on register.
+    expect(mockSpawnPiSession).toHaveBeenCalledWith("/p/x", expect.objectContaining({ spawnToken: token }));
+  });
+
+  it("stamps no owner when the resolver is inert", async () => {
+    mockPreflightSpawn.mockReturnValue({ ok: true, reasons: [] });
+    mockSpawnPiSession.mockResolvedValue({ success: true, pid: 1, process: {} as never, message: "ok" });
+    const ctx = ownerCtx({ active: false, withPrincipal: true });
+    await handleSpawnSession({ type: "spawn_session", cwd: "/p/x" } as never, ctx as never);
+    expect(ctx.owners.file).not.toHaveBeenCalled();
+    expect(mockSpawnPiSession).toHaveBeenCalledWith("/p/x", expect.not.objectContaining({ spawnToken: expect.anything() }));
+  });
+
+  it("stamps no owner for a principal-less socket", async () => {
+    mockPreflightSpawn.mockReturnValue({ ok: true, reasons: [] });
+    mockSpawnPiSession.mockResolvedValue({ success: true, pid: 1, process: {} as never, message: "ok" });
+    const ctx = ownerCtx({ active: true, withPrincipal: false });
+    await handleSpawnSession({ type: "spawn_session", cwd: "/p/x" } as never, ctx as never);
+    expect(ctx.owners.file).not.toHaveBeenCalled();
+  });
+
+  it("removes the pre-filed owner when the spawn fails", async () => {
+    mockPreflightSpawn.mockReturnValue({ ok: true, reasons: [] });
+    mockSpawnPiSession.mockResolvedValue({ success: false, code: "PI_CRASHED" as never, message: "crashed" });
+    const ctx = ownerCtx({ active: true, withPrincipal: true });
+    await handleSpawnSession({ type: "spawn_session", cwd: "/p/x" } as never, ctx as never);
+    const [token] = ctx.owners.file.mock.calls[0]!;
+    expect(ctx.owners.remove).toHaveBeenCalledWith(token);
+  });
+
+  it("removes the pre-filed owner when the spawn throws", async () => {
+    mockPreflightSpawn.mockReturnValue({ ok: true, reasons: [] });
+    mockSpawnPiSession.mockRejectedValue(new Error("ENOENT"));
+    const ctx = ownerCtx({ active: true, withPrincipal: true });
+    await handleSpawnSession({ type: "spawn_session", cwd: "/p/x" } as never, ctx as never);
+    const [token] = ctx.owners.file.mock.calls[0]!;
+    expect(ctx.owners.remove).toHaveBeenCalledWith(token);
   });
 });

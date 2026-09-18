@@ -11,6 +11,9 @@ import type {
 import type { NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { WebSocket, WebSocketServer } from "ws";
 import { getLastBindReachability } from "../auth/bind-reachability-service.js";
+import { canAccessSession, filterSnapshotForPrincipal } from "../identity/session-access.js";
+import { isSessionOwnedMessage } from "../identity/ws-message-scope.js";
+import { installSocketLifetime, type LifetimeSocket } from "../identity/socket-lifetime.js";
 import { type DirectoryService, hasOpenSpecDir, hasOpenSpecRoot } from "../directory-service.js";
 import type { PendingForkRegistry } from "../pending/pending-fork-registry.js";
 import type { EventStore } from "../persistence/memory-event-store.js";
@@ -475,6 +478,10 @@ export function createBrowserGateway(
    *  transcript is not on this filesystem, so this is where its history comes
    *  from. See change: serve-retained-remote-transcripts. */
   remoteTranscriptStore?: import("../session/remote-transcript-store.js").RemoteTranscriptStore,
+  /** §6.2/D11: token-keyed owner correlation filed by the browser spawn road. */
+  pendingPrincipalOwnerRegistry?: import("../pending/pending-principal-owner-registry.js").PendingPrincipalOwnerRegistry,
+  /** §6.2/D11: is a trusted+configured principal resolver active? Gates owner stamping. */
+  isResolverActive?: () => boolean,
 ): BrowserGateway {
   const wss = new WebSocketServer({ noServer: true });
 
@@ -1234,6 +1241,16 @@ export function createBrowserGateway(
     const subs = new Set<string>();
     subscriptions.set(ws, subs);
 
+    // §9.4/§9.5: on an identity-bound socket, schedule the identity-expiry close
+    // and the transport heartbeat. The cleanup runs from the close/error paths
+    // so neither timer outlives the socket. Installed ONLY when the resolver is
+    // active — the identity plane owns these timers; the inert era behaves
+    // exactly as before (no per-socket timer), preserving the zero-timer
+    // steady-state invariant existing tests assert.
+    const disposeLifetime = isResolverActive?.()
+      ? installSocketLifetime(ws as unknown as LifetimeSocket)
+      : undefined;
+
     // Send pinned directories on connect
     if (preferencesStore) {
       // Collapsed folders go FIRST in the burst, UNCONDITIONALLY (incl. empty).
@@ -1335,9 +1352,16 @@ export function createBrowserGateway(
       const pinnedDirs = preferencesStore?.getPinnedDirectories?.() ?? [];
       // `typeof` guard: hand-rolled fakes may predate the window API
       // (folderHeadSnapshot precedent); they fall back to the full list.
-      const snapshot = typeof sessionManager.buildSnapshot === "function"
+      const rawSnapshot = typeof sessionManager.buildSnapshot === "function"
         ? sessionManager.buildSnapshot(pinnedDirs)
         : { sessions: sessionManager.listAll(), orders: {} as Record<string, string[]>, endedTotals: {} as Record<string, number> };
+      // §8.2: filter the bootstrap snapshot per-item to sessions this principal
+      // owns — never disclose the full registry. Inert era passes through.
+      const snapshot = filterSnapshotForPrincipal(
+        rawSnapshot,
+        isResolverActive?.() ?? false,
+        (ws as { principal?: { iss: string; sub: string } }).principal ?? null,
+      );
       sendTo(ws, {
         type: "sessions_snapshot",
         ...snapshot,
@@ -1373,6 +1397,8 @@ export function createBrowserGateway(
           pendingResumeIntents,
           pendingClientCorrelations,
           pendingWorktreeBaseRegistry,
+          pendingPrincipalOwnerRegistry,
+          isResolverActive,
           sessionArchive,
           pendingArchiveIntents,
           remoteTranscriptStore,
@@ -1407,6 +1433,29 @@ export function createBrowserGateway(
             }
           },
         };
+
+        // §8.3 owner-equality choke point: a single gate for EVERY session-owned
+        // command (classification in `ws-message-scope.ts`; coverage-tested so a
+        // new road cannot skip it). When the resolver is active, a command
+        // targeting a session the socket's principal does not own is dropped
+        // before dispatch — identical refusal on every road, no frames served.
+        // Inert era + non-session / session-list roads fall through unchanged
+        // (list roads are per-item filtered at their own handlers/snapshot).
+        if (isResolverActive?.() && isSessionOwnedMessage(msg.type)) {
+          const sessionId = (msg as { sessionId?: unknown }).sessionId;
+          const owner =
+            typeof sessionId === "string" ? sessionManager.get(sessionId)?.principalOwner : undefined;
+          const allowed = canAccessSession({
+            active: true,
+            principal: (ws as { principal?: { iss: string; sub: string } }).principal ?? null,
+            owner,
+          });
+          if (!allowed) {
+            // Silent drop — no oracle. The client cannot distinguish "not owned"
+            // from "does not exist", matching the list road's invisibility.
+            return;
+          }
+        }
 
         switch (msg.type) {
           case "subscribe":
@@ -1805,6 +1854,7 @@ export function createBrowserGateway(
 
     ws.on("close", () => {
       console.error(`[browser-gw] browser client disconnected (remaining: ${subscriptions.size - 1})`);
+      disposeLifetime?.();
       subscriptions.delete(ws);
       replayingSessions.delete(ws);
       // A closed socket can never flush; discard its pending state (D2).
@@ -1832,6 +1882,7 @@ export function createBrowserGateway(
     // An errored socket will close, but clear the pending state immediately —
     // its timer must not outlive the socket (D2).
     ws.on("error", () => {
+      disposeLifetime?.();
       dropPendingState(ws);
       dropStatusDebt(ws);
       closeOccupancySpan(ws);

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, act, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, act, cleanup, waitFor, fireEvent } from "@testing-library/react";
 import { ServerSelector } from "../connectivity/ServerSelector.js";
 import { listKnownServers } from "../../lib/api/known-servers-api.js";
 
@@ -171,5 +171,43 @@ describe("ServerSelector", () => {
       const spinner = screen.queryByLabelText(/Switching/i);
       expect(spinner).not.toBeNull();
     });
+  });
+
+  it("dropdown panel uses fixed z-popover, not absolute z-50 (overlay-layering)", async () => {
+    render(
+      <ServerSelector
+        currentHost="my-pc"
+        currentPort={8000}
+        connected={true}
+        onSwitch={() => {}}
+      />,
+    );
+    const btn = screen.getByTitle("Switch server");
+    act(() => btn.click());
+    await act(async () => {});
+    // Panel may be in document.body (portaled). Use document.querySelector.
+    const panel = document.querySelector('[class*="z-popover"]') as HTMLElement | null;
+    expect(panel).not.toBeNull();
+    expect(panel!.className).toContain("fixed");
+    expect(panel!.className).toContain("z-popover");
+    expect(panel!.className).not.toContain("absolute");
+    expect(panel!.className).not.toContain("z-50");
+  });
+
+  it("outside click closes the dropdown", async () => {
+    render(
+      <ServerSelector
+        currentHost="my-pc"
+        currentPort={8000}
+        connected={true}
+        onSwitch={() => {}}
+      />,
+    );
+    const btn = screen.getByTitle("Switch server");
+    act(() => btn.click());
+    await act(async () => {});
+    expect(document.querySelector('[class*="z-popover"]')).not.toBeNull();
+    fireEvent.mouseDown(document.body);
+    expect(document.querySelector('[class*="z-popover"]')).toBeNull();
   });
 });

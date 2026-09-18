@@ -15,6 +15,7 @@ import { findBundledExtension, registerBridgeExtension } from "@blackbelt-techno
 import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
+import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
@@ -32,7 +33,8 @@ import fastifyStatic from "@fastify/static";
 import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
-import { registerAuthPlugin, validateWsUpgrade } from "./auth/auth-plugin.js";
+import { resolveRedirectBase } from "./auth/auth.js";
+import { authorizeWsUpgrade, registerAuthPlugin } from "./auth/auth-plugin.js";
 import { registerBearerAuth } from "./auth/bearer-auth.js";
 import { createRouteTierGate } from "./auth/route-tier-gate.js";
 import {
@@ -59,12 +61,7 @@ import {
 } from "./auth/host-gate.js";
 import { ensureServerIdentity } from "./auth/identity.js";
 import { ensureLocalToken, verifyLocalToken } from "./auth/local-token.js";
-import {
-  createNetworkGuard,
-  isBypassedHost,
-  isGenuinelyLocal,
-  isPluginScopePeerLocal,
-} from "./auth/localhost-guard.js";
+import { createNetworkGuard, isPluginScopePeerLocal } from "./auth/localhost-guard.js";
 import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
 import { readAuthJson } from "./auth/provider-auth-storage.js";
 import { mintSpawnToken } from "./auth/spawn-token.js";
@@ -99,6 +96,10 @@ import { createEmbedLifecycleController } from "./embed-lifecycle/embed-lifecycl
 import { wireEvents } from "./event-wiring.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
 import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
+import { assertIdentityReadiness } from "./identity/activation.js";
+import { PolicyRegistry } from "./identity/policy-registry.js";
+import { registerResolverHook } from "./identity/resolver-hook.js";
+import { ResolverRegistry } from "./identity/resolver-registry.js";
 import { bootParentPid, isBootParentProvablyDead } from "./lifecycle/boot-parent-liveness.js";
 import { runBoundedStartup } from "./lifecycle/bounded-startup.js";
 import { startEphemeralParentWatch } from "./lifecycle/ephemeral-parent-watch.js";
@@ -123,6 +124,7 @@ import { createPendingClientCorrelations } from "./pending/pending-client-correl
 import { createPendingForkRegistry } from "./pending/pending-fork-registry.js";
 import { createPendingInitialPromptRegistry } from "./pending/pending-initial-prompt-registry.js";
 import { createPendingPluginRefRegistry } from "./pending/pending-plugin-ref-registry.js";
+import { createPendingPrincipalOwnerRegistry } from "./pending/pending-principal-owner-registry.js";
 import { createPendingPromptAcks } from "./pending/pending-prompt-acks.js";
 import { createPendingResumeIntentRegistry } from "./pending/pending-resume-intent-registry.js";
 import { createPendingWorktreeBaseRegistry } from "./pending/pending-worktree-base-registry.js";
@@ -427,6 +429,21 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const serverIdentity = ensureServerIdentity();
   const pairedDeviceRegistry = new PairedDeviceRegistry();
   const wsTicketStore = new WsTicketStore();
+  // Principal-resolver registry (identity plane, D4). Trust list is
+  // operator-controlled; the bundled `keycloak-resolver` is always trusted.
+  // Empty + unconfigured ⇒ inert ⇒ behavior identical to pre-change.
+  const resolverRegistry = new ResolverRegistry(loadConfig().identity.trustedResolverPlugins);
+  // Host access policy registry (D9): one optional policy from the configured
+  // `trustedPolicyPlugin`, bounded + fail-closed. Governs only non-session
+  // roads. A deny emits a structured audit line (no token/secret material).
+  const policyRegistry = new PolicyRegistry({
+    trustedPolicyPlugin: loadConfig().identity.trustedPolicyPlugin,
+    timeoutMs: loadConfig().identity.policyTimeoutMs,
+    audit: (e) =>
+      console.warn(
+        `[identity] host access policy denied action=${e.action} resource=${e.resource.kind} reason=${e.reason} principal=${e.principal.iss}#${e.principal.sub}`,
+      ),
+  });
   // Local-IPC allowlist token (D10, narrowed): affirmative genuine-local trust
   // for same-host process callers, independent of the forgeable loopback IP.
   const localToken = ensureLocalToken();
@@ -765,6 +782,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // headlessPidRegistry entry, and its owner notified.
   // See change: detach-automation-goal-from-core.
   const pendingPluginRefRegistry = createPendingPluginRefRegistry();
+  // §6.2 / D11: token-keyed correlation of a human owner to a spawn, filed by
+  // a trusted spawn road before the await, consumed on session_register.
+  const pendingPrincipalOwnerRegistry = createPendingPrincipalOwnerRegistry();
   // Pending user-initiated resume intents (sessionId → timestamp).
   // Consumed by `sessionManager.onChange` in the ended→alive branch to
   // gate the sessionOrder mutation behind explicit user intent so that
@@ -996,7 +1016,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Live-server-preview manager (loopback dev-server allowlist + proxy).
   const liveServerManager = createLiveServerManager(preferencesStore);
 
-  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents, remoteTranscriptStore);
+  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents, remoteTranscriptStore, pendingPrincipalOwnerRegistry, () => resolverRegistry.hasActiveResolver());
   // Wire the archive broadcaster now that the gateway exists. `session_archived`
   // carries the folder count for its own transition; restore/delete/re-key use
   // `archived_count_updated`. See change: archive-sessions-lazy-load.
@@ -1268,6 +1288,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pendingAttachRegistry,
     pendingWorktreeBaseRegistry,
     pendingPluginRefRegistry,
+    pendingPrincipalOwnerRegistry,
     dispatchPluginSessionResolved,
     pendingInitialPromptRegistry,
     viewedSessionTracker: browserGateway.viewedSessionTracker,
@@ -1465,6 +1486,20 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // onRequest hook runs first and OAuth can early-return when already
   // authenticated. Additive (D5/D7); independent of whether OAuth is on.
   registerBearerAuth(fastify, { registry: pairedDeviceRegistry });
+  // Principal-resolver dispatch (identity plane, D2). Registered AFTER the
+  // device-bearer branch and BEFORE the OAuth plugin so a valid Keycloak
+  // bearer authenticates instead of being rejected by the cookie hook. Inert
+  // (no registered resolver) ⇒ returns immediately ⇒ behavior unchanged.
+  // `redirectBaseUrl` is static boot config; only getTunnelUrl() inside
+  // resolveRedirectBase is dynamic (and cheap), so capture the override once
+  // rather than re-reading the config file on every authenticated request.
+  const identityRedirectBaseOverride = config.authConfig?.redirectBaseUrl;
+  registerResolverHook(fastify, {
+    registry: resolverRegistry,
+    timeoutMs: loadConfig().identity.resolverTimeoutMs,
+    getPublicBase: () => resolveRedirectBase(config.port, identityRedirectBaseOverride).base,
+    log: (msg) => console.warn(msg),
+  });
   if (config.authConfig) {
     await registerAuthPlugin(fastify, {
       authConfig: config.authConfig,
@@ -1565,6 +1600,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     networkGuard,
     sessionArchive,
     remoteTranscriptStore,
+    isResolverActive: () => resolverRegistry.hasActiveResolver(),
     // Transcript-sourced session diffs dispatch through the same pool the
     // hydration path owns; `maxStringSize` is the store's cap so projected
     // tool payloads match store-sourced ones. See change:
@@ -1933,7 +1969,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           data: { ticket: wsTicketStore.mint(scope, verdict.deviceId) },
         };
       }
-      return { success: true as const, data: { ticket: wsTicketStore.mint(scope) } };
+      // Non-bridge scope: bind the human principal resolved by the identity
+      // hook (§9.1) onto the ticket so the socket can owner-gate. A
+      // principal-less caller (inert era, cookie/local-token/trusted-network
+      // auth) mints a principal-less ticket — refused at upgrade only when the
+      // resolver is active (§9.2).
+      const authed = request as { principal?: Principal; principalExpiresAt?: number };
+      const identity = authed.principal
+        ? { principal: authed.principal, principalExpiresAt: authed.principalExpiresAt }
+        : undefined;
+      return { success: true as const, data: { ticket: wsTicketStore.mint(scope, undefined, identity) } };
     },
   );
   registerPluginConfigRoutes(fastify, {
@@ -2746,6 +2791,35 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   return fn(opts.model, { messages: opts.messages, systemPrompt: opts.system }, opts);
                 },
               },
+              // Identity plane (D4): bind this plugin's id + manifest priority
+              // to the host resolver registry. Trust is host-owned; an
+              // untrusted plugin gets a no-op registrar (registers nothing,
+              // returns an inert unregister handle) rather than a throw.
+              registerPrincipalResolver: (resolve, options) => {
+                const id = plugin.manifest.id;
+                if (!resolverRegistry.isTrusted(id)) {
+                  console.warn(`[identity] plugin '${id}' is not trusted to register a principal resolver; ignoring`);
+                  return () => {};
+                }
+                return resolverRegistry.register({
+                  pluginId: id,
+                  priority: plugin.manifest.priority ?? 1000,
+                  active: options?.active ?? true,
+                  clockSkewSeconds: options?.clockSkewSeconds,
+                  resolve,
+                });
+              },
+              // Identity plane (D9): bind this plugin's host access policy to the
+              // host registry. Only the configured `trustedPolicyPlugin` is
+              // accepted; any other plugin gets a no-op registrar.
+              registerHostAccessPolicy: (authorize) => {
+                const id = plugin.manifest.id;
+                if (!policyRegistry.isTrusted(id)) {
+                  console.warn(`[identity] plugin '${id}' is not trusted to register a host access policy; ignoring`);
+                  return () => {};
+                }
+                return policyRegistry.register(id, authorize);
+              },
             },
             plugin.manifest.id,
           ),
@@ -2871,24 +2945,30 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           return;
         }
         const ticket = extractTicket(request.url, secWsProtocol);
-        const consumeTicket = (t: string, s: CoreWsRouteScope) => wsTicketStore.consume(t, s);
+        const consumeTicket = (t: string, s: CoreWsRouteScope) => wsTicketStore.consumeDetailed(t, s);
         const wsHeaders = request.headers as unknown as Record<string, unknown>;
-        if (config.authConfig?.secret) {
-          if (!validateWsUpgrade(request.headers.cookie, remoteAddress, config.authConfig.secret, trusted, { ticket, scope, consumeTicket, headers: wsHeaders, localToken })) {
-            socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-            socket.destroy();
-            return;
-          }
-        } else if (
-          !isGenuinelyLocal(remoteAddress, wsHeaders) &&
-          !verifyLocalToken(wsHeaders, localToken) &&
-          (trusted.length === 0 || !isBypassedHost(remoteAddress, trusted)) &&
-          !(scope && ticket && consumeTicket(ticket, scope))
-        ) {
-          // No auth configured — allow genuine-local, local-IPC token, trusted
-          // networks, or a valid single-use ticket. A tunnel presenting as
-          // 127.0.0.1 (forwarding header) is NOT trusted (D10, narrowed).
-          socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+        // §9.2: when the resolver is active a browser socket MUST present a
+        // principal-bearing identity ticket — cookie / local-IPC token /
+        // trusted-network / no-ticket browser upgrades are all refused. Other
+        // scopes (terminal/live) and the inert era are unchanged.
+        const requireIdentityTicket = scope === "browser" && resolverRegistry.hasActiveResolver();
+        const upgradeAuth = authorizeWsUpgrade({
+          cookieHeader: request.headers.cookie,
+          remoteAddress,
+          secret: config.authConfig?.secret ?? null,
+          trustedNetworks: trusted,
+          ticket,
+          scope,
+          consumeTicket,
+          headers: wsHeaders,
+          localToken,
+          requireIdentityTicket,
+        });
+        if (!upgradeAuth.ok) {
+          // 401 when an auth secret is configured (cookie realm), else 403 for
+          // the no-auth allowances — preserving the prior status semantics.
+          const status = config.authConfig?.secret ? "401 Unauthorized" : "403 Forbidden";
+          socket.write(`HTTP/1.1 ${status}\r\n\r\n`);
           socket.destroy();
           return;
         }
@@ -2902,6 +2982,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         switch (scope) {
           case "browser":
             browserGateway.wss.handleUpgrade(request, socket, head, (ws) => {
+              // §9.3: attach the immutable principal + its expiry resolved at
+              // upgrade so every session road can owner-gate. Absent in the
+              // inert era (no identity ticket required). Frozen so downstream
+              // handlers cannot rebind the socket's identity.
+              if (upgradeAuth.principal) {
+                const bound = ws as {
+                  principal?: Principal;
+                  principalExpiresAt?: number;
+                };
+                bound.principal = Object.freeze({ ...upgradeAuth.principal });
+                bound.principalExpiresAt = upgradeAuth.principalExpiresAt;
+              }
               browserGateway.wss.emit("connection", ws, request);
             });
             break;
@@ -2915,6 +3007,23 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             socket.destroy();
         }
       });
+
+      // Identity-plane startup readiness (D1/D8/D9). Runs AFTER plugins have
+      // loaded (so trusted resolvers have registered) and BEFORE listen(), so
+      // an unsatisfiable identity config aborts boot instead of serving a
+      // half-open plane. Inert default (empty trust list, no policy, no
+      // resolver) passes untouched. `registeredPolicyCount` comes from the live
+      // `policyRegistry`, so a named `trustedPolicyPlugin` that registered no
+      // policy fails as "named-but-absent" and a duplicate fails too (D9).
+      {
+        const idCfg = loadConfig();
+        assertIdentityReadiness({
+          resolverActive: resolverRegistry.hasActiveResolver(),
+          trustedPolicyPlugin: idCfg.identity.trustedPolicyPlugin,
+          registeredPolicyCount: policyRegistry.size,
+          authProviderCount: Object.keys(idCfg.auth?.providers ?? {}).length,
+        });
+      }
 
       await fastify.listen({ port: config.port, host: config.host });
       writePid(process.pid);

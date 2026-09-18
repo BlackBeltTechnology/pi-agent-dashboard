@@ -60,6 +60,7 @@ import {
 import { Icon } from "@mdi/react";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { formatRelativeTime, formatTokens } from "../../lib/util/format.js";
 import type { WorktreeAvailability } from "../../lib/git/folder-worktree-availability.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
@@ -81,6 +82,7 @@ import { GROUP_PALETTE, resolveGroupColor } from "../../lib/openspec/openspec-gr
 import { createGroup, deleteGroup, fetchGroups, setAssignment, setChangeOrder, updateGroup } from "../../lib/openspec/openspec-groups-api.js";
 import { selectBadgeTimestamp } from "../../lib/session/session-card-time.js";
 import { deriveDotColor, deriveIconStatusColor, deriveProposalCardState, getCardPulseClass, getCardStripeFxClass, pulseClassForStatus, sourceIcons } from "../../lib/session/session-status-visuals.js";
+import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 import { OpenSpecActivityBadge } from "./OpenSpecActivityBadge.js";
 import { OpenSpecGroupManager } from "./OpenSpecGroupManager.js";
@@ -1153,6 +1155,31 @@ function BoardSessionRow({
   change: OpenSpecChange;
 } & React.ComponentProps<typeof ProposalCard>) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const osTriggerRef = useRef<HTMLButtonElement>(null);
+  const osPanelRef = useRef<HTMLDivElement>(null);
+  const { flipUp: osFlipUp, maxHeight: osMaxHeight, anchorRight: osAnchorRight, maxWidth: osMaxWidth, triggerRect: osTriggerRect } = usePopoverFlip(osTriggerRef, {
+    open: menuOpen,
+    estimatedWidth: 220,
+    minPopoverHeight: 0,
+  });
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onDown(e: MouseEvent) {
+      const target = e.target as Node;
+      if (osPanelRef.current?.contains(target)) return;
+      if (osTriggerRef.current?.contains(target)) return;
+      setMenuOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setMenuOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
   const isHidden = !!s.hidden;
   const isAlive = s.status !== "ended";
   const hasFile = !!s.sessionFile;
@@ -1195,9 +1222,31 @@ function BoardSessionRow({
             <button title={i18nT("session.archiveSession", undefined, "Archive session")} onClick={() => onArchiveSession(s.id)} className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]"><Icon path={mdiArchiveOutline} size={0.42} /></button>
           )}
           <span className="relative">
-            <button title={i18nT("openspec.openspecCommands", undefined, "OpenSpec commands")} onClick={() => setMenuOpen((v) => !v)} className="text-[var(--text-muted)] hover:text-purple-400" data-testid={`session-os-menu-${s.id}`}><Icon path={mdiDotsHorizontal} size={0.5} /></button>
+            <button ref={osTriggerRef} title={i18nT("openspec.openspecCommands", undefined, "OpenSpec commands")} onClick={() => setMenuOpen((v) => !v)} className="text-[var(--text-muted)] hover:text-purple-400" data-testid={`session-os-menu-${s.id}`}><Icon path={mdiDotsHorizontal} size={0.5} /></button>
             {menuOpen && (
-              <div className="absolute right-0 top-full mt-1 z-50" onClick={(e) => e.stopPropagation()} data-testid="session-os-menu-panel">
+              <LayerPortal>
+              <div
+                ref={osPanelRef}
+                style={{
+                  minWidth: 220,
+                  maxHeight: osMaxHeight,
+                  maxWidth: osMaxWidth,
+                  visibility: osTriggerRect ? "visible" : "hidden",
+                  ...(osTriggerRect
+                    ? osFlipUp
+                      ? { bottom: Math.round(window.innerHeight - osTriggerRect.top + 4) }
+                      : { top: Math.round(osTriggerRect.bottom + 4) }
+                    : {}),
+                  ...(osTriggerRect
+                    ? osAnchorRight
+                      ? { right: Math.max(0, Math.round(window.innerWidth - osTriggerRect.right)) }
+                      : { left: Math.round(osTriggerRect.left) }
+                    : {}),
+                }}
+                className="fixed overflow-y-auto z-popover"
+                onClick={(e) => e.stopPropagation()}
+                data-testid="session-os-menu-panel"
+              >
                 <SessionOpenSpecActions
                   session={s}
                   changes={allChanges}
@@ -1212,6 +1261,7 @@ function BoardSessionRow({
                   openspecConfig={openspecConfig}
                 />
               </div>
+              </LayerPortal>
             )}
           </span>
         </span>

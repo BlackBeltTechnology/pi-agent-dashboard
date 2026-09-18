@@ -61,8 +61,9 @@ describe("WorktreeActionsMenu mobile sheet viewport flip", () => {
     fireEvent.click(screen.getByTestId("worktree-actions-mobile-trigger"));
 
     const sheet = screen.getByTestId("worktree-actions-mobile-sheet");
-    expect(sheet.className).toContain("bottom-full");
-    expect(sheet.className).not.toContain("top-full");
+    // Positioning is now in style (portal pattern) — flipUp means style.bottom is set.
+    expect(sheet.style.bottom).toBeTruthy();
+    expect(sheet.style.top).toBe("");
     expect(sheet.style.maxHeight).toBe("892px");
   });
 });

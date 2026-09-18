@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
+import { canAccessSession, gateHttpSession } from "../identity/session-access.js";
 import type { EventStore } from "../persistence/memory-event-store.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import type { RemoteTranscriptStore } from "../session/remote-transcript-store.js";
@@ -30,6 +31,9 @@ export function registerSessionRoutes(
     /** Retention store backing `GET /api/sessions/:id/retained-transcript`.
      *  See change: serve-retained-remote-transcripts. */
     remoteTranscriptStore?: RemoteTranscriptStore;
+    /** §8.1/D11: is a trusted+configured principal resolver active? Gates every
+     *  session read/mutation road by owner equality when true. */
+    isResolverActive?: () => boolean;
     /**
      * Lazy accessor for the session-load worker pool. Absent/`null` (unit
      * tests, or after `stopPolling` disposed it) makes `/api/session-diff` run
@@ -52,6 +56,28 @@ export function registerSessionRoutes(
     loadWorkerPool,
     maxStringSize,
   } = deps;
+  const active = () => deps.isResolverActive?.() ?? false;
+  /** Owner of a live-or-archived session, for the HTTP owner gate. */
+  const ownerOf = (sessionId: string) =>
+    sessionManager.get(sessionId)?.principalOwner ?? sessionArchive?.getById(sessionId)?.principalOwner;
+  /** Read the request principal the resolver hook (§4) stamped, or null. */
+  const principalOf = (request: unknown) =>
+    (request as { principal?: { iss: string; sub: string } }).principal ?? null;
+  /** Resolve `filePath` within `cwd`, or null when it escapes the directory. */
+  const resolveInCwd = (cwd: string, filePath: string): string | null => {
+    const absPath = isAbsolute(filePath) ? filePath : resolve(cwd, filePath);
+    const rel = relative(cwd, absPath);
+    return rel.startsWith("..") || isAbsolute(rel) ? null : absPath;
+  };
+  /** Per-item owner filter for a session-list road (§8.1/§8.2). */
+  const filterOwned = <T extends { principalOwner?: { iss: string; sub: string } }>(
+    request: unknown,
+    items: T[],
+  ): T[] => {
+    const isActive = active();
+    const principal = principalOf(request);
+    return items.filter((it) => canAccessSession({ active: isActive, principal, owner: it.principalOwner }));
+  };
 
   // Per-server session-diff result cache + single-flight coordinator. Short TTL
   // so repeated UI polls of an unchanged session skip recompute, and concurrent
@@ -59,9 +85,9 @@ export function registerSessionRoutes(
   // fix-session-diff-eventloop-block.
   const sessionDiffCache = new SessionDiffCache<SessionDiffResult>();
 
-  fastify.get("/api/sessions", async () => {
-    const sessions = sessionManager.listAll();
-    return { success: true, data: sessions } satisfies ApiResponse;
+  fastify.get("/api/sessions", async (request) => {
+    // §8.1/§8.2: per-item owner filter — never disclose the full registry.
+    return { success: true, data: filterOwned(request, sessionManager.listAll()) } satisfies ApiResponse;
   });
 
   // On-demand listing of archived sessions, served from the in-memory index
@@ -91,6 +117,8 @@ export function registerSessionRoutes(
         ...(cursor !== undefined && cursor !== "" ? { cursor } : {}),
         ...(q !== undefined ? { q } : {}),
       }) ?? { items: [] };
+      // §8.1/§8.2: per-item owner filter on the archived listing.
+      result.items = filterOwned(request, result.items);
       // P2: request-timing log for the listing endpoint (no threshold).
       console.debug(
         `[archive] GET /api/sessions/archived cwd=${cwd ?? "*"} limit=${effectiveLimit} ` +
@@ -106,6 +134,10 @@ export function registerSessionRoutes(
       const item = sessionArchive?.getById(request.params.id);
       if (!item) {
         reply.code(404);
+        return { success: false, error: "session is not archived" } satisfies ApiResponse;
+      }
+      // §8.1: owner gate (404 on deny — no owned-vs-not-found oracle).
+      if (!gateHttpSession(reply, active(), principalOf(request), item.principalOwner)) {
         return { success: false, error: "session is not archived" } satisfies ApiResponse;
       }
       // Read-only open of an ARCHIVED REMOTE session. Its completeness cannot
@@ -129,6 +161,10 @@ export function registerSessionRoutes(
     "/api/sessions/archived/:id",
     { preHandler: networkGuard },
     async (request, reply) => {
+      // §8.1: owner gate the mutation before touching the archive.
+      if (!gateHttpSession(reply, active(), principalOf(request), ownerOf(request.params.id))) {
+        return { success: false, error: "session is not archived" } satisfies ApiResponse;
+      }
       const result = sessionArchive?.deleteArchived(request.params.id);
       if (!result?.ok) {
         reply.code(result?.notFound ? 404 : 500);
@@ -140,8 +176,11 @@ export function registerSessionRoutes(
 
   fastify.get<{ Params: { sessionId: string; seq: string } }>(
     "/api/events/:sessionId/:seq",
-    async (request) => {
+    async (request, reply) => {
       const { sessionId, seq } = request.params;
+      if (!gateHttpSession(reply, active(), principalOf(request), ownerOf(sessionId))) {
+        return { success: false, error: "Event not found" } satisfies ApiResponse;
+      }
       const event = eventStore.getEvent(sessionId, parseInt(seq, 10));
       if (!event) {
         return { success: false, error: "Event not found" } satisfies ApiResponse;
@@ -160,6 +199,9 @@ export function registerSessionRoutes(
     { preHandler: networkGuard },
     async (request, reply) => {
       const { sessionId, toolCallId } = request.params;
+      if (!gateHttpSession(reply, active(), principalOf(request), ownerOf(sessionId))) {
+        return { error: "tool call still in flight or unknown" };
+      }
       const event = eventStore.findToolEndEvent(sessionId, toolCallId);
       if (!event) {
         reply.code(404);
@@ -188,6 +230,9 @@ export function registerSessionRoutes(
         reply.code(404);
         return { success: false, error: "session not found" } satisfies ApiResponse;
       }
+      if (!gateHttpSession(reply, active(), principalOf(request), session.principalOwner)) {
+        return { success: false, error: "session not found" } satisfies ApiResponse;
+      }
       const payload = findSessionToolCallPayload(session.sessionFile, toolCallId);
       if (!payload) {
         reply.code(404);
@@ -201,13 +246,16 @@ export function registerSessionRoutes(
   fastify.get<{ Querystring: { sessionId?: string } }>(
     "/api/session-diff",
     { preHandler: networkGuard },
-    async (request) => {
+    async (request, reply) => {
       const { sessionId } = request.query;
       if (!sessionId) {
         return { success: false, error: "sessionId required" } satisfies ApiResponse;
       }
       const session = sessionManager.get(sessionId);
       if (!session) {
+        return { success: false, error: "session not found" } satisfies ApiResponse;
+      }
+      if (!gateHttpSession(reply, active(), principalOf(request), session.principalOwner)) {
         return { success: false, error: "session not found" } satisfies ApiResponse;
       }
       // Source the tool-call events from the durable transcript for local
@@ -283,6 +331,10 @@ export function registerSessionRoutes(
         reply.code(404);
         return { success: false, error: "session not found" } satisfies ApiResponse;
       }
+      // §8.1: owner gate (live or archived owner).
+      if (!gateHttpSession(reply, active(), principalOf(request), session?.principalOwner ?? archived?.principalOwner)) {
+        return { success: false, error: "session not found" } satisfies ApiResponse;
+      }
       const verdict = decideRetainedRead({
         sessionId,
         query: request.query ?? {},
@@ -327,6 +379,9 @@ export function registerSessionRoutes(
         reply.code(404);
         return { success: false, error: "session not found" } satisfies ApiResponse;
       }
+      if (!gateHttpSession(reply, active(), principalOf(request), session.principalOwner)) {
+        return { success: false, error: "session not found" } satisfies ApiResponse;
+      }
       // A REMOTE session's `cwd` is a path on ANOTHER host. Confining to it
       // here is a check that does not travel: two machines with the same
       // username produce the same path, so this would happily serve an
@@ -342,10 +397,9 @@ export function registerSessionRoutes(
           error: `session ${sessionId} was registered by remote device ${origin.deviceId ?? "unknown"}; its files are not on this host`,
         } satisfies ApiResponse;
       }
-      // Resolve and ensure path is within cwd
-      const absPath = isAbsolute(filePath) ? filePath : resolve(session.cwd, filePath);
-      const rel = relative(session.cwd, absPath);
-      if (rel.startsWith("..") || isAbsolute(rel)) {
+      // Resolve and ensure path is within cwd.
+      const absPath = resolveInCwd(session.cwd, filePath);
+      if (!absPath) {
         reply.code(403);
         return { success: false, error: "path outside session directory" } satisfies ApiResponse;
       }

@@ -5,8 +5,10 @@
  * See change: add-openspec-change-grouping (task 6.3).
  */
 
+import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import type { OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import React, { useEffect, useRef, useState } from "react";
+import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { GROUP_PALETTE, resolveGroupColor } from "../../lib/openspec/openspec-group-palette.js";
 import { logRejection } from "../../lib/report-error.js";
@@ -28,8 +30,14 @@ export function OpenSpecGroupPicker({
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const { flipUp, maxHeight, anchorRight, maxWidth, triggerRect } = usePopoverFlip(triggerRef, {
+    open,
+    estimatedWidth: 140,
+    minPopoverHeight: 0,
+  });
 
   const currentGroup = currentGroupId
     ? groups.find((g) => g.id === currentGroupId)
@@ -40,11 +48,12 @@ export function OpenSpecGroupPicker({
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (!dropdownRef.current?.contains(e.target as Node)) {
-        setOpen(false);
-        setCreating(false);
-        setNewName("");
-      }
+      const target = e.target as Node;
+      if (panelRef.current?.contains(target)) return;
+      if (triggerRef.current?.contains(target)) return;
+      setOpen(false);
+      setCreating(false);
+      setNewName("");
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -68,9 +77,10 @@ export function OpenSpecGroupPicker({
   };
 
   return (
-    <div ref={dropdownRef} className="relative" data-testid="group-picker">
+    <div className="relative" data-testid="group-picker">
       {/* Chip trigger */}
       <button
+        ref={triggerRef}
         type="button"
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
         className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:border-[var(--border-primary)]"
@@ -87,8 +97,26 @@ export function OpenSpecGroupPicker({
 
       {/* Dropdown */}
       {open && (
+        <LayerPortal>
         <div
-          className="absolute z-50 mt-1 right-0 min-w-[140px] bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded shadow-lg py-0.5"
+          ref={panelRef}
+          style={{
+            minWidth: 140,
+            maxHeight,
+            maxWidth,
+            visibility: triggerRect ? "visible" : "hidden",
+            ...(triggerRect
+              ? flipUp
+                ? { bottom: Math.round(window.innerHeight - triggerRect.top + 4) }
+                : { top: Math.round(triggerRect.bottom + 4) }
+              : {}),
+            ...(triggerRect
+              ? anchorRight
+                ? { right: Math.max(0, Math.round(window.innerWidth - triggerRect.right)) }
+                : { left: Math.round(triggerRect.left) }
+              : {}),
+          }}
+          className="fixed overflow-y-auto z-popover bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded shadow-lg py-0.5"
           data-testid="group-picker-dropdown"
         >
           {groups.map((g) => (
@@ -170,6 +198,7 @@ export function OpenSpecGroupPicker({
             </>
           )}
         </div>
+        </LayerPortal>
       )}
     </div>
   );

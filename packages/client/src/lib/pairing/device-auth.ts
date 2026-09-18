@@ -16,6 +16,7 @@
  * See change: make-pairing-qr-camera-scannable.
  */
 import { getApiBase } from "../api/api-context.js";
+import { getAccessToken } from "../identity/token-store.js";
 
 const BEARER_KEY = "pi-dashboard:device-bearer";
 
@@ -26,6 +27,17 @@ export function getDeviceBearer(): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * The bearer to present on same-origin API/WS calls (§12.2). The identity-plane
+ * access token (in-memory, PKCE) takes precedence; the durable paired-device
+ * bearer is the fallback. Distinct credentials, one presentation seam. Null
+ * when this browser is neither signed-in via the identity plane nor paired
+ * (cookie/loopback auth path).
+ */
+export function getApiBearer(): string | null {
+  return getAccessToken() ?? getDeviceBearer();
 }
 
 /** Persist the paired-device bearer minted by a successful `/pair` handshake. */
@@ -69,7 +81,7 @@ export function installDeviceAuthFetch(): void {
 
   const original = window.fetch.bind(window);
   window.fetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const token = getDeviceBearer();
+    const token = getApiBearer();
     if (!token) return original(input, init);
 
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -87,7 +99,7 @@ export function installDeviceAuthFetch(): void {
  * mint fails — callers fall back to opening the socket without a ticket.
  */
 export async function mintWsTicket(scope: "browser" = "browser"): Promise<string | null> {
-  const token = getDeviceBearer();
+  const token = getApiBearer();
   if (!token) return null;
   try {
     const res = await fetch(`${getApiBase()}/api/ws-ticket`, {
