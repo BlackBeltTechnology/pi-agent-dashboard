@@ -14,12 +14,13 @@
  *
  * See change: fix-provider-auth-lock-contention.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
 import { createRequire } from "node:module";
+import os from "node:os";
+import path from "node:path";
 import Fastify from "fastify";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerProviderAuthRoutes } from "../routes/provider-auth-routes.js";
 
 const _require = createRequire(import.meta.url);
@@ -87,7 +88,7 @@ describe("provider-auth routes under lock contention", () => {
   it("DELETE reports the lock reason instead of the generic 500", async () => {
     fs.writeFileSync(
       AUTH_PATH,
-      JSON.stringify({ anthropic: { type: "oauth", refresh: "r", access: "sk-SECRETLOCK", expires: 1 } }) + "\n",
+      `${JSON.stringify({ anthropic: { type: "oauth", refresh: "r", access: "sk-SECRETLOCK", expires: 1 } })}\n`,
       { mode: 0o600 },
     );
 

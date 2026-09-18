@@ -8,11 +8,11 @@
  * See change: add-dashboard-model-proxy, design §1.
  */
 import {
+  type AuthCredential,
+  type AuthData,
+  type OAuthCredential,
   readAuthJson,
   writeCredential,
-  type AuthData,
-  type AuthCredential,
-  type OAuthCredential,
 } from "../auth/provider-auth-storage.js";
 
 /**

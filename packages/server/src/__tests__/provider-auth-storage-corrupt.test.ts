@@ -8,10 +8,11 @@
  *
  * See change: fix-corrupt-auth-json-500.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import fs from "node:fs";
+import { homedir, userInfo } from "node:os";
 import path from "node:path";
-import { userInfo, homedir } from "node:os";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const authDir = path.join(homedir(), ".pi", "agent");
 const authPath = path.join(authDir, "auth.json");

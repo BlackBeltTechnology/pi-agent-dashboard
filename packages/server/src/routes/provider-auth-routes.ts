@@ -2,28 +2,28 @@
  * REST routes for browser-based pi provider authentication.
  */
 import type { FastifyInstance } from "fastify";
+import { startCallbackServer } from "../auth/oauth-callback-server.js";
 import {
-  getProviderHandler,
-  getAllHandlers,
-  generatePKCE,
-  generateState,
   type AuthCodeHandler,
   type DeviceCodeHandler,
+  generatePKCE,
+  generateState,
+  getAllHandlers,
+  getProviderHandler,
   type PKCEPair,
 } from "../auth/provider-auth-handlers.js";
 import {
-  writeCredential,
-  removeCredential,
+  type ApiKeyCredential,
   getAuthStatus,
   getOAuthProvidersMeta,
+  removeCredential,
   resolveAuthJsonKey,
-  type ApiKeyCredential,
+  writeCredential,
 } from "../auth/provider-auth-storage.js";
-import { getLatestCatalogue } from "../package/provider-catalogue-cache.js";
-import { startCallbackServer } from "../auth/oauth-callback-server.js";
-import type { PiGateway } from "../pi/pi-gateway.js";
-import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import { refreshModelRegistry } from "../model-proxy/registry-singleton.js";
+import { getLatestCatalogue } from "../package/provider-catalogue-cache.js";
+import type { BrowserGateway } from "../pairing/browser-gateway.js";
+import type { PiGateway } from "../pi/pi-gateway.js";
 
 // ── In-memory flow store (short-lived PKCE + device code state) ──────────────
 

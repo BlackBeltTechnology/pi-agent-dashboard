@@ -7,17 +7,20 @@
  * derives from the bridge-pushed catalogue (provider-catalogue-cache.ts).
  * See change: replace-hardcoded-provider-lists.
  */
-import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
+
 import { createHash } from "node:crypto";
+import fs from "node:fs";
 import { createRequire } from "node:module";
+import os from "node:os";
+import path from "node:path";
+
 const _require = createRequire(import.meta.url);
 const _lockfile = _require("proper-lockfile") as typeof import("proper-lockfile");
+
 import type { ProviderAuthStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { ProviderInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { getAllHandlers, type ProviderHandler } from "./provider-auth-handlers.js";
 import { getLatestCatalogue } from "../package/provider-catalogue-cache.js";
+import { getAllHandlers, type ProviderHandler } from "./provider-auth-handlers.js";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 

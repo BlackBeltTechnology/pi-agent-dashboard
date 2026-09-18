@@ -16,11 +16,12 @@
  *
  * See change: fix-provider-auth-lock-contention.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
 import { createRequire } from "node:module";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const _require = createRequire(import.meta.url);
 const lockfile = _require("proper-lockfile") as typeof import("proper-lockfile");
@@ -55,7 +56,9 @@ async function holdLock(ms: number): Promise<() => Promise<void>> {
     pending ??= sleep(Math.max(0, ms - (Date.now() - acquired))).then(() => release());
     return pending;
   };
-  setTimeout(() => { void releaseAt(); }, ms + 10);
+  // Auto-release is best-effort: a second release is expected and explicitly
+  // handled here rather than discarded.
+  setTimeout(() => { releaseAt().catch(() => { /* already released */ }); }, ms + 10);
   return releaseAt;
 }
 
@@ -225,13 +228,15 @@ describe("auth.json lock options — realpath:false survives the sync→async sw
     try {
       const pending = writeCredential("e6-symlink", { type: "api_key", key: "k" });
       let settled = false;
-      void pending.then(() => { settled = true; }, () => { settled = true; });
+      const settle = () => { settled = true; };
+      const settlement = pending.then(settle, settle);
       await sleep(150);
       // Refused, so the writer is still retrying rather than through the lock.
       expect(settled).toBe(false);
 
       release();
       await expect(pending).resolves.toBeUndefined();
+      await settlement;
       expect(readAuthJson()["e6-symlink"]).toEqual({ type: "api_key", key: "k" });
     } finally {
       try { release(); } catch { /* already released */ }

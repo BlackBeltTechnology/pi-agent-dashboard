@@ -7,7 +7,7 @@
  *
  * See change: update-pi-core-0-84-adopt-apis (test-plan #X4, #X5, #X6).
  */
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const writeCredential = vi.fn();
 const readAuthJson = vi.fn();
@@ -164,8 +164,9 @@ describe("InternalAuthStorage — refreshed token is persisted before headers ar
       const storage = storageWith({ getOAuthProvider: () => ({ refreshToken }) });
 
       let settled = false;
+      const settle = () => { settled = true; };
       const pending = storage.getApiKeyAndHeaders(model);
-      void pending.then(() => { settled = true; }, () => { settled = true; });
+      const settlement = pending.then(settle, settle);
 
       await new Promise((r) => setTimeout(r, 20));
       expect(writeCredential).toHaveBeenCalledWith("anthropic", expect.objectContaining({ access: "new-access" }));
@@ -173,6 +174,7 @@ describe("InternalAuthStorage — refreshed token is persisted before headers ar
 
       releaseWrite();
       await expect(pending).resolves.toBeDefined();
+      await settlement;
     } finally {
       writeCredential.mockReset();
     }

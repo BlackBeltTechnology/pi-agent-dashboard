@@ -9,8 +9,9 @@
  *
  * See change: fix-provider-auth-lock-contention.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import Fastify from "fastify";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => {
   const state = {

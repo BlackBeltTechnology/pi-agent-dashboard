@@ -1,12 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import {
-  setCatalogueForSession,
-  _resetForTests as resetCatalogueCache,
-} from "../package/provider-catalogue-cache.js";
+import path from "node:path";
 import type { ProviderInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  _resetForTests as resetCatalogueCache,
+  setCatalogueForSession,
+} from "../package/provider-catalogue-cache.js";
 
 // API-key rows are derived from the bridge-pushed catalogue cache.
 // See change: replace-hardcoded-provider-lists.
