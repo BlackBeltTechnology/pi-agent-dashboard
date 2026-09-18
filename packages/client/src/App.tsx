@@ -672,10 +672,12 @@ export default function App() {
     };
   }, [archivedReadOnlyId, sessions, archivedSummaryById]);
   const [snapshotGeneration, setSnapshotGeneration] = useState(0);
-  // Terminal snapshot applied — the readiness gate for the one-shot
-  // `?focus=terminal` entry (design D2a). See change:
-  // fix-terminals-action-opens-terminal.
-  const terminalsReady = snapshotGeneration > 0;
+  // Terminal snapshot applied ON THE CURRENT CONNECTION — the readiness gate
+  // for the one-shot `?focus=terminal` entry (design D2a). Gated on
+  // `status === "connected"` so a focus entry during an offline/connecting
+  // window cannot act on the previous connection's stale terminal set. See
+  // change: fix-terminals-action-opens-terminal.
+  const terminalsReady = status === "connected" && snapshotGeneration > 0;
   // Live `sessions` mirror for useMessageHandler (order filtering + live
   // endedTotals transitions read it synchronously outside setState updaters).
   const sessionsRef = useRef(sessions);
