@@ -6,15 +6,16 @@
  *
  * See change: fix-openspec-taskcheck-delay.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
 import * as fs from "node:fs";
-import * as path from "node:path";
 import * as os from "node:os";
+import * as path from "node:path";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDirectoryService, type DirectoryService } from "../directory-service.js";
 import type { OpenSpecChangeWatcher } from "../openspec/openspec-change-watcher.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 // Mock the shared openspec poller — we want to count CLI spawns.
 const runOpenSpecListMock = vi.fn();

@@ -32,6 +32,7 @@ import {
 } from "../shared/types.js";
 import { authorize, createPairing, type Pairing } from "./auth.js";
 import { isWithinAllowedRoots, resolveCwd } from "./binding.js";
+import { dispatchToSession } from "./dispatch.js";
 import {
   composeBatchAnswers,
   composeMultiselectAnswer,
@@ -41,12 +42,11 @@ import {
 } from "./prompts.js";
 import type { BindingStore, SpawnCorrelator } from "./routing.js";
 import type { HostSeam, SpawnOutcome } from "./seam.js";
-import { dispatchToSession } from "./dispatch.js";
 import { createEditThrottle, type EditThrottle, shouldSteer, stripSteerPrefix } from "./stream.js";
 import type { Grant } from "./team/authorize.js";
 import type { TeamController } from "./team/controller.js";
-import { createPacer } from "./team/pacing.js";
 import { type MirrorEvent, renderMirror } from "./team/output-filter.js";
+import { createPacer } from "./team/pacing.js";
 
 export interface ChatGatewayDeps {
   platform: ChatPlatform;
@@ -179,6 +179,30 @@ function editDiff(toolName: string, args: Record<string, unknown> | undefined): 
   return typeof args.content === "string" ? args.content : null;
 }
 
+/** Map a `tool_execution_start` payload; null when it names no tool. */
+function toolCallMirrorEvent(data: Record<string, unknown>): MirrorEvent | null {
+  const toolName = typeof data.toolName === "string" ? data.toolName : undefined;
+  if (!toolName) return null;
+  const args = data.args as Record<string, unknown> | undefined;
+  const target = toolTarget(args);
+  const diff = editDiff(toolName, args);
+  return {
+    kind: "tool_call",
+    toolName,
+    ...(target ? { target } : {}),
+    ...(args !== undefined ? { args } : {}),
+    ...(diff ? { diff } : {}),
+  };
+}
+
+/** Map a `tool_execution_end` payload. A shell's stdout is TERMINAL output. */
+function toolResultMirrorEvent(data: Record<string, unknown>): MirrorEvent | null {
+  const output = typeof data.output === "string" ? data.output : undefined;
+  if (output === undefined) return null;
+  const toolName = typeof data.toolName === "string" ? data.toolName : "";
+  return { kind: /^(bash|shell|exec)$/i.test(toolName) ? "terminal" : "tool_result", output };
+}
+
 /**
  * Map a bridge event frame onto a `MirrorEvent` for the team-controls mirror
  * lane. Assistant prose is NOT mapped here — it keeps chat-gateway's existing
@@ -189,32 +213,14 @@ function mirrorEventFrom(frame: unknown): MirrorEvent | null {
   const event = (frame as Record<string, unknown>).event as Record<string, unknown> | undefined;
   if (!event) return null;
   const data = (event.data ?? {}) as Record<string, unknown>;
-  const eventType = event.eventType;
-
-  if (eventType === "tool_execution_start") {
-    const toolName = typeof data.toolName === "string" ? data.toolName : undefined;
-    if (!toolName) return null;
-    const args = data.args as Record<string, unknown> | undefined;
-    const target = toolTarget(args);
-    const diff = editDiff(toolName, args);
-    return {
-      kind: "tool_call",
-      toolName,
-      ...(target ? { target } : {}),
-      ...(args !== undefined ? { args } : {}),
-      ...(diff ? { diff } : {}),
-    };
+  switch (event.eventType) {
+    case "tool_execution_start":
+      return toolCallMirrorEvent(data);
+    case "tool_execution_end":
+      return toolResultMirrorEvent(data);
+    default:
+      return null;
   }
-
-  if (eventType === "tool_execution_end") {
-    const output = typeof data.output === "string" ? data.output : undefined;
-    if (output === undefined) return null;
-    const toolName = typeof data.toolName === "string" ? data.toolName : "";
-    // A shell's stdout is TERMINAL output; anything else is a tool result.
-    return { kind: /^(bash|shell|exec)$/i.test(toolName) ? "terminal" : "tool_result", output };
-  }
-
-  return null;
 }
 
 /** Map a normalized prompt control onto the vendored adapter's prompt shape. */
@@ -276,6 +282,22 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
         },
       })
     : undefined;
+
+  /**
+   * POST one mapped structured event into the bound thread at the binding's
+   * mirror level (D9). Extracted from `handleFrame` so the frame dispatcher does
+   * not grow a nested-conditional tree per mirror rule.
+   */
+  function mirrorFrame(channelKey: string, frame: unknown): void {
+    if (!mirrorPacer || !team) return;
+    const channelId = store.get(channelKey)?.channelId;
+    const mirrorEvent = mirrorEventFrom(frame);
+    if (!channelId || !mirrorEvent) return;
+    const rendered = renderMirror(mirrorEvent, team.mirrorLevel(channelId));
+    if (rendered === null || rendered === "") return;
+    mirrorPacer.submit(channelKey, rendered);
+    void mirrorPacer.pump(channelKey);
+  }
 
   /** Drop spawn entries older than the TTL so a lost resolution cannot wedge a channel. */
   function sweepStaleSpawns(): void {
@@ -999,17 +1021,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       // otherwise drop a tool frame as "not assistant text". Mirroring is
       // deliberately independent of disarm and of any principal's tier (X15):
       // the passive stream is not an action, so it is never gated.
-      if (mirrorPacer && team) {
-        const channelId = store.get(key)?.channelId;
-        const mirrorEvent = mirrorEventFrom(frame);
-        if (channelId && mirrorEvent) {
-          const rendered = renderMirror(mirrorEvent, team.mirrorLevel(channelId));
-          if (rendered !== null && rendered !== "") {
-            mirrorPacer.submit(key, rendered);
-            void mirrorPacer.pump(key);
-          }
-        }
-      }
+      mirrorFrame(key, frame);
 
       if (type === "event") {
         const text = assistantTextFrom(frame);

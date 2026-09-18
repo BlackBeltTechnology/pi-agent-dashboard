@@ -68,6 +68,27 @@ export function isWithinWorkspace(cwd: string, folders: string[]): boolean {
 }
 
 /**
+ * The longest folder in `ws` containing `canonicalCwd`, or null. Longest match
+ * wins so a nested folder does not shadow its parent's more specific sibling.
+ */
+function bestFolderIn(
+  ws: WorkspaceView,
+  canonicalCwd: string,
+): { folder: string; length: number } | null {
+  if (!ws || !Array.isArray(ws.folders)) return null;
+  let best: { folder: string; length: number } | null = null;
+  for (const folder of ws.folders) {
+    if (typeof folder !== "string" || folder === "") continue;
+    const canonicalFolder = realOrResolved(folder);
+    if (!contains(canonicalFolder, canonicalCwd)) continue;
+    if (best === null || canonicalFolder.length > best.length) {
+      best = { folder: canonicalFolder, length: canonicalFolder.length };
+    }
+  }
+  return best;
+}
+
+/**
  * Resolve `cwd` to at most one workspace: longest matching folder wins, and a
  * cwd outside every folder resolves to `null` (not surfaced anywhere).
  */
@@ -80,14 +101,10 @@ export function resolveWorkspaceForCwd(
   let best: { workspaceId: string; folder: string; length: number } | null = null;
 
   for (const ws of workspaces) {
-    if (!ws || !Array.isArray(ws.folders)) continue;
-    for (const folder of ws.folders) {
-      if (typeof folder !== "string" || folder === "") continue;
-      const canonicalFolder = realOrResolved(folder);
-      if (!contains(canonicalFolder, canonicalCwd)) continue;
-      if (best === null || canonicalFolder.length > best.length) {
-        best = { workspaceId: ws.id, folder: canonicalFolder, length: canonicalFolder.length };
-      }
+    const match = bestFolderIn(ws, canonicalCwd);
+    if (!match) continue;
+    if (best === null || match.length > best.length) {
+      best = { workspaceId: ws.id, folder: match.folder, length: match.length };
     }
   }
 

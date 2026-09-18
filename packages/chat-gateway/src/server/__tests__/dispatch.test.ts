@@ -7,9 +7,9 @@
  * affects no session.
  */
 import { describe, expect, it } from "vitest";
-import { createFakeSeam } from "./fake-seam.js";
 import { dispatchToSession } from "../dispatch.js";
 import { CHAT_COMMAND_ALLOWLIST } from "../team/tier.js";
+import { createFakeSeam } from "./fake-seam.js";
 
 describe("dispatchToSession — the only path to a session (X11)", () => {
   it("affects no session for ANY action verb when the layer is installed and no grant is passed", () => {

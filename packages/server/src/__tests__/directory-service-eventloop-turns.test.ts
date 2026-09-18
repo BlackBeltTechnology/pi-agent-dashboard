@@ -23,8 +23,8 @@ import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDirectoryService, type DirectoryService } from "../directory-service.js";
 import { createEventLoopSpikeMetrics } from "../metrics/eventloop-spike-metrics.js";
-import type { SessionManager } from "../session/memory-session-manager.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
 
 const runOpenSpecListMock = vi.fn();
 const runOpenSpecStatusMock = vi.fn();

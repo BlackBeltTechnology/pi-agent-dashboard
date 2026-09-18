@@ -52,8 +52,75 @@ export interface ValidationErr {
 
 export type ValidationResult = ValidationOk | ValidationErr;
 
+/** Generic form of the same result, for the per-section helpers below. */
+type Checked<T> = { ok: true; value: T } | ValidationErr;
+
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** Validate an optional identifier→tier map. */
+function parsePrincipals(raw: unknown, base: string): Checked<Record<string, Tier>> {
+  const out: Record<string, Tier> = {};
+  if (raw === undefined) return { ok: true, value: out };
+  if (!isObject(raw)) return { ok: false, reason: "invalid_principals", path: `${base}.principals` };
+  for (const [id, tier] of Object.entries(raw)) {
+    if (!isTier(tier)) {
+      return { ok: false, reason: "invalid_tier", path: `${base}.principals.${id}` };
+    }
+    out[id] = tier;
+  }
+  return { ok: true, value: out };
+}
+
+/** Validate an optional role→tier map. A role may NEVER grant `operate`. */
+function parseRoles(raw: unknown, base: string): Checked<Record<string, RoleTier>> {
+  const out: Record<string, RoleTier> = {};
+  if (raw === undefined) return { ok: true, value: out };
+  if (!isObject(raw)) return { ok: false, reason: "invalid_roles", path: `${base}.roles` };
+  for (const [roleId, roleTier] of Object.entries(raw)) {
+    if (roleTier === "operate") {
+      // The load-bearing rejection: role membership is held by whoever has
+      // Manage Roles, who is not necessarily the operator.
+      return {
+        ok: false,
+        reason: "role_cannot_map_to_operate_requires_explicit_identifier",
+        path: `${base}.roles.${roleId}`,
+      };
+    }
+    if (!isRoleTier(roleTier)) {
+      return { ok: false, reason: "invalid_role_tier", path: `${base}.roles.${roleId}` };
+    }
+    out[roleId] = roleTier;
+  }
+  return { ok: true, value: out };
+}
+
+/** Validate the optional audit-retention bound. */
+function parseAuditRetention(raw: unknown): Checked<number> {
+  if (raw === undefined) return { ok: true, value: DEFAULT_AUDIT_RETENTION };
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 1 || raw > MAX_AUDIT_RETENTION) {
+    return { ok: false, reason: "invalid_audit_retention", path: "teamControls.auditRetention" };
+  }
+  return { ok: true, value: raw };
+}
+
+/** Validate one workspace's binding, defaulting the per-binding ceiling. */
+function parseBinding(rawBinding: unknown, ceiling: Tier, base: string): Checked<ValidatedBinding> {
+  const b = isObject(rawBinding) ? rawBinding : {};
+  const principals = parsePrincipals(b.principals, base);
+  if (!principals.ok) return principals;
+  const roles = parseRoles(b.roles, base);
+  if (!roles.ok) return roles;
+  return {
+    ok: true,
+    value: {
+      principals: principals.value,
+      roles: roles.value,
+      mirrorLevel: isMirrorLevel(b.mirrorLevel) ? b.mirrorLevel : DEFAULT_MIRROR_LEVEL,
+      ceiling: isTier(b.ceiling) ? b.ceiling : ceiling,
+    },
+  };
 }
 
 function isMirrorLevel(v: unknown): v is MirrorLevel {
@@ -70,63 +137,18 @@ export function validateTeamControls(raw: unknown): ValidationResult {
   const src = isObject(raw) ? raw : {};
 
   const ceiling: Tier = isTier(src.ceiling) ? src.ceiling : DEFAULT_CEILING;
-
   const disarmed = src.disarmed === true;
 
-  let auditRetention = DEFAULT_AUDIT_RETENTION;
-  if (src.auditRetention !== undefined) {
-    const n = src.auditRetention;
-    if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > MAX_AUDIT_RETENTION) {
-      return { ok: false, reason: "invalid_audit_retention", path: "teamControls.auditRetention" };
-    }
-    auditRetention = n;
-  }
+  const retention = parseAuditRetention(src.auditRetention);
+  if (!retention.ok) return retention;
 
   const bindings: Record<string, ValidatedBinding> = {};
   const rawBindings = isObject(src.bindings) ? src.bindings : {};
   for (const [workspaceId, rawBinding] of Object.entries(rawBindings)) {
-    const base = `teamControls.bindings.${workspaceId}`;
-    const b = isObject(rawBinding) ? rawBinding : {};
-
-    const principals: Record<string, Tier> = {};
-    if (b.principals !== undefined) {
-      if (!isObject(b.principals)) {
-        return { ok: false, reason: "invalid_principals", path: `${base}.principals` };
-      }
-      for (const [id, tier] of Object.entries(b.principals)) {
-        if (!isTier(tier)) {
-          return { ok: false, reason: "invalid_tier", path: `${base}.principals.${id}` };
-        }
-        principals[id] = tier;
-      }
-    }
-
-    const roles: Record<string, RoleTier> = {};
-    if (b.roles !== undefined) {
-      if (!isObject(b.roles)) {
-        return { ok: false, reason: "invalid_roles", path: `${base}.roles` };
-      }
-      for (const [roleId, roleTier] of Object.entries(b.roles)) {
-        if (roleTier === "operate") {
-          // The load-bearing rejection: a role must never grant operate.
-          return {
-            ok: false,
-            reason: "role_cannot_map_to_operate_requires_explicit_identifier",
-            path: `${base}.roles.${roleId}`,
-          };
-        }
-        if (!isRoleTier(roleTier)) {
-          return { ok: false, reason: "invalid_role_tier", path: `${base}.roles.${roleId}` };
-        }
-        roles[roleId] = roleTier;
-      }
-    }
-
-    const mirrorLevel: MirrorLevel = isMirrorLevel(b.mirrorLevel) ? b.mirrorLevel : DEFAULT_MIRROR_LEVEL;
-    const bindingCeiling: Tier = isTier(b.ceiling) ? b.ceiling : ceiling;
-
-    bindings[workspaceId] = { principals, roles, mirrorLevel, ceiling: bindingCeiling };
+    const parsed = parseBinding(rawBinding, ceiling, `teamControls.bindings.${workspaceId}`);
+    if (!parsed.ok) return parsed;
+    bindings[workspaceId] = parsed.value;
   }
 
-  return { ok: true, value: { ceiling, disarmed, auditRetention, bindings } };
+  return { ok: true, value: { ceiling, disarmed, auditRetention: retention.value, bindings } };
 }
