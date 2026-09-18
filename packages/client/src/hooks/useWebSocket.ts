@@ -2,11 +2,19 @@ import { setSender as setPluginActionSender } from "@blackbelt-technology/dashbo
 import type { BrowserToServerMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getApiBase } from "../lib/api/api-context.js";
-import { appendWsTicket, getDeviceBearer, mintWsTicket } from "../lib/pairing/device-auth.js";
+import { clearAccessToken } from "../lib/identity/token-store.js";
+import { appendWsTicket, getApiBearer, mintWsTicket } from "../lib/pairing/device-auth.js";
 
 export type ConnectionStatus = "connected" | "connecting" | "offline" | "auth_required";
 
 const OFFLINE_THRESHOLD = 3;
+
+/**
+ * Close code the server fires when a socket's identity token lapses (§9.4,
+ * `identity/socket-lifetime.ts`). Distinct from a transport drop: the client
+ * re-acquires a token and reconnects rather than treating it as an outage.
+ */
+export const IDENTITY_EXPIRED_CLOSE_CODE = 4001;
 
 /** How many refused messages the outbox retains before evicting oldest-first. */
 export const OUTBOX_CAPACITY = 100;
@@ -46,7 +54,7 @@ interface OutboxEntry {
  */
 export type OutboxExpiryListener = (msg: BrowserToServerMessage, entryId: number) => void;
 
-export function useWebSocket(url: string) {
+export function useWebSocket(url: string, onIdentityExpired?: () => void | Promise<void>) {
   const wsRef = useRef<WebSocket | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   // The live socket, exposed for consumers that attach their OWN `message`
@@ -61,6 +69,10 @@ export function useWebSocket(url: string) {
   // Holds the latest `connect` so the onclose reconnect timer always re-runs
   // the current ticket-minting path (avoids capturing a stale closure).
   const connectRef = useRef<() => void>(() => {});
+  // Latest identity-expiry callback, kept in a ref so the long-lived `onclose`
+  // closure always calls the current one (§12.4).
+  const onIdentityExpiredRef = useRef(onIdentityExpired);
+  onIdentityExpiredRef.current = onIdentityExpired;
   // Messages refused while the socket was not OPEN. Holds ONLY never-sent
   // messages; a handed-off message is never retained (see design D3).
   const outboxRef = useRef<OutboxEntry[]>([]);
@@ -166,8 +178,22 @@ export function useWebSocket(url: string) {
         }
       };
 
-      ws.onclose = () => {
+      ws.onclose = (ev) => {
         setWs(null);
+        // Identity lapsed server-side (§9.4). Drop the stale in-memory token so
+        // the next ticket mint never presents it, let the app re-acquire, then
+        // reconnect promptly — an auth refresh, not an outage, so no backoff
+        // escalation and no `offline`/`auth_required` flicker.
+        if (ev?.code === IDENTITY_EXPIRED_CLOSE_CODE) {
+          clearAccessToken();
+          backoffRef.current = 1000;
+          failCountRef.current = 0;
+          setStatus("connecting");
+          void Promise.resolve(onIdentityExpiredRef.current?.()).finally(() => {
+            reconnectTimerRef.current = setTimeout(() => connectRef.current(), 0);
+          });
+          return;
+        }
         failCountRef.current++;
         if (failCountRef.current >= OFFLINE_THRESHOLD) {
           // Check if it's an auth issue before marking as offline
@@ -203,12 +229,14 @@ export function useWebSocket(url: string) {
     }
   }, [flushOutbox]);
 
-  // Paired-device browsers (bearer in localStorage) can't set an Authorization
-  // header on a WebSocket and the durable bearer must never ride the socket
-  // (F6). Mint a FRESH single-use ticket per (re)connect and present only that.
-  // Unpaired browsers (cookie/loopback auth) skip ticketing — unchanged path.
+  // A browser holding an API bearer — either a paired-device token (localStorage)
+  // or an identity-plane access token (in-memory, PKCE, §12.3) — can't set an
+  // Authorization header on a WebSocket, and a durable/bearer token must never
+  // ride the socket (F6). Mint a FRESH single-use ticket per (re)connect and
+  // present only that. Browsers with neither (cookie/loopback auth) skip
+  // ticketing — unchanged path.
   const connect = useCallback(() => {
-    if (getDeviceBearer()) {
+    if (getApiBearer()) {
       mintWsTicket("browser")
         .then((ticket) => openSocket(ticket ? appendWsTicket(url, ticket) : url))
         .catch(() => openSocket(url));

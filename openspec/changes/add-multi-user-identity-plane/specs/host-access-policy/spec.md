@@ -1,27 +1,28 @@
 ## Purpose
 
-Adds an explicit multi-user activation mode and a single, host-owned, deny-by-default authorization boundary that a trusted plugin supplies, covering every protected host-owned road: HTTP routes, WebSocket bootstrap frames, inbound WS commands, global/workspace/terminal/system resources, and domain-event fan-out.
+Adds a single, optional, host-owned, deny-by-default authorization gate that a trusted plugin MAY supply for **non-session** host-owned roads: domain-event fan-out, workspace/OpenSpec/branch/terminal/system bootstrap and commands, and disclosure of non-session bootstrap state. It is a host resource-dispatch gate, NOT the product authorization model, and NOT the gate for session roads (those are owner-gated per `session-ownership-scoping`). When no policy is registered, non-session roads stay ungated, exactly as before this change.
 
 ## ADDED Requirements
 
-### Requirement: Explicit identity mode
+### Requirement: The host access policy is optional and non-session-scoped
 
-The system SHALL define `identity.mode: "legacy" | "multi-user"`, defaulting to `legacy`. In `legacy` mode all existing HTTP, ticket, upgrade, bootstrap, command, and broadcast outcomes SHALL be unchanged. In `multi-user` mode protected human-facing surfaces SHALL be authorized and fail-closed.
+The system SHALL allow at most one host access policy, registered only by the plugin named in `identity.trustedPolicyPlugin`. The policy SHALL govern only non-session host-owned roads. Session roads SHALL be governed by owner equality regardless of whether a policy is registered. When no `trustedPolicyPlugin` is named, non-session roads SHALL remain ungated (their behavior before this change).
 
-#### Scenario: Default is legacy and unchanged
-- **WHEN** no `identity` configuration is present
-- **THEN** the system runs in legacy mode with behavior identical to before this change
+#### Scenario: No policy means non-session roads are ungated
+- **WHEN** no `identity.trustedPolicyPlugin` is configured and the resolver is active
+- **THEN** non-session host roads behave exactly as before this change
+- **AND** session roads are still owner-gated
 
-#### Scenario: Multi-user mode enforces
-- **WHEN** `identity.mode` is multi-user
-- **THEN** protected roads require a principal and a policy decision
+#### Scenario: Policy never gates a session road
+- **WHEN** a policy is registered and a principal accesses a session it owns
+- **THEN** access is decided by owner equality, not by the policy
 
-### Requirement: Multi-user readiness is validated before listen
+### Requirement: Policy readiness is validated before listen
 
-When `identity.mode = multi-user`, the system SHALL verify before `listen()` that a bundled/trusted resolver is configured and that exactly one trusted access-policy plugin (`identity.trustedPolicyPlugin`) is registered. Missing resolver configuration, zero policies, or more than one policy SHALL fail startup.
+When `identity.trustedPolicyPlugin` is named, the system SHALL verify before `listen()` that exactly one policy from that plugin is registered. A named-but-absent policy or a duplicate registration SHALL fail startup. An unnamed policy (the default) SHALL be valid.
 
-#### Scenario: Missing policy fails startup
-- **WHEN** multi-user mode is set but no trusted access policy is registered
+#### Scenario: Named-but-absent policy fails startup
+- **WHEN** `identity.trustedPolicyPlugin` names a plugin that registers no policy
 - **THEN** startup fails before serving requests
 
 #### Scenario: Duplicate policy fails startup
@@ -30,56 +31,53 @@ When `identity.mode = multi-user`, the system SHALL verify before `listen()` tha
 
 ### Requirement: Single host access policy contract
 
-The system SHALL accept exactly one `authorize({ principal, action, resource }) => Promise<boolean>` from the plugin named by `identity.trustedPolicyPlugin`. The host SHALL call it to decide every protected road it cannot decide by owner-equality alone. `action` values SHALL be stable host constants; `resource` SHALL be bounded plain data identifying the target without secrets.
+When registered, the policy SHALL be exactly one `authorize({ principal, action, resource }) => Promise<boolean>` from the plugin named by `identity.trustedPolicyPlugin`. The host SHALL call it to decide a non-session road. `action` values SHALL be stable host constants; `resource` SHALL be bounded plain data identifying the target without secrets.
 
 #### Scenario: Only the named plugin can register the policy
 - **WHEN** a plugin not named in `identity.trustedPolicyPlugin` attempts to register a policy
 - **THEN** the registration is refused
 
-#### Scenario: Policy decides a protected action
-- **WHEN** a protected road is reached with a principal
+#### Scenario: Policy decides a non-session road
+- **WHEN** a non-session road is reached with a principal and a policy is registered
 - **THEN** the host calls `authorize` and proceeds only on `true`
 
 ### Requirement: Bounded, fail-closed policy evaluation
 
-The system SHALL bound each policy call by a configured timeout (default 500 ms, range 50–2000 ms). A missing policy, `false`, throw, timeout, or non-boolean result SHALL deny access and emit a structured audit event naming principal, action, resource, and reason.
+The system SHALL bound each policy call by a configured timeout (default 500 ms, range 50–2000 ms). When a policy is registered, a `false`, throw, timeout, or non-boolean result SHALL deny access and emit a structured audit event naming principal, action, resource, and reason.
 
 #### Scenario: Policy timeout denies
-- **WHEN** the policy does not resolve within the timeout
+- **WHEN** a registered policy does not resolve within the timeout
 - **THEN** access is denied and an audit event is logged
 
 #### Scenario: Non-boolean result denies
-- **WHEN** the policy resolves a non-boolean value
+- **WHEN** a registered policy resolves a non-boolean value
 - **THEN** access is denied
 
-### Requirement: Exhaustive route and message classification
+### Requirement: Non-session road classification drives the policy
 
-Every host HTTP route SHALL carry identity metadata: `public`, `device`, or protected `{ action, resource }`. Every browser WS bootstrap frame and inbound message type SHALL map to a classification. In multi-user mode an unclassified protected HTTP route or WS message type SHALL deny rather than inherit authenticated access. Protected plugin HTTP routes SHALL declare equivalent metadata. Coverage SHALL be asserted so an added route/message without classification fails.
+Every non-session host road (workspace/OpenSpec/branch/terminal/system HTTP routes and commands, and domain events) SHALL carry `{ action, resource }` classification. When a policy is registered, a non-session road that reaches the policy path without a classification SHALL deny fail-closed. When no policy is registered, classification is inert and the road is ungated. Session roads SHALL instead be classified for owner equality (see `session-ownership-scoping`); coverage of the session-road set SHALL be asserted so a new session road without owner equality fails.
 
-#### Scenario: Unclassified protected route denies
-- **WHEN** a protected `/api` route has no identity classification in multi-user mode
-- **THEN** requests to it are denied rather than allowed
+#### Scenario: Unclassified non-session road denies when a policy is present
+- **WHEN** a policy is registered and a non-session road on the policy path carries no classification
+- **THEN** it is denied rather than allowed
 
-#### Scenario: Unknown WS message type denies
-- **WHEN** an inbound WS message type has no classification in multi-user mode
-- **THEN** it is refused
+#### Scenario: Classification is inert without a policy
+- **WHEN** no policy is registered
+- **THEN** a non-session road runs as before this change regardless of classification
 
-#### Scenario: Coverage is enforced by test
-- **WHEN** a new protected route or message type is added without classification
-- **THEN** the classification-coverage test fails
+#### Scenario: Session-road coverage is enforced by test
+- **WHEN** a new session road is added without an owner-equality check
+- **THEN** the session-road coverage test fails
 
-#### Scenario: Unclassified plugin route is denied at runtime
-- **WHEN** a plugin registers an HTTP route that bypasses the guarded host route-registration helper and therefore carries no identity classification
-- **THEN** in multi-user mode a catch-all guard denies requests to it rather than letting it inherit authenticated access
+### Requirement: Bootstrap disclosure is gated for non-session state
 
-### Requirement: Bootstrap and global roads are authorized
+When a policy is registered, the system SHALL authorize WebSocket bootstrap disclosure of non-session state (OpenSpec, branch/HEAD, terminal, workspace) through the access policy, so connection bootstrap does not disclose non-session state the policy forbids. Session snapshots in bootstrap SHALL be owner-filtered regardless of the policy. When no policy is registered, non-session bootstrap disclosure is unchanged.
 
-In multi-user mode the system SHALL authorize WebSocket bootstrap frames (OpenSpec, branch/HEAD, terminal, session snapshot) and global/workspace/terminal/system commands through owner-equality (for sessions) and the access policy (for non-session resources), so connection bootstrap does not disclose another principal's sessions, paths, branches, or terminals.
+#### Scenario: Bootstrap omits policy-forbidden non-session state
+- **WHEN** a principal connects with a policy registered
+- **THEN** the bootstrap includes only workspace/terminal/system state the policy permits
+- **AND** it includes only sessions the principal owns, independent of the policy
 
-#### Scenario: Bootstrap omits unauthorized resources
-- **WHEN** a principal connects in multi-user mode
-- **THEN** the bootstrap includes only sessions it owns and only workspace/terminal/system state the policy permits
-
-#### Scenario: Global command is policy-gated
-- **WHEN** a principal issues a workspace or terminal command in multi-user mode
+#### Scenario: Global command is policy-gated when a policy is present
+- **WHEN** a principal issues a workspace or terminal command with a policy registered
 - **THEN** the host calls the policy and proceeds only on `true`

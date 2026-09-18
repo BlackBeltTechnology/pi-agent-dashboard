@@ -223,6 +223,9 @@ export function sessionFromMeta(
     // Restore goal ownership from meta so the session-card goal chip resolves
     // its owning goal after a server restart. See change: add-goals-folder-page.
     goalId: meta.goalId,
+    // Restore the human owner so owner-scoping survives a restart / cold start
+    // without re-reading the sidecar. See change: add-multi-user-identity-plane.
+    principalOwner: meta.principalOwner,
     // Restore session classification for the client (grouping / board
     // visibility). Recovery no longer reads `kind` — it reads the core-owned
     // `recover` flag below. See change: reopen-sessions-after-shutdown.
@@ -310,6 +313,9 @@ function archivedRowFromMeta(
     // origin host's path on THIS disk (#E15).
     // See change: serve-retained-remote-transcripts.
     originDeviceId: meta.originDeviceId,
+    // Owner restored from the sidecar so a cold-boot archive reseed keeps the
+    // archived session owner-gated (§8.1). See change: add-multi-user-identity-plane.
+    principalOwner: meta.principalOwner,
   };
 }
 

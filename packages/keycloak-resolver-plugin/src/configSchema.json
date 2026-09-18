@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Keycloak resolver plugin configuration",
+  "description": "Config-seeds the bundled Keycloak resource-server resolver. Both `issuer` and `audience` are required to ACTIVATE the identity plane; absent either, the resolver stays inert (resolves every request to null) and the dashboard behaves exactly as before. Nothing about the provider is hardcoded. See openspec change: add-multi-user-identity-plane.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "When false the plugin is disabled (no resolver registered) — the identity plane is inert. Default-enabled but dormant until issuer+audience are set."
+    },
+    "issuer": {
+      "type": "string",
+      "description": "Exact OIDC issuer URL (e.g. https://kc.example.com/realms/app). Used for discovery and exact `iss` matching. Required to activate. Pin host/scheme/port before any (iss, sub) ownership is persisted."
+    },
+    "audience": {
+      "type": "string",
+      "description": "Required `aud` value this resource server accepts. Required to activate."
+    },
+    "authorizedParty": {
+      "type": "string",
+      "description": "Optional required `azp` (the public client id). When set, tokens whose `azp` differs are rejected."
+    },
+    "jwksUri": {
+      "type": "string",
+      "description": "Optional explicit JWKS URL. When absent it is taken from OIDC discovery of `issuer`."
+    },
+    "clockSkewSeconds": {
+      "type": "number",
+      "default": 30,
+      "description": "Allowed clock skew (seconds) when checking `exp`."
+    },
+    "networkTimeoutMs": {
+      "type": "number",
+      "default": 2000,
+      "description": "Timeout (ms) for discovery and JWKS fetches."
+    },
+    "allowInsecureHttp": {
+      "type": "boolean",
+      "default": false,
+      "description": "Permit `http:` issuer/JWKS URLs for controlled Docker development. Off in production; without it an `http:` issuer leaves the resolver inert."
+    }
+  }
+}

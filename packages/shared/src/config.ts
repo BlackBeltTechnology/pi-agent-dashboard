@@ -99,6 +99,32 @@ export interface AuthProviderConfig {
   name?: string;
 }
 
+/**
+ * Multi-user identity plane (openspec: add-multi-user-identity-plane).
+ *
+ * There is NO mode flag. The plane activates purely on the bundled
+ * `keycloak-resolver` plugin being enabled AND configured; this block only
+ * carries the host-owned TRUST GRANTS and timeouts, all optional. An absent
+ * `identity` block ⇒ empty trust list, no policy ⇒ inert (today's behavior).
+ */
+export interface IdentityConfig {
+  /**
+   * Plugin ids permitted to register a principal resolver, IN ADDITION to the
+   * bundled `keycloak-resolver`. A self-declared `manifest.priority` grants
+   * nothing — trust is only this operator-controlled list. Default `[]`.
+   */
+  trustedResolverPlugins: string[];
+  /**
+   * The single plugin id permitted to register the OPTIONAL host access
+   * policy (non-session roads). Unset ⇒ no policy ⇒ non-session roads ungated.
+   */
+  trustedPolicyPlugin?: string;
+  /** Per-resolver dispatch budget (ms). Default 2000, clamped [100, 5000]. */
+  resolverTimeoutMs: number;
+  /** Per-policy-call budget (ms). Default 500, clamped [50, 2000]. */
+  policyTimeoutMs: number;
+}
+
 export interface AuthConfig {
   secret: string;
   providers: Record<string, AuthProviderConfig>;
@@ -540,6 +566,11 @@ export interface DashboardConfig {
   };
   devBuildOnReload: boolean;
   auth?: AuthConfig;
+  /**
+   * Multi-user identity plane trust grants + timeouts. Always present (default
+   * inert: empty resolver trust list, no policy plugin). See IdentityConfig.
+   */
+  identity: IdentityConfig;
   defaultModel: string;
   /**
    * Default thinking level applied to brand-new startup sessions alongside
@@ -924,6 +955,60 @@ export function resolveDashboardPorts(
  */
 export const DEFAULT_SUBAGENT_TICK_THROTTLE_MS = 500;
 
+/** Inert default: no trusted resolver plugins beyond the bundled one, no policy. */
+export const DEFAULT_IDENTITY: IdentityConfig = {
+  trustedResolverPlugins: [],
+  resolverTimeoutMs: 2000,
+  policyTimeoutMs: 500,
+};
+
+const IDENTITY_RESOLVER_TIMEOUT_MIN = 100;
+const IDENTITY_RESOLVER_TIMEOUT_MAX = 5000;
+const IDENTITY_POLICY_TIMEOUT_MIN = 50;
+const IDENTITY_POLICY_TIMEOUT_MAX = 2000;
+
+function clampInt(
+  value: unknown,
+  min: number,
+  max: number,
+  fallback: number,
+): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, Math.trunc(value)));
+}
+
+/**
+ * Parse the `identity` block. Always returns a valid IdentityConfig; a missing
+ * or malformed block yields the inert default (empty trust list, no policy),
+ * so an unconfigured dashboard behaves exactly as before this change.
+ */
+export function parseIdentityConfig(raw: any): IdentityConfig {
+  if (!raw || typeof raw !== "object") return { ...DEFAULT_IDENTITY };
+  const trustedResolverPlugins = Array.isArray(raw.trustedResolverPlugins)
+    ? raw.trustedResolverPlugins.filter(
+        (p: unknown): p is string => typeof p === "string" && p.length > 0,
+      )
+    : [];
+  return {
+    trustedResolverPlugins,
+    ...(typeof raw.trustedPolicyPlugin === "string" && raw.trustedPolicyPlugin.length > 0
+      ? { trustedPolicyPlugin: raw.trustedPolicyPlugin }
+      : {}),
+    resolverTimeoutMs: clampInt(
+      raw.resolverTimeoutMs,
+      IDENTITY_RESOLVER_TIMEOUT_MIN,
+      IDENTITY_RESOLVER_TIMEOUT_MAX,
+      DEFAULT_IDENTITY.resolverTimeoutMs,
+    ),
+    policyTimeoutMs: clampInt(
+      raw.policyTimeoutMs,
+      IDENTITY_POLICY_TIMEOUT_MIN,
+      IDENTITY_POLICY_TIMEOUT_MAX,
+      DEFAULT_IDENTITY.policyTimeoutMs,
+    ),
+  };
+}
+
 const DEFAULTS: DashboardConfig = {
   plugins: {},
   kroki: { ...DEFAULT_KROKI_CONFIG },
@@ -976,6 +1061,7 @@ const DEFAULTS: DashboardConfig = {
   spawnRegisterTimeoutMs: 30000,
   gitWorktreeEnabled: true,
   windowsGitSource: "auto",
+  identity: { ...DEFAULT_IDENTITY },
 };
 
 /**
@@ -1553,6 +1639,7 @@ export function loadConfig(): DashboardConfig {
       defaultThinkingLevel:
         typeof parsed.defaultThinkingLevel === "string" ? parsed.defaultThinkingLevel : defaults.defaultThinkingLevel,
       auth: parseAuthConfig(parsed.auth),
+      identity: parseIdentityConfig(parsed.identity),
       memoryLimits: parseMemoryLimits(parsed.memoryLimits),
       openspec: parseOpenSpecPollConfig(parsed.openspec),
       sessions: parseSessionsConfig(parsed.sessions),

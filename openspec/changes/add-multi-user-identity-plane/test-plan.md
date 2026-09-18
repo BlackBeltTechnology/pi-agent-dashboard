@@ -1,6 +1,8 @@
 # Test Plan — add-multi-user-identity-plane
 
-Adversarial, real-life scenarios derived from the six specs. Stage: `apply` (soft gate). Each row is a Triple (INPUT / TRIGGER / OBSERVABLE) with a level and disposition. `[NEEDS CLARIFICATION]` markers, if any, are surfaced in the banner.
+Adversarial, real-life scenarios derived from the seven specs. Stage: `apply` (soft gate). Each row is a Triple (INPUT / TRIGGER / OBSERVABLE) with a level and disposition. `[NEEDS CLARIFICATION]` markers, if any, are surfaced in the banner.
+
+**Activation vocabulary:** there is no mode flag. "Active" = the bundled `keycloak-resolver` plugin is enabled AND configured (issuer+audience). "Inert" = disabled or unconfigured (byte-for-byte today). The host access policy is OPTIONAL and gates only non-session roads; session roads are owner-gated whenever the resolver is active.
 
 **Clarification markers:** none blocking — the two deferred items (cross-instance `jti` replay; ownerless-session adoption) are explicit non-goals in design.md, not gaps.
 
@@ -20,7 +22,7 @@ Levels: **L1** unit (`packages/*/src/**/__tests__/*.test.ts`, vitest) · **L2** 
 | PR-6 | perf | threshold | L1 | automated | Resolver sleeps 3s, budget 2s → treated as null at 2s±, walk continues; p95 gate overhead < 5ms with zero resolvers. |
 | PR-7 | edge | boundary | L1 | automated | Resolver returns `{iss:'x',sub:'',expiresAt:...}` → validation discards (empty sub), logged, `principal` null. |
 | PR-8 | edge | boundary | L1 | automated | Resolution `expiresAt` = now−1s → treated invalid, no principal. |
-| PR-9 | edge | state | L1 | automated | Legacy mode + a resolver registered → dispatch does NOT invoke it; `principal` null, `isAuthenticated` exactly the legacy chain's value. |
+| PR-9 | edge | state | L1 | automated | Resolver enabled but unconfigured (no issuer/audience) → dispatch makes no claim; `principal` null, `isAuthenticated` exactly the pre-change chain's value. |
 | PR-10 | edge | decision-table | L1 | automated | Untrusted plugin (not in `trustedResolverPlugins`, priority 5) registers → no-op registrar, resolver never runs. |
 | PR-11 | edge | state | L1 | automated | Device paired-bearer, no JWT resolver claim → `isAuthenticated` true, `principal` null (device is not a person). |
 
@@ -39,15 +41,15 @@ Levels: **L1** unit (`packages/*/src/**/__tests__/*.test.ts`, vitest) · **L2** 
 | KC-9 | error | boundary | L1 | automated | DPoP proof well-formed but `ath` ≠ SHA-256(access token) → reject (proof not bound to this token). |
 | KC-10 | error | fault-injection | L1 | automated | Induced crypto fault on an owned token → resolver returns reject (caught), not an uncaught throw → null fall-through. |
 | KC-11 | edge | boundary | L1 | automated | Token `iss` differs from configured issuer by trailing slash / port → reject (exact match, issuer pinning). |
-| KC-12 | error | decision-table | L2 | automated | `identity.mode=multi-user` + non-empty `auth.providers` → startup fails before listen. |
+| KC-12 | error | decision-table | L2 | automated | Resolver active + non-empty `auth.providers` → startup fails before listen; resolver inert → connectors intact. |
 
 ## WebSocket principal binding + lifetime
 
 | # | Class | Technique | Level | Disp. | INPUT → TRIGGER → OBSERVABLE |
 |---|---|---|---|---|---|
 | WS-1 | edge | state | L1 | automated | Principal-bearing request mints ticket → ticket records `(iss,sub)`+`expiresAt`, single-use, short-TTL. |
-| WS-2 | edge | state-transition | L3 | automated | Multi-user mode, browser upgrade with cookie only, no ticket → upgrade refused. |
-| WS-3 | edge | state-transition | L3 | automated | Multi-user mode, browser on trusted network, no ticket → upgrade refused (bypass does not apply). |
+| WS-2 | edge | state-transition | L3 | automated | Resolver active, browser upgrade with cookie only, no ticket → upgrade refused. |
+| WS-3 | edge | state-transition | L3 | automated | Resolver active, browser on trusted network, no ticket → upgrade refused (bypass does not apply). Resolver inert → upgrade unchanged. |
 | WS-4 | edge | state | L1 | automated | Principal-bound ticket consumed → `ws.principal` + `ws.principalExpiresAt` set, immutable. Principal-less ticket → `ws.principal` null. |
 | WS-5 | edge | state-transition | L1 | automated | Socket reaches `principalExpiresAt` → socket closed, subscriptions released. |
 | WS-6 | frontend-quirk | state-convergence | L3 | automated | Socket answers heartbeats past expiry → still closed at expiry (liveness ≠ identity renewal). |
@@ -69,24 +71,35 @@ Levels: **L1** unit (`packages/*/src/**/__tests__/*.test.ts`, vitest) · **L2** 
 
 | # | Class | Technique | Level | Disp. | INPUT → TRIGGER → OBSERVABLE |
 |---|---|---|---|---|---|
-| AP-1 | error | decision-table | L2 | automated | Multi-user mode, zero policies → startup fails; two policies → startup fails; exactly one → boots. |
+| AP-1 | error | decision-table | L2 | automated | No `trustedPolicyPlugin` named → boots, non-session roads ungated; named-but-absent → startup fails; two policies → startup fails; exactly one → boots. |
 | AP-2 | error | fault-injection | L1 | automated | Policy times out (>configured) / throws / returns non-boolean → deny + structured audit event each. |
-| AP-3 | edge | boundary | L1 | automated | Protected `/api` route with no classification in multi-user mode → denied (catch-all), not allowed. |
-| AP-4 | edge | boundary | L1 | automated | Plugin registers a raw Fastify route bypassing the guarded helper → unclassified → denied at runtime in multi-user mode. |
-| AP-5 | edge | coverage | L1 | automated | Add a protected route/message without classification → classification-coverage test fails (meta-test). |
-| AP-6 | edge | state | L1 | automated | Unknown inbound WS message type in multi-user mode → refused. |
-| AP-7 | edge | state | L3 | automated | Principal connects → bootstrap includes only owned sessions and only policy-permitted workspace/terminal/system state (no other user's paths/branches/terminals). |
+| AP-3 | edge | boundary | L1 | automated | Policy registered + unclassified non-session road on the policy path → denied fail-closed; no policy → same road ungated (as today). |
+| AP-4 | edge | boundary | L1 | automated | Session road (owner-gated) needs no policy: non-owner refused, owner accepted, with zero policy plugins registered. |
+| AP-5 | edge | coverage | L1 | automated | Add a session road without an owner-equality check → session-road coverage test fails (meta-test). |
+| AP-6 | edge | state | L1 | automated | Policy registered + unknown non-session WS message type on the policy path → refused; no policy → unchanged. |
+| AP-7 | edge | state | L3 | automated | Principal connects with a policy registered → bootstrap includes only owned sessions and only policy-permitted workspace/terminal/system state (no other user's paths/branches/terminals). |
 | AP-8 | edge | state | L1 | automated | Only the `trustedPolicyPlugin`-named plugin can register `authorize`; another registrant refused. |
 
 ## Permissioned fan-out
 
 | # | Class | Technique | Level | Disp. | INPUT → TRIGGER → OBSERVABLE |
 |---|---|---|---|---|---|
-| FO-1 | edge | decision-table | L1/L3 | automated | Anna + Béla sockets, domain event for Anna's resource, multi-user → only Anna receives; Béla does not; principal-less socket does not. |
+| FO-1 | edge | decision-table | L1/L3 | automated | Anna + Béla sockets, domain event for Anna's resource, policy registered → only Anna receives; Béla does not; principal-less socket does not. |
 | FO-2 | error | fault-injection | L1 | automated | Policy throws/times out for a candidate socket → event not delivered to it, denial logged. |
-| FO-3 | edge | state | L1 | automated | Legacy mode → global broadcast unchanged (byte-for-byte prior behavior). |
+| FO-3 | edge | state | L1 | automated | No policy registered → global broadcast unchanged (byte-for-byte prior behavior). |
 | FO-4 | edge | state | L1 | automated | Session-scoped flow frame → delivered via owner-gated subscription road, NOT the policy road. |
-| FO-5 | edge | boundary | L1 | automated | Undeclared frame type at emit → treated as protected domain event (policy-gated), never globally broadcast. |
+| FO-5 | edge | boundary | L1 | automated | Undeclared frame type at emit → treated as a domain event (policy-gated when a policy exists, else ungated), never as an owner-scoped session frame. |
+
+## Browser client plane (topology B)
+
+| # | Class | Technique | Level | Disp. | INPUT → TRIGGER → OBSERVABLE |
+|---|---|---|---|---|---|
+| BC-1 | edge | state | L1 | automated | Client runs PKCE → access token held in memory, never written to `localStorage`; token exchange sends a code verifier and no client secret. |
+| BC-2 | edge | state | L1 | automated | Same-origin `/api` request with a token → carries `Authorization: Bearer`; a request with an explicit `Authorization` header → not overridden. |
+| BC-3 | edge | state | L3 | automated | Resolver active, unpaired human browser (re)connects → client mints a fresh single-use ws-ticket via the bearer, presents only `?ticket=`, token never on the WS URL. |
+| BC-4 | frontend-quirk | state-transition | L3 | automated | Socket closes at `principalExpiresAt` → client re-acquires a token, mints a new ticket, reconnects. |
+| BC-5 | edge | decision-table | L1 | automated | Token with `cnf.jkt` → client attaches a DPoP proof per REST call + ticket mint; unbound token → no proof, REST still succeeds (config-free downgrade). |
+| BC-6 | edge | state | L1/L3 | automated | Inert dashboard → client runs no PKCE, attaches no bearer, mints no ticket (today's UX). |
 
 ## End-to-end (real Keycloak, two users)
 
@@ -94,11 +107,11 @@ Levels: **L1** unit (`packages/*/src/**/__tests__/*.test.ts`, vitest) · **L2** 
 |---|---|---|---|---|---|
 | E2E-1 | integration | scenario | L3 | automated | Seeded realm (Anna, Béla), Authorization Code + PKCE login → each obtains a token, dashboard validates it, `(iss,sub)` distinct. |
 | E2E-2 | integration | scenario | L3 | automated | Anna + Béla concurrent HTTP+WS → Béla reaches none of Anna's sessions across bootstrap, list, detail, subscribe, replay, command, and domain-event fan-out. |
-| E2E-3 | edge | state | L3 | automated | Legacy default (no `identity` config) → current dashboard behavior identical (regression guard). |
-| E2E-4 | perf | soak | L2 | manual-only | JWKS hot-path under sustained multi-user load — measure resolver p95; threshold TBD by deployment. Disposition manual until a perf harness exists. |
+| E2E-3 | edge | state | L3 | automated | Inert default (resolver unconfigured) → current dashboard behavior identical (regression guard). |
+| E2E-4 | perf | soak | L2 | manual-only | JWKS hot-path under sustained active-resolver load — measure resolver p95; threshold TBD by deployment. Disposition manual until a perf harness exists. |
 
 ---
 
-**New infra needed:** the L3 rows assume the docker E2E harness runs a seeded Keycloak container (realm with Anna/Béla, roles as identity-only). SITUATION.md notes the realm JSON exists but no container runs and the realm needs reseeding to drop group-based routing. That harness addition is a prerequisite for E2E-1/E2E-2 and is called out in tasks §11.2.
+**New infra needed (tasks §11.2, built in THIS repo):** the L3 rows require a docker E2E harness with a seeded Keycloak container (realm with Anna/Béla, roles identity-only), a fixture trusted policy plugin (for AP/FO/E2E-2 fan-out rows), and a token-minting test helper. The invoice-bot realm JSON exists in the other repo but no container runs here and it needs reseeding to drop group-based routing; that harness addition is a prerequisite for the L3 rows.
 
-**Fold target:** these rows fold into tasks §4–§11 (unit/L1 into their feature groups; L3 into §11.2; AP-5 meta-test into §7.3–§7.4).
+**Fold target:** these rows fold into tasks §4–§12 (unit/L1 into their feature groups; L3 into §11.2; BC-* into §12; AP-5 session-road meta-test into §8; AP/FO policy rows into §7/§10).

@@ -17,6 +17,7 @@
  *    be replayed against a more-privileged `/ws/terminal/*` route.
  */
 import crypto from "node:crypto";
+import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 
 /** Core WS route scopes — the only scopes a ticket may ever be bound to. */
 const CORE_WS_ROUTE_SCOPES = ["browser", "terminal", "live", "bridge"] as const;
@@ -59,12 +60,25 @@ interface TicketEntry {
    * from anything the bridge says about itself.
    */
   deviceId?: string;
+  /**
+   * Human principal resolved at mint from the REST caller's credential (§9.1 /
+   * design D12). Absent for a principal-less mint (inert era, non-browser
+   * scope). Carried onto the socket at upgrade so every session road can
+   * owner-gate. NEVER the durable token — only the identity `(iss, sub[, email])`.
+   */
+  principal?: Principal;
+  /**
+   * The principal's own expiry (ms epoch), the underlying token `exp`. Bounds
+   * the socket lifetime (§9.4); distinct from the ticket's short mint TTL
+   * (`expiresAt`). Absent when there is no principal.
+   */
+  principalExpiresAt?: number;
   expiresAt: number;
 }
 
 /** Outcome of a single-use consumption attempt, with the cause named. */
 export type TicketConsumption =
-  | { ok: true; deviceId?: string }
+  | { ok: true; deviceId?: string; principal?: Principal; principalExpiresAt?: number }
   | { ok: false; reason: "missing" | "unknown" | "expired" | "wrong-scope" };
 
 /**
@@ -134,13 +148,28 @@ export class WsTicketStore {
     this.now = now;
   }
 
-  /** Mint a single-use ticket bound to a core route scope (authenticated caller). */
-  mint(scope: CoreWsRouteScope, deviceId?: string): string {
+  /**
+   * Mint a single-use ticket bound to a core route scope (authenticated
+   * caller). When the REST caller resolved to a principal (§9.1), it is bound
+   * here with its `principalExpiresAt`; a principal-less mint records neither,
+   * so the resulting socket is principal-less.
+   */
+  mint(
+    scope: CoreWsRouteScope,
+    deviceId?: string,
+    identity?: { principal: Principal; principalExpiresAt?: number },
+  ): string {
     // Lazy sweep on each mint clears abandoned (minted-but-unconsumed) tickets
     // so the map can't grow unbounded without a background timer.
     this.sweep();
     const ticket = crypto.randomBytes(TICKET_BYTES).toString("base64url");
-    this.tickets.set(ticket, { scope, deviceId, expiresAt: this.now() + TICKET_TTL_MS });
+    this.tickets.set(ticket, {
+      scope,
+      deviceId,
+      principal: identity?.principal,
+      principalExpiresAt: identity?.principalExpiresAt,
+      expiresAt: this.now() + TICKET_TTL_MS,
+    });
     return ticket;
   }
 
@@ -170,7 +199,12 @@ export class WsTicketStore {
     if (!entry) return { ok: false, reason: "unknown" };
     if (entry.expiresAt < this.now()) return { ok: false, reason: "expired" };
     if (entry.scope !== scope) return { ok: false, reason: "wrong-scope" };
-    return { ok: true, deviceId: entry.deviceId };
+    return {
+      ok: true,
+      deviceId: entry.deviceId,
+      principal: entry.principal,
+      principalExpiresAt: entry.principalExpiresAt,
+    };
   }
 
   /** Drop expired tickets (memory hygiene). */

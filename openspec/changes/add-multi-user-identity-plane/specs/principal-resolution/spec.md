@@ -116,16 +116,16 @@ A resolver that throws, rejects, or exceeds its configured time budget SHALL be 
 - **WHEN** a resolver exceeds its time budget
 - **THEN** it is treated as returning `null` and the walk continues
 
-### Requirement: Legacy mode is inert even when resolvers are registered
+### Requirement: Resolution is inert until a resolver is active
 
-With `identity.mode = legacy` (the default), the system SHALL NOT dispatch resolvers: `request.principal` and `request.principalExpiresAt` remain `null`, `request.isAuthenticated` is unaffected by any resolver, and every authentication and routing outcome is identical to before this change — even if resolvers are registered in the registry. Resolver dispatch and policy evaluation activate only in multi-user mode.
+The plane has no mode flag. The dispatch hook SHALL make no claim while no trusted resolver is both registered and configured ("inert"): `request.principal` and `request.principalExpiresAt` remain `null`, `request.isAuthenticated` is unaffected by resolution, and every authentication and routing outcome is identical to before this change. Resolution SHALL take effect only when a trusted resolver is active (registered and configured).
 
-#### Scenario: No resolvers registered in legacy mode
-- **WHEN** the server runs in legacy mode with zero registered resolvers
+#### Scenario: No resolver active
+- **WHEN** the server runs with no configured trusted resolver
 - **THEN** every request has `request.principal === null`
 - **AND** no authentication or routing behavior differs from before the seam existed
 
-#### Scenario: Registered resolver stays inert in legacy mode
-- **WHEN** the server runs in legacy mode but a resolver is registered
-- **THEN** the dispatch hook does not invoke it
+#### Scenario: Registered-but-unconfigured resolver stays inert
+- **WHEN** the bundled resolver plugin is enabled but missing its `issuer`/`audience` configuration
+- **THEN** the dispatch hook makes no claim
 - **AND** `request.principal` is `null` and `request.isAuthenticated` is exactly what the pre-existing auth chain set

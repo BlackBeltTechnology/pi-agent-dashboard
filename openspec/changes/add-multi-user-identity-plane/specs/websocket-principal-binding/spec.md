@@ -1,6 +1,6 @@
 ## Purpose
 
-Carries the resolved `(iss, sub)` principal and its credential expiry from a principal-bearing HTTP mint onto the browser WebSocket, makes an identity-bearing ticket mandatory for browser upgrades in multi-user mode so no other upgrade path bypasses it, and bounds an authenticated socket by its token expiry.
+Carries the resolved `(iss, sub)` principal and its credential expiry from a principal-bearing HTTP mint onto the browser WebSocket, makes an identity-bearing ticket mandatory for browser upgrades while the resolver is active so no other upgrade path bypasses it, and bounds an authenticated socket by its token expiry.
 
 ## ADDED Requirements
 
@@ -17,17 +17,21 @@ The system SHALL bind the caller's resolved `principal` and `principalExpiresAt`
 - **WHEN** a request with `request.principal === null` mints a ticket
 - **THEN** the ticket carries no principal
 
-### Requirement: Browser upgrades in multi-user mode require an identity ticket
+### Requirement: Browser upgrades require an identity ticket while the resolver is active
 
-When `identity.mode = multi-user`, a browser-scope WebSocket upgrade SHALL require a valid single-use ticket minted by a principal-bearing request. Cookie, local-token, trusted-network, and no-ticket browser upgrades SHALL NOT bypass this requirement. Non-browser scopes (bridge, device/pairing) retain their existing, separately specified rules.
+When the resolver is active, a browser-scope WebSocket upgrade SHALL require a valid single-use ticket minted by a principal-bearing request. Cookie, local-token, trusted-network, and no-ticket browser upgrades SHALL NOT bypass this requirement. Non-browser scopes (bridge, device/pairing) retain their existing, separately specified rules. While the resolver is inert, browser upgrades are unchanged from before this change.
 
-#### Scenario: Cookie-only browser upgrade is refused in multi-user mode
-- **WHEN** a browser attempts an upgrade in multi-user mode with only a session cookie and no ticket
+#### Scenario: Cookie-only browser upgrade is refused when active
+- **WHEN** a browser attempts an upgrade while the resolver is active with only a session cookie and no ticket
 - **THEN** the upgrade is refused
 
 #### Scenario: Trusted-network browser upgrade still requires a ticket
-- **WHEN** a browser on a trusted network attempts an upgrade in multi-user mode without a ticket
+- **WHEN** a browser on a trusted network attempts an upgrade while the resolver is active without a ticket
 - **THEN** the upgrade is refused
+
+#### Scenario: Inert dashboard upgrades unchanged
+- **WHEN** the resolver is inert and a browser upgrades as it does today
+- **THEN** the upgrade succeeds exactly as before this change
 
 ### Requirement: Principal and expiry attached at upgrade
 

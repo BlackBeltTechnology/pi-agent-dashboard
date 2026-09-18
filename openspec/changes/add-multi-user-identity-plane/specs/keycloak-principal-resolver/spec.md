@@ -1,12 +1,12 @@
 ## Purpose
 
-A resolver bundled inside the dashboard that validates a Keycloak JWT access token as an OAuth resource server (RFC 9068) and reads every deployment-specific Keycloak value from settings, so nothing about the identity provider is hardcoded.
+A resolver shipped as a bundled dashboard plugin (`keycloak-resolver`, default-enabled, in `BUNDLED_PLUGINS`) that validates a Keycloak JWT access token as an OAuth resource server (RFC 9068) and reads every deployment-specific Keycloak value from settings, so nothing about the identity provider is hardcoded and dashboard core imports nothing Keycloak-specific. It is replaceable by an override plugin (disable the default + trust the replacement).
 
 ## ADDED Requirements
 
 ### Requirement: Keycloak connection is entirely config-seeded
 
-The resolver SHALL read every Keycloak-specific value from settings via `getPluginConfig()` and SHALL NOT hardcode any issuer, realm, hostname, port, client id, audience, or key. Required settings: `issuer`, `audience`. Optional: `authorizedParty`, `jwksUri`, `clockSkewSeconds` (default 30), `networkTimeoutMs` (default 2000), `allowInsecureHttp` (default false). When required settings are absent, the resolver SHALL register but resolve every request to `null`, never a hardcoded fallback.
+The resolver SHALL read every Keycloak-specific value from settings via `getPluginConfig()` and SHALL NOT hardcode any issuer, realm, hostname, port, client id, audience, or key. Required settings to activate: `issuer`, `audience`. Optional: `authorizedParty`, `jwksUri`, `clockSkewSeconds` (default 30), `networkTimeoutMs` (default 2000), `allowInsecureHttp` (default false). When required settings are absent, the resolver SHALL register but resolve every request to `null` (inert), never a hardcoded fallback.
 
 #### Scenario: Issuer seeded from settings
 - **WHEN** the resolver is configured with an issuer (e.g. a Docker `http://keycloak:8080/realms/<realm>`)
@@ -61,7 +61,7 @@ For an owned token the resolver SHALL verify: the signature uses the allowed alg
 
 ### Requirement: DPoP proof validated when the token is sender-constrained
 
-When an owned token carries a `cnf.jkt` confirmation, the resolver SHALL validate the DPoP proof (RFC 9449): the proof JWS signature verifies under its embedded `jwk`; the SHA-256 thumbprint of that `jwk` equals `cnf.jkt`; `htm` equals the request method; `htu` equals the canonical request URL (scheme/host/port from configured public base or trusted proxy, query and fragment stripped); `ath` equals the base64url-encoded SHA-256 of the presented access token; `iat` is within the freshness window; and `jti` is unreused within that window. An absent, unsigned, or any-element-mismatched proof SHALL reject. A token without `cnf.jkt` SHALL be validated as an ordinary bearer. The `jti` replay window is enforced within a single dashboard instance; cross-instance replay defense is out of scope.
+DPoP is conditional on the token being sender-constrained. When an owned token carries a `cnf.jkt` confirmation, the resolver SHALL validate the DPoP proof (RFC 9449): the proof JWS signature verifies under its embedded `jwk`; the SHA-256 thumbprint of that `jwk` equals `cnf.jkt`; `htm` equals the request method; `htu` equals the canonical request URL (scheme/host/port from configured public base or trusted proxy, query and fragment stripped); `ath` equals the base64url-encoded SHA-256 of the presented access token; `iat` is within the freshness window; and `jti` is unreused within that window. An absent, unsigned, or any-element-mismatched proof SHALL reject. A token without `cnf.jkt` SHALL be validated as an ordinary bearer, so a realm that issues unbound tokens works unchanged. The `jti` replay window is enforced within a single dashboard instance; cross-instance replay defense is out of scope.
 
 #### Scenario: Missing DPoP proof for a bound token is rejected
 - **WHEN** an owned token has `cnf.jkt` but the request carries no valid `dpop` proof
@@ -84,12 +84,12 @@ The resolver SHALL obtain keys by OIDC discovery from the configured issuer (or 
 - **WHEN** JWKS/discovery is unreachable within the timeout and no usable cached key exists
 - **THEN** owned tokens are rejected rather than accepted unverified
 
-### Requirement: Multi-user mode excludes confidential login connectors
+### Requirement: An active resolver excludes confidential login connectors
 
-When `identity.mode = multi-user`, a non-empty `auth.providers` (the confidential code→cookie login connectors) SHALL be a startup configuration error, because that path is not a resource-server validator and would create a second principal source and a principal-less cookie bypass. In `legacy` mode the connectors are unaffected.
+When the resolver is active (enabled and configured), a non-empty `auth.providers` (the confidential code→cookie login connectors) SHALL be a startup configuration error, because that path is not a resource-server validator and would create a second principal source and a principal-less cookie bypass. While the resolver is inert the connectors are unaffected.
 
-#### Scenario: Mixed mode fails startup
-- **WHEN** `identity.mode` is multi-user and `auth.providers` is non-empty
+#### Scenario: Active resolver plus connectors fails startup
+- **WHEN** the resolver is active and `auth.providers` is non-empty
 - **THEN** startup fails with a configuration error before `listen()`
 
 ### Requirement: Issuer is pinned and matched exactly

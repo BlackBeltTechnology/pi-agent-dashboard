@@ -509,6 +509,13 @@ export interface DashboardSession {
    */
   goalId?: string;
   /**
+   * Human principal that owns this session `(iss, sub)`, mirror of
+   * `SessionMeta.principalOwner`. Absent ⇒ ownerless (scheduler/automation or
+   * inert-era). Surfaced on summaries so owner-scoping can filter without a
+   * sidecar read. See change: add-multi-user-identity-plane (D11).
+   */
+  principalOwner?: { iss: string; sub: string };
+  /**
    * Core-owned cold-start recovery opt-out, mirror of `SessionMeta.recover`.
    * Absent ⇒ recoverable (`true`). Resolved from an owning plugin's lifecycle
    * declaration `{ recover }` through the generic session-ownership seam; core

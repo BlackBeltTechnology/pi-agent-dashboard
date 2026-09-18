@@ -159,6 +159,14 @@ export interface EventWiringDeps {
    */
   pendingPluginRefRegistry?: import("./pending/pending-plugin-ref-registry.js").PendingPluginRefRegistry;
   /**
+   * Optional token-keyed pending principal-owner registry (§6.2 / D11). When
+   * provided, a `session_register` resolves (by spawn token) the human owner a
+   * trusted spawn road filed before the spawn await, stamps the in-memory
+   * `DashboardSession.principalOwner`, and persists it to `.meta.json`. Token-
+   * keyed only — cwd never confers ownership.
+   */
+  pendingPrincipalOwnerRegistry?: import("./pending/pending-principal-owner-registry.js").PendingPrincipalOwnerRegistry;
+  /**
    * Owner-notify seam. When provided, a resolved session's owning plugin is
    * handed its own `pluginRef` + sessionId — BEFORE first-event forwarding and
    * pending-prompt dispatch. See change: detach-automation-goal-from-core.
@@ -270,6 +278,7 @@ export function wireEvents(deps: EventWiringDeps): void {
     pendingInitialPromptRegistry,
     pendingWorktreeBaseRegistry,
     pendingPluginRefRegistry,
+    pendingPrincipalOwnerRegistry,
     dispatchPluginSessionResolved,
     viewedSessionTracker,
     pendingClientCorrelations,
@@ -1461,6 +1470,31 @@ export function wireEvents(deps: EventWiringDeps): void {
         // Owner-notify: only on a fresh resolution (carries ownerId), BEFORE
         // first-event forwarding / pending-prompt dispatch (task 3.1).
         if (ownerId && ref) dispatchPluginSessionResolved?.(ownerId, sessionId, ref);
+      }
+
+      // ── principalOwner arm (§6.2 / D11) ──────────────────────────────
+      // Resolve the human owner a trusted spawn road filed against this spawn
+      // token BEFORE the spawn await. Token-keyed only — cwd never confers
+      // ownership. Consumed once on first register; a reconnect / cold-start
+      // restore reads the owner back from `.meta.json` via `sessionFromMeta`,
+      // so no re-resolution is needed here.
+      if (pendingPrincipalOwnerRegistry && msg.spawnToken) {
+        const owner = pendingPrincipalOwnerRegistry.resolve(msg.spawnToken);
+        if (owner) {
+          sessionManager.update(sessionId, { principalOwner: owner });
+          const session = sessionManager.get(sessionId);
+          if (session?.sessionFile) {
+            try {
+              mergeSessionMeta(session.sessionFile, { principalOwner: owner });
+            } catch (err) {
+              console.warn(
+                `[event-wiring] failed to persist principalOwner to .meta.json for ${sessionId}:`,
+                err,
+              );
+            }
+          }
+          browserGateway.broadcastSessionUpdated(sessionId, { principalOwner: owner });
+        }
       }
 
 

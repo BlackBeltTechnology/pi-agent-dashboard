@@ -107,6 +107,14 @@ if [ "${TEST_COPY_MODE:-}" != "1" ]; then
 else
   MODE_NOTE="copy (no added capability)"
 fi
+# Optional extra overlay layered LAST (highest precedence). Used by the
+# identity-plane E2E to boot an identity-ACTIVE harness
+# (TEST_EXTRA_COMPOSE=compose.test.identity.yml). Off by default ⇒ the shared
+# harness is byte-for-byte unchanged. See openspec: add-multi-user-identity-plane.
+if [ -n "${TEST_EXTRA_COMPOSE:-}" ]; then
+  COMPOSE_FILES+=(-f "${SCRIPT_DIR}/${TEST_EXTRA_COMPOSE}")
+  MODE_NOTE="${MODE_NOTE} + ${TEST_EXTRA_COMPOSE}"
+fi
 
 echo "──────────────────────────────────────────────────────────────"
 echo " pi-dashboard test harness"

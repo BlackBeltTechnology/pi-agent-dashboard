@@ -5,6 +5,7 @@
  * with a namespaced logger and typed config accessors.
  */
 import type { SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { HostAccessPolicyFn, PrincipalResolverFn } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import type { SessionFlags } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { PluginLogger } from "../plugin-context.js";
@@ -745,8 +746,41 @@ export interface ServerPluginContext {
    * change: add-browser-relay (D1).
    */
   registerWsRoute(scope: string, opts: WsRouteRegistration): void;
+  /**
+   * Register a principal resolver for the identity plane. Host-trust-gated
+   * (bundled `keycloak-resolver` or a plugin named in
+   * `identity.trustedResolverPlugins`); an untrusted plugin receives a no-op
+   * registrar that registers nothing and returns an inert unregister handle.
+   * Returns an unregister handle. See openspec: add-multi-user-identity-plane
+   * (D4). Optional — absent on hosts that do not wire the identity plane.
+   */
+  registerPrincipalResolver?: RegisterPrincipalResolverFn;
+  /**
+   * Register THIS plugin's host access policy (identity plane, D9). Accepted
+   * only from the plugin named in `identity.trustedPolicyPlugin`; any other
+   * plugin receives a no-op registrar. Governs only NON-session host roads;
+   * session roads are owner-gated regardless. Optional — absent on hosts that
+   * do not wire the identity plane. See openspec: add-multi-user-identity-plane.
+   */
+  registerHostAccessPolicy?: RegisterHostAccessPolicyFn;
   logger: PluginLogger;
 }
+
+/**
+ * Host capability to register a principal resolver (identity plane, D4).
+ * Injected by the server; the host owns the trust decision and the registry.
+ */
+export type RegisterPrincipalResolverFn = (
+  resolve: PrincipalResolverFn,
+  options?: { active?: boolean; clockSkewSeconds?: number },
+) => () => void;
+
+/**
+ * Host capability to register the single host access policy (identity plane,
+ * D9). Injected by the server; the host owns the trust decision and the
+ * registry. Returns an unregister handle.
+ */
+export type RegisterHostAccessPolicyFn = (authorize: HostAccessPolicyFn) => () => void;
 
 /** Dependencies injected by the server to construct a ServerPluginContext. */
 export interface ServerContextDeps {
@@ -788,6 +822,20 @@ export interface ServerContextDeps {
   networkGuard: PluginNetworkGuard;
   /** Subscribe to server shutdown. See change: relocate-goal-product-to-plugin. */
   onShutdown: OnShutdownFn;
+  /**
+   * Register a principal resolver for THIS plugin (identity plane, D4). The
+   * server binds the plugin id + manifest priority + trust decision; the
+   * plugin-facing signature is just `(resolve) => unregister`. Optional —
+   * absent when the host does not wire the identity plane.
+   */
+  registerPrincipalResolver?: RegisterPrincipalResolverFn;
+  /**
+   * Register THIS plugin's host access policy (identity plane, D9). The server
+   * binds the plugin id + trust decision; the plugin-facing signature is just
+   * `(authorize) => unregister`. Optional — absent when the host does not wire
+   * the identity plane.
+   */
+  registerHostAccessPolicy?: RegisterHostAccessPolicyFn;
 }
 
 /**
@@ -838,6 +886,12 @@ export function createServerPluginContext(
     networkGuard: deps.networkGuard,
     onShutdown: deps.onShutdown,
     registerWsRoute: (scope, opts) => getWsRouteRegistry().register(pluginId, scope, opts),
+    ...(deps.registerPrincipalResolver
+      ? { registerPrincipalResolver: deps.registerPrincipalResolver }
+      : {}),
+    ...(deps.registerHostAccessPolicy
+      ? { registerHostAccessPolicy: deps.registerHostAccessPolicy }
+      : {}),
     logger,
   };
 }
