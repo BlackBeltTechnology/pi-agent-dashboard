@@ -9,8 +9,10 @@ import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Router } from "wouter";
+import { Router, useLocation } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
+import { buildFolderEditorUrl } from "../../lib/nav/route-builders.js";
+import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
 import { DirectoryHomeView } from "../folder/DirectoryHomeView.js";
 
 function TestRouter({ children }: { children: React.ReactNode }) {
@@ -158,5 +160,39 @@ describe("DirectoryHomeView content", () => {
     // No onboarding LandingPage surface leaks into the folder home.
     expect(screen.queryByTestId("onboarding-step-1-cta")).toBeNull();
     expect(screen.queryByTestId("onboarding-step-1-done")).toBeNull();
+  });
+});
+
+// E9 — the Terminals and Editor quick actions target DISTINCT editor URLs.
+// See change: fix-terminals-action-opens-terminal.
+// NOTE: this pins the URL-builder contract + DirectoryHomeView's callbacks;
+// App.tsx's actual wiring (`onOpenTerminals`/`onOpenEditor`) is E2E-guarded
+// (directory-home.spec.ts F5–F9), not covered here.
+function NavSpyView() {
+  const [, navigate] = useLocation();
+  return (
+    <DirectoryHomeView
+      cwd="/home/u/proj"
+      sessions={[]}
+      onSpawnSession={vi.fn()}
+      onSelectSession={vi.fn()}
+      onOpenTerminals={(c) => navigate(buildFolderEditorUrl(c, true))}
+      onOpenEditor={(c) => navigate(buildFolderEditorUrl(c))}
+    />
+  );
+}
+
+describe("DirectoryHomeView quick-action targets (E9)", () => {
+  it("Terminals → editor?focus=terminal; Editor → editor (no param)", () => {
+    const { hook, history } = memoryLocation({ path: "/", record: true });
+    render(
+      <Router hook={hook}>
+        <NavSpyView />
+      </Router>,
+    );
+    fireEvent.click(screen.getByTestId("directory-home-open-terminals"));
+    expect(history.at(-1)).toBe(`/folder/${encodeFolderPath("/home/u/proj")}/editor?focus=terminal`);
+    fireEvent.click(screen.getByTestId("directory-home-open-editor"));
+    expect(history.at(-1)).toBe(`/folder/${encodeFolderPath("/home/u/proj")}/editor`);
   });
 });

@@ -32,6 +32,13 @@ interface Props {
   onKillTerminal?: (terminalId: string) => void;
   onRenameTerminal?: (terminalId: string, title: string) => void;
   onTerminalTitle?: (terminalId: string, title: string) => void;
+  /** One-shot terminal-focused entry from `?focus=terminal`. See change:
+   *  fix-terminals-action-opens-terminal. */
+  focusTerminal?: boolean;
+  /** Terminal snapshot applied (`snapshotGeneration > 0`) — the readiness gate. */
+  terminalsReady?: boolean;
+  /** Fired once the one-shot is honoured (URL param consumption). */
+  onFocusConsumed?: () => void;
 }
 
 export function FolderEditorView({
@@ -41,6 +48,9 @@ export function FolderEditorView({
   onKillTerminal,
   onRenameTerminal,
   onTerminalTitle,
+  focusTerminal,
+  terminalsReady,
+  onFocusConsumed,
 }: Props) {
   const isMobile = useMobile();
   return (
@@ -54,6 +64,9 @@ export function FolderEditorView({
       onKillTerminal={onKillTerminal}
       onRenameTerminal={onRenameTerminal}
       onTerminalTitle={onTerminalTitle}
+      focusOnMount={focusTerminal}
+      terminalsReady={terminalsReady}
+      onFocusConsumed={onFocusConsumed}
     >
       <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, height: "100%" }}>
         <EditorPane />
