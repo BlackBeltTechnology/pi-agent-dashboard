@@ -48,7 +48,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `flow-roundtrip.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Real pi-flows engine + faux agents. → see `flow-roundtrip.spec.ts.AGENTS.md` |
 | `folder-action-banner.spec.ts` | L3 for `add-folder-action-banner` (test-plan #E6, #F1, #F3, #F9, #F10). → see `folder-action-banner.spec.ts.AGENTS.md` |
 | `folder-actions-menu.spec.ts` | Playwright spec. Folder actions menu after the slot-pill controls moved in (test-plan #E1, #E2, #F7, #F8,… → see `folder-actions-menu.spec.ts.AGENTS.md` |
-| `folder-collapse-persistence.spec.ts` | L3 `persist-folder-collapse-server-side` #F1-#F3/#F9. → see `folder-collapse-persistence.spec.ts.AGENTS.md` |
+| `folder-collapse-persistence.spec.ts` | → see `folder-collapse-persistence.spec.ts.AGENTS.md` |
 | `folder-collapse-seek.spec.ts` | L3 `persist-folder-collapse-server-side` #F5/#F6/#F8: Seek into a collapsed folder, held echo. → see `folder-collapse-seek.spec.ts.AGENTS.md` |
 | `folder-collapse-worktree.spec.ts` | L3 `persist-folder-collapse-server-side` #F4/#F7: group rendered under `gitWorktree.mainPath`. → see `folder-collapse-worktree.spec.ts.AGENTS.md` |
 | `folder-membership-drag.spec.ts` | L3 for `drag-folders-across-workspaces` (test-plan #F11-#F13, #F16, #F18, #F20, #X6) — the scenarios needing… → see `folder-membership-drag.spec.ts.AGENTS.md` |
@@ -78,6 +78,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `inline-terminal-transcript.spec.ts` | L3 gate for `preserve-inline-terminal-transcript`: F1 exit-then-close keeps… → see `inline-terminal-transcript.spec.ts.AGENTS.md` |
 | `kb-folder-slot.spec.ts` | Playwright spec. KB folder slot end-to-end in Docker harness. → see `kb-folder-slot.spec.ts.AGENTS.md` |
 | `large-session-replay.spec.ts` | L3 wire-level gate for `compact-warm-replay-stream` (#399): P1 zero superseded `message_update`, F5, F6… → see `large-session-replay.spec.ts.AGENTS.md` |
+| `lazy-feature-bootstrap.spec.ts` | L3 cold-landing gate (F1, P1). → see `lazy-feature-bootstrap.spec.ts.AGENTS.md` |
 | `lifecycle.ts` | Shared E2E lifecycle module. Port dynamic: probes free port in managed mode; `PW_E2E_PORT` (default 18000) +… → see `lifecycle.ts.AGENTS.md` |
 | `list-models-registry-ready.spec.ts` | Playwright spec (L3). Live proof of the `list_models` registry-readiness discriminator. → see `list-models-registry-ready.spec.ts.AGENTS.md` |
 | `manage-worktrees.spec.ts` | L3 for the manage-worktrees surface (test-plan F4, F3, F7, X5, X11, X12, X13): menu gate is… → see `manage-worktrees.spec.ts.AGENTS.md` |
