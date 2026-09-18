@@ -34,7 +34,7 @@ Files in this directory. One row per source file.
 | `preferences-display-routes.ts` | REST routes `GET /api/preferences/display` (returns `{ global: DisplayPrefs|undefined, sessionOverrides:… → see `preferences-display-routes.ts.AGENTS.md` |
 | `preferences-auto-name-routes.ts` | REST routes `GET /api/preferences/auto-name` (returns `{autoNameSessions:boolean}`, default true) + `PATCH… → see `preferences-auto-name-routes.ts.AGENTS.md` Also serves read-only `GET /api/auto-name-outcomes` → `{outcomes}` from the bounded retention store, the discoverable route to a naming stop latched with no subscribed client. See change: fix-auto-naming-reasoning-model. |
 | `preferences-worktree-init-routes.ts` | REST routes `GET /api/preferences/worktree-auto-init` (returns `{autoInitWorktreeOnSpawn:boolean}`) + `PATCH… → see `preferences-worktree-init-routes.ts.AGENTS.md` |
-| `provider-auth-routes.ts` | Browser-based pi provider OAuth + API-key auth. Exports `registerProviderAuthRoutes`. → see `provider-auth-routes.ts.AGENTS.md` |
+| `provider-auth-routes.ts` | Browser-based pi provider OAuth + API-key auth. Exports `registerProviderAuthRoutes`. Awaits every credential write. → see `provider-auth-routes.ts.AGENTS.md` |
 | `provider-health-cache.ts` | In-memory per-provider health cache `{ok,status,error,modelCount,testedAt}` (credential-free). → see `provider-health-cache.ts.AGENTS.md` |
 | `provider-routes.ts` | Custom LLM provider read/write to `~/.pi/agent/providers.json`. Exports `registerProviderRoutes`. → see `provider-routes.ts.AGENTS.md` |
 | `resource-activation-routes.ts` | pi-resource ACTIVATION routes (enable/disable), distinct from install/uninstall. → see `resource-activation-routes.ts.AGENTS.md` |

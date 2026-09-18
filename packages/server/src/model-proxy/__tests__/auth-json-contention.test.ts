@@ -36,11 +36,11 @@ afterEach(() => {
 });
 
 describe("auth.json single-writer contract (task 2.12)", () => {
-  it("sequential writes produce valid JSON with all fields", () => {
+  it("sequential writes produce valid JSON with all fields", async () => {
     // Write provider A from "dashboard" side
-    writeCredential("anthropic", { type: "oauth", refresh: "r1", access: "a1", expires: Date.now() + 3600_000 });
+    await writeCredential("anthropic", { type: "oauth", refresh: "r1", access: "a1", expires: Date.now() + 3600_000 });
     // Write provider B from "bridge" side (simulated as a second writeCredential)
-    writeCredential("openai", { type: "api_key", key: "sk-test" });
+    await writeCredential("openai", { type: "api_key", key: "sk-test" });
 
     const data = readAuthJson();
     expect(data["anthropic"]).toBeDefined();
@@ -51,20 +51,20 @@ describe("auth.json single-writer contract (task 2.12)", () => {
 
   it("concurrent writes from two 'processes' leave valid JSON", async () => {
     // Pre-populate with initial state
-    writeCredential("anthropic", { type: "oauth", refresh: "r0", access: "a0", expires: Date.now() + 100 });
-    writeCredential("openai", { type: "api_key", key: "sk-old" });
+    await writeCredential("anthropic", { type: "oauth", refresh: "r0", access: "a0", expires: Date.now() + 100 });
+    await writeCredential("openai", { type: "api_key", key: "sk-old" });
 
     // Simulate two concurrent writes
     const write1 = new Promise<void>((resolve) => {
-      setTimeout(() => {
-        writeCredential("anthropic", { type: "oauth", refresh: "r1", access: "a1", expires: Date.now() + 3600_000 });
+      setTimeout(async () => {
+        await writeCredential("anthropic", { type: "oauth", refresh: "r1", access: "a1", expires: Date.now() + 3600_000 });
         resolve();
       }, 0);
     });
 
     const write2 = new Promise<void>((resolve) => {
-      setTimeout(() => {
-        writeCredential("openai", { type: "api_key", key: "sk-new" });
+      setTimeout(async () => {
+        await writeCredential("openai", { type: "api_key", key: "sk-new" });
         resolve();
       }, 0);
     });
@@ -81,13 +81,13 @@ describe("auth.json single-writer contract (task 2.12)", () => {
     expect(data["openai"]).toBeDefined();
   }, 5000);
 
-  it("overlapping provider write: last writer wins, other provider preserved", () => {
+  it("overlapping provider write: last writer wins, other provider preserved", async () => {
     // Initial state
-    writeCredential("anthropic", { type: "oauth", refresh: "r0", access: "a0", expires: 1 });
-    writeCredential("gemini", { type: "api_key", key: "gk-original" });
+    await writeCredential("anthropic", { type: "oauth", refresh: "r0", access: "a0", expires: 1 });
+    await writeCredential("gemini", { type: "api_key", key: "gk-original" });
 
     // Refresh anthropic (simulates InternalAuthStorage OAuth refresh)
-    writeCredential("anthropic", { type: "oauth", refresh: "r1", access: "a1", expires: Date.now() + 3600_000 });
+    await writeCredential("anthropic", { type: "oauth", refresh: "r1", access: "a1", expires: Date.now() + 3600_000 });
 
     const data = readAuthJson();
     // anthropic updated

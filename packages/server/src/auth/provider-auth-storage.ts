@@ -41,10 +41,60 @@ interface OAuthProviderMeta {
 // AuthStorage lock convention. See change: add-dashboard-model-proxy task 2.5.
 
 /**
+ * Lock options, carried verbatim across the sync→async switch.
+ *
+ * `realpath: false` is load-bearing: the async `lock()` defaults it to `true`,
+ * and resolving symlinks would have the dashboard and pi lock DIFFERENT
+ * lockfiles on a symlinked home (docker volume, network mount) — silently
+ * dropping the mutual exclusion this lock exists for.
+ * See change: fix-provider-auth-lock-contention.
+ */
+const LOCK_OPTIONS = { stale: 10_000, realpath: false } as const;
+
+/** Total window the lock-held condition is retried before the write fails. */
+const LOCK_RETRY_BUDGET_MS = 2_000;
+
+/**
+ * Await between attempts. The cap matters more than the growth: several writers
+ * queued behind one holder have to drain in sequence inside the budget.
+ */
+const LOCK_RETRY_BACKOFF_MS = [25, 50, 100] as const;
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Acquire the auth.json lock, retrying ONLY the lock-already-held condition
+ * (`ELOCKED`) for a bounded window.
+ *
+ * Deliberately NOT proper-lockfile's own `retries` option: its retry driver
+ * re-runs on ANY truthy error, so an `EACCES`/`EPERM` would silently consume
+ * the whole window before surfacing. Every other lock or I/O failure must
+ * propagate immediately.
+ *
+ * The wait is an awaited timer, never `Atomics.wait`: a blocked event loop
+ * would stall every HTTP request and WebSocket frame for the whole wait.
+ * See change: fix-provider-auth-lock-contention.
+ */
+async function acquireAuthLock(): Promise<() => Promise<void>> {
+  const deadline = Date.now() + LOCK_RETRY_BUDGET_MS;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await _lockfile.lock(AUTH_PATH, LOCK_OPTIONS);
+    } catch (err) {
+      if ((err as { code?: unknown } | null)?.code !== "ELOCKED") throw err;
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) throw err;
+      const backoff = LOCK_RETRY_BACKOFF_MS[Math.min(attempt, LOCK_RETRY_BACKOFF_MS.length - 1)];
+      await sleep(Math.min(backoff, remaining));
+    }
+  }
+}
+
+/**
  * Run `fn` while holding a proper-lockfile lock on auth.json.
  * Ensures the file exists (lockfile requires the target to exist).
  */
-function withLock<T>(fn: () => T): T {
+async function withLock<T>(fn: () => T | Promise<T>): Promise<T> {
   fs.mkdirSync(AUTH_DIR, { recursive: true });
   if (!fs.existsSync(AUTH_PATH)) {
     // Create empty auth file so lockfile can lock it. 0600 explicitly: without
@@ -55,14 +105,15 @@ function withLock<T>(fn: () => T): T {
     try { fs.writeFileSync(AUTH_PATH, "{}\n", { flag: "wx", mode: 0o600 }); } catch { /* race-safe */ }
   }
 
-  const release = _lockfile.lockSync(AUTH_PATH, {
-    stale: 10_000,
-    realpath: false,
-  });
+  const release = await acquireAuthLock();
   try {
-    return fn();
+    return await fn();
   } finally {
-    try { release(); } catch { /* ignore cleanup errors */ }
+    // `release()` is a promise on the async API: the previous sync
+    // `try { release(); } catch {}` could not catch an unlock failure
+    // (`ERELEASED`, `EACCES`), which instead surfaced as an unhandled rejection
+    // and took the process down. See change: fix-provider-auth-lock-contention.
+    try { await release(); } catch { /* ignore cleanup errors */ }
   }
 }
 
@@ -222,8 +273,15 @@ function writeAuthJson(data: AuthData, forceMode?: number): void {
 
 // ── Public API: write/remove ─────────────────────────────────────────────────
 
-export function writeCredential(provider: string, credential: AuthCredential): void {
-  withLock(() => {
+/**
+ * Persist one provider credential.
+ *
+ * Async: the lock wait must not block the server's event loop, so a caller has
+ * to await it or the write stops being ordered before whatever follows.
+ * See change: fix-provider-auth-lock-contention.
+ */
+export async function writeCredential(provider: string, credential: AuthCredential): Promise<void> {
+  await withLock(() => {
     const checked = readAuthJsonChecked();
     if (checked.corrupt && !checked.quarantined) throw corruptUnbackedRefusal();
     const data = checked.data;
@@ -232,8 +290,9 @@ export function writeCredential(provider: string, credential: AuthCredential): v
   });
 }
 
-export function removeCredential(provider: string): void {
-  withLock(() => {
+/** Remove one provider credential. Async — see `writeCredential`. */
+export async function removeCredential(provider: string): Promise<void> {
+  await withLock(() => {
     const checked = readAuthJsonChecked();
     if (checked.corrupt && !checked.quarantined) throw corruptUnbackedRefusal();
     const data = checked.data;
