@@ -28,3 +28,11 @@ Deterministic Markdown → self-contained 3D presentation engine (`deck3d` CLI +
 - **Label treatment.** Extruded small text blooms and becomes unreadable; diagram labels are flat canvas planes filled `P.text` with an 18 % `P.bg` outline, `toneMapped:false`, offset in front of the node surface (`h/2` for round shapes).
 - **Z-fighting / veil.** ONE global `Reflector` floor (not per-slide coplanar floors) with a radial-alpha veil, camera near 0.5, shadow bias/normalBias — all ported from the lab.
 - **Bloom vs mode.** Bloom threshold/strength are mode-aware; glass transmission is lowered in light mode for text contrast.
+
+## Test environment hooks
+
+- `DECK3D_HARVEST_TIMEOUT_MS` — mermaid harvest timeout per block (default 60000).
+- `DECK3D_CHECK_TIMEOUT_MS` — `check` timeout per viewport (default 120000).
+- `DECK3D_HTTP_TIMEOUT_MS` — prop search/fetch request timeout (default 10000).
+- `DECK3D_HARVEST_STALL` — set to `1` to make the harvest page never resolve (timeout-path tests).
+- Browser-driving suites self-skip without chromium (`describe.skipIf(!chromiumAvailable())`); CI installs chromium via `npx playwright install chromium --with-deps`.

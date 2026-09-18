@@ -85,10 +85,10 @@
 ## 9b. Test infra (from test-plan.md "New infra needed")
 
 - [x] 9b.1 `src/__tests__/helpers/chromium.ts`: `chromiumAvailable()` + shared `launch()` fixture; every browser-driving suite uses `describe.skipIf(!chromiumAvailable())` (exemplar: `packages/document-converter/src/__tests__/integration.test.ts`)
-- [ ] 9b.2 CI: `ci.yml` step `npx playwright install chromium --with-deps` scoped to the deck3d test job so the L1‑browser rows run in CI; the no-chromium path stays covered by X1/X2 on the plain job
-- [ ] 9b.3 Env test hooks `DECK3D_HARVEST_TIMEOUT_MS`, `DECK3D_CHECK_TIMEOUT_MS`, `DECK3D_HTTP_TIMEOUT_MS`, `DECK3D_HARVEST_STALL` (defaults 60000/120000/10000/unset); documented in `packages/deck3d/AGENTS.md`
-- [ ] 9b.4 Runtime read-only debug surface `__deck3d.effects()` (active composer pass ids + skipped list) and `__deck3d.debug.titleGlyphs()` (glyph mesh count) for E20/F4
-- [ ] 9b.5 In-test mock HTTP server helper `src/__tests__/helpers/mock-http.ts` (exemplar: `packages/extension/src/__tests__/server-probe.test.ts`) for props search/fetch rows
+- [x] 9b.2 CI: `ci.yml` step `npx playwright install chromium --with-deps` scoped to the deck3d test job so the L1‑browser rows run in CI; the no-chromium path stays covered by X1/X2 on the plain job
+- [x] 9b.3 Env test hooks `DECK3D_HARVEST_TIMEOUT_MS`, `DECK3D_CHECK_TIMEOUT_MS`, `DECK3D_HTTP_TIMEOUT_MS`, `DECK3D_HARVEST_STALL` (defaults 60000/120000/10000/unset); documented in `packages/deck3d/AGENTS.md`
+- [x] 9b.4 Runtime read-only debug surface `__deck3d.effects()` (active composer pass ids + skipped list) and `__deck3d.debug.titleGlyphs()` (glyph mesh count) for E20/F4
+- [x] 9b.5 In-test mock HTTP server helper `src/__tests__/helpers/mock-http.ts` (exemplar: `packages/extension/src/__tests__/server-probe.test.ts`) for props search/fetch rows
 
 ## 10. Tests folded from test-plan.md (one task per manifest row; ship-it authors them)
 

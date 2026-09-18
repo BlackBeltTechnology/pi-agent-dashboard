@@ -97,6 +97,11 @@ jobs:
       # Hard-gates Tier A (error-severity) regressions; Tier B/C (warn) only annotate.
       - name: Biome static analysis (Tier A gate, warn-tier annotate)
         run: pnpm exec biome lint . --reporter=github
+      # deck3d browser rows (mermaid harvest, check, snapshot) are opt-in behind
+      # `describe.skipIf(!chromiumAvailable())`. Install chromium so they run in
+      # CI; the no-chromium path stays covered by the X1/X2 rows on this job.
+      - name: Install chromium (deck3d browser tests)
+        run: npx playwright install chromium --with-deps
       # Two phases: the parallel projects, then the real-process project alone
       # at maxWorkers 2 (which retries once under CI). See change:
       # isolate-real-process-tests.
