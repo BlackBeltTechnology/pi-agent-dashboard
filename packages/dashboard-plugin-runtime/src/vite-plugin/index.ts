@@ -25,6 +25,15 @@ import {
   discoverPlugins,
   pluginRegistryHash,
 } from "../server/loader.js";
+import {
+  bundleRootsFor,
+  selectClientRegistryPlugins,
+} from "../server/client-registry-set.js";
+import { computeBuildDeclaration, declarationFromPlugins } from "../server/build-declaration-sdk.js";
+import {
+  type BuildDeclaration,
+  writeBuildDeclaration,
+} from "../server/build-metadata.js";
 
 /** Generated file path (relative to the calling vite.config location). */
 const GENERATED_DIR = "packages/client/src/generated";
@@ -98,17 +107,18 @@ function resolvePackageImportSpecifier(
 function loadPluginEntries(repoRoot: string, isProd: boolean): PluginEntry[] {
   clearDiscoveryCache();
   const discovered = discoverPlugins(repoRoot);
-  return discovered
-    .filter(p => {
-      if (isProd && p.manifest.fixture === true) return false;
-      return Boolean(p.clientEntryPath);
-    })
-    .map(p => ({
-      manifest: p.manifest,
-      packageDir: p.packageDir,
-      clientEntryPath: p.clientEntryPath,
-      packageImportSpecifier: resolvePackageImportSpecifier(p.packageDir, p.manifest.client),
-    }));
+  // Select through the shared client-registry selector so the build-time hash
+  // is computed over the same plugin set the server hashes at runtime. See
+  // change: add-served-build-coherence-and-hash-parity (design D0).
+  return selectClientRegistryPlugins(discovered, {
+    isProd,
+    bundleRoots: bundleRootsFor(repoRoot),
+  }).map(p => ({
+    manifest: p.manifest,
+    packageDir: p.packageDir,
+    clientEntryPath: p.clientEntryPath,
+    packageImportSpecifier: resolvePackageImportSpecifier(p.packageDir, p.manifest.client),
+  }));
 }
 
 /**
@@ -328,6 +338,19 @@ function hashContent(content: string): string {
 let lastHash = "";
 
 /**
+ * The declaration built alongside the most recent registry generation, keyed by
+ * repoRoot.
+ *
+ * `writeBundle` writes THIS declaration, never a fresh discovery. The discovery
+ * cache is process-wide and unkeyed by root, and `buildStart` is the only point
+ * that pins it for a build — so re-discovering between `buildStart` and
+ * `writeBundle` could hash a different set than the one the emitted registry's
+ * `PLUGIN_REGISTRY_HASH` was computed from. Carrying the generated set makes the
+ * declaration hash equal to the embedded hash by construction.
+ */
+const pendingDeclarations = new Map<string, BuildDeclaration>();
+
+/**
  * Standalone-callable wrapper around `regenerate` for non-Vite consumers
  * (e.g. `scripts/generate-plugin-registry.mjs` invoked from prelint/prebuild).
  */
@@ -340,6 +363,10 @@ function regenerate(repoRoot: string, isProd: boolean): { changed: boolean; cont
   const content = generateRegistryContent(entries, repoRoot);
   const hash = hashContent(content);
 
+  // Refresh the pending declaration even when the registry content is
+  // unchanged, so it always describes the registry THIS build emits.
+  pendingDeclarations.set(repoRoot, declarationFromPlugins(entries, { isProd }));
+
   if (hash === lastHash) return { changed: false, content };
 
   const outPath = getGeneratedPath(repoRoot);
@@ -350,21 +377,74 @@ function regenerate(repoRoot: string, isProd: boolean): { changed: boolean; cont
 }
 
 /**
+ * Emit the build declaration into `outDir` for a production build.
+ *
+ * A no-op for a dev build (`isProd: false`) — dev/HMR registry regeneration
+ * stays source-only and writes no declaration (design D1). Returns the written
+ * declaration, or null when nothing was written.
+ */
+export function emitBuildDeclaration(args: {
+  outDir: string;
+  repoRoot: string;
+  isProd: boolean;
+}): BuildDeclaration | null {
+  if (!args.isProd) return null;
+  // Prefer the set carried from registry generation; fall back to discovering
+  // only for a direct caller that never ran the generator.
+  const declaration =
+    pendingDeclarations.get(args.repoRoot) ??
+    computeBuildDeclaration(discoverPlugins(args.repoRoot), {
+      isProd: true,
+      bundleRoots: bundleRootsFor(args.repoRoot),
+    });
+  writeBuildDeclaration(args.outDir, declaration);
+  return declaration;
+}
+
+/**
  * Returns the Vite plugin for dashboard plugin registry generation.
  * @param repoRoot - Absolute path to the monorepo root. Defaults to process.cwd().
  */
 export function viteDashboardPluginsPlugin(repoRoot?: string): Plugin {
   const root = repoRoot ?? process.cwd();
+  // Resolved client build output directory, captured from the Vite config so
+  // the declaration lands beside the emitted assets. See change:
+  // add-served-build-coherence-and-hash-parity (design D1).
+  let outDir: string | null = null;
 
   return {
     name: "vite-dashboard-plugins",
     enforce: "pre", // run before React plugin
+
+    configResolved(config) {
+      outDir = path.resolve(config.root, config.build.outDir);
+    },
 
     buildStart() {
       const isProd = process.env.NODE_ENV === "production";
       const { changed } = regenerate(root, isProd);
       if (changed) {
         console.info("[vite-dashboard-plugins] Generated plugin-registry.tsx");
+      }
+    },
+
+    // Production-only: `writeBundle` never runs in dev, and the emit helper
+    // additionally refuses `isProd: false`.
+    writeBundle(options) {
+      // `options.dir` is rollup's authoritative output directory for THIS build
+      // (it already accounts for any CLI/config override); the captured
+      // `config.build.outDir` is the fallback for the single-file case.
+      const target = options.dir ?? outDir;
+      if (!target) return;
+      const declaration = emitBuildDeclaration({
+        outDir: target,
+        repoRoot: root,
+        isProd: process.env.NODE_ENV === "production",
+      });
+      if (declaration) {
+        console.info(
+          `[vite-dashboard-plugins] Wrote pi-dashboard-build.json (registry ${declaration.pluginRegistryHash.slice(0, 8)}…)`,
+        );
       }
     },
 
