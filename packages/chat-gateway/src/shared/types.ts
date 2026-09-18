@@ -103,6 +103,12 @@ export interface InboundMessage {
   channelId: string;
   /** Thread discriminator when the platform has threads; absent otherwise. */
   threadId?: string;
+  /**
+   * Parent channel of a thread. L4 treats an opted-in PARENT as opting in its
+   * threads (a Discord user replies in a thread of a channel the operator
+   * configured); without this a thread id is never in `groupChannels`.
+   */
+  parentChannelId?: string;
   /** Platform user id of the sender. */
   userId: string;
   /** Display name, for logs only — never an authorization input. */

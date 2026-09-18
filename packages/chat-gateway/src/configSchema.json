@@ -85,7 +85,7 @@
     },
     "guardExtension": {
       "type": "string",
-      "description": "Installed identifier (package name or absolute path) of the companion L3 guard extension. Required for the guard to load into spawned sessions; never invented by the gateway."
+      "description": "Installed identifier (package subpath, e.g. `@blackbelt-technology/pi-dashboard-chat-gateway-plugin/guard`, or an absolute path to the guard entry) of the companion L3 guard extension. Required for the guard to load into spawned sessions; never invented by the gateway. An id that does not resolve leaves the session UNGATED (pi treats a bad `-e` as non-fatal), so verify it."
     }
   }
 }

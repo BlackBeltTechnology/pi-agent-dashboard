@@ -114,8 +114,10 @@ describe("chat-gateway orchestrator", () => {
       startedAt: 0,
     });
 
+    // F2: a channel the operator never opted in must see NOTHING — no prompt
+    // reaches a session and the bot does not reply (no noise / 429 / ban).
     expect(seam.sentPrompts).toEqual([]);
-    expect(adapter.sent[0].content).toContain("group_channel_not_opted_in");
+    expect(adapter.sent).toEqual([]);
   });
 
   it("X6: a plain message is followUp; a steer-prefixed one is steer", async () => {
@@ -780,5 +782,109 @@ describe("chat-gateway orchestrator", () => {
 
     expect(seam.spawns).toHaveLength(0);
     expect(adapter.sent[0].content).toContain("not_admin");
+  });
+
+  it("F3: a thread spawn binds the THREAD key (not the parent) and never loops", async () => {
+    const seam = createFakeSeam();
+    const store = memoryStore();
+    const { gateway } = makeGateway({
+      seam,
+      store,
+      config: baseConfig({
+        groupChannels: ["c1"],
+        fixedMap: { "discord:c1:t9": "/repos/proj" },
+      }),
+    });
+    await gateway.start();
+
+    await gateway.handleInbound({
+      platform: "discord",
+      channelId: "c1",
+      threadId: "t9",
+      parentChannelId: "c1",
+      userId: "u1",
+      text: "hi",
+      isDM: false,
+      startedAt: 0,
+    });
+    const spawn = seam.spawns[0];
+    expect(spawn).toBeDefined();
+    seam.resolveSpawn("sess-thread", spawn.pluginRef ?? {});
+
+    const b = store.get("discord:c1:t9");
+    expect(b?.sessionId).toBe("sess-thread");
+    expect(b?.threadId).toBe("t9");
+
+    // A follow-up thread message must REUSE the binding, not spawn again.
+    seam.sessions = [{ id: "sess-thread", cwd: "/repos/proj" }];
+    await gateway.handleInbound({
+      platform: "discord",
+      channelId: "c1",
+      threadId: "t9",
+      parentChannelId: "c1",
+      userId: "u1",
+      text: "again",
+      isDM: false,
+      startedAt: 0,
+    });
+    expect(seam.spawns).toHaveLength(1);
+    expect(seam.sentPrompts).toEqual([
+      { sessionId: "sess-thread", text: "again", delivery: "followUp" },
+    ]);
+  });
+
+  it("F7: a second message during the spawn window does not start a second session", async () => {
+    const seam = createFakeSeam();
+    const { gateway, adapter } = makeGateway({
+      seam,
+      config: baseConfig({ fixedMap: { "discord:c1:-": "/repos/proj" } }),
+    });
+    await gateway.start();
+
+    const msg = {
+      platform: "discord" as const,
+      channelId: "c1",
+      userId: "u1",
+      text: "hi",
+      isDM: true,
+      startedAt: 0,
+    };
+    await gateway.handleInbound(msg);
+    await gateway.handleInbound({ ...msg, text: "again" });
+
+    expect(seam.spawns).toHaveLength(1);
+    expect(adapter.sent.some((m) => m.content.includes("already starting"))).toBe(true);
+  });
+
+  it("F4: a restarted gateway re-subscribes persisted bindings", async () => {
+    const seam = createFakeSeam();
+    seam.sessions = [{ id: "s1", cwd: "/repos/proj" }];
+    const { gateway } = makeGateway({ seam, store: memoryStore([boundBinding()]) });
+    await gateway.start();
+    expect(seam.frameHandlers.has("s1")).toBe(true);
+  });
+
+  it("F8: a new assistant turn starts a fresh message (never overwrites the previous reply)", async () => {
+    const { gateway, seam, adapter } = makeGateway({ store: memoryStore([boundBinding()]) });
+    seam.sessions = [{ id: "s1", cwd: "/repos/proj" }];
+    await gateway.start();
+    adapter.reset();
+
+    const frame = (text: string) => ({
+      type: "event",
+      sessionId: "s1",
+      seq: 1,
+      event: {
+        eventType: "message_update",
+        timestamp: 0,
+        data: { message: { role: "assistant", content: [{ type: "text", text }] } },
+      },
+    });
+    gateway.handleFrame("s1", frame("first reply"));
+    await flush();
+    gateway.handleFrame("s1", frame("second turn"));
+    await flush();
+
+    expect(adapter.sent.map((m) => m.content)).toEqual(["first reply", "second turn"]);
   });
 });

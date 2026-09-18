@@ -219,7 +219,9 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       const existing = st.messageIds[i];
       if (existing === undefined) {
         st.messageIds[i] = await adapter.sendMessage(channelId, chunks[i]);
-      } else {
+      } else if (i === chunks.length - 1) {
+        // C4/C8: only the TAIL grows; earlier chunks are finalized. Re-editing
+        // every chunk would spend N edits per throttle tick (429 risk).
         await adapter.editMessage(channelId, existing, chunks[i]);
       }
     }
@@ -238,6 +240,13 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
     const existing = store.get(channelKey);
     if (existing) return existing;
 
+    // F7: a spawn takes seconds and the binding is written only at resolution.
+    // A second message inside that window must NOT start a second session.
+    if (pendingSpawns.has(channelKey)) {
+      await reply(msg.channelId, "A session is already starting for this channel — one moment.");
+      return null;
+    }
+
     // L2: CREATING a binding is a privileged op. An allowlisted non-admin may
     // TALK on an already-bound channel but may not bind a new one; otherwise
     // the admin allowlist would gate nothing (E12).
@@ -246,6 +255,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       userId: msg.userId,
       action: "bind",
       channelId: msg.channelId,
+      parentChannelId: msg.parentChannelId,
       isDM: msg.isDM,
     });
     if (!bindDecision.allowed) {
@@ -328,7 +338,13 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       };
     }
     const token = seam.mintSpawnToken();
-    correlator.expect(token, { channelKey, cwd, by: msg.userId });
+    correlator.expect(token, {
+      channelKey,
+      channelId: msg.channelId,
+      threadId: msg.threadId,
+      cwd,
+      by: msg.userId,
+    });
     pendingSpawns.set(channelKey, token);
     // L3 (task 9): the companion guard is loaded into SPAWNED sessions only.
     // Attached sessions never reach this code path, so they stay ungated by
@@ -582,9 +598,13 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
         const meta = correlator.resolve(token, sessionId);
         if (!meta) return;
         pendingSpawns.delete(meta.channelKey);
+        // F3: preserve the EXACT binding identity. A thread spawn must land on
+        // the thread key, not its parent — otherwise the thread binding never
+        // resolves and every follow-up message spawns ANOTHER session.
         store.set({
           platform,
-          channelId: meta.channelKey.split(":")[1] ?? "",
+          channelId: meta.channelId,
+          threadId: meta.threadId,
           sessionId,
           cwd: meta.cwd,
           boundBy: meta.by,
@@ -600,6 +620,10 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
               platform,
               channelId: m.channelId,
               threadId: typeof m.metadata?.threadId === "string" ? m.metadata.threadId : undefined,
+              parentChannelId:
+                typeof m.metadata?.parentChannelId === "string"
+                  ? m.metadata.parentChannelId
+                  : undefined,
               userId: m.userId,
               text: m.content,
               isDM: m.metadata?.isDM === true,
@@ -658,6 +682,13 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
           });
         },
       });
+
+      // F4: re-subscribe PERSISTED bindings. Subscribing only at bind time
+      // leaves a restarted gateway unable to receive event/prompt_request
+      // frames — inbound would work while Discord showed none of the output.
+      for (const b of store.all()) {
+        subscribeSession(b.sessionId);
+      }
     },
 
     async stop() {
@@ -677,9 +708,11 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
     async handleInbound(msg: InboundMessage) {
       // L1 pairing (spec R7): the allowlist is ESTABLISHED by redeeming the
       // current code. Only a DM may pair — a code redeemed in a public group
-      // channel would leak access to everyone reading it.
+      // channel would leak access to everyone reading it. Only a 6-DIGIT shape
+      // is a pairing ATTEMPT, so an arbitrary DM cannot exhaust the lockout.
       if (msg.isDM && !config.allowlist.includes(msg.userId)) {
-        if (pairing.attempt(msg.text.trim())) {
+        const candidate = msg.text.trim();
+        if (/^\d{6}$/.test(candidate) && pairing.attempt(candidate)) {
           config.allowlist = [...config.allowlist, msg.userId];
           seam.persistAllowlist(config.allowlist);
           await reply(msg.channelId, "Paired. You can now talk to sessions.");
@@ -693,11 +726,18 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
         userId: msg.userId,
         action: "talk",
         channelId: msg.channelId,
+        parentChannelId: msg.parentChannelId,
         isDM: msg.isDM,
       });
       if (!decision.allowed) {
         seam.log("info", `chat-gateway refused talk (${decision.reason}) channel=${msg.channelId}`);
-        await reply(msg.channelId, `Refused: ${decision.reason}.`);
+        // A guild channel the operator never opted in must see NOTHING — a
+        // reply would make the bot answer every message in every channel it
+        // can read (noise + 429s + likely a guild ban). Only an identified
+        // user gets a reasoned refusal.
+        if (decision.reason !== "group_channel_not_opted_in") {
+          await reply(msg.channelId, `Refused: ${decision.reason}.`);
+        }
         return;
       }
 
@@ -733,6 +773,16 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       if (type === "event") {
         const text = assistantTextFrom(frame);
         if (text === null) return;
+        // F8: a NEW assistant turn resets the message sequence. Within a turn
+        // the accumulated text grows monotonically; a value that is not an
+        // extension of what we have is a fresh turn, so turn 2 must not edit
+        // turn 1's message (and orphan its overflow chunks).
+        if (st.text !== "" && !text.startsWith(st.text)) {
+          st.messageIds = [];
+          st.text = "";
+          st.typing = false;
+          st.throttle.dispose();
+        }
         st.text = text;
         if (!st.typing) {
           st.typing = true;

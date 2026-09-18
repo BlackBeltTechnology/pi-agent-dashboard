@@ -218,7 +218,7 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
           data-testid="chat-gateway-fixed-map"
           value={fixedMap}
           rows={3}
-          placeholder="discord:123456789:=/repos/proj"
+          placeholder="discord:123456789:-=/repos/proj"
           onChange={(e) => markDirty(setFixedMap)(e.target.value)}
           className={field}
         />

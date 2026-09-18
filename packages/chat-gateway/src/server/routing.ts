@@ -86,19 +86,32 @@ export function createBindingStore(deps: BindingStoreDeps): BindingStore {
 
 export interface SpawnCorrelator {
   /** Register a pending spawn keyed by a caller-supplied correlation token. */
-  expect(token: string, meta: { channelKey: string; cwd: string; by: string }): void;
+  expect(
+    token: string,
+    meta: {
+      channelKey: string;
+      /** Binding identity to persist on resolution (threadId preserved). */
+      channelId: string;
+      threadId?: string;
+      cwd: string;
+      by: string;
+    },
+  ): void;
   /** Resolve a registered token to a sessionId; consumes the entry. Returns false when unknown. */
   resolve(
     token: string,
     sessionId: string,
-  ): { channelKey: string; cwd: string; by: string } | false;
+  ): { channelKey: string; channelId: string; threadId?: string; cwd: string; by: string } | false;
   /** Drop a pending spawn that failed (spawn returned 500). */
   reject(token: string): void;
   pending(): string[];
 }
 
 export function createSpawnCorrelator(): SpawnCorrelator {
-  const waiting = new Map<string, { channelKey: string; cwd: string; by: string }>();
+  const waiting = new Map<
+    string,
+    { channelKey: string; channelId: string; threadId?: string; cwd: string; by: string }
+  >();
   return {
     expect(token, meta) {
       waiting.set(token, meta);

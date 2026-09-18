@@ -25,6 +25,10 @@
       "types": "./src/server/index.ts",
       "default": "./src/server/index.ts"
     },
+    "./guard": {
+      "types": "./src/guard/index.ts",
+      "default": "./src/guard/index.ts"
+    },
     "./shared": {
       "types": "./src/shared/index.ts",
       "default": "./src/shared/index.ts"

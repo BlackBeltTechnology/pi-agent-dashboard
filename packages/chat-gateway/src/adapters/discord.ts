@@ -296,6 +296,7 @@ export class DiscordAdapter extends BaseAdapter {
       metadata: {
         isDM,
         threadId: channel.isThread() ? message.channelId : undefined,
+        parentChannelId: channel.isThread() ? (channel.parentId ?? undefined) : undefined,
         userName: message.author.username,
       },
     };

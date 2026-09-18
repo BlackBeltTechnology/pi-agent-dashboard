@@ -1,7 +1,7 @@
 {
   "packages": [
     {
-      "source": "/Users/robson/Project/pi-agent-dashboard",
+      "source": "..",
       "extensions": [
         "+packages/kb-extension/src/index.ts"
       ]

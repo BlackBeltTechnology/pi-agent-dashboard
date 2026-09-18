@@ -69,7 +69,23 @@ export default async function registerChatGateway(ctx: ServerPluginContext): Pro
     enabled: true,
     platform: "discord",
     botToken: config.token,
+    // L4: the adapter drops every guild channel that is not opted in (DMs are
+    // unaffected). Without this, the adapter would forward every hidden-channel
+    // message to the edge.
+    allowedChannels: config.groupChannels,
   });
+
+  // initialize() creates the client and logs in; start() only wires handlers.
+  // Skipping it makes start() throw `adapter not initialized` and the loader
+  // silently swallows the plugin — the whole feature would be dead.
+  try {
+    await adapter.initialize();
+  } catch (err) {
+    ctx.logger.error(
+      `chat-gateway: adapter failed to initialize — gateway not started (${String(err)})`,
+    );
+    return;
+  }
 
   const gateway = createChatGateway({
     platform: "discord",

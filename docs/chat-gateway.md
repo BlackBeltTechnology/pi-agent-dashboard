@@ -74,13 +74,15 @@ Initial contact requires pairing handshake before user interacts with sessions:
 
 ```mermaid
 sequenceDiagram
+  actor Op as Operator
   actor User as Discord User
   participant Bot as Discord Bot
+  participant Log as Server Log
   participant GW as Chat Gateway
-  participant Web as Settings UI
 
-  GW->>Web: Expose 6-digit pairing code (GET /api/chat-gateway/bindings)
-  User->>Bot: Send 6-digit code in Direct Message (DM)
+  GW->>Log: Log "L1 pairing code <code>" at startup
+  Op->>Log: Read pairing code from server log
+  User->>Bot: Send exact 6-digit code in Direct Message (DM)
   Bot->>GW: Inbound message (isDM=true)
   GW->>GW: pairing.attempt(code)
   alt Code matches and valid
@@ -93,12 +95,16 @@ sequenceDiagram
 ```
 
 - Gateway mints 6-digit numeric pairing code at startup.
-- Operator views pairing code in **Settings** → **General** → **Chat Gateway** or via API.
-- Code validity window: 15 minutes TTL (`DEFAULT_TTL_MS = 900_000`).
-- Lockout threshold: 10 failed attempts locks state machine (`DEFAULT_MAX_ATTEMPTS = 10`).
+- Server logs pairing code once at startup: `"L1 pairing code <code>"`.
+- HTTP API returns no pairing code; prevents unauthenticated pairing bypass.
+- Settings panel renders guidance text only; never displays code.
+- Operator reads pairing code from server log.
+- Inbound DM from unknown user containing exact matching 6-digit code pairs user.
+- Successful pairing consumes code; appends sender Discord `userId` to `allowlist`; persists updated `allowlist` to disk config.
+- Code expires after 15 minutes TTL (`DEFAULT_TTL_MS = 900_000`).
+- State machine locks after 10 failed attempts (`DEFAULT_MAX_ATTEMPTS = 10`).
 - Pairing accepts Direct Messages only (`isDM: true`).
 - Guild channel pairing attempts ignored; prevents pairing code exposure in shared channels.
-- Successful redemption consumes code. Appends sender Discord `userId` to `allowlist`. Persists updated `allowlist` to dashboard config.
 
 ## Authorization Semantics
 
@@ -121,7 +127,7 @@ Optional in-session execution boundary. Protects host from unreviewed tool execu
 
 - Scoped strictly to gateway-SPAWNED sessions.
 - Attached sessions treat local owner as trusted; attached sessions remain ungated.
-- Requires companion extension specified in `guardExtension` (installed package name or absolute path).
+- Requires companion extension specified in `guardExtension`: package subpath (`@blackbelt-technology/pi-dashboard-chat-gateway-plugin/guard`) or absolute path to guard entry.
 - Gateway passes policy into session spawn arguments; gateway never fabricates extension name.
 - Pure decision engine (`packages/chat-gateway/src/guard/policy.ts`):
   - `allow`: tool runs without prompt.
@@ -137,6 +143,8 @@ Read-only inspection API for monitoring and settings integration:
 `GET /api/chat-gateway/bindings`
 
 - Endpoint active only when gateway configured (`token` set) and running. Unconfigured gateway returns 404.
+- Carries `networkGuard` `preHandler` matching core `/api` routes.
+- HTTP API omits live L1 pairing code; prevents pairing bypass over HTTP.
 - Returns JSON payload:
   - `bindings`: array of active binding objects:
     - `platform`: chat platform identifier (`"discord"`).
@@ -151,7 +159,6 @@ Read-only inspection API for monitoring and settings integration:
     - `running`: boolean execution status.
     - `boundChannels`: integer count of active channel bindings.
     - `pendingSpawns`: integer count of in-flight spawn requests.
-    - `pairingCode`: active 6-digit pairing code string (returns empty string when consumed, expired, or locked).
 
 ## Configuration Reference
 
@@ -173,6 +180,6 @@ Derived from `packages/chat-gateway/src/configSchema.json`:
 | `toolPolicy.allow` | `string[]` | - | Tool names permitted to execute without confirmation. |
 | `toolPolicy.approval` | `string[]` | - | Tool names requiring interactive confirmation before execution. |
 | `toolPolicy.defaultAction` | `string` | `"deny"` | Disposition for unlisted tool names. Enum: `"deny"`, `"approve"`. |
-| `guardExtension` | `string` | - | Package name or absolute file path of companion L3 tool guard extension. Required for guard loading. |
+| `guardExtension` | `string` | - | Package subpath (`@blackbelt-technology/pi-dashboard-chat-gateway-plugin/guard`) or absolute file path to guard entry. Required for guard loading. |
 
 See change: add-chat-gateway.

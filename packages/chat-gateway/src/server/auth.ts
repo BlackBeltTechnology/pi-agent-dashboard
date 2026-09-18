@@ -19,6 +19,8 @@ export interface AuthorizeInput {
   action: AuthAction;
   channelId: string;
   isDM: boolean;
+  /** Parent channel of a thread; opting in the parent opts in the thread. */
+  parentChannelId?: string;
 }
 
 export function authorize(input: AuthorizeInput): AuthDecision {
@@ -30,8 +32,13 @@ export function authorize(input: AuthorizeInput): AuthDecision {
   }
 
   // L4: a DM is always isolated; a guild channel must be explicitly opted in.
-  if (!isDM && !(config.groupChannels ?? []).includes(channelId)) {
-    return { allowed: false, reason: "group_channel_not_opted_in" };
+  // A thread inherits its parent's opt-in.
+  if (isDM !== true) {
+    const groups = config.groupChannels ?? [];
+    const optedIn = groups.includes(channelId) || (!!input.parentChannelId && groups.includes(input.parentChannelId));
+    if (!optedIn) {
+      return { allowed: false, reason: "group_channel_not_opted_in" };
+    }
   }
 
   // L1: talking at all requires the allowlist. Binding is strictly NARROWER
