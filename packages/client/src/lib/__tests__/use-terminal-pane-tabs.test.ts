@@ -257,15 +257,17 @@ const props = (over: Partial<FocusHarnessProps> = {}): FocusHarnessProps => ({
 });
 
 describe("useTerminalPaneTabs — terminal-focused entry one-shot", () => {
-  it("E1: focusOnMount:false is inert — auto-surface alone decides the active tab", () => {
-    // t1 is the NEWEST but sits first; auto-surface activates the LAST id (t2).
-    // If the one-shot ran it would activate t1, so active=t2 proves it did not.
+  it("E1: focusOnMount:false is inert — auto-surface opens background tabs, no activation", () => {
+    // Auto-surface opens tabs in the BACKGROUND (D3a): no terminal is activated.
+    // If the one-shot ran it would ACTIVATE the newest (t1), so an undefined
+    // active tab proves it did not run.
     const { result, mocks } = focusHarness({
       terminals: [session("t1", { createdAt: 2000 }), session("t2", { createdAt: 1000 })],
       focusOnMount: false,
       terminalsReady: true,
     });
-    expect(activePath(result.current.paneState)).toBe("term:t2");
+    expect(openTerminalIds(result.current.paneState.openFiles).sort()).toEqual(["t1", "t2"]);
+    expect(activePath(result.current.paneState)).toBeUndefined();
     expect(mocks.onCreateTerminal).not.toHaveBeenCalled();
     expect(mocks.onFocusConsumed).not.toHaveBeenCalled();
   });

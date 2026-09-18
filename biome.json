@@ -14,6 +14,7 @@
       "!**/*.tsbuildinfo",
       "!**/plugin-registry.generated.*",
       "!openspec/changes/archive/**",
+      "!openspec/changes/**/mockup/**",
       "!**/*.css",
       "!**/__tests__/fixtures/**",
       "!**/*.production.min.js",
@@ -127,6 +128,7 @@
       "includes": [
         "examples/**",
         "openspec/changes/**/spike/**",
+        "openspec/changes/**/mockup/**",
         ".pi/flows/**",
         "tests/e2e/**",
         "qa/scripts/**",
