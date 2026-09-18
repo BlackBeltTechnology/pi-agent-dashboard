@@ -5,8 +5,8 @@ import { SessionAssetsProvider } from "../../lib/session/SessionAssetsContext.js
 import { extractFrontmatter, formatRelativeDate, inferType } from "../preview/FrontmatterProperties.js";
 import { isFencedBlockComplete, MarkdownContent, tableToMarkdown, tableToTsv } from "../preview/MarkdownContent.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
-import type { ToolContext } from "../tool-renderers/types.js";
 import { makeToolContext, withDefaultFileLink } from "../tool-renderers/make-tool-context.js";
+import type { ToolContext } from "../tool-renderers/types.js";
 
 // vi.hoisted so the mock (also hoisted) can reference the spy without a TDZ.
 const { openLiveTarget } = vi.hoisted(() => ({ openLiveTarget: vi.fn() }));
@@ -934,5 +934,123 @@ describe("D4b: linkification survives at every real context builder", () => {
     );
     expect(container.querySelector("button")).toBeNull();
     expect(container.textContent).toContain("/Users/me/app.ts");
+  });
+});
+
+/**
+ * Render identity: an unchanged markdown tree must keep its DOM node identity
+ * across a fresh-but-equivalent `ToolContext`, so a browser Selection anchored
+ * in it survives background session churn.
+ *
+ * The failure mode this guards: a per-render inline `components={{...}}` object
+ * gives `p`/`code`/`a`/`table` a NEW component type on every render, so React
+ * unmounts and recreates the DOM and any anchored selection collapses.
+ * See change: fix-long-session-ux-degradation (D6).
+ */
+describe("MarkdownContent — DOM identity under context churn", () => {
+  const IDENTITY_MD = [
+    "A paragraph with `inline-code` inside it.",
+    "",
+    "[a link](https://example.com/x)",
+    "",
+    "| Name | Age |",
+    "| --- | --- |",
+    "| Alice | 30 |",
+  ].join("\n");
+
+  // A fresh but EQUIVALENT context on every click — exactly what a background
+  // session event used to hand the selected transcript before D7's narrowing.
+  function ContextSwapHarness({ content }: { content: string }) {
+    const [ctx, setCtx] = useState<ToolContext>(() => makeToolContext({ cwd: "/Users/me/repo" }));
+    return (
+      <ThemeProvider>
+        <MarkdownContent content={content} context={ctx} />
+        <button data-testid="swap-context" onClick={() => setCtx(makeToolContext({ cwd: "/Users/me/repo" }))}>
+          swap
+        </button>
+      </ThemeProvider>
+    );
+  }
+
+  it("#F9 keeps paragraph, inline-code, link and table nodes identical across a fresh equivalent context", () => {
+    const { container, getByTestId } = render(<ContextSwapHarness content={IDENTITY_MD} />);
+
+    const before = {
+      p: container.querySelector("p"),
+      code: container.querySelector("code"),
+      a: container.querySelector("a"),
+      table: container.querySelector("table"),
+    };
+    expect(before.p, "paragraph rendered").not.toBeNull();
+    expect(before.code, "inline code rendered").not.toBeNull();
+    expect(before.a, "link rendered").not.toBeNull();
+    expect(before.table, "table rendered").not.toBeNull();
+
+    act(() => {
+      getByTestId("swap-context").click();
+    });
+
+    expect(container.querySelector("p"), "paragraph node replaced").toBe(before.p);
+    expect(container.querySelector("code"), "inline-code node replaced").toBe(before.code);
+    expect(container.querySelector("a"), "link node replaced").toBe(before.a);
+    expect(container.querySelector("table"), "table node replaced").toBe(before.table);
+  });
+
+  it("#P2 a sustained ~60/s burst of fresh equivalent contexts mutates zero child lists in the markdown subtree", async () => {
+    const CHURN_MD = IDENTITY_MD;
+
+    function ChurnHarness() {
+      const [tick, setTick] = useState(0);
+      // Fresh context every render: the background-event shape. `tick` only
+      // exists to drive re-renders from the test.
+      const ctx = makeToolContext({ cwd: "/Users/me/repo" });
+      return (
+        <ThemeProvider>
+          <MarkdownContent content={CHURN_MD} context={ctx} />
+          <button data-testid="churn" onClick={() => setTick((t) => t + 1)}>
+            churn
+          </button>
+        </ThemeProvider>
+      );
+    }
+
+    const { container, getByTestId } = render(<ChurnHarness />);
+    const root = container.querySelector(".markdown-content") as HTMLElement;
+    expect(root).not.toBeNull();
+
+    const records: MutationRecord[] = [];
+    const observer = new MutationObserver((batch) => {
+      records.push(...batch);
+    });
+    observer.observe(root, { childList: true, subtree: true });
+
+    // ~60/s for >= 2 s of a simulated background stream: 130 fresh-but-
+    // equivalent-context re-renders (130 / 60 Hz ≈ 2.2 s). Driven synchronously
+    // rather than at a real 16 ms cadence — the invariant under test is DOM
+    // node identity across context churn, which is wall-clock independent, and
+    // a real-timer soak is exactly the flaky fixed-tick barrier the suite guard
+    // bans. See change: fix-long-session-ux-degradation (P2).
+    for (let i = 0; i < 130; i++) {
+      await act(async () => {
+        getByTestId("churn").click();
+      });
+    }
+    // Drain the MutationObserver's microtask queue before disconnecting.
+    await act(async () => {});
+    observer.disconnect();
+
+    const childListMutations = records.filter((r) => r.type === "childList");
+    expect(childListMutations).toHaveLength(0);
+  });
+
+  it("#F10 renders provider-less and outside any context prop without throwing, degrading file mentions to plain text", () => {
+    const { container } = render(
+      <ThemeProvider>
+        <MarkdownContent content={"wrote /Users/me/app.ts to disk"} />
+      </ThemeProvider>,
+    );
+    // Inert default: no fileLink → plain text, no linkified button.
+    expect(container.querySelector("button")).toBeNull();
+    expect(container.querySelector("p")?.textContent).toBe("wrote /Users/me/app.ts to disk");
   });
 });

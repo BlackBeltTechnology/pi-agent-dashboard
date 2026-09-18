@@ -14,6 +14,12 @@ interface Props {
  * Two-panel mobile shell with slide transitions and swipe-back.
  * Both panels stay mounted; CSS transform slides between them.
  * Depth 2 (preview) swaps content within the detail panel — no extra slide.
+ *
+ * The root fills its flex PARENT (`w-full flex-1 min-h-0`) rather than claiming
+ * a viewport unit. `App.tsx`'s mobile root owns `h-[100dvh] overflow-hidden`
+ * and stacks the in-flow banners above this shell; a `h-[100dvh]`/`w-screen`
+ * here would add its height on top of those banners and make the document
+ * scroll. See change: fix-long-session-ux-degradation.
  */
 export function MobileShell({ depth, listPanel, detailPanel, onBack }: Props) {
   const showDetail = depth >= 1;
@@ -39,7 +45,7 @@ export function MobileShell({ depth, listPanel, detailPanel, onBack }: Props) {
   const transitionClass = swipeState.swiping ? "" : "transition-transform duration-300 ease-out";
 
   return (
-    <div ref={containerRef} className="relative w-screen h-[100dvh] overflow-hidden bg-[var(--bg-primary)]">
+    <div ref={containerRef} className="w-full flex-1 min-h-0 relative overflow-hidden bg-[var(--bg-primary)]">
       {/* Panel 0: Session list */}
       <div
         className={`absolute inset-0 ${transitionClass} overflow-y-auto`}
