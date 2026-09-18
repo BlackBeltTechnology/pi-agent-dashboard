@@ -117,14 +117,32 @@ the remaining specs skip) plus harness symptoms in its red messages (`docker
 exec` failures, a 25-min `beforeAll` timeout, `browserContext.close`). A shard
 that runs 100+ min on a single shared harness is not attributable.
 
-### Design delta — matrix re-sized 6 → 12
+### Design delta — matrix re-sized 6 → 12 → 18
 
 Halving the per-shard spec count halves the wall clock. The contract test
 derives the matrix length from the YAML and asserts every `--shard=i/N`
-denominator equals it, so the bump is self-consistent (17/17 contract tests
-pass). `timeout-minutes` stays 120 as the cap. This supersedes the earlier
-"re-sizing tracked separately" note in the workflow comment: the 6-shard data
-made 12 the fix, not a follow-up.
+denominator equals it, so each bump is self-consistent (17/17 contract tests
+pass). `timeout-minutes` stays 120 as the cap.
+
+N=12 was NOT enough: run 35302540253 came back **11/12 shards GREEN** with
+shard 6 **CANCELLED at the 120-min cap** (no test failures — it simply did not
+finish). `--shard` splits by CONTIGUOUS file order, not round-robin, so shard 6
+inherits the alphabetical `mcp-*` / `model-*` / `notify-*` L3 block, each test
+spawning a real session, while the other 11 shards finish in ~40-60 min. N=18
+cuts that shard's spec count by a third. This supersedes the earlier
+"re-sizing tracked separately" note: the data made each bump the fix, not a
+follow-up.
+
+### Baseline green-with-known-gaps
+
+Run 35302540253 (12 shards) had **11 green shards and zero test failures** in
+them; the only non-green shard was the cap-cancelled one. 73 residual reds are
+quarantined behind issue #683 with `test.fixme(true, "…/issues/683")`. The
+baseline is BROADLY FLAKY — each dispatch surfaces 1-4 NEW single-test reds in
+different shards (folder-actions-menu, followup-image-queue, openspec-init-affordances, inline-terminal-transcript P1, folder-membership-drag, subagent-*) —
+so per-test quarantine is a moving target and a deterministic all-green run was
+not reached in this change. The workflow is ADVISORY on the PR path and the
+nightly cron stays COMMENTED; the residual flakiness is tracked in #683.
 
 ### Residual triage (second dispatch)
 
