@@ -78,12 +78,36 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+/**
+ * Keys that must never be used as map keys.
+ *
+ * `obj["__proto__"] = value` does not add a key — it reassigns the object's
+ * PROTOTYPE (silently for objects), so a config keyed `__proto__` would vanish
+ * from `Object.keys` while polluting unrelated lookups. These come from JSON, so
+ * an own `__proto__` property is reachable.
+ */
+const RESERVED_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+/**
+ * Cardinality caps. A bounded config cannot be used to allocate or serialize
+ * without limit from one persisted payload.
+ */
+export const MAX_BINDINGS = 200;
+export const MAX_MAPPINGS_PER_BINDING = 500;
+
 /** Validate an optional identifier→tier map. */
 function parsePrincipals(raw: unknown, base: string): Checked<Record<string, Tier>> {
   const out: Record<string, Tier> = {};
   if (raw === undefined) return { ok: true, value: out };
   if (!isObject(raw)) return { ok: false, reason: "invalid_principals", path: `${base}.principals` };
-  for (const [id, tier] of Object.entries(raw)) {
+  const entries = Object.entries(raw);
+  if (entries.length > MAX_MAPPINGS_PER_BINDING) {
+    return { ok: false, reason: "too_many_principals", path: `${base}.principals` };
+  }
+  for (const [id, tier] of entries) {
+    if (RESERVED_KEYS.has(id)) {
+      return { ok: false, reason: "reserved_principal_id", path: `${base}.principals.${id}` };
+    }
     if (!isTier(tier)) {
       return { ok: false, reason: "invalid_tier", path: `${base}.principals.${id}` };
     }
@@ -97,7 +121,14 @@ function parseRoles(raw: unknown, base: string): Checked<Record<string, RoleTier
   const out: Record<string, RoleTier> = {};
   if (raw === undefined) return { ok: true, value: out };
   if (!isObject(raw)) return { ok: false, reason: "invalid_roles", path: `${base}.roles` };
-  for (const [roleId, roleTier] of Object.entries(raw)) {
+  const entries = Object.entries(raw);
+  if (entries.length > MAX_MAPPINGS_PER_BINDING) {
+    return { ok: false, reason: "too_many_roles", path: `${base}.roles` };
+  }
+  for (const [roleId, roleTier] of entries) {
+    if (RESERVED_KEYS.has(roleId)) {
+      return { ok: false, reason: "reserved_role_id", path: `${base}.roles.${roleId}` };
+    }
     if (roleTier === "operate") {
       // The load-bearing rejection: role membership is held by whoever has
       // Manage Roles, who is not necessarily the operator.
@@ -175,7 +206,18 @@ export function validateTeamControls(raw: unknown): ValidationResult {
 
   const bindings: Record<string, ValidatedBinding> = {};
   const rawBindings = isObject(src.bindings) ? src.bindings : {};
-  for (const [workspaceId, rawBinding] of Object.entries(rawBindings)) {
+  const bindingEntries = Object.entries(rawBindings);
+  if (bindingEntries.length > MAX_BINDINGS) {
+    return { ok: false, reason: "too_many_bindings", path: "teamControls.bindings" };
+  }
+  for (const [workspaceId, rawBinding] of bindingEntries) {
+    if (RESERVED_KEYS.has(workspaceId)) {
+      return {
+        ok: false,
+        reason: "reserved_workspace_id",
+        path: `teamControls.bindings.${workspaceId}`,
+      };
+    }
     const parsed = parseBinding(rawBinding, ceiling, `teamControls.bindings.${workspaceId}`);
     if (!parsed.ok) return parsed;
     bindings[workspaceId] = parsed.value;
@@ -191,4 +233,20 @@ export function validateTeamControls(raw: unknown): ValidationResult {
       ...(guildId.value ? { guildId: guildId.value } : {}),
     },
   };
+}
+
+/**
+ * The DASHBOARD WRITE path: same validation, but an absent or malformed payload
+ * is REFUSED rather than read as "reset everything to defaults".
+ *
+ * Startup legitimately sees `undefined` (nothing configured yet) and must
+ * default. A LIVE write sees it only from a client bug or a crafted frame — and
+ * applying that as defaults would silently wipe every binding and deactivate
+ * every provisioned channel. Fail-closed is correct there; SILENT is not.
+ */
+export function validateTeamControlsWrite(raw: unknown): ValidationResult {
+  if (!isObject(raw)) {
+    return { ok: false, reason: "team_controls_payload_required", path: "teamControls" };
+  }
+  return validateTeamControls(raw);
 }

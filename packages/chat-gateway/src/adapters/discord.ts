@@ -104,7 +104,11 @@ export interface DiscordChannelOps {
  * reasonably support one and not the other.
  */
 export interface DiscordMemberOps {
-  assignersForRole(guildId: string, roleId: string): Promise<RoleAssigners>;
+  /** One answer per requested role, from a SINGLE enumeration. */
+  assignersForRoles(
+    guildId: string,
+    roleIds: readonly string[],
+  ): Promise<Record<string, RoleAssigners>>;
 }
 
 /** Map our dependency-free overwrite data onto discord.js's resolvable shape. */
@@ -126,6 +130,39 @@ type EditableChannel = {
 const READY_TIMEOUT_MS = 30_000;
 /** Cap on tracked interactive specs (both maps); older entries are evicted. */
 const MAX_TRACKED_SPECS = 200;
+
+/**
+ * A Discord message → the port's shape.
+ *
+ * Extracted so `handleMessage` stays within the complexity budget, and so the
+ * non-human + role identity mapping lives in one readable place: `bot` and
+ * `webhook` let the EDGE refuse non-humans (not just this adapter), and
+ * `roleIds` is what makes a role→tier mapping resolvable at all.
+ */
+function toPlatformMessage(
+  message: Message,
+  isDM: boolean,
+  platform: PlatformMessage["platform"],
+): PlatformMessage {
+  const channel = message.channel;
+  return {
+    id: message.id,
+    platform,
+    channelId: message.channelId,
+    userId: message.author.id,
+    content: message.content,
+    timestamp: message.createdTimestamp,
+    metadata: {
+      isDM,
+      threadId: channel.isThread() ? message.channelId : undefined,
+      parentChannelId: channel.isThread() ? (channel.parentId ?? undefined) : undefined,
+      userName: message.author.username,
+      bot: message.author.bot === true,
+      ...(message.webhookId ? { webhook: true } : {}),
+      ...(message.member ? { roleIds: [...message.member.roles.cache.keys()] } : {}),
+    },
+  };
+}
 
 export class DiscordAdapter extends BaseAdapter {
   readonly platform = "discord";
@@ -339,12 +376,16 @@ export class DiscordAdapter extends BaseAdapter {
   }
 
   /**
-   * Which members can hand out `roleId` (task 8.2) — the delegation
-   * disclosure. An unanswerable query returns `unavailable` naming what is
-   * missing rather than an empty list (see `RoleAssigners`).
+   * Which members can hand out each role in `roleIds` (task 8.2) — the
+   * delegation disclosure. Batched so a many-role binding causes ONE member
+   * enumeration rather than one per role. An unanswerable query returns
+   * `unavailable` naming what is missing, never an empty list.
    */
-  async assignersForRole(guildId: string, roleId: string): Promise<RoleAssigners> {
-    return this.memberOps().assignersForRole(guildId, roleId);
+  async assignersForRoles(
+    guildId: string,
+    roleIds: readonly string[],
+  ): Promise<Record<string, RoleAssigners>> {
+    return this.memberOps().assignersForRoles(guildId, roleIds);
   }
 
   private memberOps(): DiscordMemberOps {
@@ -354,28 +395,28 @@ export class DiscordAdapter extends BaseAdapter {
   /** Real Discord member/role enumeration for the delegation disclosure. */
   private defaultMemberOps(): DiscordMemberOps {
     return {
-      assignersForRole: async (guildId, roleId) => {
+      assignersForRoles: async (guildId, roleIds) => {
+        /** Answer the whole batch with one reason. */
+        const allUnavailable = (missingPermission: string): Record<string, RoleAssigners> =>
+          Object.fromEntries(roleIds.map((id) => [id, { kind: "unavailable", missingPermission }]));
+
+        if (roleIds.length === 0) return {};
         const guild = await this.requireClient().guilds.fetch(guildId);
         // Reading who holds a role is a Manage Roles read. Answering with an
         // empty list instead would claim nobody can assign it.
         if (!guild.members.me?.permissions.has(PermissionFlagsBits.ManageRoles)) {
-          return { kind: "unavailable", missingPermission: "Manage Roles" };
+          return allUnavailable("Manage Roles");
         }
-        const role = await guild.roles.fetch(roleId);
-        if (!role) {
-          return {
-            kind: "unavailable",
-            missingPermission: "the mapped role (it may have been deleted)",
-          };
-        }
+
         let members: Awaited<ReturnType<typeof guild.members.fetch>>;
         try {
           members = await guild.members.fetch();
         } catch {
           // Enumerating members needs the PRIVILEGED Server Members intent —
           // the likeliest cause, and one the operator can actually act on.
-          return { kind: "unavailable", missingPermission: "the Server Members intent" };
+          return allUnavailable("the Server Members intent");
         }
+
         const summaries: MemberSummary[] = members.map((m) => {
           const highest = m.roles.highest;
           const summary: MemberSummary = {
@@ -386,14 +427,27 @@ export class DiscordAdapter extends BaseAdapter {
           if (m.user.username) summary.name = m.user.username;
           return summary;
         });
-        return {
-          kind: "assigners",
-          members: pickAssigners(
-            summaries,
-            { id: role.id, position: role.position },
-            guild.ownerId,
-          ),
-        };
+
+        // One role fetch for the whole batch, then a pure pass per role.
+        const roles = await guild.roles.fetch();
+        const out: Record<string, RoleAssigners> = {};
+        for (const roleId of roleIds) {
+          const role = roles.get(roleId);
+          out[roleId] = role
+            ? {
+                kind: "assigners",
+                members: pickAssigners(
+                  summaries,
+                  { id: role.id, position: role.position },
+                  guild.ownerId,
+                ),
+              }
+            : {
+                kind: "unavailable",
+                missingPermission: "the mapped role (it may have been deleted)",
+              };
+        }
+        return out;
       },
     };
   }
@@ -530,20 +584,7 @@ export class DiscordAdapter extends BaseAdapter {
       }
     }
 
-    const platformMessage: PlatformMessage = {
-      id: message.id,
-      platform: this.platform,
-      channelId: message.channelId,
-      userId: message.author.id,
-      content: message.content,
-      timestamp: message.createdTimestamp,
-      metadata: {
-        isDM,
-        threadId: channel.isThread() ? message.channelId : undefined,
-        parentChannelId: channel.isThread() ? (channel.parentId ?? undefined) : undefined,
-        userName: message.author.username,
-      },
-    };
+    const platformMessage: PlatformMessage = toPlatformMessage(message, isDM, this.platform);
     await this.emitMessage(platformMessage);
   }
 

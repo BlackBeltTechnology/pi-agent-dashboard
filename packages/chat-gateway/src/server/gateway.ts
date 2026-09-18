@@ -246,6 +246,43 @@ function toInteractivePrompt(control: PromptControl) {
   };
 }
 
+/**
+ * An adapter message → the edge's inbound shape.
+ *
+ * Extracted from the `onMessage` closure to keep it within the complexity
+ * budget, and because this mapping is where non-human + role identity either
+ * survives or is lost: without `bot`/`webhook` the chokepoint's
+ * `non_human_author` refusal is unreachable, and without `roleIds` every
+ * role→tier mapping the panel advertises is inert.
+ *
+ * Absent optional fields are OMITTED rather than set to `undefined`, so
+ * downstream `in`/presence checks stay honest.
+ */
+function toInbound(
+  m: PlatformMessage,
+  platform: ChatPlatform,
+  startedAt: number,
+): InboundMessage {
+  const md = m.metadata;
+  const inbound: InboundMessage = {
+    platform,
+    channelId: m.channelId,
+    userId: m.userId,
+    text: m.content,
+    isDM: md?.isDM === true,
+    startedAt,
+  };
+  if (typeof md?.threadId === "string") inbound.threadId = md.threadId;
+  if (typeof md?.parentChannelId === "string") inbound.parentChannelId = md.parentChannelId;
+  if (md?.bot === true) inbound.bot = true;
+  if (md?.webhook === true) inbound.webhook = true;
+  const roleIds = Array.isArray(md?.roleIds)
+    ? md.roleIds.filter((r): r is string => typeof r === "string")
+    : [];
+  if (roleIds.length > 0) inbound.roleIds = roleIds;
+  return inbound;
+}
+
 export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
   const { seam, adapter, config, store, correlator, platform, team } = deps;
   const now = deps.now ?? Date.now;
@@ -781,19 +818,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       await adapter.start({
         onMessage: async (m: PlatformMessage) => {
           try {
-            await gateway.handleInbound({
-              platform,
-              channelId: m.channelId,
-              threadId: typeof m.metadata?.threadId === "string" ? m.metadata.threadId : undefined,
-              parentChannelId:
-                typeof m.metadata?.parentChannelId === "string"
-                  ? m.metadata.parentChannelId
-                  : undefined,
-              userId: m.userId,
-              text: m.content,
-              isDM: m.metadata?.isDM === true,
-              startedAt: now(),
-            });
+            await gateway.handleInbound(toInbound(m, platform, now()));
           } catch (err) {
             seam.log("error", `chat-gateway inbound failed: ${String(err)}`);
           }

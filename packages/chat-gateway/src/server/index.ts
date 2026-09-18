@@ -37,7 +37,7 @@ import { createTeamController } from "./team/controller.js";
 import { createProvisioner } from "./team/provisioner.js";
 import { createProvisioningStore } from "./team/provisioning-store.js";
 import { buildTeamSurface, type DelegationPort } from "./team/surface.js";
-import { FAIL_CLOSED_TEAM_CONFIG, validateTeamControls } from "./team/team-config.js";
+import { FAIL_CLOSED_TEAM_CONFIG, validateTeamControls, validateTeamControlsWrite } from "./team/team-config.js";
 
 /** The plugin id used by `/api/health.plugins[]`. */
 const PLUGIN_ID = "chat-gateway";
@@ -224,14 +224,21 @@ export default async function registerChatGateway(ctx: ServerPluginContext): Pro
   // returns and decides nothing itself, so there is exactly one place that
   // knows what the layer will do.
   const delegation: DelegationPort = {
-    async assignersForRole(roleId) {
+    assignersForRoles(roleIds) {
       if (!teamConfig.guildId) {
-        return {
-          kind: "unavailable",
-          missingPermission: "a configured teamControls.guildId",
-        };
+        // No guild ⇒ nothing to enumerate. Say so once for the whole batch
+        // rather than falling through to an empty list, which would read as
+        // "nobody can assign this".
+        return Promise.resolve(
+          Object.fromEntries(
+            roleIds.map((id) => [
+              id,
+              { kind: "unavailable" as const, missingPermission: "a configured teamControls.guildId" },
+            ]),
+          ),
+        );
       }
-      return adapter.assignersForRole(teamConfig.guildId, roleId);
+      return adapter.assignersForRoles(teamConfig.guildId, roleIds);
     },
   };
 
@@ -262,7 +269,11 @@ export default async function registerChatGateway(ctx: ServerPluginContext): Pro
   ctx.registerBrowserHandler(TEAM_CONFIG_MESSAGE, (msg) => {
     void (async () => {
       const raw = (msg as { teamControls?: unknown } | null)?.teamControls;
-      const parsed = validateTeamControls(raw);
+      // NOT `validateTeamControls`: startup reads `undefined` as "nothing
+      // configured yet" and defaults, but a LIVE write that omits the payload
+      // must be refused. Applying it as defaults would silently wipe every
+      // binding and deactivate every provisioned channel.
+      const parsed = validateTeamControlsWrite(raw);
       if (!parsed.ok) {
         // Nothing persisted and no platform call made — a rejected config must
         // not half-apply.
@@ -278,16 +289,22 @@ export default async function registerChatGateway(ctx: ServerPluginContext): Pro
       // silently undo a chat-initiated disarm — the dashboard re-arms by
       // setting this flag, so it is applied deliberately, not as a side effect.
       const disarmChanged = parsed.value.disarmed !== teamConfig.disarmed;
+      const previous = teamConfig;
 
-      await ctx.updatePluginConfig({ teamControls: parsed.value });
+      // D7 ORDERING: converge the PLATFORM before recording the config as
+      // applied. Reconcile reads `teamConfig` through a getter, so assigning
+      // here is how it sees the prospective config. Persisting first would
+      // leave a window in which a revoked principal is denied in chat while
+      // still holding channel VIEW access — precisely what D7 forbids.
       teamConfig = parsed.value;
-      teamConfigError = undefined;
-      if (disarmChanged) team.syncDisarmFromConfig(parsed.value.disarmed);
-
-      // D7: reconcile AWAITS the platform call, so the operator cannot be told
-      // a revoked principal lost access before the platform agrees.
       const swept = await provisioner.reconcile();
       if (!swept.ok) {
+        teamConfig = previous;
+        // A partially-applied reconcile may have revoked access already.
+        // Converge back, best-effort: if the platform is failing this fails
+        // too, and the layer then holds the WIDER config (authorized in chat,
+        // access revoked on the platform) — the safe direction to fail in.
+        await provisioner.reconcile();
         ctx.broadcastToSubscribers({
           type: TEAM_CONFIG_MESSAGE,
           ok: false,
@@ -296,6 +313,26 @@ export default async function registerChatGateway(ctx: ServerPluginContext): Pro
         });
         return;
       }
+
+      try {
+        await ctx.updatePluginConfig({ teamControls: parsed.value });
+      } catch (err) {
+        // The platform already matches the new config but it could not be
+        // persisted; revert both so memory, disk and platform agree.
+        teamConfig = previous;
+        await provisioner.reconcile();
+        ctx.logger.error(`chat-gateway: team-controls write failed to persist: ${String(err)}`);
+        ctx.broadcastToSubscribers({
+          type: TEAM_CONFIG_MESSAGE,
+          ok: false,
+          reason: "config_write_failed",
+          surface: await buildSurface(),
+        });
+        return;
+      }
+
+      teamConfigError = undefined;
+      if (disarmChanged) team.syncDisarmFromConfig(parsed.value.disarmed);
       ctx.broadcastToSubscribers({
         type: TEAM_CONFIG_MESSAGE,
         ok: true,

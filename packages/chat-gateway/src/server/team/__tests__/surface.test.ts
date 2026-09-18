@@ -20,10 +20,18 @@ const WORKSPACES: WorkspaceView[] = [
   { id: "ws_1", name: "Project One", folders: ["/srv/ok/proj", "/home/private"] },
 ];
 
-/** A delegation port with a fixed answer per role. */
+/** A delegation port with a fixed answer per role, answering a whole batch. */
 function delegationOf(answers: Record<string, DelegationAnswer>): DelegationPort {
   return {
-    assignersForRole: (roleId) => answers[roleId] ?? { kind: "assigners", members: [] },
+    assignersForRoles: (roleIds) =>
+      Promise.resolve(
+        Object.fromEntries(
+          roleIds.map((roleId) => [
+            roleId,
+            answers[roleId] ?? { kind: "assigners" as const, members: [] },
+          ]),
+        ),
+      ),
   };
 }
 
@@ -159,20 +167,34 @@ describe("delegation disclosure (8.2, F1/F2)", () => {
     expect(view.bindings[0].roles[0].assigners).toEqual({ kind: "assigners", members: [] });
   });
 
-  it("queries delegation once per mapped role, not once per read", async () => {
-    const seen: string[] = [];
+  it("asks for delegation in ONE batched call, not once per role", async () => {
+    const calls: Array<readonly string[]> = [];
     const view = await buildTeamSurface(
       makeInput({
         delegation: {
-          assignersForRole: (roleId) => {
-            seen.push(roleId);
-            return GRANTED_ROLE;
+          assignersForRoles: (roleIds) => {
+            calls.push([...roleIds]);
+            return Promise.resolve(
+              Object.fromEntries(
+                roleIds.map((id) => [id, { kind: "assigners" as const, members: [] }]),
+              ),
+            );
           },
         },
       }),
     );
-    expect(seen).toEqual(["r_ops"]);
+    // The platform read behind this is an expensive, rate-limited enumeration,
+    // so a many-role panel must not issue one call per role.
+    expect(calls).toEqual([["r_ops"]]);
+    expect(calls).toHaveLength(1);
     expect(view.bindings[0].roles).toHaveLength(1);
+  });
+
+  it("treats an unasked-for role as an empty roster rather than unknown", async () => {
+    const view = await buildTeamSurface(
+      makeInput({ delegation: { assignersForRoles: () => Promise.resolve({}) } }),
+    );
+    expect(view.bindings[0].roles[0].assigners).toEqual({ kind: "assigners", members: [] });
   });
 });
 

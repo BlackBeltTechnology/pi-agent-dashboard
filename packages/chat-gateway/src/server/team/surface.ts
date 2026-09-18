@@ -44,12 +44,17 @@ export type DelegationAnswer =
   | { kind: "unavailable"; missingPermission: string };
 
 /**
- * Where the delegation disclosure comes from. Optional capability: the Discord
- * transport answers it when it holds `Manage Roles`, and `unavailable`
- * otherwise.
+ * Where the delegation disclosure comes from.
+ *
+ * BATCHED by role, deliberately: the platform read behind it (a full guild
+ * member enumeration) is expensive and rate-limited, so asking once per panel
+ * build instead of once per mapped role keeps a many-role binding from issuing
+ * a burst of identical enumerations. Missing keys are treated as an empty
+ * roster by the caller, never as "unknown" — a port that cannot answer MUST
+ * return `unavailable`, or the panel would understate the delegation.
  */
 export interface DelegationPort {
-  assignersForRole(roleId: string): Promise<DelegationAnswer> | DelegationAnswer;
+  assignersForRoles(roleIds: readonly string[]): Promise<Record<string, DelegationAnswer>>;
 }
 
 export interface BuildSurfaceInput {
@@ -118,18 +123,17 @@ async function buildBinding(
   binding: NonNullable<ValidatedTeamConfig["bindings"]>[string],
   workspace: WorkspaceView | undefined,
   input: BuildSurfaceInput,
+  answers: Record<string, DelegationAnswer>,
 ): Promise<SurfaceBinding> {
   const roleIds = Object.keys(binding.roles).sort();
-  const roles = await Promise.all(
-    roleIds.map(async (roleId) => {
-      const answer = await input.delegation.assignersForRole(roleId);
-      const assigners: SurfaceRoleAssigners =
-        answer.kind === "assigners"
-          ? { kind: "assigners", members: answer.members.map((m) => ({ ...m })) }
-          : { kind: "unavailable", missingPermission: answer.missingPermission };
-      return { roleId, tier: binding.roles[roleId], assigners };
-    }),
-  );
+  const roles = roleIds.map((roleId) => {
+    const answer = answers[roleId] ?? { kind: "assigners", members: [] };
+    const assigners: SurfaceRoleAssigners =
+      answer.kind === "assigners"
+        ? { kind: "assigners", members: answer.members.map((m) => ({ ...m })) }
+        : { kind: "unavailable", missingPermission: answer.missingPermission };
+    return { roleId, tier: binding.roles[roleId], assigners };
+  });
 
   // Only folders that EXIST are listed; a folder outside `allowedRoots` is inert
   // and shown as such, because "this workspace has a folder you cannot use" is
@@ -163,13 +167,20 @@ export async function buildTeamSurface(input: BuildSurfaceInput): Promise<TeamSu
   const limit = input.logLimit ?? SURFACE_LOG_LIMIT;
   const byId = new Map(input.workspaces.map((w) => [w.id, w] as const));
   const configured = input.config?.bindings ?? {};
+  const workspaceIds = Object.keys(configured).sort();
+
+  // ONE delegation read for the whole panel, covering every mapped role in every
+  // binding — see `DelegationPort`.
+  const allRoleIds = [
+    ...new Set(workspaceIds.flatMap((id) => Object.keys(configured[id].roles))),
+  ].sort();
+  const answers =
+    allRoleIds.length > 0 ? await input.delegation.assignersForRoles(allRoleIds) : {};
 
   const bindings = await Promise.all(
-    Object.keys(configured)
-      .sort()
-      .map((workspaceId) =>
-        buildBinding(workspaceId, configured[workspaceId], byId.get(workspaceId), input),
-      ),
+    workspaceIds.map((workspaceId) =>
+      buildBinding(workspaceId, configured[workspaceId], byId.get(workspaceId), input, answers),
+    ),
   );
 
   const view: TeamSurfaceView = {
