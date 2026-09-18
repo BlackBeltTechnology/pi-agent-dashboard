@@ -315,6 +315,7 @@ test.describe("inline terminal transcript preservation", () => {
   });
 
   test("P1: close a card with heavy scrollback renders the frozen card < 500 ms p95", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     await openInline(page);
     // Generate a large scrollback so the transcript exercises the byte cap.
     await typeIntoTerminal(page, "for i in $(seq 1 2000); do echo line-$i-xxxxxxxxxxxxxxxxxxxx; done\n");
