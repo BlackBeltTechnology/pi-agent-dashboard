@@ -54,6 +54,9 @@ const CENSUS: Record<string, string[]> = {
   ],
   "components/__tests__/PluginStalenessBanner.test.tsx": [
     "renders nothing when /api/health.bundleHash matches the embedded hash",
+    // Added by this change — test-plan F1: a client-less plugin no longer
+    // fabricates a hash delta, so the banner stays hidden on a parity host.
+    "F1 stays hidden on a parity host whose plugin set includes a client-less plugin",
     "renders the banner when hashes differ",
     "Refresh button calls window.location.reload",
     "Dismiss button hides the banner and records sessionStorage",
