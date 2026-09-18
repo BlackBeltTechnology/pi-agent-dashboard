@@ -97,7 +97,23 @@ jobs:
       # Hard-gates Tier A (error-severity) regressions; Tier B/C (warn) only annotate.
       - name: Biome static analysis (Tier A gate, warn-tier annotate)
         run: pnpm exec biome lint . --reporter=github
+      # Two phases: the parallel projects, then the real-process project alone
+      # at maxWorkers 2 (which retries once under CI). See change:
+      # isolate-real-process-tests.
       - run: pnpm test
+      # `if: always()` on purpose: the RED run is the one whose report you need.
+      # A real-process test that passed on retry appears in the JSON as
+      # `status: passed` WITH a retained `failureMessages` entry (vitest 4 has
+      # no `retryCount` field), so a retry is attributable from the run page
+      # without log mining. Triage recipe: .pi/skills/ci-troubleshoot/SKILL.md.
+      - name: Upload vitest JSON report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitest-report
+          path: test-results/vitest*.json
+          retention-days: 14
+          if-no-files-found: warn
       # Build and fail on the mechanical warnings removed by
       # `fix-vite-build-warnings`, plus the @mdi/js dynamic-import warning
       # removed by `shrink-client-index-chunk`. The oversized-chunk (>700 kB)

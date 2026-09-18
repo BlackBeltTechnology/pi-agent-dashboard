@@ -141,7 +141,10 @@ describe("FilePreviewProvider — overlay survives message churn", () => {
     act(() => {
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     });
-    expect(queryByTestId("file-preview-overlay")).toBeNull();
+    // race: the keydown listener is registered in an effect and the close it
+    // triggers unmounts the overlay on a later commit, so a one-shot read can
+    // observe the still-mounted overlay. Poll the removal.
+    await waitFor(() => expect(queryByTestId("file-preview-overlay")).toBeNull());
   });
 
   it("close button dismisses the hoisted overlay", async () => {
