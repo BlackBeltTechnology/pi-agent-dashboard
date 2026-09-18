@@ -5,6 +5,7 @@ Deterministic Markdown → self-contained 3D presentation engine (`deck3d` CLI +
 | File | Purpose |
 |------|---------|
 | `AGENTS.md` | This file — per-file map for the package root. |
+| `README.md` | Install, markdown grammar, CLI commands, IR/overrides, tune loop, effects, props, tests, build. |
 | `package.json` | Manifest. Name `@blackbelt-technology/pi-dashboard-deck3d`. `pi.skills` → `.pi/skills/deck3d`, bin `deck3d` → `bin/deck3d`. deps three (pinned 0.160.0), mermaid (exact 11.17.2, harvest), opentype.js, ajv, esbuild, playwright. `build` = bundle harvest + runtime + regenerate IR field reference. |
 | `bin/deck3d` | CLI launcher. Runs built `dist/cli.js` when present, else `node --import tsx src/cli.ts` (dev checkout). |
 | `tsconfig.json` | Extends `../../tsconfig.base.json`; `rootDir` src → `outDir` dist. |
@@ -18,3 +19,12 @@ Deterministic Markdown → self-contained 3D presentation engine (`deck3d` CLI +
 | `scripts/build-harvest.ts` | Bundles `src/parse/harvest/harness.ts` (mermaid + harvest) → `dist/harvest/harness.js`; wired into package `build`. |
 | `scripts/build-runtime.mjs` | Bundles `src/runtime/index.ts` (three.js engine, IIFE, no hashes) → `dist/runtime.js`; wired into package `build`. |
 | `fixtures/AGENTS.md` | Subfolder — fixture decks for the harvest/parse/render suites. |
+
+## Learnings carried over from the strategy-lab mockup
+
+- **Hungarian double-acutes.** Every three.js `typeface.json` (helvetiker, droid, gentilis) ships corrupt `ő ű Ő Ű` outlines → earcut streaks and vanishing letters. Only a real TTF through opentype.js renders them. `assets/Poppins-Bold.ttf` is embedded; there is no typeface fallback.
+- **Mermaid id scheme.** v11 renders node groups as `<renderId>-flowchart-<nodeId>-<n>` and edge paths as `<renderId>-L_<from>_<to>_<k>`. Harvest matches on those; the mermaid version is pinned exactly and the harvest fixtures fail if the scheme moves.
+- **Hidden-tab loop.** Headless/background tabs stall `requestAnimationFrame`; the runtime falls back to `setTimeout` so build-time snapshots capture a finished frame.
+- **Label treatment.** Extruded small text blooms and becomes unreadable; diagram labels are flat canvas planes filled `P.text` with an 18 % `P.bg` outline, `toneMapped:false`, offset in front of the node surface (`h/2` for round shapes).
+- **Z-fighting / veil.** ONE global `Reflector` floor (not per-slide coplanar floors) with a radial-alpha veil, camera near 0.5, shadow bias/normalBias — all ported from the lab.
+- **Bloom vs mode.** Bloom threshold/strength are mode-aware; glass transmission is lowered in light mode for text contrast.

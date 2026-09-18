@@ -77,9 +77,9 @@
 
 ## 9. Parity, retire lab, docs
 
-- [ ] 9.1 Create `fixtures/strategy-lab.md` reproducing the lab's seven slides (incl. Hungarian titles and both mermaid blocks); build it; compare snapshots to the lab side by side and record deviations in `design.md` Open Questions or fix; verify all slides snapshot without console errors.
-- [ ] 9.2 Move the lab's learnings (font corruption, mermaid id scheme, hidden-tab loop, label outline) from `mockup/README.md` into `packages/deck3d/AGENTS.md`; the `mockup/` dir archives with the change; verify `kb dox lint` clean.
-- [ ] 9.3 DocScribe: `packages/deck3d/README.md` (install, grammar, CLI, tune loop) + `docs/architecture.md` pointer row; verify links resolve (`scripts/check-conventions.mjs`).
+- [x] 9.1 Create `fixtures/strategy-lab.md` reproducing the lab's seven slides (incl. Hungarian titles and both mermaid blocks); build it; compare snapshots to the lab side by side and record deviations in `design.md` Open Questions or fix; verify all slides snapshot without console errors.
+- [x] 9.2 Move the lab's learnings (font corruption, mermaid id scheme, hidden-tab loop, label outline) from `mockup/README.md` into `packages/deck3d/AGENTS.md`; the `mockup/` dir archives with the change; verify `kb dox lint` clean.
+- [x] 9.3 DocScribe: `packages/deck3d/README.md` (install, grammar, CLI, tune loop) + `docs/architecture.md` pointer row; verify links resolve (`scripts/check-conventions.mjs`).
 - [ ] 9.4 Full test run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` green; `npm run quality:changed` clean; `review-code` pass on the diff.
 
 ## 9b. Test infra (from test-plan.md "New infra needed")
