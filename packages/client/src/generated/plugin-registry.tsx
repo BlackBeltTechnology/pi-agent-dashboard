@@ -2,6 +2,7 @@
 
 import { AppleToolsSettings } from "@blackbelt-technology/pi-dashboard-apple-tools";
 import { FolderAutomationSection, AutomationBoard, AutomationRunMonitor, AutomationBadge, isAutomationRun, AutomationSettings, catalog as automation_catalog } from "@blackbelt-technology/pi-dashboard-automation-plugin";
+import { ChatGatewaySettings } from "@blackbelt-technology/pi-dashboard-chat-gateway-plugin";
 import { CostView, CostSettings } from "@blackbelt-technology/pi-dashboard-cost-estimator";
 import { SessionFlowActionsClaim, shouldRenderFlowsSubcard, FlowDashboardClaim, FlowYamlPreviewClaim, isFlowYamlPreviewActive, FlowWriteToolRenderer, FlowAgentsToolRenderer, FlowsSettings, FlowInputWiringClaim, catalog as flows_catalog } from "@blackbelt-technology/pi-dashboard-flows-plugin";
 import { GoalChip, hasGoal, GoalControl, FolderGoalsSection, GoalsBoardClaim, GoalDetailClaim, GoalPluginSettings, catalog as goal_catalog } from "@blackbelt-technology/pi-dashboard-goal-plugin";
@@ -104,6 +105,28 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
       { pluginId: "automation", priority: 100, slot: "settings-section", tab: "general", Component: AutomationSettings },
     ],
     catalog: automation_catalog,
+  },
+  {
+    manifest: {
+        "id": "chat-gateway",
+        "displayName": "Chat Gateway",
+        "priority": 100,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "ChatGatewaySettings",
+                "config": {
+                    "tab": "general"
+                }
+            }
+        ],
+        "client": "./src/client/index.tsx",
+        "server": "./src/server/index.ts",
+        "configSchema": "./src/configSchema.json"
+    },
+    claims: [
+      { pluginId: "chat-gateway", priority: 100, slot: "settings-section", config: {"tab":"general"}, Component: ChatGatewaySettings },
+    ],
   },
   {
     manifest: {
@@ -564,4 +587,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "4e1f10fbdbfd764dc7f026c43aabf87f0b79ab5a5b0aa4148cb68918a4ef080c";
+export const PLUGIN_REGISTRY_HASH = "c2d5cfef9a6ec9c12885bd55f35683665279a27f0ba292d908a4a8aa47397acb";

@@ -2365,6 +2365,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 }
                 browserGateway.broadcast(msg as any);
               },
+              subscribeSession: (sessionId, handler) => {
+                // Trusted gate — same priority rule as the other control-plane
+                // seams (sendExtensionMessage / emitEventToSession). Untrusted
+                // plugins receive nothing.
+                // See change: add-chat-gateway.
+                if ((plugin.manifest.priority ?? 1000) > 100) return () => {};
+                const unsub = browserGateway.addInProcessSubscriber(sessionId, handler as any);
+                // Replay any ALREADY-pending PromptBus request so a gateway
+                // that (re)subscribes renders an open ask_user instead of a
+                // dead card.
+                browserGateway.replayPendingPromptsTo(sessionId, handler as any);
+                return unsub;
+              },
               registerPiHandler: (type, handler) => {
                 const arr = pluginPiHandlers.get(type) ?? [];
                 arr.push(handler);
