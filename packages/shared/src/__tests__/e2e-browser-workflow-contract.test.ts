@@ -195,7 +195,7 @@ describe("ci-e2e-browser.yml — teardown + merged report", () => {
     const header = lines.findIndex((l) => /^\s{2}merge-report:/.test(l));
     expect(header, "no merge-report job found").toBeGreaterThanOrEqual(0);
     const jobHead = lines.slice(header, header + 8).join("\n");
-    expect(jobHead).toMatch(/needs:\s*\[\s*e2e\s*\]/);
+    expect(jobHead).toMatch(/needs:\s*\[\s*e2e\s*,\s*e2e-browser-relay\s*\]/);
     expect(jobHead).toMatch(/always\(\)\s*&&\s*needs\.e2e\.result\s*!=\s*'skipped'/);
   });
 
@@ -210,5 +210,45 @@ describe("ci-e2e-browser.yml — teardown + merged report", () => {
     expect(yaml).toMatch(
       /continue-on-error:\s*\$\{\{\s*github\.event_name\s*==\s*'pull_request'\s*\}\}/,
     );
+  });
+});
+
+describe("ci-e2e-browser.yml — browser-relay variant leg", () => {
+  // The relay spec needs a harness booted with PI_BROWSER_RELAY_FAKE=1, and that
+  // faucet cannot be a shared-harness default (a live relay occludes the chat
+  // for every other spec — systemic cause S2). So it gets its own leg. Without
+  // one, `browser-relay.spec.ts` skips in EVERY shard and the file's coverage
+  // disappears with nothing tracking it — the invisible-hole class this
+  // change's `e2e-fixme-guard` exists to prevent.
+  const lines = yaml.split("\n");
+  const header = lines.findIndex((l) => /^\s{2}e2e-browser-relay:/.test(l));
+  const end = lines.findIndex((l, i) => i > header && /^\s{2}[a-zA-Z][\w-]*:\s*$/.test(l));
+  const job = header >= 0 ? lines.slice(header, end === -1 ? undefined : end).join("\n") : "";
+
+  it("exists, so the relay spec is not silently dropped from CI", () => {
+    expect(
+      header,
+      "no `e2e-browser-relay` job — tests/e2e/browser-relay.spec.ts would never run in CI",
+    ).toBeGreaterThanOrEqual(0);
+  });
+
+  it("boots the harness with the relay faucet and runs only the relay spec", () => {
+    expect(job).toMatch(/PI_BROWSER_RELAY_FAKE:\s*"?1"?/);
+    expect(job).toMatch(/tests\/e2e\/browser-relay\.spec\.ts/);
+    // The faucet is mandatory here, so this leg needs the seed too.
+    expect(job).toMatch(/PI_E2E_SEED:\s*"?1"?/);
+    expect(job).toMatch(/blob-report-relay/);
+  });
+
+  it("is bounded, label-gated, advisory on the PR path, and tears down always", () => {
+    expect(job).toMatch(/^\s{4}timeout-minutes:/m);
+    expect(job).toMatch(
+      /contains\(github\.event\.pull_request\.labels\.\*\.name,\s*'e2e-browser'\)/,
+    );
+    expect(job).toMatch(
+      /continue-on-error:\s*\$\{\{\s*github\.event_name\s*==\s*'pull_request'\s*\}\}/,
+    );
+    expect(job).toMatch(/-\s+name:\s*Tear down harness/);
+    expect(job).toMatch(/docker\/test-down\.sh/);
   });
 });

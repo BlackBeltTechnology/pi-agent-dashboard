@@ -183,13 +183,104 @@ jobs:
           fi
           (cd "$ws" && "$GITHUB_WORKSPACE/docker/test-down.sh")
 
+  # ── e2e-browser-relay: the VARIANT-harness leg ────────────────────────────
+  # `tests/e2e/browser-relay.spec.ts` needs a harness booted with
+  # PI_BROWSER_RELAY_FAKE=1, which seeds the plugin's socket-less Fake relay
+  # instance. That faucet CANNOT be a shared-harness default: a live relay makes
+  # `isLiveViewActive()` true for EVERY session, so the `content-view` slot
+  # renders the live-browser tile instead of the composer and occludes the chat
+  # for every other spec (systemic cause S2). It therefore gets its OWN runner +
+  # harness, and the relay spec skips everywhere else. Without this leg the file
+  # would be silently dropped from CI entirely.
+  e2e-browser-relay:
+    name: e2e (browser relay, variant harness)
+    # Same label gate as the shard matrix: dispatch/nightly always, PRs opt-in.
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'e2e-browser')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      # Same managed-mode contract as the shards (globalSetup boots + tears down,
+      # cold-build timeout, copy mode), plus the relay faucet. PI_E2E_SEED is
+      # mandatory: without it the onboarding "Add folder" CTA is disabled and
+      # every scenario spec times out.
+      - name: Run browser-relay E2E (variant harness)
+        run: pnpm exec playwright test tests/e2e/browser-relay.spec.ts
+        env:
+          CI: "1"
+          PI_E2E_SEED: "1"
+          PI_BROWSER_RELAY_FAKE: "1"
+          PW_E2E_BOOT_TIMEOUT_MS: "1200000"
+          TEST_COPY_MODE: "1"
+
+      - name: Upload blob report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: blob-report-relay
+          path: blob-report
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload harness boot log
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-up-log-relay
+          path: test-results/test-up.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload harness failure bundle
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-failure-relay
+          path: test-results/harness-failure.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Tear down harness
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          marker="test-results/.e2e-managed"
+          if [ ! -f "$marker" ]; then
+            echo "no managed-run marker — globalTeardown (or attach mode) already handled teardown"
+            exit 0
+          fi
+          ws="$(node -p "require('./test-results/.e2e-managed').workspace" 2>/dev/null || true)"
+          if [ -z "$ws" ] || [ ! -d "$ws" ]; then
+            echo "marker has no usable workspace — nothing to tear down"
+            exit 0
+          fi
+          (cd "$ws" && "$GITHUB_WORKSPACE/docker/test-down.sh")
+
   # ── merge-report: one HTML artifact for the whole sharded run ─────────────
   merge-report:
-    needs: [e2e]
+    needs: [e2e, e2e-browser-relay]
     # NOT a bare `always()`: that also runs this job when the label gate SKIPPED
     # `e2e`. There are then zero blob artifacts, `merge-reports` fails, and every
     # UNLABELED PR grows a red "CI E2E Browser / merge-report" check — exactly
-    # the red wall the advisory + land-dark design exists to avoid.
+    # the red wall the advisory + land-dark design exists to avoid. Both legs
+    # share the same label gate, so either being non-skipped is sufficient.
     if: ${{ always() && needs.e2e.result != 'skipped' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10

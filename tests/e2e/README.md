@@ -302,6 +302,24 @@ The pi-flows engine + anthropic peer are BAKED into the image (Dockerfile
 (`qa/fixtures/faux-roles.json`) is seeded to `providers.json` so flow agents
 using `model: @role` resolve to `faux/faux-1`.
 
+### Browser-relay variant harness (`PI_BROWSER_RELAY_FAKE`)
+
+`browser-relay.spec.ts` needs a harness booted with `PI_BROWSER_RELAY_FAKE=1`,
+which seeds the browser plugin's socket-less **Fake** relay instance (no Chrome in
+the image). That faucet **cannot** be a shared-harness default: a live relay makes
+`isLiveViewActive()` true for every session, so the `content-view` slot renders
+the live-browser tile instead of the composer and **occludes the chat for every
+other spec** (systemic cause S2 of `stabilize-browser-e2e`). The spec therefore
+skips unless the faucet is present, and it gets its **own CI leg**: the
+`e2e-browser-relay` job in `.github/workflows/ci-e2e-browser.yml` boots the
+harness with `PI_E2E_SEED=1 PI_BROWSER_RELAY_FAKE=1` and runs only that file —
+every shard skips it. Opt in locally the same way:
+
+```bash
+PI_E2E_SEED=1 PI_BROWSER_RELAY_FAKE=1 docker/test-up.sh -d --build
+PW_E2E_USE_RUNNING=1 npm run test:e2e -- browser-relay
+```
+
 ### L1 / L2 run in `npm test`
 
 The L1 probe/reducer unit gaps and the hermetic L2 contract-pinned reducer test
