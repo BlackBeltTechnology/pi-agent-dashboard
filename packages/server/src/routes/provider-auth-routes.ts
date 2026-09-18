@@ -2,28 +2,28 @@
  * REST routes for browser-based pi provider authentication.
  */
 import type { FastifyInstance } from "fastify";
+import { startCallbackServer } from "../auth/oauth-callback-server.js";
 import {
-  getProviderHandler,
-  getAllHandlers,
-  generatePKCE,
-  generateState,
   type AuthCodeHandler,
   type DeviceCodeHandler,
+  generatePKCE,
+  generateState,
+  getAllHandlers,
+  getProviderHandler,
   type PKCEPair,
 } from "../auth/provider-auth-handlers.js";
 import {
-  writeCredential,
-  removeCredential,
+  type ApiKeyCredential,
   getAuthStatus,
   getOAuthProvidersMeta,
+  removeCredential,
   resolveAuthJsonKey,
-  type ApiKeyCredential,
+  writeCredential,
 } from "../auth/provider-auth-storage.js";
-import { getLatestCatalogue } from "../package/provider-catalogue-cache.js";
-import { startCallbackServer } from "../auth/oauth-callback-server.js";
-import type { PiGateway } from "../pi/pi-gateway.js";
-import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import { refreshModelRegistry } from "../model-proxy/registry-singleton.js";
+import { getLatestCatalogue } from "../package/provider-catalogue-cache.js";
+import type { BrowserGateway } from "../pairing/browser-gateway.js";
+import type { PiGateway } from "../pi/pi-gateway.js";
 
 // ── In-memory flow store (short-lived PKCE + device code state) ──────────────
 
@@ -158,7 +158,7 @@ export function registerProviderAuthRoutes(
             if (f === flow) { authCodeFlows.delete(id); break; }
           }
           const credential = await h.exchangeCode(code, flow.redirectUri, flow.pkce, flow.state);
-          writeCredential(flow.providerId, credential);
+          await writeCredential(flow.providerId, credential);
           notifyBridges();
         },
       });
@@ -230,7 +230,7 @@ export function registerProviderAuthRoutes(
         // Resolve the authJsonKey for API key providers (e.g., "anthropic-api" → "anthropic")
         const authJsonKey = resolveAuthJsonKey(provider);
         const credential: ApiKeyCredential = { type: "api_key", key };
-        writeCredential(authJsonKey, credential);
+        await writeCredential(authJsonKey, credential);
         notifyBridges();
         return { ok: true };
       } catch (err: any) {
@@ -248,7 +248,7 @@ export function registerProviderAuthRoutes(
     async (request, reply) => {
       try {
         const authJsonKey = resolveAuthJsonKey(request.params.provider);
-        removeCredential(authJsonKey);
+        await removeCredential(authJsonKey);
       } catch (err: any) {
         request.log.error(err, "Failed to remove credential");
         return reply.code(500).send({ error: err.message || "Failed to remove credential" });
@@ -267,7 +267,9 @@ export function registerProviderAuthRoutes(
       const credential = await handler.pollForToken(
         flow.deviceCode, flow.interval, flow.expiresIn, flow.extra,
       );
-      writeCredential(flow.providerId, credential);
+      // Awaited: `complete` must not be reported before the credential is on
+      // disk. See change: fix-provider-auth-lock-contention.
+      await writeCredential(flow.providerId, credential);
       notifyBridges();
       flow.status = "complete";
     } catch (err: any) {

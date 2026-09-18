@@ -8,11 +8,11 @@
  * See change: add-dashboard-model-proxy, design §1.
  */
 import {
+  type AuthCredential,
+  type AuthData,
+  type OAuthCredential,
   readAuthJson,
   writeCredential,
-  type AuthData,
-  type AuthCredential,
-  type OAuthCredential,
 } from "../auth/provider-auth-storage.js";
 
 /**
@@ -194,8 +194,10 @@ export class InternalAuthStorage {
       expires: refreshed.expiresAt ?? refreshed.expires ?? Date.now() + 3600_000,
     };
 
-    // Persist via existing single-writer path
-    writeCredential(provider, newCred);
+    // Persist via existing single-writer path. Awaited: the refreshed token
+    // must be on disk before the caller receives headers.
+    // See change: fix-provider-auth-lock-contention.
+    await writeCredential(provider, newCred);
 
     // Invalidate cache so next read picks up the new token
     this.cachedAuth = null;
