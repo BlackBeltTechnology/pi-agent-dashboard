@@ -41,6 +41,7 @@ import {
 } from "./prompts.js";
 import type { BindingStore, SpawnCorrelator } from "./routing.js";
 import type { HostSeam, SpawnOutcome } from "./seam.js";
+import type { TeamController } from "./team/controller.js";
 import { createEditThrottle, type EditThrottle, shouldSteer, stripSteerPrefix } from "./stream.js";
 
 export interface ChatGatewayDeps {
@@ -50,6 +51,11 @@ export interface ChatGatewayDeps {
   config: ResolvedConfig;
   store: BindingStore;
   correlator: SpawnCorrelator;
+  /**
+   * Optional team-controls layer. When present it gates every action-bearing
+   * request at one chokepoint, records the attempt, and gates prompt answers.
+   */
+  team?: TeamController;
   now?: () => number;
   /** The L1 pairing code state machine; a fresh one is minted by default. */
   pairing?: Pairing;
@@ -82,6 +88,8 @@ interface PendingPrompt {
   messageId: string;
   /** Whether the prompt's channel is a DM (L4 re-authorization on click). */
   isDM: boolean;
+  /** The principal whose command raised this question; absent for an attached session. */
+  invoker?: string;
   /** Set when this prompt is one step of a multiselect/batch sequence (7.2). */
   sequenceRootId?: string;
 }
@@ -169,7 +177,7 @@ function toInteractivePrompt(control: PromptControl) {
 }
 
 export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
-  const { seam, adapter, config, store, correlator, platform } = deps;
+  const { seam, adapter, config, store, correlator, platform, team } = deps;
   const now = deps.now ?? Date.now;
   const pairing = deps.pairing ?? createPairing({ now });
 
@@ -179,6 +187,8 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
   const sequences = new Map<string, SequenceState>();
   const unsubscribes = new Map<string, () => void>();
   const subscriptions = new Set<string>();
+  /** sessionId → the principal whose command last drove it (question-invoker). */
+  const lastInvoker = new Map<string, string>();
   /** channelKey → the in-flight spawn correlation token. */
   const pendingSpawns = new Map<string, string>();
   /** channelKey → when the spawn started (for the stale-spawn sweep). */
@@ -501,6 +511,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       channelId: state.channelId,
       messageId,
       isDM: state.isDM,
+      invoker: lastInvoker.get(state.sessionId),
       sequenceRootId: state.rootId,
     });
   }
@@ -707,6 +718,25 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
             );
             return;
           }
+          // Team-controls: answering requires >= control, and is invoker-only
+          // when the question was raised by a specific principal's command
+          // (X19/X20/X21). A refused click must NOT consume the prompt.
+          if (team) {
+            const gate = team.authorizeRequest({
+              author: { id: resp.userId ?? "" },
+              channelId: rec.channelId,
+              verb: "prompt_response",
+              target: rec.sessionId,
+            });
+            if (gate.kind === "refusal") {
+              seam.log("info", `chat-gateway refused prompt response (${gate.reason})`);
+              return;
+            }
+            if (rec.invoker && rec.invoker !== resp.userId) {
+              seam.log("info", "chat-gateway refused prompt response (not the invoker)");
+              return;
+            }
+          }
           prompts.delete(resp.requestId);
           if (rec.sequenceRootId) {
             // A sub-prompt of a multiselect/batch sequence: drop its controls
@@ -758,6 +788,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       for (const token of correlator.pending()) correlator.reject(token);
       pendingSpawns.clear();
       pendingSpawnAt.clear();
+      lastInvoker.clear();
       await adapter.stop();
     },
 
@@ -797,7 +828,36 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
         return;
       }
 
+      // Team-controls: the command log is NEVER readable from chat (X26).
+      if (team && /^\s*!?\s*(command[-_ ]?log|audit[-_ ]?log|show\s+log)\b/i.test(msg.text)) {
+        await reply(msg.channelId, "Refused: the command log is only readable from the dashboard.");
+        return;
+      }
+
       const key = bindingKey({ platform, channelId: msg.channelId, threadId: msg.threadId });
+
+      // Team-controls chokepoint (X11): every action-bearing request passes
+      // through `authorizeRequest` BEFORE any session is spawned or driven.
+      if (team) {
+        const existing = store.get(key);
+        const gate = team.authorizeRequest({
+          author: {
+            id: msg.userId,
+            ...(msg.bot === true ? { isBot: true } : {}),
+            ...(msg.webhook === true ? { isWebhook: true } : {}),
+            ...(msg.roleIds ? { roleIds: msg.roleIds } : {}),
+          },
+          channelId: msg.channelId,
+          ...(msg.threadId ? { threadId: msg.threadId } : {}),
+          verb: existing ? "send_prompt" : "spawn_session",
+          ...(existing ? { targetCwd: existing.cwd, target: existing.sessionId } : {}),
+        });
+        if (gate.kind === "refusal") {
+          await reply(msg.channelId, `Refused: ${gate.reason}.`);
+          return;
+        }
+      }
+
       const binding = await ensureBinding(msg, key);
       if (!binding || !binding.sessionId) return; // spawn pending; resolution binds it
 
@@ -814,6 +874,16 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
 
       const steer = shouldSteer(msg.text, config.steerPrefix);
       const text = stripSteerPrefix(msg.text, config.steerPrefix);
+      // Provenance (X24): persisted, plugin-owned — never the user tag namespace.
+      lastInvoker.set(binding.sessionId, msg.userId);
+      if (team) {
+        seam.assignSessionRef(binding.sessionId, {
+          kind: "chat-gateway-team",
+          principal: msg.userId,
+          channelId: msg.channelId,
+          workspaceId: team.bindingFor(msg.channelId)?.workspaceId,
+        });
+      }
       const ok = seam.sendPrompt(binding.sessionId, text, steer ? "steer" : "followUp");
       if (!ok) {
         await reply(msg.channelId, "That session is unreachable (no bridge connection)."); // X1
@@ -876,6 +946,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
               channelId,
               messageId,
               isDM: store.get(key)?.isDM === true,
+              invoker: lastInvoker.get(sessionId),
             });
           })
           .catch((err) => seam.log("error", `prompt render failed: ${String(err)}`));

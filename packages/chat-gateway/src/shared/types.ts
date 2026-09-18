@@ -63,6 +63,24 @@ export interface ChatGatewayConfig {
    * one, because an unresolvable extension would break every spawn.
    */
   guardExtension?: string;
+  /**
+   * Team-controls layer (change: add-chat-gateway-team-controls). Mirrors
+   * `configSchema.json`; validated by `team-config.ts`, not by this type.
+   */
+  teamControls?: {
+    ceiling?: "observe" | "control" | "operate";
+    disarmed?: boolean;
+    auditRetention?: number;
+    bindings?: Record<
+      string,
+      {
+        principals?: Record<string, "observe" | "control" | "operate">;
+        roles?: Record<string, "observe" | "control">;
+        mirrorLevel?: "names-only" | "names-and-diffs" | "full-transcript";
+        ceiling?: "observe" | "control" | "operate";
+      }
+    >;
+  };
 }
 
 /** Fully-resolved config with every default applied. */
@@ -116,6 +134,12 @@ export interface InboundMessage {
   text: string;
   /** True when this is a direct message (L4 isolation). */
   isDM: boolean;
+  /** True when the platform marks the author as a bot (non-human). */
+  bot?: boolean;
+  /** True when the message arrived via a webhook (non-human). */
+  webhook?: boolean;
+  /** Platform role ids held by the author, for role→tier resolution. */
+  roleIds?: string[];
   /** True when the message has been authorized as a conversation turn. */
   startedAt: number;
 }
