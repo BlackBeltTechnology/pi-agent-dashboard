@@ -125,10 +125,13 @@ before touching the gate. Written after the gate lands they cannot distinguish
 - [ ] 4.9 L3 test — latch is sticky · same exemplar · Triple: state after 4.8 ·
       switch to a file tab and back · no second `xterm-*` request
       (test-plan #F5)
-- [ ] 4.10 L3 test — latch survives pane collapse · see
+- [x] 4.10 L3 test — latch survives pane collapse · see
       `tests/e2e/editor-pane.spec.ts` · Triple: latched pane with terminal tabs,
       pane mode → `closed` · reopen the pane · terminals live again (not
       listed-but-dead), no terminal tab closed by the collapse (test-plan #F8)
+      — implemented as **F8** in `tests/e2e/lazy-feature-bootstrap.spec.ts` via
+      `layout-mode-closed` → `layout-mode-split`; asserts exactly one `xterm-*`
+      request across the collapse/reopen and the terminal input live again
 - [x] 4.11 L3 test — fallback fills the pane body · see
       `tests/e2e/editor-pane.spec.ts` for geometry measurement · Triple: terminal
       chunk response delayed via route · activate a terminal tab · pane body
@@ -171,6 +174,13 @@ before touching the gate. Written after the gate lands they cannot distinguish
       Triple: session with a diff, chunk response delayed · open the diff route ·
       diff renders after load; shell chrome stays mounted and interactive while
       suspended (test-plan #F10)
+      — **OPEN.** Authored as **F10** in `tests/e2e/lazy-feature-bootstrap.spec.ts`
+      but marked `test.fixme`: gating the `diff-*` chunk with `page.route` does
+      NOT reliably hold FileDiffView's mount in this harness (passed, then
+      failed, with an identical route config), so the suspension window is not
+      deterministic. The chunk-FETCH half of the property is covered
+      deterministically by **F13**, and shell-survives-suspension by the L1
+      **F11** test. Needs a deterministic slow-chunk harness to close.
 - [ ] 5.9 L3 test — diff pseudo-tab · see `tests/e2e/editor-pane.spec.ts` ·
       Triple: editor pane, `diff:` pseudo-tab · open the tab · "Loading viewer…"
       then the diff (test-plan #F12)
@@ -218,6 +228,9 @@ before touching the gate. Written after the gate lands they cannot distinguish
 - [ ] 7.2 L3 test — chunk fetch stalls · same exemplar · Triple: diff chunk
       response delayed 10 s · open the diff route · in-surface loading affordance
       persists, surrounding shell interactive throughout (test-plan #X2)
+      — **OPEN.** Authored as **X2** and marked `test.fixme` for the same
+      non-deterministic `page.route` gate as task 5.8. Aborted-fetch containment
+      is covered deterministically by **X1** (task 7.1).
 
 ## 8. Performance verification (design D6)
 

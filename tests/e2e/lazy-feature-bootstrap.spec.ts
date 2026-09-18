@@ -53,6 +53,36 @@ async function robustClick(page: Page, testid: string): Promise<void> {
   }).toPass({ timeout: 30_000 });
 }
 
+/**
+ * Hold every diff-chunk response until the returned `release()` is called, then
+ * open the session's App-level diff route.
+ *
+ * Gating the route rather than sleeping keeps F10/X2 deterministic — the
+ * suspension lasts exactly as long as the assertions need and no longer. The
+ * route is registered BEFORE `goto`, so the chunk request is intercepted on the
+ * very first paint of the diff surface.
+ */
+async function openDiffRouteHoldingChunk(
+  page: Page,
+): Promise<{ release: () => void; sessionId: string }> {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => {
+    release = r;
+  });
+  await page.route(DIFF_JS_RE, async (route) => {
+    await gate;
+    await route.continue();
+  });
+
+  const card = await spawnFreshGitSession(page);
+  const sessionId = (await card.getAttribute("data-session-id")) ?? "";
+  expect(sessionId, "spawned session must expose data-session-id").toBeTruthy();
+  await card.click();
+
+  await page.goto(`${BASE_URL}/session/${sessionId}/diff`);
+  return { release, sessionId };
+}
+
 test.describe("lazy feature bootstrap — cold landing excludes terminal + diff code", () => {
   test("F1 · a cold landing with no terminal/diff surface fetches neither chunk", async ({ page }) => {
     const hits = collectChunkRequests(page, FEATURE_CHUNK_RE);
@@ -88,6 +118,38 @@ test.describe("lazy feature bootstrap — cold landing excludes terminal + diff 
     });
 
     expect(xtermJs.length, `xterm JS requests: ${xtermJs.join(", ")}`).toBe(1);
+  });
+
+  test("F8 · the latch survives a pane collapse: no terminal refetch, terminals live again", async ({ page }) => {
+    test.setTimeout(180_000);
+    const xtermJs = collectChunkRequests(page, XTERM_JS_RE);
+
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await page.getByTestId("layout-mode-switch").waitFor({ state: "visible", timeout: 30_000 });
+    await robustClick(page, "layout-mode-split");
+    await expect(page.getByTestId("split-editor-pane")).toBeVisible();
+
+    // Latch the terminal layer by activating a terminal.
+    await robustClick(page, "new-terminal-launch");
+    const termInput = page.getByRole("textbox", { name: /terminal input/i }).first();
+    await expect(termInput).toBeVisible({ timeout: 30_000 });
+    expect(xtermJs.length, `first activation xterm requests: ${xtermJs.join(", ")}`).toBe(1);
+
+    // Collapse the pane. This UNMOUNTS EditorPane — a strictly harder
+    // perturbation than switching tabs — so the latch must live in the provider
+    // (not in EditorPane) to survive it.
+    await robustClick(page, "layout-mode-closed");
+    await expect(page.getByTestId("split-editor-pane")).toHaveCount(0);
+
+    // Reopen: the layer must remount WITHOUT refetching its chunk...
+    await robustClick(page, "layout-mode-split");
+    await expect(page.getByTestId("split-editor-pane")).toBeVisible();
+    expect(xtermJs.length, `xterm JS requests after collapse/reopen: ${xtermJs.join(", ")}`).toBe(1);
+
+    // ...and the terminal must be LIVE again (reconnected), not listed-but-dead.
+    await expect(termInput).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole("textbox", { name: /terminal input/i })).toHaveCount(1);
   });
 });
 
@@ -159,8 +221,12 @@ test.describe("lazy feature bootstrap — diff boundaries + fetch faults", () =>
     // FileDiffView directly, so this stays deterministic.
     await page.goto(`${BASE_URL}/session/${sessionId}/diff`);
 
-    // FileDiffView's own header — proves the lazy boundary resolved.
-    await expect(page.getByText("Changed Files")).toBeVisible({ timeout: 45_000 });
+    // FileDiffView mounted — this is what proves the lazy boundary resolved.
+    // Assert the TESTID, not the "Changed Files" text: `diff.changedFiles` is
+    // also rendered by SessionHeader, so that locator matches even while the
+    // diff is still suspended.
+    await expect(page.getByTestId("file-diff-view")).toBeVisible({ timeout: 45_000 });
+    await expect(page.getByText("Loading diff…")).toHaveCount(0);
     // ...and that it resolved rather than tripping the ErrorBoundary.
     await expect(page.getByText("Diff failed to load.")).toHaveCount(0);
 
@@ -258,5 +324,60 @@ test.describe("lazy feature bootstrap — diff boundaries + fetch faults", () =>
     expect(Math.abs(during - before) / before, `before=${before} during=${during}`).toBeLessThan(0.05);
 
     release?.();
+  });
+
+  // FLAKY — not run. Gating the `diff-*` vendor chunk with `page.route` does not
+  // reliably hold FileDiffView's mount: with an identical route config this test
+  // passed and then failed across runs, so the suspension window is not
+  // deterministic in this harness. Do NOT "fix" it by loosening the assertion —
+  // that would fake the property. Needs a deterministic stall harness (e.g. a
+  // seeded slow-chunk mode). F13 covers the same surface deterministically for
+  // the CHUNK FETCH, and the L1 test F11 covers shell-survives-suspension.
+  // Tracked as task 5.8.
+  test.fixme("F10 · the diff route resolves after the chunk lands; the shell survives the wait", async ({ page }) => {
+    test.setTimeout(180_000);
+    const { release } = await openDiffRouteHoldingChunk(page);
+
+    // While suspended: the in-surface affordance is shown and the shell chrome
+    // around it is still mounted (the App-level boundary did not blank the app).
+    await expect(page.getByText("Loading diff…")).toBeVisible({ timeout: 30_000 });
+    await expect(byTestId(page, "headerAppBar")).toBeVisible();
+    await expect(page.getByTestId("file-diff-view")).toHaveCount(0);
+
+    release();
+
+    // The diff renders once the chunk resolves (F10).
+    await expect(page.getByTestId("file-diff-view")).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByText("Loading diff…")).toHaveCount(0);
+    await expect(page.getByText("Diff failed to load.")).toHaveCount(0);
+  });
+
+  // FLAKY — not run, same root cause as F10 above (same `page.route` gate).
+  // Tracked as task 7.2.
+  test.fixme("X2 · a stalled diff chunk keeps the affordance up and the shell interactive", async ({ page }) => {
+    test.setTimeout(180_000);
+    const { release } = await openDiffRouteHoldingChunk(page);
+
+    await expect(page.getByText("Loading diff…")).toBeVisible({ timeout: 30_000 });
+
+    // The stall must not trip the ErrorBoundary into the failed state...
+    await expect(page.getByText("Diff failed to load.")).toHaveCount(0);
+
+    // ...and the surrounding shell stays INTERACTIVE throughout, not just mounted:
+    // drive a real header control mid-stall. OPEN the theme menu but do NOT pick
+    // a theme — applying one re-renders the tree, which is a different operation
+    // than the interactivity we are pinning here.
+    const theme = page.getByRole("button", { name: "Color theme" });
+    await expect(theme).toBeEnabled({ timeout: 10_000 });
+    await theme.click();
+    await expect(page.getByRole("button", { name: "Dark" })).toBeVisible({ timeout: 10_000 });
+
+    // Still suspended, still healthy, and it resolves only when we release.
+    await expect(page.getByText("Loading diff…")).toBeVisible();
+    await expect(page.getByTestId("file-diff-view")).toHaveCount(0);
+    await expect(page.getByText("Diff failed to load.")).toHaveCount(0);
+
+    release();
+    await expect(page.getByTestId("file-diff-view")).toBeVisible({ timeout: 60_000 });
   });
 });
