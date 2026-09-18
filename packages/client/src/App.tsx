@@ -791,6 +791,13 @@ export default function App() {
           setFolderGitMap(new Map());
           setOpenspecGroupsMap(new Map());
           setTerminals(new Map());
+          // Readiness must be connection-scoped: clearing terminals without
+          // zeroing the snapshot generation leaves `terminalsReady` (`
+          // snapshotGeneration > 0`) true against an empty set, so a
+          // `?focus=terminal` entry would create a terminal instead of waiting
+          // for the new server's snapshot. See change:
+          // fix-terminals-action-opens-terminal.
+          setSnapshotGeneration(0);
           // Snapshot-window bookkeeping is scoped to one server's registry —
           // stale endedTotals / page offsets from server A must not render
           // against server B. See change: fix-connect-snapshot-frame-loss.
@@ -1164,6 +1171,11 @@ export default function App() {
       // `sessions_snapshot` message — no pre-reset needed.
       // See change: fix-stale-sessions-on-reconnect.
       setTerminals(new Map());
+      // Re-scope the snapshot generation to this connection so the
+      // `?focus=terminal` readiness gate waits for the reconnect snapshot
+      // instead of acting on the stale generation. See change:
+      // fix-terminals-action-opens-terminal.
+      setSnapshotGeneration(0);
     }
     prevStatusRef.current = status;
   }, [status]);
