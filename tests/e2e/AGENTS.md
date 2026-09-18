@@ -17,7 +17,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `browser-relay.spec.ts` | L3 for the browser relay (change: add-browser-relay, test-plan F1–F5 + F10). Needs the harness with… → see `browser-relay.spec.ts.AGENTS.md` |
 | `bus-client-goal-plugin-action.spec.ts` | L3/P1 (change: add-dashboard-bus-client-scripting). Drives `BusClient` from host… → see `bus-client-goal-plugin-action.spec.ts.AGENTS.md` |
 | `chat-attachment-two-phase.spec.ts` | Two-phase attachment render E2E (change: fit-attachments-for-display)… → see `chat-attachment-two-phase.spec.ts.AGENTS.md` |
-| `chat-pane-below-floor-allocation.spec.ts` | Browser E2E for below-floor chat pane allocation (change: define-chat-pane-below-floor-allocation). → see `chat-pane-below-floor-allocation.spec.ts.AGENTS.md` |
+| `chat-pane-below-floor-allocation.spec.ts` | Browser E2E for below-floor chat pane allocation. → see `chat-pane-below-floor-allocation.spec.ts.AGENTS.md` |
 | `chat-render-fx.spec.ts` | Browser E2E gate for `reduce-chat-render-cpu-umbrella` (umbrella-own surface not gated by… → see `chat-render-fx.spec.ts.AGENTS.md` |
 | `chat-render-perf.spec.ts` | ADVISORY opt-in perf probe for `reduce-chat-render-cpu-umbrella` (tasks 2.8/4.4/5.1). → see `chat-render-perf.spec.ts.AGENTS.md` |
 | `chat-transcript-virtualization.spec.ts` | Browser E2E gate for `virtualize-chat-transcript-tanstack` (Phase 2 Step B) +… → see `chat-transcript-virtualization.spec.ts.AGENTS.md` |
@@ -75,6 +75,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `history-backfill-gap.spec.ts` | L3 for `fix-lazy-history-backfill-ux` (F1–F6, F8–F11, X3, X5 — twelve scenarios). → see `history-backfill-gap.spec.ts.AGENTS.md` |
 | `history-backfill-perf.spec.ts` | L3 P1/P2 for `fix-lazy-history-backfill-ux`, metric AMENDED by the task-1.2 measurement. → see `history-backfill-perf.spec.ts.AGENTS.md` |
 | `inline-screenshot.spec.ts` | Playwright E2E for inline agent screenshot artifacts (change: inline-agent-screenshot-artifacts, automates… → see `inline-screenshot.spec.ts.AGENTS.md` |
+| `lazy-feature-bootstrap.spec.ts` | → see `lazy-feature-bootstrap.spec.ts.AGENTS.md` |
 | `inline-terminal-transcript.spec.ts` | L3 gate for `preserve-inline-terminal-transcript`: F1 exit-then-close keeps… → see `inline-terminal-transcript.spec.ts.AGENTS.md` |
 | `kb-folder-slot.spec.ts` | Playwright spec. KB folder slot end-to-end in Docker harness. → see `kb-folder-slot.spec.ts.AGENTS.md` |
 | `large-session-replay.spec.ts` | L3 wire-level gate for `compact-warm-replay-stream` (#399): P1 zero superseded `message_update`, F5, F6… → see `large-session-replay.spec.ts.AGENTS.md` |
