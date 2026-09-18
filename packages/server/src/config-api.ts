@@ -8,6 +8,7 @@ import { redactPluginConfigForClient } from "@blackbelt-technology/dashboard-plu
 import {
   type AuthConfig,
   type DashboardConfig,
+  DEFAULT_SERVER_HEAP,
   DEFAULT_SUBAGENT_TICK_THROTTLE_MS,
   loadConfig,
 } from "@blackbelt-technology/pi-dashboard-shared/config.js";
@@ -77,6 +78,14 @@ const RESTART_FIELDS = new Set(["port", "piPort", "bindHost"]);
 export interface WriteConfigResult {
   success: boolean;
   restartRequired: boolean;
+  /**
+   * Set by `serverHeap`: a FULL COLD START is required, and the in-place
+   * `/api/restart` will NOT apply it (`restart-helper.ts` re-spawns with
+   * `env: process.env`, so the replacement inherits the old ceiling).
+   * Deliberately distinct from `restartRequired`, whose banner promises an
+   * in-place restart suffices. See change: bound-session-heap-and-gc-telemetry.
+   */
+  coldStartRequired?: boolean;
   error?: string;
 }
 
@@ -166,6 +175,7 @@ export function writeConfigPartial(partial: Record<string, any>): WriteConfigRes
 
     // Check if restart-requiring fields changed
     let restartRequired = false;
+    let coldStartRequired = false;
     for (const field of RESTART_FIELDS) {
       if (field in partial && partial[field] !== existing[field]) {
         restartRequired = true;
@@ -257,6 +267,27 @@ export function writeConfigPartial(partial: Record<string, any>): WriteConfigRes
       restartRequired = true;
     }
 
+    // Heap sub-objects deep-merge like memoryLimits, so saving `maxOldSpaceMb`
+    // alone does not drop a sibling `initialOldSpaceMb`.
+    // `sessionHeap` needs NO restart indicator at all: it applies on the next
+    // session spawn. `serverHeap` needs a COLD start, which the generic
+    // restart banner would misdescribe.
+    // See change: bound-session-heap-and-gc-telemetry (D7, task 2.2).
+    if (partial.sessionHeap) {
+      partial.sessionHeap = { ...existing.sessionHeap, ...partial.sessionHeap };
+    }
+    if (partial.serverHeap) {
+      // Compare VALUES, not presence: a PUT echoing the current ceiling has
+      // changed nothing and must not claim a cold start is owed (the same rule
+      // `RESTART_FIELDS` above follows).
+      const changed =
+        partial.serverHeap.maxOldSpaceMb !== undefined &&
+        partial.serverHeap.maxOldSpaceMb !==
+          (existing.serverHeap?.maxOldSpaceMb ?? DEFAULT_SERVER_HEAP.maxOldSpaceMb);
+      partial.serverHeap = { ...existing.serverHeap, ...partial.serverHeap };
+      if (changed) coldStartRequired = true;
+    }
+
     // Merge openspec sub-object (no restart required — live-reconfigured)
     if (partial.openspec) {
       partial.openspec = { ...existing.openspec, ...partial.openspec };
@@ -291,7 +322,7 @@ export function writeConfigPartial(partial: Record<string, any>): WriteConfigRes
       setWindowsGitSourceSetting(partial.windowsGitSource);
     }
 
-    return { success: true, restartRequired };
+    return { success: true, restartRequired, ...(coldStartRequired ? { coldStartRequired } : {}) };
   } catch (err: any) {
     return { success: false, restartRequired: false, error: err.message };
   }

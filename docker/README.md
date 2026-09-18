@@ -132,3 +132,23 @@ install**:
   the architecture.
 - **Debian, not Alpine.** node-pty needs glibc for correct PTY behavior.
 - **Non-root.** All processes run as user `pi` (UID 1000).
+
+## Memory Sizing & Container Limits
+
+Server 1536 MB V8 heap implies ~2.5–3 GB RSS. Process holds ~1.07 GB outside V8 (native buffers, compiled code, allocator fragmentation).
+
+Container memory limit below ~2.5–3 GB causes kernel OOM SIGKILL before V8 reaches heap ceiling. Kernel terminates process without heap dump, without GC telemetry, without `FATAL ERROR: Reached heap limit` log. Failure is silent.
+
+Floor: 4 GB for all-in-one image. `docker/compose.yml` sets default `MEM_LIMIT:-4g`. Default provides required headroom for server baseline.
+
+4 GB container ceiling is shared across co-tenants:
+- Dashboard server (~2.5–3 GB RSS peak).
+- Spawned pi sessions (512 MB V8 heap ceiling each + uncapped keeper processes).
+- Background services (zrok tunnel, tmux server, code-server).
+
+Server at ~2.5–3 GB leaves under 1 GB for all co-tenants combined. Operators running multiple concurrent pi sessions must raise `MEM_LIMIT` in `.env`.
+
+Known gap: bare host with <=2 GB RAM has no OOM guard.
+
+See change: bound-session-heap-and-gc-telemetry.
+

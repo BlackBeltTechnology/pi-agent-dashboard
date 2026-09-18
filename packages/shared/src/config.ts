@@ -6,6 +6,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { HostGateMode } from "./host-admission.js";
+import {
+  DEFAULT_SERVER_HEAP,
+  DEFAULT_SESSION_HEAP,
+  MIN_HEAP_MB,
+  type ServerHeapConfig,
+  type SessionHeapConfig,
+} from "./heap-limits.js";
 import { DEFAULT_MEMORY_LIMITS, type MemoryLimitsConfig, MIN_REPLAY_WINDOW, type ReplayWindowMode } from "./memory-limits.js";
 import type { WindowsGitSourceSetting } from "./platform/select-git-source.js";
 import { inferPlatform, pathKey } from "./session-group-path.js";
@@ -125,6 +132,23 @@ export {
   MIN_REPLAY_WINDOW,
   type ReplayWindowMode,
 } from "./memory-limits.js";
+
+/**
+ * V8 heap-sizing types + defaults follow the same browser-safe split, for the
+ * same reason. DISTINCT from `memoryLimits` above, which bounds the EVENT
+ * STORE and has nothing to do with V8.
+ * See change: bound-session-heap-and-gc-telemetry (D7).
+ */
+export {
+  DEFAULT_SERVER_HEAP,
+  DEFAULT_SESSION_HEAP,
+  HEAP_WARN_ABOVE_MB,
+  MIN_HEAP_MB,
+  type ServerHeapConfig,
+  type SessionHeapConfig,
+  SUBAGENT_HEAP_GUIDANCE_MB,
+  subagentHeapBudget,
+} from "./heap-limits.js";
 
 export interface OpenSpecPollConfig {
   /**
@@ -582,6 +606,18 @@ export interface DashboardConfig {
    */
   defaultThinkingLevel: string;
   memoryLimits: MemoryLimitsConfig;
+  /**
+   * V8 heap sizing for SPAWNED PI SESSIONS. Applies to the next spawn (a
+   * reload counts as a spawn); no running process is resized.
+   * See change: bound-session-heap-and-gc-telemetry.
+   */
+  sessionHeap: SessionHeapConfig;
+  /**
+   * V8 heap sizing for the DASHBOARD SERVER process. COLD-START ONLY —
+   * `/api/restart` inherits `env: process.env`, so an in-place restart keeps
+   * the previous ceiling. See change: bound-session-heap-and-gc-telemetry.
+   */
+  serverHeap: ServerHeapConfig;
   /** OpenSpec background polling behavior (interval, concurrency, change detection, jitter) */
   openspec: OpenSpecPollConfig;
   /** Session behavior — hydration worker offload toggle. */
@@ -1039,6 +1075,8 @@ const DEFAULTS: DashboardConfig = {
   defaultModel: "",
   defaultThinkingLevel: "",
   memoryLimits: { ...DEFAULT_MEMORY_LIMITS },
+  sessionHeap: { ...DEFAULT_SESSION_HEAP },
+  serverHeap: { ...DEFAULT_SERVER_HEAP },
   openspec: { ...DEFAULT_OPENSPEC_POLL },
   sessions: { ...DEFAULT_SESSIONS },
   sessionList: { ...DEFAULT_SESSION_LIST },
@@ -1373,6 +1411,56 @@ function parseMemoryLimits(raw: any): MemoryLimitsConfig {
   };
 }
 
+/**
+ * A V8 heap size in MB: a finite integer at or above `MIN_HEAP_MB`, else the
+ * fallback. There is NO "unlimited" sentinel here — unlike the event-store byte
+ * budgets, an explicit `0` is not a rollback lever, it is a request V8 would
+ * reject, so it falls back like any other invalid value.
+ *
+ * Load-time fallback (not merely UI rejection) is the established convention
+ * (`spawnStrategy`, `reattachPlacement`) and is what keeps an invalid value
+ * from ever reaching a spawned process's argv.
+ * See change: bound-session-heap-and-gc-telemetry (D7).
+ */
+function parseHeapMb(raw: unknown, fallback: number): number {
+  if (typeof raw !== "number" || !Number.isFinite(raw) || !Number.isInteger(raw)) return fallback;
+  if (raw < MIN_HEAP_MB) return fallback;
+  return raw;
+}
+
+/** Optional heap field: absent stays absent; present-but-invalid drops out. */
+function parseOptionalHeapMb(raw: unknown): number | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "number" || !Number.isFinite(raw) || !Number.isInteger(raw)) return undefined;
+  if (raw < MIN_HEAP_MB) return undefined;
+  return raw;
+}
+
+function parseSessionHeap(raw: any): SessionHeapConfig {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ...DEFAULT_SESSION_HEAP };
+  const initialOldSpaceMb = parseOptionalHeapMb(raw.initialOldSpaceMb);
+  // The young generation is sized in single-digit MB; `MIN_HEAP_MB` is an
+  // old-space floor and must not be applied to it.
+  const maxSemiSpaceMb =
+    typeof raw.maxSemiSpaceMb === "number" &&
+    Number.isInteger(raw.maxSemiSpaceMb) &&
+    raw.maxSemiSpaceMb > 0
+      ? raw.maxSemiSpaceMb
+      : undefined;
+  return {
+    maxOldSpaceMb: parseHeapMb(raw.maxOldSpaceMb, DEFAULT_SESSION_HEAP.maxOldSpaceMb),
+    ...(initialOldSpaceMb !== undefined ? { initialOldSpaceMb } : {}),
+    ...(maxSemiSpaceMb !== undefined ? { maxSemiSpaceMb } : {}),
+  };
+}
+
+function parseServerHeap(raw: any): ServerHeapConfig {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ...DEFAULT_SERVER_HEAP };
+  return {
+    maxOldSpaceMb: parseHeapMb(raw.maxOldSpaceMb, DEFAULT_SERVER_HEAP.maxOldSpaceMb),
+  };
+}
+
 function parsePluginsConfig(raw: unknown): PluginsConfig {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   const result: PluginsConfig = {};
@@ -1685,6 +1773,8 @@ export function loadConfig(): DashboardConfig {
         typeof parsed.defaultThinkingLevel === "string" ? parsed.defaultThinkingLevel : defaults.defaultThinkingLevel,
       auth: parseAuthConfig(parsed.auth),
       memoryLimits: parseMemoryLimits(parsed.memoryLimits),
+      sessionHeap: parseSessionHeap(parsed.sessionHeap),
+      serverHeap: parseServerHeap(parsed.serverHeap),
       openspec: parseOpenSpecPollConfig(parsed.openspec),
       sessions: parseSessionsConfig(parsed.sessions),
       sessionList: parseSessionListConfig(parsed.sessionList),

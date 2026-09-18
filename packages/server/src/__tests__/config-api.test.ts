@@ -193,6 +193,49 @@ describe("config-api", () => {
       expect(written.reattachPlacement).toBe("preserve");
       expect(written.port).toBe(8000); // existing fields preserved
     });
+
+    // ── Heap sub-block merge (change: bound-session-heap-and-gc-telemetry) ──
+    // Same deep-merge contract as `memoryLimits`: without it, saving one field
+    // of a sub-block silently drops its siblings.
+    it("deep-merges sessionHeap so a sibling field is not dropped (test-plan #E9)", () => {
+      fs.writeFileSync(
+        configFile,
+        JSON.stringify({ port: 8000, sessionHeap: { maxOldSpaceMb: 512, initialOldSpaceMb: 64 } }),
+      );
+      const result = writeConfigPartial({ sessionHeap: { maxOldSpaceMb: 256 } } as any);
+      expect(result.success).toBe(true);
+      const written = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+      expect(written.sessionHeap).toEqual({ maxOldSpaceMb: 256, initialOldSpaceMb: 64 });
+    });
+
+    it("deep-merges serverHeap and flags a COLD start, not the generic restart", () => {
+      fs.writeFileSync(configFile, JSON.stringify({ port: 8000, serverHeap: { maxOldSpaceMb: 1536 } }));
+      const result = writeConfigPartial({ serverHeap: { maxOldSpaceMb: 2048 } } as any);
+      expect(result.success).toBe(true);
+      expect(result.coldStartRequired).toBe(true);
+      // The in-place restart banner must NOT fire: `/api/restart` inherits the
+      // environment and would keep the old ceiling, so promising it works lies.
+      expect(result.restartRequired).toBe(false);
+      expect(JSON.parse(fs.readFileSync(configFile, "utf-8")).serverHeap.maxOldSpaceMb).toBe(2048);
+    });
+
+    it("sessionHeap needs neither indicator — it applies on the next spawn", () => {
+      fs.writeFileSync(configFile, JSON.stringify({ port: 8000 }));
+      const result = writeConfigPartial({ sessionHeap: { maxOldSpaceMb: 256 } } as any);
+      expect(result.restartRequired).toBe(false);
+      expect(result.coldStartRequired).toBeUndefined();
+    });
+
+    it("a partial write omitting sessionHeap preserves the persisted block (test-plan #E8)", () => {
+      fs.writeFileSync(
+        configFile,
+        JSON.stringify({ port: 8000, sessionHeap: { maxOldSpaceMb: 256, maxSemiSpaceMb: 8 } }),
+      );
+      expect(writeConfigPartial({ autoShutdown: false }).success).toBe(true);
+      const written = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+      expect(written.sessionHeap).toEqual({ maxOldSpaceMb: 256, maxSemiSpaceMb: 8 });
+      expect(loadConfig().sessionHeap).toEqual({ maxOldSpaceMb: 256, maxSemiSpaceMb: 8 });
+    });
   });
   // ── Provider deletion (D9) ───────────────────────────────────────────────
   // `writeConfigPartial`'s providers merge is spread-only and cannot express a

@@ -27,6 +27,7 @@ import {
   spawnPiSession,
 } from "../spawn-process/process-manager.js";
 import type { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
+import { HEAP_FLAG_MARKER_ENV } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
 
 // Fake resolver returning a fixed pi argv so spawnHeadlessViaKeeper's
 // resolvePiCommand() call succeeds. The PI_NOT_FOUND branch is exercised
@@ -344,5 +345,92 @@ describe("spawnHeadless — keeperLog env plumbing (E6)", () => {
     expect(env.PI_KEEPER_CAPTURE_PI_OUTPUT).toBe("1");
     expect(env.PI_KEEPER_LOG_MAX_BYTES).toBe("65536");
     expect(env.PI_KEEPER_LOG_CHECK_INTERVAL_MS).toBe("250");
+  });
+});
+
+// ── Heap ceiling rides the pi invocation, never the keeper ────────────────
+// The keeper re-passes its own environment to pi, so an env-borne cap would
+// bind the supervisor too. Putting the flags in the invocation the keeper
+// spawns pi from is what keeps the keeper uncapped (design D3a, D5).
+// See change: bound-session-heap-and-gc-telemetry (task 5.1).
+describe("headless heap delivery", () => {
+  async function spawnHeadlessCapturing(piCmd: string[]) {
+    setResolver(makeFakeResolver(piCmd));
+    const fakeChild = new FakeKeeperChild(31313);
+    const { km, state } = makeFakeKeeperManager({
+      spawnResult: {
+        success: true,
+        pid: 31313,
+        sockPath: "/fake/sessions/sid.rpc.sock",
+        process: fakeChild as unknown as import("node:child_process").ChildProcess,
+      },
+    });
+    setKeeperManager(km);
+    const result = await spawnPiSession(tmpCwd, { strategy: "headless" });
+    expect(result.success).toBe(true);
+    return state.spawnCalls[0];
+  }
+
+  it("puts the ceiling in the invocation the keeper spawns pi from", async () => {
+    const call = await spawnHeadlessCapturing(["/usr/bin/node", "/abs/cli.js"]);
+    expect(call.piCmd).toEqual([
+      "/usr/bin/node",
+      "--max-old-space-size=512",
+      "/abs/cli.js",
+    ]);
+  });
+
+  it("never caps the keeper's own launch with the SESSION ceiling", async () => {
+    const call = await spawnHeadlessCapturing(["/usr/bin/node", "/abs/cli.js"]);
+    // The 512 ceiling is in the invocation (above) and must not also be in the
+    // environment the keeper itself runs under.
+    expect(call.env.NODE_OPTIONS ?? "").not.toContain("--max-old-space-size=512");
+  });
+
+  it("strips the dashboard's OWN inherited flag from the keeper env", async () => {
+    const ours = "--max-old-space-size=8192";
+    const priorOptions = process.env.NODE_OPTIONS;
+    const priorMarker = process.env[HEAP_FLAG_MARKER_ENV];
+    process.env.NODE_OPTIONS = `--enable-source-maps ${ours}`;
+    process.env[HEAP_FLAG_MARKER_ENV] = ours;
+    try {
+      const call = await spawnHeadlessCapturing(["/usr/bin/node", "/abs/cli.js"]);
+      expect(call.env.NODE_OPTIONS).toBe("--enable-source-maps");
+      expect(call.env[HEAP_FLAG_MARKER_ENV]).toBeUndefined();
+    } finally {
+      if (priorOptions === undefined) delete process.env.NODE_OPTIONS;
+      else process.env.NODE_OPTIONS = priorOptions;
+      if (priorMarker === undefined) delete process.env[HEAP_FLAG_MARKER_ENV];
+      else process.env[HEAP_FLAG_MARKER_ENV] = priorMarker;
+    }
+  });
+
+  it("leaves pi's own args out of the heap rewrite", async () => {
+    const call = await spawnHeadlessCapturing(["/usr/bin/node", "/abs/cli.js"]);
+    expect(call.piArgs).toEqual(["--mode", "rpc"]);
+  });
+
+  // test-plan #X9 — a reload is a server-side kill plus a FRESH
+  // `spawnPiSession`, and the keeper spawns pi exactly once and dies with it.
+  // So "the replacement adopts the new ceiling" reduces to "the invocation is
+  // rebuilt from CURRENT configuration on every spawn" — a cached read would
+  // leave a reloaded session on the old value with nothing to show for it.
+  it("rebuilds the invocation from current config on every spawn", async () => {
+    const configPath = path.join(os.homedir(), ".pi", "dashboard", "config.json");
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    const restore = fs.existsSync(configPath) ? fs.readFileSync(configPath, "utf-8") : null;
+    try {
+      fs.writeFileSync(configPath, JSON.stringify({ sessionHeap: { maxOldSpaceMb: 512 } }));
+      const first = await spawnHeadlessCapturing(["/usr/bin/node", "/abs/cli.js"]);
+      expect(first.piCmd).toContain("--max-old-space-size=512");
+
+      fs.writeFileSync(configPath, JSON.stringify({ sessionHeap: { maxOldSpaceMb: 1024 } }));
+      const second = await spawnHeadlessCapturing(["/usr/bin/node", "/abs/cli.js"]);
+      expect(second.piCmd).toContain("--max-old-space-size=1024");
+      expect(second.piCmd).not.toContain("--max-old-space-size=512");
+    } finally {
+      if (restore === null) fs.rmSync(configPath, { force: true });
+      else fs.writeFileSync(configPath, restore);
+    }
   });
 });

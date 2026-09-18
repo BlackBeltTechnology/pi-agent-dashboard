@@ -1,7 +1,13 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildSpawnArgs, buildSpawnEnv, resolveServerCliPath } from "../server-launcher.js";
+import { HEAP_FLAG_MARKER_ENV } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
+import {
+  buildSpawnArgs,
+  buildSpawnEnv,
+  DEFAULT_SERVER_MAX_OLD_SPACE_MB,
+  resolveServerCliPath,
+} from "../server-launcher.js";
 
 describe("server-launcher", () => {
   describe("resolveServerCliPath", () => {
@@ -81,21 +87,57 @@ describe("server-launcher", () => {
       expect(Object.keys(env)).not.toContain("UNDEF");
     });
 
-    it("adds --max-old-space-size to NODE_OPTIONS by default", () => {
+    // The three heap assertions below asserted the literal 8192. The ceiling is
+    // now config-derived with a 1536 default, so they move with the constant
+    // rather than pinning a number that no longer describes the behavior.
+    // See change: bound-session-heap-and-gc-telemetry (task 4.5).
+    it("stamps the default --max-old-space-size into NODE_OPTIONS", () => {
       const env = buildSpawnEnv({});
-      expect(env["NODE_OPTIONS"]).toContain("--max-old-space-size=8192");
+      expect(DEFAULT_SERVER_MAX_OLD_SPACE_MB).toBe(1536);
+      expect(env["NODE_OPTIONS"]).toContain(
+        `--max-old-space-size=${DEFAULT_SERVER_MAX_OLD_SPACE_MB}`,
+      );
+    });
+
+    it("stamps the CONFIGURED ceiling when one is passed", () => {
+      const env = buildSpawnEnv({}, 4096);
+      expect(env["NODE_OPTIONS"]).toBe("--max-old-space-size=4096");
     });
 
     it("appends the flag to an existing NODE_OPTIONS without a heap limit", () => {
       const env = buildSpawnEnv({ NODE_OPTIONS: "--enable-source-maps" });
       expect(env["NODE_OPTIONS"]).toBe(
-        "--enable-source-maps --max-old-space-size=8192",
+        `--enable-source-maps --max-old-space-size=${DEFAULT_SERVER_MAX_OLD_SPACE_MB}`,
       );
     });
 
     it("never overrides a user-supplied --max-old-space-size", () => {
       const env = buildSpawnEnv({ NODE_OPTIONS: "--max-old-space-size=2048" });
       expect(env["NODE_OPTIONS"]).toBe("--max-old-space-size=2048");
+      // No provenance marker is left behind: the token is theirs, and a marker
+      // naming it would let the spawn-side strip eat their pin.
+      expect(env[HEAP_FLAG_MARKER_ENV]).toBeUndefined();
+    });
+
+    it("records the exact token it stamped in the provenance marker", () => {
+      const env = buildSpawnEnv({}, 2048);
+      expect(env[HEAP_FLAG_MARKER_ENV]).toBe("--max-old-space-size=2048");
+    });
+
+    it("re-stamps its OWN previous token rather than freezing it as a pin", () => {
+      // The restart path inherits `env: process.env`, so the previous launch's
+      // flag AND marker are both present. Without the marker comparison the
+      // dashboard's own stamp would read as operator intent and the ceiling
+      // could never change.
+      const env = buildSpawnEnv(
+        {
+          NODE_OPTIONS: "--enable-source-maps --max-old-space-size=1536",
+          [HEAP_FLAG_MARKER_ENV]: "--max-old-space-size=1536",
+        },
+        4096,
+      );
+      expect(env["NODE_OPTIONS"]).toBe("--enable-source-maps --max-old-space-size=4096");
+      expect(env[HEAP_FLAG_MARKER_ENV]).toBe("--max-old-space-size=4096");
     });
   });
 });

@@ -106,6 +106,7 @@ import { ensureInstanceId } from "./lifecycle/instance-id.js";
 import { createLiveServerManager } from "./live-server/live-server-manager.js";
 import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
 import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
+import { startServerHeapTelemetry } from "./server-heap-telemetry.js";
 import { createEventLoopSpikeMetrics } from "./metrics/eventloop-spike-metrics.js";
 import { createHydrationMetrics } from "./metrics/hydration-metrics.js";
 import { createModelProxyAuthGate } from "./model-proxy/auth-gate.js";
@@ -794,6 +795,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // activity. Negligible libuv-timer overhead. See change above.
   const eventLoopDelayHistogram = monitorEventLoopDelay({ resolution: 20 });
   eventLoopDelayHistogram.enable();
+
+  // Major-GC counter for THIS process, started once at boot alongside the
+  // event-loop histogram. Unlike that histogram it is cumulative and never
+  // reset: `/api/health` is polled, and "is the major count climbing?" is the
+  // question the 1536 ceiling's accepted occupancy depends on being answerable.
+  // See change: bound-session-heap-and-gc-telemetry (D13).
+  startServerHeapTelemetry();
   const readEventLoopDelay = () => {
     const ms = (ns: number) => (Number.isFinite(ns) ? ns / 1e6 : 0);
     const snapshot = {

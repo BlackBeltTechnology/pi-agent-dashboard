@@ -46,6 +46,16 @@ Note the ceiling term is the **request**, not the limit: V8 grants roughly
 `request + 192 MB`, so this predicate is deliberately conservative by about that
 margin. That is the intended direction for a tripwire.
 
+**The guard reads the CONFIGURED budget, not the store's EFFECTIVE one — and
+must keep doing so.** `bound-event-store-by-bytes` put the floor clamp in the
+store, not the loader, because the clamp needs `maxEventDataSize` — a top-level
+`DashboardConfig` field invisible to the browser-safe module (`config.ts`
+L1322). The store therefore exposes post-clamp effective budgets separately.
+The divergence cannot change a verdict: the clamp only raises *small* budgets,
+which sit deep in the silent region, and never touches the over-large budgets
+the guard exists to catch. Feeding effective values in would couple a
+browser-imported module to server-only config for no behavioural gain.
+
 ### D2 — The invariant checks boundedness, not presence
 
 A build-time assertion in shared fails when the server default is below `8192`
