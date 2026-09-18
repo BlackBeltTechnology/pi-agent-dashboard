@@ -273,10 +273,12 @@ describe("status-reconcile debt capture (E2/E3/E4/E8)", () => {
 
     const info = gateway.getStatusReconcileInfo(asWs(client.ws));
     // s1 → updated; s2's add superseded by its remove (last lifecycle wins),
-    // with `sawAdd` retained because its add WAS shed.
+    // with `sawAdd` retained because its add WAS shed — and the shed add's
+    // `spawnRequestId` retained too, so the sawAdd-branch reconcile can still
+    // clear the matching spawn placeholder.
     expect(info?.entries).toEqual([
       { id: "s1", kind: "updated", sawAdd: false },
-      { id: "s2", kind: "removed", sawAdd: true },
+      { id: "s2", kind: "removed", sawAdd: true, spawnRequestId: "r1" },
     ]);
     expect(gateway.getDroppedFrameStats().statusReconcileQueued).toBe(3);
     // 4 transcript drops (updated, added, removed, file_changed); the reorder is

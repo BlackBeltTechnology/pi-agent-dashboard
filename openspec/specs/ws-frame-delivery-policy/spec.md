@@ -321,10 +321,19 @@ closes, errors, or is terminated as stalled.
 
 - **GIVEN** a `session_removed` for `s8` was dropped for a socket
 - **AND** `s8` is registered again before the socket drains, so its record is no longer ended
-- **AND** that registration's own `session_added` was delivered to the socket
+- **AND** that registration's own `session_added` was ALSO dropped for that socket
 - **WHEN** the socket drains
 - **THEN** that socket SHALL NOT receive a `session_removed` for `s8`
 - **AND** SHALL receive a `session_added` for `s8` carrying the current record and `reconciled: true`
+
+#### Scenario: A delivered re-registration clears the owed removal
+
+- **GIVEN** a `session_removed` for `s8` was dropped for a socket
+- **AND** `s8` is registered again before the socket drains, so its record is no longer ended
+- **AND** that registration's own `session_added` was DELIVERED to the socket
+- **WHEN** the socket drains
+- **THEN** that socket SHALL NOT receive a `session_removed` for `s8`
+- **AND** SHALL NOT receive any further frame for `s8` — the delivered add is that socket's current truth and cleared the debt
 
 #### Scenario: A session created and ended inside one flood window still appears
 

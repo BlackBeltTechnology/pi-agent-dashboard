@@ -911,7 +911,13 @@ export function createBrowserGateway(
         kind,
         sawAdd: kind === "added" ? true : (existing?.sawAdd ?? false),
       };
-      if (kind === "added" && spawnRequestId !== undefined) next.spawnRequestId = spawnRequestId;
+      // The shed `session_added`'s correlation id is the register's memory of
+      // WHICH spawn never got its placeholder cleared, so it survives a later
+      // lifecycle kind superseding the `added` kind. Dropping it there would
+      // leave the sawAdd-branch reconcile unable to match the pending spawn,
+      // forcing the placeholder to wait out the generic timeout (D2).
+      const spawnReq = kind === "added" ? spawnRequestId : existing?.spawnRequestId;
+      if (spawnReq !== undefined) next.spawnRequestId = spawnReq;
       debt.entries.set(sessionId, next);
     }
     statusReconcileQueued++;
@@ -955,7 +961,9 @@ export function createBrowserGateway(
       // ended record whose `add` was ALSO shed means the browser holds no row.
       // Both want the current record as a reconciled add, not a removal.
       if (session.status !== "ended" || entry.sawAdd) {
-        return { type: "session_added", session, reconciled: true };
+        return entry.spawnRequestId !== undefined
+          ? { type: "session_added", session, reconciled: true, spawnRequestId: entry.spawnRequestId }
+          : { type: "session_added", session, reconciled: true };
       }
       return { type: "session_removed", sessionId: id };
     }

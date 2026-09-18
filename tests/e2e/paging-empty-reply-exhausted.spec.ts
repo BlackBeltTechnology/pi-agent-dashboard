@@ -41,6 +41,12 @@ const STUB_DIR_CWD = "/fixtures/stub-dir";
 const STUB_SESSION_ID = "019f0000-0000-7000-8000-000000000001";
 /** pi's encoded session directory for `STUB_DIR_CWD` (see `session-discovery.ts`). */
 const STUB_SESSIONS_SUBDIR = "--fixtures-stub-dir--";
+/**
+ * Fixed `startedAt` for the injected record, which also stamps its on-disk file
+ * name. Every injection — this run's and any earlier run's — shares it, so a
+ * sweep can clear leftovers whose id is no longer known.
+ */
+const INJECTED_STAMP = "2020-01-01T00-00-00.000Z";
 
 /**
  * Resolve the harness container by the dashboard port it publishes —
@@ -145,15 +151,39 @@ test.describe("ended paging never dead-ends on the same offset (F8)", () => {
   // discovery a no-op (an already-held id emits no `session_added`).
   const injectedId = `019f0000-0000-7000-8000-${Date.now().toString(16).padStart(12, "0").slice(-12)}`;
 
+  /**
+   * Delete every on-disk trace of an injected record — BOTH halves, this run's
+   * and any earlier run's.
+   *
+   * Deliberately id-independent (`INJECTED_STAMP`), so it self-heals a leftover
+   * whose own run could not reach the container: the `pi-state` volume persists
+   * across runs within one harness lifetime, and a rediscovered stale record
+   * would change the group's total and make F8 flaky.
+   *
+   * A container lookup / exec failure is LOGGED and swallowed. Teardown is
+   * diagnostics, not assertion: a throw here would fail the test and mask the
+   * real failure, which is the opposite of what a fixture should do.
+   */
+  function sweepInjections(): void {
+    try {
+      inContainer(
+        resolveContainer(),
+        `find "$HOME/.pi/agent" -name '${INJECTED_STAMP}_*' -delete 2>/dev/null; true`,
+      );
+    } catch (err) {
+      console.warn(`[F8] on-disk injection cleanup skipped (harness gone?): ${String(err)}`);
+    }
+  }
+
+  // Heal any leftover BEFORE the run stages its own injection.
+  test.beforeEach(() => {
+    sweepInjections();
+  });
+
   test.afterEach(async () => {
-    const container = resolveContainer();
     await archiveOverBus(injectedId).catch(() => {});
     await unpinOverBus(STUB_DIR_CWD).catch(() => {});
-    // Remove every on-disk trace so the next run re-discovers nothing.
-    inContainer(
-      container,
-      `find "$HOME/.pi/agent" -name '*${injectedId}*' -delete 2>/dev/null; true`,
-    );
+    sweepInjections();
   });
 
   test("an empty reply hides 'more' and suppresses the repeat request, and a totals change re-arms it (test-plan #F8)", async ({
@@ -208,7 +238,7 @@ test.describe("ended paging never dead-ends on the same offset (F8)", () => {
     // the exhausted mark.
     const container = resolveContainer();
     const dir = `"$HOME/.pi/agent/sessions/${STUB_SESSIONS_SUBDIR}"`;
-    const stamp = "2020-01-01T00-00-00.000Z";
+    const stamp = INJECTED_STAMP;
     inContainer(
       container,
       [

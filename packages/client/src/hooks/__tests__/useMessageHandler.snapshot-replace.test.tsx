@@ -318,6 +318,53 @@ describe("useMessageHandler — reconciled add upsert + endedTotals (close-regis
     expect(h.getEndedTotals().get("/repoA")).toBe(5);
   });
 
+  it("a reconciled add takes the server's fields but keeps client-local ones", () => {
+    // The reconcile payload is the server's FULL current record, so an ABSENT
+    // optional field (`currentTool` on a freshly re-registered row) is
+    // authoritative — a plain `{...existing, ...msg.session}` merge would keep
+    // the PREVIOUS incarnation's tool, the exact class of staleness this change
+    // exists to kill. `resuming`/`closing` (and the client-accumulated
+    // `assets`) are not server-owned and must survive.
+    const held = {
+      ...makeSession("s5", { cwd: "/repoA" }),
+      currentTool: "stale-tool",
+      resuming: true,
+      closing: true,
+      assets: { h1: { data: "x", mimeType: "image/png" } },
+    };
+    const h = makeStatefulHandler({ sessions: [held] });
+
+    h.handle({
+      type: "session_added",
+      session: makeSession("s5", { cwd: "/repoA" }),
+      reconciled: true,
+    } as ServerToBrowserMessage);
+
+    const row = h.getSessions().get("s5");
+    expect(row?.currentTool).toBeUndefined();
+    expect(row?.resuming).toBe(true);
+    expect(row?.closing).toBe(true);
+    expect(row?.assets).toEqual({ h1: { data: "x", mimeType: "image/png" } });
+  });
+
+  it("an add that flips a held ended row back to live removes its ended contribution", () => {
+    // An owed removal superseded by re-registration arrives as a reconciled add
+    // for a row the browser holds as ENDED. Leaving the ended total untouched
+    // makes the group's count stale, so the expander offers a page that can
+    // never fill.
+    const s8 = makeSession("s8", { cwd: "/repoA", status: "ended" });
+    const h = makeStatefulHandler({ sessions: [s8], endedTotals: { "/repoA": 5 } });
+
+    h.handle({
+      type: "session_added",
+      session: makeSession("s8", { cwd: "/repoA", status: "active" }),
+      reconciled: true,
+    } as ServerToBrowserMessage);
+
+    expect(h.getEndedTotals().get("/repoA")).toBe(4);
+    expect(h.getSessions().get("s8")?.status).toBe("active");
+  });
+
   it("F6: a deferred reorder does not lose a concurrently added session", () => {
     const h = makeStatefulHandler({
       sessions: [makeSession("a", { cwd: "/repoA" }), makeSession("b", { cwd: "/repoA" })],

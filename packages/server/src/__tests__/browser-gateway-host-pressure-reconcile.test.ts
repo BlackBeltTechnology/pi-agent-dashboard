@@ -176,6 +176,37 @@ describe("registry debt register — kinds + flush dispatch (D2)", () => {
     expect(entry?.sawAdd).toBe(true);
   });
 
+  it("a shed `session_added`'s spawnRequestId survives a kind supersede and rides the reconciled add", () => {
+    // Regression: the add's correlation id was dropped when a shed `removed`
+    // superseded it, so the sawAdd-branch reconcile emitted a reconciled add
+    // with NO correlation id — the client's exact-match cleanup could not fire
+    // and the spawning placeholder had to wait out the generic timeout.
+    const { gateway, manager } = buildDebtGateway(["s7"]);
+    const client = attachCapturedWs(gateway);
+    client.saturate();
+    // Both frames shed before any DELIVERED lifecycle frame could clear the debt.
+    gateway.broadcastSessionAdded({ id: "s7", cwd: "/repo/a" }, { spawnRequestId: "r1" });
+    manager.unregister("s7");
+    gateway.broadcastSessionRemoved("s7");
+
+    const entry = gateway.getStatusReconcileInfo(asWs(client.ws))!.entries.find((e) => e.id === "s7");
+    expect(entry?.kind).toBe("removed");
+    expect(entry?.sawAdd).toBe(true);
+    expect(entry?.spawnRequestId).toBe("r1");
+
+    client.drain();
+    vi.advanceTimersByTime(250);
+
+    const added = client.framesOfType<{
+      type: string;
+      reconciled?: boolean;
+      spawnRequestId?: string;
+    }>("session_added");
+    expect(added).toHaveLength(1);
+    expect(added[0].reconciled).toBe(true);
+    expect(added[0].spawnRequestId).toBe("r1");
+  });
+
   it("flush: owed `removed`, no record → session_removed (E5)", () => {
     const { gateway, manager } = buildDebtGateway(["s1"]);
     const client = attachCapturedWs(gateway);

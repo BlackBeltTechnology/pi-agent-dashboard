@@ -446,20 +446,33 @@ export function useMessageHandler(
     switch (msg.type) {
       case "session_added": {
         const reconciled = msg.reconciled === true;
-        // "Not previously held" guard for the endedTotals bump (D3, E16–E17).
-        // Read via the sessions mirror OUTSIDE the updater (StrictMode-safe).
-        const wasHeld = sessionsRef?.current.has(msg.session.id) ?? false;
+        // Previous row, read via the sessions mirror OUTSIDE the updater
+        // (updaters must stay pure under StrictMode). Drives both the
+        // "not previously held" endedTotals guard (D3, E16–E17) and the
+        // held-ended→non-ended reversal below.
+        const prevRow = sessionsRef?.current.get(msg.session.id);
+        const wasHeld = prevRow !== undefined;
         setSessions((prev) => {
           const next = new Map(prev);
           const existing = next.get(msg.session.id);
-          // A reconciled add is a late repair: MERGE over the held row
-          // (`{...existing, ...msg.session}`) so server-held fields win while
-          // client-local mutations survive, and the row is not duplicated.
+          // A reconciled add carries the server's FULL CURRENT record, so its
+          // fields — including an ABSENT `currentTool`/`hostPressure` on a
+          // re-registered row — are authoritative: a plain merge would keep a
+          // stale value from the previous incarnation, the exact class of bug
+          // this change exists to kill. Carry over ONLY the client-local /
+          // client-accumulated fields the server record does not own.
           // The original broadcast replaces wholesale.
           // See change: close-registry-frame-shed-gaps (D2).
           next.set(
             msg.session.id,
-            reconciled && existing ? { ...existing, ...msg.session } : msg.session,
+            reconciled && existing
+              ? {
+                  ...msg.session,
+                  ...(existing.resuming !== undefined ? { resuming: existing.resuming } : {}),
+                  ...(existing.closing !== undefined ? { closing: existing.closing } : {}),
+                  ...(existing.assets !== undefined ? { assets: existing.assets } : {}),
+                }
+              : msg.session,
           );
           // The sibling `resuming` cleanup is a spawn-correlation side effect
           // of the ORIGINAL add. A reconciled add is a late repair and must
@@ -488,19 +501,29 @@ export function useMessageHandler(
           next.set(groupKey, [...(current ?? []), msg.session.id]);
           return next;
         });
-        // An add introducing a NOT-previously-held already-ended session grows
-        // its group's ended total (D3/E16). Guarded on not-held so a
-        // re-delivered reconcile cannot double-count (E17).
-        if (!wasHeld && msg.session.status === "ended") {
-          const groupKey = endedTotalsGroupKey(
-            msg.session,
-            deps.cwdVisibilityInputsRef?.current.pinnedDirectories,
-          );
-          setEndedTotalsMap?.((prev) => {
-            const next = new Map(prev);
-            next.set(groupKey, (prev.get(groupKey) ?? 0) + 1);
-            return next;
-          });
+        // endedTotals bookkeeping for this add (D3). Two transitions matter:
+        //  - a NOT-previously-held already-ended session GROWS its group's
+        //    ended total (E16), guarded on not-held so a re-delivered reconcile
+        //    cannot double-count (E17);
+        //  - an add that flips a HELD ended row back to a non-ended status (an
+        //    owed removal superseded by re-registration) REMOVES that
+        //    contribution — otherwise the count stays stale and the expander
+        //    offers a page that can never fill.
+        {
+          const nowEnded = msg.session.status === "ended";
+          const wasEndedHeld = prevRow?.status === "ended";
+          const delta = !wasHeld && nowEnded ? 1 : wasEndedHeld && !nowEnded ? -1 : 0;
+          if (delta !== 0) {
+            const groupKey = endedTotalsGroupKey(
+              msg.session,
+              deps.cwdVisibilityInputsRef?.current.pinnedDirectories,
+            );
+            setEndedTotalsMap?.((prev) => {
+              const next = new Map(prev);
+              next.set(groupKey, Math.max(0, (prev.get(groupKey) ?? 0) + delta));
+              return next;
+            });
+          }
         }
         // A hidden session is an auto-hidden headless worker (subagent,
         // `memory` tool, nested `pi -p`) that shares its parent's cwd. It must

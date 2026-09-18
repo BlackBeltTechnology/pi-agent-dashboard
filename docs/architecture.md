@@ -528,14 +528,14 @@ Every server→browser frame carries exactly one delivery class. `frameClassOf(m
 
 **Debt capture.** `broadcast()` derives delivery info (`id`, `kind`, `spawnRequestId`) via `deliveryInfoOf(msg)`. `session_added` carries id at `msg.session.id` (NOT top-level `msg.sessionId`), so shared `deliveryInfoOf` derivation must not read `msg.sessionId` blindly. Shed site records entry in `statusDebt.entries`.
 
-**Kind precedence.** Last-write-wins across lifecycle kinds `added` / `removed`; newly recorded `updated` overwrites existing `updated`, never downgrades pending `added` or `removed`. `sawAdd` set when `added` recorded; survives supersede by `removed` (preserves memory that browser never received creation).
+**Kind precedence.** Last-write-wins across lifecycle kinds `added` / `removed`; newly recorded `updated` overwrites existing `updated`, never downgrades pending `added` or `removed`. `sawAdd` set when `added` recorded; survives supersede by `removed` (preserves memory that browser never received creation); shed `session_added`'s `spawnRequestId` also survives supersede by `removed` (`sawAdd`-branch reconcile clears matching spawn placeholder instead of waiting for timeout).
 
 **Own timer.** `STATUS_RECONCILE_INTERVAL_MS = 250`, started when entries map becomes non-empty, stopped when it empties. Deliberately NOT pending-state interval: that one exists only when *state* frame defers, and socket saturated purely by transcript traffic never creates it.
 
 **Flush dispatch order.** `flushStatusDebt(ws)` rebuilds from CURRENT server state while socket is under threshold:
 1. Owed `removed`, record `s = sessionManager.get(id)` absent → send `session_removed {sessionId}`.
 2. Owed `removed`, `s.status !== "ended"` → re-registered after removal, removal superseded → send `session_added {session: s, reconciled: true}`.
-3. Owed `removed`, `s.status === "ended"`, `sawAdd: true` → creation and ending both shed, browser holds no row → send `session_added {session: s, reconciled: true}` carrying ended record (creation and ending both shed; renders in ended tier).
+3. Owed `removed`, `s.status === "ended"`, `sawAdd: true` → creation and ending both shed, browser holds no row → send `session_added {session: s, reconciled: true, spawnRequestId?}` carrying ended record (creation and ending both shed; renders in ended tier).
 4. Owed `removed`, `s.status === "ended"`, `!sawAdd` → browser holds row, removal stands → send `session_removed {sessionId}`.
 5. Otherwise record `!s` → send `session_removed {sessionId}`.
 6. Otherwise owed `added` → send `session_added {session: s, spawnRequestId?, reconciled: true}`.
@@ -544,7 +544,7 @@ Status-based dispatch rests on invariant: `register()` is only path to non-ended
 
 **Lifecycle clear and self-healing.** Delivered lifecycle frame (`session_added`, `session_removed`) clears socket's debt for that id (delivered frame is socket's current truth). Delivered `session_updated` is partial; does NOT clear. Reconcile sends via `sendTo`; `sendTo` shed site re-records SAME kind (all three kinds, `sendTo` shed site widened) — self-healing, eventually-delivered. Reconcile carries CURRENT value; intermediate transitions within single flood window not recovered.
 
-**Client handling (`reconciled: true`).** Additive flag on `session_added`. Client merge-upserts row (`{ ...existing, ...msg.session }`). On `reconciled: true`, client clears spawn placeholder and consumes pending spawn ONLY on exact `spawnRequestId` match (no match → touches no spawn state; prevents clearing unrelated concurrent user spawn in same cwd). Client navigates on NO tier (`reconciled: true` suppresses exact-match, cwd fallback, worktree fallback).
+**Client handling (`reconciled: true`).** Additive flag on `session_added`. Reconciled payload carries server's authoritative full current record: client replaces server-owned fields; absent `currentTool`/`hostPressure` clears on re-registered row (plain merge retains previous incarnation's stale value). Client carries over only client-local fields server record does not own: `resuming`, `closing`, `assets`. Add flipping held ended row to non-ended status (owed removal superseded by re-registration) removes group `endedTotals` contribution (prevents stale count; expander never offers page that cannot fill). On `reconciled: true`, client clears spawn placeholder and consumes pending spawn ONLY on exact `spawnRequestId` match (no match → touches no spawn state; prevents clearing unrelated concurrent user spawn in same cwd). Client navigates on NO tier (`reconciled: true` suppresses exact-match, cwd fallback, worktree fallback).
 
 **Teardown.** Map + timer released on socket `close`, on socket `error`, and on `sendState` stalled-socket `ws.terminate()` path.
 
