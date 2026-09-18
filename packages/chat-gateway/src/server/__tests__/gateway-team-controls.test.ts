@@ -84,7 +84,7 @@ describe("gateway team-controls integration", () => {
     if (!validated.ok) throw new Error(validated.reason);
     const log = createCommandLog({ limit: 1_000 });
     const team = createTeamController({
-      config: validated.value,
+      config: () => validated.value,
       log,
       listWorkspaces: () => WORKSPACES,
       ...(opts.onTrustFailure ? { onTrustFailure: opts.onTrustFailure } : {}),

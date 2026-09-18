@@ -73,11 +73,11 @@
 
 ## 8. Configuration surface
 
-- [ ] 8.1 Extend chat-gateway's settings panel with per-binding principals, role map, ceiling, mirror level, bindings, and disarm state, and verify it renders with the plugin enabled
-- [ ] 8.2 Surface per mapped role who can assign it, and verify the delegation warning renders for a role assignable by a non-owner and states the missing permission when that information is unavailable
-- [ ] 8.3 Show per bound workspace which folders are outside `allowedRoots` and therefore inert, and verify the display against a workspace with a mixed folder set
-- [ ] 8.4 Render the command log most-recent-first via `registerBrowserHandler` (no new HTTP route) and verify it is unreachable from chat
-- [ ] 8.5 Verify every configuration mutation refuses when attempted from chat at any tier
+- [x] 8.1 Extend chat-gateway's settings panel with per-binding principals, role map, ceiling, mirror level, bindings, and disarm state, and verify it renders with the plugin enabled
+- [x] 8.2 Surface per mapped role who can assign it, and verify the delegation warning renders for a role assignable by a non-owner and states the missing permission when that information is unavailable
+- [x] 8.3 Show per bound workspace which folders are outside `allowedRoots` and therefore inert, and verify the display against a workspace with a mixed folder set
+- [x] 8.4 Render the command log most-recent-first via `registerBrowserHandler` (no new HTTP route) and verify it is unreachable from chat
+- [x] 8.5 Verify every configuration mutation refuses when attempted from chat at any tier
 
 ## 9. Verification and docs
 

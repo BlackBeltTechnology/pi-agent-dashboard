@@ -412,3 +412,53 @@ export function chunkForDiscord(text: string, limit: number = DISCORD_MESSAGE_LI
   if (rest.length > 0) chunks.push(rest);
   return chunks;
 }
+
+// ── Role delegation (task 8.2) ────────────────────────────────────────────
+//
+// Pure, so the rule is testable with no guild. The transport fetches and maps
+// onto these summaries; it decides nothing.
+
+/** A guild member, reduced to what the delegation rule needs. */
+export interface MemberSummary {
+  id: string;
+  name?: string;
+  /** Position of the member's highest role; -1 when they hold none. */
+  highestRolePosition: number;
+  /** Whether the member holds Manage Roles. */
+  canManageRoles: boolean;
+}
+
+export interface RoleSummary {
+  id: string;
+  position: number;
+}
+
+/**
+ * The answer to "who can assign this role?".
+ *
+ * `unavailable` names the MISSING PERMISSION. It is never an empty `assigners`
+ * list, which would read as "nobody can assign this" — the opposite of the
+ * truth when the platform merely declined to enumerate.
+ */
+export type RoleAssigners =
+  | { kind: "assigners"; members: Array<{ id: string; name?: string }> }
+  | { kind: "unavailable"; missingPermission: string };
+
+/**
+ * Which members can assign `role`.
+ *
+ * The guild OWNER always can. Anyone else needs Manage Roles AND a highest role
+ * STRICTLY ABOVE the target's position: Discord refuses a manager assigning a
+ * role at or above their own highest, so listing one would promise a delegation
+ * the platform then rejects. Erring the other way is also wrong — this list is
+ * what tells an operator how widely a `control` mapping is delegated.
+ */
+export function assignersForRole(
+  members: readonly MemberSummary[],
+  role: RoleSummary,
+  ownerId: string,
+): Array<{ id: string; name?: string }> {
+  return members
+    .filter((m) => m.id === ownerId || (m.canManageRoles && m.highestRolePosition > role.position))
+    .map((m) => (m.name === undefined ? { id: m.id } : { id: m.id, name: m.name }));
+}

@@ -209,3 +209,106 @@ export interface AuthDecision {
   allowed: boolean;
   reason: string;
 }
+
+// ── Configuration surface (dashboard) ─────────────────────────────────────
+//
+// The wire shape of the team-controls settings panel. Declared HERE rather than
+// beside the server builder so the panel renders it WITHOUT importing server
+// code, and with every union spelled out rather than imported — this file stays
+// import-free so the browser bundle carries none of the server graph.
+
+/**
+ * Browser message: ask for the team-controls panel snapshot. The answer arrives
+ * as the same type, carrying `surface`.
+ *
+ * A `registerBrowserHandler` lane rather than a new HTTP route — the panel is a
+ * projection of plugin state, and the plugin already owns this channel.
+ */
+export const TEAM_SURFACE_MESSAGE = "chat_gateway_team_surface";
+
+/**
+ * Browser message: WRITE team-controls config.
+ *
+ * Deliberately not the core `plugin_config_write` lane. That lane persists and
+ * returns; it cannot await the platform. D7 requires the write NOT be reported
+ * as succeeded until the platform's overwrites match, so the panel writes here
+ * and the plugin owns the ordering: validate → persist → await reconcile →
+ * report. It is also the only path that can apply a live disarm change.
+ */
+export const TEAM_CONFIG_MESSAGE = "chat_gateway_team_config";
+
+/**
+ * Who can hand out a platform role — or why we cannot say.
+ *
+ * `unavailable` is deliberately NOT an empty `assigners` list: an empty list
+ * reads as "nobody can assign this", which is the opposite of the truth when
+ * the platform merely declined to enumerate. The panel must say so.
+ */
+export type SurfaceRoleAssigners =
+  | { kind: "assigners"; members: Array<{ id: string; name?: string }> }
+  | { kind: "unavailable"; missingPermission: string };
+
+/** One `roleId → tier` mapping, plus the delegation disclosure for it. */
+export interface SurfaceRoleMapping {
+  roleId: string;
+  tier: "observe" | "control";
+  assigners: SurfaceRoleAssigners;
+}
+
+export interface SurfaceFolder {
+  path: string;
+  /** Outside `allowedRoots`: never resolved, never spawned into. */
+  inert: boolean;
+}
+
+/** One configured workspace binding, as the panel renders it. */
+export interface SurfaceBinding {
+  workspaceId: string;
+  /** Absent when the workspace no longer exists (or was never real). */
+  workspaceName?: string;
+  /** False when the workspace is gone or unbound; its channel is retained. */
+  bound: boolean;
+  ceiling: "observe" | "control" | "operate";
+  mirrorLevel: "names-only" | "names-and-diffs" | "full-transcript";
+  principals: Array<{ id: string; tier: "observe" | "control" | "operate" }>;
+  roles: SurfaceRoleMapping[];
+  folders: SurfaceFolder[];
+  /** Channel the layer owns for this binding, once provisioned. */
+  channelId?: string;
+  /** Set when this binding could not be provisioned; the fail-closed reason. */
+  problem?: string;
+}
+
+/** One command-log row. Mirrors `CommandLogEntry` on the wire. */
+export interface SurfaceLogEntry {
+  /** Epoch ms. */
+  at: number;
+  principal: string;
+  channelId: string;
+  threadId?: string;
+  workspaceId?: string;
+  tier?: "observe" | "control" | "operate";
+  verb: string;
+  target?: string;
+  outcome: "permitted" | "refused";
+  reason?: string;
+}
+
+/**
+ * Everything the team-controls panel renders, in ONE broadcast — the panel is
+ * a read-only projection of authoritative server state, never a second copy
+ * the browser mutates.
+ */
+export interface TeamSurfaceView {
+  /** False when team controls are not configured at all. */
+  configured: boolean;
+  disarmed: boolean;
+  ceiling: "observe" | "control" | "operate";
+  allowedRoots: string[];
+  bindings: SurfaceBinding[];
+  /** Most-recent-first. */
+  log: SurfaceLogEntry[];
+  logLimit: number;
+  /** Set when config validation rejected the operator's input: FAIL-CLOSED. */
+  configError?: string;
+}

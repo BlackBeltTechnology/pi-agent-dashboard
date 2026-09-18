@@ -26,7 +26,7 @@ function makeTeam(over: Record<string, unknown> = {}) {
   if (!validated.ok) throw new Error(validated.reason);
   const log = createCommandLog({ limit: 1_000 });
   const team = createTeamController({
-    config: validated.value,
+    config: () => validated.value,
     log,
     listWorkspaces: () => workspaces,
     channelBindings: () => new Map([["chan1", "ws_1"]]),

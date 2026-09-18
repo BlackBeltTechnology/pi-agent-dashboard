@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import type { InteractivePrompt, InteractiveResponse, PlatformMessage } from "../base.js";
 import {
+  assignersForRole,
   channelCreatePayload,
   channelNameFor,
   channelOverwrites,
@@ -303,5 +304,58 @@ describe("channel provisioning payload", () => {
     expect(payload.name).toBe("ws");
     expect(payload.permissionOverwrites).toHaveLength(2);
     expect(payload.permissionOverwrites[0].deny).toBe(VIEW);
+  });
+});
+
+// ── Role delegation (task 8.2, F1/F2) ─────────────────────────────────────
+
+describe("assignersForRole", () => {
+  const ROLE = { id: "r_ops", position: 5 };
+  const member = (id: string, pos: number, canManage: boolean, name?: string) => ({
+    id,
+    highestRolePosition: pos,
+    canManageRoles: canManage,
+    ...(name === undefined ? {} : { name }),
+  });
+
+  it("always includes the guild owner, who needs no permission", () => {
+    // Discord lets the owner assign anything regardless of role position.
+    const result = assignersForRole([member("u_owner", -1, false, "boss")], ROLE, "u_owner");
+    expect(result).toEqual([{ id: "u_owner", name: "boss" }]);
+  });
+
+  it("includes a manager whose highest role sits strictly ABOVE the role", () => {
+    const result = assignersForRole([member("u_admin", 9, true, "deputy")], ROLE, "u_owner");
+    expect(result).toEqual([{ id: "u_admin", name: "deputy" }]);
+  });
+
+  it("EXCLUDES a manager whose highest role EQUALS the role's position", () => {
+    // Discord refuses a manager assigning a role at their own level, so naming
+    // them would promise a delegation the platform then rejects.
+    expect(assignersForRole([member("u_peer", 5, true)], ROLE, "u_owner")).toEqual([]);
+  });
+
+  it("excludes a manager below the role and any non-manager above it", () => {
+    const result = assignersForRole(
+      [member("u_low", 2, true), member("u_flat", 99, false)],
+      ROLE,
+      "u_owner",
+    );
+    expect(result).toEqual([]);
+  });
+
+  it("omits `name` rather than emitting undefined when a member has none", () => {
+    const result = assignersForRole([member("u_x", 9, true)], ROLE, "u_owner");
+    expect(result).toEqual([{ id: "u_x" }]);
+    expect("name" in result[0]).toBe(false);
+  });
+
+  it("returns every qualifying member, owner first only by input order", () => {
+    const result = assignersForRole(
+      [member("u_a", 9, true), member("u_owner", 3, false), member("u_b", 7, true)],
+      ROLE,
+      "u_owner",
+    );
+    expect(result.map((m) => m.id)).toEqual(["u_a", "u_owner", "u_b"]);
   });
 });

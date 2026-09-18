@@ -27,6 +27,7 @@ import {
   type ServerPluginContext,
 } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { ChatGatewayConfig } from "../shared/types.js";
+import { TEAM_CONFIG_MESSAGE, TEAM_SURFACE_MESSAGE } from "../shared/types.js";
 import { isConfigured, resolveConfig } from "./config.js";
 import { createChatGateway } from "./gateway.js";
 import { createBindingStore, createSpawnCorrelator } from "./routing.js";
@@ -35,6 +36,7 @@ import { createCommandLog } from "./team/audit.js";
 import { createTeamController } from "./team/controller.js";
 import { createProvisioner } from "./team/provisioner.js";
 import { createProvisioningStore } from "./team/provisioning-store.js";
+import { buildTeamSurface, type DelegationPort } from "./team/surface.js";
 import { FAIL_CLOSED_TEAM_CONFIG, validateTeamControls } from "./team/team-config.js";
 
 /** The plugin id used by `/api/health.plugins[]`. */
@@ -93,12 +95,18 @@ export default async function registerChatGateway(ctx: ServerPluginContext): Pro
   // default (nobody may act, nothing is provisioned) rather than to a live but
   // unconfigured layer.
   const parsedTeam = validateTeamControls(rawConfig?.teamControls);
+  let teamConfigError: string | undefined;
   if (!parsedTeam.ok) {
+    teamConfigError = `${parsedTeam.reason} at ${parsedTeam.path}`;
     ctx.logger.error(
-      `chat-gateway: team-controls config rejected (${parsedTeam.reason} at ${parsedTeam.path}) — running fail-closed`,
+      `chat-gateway: team-controls config rejected (${teamConfigError}) — running fail-closed`,
     );
   }
-  const teamConfig = parsedTeam.ok ? parsedTeam.value : FAIL_CLOSED_TEAM_CONFIG;
+  // MUTABLE: the dashboard can rewrite the policy while the layer runs. The
+  // provisioner and controller read it through a getter, so a revoked
+  // principal stops being authorized immediately instead of at the next
+  // restart.
+  let teamConfig = parsedTeam.ok ? parsedTeam.value : FAIL_CLOSED_TEAM_CONFIG;
 
   /** Report a layer failure on `/api/health.plugins[]`, preserving the rest. */
   function reportLayerFailure(reason: string): void {
@@ -155,7 +163,7 @@ export default async function registerChatGateway(ctx: ServerPluginContext): Pro
   });
 
   const team = createTeamController({
-    config: teamConfig,
+    config: () => teamConfig,
     log: commandLog,
     listWorkspaces: () => ctx.listWorkspaces(),
     channelBindings: provisioner.channelBindings,
@@ -208,6 +216,92 @@ export default async function registerChatGateway(ctx: ServerPluginContext): Pro
       bindings: store.all(),
       status: { running: s.running, boundChannels: s.boundChannels, pendingSpawns: s.pendingSpawns },
     };
+  });
+
+  // ── Configuration surface (tasks 8.1-8.5) ───────────────────────────────
+  //
+  // Read-only PROJECTION of authoritative state. The panel renders what this
+  // returns and decides nothing itself, so there is exactly one place that
+  // knows what the layer will do.
+  const delegation: DelegationPort = {
+    async assignersForRole(roleId) {
+      if (!teamConfig.guildId) {
+        return {
+          kind: "unavailable",
+          missingPermission: "a configured teamControls.guildId",
+        };
+      }
+      return adapter.assignersForRole(teamConfig.guildId, roleId);
+    },
+  };
+
+  const buildSurface = () =>
+    buildTeamSurface({
+      config: teamConfig,
+      workspaces: ctx.listWorkspaces(),
+      allowedRoots: config.allowedRoots,
+      log: commandLog,
+      isDisarmed: team.isDisarmed(),
+      delegation,
+      channelFor: (workspaceId) => channels.forWorkspace(workspaceId)?.channelId,
+      problemFor: () => provisioner.lastFailure() ?? undefined,
+      ...(teamConfigError !== undefined ? { configError: teamConfigError } : {}),
+    });
+
+  async function broadcastSurface(): Promise<void> {
+    ctx.broadcastToSubscribers({ type: TEAM_SURFACE_MESSAGE, surface: await buildSurface() });
+  }
+
+  ctx.registerBrowserHandler(TEAM_SURFACE_MESSAGE, () => {
+    void broadcastSurface();
+  });
+
+  // The write lane. A failed reconcile is reported as a FAILED WRITE, not a
+  // success with a warning: the operator asked for a state the platform does
+  // not have, and must be told so.
+  ctx.registerBrowserHandler(TEAM_CONFIG_MESSAGE, (msg) => {
+    void (async () => {
+      const raw = (msg as { teamControls?: unknown } | null)?.teamControls;
+      const parsed = validateTeamControls(raw);
+      if (!parsed.ok) {
+        // Nothing persisted and no platform call made — a rejected config must
+        // not half-apply.
+        ctx.broadcastToSubscribers({
+          type: TEAM_CONFIG_MESSAGE,
+          ok: false,
+          reason: `${parsed.reason} at ${parsed.path}`,
+        });
+        return;
+      }
+
+      // Only a CHANGE in the flag applies it. An unrelated edit must not
+      // silently undo a chat-initiated disarm — the dashboard re-arms by
+      // setting this flag, so it is applied deliberately, not as a side effect.
+      const disarmChanged = parsed.value.disarmed !== teamConfig.disarmed;
+
+      await ctx.updatePluginConfig({ teamControls: parsed.value });
+      teamConfig = parsed.value;
+      teamConfigError = undefined;
+      if (disarmChanged) team.syncDisarmFromConfig(parsed.value.disarmed);
+
+      // D7: reconcile AWAITS the platform call, so the operator cannot be told
+      // a revoked principal lost access before the platform agrees.
+      const swept = await provisioner.reconcile();
+      if (!swept.ok) {
+        ctx.broadcastToSubscribers({
+          type: TEAM_CONFIG_MESSAGE,
+          ok: false,
+          reason: swept.reason,
+          surface: await buildSurface(),
+        });
+        return;
+      }
+      ctx.broadcastToSubscribers({
+        type: TEAM_CONFIG_MESSAGE,
+        ok: true,
+        surface: await buildSurface(),
+      });
+    })();
   });
 
   ctx.logger.info(

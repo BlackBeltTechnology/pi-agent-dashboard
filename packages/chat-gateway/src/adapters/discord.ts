@@ -28,6 +28,7 @@ import {
   ModalBuilder,
   OverwriteType,
   Partials,
+  PermissionFlagsBits,
   type SendableChannels,
   StringSelectMenuBuilder,
   TextInputBuilder,
@@ -52,7 +53,10 @@ import {
   type DiscordChannelUpdatePayload,
   type DiscordControlSpec,
   type DiscordOverwrite,
+  type MemberSummary,
   parseCustomId,
+  assignersForRole as pickAssigners,
+  type RoleAssigners,
   toDiscordControl,
 } from "./discord-payload.js";
 
@@ -94,6 +98,15 @@ export interface DiscordChannelOps {
   guildIdFor(channelId: string): Promise<string>;
 }
 
+/**
+ * Role delegation enumeration (task 8.2), injected in tests. Separate from
+ * `DiscordChannelOps`: this answers a question about MEMBERS, and a platform can
+ * reasonably support one and not the other.
+ */
+export interface DiscordMemberOps {
+  assignersForRole(guildId: string, roleId: string): Promise<RoleAssigners>;
+}
+
 /** Map our dependency-free overwrite data onto discord.js's resolvable shape. */
 function toResolvable(overwrite: DiscordOverwrite) {
   return {
@@ -123,6 +136,8 @@ export class DiscordAdapter extends BaseAdapter {
   private stopped = false;
   /** Channel management, injected in tests; defaults to discord.js. */
   private readonly ops: DiscordChannelOps | null;
+  /** Role-delegation enumeration, injected in tests; defaults to discord.js. */
+  private readonly memberOpsOverride: DiscordMemberOps | null;
   private onMessageCreate: ((message: Message) => void) | null = null;
   private onInteractionCreate: ((interaction: Interaction) => void) | null = null;
   /** requestId → the control spec we rendered, for modal re-hydration. */
@@ -144,10 +159,11 @@ export class DiscordAdapter extends BaseAdapter {
     return { messageId };
   }
 
-  constructor(config: DiscordAdapterConfig, ops?: DiscordChannelOps) {
+  constructor(config: DiscordAdapterConfig, ops?: DiscordChannelOps, memberOps?: DiscordMemberOps) {
     super();
     this.config = config;
     this.ops = ops ?? null;
+    this.memberOpsOverride = memberOps ?? null;
   }
 
   // ── Lifecycle ───────────────────────────────────────────────────────────
@@ -320,6 +336,66 @@ export class DiscordAdapter extends BaseAdapter {
 
   async renameChannel(channelId: string, name: string): Promise<void> {
     await this.channelOps().update(channelId, { name: channelNameFor(name) });
+  }
+
+  /**
+   * Which members can hand out `roleId` (task 8.2) — the delegation
+   * disclosure. An unanswerable query returns `unavailable` naming what is
+   * missing rather than an empty list (see `RoleAssigners`).
+   */
+  async assignersForRole(guildId: string, roleId: string): Promise<RoleAssigners> {
+    return this.memberOps().assignersForRole(guildId, roleId);
+  }
+
+  private memberOps(): DiscordMemberOps {
+    return this.memberOpsOverride ?? this.defaultMemberOps();
+  }
+
+  /** Real Discord member/role enumeration for the delegation disclosure. */
+  private defaultMemberOps(): DiscordMemberOps {
+    return {
+      assignersForRole: async (guildId, roleId) => {
+        const guild = await this.requireClient().guilds.fetch(guildId);
+        // Reading who holds a role is a Manage Roles read. Answering with an
+        // empty list instead would claim nobody can assign it.
+        if (!guild.members.me?.permissions.has(PermissionFlagsBits.ManageRoles)) {
+          return { kind: "unavailable", missingPermission: "Manage Roles" };
+        }
+        const role = await guild.roles.fetch(roleId);
+        if (!role) {
+          return {
+            kind: "unavailable",
+            missingPermission: "the mapped role (it may have been deleted)",
+          };
+        }
+        let members: Awaited<ReturnType<typeof guild.members.fetch>>;
+        try {
+          members = await guild.members.fetch();
+        } catch {
+          // Enumerating members needs the PRIVILEGED Server Members intent —
+          // the likeliest cause, and one the operator can actually act on.
+          return { kind: "unavailable", missingPermission: "the Server Members intent" };
+        }
+        const summaries: MemberSummary[] = members.map((m) => {
+          const highest = m.roles.highest;
+          const summary: MemberSummary = {
+            id: m.id,
+            highestRolePosition: highest ? highest.position : -1,
+            canManageRoles: m.permissions.has(PermissionFlagsBits.ManageRoles),
+          };
+          if (m.user.username) summary.name = m.user.username;
+          return summary;
+        });
+        return {
+          kind: "assigners",
+          members: pickAssigners(
+            summaries,
+            { id: role.id, position: role.position },
+            guild.ownerId,
+          ),
+        };
+      },
+    };
   }
 
   private channelOps(): DiscordChannelOps {

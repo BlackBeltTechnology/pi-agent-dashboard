@@ -20,7 +20,12 @@ import { DEFAULT_MIRROR_LEVEL } from "./team-config.js";
 import type { WorkspaceView } from "./workspace.js";
 
 export interface TeamControllerDeps {
-  config: ValidatedTeamConfig;
+  /**
+   * Read LIVE, not captured: the dashboard can rewrite the policy while the
+   * layer runs, and a revoked principal must stop being authorized immediately
+   * rather than at the next restart.
+   */
+  config: () => ValidatedTeamConfig;
   log: CommandLog;
   listWorkspaces: () => WorkspaceView[];
   /** channelId → workspaceId for the layer's active bindings. */
@@ -58,6 +63,13 @@ export interface TeamController {
   rearmFromDashboard(): boolean;
   /** A chat-originated re-arm is always refused; state persists. */
   rearmFromChat(): { ok: false; reason: string };
+  /**
+   * Adopt the dashboard's `disarmed` flag. The DASHBOARD is the only writer of
+   * config, so its flag is a dashboard decision — this is how the config surface
+   * re-arms. The caller must only invoke it when the flag actually CHANGED,
+   * or an unrelated config edit would silently undo a chat-initiated disarm.
+   */
+  syncDisarmFromConfig(disarmed: boolean): void;
   bindingFor(channelId: string): ResolvedBinding | undefined;
   mirrorLevel(channelId: string): MirrorLevel;
   /**
@@ -77,12 +89,12 @@ export interface TeamController {
 export function createTeamController(deps: TeamControllerDeps): TeamController {
   const now = deps.now ?? Date.now;
   const trust = createTrustHealth();
-  let disarmed = deps.config.disarmed === true;
+  let disarmed = deps.config().disarmed === true;
 
   function bindingFor(channelId: string): ResolvedBinding | undefined {
     const workspaceId = deps.channelBindings().get(channelId);
     if (!workspaceId) return undefined;
-    const policy = deps.config.bindings[workspaceId];
+    const policy = deps.config().bindings[workspaceId];
     const workspace = deps.listWorkspaces().find((w) => w.id === workspaceId);
     if (!policy || !workspace) return undefined;
     return {
@@ -106,6 +118,9 @@ export function createTeamController(deps: TeamControllerDeps): TeamController {
     rearmFromDashboard() {
       disarmed = false;
       return true;
+    },
+    syncDisarmFromConfig(next) {
+      disarmed = next;
     },
     rearmFromChat() {
       // Re-arming from chat would let whoever can talk undo a deliberate halt.

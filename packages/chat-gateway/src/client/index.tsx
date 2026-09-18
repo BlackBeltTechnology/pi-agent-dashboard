@@ -17,6 +17,7 @@ import type { SlotProps } from "@blackbelt-technology/pi-dashboard-shared/dashbo
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import type { Binding, ChatGatewayConfig } from "../shared/types.js";
+import { TeamControlsPanel } from "./team-controls-panel.js";
 
 interface BindingsResponse {
   bindings: Binding[];
@@ -324,6 +325,8 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
           </span>
         )}
       </div>
+
+      <TeamControlsPanel />
     </div>
   );
 }
