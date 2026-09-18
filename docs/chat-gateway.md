@@ -160,6 +160,74 @@ Read-only inspection API for monitoring and settings integration:
     - `boundChannels`: integer count of active channel bindings.
     - `pendingSpawns`: integer count of in-flight spawn requests.
 
+## Team Controls
+
+> **Status.** Implemented: tier model + authorization chokepoint, workspace scoping and `allowedRoots` narrowing, outbound filter + pacing, append-only command log, disarm, question gating, trust-failure detection. Not yet wired: channel provisioning and the workspace↔channel binding store (tasks 2.5, 4.4–4.8), and the dashboard configuration surface (tasks 8.x). Statements below about those describe the layer's contract, not behaviour reachable today.
+
+Layered multi-user governance under L1 allowlist and L2 admins. Enforces role-based tiering, workspace scoping, outbound payload filtering, and rate pacing.
+
+```mermaid
+flowchart TD
+  Inbound[Inbound Chat Request] --> BotCheck{Author bot/webhook?}
+  BotCheck -- Yes --> RefuseBot[Refuse: non_human_author]
+  BotCheck -- No --> L1L2{Passes L1/L2?}
+  L1L2 -- No --> RefuseL1[Refuse: L1/L2 reason]
+  L1L2 -- Yes --> Choke[team.authorizeRequest]
+  Choke --> Scope{Target within workspace?}
+  Scope -- No --> RefuseScope[Refuse: scope_violation]
+  Scope -- Yes --> Resolve[Resolve principal/role tier & clamp]
+  Resolve --> Allowlist{Verb allowlisted & delegable?}
+  Allowlist -- No --> RefuseVerb[Refuse: allowlist/tier reason]
+  Allowlist -- Yes --> Grant[Grant]
+  Grant --> Dispatch[dispatchToSession]
+```
+
+### Tier Model & Authorization Chokepoint
+
+- Tiers: `observe` < `control` < `operate` (`tiers.js`).
+- Shared verb tiers read directly from `GENERATED_TOOLS` (`@blackbelt-technology/pi-dashboard-mcp-server-plugin/manifest`); prevents web/chat/MCP drift.
+- Allowed chat verbs restricted to curated `CHAT_COMMAND_ALLOWLIST` (`list_sessions`, `send_prompt`, `abort`, `spawn_session`, `resume_session`, `prompt_response`, `get_session_diff`, `get_session_file`, `get_transcript`, `get_tool_result`). Unlisted verbs refused.
+- `NON_DELEGABLE` verbs (`mint_device_token`, `set_providers`, `install_package`, `tunnel_connect`) refused across all tiers/ceilings; non-configurable.
+- Global ceiling defaults to `observe`; `clampTier` caps, never raises. Unconfigured layer grants nothing.
+- Tier resolution: explicit identifier mapping outranks platform role; highest wins. Missing mapping refuses (`no_principal_mapping`); fails closed without fallback.
+- Platform roles map at most `control`. `operate` requires explicit identifier mapping; role mapped to `operate` rejected with `role_cannot_map_to_operate_requires_explicit_identifier`.
+- Nine distinct refusal reasons: `non_human_author`, `unbound_channel`, `no_principal_mapping`, `scope_violation`, `disarmed`, `non_delegable_verb`, `verb_not_allowlisted`, `verb_unknown_tier`, `insufficient_tier`. Refusal emits exact cause.
+- Bot and webhook authors refused first before tier checks.
+- Sits under L1/L2: only refuses, never bypasses L1/L2.
+- Single chokepoint: action requests pass `team.authorizeRequest(...)` returning `Grant | Refusal`. `dispatchToSession` requires and runtime-guards `Grant`.
+- Interactive prompts: answering requires `>= control`. Invoker-only when specific principal initiated turn; unprompted questions answerable by any `control` principal.
+- Config mutations and audit log inspection refused from chat; dashboard only.
+
+### Workspace Scope & `allowedRoots` Narrowing
+
+- Precedence: persisted binding > bound workspace folders > `fixedMap` > default cwd.
+- Narrowing invariant: workspace binding only narrows `allowedRoots`, never widens. Workspace folders outside `allowedRoots` remain inert and skipped during spawn/attach.
+- Real-path (`fs.realpathSync.native`) containment checked on every transition and resume.
+- Scope containment evaluated inside chokepoint: target session cwd must reside inside bound workspace folders, else `scope_violation`. Free-text cwd in chat never resolves targets.
+- Not yet wired — Channel→workspace bindings stored in separate plugin store (`bindings.json`). Session↔thread routing remains in gateway routing table.
+- Trust failure: host trust-gated verb returning no-op (e.g. `assignSessionRef` returning `false`) marks layer unhealthy and refuses command. Requires plugin manifest `priority: 100` (`<= 100`). Sticky; first cause wins.
+
+### Output Filtering & Pacing
+
+- Mirror levels: `names-only` (default), `names-and-diffs`, `full-transcript`.
+- `names-only`: mirrors assistant prose + tool names + target basename only; suppresses tool arguments, results, diffs, and terminal output.
+- Stated filter boundary: filter governs structured payloads only. Assistant prose mirrors verbatim at all levels and may quote files or diffs. Layer does not redact assistant prose (`FILTER_BOUNDARY_NOTE`).
+- Raising mirror level forward-only; past messages never retroactively rewritten.
+- Explicit pulls (`get_session_diff`, `get_session_file`, `get_tool_result`) gated by principal tier, not mirror level.
+- Truncation appends explicit elision marker (`… [elided N characters]`).
+- Outbound pacing: 5 messages per 5 seconds per channel (`RATE_WINDOW_MS = 5000`, `RATE_MAX_POSTS = 5`). Max one post in flight per thread. Exhausted budget coalesces queued messages without drops.
+- Mirroring independent of action authorization; continues while disarmed; ignores principal tiers.
+
+### Rollback & Lifecycle Safety
+
+- Disarm switch: any principal at `>= observe` can disarm via chat; re-arm allowed from dashboard only. Chat re-arm refused.
+- Disarm blocks action requests; passive mirroring continues.
+- Workspace deletion marks binding inactive; leaves channel and message history intact. Channel deletion drops binding; leaves running sessions active.
+- Not yet wired — Channel provisioning executes atomic create-with-overwrites (`@everyone` view denied); missing overwrite permissions aborts channel creation and flags plugin health.
+- Missing bot token leaves plugin inert (no adapter, socket, or timers).
+- Team layer optional to `createChatGateway`; omitting `teamControls` restores baseline L1/L2 operation.
+- Command log: append-only ring buffer bounded by `auditRetention` (default 10000, max 1000000); no edit or delete operations.
+
 ## Configuration Reference
 
 Derived from `packages/chat-gateway/src/configSchema.json`:
@@ -181,5 +249,14 @@ Derived from `packages/chat-gateway/src/configSchema.json`:
 | `toolPolicy.approval` | `string[]` | - | Tool names requiring interactive confirmation before execution. |
 | `toolPolicy.defaultAction` | `string` | `"deny"` | Disposition for unlisted tool names. Enum: `"deny"`, `"approve"`. |
 | `guardExtension` | `string` | - | Package subpath (`@blackbelt-technology/pi-dashboard-chat-gateway-plugin/guard`) or absolute file path to guard entry. Required for guard loading. |
+| `teamControls` | `object` | - | Team-controls governance layer. Absent config defaults to fail-closed (`ceiling: observe`, no bindings). |
+| `teamControls.ceiling` | `string` | `"observe"` | Global tier ceiling (`observe`, `control`, `operate`). Caps resolved principal tier. |
+| `teamControls.disarmed` | `boolean` | `false` | Emergency kill switch. Refuses action requests while continuing passive mirroring. Re-armed from dashboard only. |
+| `teamControls.auditRetention` | `integer` | `10000` | In-memory command-log ring-buffer capacity. Range `1` to `1000000`. |
+| `teamControls.bindings` | `object` | `{}` | Per-workspace team policies keyed by workspace ID. |
+| `teamControls.bindings.<id>.principals` | `object` | `{}` | Map of Discord user ID (snowflake) to tier (`observe`, `control`, `operate`). |
+| `teamControls.bindings.<id>.roles` | `object` | `{}` | Map of Discord role ID to tier (`observe`, `control`). Roles cannot grant `operate`. |
+| `teamControls.bindings.<id>.mirrorLevel` | `string` | `"names-only"` | Outbound mirror filter: `names-only`, `names-and-diffs`, `full-transcript`. |
+| `teamControls.bindings.<id>.ceiling` | `string` | - | Per-binding tier ceiling. Defaults to global `teamControls.ceiling`. |
 
-See change: add-chat-gateway.
+See change: add-chat-gateway, add-chat-gateway-team-controls.
