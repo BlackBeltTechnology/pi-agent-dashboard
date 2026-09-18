@@ -78,6 +78,17 @@ owner-trusted (you're remote-controlling your own open session — and an interc
 be retrofitted into a running session anyway). This aligns the trust boundary with the
 technical constraint.
 
+**Implementation status (synced with tasks 8.x/9.x/12.x).** Every control above is
+implemented and unit-tested: L1 allowlist + 6-digit pairing code (DM-only redemption;
+redeeming persists the user onto the allowlist, wrong/expired code never grants access);
+L2 admin-only bind; the `allowedRoots` real-path boundary is re-applied on EVERY transition
+(attach · spawn · resume), not only at bind time, and an empty set refuses all spawns; L4
+group channels stay inert unless opted in and DMs are isolated; L3 is a deny-first companion
+`tool_call` interceptor loaded into gateway-SPAWNED sessions only. The bot token is
+`writeOnly` — stripped from every client document by `redactWriteOnly`, never logged, and a
+blank settings save cannot erase it. `GET /api/chat-gateway/bindings` is registered only
+once configured + started, so an inert install exposes no surface.
+
 ## Why L3 lives in-session, not at the gateway edge
 
 The gateway sees the prompt, not the agent's mid-turn tool decisions (those fire inside
@@ -111,9 +122,12 @@ extension is loaded into spawned sessions carrying the policy; escalation uses
 - **C8 edit throttle:** ≥ ~1000ms between `editMessage` calls; target zero Discord 429s;
   p95 edit latency < 1.5s under a sustained delta burst.
 
-## Open questions for implementation
+## Implementation notes (questions resolved)
 
-- Does `dashboard-plugin-runtime` expose an in-process subscribe API, or must the gateway
-  open a loopback WS client? (Decides the placement detail; contract is identical.)
-- Pairing-code UX over Discord (DM handshake) vs. admin pre-seeding the allowlist in
-  settings — support both; pre-seed is the simplest v1 path.
+- **In-process subscribe:** `dashboard-plugin-runtime` was extended with an OPTIONAL,
+  trust-gated `ctx.subscribeSession` seam (`See change: add-chat-gateway`). The gateway uses
+  it and refuses to start (logs an error) when a host does not expose it — no loopback WS
+  fallback. See `packages/server/src/pairing/browser-gateway.ts` + `server-context.ts`.
+- **Pairing UX:** both paths ship. An admin pre-seeds `allowlist` in Settings, OR a user DMs
+  the pairing code shown in Settings; redemption is DM-only (a code in a public group
+  channel would leak access to every reader).

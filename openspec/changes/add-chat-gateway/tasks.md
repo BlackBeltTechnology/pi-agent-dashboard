@@ -49,8 +49,8 @@
 - [x] 10.2 Token stored with restrictive perms; never returned in plaintext or logged. → verify: config read-back omits the token.
 
 ## 11. Docs
-- [ ] 11.1 `packages/chat-gateway/AGENTS.md` + a `docs/` pointer for setup (Discord bot creation, token, allowedRoots). → verify: follows Documentation Update Protocol.
-- [ ] 11.2 Threat-model note in `design.md` kept in sync with implemented controls. → verify: L1–L4 + allowedRoots + guard all present.
+- [x] 11.1 `packages/chat-gateway/AGENTS.md` + a `docs/` pointer for setup (Discord bot creation, token, allowedRoots). → verify: follows Documentation Update Protocol.
+- [x] 11.2 Threat-model note in `design.md` kept in sync with implemented controls. → verify: L1–L4 + allowedRoots + guard all present.
 
 ## Tests
 
