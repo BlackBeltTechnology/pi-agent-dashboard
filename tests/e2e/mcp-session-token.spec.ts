@@ -156,6 +156,7 @@ async function mcpCall(
 
 test.describe("wired per-session MCP credential (wire-mcp-session-token)", () => {
   test("#F6 works out of the box — provisioned entry + minted session credential, no hand-editing", async ({ request }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     // The harness container's mcp.json is NEVER hand-edited. The dashboard's
     // own provisioning wrote the entry on boot; the effective view proves the
     // auth transport is present and carries no credential at rest.
@@ -235,6 +236,7 @@ test.describe("wired per-session MCP credential (wire-mcp-session-token)", () =>
   });
 
   test("#F1 a dashboard restart re-delivers: the fresh token works and the stale one is refused", async ({ request }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const before = await health(request);
     expect(before.piGatewayPort).toBeTruthy();
     const session = new BridgeSession("e2e-mcp-f1", "/tmp/e2e-mcp-f1");

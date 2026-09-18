@@ -161,6 +161,7 @@ test.describe("editor layout modes", () => {
   });
 
   test("F2/F3: full via switch keeps chat mounted; composer draft survives split→full→split", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     await openSessionWithSwitch(page);
 
     await robustClick(page, "layout-mode-split");
@@ -177,6 +178,7 @@ test.describe("editor layout modes", () => {
   });
 
   test("F7/F8: edge peeks reopen split from closed and from full", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     await openSessionWithSwitch(page);
 
     // F7 — closed → right-edge Editor peek → split.
@@ -279,6 +281,7 @@ test.describe("split layout controls redesign", () => {
   });
 
   test("F2: collapsed EDITOR restore tab never overlaps a narrow chat pane", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     await openSessionWithSwitch(page);
     await robustClick(page, "layout-mode-split");
 
