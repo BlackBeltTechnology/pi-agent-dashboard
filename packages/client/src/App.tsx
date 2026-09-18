@@ -101,6 +101,7 @@ import {
   resolveDismissTarget,
 } from "./lib/nav/overlay-background.js";
 import {
+  buildFolderEditorUrl,
   buildFolderSettingsUrl,
   buildOpenSpecArchiveUrl,
   buildOpenSpecBoardUrl,
@@ -120,7 +121,7 @@ import { createReplayPersister } from "./lib/replay/replay-persist.js";
 import { deleteDraft, readAllDrafts, writeDraft } from "./lib/state/draft-storage.js";
 import { ModelConfigProvider, type ModelConfigValue } from "./lib/state/ModelConfigContext.js";
 import { clearRecoveryOffer } from "./lib/state/recovery-offer-bus.js";
-import { decodeFolderPath, encodeFolderPath } from "./lib/util/folder-encoding.js";
+import { decodeFolderPath } from "./lib/util/folder-encoding.js";
 
 // Stable tracker facade for the depth-aware back action
 // (change: fix-mobile-back-depth-aware).
@@ -560,6 +561,10 @@ export default function App() {
   });
   const folderHomeCwd = folderHomeMatch ? decodeFolderPath(folderHomeParams?.encodedCwd ?? "") : null;
   const folderEditorCwd = folderEditorMatch ? decodeFolderPath(folderEditorParams?.encodedCwd ?? "") : null;
+  // One-shot terminal-focused entry: `?focus=terminal` on the folder editor
+  // route. See change: fix-terminals-action-opens-terminal (D1).
+  const [folderEditorSearch] = useSearchParams();
+  const focusTerminalRequest = !!folderEditorMatch && folderEditorSearch.get("focus") === "terminal";
   const sidebar = useSidebarState();
   const chatViewRef = useRef<ChatViewHandle>(null);
   const isMobile = useMobile();
@@ -667,6 +672,12 @@ export default function App() {
     };
   }, [archivedReadOnlyId, sessions, archivedSummaryById]);
   const [snapshotGeneration, setSnapshotGeneration] = useState(0);
+  // Terminal snapshot applied ON THE CURRENT CONNECTION — the readiness gate
+  // for the one-shot `?focus=terminal` entry (design D2a). Gated on
+  // `status === "connected"` so a focus entry during an offline/connecting
+  // window cannot act on the previous connection's stale terminal set. See
+  // change: fix-terminals-action-opens-terminal.
+  const terminalsReady = status === "connected" && snapshotGeneration > 0;
   // Live `sessions` mirror for useMessageHandler (order filtering + live
   // endedTotals transitions read it synchronously outside setState updaters).
   const sessionsRef = useRef(sessions);
@@ -782,6 +793,13 @@ export default function App() {
           setFolderGitMap(new Map());
           setOpenspecGroupsMap(new Map());
           setTerminals(new Map());
+          // Readiness must be connection-scoped: clearing terminals without
+          // zeroing the snapshot generation leaves `terminalsReady` (`
+          // snapshotGeneration > 0`) true against an empty set, so a
+          // `?focus=terminal` entry would create a terminal instead of waiting
+          // for the new server's snapshot. See change:
+          // fix-terminals-action-opens-terminal.
+          setSnapshotGeneration(0);
           // Snapshot-window bookkeeping is scoped to one server's registry —
           // stale endedTotals / page offsets from server A must not render
           // against server B. See change: fix-connect-snapshot-frame-loss.
@@ -1155,6 +1173,11 @@ export default function App() {
       // `sessions_snapshot` message — no pre-reset needed.
       // See change: fix-stale-sessions-on-reconnect.
       setTerminals(new Map());
+      // Re-scope the snapshot generation to this connection so the
+      // `?focus=terminal` readiness gate waits for the reconnect snapshot
+      // instead of acting on the stale generation. See change:
+      // fix-terminals-action-opens-terminal.
+      setSnapshotGeneration(0);
     }
     prevStatusRef.current = status;
   }, [status]);
@@ -2410,6 +2433,14 @@ export default function App() {
   navigateRef.current = navigate;
   const handleEditorClose = useCallback(() => navigateRef.current("/"), []);
 
+  // (D3) Consume `?focus=terminal` once honoured: strip it with a REPLACE
+  // navigation so no history entry is added and an overlay-remount cannot
+  // re-fire the one-shot. See change: fix-terminals-action-opens-terminal.
+  const handleFolderFocusConsumed = useCallback(() => {
+    if (!folderEditorCwd) return;
+    navigateRef.current(buildFolderEditorUrl(folderEditorCwd), { replace: true });
+  }, [folderEditorCwd]);
+
   // Folder view content (folder-scoped editor pane — hosts terminal tabs).
   const folderViewContent = useMemo(() => {
     if (folderEditorCwd) {
@@ -2422,11 +2453,14 @@ export default function App() {
           onKillTerminal={handleKillTerminal}
           onRenameTerminal={handleRenameTerminal}
           onTerminalTitle={handleTerminalTitle}
+          focusTerminal={focusTerminalRequest}
+          terminalsReady={terminalsReady}
+          onFocusConsumed={handleFolderFocusConsumed}
         />
       );
     }
     return null;
-  }, [folderEditorCwd, getTerminalsForCwd, handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle, handleEditorClose]);
+  }, [folderEditorCwd, focusTerminalRequest, terminalsReady, handleFolderFocusConsumed, getTerminalsForCwd, handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle, handleEditorClose]);
 
   const allSessionsList = useMemo(() => Array.from(sessions.values()), [sessions]);
 
@@ -2466,8 +2500,8 @@ export default function App() {
       sessions={allSessionsList.filter((s) => s.cwd === cwd)}
       onSpawnSession={handleSpawnSession}
       onSelectSession={handleSelect}
-      onOpenTerminals={(c) => navigate(`/folder/${encodeFolderPath(c)}/editor`)}
-      onOpenEditor={(c) => navigate(`/folder/${encodeFolderPath(c)}/editor`)}
+      onOpenTerminals={(c) => navigate(buildFolderEditorUrl(c, true))}
+      onOpenEditor={(c) => navigate(buildFolderEditorUrl(c))}
       onOpenSettings={(c) => navigate(buildFolderSettingsUrl(c))}
     />
   );
@@ -2520,6 +2554,9 @@ export default function App() {
         onKillTerminal={handleKillTerminal}
         onRenameTerminal={handleRenameTerminal}
         onTerminalTitle={handleTerminalTitle}
+        focusTerminal={focusTerminalRequest}
+        terminalsReady={terminalsReady}
+        onFocusConsumed={handleFolderFocusConsumed}
       />
     ),
     renderFolderHome: (cwd) => renderDirectoryHome(cwd),

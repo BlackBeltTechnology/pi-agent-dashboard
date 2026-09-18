@@ -129,6 +129,8 @@ export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReor
           }}
           role="tab"
           aria-selected={i === activeIndex}
+          data-testid="editor-tab"
+          data-tab-path={file.path}
           tabIndex={i === activeIndex ? 0 : -1}
           onKeyDown={(e) => onTabKeyDown(e, i)}
           title={file.path}
