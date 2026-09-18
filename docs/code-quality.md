@@ -181,7 +181,7 @@ Biome reports `suppressions/unused`. Stale suppression surfaces on its own.
 - noConsole never enabled. No server/scripts override needed.
 - `noUndeclaredDependencies` off for test files: `**/__tests__/**`, `**/*.test.ts`, `**/*.test.tsx`.
 - `noUndeclaredDependencies` off for build/config globs: `**/vitest.config.ts`, `**/vite.config.ts`, `**/vite.*.config.ts`, `**/forge.config.ts`, `packages/*/scripts/**`.
-- `noUndeclaredDependencies` off for non-published trees: `examples/**`, `openspec/changes/**/spike/**`, `.pi/flows/**`, `tests/e2e/**`, `qa/scripts/**`, `.pi/skills/**/scripts/**`.
+- `noUndeclaredDependencies` off for non-published trees: `examples/**`, `openspec/changes/**/spike/**`, `openspec/changes/**/mockup/**`, `.pi/flows/**`, `tests/e2e/**`, `qa/scripts/**`, `.pi/skills/**/scripts/**`.
 
 ## Blind spot — undeclared deps in test files
 
