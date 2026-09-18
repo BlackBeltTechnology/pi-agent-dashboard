@@ -276,6 +276,27 @@ describe("gateway team-controls integration", () => {
     expect(allSent(adapter)).toContain("disarmed");
   });
 
+  it("6.4: a refused activation is not consumed — the invoker can still answer the same prompt", async () => {
+    const { seam, adapter, gateway } = setup();
+    await gateway.start();
+    await gateway.handleInbound(msg("alice", "hello")); // alice is the invoker
+    gateway.handleFrame("s1", {
+      type: "prompt_request",
+      promptId: "pc",
+      prompt: { type: "select", title: "Pick", options: ["a", "b"] },
+    });
+    await flush();
+
+    // bob is at control but is NOT the invoker: the gate refuses, and the
+    // interaction was already acked by the adapter, so nothing fails visibly.
+    adapter.emitInteractiveResponse({ requestId: "pc", userId: "bob", value: "a" });
+    expect(seam.sentResponses).toHaveLength(0);
+
+    // The refusal did not consume the prompt: the invoker answers the SAME one.
+    adapter.emitInteractiveResponse({ requestId: "pc", userId: "alice", value: "a" });
+    expect(seam.sentResponses).toHaveLength(1);
+  });
+
   it("X19: an observer's control activation sends no response", async () => {
     const { seam, adapter, gateway } = setup();
     await gateway.start();
