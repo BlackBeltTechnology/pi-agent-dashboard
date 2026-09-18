@@ -36,6 +36,6 @@
   Triple: `gotoDashboard` · click `settings-btn` · `boundingBox()`.
 - [x] 3.2 Confirm no unit-suite regression: `packages/client` + `packages/client-utils`
   vitest projects, plus `tsc --noEmit`.
-- [ ] 3.3 Manual pre-merge check in the running dashboard: Settings stays a centered
+- [x] 3.3 Manual pre-merge check in the running dashboard: Settings stays a centered
   dialog card over a dimmed dashboard, the frozen header sits inside the content
   region, and the sidebar is no longer overlapped.

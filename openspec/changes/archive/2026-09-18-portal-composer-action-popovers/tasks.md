@@ -32,6 +32,6 @@
 
 ## 3. Manual verification (post-build, before merge)
 
-- [ ] 3.1 (test-plan: manual-only) Build client + restart; in a session open the
+- [x] 3.1 (test-plan: manual-only) Build client + restart; in a session open the
   `＋`, `⋯` (narrow width), and `/` autocomplete; confirm each floats ABOVE the
   sticky quota usage bar and is not clipped by the chat column.
