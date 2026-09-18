@@ -326,7 +326,7 @@ export function UnifiedPackagesSection() {
 						className="text-xs px-2 py-1 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-primary)] disabled:opacity-50 flex items-center gap-1"
 						data-testid="unified-pkg-check-now"
 					>
-						<Icon path={isLoading || checkingUpdates ? mdiLoading : mdiRefresh} size={0.5} spin={isLoading || checkingUpdates} />
+						<Icon path={isLoading || checkingUpdates ? mdiLoading : mdiRefresh} size={0.5} spin={isLoading || checkingUpdates} className="fx-progress" />
 							{isLoading || checkingUpdates ? t("common.checking", undefined, "Checking...") : t("common.checkNow", undefined, "Check Now")}
 					</button>
 				</div>
@@ -357,7 +357,7 @@ export function UnifiedPackagesSection() {
 								className="text-xs px-3 py-1 rounded bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/30 disabled:opacity-50 flex items-center gap-1"
 								data-testid="pi-core-update-all"
 							>
-								<Icon path={coreUpdateAllSpinning ? mdiLoading : mdiArrowUpBold} size={0.55} spin={coreUpdateAllSpinning} />
+								<Icon path={coreUpdateAllSpinning ? mdiLoading : mdiArrowUpBold} size={0.55} spin={coreUpdateAllSpinning} className="fx-progress" />
 									{t("common.updateAll", { count: updatableCore.length }, `Update All (${updatableCore.length})`)}
 							</button>
 						</div>

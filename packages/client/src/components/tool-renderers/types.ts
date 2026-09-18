@@ -33,8 +33,17 @@ export interface ToolContext {
   fileLink?: FileLinkRenderer;
   /** Current session id — used by renderers that need to build session-scoped URLs (e.g. subagent popout). Optional for backward-compat. */
   sessionId?: string;
-  /** Current session state — used by renderers that drill into per-session sub-state (e.g. subagent inspector). Optional. */
-  session?: SessionState;
+  /**
+   * The SELECTED session's `subagents` map — the only per-session field any
+   * renderer reads. Deliberately narrowed from `SessionState` (D7): the memo
+   * that builds this context depends on the selected session's `subagents`
+   * identity, so any other field would advertise fresh data while silently
+   * freezing between `subagents` changes. Optional because no session may be
+   * selected (`App.tsx` passes `undefined`) and embedders build contexts
+   * without it. BREAKING for out-of-repo renderers reading another field.
+   * See change: fix-long-session-ux-degradation (D7).
+   */
+  session?: { subagents: SessionState["subagents"] };
   /** Send a message to the server (e.g. subagent resync request). Optional for backward-compat / tests. See change: fix-subagent-live-detail-reliability. */
   send?: (message: BrowserToServerMessage) => void;
 }

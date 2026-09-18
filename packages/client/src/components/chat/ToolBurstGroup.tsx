@@ -225,6 +225,7 @@ export function ToolBurstGroup({ burst, toolContext }: Props) {
         }
         size={0.55}
         spin={isRunning}
+        className="fx-progress"
       />
     </span>
   );
