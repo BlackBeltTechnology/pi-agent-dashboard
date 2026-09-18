@@ -93,6 +93,7 @@ export function frameClassOf(
     case "sessions_snapshot":
     case "pinned_dirs_updated":
     case "workspaces_updated":
+    case "collapsed_folders_updated":
     case "favorite_models_updated":
     case "display_prefs_updated":
     case "reachability_updated":
@@ -121,7 +122,7 @@ export function frameClassOf(
   }
 }
 
-import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleMoveFolderToWorkspace, handleOpenSpecBulkArchive, handleOpenSpecGet, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
+import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleMoveFolderToWorkspace, handleOpenSpecBulkArchive, handleOpenSpecGet, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleSetFolderCollapsed, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
 import { handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handlePromptResyncRequest, handleRemoveFollowupEntry, handleResumeSession, handleRetrySession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest, shutdownSession as shutdownSessionImpl } from "../browser-handlers/session-action-handler.js";
 import { handleAcceptReplaceProposal, handleArchiveSession, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleListSessions, handleRemoveTagGlobally, handleRenameSession, handleSessionsPage, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnarchiveSession } from "../browser-handlers/session-meta-handler.js";
@@ -1235,6 +1236,24 @@ export function createBrowserGateway(
 
     // Send pinned directories on connect
     if (preferencesStore) {
+      // Collapsed folders go FIRST in the burst, UNCONDITIONALLY (incl. empty).
+      // Not merely "before `sessions_snapshot`": `pinned_dirs_updated` and
+      // `workspaces_updated` each materialize folder GROUPS on their own (a
+      // pinned dir with zero sessions is a rendered card), so a collapsed
+      // folder sent after either of them mounts expanded and is corrected one
+      // message later — the expanded-then-corrected frame this change exists to
+      // remove (measured: body mounted at 533ms, echo at 534ms). It is also the
+      // "initial state has arrived" signal the one-shot migration waits on.
+      // Classified `cls: "state"` by `frameClassOf` so buffer pressure
+      // coalesces it rather than shedding it as a transcript frame.
+      // See changes: persist-folder-collapse-server-side,
+      //              fix-connect-snapshot-frame-loss.
+      if (typeof preferencesStore.getCollapsedFolders === "function") {
+        sendTo(ws, {
+          type: "collapsed_folders_updated",
+          collapsedFolders: preferencesStore.getCollapsedFolders(),
+        });
+      }
       sendTo(ws, { type: "pinned_dirs_updated", paths: preferencesStore.getPinnedDirectories() });
       // Send favorite models snapshot on connect. Guarded with `typeof` so
       // old PreferencesStore stubs in tests don't crash.
@@ -1565,6 +1584,9 @@ export function createBrowserGateway(
             break;
           case "set_workspace_collapsed":
             handleSetWorkspaceCollapsed(msg, ctx);
+            break;
+          case "set_folder_collapsed":
+            handleSetFolderCollapsed(msg, ctx);
             break;
           case "add_folder_to_workspace":
             handleAddFolderToWorkspace(msg, ctx);

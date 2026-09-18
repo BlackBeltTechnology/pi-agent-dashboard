@@ -392,6 +392,44 @@ describe("browser-gateway on-connect bootstrap ordering (E10)", () => {
     // …and nothing is sent after the snapshot in the same synchronous turn.
     expect(ws.send.mock.calls.length).toBe(snapshotIdx + 1);
   });
+
+  it("collapsed_folders_updated precedes the group-materializing prefs frames", () => {
+    // `pinned_dirs_updated` / `workspaces_updated` each materialize folder
+    // GROUPS on their own (a pinned dir with zero sessions is a rendered card),
+    // so a collapsed folder sent after either mounts EXPANDED and is corrected
+    // one message later — the exact expanded-then-corrected frame this change
+    // removes. Measured in the docker harness before the fix: body mounted at
+    // 533ms, the echo at 534ms. The message must therefore lead the connect
+    // burst, not merely precede `sessions_snapshot`.
+    // See change: persist-folder-collapse-server-side.
+    const gateway = createBrowserGateway(
+      createMemorySessionManager(),
+      createMemoryEventStore(() => false),
+      makeStubPiGateway(),
+      undefined,
+      undefined,
+      makeStubOrderManager({}),
+      {
+        getPinnedDirectories: () => ["/pinned"],
+        setPinnedDirectories: () => {},
+        getCollapsedFolders: () => ["/pinned"],
+        getWorkspaces: () => [{ id: "w1", name: "Work", collapsed: false, folders: ["/pinned"] }],
+        getSessionOrder: () => ({}),
+        setSessionOrder: () => {},
+      } as never,
+    );
+    const ws = makeFakeWs();
+    gateway.wss.emit("connection", ws, {});
+    const msgs = sentMessages(ws);
+    const types = msgs.map((m) => m.type as string);
+    const collapsedIdx = types.indexOf("collapsed_folders_updated");
+    expect(collapsedIdx).toBeGreaterThanOrEqual(0);
+    expect(collapsedIdx, "collapsed leads pinned").toBeLessThan(types.indexOf("pinned_dirs_updated"));
+    expect(collapsedIdx, "collapsed leads workspaces").toBeLessThan(types.indexOf("workspaces_updated"));
+    expect(collapsedIdx, "collapsed leads snapshot").toBeLessThan(types.indexOf("sessions_snapshot"));
+    const msg = msgs.find((m) => m.type === "collapsed_folders_updated") as { collapsedFolders: string[] };
+    expect(msg.collapsedFolders).toEqual(["/pinned"]);
+  });
 });
 
 // ── E7: archived sessions are non-resident in the connect snapshot ──────────

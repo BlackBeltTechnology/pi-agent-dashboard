@@ -1,4 +1,5 @@
 import type { OpenSpecArtifact } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { inferPlatform, pathKey } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
 import { mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
@@ -150,6 +151,7 @@ import { ApiContext, deriveApiBase, setGlobalApiBase, VITE_API_URL } from "./lib
 import { buildContextUsageMap } from "./lib/context-usage.js";
 import { registerPluginCatalog, useI18n } from "./lib/i18n/i18n.js";
 import { deriveRetryProjection } from "./lib/session/retry-projection.js";
+import { clearLegacyCollapsedGroups, decideCollapsedFoldersMigration, readLegacyCollapsedGroups, writeLegacyCollapsedGroups } from "./lib/session/session-filter-storage.js";
 import { SessionAssetsProvider } from "./lib/session/SessionAssetsContext.js";
 import { deriveSelectedSessionId } from "./lib/session/selectedSessionId.js";
 import { selectViewedSessionId } from "./lib/session/selectViewedSessionId.js";
@@ -698,6 +700,11 @@ export default function App() {
   const [favoriteModels, setFavoriteModels] = useState<string[]>([]);
   // folder-workspaces: full workspace list, kept in sync via workspaces_updated broadcast.
   const [workspaces, setWorkspaces] = useState<import("@blackbelt-technology/pi-dashboard-shared/browser-protocol.js").Workspace[]>([]);
+  // persist-folder-collapse-server-side: canonical collapsed folder keys, kept
+  // in sync via the `collapsed_folders_updated` broadcast (delivered in the
+  // connect snapshot too). Server is the single source of truth — no optimistic
+  // mirror, matching the `workspaces_updated` convention below.
+  const [collapsedFolders, setCollapsedFolders] = useState<string[]>([]);
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
   const providersReady = useProvidersReady();
   const [terminals, setTerminals] = useState<Map<string, TerminalSession>>(new Map());
@@ -1038,7 +1045,7 @@ export default function App() {
   }, [send, historyGaps]);
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPagedCount, setPageReplyGen, setPageExhausted, setSnapshotGeneration },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPagedCount, setPageReplyGen, setPageExhausted, setSnapshotGeneration },
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap },
   );
 
@@ -1169,6 +1176,49 @@ export default function App() {
     })().catch(logRejection("App.loadDisplayPrefs"));
     return () => { cancelled = true; };
   }, [apiBase]);
+
+  // persist-folder-collapse-server-side: one-shot migration of a pre-change
+  // `dashboard:collapsedGroups` localStorage value up to the server.
+  //
+  // Runs only AFTER the connect snapshot (`snapshotGeneration > 0`), so the
+  // server's current set is known and the merge is a UNION rather than a blind
+  // overwrite. Sends only keys the server is known to lack — a no-op mutation
+  // emits no echo (see `handleSetFolderCollapsed`), which would hang the
+  // handshake — and clears the legacy key once every canonical legacy key is
+  // present in the latest known set. A dropped socket leaves the key for the
+  // next load; a 10-load attempt backstop drops it regardless.
+  const migrationSentKeysRef = useRef<Set<string>>(new Set());
+  const migrationCountedRef = useRef(false);
+  useEffect(() => {
+    if (snapshotGeneration === 0) return;
+    const legacy = readLegacyCollapsedGroups();
+    if (!legacy) return;
+    const platform = inferPlatform([...legacy.keys, ...collapsedFolders]);
+    const known = new Set(collapsedFolders.map((k) => pathKey(k, platform)));
+    const countAttempt = !migrationCountedRef.current;
+    const decision = decideCollapsedFoldersMigration({
+      legacy,
+      knownServerKeys: known,
+      sentKeys: migrationSentKeysRef.current,
+      platform,
+      countAttempt,
+    });
+    if (countAttempt) migrationCountedRef.current = true;
+    if (decision.clearLegacy) {
+      if (decision.backstopDropped) {
+        console.warn(
+          "[collapsed-folders-migration] dropped unconfirmed legacy keys after the attempt backstop",
+        );
+      }
+      clearLegacyCollapsedGroups();
+      return;
+    }
+    for (const path of decision.toSend) {
+      migrationSentKeysRef.current.add(path);
+      send({ type: "set_folder_collapsed", path, collapsed: true });
+    }
+    if (decision.nextRecord) writeLegacyCollapsedGroups(decision.nextRecord);
+  }, [snapshotGeneration, collapsedFolders, send]);
 
   // Clear subscriptions on reconnect so sessions get re-subscribed
   const prevStatusRef = useRef(status);
@@ -1862,6 +1912,11 @@ export default function App() {
       onReorderWorkspaces={(ids) => send({ type: "reorder_workspaces", ids })}
       onReorderWorkspaceFolders={(id, paths) => send({ type: "reorder_workspace_folders", id, paths })}
       onMoveFolderToWorkspace={(path, toWorkspaceId, index) => send({ type: "move_folder_to_workspace", path, toWorkspaceId, index })}
+      // persist-folder-collapse-server-side — server-owned state, no optimistic
+      // mirror: dispatch `set_folder_collapsed` and let `collapsed_folders_updated`
+      // arrive (matches the workspace-collapse convention below).
+      collapsedGroups={collapsedFolders}
+      onSetFolderCollapsed={(path, collapsed) => send({ type: "set_folder_collapsed", path, collapsed })}
       // folder-workspaces — optimistic UI is intentionally omitted: server
       // is the single source of truth and broadcasts `workspaces_updated`
       // for every mutation, so we just dispatch and let the broadcast

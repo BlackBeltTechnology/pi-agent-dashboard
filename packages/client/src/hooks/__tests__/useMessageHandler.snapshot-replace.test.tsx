@@ -208,6 +208,7 @@ function useHarness(init: HarnessInit) {
     setSpawnResult: vi.fn(),
     setSessionOrderMap,
     setPinnedDirectories: vi.fn(),
+    setCollapsedFolders: vi.fn(),
     setFavoriteModels: vi.fn(),
     setWorkspaces: vi.fn(),
     setTerminals: vi.fn(),

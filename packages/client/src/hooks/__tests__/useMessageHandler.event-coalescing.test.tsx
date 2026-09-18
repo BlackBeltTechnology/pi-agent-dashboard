@@ -150,6 +150,7 @@ function makeStatefulHandler(initial: {
       setSpawnResult: vi.fn(),
       setSessionOrderMap: orders.set,
       setPinnedDirectories: vi.fn(),
+      setCollapsedFolders: vi.fn(),
       setFavoriteModels: vi.fn(),
       setWorkspaces: vi.fn(),
       setTerminals: vi.fn(),
