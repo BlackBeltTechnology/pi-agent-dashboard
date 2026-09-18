@@ -153,3 +153,50 @@ describe("sessionFromMeta — cold start does not retro-label", () => {
     expect(session.closedReason).toBeUndefined();
   });
 });
+
+/**
+ * E12 — registration is the ONLY path to a non-ended record. The registry
+ * reconcile rule "a record that is no longer ended means the id was
+ * re-registered" depends on this invariant; without it a revived record would
+ * silently falsify the removal-vs-re-registration decision at flush time.
+ * See change: close-registry-frame-shed-gaps (test-plan #E12).
+ */
+describe("registration is the only path to a non-ended record (E12)", () => {
+  it("enumerates every write path: only register yields a non-ended status", () => {
+    // register → active
+    const a = createMemorySessionManager();
+    expect(a.register({ id: "r", cwd: "/a", source: "tui" }).status).not.toBe("ended");
+
+    // unregister → ended
+    const b = createMemorySessionManager();
+    b.register({ id: "r", cwd: "/a", source: "tui" });
+    b.unregister("r");
+    expect(b.get("r")!.status).toBe("ended");
+
+    // update to ended → ended
+    const c = createMemorySessionManager();
+    c.register({ id: "r", cwd: "/a", source: "tui" });
+    c.update("r", { status: "ended", endedAt: 1 });
+    expect(c.get("r")!.status).toBe("ended");
+
+    // restore of an ended record → STAYS ended (never revived without register)
+    const d = createMemorySessionManager();
+    d.restore(row({ id: "e", cwd: "/a", status: "ended" }));
+    expect(d.get("e")!.status).toBe("ended");
+
+    // remove → gone entirely, so trivially not a non-ended record
+    const e = createMemorySessionManager();
+    e.register({ id: "r", cwd: "/a", source: "tui" });
+    e.remove("r");
+    expect(e.get("r")).toBeUndefined();
+  });
+
+  it("a restored ended record is not silently revived by a later unrelated write", () => {
+    const sm = createMemorySessionManager();
+    sm.restore(row({ id: "s1", cwd: "/a", status: "ended" }));
+    sm.update("s1", { name: "renamed" });
+    sm.listAll();
+    sm.snapshotVisibleIds();
+    expect(sm.get("s1")!.status).toBe("ended");
+  });
+});

@@ -30,10 +30,10 @@ import { t } from "../lib/i18n/i18n.js";
 import { clearLoadingHistory, HYDRATE_CEILING_MS, rearmLoadingHistory } from "../lib/replay/loading-history.js";
 import type { ReplayPersister } from "../lib/replay/replay-persist.js";
 import { inferPlatform, pathKey, resolveSessionGroupPath } from "../lib/session/session-grouping.js";
-import type { OpenSpecGetInflight } from "./useOpenSpecReconcile.js";
 import { clearRecoveryOffer, setRecoveryOffer } from "../lib/state/recovery-offer-bus.js";
 import { pushSpawnErrorToast } from "../lib/state/spawn-error-toast-bus.js";
 import { isVisibleCwd } from "../lib/util/cwd-visibility.js";
+import type { OpenSpecGetInflight } from "./useOpenSpecReconcile.js";
 
 /**
  * Merge `carryInteractiveRequests` output into a rebuilt state: pending
@@ -200,6 +200,20 @@ export interface MessageHandlerSetters {
    */
   setPagedCount?: React.Dispatch<React.SetStateAction<Map<string, number>>>;
   /**
+   * Per-group page-reply generation, bumped on every `sessions_page_result`.
+   * `SessionList` releases its in-flight mark on a generation change (not on
+   * `pagedCount` advancing), so an EMPTY reply still releases it.
+   * See change: close-registry-frame-shed-gaps (D3).
+   */
+  setPageReplyGen?: React.Dispatch<React.SetStateAction<Map<string, number>>>;
+  /**
+   * Per-group "the server has no further ended rows" marks (`hasMore:false`).
+   * Hides the "more" affordance and suppresses `sessions_page`. Cleared when
+   * `endedTotals` changes for the group (diff on the map) or on a snapshot.
+   * See change: close-registry-frame-shed-gaps (D3).
+   */
+  setPageExhausted?: React.Dispatch<React.SetStateAction<Set<string>>>;
+  /**
    * Bumped once per applied `sessions_snapshot`; `useOpenSpecReconcile`
    * re-runs on it so a reconnect snapshot re-pulls missing entries.
    * See change: fix-connect-snapshot-frame-loss (D7/D9).
@@ -263,6 +277,12 @@ export interface MessageHandlerDeps {
    */
   sessionsRef?: React.MutableRefObject<Map<string, DashboardSession>>;
   /**
+   * Live mirror of the App-owned `endedTotalsMap`. The D3 diff uses it to
+   * clear `pageExhausted` for every group whose ended total changed. Optional
+   * for lean test contexts. See change: close-registry-frame-shed-gaps (D3).
+   */
+  endedTotalsMap?: Map<string, number>;
+  /**
    * Shared with `useOpenSpecReconcile` — a `final:true` `openspec_get_result`
    * resolves the cwd's in-flight entry (timer cleared).
    * See change: fix-connect-snapshot-frame-loss (D7).
@@ -281,8 +301,9 @@ export function useMessageHandler(
     setDiscoveredServers, setSpawnErrors, setResumeErrors,
     setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev,
     setEndedTotalsMap, setArchivedCountMap, setPagedCount, setSnapshotGeneration,
+    setPageReplyGen, setPageExhausted,
   } = setters;
-  const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, showToast, sessionsRef, openspecGetInflightRef } = deps;
+  const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap } = deps;
   // One-shot per session: suppress a repeat auto-name toast for the same
   // session id. See change: add-auto-session-naming.
   const autoNameToastedRef = useRef<Set<string>>(new Set());
@@ -374,6 +395,48 @@ export function useMessageHandler(
     [],
   );
 
+  /**
+   * close-registry-frame-shed-gaps (D3): clear the paging "exhausted" mark for
+   * every group whose `endedTotals` changed. Implemented as a diff on the map
+   * VALUE, not an enumerated list of mutation sites (`session_updated`→ended,
+   * `session_removed`, `session_archived`, `sessions_snapshot`, the App
+   * server-switch/disconnect reset, and `session_added` of a not-previously-held
+   * ended session) — so no future mutation site can be missed. A key that
+   * VANISHED (the App reset to an empty map) clears too. The snapshot arm ALSO
+   * clears unconditionally in its own handler case, because a snapshot resets
+   * the paging offset even when the totals are byte-identical.
+   */
+  const prevEndedTotalsRef = useRef(endedTotalsMap);
+  useEffect(() => {
+    const prev = prevEndedTotalsRef.current;
+    prevEndedTotalsRef.current = endedTotalsMap;
+    if (!setPageExhausted || !endedTotalsMap || prev === endedTotalsMap) return;
+    const changed: string[] = [];
+    for (const [key, value] of endedTotalsMap) {
+      if (prev?.get(key) !== value) changed.push(key);
+    }
+    if (prev) {
+      for (const key of prev.keys()) {
+        if (!endedTotalsMap.has(key)) changed.push(key);
+      }
+    }
+    if (changed.length === 0) return;
+    setPageExhausted((exhausted) => {
+      if (exhausted.size === 0) return exhausted;
+      let hits = false;
+      for (const key of changed) {
+        if (exhausted.has(key)) {
+          hits = true;
+          break;
+        }
+      }
+      if (!hits) return exhausted;
+      const next = new Set(exhausted);
+      for (const key of changed) next.delete(key);
+      return next;
+    });
+  }, [endedTotalsMap, setPageExhausted]);
+
   return useCallback((msg: ServerToBrowserMessage) => {
     // Preserve strict ordering: any queued live events must apply before a
     // non-`event` message can mutate the same session's state (reset, replay,
@@ -381,11 +444,27 @@ export function useMessageHandler(
     // path (consecutive `event` bursts) while guaranteeing correctness.
     if (msg.type !== "event" && liveQueueRef.current.size > 0) flushLiveEvents();
     switch (msg.type) {
-      case "session_added":
+      case "session_added": {
+        const reconciled = msg.reconciled === true;
+        // "Not previously held" guard for the endedTotals bump (D3, E16–E17).
+        // Read via the sessions mirror OUTSIDE the updater (StrictMode-safe).
+        const wasHeld = sessionsRef?.current.has(msg.session.id) ?? false;
         setSessions((prev) => {
           const next = new Map(prev);
-          next.set(msg.session.id, msg.session);
-          if (msg.session.status !== "ended") {
+          const existing = next.get(msg.session.id);
+          // A reconciled add is a late repair: MERGE over the held row
+          // (`{...existing, ...msg.session}`) so server-held fields win while
+          // client-local mutations survive, and the row is not duplicated.
+          // The original broadcast replaces wholesale.
+          // See change: close-registry-frame-shed-gaps (D2).
+          next.set(
+            msg.session.id,
+            reconciled && existing ? { ...existing, ...msg.session } : msg.session,
+          );
+          // The sibling `resuming` cleanup is a spawn-correlation side effect
+          // of the ORIGINAL add. A reconciled add is a late repair and must
+          // not disturb siblings. See change: close-registry-frame-shed-gaps (D2).
+          if (!reconciled && msg.session.status !== "ended") {
             for (const [id, s] of next) {
               if (id !== msg.session.id && s.cwd === msg.session.cwd && s.resuming) {
                 next.set(id, { ...s, resuming: false });
@@ -394,16 +473,57 @@ export function useMessageHandler(
           }
           return next;
         });
+        // Keep the new session in the order map at the tail so a DEFERRED
+        // `sessions_reordered` that omits it cannot evict it: the reorder's
+        // tail-keep only rescues ids already present in the previous order.
+        // See change: close-registry-frame-shed-gaps (D1/F6).
+        setSessionOrderMap?.((prev) => {
+          const groupKey = endedTotalsGroupKey(
+            msg.session,
+            deps.cwdVisibilityInputsRef?.current.pinnedDirectories,
+          );
+          const current = prev.get(groupKey);
+          if (current?.includes(msg.session.id)) return prev;
+          const next = new Map(prev);
+          next.set(groupKey, [...(current ?? []), msg.session.id]);
+          return next;
+        });
+        // An add introducing a NOT-previously-held already-ended session grows
+        // its group's ended total (D3/E16). Guarded on not-held so a
+        // re-delivered reconcile cannot double-count (E17).
+        if (!wasHeld && msg.session.status === "ended") {
+          const groupKey = endedTotalsGroupKey(
+            msg.session,
+            deps.cwdVisibilityInputsRef?.current.pinnedDirectories,
+          );
+          setEndedTotalsMap?.((prev) => {
+            const next = new Map(prev);
+            next.set(groupKey, (prev.get(groupKey) ?? 0) + 1);
+            return next;
+          });
+        }
         // A hidden session is an auto-hidden headless worker (subagent,
         // `memory` tool, nested `pi -p`) that shares its parent's cwd. It must
         // never steal focus OR consume the correlation token minted for the
         // real visible spawn, so the whole cascade is gated.
         // See change: suppress-hidden-session-auto-navigation.
         if (!msg.session.hidden) {
-          // Tier 1: exact correlation by spawnRequestId. Works for both
-          // spawn-from-folder and fork-from-card (closes the no-auto-select-
-          // after-fork UX gap). See change: spawn-correlation-token.
-          if (msg.spawnRequestId && pendingSpawnsRef.current.has(msg.spawnRequestId)) {
+          if (reconciled) {
+            // D2: gate OFF navigation for EVERY tier; clean up the
+            // pending-spawn record + spawning placeholder ONLY on an exact
+            // `spawnRequestId` match. With no request id this is a pure upsert
+            // that touches no spawn state, so it cannot clear an unrelated
+            // concurrent spawn's placeholder in the same cwd.
+            // See change: close-registry-frame-shed-gaps.
+            if (msg.spawnRequestId && pendingSpawnsRef.current.has(msg.spawnRequestId)) {
+              const entry = pendingSpawnsRef.current.get(msg.spawnRequestId)!;
+              pendingSpawnsRef.current.delete(msg.spawnRequestId);
+              if (entry.kind === "spawn" && entry.cwd) clearSpawningCwd(entry.placeholderCwd ?? entry.cwd);
+            }
+          } else if (msg.spawnRequestId && pendingSpawnsRef.current.has(msg.spawnRequestId)) {
+            // Tier 1: exact correlation by spawnRequestId. Works for both
+            // spawn-from-folder and fork-from-card (closes the no-auto-select-
+            // after-fork UX gap). See change: spawn-correlation-token.
             const entry = pendingSpawnsRef.current.get(msg.spawnRequestId)!;
             pendingSpawnsRef.current.delete(msg.spawnRequestId);
             // Clear the placeholder keyed on the group cwd. For a worktree
@@ -441,6 +561,7 @@ export function useMessageHandler(
         // Commands/models/roles metadata is now requested server-side on subscribe
         // (see subscription-handler.ts) so it arrives while the browser is subscribed.
         break;
+      }
 
       case "session_updated":
         setSessions((prev) => {
@@ -1476,6 +1597,29 @@ export function useMessageHandler(
           next.set(msg.cwd, (prev.get(msg.cwd) ?? 0) + msg.sessions.length);
           return next;
         });
+        // D3: bump the reply generation on EVERY reply (including an empty
+        // one) so `SessionList` releases its in-flight mark without relying on
+        // `pagedCount` advancing or on the 15 s timeout; and record/clear the
+        // exhausted mark from `hasMore`. Keys are `msg.cwd` — the group key the
+        // server already uses for `sessions_page` / `endedTotals`.
+        // See change: close-registry-frame-shed-gaps.
+        setPageReplyGen?.((prev) => {
+          const next = new Map(prev);
+          next.set(msg.cwd, (prev.get(msg.cwd) ?? 0) + 1);
+          return next;
+        });
+        setPageExhausted?.((prev) => {
+          if (msg.hasMore) {
+            if (!prev.has(msg.cwd)) return prev;
+            const next = new Set(prev);
+            next.delete(msg.cwd);
+            return next;
+          }
+          if (prev.has(msg.cwd)) return prev;
+          const next = new Set(prev);
+          next.add(msg.cwd);
+          return next;
+        });
         break;
 
       case "openspec_get_result": {
@@ -1516,6 +1660,11 @@ export function useMessageHandler(
         // omitting the field at runtime.
         setArchivedCountMap?.(new Map(Object.entries(msg.archivedCountByCwd ?? {})));
         setPagedCount?.(new Map());
+        // D3: a snapshot resets the paging offset, so the exhausted mark is
+        // cleared UNCONDITIONALLY here (not on a value diff): a reconnect whose
+        // totals are byte-identical still re-arms every cwd.
+        // See change: close-registry-frame-shed-gaps.
+        setPageExhausted?.(new Set());
         setSnapshotGeneration?.((n) => n + 1);
         break;
 
@@ -1775,5 +1924,5 @@ export function useMessageHandler(
         break;
       }
     }
-  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setLoadingHistory, setReplayInFlight, setCanvasMap, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush, publishGap, setHistorySpliceRev, setEndedTotalsMap, setPagedCount, setSnapshotGeneration, sessionsRef, openspecGetInflightRef]);
+  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setLoadingHistory, setReplayInFlight, setCanvasMap, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush, publishGap, setHistorySpliceRev, setEndedTotalsMap, setPagedCount, setSnapshotGeneration, setPageReplyGen, setPageExhausted, sessionsRef, openspecGetInflightRef]);
 }

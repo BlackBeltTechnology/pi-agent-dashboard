@@ -30,7 +30,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `dashboard-slash.spec.ts` | Browser E2E: spawn session → `/dashboard:server-health` asserts bash card + "ran locally" footer + `ok=true`;… → see `dashboard-slash.spec.ts.AGENTS.md` |
 | `directory-home.spec.ts` | L3 for the `/folder/:encodedCwd` directory home page (change: add-directory-home-page). → see `directory-home.spec.ts.AGENTS.md` |
 | `editor-pane.spec.ts` | Playwright E2E for internal Monaco editor pane (change: add-internal-monaco-editor-pane). → see `editor-pane.spec.ts.AGENTS.md` |
-| `durable-session-diff.spec.ts` | L3 (change: fix-session-diff-durable-source, #F1): after `POST /api/restart` the RAM event store is empty, yet the Diff panel must list the Writes from the durable transcript. Drives `[[faux:tool-write-pair]]`. |
+| `durable-session-diff.spec.ts` | L3 (change: fix-session-diff-durable-source, #F1): after `POST /api/restart` the RAM event store is empty,… → see `durable-session-diff.spec.ts.AGENTS.md` |
 | `empty-model-selector.spec.ts` | L3 for `open-empty-model-selector`. Proves the harness-feasible slice: composer `model-selector-button` is… → see `empty-model-selector.spec.ts.AGENTS.md` |
 | `model-favorites-cross-surface.spec.ts` | L3 for model-picker-everywhere-favorites (test-plan F3): star model in Settings → Sessions Default Model… → see `model-favorites-cross-surface.spec.ts.AGENTS.md` |
 | `keeper-log-health.spec.ts` | L3 (test-plan #F1, #F2): `/api/health` carries `keeperLogs` (7 numeric fields); a sparse 2×-cap… → see `keeper-log-health.spec.ts.AGENTS.md` |
@@ -38,9 +38,9 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `explicit-model-preserved.spec.ts` | L3 for `fix-default-model-clobbers-explicit-model` (test-plan #I1, #I2): launches a detached child pi process… → see `explicit-model-preserved.spec.ts.AGENTS.md` |
 | `enhance-tool-call-grouping.spec.ts` | Playwright spec for universal tool-call grouping (change: enhance-tool-call-grouping). 3 tests, faux model. → see `enhance-tool-call-grouping.spec.ts.AGENTS.md` |
 | `error-lifecycle.spec.ts` | Playwright spec. Single-card error-lifecycle surface end-to-end via faux model (no LLM). 4 tests. → see `error-lifecycle.spec.ts.AGENTS.md` |
-| `faux-ask.spec.ts` | Playwright spec. Sends `[[faux:ask-select]]` via `sendPrompt`. Asserts interactive select widget mounts (option button alpha visible). Needs `PI_E2E_SEED=1`. See change: add-e2e-faux-model-roundtrip. |
+| `faux-ask.spec.ts` | Faux-provider ask_user round trip. → see `faux-ask.spec.ts.AGENTS.md` |
 | `faux-text.spec.ts` | Playwright spec. Sends `[[faux:plain-text]]` via `sendPrompt`. Asserts `PLAIN_TEXT_MARKER` text renders in message DOM. Needs `PI_E2E_SEED=1`. See change: add-e2e-faux-model-roundtrip. |
-| `faux-tool.spec.ts` | Playwright spec. Sends `[[faux:tool-read]]` via `sendPrompt`. Asserts read tool renderer mounts (path `src/example.ts` visible). Needs `PI_E2E_SEED=1`. See change: add-e2e-faux-model-roundtrip. |
+| `faux-tool.spec.ts` | Faux-provider tool-call round trip. → see `faux-tool.spec.ts.AGENTS.md` |
 | `file-mention-resolve.spec.ts` | L3 (change: server-side-file-mention-resolution, S19). Sends `[[faux:text-tildelink]]`; clicks the… → see `file-mention-resolve.spec.ts.AGENTS.md` |
 | `file-preview-survives-churn.spec.ts` | Playwright spec. Rendered-DOM regression for hoisted file-preview overlay. → see `file-preview-survives-churn.spec.ts.AGENTS.md` |
 | `fixtures.ts` | The suite's `test`/`expect` entry point — EVERY spec imports from here, not `@playwright/test` (guard:… → see `fixtures.ts.AGENTS.md` |
@@ -67,7 +67,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `helpers/index.ts` | E2E helpers. `gotoDashboard(page)` navigates `/`, waits for `header-app-bar`, and arms a one-per-page… → see `helpers/index.ts.AGENTS.md` |
 | `helpers/openspec-board.ts` | OpenSpec-board drop-targeting E2E helpers. Fixture `/fixtures/openspec-board` (64 generated `board-card-NN`… → see `helpers/openspec-board.ts.AGENTS.md` |
 | `helpers/windowed-session.ts` | Shared glue for L3 specs needing a REAL replay window. `buildWindowedSession({mode,window,transcripts})`… → see `helpers/windowed-session.ts.AGENTS.md` |
-| `host-pressure-badge.spec.ts` | L3 for `fix-false-unresponsive-badge` (#F3, #F4). Synthetic bridge goes quiet at the pi gateway; card acquires then loses the pressure pill with no reload,… → see `host-pressure-badge.spec.ts.AGENTS.md` |
+| `host-pressure-badge.spec.ts` | L3 for `fix-false-unresponsive-badge` (#F3, #F4). Synthetic bridge goes quiet at the pi gateway; card… → see `host-pressure-badge.spec.ts.AGENTS.md` |
 | `history-backfill-gap.spec.ts` | L3 for `fix-lazy-history-backfill-ux` (F1–F6, F8–F11, X3, X5 — twelve scenarios). → see `history-backfill-gap.spec.ts.AGENTS.md` |
 | `history-backfill-perf.spec.ts` | L3 P1/P2 for `fix-lazy-history-backfill-ux`, metric AMENDED by the task-1.2 measurement. → see `history-backfill-perf.spec.ts.AGENTS.md` |
 | `inline-screenshot.spec.ts` | Playwright E2E for inline agent screenshot artifacts (change: inline-agent-screenshot-artifacts, automates… → see `inline-screenshot.spec.ts.AGENTS.md` |
@@ -102,6 +102,8 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `package-queue-visible.spec.ts` | Browser E2E gate for `unify-pi-core-into-package-queue` (D9 rewritten — visible queue). → see `package-queue-visible.spec.ts.AGENTS.md` |
 | `pairing-qr.spec.ts` | Browser E2E for the camera-scannable pairing QR (change: make-pairing-qr-camera-scannable). → see `pairing-qr.spec.ts.AGENTS.md` |
 | `security-pair-link.spec.ts` | Browser E2E for the Security→Gateway pairing link, test-plan F3 (change: collapse-pairing-into-gateway). → see `security-pair-link.spec.ts.AGENTS.md` |
+| `paging-empty-reply-exhausted.spec.ts` | L3 #F8: empty page reply hides "more"; no same-offset retry. → see `paging-empty-reply-exhausted.spec.ts.AGENTS.md` |
+| `paging-exhausted-reconnect-rearm.spec.ts` | L3 #X4: reconnect snapshot re-arms a stale exhausted mark. → see `paging-exhausted-reconnect-rearm.spec.ts.AGENTS.md` |
 | `pi-runtime.spec.ts` | L3 spec: version-neutral pi runtime verification vault (test-plan #F1/F2/F3/F4/#X12) — reads… → see `pi-runtime.spec.ts.AGENTS.md` |
 | `pi-runtime-picker.spec.ts` | L3 spec for the Settings → Developer "Pi runtime" picker (test-plan #F1-#F17, #X13). → see `pi-runtime-picker.spec.ts.AGENTS.md` |
 | `plugin-settings-pages.spec.ts` | L3 spec (test-plan rows F1-F14, X1-X5, X7; change: plugin-settings-pages). → see `plugin-settings-pages.spec.ts.AGENTS.md` |
@@ -116,6 +118,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `recommended-requires.spec.ts` | Playwright E2E for recommended-extension `requires` probe (change:… → see `recommended-requires.spec.ts.AGENTS.md` |
 | `reconcile-heal.spec.ts` | Playwright spec (task 5.1, change: fix-stuck-tool-card-on-dropped-event). → see `reconcile-heal.spec.ts.AGENTS.md` |
 | `reducer-poisoned-cache-heal.spec.ts` | Playwright E2E for `fix-reducer-crash-undefined-toolname` (manual tasks 5.1+5.2). 2 tests, faux model. → see `reducer-poisoned-cache-heal.spec.ts.AGENTS.md` |
+| `registry-shed-sidebar-convergence.spec.ts` | L3 #F7: shed registry burst reconciles the sidebar on drain. → see `registry-shed-sidebar-convergence.spec.ts.AGENTS.md` |
 | `remote-transcript-read.spec.ts` | L3 for the D12 READ half — the scenario deferred as 12.52 of add-pi-gateway-transport-identity. → see `remote-transcript-read.spec.ts.AGENTS.md` |
 | `replay-delta-on-reload.spec.ts` | Playwright spec. Strategy A: reload of seen session resubscribes lastSeq>0 (delta replay). → see `replay-delta-on-reload.spec.ts.AGENTS.md` |
 | `replay-in-flight-pill.spec.ts` | Playwright spec. Replay-in-flight pill: visible over a slowed multi-batch cold replay (F9/X6), overlays… → see `replay-in-flight-pill.spec.ts.AGENTS.md` |
@@ -165,4 +168,4 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `worktree-init-feedback.spec.ts` | Playwright E2E for friendly worktree-init feedback (Level 1, change: friendlier-worktree-init; automates… → see `worktree-init-feedback.spec.ts.AGENTS.md` |
 | `zrok-v2-tunnel.spec.ts` | L3 (change: support-zrok-v2, F1/F2/F3). Stubs `/api/tunnel-status` (+`/api/tunnel-disconnect`) via… → see `zrok-v2-tunnel.spec.ts.AGENTS.md` |
 | `mcp-session-token.spec.ts` | L3 (change: wire-mcp-session-token, test-plan #F1, #F5, #F6). → see `mcp-session-token.spec.ts.AGENTS.md` |
-| `mcp-tiered-token.spec.ts` | F6/F7 (expand-mcp-tiered-surface): observe token's `tools/list` omits `send_prompt` and calling it is 403 `insufficient_scope scope="control"`; operate token's list has `force_kill` and the call is served (no scope challenge). Mints via the real operator-gated `POST /api/paired-devices`, presents to real `/mcp`. |
+| `mcp-tiered-token.spec.ts` | F6/F7 (expand-mcp-tiered-surface): observe token's `tools/list` omits `send_prompt` and calling it is 403… → see `mcp-tiered-token.spec.ts.AGENTS.md` |

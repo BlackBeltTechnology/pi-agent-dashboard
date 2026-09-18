@@ -150,10 +150,31 @@ describe("frameClassOf — static class per message type (E1)", () => {
     expect(removed.key).toBe("terminal:t1");
   });
 
-  it("session registry frames and per-session events are transcript-class", () => {
+  it("registry/event frames are transcript-class EXCEPT sessions_reordered", () => {
     expect(frameClassOf(asMsg({ type: "session_updated", sessionId: "s", updates: {} }))).toEqual({ cls: "transcript", key: "session_updated" });
-    expect(frameClassOf(asMsg({ type: "sessions_reordered", cwd: "/a", sessionIds: [] }))).toEqual({ cls: "transcript", key: "sessions_reordered" });
+    expect(frameClassOf(asMsg({ type: "session_added", session: { id: "s" } }))).toEqual({ cls: "transcript", key: "session_added" });
+    expect(frameClassOf(asMsg({ type: "session_removed", sessionId: "s" }))).toEqual({ cls: "transcript", key: "session_removed" });
     expect(frameClassOf(asMsg({ type: "event", sessionId: "s", seq: 1, event: {} }))).toEqual({ cls: "transcript", key: "event" });
+  });
+
+  // `sessions_reordered` is a window-projected FULL per-cwd ordering snapshot,
+  // so the latest frame per cwd is the whole truth — state-class, per-cwd key.
+  // See change: close-registry-frame-shed-gaps (D1, test-plan #E1).
+  it("sessions_reordered is state-class keyed by cwd (E1)", () => {
+    expect(frameClassOf(asMsg({ type: "sessions_reordered", cwd: "/a", sessionIds: [] }))).toEqual({
+      cls: "state",
+      key: "sessions_reordered:/a",
+    });
+  });
+
+  // E2: entity-keyed state frames share a key per entity.
+  it("two reorders for one cwd share a key; a different cwd does not (E2)", () => {
+    const a1 = frameClassOf(asMsg({ type: "sessions_reordered", cwd: "/a", sessionIds: ["x"] }));
+    const a2 = frameClassOf(asMsg({ type: "sessions_reordered", cwd: "/a", sessionIds: ["y"] }));
+    const b = frameClassOf(asMsg({ type: "sessions_reordered", cwd: "/b", sessionIds: ["x"] }));
+    expect(a1.cls).toBe("state");
+    expect(a1.key).toBe(a2.key);
+    expect(a1.key).not.toBe(b.key);
   });
 });
 
@@ -235,23 +256,33 @@ describe("status-reconcile debt capture (E2/E3/E4/E8)", () => {
     vi.restoreAllMocks();
   });
 
-  it("records ONLY session_updated — the registry siblings stay unrecovered (E2)", () => {
-    const { gateway } = buildDebtGateway(["s1"]);
+  it("records EVERY registry kind and nothing else (D2: broadcast derives kind + id)", () => {
+    const { gateway } = buildDebtGateway(["s1", "s2"]);
     const client = attachCapturedWs(gateway);
     client.saturate();
 
-    // Every one of these is transcript-class and is shed at this bufferedAmount.
+    // Every registry frame is transcript-class and sheds at this bufferedAmount.
     gateway.broadcastSessionUpdated("s1", { status: "streaming" });
-    gateway.broadcastToAll({ type: "sessions_reordered", cwd: "/repo/a", sessionIds: ["s1"] } as ServerToBrowserMessage);
-    gateway.broadcastSessionAdded({ id: "s2", cwd: "/repo/a" });
+    gateway.broadcastSessionAdded({ id: "s2", cwd: "/repo/a" }, { spawnRequestId: "r1" });
     gateway.broadcastSessionRemoved("s2");
+    // `sessions_reordered` is now STATE-class (D1): it defers, is NOT shed, and
+    // leaves no debt.
+    gateway.broadcastToAll({ type: "sessions_reordered", cwd: "/repo/a", sessionIds: ["s1", "s2"] } as ServerToBrowserMessage);
+    // A non-registry transcript frame sheds but owes nothing.
     gateway.broadcastToAll({ type: "file_changed", cwd: "/repo/a", path: "a.ts" } as unknown as ServerToBrowserMessage);
 
-    // Exactly the one status id is owed — the other four leave no debt behind.
-    expect(gateway.getStatusReconcileInfo(asWs(client.ws))?.owed).toEqual(["s1"]);
-    expect(gateway.getDroppedFrameStats().statusReconcileQueued).toBe(1);
-    // …while all five were still counted as drops.
-    expect(gateway.getDroppedFrameStats().total).toBe(5);
+    const info = gateway.getStatusReconcileInfo(asWs(client.ws));
+    // s1 → updated; s2's add superseded by its remove (last lifecycle wins),
+    // with `sawAdd` retained because its add WAS shed.
+    expect(info?.entries).toEqual([
+      { id: "s1", kind: "updated", sawAdd: false },
+      { id: "s2", kind: "removed", sawAdd: true },
+    ]);
+    expect(gateway.getDroppedFrameStats().statusReconcileQueued).toBe(3);
+    // 4 transcript drops (updated, added, removed, file_changed); the reorder is
+    // NOT a drop — it is retained as pending state.
+    expect(gateway.getDroppedFrameStats().total).toBe(4);
+    expect(gateway.getPendingStateInfo(asWs(client.ws))?.entries).toBe(1);
   });
 
   it("holds ids only, deduped, and never nears the byte ceiling (E3)", () => {
@@ -270,7 +301,7 @@ describe("status-reconcile debt capture (E2/E3/E4/E8)", () => {
     expect(new Set(info?.owed).size).toBe(100);
     // The debt is NOT retained as pending-state bytes, so it cannot terminate
     // the socket the way a per-session state key family could.
-    expect(gateway.getPendingStateInfo(asWs(client.ws))).toBeUndefined();
+    expect(gateway.getPendingStateInfo(asWs(client.ws))).toEqual(undefined);
     expect(gateway.getDroppedFrameStats().stalledSocketsTerminated).toBe(0);
     // Every shed is still counted, even the deduped ones.
     expect(gateway.getDroppedFrameStats().statusReconcileQueued).toBe(1000);
@@ -355,7 +386,7 @@ describe("status-reconcile flush (E1/E5/E7, X4/X5)", () => {
     expect(delivered.some((f) => f.updates.status === "streaming")).toBe(false);
   });
 
-  it("discards the debt for a session deleted before its reconcile (X4)", () => {
+  it("a record deleted before its reconcile resolves to session_removed (X4/E15)", () => {
     const { gateway, manager } = buildDebtGateway(["s1"]);
     const client = attachCapturedWs(gateway);
     client.saturate();
@@ -367,8 +398,13 @@ describe("status-reconcile flush (E1/E5/E7, X4/X5)", () => {
     client.drain();
     expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
 
+    // A vanished record cannot be reconciled as `session_updated`: the rebuild
+    // emits the removal so the browser drops any row it still holds.
     expect(client.statusFrames()).toHaveLength(0);
-    expect(gateway.getDroppedFrameStats().statusReconcileSent).toBe(0);
+    const removed = client.framesOfType<{ type: string; sessionId: string }>("session_removed");
+    expect(removed).toHaveLength(1);
+    expect(removed[0].sessionId).toBe("s1");
+    expect(gateway.getDroppedFrameStats().statusReconcileSent).toBe(1);
     expect(gateway.getStatusReconcileInfo(asWs(client.ws))).toBeUndefined();
   });
 
@@ -579,5 +615,69 @@ describe("reconcile clears a finished tool, and occupancy cannot over-report", (
     expect(gateway.getSocketBufferOccupancy().msAboveThreshold).toBe(first);
     vi.advanceTimersByTime(60_000);
     expect(gateway.getSocketBufferOccupancy().msAboveThreshold).toBe(first);
+  });
+});
+
+// ── Counters count every registry kind; the register retains no bytes ────
+// The debt register widened from `session_updated` alone to all three registry
+// kinds, so both counters must follow and neither may gain a per-entry payload.
+// See change: close-registry-frame-shed-gaps (test-plan #E13/#E14).
+
+describe("registry-reconcile counters + byte-free register (E13/E14)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("counts every registry kind in BOTH reconcile counters (E14)", () => {
+    const { gateway } = buildDebtGateway(["s1", "s2", "s3"]);
+    const client = attachCapturedWs(gateway);
+    client.saturate();
+
+    gateway.broadcastSessionUpdated("s1", { status: "streaming" });
+    gateway.broadcastSessionAdded({ id: "s2", cwd: "/repo/a" });
+    gateway.broadcastSessionRemoved("s3");
+
+    expect(gateway.getDroppedFrameStats().statusReconcileQueued).toBe(3);
+
+    client.drain();
+    vi.advanceTimersByTime(250);
+
+    // All three kinds are delivered and counted — no kind is second-class.
+    expect(gateway.getDroppedFrameStats().statusReconcileSent).toBe(3);
+    // No new /api/health field appears: the documented counter set is fixed.
+    expect(Object.keys(gateway.getDroppedFrameStats()).sort()).toEqual([
+      "blocking",
+      "bySession",
+      "coalescedState",
+      "stalledSocketsTerminated",
+      "statusReconcileQueued",
+      "statusReconcileSent",
+      "total",
+    ]);
+  });
+
+  it("the register retains no pending-state bytes and never stalls a socket (E13)", () => {
+    const ids = Array.from({ length: 100 }, (_, i) => `s${i}`);
+    const { gateway } = buildDebtGateway(ids);
+    const client = attachCapturedWs(gateway);
+    client.saturate();
+
+    for (let i = 0; i < 500; i++) {
+      const id = ids[i % ids.length];
+      if (i % 3 === 0) gateway.broadcastSessionUpdated(id, { status: "streaming" });
+      else if (i % 3 === 1) gateway.broadcastSessionAdded({ id, cwd: "/repo/a" });
+      else gateway.broadcastSessionRemoved(id);
+    }
+
+    // Ids only — the debt is not pending-state bytes, so it cannot terminate
+    // the socket the way a per-session state-key family could.
+    expect(gateway.getPendingStateInfo(asWs(client.ws))).toEqual(undefined);
+    expect(gateway.getDroppedFrameStats().stalledSocketsTerminated).toBe(0);
+    expect(gateway.getStatusReconcileInfo(asWs(client.ws))?.owed.length).toBeLessThanOrEqual(100);
   });
 });

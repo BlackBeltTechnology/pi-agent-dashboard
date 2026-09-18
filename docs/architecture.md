@@ -504,13 +504,13 @@ sequenceDiagram
 
 See change: `fix-pending-prompt-lost-on-replay`.
 
-### Frame delivery policy (change: fix-connect-snapshot-frame-loss)
+### Frame delivery policy (changes: fix-connect-snapshot-frame-loss, close-registry-frame-shed-gaps)
 
 Every server→browser frame carries exactly one delivery class. `frameClassOf(msg) -> { cls, key }` (`packages/server/src/pairing/browser-gateway.ts`) — static `switch` on `msg.type`, never on socket condition. No `cls` field on the wire (server concern; old bundles untouched).
 
-- **`transcript`** — per-session event stream + session-registry broadcasts (`session_updated`, `sessions_reordered`, `session_added`, `session_removed`). Recoverable via history backfill / replay.
+- **`transcript`** — per-session event stream + session-registry broadcasts (`session_updated`, `session_added`, `session_removed`). Recoverable via history backfill / replay.
 - **`blocking`** — pending-prompt frames only (`ctx.critical === true`). Exempt from shed under pending-prompt-recovery bounds (4 frames/delivery, `MAX_WS_BUFFER + 1 MB` ceiling). Unchanged.
-- **`state`** — idempotent snapshots keyed by `(type, entityKey)`: `sessions_snapshot`, `pinned_dirs_updated`, `workspaces_updated`, `favorite_models_updated`, `display_prefs_updated`, `reachability_updated`, `openspec_update` / `openspec_get_result` / `git_head_update` / `sessions_page_result` (key `cwd`), `terminal_added` / `terminal_updated` / `terminal_removed` (one shared key `terminal:<id>` per terminal, later lifecycle frame supersedes earlier).
+- **`state`** — idempotent snapshots keyed by `(type, entityKey)`: `sessions_snapshot`, `pinned_dirs_updated`, `workspaces_updated`, `favorite_models_updated`, `display_prefs_updated`, `reachability_updated`, `openspec_update` / `openspec_get_result` / `git_head_update` / `sessions_page_result` / `sessions_reordered` (key `cwd`, `sessions_reordered:<cwd>`), `terminal_added` / `terminal_updated` / `terminal_removed` (one shared key `terminal:<id>` per terminal, later lifecycle frame supersedes earlier). `sessions_reordered` is already a window-projected FULL per-cwd ordering snapshot at the `broadcast()` choke point, so per-cwd latest-wins is exact; deferred under back-pressure, never shed.
 
 **Shed rule per class.** Socket over threshold (`ws.bufferedAmount > MAX_WS_BUFFER`, 4 MB default): `transcript` frame dropped + counted (pre-change counters `total`/`bySession`); `state` frame NEVER shed — deferred; `blocking` exempt within bounds. Transcript sends first flush the socket's pending map — a flushable state frame is never overtaken by a later transcript frame.
 
@@ -518,35 +518,45 @@ Every server→browser frame carries exactly one delivery class. `frameClassOf(m
 
 **Connect bootstrap order.** `sessions_snapshot` last — after `terminal_added` loop and `gateway.onConnect(ws)`. Every other bootstrap frame (`pinned_dirs_updated`, `workspaces_updated`, `favorite_models_updated`, `display_prefs_updated`, `reachability_updated`, per-cwd `openspec_update`, per-cwd `git_head_update`, `terminal_added`) precedes it. No session-registry send before `sessions_snapshot`.
 
-**Health.** `/api/health#droppedFrames` gains `coalescedState` (superseded pending entries) + `stalledSocketsTerminated` beside transcript/blocking counters. No dropped-state counter — no code path drops one. Coalesce ≠ drop: `total` does not increment.
+**Health.** `/api/health#droppedFrames` gains `coalescedState` (superseded pending entries) + `stalledSocketsTerminated` beside transcript/blocking counters. No dropped-state counter — no code path drops one. Coalesce ≠ drop: `total` does not increment. Accepted counter shift: shed reorders move from `droppedFrames.total` to `coalescedState`.
 
-### Status reconcile — shed `session_updated` is a debt (change: fix-backpressure-status-and-subagent-frames)
+### Status reconcile — shed session-registry frame is a debt (changes: fix-backpressure-status-and-subagent-frames, close-registry-frame-shed-gaps)
 
-`session_updated` stays transcript-class. Carries no seq. No backfill answers it. No successor frame guaranteed. Long tool call emits status once, then session goes quiet — so ONE shed frame leaves the badge stale until reconnect/reload. Server therefore treats a shed `session_updated` as a **debt owed to that socket**.
+`session_updated`, `session_added`, and `session_removed` stay transcript-class. Carry no seq. No backfill answers them. No successor frame guaranteed. Long tool call emits status once, or session spawns/ends during saturation — shed registry frame leaves browser state unbounded-stale until reconnect/reload. Server treats shed session-registry frame as **debt owed to that socket**. `sessions_reordered` is `state`-class, never shed, needs no debt.
 
-**Debt capture.** `broadcast()` derives `dirtyId = msg.type === "session_updated" ? msg.sessionId : undefined`, passes it to `fanout(serialized, stateKey, dirtyId)`. `fanout()` sees only the serialized string — cannot recover type or session id without parsing, so the id must come from the typed caller. Every other `fanout` caller (incl. `broadcastOpenSpecUpdateImpl`) passes `undefined`. Shed site records the id in per-socket `statusDebt: Map<WebSocket, { ids: Set<string>, timer }>`. **Ids only, never a payload** — cannot reach the pending-state byte ceiling, cannot move `stalledSocketsTerminated`.
+**Debt shape.** Per-socket `statusDebt: Map<WebSocket, { entries: Map<string, { kind: "updated" | "added" | "removed", spawnRequestId?: string, sawAdd: boolean }>, timer }>`. Identifiers + kind tag + boolean + at most one short correlation id. Still zero payload bytes; cannot reach pending-state byte ceiling; cannot move `stalledSocketsTerminated`.
 
-**Own timer.** `STATUS_RECONCILE_INTERVAL_MS = 250`, started when the set becomes non-empty, stopped when it empties. Deliberately NOT the pending-state interval: that one exists only when a *state* frame defers, and a socket saturated purely by transcript traffic never creates it.
+**Debt capture.** `broadcast()` derives delivery info (`id`, `kind`, `spawnRequestId`) via `deliveryInfoOf(msg)`. `session_added` carries id at `msg.session.id` (NOT top-level `msg.sessionId`), so shared `deliveryInfoOf` derivation must not read `msg.sessionId` blindly. Shed site records entry in `statusDebt.entries`.
 
-**Flush.** `flushStatusDebt(ws)` rebuilds `session_updated` from `sessionManager.get(id)` (`updates: { status, currentTool }`) while the socket is under threshold. Nothing stale is queued, so two partial `updates` never have to be merged. Missing session → debt discarded, no frame, `statusReconcileSent` not incremented.
+**Kind precedence.** Last-write-wins across lifecycle kinds `added` / `removed`; newly recorded `updated` overwrites existing `updated`, never downgrades pending `added` or `removed`. `sawAdd` set when `added` recorded; survives supersede by `removed` (preserves memory that browser never received creation).
 
-**Loop-safe.** Reconcile send carries `ctx.sessionId`, so a reconcile that is itself shed re-enters the debt at the drop site — eventually-delivered, not check-once. Re-entry is idempotent (a `Set`), so a persistent flood costs one id, not a growing queue.
+**Own timer.** `STATUS_RECONCILE_INTERVAL_MS = 250`, started when entries map becomes non-empty, stopped when it empties. Deliberately NOT pending-state interval: that one exists only when *state* frame defers, and socket saturated purely by transcript traffic never creates it.
 
-**Settled-value semantics.** Reconcile carries the CURRENT value. `idle → streaming → idle` entirely inside one shed window delivers one `idle`; the intermediate edge is not recovered.
+**Flush dispatch order.** `flushStatusDebt(ws)` rebuilds from CURRENT server state while socket is under threshold:
+1. Owed `removed`, record `s = sessionManager.get(id)` absent → send `session_removed {sessionId}`.
+2. Owed `removed`, `s.status !== "ended"` → re-registered after removal, removal superseded → send `session_added {session: s, reconciled: true}`.
+3. Owed `removed`, `s.status === "ended"`, `sawAdd: true` → creation and ending both shed, browser holds no row → send `session_added {session: s, reconciled: true}` carrying ended record (creation and ending both shed; renders in ended tier).
+4. Owed `removed`, `s.status === "ended"`, `!sawAdd` → browser holds row, removal stands → send `session_removed {sessionId}`.
+5. Otherwise record `!s` → send `session_removed {sessionId}`.
+6. Otherwise owed `added` → send `session_added {session: s, spawnRequestId?, reconciled: true}`.
+7. Otherwise owed `updated` → send `session_updated {status, currentTool, hostPressure}`. Both optional fields use `null`, never `undefined`, as clearing value (`?? null` preserves fix from `fix-false-unresponsive-badge`).
+Status-based dispatch rests on invariant: `register()` is only path to non-ended record.
 
-**Teardown.** Set + timer released on socket `close`, on socket `error`, and on the `sendState` stalled-socket `ws.terminate()` path.
+**Lifecycle clear and self-healing.** Delivered lifecycle frame (`session_added`, `session_removed`) clears socket's debt for that id (delivered frame is socket's current truth). Delivered `session_updated` is partial; does NOT clear. Reconcile sends via `sendTo`; `sendTo` shed site re-records SAME kind (all three kinds, `sendTo` shed site widened) — self-healing, eventually-delivered. Reconcile carries CURRENT value; intermediate transitions within single flood window not recovered.
 
-**Scope.** `session_updated` ONLY. `session_added` / `session_removed` / `sessions_reordered` stay transcript-class and stay unrecovered — create/delete/reorder are not idempotent re-pushes of one row.
+**Client handling (`reconciled: true`).** Additive flag on `session_added`. Client merge-upserts row (`{ ...existing, ...msg.session }`). On `reconciled: true`, client clears spawn placeholder and consumes pending spawn ONLY on exact `spawnRequestId` match (no match → touches no spawn state; prevents clearing unrelated concurrent user spawn in same cwd). Client navigates on NO tier (`reconciled: true` suppresses exact-match, cwd fallback, worktree fallback).
 
-**No client change.** `useMessageHandler`'s `if (existing)` guard makes a reconcile for an unknown row a no-op. That guard is what stops a re-push resurrecting a row a shed `session_removed` deleted.
+**Teardown.** Map + timer released on socket `close`, on socket `error`, and on `sendState` stalled-socket `ws.terminate()` path.
 
-**Health.** `/api/health#droppedFrames` gains `statusReconcileQueued` (ids recorded owed) + `statusReconcileSent` (reconcile frames re-sent). Both sit BESIDE the drop counters, never folded in — the reconcile must not mask the shed it recovers from. `/api/health#socketBufferOccupancy` = `{ max, p95, msAboveThreshold }` over browser-socket `bufferedAmount`; typed-zero fallback `EMPTY_SOCKET_BUFFER_OCCUPANCY`. Sampled at the send-decision sites, which already read `bufferedAmount` for the shed predicate — **not** on a timer. A periodic sampler was implemented first and rejected: it breaks the "zero timers on an unsaturated socket" invariant (`browser-gateway-critical-frames` P3/E9). Time-above-threshold uses a per-socket entry/exit span (`occupancyAboveSince`); the hot exit branch is gated on `size > 0`.
+**Scope.** `session_updated`, `session_added`, `session_removed`. `sessions_reordered` is `state`-class, never shed, needs no debt.
+
+**Health.** `/api/health#droppedFrames` counters `statusReconcileQueued` (entries recorded owed) + `statusReconcileSent` (reconcile frames re-sent) count every registry kind. No new `/api/health` field. Accepted health-counter shift: shed reorders move from `droppedFrames.total` to `coalescedState`. `/api/health#socketBufferOccupancy` = `{ max, p95, msAboveThreshold }` over browser-socket `bufferedAmount`; typed-zero fallback `EMPTY_SOCKET_BUFFER_OCCUPANCY`. Sampled at the send-decision sites, which already read `bufferedAmount` for the shed predicate — **not** on a timer. A periodic sampler was implemented first and rejected: it breaks the "zero timers on an unsaturated socket" invariant (`browser-gateway-critical-frames` P3/E9). Time-above-threshold uses a per-socket entry/exit span (`occupancyAboveSince`); the hot exit branch is gated on `size > 0`.
 
 **`msAboveThreshold` is OBSERVATION-based, not continuous wall-clock.** Sampling happens at send decisions, so a crossing that starts and ends between two decisions is never observed, and a reported duration is bounded by the samples that delimit it. `getSocketBufferOccupancy()` adds spans still open at read time (else an in-progress stall reports 0), and SETTLES a span whose socket has since drained or closed — without that, an event-driven sampler leaves such a span open forever and it grows on every health read (unbounded over-report). Settling deletes the entry, so a later exit cannot accrue it twice.
 
 **Test-only injector.** `POST /api/test/force-shed { enabled }` forces transcript-class frames to shed while leaving `bufferedAmount` untouched. Registered ONLY under `PI_E2E_FORCE_SHED=1` (set in `docker/compose.test.yml`, never a real image); still `networkGuard`-gated. Returns the effective state, so an unflagged server reports refusal instead of a silent no-op. Exists because real saturation is a browser failing to drain its own socket, which Playwright cannot induce. Drives `tests/e2e/status-reconcile.spec.ts`.
 
-### Sessions snapshot window + paging (change: fix-connect-snapshot-frame-loss)
+### Sessions snapshot window + paging (changes: fix-connect-snapshot-frame-loss, close-registry-frame-shed-gaps)
 
 On browser connect, gateway emits ONE `sessions_snapshot { sessions, orders, endedTotals }` — replaces per-session `session_added` / per-cwd `sessions_reordered` bootstrap loops; sent LAST (see Frame delivery policy). Live updates after snapshot keep incremental `session_added` / `session_updated` / `session_removed` / `sessions_reordered`.
 
@@ -558,7 +568,7 @@ On browser connect, gateway emits ONE `sessions_snapshot { sessions, orders, end
 - **Live reorder projection.** `sessions_reordered` broadcast rewritten through the window at the `broadcast()` choke point (`projectOrderThroughWindow` → `snapshotVisibleIds`); all broadcast sites covered, none touched individually.
 - **Bound.** Snapshot ≤ 400 KB at 25 live + 4,000 ended / 400 groups / 20 pinned — L1 bound test pins it; row-shape growth fails loudly.
 - **Paging.** `sessions_page { cwd: groupKey, offset }` served from in-memory registry (`packages/server/src/browser-handlers/session-meta-handler.ts`, `SESSIONS_PAGE_SIZE = 50`); `pageable(g)` = `endedSequence(g)` minus window ids; reply `sessions_page_result { cwd, sessions, order, hasMore }` unicast (state class, key `sessions_page_result:<g>`), rows `stripNotifyLog`, `order` = page ids in sequence order.
-- **Client merge semantics.** Snapshot REPLACES `sessions` + `sessionOrderMap` atomically (paged rows discarded on reconnect — documented trade-off); `sessions_page_result` merges — sessions overwrite by id, order appends after current with held ids deduped. Stub group renders for any group key with `endedTotals > 0` and no held session (header + ended expander only); expander / "more" click pages while `heldEnded < endedTotal`; one in-flight `sessions_page` per cwd (released on reply, 15 s timeout, socket open).
+- **Client merge semantics.** Snapshot REPLACES `sessions` + `sessionOrderMap` atomically (paged rows discarded on reconnect — documented trade-off); `sessions_page_result` merges — sessions overwrite by id, order appends after current with held ids deduped. Stub group renders for any group key with `endedTotals > 0` and no held session (header + ended expander only); expander / "more" click pages while `heldEnded < endedTotal`; one in-flight `sessions_page` per cwd: in-flight mark released on ANY `sessions_page_result` for cwd via per-group reply generation `pageReplyGen` (incl. empty reply), plus 15 s timeout and socket-open reset. `hasMore: false` reply marks group `pageExhausted` — hides "more" affordance and suppresses `sessions_page` until `endedTotals` for that group changes by ANY path (ended transition, removal, archive, `session_added` of not-previously-held ended session, snapshot); snapshot clears it unconditionally (snapshot also resets offset). Both marks keyed in same group-key space as `endedTotals`.
 
 See change: `fix-connect-snapshot-frame-loss`.
 

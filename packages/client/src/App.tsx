@@ -641,6 +641,12 @@ export default function App() {
   // re-runs OpenSpec reconciliation after every applied snapshot.
   const [endedTotalsMap, setEndedTotalsMap] = useState<Map<string, number>>(new Map());
   const [pagedCount, setPagedCount] = useState<Map<string, number>>(new Map());
+  // close-registry-frame-shed-gaps (D3): paging reply generation (releases the
+  // in-flight mark on ANY reply, incl. an empty one) and the per-group
+  // exhausted marks (server reported `hasMore:false`). Owned here, derived in
+  // `useMessageHandler`, consumed by `SessionList`.
+  const [pageReplyGen, setPageReplyGen] = useState<Map<string, number>>(new Map());
+  const [pageExhausted, setPageExhausted] = useState<Set<string>>(new Set());
   // archive-sessions-lazy-load: folder group key → archived count, replaced
   // by `sessions_snapshot`, maintained by `session_archived` /
   // `archived_count_updated`. Drives the per-folder `Archive (N)` fold.
@@ -1014,8 +1020,8 @@ export default function App() {
   }, [send, historyGaps]);
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPagedCount, setSnapshotGeneration },
-    { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast, sessionsRef, openspecGetInflightRef },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPagedCount, setPageReplyGen, setPageExhausted, setSnapshotGeneration },
+    { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap },
   );
 
   // D7: rendered cwds the OpenSpec reconciliation may pull for — non-ended
@@ -1780,6 +1786,8 @@ export default function App() {
       sessionOrderMap={sessionOrderMap}
       endedTotalsMap={endedTotalsMap}
       pagedCount={pagedCount}
+      pageReplyGen={pageReplyGen}
+      pageExhausted={pageExhausted}
       connected={status === "connected"}
       onSessionsPage={(cwd, offset) => send({ type: "sessions_page", cwd, offset })}
       onReorderSessions={(cwd, sessionIds) => {

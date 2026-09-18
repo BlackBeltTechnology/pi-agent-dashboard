@@ -9,11 +9,12 @@
  * clears that entry's `placeholderCwd`. Without this, a worktree placeholder
  * orphans whenever Tier 1 (spawnRequestId) misses.
  */
-import { describe, it, expect, vi } from "vitest";
-import { renderHook } from "@testing-library/react";
-import { useMessageHandler } from "../useMessageHandler.js";
+
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { renderHook } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { useMessageHandler } from "../useMessageHandler.js";
 
 function makeSession(id: string, cwd: string): DashboardSession {
   return { id, cwd, source: "tui", status: "active", startedAt: 1 } as DashboardSession;
@@ -117,5 +118,95 @@ describe("useMessageHandler — Tier 2.5 worktree fallback", () => {
 
     expect(clearSpawningCwd).toHaveBeenCalledWith("/repo");
     expect(pending.has("rq-4")).toBe(false);
+  });
+});
+
+/**
+ * close-registry-frame-shed-gaps (D2, test-plan F3/F4): a reconciled
+ * `session_added` is a LATE repair. It must never navigate on ANY
+ * spawn-correlation tier, and it may consume a pending spawn / clear a
+ * placeholder ONLY on an exact `spawnRequestId` match.
+ */
+describe("useMessageHandler — reconciled add never steals navigation", () => {
+  it("F3a: exact spawnRequestId match never navigates but consumes the pending spawn", () => {
+    const pending = new Map([
+      ["r2", { cwd: "/repoA", kind: "spawn" as const, placeholderCwd: "/repoA" }],
+    ]);
+    const { dispatch, clearSpawningCwd, navigate, pending: p } = setup(pending, new Set(["/repoA"]));
+
+    dispatch({
+      type: "session_added",
+      session: makeSession("recon-exact", "/repoA"),
+      spawnRequestId: "r2",
+      reconciled: true,
+    } as ServerToBrowserMessage);
+
+    // Displayed session stays put.
+    expect(navigate).not.toHaveBeenCalled();
+    // ...but the placeholder stops spinning.
+    expect(p.has("r2")).toBe(false);
+    expect(clearSpawningCwd).toHaveBeenCalledWith("/repoA");
+  });
+
+  it("F3b: cwd-only match never navigates and touches no spawn state", () => {
+    const pending = new Map([
+      ["rq-cwd", { cwd: "/repoA", kind: "spawn" as const, placeholderCwd: "/repoA" }],
+    ]);
+    const { dispatch, clearSpawningCwd, navigate, pending: p } = setup(pending, new Set(["/repoA"]));
+
+    dispatch({
+      type: "session_added",
+      session: makeSession("recon-cwd", "/repoA"),
+      reconciled: true,
+    } as ServerToBrowserMessage);
+
+    expect(navigate).not.toHaveBeenCalled();
+    expect(clearSpawningCwd).not.toHaveBeenCalled();
+    expect(p.has("rq-cwd")).toBe(true);
+  });
+
+  it("F3c: worktree-only match never navigates and keeps the pending spawn", () => {
+    const pending = new Map([
+      ["rq-wt", { cwd: "/repo/.worktrees/wt", kind: "spawn" as const, placeholderCwd: "/repo" }],
+    ]);
+    const { dispatch, clearSpawningCwd, navigate, pending: p } = setup(pending);
+
+    dispatch({
+      type: "session_added",
+      session: makeSession("recon-wt", "/repo/.worktrees/wt"),
+      reconciled: true,
+    } as ServerToBrowserMessage);
+
+    expect(navigate).not.toHaveBeenCalled();
+    expect(clearSpawningCwd).not.toHaveBeenCalled();
+    expect(p.has("rq-wt")).toBe(true);
+  });
+
+  it("F4: no request id leaves an unrelated spawn pending and its auto-navigation intact", () => {
+    const pending = new Map([
+      ["r9", { cwd: "/repoA", kind: "spawn" as const, placeholderCwd: "/repoA" }],
+    ]);
+    const { dispatch, clearSpawningCwd, navigate, pending: p } = setup(pending, new Set(["/repoA"]));
+
+    // Reconciled add for a DIFFERENT /repoA session, no spawnRequestId.
+    dispatch({
+      type: "session_added",
+      session: makeSession("other", "/repoA"),
+      reconciled: true,
+    } as ServerToBrowserMessage);
+
+    expect(navigate).not.toHaveBeenCalled();
+    expect(clearSpawningCwd).not.toHaveBeenCalled();
+    expect(p.has("r9")).toBe(true);
+
+    // The unrelated spawn's OWN add still auto-navigates.
+    dispatch({
+      type: "session_added",
+      session: makeSession("r9-session", "/repoA"),
+      spawnRequestId: "r9",
+    } as ServerToBrowserMessage);
+
+    expect(navigate).toHaveBeenCalledWith("/session/r9-session");
+    expect(p.has("r9")).toBe(false);
   });
 });
