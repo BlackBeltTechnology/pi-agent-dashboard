@@ -10,10 +10,11 @@
  *
  * See change: platform-command-executor.
  */
-import { describe, it, expect } from "vitest";
+
 import fs from "node:fs/promises";
 import path from "node:path";
 import url from "node:url";
+import { describe, expect, it } from "vitest";
 
 /** Files allowed to import from node:child_process directly. */
 const ALLOWLIST: readonly string[] = [
@@ -29,6 +30,10 @@ const ALLOWLIST: readonly string[] = [
   // ab711621 (feat(bootstrap): detect + one-click cleanup of legacy
   // @mariozechner/pi-coding-agent).
   "packages/server/src/legacy-pi-cleanup.ts",
+  // deck3d is a standalone publishable package with no dependency edge on
+  // the dashboard shared package; `props generate` shells to python3. See
+  // change: add-deck3d-presentation-package.
+  "packages/deck3d/src/props/generate.ts",
   // The startup recovery HTTP server runs precisely when top-level
   // dependencies are missing (corrupted node_modules) — importing the
   // platform/exec wrapper there would defeat the recovery flow because
@@ -76,6 +81,7 @@ async function* walk(dir: string): AsyncGenerator<string> {
 }
 
 describe("no direct node:child_process imports outside platform/exec.ts", () => {
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing walker; this change only added the deck3d allowlist entry.
   it("only allowlisted files import node:child_process", async () => {
     const here = path.dirname(url.fileURLToPath(import.meta.url));
     const repoRoot = path.resolve(here, "..", "..", "..", "..");

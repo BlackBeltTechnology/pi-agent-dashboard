@@ -1,0 +1,27 @@
+{
+  "id": "swarm",
+  "kind": "background",
+  "tags": {
+    "mood": [
+      "network",
+      "dramatic"
+    ],
+    "content": [
+      "network",
+      "agents"
+    ]
+  },
+  "cost": 2,
+  "modes": "both",
+  "params": {
+    "intensity": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 2
+    }
+  },
+  "conflicts": [],
+  "source": "https://threejs.org/examples/",
+  "licence": "MIT"
+}

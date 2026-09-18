@@ -5284,3 +5284,16 @@ sequenceDiagram
 - `settings-section` → `BrowserSettings`: profile rows keyed by `profileDirectory` (label, email, `installed`, `hasToken`, instances/tab count), write-only token input, `Zero-dialog` toggle, `allowedDomains` editor, Connect/Disconnect per `instanceId`, kill switch, Web Store link, capability notice; `AuditList` per profile.
 - `session-card-badge` → `BrowserRelayBadge`: always-mounted `browser_relay_status` subscriber. The relay is GLOBAL (no pi-session linkage), so this module-store feed is what lets the hook-less `content-view` predicate `isLiveViewActive` see it.
 - `content-view` → `LiveViewTile`: one tile per `{instanceId, tabId}`; subscribe/unsubscribe lifecycle, JPEG frames, pointer/key/wheel → normalized `browser_relay_input`, no-frames + DevTools overlays.
+
+## Bundled Package: deck3d
+
+`packages/deck3d` (`@blackbelt-technology/pi-dashboard-deck3d`) — deterministic Markdown → one self-contained offline 3D `deck.html`. Independent CLI + pi skill; not part of dashboard runtime.
+
+- Pipeline: markdown → schema-validated Deck IR (`deck.json`) → `deck.html` (three.js runtime + IR + subset Poppins inlined).
+- Harvest: `flowchart`/`sequenceDiagram` parsed in headless chromium at parse time (`mermaid@11.17.2` exact pin); output carries no diagram engine.
+- Tune region: `deck.json` `overrides` only; `slides[]` regenerated every parse; `validate` warns on edits outside `overrides`.
+- Check: `check <deck.html>` measures fit/legibility/overlap/occlusion/contrast headless at dpr 1; each finding carries an `overrides` suggestion.
+- Effects: `src/fx/` card-per-effect corpus + deterministic per-slide defaults (`fx list`).
+- Props: `src/props/` vendored CC0 search + Poly Pizza + sha256-pinned fetch into `.deck3d/props/`.
+- CLI `deck3d`: `parse | validate | render | build | check | snapshot | fx | props`. Skill: `.pi/skills/deck3d/SKILL.md`.
+- See `packages/deck3d/README.md`; change: add-deck3d-presentation-package.

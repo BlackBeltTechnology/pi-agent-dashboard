@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "deck3d effect card",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "kind", "tags", "cost", "modes", "params", "conflicts", "source", "licence"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+    "kind": { "enum": ["background", "post", "material", "light", "motion", "edge", "transition"] },
+    "tags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mood", "content"],
+      "properties": {
+        "mood": { "type": "array", "items": { "type": "string" } },
+        "content": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "cost": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "modes": { "enum": ["dark", "light", "both"] },
+    "params": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": { "enum": ["number", "string", "boolean"] },
+          "default": {},
+          "minimum": { "type": "number" },
+          "maximum": { "type": "number" },
+          "enum": { "type": "array" }
+        }
+      }
+    },
+    "conflicts": { "type": "array", "items": { "type": "string" } },
+    "source": { "type": "string", "pattern": "^https://" },
+    "licence": { "enum": ["MIT", "Zlib", "BSD-2-Clause", "BSD-3-Clause", "CC0-1.0", "Apache-2.0", "OFL-1.1"] }
+  }
+}

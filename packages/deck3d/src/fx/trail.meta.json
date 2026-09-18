@@ -1,0 +1,27 @@
+{
+  "id": "trail",
+  "kind": "motion",
+  "tags": {
+    "mood": [
+      "dramatic",
+      "neon"
+    ],
+    "content": [
+      "motion",
+      "flow"
+    ]
+  },
+  "cost": 2,
+  "modes": "both",
+  "params": {
+    "length": {
+      "type": "number",
+      "default": 0.5,
+      "minimum": 0,
+      "maximum": 1
+    }
+  },
+  "conflicts": [],
+  "source": "https://threejs.org/examples/",
+  "licence": "MIT"
+}

@@ -336,6 +336,7 @@ jobs:
             "@blackbelt-technology/pi-dashboard-mcp-server-plugin"
             "@blackbelt-technology/pi-dashboard-mcp-client-plugin"
             "@blackbelt-technology/pi-dashboard-document-converter"
+            "@blackbelt-technology/pi-dashboard-deck3d"
             "@blackbelt-technology/anti-slop-frontend"
             "@blackbelt-technology/pi-dashboard-eng-disciplines"
             "@blackbelt-technology/pi-dashboard-authoring-toolkit"

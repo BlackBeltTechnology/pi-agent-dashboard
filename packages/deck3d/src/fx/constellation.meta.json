@@ -1,0 +1,27 @@
+{
+  "id": "constellation",
+  "kind": "background",
+  "tags": {
+    "mood": [
+      "calm",
+      "network"
+    ],
+    "content": [
+      "network",
+      "agents"
+    ]
+  },
+  "cost": 2,
+  "modes": "both",
+  "params": {
+    "density": {
+      "type": "number",
+      "default": 0.5,
+      "minimum": 0,
+      "maximum": 1
+    }
+  },
+  "conflicts": [],
+  "source": "https://github.com/pmndrs/drei",
+  "licence": "MIT"
+}

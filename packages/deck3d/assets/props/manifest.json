@@ -1,0 +1,119 @@
+{
+  "licence": "CC0-1.0",
+  "author": "deck3d corpus",
+  "source": "vendored",
+  "items": [
+    {
+      "id": "robot",
+      "name": "Agent robot",
+      "tags": [
+        "robot",
+        "agent",
+        "assistant"
+      ],
+      "file": "robot.glb",
+      "bytes": 136,
+      "tris": 0,
+      "licence": "CC0-1.0",
+      "author": "deck3d corpus"
+    },
+    {
+      "id": "server",
+      "name": "Server rack",
+      "tags": [
+        "server",
+        "infrastructure",
+        "rack"
+      ],
+      "file": "server.glb",
+      "bytes": 136,
+      "tris": 0,
+      "licence": "CC0-1.0",
+      "author": "deck3d corpus"
+    },
+    {
+      "id": "database",
+      "name": "Database cylinder",
+      "tags": [
+        "database",
+        "data",
+        "storage"
+      ],
+      "file": "database.glb",
+      "bytes": 144,
+      "tris": 0,
+      "licence": "CC0-1.0",
+      "author": "deck3d corpus"
+    },
+    {
+      "id": "shield",
+      "name": "Security shield",
+      "tags": [
+        "shield",
+        "security",
+        "auth"
+      ],
+      "file": "shield.glb",
+      "bytes": 140,
+      "tris": 0,
+      "licence": "CC0-1.0",
+      "author": "deck3d corpus"
+    },
+    {
+      "id": "brain",
+      "name": "Neural brain",
+      "tags": [
+        "brain",
+        "llm",
+        "model"
+      ],
+      "file": "brain.glb",
+      "bytes": 140,
+      "tris": 0,
+      "licence": "CC0-1.0",
+      "author": "deck3d corpus"
+    },
+    {
+      "id": "laptop",
+      "name": "Developer laptop",
+      "tags": [
+        "laptop",
+        "developer",
+        "code"
+      ],
+      "file": "laptop.glb",
+      "bytes": 144,
+      "tris": 0,
+      "licence": "CC0-1.0",
+      "author": "deck3d corpus"
+    },
+    {
+      "id": "cloud",
+      "name": "Cloud node",
+      "tags": [
+        "cloud",
+        "network",
+        "infrastructure"
+      ],
+      "file": "cloud.glb",
+      "bytes": 136,
+      "tris": 0,
+      "licence": "CC0-1.0",
+      "author": "deck3d corpus"
+    },
+    {
+      "id": "cube",
+      "name": "Generic cube",
+      "tags": [
+        "cube",
+        "generic",
+        "abstract"
+      ],
+      "file": "cube.glb",
+      "bytes": 140,
+      "tris": 0,
+      "licence": "CC0-1.0",
+      "author": "deck3d corpus"
+    }
+  ]
+}

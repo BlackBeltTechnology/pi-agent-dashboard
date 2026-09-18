@@ -1,0 +1,26 @@
+{
+  "id": "chromatic-aberration",
+  "kind": "post",
+  "tags": {
+    "mood": [
+      "dramatic",
+      "neon"
+    ],
+    "content": [
+      "highlight"
+    ]
+  },
+  "cost": 2,
+  "modes": "dark",
+  "params": {
+    "offset": {
+      "type": "number",
+      "default": 0.001,
+      "minimum": 0,
+      "maximum": 0.01
+    }
+  },
+  "conflicts": [],
+  "source": "https://github.com/pmndrs/postprocessing",
+  "licence": "Zlib"
+}
