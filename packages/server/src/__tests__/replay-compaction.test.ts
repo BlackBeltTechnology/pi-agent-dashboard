@@ -12,7 +12,7 @@ import { largeSyntheticWindow, subagentInterleavedWindow } from "./fixtures/repl
 /** Terse window builder: `ev("message_update", 3)` → StoredEvent at seq 3. */
 function ev(eventType: string, seq: number, data: Record<string, unknown> = {}): StoredEvent {
   const event: DashboardEvent = { eventType, timestamp: 1_700_000_000_000 + seq, data };
-  return { seq, event };
+  return { seq, event, bytes: 0 };
 }
 const types = (w: StoredEvent[]) => w.map((e) => e.event.eventType);
 const seqs = (w: StoredEvent[]) => w.map((e) => e.seq);

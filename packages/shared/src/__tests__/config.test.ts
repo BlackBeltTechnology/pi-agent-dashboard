@@ -1043,6 +1043,115 @@ describe("loadConfig memoryLimits.replayWindowMode", () => {
   });
 });
 
+/**
+ * Byte-budget loader partitions. `maxBytesPerSession` / `maxTotalEventBytes`
+ * share the `maxReplayEvents` presence rule: absent / negative / non-numeric →
+ * the DEFAULT, an explicit `0` preserved as the documented rollback lever, and
+ * any other number loaded AS-IS (the store owns the floor clamp).
+ * See change: bound-event-store-by-bytes (E11/E12).
+ */
+describe("loadConfig memoryLimits byte budgets", () => {
+  let testDir: string;
+  let configFile: string;
+  let origHome: string;
+
+  beforeEach(() => {
+    testDir = path.join(os.tmpdir(), `test-config-bytes-${Date.now()}`);
+    fs.mkdirSync(path.join(testDir, ".pi", "dashboard"), { recursive: true });
+    configFile = path.join(testDir, ".pi", "dashboard", "config.json");
+    origHome = process.env.HOME!;
+    process.env.HOME = testDir;
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true });
+  });
+
+  const writeLimits = (limits: Record<string, unknown>) =>
+    fs.writeFileSync(configFile, JSON.stringify({ memoryLimits: limits }));
+
+  // #E11 — absent / -1 / "x" all fall back to 32 MiB; 0 is preserved; 1000 is
+  // loaded verbatim so the STORE (not the loader) applies the floor clamp.
+  it("maxBytesPerSession defaults to 32 MiB when absent", () => {
+    writeLimits({});
+    expect(loadConfig().memoryLimits.maxBytesPerSession).toBe(33554432);
+    expect(loadConfig().memoryLimits.maxBytesPerSession).toBe(
+      DEFAULT_MEMORY_LIMITS.maxBytesPerSession,
+    );
+  });
+
+  it.each([
+    ["negative", -1, 33554432],
+    ["non-numeric string", "x", 33554432],
+    ["explicit 0", 0, 0],
+    ["small positive", 1000, 1000],
+  ])("maxBytesPerSession %s resolves to %i", (_label, input, expected) => {
+    writeLimits({ maxBytesPerSession: input });
+    expect(loadConfig().memoryLimits.maxBytesPerSession).toBe(expected);
+  });
+
+  // #E12 — absent / garbage → 768 MiB; 0 preserved.
+  it("maxTotalEventBytes defaults to 768 MiB when absent", () => {
+    writeLimits({});
+    expect(loadConfig().memoryLimits.maxTotalEventBytes).toBe(805306368);
+    expect(loadConfig().memoryLimits.maxTotalEventBytes).toBe(
+      DEFAULT_MEMORY_LIMITS.maxTotalEventBytes,
+    );
+  });
+
+  it.each([
+    ["garbage string", "nope", 805306368],
+    ["negative", -5, 805306368],
+    ["explicit 0", 0, 0],
+  ])("maxTotalEventBytes %s resolves to %i", (_label, input, expected) => {
+    writeLimits({ maxTotalEventBytes: input });
+    expect(loadConfig().memoryLimits.maxTotalEventBytes).toBe(expected);
+  });
+
+  /**
+   * #E13 — `maxCachedSessions` is a PLAIN COUNT with no "unlimited" sentinel:
+   * absent / 0 / negative / garbage all resolve to 32, and a positive count is
+   * honoured verbatim.
+   */
+  it("maxCachedSessions defaults to 32 when absent", () => {
+    writeLimits({});
+    expect(loadConfig().memoryLimits.maxCachedSessions).toBe(32);
+    expect(loadConfig().memoryLimits.maxCachedSessions).toBe(
+      DEFAULT_MEMORY_LIMITS.maxCachedSessions,
+    );
+  });
+
+  it.each([
+    ["explicit 0", 0],
+    ["negative", -3],
+    ["garbage string", "many"],
+  ])("maxCachedSessions %s resolves to the default 32", (_label, input) => {
+    writeLimits({ maxCachedSessions: input });
+    expect(loadConfig().memoryLimits.maxCachedSessions).toBe(32);
+  });
+
+  it("maxCachedSessions honours an explicit positive count", () => {
+    writeLimits({ maxCachedSessions: 1 });
+    expect(loadConfig().memoryLimits.maxCachedSessions).toBe(1);
+  });
+
+  // The three new keys must not disturb their siblings when present alone.
+  it("loads all three new keys together without touching siblings", () => {
+    writeLimits({
+      maxBytesPerSession: 1048576,
+      maxTotalEventBytes: 4194304,
+      maxCachedSessions: 8,
+      maxEventsPerSession: 12345,
+    });
+    const limits = loadConfig().memoryLimits;
+    expect(limits.maxBytesPerSession).toBe(1048576);
+    expect(limits.maxTotalEventBytes).toBe(4194304);
+    expect(limits.maxCachedSessions).toBe(8);
+    expect(limits.maxEventsPerSession).toBe(12345);
+  });
+});
+
 // fix-bridge-autostart-port-resolution — shared env→config→default port
 // resolver (task 2.1, test-plan #E2). Pure function: env and parsed file
 // config are ARGUMENTS, never process.env reads (design D1). Parse rules

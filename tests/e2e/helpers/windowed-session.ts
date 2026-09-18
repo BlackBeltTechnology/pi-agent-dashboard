@@ -94,6 +94,22 @@ export async function writeLimits(page: Page, limits: MemoryLimits): Promise<voi
   await restartDashboard();
 }
 
+/**
+ * Write an arbitrary `/api/config` partial (e.g. the top-level
+ * `maxEventDataSize` alongside `memoryLimits`) and restart so it is in force.
+ * Needed because a byte budget below the store's floor (`4 × maxEventDataSize`)
+ * is clamped up, so a spec that wants a SMALL effective budget must lower the
+ * ceiling in the same write.
+ */
+export async function writeConfigAndRestart(
+  page: Page,
+  data: Record<string, unknown>,
+): Promise<void> {
+  const res = await page.request.put("/api/config", { data });
+  expect(res.ok()).toBeTruthy();
+  await restartDashboard();
+}
+
 export interface WindowedSession {
   sessionId: string;
   /** Exactly what was read before the spec touched anything. */

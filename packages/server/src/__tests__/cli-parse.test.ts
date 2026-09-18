@@ -189,6 +189,32 @@ describe("buildConfig host resolution", () => {
   it("passes a non-production port through untouched under a temp HOME", () => {
     expect(buildConfig({ port: 8300 }).port).toBe(8300);
   });
+
+  // Regression: `buildConfig` rebuilt `memoryLimits` field-by-field, so the
+  // three byte-budget keys never reached `createServer` and the store fell back
+  // to its unbounded default. Carries the WHOLE block now.
+  // See change: bound-event-store-by-bytes (task 5.1).
+  it("carries the whole memoryLimits block, including the byte budgets", () => {
+    fs.writeFileSync(
+      configFile,
+      JSON.stringify({
+        memoryLimits: { maxBytesPerSession: 1048576, maxTotalEventBytes: 4194304, maxCachedSessions: 8 },
+      }),
+    );
+    const limits = buildConfig({}).memoryLimits;
+    expect(limits).toBeDefined();
+    expect(limits!.maxBytesPerSession).toBe(1048576);
+    expect(limits!.maxTotalEventBytes).toBe(4194304);
+    expect(limits!.maxCachedSessions).toBe(8);
+  });
+
+  it("defaults the byte budgets when the config file omits them", () => {
+    fs.writeFileSync(configFile, JSON.stringify({}));
+    const limits = buildConfig({}).memoryLimits;
+    expect(limits!.maxBytesPerSession).toBe(33554432);
+    expect(limits!.maxTotalEventBytes).toBe(805306368);
+    expect(limits!.maxCachedSessions).toBe(32);
+  });
 });
 
 describe("daemon spawn jiti resolution", () => {
