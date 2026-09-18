@@ -76,9 +76,12 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [bindings, setBindings] = useState<BindingsResponse | null>(null);
 
-  // Once the user edits, stop mirroring late-hydrating config so their typing
-  // is never clobbered; a successful save clears dirty and re-mirrors.
-  const dirty = useRef(false);
+  // Once the user edits a field, stop mirroring late-hydrating config for THAT
+  // field only, so their typing is never clobbered while the other fields still
+  // fill in. A successful save clears the set and re-mirrors everything. A
+  // single global flag would leave untouched fields at their defaults and the
+  // next save would erase the hydrated values.
+  const dirtyFields = useRef<Set<string>>(new Set());
 
   const saved = {
     enabled: config?.enabled ?? true,
@@ -94,15 +97,15 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
   const savedKey = JSON.stringify(saved);
   // biome-ignore lint/correctness/useExhaustiveDependencies: mirror on the serialized snapshot only.
   useEffect(() => {
-    if (dirty.current) return;
-    setEnabled(saved.enabled);
-    setAllowedRoots(saved.allowedRoots);
-    setDefaultCwd(saved.defaultCwd);
-    setFixedMap(saved.fixedMap);
-    setAllowlist(saved.allowlist);
-    setAdmins(saved.admins);
-    setGroupChannels(saved.groupChannels);
-    setSteerPrefix(saved.steerPrefix);
+    const d = dirtyFields.current;
+    if (!d.has("enabled")) setEnabled(saved.enabled);
+    if (!d.has("allowedRoots")) setAllowedRoots(saved.allowedRoots);
+    if (!d.has("defaultCwd")) setDefaultCwd(saved.defaultCwd);
+    if (!d.has("fixedMap")) setFixedMap(saved.fixedMap);
+    if (!d.has("allowlist")) setAllowlist(saved.allowlist);
+    if (!d.has("admins")) setAdmins(saved.admins);
+    if (!d.has("groupChannels")) setGroupChannels(saved.groupChannels);
+    if (!d.has("steerPrefix")) setSteerPrefix(saved.steerPrefix);
   }, [savedKey]);
 
   useEffect(() => {
@@ -122,9 +125,9 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
     };
   }, [notice]);
 
-  function markDirty<T>(setter: (v: T) => void) {
+  function markDirty<T>(field: string, setter: (v: T) => void) {
     return (value: T) => {
-      dirty.current = true;
+      dirtyFields.current.add(field);
       setter(value);
       setNotice(null);
     };
@@ -149,7 +152,7 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
       if (token.trim().length > 0) partial.token = token.trim();
       await send({ type: "plugin_config_write", id: "chat-gateway", config: partial });
       setToken("");
-      dirty.current = false;
+      dirtyFields.current.clear();
       setNotice({ kind: "ok", text: "Saved." });
     } catch (err) {
       setNotice({ kind: "error", text: err instanceof Error ? err.message : String(err) });
@@ -173,7 +176,7 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
           type="checkbox"
           data-testid="chat-gateway-enabled"
           checked={enabled}
-          onChange={(e) => markDirty(setEnabled)(e.target.checked)}
+          onChange={(e) => markDirty("enabled", setEnabled)(e.target.checked)}
         />
         Enabled
       </label>
@@ -186,7 +189,7 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
           data-testid="chat-gateway-token"
           value={token}
           placeholder="Leave blank to keep the current token"
-          onChange={(e) => markDirty(setToken)(e.target.value)}
+          onChange={(e) => markDirty("token", setToken)(e.target.value)}
           className={field}
         />
       </div>
@@ -197,7 +200,7 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
           data-testid="chat-gateway-allowed-roots"
           value={allowedRoots}
           rows={3}
-          onChange={(e) => markDirty(setAllowedRoots)(e.target.value)}
+          onChange={(e) => markDirty("allowedRoots", setAllowedRoots)(e.target.value)}
           className={field}
         />
       </div>
@@ -207,7 +210,7 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
         <input
           data-testid="chat-gateway-default-cwd"
           value={defaultCwd}
-          onChange={(e) => markDirty(setDefaultCwd)(e.target.value)}
+          onChange={(e) => markDirty("defaultCwd", setDefaultCwd)(e.target.value)}
           className={field}
         />
       </div>
@@ -219,7 +222,7 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
           value={fixedMap}
           rows={3}
           placeholder="discord:123456789:-=/repos/proj"
-          onChange={(e) => markDirty(setFixedMap)(e.target.value)}
+          onChange={(e) => markDirty("fixedMap", setFixedMap)(e.target.value)}
           className={field}
         />
       </div>
@@ -230,7 +233,7 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
           <input
             data-testid="chat-gateway-allowlist"
             value={allowlist}
-            onChange={(e) => markDirty(setAllowlist)(e.target.value)}
+            onChange={(e) => markDirty("allowlist", setAllowlist)(e.target.value)}
             className={field}
           />
         </div>
@@ -239,7 +242,7 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
           <input
             data-testid="chat-gateway-admins"
             value={admins}
-            onChange={(e) => markDirty(setAdmins)(e.target.value)}
+            onChange={(e) => markDirty("admins", setAdmins)(e.target.value)}
             className={field}
           />
         </div>
@@ -248,7 +251,7 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
           <input
             data-testid="chat-gateway-group-channels"
             value={groupChannels}
-            onChange={(e) => markDirty(setGroupChannels)(e.target.value)}
+            onChange={(e) => markDirty("groupChannels", setGroupChannels)(e.target.value)}
             className={field}
           />
         </div>
@@ -259,7 +262,7 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
         <input
           data-testid="chat-gateway-steer-prefix"
           value={steerPrefix}
-          onChange={(e) => markDirty(setSteerPrefix)(e.target.value)}
+          onChange={(e) => markDirty("steerPrefix", setSteerPrefix)(e.target.value)}
           className={`${field} max-w-[8rem]`}
         />
       </div>

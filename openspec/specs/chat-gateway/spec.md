@@ -1,7 +1,12 @@
 # chat-gateway Specification
 
 ## Purpose
-TBD - created by archiving change add-chat-gateway. Update Purpose after archive.
+
+Drive dashboard pi sessions from a chat platform (Discord first). The gateway is a
+server-side dashboard plugin acting as a headless browser-protocol client: it binds a
+chat channel to a session, forwards inbound messages as prompts, streams session output
+back into the channel, and renders interactive prompts as native chat controls. Every
+spawned cwd is constrained by `allowedRoots`; only allowlisted users may drive a session.
 
 ## Requirements
 
@@ -149,8 +154,11 @@ The gateway SHALL enforce: L1 — only allowlisted platform users (established v
 code or explicit config) may drive any session; L2 — only an admin may create a channel→cwd
 binding (binding grants code execution); L4 — direct messages are isolated per user, and
 shared group channels are opt-in per configuration. A pairing code SHALL expire after 15
-minutes and SHALL lock out after 10 failed attempts. Unauthorized inbound messages SHALL be
-ignored or answered with a pairing prompt, never delivered to a session.
+minutes and SHALL lock out after 10 failed attempts. An unauthorized inbound message SHALL
+never be delivered to a session. A direct message from a user not on the allowlist SHALL be
+treated as a pairing attempt only when it is a six-digit code; any other unauthorized direct
+message SHALL receive a reasoned refusal, and a non-opted-in group channel SHALL be ignored
+silently (no reply, no noise).
 
 #### Scenario: Non-allowlisted user is refused
 - **WHEN** a message arrives from a user not on the allowlist

@@ -76,6 +76,7 @@ const boundBinding = (over: Partial<Binding> = {}): Binding => ({
   cwd: "/repos/proj",
   boundBy: "u1",
   source: "attach",
+  isDM: true,
   createdAt: 1,
   ...over,
 });

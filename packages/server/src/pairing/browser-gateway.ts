@@ -720,11 +720,31 @@ export function createBrowserGateway(
     const handlers = inProcessSubscribers.get(sessionId);
     if (!handlers) return;
     for (const handler of handlers) {
-      try {
-        handler(msg);
-      } catch (err) {
-        console.error(`[browser-gw] in-process subscriber threw for ${sessionId}:`, err);
+      invokeSubscriber(handler, msg, "subscriber", sessionId);
+    }
+  }
+
+  /**
+   * Invoke an in-process subscriber handler, isolating BOTH sync throws and
+   * async rejections. The declared type is `(msg) => void`, but an `async`
+   * handler is legal: observing only the sync path would let its rejected
+   * promise escape to the process-level unhandled-rejection handler.
+   */
+  function invokeSubscriber(
+    handler: (msg: ServerToBrowserMessage) => void,
+    msg: ServerToBrowserMessage,
+    label: string,
+    sessionId: string,
+  ): void {
+    try {
+      const ret = handler(msg) as unknown;
+      if (ret && typeof (ret as { then?: unknown }).then === "function") {
+        void (ret as Promise<unknown>).catch((err) => {
+          console.error(`[browser-gw] in-process ${label} rejected for ${sessionId}:`, err);
+        });
       }
+    } catch (err) {
+      console.error(`[browser-gw] in-process ${label} threw for ${sessionId}:`, err);
     }
   }
 
@@ -2025,11 +2045,7 @@ export function createBrowserGateway(
       const sessionPrompts = pendingPromptRequests.get(sessionId);
       if (!sessionPrompts) return;
       for (const msg of sessionPrompts.values()) {
-        try {
-          handler(msg as unknown as ServerToBrowserMessage);
-        } catch (err) {
-          console.error(`[browser-gw] in-process prompt replay threw for ${sessionId}:`, err);
-        }
+        invokeSubscriber(handler, msg as unknown as ServerToBrowserMessage, "prompt replay", sessionId);
       }
     },
 

@@ -89,16 +89,18 @@ describe("createPairing (E13)", () => {
     expect(p.attempt(code)).toBe(false);
   });
 
-  it("E13: the 11th wrong attempt locks the pairing permanently", () => {
+  it("E13: the 10th wrong attempt locks the pairing permanently", () => {
     const now = 0;
     const p = createPairing({ now: () => now });
     const code = p.currentCode();
-    for (let i = 1; i <= 10; i += 1) {
+    // A 10-attempt lockout means the 10th FAILURE locks; no 11th candidate is
+    // ever compared against the code (CWE-307).
+    for (let i = 1; i < 10; i += 1) {
       expect(p.attempt("000000-wrong")).toBe(false);
       expect(p.state().locked).toBe(false);
       expect(p.state().attempts).toBe(i);
     }
-    expect(p.attempt("000000-wrong")).toBe(false); // 11th
+    expect(p.attempt("000000-wrong")).toBe(false); // 10th -> locks
     expect(p.state().locked).toBe(true);
     // a locked pairing never accepts a code, not even the right one
     expect(p.attempt(code)).toBe(false);
@@ -108,8 +110,7 @@ describe("createPairing (E13)", () => {
     const now = 0;
     const p = createPairing({ now: () => now, ttlMs: 1_000, maxAttempts: 1 });
     expect(p.attempt("nope")).toBe(false);
-    expect(p.state().locked).toBe(false);
-    expect(p.attempt("nope")).toBe(false);
     expect(p.state().locked).toBe(true);
+    expect(p.attempt("nope")).toBe(false);
   });
 });

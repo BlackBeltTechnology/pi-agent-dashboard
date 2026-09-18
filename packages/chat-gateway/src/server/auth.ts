@@ -109,7 +109,9 @@ export function createPairing(opts: {
         return true;
       }
       state.attempts += 1;
-      if (state.attempts > maxAttempts) {
+      if (state.attempts >= maxAttempts) {
+        // The N-th failed attempt locks; no further candidate is compared, so
+        // the lockout budget is exactly `maxAttempts` (CWE-307).
         state.locked = true;
         state.code = "";
       }

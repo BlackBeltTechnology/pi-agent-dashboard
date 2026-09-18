@@ -64,6 +64,11 @@ const BUTTON_STYLES = {
   danger: ButtonStyle.Danger,
 } as const;
 
+/** Bound the ClientReady wait so a stuck login cannot hang the plugin entry. */
+const READY_TIMEOUT_MS = 30_000;
+/** Cap on tracked interactive specs (both maps); older entries are evicted. */
+const MAX_TRACKED_SPECS = 200;
+
 export class DiscordAdapter extends BaseAdapter {
   readonly platform = "discord";
   config: DiscordAdapterConfig;
@@ -75,6 +80,22 @@ export class DiscordAdapter extends BaseAdapter {
   private onInteractionCreate: ((interaction: Interaction) => void) | null = null;
   /** requestId → the control spec we rendered, for modal re-hydration. */
   private readonly specs = new Map<string, DiscordControlSpec>();
+  /** messageId → requestId, so cleanup (which only has the message id) can retire the spec. */
+  private readonly specByMessageId = new Map<string, string>();
+
+  /** Record a rendered control and bound both spec maps (entries otherwise persist to stop()). */
+  private track(requestId: string, messageId: string): { messageId: string } {
+    this.specByMessageId.set(messageId, requestId);
+    if (this.specByMessageId.size > MAX_TRACKED_SPECS) {
+      const oldest = this.specByMessageId.keys().next().value;
+      if (oldest !== undefined) {
+        const rid = this.specByMessageId.get(oldest);
+        this.specByMessageId.delete(oldest);
+        if (rid !== undefined) this.specs.delete(rid);
+      }
+    }
+    return { messageId };
+  }
 
   constructor(config: DiscordAdapterConfig) {
     super();
@@ -100,17 +121,39 @@ export class DiscordAdapter extends BaseAdapter {
     this.client = client;
     this.stopped = false;
 
-    await new Promise<void>((resolve, reject) => {
-      client.once(Events.ClientReady, () => resolve());
-      // NEVER include the token in an error — it is a credential.
-      client.login(token).catch((err: unknown) => {
-        reject(
-          new Error(
-            `[discord] login failed (check the bot token and its intents): ${errText(err)}`,
-          ),
+    try {
+      await new Promise<void>((resolve, reject) => {
+        // Bound the wait: a login that succeeds without ClientReady would
+        // otherwise hang the plugin entry forever (never reaching start()).
+        const timer = setTimeout(
+          () => reject(new Error(`[discord] client did not become ready within ${READY_TIMEOUT_MS}ms`)),
+          READY_TIMEOUT_MS,
         );
+        client.once(Events.ClientReady, () => {
+          clearTimeout(timer);
+          resolve();
+        });
+        // NEVER include the token in an error — it is a credential.
+        client.login(token).catch((err: unknown) => {
+          clearTimeout(timer);
+          reject(
+            new Error(
+              `[discord] login failed (check the bot token and its intents): ${errText(err)}`,
+            ),
+          );
+        });
       });
-    });
+    } catch (err) {
+      // Do not leave a half-initialized client/socket behind — the server entry
+      // returns before registering the shutdown hook on this path.
+      try {
+        await client.destroy();
+      } catch {
+        // best effort
+      }
+      this.client = null;
+      throw err;
+    }
   }
 
   async start(callbacks: AdapterCallbacks): Promise<void> {
@@ -146,6 +189,7 @@ export class DiscordAdapter extends BaseAdapter {
     this.onInteractionCreate = null;
     this.client = null;
     this.specs.clear();
+    this.specByMessageId.clear();
     await super.stop();
   }
 
@@ -208,7 +252,7 @@ export class DiscordAdapter extends BaseAdapter {
     this.specs.set(prompt.requestId, spec);
 
     if (spec.kind === "message") {
-      return { messageId: await this.sendMessage(channelId, spec.content) };
+      return this.track(prompt.requestId, await this.sendMessage(channelId, spec.content));
     }
 
     const channel = await this.sendableChannel(channelId);
@@ -225,7 +269,7 @@ export class DiscordAdapter extends BaseAdapter {
         ),
       );
       const sent = await channel.send({ content: spec.content, components });
-      return { messageId: sent.id };
+      return this.track(prompt.requestId, sent.id);
     }
 
     if (spec.kind === "string-select" && spec.select) {
@@ -239,7 +283,7 @@ export class DiscordAdapter extends BaseAdapter {
         content: spec.content,
         components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)],
       });
-      return { messageId: sent.id };
+      return this.track(prompt.requestId, sent.id);
     }
 
     // modal: a modal can only be shown in RESPONSE to an interaction, so post a
@@ -252,10 +296,17 @@ export class DiscordAdapter extends BaseAdapter {
       content: spec.content,
       components: [new ActionRowBuilder<ButtonBuilder>().addComponents(trigger)],
     });
-    return { messageId: sent.id };
+    return this.track(prompt.requestId, sent.id);
   }
 
   async cleanupInteractive(channelId: string, messageId: string): Promise<void> {
+    // Retire the spec we tracked for this message (its requestId is otherwise
+    // unknowable from messageId).
+    const requestId = this.specByMessageId.get(messageId);
+    if (requestId !== undefined) {
+      this.specByMessageId.delete(messageId);
+      this.specs.delete(requestId);
+    }
     // Cross-surface dismiss (F2): strip the controls. The message may already
     // be gone (deleted, channel gone, adapter stopped) — never throw from here.
     try {
@@ -277,12 +328,13 @@ export class DiscordAdapter extends BaseAdapter {
     const channel = message.channel;
     const isDM = channel.isDMBased();
     if (!isDM) {
+      // FAIL CLOSED: an empty/absent allowlist means EVERY guild channel is
+      // inert (the module contract). Applying the filter only when non-empty
+      // would forward every readable channel to the edge.
       const allowed = this.config.allowedChannels ?? [];
-      if (allowed.length > 0) {
-        const parentId = channel.isThread() ? (channel.parentId ?? undefined) : undefined;
-        if (!allowed.includes(message.channelId) && !(parentId && allowed.includes(parentId))) {
-          return;
-        }
+      const parentId = channel.isThread() ? (channel.parentId ?? undefined) : undefined;
+      if (!allowed.includes(message.channelId) && !(parentId && allowed.includes(parentId))) {
+        return;
       }
     }
 

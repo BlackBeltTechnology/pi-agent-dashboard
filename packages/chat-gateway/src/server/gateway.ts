@@ -71,6 +71,8 @@ interface OutboundState {
   text: string;
   throttle: EditThrottle;
   typing: boolean;
+  /** Serializes renders for this channel so overlapping fires cannot double-send. */
+  rendering: Promise<void>;
 }
 
 /** A rendered interactive prompt awaiting an answer. */
@@ -78,6 +80,8 @@ interface PendingPrompt {
   sessionId: string;
   channelId: string;
   messageId: string;
+  /** Whether the prompt's channel is a DM (L4 re-authorization on click). */
+  isDM: boolean;
   /** Set when this prompt is one step of a multiselect/batch sequence (7.2). */
   sequenceRootId?: string;
 }
@@ -92,6 +96,8 @@ interface SequenceState {
   rootId: string;
   sessionId: string;
   channelId: string;
+  /** Whether the channel is a DM (L4 re-authorization for each sub-prompt). */
+  isDM: boolean;
   kind: "multiselect" | "batch";
   /** Ordered sub-prompts (multiselect toggles exclude the trailing submit). */
   steps: PromptControl[];
@@ -175,6 +181,23 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
   const subscriptions = new Set<string>();
   /** channelKey → the in-flight spawn correlation token. */
   const pendingSpawns = new Map<string, string>();
+  /** channelKey → when the spawn started (for the stale-spawn sweep). */
+  const pendingSpawnAt = new Map<string, number>();
+  /** A spawn that never resolves must not block its channel forever. */
+  const SPAWN_TTL_MS = 5 * 60_000;
+
+  /** Drop spawn entries older than the TTL so a lost resolution cannot wedge a channel. */
+  function sweepStaleSpawns(): void {
+    const cutoff = now() - SPAWN_TTL_MS;
+    for (const [key, token] of pendingSpawns) {
+      const at = pendingSpawnAt.get(key);
+      if (at === undefined || at < cutoff) {
+        correlator.reject(token);
+        pendingSpawns.delete(key);
+        pendingSpawnAt.delete(key);
+      }
+    }
+  }
   let running = false;
   let offResolved: (() => void) | null = null;
 
@@ -186,6 +209,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
         messageIds: [],
         text: "",
         typing: false,
+        rendering: Promise.resolve(),
         throttle: createEditThrottle({
           minIntervalMs: config.editThrottleMs,
           now,
@@ -208,7 +232,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
    * in place (F7); a reply that overflows continues in a NEW message rather
    * than being truncated (F6).
    */
-  async function renderText(channelKey: string, content: string): Promise<void> {
+  async function doRenderText(channelKey: string, content: string): Promise<void> {
     const st = stateFor(channelKey);
     const binding = store.get(channelKey);
     const channelId = binding?.channelId ?? channelKey.split(":")[1];
@@ -227,6 +251,18 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
     }
   }
 
+  /**
+   * Serialize renders per channel: the throttle can fire again while a slow
+   * Discord send/edit is still in flight, and two overlapping renders would
+   * both observe an empty `messageIds[i]` and post the chunk twice.
+   */
+  function renderText(channelKey: string, content: string): Promise<void> {
+    const st = stateFor(channelKey);
+    const run = st.rendering.then(() => doRenderText(channelKey, content));
+    st.rendering = run.catch(() => {}); // keep the chain alive on failure
+    return run;
+  }
+
   async function reply(channelId: string, text: string): Promise<void> {
     try {
       await adapter.sendMessage(channelId, text);
@@ -242,6 +278,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
 
     // F7: a spawn takes seconds and the binding is written only at resolution.
     // A second message inside that window must NOT start a second session.
+    sweepStaleSpawns();
     if (pendingSpawns.has(channelKey)) {
       await reply(msg.channelId, "A session is already starting for this channel — one moment.");
       return null;
@@ -304,6 +341,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       cwd: only.cwd as string,
       boundBy: msg.userId,
       source: "attach",
+      isDM: msg.isDM,
       createdAt: now(),
     };
     store.set(binding);
@@ -342,10 +380,12 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       channelKey,
       channelId: msg.channelId,
       threadId: msg.threadId,
+      isDM: msg.isDM,
       cwd,
       by: msg.userId,
     });
     pendingSpawns.set(channelKey, token);
+    pendingSpawnAt.set(channelKey, now());
     // L3 (task 9): the companion guard is loaded into SPAWNED sessions only.
     // Attached sessions never reach this code path, so they stay ungated by
     // design — and no interceptor can be retrofitted into a running session
@@ -371,6 +411,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       // X8: no dangling binding, no half-correlated spawn.
       correlator.reject(token);
       pendingSpawns.delete(channelKey);
+      pendingSpawnAt.delete(channelKey);
     }
     return res;
   }
@@ -459,6 +500,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       sessionId: state.sessionId,
       channelId: state.channelId,
       messageId,
+      isDM: state.isDM,
       sequenceRootId: state.rootId,
     });
   }
@@ -468,7 +510,12 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
    * ordered sequence of supported prompts and submit ONE root `prompt_response`
    * on completion — the shape the web UI's encoder produces.
    */
-  function beginSequence(control: PromptControl, sessionId: string, channelId: string): void {
+  function beginSequence(
+    control: PromptControl,
+    sessionId: string,
+    channelId: string,
+    isDM: boolean,
+  ): void {
     if (control.kind === "multiselect") {
       const seq = multiselectToSequence(control.requestId, control.title, control.options ?? []);
       const submit = seq[seq.length - 1];
@@ -476,6 +523,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
         rootId: control.requestId,
         sessionId,
         channelId,
+        isDM,
         kind: "multiselect",
         steps: seq.slice(0, seq.length - 1),
         submit,
@@ -506,6 +554,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       rootId: control.requestId,
       sessionId,
       channelId,
+      isDM,
       kind: "batch",
       steps,
       index: 0,
@@ -598,6 +647,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
         const meta = correlator.resolve(token, sessionId);
         if (!meta) return;
         pendingSpawns.delete(meta.channelKey);
+        pendingSpawnAt.delete(meta.channelKey);
         // F3: preserve the EXACT binding identity. A thread spawn must land on
         // the thread key, not its parent — otherwise the thread binding never
         // resolves and every follow-up message spawns ANOTHER session.
@@ -609,6 +659,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
           cwd: meta.cwd,
           boundBy: meta.by,
           source: "spawn",
+          isDM: meta.isDM,
           createdAt: now(),
         });
         subscribeSession(sessionId);
@@ -645,7 +696,9 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
             userId: resp.userId ?? "",
             action: "talk",
             channelId: rec.channelId,
-            isDM: !config.groupChannels.includes(rec.channelId),
+            // L4: use the BINDING's real DM-ness. A synthesized value would
+            // treat a THREAD (id not in groupChannels) as a DM and skip L4.
+            isDM: rec.isDM,
           });
           if (!decision.allowed) {
             seam.log(
@@ -702,6 +755,9 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       outbound.clear();
       prompts.clear();
       sequences.clear();
+      for (const token of correlator.pending()) correlator.reject(token);
+      pendingSpawns.clear();
+      pendingSpawnAt.clear();
       await adapter.stop();
     },
 
@@ -809,13 +865,18 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
         const channelId = store.get(key)?.channelId;
         if (!channelId) return;
         if (control.kind === "multiselect" || control.kind === "batch") {
-          beginSequence(control, sessionId, channelId);
+          beginSequence(control, sessionId, channelId, store.get(key)?.isDM === true);
           return;
         }
         void adapter
           .sendInteractive(channelId, toInteractivePrompt(control))
           .then(({ messageId }) => {
-            prompts.set(control.requestId, { sessionId, channelId, messageId });
+            prompts.set(control.requestId, {
+              sessionId,
+              channelId,
+              messageId,
+              isDM: store.get(key)?.isDM === true,
+            });
           })
           .catch((err) => seam.log("error", `prompt render failed: ${String(err)}`));
         return;

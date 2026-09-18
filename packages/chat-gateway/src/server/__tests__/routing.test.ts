@@ -103,10 +103,11 @@ describe("createBindingStore", () => {
 describe("createSpawnCorrelator", () => {
   it("E8: a unique-cwd spawn correlates to its session", () => {
     const c = createSpawnCorrelator();
-    c.expect("tok-1", { channelKey: "discord:c1:-", channelId: "c1", cwd: "/repos/proj", by: "u1" });
+    c.expect("tok-1", { channelKey: "discord:c1:-", isDM: true, channelId: "c1", cwd: "/repos/proj", by: "u1" });
     expect(c.pending()).toEqual(["tok-1"]);
     expect(c.resolve("tok-1", "sess-1")).toEqual({
       channelKey: "discord:c1:-", channelId: "c1",
+      isDM: true,
       cwd: "/repos/proj",
       by: "u1",
     });
@@ -117,16 +118,18 @@ describe("createSpawnCorrelator", () => {
 
   it("E9: two concurrent same-cwd spawns never cross-bind", () => {
     const c = createSpawnCorrelator();
-    c.expect("tok-a", { channelKey: "discord:cA:-", channelId: "cA", cwd: "/repos/proj", by: "u1" });
-    c.expect("tok-b", { channelKey: "discord:cB:-", channelId: "cB", cwd: "/repos/proj", by: "u2" });
+    c.expect("tok-a", { channelKey: "discord:cA:-", isDM: true, channelId: "cA", cwd: "/repos/proj", by: "u1" });
+    c.expect("tok-b", { channelKey: "discord:cB:-", isDM: true, channelId: "cB", cwd: "/repos/proj", by: "u2" });
     // resolved out of order, same cwd: correlation is by token, not cwd+recency
     expect(c.resolve("tok-b", "sess-b")).toEqual({
       channelKey: "discord:cB:-", channelId: "cB",
+      isDM: true,
       cwd: "/repos/proj",
       by: "u2",
     });
     expect(c.resolve("tok-a", "sess-a")).toEqual({
       channelKey: "discord:cA:-", channelId: "cA",
+      isDM: true,
       cwd: "/repos/proj",
       by: "u1",
     });
@@ -134,14 +137,14 @@ describe("createSpawnCorrelator", () => {
 
   it("an unknown token resolves to false (no cwd fallback)", () => {
     const c = createSpawnCorrelator();
-    c.expect("tok-a", { channelKey: "discord:cA:-", channelId: "cA", cwd: "/repos/proj", by: "u1" });
+    c.expect("tok-a", { channelKey: "discord:cA:-", isDM: true, channelId: "cA", cwd: "/repos/proj", by: "u1" });
     expect(c.resolve("tok-unknown", "sess-x")).toBe(false);
     expect(c.pending()).toEqual(["tok-a"]);
   });
 
   it("X8: reject(token) drops a failed spawn so a later resolve returns false", () => {
     const c = createSpawnCorrelator();
-    c.expect("tok-1", { channelKey: "discord:c1:-", channelId: "c1", cwd: "/repos/proj", by: "u1" });
+    c.expect("tok-1", { channelKey: "discord:c1:-", isDM: true, channelId: "c1", cwd: "/repos/proj", by: "u1" });
     c.reject("tok-1");
     expect(c.pending()).toEqual([]);
     expect(c.resolve("tok-1", "sess-late")).toBe(false);

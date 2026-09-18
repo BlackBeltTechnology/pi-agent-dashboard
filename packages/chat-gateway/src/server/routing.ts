@@ -61,6 +61,13 @@ export function createBindingStore(deps: BindingStoreDeps): BindingStore {
   function persist(): void {
     const dir = path.dirname(deps.filePath);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    // mkdirSync applies the mode only when it CREATES the dir; tighten a
+    // pre-existing dir so the state (who bound what) is never world-readable.
+    try {
+      fs.chmodSync(dir, 0o700);
+    } catch {
+      // best effort — a non-POSIX filesystem ignores mode
+    }
     const tmp = path.join(dir, `.${path.basename(deps.filePath)}.${process.pid}.tmp`);
     const payload = `${JSON.stringify({ bindings: [...bindings.values()] }, null, 2)}\n`;
     fs.writeFileSync(tmp, payload, { mode: 0o600 });
@@ -93,6 +100,8 @@ export interface SpawnCorrelator {
       /** Binding identity to persist on resolution (threadId preserved). */
       channelId: string;
       threadId?: string;
+      /** Whether the originating channel is a DM (for L4 re-authorization). */
+      isDM: boolean;
       cwd: string;
       by: string;
     },
@@ -101,7 +110,9 @@ export interface SpawnCorrelator {
   resolve(
     token: string,
     sessionId: string,
-  ): { channelKey: string; channelId: string; threadId?: string; cwd: string; by: string } | false;
+  ):
+    | { channelKey: string; channelId: string; threadId?: string; isDM: boolean; cwd: string; by: string }
+    | false;
   /** Drop a pending spawn that failed (spawn returned 500). */
   reject(token: string): void;
   pending(): string[];
@@ -110,7 +121,7 @@ export interface SpawnCorrelator {
 export function createSpawnCorrelator(): SpawnCorrelator {
   const waiting = new Map<
     string,
-    { channelKey: string; channelId: string; threadId?: string; cwd: string; by: string }
+    { channelKey: string; channelId: string; threadId?: string; isDM: boolean; cwd: string; by: string }
   >();
   return {
     expect(token, meta) {

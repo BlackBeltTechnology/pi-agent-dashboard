@@ -143,6 +143,12 @@ export interface Binding {
   /** Platform user id that created the binding (provenance). */
   boundBy: string;
   source: BindingSource;
+  /**
+   * Whether this binding's channel is a DM. Persisted so an interactive-click
+   * re-authorization enforces L4 correctly: a synthesized
+   * `!groupChannels.includes(channelId)` mis-classifies a THREAD as a DM.
+   */
+  isDM?: boolean;
   createdAt: number;
 }
 
