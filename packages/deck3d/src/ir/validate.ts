@@ -108,7 +108,38 @@ function validateDerived(ir: DeckIR): ValidationIssue[] {
   return errors;
 }
 
-export function validate(ir: unknown): ValidationResult {
+export interface ValidateOptions {
+  /** Cached prop byte counts keyed `<source>-<id>` (from `.deck3d/props/`). */
+  propBytes?: Record<string, number>;
+}
+
+const PROP_COUNT_BUDGET = 5;
+const PROP_BYTES_BUDGET = 10 * 1024 * 1024;
+
+/** Prop warnings: dangling `node:<id>` role, count budget, total byte budget. */
+function validateProps(deck: DeckIR, opts: ValidateOptions): ValidationIssue[] {
+  const warnings: ValidationIssue[] = [];
+  const props = deck.overrides.props ?? [];
+  props.forEach((prop, i) => {
+    if (!prop.role.startsWith("node:")) return;
+    const nodeId = prop.role.slice("node:".length);
+    const slide = deck.slides.find((s) => s.id === prop.slide);
+    const exists = (slide?.diagram.nodes ?? []).some((n) => n.id === nodeId);
+    if (!exists) {
+      warnings.push({ path: `overrides.props[${i}].role`, message: `prop '${prop.id}' targets missing node '${nodeId}' on slide '${prop.slide}' (kept, inert)` });
+    }
+  });
+  if (props.length > PROP_COUNT_BUDGET) {
+    warnings.push({ path: "overrides.props", message: `${props.length} props exceed the budget of ${PROP_COUNT_BUDGET}` });
+  }
+  const bytes = props.reduce((total, p) => total + (opts.propBytes?.[`${p.source}-${p.id}`] ?? 0), 0);
+  if (bytes > PROP_BYTES_BUDGET) {
+    warnings.push({ path: "overrides.props", message: `${bytes} bytes exceed the budget of ${PROP_BYTES_BUDGET}` });
+  }
+  return warnings;
+}
+
+export function validate(ir: unknown, opts: ValidateOptions = {}): ValidationResult {
   const errors: ValidationIssue[] = [];
   const warnings: ValidationIssue[] = [];
 
@@ -122,6 +153,7 @@ export function validate(ir: unknown): ValidationResult {
 
   const deck = ir as DeckIR;
   errors.push(...validateDerived(deck));
+  warnings.push(...validateProps(deck, opts));
 
   for (const orphan of findOrphanOverrides(deck)) {
     warnings.push({ path: orphanOverridePath(orphan), message: "orphan override target no longer exists (kept, inert)" });

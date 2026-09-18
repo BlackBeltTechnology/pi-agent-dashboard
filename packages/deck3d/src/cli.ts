@@ -4,8 +4,8 @@
  *
  * Exit codes: 0 success, 1 failure (with a one-line reason on stderr), 2 usage.
  */
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { basename } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { DeckIR } from "./ir/types.js";
 import { formatIssue, validate } from "./ir/validate.js";
@@ -128,7 +128,7 @@ async function cmdValidate(args: string[], io: CliIO): Promise<number> {
     io.stderr(`deck3d validate: invalid JSON in ${file}: ${(err as Error).message}`);
     return 1;
   }
-  const result = validate(parsed);
+  const result = validate(parsed, { propBytes: cachedPropBytes(file) });
   for (const issue of result.errors) io.stderr(formatIssue("error", issue));
   for (const warning of result.warnings) io.stderr(formatIssue("warn", warning));
   if (result.ok) {
@@ -266,6 +266,64 @@ async function cmdFx(args: string[], io: CliIO): Promise<number> {
   return 0;
 }
 
+/** Cached `.glb` byte counts beside a deck.json, keyed `<source>-<id>`. */
+function cachedPropBytes(jsonFile: string): Record<string, number> {
+  const dir = join(dirname(jsonFile), ".deck3d", "props");
+  const out: Record<string, number> = {};
+  if (!existsSync(dir)) return out;
+  for (const file of readdirSync(dir)) {
+    if (file.endsWith(".glb")) out[file.replace(/\.glb$/, "")] = statSync(join(dir, file)).size;
+  }
+  return out;
+}
+
+async function propsFetch(rest: string[], io: CliIO): Promise<number> {
+  const [source, id] = rest;
+  if (!source || !id) {
+    io.stderr("deck3d props fetch: missing <source> <id>");
+    return 2;
+  }
+  const { searchPolyPizza, vendoredCandidates } = await import("./props/search.js");
+  const candidate =
+    source === "vendored"
+      ? vendoredCandidates(id).find((c) => c.id === id)
+      : (await searchPolyPizza(id)).candidates.find((c) => c.id === id);
+  if (!candidate) {
+    io.stderr(`deck3d props fetch: unknown ${source} prop '${id}'`);
+    return 1;
+  }
+  const { fetchProp } = await import("./props/fetch.js");
+  try {
+    const result = await fetchProp(candidate, { destDir: join(process.cwd(), ".deck3d", "props") });
+    io.stdout(
+      JSON.stringify(
+        { source: candidate.source, id: candidate.id, licence: candidate.licence, author: candidate.author, sha256: result.sha256, bytes: result.bytes },
+        null,
+        2,
+      ),
+    );
+    return 0;
+  } catch (err) {
+    io.stderr(`deck3d props fetch: ${(err as Error).message}`);
+    return 1;
+  }
+}
+
+async function cmdProps(args: string[], io: CliIO): Promise<number> {
+  const flags = parseArgs(args);
+  const [sub, ...rest] = flags.positional;
+  if (sub === "search") {
+    const { searchProps } = await import("./props/search.js");
+    const result = await searchProps(rest.join(" "));
+    for (const notice of result.notices) io.stderr(notice);
+    for (const c of result.candidates) io.stdout(`${c.source}\t${c.id}\t${c.name}\t${c.licence}\t${c.bytes}b`);
+    return 0;
+  }
+  if (sub === "fetch") return propsFetch(rest, io);
+  io.stderr(`deck3d props: unknown subcommand '${sub ?? ""}' (try search|fetch)`);
+  return 2;
+}
+
 async function cmdCheck(args: string[], io: CliIO): Promise<number> {
   const flags = parseArgs(args);
   const html = flags.positional[0];
@@ -353,6 +411,8 @@ export async function run(argv: string[], io: CliIO = defaultIO): Promise<number
       return cmdCheck(rest, io);
     case "fx":
       return cmdFx(rest, io);
+    case "props":
+      return cmdProps(rest, io);
     case "snapshot":
       return cmdSnapshot(rest, io);
     default:
