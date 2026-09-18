@@ -84,6 +84,15 @@ export interface SplitWorkspaceContextValue {
    * See change: terminals-in-tabbed-panes.
    */
   terminal: TerminalPaneTabs;
+  /**
+   * Sticky activation latch (D3, change: add-lazy-terminal-diff-bootstrap).
+   * `false` until a `term:` tab has been the ACTIVE tab at least once this page
+   * session; latched `true` thereafter, never reset while the provider lives.
+   * Provider-scoped so it survives `EditorPane` unmount (pane collapse) and NOT
+   * persisted — a fresh page load starts unlatched. Gates the lazy
+   * `TerminalPaneLayer` mount so xterm is not fetched on cold landing.
+   */
+  terminalActivated: boolean;
 }
 
 const SplitWorkspaceContext = createContext<SplitWorkspaceContextValue | null>(null);
@@ -167,6 +176,17 @@ export function SplitWorkspaceProvider({
     onFocusConsumed,
   });
   const [pendingScroll, setPendingScroll] = useState<PendingScroll | null>(null);
+
+  // D3 sticky activation latch. Latch the first time the ACTIVE tab is a
+  // terminal; never reset while the provider lives (switching to a file tab must
+  // NOT unmount the keep-alive layer). Provider-scoped so a pane
+  // collapse/reopen — which unmounts `EditorPane` — does not reset it. See
+  // change: add-lazy-terminal-diff-bootstrap.
+  const [terminalActivated, setTerminalActivated] = useState(false);
+  const activeViewer = paneState.activeIndex >= 0 ? paneState.openFiles[paneState.activeIndex]?.viewer : null;
+  useEffect(() => {
+    if (!terminalActivated && activeViewer === "terminal") setTerminalActivated(true);
+  }, [terminalActivated, activeViewer]);
 
   // Keep the persisted orientation in step with the responsive layout so a
   // reload on the same device restores a sensible divider axis.
@@ -299,8 +319,9 @@ export function SplitWorkspaceProvider({
       changedFiles,
       clearChanged,
       terminal,
+      terminalActivated,
     }),
-    [sessionId, cwd, split, updateSplit, setMode, paneState, dispatch, ensureRevealed, openInSplit, openLiveTarget, openUrlTarget, openDiffTab, openChanges, changesRevealSignal, pendingScroll, consumePendingScroll, fileResults, filenameSearch, changedFiles, clearChanged, terminal],
+    [sessionId, cwd, split, updateSplit, setMode, paneState, dispatch, ensureRevealed, openInSplit, openLiveTarget, openUrlTarget, openDiffTab, openChanges, changesRevealSignal, pendingScroll, consumePendingScroll, fileResults, filenameSearch, changedFiles, clearChanged, terminal, terminalActivated],
   );
 
   return <SplitWorkspaceContext.Provider value={value}>{children}</SplitWorkspaceContext.Provider>;

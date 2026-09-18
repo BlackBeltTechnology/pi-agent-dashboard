@@ -3,7 +3,7 @@ import { inferPlatform, pathKey } from "@blackbelt-technology/pi-dashboard-share
 import { mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, lazy, useMemo, useRef, useState, Suspense } from "react";
 import { Redirect, Route, Switch, useLocation, useRoute, useSearch, useSearchParams } from "wouter";
 import { CanvasDriver } from "./components/canvas/CanvasDriver.js";
 import { ChatView, type ChatViewHandle } from "./components/chat/ChatView.js";
@@ -12,7 +12,6 @@ import { CommandInput } from "./components/chat/CommandInput.js";
 import { ConnectionStatusBanner } from "./components/connectivity/ConnectionStatusBanner.js";
 import { ServerSelector } from "./components/connectivity/ServerSelector.js";
 import { DirectorySettings, type DirectorySettingsPage } from "./components/DirectorySettings/DirectorySettings.js";
-import { FileDiffView } from "./components/diff/FileDiffView.js";
 import { SessionDiffProvider } from "./components/diff/SessionDiffContext.js";
 import { DirectoryHomeView } from "./components/folder/DirectoryHomeView.js";
 import { FolderEditorView } from "./components/folder/FolderEditorView.js";
@@ -128,6 +127,15 @@ import { decodeFolderPath } from "./lib/util/folder-encoding.js";
 // (change: fix-mobile-back-depth-aware).
 const NAV_TRACKER = { predecessor, popNav };
 
+// D2 (change: add-lazy-terminal-diff-bootstrap): the session diff view is a lazy
+// boundary so the @git-diff-view family is not in the cold-landing graph. Each
+// render site gets its OWN `Suspense`; in particular the
+// `shellRenderers.renderDiff` callback below needs a local boundary or its
+// suspension escapes into the shell.
+const FileDiffView = lazy(() =>
+  import("./components/diff/FileDiffView.js").then((m) => ({ default: m.FileDiffView })),
+);
+
 import { applyPluginConfigUpdate, initPluginConfigs, PluginContextProvider, type SubagentStateSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import type { ArchivedSessionSummary, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { ProviderRefreshError } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
@@ -149,7 +157,7 @@ import { useSessionActions } from "./hooks/useSessionActions.js";
 import { useViewDispatcher } from "./hooks/useViewDispatcher.js";
 import { ApiContext, deriveApiBase, setGlobalApiBase, VITE_API_URL } from "./lib/api/api-context.js";
 import { buildContextUsageMap } from "./lib/context-usage.js";
-import { registerPluginCatalog, useI18n } from "./lib/i18n/i18n.js";
+import { registerPluginCatalog, t as i18nT, useI18n } from "./lib/i18n/i18n.js";
 import { deriveRetryProjection } from "./lib/session/retry-projection.js";
 import { clearLegacyCollapsedGroups, decideCollapsedFoldersMigration, readLegacyCollapsedGroups, writeLegacyCollapsedGroups } from "./lib/session/session-filter-storage.js";
 import { SessionAssetsProvider } from "./lib/session/SessionAssetsContext.js";
@@ -2240,7 +2248,9 @@ export default function App() {
           onBack={goBack}
         />
       ) : !frozen && diffMatch && diffSessionId ? (
-        <FileDiffView sessionId={diffSessionId} onBack={goBack} />
+        <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-[var(--text-tertiary)]">{i18nT("status.loadingDiff", undefined, "Loading diff…")}</div>}>
+          <FileDiffView sessionId={diffSessionId} onBack={goBack} />
+        </Suspense>
       ) : (
         <SessionSplitView
           chat={
@@ -2587,7 +2597,11 @@ export default function App() {
     renderOpenSpecBoard: (cwd) => renderOpenSpecBoardView(cwd),
     renderArchive: (cwd) => <ArchiveBrowserView cwd={cwd} onBack={goBack} />,
     renderSpecs: (cwd) => <SpecsBrowserView cwd={cwd} onBack={goBack} />,
-    renderDiff: (sessionId) => <FileDiffView sessionId={sessionId} onBack={goBack} />,
+    renderDiff: (sessionId) => (
+      <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-[var(--text-tertiary)]">{i18nT("status.loadingDiff", undefined, "Loading diff…")}</div>}>
+        <FileDiffView sessionId={sessionId} onBack={goBack} />
+      </Suspense>
+    ),
     renderPiResourceFile: (filePath, title) => (
       <PiResourceFileRoute filePath={filePath} title={title} onBack={goBack} />
     ),

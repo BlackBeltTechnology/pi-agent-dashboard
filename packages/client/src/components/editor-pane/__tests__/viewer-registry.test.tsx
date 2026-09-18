@@ -6,6 +6,9 @@
  * See change: improve-content-editor (tasks §4.3).
  */
 
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -197,6 +200,41 @@ describe("CappedViewer — large-file byte cap (D7 / P1)", () => {
  *
  * See change: cleanup-import-cycles (D3).
  */
+/**
+ * test-plan #E9/#E10 — the viewer-registry cycle boundary survives the lazy diff
+ * entry (change: add-lazy-terminal-diff-bootstrap, D4). The registry halves must
+ * contain NO static dependency on `DiffViewer`/`DiffPanel`; the pseudo-tab key
+ * must still resolve to a renderable (lazy) component.
+ */
+describe("viewer-registry boundary under the lazy diff entry (E9/E10)", () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const staticDiffImport = /from\s+["'][^"']*(?:DiffViewer|DiffPanel)\.js["']/;
+
+  it("E9: neither viewer-registry.tsx nor CappedViewer.tsx statically imports the diff viewer", () => {
+    for (const file of ["viewer-registry.tsx", "CappedViewer.tsx"]) {
+      const src = readFileSync(path.join(here, "..", file), "utf8");
+      expect(src, file).not.toMatch(staticDiffImport);
+    }
+  });
+
+  it("E10: the `diff` pseudo-tab resolves to a renderable (lazy) component", async () => {
+    const C = pseudoTabRegistry.diff;
+    expect(C, "pseudoTabRegistry.diff is registered").toBeTruthy();
+    // Render it through a boundary: outside a `SessionDiffProvider` DiffViewer
+    // renders its "Diff unavailable" state, which proves the lazy entry resolves
+    // to a real component rather than a placeholder. (Assert renderability, NOT
+    // component identity — a lazy wrapper is an object.)
+    const { findByText } = render(
+      <ThemeProvider>
+        <React.Suspense fallback={<div>loading</div>}>
+          <C cwd="/proj" path="diff:src/a.ts" kind="binary" mimeType="text/plain" size={0} />
+        </React.Suspense>
+      </ThemeProvider>,
+    );
+    expect(await findByText("Diff unavailable")).toBeTruthy();
+  });
+});
+
 describe("D3 partition guard fails closed (test-plan #X2)", () => {
   // Resolve through node, NOT process.cwd() — vitest runs this project with cwd
   // at packages/client, where the hoisted typescript is NOT a direct child. A
