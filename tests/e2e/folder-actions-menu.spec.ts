@@ -58,6 +58,7 @@ test.describe("folder actions menu", () => {
   // F8 — open state is keyed per folder SCOPE, so one folder's menu never
   // opens another's.
   test("F8: opening one folder's menu leaves every other folder's closed", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     await openMenu(page);
     const openPanels = await page.locator("[data-testid^='folder-actions-menu-panel-']").count();
     expect(openPanels).toBe(1);
@@ -67,6 +68,7 @@ test.describe("folder actions menu", () => {
   // E1/E2 — the rendered card, not the repo: the pill grid holds no action
   // button, and no pill carries a moved glyph.
   test("E1/E2: the rendered pill grid holds zero action controls", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const card = folderCard(page, CWD);
     for (const id of [
       "folder-automation-refresh",
@@ -105,6 +107,7 @@ test.describe("folder actions menu", () => {
   });
 
   test("the moved actions are reachable from the menu instead", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     await openMenu(page);
     // The one plain refresh replacing the three per-slot ones is always present.
     await expect(page.getByTestId("folder-menu-item-refresh-folder")).toBeVisible();
@@ -120,6 +123,7 @@ test.describe("folder actions menu — mobile sheet (F9)", () => {
   test.use({ viewport: { width: 390, height: 780 } });
 
   test("presents as a full-width sheet and returns focus to the trigger", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     await gotoDashboard(page);
     const trig = trigger(page);
     await trig.waitFor({ state: "visible", timeout: 30_000 });

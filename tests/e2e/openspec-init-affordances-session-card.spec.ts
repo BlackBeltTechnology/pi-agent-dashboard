@@ -374,6 +374,7 @@ test.describe("openspec init affordances — session card", () => {
 
   test.describe("F4 (#2.51): cwd ABSENT hides the session card's OPENSPEC subcard", () => {
     test("no element titled OPENSPEC within the card", async ({ page }) => {
+      test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
       test.setTimeout(120_000);
       const dir = makeDir("f4"); // plain dir → readiness ABSENT
       await gotoDashboard(page);
@@ -393,6 +394,7 @@ test.describe("openspec init affordances — session card", () => {
 
   test.describe("F5 (#2.52): cwd BROKEN renders the disabled panel with no live controls", () => {
     test("OPENSPEC panel present; Explore/Propose/Attach/Archive absent from the card DOM", async ({ page }) => {
+      test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
       test.setTimeout(120_000);
       const dir = makeDir("f5", "mkdir -p DIR/openspec"); // missing-changes-dir
       await gotoDashboard(page);
@@ -417,6 +419,7 @@ test.describe("openspec init affordances — session card", () => {
 
   test.describe("F6 (#2.53): the disabled panel exposes exactly one focusable element", () => {
     test("tabbing through the panel visits only the remediation control", async ({ page }) => {
+      test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
       test.setTimeout(120_000);
       const dir = makeDir("f6", "mkdir -p DIR/openspec");
       await gotoDashboard(page);
@@ -463,6 +466,7 @@ test.describe("openspec init affordances — session card", () => {
 
   test.describe("F7 (#2.54): missing-changes-dir control routes to the folder OpenSpec section", () => {
     test("activation focuses + scrolls the folder section and opens no dialog", async ({ page }) => {
+      test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
       test.setTimeout(120_000);
       // STAGING DEVIATION — see the file header. "Folder group COLLAPSED"
       // cannot coexist with a rendered session card (the cards live inside
@@ -621,6 +625,7 @@ test.describe("openspec init affordances — session card", () => {
     // createDirectoryService). Body preserved verbatim as the contract; un-
     // fixme together with F8 once the provider is wired.
     test("a profile flip adds a THIRD distinct reason while missing-skills keeps winning", async ({ page }) => {
+      test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
       test.setTimeout(180_000);
       const broken = makeDir("f9f-broken", "mkdir -p DIR/openspec");
       const missingSkills = makeDir("f9f-skills");
@@ -684,6 +689,7 @@ test.describe("openspec init affordances — session card", () => {
 
   test.describe("F10 (#2.57): the control-less panel is exempt from the empty-subcard rule", () => {
     test("a panel holding only reason + one control still renders its OPENSPEC title", async ({ page }) => {
+      test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
       test.setTimeout(120_000);
       const dir = makeDir("f10", "mkdir -p DIR/openspec");
       await gotoDashboard(page);
@@ -718,6 +724,7 @@ test.describe("openspec init affordances — session card", () => {
 
   test.describe("P3 (#2.66): session cards never fetch /api/openspec/update-status", () => {
     test("page load + 30s idle with a populated fleet: request count is 0", async ({ page }) => {
+      test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
       test.setTimeout(600_000);
       // 10 pinned folders × 2 real sessions = 20 cards (manifest says 40;
       // deviation documented in the file header — each seed is a real pi

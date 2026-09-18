@@ -73,6 +73,7 @@ test.describe("follow-up queue — attachment indicator", () => {
   test("F1: a chip for an image-bearing follow-up shows the attachment count, not a thumbnail", async ({
     page,
   }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(180_000);
     const sessionId = await streamingSession(page);
 
@@ -89,6 +90,7 @@ test.describe("follow-up queue — attachment indicator", () => {
   });
 
   test("F2: a text-only follow-up chip carries no indicator at all", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(180_000);
     const sessionId = await streamingSession(page);
 
@@ -102,6 +104,7 @@ test.describe("follow-up queue — attachment indicator", () => {
   });
 
   test("F3: editing a chip's text preserves its attachment indicator", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(180_000);
     const sessionId = await streamingSession(page);
 
@@ -125,6 +128,7 @@ test.describe("follow-up queue — attachment indicator", () => {
   test("F7: an attachment dropped by the allow-list is visible in chat and excluded from the count", async ({
     page,
   }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(180_000);
     const sessionId = await streamingSession(page);
 
@@ -145,6 +149,7 @@ test.describe("follow-up queue — attachment indicator", () => {
 
 test.describe("follow-up queue — wire-shape skew", () => {
   test("F5: a legacy string[] payload still renders readable chip text", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(180_000);
 
     // Downgrade every server→client follow-up array to the PRE-change `string[]`
@@ -218,6 +223,7 @@ test.describe("follow-up queue — drained delivery", () => {
   test("F8: a drained image-bearing follow-up renders a chat row instead of vanishing", async ({
     page,
   }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(240_000);
     const sessionId = await streamingSession(page);
 

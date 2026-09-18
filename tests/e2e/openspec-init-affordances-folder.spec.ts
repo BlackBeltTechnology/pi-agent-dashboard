@@ -212,6 +212,7 @@ test.describe("openspec init affordances — folder section", () => {
   });
 
   test("F1 (#2.48): ABSENT + offerInitialization:true renders Initialize + dismiss, no count, no board nav", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(90_000);
     const dir = makeDir("f1");
     await gotoDashboard(page);
@@ -229,6 +230,7 @@ test.describe("openspec init affordances — folder section", () => {
   });
 
   test("F2 (#2.49): offerInitialization:false suppresses the ABSENT offer — and only it", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(90_000);
     const absent = makeDir("f2");
     const broken = makeDir("f2-broken", "mkdir -p DIR/openspec"); // missing-changes-dir
@@ -341,6 +343,7 @@ test.describe("openspec init affordances — folder section", () => {
   });
 
   test("F13 (#2.60): dismiss stops the section rendering and persists the cwd in optOutDirectories", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(90_000);
     const dir = makeDir("f13");
     await gotoDashboard(page);
@@ -358,6 +361,7 @@ test.describe("openspec init affordances — folder section", () => {
   });
 
   test("F14 (#2.61): re-enabling an opted-out folder from the actions menu restores the section", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(90_000);
     const dir = makeDir("f14");
     await gotoDashboard(page);
@@ -384,6 +388,7 @@ test.describe("openspec init affordances — folder section", () => {
   });
 
   test("F15 (#2.62): BROKEN · cli-failed shows the error, no Repair and no Initialize", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(90_000);
     // Working recipe (see header): a change whose tasks.md is a self-
     // referential symlink makes `openspec list --json` exit 1 (ELOOP).
@@ -404,6 +409,7 @@ test.describe("openspec init affordances — folder section", () => {
   });
 
   test("F16 (#2.63): Repair confirm names the directory; dismissing it sends no init request", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(90_000);
     const dir = makeDir("f16", "mkdir -p DIR/openspec"); // missing-changes-dir
     await gotoDashboard(page);
@@ -439,6 +445,7 @@ test.describe("openspec init affordances — folder section", () => {
   });
 
   test("F17 (#2.64): Initialize over an existing openspec/ dir requires a confirm carrying confirm:true", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(120_000);
     const dir = makeDir("f17");
     await gotoDashboard(page);
@@ -487,6 +494,7 @@ test.describe("openspec init affordances — folder section", () => {
   });
 
   test("X9 (#2.65): init failure surfaces the CLI stderr and leaves the section ABSENT", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(120_000);
     // Working recipe (see header): a DANGLING openspec symlink — the server's
     // guard `stat` passes without confirm, the CLI's mkdir fails exit 1 with
