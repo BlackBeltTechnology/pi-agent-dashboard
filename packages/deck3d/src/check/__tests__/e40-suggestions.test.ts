@@ -11,8 +11,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   contrastFindings,
-  fitFindings,
   type Finding,
+  fitFindings,
   legibilityFindings,
   type Measurement,
   occlusionFindings,

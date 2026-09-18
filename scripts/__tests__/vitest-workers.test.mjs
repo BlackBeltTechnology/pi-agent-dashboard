@@ -102,6 +102,7 @@ describe('no dependency edge added (E17)', () => {
 });
 
 describe('effective worker count unchanged (P1)', () => {
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing census; this change only added deck3d to the serial list.
   it('every importing config resolves to the shared target; serial configs to 1', async () => {
     const wrong = [];
     for (const { pkg, path } of configs) {

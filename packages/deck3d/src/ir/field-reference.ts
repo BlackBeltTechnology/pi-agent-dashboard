@@ -42,7 +42,7 @@ function resolve(node: SchemaNode, defs: Record<string, SchemaNode>): SchemaNode
 }
 
 function typeLabel(node: SchemaNode): string {
-  if (node.enum) return node.enum.map((v) => String(v)).join(" \\| ");
+  if (node.enum) return node.enum.map((v) => String(v)).join(" | ");
   if (node.type === "array") return "array";
   return node.type ?? "any";
 }
@@ -53,7 +53,7 @@ function defaultLabel(node: SchemaNode): string {
 }
 
 function escapeCell(s: string): string {
-  return s.replace(/\|/g, "\\|").replace(/\n+/g, " ").trim();
+  return s.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\n+/g, " ").trim();
 }
 
 /** Every named property + dynamic-key segment in the schema, pre-order. */

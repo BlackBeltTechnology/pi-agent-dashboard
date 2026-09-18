@@ -10,10 +10,11 @@
  *
  * See change: platform-command-executor.
  */
-import { describe, it, expect } from "vitest";
+
 import fs from "node:fs/promises";
 import path from "node:path";
 import url from "node:url";
+import { describe, expect, it } from "vitest";
 
 /** Files allowed to import from node:child_process directly. */
 const ALLOWLIST: readonly string[] = [
@@ -80,6 +81,7 @@ async function* walk(dir: string): AsyncGenerator<string> {
 }
 
 describe("no direct node:child_process imports outside platform/exec.ts", () => {
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing walker; this change only added the deck3d allowlist entry.
   it("only allowlisted files import node:child_process", async () => {
     const here = path.dirname(url.fileURLToPath(import.meta.url));
     const repoRoot = path.resolve(here, "..", "..", "..", "..");

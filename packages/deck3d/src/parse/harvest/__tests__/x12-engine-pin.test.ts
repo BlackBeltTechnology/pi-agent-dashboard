@@ -9,9 +9,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { chromiumAvailable } from "../../../__tests__/helpers/chromium.js";
 import type { Diagram } from "../../../ir/types.js";
 import { parseMarkdown } from "../../markdown.js";
-import { chromiumAvailable } from "../../../__tests__/helpers/chromium.js";
 import { harvestDiagram } from "../index.js";
 
 const hasChromium = await chromiumAvailable();
@@ -67,7 +67,7 @@ describe.skipIf(!hasChromium)("harvest: engine upgrade breaks ids (X12)", () => 
 
   it("names the mermaid pin when the snapshot drifts", () => {
     expect(() => assertSnapshot({ kind: "none" }, { kind: "flowchart" }, "drift")).toThrow(
-      new RegExp(`mermaid ${PIN.replace(/\./g, "\\.")}`),
+      new RegExp(`mermaid ${PIN.replace(/\\/g, "\\\\").replace(/\./g, "\\.")}`),
     );
   });
 });

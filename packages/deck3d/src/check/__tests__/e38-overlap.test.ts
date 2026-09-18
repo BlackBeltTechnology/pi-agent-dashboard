@@ -7,7 +7,7 @@
  * 0.1 → no finding; 0.1001 → one `error overlap` naming both ids.
  */
 import { describe, expect, it } from "vitest";
-import { iou, overlapFindings, type Measurement, type Rect, type SlideRef } from "../rules.js";
+import { iou, type Measurement, overlapFindings, type Rect, type SlideRef } from "../rules.js";
 
 const SLIDE: SlideRef = { id: "arch", index: 2 };
 

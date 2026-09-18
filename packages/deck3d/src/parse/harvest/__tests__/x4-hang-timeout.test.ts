@@ -25,7 +25,7 @@ function chromiumPids(): number[] {
   const pids: number[] = [];
   for (const line of out.split("\n")) {
     const m = /^\s*(\d+)\s+(.*)$/.exec(line);
-    if (m && m[2].includes("ms-playwright/")) pids.push(Number(m[1]));
+    if (m?.[2].includes("ms-playwright/")) pids.push(Number(m[1]));
   }
   return pids;
 }
