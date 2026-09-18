@@ -11,8 +11,14 @@ import { clone, deepMerge, findOrphanOverrides, orphanOverridePath } from "../ir
 import type { DeckIR, Diagram, Overrides } from "../ir/types.js";
 import { type ParsedDeck, parseMarkdown } from "./markdown.js";
 
+/** A mermaid harvest result: the diagram plus any warnings it produced. */
+export interface HarvestOutcome {
+  diagram: Diagram;
+  warnings?: string[];
+}
+
 /** A mermaid harvester (section 4). Injected so derive stays browser-free. */
-export type Harvester = (mermaidSource: string, slideId: string) => Promise<Diagram>;
+export type Harvester = (mermaidSource: string, slideId: string) => Promise<HarvestOutcome>;
 
 export interface DeriveOptions {
   source?: string;
@@ -36,7 +42,7 @@ export async function deriveDeckIR(parsed: ParsedDeck, opts: DeriveOptions = {})
   const warnings: string[] = [];
   const defaults = resolveDefaults(parsed.defaults);
   const slides: DeckIR["slides"] = [];
-  for (const p of parsed.slides) slides.push(await buildSlide(p, defaults, opts));
+  for (const p of parsed.slides) slides.push(await buildSlide(p, defaults, opts, warnings));
 
   const overrides = mergeOverrides(parsed, opts, warnings);
   const ir: DeckIR = {
@@ -63,11 +69,14 @@ async function buildSlide(
   p: ParsedDeck["slides"][number],
   defaults: DeckIR["defaults"],
   opts: DeriveOptions,
+  warnings: string[],
 ): Promise<DeckIR["slides"][number]> {
   let diagram: Diagram = { kind: "none" };
   if (p.mermaid) {
     if (!opts.harvest) throw new Error(`slide "${p.id}": mermaid block present but no harvester is available`);
-    diagram = await opts.harvest(p.mermaid, p.id);
+    const outcome = await opts.harvest(p.mermaid, p.id);
+    diagram = outcome.diagram;
+    if (outcome.warnings) warnings.push(...outcome.warnings);
   }
   const base = { id: p.id, title: p.title, bullets: p.bullets, diagram };
   const slide: DeckIR["slides"][number] = {

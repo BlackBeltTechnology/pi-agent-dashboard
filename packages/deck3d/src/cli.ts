@@ -88,9 +88,8 @@ async function cmdParse(args: string[], io: CliIO): Promise<number> {
     }
   }
   if (source.includes("```mermaid")) {
-    // Section 4 wires the headless-chromium mermaid harvester here.
-    io.stderr("deck3d parse: mermaid blocks require the harvest module (not yet wired)");
-    return 1;
+    const { harvestDiagram } = await import("./parse/harvest/index.js");
+    opts.harvest = (mermaidSource, slideId) => harvestDiagram(mermaidSource, slideId);
   }
 
   try {

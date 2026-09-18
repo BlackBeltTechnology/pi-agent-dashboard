@@ -37,6 +37,7 @@
     "bin/",
     "src/",
     "!src/__tests__",
+    "dist/",
     "scripts/",
     "assets/",
     "fixtures/",
@@ -47,15 +48,18 @@
   ],
   "scripts": {
     "test": "vitest run",
+    "build:harvest": "tsx scripts/build-harvest.ts",
     "build:runtime": "node scripts/build-runtime.mjs",
     "gen:ir-fields": "tsx scripts/gen-ir-fields.ts",
-    "build": "npm run build:runtime && npm run gen:ir-fields",
+    "build": "npm run build:harvest && npm run build:runtime && npm run gen:ir-fields",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "ajv": "^8.17.1",
+    "esbuild": "^0.28.2",
     "mermaid": "11.17.2",
     "opentype.js": "^1.3.4",
+    "playwright": "^1.62.1",
     "three": "0.160.0"
   },
   "peerDependencies": {
@@ -68,8 +72,6 @@
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.80.10",
-    "esbuild": "^0.28.2",
-    "playwright": "^1.62.1",
     "tsx": "^4.21.0",
     "vitest": "^4.0.0"
   }

@@ -4,14 +4,16 @@ import type { DeckIR } from "../../ir/types.js";
 import { deriveDeckIR, type Harvester, parseDeck } from "../derive.js";
 
 const stubHarvest: Harvester = async () => ({
-  kind: "flowchart",
-  dir: "LR",
-  nodes: [
-    { id: "A", label: "A", shape: "rect", x: 0, y: 0, w: 100, h: 40 },
-    { id: "B", label: "B", shape: "rect", x: 200, y: 0, w: 100, h: 40 },
-  ],
-  edges: [{ id: "A->B#0", from: "A", to: "B", kind: "normal", path: [[50, 0], [175, 0]] }],
-  groups: [],
+  diagram: {
+    kind: "flowchart",
+    dir: "LR",
+    nodes: [
+      { id: "A", label: "A", shape: "rect", x: 0, y: 0, w: 100, h: 40 },
+      { id: "B", label: "B", shape: "rect", x: 200, y: 0, w: 100, h: 40 },
+    ],
+    edges: [{ id: "A->B#0", from: "A", to: "B", kind: "normal", path: [[50, 0], [175, 0]] }],
+    groups: [],
+  },
 });
 const OPTS = { harvest: stubHarvest } as const;
 

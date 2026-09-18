@@ -17,11 +17,11 @@
 
 ## 4. Mermaid harvest (spec: deck3d-mermaid-harvest)
 
-- [ ] 4.1 Build `src/parse/harvest/harness.html` + esbuild bundle of mermaid@11; `src/parse/harvest/index.ts` launches Playwright chromium, runs `getDiagramFromText().db` + `render()`, matches node ids `<renderId>-flowchart-<id>-<n>` and edge paths `L_<from>_<to>`, samples paths, normalises coords; prints install hint and exits non-zero when chromium is missing (test).
-- [ ] 4.2 Flowchart mapping: shapes `rect|stadium|round|hexagon|circle|doublecircle|diamond`, edge kinds `normal|dotted|thick` + labels, subgraph groups, direction; fixture test (`skipIf(!chromium)`) asserts node/edge/group counts, shapes, kinds, Hungarian labels byte-equal.
-- [ ] 4.3 Sequence mapping: actors in order, messages with from/to/text/kind in source order; fixture test as above.
-- [ ] 4.4 Unsupported diagram type → warning + `diagram: none` + exit 0 (test with `gantt`).
-- [ ] 4.5 Determinism: parse the fixture deck twice in one test, assert byte-identical `deck.json`; assert no timestamp/path fields via schema `additionalProperties:false`.
+- [x] 4.1 Build `src/parse/harvest/harness.html` + esbuild bundle of mermaid@11; `src/parse/harvest/index.ts` launches Playwright chromium, runs `getDiagramFromText().db` + `render()`, matches node ids `<renderId>-flowchart-<id>-<n>` and edge paths `L_<from>_<to>`, samples paths, normalises coords; prints install hint and exits non-zero when chromium is missing (test).
+- [x] 4.2 Flowchart mapping: shapes `rect|stadium|round|hexagon|circle|doublecircle|diamond`, edge kinds `normal|dotted|thick` + labels, subgraph groups, direction; fixture test (`skipIf(!chromium)`) asserts node/edge/group counts, shapes, kinds, Hungarian labels byte-equal.
+- [x] 4.3 Sequence mapping: actors in order, messages with from/to/text/kind in source order; fixture test as above.
+- [x] 4.4 Unsupported diagram type → warning + `diagram: none` + exit 0 (test with `gantt`).
+- [x] 4.5 Determinism: parse the fixture deck twice in one test, assert byte-identical `deck.json`; assert no timestamp/path fields via schema `additionalProperties:false`.
 
 ## 5. Runtime port (spec: deck3d-render)
 
@@ -84,7 +84,7 @@
 
 ## 9b. Test infra (from test-plan.md "New infra needed")
 
-- [ ] 9b.1 `src/__tests__/helpers/chromium.ts`: `chromiumAvailable()` + shared `launch()` fixture; every browser-driving suite uses `describe.skipIf(!chromiumAvailable())` (exemplar: `packages/document-converter/src/__tests__/integration.test.ts`)
+- [x] 9b.1 `src/__tests__/helpers/chromium.ts`: `chromiumAvailable()` + shared `launch()` fixture; every browser-driving suite uses `describe.skipIf(!chromiumAvailable())` (exemplar: `packages/document-converter/src/__tests__/integration.test.ts`)
 - [ ] 9b.2 CI: `ci.yml` step `npx playwright install chromium --with-deps` scoped to the deck3d test job so the L1‑browser rows run in CI; the no-chromium path stays covered by X1/X2 on the plain job
 - [ ] 9b.3 Env test hooks `DECK3D_HARVEST_TIMEOUT_MS`, `DECK3D_CHECK_TIMEOUT_MS`, `DECK3D_HTTP_TIMEOUT_MS`, `DECK3D_HARVEST_STALL` (defaults 60000/120000/10000/unset); documented in `packages/deck3d/AGENTS.md`
 - [ ] 9b.4 Runtime read-only debug surface `__deck3d.effects()` (active composer pass ids + skipped list) and `__deck3d.debug.titleGlyphs()` (glyph mesh count) for E20/F4
