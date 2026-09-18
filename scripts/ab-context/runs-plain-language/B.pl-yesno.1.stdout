@@ -1,0 +1,8 @@
+[dashboard] endpoint ws+unix:///Users/robson/.pi/dashboard/gateway-9999.sock:/ (source=PI_DASHBOARD_SOCKET pinned=true)
+[dashboard] sendFlowsList: 0 flows, sessionId=01a0a2c9
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+No.
+
+`npm run build` only builds the React frontend client in `packages/client/` (`@blackbelt-technology/pi-dashboard-web`). The server runs TypeScript files directly at runtime using jiti, so it requires no build step. To apply your changes, restart the server by sending a request to `curl -X POST http://localhost:8000/api/restart`.

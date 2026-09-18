@@ -1,0 +1,66 @@
+[dashboard] endpoint ws+unix:///Users/robson/.pi/dashboard/gateway-9999.sock:/ (source=PI_DASHBOARD_SOCKET pinned=true)
+[dashboard] sendFlowsList: 0 flows, sessionId=01a0a212
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+A change made to a file under `packages/server/src/` reaches the running dashboard server through **jiti on-the-fly execution upon server restart**. 
+
+The server does **not** use hot-module reloading (HMR) or an active file watcher, nor does it require a build/compile step. Here is the exact end-to-end mechanism:
+
+---
+
+### 1. Execution Model: Direct TypeScript Execution via `jiti`
+- The server does **not** have a build step (unlike `packages/client/`, which builds via Vite).
+- When the server boots (via `packages/server/bin/pi-dashboard.mjs`), it resolves `jiti` and starts Node with:
+  ```bash
+  node --import <jiti-url> packages/server/src/cli.ts start ...
+  ```
+- `jiti` transpiles TypeScript files into memory on the fly as they are imported.
+- Because Node caches imported modules in memory, changes on disk are **not picked up while the process is running**. A process restart is required to re-evaluate the source files.
+
+---
+
+### 2. Triggering the Update: The Restart Path
+To apply your changes, trigger a server restart:
+```bash
+curl -X POST http://localhost:8000/api/restart
+# or via CLI:
+pi-dashboard restart
+```
+*(If you run `pi-dashboard restart`, `cli.ts` detects the running dashboard and delegates by calling `POST /api/restart` directly).*
+
+---
+
+### 3. The Orchestration Mechanism (`POST /api/restart`)
+
+When `POST /api/restart` is received in `packages/server/src/routes/system-routes.ts`, the server performs a coordinated shutdown and relaunch:
+
+1. **State Flush & Intent Recording:**
+   - Calls `recordExitIntent("restart")` in `boot-state.ts` so surviving pi sessions know this was an intentional restart, not a crash.
+   - Flushes metadata (`metaPersistence.flushAll()`) and user preferences (`preferencesStore.flush()`).
+2. **Bridge Quiesce Announcement:**
+   - Broadcasts a `server_restarting` message over WebSocket with a quiesce window (`RESTART_QUIESCE_MS`).
+   - This informs active pi bridges not to panic-spawn a duplicate server while the restart is in progress.
+3. **Detached Orchestrator Process (`spawnRestart` in `restart-helper.ts`):**
+   - Inspects `process.execArgv` to extract the exact `--import <jiti-url>` loader arguments, the CLI entry path, the bound HTTP port (`8000`), and the pi gateway port (`9999`).
+   - Spawns an independent, detached Node orchestrator script (`node -e "..."`).
+4. **Old Server Exits:**
+   - The current server calls `setTimeout(() => process.exit(0), 200)` and terminates, releasing ports `8000` and `9999`.
+5. **Orchestrator Sequence:**
+   - The detached script polls port `8000` using `net.createConnection` until the old process exits and the port is free.
+   - It spawns the new server process with the same `--import <jiti-url>` runtime loader and CLI arguments.
+   - On boot, **`jiti` reads the freshly modified TypeScript files directly from disk**, transpiling and loading your updated code.
+   - The orchestrator polls `http://localhost:8000/api/health` until the new server is responsive (15s deadline for prod, 60s for dev).
+6. **Automatic Reconnection:**
+   - Connected browser clients and bridge extensions automatically reconnect over WebSocket once the new server's ports are listening.

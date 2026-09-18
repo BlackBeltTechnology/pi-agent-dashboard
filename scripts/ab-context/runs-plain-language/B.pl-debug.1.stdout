@@ -1,0 +1,36 @@
+[dashboard] endpoint ws+unix:///Users/robson/.pi/dashboard/gateway-9999.sock:/ (source=PI_DASHBOARD_SOCKET pinned=true)
+[dashboard] sendFlowsList: 0 flows, sessionId=01a0a292
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+The session bridge connected long enough to register the session in dashboard state, but immediately dropped its WebSocket connection and migrated to a competing or stale dashboard discovered via mDNS (bridge endpoint hijack), leaving the dashboard holding the session card in an active reconnect-grace period while `connections.get(sessionId)` is empty.
+
+### What is happening
+1. **Initial registration:** The bridge connects to the dashboard gateway, emits `session_registered`, and the dashboard creates an active session card.
+2. **Immediate disconnect / migration:** The bridge's discovery loop finds another advertised dashboard instance (such as a stale worktree server advertising via mDNS, or an orphaned background dashboard claiming `~/.pi/dashboard/gateway-9999.sock`), drops the current connection, and reconnects to the hijacker.
+3. **Dispatch failure (502):** When you submit a prompt, the dashboard calls `piGateway.sendToSession(sessionId, ...)`. Because the bridge socket disconnected, `connections.get(sessionId)` returns `undefined`, triggering HTTP 502 `"no bridge connection for session"`.
+*(Note: Spawning in a working directory outside configured `workspaces` produces an identical symptom: the bridge registers, the server rejects the path and closes the connection, and the session card remains active during grace).*
+
+### First thing to check
+Check for competing or stale dashboard instances listening on the system:
+
+```bash
+lsof -nP -iTCP -sTCP:LISTEN | grep node
+```
+
+Look for secondary Node processes listening on alternative HTTP (e.g., 8000, 8001) or gateway ports (e.g., 9999).
+
+### Immediate verification steps
+1. **Check `server.log`:**
+   ```bash
+   grep -E '<session_id>|gateway' ~/.pi/dashboard/server.log
+   ```
+   Look for `[gateway] session registered` followed within seconds by `[gateway] connection closed` without a preceding ping timeout.
+2. **Check the pi process socket state:**
+   ```bash
+   lsof -nP -p <pi_pid> | grep <dashboard_pi_port>
+   ```
+   If the keeper/pi process is alive (`stat=S`) but has no `ESTABLISHED` TCP connection to the current dashboard's port, the bridge has migrated away.

@@ -10,4 +10,4 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `SessionSplitView.tsx` | Connects context → `SplitWorkspace` (editor slot=`EditorPane`), passing `mode`/`onModeChange`. → see `SessionSplitView.tsx.AGENTS.md` |
 | `SplitDivider.tsx` | Draggable divider (outer chat/editor + inner rail). Reports pointer coord; orientation-aware cursor. → see `SplitDivider.tsx.AGENTS.md` |
 | `SplitWorkspace.tsx` | Pure layout, 3 modes via `mode` prop: `closed` (chat + right-edge Editor peek), `split`… → see `SplitWorkspace.tsx.AGENTS.md` |
-| `SplitWorkspaceContext.tsx` | Per-session provider. Lifts `useSplitState`+`useEditorPaneState`. → see `SplitWorkspaceContext.tsx.AGENTS.md` |
+| `SplitWorkspaceContext.tsx` | Per-session provider. Lifts `useSplitState`+`useEditorPaneState`. → see `SplitWorkspaceContext.tsx.AGENTS.md`  owns the sticky `terminalActivated` latch (survives pane collapse, never persisted). See change: add-lazy-terminal-diff-bootstrap. |

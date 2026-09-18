@@ -46,9 +46,9 @@ afterEach(() => cleanup());
 
 describe("EditToolRenderer — viewport branching", () => {
   // 5.2: desktop + oldText/newText → <RichDiff>, no homegrown DiffView
-  it("desktop: renders <RichDiff> for oldText/newText args", () => {
+  it("desktop: renders <RichDiff> for oldText/newText args", async () => {
     mockIsMobile = false;
-    const { getAllByTestId, container } = render(
+    const { findAllByTestId, container } = render(
       <EditToolRenderer
         toolName="edit"
         args={{ path: "file.ts", oldText: "const a = 1;", newText: "const a = 2;" }}
@@ -56,7 +56,8 @@ describe("EditToolRenderer — viewport branching", () => {
         context={ctx}
       />,
     );
-    expect(getAllByTestId("rich-diff").length).toBe(1);
+    // RichDiff is a lazy boundary (change: add-lazy-terminal-diff-bootstrap).
+    expect((await findAllByTestId("rich-diff")).length).toBe(1);
     // homegrown diff renders .font-mono; should be absent on desktop
     expect(container.querySelectorAll("div.font-mono").length).toBe(0);
   });
@@ -78,9 +79,9 @@ describe("EditToolRenderer — viewport branching", () => {
   });
 
   // 5.4: desktop + edits[] length 3 → exactly 3 <RichDiff>
-  it("desktop: renders exactly 3 <RichDiff> for edits[] of length 3", () => {
+  it("desktop: renders exactly 3 <RichDiff> for edits[] of length 3", async () => {
     mockIsMobile = false;
-    const { getAllByTestId } = render(
+    const { findAllByTestId } = render(
       <EditToolRenderer
         toolName="edit"
         args={{
@@ -95,7 +96,7 @@ describe("EditToolRenderer — viewport branching", () => {
         context={ctx}
       />,
     );
-    expect(getAllByTestId("rich-diff").length).toBe(3);
+    expect((await findAllByTestId("rich-diff")).length).toBe(3);
   });
 
   // 5.5: mobile + edits[] length 3 → exactly 3 homegrown diffs
@@ -190,9 +191,9 @@ describe("EditToolRenderer — viewport branching", () => {
 
   // --- NEW: hashline replace_text tests ---
 
-  it("desktop: renders hashline replace_text edits as <RichDiff>", () => {
+  it("desktop: renders hashline replace_text edits as <RichDiff>", async () => {
     mockIsMobile = false;
-    const { getAllByTestId } = render(
+    const { findAllByTestId } = render(
       <EditToolRenderer
         toolName="edit"
         args={{
@@ -206,7 +207,7 @@ describe("EditToolRenderer — viewport branching", () => {
         context={ctx}
       />,
     );
-    expect(getAllByTestId("rich-diff").length).toBe(2);
+    expect((await findAllByTestId("rich-diff")).length).toBe(2);
   });
 
   it("mobile: renders hashline replace_text edits as homegrown diffs", () => {
@@ -274,9 +275,9 @@ describe("EditToolRenderer — viewport branching", () => {
 
   // --- NEW: mixed valid/invalid edits ---
 
-  it("filters out edits missing oldText/newText and renders only valid ones", () => {
+  it("filters out edits missing oldText/newText and renders only valid ones", async () => {
     mockIsMobile = false;
-    const { getAllByTestId, container } = render(
+    const { findAllByTestId, container } = render(
       <EditToolRenderer
         toolName="edit"
         args={{
@@ -292,7 +293,7 @@ describe("EditToolRenderer — viewport branching", () => {
       />,
     );
     // Should render only the 1 valid text diff (hashline ops are skipped when text edits exist)
-    expect(getAllByTestId("rich-diff").length).toBe(1);
+    expect((await findAllByTestId("rich-diff")).length).toBe(1);
     // Should NOT show raw JSON fallback
     expect(container.querySelector("pre")).toBeNull();
   });

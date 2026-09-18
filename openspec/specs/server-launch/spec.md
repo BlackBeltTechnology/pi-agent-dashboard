@@ -3,7 +3,9 @@
 ## Purpose
 
 Unified primitive for spawning the dashboard server across all callers (extension auto-spawn, CLI `pi-dashboard start`, Electron `spawnFromSource`, restart orchestrator). Centralises argv construction, jiti loader resolution, readiness polling, and log-file handling so behaviour stays consistent across runtime hosts and TypeScript loader sources.
+
 ## Requirements
+
 ### Requirement: Single shared dashboard-server spawn primitive
 
 All runtime dashboard-server spawns SHALL go through `launchDashboardServer(opts)` exported from `packages/shared/src/server-launcher.ts`. No source file outside this module AND `node-spawn.ts` MAY construct `node --import <loader> <cli>` argv directly. Internally, `launchDashboardServer` SHALL delegate argv construction to `spawnNodeScript` in `packages/shared/src/platform/node-spawn.ts`, which itself uses the shared pure helper `buildNodeImportArgvParts({ loader, entry, args })`. The `restart-helper.ts` `node -e` orchestrator (which runs in a fresh process and cannot call `launchDashboardServer` directly) SHALL also call `buildNodeImportArgvParts` for argv construction.
@@ -273,3 +275,68 @@ The startup recovery server already exits with its own distinct status on `EADDR
 - **WHEN** a spawned server exits early for a reason unrelated to port availability
 - **THEN** the parent SHALL NOT classify the exit as a port conflict
 
+### Requirement: The dashboard server's heap ceiling is config-derived
+
+Both launch paths — the bridge-initiated launch and the standalone launcher —
+SHALL derive the dashboard server's heap ceiling from `serverHeap.maxOldSpaceMb`
+rather than from a value fixed in the source.
+
+The bridge-initiated path does not apply any ceiling today: it delegates to the
+shared launch primitive without supplying an environment, so the heap-stamping
+helper beside it never runs. It SHALL supply the derived ceiling through the
+primitive's caller-environment input.
+
+This SHALL land together with the withholding of the dashboard's own heap flag
+from spawned sessions. A server that a bridge auto-starts inherits its
+environment from the pi session that started it; once that environment no longer
+carries a ceiling, an unstamped bridge path would run the server at the runtime
+default instead of the intended one.
+
+The default SHALL be `1536`, lowered from the previously hardcoded `8192`. A
+deployment with no such configuration therefore runs under a materially lower
+ceiling than before; this is intentional and is only safe once the in-memory
+event store is byte-bounded. An operator-supplied heap flag already present in
+the environment SHALL continue to win, unchanged from current behavior.
+
+The standalone launcher runs before the project's TypeScript loader is
+installed, so it SHALL read the value without importing the shared
+TypeScript configuration module.
+
+There are in fact **three** launch paths: the standalone wrapper, the
+bridge-initiated launch, and the Electron shell, which spawns the server via the
+shared `launchDashboardServer` primitive and applies no heap stamp at all. This
+change covers the first two; the Electron path is carried by
+`guard-server-heap-and-store-coupling`, so an Electron-spawned server keeps
+running at the runtime default until that lands.
+
+**This requirement is therefore scoped to the wrapper and bridge paths**, and
+`guard-server-heap-and-store-coupling` is a NAMED RELEASE DEPENDENCY for the
+Electron arm: until it ships, an Electron deployment does not honour
+`serverHeap` and reports `effectiveMaxOldSpaceMb: null`, which is the honest
+answer rather than a silent divergence.
+
+#### Scenario: No configuration applies the lowered default
+- **WHEN** the server is launched with no `serverHeap` in the config
+- **THEN** it SHALL run with the `1536` MB request on the wrapper and bridge launch paths
+
+#### Scenario: The Electron arm reports that it carries no ceiling
+- **WHEN** an Electron-spawned server is asked for its effective ceiling
+- **THEN** it SHALL report that no dashboard heap flag is in force rather than echoing the configured value
+
+#### Scenario: Bridge auto-start does not fall back to the runtime default
+- **WHEN** a pi session whose environment carries no heap flag auto-starts a dashboard server
+- **THEN** that server SHALL run under the configured server ceiling
+- **AND** it SHALL NOT run under the runtime's own default
+
+#### Scenario: Configured ceiling is honored on both paths
+- **WHEN** `serverHeap.maxOldSpaceMb` is set to `4096`
+- **THEN** a bridge-initiated launch SHALL use `4096`
+- **AND** a standalone launch SHALL use `4096`
+
+#### Scenario: Operator-pinned environment value still wins
+- **WHEN** the environment already carries an operator-set heap flag
+- **THEN** the launcher SHALL NOT override it, regardless of `serverHeap`
+
+#### Scenario: Standalone launcher tolerates an unreadable config
+- **WHEN** the config file is absent or malformed at standalone launch
+- **THEN** the launcher SHALL use the `1536` default and start normally

@@ -55,8 +55,10 @@ import {
   readPiCompatibility,
 } from "../pi/pi-version-skew.js";
 import { EMPTY_KEEPER_LOG_STATS, type KeeperLogStats } from "../rpc-keeper/keeper-manager.js";
+import { serverHeapTelemetry } from "../server-heap-telemetry.js";
 import type { ServerConfig } from "../server.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
+import { heapFallbackStatus } from "../spawn-process/heap-args.js";
 import { spawnRestart } from "../spawn-process/restart-helper.js";
 import { readSpawnFailures } from "../spawn-process/spawn-failure-log.js";
 import { systemOpenCapability } from "../system-open-capability.js";
@@ -450,7 +452,13 @@ export function registerSystemRoutes(
         }
       }
 
-      return { success: true, restartRequired: result.restartRequired };
+      return {
+        success: true,
+        restartRequired: result.restartRequired,
+        // `serverHeap` only: an in-place restart inherits the environment and
+        // keeps the old ceiling. See change: bound-session-heap-and-gc-telemetry.
+        ...(result.coldStartRequired ? { coldStartRequired: true } : {}),
+      };
     },
   );
 
@@ -892,10 +900,22 @@ export function registerSystemRoutes(
         // Process-derived (not store-derived), so it sits with the gauges.
         // See change: bound-event-store-by-bytes (D4).
         heapSizeLimit: getHeapStatistics().heap_size_limit,
+        // Major-GC pressure on the SERVER, and the ceiling the RUNNING process
+        // was started with. Cumulative (a polled GET must be idempotent) and
+        // process-derived (`serverHeap` is cold-start-only, so the configured
+        // value can legitimately differ from this one — which is exactly what
+        // this field makes visible).
+        // See change: bound-session-heap-and-gc-telemetry (D13).
+        ...serverHeapTelemetry(),
         activeSessions: activeSessions.length,
         totalSessions: sessionManager.listAll().length,
       },
       agents: agentMetrics,
+      // Whether any spawn had to fall back to the `NODE_OPTIONS` subset because
+      // its resolution offered no runtime slot. Reported here as well as in the
+      // server log so it is discoverable live, not only post-mortem.
+      // See change: bound-session-heap-and-gc-telemetry (D3a).
+      sessionHeapFallback: heapFallbackStatus(),
       plugins: enrichWithBridgeSource(getPluginStatusStore().listAll()),
       // Build-time-vs-runtime plugin-bundle hash. Clients compare it to
       // the embedded `PLUGIN_REGISTRY_HASH` to detect stale bundles.
