@@ -1042,6 +1042,24 @@ describe("SessionCard subcard structure", () => {
     expect(card.className).toContain("ring-blue-500/30");
   });
 
+  // §7 pauses ALL animations while the dashboard is visible but idle, so the
+  // selected session must stay identified by STATIC styling alone. Pinning the
+  // ring/border pair the CSS selectors read — and the absence of any
+  // animation-class dependency — stops a rename from silently dropping that
+  // affordance when motion is off. (test-plan #F21)
+  // See change: fix-long-session-ux-degradation (design D8).
+  it("selected card's static selection affordance does not depend on an animation class (F21)", () => {
+    const session = makeSession();
+    const { container } = render(
+      <SessionCard session={session} {...defaultProps} selectedId="test-session" />,
+    );
+    const card = container.querySelector("[data-testid='session-card-desktop']") as HTMLElement;
+    expect(card.className).toContain("ring-1");
+    expect(card.className).toContain("ring-blue-500/30");
+    expect(card.className).toContain("border-blue-500/60");
+    expect(card.className).not.toMatch(/\banimate-[a-z]/);
+  });
+
   it("streaming session retains card-working-pulse on outer li", () => {
     const session = makeSession({ status: "streaming" });
     const { container } = render(<SessionCard session={session} {...defaultProps} />);

@@ -12,6 +12,7 @@
 
 import type React from "react";
 import { useCallback, useEffect, useRef } from "react";
+import { useBodyDragStyle } from "../../hooks/useBodyDragStyle.js";
 import type { SplitOrientation } from "../../lib/layout/split-state.js";
 import { SeamGrip } from "./SeamGrip.js";
 
@@ -39,16 +40,16 @@ export function SplitDivider({
 }: SplitDividerProps) {
   const dragging = useRef(false);
   const cursor = orientation === "h" ? "col-resize" : "row-resize";
+  const { beginBodyDrag, endBodyDrag } = useBodyDragStyle();
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
       dragging.current = true;
-      document.body.style.cursor = cursor;
-      document.body.style.userSelect = "none";
+      beginBodyDrag(cursor);
       onResizeStart?.();
     },
-    [cursor, onResizeStart],
+    [cursor, onResizeStart, beginBodyDrag],
   );
 
   useEffect(() => {
@@ -59,8 +60,7 @@ export function SplitDivider({
     const handleMouseUp = () => {
       if (!dragging.current) return;
       dragging.current = false;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
+      endBodyDrag();
       onResizeEnd?.();
     };
     document.addEventListener("mousemove", handleMouseMove);
@@ -69,7 +69,7 @@ export function SplitDivider({
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [orientation, onResize, onResizeEnd]);
+  }, [orientation, onResize, onResizeEnd, endBodyDrag]);
 
   const base =
     orientation === "h"

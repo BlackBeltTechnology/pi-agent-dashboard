@@ -11,12 +11,14 @@ Files in this directory. One row per source file.
 | `useArchivedSessions.ts` | Per-key lazy cache for archived-session listings (`<groupPath>` for folder folds, `q:<text>` for search). Exports `useArchivedSessions`, `ARCHIVE_PAGE_SIZE` (50), `ArchivedKeyState`. Loads pages, retries, invalidates on count changes. See change: archive-sessions-lazy-load. |
 | `useAsyncAction.ts` | `useAsyncAction(fn, opts) → { pending, error, run, bind }`. Wraps async action. → see `useAsyncAction.ts.AGENTS.md` |
 | `useAuthStatus.ts` | Fetches `GET /auth/status` into `authStatus: AuthStatus | null` (`authenticated`, `authEnabled`, `user`) with… → see `useAuthStatus.ts.AGENTS.md` |
+| `useBodyDragStyle.ts` | `useBodyDragStyle()` → `{ beginBodyDrag(cursor), endBodyDrag() }`. Body `cursor` + `user-select: none` for resize drags. Both idempotent, gated on private `active` ref. One unmount cleanup ends an active drag. See change: fix-long-session-ux-degradation. |
 | `useContentViews.ts` | URL-routing navigation helpers. `handleOpenDirectorySettings(cwd)` (renamed from `handleOpenPiResources`,… → see `useContentViews.ts.AGENTS.md` |
 | `useDebugToolsVisible.ts` | Deprecated shim over `useDisplayPrefs().debugTools`. Exports `DEBUG_TOOL_NAMES` set +… → see `useDebugToolsVisible.ts.AGENTS.md` |
 | `useDisplayPrefs.ts` | `useDisplayPrefs(sessionId?): DisplayPrefs` — reads context, returns `mergeDisplayPrefs(global,… → see `useDisplayPrefs.ts.AGENTS.md` |
 | `useDocumentTitle.ts` | Sets `document.title` via `buildDocumentTitle(session, folderCwd)`; resets to `"PI Dashboard"` on cleanup. Re-runs on `session`/`folderCwd` change. |
 | `useFolderUrgencySort.ts` | Per-folder opt-in urgency-sort pref. Default off. localStorage key dashboard:folder-urgency-sort… → see `useFolderUrgencySort.ts.AGENTS.md` |
 | `useHostPlatform.ts` | One-shot probe of `/api/health` `platform` field. Returns host OS (darwin\|win32\|linux) for Settings → Tools… → see `useHostPlatform.ts.AGENTS.md` |
+| `useIdleFx.ts` | Toggles `fx-idle` on document root after `IDLE_FX_DELAY_MS` (5000) with no deliberate input. Activity = `pointerdown`/`wheel`/`keydown`/`touchstart`/`focusin` at CAPTURE on `document`; `pointermove`+`scroll` deliberately excluded. Cleanup: timer + listeners + class. See change: fix-long-session-ux-degradation. |
 | `useImagePaste.ts` | Clipboard-image-paste state. Supports uncontrolled (owns `pendingImages`) and controlled… → see `useImagePaste.ts.AGENTS.md` |
 | `useInflightBashTools.ts` | Pure selector `selectInflightBashTools(state)` + memoized hook `useInflightBashTools(state)`. → see `useInflightBashTools.ts.AGENTS.md` |
 | `useInitStatus.ts` | `useInitStatus(cwd) → { status: WorktreeInitStatus\|null, refetch }`. → see `useInitStatus.ts.AGENTS.md` |

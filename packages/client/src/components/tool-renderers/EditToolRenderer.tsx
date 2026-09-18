@@ -1,4 +1,5 @@
 import React, { lazy, Suspense } from "react";
+import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { createTwoFilesPatch } from "diff";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import type { ToolRendererProps } from "./types.js";
@@ -190,13 +191,25 @@ export function EditToolRenderer({ args, status, result, toolDetails, context }:
         <OpenFileButton filePath={filePath} context={context} />
       </div>
 
-      <Suspense
+      {/* Chunk-fetch fetch phase: a rejected `import()` throws during render.
+          Without a boundary here it escalates to the app-level boundary and
+          takes the whole transcript with it; contained, the rest of the chat
+          stays interactive. See change: add-lazy-terminal-diff-bootstrap. */}
+      <ErrorBoundary
         fallback={
-          <div className="p-4 text-sm text-[var(--text-tertiary)]">{i18nT("status.loadingDiff", undefined, "Loading diff…")}</div>
+          <div className="p-4 text-sm text-[var(--text-tertiary)]">
+            {i18nT("status.diffLoadFailed", undefined, "Diff failed to load.")}
+          </div>
         }
       >
-        {renderDiffs()}
-      </Suspense>
+        <Suspense
+          fallback={
+            <div className="p-4 text-sm text-[var(--text-tertiary)]">{i18nT("status.loadingDiff", undefined, "Loading diff…")}</div>
+          }
+        >
+          {renderDiffs()}
+        </Suspense>
+      </ErrorBoundary>
 
       {result && status !== "running" && (
         result.startsWith("---")
