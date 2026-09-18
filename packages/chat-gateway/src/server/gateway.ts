@@ -31,7 +31,7 @@ import {
   type InboundMessage,
 } from "../shared/types.js";
 import { authorize, createPairing, type Pairing } from "./auth.js";
-import { isWithinAllowedRoots, resolveCwd } from "./binding.js";
+import { isWithinAllowedRoots } from "./binding.js";
 import { dispatchToSession } from "./dispatch.js";
 import {
   composeBatchAnswers,
@@ -44,6 +44,7 @@ import type { BindingStore, SpawnCorrelator } from "./routing.js";
 import type { HostSeam, SpawnOutcome } from "./seam.js";
 import { createEditThrottle, type EditThrottle, shouldSteer, stripSteerPrefix } from "./stream.js";
 import type { Grant } from "./team/authorize.js";
+import { resolveCwdWithWorkspace, type WorkspaceResolveOutcome } from "./team/binding.js";
 import type { TeamController } from "./team/controller.js";
 import { type MirrorEvent, renderMirror } from "./team/output-filter.js";
 import { createPacer } from "./team/pacing.js";
@@ -422,6 +423,41 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
   }
 
   /** Resolve (or create) the binding for an inbound message. Null = already replied. */
+  /**
+   * The bound workspace's folders for this channel (D8), or undefined when the
+   * layer owns no binding for it.
+   *
+   * The folders come from the PROVISIONED channel→workspace binding, so a
+   * channel the layer does not own resolves exactly as before. A THREAD
+   * inherits its parent channel's binding: the layer provisions a channel, and
+   * a thread under it belongs to that channel's workspace.
+   */
+  function boundWorkspaceFolders(msg: InboundMessage): string[] | undefined {
+    const bound =
+      team?.bindingFor(msg.channelId) ??
+      (msg.parentChannelId ? team?.bindingFor(msg.parentChannelId) : undefined);
+    return bound?.binding.folders;
+  }
+
+  /**
+   * Resolve this channel's spawn cwd across the whole precedence chain (D8):
+   * persisted binding → bound workspace folders → fixed map → default.
+   *
+   * Extracted so `ensureBinding` stays within the complexity budget; the
+   * ordering and the `allowedRoots` gate live in `resolveCwdWithWorkspace`.
+   */
+  function resolveBindCwd(msg: InboundMessage, channelKey: string): WorkspaceResolveOutcome {
+    const workspaceFolders = boundWorkspaceFolders(msg);
+    return resolveCwdWithWorkspace({
+      persisted: undefined,
+      ...(workspaceFolders ? { workspaceFolders } : {}),
+      fixedMap: config.fixedMap,
+      channelKey,
+      ...(config.defaultCwd ? { defaultCwd: config.defaultCwd } : {}),
+      allowedRoots: config.allowedRoots,
+    });
+  }
+
   async function ensureBinding(msg: InboundMessage, channelKey: string): Promise<Binding | null> {
     const existing = store.get(channelKey);
     if (existing) return existing;
@@ -450,13 +486,12 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       return null;
     }
 
-    const resolved = resolveCwd({
-      persisted: undefined,
-      fixedMap: config.fixedMap,
-      channelKey,
-      defaultCwd: config.defaultCwd,
-      allowedRoots: config.allowedRoots,
-    });
+    // D8: the WORKSPACE source sits between a persisted binding and the fixed
+    // map. Without it a workspace folder inside `allowedRoots` was never
+    // offered, so a bind that should have used it fell through to fixedMap/
+    // defaultCwd or refused — narrower than the spec, never wider, since
+    // `resolveCwdWithWorkspace` skips inert folders rather than adopting them.
+    const resolved = resolveBindCwd(msg, channelKey);
 
     if (resolved.kind === "resolved") {
       // The session id is NOT known until the host resolves the spawn, so no

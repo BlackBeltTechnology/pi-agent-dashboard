@@ -85,15 +85,39 @@ describe("buildTeamSurface (8.1)", () => {
     expect(binding.roles[0]).toMatchObject({ roleId: "r_ops", tier: "control" });
   });
 
-  it("passes through the ceiling of a binding that overrides the global one", async () => {
-    const parsed = validateTeamControls({
+  it("LOWERS the global ceiling but can never RAISE it", async () => {
+    // The global ceiling is a hard maximum (the config schema's wording), not
+    // merely a default for bindings. Otherwise an operator choosing the safest
+    // possible `observe` globally could be silently defeated by one binding's
+    // stale `operate`.
+    const raised = validateTeamControls({
       ceiling: "observe",
       bindings: { ws_1: { ceiling: "operate", principals: { u_bob: "observe" } } },
     });
+    if (!raised.ok) throw new Error(raised.reason);
+    const raisedView = await buildTeamSurface(makeInput({ config: raised.value }));
+    expect(raisedView.ceiling).toBe("observe");
+    expect(raisedView.bindings[0].ceiling).toBe("observe");
+
+    // The legitimate direction: a binding narrowing itself.
+    const narrowed = validateTeamControls({
+      ceiling: "operate",
+      bindings: { ws_1: { ceiling: "observe", principals: { u_bob: "operate" } } },
+    });
+    if (!narrowed.ok) throw new Error(narrowed.reason);
+    const narrowedView = await buildTeamSurface(makeInput({ config: narrowed.value }));
+    expect(narrowedView.ceiling).toBe("operate");
+    expect(narrowedView.bindings[0].ceiling).toBe("observe");
+  });
+
+  it("inherits the global ceiling when a binding sets none", async () => {
+    const parsed = validateTeamControls({
+      ceiling: "control",
+      bindings: { ws_1: { principals: { u_bob: "operate" } } },
+    });
     if (!parsed.ok) throw new Error(parsed.reason);
     const view = await buildTeamSurface(makeInput({ config: parsed.value }));
-    expect(view.ceiling).toBe("observe");
-    expect(view.bindings[0].ceiling).toBe("operate");
+    expect(view.bindings[0].ceiling).toBe("control");
   });
 
   it("shows team controls as unconfigured rather than failing", async () => {

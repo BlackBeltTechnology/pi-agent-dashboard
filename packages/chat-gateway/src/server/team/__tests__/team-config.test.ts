@@ -201,3 +201,58 @@ describe("cardinality bounds", () => {
     expect(validateTeamControls({ bindings }).ok).toBe(true);
   });
 });
+
+describe("the global ceiling is a HARD maximum (9.4 doubt-driven review)", () => {
+  it("does not let a binding raise the ceiling above the global one", () => {
+    // The schema says "maximum tier any principal MAY RESOLVE TO". If a binding
+    // could raise it, an operator choosing the safest global `observe` would be
+    // silently defeated by one binding's stale `operate`.
+    const result = validateTeamControls({
+      ceiling: "observe",
+      bindings: { ws_1: { ceiling: "operate" } },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.bindings.ws_1.ceiling).toBe("observe");
+  });
+
+  it("lets a binding narrow itself below the global ceiling", () => {
+    const result = validateTeamControls({
+      ceiling: "operate",
+      bindings: { ws_1: { ceiling: "control" }, ws_2: {} },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.bindings.ws_1.ceiling).toBe("control");
+      // An unset binding ceiling still inherits the global one.
+      expect(result.value.bindings.ws_2.ceiling).toBe("operate");
+    }
+  });
+
+  it("caps the effective ceiling at observe when the global ceiling is observe", () => {
+    const result = validateTeamControls({
+      ceiling: "observe",
+      bindings: {
+        ws_1: { ceiling: "operate", principals: { u_1: "operate" }, roles: { r_1: "control" } },
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.bindings.ws_1.ceiling).toBe("observe");
+  });
+
+  it("is not vacuous: the clamp is the GLOBAL value, not a constant", () => {
+    // Same binding ceiling, two different globals ⇒ two different results.
+    const underControl = validateTeamControls({
+      ceiling: "control",
+      bindings: { ws_1: { ceiling: "operate" } },
+    });
+    const underOperate = validateTeamControls({
+      ceiling: "operate",
+      bindings: { ws_1: { ceiling: "operate" } },
+    });
+    expect(underControl.ok && underOperate.ok).toBe(true);
+    if (underControl.ok && underOperate.ok) {
+      expect(underControl.value.bindings.ws_1.ceiling).toBe("control");
+      expect(underOperate.value.bindings.ws_1.ceiling).toBe("operate");
+    }
+  });
+});

@@ -10,7 +10,7 @@
  *
  * See change: add-chat-gateway-team-controls (D6).
  */
-import { isTier, type Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
+import { isTier, minTier, type Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import type { RoleTier } from "./tier.js";
 
 export const MIRROR_LEVELS = ["names-only", "names-and-diffs", "full-transcript"] as const;
@@ -177,7 +177,12 @@ function parseBinding(rawBinding: unknown, ceiling: Tier, base: string): Checked
       principals: principals.value,
       roles: roles.value,
       mirrorLevel: isMirrorLevel(b.mirrorLevel) ? b.mirrorLevel : DEFAULT_MIRROR_LEVEL,
-      ceiling: isTier(b.ceiling) ? b.ceiling : ceiling,
+      // The GLOBAL ceiling is a hard upper bound, not merely a default: a
+      // binding's own ceiling may only LOWER it. Otherwise the safest possible
+      // global setting (`observe`) could be defeated by one binding's stale
+      // `operate`, and the schema's "maximum tier any principal may resolve to"
+      // would be a lie.
+      ceiling: minTier(isTier(b.ceiling) ? b.ceiling : ceiling, ceiling),
     },
   };
 }

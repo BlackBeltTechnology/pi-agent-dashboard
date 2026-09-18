@@ -188,7 +188,7 @@ flowchart TD
 - Shared verb tiers read directly from `GENERATED_TOOLS` (`@blackbelt-technology/pi-dashboard-mcp-server-plugin/manifest`); prevents web/chat/MCP drift.
 - Allowed chat verbs restricted to curated `CHAT_COMMAND_ALLOWLIST` (`list_sessions`, `send_prompt`, `abort`, `spawn_session`, `resume_session`, `prompt_response`, `get_session_diff`, `get_session_file`, `get_transcript`, `get_tool_result`). Unlisted verbs refused.
 - `NON_DELEGABLE` verbs (`mint_device_token`, `set_providers`, `install_package`, `tunnel_connect`) refused across all tiers/ceilings; non-configurable.
-- Global ceiling defaults to `observe`; `clampTier` caps, never raises. Unconfigured layer grants nothing.
+- Global ceiling defaults to `observe`. Acts as HARD maximum; caps resolved principal tier. Per-binding ceiling may only LOWER global ceiling; effective ceiling evaluates as `min(binding, global)`. Prevents global `observe` defeat by stale binding `operate`. `clampTier` caps, never raises. Unconfigured layer grants nothing.
 - Tier resolution: explicit identifier mapping outranks platform role; highest wins. Missing mapping refuses (`no_principal_mapping`); fails closed without fallback.
 - Platform roles map at most `control`. `operate` requires explicit identifier mapping; role mapped to `operate` rejected with `role_cannot_map_to_operate_requires_explicit_identifier`.
 - Nine distinct refusal reasons: `non_human_author`, `unbound_channel`, `no_principal_mapping`, `scope_violation`, `disarmed`, `non_delegable_verb`, `verb_not_allowlisted`, `verb_unknown_tier`, `insufficient_tier`. Refusal emits exact cause.
@@ -251,13 +251,13 @@ Derived from `packages/chat-gateway/src/configSchema.json`:
 | `guardExtension` | `string` | - | Package subpath (`@blackbelt-technology/pi-dashboard-chat-gateway-plugin/guard`) or absolute file path to guard entry. Required for guard loading. |
 | `teamControls` | `object` | - | Team-controls governance layer. Absent config defaults to fail-closed (`ceiling: observe`, no bindings). |
 | `teamControls.guildId` | `string` | - | Discord guild a workspace channel is provisioned in. Required for provisioning (`@everyone` is this guild's id); a binding without it is reported as a failure, not silently skipped. |
-| `teamControls.ceiling` | `string` | `"observe"` | Global tier ceiling (`observe`, `control`, `operate`). Caps resolved principal tier. |
+| `teamControls.ceiling` | `string` | `"observe"` | HARD maximum tier any principal may resolve to. A per-binding ceiling may only LOWER this, never raise it. |
 | `teamControls.disarmed` | `boolean` | `false` | Emergency kill switch. Refuses action requests while continuing passive mirroring. Re-armed from dashboard only. |
 | `teamControls.auditRetention` | `integer` | `10000` | In-memory command-log ring-buffer capacity. Range `1` to `1000000`. |
 | `teamControls.bindings` | `object` | `{}` | Per-workspace team policies keyed by workspace ID. |
 | `teamControls.bindings.<id>.principals` | `object` | `{}` | Map of Discord user ID (snowflake) to tier (`observe`, `control`, `operate`). |
 | `teamControls.bindings.<id>.roles` | `object` | `{}` | Map of Discord role ID to tier (`observe`, `control`). Roles cannot grant `operate`. |
 | `teamControls.bindings.<id>.mirrorLevel` | `string` | `"names-only"` | Outbound mirror filter: `names-only`, `names-and-diffs`, `full-transcript`. |
-| `teamControls.bindings.<id>.ceiling` | `string` | - | Per-binding tier ceiling. Defaults to global `teamControls.ceiling`. |
+| `teamControls.bindings.<id>.ceiling` | `string` | - | Per-binding tier ceiling. May only LOWER global ceiling; effective ceiling is `min(binding, global)`. |
 
 See change: add-chat-gateway, add-chat-gateway-team-controls.

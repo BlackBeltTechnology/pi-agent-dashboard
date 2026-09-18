@@ -100,7 +100,7 @@
           "type": "string",
           "enum": ["observe", "control", "operate"],
           "default": "observe",
-          "description": "Maximum tier any principal may resolve to. Defaults to observe."
+          "description": "HARD maximum tier any principal may resolve to. Defaults to observe. A per-binding ceiling may only LOWER this, never raise it."
         },
         "disarmed": {
           "type": "boolean",
@@ -135,7 +135,7 @@
                 "enum": ["names-only", "names-and-diffs", "full-transcript"],
                 "default": "names-only"
               },
-              "ceiling": { "type": "string", "enum": ["observe", "control", "operate"] }
+              "ceiling": { "type": "string", "enum": ["observe", "control", "operate"], "description": "Ceiling for this binding. May only LOWER the global teamControls.ceiling; effective value is min(binding, global)." }
             }
           }
         }

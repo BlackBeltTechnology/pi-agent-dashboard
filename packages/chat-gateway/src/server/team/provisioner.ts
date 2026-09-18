@@ -240,7 +240,7 @@ export function createProvisioner(deps: ProvisionerDeps): Provisioner {
     }
   }
 
-  async function reconcile(): Promise<ReconcileResult> {
+  async function reconcileOnce(): Promise<ReconcileResult> {
     const config = deps.config();
     const byId = new Map(deps.listWorkspaces().map((w) => [w.id, w] as const));
     const counters: Counters = { provisioned: 0, reconciled: 0, renamed: 0, deactivated: 0 };
@@ -268,6 +268,41 @@ export function createProvisioner(deps: ProvisionerDeps): Provisioner {
     deactivateUnbound(config.bindings, counters);
     lastFailureReason = null;
     return { ok: true, ...counters };
+  }
+
+  /**
+   * Serialised: reconciles never overlap. Each starts only after the previous
+   * one finished, and re-reads the config at that moment.
+   *
+   * Convergence alone is NOT sufficient, and the failure is irreversible. Two
+   * overlapping reconciles that both see an unprovisioned workspace BOTH create
+   * a channel; the second `upsert` orphans the first, and because deletion never
+   * propagates the orphan is never revoked — so a principal removed later keeps
+   * VIEW access on a channel the layer no longer tracks. Overlap can also land
+   * one run's store write between another's `setChannelOverwrites` and its
+   * signature upsert, leaving the stored mapping describing access the channel
+   * does not have, so the next reconcile sees no diff and the wrong access
+   * persists.
+   *
+   * Every caller CHAINS rather than joining a running reconcile: a caller may
+   * have just REPLACED the config (the dashboard write path does exactly that),
+   * and joining a run that already read the old config would report success
+   * without converging to the new one. A burst of workspace hints therefore
+   * queues a few extra runs, each of which re-reads the now-current config and
+   * is a no-op.
+   */
+  let tail: Promise<void> = Promise.resolve();
+
+  function reconcile(): Promise<ReconcileResult> {
+    const run = tail.then(reconcileOnce);
+    // Keep the chain alive even when a run fails: the failure is returned to
+    // THIS caller, and the next reconcile must still start rather than inherit
+    // a rejected tail.
+    tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   }
 
   return {

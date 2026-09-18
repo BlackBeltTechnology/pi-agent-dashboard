@@ -17,9 +17,17 @@ import { minTier, rank, type Tier } from "@blackbelt-technology/pi-dashboard-sha
 export type RoleTier = "observe" | "control";
 
 /**
- * Verbs that mint credentials or alter provider/package/tunnel state. Refused
+ * The verbs that mint credentials or hand out standing access. Refused
  * regardless of tier or ceiling; NOT configurable, because the grant these
  * verbs hand out outlives the grantee's chat membership.
+ *
+ * This DENY-LIST is deliberately narrow and mirrors the spec's four named
+ * verbs — it is not "everything that alters providers/packages/tunnels". The
+ * sibling mutations (`remove_package`, `update_package`, `tunnel_disconnect`,`
+ * `packages_move`, `packages_reset_to_npm`, `config_auth_providers_id`, …) are
+ * held out of chat by the ALLOWLIST instead, which is the load-bearing gate.
+ * Do NOT read this list as the complete set of dangerous verbs: adding one of
+ * those siblings to `CHAT_COMMAND_ALLOWLIST` would expose it.
  */
 export const NON_DELEGABLE: readonly string[] = [
   "mint_device_token",

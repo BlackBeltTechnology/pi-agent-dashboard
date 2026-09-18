@@ -46,7 +46,18 @@ describe("gateway team-controls integration", () => {
   });
 
   function setup(
-    opts: { assignRefResult?: boolean; onTrustFailure?: (reason: string) => void } = {},
+    opts: {
+      assignRefResult?: boolean;
+      onTrustFailure?: (reason: string) => void;
+      /** Override the workspace list (real dirs, for the D8 resolution tests). */
+      workspaces?: typeof WORKSPACES;
+      /** Override allowedRoots (real dirs, for the D8 resolution tests). */
+      allowedRoots?: string[];
+      /** Override the provisioned channel→workspace map. */
+      channelBindings?: () => Map<string, string>;
+      /** Override the configured per-workspace policies. */
+      bindings?: Record<string, unknown>;
+    } = {},
   ) {
     const seam = createFakeSeam();
     if (opts.assignRefResult !== undefined) seam.assignRefResult = opts.assignRefResult;
@@ -65,7 +76,7 @@ describe("gateway team-controls integration", () => {
     });
     const validated = validateTeamControls({
       ceiling: "operate",
-      bindings: {
+      bindings: opts.bindings ?? {
         ws_1: {
           // `frank` has a tier mapping but is NOT on the L1 allowlist (X17).
           principals: {
@@ -86,19 +97,21 @@ describe("gateway team-controls integration", () => {
     const team = createTeamController({
       config: () => validated.value,
       log,
-      listWorkspaces: () => WORKSPACES,
+      listWorkspaces: () => opts.workspaces ?? WORKSPACES,
       ...(opts.onTrustFailure ? { onTrustFailure: opts.onTrustFailure } : {}),
-      channelBindings: () =>
-        new Map([
-          ["chan1", "ws_1"],
-          ["chan2", "ws_2"],
-        ]),
+      channelBindings:
+        opts.channelBindings ??
+        (() =>
+          new Map([
+            ["chan1", "ws_1"],
+            ["chan2", "ws_2"],
+          ])),
     });
     const gateway = createChatGateway({
       platform: "discord",
       seam,
       adapter,
-      config: makeConfig(),
+      config: opts.allowedRoots ? { ...makeConfig(), allowedRoots: opts.allowedRoots } : makeConfig(),
       store,
       correlator: createSpawnCorrelator(),
       team,
@@ -113,6 +126,50 @@ describe("gateway team-controls integration", () => {
     text,
     isDM: true,
     startedAt: 1,
+  });
+
+  it("D8: a bind resolves to the BOUND WORKSPACE's folder, not just fixedMap/default", async () => {
+    // Real temp dirs: containment is decided on the REAL path, so a fake path
+    // like "/repo" is correctly judged outside any allowed root and skipped.
+    // With no fixedMap and no defaultCwd, the workspace source is the only thing
+    // that can resolve — unwired, this falls through to interactive attach and
+    // spawns nothing. `chan2` is chosen because `chan1` is pre-bound in setup().
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "cg-ws-"));
+    const wsDir = path.join(root, "team-proj");
+    fs.mkdirSync(wsDir, { recursive: true });
+    const { seam, gateway } = setup({
+      workspaces: [{ id: "ws_2", name: "Other", folders: [wsDir] }],
+      allowedRoots: [root],
+      channelBindings: () => new Map([["chan2", "ws_2"]]),
+      // `alice` must be MAPPED in ws_2, or the chokepoint refuses with
+      // `no_principal_mapping` before resolution is ever reached.
+      bindings: { ws_2: { principals: { alice: "control" } } },
+    });
+    await gateway.start();
+    await gateway.handleInbound({ ...msg("alice", "bind here"), channelId: "chan2" });
+    expect(seam.spawns).toHaveLength(1);
+    expect(seam.spawns[0].cwd).toBe(fs.realpathSync(wsDir));
+  });
+
+  it("D8: an INERT workspace folder is SKIPPED, never spawned into", async () => {
+    // A workspace folder outside allowedRoots is inert: the source must skip it
+    // rather than adopt it, so the convenience feature can only NARROW the spawn
+    // boundary. Two separate temp roots, so `outside` is genuinely not within
+    // `root`.
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "cg-in-"));
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "cg-out-"));
+    const { seam, gateway } = setup({
+      workspaces: [{ id: "ws_2", name: "Other", folders: [outside] }],
+      allowedRoots: [root],
+      channelBindings: () => new Map([["chan2", "ws_2"]]),
+      // Mapped, so this refuses for the INERT-FOLDER reason and not for a
+      // missing principal mapping (which would make the assertion vacuous).
+      bindings: { ws_2: { principals: { alice: "control" } } },
+    });
+    await gateway.start();
+    await gateway.handleInbound({ ...msg("alice", "bind here"), channelId: "chan2" });
+    expect(seam.spawns.map((s) => s.cwd)).not.toContain(fs.realpathSync(outside));
+    expect(seam.spawns).toHaveLength(0);
   });
 
   it("X11: a permitted control principal's prompt reaches the session", async () => {

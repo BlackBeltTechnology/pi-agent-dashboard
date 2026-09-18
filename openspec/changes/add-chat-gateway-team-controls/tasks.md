@@ -83,8 +83,8 @@
 
 - [x] 9.1 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and verify zero failures
 - [x] 9.2 Run `npm run quality:changed` and verify no new Biome findings
-- [ ] 9.3 Invoke the `security-hardening` discipline skill against the diff (the `authorize` chokepoint, the `allowedRoots`-narrowing invariant, overwrite reconciliation, bot/webhook reject, the host seam) and resolve every finding
-- [ ] 9.4 Invoke `doubt-driven-review` on the tier model before anything rides ship/merge verbs on it, and record the outcome
+- [x] 9.3 Invoke the `security-hardening` discipline skill against the diff (the `authorize` chokepoint, the `allowedRoots`-narrowing invariant, overwrite reconciliation, bot/webhook reject, the host seam) and resolve every finding
+- [x] 9.4 Invoke `doubt-driven-review` on the tier model before anything rides ship/merge verbs on it, and record the outcome
 - [x] 9.5 Delegate the team-controls section of chat-gateway's doc to DocScribe (caveman style) covering the tier model, per-binding mappings, the `allowedRoots`-narrowing rule, the structured-payload-only filter boundary, and rollback; verify the file exists and the architecture pointer row is added
 - [ ] 9.6 Manual QA against a real test guild: bind a workspace, drive a session as `control`, confirm an `observe` principal cannot prompt or answer, revoke a principal and confirm lost channel access, disarm from chat and confirm only the dashboard re-arms, and verify the command log recorded every attempt with its reason
 

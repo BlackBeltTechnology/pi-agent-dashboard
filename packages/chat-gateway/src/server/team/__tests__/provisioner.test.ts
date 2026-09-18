@@ -491,3 +491,55 @@ describe("provisioner", () => {
     expect(h.adapter.provisionCallsOfKind("create-channel")).toHaveLength(1);
   });
 });
+
+describe("reconcile is serialised (9.4 doubt-driven review)", () => {
+  const oneBinding = () => ({
+    config: config({ ws_1: binding({ principals: { u1: "control" } }) }),
+    workspaces: [ws("ws_1", "One")],
+  });
+
+  it("does NOT create two channels when overlapping reconciles both see an unprovisioned workspace", async () => {
+    // Without serialisation both runs observe `forWorkspace() === undefined` and
+    // both provision; the second upsert orphans the first, and because deletion
+    // never propagates the orphan is never revoked — a later-removed principal
+    // would keep VIEW access on a channel the layer no longer tracks.
+    const h = setup(oneBinding());
+    const [a, b] = await Promise.all([h.provisioner.reconcile(), h.provisioner.reconcile()]);
+    expect(a.ok && b.ok).toBe(true);
+    expect(h.adapter.provisionCallsOfKind("create-channel")).toHaveLength(1);
+    expect(h.store.all()).toHaveLength(1);
+  });
+
+  it("runs a burst of hints sequentially, leaving convergence correct", async () => {
+    const h = setup(oneBinding());
+    const results = await Promise.all([
+      h.provisioner.reconcile(),
+      h.provisioner.reconcile(),
+      h.provisioner.reconcile(),
+    ]);
+    expect(results.every((r) => r.ok)).toBe(true);
+    expect(h.adapter.provisionCallsOfKind("create-channel")).toHaveLength(1);
+    expect(h.store.all()).toHaveLength(1);
+  });
+
+  it("serialises around a SLOW platform call, not just around fast ones", async () => {
+    // The overlap window is the await, so a delayed overwrite is the honest test.
+    const h = setup(oneBinding());
+    h.adapter.overwriteDelayMs = 5;
+    const [a, b] = await Promise.all([h.provisioner.reconcile(), h.provisioner.reconcile()]);
+    expect(a.ok && b.ok).toBe(true);
+    expect(h.adapter.provisionCallsOfKind("create-channel")).toHaveLength(1);
+  });
+
+  it("keeps the chain alive after a FAILED run", async () => {
+    // A rejected tail must not wedge every later reconcile.
+    const h = setup(oneBinding());
+    h.adapter.failProvision = "platform down";
+    const failed = await h.provisioner.reconcile();
+    expect(failed.ok).toBe(false);
+    h.adapter.failProvision = null;
+    const recovered = await h.provisioner.reconcile();
+    expect(recovered.ok).toBe(true);
+    expect(h.store.all()).toHaveLength(1);
+  });
+});
