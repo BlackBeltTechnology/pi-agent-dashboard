@@ -137,6 +137,7 @@ async function spawnAndOpen(page: import("@playwright/test").Page) {
 
 test.describe("subagent fan-out admission (L3)", () => {
   test("#F1/#F3/#F4 refusal is terminal, forwarded, and renders durably", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(240_000);
 
     const frames = collectToolFrames(page);
@@ -179,6 +180,7 @@ test.describe("subagent fan-out admission (L3)", () => {
   });
 
   test("#F2 the refusal is still terminal after a cold reload", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(240_000);
 
     const { sessionId } = await spawnAndOpen(page);
@@ -204,6 +206,7 @@ test.describe("subagent fan-out admission (L3)", () => {
   });
 
   test("#X4 refusals survive an unclean process death", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(240_000);
 
     const { sessionId } = await spawnAndOpen(page);

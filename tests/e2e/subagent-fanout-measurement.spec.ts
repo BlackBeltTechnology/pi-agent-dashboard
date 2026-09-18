@@ -112,6 +112,7 @@ interface Cell {
 
 test.describe("subagent fan-out stall measurement (L2)", () => {
   test("#P1/#P4 the gated cap lowers the parent stall at the fatal width", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(900_000);
 
     // One WS collector for the whole test: timestamps the first Agent

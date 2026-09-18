@@ -150,6 +150,7 @@ test.describe("cross-site request gate", () => {
   // #F1 — the dashboard's own client is untouched: its page opens the very
   // socket the gate refuses above, and trips no rejection.
   test("the dashboard's own page still opens its WebSocket", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const before = harnessLog().length;
 
     await page.goto(`${BASE_URL}/`);

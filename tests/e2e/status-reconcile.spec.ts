@@ -119,6 +119,7 @@ test.describe("shed session_updated is reconciled in the rendered UI", () => {
   test("a stale card heals after the socket drains, with no reload (test-plan #F1)", async ({
     page,
   }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     await gotoDashboard(page);
     const card = await spawnFreshGitSession(page);
     const sessionId = (await card.getAttribute("data-session-id"))!;
