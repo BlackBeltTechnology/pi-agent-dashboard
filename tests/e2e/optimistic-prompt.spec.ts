@@ -1,5 +1,5 @@
-import { test, expect } from "./fixtures.js";
-import { spawnFreshGitSession, sendPrompt, byTestId } from "./helpers/index.js";
+import { expect, test } from "./fixtures.js";
+import { byTestId, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
 /**
  * Browser E2E for change: optimistic-prompt-progress.

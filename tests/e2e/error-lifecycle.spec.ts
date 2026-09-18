@@ -1,5 +1,5 @@
-import { test, expect } from "./fixtures.js";
-import { spawnFreshGitSession, sendPrompt } from "./helpers/index.js";
+import { expect, test } from "./fixtures.js";
+import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
 /**
  * Error-lifecycle surface — single-card settled error + deferred clear

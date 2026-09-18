@@ -1,4 +1,4 @@
-import { test, expect, type Locator, type Page } from "./fixtures.js";
+import { expect, type Locator, type Page, test } from "./fixtures.js";
 import { byTestId, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 import { BASE_URL } from "./lifecycle.js";
 

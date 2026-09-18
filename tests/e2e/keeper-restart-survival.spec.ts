@@ -1,5 +1,5 @@
-import { test, expect } from "./fixtures.js";
-import { gotoDashboard, spawnFreshGitSession, sendPrompt } from "./helpers/index.js";
+import { expect, test } from "./fixtures.js";
+import { gotoDashboard, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
 // L3 restart-survival — keeper-backed identity reattach (test-plan #F1).
 //

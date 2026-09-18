@@ -1,9 +1,9 @@
 import crypto from "node:crypto";
-import { expect, test } from "./fixtures.js";
 import { BusClient, NoPluginHandlerError } from "@blackbelt-technology/pi-dashboard-bus-client";
 import type { SpawnResultBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import { DASHBOARD_PORT } from "./lifecycle.js";
+import { expect, test } from "./fixtures.js";
 import { FIXTURE_GIT } from "./helpers/index.js";
+import { DASHBOARD_PORT } from "./lifecycle.js";
 
 /**
  * Acquire a real session id over the bus. `client.spawn()`'s exact

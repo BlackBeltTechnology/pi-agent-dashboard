@@ -1,6 +1,6 @@
-import { test, expect } from "./fixtures.js";
-import { spawnFreshGitSession, sendPrompt } from "./helpers/index.js";
 import { SCREENSHOT_INLINE } from "../../qa/fixtures/faux-scenarios.js";
+import { expect, test } from "./fixtures.js";
+import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
 // Faux round-trip — inline agent screenshot artifacts (Fix B).
 //

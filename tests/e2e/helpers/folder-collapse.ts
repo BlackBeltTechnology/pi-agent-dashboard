@@ -20,10 +20,10 @@
  * See change: persist-folder-collapse-server-side.
  */
 import { execFileSync } from "node:child_process";
-import { DASHBOARD_PORT } from "../lifecycle.js";
 import { join } from "node:path";
 import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { connectBus, expect, type Page } from "../fixtures.js";
+import { DASHBOARD_PORT } from "../lifecycle.js";
 
 /** Send browser→server commands over the bus and close. */
 export async function busSend(msgs: BrowserToServerMessage[]): Promise<void> {
