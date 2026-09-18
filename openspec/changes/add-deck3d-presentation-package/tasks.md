@@ -28,13 +28,13 @@
 - [ ] 5.1 Port `src/runtime/text/` from the lab: opentype → ShapePath → ExtrudeGeometry for titles; canvas label with `P.bg` outline, `toneMapped:false`, `depthWrite:false`, front-of-surface offset (`h/2` for round shapes); unit test (jsdom/canvas mock) that label canvas width scales with text and outline colour = palette bg.
 - [ ] 5.2 Port `materials/`, `scene/` (shared floor, fog, bloom thresholds per mode, shadow bias, lights), `camera/` (rail/dolly, hash deep-link, neighbour culling), `loop.ts` (rAF + `setTimeout` fallback on `document.hidden`); verify by building fixture deck and taking a headless screenshot after transition — camera arrived (distance < 0.5).
 - [ ] 5.3 Port `builders/flowchart.ts` + `builders/sequence.ts` (grouped message = tube+head+label, travelling pulse, fixed 1.1 s period) + `builders/{brain,loop,swarm}.ts` + `backgrounds/` scene library; verify snapshot of slides 5 and 6 of the fixture visually matches the lab screenshots (`/tmp/s1.png`, `/tmp/s2.png` archived into `fixtures/reference/`).
-- [ ] 5.4 Quality tiers: `low|medium|high` toggling bloom, reflector, shadow map size, particle count; test: `low` renders with no bloom pass and reflector absent (runtime unit test on scene graph).
+- [x] 5.4 Quality tiers: `low|medium|high` toggling bloom, reflector, shadow map size, particle count; test: `low` renders with no bloom pass and reflector absent (runtime unit test on scene graph).
 
 ## 6. Renderer (spec: deck3d-render)
 
-- [ ] 6.1 `src/render/index.ts`: template + `dist/runtime.js` (esbuild, fixed options, no hashes) + sorted-key IR JSON + subset Poppins (glyph set from merged IR) as base64; test: render twice → byte-identical; output contains no `mermaid` reference and no `http(s)://` resource URLs.
+- [x] 6.1 `src/render/index.ts`: template + `dist/runtime.js` (esbuild, fixed options, no hashes) + sorted-key IR JSON + subset Poppins (glyph set from merged IR) as base64; test: render twice → byte-identical; output contains no `mermaid` reference and no `http(s)://` resource URLs.
 - [ ] 6.2 Font subset: compute glyph set from all merged IR strings (titles, bullets, labels incl. overrides); test: override adding `ű` yields a subset containing that glyph.
-- [ ] 6.3 Offline check test: serve `deck.html` with Playwright `route` blocking all network, assert no failed requests and slide 1 title mesh count > 0.
+- [x] 6.3 Offline check test: serve `deck.html` with Playwright `route` blocking all network, assert no failed requests and slide 1 title mesh count > 0.
 
 ## 7. CLI + snapshot (spec: deck3d-skill)
 
