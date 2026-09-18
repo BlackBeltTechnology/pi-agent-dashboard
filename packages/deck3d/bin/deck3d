@@ -1,0 +1,24 @@
+#!/usr/bin/env node
+// deck3d CLI launcher.
+//
+// Production / published package: run the built `dist/cli.js` (prepublishOnly
+// runs `npm run build`). Dev checkout (no dist): run the TypeScript entry
+// through tsx, which resolves from the hoisted workspace node_modules.
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const distCli = join(pkgRoot, "dist", "cli.js");
+
+if (existsSync(distCli)) {
+  await import(pathToFileURL(distCli).href);
+} else {
+  const { spawnSync } = await import("node:child_process");
+  const r = spawnSync(
+    process.execPath,
+    ["--import", "tsx", join(pkgRoot, "src", "cli.ts"), ...process.argv.slice(2)],
+    { stdio: "inherit" },
+  );
+  process.exit(r.status ?? 1);
+}

@@ -48,6 +48,9 @@ export default defineConfig({
       "packages/mockup-loop",
       "packages/nano-banana",
       "packages/video-production",
+      // deck3d: deterministic markdown → 3D deck engine. Browser-driving suites
+      // self-skip without chromium, so the plain job stays green.
+      "packages/deck3d",
       "packages/video-transcription",
       "packages/client",
       "packages/client-utils",

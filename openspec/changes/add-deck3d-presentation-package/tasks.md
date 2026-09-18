@@ -1,19 +1,19 @@
 ## 1. Package scaffold
 
-- [ ] 1.1 Create `packages/deck3d/` (package.json `@blackbelt-technology/pi-dashboard-deck3d`, `bin: deck3d`, `pi.skills`, tsconfig, vitest.config) modelled on `packages/video-production`; verify `pnpm install` links it and `pnpm -F @blackbelt-technology/pi-dashboard-deck3d test` runs an empty suite green.
-- [ ] 1.2 Vendor `assets/Poppins-Bold.ttf` (OFL) + LICENSE note; add `three`, `opentype.js`, `mermaid@11` (exact), `ajv`, `esbuild` deps; verify `pnpm install` is clean and `pnpm-lock.yaml` has the exact mermaid pin.
-- [ ] 1.3 Scaffold `packages/deck3d/AGENTS.md` (per-file rows) and add the package row to `packages/AGENTS.md`; verify `kb dox lint` reports no missing rows for the new directory.
+- [x] 1.1 Create `packages/deck3d/` (package.json `@blackbelt-technology/pi-dashboard-deck3d`, `bin: deck3d`, `pi.skills`, tsconfig, vitest.config) modelled on `packages/video-production`; verify `pnpm install` links it and `pnpm -F @blackbelt-technology/pi-dashboard-deck3d test` runs an empty suite green.
+- [x] 1.2 Vendor `assets/Poppins-Bold.ttf` (OFL) + LICENSE note; add `three`, `opentype.js`, `mermaid@11` (exact), `ajv`, `esbuild` deps; verify `pnpm install` is clean and `pnpm-lock.yaml` has the exact mermaid pin.
+- [x] 1.3 Scaffold `packages/deck3d/AGENTS.md` (per-file rows) and add the package row to `packages/AGENTS.md`; verify `kb dox lint` reports no missing rows for the new directory.
 
 ## 2. IR schema + merge (spec: deck3d-ir)
 
-- [ ] 2.1 Write `src/ir/schema.json` with `description` on every field (defaults, slides, diagram graph IR, overrides keyed by slide/node/edge id incl. `diagram.scale|offset`, `camera.distance`, `labels.size`, `check.ignore`) and `src/ir/validate.ts` (ajv, unknown-field rejection, dangling-id check); tests: valid fixture passes, `depthRelief:"high"` fails with JSON path, unknown key fails.
-- [ ] 2.2 Write `src/ir/ids.ts` (slide slug+ordinal, node ids from mermaid, `m<i>` messages) and `src/ir/merge.ts` (derive → deep-merge overrides → warn on orphan override ids); tests: orphan override warns + exit 0, override on existing id applies.
-- [ ] 2.3 Write `scripts/gen-ir-fields.ts` producing `.pi/skills/deck3d/reference/ir-fields.md` from schema descriptions; test: generated file lists every schema property; add to package `build`.
-- [ ] 2.4 Implement derived-field-edit detection in `validate` (diff merged IR vs fresh derive from `meta.source` when the source is present); test: edited node `x` outside `overrides` → warning with path.
+- [x] 2.1 Write `src/ir/schema.json` with `description` on every field (defaults, slides, diagram graph IR, overrides keyed by slide/node/edge id incl. `diagram.scale|offset`, `camera.distance`, `labels.size`, `check.ignore`) and `src/ir/validate.ts` (ajv, unknown-field rejection, dangling-id check); tests: valid fixture passes, `depthRelief:"high"` fails with JSON path, unknown key fails.
+- [x] 2.2 Write `src/ir/ids.ts` (slide slug+ordinal, node ids from mermaid, `m<i>` messages) and `src/ir/merge.ts` (derive → deep-merge overrides → warn on orphan override ids); tests: orphan override warns + exit 0, override on existing id applies.
+- [x] 2.3 Write `scripts/gen-ir-fields.ts` producing `.pi/skills/deck3d/reference/ir-fields.md` from schema descriptions; test: generated file lists every schema property; add to package `build`.
+- [x] 2.4 Implement derived-field-edit detection in `validate` (diff merged IR vs fresh derive from `meta.source` when the source is present); test: edited node `x` outside `overrides` → warning with path.
 
 ## 3. Markdown grammar (spec: deck3d-skill)
 
-- [ ] 3.1 Write `src/parse/markdown.ts`: front-matter defaults, `# Title` slide split, subtitle paragraph, `-` bullets, ```mermaid block capture, `<!-- deck3d: {...} -->` inline overrides; tests: fixture deck parses to expected slides; invalid inline JSON exits non-zero naming the slide.
+- [x] 3.1 Write `src/parse/markdown.ts`: front-matter defaults, `# Title` slide split, subtitle paragraph, `-` bullets, ```mermaid block capture, `<!-- deck3d: {...} -->` inline overrides; tests: fixture deck parses to expected slides; invalid inline JSON exits non-zero naming the slide.
 
 ## 4. Mermaid harvest (spec: deck3d-mermaid-harvest)
 
