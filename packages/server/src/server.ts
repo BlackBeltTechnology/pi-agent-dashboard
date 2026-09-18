@@ -2,7 +2,6 @@
  * Dashboard HTTP + WebSocket server.
  */
 
-import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -103,6 +102,11 @@ import { bootParentPid, isBootParentProvablyDead } from "./lifecycle/boot-parent
 import { runBoundedStartup } from "./lifecycle/bounded-startup.js";
 import { startEphemeralParentWatch } from "./lifecycle/ephemeral-parent-watch.js";
 import { ensureInstanceId } from "./lifecycle/instance-id.js";
+import {
+  clientBuildDiagnostic,
+  clientBuildSnapshotFor,
+  resolveStaticClientDir,
+} from "./lib/client-dist.js";
 import { createLiveServerManager } from "./live-server/live-server-manager.js";
 import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
 import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
@@ -1691,7 +1695,29 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       piGateway.sendToSession(id, { type: "stop_after_turn", sessionId: id }),
   });
 
-  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() } });
+  // Serve static files / SPA fallback — resolve the client directory ONCE here,
+  // before every route that consumes it, so a single snapshot feeds
+  // `fastifyStatic`, the PWA manifest route, the SPA fallback branches, and
+  // `/api/health.clientBuild`. See change:
+  // add-served-build-coherence-and-hash-parity (design D3).
+  //
+  // Precedence: the installed web package wins; the workspace sibling is a
+  // fallback only when the package is *unresolvable*. `require.resolve` by name
+  // is the canonical identity across install layouts; the workspace sibling
+  // covers a checkout whose web package is not yet linked. See change:
+  // eliminate-electron-runtime-install.
+  const clientDirResolved = resolveStaticClientDir();
+  const clientDir = clientDirResolved ?? "";
+  const hasProductionBuild = clientDirResolved !== null;
+  // ONE snapshot feeds the startup diagnostic, `fastifyStatic`, and
+  // `/api/health.clientBuild` (passed to `registerSystemRoutes` below).
+  const clientBuild = clientBuildSnapshotFor(clientDirResolved);
+  console.log(clientBuildDiagnostic(clientBuild));
+  if (!hasProductionBuild) {
+    console.log("[dashboard] No client build found — running in API-only mode");
+  }
+
+  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, clientDir, clientBuild, keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() } });
   registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   registerDoctorRoutes(fastify);
@@ -2012,20 +2038,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     }
   }
 
-  // Serve static files / SPA fallback.
-  //
-  // Resolution strategies, in order:
-  //  1. Node module resolver — works in ANY install layout
-  //     (flat `node_modules/`, scoped, nested, pnpm, whatever).
-  //  2. Sibling-to-server in the installed @scope layout.
-  //  3. Monorepo workspace sibling.
-  //  4. Legacy dist/client.
-  //
-  // Same class of bug as commits 40a1319 (bridge auto-registration)
-  // and e11f5eb (server-launcher.ts resolve): sibling-path arithmetic
-  // that works in the dev repo silently returns wrong paths in the
-  // installed node_modules layout. require.resolve identifies packages
-  // by name, which is the only canonical identity across layouts.
+  // serve static files / SPA fallback.
   // Client-dir resolution — single strategy under change:
   // eliminate-electron-runtime-install. The legacy 5-strategy chain
   // (sibling/hoisted/monorepo/legacy paths) defended against runtime
@@ -2036,23 +2049,6 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Dev / monorepo fallbacks are still allowed when require.resolve
   // misses (e.g. running from a checked-out workspace where the web
   // package hasn't been linked yet).
-  const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  let clientDir = "";
-  try {
-    const webPkgJson = createRequire(import.meta.url).resolve(
-      "@blackbelt-technology/pi-dashboard-web/package.json",
-    );
-    const candidate = path.join(path.dirname(webPkgJson), "dist");
-    if (existsSync(path.join(candidate, "index.html"))) clientDir = candidate;
-  } catch {
-    // Web package not resolvable — try dev-monorepo sibling.
-    const devCandidate = path.join(__dirname, "../../client/dist");
-    if (existsSync(path.join(devCandidate, "index.html"))) clientDir = devCandidate;
-  }
-  const hasProductionBuild = !!clientDir;
-  if (!hasProductionBuild) {
-    console.log("[dashboard] No client build found — running in API-only mode");
-  }
 
   // Dynamic PWA manifest — MUST be registered before fastify-static so
   // explicit route matching wins over the static asset. See change:
@@ -2364,6 +2360,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   );
                 }
                 browserGateway.broadcast(msg as any);
+              },
+              subscribeSession: (sessionId, handler) => {
+                // Trusted gate — same priority rule as the other control-plane
+                // seams (sendExtensionMessage / emitEventToSession). Untrusted
+                // plugins receive nothing.
+                // See change: add-chat-gateway.
+                if ((plugin.manifest.priority ?? 1000) > 100) return () => {};
+                const unsub = browserGateway.addInProcessSubscriber(sessionId, handler as any);
+                // Replay any ALREADY-pending PromptBus request so a gateway
+                // that (re)subscribes renders an open ask_user instead of a
+                // dead card.
+                browserGateway.replayPendingPromptsTo(sessionId, handler as any);
+                return unsub;
               },
               registerPiHandler: (type, handler) => {
                 const arr = pluginPiHandlers.get(type) ?? [];

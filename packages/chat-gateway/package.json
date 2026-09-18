@@ -1,0 +1,81 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-chat-gateway-plugin",
+  "version": "0.8.0",
+  "description": "Inbound chat control plane — drive dashboard pi sessions from a chat platform (Discord shipped). Extensible adapter layer; no bridge or server protocol change.",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/chat-gateway"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/client/index.tsx",
+      "default": "./src/client/index.tsx"
+    },
+    "./client": {
+      "types": "./src/client/index.tsx",
+      "default": "./src/client/index.tsx"
+    },
+    "./server": {
+      "types": "./src/server/index.ts",
+      "default": "./src/server/index.ts"
+    },
+    "./guard": {
+      "types": "./src/guard/index.ts",
+      "default": "./src/guard/index.ts"
+    },
+    "./shared": {
+      "types": "./src/shared/index.ts",
+      "default": "./src/shared/index.ts"
+    }
+  },
+  "files": [
+    "src/",
+    "NOTICE",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
+  ],
+  "pi-dashboard-plugin": {
+    "id": "chat-gateway",
+    "displayName": "Chat Gateway",
+    "priority": 100,
+    "requiredApi": "^0.x",
+    "client": "./src/client/index.tsx",
+    "server": "./src/server/index.ts",
+    "configSchema": "./src/configSchema.json",
+    "claims": [
+      {
+        "slot": "settings-section",
+        "component": "ChatGatewaySettings",
+        "config": {
+          "tab": "general"
+        }
+      }
+    ]
+  },
+  "peerDependencies": {
+    "fastify": "^5.0.0",
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "dependencies": {
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
+    "discord.js": "^14.27.0"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.1.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

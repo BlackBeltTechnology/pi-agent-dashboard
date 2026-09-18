@@ -11,19 +11,23 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `diagram-preview.spec.ts` | L3 diagram preview (.puml and adoc hydration) in the editor pane (change: diagra… → see `diagram-preview.spec.ts.AGENTS.md` |
 | `automation-fanout.spec.ts` | L3 fan-out E2E (test-plan F5/F6). Creates an `actions:` fan-out automation via `… → see `automation-fanout.spec.ts.AGENTS.md` |
 | `background-stream-selection.spec.ts` | #F11 — held selection survives a background session stream. → see `background-stream-selection.spec.ts.AGENTS.md` |
+| `copy-insecure-context.spec.ts` | L3 test-plan #X3 (change: fix-long-session-ux-degradation, D2). → see `copy-insecure-context.spec.ts.AGENTS.md` |
+| `drag-body-style.spec.ts` | #F23 — breakpoint flip unmounts dragger mid-drag; body cursor cleared, text selectable. → see `drag-body-style.spec.ts.AGENTS.md` |
+| `idle-fx-pause.spec.ts` | L3 for idle FX pause (test-plan #F16-#F20): idle delay pauses decorative FX; input resumes;… → see `idle-fx-pause.spec.ts.AGENTS.md` |
+| `long-session-settle.spec.ts` | L3 test-plan #P4 (change: fix-long-session-ux-degradation, D5). → see `long-session-settle.spec.ts.AGENTS.md` |
+| `mobile-viewport-bound.spec.ts` | L3 mobile viewport bound (test-plan F12-F15, change: fix-long-session-ux-degradation §4, D4). → see `mobile-viewport-bound.spec.ts.AGENTS.md` |
 | `bind-reachability-advisory.spec.ts` | L3 for the bind-vs-trust advisory (test-plan F1–F19, X5, X6): visibility, draft… → see `bind-reachability-advisory.spec.ts.AGENTS.md` |
 | `blackhole-settings.spec.ts` | L3 spec (change: add-blackhole-plugin). Covers test-plan X3 + F1-F9 for… → see `blackhole-settings.spec.ts.AGENTS.md` |
 | `blackhole-session-pipeline.spec.ts` | L3 (add-blackhole-session-pipeline, F9; task 7.0). pi-blackhole NOT installed in harness: probes… → see `blackhole-session-pipeline.spec.ts.AGENTS.md` |
-| `bridge-contention-health.spec.ts` | L3 #F6 — `/api/health` carries `bridgeContentionCount` + `contendedSessionIds`. → see `bridge-contention-health.spec.ts.AGENTS.md` |
-| `browser-relay.spec.ts` | L3 for the browser relay (change: add-browser-relay, test-plan F1–F5 + F10). Needs the harness with… → see `browser-relay.spec.ts.AGENTS.md` |
+| `bridge-contention-health.spec.ts` | L3 contention health surface (test-plan #F6). → see `bridge-contention-health.spec.ts.AGENTS.md` |
+| `browser-relay.spec.ts` | L3 for the browser relay (change: add-browser-relay, test-plan F1–F5 + F10). Needs the… → see `browser-relay.spec.ts.AGENTS.md` |
 | `bus-client-goal-plugin-action.spec.ts` | L3/P1 (change: add-dashboard-bus-client-scripting). Drives `BusClient` from host… → see `bus-client-goal-plugin-action.spec.ts.AGENTS.md` |
 | `chat-attachment-two-phase.spec.ts` | Two-phase attachment render E2E (change: fit-attachments-for-display)… → see `chat-attachment-two-phase.spec.ts.AGENTS.md` |
-| `chat-pane-below-floor-allocation.spec.ts` | Below-floor chat pane allocation E2E. → see `chat-pane-below-floor-allocation.spec.ts.AGENTS.md` |
+| `chat-pane-below-floor-allocation.spec.ts` | L3 below-floor chat pane allocation. → see `chat-pane-below-floor-allocation.spec.ts.AGENTS.md` |
 | `chat-render-fx.spec.ts` | Browser E2E gate for `reduce-chat-render-cpu-umbrella` (umbrella-own surface not gated by… → see `chat-render-fx.spec.ts.AGENTS.md` |
 | `chat-render-perf.spec.ts` | ADVISORY opt-in perf probe for `reduce-chat-render-cpu-umbrella` (tasks 2.8/4.4/5.1). → see `chat-render-perf.spec.ts.AGENTS.md` |
 | `chat-transcript-virtualization.spec.ts` | Browser E2E gate for `virtualize-chat-transcript-tanstack` (Phase 2 Step B) +… → see `chat-transcript-virtualization.spec.ts.AGENTS.md` |
-| `compaction-boundary-replay.spec.ts` | L3 for change replay-compaction-boundary (F1/F2). Real `/compact` (canned `session_before_compact` +… → see `compaction-boundary-replay.spec.ts.AGENTS.md` |
-| `copy-insecure-context.spec.ts` | L3 test-plan #X3 (change: fix-long-session-ux-degradation, D2). → see `copy-insecure-context.spec.ts.AGENTS.md` |
+| `compaction-boundary-replay.spec.ts` | L3 for change replay-compaction-boundary (F1/F2). Real `/compact` (canned… → see `compaction-boundary-replay.spec.ts.AGENTS.md` |
 | `origin-gate.spec.ts` | L3 cross-site gates in browser reality (#F1-#F3): hostile origin refused on `/ws` + `/api/*`,… → see `origin-gate.spec.ts.AGENTS.md` |
 | `csp.spec.ts` | Baseline CSP e2e (§7). Asserts a CSP header (report-only or enforce) present on `/` with… → see `csp.spec.ts.AGENTS.md` |
 | `ctx-running-render.spec.ts` | Browser E2E for `fix-ctx-running-render`. Drives `[[faux:ctx-batch-running]]` (single… → see `ctx-running-render.spec.ts.AGENTS.md` |
@@ -31,8 +35,6 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `custom-entry-replay-parity.spec.ts` | L3 (change: render-inline-reasoning-and-custom-entries, F2). Live custom rows vs… → see `custom-entry-replay-parity.spec.ts.AGENTS.md` |
 | `dashboard-slash.spec.ts` | Browser E2E: spawn session → `/dashboard:server-health` asserts bash card + "ran locally"… → see `dashboard-slash.spec.ts.AGENTS.md` |
 | `directory-home.spec.ts` | L3 for the `/folder/:encodedCwd` directory home page (change: add-directory-home-page). → see `directory-home.spec.ts.AGENTS.md` |
-| `drag-body-style.spec.ts` | #F23 — breakpoint flip unmounts dragger mid-drag; body cursor cleared, text selectable. → see `drag-body-style.spec.ts.AGENTS.md` |
-| `idle-fx-pause.spec.ts` | L3 for §7 idle FX pause (test-plan #F16–#F20): idle delay pauses decorative FX; input resumes;… → see `idle-fx-pause.spec.ts.AGENTS.md` |
 | `editor-pane.spec.ts` | Playwright E2E for internal Monaco editor pane (change: add-internal-monaco-editor-pane). → see `editor-pane.spec.ts.AGENTS.md` |
 | `durable-session-diff.spec.ts` | L3 (change: fix-session-diff-durable-source, #F1): after `POST /api/restart` the RAM… → see `durable-session-diff.spec.ts.AGENTS.md` |
 | `empty-model-selector.spec.ts` | L3 for `open-empty-model-selector`. Proves the harness-feasible slice: composer… → see `empty-model-selector.spec.ts.AGENTS.md` |
@@ -55,9 +57,9 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `folder-collapse-persistence.spec.ts` | → see `folder-collapse-persistence.spec.ts.AGENTS.md` |
 | `folder-collapse-seek.spec.ts` | L3 `persist-folder-collapse-server-side` #F5/#F6/#F8: Seek into a collapsed folder, held echo. → see `folder-collapse-seek.spec.ts.AGENTS.md` |
 | `folder-collapse-worktree.spec.ts` | L3 `persist-folder-collapse-server-side` #F4/#F7: group rendered under `gitWorktree.mainPath`. → see `folder-collapse-worktree.spec.ts.AGENTS.md` |
-| `folder-membership-drag.spec.ts` | L3 for `drag-folders-across-workspaces` (#F11–#F13, #F16, #F18, #F20, #X6). → see `folder-membership-drag.spec.ts.AGENTS.md` |
+| `folder-membership-drag.spec.ts` | L3 for `drag-folders-across-workspaces` (test-plan #F11-#F13, #F16, #F18, #F20, #X6) —… → see `folder-membership-drag.spec.ts.AGENTS.md` |
 | `followup-image-queue.spec.ts` | L3 for `fix-bridge-followup-image-drop` (test-plan #F1, #F2, #F3, #F5, #F6, #F7, #F8). → see `followup-image-queue.spec.ts.AGENTS.md` |
-| `gateway-board-mobile.spec.ts` | 6.8/6.9 (D11) — readiness board at 375×667: 52px rows, no h-overflow, ≥44px targets. → see `gateway-board-mobile.spec.ts.AGENTS.md` |
+| `gateway-board-mobile.spec.ts` | 6.8/6.9 (D11) — the readiness board at 375×667: one 52px line per row, no horizontal… → see `gateway-board-mobile.spec.ts.AGENTS.md` |
 | `gateway-origin-surfaces.spec.ts` | L3 for the transport/identity CLIENT surfaces (test-plan #F1–#F5 → tasks 12.47–12.51). → see `gateway-origin-surfaces.spec.ts.AGENTS.md` |
 | `gateway-primary-offer.spec.ts` | F7/F8 of add-zrok-custom-reserved-name — confirm-gated primary switch and the registration offer. → see `gateway-primary-offer.spec.ts.AGENTS.md` |
 | `gateway-qr-selector.spec.ts` | Browser E2E for the Gateway single-QR network selector (change:… → see `gateway-qr-selector.spec.ts.AGENTS.md` |
@@ -66,7 +68,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `gateway-url-action.spec.ts` | L3 spec (change: config-override-oauth-redirect-base, D12/D13/D15). → see `gateway-url-action.spec.ts.AGENTS.md` |
 | `git-panel.spec.ts` | Scenario 5.2 spec. Calls `ensureGitSession`. Asserts page-level `git-branch-btn` (title… → see `git-panel.spec.ts.AGENTS.md` |
 | `global-setup.ts` | Playwright globalSetup. `PW_E2E_USE_RUNNING=1` → only verify `/api/health` (30s). → see `global-setup.ts.AGENTS.md` |
-| `global-teardown.ts` | Playwright globalTeardown. Managed (marker present, not fast path) → run `docker/test-down.sh` with… → see `global-teardown.ts.AGENTS.md` |
+| `global-teardown.ts` | Playwright globalTeardown. Managed (marker present, not fast path) → run… → see `global-teardown.ts.AGENTS.md` |
 | `headless-reload-dispatch.spec.ts` | L3 for `fix-out-of-band-reload` (#F1–#F3). Bare `/reload` on a headless harness session:… → see `headless-reload-dispatch.spec.ts.AGENTS.md` |
 | `helpers/__tests__/evidence-path.test.ts` | Unit tests (vitest `tests` project, NOT Playwright) for `helpers/evidence-path.ts`. → see `helpers/__tests__/evidence-path.test.ts.AGENTS.md` |
 | `host-gate-allow.spec.ts` | L3 for the Host-gate operator flow (test-plan #F9/#F10, change: add-host-allowlist-admission). → see `host-gate-allow.spec.ts.AGENTS.md` |
@@ -85,19 +87,17 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `lazy-feature-bootstrap.spec.ts` | L3 cold-landing gate (F1, P1). → see `lazy-feature-bootstrap.spec.ts.AGENTS.md` |
 | `lifecycle.ts` | Shared E2E lifecycle module. Port dynamic: probes free port in managed mode;… → see `lifecycle.ts.AGENTS.md` |
 | `list-models-registry-ready.spec.ts` | Playwright spec (L3). Live proof of the `list_models` registry-readiness discriminator. → see `list-models-registry-ready.spec.ts.AGENTS.md` |
-| `long-session-settle.spec.ts` | L3 test-plan #P4 (change: fix-long-session-ux-degradation, D5). → see `long-session-settle.spec.ts.AGENTS.md` |
 | `manage-worktrees.spec.ts` | L3 for the manage-worktrees surface (test-plan F4, F3, F7, X5, X11, X12, X13): menu gate is… → see `manage-worktrees.spec.ts.AGENTS.md` |
 | `mcp-client-folder-mobile.spec.ts` | L3 mobile presentation of the folder MCP page (change: extract-mcp-client-plugin, tasks 8.1/8.4). → see `mcp-client-folder-mobile.spec.ts.AGENTS.md` |
 | `mcp-client-settings-a11y.spec.ts` | L3 accessibility floor for the mcp-client settings section (change:… → see `mcp-client-settings-a11y.spec.ts.AGENTS.md` |
 | `mcp-token-settings.spec.ts` | L3 for the Settings → Paired Devices MCP-client token flow (change:… → see `mcp-token-settings.spec.ts.AGENTS.md` |
 | `mermaid-colorize.spec.ts` | Playwright spec. Mermaid default-node colorization end-to-end via faux model. → see `mermaid-colorize.spec.ts.AGENTS.md` |
-| `mobile-viewport-bound.spec.ts` | L3 mobile viewport bound (test-plan F12–F15, change: fix-long-session-ux-degradation §4, design D4). → see `mobile-viewport-bound.spec.ts.AGENTS.md` |
 | `model-proxy-oauth-filter.spec.ts` | Playwright spec (`request` fixture, no page). Model-proxy OAuth-incompatible filtering. → see `model-proxy-oauth-filter.spec.ts.AGENTS.md` |
 | `navigation.spec.ts` | Scenario 5.6 spec. Registers `page.on(pageerror)`. `gotoDashboard`, clicks `settings-btn`, asserts… → see `navigation.spec.ts.AGENTS.md` |
 | `notify-channel.spec.ts` | Playwright spec. Drives `[[faux:notify-probe]]` (→ `e2e_notify` fixture tool →… → see `notify-channel.spec.ts.AGENTS.md` |
-| `notify-min-level.spec.ts` | L3 spec (change: gate-notify-rows-by-level). Drives `[[faux:notify-levels]]` (four notifies, one per… → see `notify-min-level.spec.ts.AGENTS.md` |
+| `notify-min-level.spec.ts` | L3 spec (change: gate-notify-rows-by-level). Drives `[[faux:notify-levels]]` (four… → see `notify-min-level.spec.ts.AGENTS.md` |
 | `oauth-redirect-base.spec.ts` | L3 spec (change: config-override-oauth-redirect-base, review of PR #409). → see `oauth-redirect-base.spec.ts.AGENTS.md` |
-| `openspec-artifact-dialog.spec.ts` | L3 (openspec-artifact-dialog-desktop). Non-mobile artifact dialog off the board. → see `openspec-artifact-dialog.spec.ts.AGENTS.md` |
+| `openspec-artifact-dialog.spec.ts` | L3 spec (change: openspec-artifact-dialog-desktop). Drives the non-mobile artifact dialog… → see `openspec-artifact-dialog.spec.ts.AGENTS.md` |
 | `openspec-board-drop-contrast.spec.ts` | L3 spec (change: fix-openspec-board-drop-targeting). Marker + active-rail contrast… → see `openspec-board-drop-contrast.spec.ts.AGENTS.md` |
 | `openspec-board-drop-indicator.spec.ts` | L3 spec (change: fix-openspec-board-drop-targeting). Drag-time indication + cost:… → see `openspec-board-drop-indicator.spec.ts.AGENTS.md` |
 | `openspec-board-drop.spec.ts` | L3 spec (change: fix-openspec-board-drop-targeting). Drop resolution + commit:… → see `openspec-board-drop.spec.ts.AGENTS.md` |
@@ -117,18 +117,19 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `paging-exhausted-reconnect-rearm.spec.ts` | L3 #X4: reconnect snapshot re-arms a stale exhausted mark. → see `paging-exhausted-reconnect-rearm.spec.ts.AGENTS.md` |
 | `pi-runtime.spec.ts` | L3 spec: version-neutral pi runtime verification vault (test-plan #F1/F2/F3/F4/#X12) — reads… → see `pi-runtime.spec.ts.AGENTS.md` |
 | `pi-runtime-picker.spec.ts` | L3 spec for the Settings → Developer "Pi runtime" picker (test-plan #F1-#F17, #X13). → see `pi-runtime-picker.spec.ts.AGENTS.md` |
+| `plugin-hash-parity.spec.ts` | L3 F3: clientBuild matched; banner hidden. → see `plugin-hash-parity.spec.ts.AGENTS.md` |
 | `plugin-settings-pages.spec.ts` | L3 spec (test-plan rows F1-F14, X1-X5, X7; change: plugin-settings-pages). → see `plugin-settings-pages.spec.ts.AGENTS.md` |
 | `popover-container-clip.spec.ts` | Browser E2E gate for `fix-popover-container-clip` (F5–F8, F11–F12). → see `popover-container-clip.spec.ts.AGENTS.md` |
 | `project-trust-headless-spawn.spec.ts` | L3 spec (test-plan #X4, change: adopt-pi-074-080-features). → see `project-trust-headless-spawn.spec.ts.AGENTS.md` |
 | `quota-context-strip.spec.ts` | L3 (change: move-quota-to-context-strip; F7–F9, X3). Stubs `/api/quota`; asserts the… → see `quota-context-strip.spec.ts.AGENTS.md` |
 | `real-flow-regression.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests, D5 follow-up). → see `real-flow-regression.spec.ts.AGENTS.md` |
-| `reap-core.ts` | Pure, side-effect-free reap logic, unit-tested at L1 in `scripts/__tests__/e2e-reap-core.test.mjs`:… → see `reap-core.ts.AGENTS.md` |
+| `reap-core.ts` | Pure, side-effect-free reap logic, unit-tested at L1 in… → see `reap-core.ts.AGENTS.md` |
 | `reasoning-auto-collapse.spec.ts` | Playwright E2E for reasoning-auto-collapse-timer. Two tests. → see `reasoning-auto-collapse.spec.ts.AGENTS.md` |
 | `reasoning-inline-flow.spec.ts` | L3 (change: render-inline-reasoning-and-custom-entries, E12). → see `reasoning-inline-flow.spec.ts.AGENTS.md` |
 | `recommended-local-name-match.spec.ts` | L3 spec (test-plan #F3, change: match-local-installs-by-package-name). → see `recommended-local-name-match.spec.ts.AGENTS.md` |
 | `recommended-requires.spec.ts` | Playwright E2E for recommended-extension `requires` probe (change:… → see `recommended-requires.spec.ts.AGENTS.md` |
 | `reconcile-heal.spec.ts` | Playwright spec (task 5.1, change: fix-stuck-tool-card-on-dropped-event). → see `reconcile-heal.spec.ts.AGENTS.md` |
-| `reducer-poisoned-cache-heal.spec.ts` | E2E for `fix-reducer-crash-undefined-toolname` (tasks 5.1+5.2). → see `reducer-poisoned-cache-heal.spec.ts.AGENTS.md` |
+| `reducer-poisoned-cache-heal.spec.ts` | L3 reducer-poisoned cache heal. → see `reducer-poisoned-cache-heal.spec.ts.AGENTS.md` |
 | `registry-shed-sidebar-convergence.spec.ts` | L3 #F7: shed registry burst reconciles the sidebar on drain. → see `registry-shed-sidebar-convergence.spec.ts.AGENTS.md` |
 | `remote-transcript-read.spec.ts` | L3 for the D12 READ half — the scenario deferred as 12.52 of add-pi-gateway-transport-identity. → see `remote-transcript-read.spec.ts.AGENTS.md` |
 | `replay-delta-on-reload.spec.ts` | Playwright spec. Strategy A: reload of seen session resubscribes lastSeq>0 (delta replay). → see `replay-delta-on-reload.spec.ts.AGENTS.md` |
@@ -138,7 +139,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `resource-scope-routes.spec.ts` | S-25 scope × path decision table: the 10 resource destinations (5 global… → see `resource-scope-routes.spec.ts.AGENTS.md` |
 | `route-backed-overlay.spec.ts` | Route-backed overlay contract: S-12/S-12b (one overlay per URL, tunnel replaces… → see `route-backed-overlay.spec.ts.AGENTS.md` |
 | `scroll-to-top.spec.ts` | Browser E2E gate for `fix-chat-scroll-to-top-estimate-drift` (the ONLY layer that reproduces the… → see `scroll-to-top.spec.ts.AGENTS.md` |
-| `session-context-injection.spec.ts` | Playwright spec. Spawns session, sends `[[faux:echo-system-context]]`, asserts rendered text contains… → see `session-context-injection.spec.ts.AGENTS.md` |
+| `session-context-injection.spec.ts` | Playwright spec. Spawns session, sends `[[faux:echo-system-context]]`, asserts rendered… → see `session-context-injection.spec.ts.AGENTS.md` |
 | `session-ended-orphan-heal.spec.ts` | L3 #F6/#F7: a session killed while holding a long-running bash call heals live and… → see `session-ended-orphan-heal.spec.ts.AGENTS.md` |
 | `session-heap-settings.spec.ts` | L3 heap settings copy, save round-trip, coupling warning, health telemetry. → see `session-heap-settings.spec.ts.AGENTS.md` |
 | `session-reap.spec.ts` | L3 gate on the reap fixture itself, driven headless over `BusClient` (no browser page); port from… → see `session-reap.spec.ts.AGENTS.md` |
@@ -150,8 +151,8 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `severity-contrast.spec.ts` | L3 gate for `unify-message-severity-colors` + `unify-retry-visibility` (card retry-label contrast). → see `severity-contrast.spec.ts.AGENTS.md` |
 | `skill-provenance.spec.ts` | L3 for the Resources skills grid (F1-F10, X7). Fulfils `/api/pi-resources` with crafted… → see `skill-provenance.spec.ts.AGENTS.md` |
 | `smoke.spec.ts` | Smoke spec, wiring proof only. Asserts shell renders (title `PI Dashboard` + `header-app-bar`), no… → see `smoke.spec.ts.AGENTS.md` |
-| `spawn-correlation-recovery.spec.ts` | L3 F2-F6: a late spawn register clears the banner AND adds the card; `dashboardSpawned` visibility;… → see `spawn-correlation-recovery.spec.ts.AGENTS.md` |
-| `split-composer-overflow.spec.ts` | Browser E2E gate for `fix-split-composer-overflow`. Opens `layout-mode-split` at viewport 1280 (≥ md)… → see `split-composer-overflow.spec.ts.AGENTS.md` |
+| `spawn-correlation-recovery.spec.ts` | L3 F2-F6: a late spawn register clears the banner AND adds the card; `dashboardSpawned`… → see `spawn-correlation-recovery.spec.ts.AGENTS.md` |
+| `split-composer-overflow.spec.ts` | Browser E2E gate for `fix-split-composer-overflow`. Opens `layout-mode-split` at viewport… → see `split-composer-overflow.spec.ts.AGENTS.md` |
 | `subagent-detail-dialog.spec.ts` | Playwright spec (change: fix-subagent-live-detail-reliability D4). → see `subagent-detail-dialog.spec.ts.AGENTS.md` |
 | `subagent-inspector.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Drives `[[faux:subagent-spawn]]` — parent… → see `subagent-inspector.spec.ts.AGENTS.md` |
 | `subagent-pull-measurements.spec.ts` | RECORDED-EVIDENCE measurement rows for the subagent pull path (change… → see `subagent-pull-measurements.spec.ts.AGENTS.md` |

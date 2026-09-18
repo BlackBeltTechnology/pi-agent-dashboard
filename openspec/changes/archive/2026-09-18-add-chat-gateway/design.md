@@ -13,14 +13,13 @@ drives sessions through the **existing browser-protocol seam** — the same
 client uses. This is why **no bridge/server protocol change is needed**: the gateway is
 just another consumer of streams the server already fans out.
 
-```
- Discord ─▶ [vendored Discord adapter] ─┐ send_prompt / prompt_response
-                                        ▼
-   chat-gateway plugin  ── subscribe/abort ──▶ Dashboard Server (UNCHANGED)
-   (routing · binding · auth · guard)  ◀── event/prompt_request/prompt_dismiss
-                                             │ (sendToSubscribers fan-out, PromptBus relay)
-                                             ▼
-                             Bridge + PromptBus in each pi session (UNCHANGED)
+```mermaid
+flowchart TB
+  Discord["Discord"] -->|inbound message| Adapter["vendored Discord adapter"]
+  Adapter -->|send_prompt / prompt_response| GW["chat-gateway plugin<br/>routing · binding · auth · guard"]
+  GW -->|subscribe / abort| Server["Dashboard Server (UNCHANGED)"]
+  Server -->|event / prompt_request / prompt_dismiss| GW
+  Server -->|sendToSubscribers fan-out · PromptBus relay| Bridge["Bridge + PromptBus<br/>in each pi session (UNCHANGED)"]
 ```
 
 In-process (plugin calls the server's internal subscriber API) vs. loopback WS client are
@@ -78,6 +77,17 @@ owner-trusted (you're remote-controlling your own open session — and an interc
 be retrofitted into a running session anyway). This aligns the trust boundary with the
 technical constraint.
 
+**Implementation status (synced with tasks 8.x/9.x/12.x).** Every control above is
+implemented and unit-tested: L1 allowlist + 6-digit pairing code (DM-only redemption;
+redeeming persists the user onto the allowlist, wrong/expired code never grants access);
+L2 admin-only bind; the `allowedRoots` real-path boundary is re-applied on EVERY transition
+(attach · spawn · resume), not only at bind time, and an empty set refuses all spawns; L4
+group channels stay inert unless opted in and DMs are isolated; L3 is a deny-first companion
+`tool_call` interceptor loaded into gateway-SPAWNED sessions only. The bot token is
+`writeOnly` — stripped from every client document by `redactWriteOnly`, never logged, and a
+blank settings save cannot erase it. `GET /api/chat-gateway/bindings` is registered only
+once configured + started, so an inert install exposes no surface.
+
 ## Why L3 lives in-session, not at the gateway edge
 
 The gateway sees the prompt, not the agent's mid-turn tool decisions (those fire inside
@@ -85,6 +95,21 @@ the session). The only real enforcement point is pi's `tool_call` event
 (`return {block:true}`), documented in `extensions.md` as a permission gate. So a companion
 extension is loaded into spawned sessions carrying the policy; escalation uses
 `ctx.ui.confirm` which the bridge routes through PromptBus → the gateway → Discord.
+
+## Security review (V.2) — controls verified, gaps closed
+
+Adversarial review (independent pass) of the implemented diff. Claims and outcome:
+
+| Claim | Verdict |
+|---|---|
+| `allowedRoots` non-bypassable | **HELD** — every spawn path funnels through `spawnIn`/`resumeIn`; attach filters candidates; `resolveCwd` refuses rather than falls through; now also returns the CANONICAL (symlink-resolved) path so the spawned cwd equals the validated one. |
+| L3 guard hard-blocks | **FIXED** — the pure engine was deny-first but the wiring failed open. `spawnCorrelated` now REFUSES to spawn when `toolPolicy` is set without `guardExtension` (pi treats an unresolvable `-e` as non-fatal), and the guard reads the host-projected `PI_EXT_CHAT_GATEWAY_GUARD_POLICY` env (default deny-all) instead of a factory arg pi never passes. |
+| Secrets / authorization | **FIXED** — every `onInteractiveResponse` is RE-AUTHORIZED at the edge (a group member who is not allowlisted can see the buttons; rendering is not a grant); binding is now admin-gated (L2); `GET /api/chat-gateway/bindings` carries the same `networkGuard` as every core route and no longer returns the pairing code; the pairing code is CSPRNG. |
+
+Residual / accepted (documented, low):
+
+- **Resolvable-guard verification.** The gateway cannot confirm that a supplied `guardExtension` actually loaded; a typo'd id yields an ungated spawned session. Mitigated by refusing the no-id case and by the guard's deny-all default; verifying load needs host support and is a follow-up.
+- **Unbounded in-memory maps.** `sequences`/`prompts` are cleared on `session_state_reset` and `stop()`; the spawn correlator / `pendingSpawns` entry for a spawn that never resolves is bounded by spawn attempts, not swept on a timer.
 
 ## Deferred (explicit)
 
@@ -111,9 +136,12 @@ extension is loaded into spawned sessions carrying the policy; escalation uses
 - **C8 edit throttle:** ≥ ~1000ms between `editMessage` calls; target zero Discord 429s;
   p95 edit latency < 1.5s under a sustained delta burst.
 
-## Open questions for implementation
+## Implementation notes (questions resolved)
 
-- Does `dashboard-plugin-runtime` expose an in-process subscribe API, or must the gateway
-  open a loopback WS client? (Decides the placement detail; contract is identical.)
-- Pairing-code UX over Discord (DM handshake) vs. admin pre-seeding the allowlist in
-  settings — support both; pre-seed is the simplest v1 path.
+- **In-process subscribe:** `dashboard-plugin-runtime` was extended with an OPTIONAL,
+  trust-gated `ctx.subscribeSession` seam (`See change: add-chat-gateway`). The gateway uses
+  it and refuses to start (logs an error) when a host does not expose it — no loopback WS
+  fallback. See `packages/server/src/pairing/browser-gateway.ts` + `server-context.ts`.
+- **Pairing UX:** both paths ship. An admin pre-seeds `allowlist` in Settings, OR a user DMs
+  the pairing code shown in Settings; redemption is DM-only (a code in a public group
+  channel would leak access to every reader).

@@ -10,7 +10,6 @@ import { getHeapStatistics } from "node:v8";
 import {
   discoverPlugins,
   getPluginStatusStore,
-  pluginRegistryHash,
 } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { BridgeLoadSource, PluginStatus } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/plugin-status.js";
@@ -30,6 +29,11 @@ import {
   sameReachability,
 } from "../auth/bind-reachability-service.js";
 import { localhostGuard } from "../auth/localhost-guard.js";
+import {
+  type ClientBuildSnapshot,
+  readClientBuildSnapshot,
+  runtimePluginRegistryHash,
+} from "../lib/client-dist.js";
 import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
 import type { DirectoryService } from "../directory-service.js";
 import { bootParentPid, computeBootParentAlive, readLivePpid } from "../lifecycle/boot-parent-liveness.js";
@@ -93,6 +97,7 @@ export interface PiDivergenceHealth {
   installSetDiverged: boolean;
   installSetVersions: string[];
 }
+
 /**
  * Enrich each plugin status with `bridgeLoadedFrom` by classifying the
  * plugin's resolved bridge path against the live pi settings.json.
@@ -187,9 +192,36 @@ export function registerSystemRoutes(
     // a throwing snapshot must never 500 the unguarded health hot path.
     // See change: fix-runaway-keeper-log-growth (D6, task 4.2).
     keeperLogStats?: { get: () => KeeperLogStats };
+    // The static client directory the server serves assets from (null when
+    // API-only) — the SAME directory `fastifyStatic` is rooted at. The
+    // `/api/health.clientBuild` snapshot is derived from it ONCE at
+    // registration, never per request. See change:
+    // add-served-build-coherence-and-hash-parity (design D3/D4).
+    clientDir?: string | null;
+    // The SAME coherence snapshot the server bootstrap computed for its startup
+    // diagnostic — passed in so the value is computed once (design D3). Absent
+    // (tests) ⇒ derived from `clientDir` at registration.
+    clientBuild?: ClientBuildSnapshot;
   },
 ) {
-  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, keeperLogStats } = deps;
+  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, keeperLogStats, clientDir } = deps;
+
+  // Served-artifact coherence snapshot (design D4): a startup snapshot, never a
+  // per-request filesystem read (P1).
+  const clientBuild =
+    deps.clientBuild ??
+    readClientBuildSnapshot(clientDir ?? null, (policy) =>
+      runtimePluginRegistryHash(policy === "excluded"),
+    );
+
+  // Hoisted for the same reason as `clientBuild`: `runtimePluginRegistryHash`
+  // calls `findMonorepoRoot()`, which synchronously walks parent directories
+  // with `fs.existsSync`/`readFileSync`. Evaluating it inside the unguarded,
+  // frequently-polled `/api/health` handler made every poll do filesystem I/O.
+  // The plugin set is process-stable (`discoverPlugins` is cached and only the
+  // build-side vite-plugin clears it), so a registration-time snapshot is both
+  // cheaper and equivalent. See change: add-served-build-coherence-and-hash-parity.
+  const bundleHash = runtimePluginRegistryHash(!config.dev);
 
   // Quiesce windows for the bridge `server_restarting` broadcast. See change
   // `fix-restart-bridge-auto-start-race`. Bridges that receive this message
@@ -917,18 +949,11 @@ export function registerSystemRoutes(
       // See change: bound-session-heap-and-gc-telemetry (D3a).
       sessionHeapFallback: heapFallbackStatus(),
       plugins: enrichWithBridgeSource(getPluginStatusStore().listAll()),
-      // Build-time-vs-runtime plugin-bundle hash. Clients compare it to
-      // the embedded `PLUGIN_REGISTRY_HASH` to detect stale bundles.
-      // See change: fix-pi-flows-end-to-end (Group 6).
-      // Must hash over the SAME plugin set the vite-plugin used at build
-      // time — production builds exclude `fixture: true` plugins (e.g. demo).
-      // Without this filter, the runtime hash would differ from the embedded
-      // PLUGIN_REGISTRY_HASH and the staleness banner would always show.
-      bundleHash: pluginRegistryHash(
-        discoverPlugins().filter((p) =>
-          config.dev ? true : p.manifest.fixture !== true,
-        ),
-      ),
+      bundleHash,
+      // Served-artifact coherence (design D4). Additive; `bundleHash` above
+      // keeps its shape and meaning. No filesystem path is exposed.
+      // See change: add-served-build-coherence-and-hash-parity.
+      clientBuild,
       proxy: getModelProxyStatus(),
       // Windows-only: active git/sh source readout for Settings + Diagnostics.
       // null on macOS/Linux. See change: embed-git-bash-on-windows.

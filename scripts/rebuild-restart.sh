@@ -34,6 +34,12 @@ echo "=== Building web client ==="
 npm run build
 echo "✓ Client built"
 
+# Step 2.5: Verify/deploy one coherent served-client artifact set. Fails BEFORE
+# the restart/reload below when built ≠ served (set -euo pipefail).
+echo "=== Verifying served client build ==="
+node scripts/sync-served-client.mjs
+echo "✓ Served client verified"
+
 # Step 3: Restart dashboard server
 echo "=== Restarting dashboard server ==="
 pi-dashboard restart
