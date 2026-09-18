@@ -170,10 +170,12 @@ test.describe("lazy feature bootstrap — diff boundaries + fetch faults", () =>
   test("F14 · a mobile viewport stays jsdiff-only (no git-diff-view fetch)", async ({ page }) => {
     test.setTimeout(180_000);
     const diffJs = collectChunkRequests(page, DIFF_JS_RE);
-    await page.setViewportSize({ width: 390, height: 844 });
 
+    // Spawn at the default (desktop) viewport: the sidebar spawn control is not
+    // reachable in the mobile layout. Resize only AFTER the session exists.
     const card = await spawnFreshGitSession(page);
     await card.click();
+    await page.setViewportSize({ width: 390, height: 844 });
     await sendPrompt(page, "[[faux:tool-edit]] make an edit");
 
     const chip = page.getByTestId("changed-files-chip");
