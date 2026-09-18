@@ -19,6 +19,10 @@ The harvest SHALL convert `flowchart` / `graph` (directions TD, TB, BT, LR, RL) 
 - **WHEN** a slide contains a ```mermaid `gantt` block
 - **THEN** parse emits a warning naming the slide and diagram type, the slide's `diagram` is `none`, and parse exits 0
 
+#### Scenario: Syntax error in a supported type
+- **WHEN** a slide contains a ```mermaid `flowchart` block that mermaid fails to parse
+- **THEN** parse exits non-zero naming the slide id and the mermaid error text; no `deck.json` is written
+
 ### Requirement: Semantics come from the diagram model, layout from the rendered output
 Node shape, edge kind, labels, subgraph membership and direction SHALL be taken from the diagram's semantic model. Node positions, node sizes and edge path geometry SHALL be taken from the diagram engine's rendered layout, normalised to a unit-free coordinate space in the IR.
 
@@ -46,7 +50,11 @@ Labels containing `á é í ó ö ő ú ü ű` and their capitals SHALL appear u
 - **THEN** the IR strings are identical to the source
 
 ### Requirement: Harvest is build-time only
-Harvesting SHALL run in a headless browser during parse. The rendered deck SHALL NOT include the diagram engine or perform harvesting at view time.
+Harvesting SHALL run in a headless browser during parse, with a 60 s timeout per mermaid block; on timeout parse SHALL exit non-zero naming the slide. The rendered deck SHALL NOT include the diagram engine or perform harvesting at view time.
+
+#### Scenario: Harvest hangs
+- **WHEN** the harness page does not resolve a block's render within 60 s
+- **THEN** parse exits non-zero naming the slide id and `timeout`, and the browser process is closed
 
 #### Scenario: No browser available
 - **WHEN** parse runs on a host without a usable headless browser and the deck contains a mermaid block

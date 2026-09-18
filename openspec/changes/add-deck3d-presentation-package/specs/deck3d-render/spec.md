@@ -73,15 +73,15 @@ The rendered HTML SHALL expose `window.__deck3d` with `gotoSlide(n)`, `setTime(t
 - **THEN** both results are identical
 
 ### Requirement: Browser fit-and-legibility check
-`check <deck.html> [--viewport WxH[,WxH]] [--slide n] [--strict] [-o report.json]` SHALL open the deck headless at devicePixelRatio 1, and for every slide at `t=0` and at each animation peak reported by the deck evaluate: **fit** — union of all content rects inside the viewport minus a safe margin (default 4 %); **legibility** — every label cap height ≥ minimum (default 14 px at 1920×1080, scaled by viewport height); **overlap** — no two label rects intersect with IoU > 0.1; **occlusion** — no label's raycast hit is an object other than the label or its own node; **contrast** — luminance ratio between label text colour and the mean rendered pixels behind its rect ≥ 3:1. Each finding SHALL name slide, object id/label text, measured vs threshold values, a severity (`error` for fit/overlap/occlusion, `warn` for legibility/contrast) and a suggested `overrides` key. The command SHALL write a JSON report, print one line per finding on stderr, and exit non-zero when any `error` exists, or when any finding exists under `--strict`.
+`check <deck.html> [--viewport WxH[,WxH]] [--slide n] [--strict] [-o report.json]` (default viewports `1920x1080,1280x720`; 120 s timeout per viewport, exit non-zero naming the viewport on timeout) SHALL open the deck headless at devicePixelRatio 1, and for every slide at `t=0` and at each animation peak reported by the deck evaluate: **fit** — union of all content rects inside the viewport minus a safe margin (default 4 %); **legibility** — every label cap height ≥ minimum (default 14 px at 1920×1080, scaled by viewport height); **overlap** — no two label rects intersect with IoU > 0.1; **occlusion** — no label's raycast hit is an object other than the label or its own node; **contrast** — luminance ratio between label text colour and the mean rendered pixels behind its rect ≥ 3:1. Each finding SHALL name slide, object id/label text, measured vs threshold values, a severity (`error` for fit/overlap/occlusion, `warn` for legibility/contrast) and a suggested key spelled in the `overrides` grammar (e.g. `overrides.slides["<slideId>"].diagram.scale`). Contrast ratios SHALL be rounded to 0.1 and contrast findings are excluded from the report byte-equality guarantee (GPU-dependent); all geometric findings SHALL be identical for the same IR and viewport. The command SHALL write a JSON report, print one line per finding on stderr, and exit non-zero when any `error` exists, or when any finding exists under `--strict`.
 
 #### Scenario: Diagram spills out of frame
 - **WHEN** a flowchart's projected right edge exceeds the safe area at 1920×1080
-- **THEN** `check` reports `error fit slide <n> diagram right 1123px > 1106px` with suggestion `slides[<n>].diagram.scale` and exits non-zero
+- **THEN** `check` reports `error fit slide <n> diagram right 1123px > 1106px` with suggestion `overrides.slides["<slideId>"].diagram.scale` and exits non-zero
 
 #### Scenario: Label too small
 - **WHEN** a node label projects to 9 px cap height
-- **THEN** `check` reports a `warn legibility` finding with `9px < 14px` and suggestion `slides[<n>].labels.size`, and exits 0 unless `--strict`
+- **THEN** `check` reports a `warn legibility` finding with `9px < 14px` and suggestion `overrides.slides["<slideId>"].labels.size`, and exits 0 unless `--strict`
 
 #### Scenario: Lifted message leaves frame at peak
 - **WHEN** a sequence message fits at `t=0` but its lifted position at the pulse peak crosses the safe margin
@@ -95,8 +95,19 @@ The rendered HTML SHALL expose `window.__deck3d` with `gotoSlide(n)`, `setTime(t
 - **WHEN** every slide fits, is legible, non-overlapping, unoccluded and contrasting at all viewports
 - **THEN** the report has zero findings and `check` exits 0
 
+### Requirement: Build budget
+`build` of the fixture deck (`fixtures/strategy-lab.md`: 7 slides, 2 mermaid blocks, no props) SHALL complete in ≤ 20 s measured from after chromium launch, and its `deck.html` SHALL be ≤ 2.5 MB.
+
+#### Scenario: Fixture within budget
+- **WHEN** `deck3d build fixtures/strategy-lab.md` runs on the CI runner with chromium present
+- **THEN** the post-launch wall time is ≤ 20 s and the output file size is ≤ 2,621,440 bytes
+
 ### Requirement: Build runs check
-`build` SHALL run `check` on its output after rendering and print its findings; `build` SHALL exit 0 regardless of findings unless `--strict` is passed, in which case any finding fails the build.
+`build` SHALL run `check` on its output after rendering and print its findings; `build` SHALL exit 0 regardless of findings unless `--strict` is passed, in which case any finding fails the build. When chromium is unavailable, `build` SHALL still write the HTML, print `check skipped: chromium missing (<install command>)` and exit 0; under `--strict` an unrunnable check fails the build. `render` and `validate` SHALL never require a browser.
+
+#### Scenario: Build without chromium
+- **WHEN** `deck3d build talk.md` runs on a host without Playwright chromium (the parse step's harvest fixture is pre-cached)
+- **THEN** `talk.html` exists, the skip line names the install command, and the exit code is 0 (non-zero with `--strict`)
 
 #### Scenario: Build with findings
 - **WHEN** `deck3d build talk.md` produces a deck with one fit error

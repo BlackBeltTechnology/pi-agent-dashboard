@@ -10,15 +10,15 @@ A curated, licence-clean corpus of named visual effects (backgrounds, post-proce
 The package SHALL ship an effects corpus under `src/fx/<id>.ts` + `src/fx/<id>.meta.json`. Each module SHALL implement one interface (`create(ctx, params) → { object?, pass?, material?, tick?(t), dispose() }`) and each card SHALL declare: `id`, `kind` (`background` | `post` | `material` | `light` | `motion` | `edge` | `transition`), `tags.mood[]`, `tags.content[]`, `cost` (1–5), `modes` (`dark` | `light` | `both`), `params` (JSON Schema with defaults and ranges), `conflicts[]` (effect ids), `source` (URL) and `licence` (SPDX id). Only permissive licences (MIT, Zlib, BSD, CC0, Apache-2.0) are admitted; a card whose `licence` is missing or non-permissive SHALL fail the corpus test.
 
 #### Scenario: Card drives validation
-- **WHEN** `overrides.slides[3].effects` contains `{ id: "aurora", params: { speed: 9 } }` and the `aurora` card bounds `speed` to `0..2`
-- **THEN** `validate` fails naming `slides[3].effects[0].params.speed` and the allowed range
+- **WHEN** `overrides.slides["<slideId>"].effects` contains `{ id: "aurora", params: { speed: 9 } }` and the `aurora` card bounds `speed` to `0..2`
+- **THEN** `validate` fails naming `overrides.slides["<slideId>"].effects[0].params.speed` and the allowed range
 
 #### Scenario: Non-permissive licence rejected
 - **WHEN** a card declares `licence: "Prosperity-3.0.0"` or omits `licence`
 - **THEN** the corpus test fails and the effect is not built into the runtime
 
 ### Requirement: v1 corpus content
-The v1 corpus SHALL contain at least the effects present in the strategy-lab mockup (`tokens`, `rings`, `swarm`, `particles` backgrounds; `bloom`, `film` post; `glass`, `metal`, `emissive` materials; `mirror-floor`, `fog`, `soft-shadows`, `room-ibl` staging; `signal-pulse` edge; `dolly` transition) plus permissively-licensed additions ported from three.js examples (MIT), `pmndrs/postprocessing` (Zlib), `@pmndrs/drei-vanilla` (MIT) and `n8ao` (CC0): `starfield`, `aurora`, `grid-horizon`, `hex-grid`, `data-columns`, `glyph-rain`, `constellation` backgrounds; `vignette`, `chromatic-aberration`, `depth-of-field`, `god-rays`, `n8ao`, `selective-bloom`, `smaa` post; `holo-fresnel`, `wireframe-overlay`, `iridescent`, `matcap` materials; `lightformers`, `accent-cycle`, `volumetric-spot` lights; `float`, `orbit`, `stagger-reveal`, `trail`, `camera-drift` motion; `dashed-flow`, `glow-tube`, `particle-stream` edges; `fade`, `iris`, `flythrough` transitions.
+The v1 corpus SHALL contain at least the effects present in the strategy-lab mockup (`tokens`, `rings`, `swarm`, `particles` backgrounds; `bloom`, `film` post; `glass`, `metal`, `emissive` materials; `mirror-floor`, `fog`, `soft-shadows`, `room-ibl` staging; `signal-pulse` edge; `dolly` transition) plus permissively-licensed additions ported from three.js examples (MIT), `pmndrs/postprocessing` (Zlib — the runtime's single `EffectComposer`; `bloom`/`film` are re-expressed as its `BloomEffect`/`NoiseEffect`), `@pmndrs/drei-vanilla` (MIT) and `n8ao` (CC0): `starfield`, `aurora`, `grid-horizon`, `hex-grid`, `data-columns`, `glyph-rain`, `constellation` backgrounds; `vignette`, `chromatic-aberration`, `depth-of-field`, `god-rays`, `n8ao`, `selective-bloom`, `smaa` post; `holo-fresnel`, `wireframe-overlay`, `iridescent`, `matcap` materials; `lightformers`, `accent-cycle`, `volumetric-spot` lights; `float`, `orbit`, `stagger-reveal`, `trail`, `camera-drift` motion; `dashed-flow`, `glow-tube`, `particle-stream` edges; `fade`, `iris`, `flythrough` transitions.
 
 #### Scenario: Corpus size and licence audit
 - **WHEN** the corpus test runs
@@ -36,14 +36,14 @@ The v1 corpus SHALL contain at least the effects present in the strategy-lab moc
 - **THEN** the corpus test fails (catalogue hash ≠ cards hash)
 
 ### Requirement: Deterministic defaults, agent overrides
-`parse` SHALL assign default effects per slide deterministically from slide content: title/kicker keywords and diagram kind map to `tags.content` via a static table, resolved to the cheapest matching effect per kind, recorded in the derived `slides[n].effects` field. `overrides.slides[n].effects` SHALL replace (not merge) that list when present, and `overrides.effects` (deck level) SHALL replace deck-wide defaults. Same markdown ⇒ same defaults.
+`parse` SHALL assign default effects per slide deterministically from slide content: title/kicker keywords and diagram kind map to `tags.content` via a static table, resolved to the cheapest matching effect per kind, recorded in the derived `slides[n].effects` field. `overrides.slides["<slideId>"].effects` SHALL replace (not merge) that list when present, and `overrides.effects` (deck level) SHALL replace deck-wide defaults (arrays replace under the IR merge rule). `defaults.transition` SHALL name a `transition`-kind effect id. Same markdown ⇒ same defaults.
 
 #### Scenario: Default from diagram kind
 - **WHEN** a slide contains a `sequenceDiagram` and no effects override
 - **THEN** `parse` assigns a background tagged `timeline` and an edge style tagged `sequence`, identically on every run
 
 #### Scenario: Override replaces defaults
-- **WHEN** `overrides.slides[4].effects` is `[{ id: "starfield" }]`
+- **WHEN** `overrides.slides["<slideId>"].effects` is `[{ id: "starfield" }]`
 - **THEN** slide 4 renders only `starfield` plus deck-level effects, and re-running `parse` on edited markdown keeps the override
 
 ### Requirement: Composition rules and budget
