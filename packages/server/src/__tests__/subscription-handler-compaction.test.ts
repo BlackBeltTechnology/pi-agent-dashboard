@@ -50,7 +50,7 @@ const replayBatches = (ctx: BrowserHandlerContext) =>
     .filter((m): m is Extract<ServerToBrowserMessage, { type: "event_replay" }> => m.type === "event_replay");
 
 function window(n: number, make: (i: number) => DashboardEvent): StoredEvent[] {
-  return Array.from({ length: n }, (_, i) => ({ seq: i + 1, event: make(i) }));
+  return Array.from({ length: n }, (_, i) => ({ bytes: 0, seq: i + 1, event: make(i) }));
 }
 
 const openWs = () => ({ readyState: 1, OPEN: 1, bufferedAmount: 0 }) as any;
@@ -97,9 +97,9 @@ describe("sendEventBatches — high-water mark and fault paths", () => {
     // last surviving seq today. D4 is a defensive contract — this test pins it
     // so a future narrowing of the rule cannot silently regress `clearReplaying`
     // into re-sending already-delivered events.
-    const stored: StoredEvent[] = [{ seq: 1, event: makeEvent("message_start") }];
-    for (let s = 2; s <= 99; s++) stored.push({ seq: s, event: assistantUpdate(`t${s}`) });
-    stored.push({ seq: 100, event: makeEvent("message_end") });
+    const stored: StoredEvent[] = [{ bytes: 0, seq: 1, event: makeEvent("message_start") }];
+    for (let s = 2; s <= 99; s++) stored.push({ bytes: 0, seq: s, event: assistantUpdate(`t${s}`) });
+    stored.push({ bytes: 0, seq: 100, event: makeEvent("message_end") });
 
     const sent: any[] = [];
     const returned = await sendEventBatches(openWs(), "s1", stored, (_w, m) => sent.push(m));

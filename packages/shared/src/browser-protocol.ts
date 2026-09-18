@@ -130,6 +130,16 @@ export interface SessionAddedMessage {
    * See change: spawn-correlation-token.
    */
   spawnRequestId?: string;
+  /**
+   * Set on a RECONCILED add — a `session_added` rebuilt from CURRENT server
+   * state after a shed registry frame (debt-register flush), never on the
+   * original broadcast. Tells the client to upsert the row and clear a
+   * matching spawn placeholder WITHOUT stealing navigation: the add is a
+   * late repair, and `pendingSpawnsRef` entries have no TTL, so navigating
+   * would yank the user off whatever they had since opened.
+   * See change: close-registry-frame-shed-gaps.
+   */
+  reconciled?: boolean;
 }
 
 export interface SessionUpdatedMessage {

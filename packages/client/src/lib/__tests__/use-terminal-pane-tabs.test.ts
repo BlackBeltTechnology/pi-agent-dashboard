@@ -1,6 +1,6 @@
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import { act, renderHook } from "@testing-library/react";
-import { useReducer } from "react";
+import { StrictMode, useReducer } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
   type EditorPaneAction,
@@ -180,5 +180,220 @@ describe("useTerminalPaneTabs", () => {
     const { result } = harness({ terminals: [session("t1")], autoSurface: false });
     act(() => result.current.api.renameTerminal("t1", "build"));
     expect(result.current.mocks.onRenameTerminal).toHaveBeenCalledWith("t1", "build");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Terminal-focused entry one-shot (change: fix-terminals-action-opens-terminal)
+// Test-plan E1–E7, F1–F4, X1–X2. Folder pane = autoSurface:true.
+// ---------------------------------------------------------------------------
+
+interface FocusHarnessProps {
+  terminals: TerminalSession[];
+  cwd: string;
+  focusOnMount: boolean;
+  terminalsReady: boolean;
+  withOnCreate: boolean;
+}
+
+/**
+ * Harness for the D2 one-shot: drives the real pane reducer, exposes the
+ * `onCreateTerminal` / `onFocusConsumed` / `ensureOpen` spies, and lets each
+ * rerender override terminals / cwd / flags — or omit `onCreateTerminal` (X1).
+ */
+function focusHarness(opts: {
+  autoSurface?: boolean;
+  initial?: EditorPaneState;
+  terminals?: TerminalSession[];
+  cwd?: string;
+  focusOnMount?: boolean;
+  terminalsReady?: boolean;
+  withOnCreate?: boolean;
+}) {
+  const mocks = { onCreateTerminal: vi.fn(), ensureOpen: vi.fn(), onFocusConsumed: vi.fn() };
+  const focusOnMount = opts.focusOnMount ?? true;
+  const terminalsReady = opts.terminalsReady ?? true;
+  const withOnCreate = opts.withOnCreate ?? true;
+  const view = renderHook(
+    (props: FocusHarnessProps) => {
+      const [paneState, dispatch] = useReducer(editorPaneReducer, opts.initial ?? EMPTY_PANE_STATE);
+      const api = useTerminalPaneTabs({
+        cwd: props.cwd,
+        terminals: props.terminals,
+        autoSurface: opts.autoSurface ?? true,
+        paneState,
+        dispatch: dispatch as React.Dispatch<EditorPaneAction>,
+        ensureOpen: mocks.ensureOpen,
+        onCreateTerminal: props.withOnCreate ? mocks.onCreateTerminal : undefined,
+        focusOnMount: props.focusOnMount,
+        terminalsReady: props.terminalsReady,
+        onFocusConsumed: mocks.onFocusConsumed,
+      });
+      return { paneState, api };
+    },
+    {
+      initialProps: {
+        terminals: opts.terminals ?? [],
+        cwd: opts.cwd ?? "/w",
+        focusOnMount,
+        terminalsReady,
+        withOnCreate,
+      } satisfies FocusHarnessProps,
+    },
+  );
+  return { ...view, mocks };
+}
+
+const activePath = (s: EditorPaneState): string | undefined =>
+  s.activeIndex >= 0 ? s.openFiles[s.activeIndex]?.path : undefined;
+
+const props = (over: Partial<FocusHarnessProps> = {}): FocusHarnessProps => ({
+  terminals: [],
+  cwd: "/w",
+  focusOnMount: true,
+  terminalsReady: true,
+  withOnCreate: true,
+  ...over,
+});
+
+describe("useTerminalPaneTabs — terminal-focused entry one-shot", () => {
+  it("E1: focusOnMount:false is inert — auto-surface alone decides the active tab", () => {
+    // t1 is the NEWEST but sits first; auto-surface activates the LAST id (t2).
+    // If the one-shot ran it would activate t1, so active=t2 proves it did not.
+    const { result, mocks } = focusHarness({
+      terminals: [session("t1", { createdAt: 2000 }), session("t2", { createdAt: 1000 })],
+      focusOnMount: false,
+      terminalsReady: true,
+    });
+    expect(activePath(result.current.paneState)).toBe("term:t2");
+    expect(mocks.onCreateTerminal).not.toHaveBeenCalled();
+    expect(mocks.onFocusConsumed).not.toHaveBeenCalled();
+  });
+
+  it("E2/E3: readiness gate defers the one-shot until the snapshot lands", () => {
+    const { result, rerender, mocks } = focusHarness({
+      terminals: [],
+      focusOnMount: true,
+      terminalsReady: false,
+    });
+    // Unapplied snapshot must NOT read as "no terminal" → no create.
+    expect(mocks.onCreateTerminal).not.toHaveBeenCalled();
+    rerender(
+      props({
+        terminals: [session("t1", { createdAt: 1000 }), session("t2", { createdAt: 2000 })],
+      }),
+    );
+    expect(activePath(result.current.paneState)).toBe("term:t2");
+    expect(mocks.onCreateTerminal).not.toHaveBeenCalled();
+  });
+
+  it("E4: existing terminals → newest by createdAt is activated, none created", () => {
+    const { result, mocks } = focusHarness({
+      terminals: [session("t1", { createdAt: 1000 }), session("t2", { createdAt: 2000 })],
+    });
+    expect(openTerminalIds(result.current.paneState.openFiles).sort()).toEqual(["t1", "t2"]);
+    expect(activePath(result.current.paneState)).toBe("term:t2");
+    expect(mocks.onCreateTerminal).not.toHaveBeenCalled();
+  });
+
+  it("E5: no terminal → exactly one create at the pane cwd", () => {
+    const { mocks } = focusHarness({ terminals: [], cwd: "/home/u/proj" });
+    expect(mocks.onCreateTerminal).toHaveBeenCalledTimes(1);
+    expect(mocks.onCreateTerminal).toHaveBeenCalledWith("/home/u/proj");
+    expect(mocks.onFocusConsumed).toHaveBeenCalledTimes(1);
+  });
+
+  it("E6: only ephemeral terminals → treated as none (one create, no term:e1 tab)", () => {
+    const { result, mocks } = focusHarness({
+      terminals: [session("e1", { ephemeral: true })],
+    });
+    expect(mocks.onCreateTerminal).toHaveBeenCalledTimes(1);
+    expect(openTerminalIds(result.current.paneState.openFiles)).toEqual([]);
+  });
+
+  it("E7: equal createdAt → last element wins the tie-break", () => {
+    const { result, mocks } = focusHarness({
+      terminals: [session("t1", { createdAt: 5000 }), session("t2", { createdAt: 5000 })],
+    });
+    expect(activePath(result.current.paneState)).toBe("term:t2");
+    expect(mocks.onCreateTerminal).not.toHaveBeenCalled();
+  });
+
+  it("F1: newest-not-last wins over auto-surface's last-id activation", () => {
+    const { result, mocks } = focusHarness({
+      // Newest (t2, 2000) at index 0; auto-surface activates the LAST id (t1).
+      terminals: [session("t2", { createdAt: 2000 }), session("t1", { createdAt: 1000 })],
+    });
+    expect(activePath(result.current.paneState)).toBe("term:t2");
+    expect(mocks.onCreateTerminal).not.toHaveBeenCalled();
+  });
+
+  it("F2: a title update re-render does not create a second terminal", () => {
+    const { result, rerender, mocks } = focusHarness({ terminals: [] });
+    expect(mocks.onCreateTerminal).toHaveBeenCalledTimes(1);
+    rerender(props({ terminals: [session("t1", { title: "zsh" })] }));
+    expect(mocks.onCreateTerminal).toHaveBeenCalledTimes(1);
+    expect(activePath(result.current.paneState)).toBe("term:t1");
+  });
+
+  it("F3: onFocusConsumed fires exactly once per entry", () => {
+    const { rerender, mocks } = focusHarness({ terminals: [session("t1")] });
+    expect(mocks.onFocusConsumed).toHaveBeenCalledTimes(1);
+    rerender(props({ terminals: [session("t1")] }));
+    rerender(props({ terminals: [session("t1")] }));
+    expect(mocks.onFocusConsumed).toHaveBeenCalledTimes(1);
+  });
+
+  it("F4: a cwd change resets the one-shot and honours the new cwd", () => {
+    const { rerender, mocks } = focusHarness({ terminals: [], cwd: "/home/u/a" });
+    expect(mocks.onCreateTerminal).toHaveBeenCalledWith("/home/u/a");
+    rerender(props({ terminals: [], cwd: "/home/u/b" }));
+    expect(mocks.onCreateTerminal).toHaveBeenCalledWith("/home/u/b");
+    expect(mocks.onCreateTerminal).toHaveBeenCalledTimes(2);
+  });
+
+  it("X1: missing onCreateTerminal does not burn the flag; a later handler honours it", () => {
+    const { rerender, mocks } = focusHarness({ terminals: [], withOnCreate: false });
+    expect(mocks.onCreateTerminal).not.toHaveBeenCalled();
+    rerender(props({ terminals: [], withOnCreate: true }));
+    expect(mocks.onCreateTerminal).toHaveBeenCalledTimes(1);
+  });
+
+  it("X2: a create whose terminal never arrives does not retry", () => {
+    const { result, rerender, mocks } = focusHarness({ terminals: [] });
+    expect(mocks.onCreateTerminal).toHaveBeenCalledTimes(1);
+    rerender(props({ terminals: [] }));
+    rerender(props({ terminals: [] }));
+    rerender(props({ terminals: [] }));
+    expect(mocks.onCreateTerminal).toHaveBeenCalledTimes(1);
+    expect(openTerminalIds(result.current.paneState.openFiles)).toEqual([]);
+  });
+
+  it("StrictMode: the dev double-invoke does not create a second terminal", () => {
+    // React StrictMode re-runs effects on a simulated remount. A guardless
+    // cwd-reset effect would un-burn `focusHandledRef` and fire a second
+    // create; the previous-cwd guard keeps the reset a true cwd-change reset.
+    const onCreateTerminal = vi.fn();
+    const ensureOpen = vi.fn();
+    const onFocusConsumed = vi.fn();
+    renderHook(
+      () => {
+        const [paneState, dispatch] = useReducer(editorPaneReducer, EMPTY_PANE_STATE);
+        useTerminalPaneTabs({
+          cwd: "/w",
+          terminals: [],
+          autoSurface: true,
+          paneState,
+          dispatch: dispatch as React.Dispatch<EditorPaneAction>,
+          ensureOpen,
+          onCreateTerminal,
+          focusOnMount: true,
+          terminalsReady: true,
+          onFocusConsumed,
+        });
+      },
+      { wrapper: StrictMode },
+    );
+    expect(onCreateTerminal).toHaveBeenCalledTimes(1);
   });
 });

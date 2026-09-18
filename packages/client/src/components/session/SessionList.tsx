@@ -8,8 +8,8 @@ import { mdiArchiveOutline, mdiBroom, mdiChevronDown, mdiChevronRight, mdiChevro
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { useFolderUrgencySort } from "../../hooks/useFolderUrgencySort.js";
 import { ARCHIVE_PAGE_SIZE, useArchivedSessions } from "../../hooks/useArchivedSessions.js";
+import { useFolderUrgencySort } from "../../hooks/useFolderUrgencySort.js";
 import { useInitStatus } from "../../hooks/useInitStatus.js";
 import { useInstallPrompt } from "../../hooks/useInstallPrompt.js";
 import { maybeAutoInitWorktreeOnSpawn } from "../../lib/git/auto-init-worktree.js";
@@ -54,7 +54,6 @@ import { PiLogo } from "../primitives/PiLogo.js";
 import { Toast, useToast } from "../primitives/Toast.js";
 import { ThemePicker } from "../settings/ThemePicker.js";
 import { ThemeToggle } from "../settings/ThemeToggle.js";
-import { ArchivedSessionRow } from "./ArchivedSessionRow.js";
 import { allTagsInUse } from "../tags/all-tags.js";
 import { TagDeleteConfirmDialog } from "../tags/TagDeleteConfirmDialog.js";
 import { TagFilterGroup } from "../tags/TagFilterGroup.js";
@@ -68,6 +67,7 @@ import { WorkspaceHeader } from "../workspace/WorkspaceHeader.js";
 import { BranchSwitchDialog } from "../worktree/BranchSwitchDialog.js";
 import { ManageWorktreesDialog } from "../worktree/ManageWorktreesDialog.js";
 import { WorktreeSpawnDialog } from "../worktree/WorktreeSpawnDialog.js";
+import { ArchivedSessionRow } from "./ArchivedSessionRow.js";
 import { DashboardSpawnButtons } from "./DashboardSpawnButtons.js";
 import { PlaceholderSessionCard } from "./PlaceholderSessionCard.js";
 import { branchCache, GroupGitInfo, SessionCard } from "./SessionCard.js";
@@ -279,6 +279,19 @@ interface Props {
    * `sessions_page` offset. See change: fix-connect-snapshot-frame-loss (D9).
    */
   pagedCount?: Map<string, number>;
+  /**
+   * Per-group page-reply generation, bumped on every `sessions_page_result`.
+   * The in-flight mark releases on a change here, so an EMPTY reply releases
+   * it too (rather than waiting for `pagedCount` to advance or the timeout).
+   * See change: close-registry-frame-shed-gaps (D3).
+   */
+  pageReplyGen?: Map<string, number>;
+  /**
+   * Per-group "the server has no further ended rows" marks. Hides the "more"
+   * affordance and suppresses `sessions_page` until `endedTotals` changes.
+   * See change: close-registry-frame-shed-gaps (D3).
+   */
+  pageExhausted?: Set<string>;
   /** Socket connected flag — clears per-group page in-flight marks on open. */
   connected?: boolean;
   /**
@@ -341,7 +354,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, openspecOfferInitialization, openspecEnabled, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenDirectorySettings, onRename, onShutdown, onResume, onResumeKeepPosition, onArchiveSession, onUnarchiveSession, archivedCountMap, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, collapsedGroups, onSetFolderCollapsed, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, retryAttemptMap, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp, endedTotalsMap, pagedCount, connected, onSessionsPage }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, openspecOfferInitialization, openspecEnabled, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenDirectorySettings, onRename, onShutdown, onResume, onResumeKeepPosition, onArchiveSession, onUnarchiveSession, archivedCountMap, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, collapsedGroups, onSetFolderCollapsed, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, retryAttemptMap, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp, endedTotalsMap, pagedCount, pageReplyGen, pageExhausted, connected, onSessionsPage }: Props) {
   const { t } = useI18n();
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
@@ -614,6 +627,11 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
   const requestEndedPage = useCallback(
     (cwd: string) => {
       if (!onSessionsPage || pagingInflight.has(cwd)) return;
+      // Exhausted: the server already told us there is no further ended row
+      // for this group. Suppress the request until `endedTotals` changes (the
+      // exhausted mark is cleared by the handler's map diff).
+      // See change: close-registry-frame-shed-gaps (D3).
+      if (pageExhausted?.has(cwd)) return;
       const endedTotal = endedTotalsMap?.get(cwd) ?? 0;
       if (endedTotal <= (heldEndedByCwd.get(cwd) ?? 0)) return; // everything held
       onSessionsPage(cwd, pagedCount?.get(cwd) ?? 0);
@@ -623,18 +641,22 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
         setTimeout(() => clearPagingInflight(cwd), PAGE_INFLIGHT_TIMEOUT_MS),
       );
     },
-    [onSessionsPage, pagingInflight, endedTotalsMap, pagedCount, heldEndedByCwd, clearPagingInflight],
+    [onSessionsPage, pagingInflight, pageExhausted, endedTotalsMap, pagedCount, heldEndedByCwd, clearPagingInflight],
   );
-  // Reply landed: every in-flight group whose paged count advanced clears.
-  const prevPagedCountRef = useRef(pagedCount);
+  // Reply landed: release every in-flight group whose reply GENERATION
+  // advanced. Keyed on the generation (not on `pagedCount`) so an EMPTY reply
+  // still releases the mark — otherwise a shrunk pageable set would dead-end
+  // on the same offset until the 15 s timeout.
+  // See change: close-registry-frame-shed-gaps (D3).
+  const prevPageReplyGenRef = useRef(pageReplyGen);
   useEffect(() => {
-    const prev = prevPagedCountRef.current;
-    prevPagedCountRef.current = pagedCount;
-    if (prev === pagedCount || pagingInflight.size === 0) return;
+    const prev = prevPageReplyGenRef.current;
+    prevPageReplyGenRef.current = pageReplyGen;
+    if (prev === pageReplyGen || pagingInflight.size === 0) return;
     for (const cwd of pagingInflight) {
-      if ((pagedCount?.get(cwd) ?? 0) !== (prev?.get(cwd) ?? 0)) clearPagingInflight(cwd);
+      if ((pageReplyGen?.get(cwd) ?? 0) !== (prev?.get(cwd) ?? 0)) clearPagingInflight(cwd);
     }
-  }, [pagedCount, pagingInflight, clearPagingInflight]);
+  }, [pageReplyGen, pagingInflight, clearPagingInflight]);
   // Socket (re)opened: in-flight marks are void — the reply may have been
   // lost across the disconnect.
   const prevConnectedRef = useRef(connected);
@@ -1776,6 +1798,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               labelCount={endedTotal}
               heldEnded={heldEnded}
               expanded={endedExpanded.has(group.cwd)}
+              exhausted={pageExhausted?.has(group.cwd) ?? false}
               onToggle={toggleEndedExpanded}
               onRequestPage={requestEndedPage}
             />
@@ -2036,6 +2059,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 labelCount={endedTotal > 0 ? endedTotal : endedCount}
                 heldEnded={heldEnded}
                 expanded={expanded}
+                exhausted={pageExhausted?.has(group.cwd) ?? false}
                 onToggle={toggleEndedExpanded}
                 onRequestPage={requestEndedPage}
               />
@@ -2621,6 +2645,7 @@ function EndedExpanderRow({
   labelCount,
   heldEnded,
   expanded,
+  exhausted,
   onToggle,
   onRequestPage,
 }: {
@@ -2630,11 +2655,14 @@ function EndedExpanderRow({
   labelCount: number;
   heldEnded: number;
   expanded: boolean;
+  /** Server reported `hasMore:false` for this group: no further rows to fetch
+   * until `endedTotals` changes. See change: close-registry-frame-shed-gaps. */
+  exhausted: boolean;
   onToggle: (cwd: string) => void;
   onRequestPage: (cwd: string) => void;
 }) {
   const { t } = useI18n();
-  const showMore = expanded && labelCount > heldEnded;
+  const showMore = expanded && labelCount > heldEnded && !exhausted;
   return (
     <div className="pb-0.5">
       <button

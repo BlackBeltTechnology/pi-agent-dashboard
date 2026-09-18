@@ -17,7 +17,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `browser-relay.spec.ts` | L3 for the browser relay (change: add-browser-relay, test-plan F1–F5 + F10). Needs the harness with… → see `browser-relay.spec.ts.AGENTS.md` |
 | `bus-client-goal-plugin-action.spec.ts` | L3/P1 (change: add-dashboard-bus-client-scripting). Drives `BusClient` from host… → see `bus-client-goal-plugin-action.spec.ts.AGENTS.md` |
 | `chat-attachment-two-phase.spec.ts` | Two-phase attachment render E2E (change: fit-attachments-for-display)… → see `chat-attachment-two-phase.spec.ts.AGENTS.md` |
-| `chat-pane-below-floor-allocation.spec.ts` | Browser E2E for below-floor chat pane allocation (change: define-chat-pane-below-floor-allocation). Verifies shrinkable rows, deficit sharing, and fixed row preservation. |
+| `chat-pane-below-floor-allocation.spec.ts` | Browser E2E for below-floor chat pane allocation (change: define-chat-pane-below-floor-allocation). → see `chat-pane-below-floor-allocation.spec.ts.AGENTS.md` |
 | `chat-render-fx.spec.ts` | Browser E2E gate for `reduce-chat-render-cpu-umbrella` (umbrella-own surface not gated by… → see `chat-render-fx.spec.ts.AGENTS.md` |
 | `chat-render-perf.spec.ts` | ADVISORY opt-in perf probe for `reduce-chat-render-cpu-umbrella` (tasks 2.8/4.4/5.1). → see `chat-render-perf.spec.ts.AGENTS.md` |
 | `chat-transcript-virtualization.spec.ts` | Browser E2E gate for `virtualize-chat-transcript-tanstack` (Phase 2 Step B) +… → see `chat-transcript-virtualization.spec.ts.AGENTS.md` |
@@ -38,9 +38,9 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `explicit-model-preserved.spec.ts` | L3 for `fix-default-model-clobbers-explicit-model` (test-plan #I1, #I2): launches a… → see `explicit-model-preserved.spec.ts.AGENTS.md` |
 | `enhance-tool-call-grouping.spec.ts` | Playwright spec for universal tool-call grouping (change… → see `enhance-tool-call-grouping.spec.ts.AGENTS.md` |
 | `error-lifecycle.spec.ts` | Playwright spec. Single-card error-lifecycle surface end-to-end via faux model (no LLM). 4 tests. → see `error-lifecycle.spec.ts.AGENTS.md` |
-| `faux-ask.spec.ts` | Playwright spec. Sends `[[faux:ask-select]]` via `sendPrompt`. Asserts interactive select widget mounts (option button alpha visible). Needs `PI_E2E_SEED=1`. See change: add-e2e-faux-model-roundtrip. |
-| `faux-text.spec.ts` | Playwright spec. Sends `[[faux:plain-text]]` via `sendPrompt`. Asserts `PLAIN_TEXT_MARKER` text renders in message DOM. Needs `PI_E2E_SEED=1`. See change: add-e2e-faux-model-roundtrip. |
-| `faux-tool.spec.ts` | Playwright spec. Sends `[[faux:tool-read]]` via `sendPrompt`. Asserts read tool renderer mounts (path `src/example.ts` visible). Needs `PI_E2E_SEED=1`. See change: add-e2e-faux-model-roundtrip. |
+| `faux-ask.spec.ts` | Faux-provider ask_user round trip. → see `faux-ask.spec.ts.AGENTS.md` |
+| `faux-text.spec.ts` | Playwright spec. Faux `[[faux:plain-text]]` roundtrip. Needs `PI_E2E_SEED=1`. → see `faux-text.spec.ts.AGENTS.md` |
+| `faux-tool.spec.ts` | Faux-provider tool-call round trip. → see `faux-tool.spec.ts.AGENTS.md` |
 | `file-mention-resolve.spec.ts` | L3 (change: server-side-file-mention-resolution, S19). Sends `[[faux:text-tildelink]]`; clicks the… → see `file-mention-resolve.spec.ts.AGENTS.md` |
 | `file-preview-survives-churn.spec.ts` | Playwright spec. Rendered-DOM regression for hoisted file-preview overlay. → see `file-preview-survives-churn.spec.ts.AGENTS.md` |
 | `fixtures.ts` | The suite's `test`/`expect` entry point — EVERY spec imports from here, not `@playwright/test` (guard:… → see `fixtures.ts.AGENTS.md` |
@@ -106,6 +106,8 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `package-queue-visible.spec.ts` | Browser E2E gate for `unify-pi-core-into-package-queue` (D9 rewritten — visible queue). → see `package-queue-visible.spec.ts.AGENTS.md` |
 | `pairing-qr.spec.ts` | Browser E2E for the camera-scannable pairing QR (change: make-pairing-qr-camera-scannable). → see `pairing-qr.spec.ts.AGENTS.md` |
 | `security-pair-link.spec.ts` | Browser E2E for the Security→Gateway pairing link, test-plan F3 (change: collapse-pairing-into-gateway). → see `security-pair-link.spec.ts.AGENTS.md` |
+| `paging-empty-reply-exhausted.spec.ts` | L3 #F8: empty page reply hides "more"; no same-offset retry. → see `paging-empty-reply-exhausted.spec.ts.AGENTS.md` |
+| `paging-exhausted-reconnect-rearm.spec.ts` | L3 #X4: reconnect snapshot re-arms a stale exhausted mark. → see `paging-exhausted-reconnect-rearm.spec.ts.AGENTS.md` |
 | `pi-runtime.spec.ts` | L3 spec: version-neutral pi runtime verification vault (test-plan #F1/F2/F3/F4/#X12) — reads… → see `pi-runtime.spec.ts.AGENTS.md` |
 | `pi-runtime-picker.spec.ts` | L3 spec for the Settings → Developer "Pi runtime" picker (test-plan #F1-#F17, #X13). → see `pi-runtime-picker.spec.ts.AGENTS.md` |
 | `plugin-settings-pages.spec.ts` | L3 spec (test-plan rows F1-F14, X1-X5, X7; change: plugin-settings-pages). → see `plugin-settings-pages.spec.ts.AGENTS.md` |
@@ -120,6 +122,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `recommended-requires.spec.ts` | Playwright E2E for recommended-extension `requires` probe (change:… → see `recommended-requires.spec.ts.AGENTS.md` |
 | `reconcile-heal.spec.ts` | Playwright spec (task 5.1, change: fix-stuck-tool-card-on-dropped-event). → see `reconcile-heal.spec.ts.AGENTS.md` |
 | `reducer-poisoned-cache-heal.spec.ts` | Playwright E2E for `fix-reducer-crash-undefined-toolname` (manual tasks 5.1+5.2). 2 tests, faux model. → see `reducer-poisoned-cache-heal.spec.ts.AGENTS.md` |
+| `registry-shed-sidebar-convergence.spec.ts` | L3 #F7: shed registry burst reconciles the sidebar on drain. → see `registry-shed-sidebar-convergence.spec.ts.AGENTS.md` |
 | `remote-transcript-read.spec.ts` | L3 for the D12 READ half — the scenario deferred as 12.52 of add-pi-gateway-transport-identity. → see `remote-transcript-read.spec.ts.AGENTS.md` |
 | `replay-delta-on-reload.spec.ts` | Playwright spec. Strategy A: reload of seen session resubscribes lastSeq>0 (delta replay). → see `replay-delta-on-reload.spec.ts.AGENTS.md` |
 | `replay-in-flight-pill.spec.ts` | Playwright spec. Replay-in-flight pill: visible over a slowed multi-batch cold replay (F9/X6), overlays… → see `replay-in-flight-pill.spec.ts.AGENTS.md` |
@@ -134,8 +137,8 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `session-spawn.spec.ts` | Scenario spec 5.1, authoritative WS round-trip. Clears onboarding gate, clicks `onboarding-step-2-cta` opens… → see `session-spawn.spec.ts.AGENTS.md` |
 | `session-state-honesty.spec.ts` | L3 rendered-honesty gate (change: stop-discarding-known-session-state, test-plan Q1/Q2/Q3): offline prompt… → see `session-state-honesty.spec.ts.AGENTS.md` |
 | `session-tags.spec.ts` | E2E for change add-session-tags (task 7.2). Spawns a fresh git session (`spawnFreshGitSession`), selects it,… → see `session-tags.spec.ts.AGENTS.md` |
-| `sessions-page-stub-group.spec.ts` | L3 for F3 (fix-connect-snapshot-frame-loss): clicking the out-of-window stub group's ended expander pages <=50 more rows and hides "more" once held == label. |
-| `settings-default-model-catalogue.spec.ts` | L3 gate on the zero-session Default Model picker (test-plan #F4): stubs `GET /api/models`, asserts populate → save → reload, plus the 503 sibling callout. |
+| `sessions-page-stub-group.spec.ts` | L3 for the `sessions_page` stub-group paging path. → see `sessions-page-stub-group.spec.ts.AGENTS.md` |
+| `settings-default-model-catalogue.spec.ts` | L3 gate on the zero-session Default Model picker (test-plan #F4). → see `settings-default-model-catalogue.spec.ts.AGENTS.md` |
 | `severity-contrast.spec.ts` | L3 gate for `unify-message-severity-colors` + `unify-retry-visibility` (card retry-label contrast). → see `severity-contrast.spec.ts.AGENTS.md` |
 | `skill-provenance.spec.ts` | L3 for the Resources skills grid (F1-F10, X7). Fulfils `/api/pi-resources` with crafted payloads and drives… → see `skill-provenance.spec.ts.AGENTS.md` |
 | `smoke.spec.ts` | Smoke spec, wiring proof only. Asserts shell renders (title `PI Dashboard` + `header-app-bar`), no… → see `smoke.spec.ts.AGENTS.md` |

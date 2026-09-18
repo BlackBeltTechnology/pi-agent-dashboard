@@ -113,6 +113,20 @@ interface MemoryLimitsConfig {
   maxEventsPerSession: number;
   maxStringFieldSize: number;
   maxWsBufferBytes: number;
+  /**
+   * Per-session aggregate serialized-byte budget, in BYTES (control is MiB).
+   * See change: bound-event-store-by-bytes (D5).
+   */
+  maxBytesPerSession: number;
+  /**
+   * Global aggregate serialized-byte budget across all sessions, in BYTES
+   * (control is MiB). See change: bound-event-store-by-bytes (D7).
+   */
+  maxTotalEventBytes: number;
+  /**
+   * Max resident session buffers. See change: bound-event-store-by-bytes (D8).
+   */
+  maxCachedSessions: number;
   /** See change: lazy-load-session-history. */
   maxReplayEvents: number;
   /** See change: add-tail-only-replay-window (D10). */
@@ -128,9 +142,15 @@ const MEMORY_LIMITS_SEED: MemoryLimitsConfig = {
   maxEventsPerSession: 200,
   maxStringFieldSize: 4000,
   maxWsBufferBytes: 4194304,
+  maxBytesPerSession: DEFAULT_MEMORY_LIMITS.maxBytesPerSession,
+  maxTotalEventBytes: DEFAULT_MEMORY_LIMITS.maxTotalEventBytes,
+  maxCachedSessions: DEFAULT_MEMORY_LIMITS.maxCachedSessions,
   maxReplayEvents: DEFAULT_MEMORY_LIMITS.maxReplayEvents,
   replayWindowMode: DEFAULT_MEMORY_LIMITS.replayWindowMode,
 };
+
+/** Bytes per mebibyte — the Memory Limits byte controls display in MiB. */
+const MIB = 1024 * 1024;
 
 interface NetworkInterfaceInfo {
   name: string;
@@ -1499,6 +1519,23 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                       c.memoryLimits.maxEventsPerSession = v;
                     })}
                   />
+                  {/* Aggregate serialized-byte budget for ONE session. Stored
+                      in bytes, shown in MiB (the operator unit). The hint
+                      states the floor (the store clamps up to 4x the per-event
+                      ceiling) and that the effective value is visible in
+                      /api/health, because a configured value below the floor
+                      is accepted as typed but not enforced verbatim.
+                      See change: bound-event-store-by-bytes (D5, F1/F3/F7). */}
+                  <NumberField
+                    hint={i18nT("settings.hint.maxBytesPerSession", undefined, "Byte budget for events retained per session, in MiB. Oldest tool and subagent noise is dropped first so the chat head survives. A floor applies (the server clamps it up to 4x the per-event ceiling) and the effective value is shown in health. 0 = unlimited.")}
+                    label={i18nT("session.maxBytesPerSession", undefined, "Max Bytes Per Session")}
+                    unit="MiB"
+                    value={Math.round((config.memoryLimits?.maxBytesPerSession ?? DEFAULT_MEMORY_LIMITS.maxBytesPerSession) / MIB)}
+                    onChange={(v) => update((c) => {
+                      if (!c.memoryLimits) c.memoryLimits = { ...MEMORY_LIMITS_SEED };
+                      c.memoryLimits.maxBytesPerSession = v * MIB;
+                    })}
+                  />
                   <NumberField
                     hint={i18nT("settings.hint.maxStringTruncation", undefined, "Cut long strings inside stored events to this length. 0 = never truncate. Relieve memory pressure here before lowering the event cap.")}
                     label={i18nT("settings.maxStringTruncationChars", undefined, "Max string truncation")}
@@ -1517,6 +1554,35 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     onChange={(v) => update((c) => {
                       if (!c.memoryLimits) c.memoryLimits = { ...MEMORY_LIMITS_SEED };
                       c.memoryLimits.maxWsBufferBytes = v;
+                    })}
+                  />
+                  {/* Global aggregate byte budget — the binding constraint.
+                      The per-session budget multiplies by the resident count,
+                      so this bounds the SUM directly. Whole idle sessions are
+                      evicted first; an evicted session is re-read from its
+                      transcript when reopened. See change:
+                      bound-event-store-by-bytes (D7, F1/F2/F3/F4). */}
+                  <NumberField
+                    hint={i18nT("settings.hint.maxTotalEventBytes", undefined, "Total byte budget for events retained across ALL sessions, in MiB. Whole idle sessions are evicted first and re-read from their transcript when reopened. 0 = unlimited.")}
+                    label={i18nT("session.maxTotalEventBytes", undefined, "Max Total Event Bytes")}
+                    unit="MiB"
+                    value={Math.round((config.memoryLimits?.maxTotalEventBytes ?? DEFAULT_MEMORY_LIMITS.maxTotalEventBytes) / MIB)}
+                    onChange={(v) => update((c) => {
+                      if (!c.memoryLimits) c.memoryLimits = { ...MEMORY_LIMITS_SEED };
+                      c.memoryLimits.maxTotalEventBytes = v * MIB;
+                    })}
+                  />
+                  {/* Resident session count — the multiplier on every
+                      per-session bound, previously hardcoded at 100 with no
+                      operator control. See change: bound-event-store-by-bytes
+                      (D8, F2/F4). */}
+                  <NumberField
+                    hint={i18nT("settings.hint.maxCachedSessions", undefined, "How many sessions the server keeps in memory. Beyond this the least-recently-used idle session is evicted and re-read from its transcript when reopened.")}
+                    label={i18nT("session.maxCachedSessions", undefined, "Max Cached Sessions")}
+                    value={config.memoryLimits?.maxCachedSessions ?? DEFAULT_MEMORY_LIMITS.maxCachedSessions}
+                    onChange={(v) => update((c) => {
+                      if (!c.memoryLimits) c.memoryLimits = { ...MEMORY_LIMITS_SEED };
+                      c.memoryLimits.maxCachedSessions = v;
                     })}
                   />
                   {/* The hint names the OUTCOME ("keeps the start and the most

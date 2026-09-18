@@ -1,6 +1,23 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CONFIG_FIELD_PAGE, computeConfigPartial, NumberField, SelectField, TextField, ToggleField } from "../SettingsPanel.js";
+import { SettingsPanel } from "../SettingsPanel.js";
+
+const { fetchAutoInitWorktreePref, setAutoInitWorktreePref } = vi.hoisted(() => ({
+  fetchAutoInitWorktreePref: vi.fn(),
+  setAutoInitWorktreePref: vi.fn(),
+}));
+vi.mock("../../../lib/git/git-api.js", async () => {
+  const actual = await vi.importActual<typeof import("../../../lib/git/git-api.js")>("../../../lib/git/git-api.js");
+  return { ...actual, fetchAutoInitWorktreePref, setAutoInitWorktreePref };
+});
+vi.mock("../../../lib/api/model-proxy-api.js", () => ({
+  listApiKeys: vi.fn().mockResolvedValue({ keys: [], revoked: [] }),
+  createApiKey: vi.fn(),
+  revokeApiKey: vi.fn().mockResolvedValue(undefined),
+  deleteApiKey: vi.fn().mockResolvedValue(undefined),
+  refreshRegistry: vi.fn().mockResolvedValue(undefined),
+}));
 
 // Field-level name + description contract for the four shared settings field
 // components. Harness glue copied from ../../__tests__/SettingsPanel.test.tsx.
@@ -204,5 +221,124 @@ describe("host-gate fields — Save diff + page mapping", () => {
   it("maps both fields to the security page for the dirty dot", () => {
     expect(CONFIG_FIELD_PAGE.allowedHosts).toBe("security");
     expect(CONFIG_FIELD_PAGE.hostGate).toBe("security");
+  });
+});
+
+// ── Memory Limits byte-budget + resident-count controls ────────────────────
+// See change: bound-event-store-by-bytes (D5/D7/D8, tasks 5.2-5.8).
+// F1-F6: render configured/default values (MiB at the edge), write bytes back,
+// keep the partial write field-scoped, and indicate restart-required.
+describe("Memory Limits — byte budgets and resident count", () => {
+  const baseConfig = {
+    port: 8000,
+    piPort: 9999,
+    autoStart: true,
+    autoShutdown: true,
+    shutdownIdleSeconds: 300,
+    spawnStrategy: "headless",
+    tunnel: { enabled: true },
+    devBuildOnReload: false,
+    memoryLimits: {
+      maxEventsPerSession: 200,
+      maxStringFieldSize: 4000,
+      maxWsBufferBytes: 4194304,
+      maxBytesPerSession: 16 * 1024 * 1024,
+      maxTotalEventBytes: 805306368,
+      maxCachedSessions: 8,
+    },
+  };
+  let puts: any[] = [];
+
+  const installFetch = (config: Record<string, unknown>) => {
+    global.fetch = vi.fn().mockImplementation((url: string, options?: any) => {
+      if (url === "/api/config" && !options?.method) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: config }) });
+      }
+      if (url === "/api/config" && options?.method === "PUT") {
+        puts.push(JSON.parse(options.body));
+        return Promise.resolve({ json: () => Promise.resolve({ success: true }) });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    });
+  };
+
+  const gotoServer = () =>
+    fireEvent.click(within(screen.getByTestId("settings-nav-rail")).getByRole("button", { name: "Server" }));
+
+  const field = (label: RegExp) =>
+    screen.getByRole("spinbutton", { name: label }) as HTMLInputElement;
+
+  const openMemoryLimits = async (config: Record<string, unknown>) => {
+    installFetch(config);
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Interface"));
+    gotoServer();
+    await waitFor(() => screen.getByText("Memory Limits"));
+  };
+
+  const save = async () => {
+    fireEvent.click(await waitFor(() => screen.getByTestId("save-btn")));
+    await waitFor(() => expect(puts.length).toBeGreaterThan(0));
+  };
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    puts = [];
+    fetchAutoInitWorktreePref.mockResolvedValue(false);
+    setAutoInitWorktreePref.mockResolvedValue(true);
+    window.history.replaceState({}, "", "/settings/general");
+  });
+  afterEach(() => cleanup());
+
+  // F1 — configured byte values render in MiB (converted at the edge).
+  it("renders configured values converted to MiB", async () => {
+    await openMemoryLimits({ ...baseConfig, memoryLimits: { ...baseConfig.memoryLimits, maxBytesPerSession: 33554432, maxTotalEventBytes: 805306368 } });
+    expect(field(/Max Bytes Per Session/).value).toBe("32");
+    expect(field(/Max Total Event Bytes/).value).toBe("768");
+  });
+
+  // F2 — absent keys render the server-applied defaults.
+  it("renders the defaults when the three keys are absent", async () => {
+    await openMemoryLimits({
+      ...baseConfig,
+      memoryLimits: { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 },
+    });
+    expect(field(/Max Bytes Per Session/).value).toBe("32");
+    expect(field(/Max Total Event Bytes/).value).toBe("768");
+    expect(field(/Max Cached Sessions/).value).toBe("32");
+  });
+
+  // F3 — the edited MiB value is written back in bytes.
+  it("writes the edited per-session value back in bytes", async () => {
+    await openMemoryLimits(baseConfig);
+    fireEvent.change(field(/Max Bytes Per Session/), { target: { value: "32" } });
+    await save();
+    expect(puts[0].memoryLimits.maxBytesPerSession).toBe(33554432);
+  });
+
+  // F4 — editing one control does not pin the others.
+  it("writes only the changed control (maxCachedSessions)", async () => {
+    await openMemoryLimits(baseConfig);
+    fireEvent.change(field(/Max Cached Sessions/), { target: { value: "4" } });
+    await save();
+    expect(puts[0].memoryLimits).toEqual({ maxCachedSessions: 4 });
+  });
+
+  // F5 — an unrelated Memory Limits field pins none of the new keys.
+  it("does not pin the new keys when an unrelated field changes", async () => {
+    await openMemoryLimits(baseConfig);
+    fireEvent.change(field(/Max Events Per Session/), { target: { value: "300" } });
+    await save();
+    expect(puts[0].memoryLimits.maxBytesPerSession).toBeUndefined();
+    expect(puts[0].memoryLimits.maxTotalEventBytes).toBeUndefined();
+    expect(puts[0].memoryLimits.maxCachedSessions).toBeUndefined();
+  });
+
+  // F6 — restart-required is indicated, consistent with sibling controls.
+  it("indicates that a restart is required", async () => {
+    await openMemoryLimits(baseConfig);
+    fireEvent.change(field(/Max Cached Sessions/), { target: { value: "4" } });
+    await waitFor(() => screen.getByTestId("settings-save-bar"));
+    expect(screen.getByText(/Requires server restart/)).toBeTruthy();
   });
 });

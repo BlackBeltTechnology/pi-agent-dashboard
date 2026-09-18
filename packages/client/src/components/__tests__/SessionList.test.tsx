@@ -1437,3 +1437,124 @@ describe("SessionList — archive fold + hidden-workers footer (archive-sessions
     vi.unstubAllGlobals();
   });
 });
+
+// ── close-registry-frame-shed-gaps (D3, test-plan F1/F2) ────────────────
+// The in-flight page mark releases on ANY `sessions_page_result` (signalled
+// by a `pageReplyGen` bump), NOT on `pagedCount` advancing and NOT after the
+// 15 s timeout. An exhausted group (last reply `hasMore:false`) hides the
+// "more" affordance and suppresses the request until `endedTotals` changes.
+describe("SessionList — ended paging release + exhausted (close-registry-frame-shed-gaps)", () => {
+  const CWD = "/repoA";
+
+  interface PagingProps {
+    endedTotals?: Map<string, number>;
+    pagedCount?: Map<string, number>;
+    pageReplyGen?: Map<string, number>;
+    pageExhausted?: Set<string>;
+    connected?: boolean;
+    onSessionsPage: (cwd: string, offset: number) => void;
+  }
+
+  function pagingTree(props: PagingProps) {
+    return (
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[]}
+            onSelect={() => {}}
+            endedTotalsMap={props.endedTotals}
+            pagedCount={props.pagedCount}
+            pageReplyGen={props.pageReplyGen}
+            pageExhausted={props.pageExhausted}
+            connected={props.connected}
+            onSessionsPage={props.onSessionsPage}
+          />
+        </ThemeProvider>
+      </TestRouter>
+    );
+  }
+
+  it("F1: a reply releases the in-flight mark immediately — the next click sends without the 15s timeout", () => {
+    vi.useFakeTimers();
+    try {
+      const onSessionsPage = vi.fn();
+      const { rerender } = render(
+        pagingTree({
+          onSessionsPage,
+          endedTotals: new Map([[CWD, 10]]),
+          pagedCount: new Map(),
+          pageReplyGen: new Map([[CWD, 0]]),
+          pageExhausted: new Set(),
+        }),
+      );
+
+      // Expand → page 1 in flight, 15 s timer armed.
+      fireEvent.click(screen.getByTestId(`folder-ended-toggle-${CWD}`));
+      expect(onSessionsPage).toHaveBeenCalledTimes(1);
+      expect(onSessionsPage).toHaveBeenCalledWith(CWD, 0);
+
+      // Empty reply (hasMore:false). `pagedCount` is UNCHANGED — only the
+      // reply generation bumps.
+      rerender(
+        pagingTree({
+          onSessionsPage,
+          endedTotals: new Map([[CWD, 10]]),
+          pagedCount: new Map(),
+          pageReplyGen: new Map([[CWD, 1]]),
+          pageExhausted: new Set([CWD]),
+        }),
+      );
+
+      // Re-arm the affordance via an endedTotals change (the exhausted mark
+      // clears) — the 15 s timer is NEVER advanced.
+      rerender(
+        pagingTree({
+          onSessionsPage,
+          endedTotals: new Map([[CWD, 11]]),
+          pagedCount: new Map(),
+          pageReplyGen: new Map([[CWD, 1]]),
+          pageExhausted: new Set(),
+        }),
+      );
+
+      fireEvent.click(screen.getByTestId(`folder-ended-more-${CWD}`));
+      // A second request went out ⇒ the in-flight mark was already released.
+      expect(onSessionsPage).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("F2: an exhausted cwd suppresses the affordance + request, and re-arms on an endedTotals change", () => {
+    const onSessionsPage = vi.fn();
+    const { rerender } = render(
+      pagingTree({
+        onSessionsPage,
+        endedTotals: new Map([[CWD, 10]]),
+        pagedCount: new Map(),
+        pageReplyGen: new Map([[CWD, 1]]),
+        pageExhausted: new Set([CWD]),
+      }),
+    );
+
+    // Exhausted: the "more" control is gone.
+    expect(screen.queryByTestId(`folder-ended-more-${CWD}`)).toBeNull();
+
+    // Expanding sends nothing while exhausted, and never reveals "more".
+    fireEvent.click(screen.getByTestId(`folder-ended-toggle-${CWD}`));
+    expect(onSessionsPage).not.toHaveBeenCalled();
+    expect(screen.queryByTestId(`folder-ended-more-${CWD}`)).toBeNull();
+
+    // endedTotals changes → exhausted clears → control returns.
+    rerender(
+      pagingTree({
+        onSessionsPage,
+        endedTotals: new Map([[CWD, 11]]),
+        pagedCount: new Map(),
+        pageReplyGen: new Map([[CWD, 1]]),
+        pageExhausted: new Set(),
+      }),
+    );
+    expect(screen.getByTestId(`folder-ended-more-${CWD}`)).toBeTruthy();
+  });
+});
