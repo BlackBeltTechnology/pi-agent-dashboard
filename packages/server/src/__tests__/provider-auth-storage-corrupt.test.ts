@@ -289,9 +289,10 @@ describe("credential writes refuse to clobber un-backed-up bytes", () => {
     const { readAuthJson, writeCredential } = await storage();
     writeAuthFile('{"deadlock":');
     expect(readAuthJson()).toEqual({}); // mount-time read quarantines + records the hash
-    await expect(
-      writeCredential("openai", { type: "api_key", key: "sk-repair" }),
-    ).resolves.toBeUndefined();
+    await writeCredential("openai", { type: "api_key", key: "sk-repair" });
+    // The repair lands in THIS instance's view of the file too, not just a
+    // freshly-imported module's.
+    expect(readAuthJson()["openai"]).toEqual({ type: "api_key", key: "sk-repair" });
     const { readAuthJson: reread } = await storage();
     expect(reread()["openai"]).toEqual({ type: "api_key", key: "sk-repair" });
   });
