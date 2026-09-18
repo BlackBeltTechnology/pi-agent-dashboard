@@ -858,15 +858,100 @@ Escape hatch: env `PI_DASHBOARD_DISABLE_PLUGIN_BRIDGE_PACKAGES_WRITE=1` skips `p
 
 Classification helper `classifyBridgeSource(settings, id)` returns `"packages[]"` / `"dashboardPluginBridges"` / `"both"` / `"none"`. `/api/health.plugins[].bridgeLoadedFrom` surfaces it. `"both"` = healthy post-0.5.4. `"dashboardPluginBridges"` only = stale install pre-reconcile.
 
-#### Plugin Staleness Detection
+#### Plugin Staleness Detection and Served-Build Coherence
 
-Detects when client bundle predates installed plugin set. No new REST route. No new WS message.
+Detects when client bundle predates installed plugin set, or served static directory diverges from runtime plugin set.
 
-Build time: vite-plugin emits `export const PLUGIN_REGISTRY_HASH = "<sha256>"` into `packages/client/src/generated/plugin-registry.tsx`. Hash computed by `pluginRegistryHash(discoverPlugins())` over `deterministicSerializePlugins` output (sorted manifest fields, stable JSON).
+**Root cause of historical divergence:** build-time and runtime hashes previously computed over structurally different plugin sets. Build dropped client-less plugins (`Boolean(p.clientEntryPath)`); runtime counted every discovered plugin. Client-less plugins (e.g. `mcp-server`) made runtime `bundleHash` and build `PLUGIN_REGISTRY_HASH` permanently disagree, locking `PluginStalenessBanner` in refresh loops. Runtime discovery also inspected runtime-only roots (`~/.pi/dashboard/plugins`), while builds only bundle repository packages (`<repoRoot>/packages`).
 
-Runtime: `/api/health` returns `bundleHash` field. Server computes via same `pluginRegistryHash(discoverPlugins())`. Hash mismatch ⇒ disk has plugins client bundle does not know about (or vice versa).
+**Single plugin-set selector (`selectClientRegistryPlugins`):**
+Single selector in `packages/dashboard-plugin-runtime/src/server/client-registry-set.ts::selectClientRegistryPlugins(discovered, { isProd, bundleRoots })` feeds every producer:
+- Requires `p.clientEntryPath` (drops client-less plugins from both hashes).
+- Drops `p.manifest.fixture === true` when `isProd` is true (`demo-plugin` excluded from production build and production runtime hash).
+- Restricts discovery to bundle-eligible roots (`bundleRootsFor(repoRoot)`). Plugins in runtime-only roots (`~/.pi/dashboard/plugins`) excluded from both hashes (cannot enter client bundle; user-installed plugins contribute no client UI).
 
-Client: `PluginStalenessBanner` fetches `/api/health` on mount. Compares `bundleHash` against imported `PLUGIN_REGISTRY_HASH`. Mismatch ⇒ render banner with Refresh + Dismiss buttons. Refresh calls `location.reload()`. Dismiss persists in `sessionStorage` key `pi-plugin-staleness-dismissed` (tab-scoped, clears on browser close). Dismissed banner stays hidden until next session.
+All producers select through this selector:
+- Build time: Vite plugin (`packages/dashboard-plugin-runtime/src/vite-plugin/index.ts`)
+- Dev time: Vite `configureServer` HMR regeneration
+- Script: `scripts/generate-plugin-registry.mjs`
+- Server runtime: `packages/server/src/routes/system-routes.ts` (`/api/health.bundleHash`)
+
+All producers hash deterministic manifest serialization via `pluginRegistryHash(...)`.
+
+**Served-artifact build declaration (`pi-dashboard-build.json`):**
+Production Vite build writes `packages/client/dist/pi-dashboard-build.json`:
+- Schema: `{ schemaVersion: 1, pluginRegistryHash: "<sha256>", fixturePolicy: "excluded" | "included" }`.
+- Byte-reproducible: no timestamps, no host paths. Dev/HMR emits nothing.
+- SDK: `build-declaration-sdk.ts` + `build-metadata.ts` in `dashboard-plugin-runtime`.
+
+**Static client resolution and `/api/health.clientBuild`:**
+Server resolves static root once at startup (`packages/server/src/lib/client-dist.ts::resolveStaticClientDir`):
+- Package-first: installed `@blackbelt-technology/pi-dashboard-web/dist` wins if resolvable and contains `index.html`.
+- Resolvable package missing `dist/index.html` → API-only mode (`null`, NO workspace fallback).
+- Workspace fallback: `packages/client/dist` used only when `require.resolve` throws.
+
+Server captures startup coherence snapshot (`clientBuildSnapshotFor`):
+- Compares artifact's declared `pluginRegistryHash` against runtime plugin set evaluated under artifact's declared `fixturePolicy` (avoids false mismatch between dev server and production artifact).
+- `/api/health` exposes additive field:
+  `clientBuild: { pluginRegistryHash: string | null, status: "matched" | "mismatched" | "metadata-missing" | "not-served" }`.
+- Path-free startup diagnostic logged (`[dashboard] Served client build: <status>`).
+- Existing `bundleHash` field and `PluginStalenessBanner` contract unchanged.
+
+**Rebuild sync gate (`scripts/sync-served-client.mjs`):**
+Wired into `scripts/rebuild-restart.sh` and `scripts/rebuild-and-restart.sh` between build and restart:
+- Resolves served destination using server's `resolveStaticClientDir`.
+- No-op when destination equals `packages/client/dist`.
+- Mirrors workspace `dist` to destination if different; prunes superseded hashed assets after copy.
+- Verifies matching declarations before exit; adopts declaration-less destinations.
+- Refuses (exit 1) on missing source declaration, non-client destination, EACCES, or post-copy mismatch, aborting before server restart or bridge reload.
+
+```mermaid
+flowchart TD
+    subgraph Discovery ["Plugin Discovery"]
+        DP["discoverPlugins()"]
+    end
+
+    subgraph Selection ["Single Source of Truth"]
+        SCRP["selectClientRegistryPlugins(discovered, {isProd, bundleRoots})<br/>1. requires clientEntryPath<br/>2. drops fixture if isProd<br/>3. restricts to bundleRoots"]
+    end
+
+    subgraph Build ["Build Pipeline (Vite)"]
+        VITE["Vite Build / generate-plugin-registry"]
+        REG["plugin-registry.tsx<br/>export const PLUGIN_REGISTRY_HASH"]
+        DECL["dist/pi-dashboard-build.json<br/>{schemaVersion, pluginRegistryHash, fixturePolicy}"]
+    end
+
+    subgraph Runtime ["Server Runtime (:8000)"]
+        RESOLVE["resolveStaticClientDir()<br/>1. Installed package dist<br/>2. Workspace fallback (if unresolvable)"]
+        SNAP["readClientBuildSnapshot()<br/>Compare declared vs runtime hash"]
+        HEALTH["/api/health<br/>- bundleHash<br/>- clientBuild: {pluginRegistryHash, status}"]
+    end
+
+    subgraph Client ["Browser UI"]
+        BANNER["PluginStalenessBanner<br/>Compare /api/health.bundleHash vs PLUGIN_REGISTRY_HASH"]
+    end
+
+    subgraph Rebuild ["Rebuild Gate"]
+        SYNC["scripts/sync-served-client.mjs<br/>Mirror workspace -> served dir<br/>Abort before restart if mismatch"]
+    end
+
+    DP --> SCRP
+    SCRP --> VITE
+    VITE --> REG
+    VITE --> DECL
+    SCRP --> HEALTH
+    DECL -.-> SYNC
+    SYNC -.-> RESOLVE
+    DECL -.-> RESOLVE
+    RESOLVE --> SNAP
+    SNAP --> HEALTH
+    HEALTH --> BANNER
+    REG --> BANNER
+```
+
+Client banner flow: `PluginStalenessBanner` fetches `/api/health` on mount. Compares `bundleHash` against imported `PLUGIN_REGISTRY_HASH`. Mismatch ⇒ render banner with Refresh + Dismiss buttons. Refresh calls `location.reload()`. Dismiss persists in `sessionStorage` key `pi-plugin-staleness-dismissed` (tab-scoped, clears on browser close). Dismissed banner stays hidden until next session.
+
+See change: `add-served-build-coherence-and-hash-parity`.
 
 #### Plugin Activation UI
 
