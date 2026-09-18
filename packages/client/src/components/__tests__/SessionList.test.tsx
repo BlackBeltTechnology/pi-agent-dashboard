@@ -1,6 +1,7 @@
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type React from "react";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router, useLocation } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -51,6 +52,29 @@ function makeSession(overrides: Partial<DashboardSession> = {}): DashboardSessio
     cost: 0,
     ...overrides,
   };
+}
+
+/**
+ * SessionList wrapped in local collapse state. Collapse moved from
+ * `localStorage` to a server-fed prop (change: persist-folder-collapse-server-side),
+ * so tests seed it here and mirror the server echo synchronously.
+ */
+function CollapseHarness({
+  initialCollapsedGroups,
+  ...props
+}: React.ComponentProps<typeof SessionList> & { initialCollapsedGroups: string[] }) {
+  const [collapsedGroups, setCollapsedGroups] = useState(initialCollapsedGroups);
+  return (
+    <SessionList
+      {...props}
+      collapsedGroups={collapsedGroups}
+      onSetFolderCollapsed={(path, collapsed) =>
+        setCollapsedGroups((prev) =>
+          collapsed ? (prev.includes(path) ? prev : [...prev, path]) : prev.filter((p) => p !== path),
+        )
+      }
+    />
+  );
 }
 
 describe("SessionList spawn button", () => {
@@ -105,19 +129,32 @@ describe("SessionList spawn button", () => {
     fireEvent.click(btn);
     expect(onSpawn).toHaveBeenCalledWith("/my/project");
   });
+
+  it("F10: a folder with no stored entry renders expanded by default", () => {
+    const { container } = render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList sessions={[makeSession({ cwd: "/my/project" })]} onSelect={() => {}} />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    expect(container.querySelector(".group-collapse.expanded")).toBeTruthy();
+    expect(container.querySelector(".group-collapse.collapsed")).toBeNull();
+  });
 });
 
 describe("SessionList elevated spawn buttons", () => {
   it("hides the spawn button while collapsed; expanding reveals it and spawns", () => {
-    // Seed the folder as collapsed. Variant B (condense-collapsed-folder-header)
-    // hides the elevated spawn buttons (and all heavy slots) when collapsed —
-    // the header keeps only name + status. Expanding restores them.
-    localStorage.setItem("dashboard:collapsedGroups", JSON.stringify(["/my/project"]));
+    // Seed the folder as collapsed via the prop (was a localStorage seed).
+    // Variant B (condense-collapsed-folder-header) hides the elevated spawn
+    // buttons (and all heavy slots) when collapsed — the header keeps only
+    // name + status. Expanding restores them.
     const onSpawn = vi.fn();
     const { container } = render(
       <TestRouter>
         <ThemeProvider>
-          <SessionList
+          <CollapseHarness
+            initialCollapsedGroups={["/my/project"]}
             sessions={[makeSession({ cwd: "/my/project" })]}
             onSelect={() => {}}
             onSpawnSession={onSpawn}

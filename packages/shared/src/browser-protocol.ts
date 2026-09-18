@@ -678,6 +678,18 @@ export interface WorkspacesUpdatedMessage {
   workspaces: Workspace[];
 }
 
+/**
+ * Server → browser: full collapsed-folder-key list snapshot (sent on connect +
+ * every mutation). Mirrors `workspaces_updated` for the folder half of the
+ * sidebar. Sent unconditionally on connect — including when empty — because it
+ * doubles as the "initial state has arrived" signal the one-shot legacy
+ * migration waits on. See change: persist-folder-collapse-server-side.
+ */
+export interface CollapsedFoldersUpdatedMessage {
+  type: "collapsed_folders_updated";
+  collapsedFolders: string[];
+}
+
 export interface TerminalAddedMessage {
   type: "terminal_added";
   terminal: TerminalSession;
@@ -1149,6 +1161,7 @@ export type ServerToBrowserMessage =
   | PinnedDirsUpdatedMessage
   | FavoriteModelsUpdatedMessage
   | WorkspacesUpdatedMessage
+  | CollapsedFoldersUpdatedMessage
   | TerminalAddedMessage
   | TerminalRemovedMessage
   | TerminalUpdatedMessage
@@ -1713,6 +1726,19 @@ export interface SetWorkspaceCollapsedMessage {
   collapsed: boolean;
 }
 
+/**
+ * Browser → server: set one folder group's collapsed state. Field is `path`
+ * (not `cwd`), matching the folder-addressed siblings. Carries an explicit
+ * target state, never a toggle, so a repeat expand cannot re-collapse an
+ * already-open folder. The server canonicalizes before storing.
+ * See change: persist-folder-collapse-server-side.
+ */
+export interface SetFolderCollapsedMessage {
+  type: "set_folder_collapsed";
+  path: string;
+  collapsed: boolean;
+}
+
 export interface AddFolderToWorkspaceMessage {
   type: "add_folder_to_workspace";
   id: string;
@@ -1973,6 +1999,7 @@ export type BrowserToServerMessage =
   | RenameWorkspaceMessage
   | DeleteWorkspaceMessage
   | SetWorkspaceCollapsedMessage
+  | SetFolderCollapsedMessage
   | AddFolderToWorkspaceMessage
   | RemoveFolderFromWorkspaceMessage
   | ReorderWorkspaceFoldersMessage

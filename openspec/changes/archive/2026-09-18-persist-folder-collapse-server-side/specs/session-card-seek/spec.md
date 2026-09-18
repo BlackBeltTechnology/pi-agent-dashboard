@@ -44,7 +44,7 @@ seek cannot re-collapse an ancestor:
 - **WHEN** the active session's status is not `ended`
 - **THEN** the reveal SHALL NOT add its cwd to the ended-expanded set
 
-### Requirement: Scroll waits for layout, not a frame count
+### Requirement: Scroll waits for the card to enter the DOM
 
 The reveal fires while ancestors are still opening: workspaces expand
 asynchronously (server echo) and collapsed folders animate open. The reveal
@@ -80,3 +80,16 @@ re-fires the seek.
   server
 - **THEN** the scroll SHALL fire once the resulting update lands, without
   waiting for the backstop timeout
+
+#### Scenario: Reveal that never lands surfaces a Retry toast, not silence
+
+- **WHEN** the reveal's backstop timeout elapses before the card is laid out
+- **THEN** the reveal SHALL surface a toast carrying a Retry action
+- **AND** that toast SHALL NOT auto-dismiss before the user can act on it
+- **AND** SHALL leave no pending frame or timer callback
+
+#### Scenario: Retry on the timeout toast re-fires the reveal
+
+- **WHEN** the reveal-timeout toast is shown
+- **AND** the user activates its Retry action
+- **THEN** a new reveal SHALL be dispatched for the same session

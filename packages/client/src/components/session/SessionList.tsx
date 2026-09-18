@@ -21,12 +21,9 @@ import { buildFolderHomeUrl } from "../../lib/nav/route-builders.js";
 import { removeOpenSpecOptOut } from "../../lib/openspec/openspec-config-api.js";
 // TerminalCard removed — terminals now in TerminalsView
 import {
-  getCollapsedGroups,
   getIncludeArchive,
   getTagAreaOpen,
-  pruneStaleCollapsedGroups,
   removeLegacyHiddenSessions,
-  setCollapsedGroups,
   setIncludeArchive,
   setTagAreaOpen,
 } from "../../lib/session/session-filter-storage.js";
@@ -203,6 +200,11 @@ interface Props {
   onRenameWorkspace?: (id: string, name: string) => void;
   onDeleteWorkspace?: (id: string) => void;
   onSetWorkspaceCollapsed?: (id: string, collapsed: boolean) => void;
+  // ── persist-folder-collapse-server-side ─────────────────
+  /** Canonical collapsed folder keys, fed from the `collapsed_folders_updated` broadcast. */
+  collapsedGroups?: string[];
+  /** Set one folder group's collapsed state (explicit target, never a toggle). */
+  onSetFolderCollapsed?: (path: string, collapsed: boolean) => void;
   onAddFolderToWorkspace?: (id: string, path: string) => void;
   onRemoveFolderFromWorkspace?: (id: string, path: string) => void;
   // onKillTerminal/onRenameTerminal are pre-existing unused props (terminals
@@ -339,7 +341,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, openspecOfferInitialization, openspecEnabled, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenDirectorySettings, onRename, onShutdown, onResume, onResumeKeepPosition, onArchiveSession, onUnarchiveSession, archivedCountMap, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, retryAttemptMap, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp, endedTotalsMap, pagedCount, connected, onSessionsPage }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, openspecOfferInitialization, openspecEnabled, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenDirectorySettings, onRename, onShutdown, onResume, onResumeKeepPosition, onArchiveSession, onUnarchiveSession, archivedCountMap, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, collapsedGroups, onSetFolderCollapsed, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, retryAttemptMap, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp, endedTotalsMap, pagedCount, connected, onSessionsPage }: Props) {
   const { t } = useI18n();
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
@@ -556,6 +558,40 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     return m;
   }, [sessions, pinnedDirectories]);
 
+  // persist-folder-collapse-server-side: canonical collapse keys. The platform
+  // is inferred from the SAME sample shape grouping uses (session cwds, worktree
+  // main paths, pins) so the lookup key matches the rendered group key. NOT the
+  // value at `heldEndedByCwd` above, which omits worktree main paths.
+  const collapsePlatform = useMemo(
+    () =>
+      inferPlatform([
+        ...sessions.map((s) => s.cwd),
+        ...sessions.map((s) => s.gitWorktree?.mainPath),
+        ...(pinnedDirectories ?? []),
+      ]),
+    [sessions, pinnedDirectories],
+  );
+  const pinnedGroupKeys = useMemo(
+    () => new Set((pinnedDirectories ?? []).map((d) => pathKey(d, collapsePlatform))),
+    [pinnedDirectories, collapsePlatform],
+  );
+  const collapsedGroupKeys = useMemo(
+    () => new Set((collapsedGroups ?? []).map((p) => pathKey(p, collapsePlatform))),
+    [collapsedGroups, collapsePlatform],
+  );
+  const isGroupKeyCollapsed = useCallback(
+    (groupPath: string) => collapsedGroupKeys.has(pathKey(groupPath, collapsePlatform)),
+    [collapsedGroupKeys, collapsePlatform],
+  );
+  // ADD-ONLY / explicit-target setter. Never a toggle: collapse state now
+  // round-trips through the server, so a guarded toggle is a read-modify-write
+  // race (a repeat reveal could re-collapse a folder it just opened).
+  const setFolderCollapsed = useCallback(
+    (groupPath: string, collapsed: boolean) =>
+      onSetFolderCollapsed?.(pathKey(groupPath, collapsePlatform), collapsed),
+    [onSetFolderCollapsed, collapsePlatform],
+  );
+
   // Per-group page in-flight: at most one `sessions_page` per group at a
   // time. Released when `pagedCount` for the group advances (the reply
   // landed), on a 15 s timeout (the reply was lost), or when the socket
@@ -628,35 +664,9 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     return cwds.length > 0 ? cwds : undefined;
   }, [endedTotalsMap]);
 
-  // Collapsed groups state
-  const [collapsedGroups, setCollapsedGroupsState] = useState(() => getCollapsedGroups());
-
-  // Prune stale collapsed groups when sessions change
-  useEffect(() => {
-    if (sessions.length === 0) return;
-    const knownCwds = new Set(sessions.map((s) => s.cwd));
-    const prunedGroups = pruneStaleCollapsedGroups(knownCwds);
-    setCollapsedGroupsState(prunedGroups);
-  }, [sessions.length]);
-
-
-
   const handleArchive = useCallback((id: string) => {
     onArchiveSession?.(id);
   }, [onArchiveSession]);
-
-  const handleToggleCollapse = useCallback((cwd: string) => {
-    setCollapsedGroupsState((prev) => {
-      const next = new Set(prev);
-      if (next.has(cwd)) {
-        next.delete(cwd);
-      } else {
-        next.add(cwd);
-      }
-      setCollapsedGroups(next);
-      return next;
-    });
-  }, []);
 
   const handleUnarchive = useCallback((id: string) => {
     onUnarchiveSession?.(id);
@@ -1013,11 +1023,11 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
   /**
    * Force-expand folders when a filter is active so users can immediately
    * see what matched without an extra click. The user-toggled
-   * `collapsedGroups` set still controls behavior at rest.
+   * `collapsedGroups` prop still controls behavior at rest.
    */
   function isFolderCollapsed(cwd: string): boolean {
     if (workspaceFilter.length > 0 || sessionSearch.length > 0 || anyTagFilterActive) return false;
-    return collapsedGroups.has(cwd);
+    return isGroupKeyCollapsed(cwd);
   }
 
   // ── Seek-to-card reveal (See change: add-seek-to-session-card) ────────────
@@ -1063,14 +1073,16 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     clearPendingReveal();
   }, [findLaidOutCard, clearPendingReveal]);
 
-  // Flat 3-level ancestor lookup from cwd + status (no graph walk).
+  // Flat 3-level ancestor lookup from cwd + status (no graph walk). The folder
+  // ancestor is the RESOLVED group path (a worktree session renders under its
+  // main path), not the raw `cwd`. See change: persist-folder-collapse-server-side.
   const resolveFoldAncestors = useCallback(
-    (s: DashboardSession): { workspaceId?: string; cwd: string; isEnded: boolean } => ({
+    (s: DashboardSession): { workspaceId?: string; groupPath: string; isEnded: boolean } => ({
       workspaceId: folderWorkspaceMap.get(s.cwd),
-      cwd: s.cwd,
+      groupPath: resolveSessionGroupPath(s, pinnedGroupKeys, collapsePlatform),
       isEnded: s.status === "ended",
     }),
-    [folderWorkspaceMap],
+    [folderWorkspaceMap, pinnedGroupKeys, collapsePlatform],
   );
 
   // Classify whether the target is unreachable by fold-expansion alone: hidden
@@ -1121,18 +1133,17 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
       return;
     }
 
-    // GUARDED ancestor expand: workspace only if collapsed (idempotent server
-    // call); folder only if currently collapsed (the mutator is a TOGGLE);
-    // ended via an ADD-ONLY setter (never the toggle) so a re-seek can't
-    // re-collapse an already-open container.
-    const { workspaceId, cwd, isEnded } = resolveFoldAncestors(target);
+    // ADD-ONLY ancestor expand: workspace only if collapsed (idempotent server
+    // call); folder only if collapsed, via an explicit expand (never a toggle);
+    // ended via an add-only setter — so a re-seek can't re-collapse an ancestor.
+    const { workspaceId, groupPath, isEnded } = resolveFoldAncestors(target);
     if (workspaceId) {
       const ws = (workspaces ?? []).find((w) => w.id === workspaceId);
       if (ws?.collapsed) onSetWorkspaceCollapsed?.(workspaceId, false);
     }
-    if (collapsedGroups.has(cwd)) handleToggleCollapse(cwd);
+    if (isGroupKeyCollapsed(groupPath)) setFolderCollapsed(groupPath, false);
     if (isEnded) {
-      setEndedExpanded((prev) => (prev.has(cwd) ? prev : new Set(prev).add(cwd)));
+      setEndedExpanded((prev) => (prev.has(groupPath) ? prev : new Set(prev).add(groupPath)));
     }
     onSelect(target.id);
 
@@ -1167,14 +1178,16 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     });
   }, [revealRequest?.nonce]);
 
-  // The `workspaces` echo landing (async workspace expand resolving) is the
-  // primary completion signal — re-check presence when it changes.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `workspaces` is the completion trigger (echo); pending state read via ref.
+  // The ancestor-state echoes landing (async workspace + folder expands
+  // resolving) are the primary completion signal — re-check presence when
+  // either changes. See change: persist-folder-collapse-server-side (folder
+  // expansion is now also an async server round-trip).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `workspaces`/`collapsedGroupKeys` are the completion triggers (echoes); pending state read via ref.
   useEffect(() => {
     if (!pendingRevealRef.current) return;
     const id = requestAnimationFrame(() => attemptReveal());
     return () => cancelAnimationFrame(id);
-  }, [workspaces, attemptReveal]);
+  }, [workspaces, collapsedGroupKeys, attemptReveal]);
 
   // Cancel any pending frame/timer on unmount.
   useEffect(() => clearPendingReveal, [clearPendingReveal]);
@@ -1194,7 +1207,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
         const ws = (workspaces ?? []).find((w) => w.id === wsId);
         if (ws?.collapsed) onSetWorkspaceCollapsed?.(wsId, false);
       }
-      if (collapsedGroups.has(cwd)) handleToggleCollapse(cwd);
+      if (isGroupKeyCollapsed(cwd)) setFolderCollapsed(cwd, false);
 
       // The section mounts only after the (possibly async) expand commits —
       // retry briefly instead of a single frame that races the echo.
@@ -1213,7 +1226,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
       };
       window.setTimeout(tryFocus, 0);
     },
-    [folderWorkspaceMap, workspaces, onSetWorkspaceCollapsed, collapsedGroups, handleToggleCollapse],
+    [folderWorkspaceMap, workspaces, onSetWorkspaceCollapsed, isGroupKeyCollapsed, setFolderCollapsed],
   );
 
   // Settings → OpenSpec Workflow Profile is the remediation surface for
@@ -1548,7 +1561,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
           {/* Left gutter — chevron at top, drag-handle column extending below */}
           <FolderDragGutter
             isCollapsed={isCollapsed}
-            onToggle={() => handleToggleCollapse(group.cwd)}
+            onToggle={() => setFolderCollapsed(group.cwd, !isGroupKeyCollapsed(group.cwd))}
           />
           <div className="flex-1 min-w-0">
           {/* One shared init-status probe per row feeds BOTH the tier-0 banner
@@ -1645,8 +1658,8 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                   return;
                 }
                 // No reveal wiring (standalone render): fall back to the
-                // guarded expand + select the pill used.
-                if (isCollapsed) handleToggleCollapse(group.cwd);
+                // add-only expand + select the pill used.
+                if (isCollapsed) setFolderCollapsed(group.cwd, false);
                 onSelect(sessionId);
               }}
             />
@@ -1788,11 +1801,11 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               // fix-openspec-board-worktree-button-gating.
               showWorktree={resolveWorktreeAvailability({ cwd: group.cwd, sessions: group.sessions, folderGitMap, gitWorktreeEnabled }).available && !!onSpawnSession}
               onSpawnSession={() => {
-                if (isCollapsed) handleToggleCollapse(group.cwd);
+                if (isCollapsed) setFolderCollapsed(group.cwd, false);
                 onSpawnSession?.(group.cwd);
               }}
               onSpawnWorktree={() => {
-                if (isCollapsed) handleToggleCollapse(group.cwd);
+                if (isCollapsed) setFolderCollapsed(group.cwd, false);
                 setWorktreeDialogCwd(group.cwd);
               }}
             />
