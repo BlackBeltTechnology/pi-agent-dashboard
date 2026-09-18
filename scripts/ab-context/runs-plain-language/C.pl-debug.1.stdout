@@ -1,0 +1,27 @@
+[dashboard] endpoint ws+unix:///Users/robson/.pi/dashboard/gateway-9999.sock:/ (source=PI_DASHBOARD_SOCKET pinned=true)
+[dashboard] sendFlowsList: 0 flows, sessionId=01a0a2a5
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+### What is happening
+
+The bridge extension connected, registered the session, and then immediately disconnected because of a **bridge endpoint hijack**. 
+
+The bridge discovered a competing or stale dashboard instance over mDNS (or reconnected to an orphaned server holding the shared socket) and migrated its WebSocket connection there. Because the dashboard grants a reconnect grace period, the session card remains active in the UI, but the server has no live bridge connection to route prompts to, returning `502 "no bridge connection for session"`.
+
+---
+
+### First thing to check
+
+Check for **competing or orphaned dashboard instances** running on the machine before inspecting any code:
+
+```bash
+lsof -nP -iTCP -sTCP:LISTEN | grep node
+```
+
+(If running with domain sockets, also check `lsof ~/.pi/dashboard/gateway-*.sock`).
+
+#### Signature to confirm in `server.log`:
+Grep `server.log` for the failing session ID. You will see:
+1. `[gateway] session registered`
+2. Followed within a second by `[gateway] connection closed`
+3. Followed by `heartbeat timeout but session still active, giving reconnect grace period` (with **no** prior `connection dead (ping timeout)`).

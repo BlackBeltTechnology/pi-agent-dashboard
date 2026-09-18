@@ -1,0 +1,13 @@
+[dashboard] endpoint ws+unix:///Users/robson/.pi/dashboard/gateway-9999.sock:/ (source=PI_DASHBOARD_SOCKET pinned=true)
+[dashboard] sendFlowsList: 0 flows, sessionId=01a0a2dc
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+**No.**
+
+You do not need to run `npm run build` after editing files in `packages/server/src/`. 
+
+`npm run build` only builds the React client (`packages/client`). The dashboard server runs TypeScript directly at runtime using `jiti`, so no pre-compilation step is required. To apply your changes, simply restart the server:
+
+```bash
+curl -X POST http://localhost:8000/api/restart
+```

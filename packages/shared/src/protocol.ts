@@ -252,6 +252,48 @@ export interface ProcessMetrics {
   tickCoalesced?: number;
   tickDiscardedAtTerminal?: number;
   tickDroppedNotReady?: number;
+  /**
+   * Subagent fan-out admission counters (change:
+   * bound-subagent-fanout-under-host-pressure, D7). Cumulative for the bridge's
+   * lifetime. `fanoutAdmitted` are calls the gate admitted; `fanoutRefused` are
+   * refusals by any cause, of which `fanoutSaturationRefused` were caused by
+   * resource saturation rather than the static cap. The refusals are ALSO
+   * written to the durable session record, because the failure mode this
+   * capability addresses ends with the process gone and these live counters
+   * vanish with it. Ride the existing heartbeat metrics transport rather than a
+   * new one.
+   */
+  fanoutAdmitted?: number;
+  fanoutRefused?: number;
+  fanoutSaturationRefused?: number;
+  /**
+   * V8 heap ceiling of this process in bytes (`v8.getHeapStatistics()
+   * .heap_size_limit`). Without it `heapUsed` is unreadable: "148 MB" means
+   * nothing until you know whether the ceiling is 512 MB or 8 GB.
+   * NOT the configured request — V8 adds a fixed overhead (~192 MB observed).
+   * See change: bound-session-heap-and-gc-telemetry.
+   */
+  heapSizeLimit?: number;
+  /**
+   * `process.memoryUsage().external` / `.arrayBuffers`, in bytes — where the
+   * bytes actually are on the worst observed session (512 MB RSS against
+   * 148 MB `heapUsed`, so ~360 MB sits OUTSIDE the knob a heap ceiling tunes).
+   * Measured here, not bounded.
+   */
+  external?: number;
+  arrayBuffers?: number;
+  /**
+   * GC activity SINCE THE LAST HEARTBEAT (read-and-reset, like the event-loop
+   * histogram above) — not cumulative. Scalars folded in a
+   * `PerformanceObserver("gc")` callback, so nothing buffers between beats and
+   * the memory-observation path cannot itself become a leak.
+   *
+   * `gcMajorCount` counts only major collections; a rising major count against
+   * a flat `heapUsed` is the thrash signature that precedes an OOM.
+   */
+  gcCount?: number;
+  gcMajorCount?: number;
+  gcPauseMsTotal?: number;
 }
 
 export interface SessionHeartbeatMessage {
@@ -1162,7 +1204,9 @@ export interface RequestRolesMessage {
 export interface KillProcessMessage {
   type: "kill_process";
   sessionId: string;
-  pgid: number;
+  /** Optional: the REST/MCP lifecycle path may not know the pgid; the bridge
+   *  no-ops on a falsy value. See change: expand-mcp-tiered-surface. */
+  pgid?: number;
 }
 
 export interface ExtensionUiResponseMessage {

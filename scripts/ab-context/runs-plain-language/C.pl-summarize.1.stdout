@@ -1,0 +1,19 @@
+[dashboard] endpoint ws+unix:///Users/robson/.pi/dashboard/gateway-9999.sock:/ (source=PI_DASHBOARD_SOCKET pinned=true)
+[dashboard] sendFlowsList: 0 flows, sessionId=01a0a26e
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+### Problem
+Roughly 12% of worktree sessions (and ~40% on `ship-it` days) detached from their parent repository in the dashboard sidebar, displaying instead as top-level `/.../.worktrees/<name>` folder cards.
+
+### Root Cause
+When `ship-it` or `ship-change` runs `git worktree remove` from inside a session's current working directory, the `.git` file disappears immediately while untracked directories (`node_modules`, build output) temporarily remain. The bridge's background git poll then evaluated the remaining directory as a normal subdirectory of the main repository (`isLinkedWorktree: false`) rather than an active worktree. Consequently, the bridge sent `git_info_update { gitWorktree: null }`, causing the server to clear `session.gitWorktree` and overwrite `.meta.json` without parentage metadata.
+
+### Solution
+1. **Immutable parentage on the server:** `composeWorktreePayload` in `packages/server/src/git-worktree/git-worktree-compose.ts` now takes the session's prior `gitWorktree` value. Any incoming wire `null` is ignored if parentage was already established for that cwd.
+2. **Reconnection preservation:** `register()` in `packages/server/src/session/memory-session-manager.ts` retains `gitWorktree` across reconnects and resumes as long as `existing.cwd === params.cwd`.
+3. **Cold-start recovery for historical records:** `session-scanner.ts` scans unparented session paths; if an absolute cwd matches `<X>/.worktrees/<name>[/...]` and `<X>/.git` exists on disk, it synthesizes `{ mainPath: X, name }` in memory without modifying `.meta.json`.
+
+### Impact & Scope
+- **Scope:** Server-only fix affecting `git-worktree-compose.ts`, `event-wiring.ts`, `memory-session-manager.ts`, and `session-scanner.ts`.
+- **Wire and Storage Compatibility:** Protocol payload shapes, client components, and `.meta.json` formats remained unchanged.
+- **Immediate Outcome:** Healed 57 pre-existing broken sidebar records upon server restart without requiring manual data migrations.

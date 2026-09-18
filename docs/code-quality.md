@@ -181,7 +181,7 @@ Biome reports `suppressions/unused`. Stale suppression surfaces on its own.
 - noConsole never enabled. No server/scripts override needed.
 - `noUndeclaredDependencies` off for test files: `**/__tests__/**`, `**/*.test.ts`, `**/*.test.tsx`.
 - `noUndeclaredDependencies` off for build/config globs: `**/vitest.config.ts`, `**/vite.config.ts`, `**/vite.*.config.ts`, `**/forge.config.ts`, `packages/*/scripts/**`.
-- `noUndeclaredDependencies` off for non-published trees: `examples/**`, `openspec/changes/**/spike/**`, `.pi/flows/**`, `tests/e2e/**`, `qa/scripts/**`, `.pi/skills/**/scripts/**`.
+- `noUndeclaredDependencies` off for non-published trees: `examples/**`, `openspec/changes/**/spike/**`, `openspec/changes/**/mockup/**`, `.pi/flows/**`, `tests/e2e/**`, `qa/scripts/**`, `.pi/skills/**/scripts/**`.
 
 ## Blind spot — undeclared deps in test files
 
@@ -209,6 +209,48 @@ Rule moves `warn → error` only after plain lint reports 0 errors.
 - After flip, rule = `error`. New violation fails CI. Cannot regress.
 - Each rule verified + flipped independently. Non-zero probe blocks that one rule only, not the set.
 - Graduation flips switches, does not fix violations. Non-zero probe → route sites to a cleanup change.
+
+## Running tests
+
+`npm test` runs two sequential phases:
+
+```bash
+npm run test:parallel && npm run test:real-process
+```
+
+### Phase 1 — `test:parallel`
+
+- Runs ~35 root Vitest projects concurrently.
+- Excludes real-process test files via `packages/server/vitest.config.ts`.
+
+### Phase 2 — `test:real-process`
+
+- Runs `vitest run --config packages/server/vitest.real-process.config.ts`.
+- Vitest project name: `server-real-process`.
+- Configuration: `maxWorkers: 2`, `testTimeout: 60_000`, `hookTimeout: 60_000`, `root: __dirname` (pins Vitest root to `packages/server`; `src/**` in `REAL_PROCESS_TESTS` resolves relative to `packages/server`, not repo root; without pin, repo-root invocation resolves against repo root and collects zero files — silently-empty phase).
+- Membership: `packages/server/vitest.real-process-files.ts` exports `REAL_PROCESS_TESTS` (10 files). Single source of truth. Real-process config `include`s list; `packages/server/vitest.config.ts` `exclude`s list.
+- Isolation rationale: tests spawn real OS processes (keeper, mock-pi, bin wrapper, CLI signal forwarder, full server). Parallel test runner saturates CPU, causing timing false-positives. Config omitted from root `test.projects` — Vitest runs project array concurrently; sequential npm scripts enforce CPU isolation.
+- Retries: `retry: process.env.CI ? 1 : 0`, scoped strictly to `server-real-process`. Local runs use 0 retries to surface first failure. CI retry absorbs transient runner stalls; double failure fails run.
+
+### CI artifacts & triage
+
+- Under `CI`, both phases emit Vitest JSON reports: `test-results/vitest.json` and `test-results/vitest-real-process.json`.
+- `.github/workflows/ci.yml` uploads `vitest-report` artifact (`if: always()`, `retention-days: 14`).
+- Vitest JSON reporter emits no `retryCount` field. Assertions carry `{ancestorTitles, fullName, status, title, duration, failureMessages, meta, tags}`.
+- Retried pass signature: `status: "passed"` with non-empty `failureMessages` array (retains failed attempt error).
+- Default console reporter hides retried passes; artifact JSON provides only attribution path.
+- Query retried passes via `jq`:
+
+```bash
+jq -r '.testResults[].assertionResults[] | select(.status=="passed" and (.failureMessages|length)>0) | .fullName' test-results/vitest*.json
+```
+
+- Signature verified empirically against Vitest 4.1.11 fail-once fixture. Re-verify after Vitest major upgrade. No automated guard — a nested Vitest run inside `npm test` starves the real-process phase it would protect.
+
+### Repo guards
+
+- `packages/shared/src/__tests__/real-process-project-guard.test.ts`: asserts listed files exist, server config excludes list, server tests matching process-spawn predicate join list or carry `// real-process-exempt: <reason>`, and no other Vitest config sets `retry:`.
+- `packages/shared/src/__tests__/ci-vitest-report-artifact.test.ts`: asserts CI workflow uploads `test-results/vitest*.json` with `if: always()`.
 
 ## Oracle — `quality:changed`
 
@@ -350,6 +392,8 @@ If `--write` marks rule FIXABLE but leaves it, fix unsafe.
 | `quality:changed` | oracle above |
 | `quality:report` | `biome lint . --reporter=github` |
 | `lint` | `tsc --noEmit` (unchanged) |
+| `test:parallel` | `vitest run` (concurrent root projects) |
+| `test:real-process` | `vitest run --config packages/server/vitest.real-process.config.ts` |
 
 ## CI
 
@@ -357,6 +401,7 @@ If `--write` marks rule FIXABLE but leaves it, fix unsafe.
 - Triggers on `develop`.
 - Tier A error-tier gates regressions.
 - Tier B/C warn annotate without failing.
+- Uploads `vitest-report` artifact (`test-results/vitest*.json`, `if: always()`, `retention-days: 14`) exposing retried passes via `status: "passed"` + non-empty `failureMessages`.
 
 ## Rollout phases
 

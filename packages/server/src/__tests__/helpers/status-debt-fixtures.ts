@@ -60,6 +60,10 @@ export interface CapturedWs {
   ws: DrainingWs;
   /** Every serialized frame the gateway handed to `ws.send`, in order. */
   frames: string[];
+  /** Every parsed JSON frame, in order (non-JSON entries skipped). */
+  parsedFrames(): Array<Record<string, unknown> & { type?: string }>;
+  /** Parsed frames whose `type` matches, typed at the call site. */
+  framesOfType<T = Record<string, unknown>>(type: string): T[];
   /** Parsed `session_updated` frames only. */
   statusFrames(): SessionUpdatedMessage[];
   /** Saturate: park `bufferedAmount` above the shed threshold. */
@@ -88,19 +92,25 @@ export function attachCapturedWs(gateway: BrowserGateway, maxWsBuffer = TEST_MAX
   ws.bufferedAmount = 0;
   frames.length = 0; // discard the on-connect bootstrap
 
+  const parsedFrames = (): Array<Record<string, unknown> & { type?: string }> =>
+    frames
+      .map((f) => {
+        try {
+          return JSON.parse(f) as Record<string, unknown> & { type?: string };
+        } catch {
+          return undefined;
+        }
+      })
+      .filter((m): m is Record<string, unknown> & { type?: string } => m !== undefined);
+  const framesOfType = <T = Record<string, unknown>>(type: string): T[] =>
+    parsedFrames().filter((m) => m.type === type) as T[];
+
   return {
     ws,
     frames,
-    statusFrames: () =>
-      frames
-        .map((f) => {
-          try {
-            return JSON.parse(f) as { type?: string };
-          } catch {
-            return undefined;
-          }
-        })
-        .filter((m): m is SessionUpdatedMessage => m?.type === "session_updated"),
+    parsedFrames,
+    framesOfType,
+    statusFrames: () => framesOfType<SessionUpdatedMessage>("session_updated"),
     saturate: () => {
       ws.bufferedAmount = maxWsBuffer + 1;
     },

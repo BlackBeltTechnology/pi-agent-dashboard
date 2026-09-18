@@ -16,6 +16,8 @@ export const RPC_INVALID_REQUEST = -32600;
 export const RPC_METHOD_NOT_FOUND = -32601;
 export const RPC_INVALID_PARAMS = -32602;
 export const RPC_INTERNAL_ERROR = -32603;
+/** MCP authorization spec §Scope Challenge (change: expand-mcp-tiered-surface). */
+export const RPC_INSUFFICIENT_SCOPE = -32001;
 
 export type RpcId = string | number | null;
 
@@ -46,6 +48,9 @@ export interface RpcHttpResponse {
   /** Legacy era only: mint-and-echo `Mcp-Session-Id` (opaque, D2). Never set
    * on a modern-era response. */
   sessionId?: string;
+  /** Set on a tier refusal so the transport can emit the scope challenge
+   * (change: expand-mcp-tiered-surface, D2). */
+  wwwAuthenticate?: string;
 }
 
 export function rpcResult(id: RpcId, result: unknown): RpcHttpResponse {

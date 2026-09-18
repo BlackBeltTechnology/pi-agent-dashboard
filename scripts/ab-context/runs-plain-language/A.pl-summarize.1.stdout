@@ -1,0 +1,42 @@
+[dashboard] endpoint ws+unix:///Users/robson/.pi/dashboard/gateway-9999.sock:/ (source=PI_DASHBOARD_SOCKET pinned=true)
+[dashboard] sendFlowsList: 0 flows, sessionId=01a0a249
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+Here is a summary of the change for your teammate:
+
+---
+
+### **Overview**
+**Change:** `fix-worktree-grouping-lost-on-remove`  
+**Core Problem:** In ~12% of worktree sessions (~40% on `ship-it` days), sessions detached from their parent repository in the sidebar and showed up as orphaned top-level folders (e.g., `/…/.worktrees/<name>`).
+
+---
+
+### **Root Cause (The Timing Race)**
+When `ship-it` or `ship-change` runs `git worktree remove` from inside the session’s active working directory:
+1. The `.git` file is deleted immediately, but residual files (`node_modules`, build artifacts) linger until swept.
+2. The bridge's periodic git poll asks git to resolve the path. Without `.git`, git sees the residue as a standard subdirectory of the parent repo rather than a linked worktree.
+3. The bridge reports `git_info_update { gitWorktree: null }`.
+4. The server clears `session.gitWorktree`, dropping it from in-memory state.
+5. On exit, `.meta.json` is saved without `gitWorktree`, permanently orphaning the session's grouping across subsequent dashboard restarts.
+
+---
+
+### **What Was Done (3 Main Parts)**
+
+1. **Server Guard (Worktree Parentage Made Sticky):**
+   - In `git-worktree-compose.ts`, `gitWorktree` is treated as immutable once set for a given working directory.
+   - A wire `null` received for an already-set `gitWorktree` is ignored (assumed to be a worktree deleted underneath a running session). `null` only clears if parentage was never set.
+
+2. **Preserve on Reconnect/Re-register:**
+   - `memory-session-manager.ts` now retains `gitWorktree` during re-registration as long as `existing.cwd === params.cwd` (previously dropped on every re-register).
+
+3. **Cold-Start Auto-Repair for Existing Records:**
+   - In `session-scanner.ts`, when reading persisted sessions from disk, if `gitWorktree` is missing or invalid but the `cwd` matches `<repo>/.worktrees/<name>[/...]` and `<repo>/.git` exists, it synthesizes `{ mainPath: repo, name }` in memory.
+   - Requires zero `.meta.json` file migrations or subprocess calls (`statSync` only), instantly repairing the 57 existing broken sidebar entries.
+
+---
+
+### **Key Takeaways & Impact**
+- **No wire protocol or schema breaks:** No changes to message shapes, extension code, or the client UI.
+- **Side benefit for OpenSpec:** Sessions retain their `mainPath` after branch cleanup, allowing OpenSpec proposals to remain linked to the root repo instead of scoping down to an orphaned cwd.

@@ -1526,3 +1526,155 @@ The Sessions page SHALL render, in its "Session list" section, a numeric field f
 #### Scenario: Validation
 - **WHEN** the user enters `-1` for archive-after or `0` for sweep-interval
 - **THEN** the field SHALL show a validation error and Save SHALL be disabled
+
+### Requirement: Memory Limits section exposes `maxBytesPerSession`
+
+The Memory Limits section of the settings panel SHALL expose a numeric control for `memoryLimits.maxBytesPerSession`, alongside the existing memory-limit controls, labelled in mebibytes for the operator and stored in bytes, with a hint explaining that `0` disables the bound and that the oldest tool/subagent noise is dropped first. The control's label and hint SHALL resolve through the translation layer with an English fallback, consistent with the sibling controls.
+
+#### Scenario: Control renders with the configured value
+
+- **WHEN** the settings panel loads with `maxBytesPerSession` set to `33554432`
+- **THEN** the Memory Limits section SHALL display a control showing `32`
+
+#### Scenario: Control renders the default when the field is absent
+
+- **WHEN** the settings panel loads a config with no `maxBytesPerSession`
+- **THEN** the control SHALL display the default the server applies (`32`)
+
+#### Scenario: Edited value is written back in bytes
+
+- **WHEN** the user changes the control to `32` and saves
+- **THEN** the config write SHALL include `memoryLimits.maxBytesPerSession` of `33554432`
+- **AND** the other `memoryLimits` values SHALL be preserved on disk
+
+#### Scenario: Saving an unrelated Memory Limits field does not pin `maxBytesPerSession`
+
+- **WHEN** the user changes only `maxEventsPerSession` and saves
+- **THEN** the config write SHALL NOT include `maxBytesPerSession`
+
+#### Scenario: Change is marked as requiring a restart
+
+- **WHEN** the user changes the control
+- **THEN** the panel SHALL indicate the change requires a server restart, consistent with the other Memory Limits controls
+
+### Requirement: Memory Limits section exposes the global budget and resident count
+
+The Memory Limits section SHALL additionally expose numeric controls for
+`memoryLimits.maxTotalEventBytes` (labelled in mebibytes, stored in bytes) and
+`memoryLimits.maxCachedSessions` (a plain count). Both SHALL follow the sibling
+controls' conventions: translated label and hint with an English fallback,
+partial config write, and a restart-required indication. The `maxTotalEventBytes`
+hint SHALL state that it bounds ALL sessions together and that whole idle
+sessions are evicted first; the `maxCachedSessions` hint SHALL state that evicted
+sessions are re-read from their transcript when reopened.
+
+#### Scenario: Global budget control renders the configured value
+
+- **WHEN** the settings panel loads with `maxTotalEventBytes` set to `805306368`
+- **THEN** the section SHALL display a control showing `768`
+
+#### Scenario: Resident count renders the default when absent
+
+- **WHEN** the settings panel loads a config with no `maxCachedSessions`
+- **THEN** the control SHALL display `32`
+
+#### Scenario: Editing one new control does not pin the other
+
+- **WHEN** the user changes only `maxCachedSessions` and saves
+- **THEN** the config write SHALL include `memoryLimits.maxCachedSessions`
+- **AND** SHALL NOT include `maxTotalEventBytes` or `maxBytesPerSession`
+
+### Requirement: Memory fields on the Sessions and Server pages
+
+The settings panel SHALL expose the heap configuration: the `sessionHeap` fields
+on the Sessions page and the `serverHeap` field on the Server page.
+
+Both top-level keys SHALL be registered in the settings field-to-page mapping,
+and the save payload computation SHALL include them, so a change is attributed
+to the right page and is actually persisted.
+
+Each field SHALL state the unit (megabytes) and its effective default.
+
+#### Scenario: Session heap edit is attributed to the Sessions page
+- **WHEN** the operator edits `sessionHeap.maxOldSpaceMb`
+- **THEN** the unsaved-changes indicator SHALL attribute the change to the Sessions page
+
+#### Scenario: Server heap edit is attributed to the Server page
+- **WHEN** the operator edits `serverHeap.maxOldSpaceMb`
+- **THEN** the unsaved-changes indicator SHALL attribute the change to the Server page
+
+#### Scenario: Heap edits survive save
+- **WHEN** the operator changes a heap field and saves
+- **THEN** the save payload SHALL include the changed key
+- **AND** reloading the settings panel SHALL show the saved value
+
+### Requirement: Heap fields state when they take effect
+
+Each heap field SHALL tell the operator when a change becomes effective, because
+neither field applies to anything already running.
+
+The session fields SHALL indicate that they apply to sessions started after the
+change. The server field SHALL indicate that it requires a cold start and does
+not take effect on an in-place restart.
+
+#### Scenario: Session field states its boundary
+- **WHEN** the operator views the session heap fields
+- **THEN** the panel SHALL state that the value applies to newly started sessions
+
+#### Scenario: Server field states the cold-start requirement
+- **WHEN** the operator views the server heap field
+- **THEN** the panel SHALL state that a cold start is required
+
+### Requirement: Out-of-range heap input is refused at entry
+
+The panel SHALL refuse a `maxOldSpaceMb` value below the supported floor of
+`64`, and SHALL warn on a value above `8192` rather than refusing it.
+
+Refusal at entry SHALL NOT be the only protection: an out-of-range value that
+reaches the config by any other route still falls back to the default at load
+time.
+
+#### Scenario: Below-floor entry is refused
+- **WHEN** the operator enters `16` for a `maxOldSpaceMb` field
+- **THEN** the panel SHALL refuse the value and explain the floor
+
+#### Scenario: Unusually large entry is warned, not blocked
+- **WHEN** the operator enters a value above `8192`
+- **THEN** the panel SHALL warn
+- **AND** the value SHALL remain saveable
+
+### Requirement: The panel SHALL disclose the heap/fan-out coupling
+
+`Agent` children run inside the parent session's process and share its heap, so
+raising the fan-out bound spends session memory that is invisible at the point
+of the edit. When the session ceiling and `maxConcurrentSubagents` together
+leave each concurrent child under roughly `100` MB
+(`maxOldSpaceMb / (maxConcurrentSubagents + 1)`), the panel SHALL surface a
+non-blocking warning naming the computed per-child figure.
+
+#### Scenario: Risky pairing is disclosed at the point of edit
+- **WHEN** the operator raises `maxConcurrentSubagents` to `8` against a `512` MB ceiling
+- **THEN** the panel SHALL warn and name the per-child figure
+- **AND** the value SHALL remain saveable
+
+#### Scenario: Default pairing is silent
+- **WHEN** the ceiling is `512` and `maxConcurrentSubagents` is the default `2`
+- **THEN** no coupling warning SHALL be shown
+
+### Requirement: The server ceiling SHALL be labelled cold-start-only, not restart-required
+
+`serverHeap.maxOldSpaceMb` does not take effect on the in-place restart the
+panel offers, because that restart inherits the current process environment. The
+generic "some changes require a server restart" banner therefore tells the
+operator that an action they can take is sufficient, when it provably is not.
+The panel SHALL distinguish this field, and the effective ceiling SHALL be
+observable so a divergence between configured and running value is visible.
+
+#### Scenario: Editing the server ceiling states the stronger requirement
+- **WHEN** the operator edits `serverHeap.maxOldSpaceMb`
+- **THEN** the panel SHALL state that a full cold start is required
+- **AND** it SHALL NOT imply the in-place restart applies the new ceiling
+
+#### Scenario: A configured value that is not yet running is visible
+- **WHEN** the configured ceiling differs from the running process's effective ceiling
+- **THEN** the panel SHALL surface that the running value differs

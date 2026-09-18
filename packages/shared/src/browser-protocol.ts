@@ -130,6 +130,16 @@ export interface SessionAddedMessage {
    * See change: spawn-correlation-token.
    */
   spawnRequestId?: string;
+  /**
+   * Set on a RECONCILED add — a `session_added` rebuilt from CURRENT server
+   * state after a shed registry frame (debt-register flush), never on the
+   * original broadcast. Tells the client to upsert the row and clear a
+   * matching spawn placeholder WITHOUT stealing navigation: the add is a
+   * late repair, and `pendingSpawnsRef` entries have no TTL, so navigating
+   * would yank the user off whatever they had since opened.
+   * See change: close-registry-frame-shed-gaps.
+   */
+  reconciled?: boolean;
 }
 
 export interface SessionUpdatedMessage {
@@ -686,6 +696,18 @@ export interface WorkspacesUpdatedMessage {
   workspaces: Workspace[];
 }
 
+/**
+ * Server → browser: full collapsed-folder-key list snapshot (sent on connect +
+ * every mutation). Mirrors `workspaces_updated` for the folder half of the
+ * sidebar. Sent unconditionally on connect — including when empty — because it
+ * doubles as the "initial state has arrived" signal the one-shot legacy
+ * migration waits on. See change: persist-folder-collapse-server-side.
+ */
+export interface CollapsedFoldersUpdatedMessage {
+  type: "collapsed_folders_updated";
+  collapsedFolders: string[];
+}
+
 export interface TerminalAddedMessage {
   type: "terminal_added";
   terminal: TerminalSession;
@@ -1157,6 +1179,7 @@ export type ServerToBrowserMessage =
   | PinnedDirsUpdatedMessage
   | FavoriteModelsUpdatedMessage
   | WorkspacesUpdatedMessage
+  | CollapsedFoldersUpdatedMessage
   | TerminalAddedMessage
   | TerminalRemovedMessage
   | TerminalUpdatedMessage
@@ -1524,7 +1547,9 @@ export interface ServersUpdatedMessage {
 export interface KillProcessBrowserMessage {
   type: "kill_process";
   sessionId: string;
-  pgid: number;
+  /** Process group to kill. Optional: the REST/MCP lifecycle path may not know
+   *  it, and the bridge no-ops on a falsy pgid. See change: expand-mcp-tiered-surface. */
+  pgid?: number;
 }
 
 export interface ListSessionsBrowserMessage {
@@ -1716,6 +1741,19 @@ export interface DeleteWorkspaceMessage {
 export interface SetWorkspaceCollapsedMessage {
   type: "set_workspace_collapsed";
   id: string;
+  collapsed: boolean;
+}
+
+/**
+ * Browser → server: set one folder group's collapsed state. Field is `path`
+ * (not `cwd`), matching the folder-addressed siblings. Carries an explicit
+ * target state, never a toggle, so a repeat expand cannot re-collapse an
+ * already-open folder. The server canonicalizes before storing.
+ * See change: persist-folder-collapse-server-side.
+ */
+export interface SetFolderCollapsedMessage {
+  type: "set_folder_collapsed";
+  path: string;
   collapsed: boolean;
 }
 
@@ -1979,6 +2017,7 @@ export type BrowserToServerMessage =
   | RenameWorkspaceMessage
   | DeleteWorkspaceMessage
   | SetWorkspaceCollapsedMessage
+  | SetFolderCollapsedMessage
   | AddFolderToWorkspaceMessage
   | RemoveFolderFromWorkspaceMessage
   | ReorderWorkspaceFoldersMessage

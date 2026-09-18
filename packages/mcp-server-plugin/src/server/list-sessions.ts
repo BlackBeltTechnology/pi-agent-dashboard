@@ -143,6 +143,27 @@ function cursorPos(payload: CursorPayload): SortPos {
  * it before invoking the handler.
  */
 export function validateListSessionsArgs(args: Record<string, unknown>): string | null {
+  // Bound validation lives here too (the generated schema only says `number`),
+  // so a caller cannot raise the page size or page with 0 rows.
+  const limit = args.limit;
+  if (limit !== undefined) {
+    if (typeof limit !== "number" || !Number.isInteger(limit)) {
+      return 'list_sessions "limit" must be an integer';
+    }
+    if (limit < 1 || limit > MAX_LIMIT) {
+      return `list_sessions "limit" must be between 1 and ${MAX_LIMIT}`;
+    }
+  }
+  const status = args.status;
+  if (status !== undefined) {
+    if (!Array.isArray(status)) return 'list_sessions "status" must be an array';
+    for (const value of status) {
+      if (!(SESSION_STATUSES as readonly unknown[]).includes(value)) {
+        return `list_sessions "status" must be one of ${SESSION_STATUSES.join(", ")}`;
+      }
+    }
+  }
+
   const cursor = args.cursor;
   if (cursor === undefined) return null;
   if (typeof cursor !== "string") return 'list_sessions "cursor" must be a string';

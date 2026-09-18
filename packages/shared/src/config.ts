@@ -6,6 +6,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { HostGateMode } from "./host-admission.js";
+import {
+  DEFAULT_SERVER_HEAP,
+  DEFAULT_SESSION_HEAP,
+  MIN_HEAP_MB,
+  type ServerHeapConfig,
+  type SessionHeapConfig,
+} from "./heap-limits.js";
 import { DEFAULT_MEMORY_LIMITS, type MemoryLimitsConfig, MIN_REPLAY_WINDOW, type ReplayWindowMode } from "./memory-limits.js";
 import type { WindowsGitSourceSetting } from "./platform/select-git-source.js";
 import { inferPlatform, pathKey } from "./session-group-path.js";
@@ -151,6 +158,23 @@ export {
   MIN_REPLAY_WINDOW,
   type ReplayWindowMode,
 } from "./memory-limits.js";
+
+/**
+ * V8 heap-sizing types + defaults follow the same browser-safe split, for the
+ * same reason. DISTINCT from `memoryLimits` above, which bounds the EVENT
+ * STORE and has nothing to do with V8.
+ * See change: bound-session-heap-and-gc-telemetry (D7).
+ */
+export {
+  DEFAULT_SERVER_HEAP,
+  DEFAULT_SESSION_HEAP,
+  HEAP_WARN_ABOVE_MB,
+  MIN_HEAP_MB,
+  type ServerHeapConfig,
+  type SessionHeapConfig,
+  SUBAGENT_HEAP_GUIDANCE_MB,
+  subagentHeapBudget,
+} from "./heap-limits.js";
 
 export interface OpenSpecPollConfig {
   /**
@@ -449,6 +473,23 @@ export function resolveKrokiEndpoint(
 
 export type PluginsConfig = Record<string, Record<string, unknown>>;
 
+/**
+ * Resource-saturation thresholds consulted by subagent admission. Each metric is
+ * optional and names the domain it measures — mixing the domains up makes a
+ * threshold silently never fire on a machine loaded by *many* sessions whose
+ * parent process reads low.
+ *
+ * See change: bound-subagent-fanout-under-host-pressure (D5).
+ */
+export interface SubagentSaturationThresholds {
+  /** PROCESS domain: event-loop delay max (ms) over the admission window. */
+  eventLoopDelayMs?: number;
+  /** PROCESS domain: this process's CPU share (percent). */
+  cpuPercent?: number;
+  /** MACHINE domain: the system 1-minute load average. */
+  loadAvg1m?: number;
+}
+
 export interface DashboardConfig {
   port: number;
   piPort: number;
@@ -491,6 +532,22 @@ export interface DashboardConfig {
    * See change: reduce-bridge-tick-bandwidth (D2/D3/D4).
    */
   subagentTickThrottleMs: number;
+  /**
+   * Effective cap on concurrently in-flight `Agent` children in one session.
+   * `0` disables admission entirely and is the exact-no-op rollback path.
+   * Absent resolves to `DEFAULT_MAX_CONCURRENT_SUBAGENTS` (active by default).
+   * A negative / non-integer / non-numeric value is malformed and resolves to
+   * the fail-open (uncapped) path — NOT to the disable path: a malformed gate
+   * must never refuse a call.
+   * See change: bound-subagent-fanout-under-host-pressure (D1/D6).
+   */
+  maxConcurrentSubagents: number;
+  /**
+   * Optional resource-saturation thresholds. Any metric at/above its threshold
+   * narrows the effective cap to 1 (never 0). Absent metric = "no signal".
+   * See change: bound-subagent-fanout-under-host-pressure (D5).
+   */
+  subagentSaturation?: SubagentSaturationThresholds;
   /**
    * One-shot marker: the boot migration has already rewritten a materialized
    * `0` to the current default. Declared here so the settings round-trip
@@ -580,6 +637,18 @@ export interface DashboardConfig {
    */
   defaultThinkingLevel: string;
   memoryLimits: MemoryLimitsConfig;
+  /**
+   * V8 heap sizing for SPAWNED PI SESSIONS. Applies to the next spawn (a
+   * reload counts as a spawn); no running process is resized.
+   * See change: bound-session-heap-and-gc-telemetry.
+   */
+  sessionHeap: SessionHeapConfig;
+  /**
+   * V8 heap sizing for the DASHBOARD SERVER process. COLD-START ONLY —
+   * `/api/restart` inherits `env: process.env`, so an in-place restart keeps
+   * the previous ceiling. See change: bound-session-heap-and-gc-telemetry.
+   */
+  serverHeap: ServerHeapConfig;
   /** OpenSpec background polling behavior (interval, concurrency, change detection, jitter) */
   openspec: OpenSpecPollConfig;
   /** Session behavior — hydration worker offload toggle. */
@@ -1009,6 +1078,56 @@ export function parseIdentityConfig(raw: any): IdentityConfig {
   };
 }
 
+/**
+ * Default cap on concurrently in-flight `Agent` children per session.
+ *
+ * Fixed by Decision 1's measurement table in the change's `design.md`: it must
+ * sit below every observed fatal fan-out width (3, 4, 7) so the default admits
+ * no census batch unchanged, and the spec asserts the property "defined, at
+ * least 2, below 3" rather than a literal so the constant survives that
+ * measurement. The value is therefore 2.
+ * See change: bound-subagent-fanout-under-host-pressure (D1/D6).
+ */
+export const DEFAULT_MAX_CONCURRENT_SUBAGENTS = 2;
+
+/**
+ * Resolve `maxConcurrentSubagents` from a raw config value.
+ *
+ * Absent → the active default. An explicit non-negative integer (including the
+ * `0` disable value) is honoured. Anything else is MALFORMED and resolves to
+ * the fail-open (uncapped) path — never to the disable path and never to a
+ * refusal, because a broken gate refusing every `Agent` call is strictly worse
+ * than the crash this capability mitigates.
+ * See change: bound-subagent-fanout-under-host-pressure (D6).
+ */
+export function resolveMaxConcurrentSubagents(raw: unknown): number {
+  if (raw === undefined) return DEFAULT_MAX_CONCURRENT_SUBAGENTS;
+  if (typeof raw === "number" && Number.isInteger(raw) && raw >= 0) return raw;
+  return Number.POSITIVE_INFINITY;
+}
+
+/**
+ * Parse the optional saturation thresholds. A threshold that is not a positive
+ * finite number is dropped (absent = "no signal from that metric", not zero);
+ * an object with no usable threshold at all collapses to `undefined`.
+ * See change: bound-subagent-fanout-under-host-pressure (D5).
+ */
+export function parseSubagentSaturation(raw: any): SubagentSaturationThresholds | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const positive = (v: unknown): number | undefined =>
+    typeof v === "number" && Number.isFinite(v) && v > 0 ? v : undefined;
+  const thresholds: SubagentSaturationThresholds = {
+    eventLoopDelayMs: positive(raw.eventLoopDelayMs),
+    cpuPercent: positive(raw.cpuPercent),
+    loadAvg1m: positive(raw.loadAvg1m),
+  };
+  return thresholds.eventLoopDelayMs === undefined &&
+    thresholds.cpuPercent === undefined &&
+    thresholds.loadAvg1m === undefined
+    ? undefined
+    : thresholds;
+}
+
 const DEFAULTS: DashboardConfig = {
   plugins: {},
   kroki: { ...DEFAULT_KROKI_CONFIG },
@@ -1024,6 +1143,7 @@ const DEFAULTS: DashboardConfig = {
   // cannot drift. See change: add-configurable-readiness-timeout.
   readinessTimeoutMs: HEALTH_CHECK_TIMEOUT_MS,
   subagentTickThrottleMs: DEFAULT_SUBAGENT_TICK_THROTTLE_MS,
+  maxConcurrentSubagents: DEFAULT_MAX_CONCURRENT_SUBAGENTS,
   removeBatchCap: DEFAULT_REMOVE_BATCH_CAP,
   spawnStrategy: "headless",
   tunnel: {
@@ -1040,6 +1160,8 @@ const DEFAULTS: DashboardConfig = {
   defaultModel: "",
   defaultThinkingLevel: "",
   memoryLimits: { ...DEFAULT_MEMORY_LIMITS },
+  sessionHeap: { ...DEFAULT_SESSION_HEAP },
+  serverHeap: { ...DEFAULT_SERVER_HEAP },
   openspec: { ...DEFAULT_OPENSPEC_POLL },
   sessions: { ...DEFAULT_SESSIONS },
   sessionList: { ...DEFAULT_SESSION_LIST },
@@ -1317,6 +1439,35 @@ function parseReplayWindowMode(raw: unknown): ReplayWindowMode {
   return raw === "tail-only" || raw === "head-tail" ? raw : DEFAULT_MEMORY_LIMITS.replayWindowMode;
 }
 
+/**
+ * A byte budget with an "unlimited" sentinel: absent / negative / non-numeric →
+ * the DEFAULT; explicit `0` preserved; any other number loaded AS-IS.
+ *
+ * The loader does type/negative validation ONLY. The floor clamp lives in the
+ * store, which alone can see `maxEventDataSize` (a top-level `DashboardConfig`
+ * field, invisible to this browser-safe module).
+ * See change: bound-event-store-by-bytes (D5/D6, E11/E12).
+ */
+function parseByteBudget(raw: unknown, fallback: number): number {
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) return fallback;
+  if (raw === 0) return 0;
+  return Math.floor(raw);
+}
+
+/**
+ * A plain positive COUNT with no unlimited sentinel: a finite positive number
+ * is floored, and EVERYTHING else (absent / `0` / negative / non-numeric)
+ * resolves to the default.
+ * See change: bound-event-store-by-bytes (D8, E13).
+ */
+function parsePositiveCount(raw: unknown, fallback: number): number {
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) return fallback;
+  const floored = Math.floor(raw);
+  // A positive fraction that floors to 0 (e.g. `0.5`) is NOT a valid count:
+  // `0` means "evict every session", the opposite of the documented fallback.
+  return floored >= 1 ? floored : fallback;
+}
+
 function parseMemoryLimits(raw: any): MemoryLimitsConfig {
   if (!raw || typeof raw !== "object") return { ...DEFAULT_MEMORY_LIMITS };
   return {
@@ -1328,6 +1479,71 @@ function parseMemoryLimits(raw: any): MemoryLimitsConfig {
     // See change: lazy-load-session-history (D3), fix-lazy-history-backfill-ux (D7).
     maxReplayEvents: parseMaxReplayEvents(raw.maxReplayEvents),
     replayWindowMode: parseReplayWindowMode(raw.replayWindowMode),
+    // Byte budgets: explicit 0 = unlimited (rollback lever); a positive value
+    // is loaded as-is so the STORE applies the floor clamp.
+    // See change: bound-event-store-by-bytes (D5/D6/D7/D8).
+    maxBytesPerSession: parseByteBudget(
+      raw.maxBytesPerSession,
+      DEFAULT_MEMORY_LIMITS.maxBytesPerSession,
+    ),
+    maxTotalEventBytes: parseByteBudget(
+      raw.maxTotalEventBytes,
+      DEFAULT_MEMORY_LIMITS.maxTotalEventBytes,
+    ),
+    maxCachedSessions: parsePositiveCount(
+      raw.maxCachedSessions,
+      DEFAULT_MEMORY_LIMITS.maxCachedSessions,
+    ),
+  };
+}
+
+/**
+ * A V8 heap size in MB: a finite integer at or above `MIN_HEAP_MB`, else the
+ * fallback. There is NO "unlimited" sentinel here — unlike the event-store byte
+ * budgets, an explicit `0` is not a rollback lever, it is a request V8 would
+ * reject, so it falls back like any other invalid value.
+ *
+ * Load-time fallback (not merely UI rejection) is the established convention
+ * (`spawnStrategy`, `reattachPlacement`) and is what keeps an invalid value
+ * from ever reaching a spawned process's argv.
+ * See change: bound-session-heap-and-gc-telemetry (D7).
+ */
+function parseHeapMb(raw: unknown, fallback: number): number {
+  if (typeof raw !== "number" || !Number.isFinite(raw) || !Number.isInteger(raw)) return fallback;
+  if (raw < MIN_HEAP_MB) return fallback;
+  return raw;
+}
+
+/** Optional heap field: absent stays absent; present-but-invalid drops out. */
+function parseOptionalHeapMb(raw: unknown): number | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "number" || !Number.isFinite(raw) || !Number.isInteger(raw)) return undefined;
+  if (raw < MIN_HEAP_MB) return undefined;
+  return raw;
+}
+
+function parseSessionHeap(raw: any): SessionHeapConfig {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ...DEFAULT_SESSION_HEAP };
+  const initialOldSpaceMb = parseOptionalHeapMb(raw.initialOldSpaceMb);
+  // The young generation is sized in single-digit MB; `MIN_HEAP_MB` is an
+  // old-space floor and must not be applied to it.
+  const maxSemiSpaceMb =
+    typeof raw.maxSemiSpaceMb === "number" &&
+    Number.isInteger(raw.maxSemiSpaceMb) &&
+    raw.maxSemiSpaceMb > 0
+      ? raw.maxSemiSpaceMb
+      : undefined;
+  return {
+    maxOldSpaceMb: parseHeapMb(raw.maxOldSpaceMb, DEFAULT_SESSION_HEAP.maxOldSpaceMb),
+    ...(initialOldSpaceMb !== undefined ? { initialOldSpaceMb } : {}),
+    ...(maxSemiSpaceMb !== undefined ? { maxSemiSpaceMb } : {}),
+  };
+}
+
+function parseServerHeap(raw: any): ServerHeapConfig {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ...DEFAULT_SERVER_HEAP };
+  return {
+    maxOldSpaceMb: parseHeapMb(raw.maxOldSpaceMb, DEFAULT_SERVER_HEAP.maxOldSpaceMb),
   };
 }
 
@@ -1607,6 +1823,7 @@ export function loadConfig(): DashboardConfig {
     const rawStrategy = parsed.spawnStrategy;
     const spawnStrategy: SpawnStrategy =
       VALID_SPAWN_STRATEGIES.includes(rawStrategy) ? rawStrategy : defaults.spawnStrategy;
+    const subagentSaturation = parseSubagentSaturation(parsed.subagentSaturation);
 
     const result: DashboardConfig = {
       port: parsed.port ?? defaults.port,
@@ -1630,6 +1847,8 @@ export function loadConfig(): DashboardConfig {
         parsed.subagentTickThrottleMs >= 0
           ? parsed.subagentTickThrottleMs
           : defaults.subagentTickThrottleMs,
+      maxConcurrentSubagents: resolveMaxConcurrentSubagents(parsed.maxConcurrentSubagents),
+      ...(subagentSaturation ? { subagentSaturation } : {}),
       ...(parsed.subagentTickThrottleMigrated === true ? { subagentTickThrottleMigrated: true } : {}),
       removeBatchCap: clampRemoveBatchCap(parsed.removeBatchCap),
       spawnStrategy,
@@ -1641,6 +1860,8 @@ export function loadConfig(): DashboardConfig {
       auth: parseAuthConfig(parsed.auth),
       identity: parseIdentityConfig(parsed.identity),
       memoryLimits: parseMemoryLimits(parsed.memoryLimits),
+      sessionHeap: parseSessionHeap(parsed.sessionHeap),
+      serverHeap: parseServerHeap(parsed.serverHeap),
       openspec: parseOpenSpecPollConfig(parsed.openspec),
       sessions: parseSessionsConfig(parsed.sessions),
       sessionList: parseSessionListConfig(parsed.sessionList),

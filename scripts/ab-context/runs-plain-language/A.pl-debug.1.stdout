@@ -1,0 +1,32 @@
+[dashboard] endpoint ws+unix:///Users/robson/.pi/dashboard/gateway-9999.sock:/ (source=PI_DASHBOARD_SOCKET pinned=true)
+[dashboard] sendFlowsList: 0 flows, sessionId=01a0a280
+The user provided project/location will take precedence over the API key from the environment variables.
+The user provided project/location will take precedence over the API key from the environment variables.
+### What is Happening
+
+This is the signature of a **bridge endpoint hijack**:
+
+1. **Initial Registration**: When the new pi session spawns, it initially connects to your current dashboard's bridge gateway and registers, which creates the session entry and displays a normal, active card in the UI.
+2. **Migration / Disconnect**: Immediately after registering, the bridge extension disconnects because it discovers and migrates its WebSocket connection to a **competing / stale dashboard instance** (typically advertised via mDNS on your local network/worktree, or via a shared socket takeover `~/.pi/dashboard/gateway-*.sock` by an orphaned background process).
+3. **502 Response**: The bridge is now connected to the rogue/stale dashboard (or stuck in a reconnect loop to an unreachable host), leaving your current dashboard holding an active session record with no underlying bridge WebSocket connection.
+
+---
+
+### First Thing to Check
+
+Check for **competing or orphaned dashboard instances** running on the machine before inspecting any code:
+
+```bash
+lsof -nP -iTCP -sTCP:LISTEN | grep node
+```
+
+Look for:
+- Extra dashboard server instances (often left running in another worktree or started by a background task/subagent).
+- Orphaned node processes binding dashboard ports or holding `~/.pi/dashboard/gateway-*.sock`.
+
+#### Confirming the Signature
+Check `server.log`:
+- You will see `[gateway] session registered` immediately followed (within a second) by `[gateway] connection closed` for that session ID (with **no** prior ping-timeout warnings).
+- Running `lsof -nP -p <pi_pid>` on the keeper's child `pi` process will show **no** established TCP connection to your active dashboard's bridge port.
+
+Once any stale/competing dashboard processes are identified and terminated, the bridge will connect to the intended dashboard and prompts will succeed.

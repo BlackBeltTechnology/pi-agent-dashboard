@@ -1,0 +1,752 @@
+<!doctype html>
+<html lang="hu">
+<head>
+<meta charset="utf-8" />
+<title>deck3d — strategy lab v2</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<!--
+  deck3d strategy lab v2 — throwaway mockup for the proposed `packages/deck3d` skill+CLI.
+  v2 direction (user feedback): real 3D, not textured cards.
+    - diagrams are BUILT as animated 3D objects (nano-banana image = design reference, not the asset)
+    - photoreal: PBR materials, environment reflections, mirror floor, soft shadows, bloom
+    - Hungarian glyphs: TTF (Poppins) -> opentype.js -> ExtrudeGeometry (every three.js typeface.json has corrupt ő ű)
+    - config: deck defaults + per-slide overrides, saved to localStorage, panel hidden behind ⚙ / C
+    - unused slide area = animated background scene that reflects the slide's content
+  No API calls. Three.js from unpkg import-map here ONLY; the real package inlines it.
+  Destination: openspec/changes/<name>/ once the change is scaffolded.
+-->
+<style>
+  :root { color-scheme: dark light; }
+  html, body { margin:0; height:100%; overflow:hidden; font: 13px/1.4 -apple-system, "Segoe UI", Roboto, sans-serif; background:#111; color:#eee; }
+  canvas { display:block; }
+  #panel { position:fixed; top:0; right:0; width:300px; height:100%; overflow-y:auto; background:rgba(20,20,24,.86); backdrop-filter: blur(8px); border-left:1px solid #333; padding:12px 14px 40px; box-sizing:border-box; transform:translateX(100%); transition:transform .25s ease; }
+  #panel.open { transform:none; }
+  #gear { position:fixed; right:12px; bottom:12px; width:34px; height:34px; border-radius:50%; font-size:17px; padding:0; opacity:.55; z-index:2; }
+  #gear:hover, #panel.open ~ #gear { opacity:1; }
+  #scope { display:flex; gap:4px; margin:0 0 8px; }
+  #scope button { flex:1; } #scope button.on { background:#FF5722; border-color:#FF5722; color:#111; }
+  #panel.slide fieldset.deckonly { opacity:.4; pointer-events:none; }
+  label.ov > span::after { content:' ●'; color:#FF5722; }
+  #cfgmsg { min-height:14px; }
+  #panel h1 { font-size:14px; margin:0 0 8px; letter-spacing:.04em; }
+  fieldset { border:1px solid #3a3a42; border-radius:6px; margin:0 0 10px; padding:6px 10px 8px; }
+  legend { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:#9aa; padding:0 4px; }
+  label { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:4px 0; }
+  label span { flex:1; }
+  select, input[type=range], input[type=color] { max-width:150px; }
+  input[type=range] { width:120px; }
+  .row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  button { background:#2a2a33; color:#eee; border:1px solid #444; border-radius:5px; padding:5px 9px; cursor:pointer; }
+  button:hover { background:#363642; }
+  #hud { position:fixed; left:14px; bottom:12px; font-size:12px; color:#ccc; background:rgba(0,0,0,.45); padding:6px 10px; border-radius:6px; pointer-events:none; }
+  #hud b { color:#fff; }
+  #fade { position:fixed; inset:0; pointer-events:none; opacity:0; }
+  #json { position:fixed; left:14px; top:14px; width:min(520px, calc(100vw - 340px)); max-height:80vh; overflow:auto; background:rgba(0,0,0,.8); border:1px solid #444; border-radius:6px; padding:10px; font:11px/1.35 ui-monospace, Menlo, monospace; white-space:pre; display:none; }
+  #json.show { display:block; }
+  small { color:#8a8f99; display:block; margin-top:2px; }
+  kbd { background:#333; border-radius:3px; padding:0 4px; font-size:11px; }
+  .ok { color:#7ed07e; } .warn { color:#ffb347; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+  "opentype": "https://cdn.jsdelivr.net/npm/opentype.js@1.3.4/dist/opentype.module.js",
+  "mermaid": "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs"
+} }
+</script>
+</head>
+<body>
+<div id="fade"></div>
+<pre id="json"></pre>
+<div id="hud">loading three.js + fonts + mermaid…</div>
+<div id="mmhost" style="position:absolute;left:-9999px;top:0;width:900px"></div>
+
+<div id="panel">
+  <h1>deck3d · strategy lab v2</h1>
+  <small><kbd>←</kbd><kbd>→</kbd> slides · <kbd>Space</kbd> autoplay · <kbd>J</kbd> deck.json · <kbd>C</kbd> config</small>
+
+  <fieldset><legend>Config scope</legend>
+    <div id="scope"><button data-scope="deck" class="on">Deck defaults</button><button data-scope="slide">This slide</button></div>
+    <div class="row"><button id="save">💾 Save</button><button id="resetSlide">Reset slide</button><button id="resetAll">Reset all</button></div>
+    <small id="cfgmsg"></small>
+    <small>● = overridden on this slide. Saved to localStorage; the package would write it back as per-slide <code>3d:</code> frontmatter.</small>
+  </fieldset>
+
+  <fieldset><legend>Diagram (3D object)</legend>
+    <label><span>Source</span>
+      <select data-k="diagram">
+        <option value="built">Built 3D — image is the reference</option>
+        <option value="relief">Image relief (v1 fallback)</option>
+        <option value="off">Off</option>
+      </select></label>
+    <label><span>Animated</span><input type="checkbox" data-k="anim" checked></label>
+    <label><span>Anim speed</span><input type="range" data-k="animSpeed" min="0" max="2.5" step="0.1" value="1"></label>
+    <label><span>Show reference image</span><input type="checkbox" data-k="ref"></label>
+    <small>ref = the nano-banana PNG the builder would read; shown as a small plaque</small>
+  </fieldset>
+
+  <fieldset><legend>Photoreal</legend>
+    <label><span>Material</span>
+      <select data-k="material">
+        <option value="glass">Glass + metal (transmission)</option>
+        <option value="metal">Brushed metal</option>
+        <option value="matte">Matte (fast)</option>
+      </select></label>
+    <label><span>Env reflections</span><input type="checkbox" data-k="env" checked></label>
+    <label><span>Mirror floor</span><input type="checkbox" data-k="mirror" checked></label>
+    <label><span>Soft shadows</span><input type="checkbox" data-k="shadows" checked></label>
+    <label><span>Bloom</span><input type="checkbox" data-k="bloom" checked></label>
+    <label><span>Accent rim light</span><input type="checkbox" data-k="rim" checked></label>
+  </fieldset>
+
+  <fieldset><legend>Background scene</legend>
+    <label><span>Mode</span>
+      <select data-k="bg">
+        <option value="content">Content-reactive (per slide)</option>
+        <option value="particles">Particle field</option>
+        <option value="none">None</option>
+      </select></label>
+    <label><span>Background intensity</span><input type="range" data-k="bgInt" min="0" max="1" step="0.05" value="0.7"></label>
+    <label><span>Fog</span><input type="checkbox" data-k="fog" checked></label>
+  </fieldset>
+
+  <fieldset><legend>Title text</legend>
+    <label><span>Font</span>
+      <select data-k="font">
+        <option value="poppins">Poppins Bold (TTF → opentype.js)</option>
+        <option value="droid">Droid Sans Bold typeface.json — broken ő ű</option>
+      </select></label>
+    <label><span>Extrude depth</span><input type="range" data-k="extrude" min="0.02" max="0.5" step="0.02" value="0.18"></label>
+    <small id="glyph">glyph check: —</small>
+  </fieldset>
+
+  <fieldset class="deckonly"><legend>World / Motion (deck-only)</legend>
+    <label><span>Topology</span>
+      <select data-k="topology">
+        <option value="rail">RAIL</option><option value="orbit">ORBIT</option><option value="tunnel">TUNNEL</option>
+      </select></label>
+    <label><span>Transition</span>
+      <select data-k="transition">
+        <option value="dolly">dolly</option><option value="swing">swing</option><option value="fade">cross-fade</option><option value="cut">cut</option>
+      </select></label>
+    <label><span>Duration</span><input type="range" data-k="duration" min="0.2" max="3" step="0.1" value="1.4"></label>
+    <label><span>Camera idle drift</span><input type="checkbox" data-k="idle" checked></label>
+    <label><span>Reduced motion</span><input type="checkbox" data-k="reduced"></label>
+  </fieldset>
+
+  <fieldset><legend>Look</legend>
+    <label><span>Mode</span><select data-k="mode"><option value="dark">dark</option><option value="light">light</option></select></label>
+    <label><span>Palette</span>
+      <select data-k="palette">
+        <option value="blackbelt">Blackbelt</option><option value="zenit">Zenit</option><option value="dapp">DAPP slate</option><option value="custom">custom…</option>
+      </select></label>
+    <div class="row" id="customRow" style="display:none">
+      <label><span>card</span><input type="color" data-k="cCard" value="#4A4A4A"></label>
+      <label><span>accent</span><input type="color" data-k="cAccent" value="#FF5722"></label>
+      <label><span>2nd</span><input type="color" data-k="cSecond" value="#9E9E9E"></label>
+    </div>
+  </fieldset>
+
+  <div class="row">
+    <button id="prev">◀</button><button id="next">▶</button>
+    <button id="play">▶ autoplay</button>
+    <button id="dump">deck.json</button>
+  </div>
+  <small id="fps"></small>
+</div>
+<button id="gear" title="config (C)">⚙</button>
+
+<script type="module">
+import * as THREE from 'three';
+import { FontLoader } from 'three/addons/loaders/FontLoader.js';
+import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
+import opentype from 'opentype';
+import mermaid from 'mermaid';
+import { Reflector } from 'three/addons/objects/Reflector.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+// ---------- state ----------
+// DECK = deck-wide defaults; OV[slideId] = per-slide partial overrides. S = effective config of the current slide.
+const DEFAULTS = {
+  diagram:'built', anim:true, animSpeed:1, ref:false,
+  material:'glass', env:true, mirror:true, shadows:true, bloom:true, rim:true,
+  bg:'content', bgInt:0.7, fog:true,
+  font:'poppins', extrude:0.18,
+  topology:'rail', transition:'dolly', duration:1.4, idle:true, reduced:false,
+  mode:'dark', palette:'blackbelt', cCard:'#4A4A4A', cAccent:'#FF5722', cSecond:'#9E9E9E',
+};
+const DECK_ONLY = new Set(['topology','transition','duration','idle','reduced']);
+const STORE = 'deck3d-lab-config';
+const saved = (() => { try { return JSON.parse(localStorage.getItem(STORE)) || {}; } catch { return {}; } })();
+let DECK = { ...DEFAULTS, ...saved.deck }, OV = saved.overrides || {}, scope = 'deck';
+const eff = i => ({ ...DECK, ...OV[SLIDES[i].id] });
+let S = null; // set after SLIDES
+const REBUILD = new Set(['diagram','ref','material','env','mirror','shadows','bg','font','extrude','topology','mode','palette','cCard','cAccent','cSecond','rim']);
+// scene-global properties that follow the CURRENT slide's effective config (no rebuild needed)
+const LOOK = new Set(['bloom','fog','rim','env','mirror','shadows','mode','palette','cCard','cAccent','cSecond']);
+
+const PALETTES = {
+  blackbelt: { accent:'#FF5722', second:'#9E9E9E', dark:{ bg:'#1a1a1c', card:'#3a3a3d', text:'#FFFFFF' }, light:{ bg:'#E8E8EA', card:'#FFFFFF', text:'#2b2b2b' } },
+  zenit:     { accent:'#F47A20', second:'#4472C4', dark:{ bg:'#08101e', card:'#1F3A5F', text:'#FFFFFF' }, light:{ bg:'#F3F1EC', card:'#FFFFFF', text:'#1F3A5F' } },
+  dapp:      { accent:'#6366F1', second:'#22C55E', dark:{ bg:'#0B1120', card:'#1E293B', text:'#F8FAFC' }, light:{ bg:'#F8FAFC', card:'#FFFFFF', text:'#0F172A' } },
+};
+function pal() {
+  if (S.palette === 'custom') {
+    const c = new THREE.Color(S.cCard); const l = c.getHSL({}).l;
+    const bg = c.clone().offsetHSL(0, 0, S.mode==='dark' ? -0.12 : 0.35);
+    return { accent:S.cAccent, second:S.cSecond, bg:'#'+bg.getHexString(), card:S.cCard, text: l > 0.6 ? '#222222' : '#FFFFFF' };
+  }
+  const p = PALETTES[S.palette]; return { accent:p.accent, second:p.second, ...p[S.mode] };
+}
+
+// ---------- slides (AI-meetup presentation-outline.md) ----------
+const SLIDES = [
+  { id:'title', kind:'title', title:'Az LLM-től az Ágensrajokig', subtitle:'Az autonóm szoftverfejlesztés új korszaka', bullets:[], diagram:'none', bg:'swarm',
+    prompt:'Címdia — sötét háttér, narancs accent, absztrakt hálózat' },
+  { id:'llm', title:'Mi az LLM?', bullets:['Olvasott kolléga','Nyelvi minták','Gondolkodik, de nem cselekszik'], diagram:'brain', bg:'tokens',
+    prompt:'Agy ikon hálózattal — flat, narancs fő szín, max 3-4 elem' },
+  { id:'loop', title:'Agent Loop', bullets:['Plan → Act → Observe','Önkorrekció','Ciklikus működés'], diagram:'loop', bg:'rings',
+    prompt:'Körkörös diagram, három nyíl: Plan, Act, Observe' },
+  { id:'swarm', title:'Agent Swarm (2025)', bullets:['Szakosodott ágensek','Együttműködés','1445% növekedés'], diagram:'swarm', bg:'swarm',
+    prompt:'Több ágens hálózatban, csomópontok és élek' },
+  { id:'pipeline', title:'Ágens munkafolyamat', bullets:['Mermaid flowchart → 3D','Layout: mermaid/dagre','Szemantika: diagram.db'], diagram:'mermaid', bg:'tokens',
+    prompt:'(mermaid forrás a diában — nincs képgenerálás)',
+    mermaid:`flowchart LR
+  U([Fejlesztő]) --> P[Prompt]
+  P --> L{{LLM}}
+  subgraph AG [Ágensrendszer]
+    L --> T[Eszközhívás]
+    T -.-> O((Megfigyelés))
+    O --> L
+  end
+  L ==>|kész| K[Kód + PR]` },
+  { id:'seq', title:'Javítási ciklus', bullets:['Mermaid sequence → 3D','Idő = mélység','Üzenetek sorban világítanak'], diagram:'mermaid', bg:'rings',
+    prompt:'(mermaid forrás a diában)',
+    mermaid:`sequenceDiagram
+  participant F as Fejlesztő
+  participant A as Ágens
+  participant E as Eszközök
+  F->>A: Feladat
+  A->>E: Tesztek
+  E-->>A: 3 hiba
+  A->>E: Javítás
+  E-->>A: Zöld
+  A-->>F: PR kész` },
+  { id:'closing', kind:'title', title:'Köszönöm a figyelmet!', bullets:['AI = operációs rendszer','Ember + gép együttműködés','A jövő már itt van'], diagram:'none', bg:'tokens',
+    prompt:'Záró dia — sötét háttér' },
+];
+
+S = eff(0);
+
+// ---------- renderer / scene ----------
+const renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(42, 1, 0.5, 300); // near 0.5: 5x more depth precision than 0.1 -> fewer z-fights
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(1,1), 0.5, 0.5, 0.9); composer.addPass(bloom);
+composer.addPass(new OutputPass());
+const pmrem = new THREE.PMREMGenerator(renderer);
+const envMap = pmrem.fromScene(new RoomEnvironment(renderer), 0.04).texture;
+
+const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(6, 10, 8); key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048); key.shadow.camera.near = 1; key.shadow.camera.far = 60; key.shadow.radius = 6;
+key.shadow.bias = -0.0004; key.shadow.normalBias = 0.03; // kills shadow acne (reads as z-buffer noise on the slab/floor)
+Object.assign(key.shadow.camera, { left:-14, right:14, top:10, bottom:-10 });
+const fill = new THREE.HemisphereLight(0xffffff, 0x222233, 0.6);
+const rimLight = new THREE.SpotLight(0xffffff, 60, 40, 0.6, 0.5, 1.2);
+scene.add(key, key.target, fill, rimLight, rimLight.target);
+const world = new THREE.Group(); scene.add(world);
+// ONE global floor (was one 40x40 mirror per slide -> coplanar overlap = z-fighting + 5 reflector passes/frame)
+const floor = new THREE.Group(); floor.position.y = -2.6; scene.add(floor);
+const mirror = new Reflector(new THREE.PlaneGeometry(400, 400), { clipBias:0.003, textureWidth:1024, textureHeight:1024, color:0x777777 }); mirror.rotation.x = -Math.PI/2; floor.add(mirror);
+const veil = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshStandardMaterial({ transparent:true, roughness:1, depthWrite:false, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-2 }));
+veil.rotation.x = -Math.PI/2; veil.position.y = 0.01; veil.receiveShadow = true; veil.renderOrder = 1; floor.add(veil);
+// Reflector ignores fog -> hard horizon seam. Veil alpha ramps radially base->1 so the far floor is plain fogged veil (= bg colour).
+const veilAlphaCache = {};
+function veilAlpha(base) { return veilAlphaCache[base] ??= (() => { const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d');
+  const g = x.createRadialGradient(128,128,0,128,128,128); const b = Math.round(base*255); g.addColorStop(0, `rgb(${b},${b},${b})`); g.addColorStop(0.12, `rgb(${b},${b},${b})`); g.addColorStop(0.3, '#fff'); g.addColorStop(1, '#fff');
+  x.fillStyle = g; x.fillRect(0,0,256,256); return new THREE.CanvasTexture(c); })(); }
+
+let fonts = {}, anchors = [], animators = [], bgAnimators = [];
+
+function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h); composer.setSize(w, h); camera.aspect = w/h; camera.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+
+// ---------- materials ----------
+function diagramMaterial(P, role) {
+  const col = role === 'accent' ? P.accent : P.second;
+  if (S.material === 'glass') {
+    return role === 'accent'
+      ? new THREE.MeshPhysicalMaterial({ color:col, metalness:0.9, roughness:0.18, envMapIntensity:S.env?1.4:0, emissive:col, emissiveIntensity:0.25 })
+      : new THREE.MeshPhysicalMaterial({ color:col, metalness:0, roughness:0.05, transmission:0.85, thickness:0.8, ior:1.45, envMapIntensity:S.env?1.2:0, clearcoat:1, clearcoatRoughness:0.05 });
+  }
+  if (S.material === 'metal') return new THREE.MeshStandardMaterial({ color:col, metalness:1, roughness:role==='accent'?0.22:0.38, envMapIntensity:S.env?1.6:0 });
+  return new THREE.MeshStandardMaterial({ color:col, metalness:0.1, roughness:0.75 });
+}
+function titleMaterial(P) {
+  return new THREE.MeshPhysicalMaterial({ color:P.accent, metalness:0.85, roughness:0.2, envMapIntensity:S.env?1.5:0, clearcoat:0.6, clearcoatRoughness:0.15, emissive:P.accent, emissiveIntensity:S.mode==='dark'?0.05:0 });
+}
+
+// ---------- text ----------
+// TTF -> THREE.Shape[] via opentype.js. Finding: every three.js example typeface.json has corrupt
+// double-acute glyphs (ő ű Ő Ű) -> earcut streaks + vanishing letters. Real TTF outlines are clean.
+function ttfShapes(font, text, size) {
+  const sp = new THREE.ShapePath();
+  for (const c of font.getPath(text, 0, 0, size).commands) {
+    if (c.type === 'M') sp.moveTo(c.x, -c.y); else if (c.type === 'L') sp.lineTo(c.x, -c.y);
+    else if (c.type === 'Q') sp.quadraticCurveTo(c.x1, -c.y1, c.x, -c.y);
+    else if (c.type === 'C') sp.bezierCurveTo(c.x1, -c.y1, c.x2, -c.y2, c.x, -c.y);
+    else if (c.type === 'Z') sp.currentPath?.closePath();
+  }
+  return sp.toShapes(false);
+}
+function wrap(text, max=18) { const out=[]; let line=''; for (const w of text.split(' ')) { if ((line+' '+w).trim().length > max) { out.push(line.trim()); line=w; } else line += ' '+w; } out.push(line.trim()); return out; }
+function text3d(str, size, depth, mat, curve=8) {
+  const font = fonts[S.font]; const g = new THREE.Group(); const missing = new Set();
+  const ex = { depth, curveSegments:curve, bevelEnabled:true, bevelThickness:depth*0.15, bevelSize:size*0.025, bevelSegments:3 };
+  wrap(str, size > 0.3 ? 18 : 40).forEach((line, li) => {
+    let tg;
+    if (S.font === 'poppins') {
+      [...line].forEach(ch => { if (ch !== ' ' && !font.hasChar(ch)) missing.add(ch); });
+      tg = new THREE.ExtrudeGeometry(ttfShapes(font, line, size), ex);
+    } else {
+      [...line].forEach(ch => { if (ch !== ' ' && !font.data.glyphs[ch]) missing.add(ch); });
+      tg = new TextGeometry(line, { font, size, height:depth, ...ex });
+    }
+    const m = new THREE.Mesh(tg, mat); m.castShadow = true; m.position.y = -li * size * 1.35; g.add(m);
+  });
+  g.userData.missing = missing; return g;
+}
+function bulletTexture(slide, P) {
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 512; const g = c.getContext('2d');
+  g.fillStyle = P.text; g.textBaseline = 'top'; let y = 20;
+  if (slide.subtitle) { g.font = '400 40px sans-serif'; g.globalAlpha = .8; g.fillText(slide.subtitle, 0, y); g.globalAlpha = 1; y += 80; }
+  g.font = '500 38px sans-serif';
+  for (const b of slide.bullets) { g.fillStyle = P.accent; g.beginPath(); g.arc(14, y+20, 8, 0, 7); g.fill(); g.fillStyle = P.text; g.fillText(b, 44, y); y += 72; }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t;
+}
+
+// ---------- reference image plaque (what the builder reads) ----------
+function refPlaque(slide, P) {
+  const c = document.createElement('canvas'); c.width = 384; c.height = 256; const g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0,0,384,256); g.fillStyle = P.card; g.fillRect(8,8,368,200);
+  g.fillStyle = P.accent; g.font = 'bold 14px sans-serif'; g.fillText('nano-banana ref → ' + slide.diagram, 12, 230);
+  g.fillStyle = P.second; g.font = '11px sans-serif'; g.fillText(slide.prompt.slice(0, 48), 12, 246);
+  g.strokeStyle = P.accent; g.lineWidth = 6; g.beginPath(); g.arc(192, 108, 70, 0, 7); g.stroke();
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1), new THREE.MeshStandardMaterial({ map:t, roughness:.6 }));
+  return m;
+}
+
+// ---------- 3D diagram builders (this is what "built" means) ----------
+const UP = new THREE.Vector3(0, 1, 0), DIR = new THREE.Vector3();
+const DIAGRAMS = {
+  brain(P) {
+    const g = new THREE.Group(); const nodes = [], edges = [];
+    const matA = diagramMaterial(P, 'accent'), matB = diagramMaterial(P, 'second');
+    let seed = 3; const rnd = () => (seed = (seed*9301+49297)%233280)/233280;
+    const pts = []; for (let i=0;i<14;i++) { const v = new THREE.Vector3(rnd()-.5, rnd()-.5, rnd()-.5).normalize().multiplyScalar(0.9 + rnd()*0.5); v.x *= 1.3; pts.push(v); }
+    pts.forEach((p, i) => { const s = new THREE.Mesh(new THREE.SphereGeometry(i<3?0.22:0.12, 32, 32), i<3?matA:matB); s.position.copy(p); s.castShadow = true; g.add(s); nodes.push({ mesh:s, base:p.clone(), ph:rnd()*6 }); });
+    const eGeo = new THREE.CylinderGeometry(0.02, 0.02, 1, 8); // Y-aligned, centred
+    for (let i=0;i<pts.length;i++) for (let j=i+1;j<pts.length;j++) if (pts[i].distanceTo(pts[j]) < 1.1) { const e = new THREE.Mesh(eGeo, matB); g.add(e); edges.push({ mesh:e, a:nodes[i], b:nodes[j] }); }
+    // pulses travelling along edges
+    const pulses = edges.slice(0, 10).map((e, k) => { const m = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 12), new THREE.MeshBasicMaterial({ color:P.accent })); g.add(m); return { m, e, off:k/10 }; });
+    return { g, tick(t) {
+      nodes.forEach(n => n.mesh.position.copy(n.base).addScaledVector(n.base, Math.sin(t*1.3 + n.ph)*0.06));
+      edges.forEach(e => { const a = e.a.mesh.position, b = e.b.mesh.position; e.mesh.position.lerpVectors(a, b, 0.5); e.mesh.scale.y = a.distanceTo(b); e.mesh.quaternion.setFromUnitVectors(UP, DIR.subVectors(b, a).normalize()); });
+      pulses.forEach(p => { const k = (t*0.4 + p.off) % 1; p.m.position.lerpVectors(p.e.a.mesh.position, p.e.b.mesh.position, k); });
+      g.rotation.y = t * 0.25;
+    } };
+  },
+  loop(P) {
+    const g = new THREE.Group(); const matA = diagramMaterial(P, 'accent'), matB = diagramMaterial(P, 'second');
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.2, 0.09, 24, 128), matB); ring.castShadow = true; g.add(ring);
+    const labels = ['Plan','Act','Observe']; const nodes = [];
+    labels.forEach((l, i) => {
+      const a = Math.PI/2 - i*Math.PI*2/3; const n = new THREE.Group(); n.position.set(Math.cos(a)*1.2, Math.sin(a)*1.2, 0);
+      const s = new THREE.Mesh(new THREE.SphereGeometry(0.3, 32, 32), matA); s.castShadow = true; n.add(s);
+      const tx = text3d(l, 0.16, 0.04, new THREE.MeshStandardMaterial({ color:P.text, metalness:.3, roughness:.4 }), 4);
+      const bb = new THREE.Box3().setFromObject(tx); tx.position.set(-(bb.max.x-bb.min.x)/2, 0.42, 0); n.add(tx); g.add(n); nodes.push(n);
+    });
+    // arrow-heads chasing around the ring
+    const cone = new THREE.ConeGeometry(0.14, 0.32, 16); const arrows = [0,1,2].map(i => { const m = new THREE.Mesh(cone, matA); g.add(m); return { m, off:i/3 }; });
+    return { g, tick(t) {
+      arrows.forEach(ar => { const a = -Math.PI/2 + (t*0.5 + ar.off)*Math.PI*2 + Math.PI/3; ar.m.position.set(Math.cos(a)*1.2, Math.sin(a)*1.2, 0); ar.m.rotation.z = a + Math.PI/2 + Math.PI; });
+      nodes.forEach((n, i) => n.scale.setScalar(1 + Math.sin(t*2 + i*2.1)*0.06));
+      g.rotation.y = Math.sin(t*0.3)*0.35;
+    } };
+  },
+  swarm(P) {
+    const g = new THREE.Group(); const matA = diagramMaterial(P, 'accent'), matB = diagramMaterial(P, 'second');
+    const agents = []; let seed = 11; const rnd = () => (seed = (seed*9301+49297)%233280)/233280;
+    for (let i=0;i<22;i++) { const m = new THREE.Mesh(new THREE.OctahedronGeometry(i%5===0?0.2:0.11, 1), i%5===0?matA:matB); m.castShadow = true; g.add(m); agents.push({ m, r:0.5+rnd()*1.1, sp:0.3+rnd()*0.6, ph:rnd()*6, tilt:rnd()*Math.PI }); }
+    const lineGeo = new THREE.BufferGeometry(); const pos = new Float32Array(agents.length*agents.length*6); lineGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const lines = new THREE.LineSegments(lineGeo, new THREE.LineBasicMaterial({ color:P.second, transparent:true, opacity:.35 })); g.add(lines);
+    return { g, tick(t) {
+      agents.forEach(a => { const th = t*a.sp + a.ph; a.m.position.set(Math.cos(th)*a.r, Math.sin(th*1.3+a.tilt)*a.r*0.5, Math.sin(th)*a.r); a.m.rotation.set(t, t*0.7, 0); });
+      let k = 0; for (let i=0;i<agents.length;i++) for (let j=i+1;j<agents.length;j++) { const pa = agents[i].m.position, pb = agents[j].m.position; if (pa.distanceTo(pb) < 0.75) { pos.set([pa.x,pa.y,pa.z,pb.x,pb.y,pb.z], k); k += 6; } }
+      lineGeo.setDrawRange(0, k/3); lineGeo.attributes.position.needsUpdate = true;
+    } };
+  },
+};
+
+// ---------- mermaid -> 3D ----------
+// Two harvests, no parser of our own: SEMANTICS from mermaid's diagram.db (shapes, arrow kinds, subgraphs, actors,
+// messages) + LAYOUT from mermaid's own rendered SVG (dagre node positions, edge path geometry). Result = graph IR.
+// The package would run this once at build time in headless chromium and bake the IR into deck.json.
+const MERMAID_IR = window.__ir = {};
+mermaid.initialize({ startOnLoad:false, theme:'base', flowchart:{ htmlLabels:false, curve:'basis' } });
+const mapVals = m => m instanceof Map ? [...m.values()] : Object.values(m);
+async function harvestMermaid(slide) {
+  const d = await mermaid.mermaidAPI.getDiagramFromText(slide.mermaid); const db = d.db;
+  if (d.type === 'sequence') {
+    const actors = mapVals(db.getActors()).map(a => ({ id:a.name, label:a.description || a.name }));
+    const LINE = { 0:'solid', 1:'dotted', 3:'solid', 4:'dotted', 5:'solid', 6:'dotted', 24:'solid', 25:'dotted', 33:'solid', 34:'dotted' };
+    const messages = db.getMessages().filter(m => m.type in LINE && m.from && m.to).map(m => ({ from:m.from, to:m.to, text:m.message, line:LINE[m.type] }));
+    return { type:'sequence', actors, messages };
+  }
+  // flowchart: render to SVG for the layout
+  const { svg } = await mermaid.render('mm-' + slide.id, slide.mermaid);
+  const host = document.getElementById('mmhost'); host.innerHTML = svg; const s = host.querySelector('svg');
+  const gnodes = [...s.querySelectorAll('g.node')];
+  const nodes = {};
+  for (const v of mapVals(db.getVertices())) {
+    const el = gnodes.find(n => n.id.includes('flowchart-' + v.id + '-')); if (!el) continue; // v11 id: `<renderId>-flowchart-<node>-<n>`
+    const m = /translate\(\s*([-\d.]+)[ ,]+([-\d.]+)/.exec(el.getAttribute('transform') || '') || [0,0,0]; const bb = el.getBBox();
+    nodes[v.id] = { id:v.id, label:v.text || v.id, shape:v.type || 'square', x:+m[1], y:+m[2], w:bb.width, h:bb.height };
+  }
+  const paths = [...s.querySelectorAll('path.flowchart-link')]; const seen = {};
+  const edges = db.getEdges().map((e, i) => {
+    const key = `L_${e.start}_${e.end}_`; const k = seen[key] = (seen[key] ?? -1) + 1; // v11 id: `<renderId>-L_<from>_<to>_<k>`
+    const p = paths.find(x => x.id.endsWith(key + k)) || paths[i]; const pts = []; if (p) { const L = p.getTotalLength(); for (let k = 0; k <= 16; k++) { const q = p.getPointAtLength(L*k/16); pts.push([q.x, q.y]); } }
+    return { from:e.start, to:e.end, text:e.text || '', stroke:e.stroke || 'normal', arrow:e.type !== 'arrow_open', pts };
+  });
+  const groups = db.getSubGraphs().map(sg => ({ id:sg.id, title:sg.title || sg.id, nodes:sg.nodes }));
+  return { type:'flowchart', dir:db.getDirection?.() || 'TB', nodes, edges, groups };
+}
+
+function nodeGeometry(shape, w, h) {
+  const dpt = 0.16;
+  if (['circle','doublecircle'].includes(shape)) return new THREE.SphereGeometry(h/2, 32, 32);
+  if (['round','stadium'].includes(shape)) { const g = new THREE.CapsuleGeometry(h/2, Math.max(0.01, w-h), 8, 24); g.rotateZ(Math.PI/2); return g; }
+  if (['diamond','question'].includes(shape)) { const g = new THREE.OctahedronGeometry(h*0.8, 0); g.scale(w/h*0.7, 1, 0.35); return g; }
+  if (shape === 'hexagon') { const g = new THREE.CylinderGeometry(h*0.6, h*0.6, dpt, 6); g.rotateX(Math.PI/2); g.scale(w/h*0.75, 1, 1); return g; }
+  if (shape === 'cylinder') return new THREE.CylinderGeometry(w/2, w/2, h, 32);
+  return new THREE.BoxGeometry(w, h, dpt);
+}
+// diagram labels: flat, unlit canvas text with an inverted (bg-colour) outline -> readable at any size, never blooms
+function label3d(str, size, P) {
+  const px = 96, pad = 18; const c = document.createElement('canvas'); const g2 = c.getContext('2d'); g2.font = `700 ${px}px Poppins, sans-serif`;
+  const w = Math.ceil(g2.measureText(str).width) + pad*2; c.width = w; c.height = px + pad*2;
+  g2.font = `700 ${px}px Poppins, sans-serif`; g2.textBaseline = 'middle'; g2.lineJoin = 'round'; g2.lineWidth = px*0.18; g2.strokeStyle = P.bg; g2.fillStyle = P.text;
+  g2.strokeText(str, pad, c.height/2); g2.fillText(str, pad, c.height/2);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  const h = size*1.15, mesh = new THREE.Mesh(new THREE.PlaneGeometry(h*c.width/c.height, h), new THREE.MeshBasicMaterial({ map:t, transparent:true, depthWrite:false, toneMapped:false }));
+  mesh.renderOrder = 2; const g = new THREE.Group(); g.add(mesh); return g;
+}
+function arrowHead(mat, r) { const c = new THREE.Mesh(new THREE.ConeGeometry(Math.min(0.07, r*3), Math.min(0.2, r*8), 16), mat); c.geometry.rotateX(Math.PI/2); return c; }
+
+function buildFlowchart(ir, P) {
+  const g = new THREE.Group(); const matA = diagramMaterial(P, 'accent'), matB = diagramMaterial(P, 'second');
+  const ns = Object.values(ir.nodes); if (!ns.length) return { g, tick(){} };
+  const minX = Math.min(...ns.map(n => n.x - n.w/2)), maxX = Math.max(...ns.map(n => n.x + n.w/2)), minY = Math.min(...ns.map(n => n.y - n.h/2)), maxY = Math.max(...ns.map(n => n.y + n.h/2));
+  const sc = Math.min(4.4/(maxX-minX), 2.9/(maxY-minY)); const cx = (minX+maxX)/2, cy = (minY+maxY)/2;
+  const horiz = ir.dir === 'LR' || ir.dir === 'RL';
+  // depth relief: later ranks step toward the camera so the 2D layout reads as a 3D staircase
+  const rank = (x, y) => horiz ? (x-minX)/(maxX-minX) : (y-minY)/(maxY-minY);
+  const toW = (x, y) => new THREE.Vector3((x-cx)*sc, -(y-cy)*sc, (rank(x, y)-0.5)*0.7);
+  const degree = {}; ir.edges.forEach(e => { degree[e.from] = (degree[e.from]||0)+1; degree[e.to] = (degree[e.to]||0)+1; });
+  const meshes = {};
+  for (const n of ns) {
+    const w = n.w*sc, h = n.h*sc; const hub = degree[n.id] >= 3 || ['diamond','hexagon','question'].includes(n.shape);
+    const m = new THREE.Mesh(nodeGeometry(n.shape, w, h), hub ? matA : matB); m.position.copy(toW(n.x, n.y)); m.castShadow = true; g.add(m); meshes[n.id] = m;
+    const lb = label3d(n.label, Math.min(0.13, h*0.45), P); lb.position.set(m.position.x, m.position.y, m.position.z + (['circle','doublecircle','round','stadium'].includes(n.shape) ? h/2 : 0.09) + 0.01); g.add(lb);
+  }
+  const pulses = [];
+  ir.edges.forEach(e => {
+    if (e.pts.length < 2) return;
+    const curve = new THREE.CatmullRomCurve3(e.pts.map(([x, y]) => toW(x, y)));
+    const thick = e.stroke === 'thick', dotted = e.stroke === 'dotted'; const r = thick ? 0.04 : 0.024;
+    const mat = dotted ? new THREE.MeshStandardMaterial({ color:P.second, transparent:true, opacity:.45, metalness:.6, roughness:.3 }) : (thick ? matA : matB);
+    const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 32, r, 10, false), mat); tube.castShadow = true; g.add(tube);
+    // pull the arrow-head back to the node surface
+    const end = curve.getPoint(1), pre = curve.getPoint(0.94); const tn = end.clone().sub(pre).normalize();
+    if (e.arrow) { const head = arrowHead(thick ? matA : matB, r); head.position.copy(end).addScaledVector(tn, -r*4.5); head.lookAt(end.clone().add(tn)); g.add(head); }
+    if (e.text) { const lb = label3d(e.text, 0.09, P); lb.position.copy(curve.getPoint(0.5)).add(new THREE.Vector3(0, 0.14, 0.05)); g.add(lb); }
+    const pm = new THREE.Mesh(new THREE.SphereGeometry(r*2.2, 12, 12), new THREE.MeshBasicMaterial({ color:P.accent })); g.add(pm); pulses.push({ m:pm, curve, off:Math.random() });
+  });
+  // subgraphs -> glass platforms behind their members
+  ir.groups.forEach(sg => {
+    const mem = sg.nodes.map(id => meshes[id]).filter(Boolean); if (!mem.length) return;
+    const bb = new THREE.Box3(); mem.forEach(m => bb.expandByObject(m)); bb.expandByScalar(0.22);
+    const sz = bb.getSize(new THREE.Vector3()), c = bb.getCenter(new THREE.Vector3());
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(sz.x, sz.y, 0.05), new THREE.MeshPhysicalMaterial({ color:P.card, transmission:S.material==='glass'?0.6:0, transparent:true, opacity:.75, roughness:.3, envMapIntensity:S.env?.8:0 }));
+    plate.position.set(c.x, c.y, bb.min.z - 0.08); g.add(plate);
+    const lb = label3d(sg.title, 0.09, P); lb.position.set(c.x, bb.max.y + 0.02, bb.min.z - 0.05); g.add(lb);
+  });
+  return { g, tick(t) { pulses.forEach(p => p.m.position.copy(p.curve.getPoint((t*0.35 + p.off) % 1))); g.rotation.y = Math.sin(t*0.25)*0.28; } };
+}
+
+function buildSequence(ir, P) {
+  const g = new THREE.Group(); const matA = diagramMaterial(P, 'accent'), matB = diagramMaterial(P, 'second');
+  const n = ir.actors.length, m = ir.messages.length; const X = {}; ir.actors.forEach((a, i) => X[a.id] = (i - (n-1)/2) * (3.8/Math.max(1, n-1)));
+  // time runs DOWN and BACK: staircase from (y 0.9, z 0.7) to (y -1.1, z -1.3)
+  const yz = k => [0.9 - k*(2.0/Math.max(1, m-1)), 0.7 - k*(2.0/Math.max(1, m-1))];
+  ir.actors.forEach(a => {
+    const head = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.38, 0.14), matB); head.position.set(X[a.id], 1.4, 0.9); head.castShadow = true; g.add(head);
+    const lb = label3d(a.label, 0.13, P); lb.position.set(X[a.id], 1.4, 0.98); g.add(lb);
+    const [y0, z0] = yz(-0.5), [y1, z1] = yz(m - 0.5); const life = new THREE.Mesh(new THREE.TubeGeometry(new THREE.LineCurve3(new THREE.Vector3(X[a.id], y0 + 0.2, z0 + 0.2), new THREE.Vector3(X[a.id], y1, z1)), 1, 0.015, 8, false), new THREE.MeshStandardMaterial({ color:P.second, transparent:true, opacity:.5 })); g.add(life);
+  });
+  const msgs = ir.messages.map((msg, k) => {
+    const [y, z] = yz(k); const a = new THREE.Vector3(X[msg.from], y, z), b = new THREE.Vector3(X[msg.to], y, z); const dir = b.clone().sub(a).normalize();
+    const dotted = msg.line === 'dotted';
+    const mat = new THREE.MeshStandardMaterial({ color:dotted ? P.second : P.accent, metalness:.7, roughness:.3, transparent:dotted, opacity:dotted ? .55 : 1, emissive:P.accent, emissiveIntensity:0 });
+    const mg = new THREE.Group(); g.add(mg); // one group per message → lift/highlight as a unit
+    const tube = new THREE.Mesh(new THREE.TubeGeometry(new THREE.LineCurve3(a, b.clone().addScaledVector(dir, -0.14)), 1, 0.03, 10, false), mat); tube.castShadow = true; mg.add(tube);
+    const head = arrowHead(mat, 0.03); head.position.copy(b).addScaledVector(dir, -0.11); head.lookAt(b); mg.add(head);
+    const lb = label3d(msg.text, 0.105, P); lb.position.copy(a).lerp(b, 0.5).add(new THREE.Vector3(0, 0.15, 0.02)); mg.add(lb);
+    const pulse = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 12), new THREE.MeshBasicMaterial({ color:P.accent })); pulse.visible = false; mg.add(pulse);
+    return { mat, mg, pulse, a, b };
+  });
+  const period = 1.1;
+  return { g, tick(t) {
+    const act = Math.floor(t/period) % Math.max(1, m), ph = (t/period) % 1;
+    msgs.forEach((x, k) => {
+      const on = k === act; x.mat.emissiveIntensity += ((on ? 0.7 : 0) - x.mat.emissiveIntensity)*0.15;
+      x.mg.position.z += ((on ? 0.12 : 0) - x.mg.position.z)*0.15; // whole message lifts toward camera
+      x.pulse.visible = on; if (on) x.pulse.position.lerpVectors(x.a, x.b, ph);
+    });
+    g.rotation.y = -0.22 + Math.sin(t*0.25)*0.1;
+  } };
+}
+DIAGRAMS.mermaid = (P, slide) => { const ir = MERMAID_IR[slide.id]; if (!ir) return { g:new THREE.Group(), tick(){} }; return ir.type === 'sequence' ? buildSequence(ir, P) : buildFlowchart(ir, P); };
+
+// ---------- background scenes (fill the unused area; reflect the slide) ----------
+const BACKGROUNDS = {
+  tokens(P, anchor) { // drifting glyph-like cubes = "language patterns"
+    const g = new THREE.Group(); const n = 160; const geo = new THREE.BoxGeometry(0.18, 0.18, 0.18);
+    const mesh = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ color:P.second, metalness:.6, roughness:.3, envMapIntensity:S.env?1:0, transparent:true, opacity:.8 }), n);
+    let seed = 5; const rnd = () => (seed = (seed*9301+49297)%233280)/233280;
+    const items = Array.from({length:n}, () => ({ x:(rnd()-.5)*30, y:(rnd()-.5)*12, z:-8-rnd()*16, s:rnd()*6, r:rnd() }));
+    const d = new THREE.Object3D(); g.add(mesh);
+    return { g, tick(t) { items.forEach((it, i) => { d.position.set(it.x, it.y + Math.sin(t*.4+it.s)*.5, it.z); d.rotation.set(t*.3+it.r, t*.2+it.s, 0); d.scale.setScalar(0.6+it.r); d.updateMatrix(); mesh.setMatrixAt(i, d.matrix); }); mesh.instanceMatrix.needsUpdate = true; } };
+  },
+  rings(P) { // concentric rotating rings = the loop
+    const g = new THREE.Group(); const rings = [];
+    for (let i=0;i<7;i++) { const r = new THREE.Mesh(new THREE.TorusGeometry(3+i*1.6, 0.035, 12, 160), new THREE.MeshStandardMaterial({ color:i%2?P.accent:P.second, emissive:i%2?P.accent:P.second, emissiveIntensity:.4, metalness:.8, roughness:.3, transparent:true, opacity:.55 })); r.position.z = -6 - i*1.2; g.add(r); rings.push(r); }
+    return { g, tick(t) { rings.forEach((r, i) => { r.rotation.z = t*(0.08+i*0.02)*(i%2?1:-1); r.rotation.x = Math.sin(t*.2+i)*.25; }); } };
+  },
+  swarm(P) { // distant agent cloud with connections
+    const g = new THREE.Group(); const n = 90; const pts = new Float32Array(n*3); let seed = 9; const rnd = () => (seed = (seed*9301+49297)%233280)/233280;
+    const items = Array.from({length:n}, () => ({ x:(rnd()-.5)*34, y:(rnd()-.5)*14, z:-8-rnd()*18, ph:rnd()*6, sp:.2+rnd()*.4 }));
+    const pGeo = new THREE.BufferGeometry(); pGeo.setAttribute('position', new THREE.BufferAttribute(pts, 3));
+    const points = new THREE.Points(pGeo, new THREE.PointsMaterial({ color:P.accent, size:0.12, transparent:true, opacity:.9 })); g.add(points);
+    const lGeo = new THREE.BufferGeometry(); const lpos = new Float32Array(n*n*6); lGeo.setAttribute('position', new THREE.BufferAttribute(lpos, 3));
+    g.add(new THREE.LineSegments(lGeo, new THREE.LineBasicMaterial({ color:P.second, transparent:true, opacity:.25 })));
+    return { g, tick(t) {
+      items.forEach((it, i) => { pts[i*3] = it.x + Math.sin(t*it.sp+it.ph)*1.2; pts[i*3+1] = it.y + Math.cos(t*it.sp*.7+it.ph)*.8; pts[i*3+2] = it.z; });
+      pGeo.attributes.position.needsUpdate = true;
+      let k = 0; for (let i=0;i<n;i++) for (let j=i+1;j<n;j++) { const dx=pts[i*3]-pts[j*3], dy=pts[i*3+1]-pts[j*3+1], dz=pts[i*3+2]-pts[j*3+2]; if (dx*dx+dy*dy+dz*dz < 9) { lpos.set([pts[i*3],pts[i*3+1],pts[i*3+2],pts[j*3],pts[j*3+1],pts[j*3+2]], k); k+=6; } }
+      lGeo.setDrawRange(0, k/3); lGeo.attributes.position.needsUpdate = true;
+    } };
+  },
+  particles(P) { const n = 1500; const pts = new Float32Array(n*3); for (let i=0;i<n*3;i++) pts[i] = (Math.random()-.5)*(i%3===2?30:28) - (i%3===2?10:0);
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pts, 3)); const g = new THREE.Points(geo, new THREE.PointsMaterial({ color:P.second, size:.06, transparent:true, opacity:.7 }));
+    return { g, tick(t) { g.rotation.y = t*.02; } };
+  },
+};
+
+// ---------- layout ----------
+function anchorFor(i, n) {
+  const a = { pos:new THREE.Vector3(), rotY:0, cam:new THREE.Vector3(), target:new THREE.Vector3() };
+  // spacing must exceed the background scene's footprint (~34 wide / 26 deep) or neighbours bleed in
+  if (S.topology === 'rail') { a.pos.set(i*40, 0, 0); a.cam.set(i*40 + 0.6, 0.6, 9); }
+  else if (S.topology === 'orbit') { const R = 30, t = i*Math.PI*2/n; a.pos.set(Math.sin(t)*R, 0, Math.cos(t)*R); a.rotY = t; a.cam.set(Math.sin(t)*(R+9), 0.6, Math.cos(t)*(R+9)); }
+  else { a.pos.set(0, 0, -i*40); a.cam.set(0.6, 0.6, -i*40 + 9); }
+  a.target.copy(a.pos); return a;
+}
+
+// scene-global look follows the current slide's effective config; colours lerp in loop()
+const lookTarget = { bg:new THREE.Color(), veil:new THREE.Color(), veilOp:0.55 };
+function applyLook() {
+  const P = pal();
+  lookTarget.bg.set(P.bg); lookTarget.veil.set(P.bg); lookTarget.veilOp = S.mirror ? (S.mode==='dark' ? 0.55 : 0.35) : 1;
+  if (!scene.background) { scene.background = new THREE.Color(P.bg); veil.material.color.set(P.bg); }
+  veil.material.alphaMap = S.mirror ? veilAlpha(lookTarget.veilOp) : null; veil.material.opacity = 1; veil.material.needsUpdate = true;
+  scene.environment = S.env ? envMap : null;
+  rimLight.color.set(P.accent); rimLight.visible = S.rim; rimLight.intensity = S.mode === 'dark' ? 60 : 20;
+  key.castShadow = S.shadows; renderer.shadowMap.enabled = S.shadows;
+  mirror.visible = S.mirror; mirror.material.uniforms.color.value.set(S.mode==='dark' ? 0x777777 : 0xbbbbbb);
+  scene.fog = S.fog ? new THREE.Fog(scene.background, 14, 36) : null;
+  bloom.threshold = S.mode === 'dark' ? 0.95 : 1.1; bloom.strength = S.mode === 'dark' ? 0.35 : 0.12;
+  key.intensity = S.mode === 'dark' ? 2.2 : 1.1; fill.intensity = S.mode === 'dark' ? 0.6 : 0.35; renderer.toneMappingExposure = S.mode === 'dark' ? 1.0 : 0.85;
+}
+
+function rebuild() {
+  world.clear(); anchors = []; animators = []; bgAnimators = [];
+  const missingAll = new Set(); const Scur = S;
+
+  SLIDES.forEach((slide, i) => {
+    S = eff(i); const P = pal(); // helpers read S -> swap in this slide's effective config while building it
+    const a = anchorFor(i, SLIDES.length); anchors.push(a);
+    const g = new THREE.Group(); g.position.copy(a.pos); g.rotation.y = a.rotY;
+    const isTitle = slide.kind === 'title';
+
+    // title — real 3D letters, no card behind them
+    const tt = text3d(slide.title, isTitle ? 0.62 : 0.5, S.extrude, titleMaterial(P));
+    tt.userData.missing.forEach(ch => missingAll.add(ch));
+    const bb = new THREE.Box3().setFromObject(tt); const lines = tt.children.length;
+    tt.position.set(isTitle ? -(bb.max.x-bb.min.x)/2 : -5.2, isTitle ? 1.5 + (lines-1)*0.85 : 2.2 + (lines-1)*0.68, 0.2); g.add(tt);
+
+    // body text on a thin frosted glass slab
+    if (slide.bullets.length || slide.subtitle) {
+      const slab = new THREE.Group();
+      const slabH = isTitle && !slide.bullets.length ? 1.0 : 2.9;
+      const back = new THREE.Mesh(new THREE.BoxGeometry(5.6, slabH, 0.08), new THREE.MeshPhysicalMaterial({ color:P.card, metalness:0, roughness:0.35, transmission:S.material==='glass'?(S.mode==='dark'?0.55:0.25):0, thickness:0.4, envMapIntensity:S.env?0.8:0, transparent:true, opacity:S.material==='glass'?0.85:1 }));
+      back.receiveShadow = true; back.castShadow = true; slab.add(back);
+      const txt = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 2.6), new THREE.MeshBasicMaterial({ map:bulletTexture(slide, P), transparent:true, toneMapped:false, depthWrite:false })); txt.position.set(0, -(2.9-slabH)/2, 0.06); txt.renderOrder = 2; slab.add(txt);
+      slab.position.set(isTitle ? 0 : -2.4, isTitle ? (slabH < 2 ? -0.3 : -1.1) : -0.35, 0); g.add(slab);
+      // accent underline bar
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(isTitle ? 3 : 1.6, 0.06, 0.06), diagramMaterial(P, 'accent')); bar.position.set(isTitle ? 0 : -4.4, isTitle ? 0.55 : 1.55, 0.25); g.add(bar);
+    }
+
+    // diagram — built 3D object OR image relief
+    if (slide.diagram !== 'none' && S.diagram !== 'off') {
+      const holder = new THREE.Group(); holder.position.set(2.9, 0.1, 0.9);
+      if (S.diagram === 'built') { const d = DIAGRAMS[slide.diagram](P, slide); holder.add(d.g); animators.push(d); }
+      else { const m = new THREE.Mesh(new THREE.PlaneGeometry(3, 3, 96, 96), new THREE.MeshStandardMaterial({ map:refPlaque(slide, P).material.map, roughness:.6, displacementMap:refPlaque(slide, P).material.map, displacementScale:.3 })); holder.add(m); }
+      // pedestal disc — gives the object a place to stand + a shadow catcher
+      const disc = new THREE.Mesh(new THREE.CylinderGeometry(1.7, 1.75, 0.08, 64), new THREE.MeshStandardMaterial({ color:P.card, metalness:.4, roughness:.35, envMapIntensity:S.env?1:0 })); disc.position.y = -1.7; disc.receiveShadow = true; holder.add(disc);
+      if (S.ref) { const plq = refPlaque(slide, P); plq.position.set(1.6, -1.1, 0.4); plq.rotation.y = -0.5; holder.add(plq); }
+      g.add(holder);
+    }
+
+    // background scene for this slide's unused area
+    if (S.bg !== 'none') {
+      const b = (S.bg === 'particles' ? BACKGROUNDS.particles : BACKGROUNDS[slide.bg])(P, a);
+      b.g.position.z = -2; g.add(b.g); bgAnimators.push(b);
+    }
+
+    world.add(g);
+  });
+  S = Scur;
+  world.children.forEach((g, i) => g.userData.index = i);
+  document.getElementById('glyph').innerHTML = missingAll.size
+    ? `<span class="warn">glyph check: MISSING → ${[...missingAll].join(' ')}</span>` : `<span class="ok">glyph check: all glyphs present (${S.font})</span>`;
+  snapTo(cur);
+}
+
+// ---------- navigation ----------
+let cur = 0, anim = null, clock = new THREE.Clock(), playing = false, playTimer = null;
+const camState = window.__cs = { pos:new THREE.Vector3(), target:new THREE.Vector3() }; window.__cam = camera;
+const fade = document.getElementById('fade');
+function enter(i) { cur = i; S = eff(i); applyLook(); syncPanel(); hud(); }
+function snapTo(i) { enter(i); camState.pos.copy(anchors[i].cam); camState.target.copy(anchors[i].target); anim = null; camera.position.copy(camState.pos); }
+function cullNeighbours() { const cp = camera.position; world.children.forEach(g => { g.visible = g.position.distanceTo(cp) < 52; }); }
+function goTo(i) {
+  i = (i + SLIDES.length) % SLIDES.length; if (i === cur && !anim) return;
+  const mode = S.reduced ? 'cut' : S.transition; if (mode === 'cut') return snapTo(i);
+  const from = { pos:camState.pos.clone(), target:camState.target.clone() }, to = anchors[i];
+  anim = { from, to, t:0, mode, dur:S.duration, mid:from.target.clone().add(to.target).multiplyScalar(.5) };
+  if (mode === 'fade') fade.style.background = pal().bg; enter(i);
+}
+const ease = t => t<.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2, 3)/2;
+function stepAnim(dt) {
+  if (!anim) return; anim.t = Math.min(1, anim.t + dt/anim.dur); const k = ease(anim.t);
+  if (anim.mode === 'fade') { fade.style.opacity = Math.sin(anim.t*Math.PI); if (anim.t >= .5) { camState.pos.copy(anim.to.cam); camState.target.copy(anim.to.target); } }
+  else { camState.pos.lerpVectors(anim.from.pos, anim.to.cam, k); camState.target.lerpVectors(anim.from.target, anim.to.target, k);
+    if (anim.mode === 'swing') { const out = camState.pos.clone().sub(anim.mid).normalize(); camState.pos.addScaledVector(out, Math.sin(anim.t*Math.PI)*6); } }
+  if (anim.t >= 1) { anim = null; fade.style.opacity = 0; }
+}
+function hud() { document.getElementById('hud').innerHTML = `slide <b>${cur+1}/${SLIDES.length}</b> · ${SLIDES[cur].id} · ${S.topology} / ${S.reduced?'cut (reduced)':S.transition} · ${S.mode} / ${S.palette} · ${S.material}`; }
+document.getElementById('prev').onclick = () => goTo(cur-1);
+document.getElementById('next').onclick = () => goTo(cur+1);
+document.getElementById('play').onclick = togglePlay;
+document.getElementById('dump').onclick = toggleJson;
+function togglePlay() { playing = !playing; document.getElementById('play').textContent = playing ? '❚❚ stop' : '▶ autoplay'; clearInterval(playTimer); if (playing) playTimer = setInterval(() => goTo(cur+1), (S.duration+4)*1000); }
+const panel = document.getElementById('panel');
+function togglePanel() { panel.classList.toggle('open'); }
+document.getElementById('gear').onclick = togglePanel;
+addEventListener('keydown', e => { if (['INPUT','SELECT'].includes(e.target.tagName)) return; if (e.key === 'ArrowRight') goTo(cur+1); else if (e.key === 'ArrowLeft') goTo(cur-1); else if (e.key === ' ') { e.preventDefault(); togglePlay(); } else if (e.key.toLowerCase() === 'j') toggleJson(); else if (e.key.toLowerCase() === 'c') togglePanel(); });
+
+// ---------- deck.json IR ----------
+function deckIR() {
+  const P = pal();
+  return { version: 2, source: '~/Documents/Projektek/AI-meetup/workspace/presentation-outline.md',
+    deck: { topology:S.topology, transition:S.transition, durationSec:S.duration, mode:S.mode,
+      palette:{ name:S.palette, card:P.card, bg:P.bg, accent:P.accent, secondary:P.second, text:P.text },
+      look:{ material:S.material, envReflections:S.env, mirrorFloor:S.mirror, softShadows:S.shadows, bloom:S.bloom, rimLight:S.rim, fog:S.fog },
+      title:{ font:S.font === 'poppins' ? 'Poppins-Bold.ttf via opentype.js (full Latin Ext ✓)' : 'droid_sans_bold typeface.json (corrupt ő ű)', extrudeDepth:S.extrude, fontEmbed:'ttf base64, subset to used glyphs' },
+      background:{ mode:S.bg, intensity:S.bgInt }, a11y:{ reducedMotion:S.reduced ? 'force-cut' : 'respect-media-query' }, output:{ selfContained:true, inlineThree:true, fontsSubset:true } },
+    slides: SLIDES.map((s, i) => ({ index:i+1, id:s.id, kind:s.kind ?? 'content', title:s.title, subtitle:s.subtitle, bullets:s.bullets,
+      diagram: s.diagram === 'none' ? null : s.mermaid ? { kind:'mermaid', mermaidType:MERMAID_IR[s.id]?.type, source:s.mermaid, animated:S.anim, speed:S.animSpeed, builder:'mermaid:'+(MERMAID_IR[s.id]?.type), ir:MERMAID_IR[s.id] }
+        : { kind:s.diagram, source:S.diagram, animated:S.anim, speed:S.animSpeed, reference:{ prompt:s.prompt + ' + STÍLUS-blokk', image:`assets/${s.id}.png`, role:'design reference for the builder' }, builder:`builtin:${s.diagram}` },
+      background:{ scene:s.bg }, override:OV[s.id] ?? {} })) };
+}
+function toggleJson() { const el = document.getElementById('json'); el.classList.toggle('show'); if (el.classList.contains('show')) el.textContent = JSON.stringify(deckIR(), null, 2); }
+
+// ---------- panel wiring ----------
+const controls = [...document.querySelectorAll('[data-k]')];
+function syncPanel() {
+  const ov = OV[SLIDES[cur].id] ?? {};
+  for (const el of controls) { const k = el.dataset.k; if (el.type === 'checkbox') el.checked = S[k]; else el.value = S[k]; el.closest('label')?.classList.toggle('ov', k in ov); }
+  document.getElementById('customRow').style.display = S.palette === 'custom' ? 'flex' : 'none';
+  panel.classList.toggle('slide', scope === 'slide');
+  document.querySelectorAll('#scope button').forEach(b => { b.classList.toggle('on', b.dataset.scope === scope); if (b.dataset.scope === 'slide') b.textContent = `This slide (${cur+1}: ${SLIDES[cur].id})`; });
+  refreshJson();
+}
+function refreshJson() { const j = document.getElementById('json'); if (j.classList.contains('show')) j.textContent = JSON.stringify(deckIR(), null, 2); }
+function msg(t) { const m = document.getElementById('cfgmsg'); m.textContent = t; clearTimeout(msg.t); msg.t = setTimeout(() => m.textContent = '', 2500); }
+function afterChange(k) { S = eff(cur); if (REBUILD.has(k)) rebuild(); else { if (LOOK.has(k)) applyLook(); syncPanel(); hud(); } }
+for (const el of controls) {
+  const k = el.dataset.k;
+  const onChange = () => {
+    const v = el.type === 'checkbox' ? el.checked : el.type === 'range' ? parseFloat(el.value) : el.value;
+    if (scope === 'slide' && !DECK_ONLY.has(k)) (OV[SLIDES[cur].id] ??= {})[k] = v; else DECK[k] = v;
+    afterChange(k);
+  };
+  el.addEventListener('input', onChange); el.addEventListener('change', onChange);
+}
+document.querySelectorAll('#scope button').forEach(b => b.onclick = () => { scope = b.dataset.scope; syncPanel(); });
+document.getElementById('save').onclick = () => { localStorage.setItem(STORE, JSON.stringify({ deck:DECK, overrides:OV })); msg(`saved ✓ deck + ${Object.keys(OV).length} slide override(s)`); };
+document.getElementById('resetSlide').onclick = () => { delete OV[SLIDES[cur].id]; afterChange('mode'); msg(`slide ${cur+1} back to deck defaults`); };
+document.getElementById('resetAll').onclick = () => { DECK = { ...DEFAULTS }; OV = {}; localStorage.removeItem(STORE); afterChange('mode'); msg('reset to factory defaults + storage cleared'); };
+if (saved.deck || saved.overrides) msg(`loaded saved config (${Object.keys(OV).length} slide override(s))`);
+
+// ---------- loop ----------
+const tmp = new THREE.Vector3(); let frames = 0, fpsT = 0;
+function loop() {
+  const dt = clock.getDelta(), t = clock.elapsedTime; stepAnim(dt);
+  tmp.copy(camState.pos);
+  if (S.idle && !S.reduced) tmp.add(new THREE.Vector3(Math.sin(t*.35)*.25, Math.cos(t*.27)*.12, Math.sin(t*.2)*.15));
+  camera.position.lerp(tmp, 0.2); camera.lookAt(camState.target); cullNeighbours();
+  const lk = 1 - Math.exp(-dt * 5); scene.background.lerp(lookTarget.bg, lk); veil.material.color.lerp(lookTarget.veil, lk); floor.position.x = camState.target.x; floor.position.z = camState.target.z; if (scene.fog) scene.fog.color.copy(scene.background);
+  key.target.position.copy(camState.target); rimLight.position.copy(camState.target).add(new THREE.Vector3(-6, 3, -4)); rimLight.target.position.copy(camState.target);
+  const at = S.anim ? t * S.animSpeed : 0;
+  animators.forEach(a => a.tick(at));
+  bgAnimators.forEach(b => { b.tick(at * 0.7); b.g.visible = S.bgInt > 0; b.g.traverse(o => { if (o.material?.transparent) o.material.opacity = Math.min(o.material.userData.base ??= o.material.opacity, 1) * S.bgInt / 0.7; }); });
+  if (S.bloom) composer.render(); else renderer.render(scene, camera);
+  frames++; if (t - fpsT > 1) { document.getElementById('fps').textContent = `${frames} fps · ${renderer.info.render.triangles.toLocaleString()} tris`; frames = 0; fpsT = t; }
+  if (document.hidden) setTimeout(loop, 66); else requestAnimationFrame(loop); // headless/background tabs stall rAF
+}
+
+const fl = new FontLoader(); const base = 'https://unpkg.com/three@0.160.0/examples/fonts/';
+Promise.all([fl.loadAsync(base + 'droid/droid_sans_bold.typeface.json'), fetch('https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/poppins/Poppins-Bold.ttf').then(r => r.arrayBuffer())])
+  .then(async ([d, ttf]) => { fonts.droid = d; fonts.poppins = opentype.parse(ttf);
+    document.fonts.add(await new FontFace('Poppins', ttf, { weight:'700' }).load()); // same TTF for canvas labels
+    for (const s of SLIDES) if (s.mermaid) { try { MERMAID_IR[s.id] = await harvestMermaid(s); } catch (e) { console.error('mermaid harvest failed', s.id, e); } }
+    resize(); rebuild(); loop(); })
+  .catch(e => { window.__err = e; console.error(e); document.getElementById('hud').textContent = 'init failed: ' + e.message + ' @ ' + (e.stack || '').split('\n')[1]; });
+</script>
+</body>
+</html>

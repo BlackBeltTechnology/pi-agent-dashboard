@@ -13,7 +13,9 @@ import { decideRetainedRead, readRetainedState } from "../session/retained-trans
 import { decodeCursor, type SessionArchive } from "../session/session-archive.js";
 import { buildSessionDiffCached, type SessionDiffResult } from "../session/session-diff.js";
 import { SessionDiffCache } from "../session/session-diff-cache.js";
+import { resolveDiffSource } from "../session/session-diff-source.js";
 import { findSessionToolCallPayload } from "../session/session-file-reader.js";
+import type { SessionLoadWorkerPool } from "../session/session-load-worker-pool.js";
 import { originOf } from "../session/session-origin.js";
 import type { NetworkGuard } from "./route-deps.js";
 
@@ -32,9 +34,28 @@ export function registerSessionRoutes(
     /** §8.1/D11: is a trusted+configured principal resolver active? Gates every
      *  session read/mutation road by owner equality when true. */
     isResolverActive?: () => boolean;
+    /**
+     * Lazy accessor for the session-load worker pool. Absent/`null` (unit
+     * tests, or after `stopPolling` disposed it) makes `/api/session-diff` run
+     * the transcript projection in-process instead of off-thread.
+     * See change: fix-session-diff-durable-source.
+     */
+    loadWorkerPool?: () => SessionLoadWorkerPool | null;
+    /** Store's `maxStringFieldSize` — the projection caps tool `args` with the
+     *  SAME value so transcript- and store-sourced payloads match.
+     *  See change: fix-session-diff-durable-source. */
+    maxStringSize?: number;
   },
 ) {
-  const { sessionManager, eventStore, networkGuard, sessionArchive, remoteTranscriptStore } = deps;
+  const {
+    sessionManager,
+    eventStore,
+    networkGuard,
+    sessionArchive,
+    remoteTranscriptStore,
+    loadWorkerPool,
+    maxStringSize,
+  } = deps;
   const active = () => deps.isResolverActive?.() ?? false;
   /** Owner of a live-or-archived session, for the HTTP owner gate. */
   const ownerOf = (sessionId: string) =>
@@ -237,8 +258,19 @@ export function registerSessionRoutes(
       if (!gateHttpSession(reply, active(), principalOf(request), session.principalOwner)) {
         return { success: false, error: "session not found" } satisfies ApiResponse;
       }
-      const events = eventStore.getEvents(sessionId, 0).map((e) => e.event);
-      const result = await buildSessionDiffCached(sessionId, events, session.cwd, sessionDiffCache);
+      // Source the tool-call events from the durable transcript for local
+      // sessions (store fallback when it is missing/empty; remote sessions
+      // stay store-sourced). `sourceKey` is the event-source cache signature;
+      // `load()` runs INSIDE the cache compute, so a cache hit never parses a
+      // transcript. See change: fix-session-diff-durable-source.
+      const { sourceKey, load } = await resolveDiffSource(session, eventStore, {
+        pool: loadWorkerPool?.() ?? null,
+        maxStringSize,
+      });
+      const result = await buildSessionDiffCached(sessionId, load, session.cwd, sessionDiffCache, {
+        sourceKey,
+        ended: session.status === "ended",
+      });
       return {
         success: true,
         data: {

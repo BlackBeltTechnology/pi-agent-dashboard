@@ -1204,15 +1204,33 @@ export function handlePromptResyncRequest(
  */
 export { isPiCommandLine } from "@blackbelt-technology/pi-dashboard-shared/platform/process-identify.js";
 
-export async function handleForceKill(
-  msg: Extract<BrowserToServerMessage, { type: "force_kill" }>,
-  ctx: BrowserHandlerContext,
-): Promise<void> {
-  const { sessionManager, piGateway, headlessPidRegistry, broadcast, sendTo, ws, metaPersistence } = ctx;
-  const session = sessionManager.get(msg.sessionId);
+/** Result of the shared force-kill ladder. */
+export interface ForceKillResult {
+  success: boolean;
+  message: string;
+  code?: string;
+}
+
+/** Deps of {@link forceKillSession} — narrower than the full handler context. */
+export type ForceKillDeps = Pick<
+  BrowserHandlerContext,
+  "sessionManager" | "piGateway" | "headlessPidRegistry" | "broadcast" | "metaPersistence"
+>;
+
+/**
+ * The force-kill ladder, shared by the browser `force_kill` message and
+ * `POST /api/session/:id/lifecycle { action: "force_kill" }` (change:
+ * expand-mcp-tiered-surface, D3). Returns the outcome instead of sending a WS
+ * result, so the REST caller needs no browser socket.
+ */
+export async function forceKillSession(
+  sessionId: string,
+  deps: ForceKillDeps,
+): Promise<ForceKillResult> {
+  const { sessionManager, piGateway, headlessPidRegistry, broadcast, metaPersistence } = deps;
+  const session = sessionManager.get(sessionId);
   if (!session) {
-    sendTo(ws, { type: "force_kill_result", sessionId: msg.sessionId, success: false, message: "Session not found", code: "resume.session_not_found" });
-    return;
+    return { success: false, message: "Session not found", code: "resume.session_not_found" };
   }
 
   // Force-kill is an intentional close: durably clear the liveness marker
@@ -1222,45 +1240,43 @@ export async function handleForceKill(
     metaPersistence.setLiveness(session.sessionFile, { live: false, closedReason: "manual" });
   }
 
-  // Force-close the bridge WebSocket regardless of PID availability
-  piGateway.closeSession(msg.sessionId);
+  // Force-close the bridge WebSocket regardless of PID availability.
+  piGateway.closeSession(sessionId);
 
   const pid = session?.pid;
   if (!pid) {
-    // No PID — we can only close the WebSocket
-    sessionManager.update(msg.sessionId, { status: "ended", endedAt: Date.now(), closedReason: "manual" });
-    broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: { status: "ended", endedAt: Date.now(), closedReason: "manual" } });
-    sendTo(ws, { type: "force_kill_result", sessionId: msg.sessionId, success: true, message: "WebSocket closed (no PID available)" });
-    return;
+    const endedAt = Date.now();
+    sessionManager.update(sessionId, { status: "ended", endedAt, closedReason: "manual" });
+    broadcast({ type: "session_updated", sessionId, updates: { status: "ended", endedAt, closedReason: "manual" } });
+    return { success: true, message: "WebSocket closed (no PID available)" };
   }
 
-  // Delegate the full SIGTERM → wait → SIGKILL escalation to the
-  // platform helper so Windows uses `taskkill /F /T /PID <pid>`
-  // (genuine tree kill) and POSIX keeps the 2s grace window.
+  // Delegate the full SIGTERM → wait → SIGKILL escalation to the platform
+  // helper so Windows uses `taskkill /F /T /PID <pid>` (genuine tree kill) and
+  // POSIX keeps the 2s grace window.
   // See change: route-kill-paths-through-platform.
-  //
-  // PID-safety check: skip SIGKILL escalation on Unix when the PID
-  // no longer resembles a pi process. We can't pass this check INTO
-  // killProcess without a plugin, so: if `killProcess` reports forced
-  // SIGKILL and isPiProcess says no, we still accept the result —
-  // the process was either a pi leaf or a recycled PID, and either
-  // way the session is ended. On Windows `taskkill /F /T` is atomic
-  // so the check isn't meaningful.
   const killResult = await killProcess(pid, { timeoutMs: 2000 });
 
   // Also kill any headless-registered siblings (same session ID).
   // See change: fix-keeper-kill-escalation (await for SIGKILL escalation).
-  await headlessPidRegistry.killBySessionId(msg.sessionId);
+  await headlessPidRegistry.killBySessionId(sessionId);
 
   const endedAt = Date.now();
-  sessionManager.update(msg.sessionId, { status: "ended", endedAt, closedReason: "manual" });
-  broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: { status: "ended", endedAt, closedReason: "manual" } });
+  sessionManager.update(sessionId, { status: "ended", endedAt, closedReason: "manual" });
+  broadcast({ type: "session_updated", sessionId, updates: { status: "ended", endedAt, closedReason: "manual" } });
 
   if (!killResult.ok) {
-    // Process was already dead when the kill was issued.
-    sendTo(ws, { type: "force_kill_result", sessionId: msg.sessionId, success: true, message: "Process already exited" });
-    return;
+    return { success: true, message: "Process already exited" };
   }
   const suffix = killResult.forced ? " (SIGKILL)" : "";
-  sendTo(ws, { type: "force_kill_result", sessionId: msg.sessionId, success: true, message: `Process terminated${suffix}` });
+  return { success: true, message: `Process terminated${suffix}` };
+}
+
+export async function handleForceKill(
+  msg: Extract<BrowserToServerMessage, { type: "force_kill" }>,
+  ctx: BrowserHandlerContext,
+): Promise<void> {
+  const result = await forceKillSession(msg.sessionId, ctx);
+  const { sendTo, ws } = ctx;
+  sendTo(ws, { type: "force_kill_result", sessionId: msg.sessionId, ...result });
 }

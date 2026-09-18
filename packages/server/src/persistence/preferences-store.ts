@@ -22,6 +22,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import type { LiveServerTarget } from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
 import { normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
+import { inferPlatform, pathKey } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
 import { safeRealpathSync } from "../resolve-path.js";
 import { readJsonFile, writeJsonFile } from "./json-store.js";
 
@@ -77,6 +78,16 @@ interface PreferencesData {
    * Absent in legacy files → `[]`. See change: improve-content-editor (§6).
    */
   liveServers?: LiveServerTarget[];
+  /**
+   * Canonicalized folder-group keys the user collapsed. Absence means the
+   * folder renders expanded. Stored `pathKey`-folded, NOT realpath-resolved
+   * (the browser cannot resolve symlinks). Never pruned against the loaded
+   * session set — a folder group may be rendered from a worktree main path,
+   * a zero-session pin, an ended-only stub, or a workspace membership, none
+   * of which appear among the sessions' working directories.
+   * Absent/legacy/corrupt → `[]`. See change: persist-folder-collapse-server-side.
+   */
+  collapsedFolders?: string[];
 }
 
 export interface PreferencesStore {
@@ -87,6 +98,18 @@ export interface PreferencesStore {
   pinDirectory(dirPath: string): void;
   unpinDirectory(dirPath: string): void;
   reorderPinnedDirs(dirs: string[]): void;
+  // ── collapsed folders (persist-folder-collapse-server-side) ──────
+  getCollapsedFolders(): string[];
+  /**
+   * Set one folder group's collapsed state. `dirPath` is canonicalized with
+   * the shared `pathKey` rule, deriving the platform via
+   * `inferPlatform([dirPath, ...existing collapsedFolders])` — NOT
+   * `process.platform` (which folds case on macOS server-side only and
+   * re-breaks the client/server key match) and NOT `canonicalize()` (the
+   * client cannot resolve symlinks). Returns `true` only on a real mutation,
+   * so the gateway broadcasts only on change.
+   */
+  setFolderCollapsed(dirPath: string, collapsed: boolean): boolean;
   // ── favorite models (enrich-model-selector-capabilities-favorites) ──
   getFavoriteModels(): string[];
   setFavoriteModels(labels: string[]): void;
@@ -349,6 +372,17 @@ export function createPreferencesStore(
   // Auto-naming toggle. Absent/non-false → true (default ON).
   let autoNameSessions: boolean = data.autoNameSessions !== false;
   let liveServers: LiveServerTarget[] = Array.isArray(data.liveServers) ? data.liveServers : [];
+  // Collapsed folder keys: `pathKey`-folded on load (both write AND read
+  // canonicalize), NEVER realpath-resolved — see the invariant in design D3.
+  // Corrupt input (a string, not an array) falls back to `[]` without
+  // failing the whole-file load.
+  const rawCollapsed = Array.isArray(data.collapsedFolders)
+    ? data.collapsedFolders.filter((p): p is string => typeof p === "string")
+    : [];
+  const collapsedPlatform = inferPlatform(rawCollapsed);
+  let collapsedFolders: string[] = dedupePreserveOrder(
+    rawCollapsed.map((p) => pathKey(p, collapsedPlatform)),
+  );
   // Favorite model labels — deduped, insertion-ordered. Default [] for legacy files.
   let favoriteModels: string[] = dedupePreserveOrder(
     Array.isArray(data.favoriteModels) ? data.favoriteModels.filter((l) => typeof l === "string") : [],
@@ -367,7 +401,9 @@ let dirty =
       if (!raw) return true;
       const rf = (raw.folders ?? []) as string[];
       return ws.folders.length !== rf.length || ws.folders.some((f, j) => f !== rf[j]);
-    });
+    }) ||
+    collapsedFolders.length !== rawCollapsed.length ||
+    collapsedFolders.some((p, i) => p !== rawCollapsed[i]);
 
   function scheduleSave(): void {
     dirty = true;
@@ -376,7 +412,7 @@ let dirty =
       debounceTimer = null;
       if (dirty) {
         dirty = false;
-        writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, pinSeeded, liveServers } satisfies PreferencesData);
+        writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, pinSeeded, liveServers, collapsedFolders } satisfies PreferencesData);
       }
     }, DEBOUNCE_MS);
   }
@@ -388,7 +424,7 @@ let dirty =
     }
     if (dirty) {
       dirty = false;
-      writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, pinSeeded, liveServers } satisfies PreferencesData);
+      writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, pinSeeded, liveServers, collapsedFolders } satisfies PreferencesData);
     }
   }
 
@@ -442,6 +478,26 @@ let dirty =
     reorderPinnedDirs(dirs: string[]): void {
       pinnedDirectories = [...dirs];
       scheduleSave();
+    },
+
+    getCollapsedFolders(): string[] {
+      return [...collapsedFolders];
+    },
+
+    setFolderCollapsed(dirPath: string, collapsed: boolean): boolean {
+      const platform = inferPlatform([dirPath, ...collapsedFolders]);
+      const key = pathKey(dirPath, platform);
+      const idx = collapsedFolders.indexOf(key);
+      if (collapsed) {
+        if (idx !== -1) return false;
+        collapsedFolders.push(key);
+        scheduleSave();
+        return true;
+      }
+      if (idx === -1) return false;
+      collapsedFolders.splice(idx, 1);
+      scheduleSave();
+      return true;
     },
 
     // ── favorite models ─────────────────────────────────────

@@ -28,15 +28,17 @@ import {
   createRealConfigIO,
   type McpClientConfigService,
 } from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { createAdapterWarnOnce } from "./adapter-diagnostic.js";
 import type { ToolInvocation } from "./dispatch.js";
-import { type ListSessionsArgs, listSessions } from "./list-sessions.js";
+import { GENERATED_TOOLS } from "./generated/tools.js";
+import { type ListSessionsArgs, listSessions, validateListSessionsArgs } from "./list-sessions.js";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { provisionDashboardEntry } from "./provisioning.js";
 import { mountMcpRoutes } from "./routes.js";
+import { filterToolsByRoute } from "./route-skew.js";
 import { SubscriptionRegistry } from "./streaming.js";
 import { McpTokenRegistry } from "./tokens.js";
-import { assertContextPartitionTotal, checkToolCompleteness, MCP_TOOLS } from "./tools.js";
+import { assertContextPartitionTotal, checkToolCompleteness } from "./tools.js";
 
 const PLUGIN_ID = "mcp-server";
 
@@ -66,18 +68,28 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   const hostVerifyDeviceToken = ctx.consume<(t: string) => string | null>(
     "host.verifyDeviceToken",
   );
-  if (!hostVerifyDeviceToken) {
+  // Tier-aware companion (change: expand-mcp-tiered-surface, D1). Preferred
+  // when a host provides it; absent against an older host, where the id-only
+  // service is used and every device token reads as `operate`.
+  const hostVerifyDeviceTokenTier = ctx.consume<
+    (t: string) => { id: string; tier: import("@blackbelt-technology/pi-dashboard-shared/tiers.js").Tier } | null
+  >("host.verifyDeviceTokenTier");
+  if (!hostVerifyDeviceTokenTier) {
+    ctx.logger.info(
+      "mcp-server: host service 'host.verifyDeviceTokenTier' is unavailable — device tokens resolve to the operate tier (old host)",
+    );
+  }
+  if (!hostVerifyDeviceToken && !hostVerifyDeviceTokenTier) {
     ctx.logger.error(
       "mcp-server: host service 'host.verifyDeviceToken' is unavailable — device-token callers (Claude Desktop, Cursor, phone) cannot authenticate",
     );
   }
   const verifyDeviceToken = (token: string): string | null =>
-    hostVerifyDeviceToken?.(token) ?? null;
+    hostVerifyDeviceToken?.(token) ?? hostVerifyDeviceTokenTier?.(token)?.id ?? null;
 
   const handlers: Record<string, (inv: ToolInvocation) => Promise<unknown>> = {
     list_sessions: async ({ args }) =>
-      // The host exposes `listAll(): unknown[]`; rows are `DashboardSession`s by
-      // contract (the same rows the snapshot serves).
+      // Bounded, filterable, cursor-paged (change: paginate-mcp-list-sessions).
       listSessions(ctx.sessionManager.listAll() as DashboardSession[], args as ListSessionsArgs),
     send_prompt: async ({ args }) => ({
       delivered: ctx.sendToSession(args.sessionId as string, args.text as string),
@@ -92,7 +104,22 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     },
   };
 
-  const completeness = checkToolCompleteness(MCP_TOOLS, (name) => handlers[name]);
+  // Route-skew guard (D4): a published plugin may run against an older host
+  // that lacks some REST routes. Drop those rows from the advertised surface
+  // with one warning each, rather than advertising a tool that 404s.
+  const tools = filterToolsByRoute(
+    GENERATED_TOOLS,
+    (method, url) => ctx.fastify.hasRoute({ method: method as never, url }),
+    (m) => ctx.logger.warn(m),
+  );
+  // Completeness must consult the ACTUAL handlers: a context row with no
+  // handler would otherwise pass a membership-only resolver and only fail at
+  // call time. `rest`/`session` rows are executed by dispatch's binders.
+  const completeness = checkToolCompleteness(tools, (name) => {
+    const tool = tools.find((t) => t.name === name);
+    if (!tool) return undefined;
+    return tool.bind.kind === "context" ? handlers[name] : () => undefined;
+  });
   if (!completeness.ok) {
     ctx.logger.error(
       `mcp-server: advertised tools without a handler: ${completeness.missing.join(", ")}`,
@@ -108,7 +135,9 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
 
   await mountMcpRoutes(ctx.fastify, {
     tokens,
+    tools,
     verifyDeviceToken: (token) => verifyDeviceToken(token),
+    verifyDeviceTokenTier: hostVerifyDeviceTokenTier ?? undefined,
     onMcpRequest: warnAdapterOnce,
     serverInfo: { name: "pi-dashboard", version: process.env.npm_package_version ?? "0.0.0" },
     invokeTool: async (invocation) => {
@@ -116,10 +145,44 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
       if (!handler) throw new Error(`No handler for tool ${invocation.tool.name}`);
       return handler(invocation);
     },
+    // REST-bound tools execute through the live Fastify instance with caller
+    // identity (D4). `origin` is forwarded ONLY for genuinely-local callers
+    // (see dispatch's `injectIdentity`); session callers are excluded here too.
+    inject: async ({ method, url, payload, headers, remoteAddress }) => {
+      const res = await ctx.fastify.inject({
+        method: method as "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+        url,
+        ...(payload !== undefined ? { payload: payload as object } : {}),
+        ...(headers ? { headers } : {}),
+        ...(remoteAddress ? { remoteAddress } : {}),
+      });
+      let body: unknown = res.body;
+      try {
+        body = res.json();
+      } catch {
+        /* non-JSON body stays as text */
+      }
+      return { statusCode: res.statusCode, body };
+    },
+    // Session-bound tools forward to the owning bridge.
+    sendToSession: (sessionId, message) => ctx.sendToSession(sessionId, message as never),
+    // Tool-specific argument checks beyond the generated schema shape — the
+    // bound/filter/cursor rules the list_sessions page owns.
+    validateToolArgs: (name, args) =>
+      name === "list_sessions" ? validateListSessionsArgs(args) : null,
     recordRefusal: ({ callerSessionId, targetSessionId, tool }) => {
       // G5 — refusals must be observable, with all three identifiers.
       ctx.logger.warn(
         `mcp-server: refused self-target caller=${callerSessionId} target=${targetSessionId} tool=${tool}`,
+      );
+    },
+    // D2/observability — an out-of-tier call is logged with caller identity,
+    // tool name, caller tier and required tier.
+    recordTierRefusal: ({ caller, tool, callerTier, requiredTier }) => {
+      const who =
+        caller.kind === "session" ? `session=${caller.sessionId}` : `device=${caller.deviceId}`;
+      ctx.logger.warn(
+        `mcp.tier_refused caller=${who} tool=${tool} callerTier=${callerTier} requiredTier=${requiredTier}`,
       );
     },
     // `subscriptions/listen` is intercepted by the route layer before dispatch

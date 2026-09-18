@@ -6,6 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { getHeapStatistics } from "node:v8";
 import {
   discoverPlugins,
   getPluginStatusStore,
@@ -39,7 +40,7 @@ import type { HydrationMetrics } from "../metrics/hydration-metrics.js";
 import { getModelProxyStatus } from "../model-proxy/registry-singleton.js";
 import { type DroppedFrameStats, EMPTY_DROPPED_FRAME_STATS, EMPTY_SOCKET_BUFFER_OCCUPANCY, type SocketBufferOccupancy } from "../pairing/browser-gateway.js";
 import { recordExitIntent } from "../persistence/boot-state.js";
-import { EMPTY_TRIM_STATS, type TrimStats } from "../persistence/memory-event-store.js";
+import { EMPTY_STORE_RETENTION, EMPTY_TRIM_STATS, type StoreRetention, type TrimStats } from "../persistence/memory-event-store.js";
 import type { MetaPersistence } from "../persistence/meta-persistence.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { PiGateway } from "../pi/pi-gateway.js";
@@ -54,8 +55,10 @@ import {
   readPiCompatibility,
 } from "../pi/pi-version-skew.js";
 import { EMPTY_KEEPER_LOG_STATS, type KeeperLogStats } from "../rpc-keeper/keeper-manager.js";
+import { serverHeapTelemetry } from "../server-heap-telemetry.js";
 import type { ServerConfig } from "../server.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
+import { heapFallbackStatus } from "../spawn-process/heap-args.js";
 import { spawnRestart } from "../spawn-process/restart-helper.js";
 import { readSpawnFailures } from "../spawn-process/spawn-failure-log.js";
 import { systemOpenCapability } from "../system-open-capability.js";
@@ -173,6 +176,7 @@ export function registerSystemRoutes(
     // See change: collapse-superseded-tool-execution-updates (D9).
     eventStore?: {
       getTrimStats?: () => TrimStats;
+      getRetention?: () => StoreRetention;
     };
     // Embed-session-lifecycle diagnostics; `/api/health` reads its snapshot
     // (active/idle ephemeral counts, reaped-by-reason, capacity rejections,
@@ -448,7 +452,13 @@ export function registerSystemRoutes(
         }
       }
 
-      return { success: true, restartRequired: result.restartRequired };
+      return {
+        success: true,
+        restartRequired: result.restartRequired,
+        // `serverHeap` only: an in-place restart inherits the environment and
+        // keeps the old ceiling. See change: bound-session-heap-and-gc-telemetry.
+        ...(result.coldStartRequired ? { coldStartRequired: true } : {}),
+      };
     },
   );
 
@@ -885,10 +895,27 @@ export function registerSystemRoutes(
         rss: mem.rss,
         heapUsed: mem.heapUsed,
         heapTotal: mem.heapTotal,
+        // V8's heap ceiling for this process. Absent before this change, so no
+        // client could compute headroom against the limit the server dies at.
+        // Process-derived (not store-derived), so it sits with the gauges.
+        // See change: bound-event-store-by-bytes (D4).
+        heapSizeLimit: getHeapStatistics().heap_size_limit,
+        // Major-GC pressure on the SERVER, and the ceiling the RUNNING process
+        // was started with. Cumulative (a polled GET must be idempotent) and
+        // process-derived (`serverHeap` is cold-start-only, so the configured
+        // value can legitimately differ from this one — which is exactly what
+        // this field makes visible).
+        // See change: bound-session-heap-and-gc-telemetry (D13).
+        ...serverHeapTelemetry(),
         activeSessions: activeSessions.length,
         totalSessions: sessionManager.listAll().length,
       },
       agents: agentMetrics,
+      // Whether any spawn had to fall back to the `NODE_OPTIONS` subset because
+      // its resolution offered no runtime slot. Reported here as well as in the
+      // server log so it is discoverable live, not only post-mortem.
+      // See change: bound-session-heap-and-gc-telemetry (D3a).
+      sessionHeapFallback: heapFallbackStatus(),
       plugins: enrichWithBridgeSource(getPluginStatusStore().listAll()),
       // Build-time-vs-runtime plugin-bundle hash. Clients compare it to
       // the embedded `PLUGIN_REGISTRY_HASH` to detect stale bundles.
@@ -996,6 +1023,16 @@ export function registerSystemRoutes(
       // a newly-required field while still typechecking.
       // See change: collapse-superseded-tool-execution-updates (D9).
       storeTrim: eventStore?.getTrimStats?.() ?? EMPTY_TRIM_STATS,
+      // Store-derived retention signals (D4), DELIBERATELY separate from the
+      // cumulative `storeTrim` counters: a gauge, a set of configuration
+      // constants and a boolean latch all break the "never reset on read"
+      // invariant that struct exists to hold. `residentBytes` is the gauge an
+      // operator reads against `server.heapSizeLimit` for headroom; the
+      // EFFECTIVE budgets are published because the floor clamp runs in the
+      // store, so configured ≠ enforced. Typed-zero fallback (the
+      // EMPTY_TRIM_STATS convention), never an inline literal.
+      // See change: bound-event-store-by-bytes (D4).
+      storeRetention: eventStore?.getRetention?.() ?? EMPTY_STORE_RETENTION,
       // Keeper-log disk posture: total/fileCount/largest plus the sweep's
       // reclaimedBytes and the runawayFiles non-rotation signal (2× cap —
       // the keeper is a separate process and cannot report its own rotation

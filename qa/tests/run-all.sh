@@ -30,6 +30,7 @@ TESTS=(
   "30-gateway-instance-mismatch.sh" # a record naming one instance, another answering: refused, both ids named, no substitute (D14, task 5.4b); skips when pi absent. See change: add-pi-gateway-transport-identity.
   "31-roles-read-api.sh"        # GET /api/roles answerable with ZERO sessions (#X8). See change: add-roles-read-api.
   "32-origin-gate.sh"           # header-less mutation allowed, cross-site mutation 403 (#X5). See change: fix-ws-origin-cswsh.
+  "34-session-heap-ceiling.sh"  # the configured ceiling binds the spawned pi and nothing below it (#X3, #X6–#X8, #X10, #X12). See change: bound-session-heap-and-gc-telemetry.
   # 25-gateway-remote-join-perf.sh and 26-gateway-promotion-soak.sh are OPT-IN:
   # one moves ~1 GB through a socket, the other soaks for ten minutes.
 )

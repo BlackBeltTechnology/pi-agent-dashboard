@@ -163,6 +163,31 @@ export function handleSetWorkspaceCollapsed(
   if (ctx.preferencesStore?.setWorkspaceCollapsed(msg.id, msg.collapsed)) broadcastWorkspaces(ctx);
 }
 
+// ── collapsed folders (persist-folder-collapse-server-side) ──────
+//
+// Mirrors `set_workspace_collapsed` exactly: the store returns true only on a
+// real mutation, so a no-op (already collapsed / already expanded) emits no
+// broadcast — which is what makes the legacy migration's send-only-what-is-
+// missing rule safe (every send is a guaranteed echo). The store canonicalizes
+// `msg.path` itself, so the client may send either spelling.
+
+function broadcastCollapsedFolders(ctx: BrowserHandlerContext): void {
+  if (!ctx.preferencesStore?.getCollapsedFolders) return;
+  ctx.broadcast({
+    type: "collapsed_folders_updated",
+    collapsedFolders: ctx.preferencesStore.getCollapsedFolders(),
+  });
+}
+
+export function handleSetFolderCollapsed(
+  msg: Extract<BrowserToServerMessage, { type: "set_folder_collapsed" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  if (ctx.preferencesStore?.setFolderCollapsed?.(msg.path, msg.collapsed)) {
+    broadcastCollapsedFolders(ctx);
+  }
+}
+
 export function handleAddFolderToWorkspace(
   msg: Extract<BrowserToServerMessage, { type: "add_folder_to_workspace" }>,
   ctx: BrowserHandlerContext,
@@ -331,12 +356,26 @@ export function handleOpenSpecBulkArchive(
   }
 }
 
+export function forwardExtensionUiResponse(
+  piGateway: BrowserHandlerContext["piGateway"],
+  args: { sessionId: string; requestId: string; result: unknown; cancelled?: boolean },
+): void {
+  piGateway.sendToSession(args.sessionId, {
+    type: "extension_ui_response",
+    sessionId: args.sessionId,
+    requestId: args.requestId,
+    result: args.result,
+    // Normalise to a boolean so the REST and WS entry points emit an
+    // identical message (E27).
+    cancelled: args.cancelled === true,
+  });
+}
+
 export function handleExtensionUiResponse(
   msg: Extract<BrowserToServerMessage, { type: "extension_ui_response" }>,
   ctx: BrowserHandlerContext,
 ): void {
-  ctx.piGateway.sendToSession(msg.sessionId, {
-    type: "extension_ui_response",
+  forwardExtensionUiResponse(ctx.piGateway, {
     sessionId: msg.sessionId,
     requestId: msg.requestId,
     result: msg.result,

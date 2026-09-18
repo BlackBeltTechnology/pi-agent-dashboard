@@ -13,7 +13,7 @@ import { findOpenSubagents, findOpenToolCalls } from "../open-tool-calls.js";
 
 /** Wrap bare events into the store's `{seq, event}` shape, seq ascending. */
 function stored(events: DashboardEvent[]): StoredEvent[] {
-  return events.map((event, i) => ({ seq: i + 1, event }));
+  return events.map((event, i) => ({ seq: i + 1, event, bytes: 0 }));
 }
 
 const ev = (eventType: string, data: Record<string, unknown>): DashboardEvent => ({
@@ -35,7 +35,7 @@ const end = (toolCallId: string, extra: Record<string, unknown> = {}) =>
  */
 const RECORDED_UPDATE = JSON.parse(
   readFileSync(join(__dirname, "../../__fixtures__/recorded-agent-tool-update.json"), "utf8"),
-) as { seq: number; event: DashboardEvent };
+) as { seq: number; event: DashboardEvent; bytes: number };
 
 /** The recorded update re-pointed at a test tool-call id / agent id. */
 function recordedUpdate(toolCallId: string, agentId: string): DashboardEvent {

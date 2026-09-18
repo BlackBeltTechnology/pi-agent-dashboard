@@ -124,6 +124,45 @@ describe("bespoke spawnRegisterTimeoutMs keeps its bounds check", () => {
   });
 });
 
+// ── Memory Limits byte budgets accept a sub-floor value as typed ────────────
+// See change: bound-event-store-by-bytes (D5, task 5.8 / F7). The floor clamp
+// lives in the STORE, so the client must NOT block or clamp a below-floor
+// value — it writes exactly what the user typed and the hint states a floor
+// applies (the effective value is visible in health).
+describe("Memory Limits byte budgets — sub-floor value is accepted as typed", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    putBodies = [];
+    fetchAutoInitWorktreePref.mockResolvedValue(false);
+    setAutoInitWorktreePref.mockResolvedValue(true);
+    window.history.replaceState({}, "", "/settings/general");
+    global.fetch = mockFetchConfig();
+  });
+  afterEach(() => cleanup());
+
+  it("writes a below-floor per-session budget verbatim and says a floor applies", async () => {
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Interface"));
+    gotoPage("Server");
+    await waitFor(() => screen.getByText("Memory Limits"));
+
+    const input = screen.getByRole("spinbutton", {
+      name: /Max Bytes Per Session/,
+    }) as HTMLInputElement;
+    // 1 MiB — below the 4x per-event-ceiling floor the store enforces.
+    fireEvent.change(input, { target: { value: "1" } });
+
+    // No block, no clamp: Save is enabled and the hint names the floor.
+    const btn = await waitFor(() => screen.getByTestId("save-btn"));
+    expect((btn as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByText(/floor applies/i)).toBeTruthy();
+
+    fireEvent.click(btn);
+    await waitFor(() => expect(putBodies.length).toBeGreaterThan(0));
+    expect(putBodies[0].memoryLimits.maxBytesPerSession).toBe(1 * 1024 * 1024);
+  });
+});
+
 describe("wrapper toggles forward their hint (D6)", () => {
   afterEach(() => cleanup());
 

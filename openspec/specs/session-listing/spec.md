@@ -325,7 +325,7 @@ the evidence rule rather than the moment of normalisation.
 
 ### Requirement: Browser pages older ended sessions on demand
 
-In this requirement `cwd` on `sessions_page` / `sessions_page_result` and the keys of `endedTotals` denote the session group key the sidebar already groups by (pinned directory, else worktree main path, else session cwd), so a worktree session pages within its parent group. The client SHALL render a folder group for every group key that has a non-zero `endedTotals` entry even when it holds no session for that cwd (a stub group whose only content is the ended expander). When a folder group's ended list is expanded and `endedTotals[cwd]` exceeds the number of ended sessions the client holds for that cwd, the client SHALL request `sessions_page { cwd, offset }` where `offset` is the number of non-window (paged) ended sessions it already holds for that cwd, and SHALL issue at most one page request per cwd at a time (released on reply, on a 15-second timeout, or when the socket opens). The server SHALL reply to that browser only with `sessions_page_result { cwd, sessions, order, hasMore }` containing the next batch, taken at `offset` from the cwd's ended sequence (persisted order restricted to ended ids, then ended ids without a persisted position by `startedAt` descending) with the snapshot-window ids excluded, and `hasMore` true when further entries remain. The client SHALL ignore order ids it does not hold when applying any order, and SHALL keep held ids absent from an incoming `sessions_reordered` at the tail rather than evicting them.
+In this requirement `cwd` on `sessions_page` / `sessions_page_result` and the keys of `endedTotals` denote the session group key the sidebar already groups by (pinned directory, else worktree main path, else session cwd), so a worktree session pages within its parent group. The client SHALL render a folder group for every group key that has a non-zero `endedTotals` entry even when it holds no session for that cwd (a stub group whose only content is the ended expander). When a folder group's ended list is expanded and `endedTotals[cwd]` exceeds the number of ended sessions the client holds for that cwd, the client SHALL request `sessions_page { cwd, offset }` where `offset` is the number of non-window (paged) ended sessions it already holds for that cwd, and SHALL issue at most one page request per cwd at a time (released on ANY `sessions_page_result` for that cwd — including an empty one — on a 15-second timeout, or when the socket opens). A reply with `hasMore: false` SHALL mark the cwd exhausted: the "more" affordance SHALL be hidden and no further `sessions_page` SHALL be sent for that cwd until `endedTotals[cwd]` changes by any means — a session transitioning to ended, a session being removed, a session being archived, a `session_added` introducing a not-previously-held session whose record is already ended, or a snapshot. Applying a snapshot SHALL clear the exhausted mark for every cwd unconditionally, whether or not the replaced totals differ, because a snapshot also resets the paging offset. The in-flight mark, the exhausted mark, and `endedTotals` SHALL all be keyed in the same group-key space defined above. The server SHALL reply to that browser only with `sessions_page_result { cwd, sessions, order, hasMore }` containing the next batch, taken at `offset` from the cwd's ended sequence (persisted order restricted to ended ids, then ended ids without a persisted position by `startedAt` descending) with the snapshot-window ids excluded, and `hasMore` true when further entries remain. The client SHALL ignore order ids it does not hold when applying any order, and SHALL keep held ids absent from an incoming `sessions_reordered` at the tail rather than evicting them.
 
 #### Scenario: Expanding the ended list pages in the next batch
 - **GIVEN** a cwd group with `endedTotal` of 500 and 20 ended sessions held by the client
@@ -362,6 +362,50 @@ In this requirement `cwd` on `sessions_page` / `sessions_page_result` and the ke
 - **GIVEN** `endedTotals["/repoA"]` of 2
 - **WHEN** a `session_updated` transitions a held `/repoA` session to `ended`
 - **THEN** the expander label for `/repoA` SHALL reflect 3
+
+#### Scenario: Empty reply releases the in-flight mark
+- **GIVEN** a page request for `/repoA` is in flight
+- **WHEN** `sessions_page_result { cwd: "/repoA", sessions: [], order: [], hasMore: false }` arrives
+- **THEN** the in-flight mark for `/repoA` SHALL be released immediately, not after the 15-second timeout
+
+#### Scenario: Exhausted cwd hides the affordance
+- **GIVEN** `endedTotals["/repoA"]` exceeds the ended sessions held and the last reply for `/repoA` carried `hasMore: false`
+- **WHEN** the sidebar renders
+- **THEN** the "more" affordance for `/repoA` SHALL NOT be shown
+- **AND** no `sessions_page` SHALL be sent for `/repoA`
+
+#### Scenario: A changed ended total re-arms paging
+- **GIVEN** `/repoA` is marked exhausted
+- **WHEN** a snapshot or `session_updated` changes `endedTotals["/repoA"]`
+- **THEN** the exhausted mark SHALL clear and the affordance SHALL follow the ordinary rule again
+
+#### Scenario: A reconnect snapshot re-arms paging even with identical totals
+- **GIVEN** `/repoA` is marked exhausted
+- **WHEN** the socket reconnects and the snapshot carries the same `endedTotals["/repoA"]` value as before
+- **THEN** the exhausted mark for `/repoA` SHALL clear
+- **AND** because the snapshot also reset the paging offset, the affordance SHALL be shown again while `endedTotals["/repoA"]` exceeds the ended sessions held
+
+#### Scenario: A removal re-arms paging
+- **GIVEN** `/repoA` is marked exhausted
+- **WHEN** a `session_removed` or `session_archived` changes `endedTotals["/repoA"]`
+- **THEN** the exhausted mark SHALL clear
+
+#### Scenario: An added ended session counts toward the ended total
+- **GIVEN** the client holds no session with id `s9` and `endedTotals["/repoA"]` is 4
+- **WHEN** a `session_added` for `s9` arrives carrying a record whose status is already `ended` and whose group key is `/repoA`
+- **THEN** `endedTotals["/repoA"]` SHALL become 5
+- **AND** the ended expander label for `/repoA` SHALL agree with the ended rows rendered for it
+
+#### Scenario: A re-delivered ended session is not double-counted
+- **GIVEN** the client already holds ended session `s9` for `/repoA`
+- **WHEN** a further `session_added` for `s9` arrives carrying the same ended record
+- **THEN** `endedTotals["/repoA"]` SHALL be unchanged
+
+#### Scenario: Paging marks are keyed by group key, not raw cwd
+- **GIVEN** a worktree session whose cwd is `/repoA/.worktrees/wt1` and whose group key is `/repoA`
+- **WHEN** a `sessions_page_result { cwd: "/repoA", hasMore: false }` marks the group exhausted
+- **AND** that session later transitions to ended, changing `endedTotals["/repoA"]`
+- **THEN** the exhausted mark SHALL clear
 
 ### Requirement: Client reconciles missing OpenSpec entries for rendered cwds
 

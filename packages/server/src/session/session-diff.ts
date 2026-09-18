@@ -700,7 +700,7 @@ async function safeIsGitRepo(cwd: string): Promise<boolean> {
 export async function buildSessionDiff(
   events: DashboardEvent[],
   cwd: string,
-  opts?: { gitRepo?: boolean; porcelainRaw?: string },
+  opts?: { gitRepo?: boolean; porcelainRaw?: string; windowEnd?: number },
 ): Promise<SessionDiffResult> {
   const gitRepo = opts?.gitRepo ?? (await safeIsGitRepo(cwd));
   const allWriteEdit = extractFileChanges(events, cwd);
@@ -714,7 +714,11 @@ export async function buildSessionDiff(
   const outOfCwd = allWriteEdit.filter((f) => isAbsolute(f.path));
   const writeEditPaths = new Set(writeEdit.map((f) => f.path));
   const attribution = parseBashArtifacts(events, cwd);
-  const windows = extractBashWindows(events);
+  // An ENDED session clamps unclosed Bash windows to its last transcript entry
+  // (`windowEnd`) instead of `now`, so an aborted Bash call in an old session
+  // cannot claim files edited in the cwd since. Live sessions pass no windowEnd
+  // → `Date.now()`, unchanged. See change: fix-session-diff-durable-source (D4).
+  const windows = extractBashWindows(events, opts?.windowEnd);
 
   // ─ Detection ─
   let detected = new Set<string>();
@@ -823,23 +827,43 @@ export async function buildSessionDiff(
 /**
  * Cache + single-flight wrapper over `buildSessionDiff` for the request path.
  *
- * Computes a cheap cache key up front — `sessionId : HEAD-sha : djb2(porcelain)`
- * — via two non-blocking git spawns, then defers to the `cache`: a fresh
- * entry within TTL returns immediately; concurrent identical requests coalesce
- * onto one in-flight computation. A HEAD sha or dirty-signature change yields a
- * new key → recompute (never serves a stale diff). The fetched `gitRepo` /
- * `porcelainRaw` are threaded into `buildSessionDiff` so detection does not
- * re-spawn them. See change: fix-session-diff-eventloop-block.
+ * Computes a cheap cache key up front — `sessionId : HEAD-sha :
+ * djb2(porcelain) : sourceKey : lifecycle` — via two non-blocking git spawns,
+ * then defers to the `cache`: a fresh entry within TTL returns immediately;
+ * concurrent identical requests coalesce onto one in-flight computation.
+ * `sourceKey` is the event-source signature (transcript `mtime:size` or store
+ * tool-start count; see `resolveDiffSource`), so a new tool call invalidates
+ * even when HEAD and the dirty signature are unchanged. The `lifecycle`
+ * component (`e`/`l`) keeps a live→ended transition from serving the previous
+ * live result: `opts.ended` changes `windowEnd`, so the SAME git + source key
+ * can compute a different diff. `load()` runs INSIDE `cache.run`, so a cache
+ * hit / coalesced request never parses a transcript. A HEAD/dirty/source/
+ * lifecycle change yields a new key → recompute (never serves a stale diff).
+ * The fetched `gitRepo` / `porcelainRaw` are threaded into `buildSessionDiff`
+ * so detection does not re-spawn them.
+ *
+ * See change: fix-session-diff-eventloop-block,
+ * fix-session-diff-durable-source (D2/D3).
  */
 export async function buildSessionDiffCached(
   sessionId: string,
-  events: DashboardEvent[],
+  load: () => Promise<{ events: DashboardEvent[]; lastEntryTs?: number }>,
   cwd: string,
   cache: SessionDiffCache<SessionDiffResult>,
+  opts: { sourceKey: string; ended: boolean },
 ): Promise<SessionDiffResult> {
   const gitRepo = await safeIsGitRepo(cwd);
   const headSha = gitRepo ? await git.headShaOrAsync({ cwd }) : undefined;
   const porcelainRaw = gitRepo ? await git.statusPorcelainOrAsync({ cwd }) : "";
-  const key = `${sessionId}:${headSha ?? "nogit"}:${djb2(porcelainRaw)}`;
-  return cache.run(key, () => buildSessionDiff(events, cwd, { gitRepo, porcelainRaw }));
+  const key = `${sessionId}:${headSha ?? "nogit"}:${djb2(porcelainRaw)}:${opts.sourceKey}:${opts.ended ? "e" : "l"}`;
+  return cache.run(key, async () => {
+    const src = await load();
+    return buildSessionDiff(src.events, cwd, {
+      gitRepo,
+      porcelainRaw,
+      // Ended → clamp an unclosed Bash window to the transcript's last entry
+      // (D4); live → undefined → `Date.now()`.
+      windowEnd: opts.ended ? src.lastEntryTs : undefined,
+    });
+  });
 }

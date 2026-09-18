@@ -59,6 +59,54 @@ describe("Process Manager", () => {
       expect(cmd).not.toContain("PI_DASHBOARD_SPAWNED");
     });
 
+    // ── Heap ceiling per window (change: bound-session-heap-and-gc-telemetry) ─
+    // A pane's environment comes from the long-lived tmux SERVER, so the only
+    // thing that reaches it is tmux's own per-window `-e` — the same mechanism
+    // the spawn token already depends on (design D3). Task 6.1 / manual X13.
+    it("delivers the ceiling as a per-window -e NODE_OPTIONS pair", () => {
+      const cmd = buildTmuxCommand(
+        "/home/user/project",
+        false,
+        undefined,
+        ["pi"],
+        "--max-old-space-size=512",
+      );
+      const i = cmd.indexOf("NODE_OPTIONS=--max-old-space-size=512");
+      expect(i).toBeGreaterThan(0);
+      expect(cmd[i - 1]).toBe("-e");
+    });
+
+    it("keeps the ceiling alongside the existing spawn-token -e pair", () => {
+      const cmd = buildTmuxCommand(
+        "/home/user/project",
+        true,
+        { spawnToken: "tok-1" },
+        ["pi"],
+        "--max-old-space-size=512",
+      );
+      expect(cmd).toContain("PI_DASHBOARD_SPAWN_TOKEN=tok-1");
+      expect(cmd).toContain("NODE_OPTIONS=--max-old-space-size=512");
+      expect(cmd.filter((a) => a === "-e")).toHaveLength(2);
+    });
+
+    it("emits no -e NODE_OPTIONS pair when no ceiling is configured", () => {
+      const cmd = buildTmuxCommand("/home/user/project", false, undefined, ["pi"], "");
+      expect(cmd.some((a) => a.startsWith("NODE_OPTIONS="))).toBe(false);
+    });
+
+    it("leaves the wsl-tmux invocation literal so `pi` resolves in the guest", () => {
+      const cmd = buildTmuxCommand(
+        "/home/user/project",
+        false,
+        undefined,
+        ["pi"],
+        "--max-old-space-size=512",
+      );
+      // A host-resolved node path would name a binary that does not exist
+      // inside WSL, which is why the ceiling rides `-e` and not argv here.
+      expect(cmd[cmd.length - 1]).toBe("pi");
+    });
+
     it("carries cwd with spaces as a literal -c element, no quoting", () => {
       const cwd = "/home/user/my project";
       const cmd = buildTmuxCommand(cwd, false);

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ModelConfigProvider,
@@ -655,14 +655,21 @@ describe("SettingsPanel", () => {
     await waitFor(() => screen.getByText("Initialize on worktree"));
 
     const row = screen.getByText("Initialize on worktree").closest("div")!;
+    // race: the label renders from the DEFAULTS, before the fetched config
+    // baseline is committed. A click landing in that window is diffed against
+    // an unset baseline, so no Save Bar appears and `save-btn` never shows.
+    // The rendered switch cannot distinguish the two states (default and
+    // fetched value are both `false`), so flush the resolved fetch's effects
+    // instead of polling the DOM, then assert the baseline-backed OFF state.
+    await act(async () => {});
+    expect(within(row).getByRole("switch").getAttribute("aria-checked")).toBe("false");
     fireEvent.click(within(row).getByRole("switch"));
 
     // Buffered — not persisted on toggle.
     expect(setAutoInitWorktreePref).not.toHaveBeenCalled();
 
     // Save Bar appears; saving commits the buffered preference.
-    await waitFor(() => screen.getByTestId("save-btn"));
-    fireEvent.click(screen.getByTestId("save-btn"));
+    fireEvent.click(await screen.findByTestId("save-btn"));
     await waitFor(() => {
       expect(setAutoInitWorktreePref).toHaveBeenCalledWith(true);
     });

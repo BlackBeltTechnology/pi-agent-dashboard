@@ -25,6 +25,10 @@ The gate SHALL run in one of two modes, `report` or `enforce`, resolved in this 
 - **WHEN** `PI_DASHBOARD_HOST_GATE=enforce` and `GET /api/health` arrives with `Host: rebind.example`
 - **THEN** the response SHALL be `403` with `error: "host_not_allowed"` and a `hint` naming `allowedHosts` and `publicBaseUrls`, and SHALL carry no `Access-Control-Allow-Origin` header
 
+#### Scenario: Unrecognised config mode stays report-only
+- **WHEN** `hostGate.mode` holds an unrecognised value and the env var is unset
+- **THEN** the gate SHALL behave as `report` and SHALL NOT adopt the `enforce` default (a typo'd config value SHALL NOT lock the operator out)
+
 #### Scenario: Unrecognised env value falls through to config
 - **WHEN** `PI_DASHBOARD_HOST_GATE=yes` and `hostGate.mode` is absent
 - **THEN** the gate SHALL behave as `enforce`

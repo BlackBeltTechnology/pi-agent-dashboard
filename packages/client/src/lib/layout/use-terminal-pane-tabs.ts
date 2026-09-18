@@ -108,6 +108,16 @@ interface Options {
   onKillTerminal?: (id: string) => void;
   onRenameTerminal?: (id: string, title: string) => void;
   onTerminalTitle?: (id: string, title: string) => void;
+  /**
+   * One-shot terminal-focused entry (folder pane `?focus=terminal`): once the
+   * terminal set is known, activate the newest non-ephemeral terminal or create
+   * one. See change: fix-terminals-action-opens-terminal (D2).
+   */
+  focusOnMount?: boolean;
+  /** Terminal snapshot applied (`snapshotGeneration > 0`) — gates the one-shot. */
+  terminalsReady?: boolean;
+  /** Fired once when the one-shot is honoured (URL param consumption, D3). */
+  onFocusConsumed?: () => void;
 }
 
 export function useTerminalPaneTabs({
@@ -121,6 +131,9 @@ export function useTerminalPaneTabs({
   onKillTerminal,
   onRenameTerminal,
   onTerminalTitle,
+  focusOnMount,
+  terminalsReady,
+  onFocusConsumed,
 }: Options): TerminalPaneTabs {
   // Ephemeral terminals back inline `!!` chat cards; never tab them.
   const paneTerminals = useMemo(() => terminals.filter((t) => !t.ephemeral), [terminals]);
@@ -133,6 +146,15 @@ export function useTerminalPaneTabs({
   paneStateRef.current = paneState;
   const knownIdsRef = useRef<Set<string>>(new Set());
   const pendingCreateRef = useRef(false);
+  // Latest pane terminals for the one-shot effect — read via ref so the effect
+  // can depend on `idSig` (the id set) rather than the array identity, which
+  // changes on every title update.
+  const paneTerminalsRef = useRef(paneTerminals);
+  paneTerminalsRef.current = paneTerminals;
+  // One-shot guard for the terminal-focused entry (D2).
+  const focusHandledRef = useRef(false);
+  // Previous cwd for the reset guard (see the reset effect below).
+  const prevCwdRef = useRef(cwd);
 
   const openTerminal = useCallback(
     (id: string) => {
@@ -151,10 +173,17 @@ export function useTerminalPaneTabs({
     const live = new Set(idSig ? idSig.split("\u0000") : []);
     const { closePaths, openIds } = reconcileTerminalTabs(paneStateRef.current.openFiles, live, autoSurface);
     for (const path of closePaths) dispatch({ type: "closeByPath", path });
-    for (const id of openIds) dispatch({ type: "openFile", path: `${TERM_TAB_PREFIX}${id}`, viewer: "terminal" });
-    // Session split: open the freshly-created terminal (a live id we had not
-    // seen before and is not already tabbed) exactly once per create.
-    if (!autoSurface && pendingCreateRef.current) {
+    // D3a (change: add-lazy-terminal-diff-bootstrap): auto-surfaced terminal tabs
+    // open in the BACKGROUND (`activate: false`) so a folder pane no longer
+    // focuses a terminal the user did not ask for. The tab is still opened and
+    // unread-badged; the previously active tab stays active. Without this the
+    // D3 activation latch fires on mount and cold landing fetches xterm.
+    for (const id of openIds) dispatch({ type: "openFile", path: `${TERM_TAB_PREFIX}${id}`, viewer: "terminal", activate: false });
+    // A freshly-created terminal is always the one the user asked for (the
+    // `+ Terminal` button or the `?focus=terminal` one-shot), so activating it
+    // is correct in BOTH pane modes. Without this, D3a's background auto-surface
+    // would leave a user-requested new terminal unfocused in a folder pane.
+    if (pendingCreateRef.current) {
       const open = new Set(openTerminalIds(paneStateRef.current.openFiles));
       const created = [...live].find((id) => !knownIdsRef.current.has(id) && !open.has(id));
       if (created) {
@@ -172,6 +201,43 @@ export function useTerminalPaneTabs({
     onCreateTerminal(cwd);
     ensureOpen();
   }, [onCreateTerminal, cwd, ensureOpen]);
+
+  // (D3 corollary) `focusHandledRef` is instance-scoped, but `/folder/A` →
+  // `/folder/B` changes the `cwd` prop without remounting. Reset ONLY on an
+  // actual cwd change — a guardless `focusHandledRef.current = false` would
+  // un-burn the flag when the effect re-runs without a cwd change (React
+  // StrictMode's dev double-invoke), re-firing the one-shot and creating a
+  // second PTY. Declared BEFORE the one-shot effect so the reset runs first in
+  // the same commit.
+  useEffect(() => {
+    if (prevCwdRef.current !== cwd) {
+      prevCwdRef.current = cwd;
+      focusHandledRef.current = false;
+    }
+  }, [cwd]);
+
+  // (D2) One-shot terminal-focused entry. Declared AFTER the reconcile effect
+  // (D2b) so its activation lands after auto-surface's and wins `activeIndex`.
+  // Depends on `idSig` (the live id set), NOT the `terminals` array identity.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `idSig`/`cwd` are intentional re-fire triggers; the terminal list is read via `paneTerminalsRef` to avoid array-identity re-runs
+  useEffect(() => {
+    if (!focusOnMount || !terminalsReady || focusHandledRef.current) return;
+    const list = paneTerminalsRef.current;
+    // Newest by `createdAt`; last element wins a tie (design D2).
+    const newest = list.length ? list.reduce((a, b) => (b.createdAt >= a.createdAt ? b : a)) : null;
+    if (newest) {
+      focusHandledRef.current = true;
+      openTerminal(newest.id);
+      onFocusConsumed?.();
+    } else if (onCreateTerminal) {
+      // Burn the flag synchronously so the async create cannot re-fire it.
+      focusHandledRef.current = true;
+      createTerminal();
+      onFocusConsumed?.();
+    }
+    // No `onCreateTerminal` → this branch is skipped and the flag is left
+    // unburned, so a later render WITH the handler still honours the entry (X1).
+  }, [idSig, cwd, focusOnMount, terminalsReady, openTerminal, createTerminal, onCreateTerminal, onFocusConsumed]);
 
   const killTerminal = useCallback((id: string) => onKillTerminal?.(id), [onKillTerminal]);
 

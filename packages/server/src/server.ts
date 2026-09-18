@@ -17,6 +17,7 @@ import { CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, re
 import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
 import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
+import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import {
   reconcilePluginBridgePackages,
@@ -29,11 +30,13 @@ import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared
 import compress from "@fastify/compress";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
+import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
 import { resolveRedirectBase } from "./auth/auth.js";
 import { authorizeWsUpgrade, registerAuthPlugin } from "./auth/auth-plugin.js";
 import { registerBearerAuth } from "./auth/bearer-auth.js";
+import { createRouteTierGate } from "./auth/route-tier-gate.js";
 import {
   computeBindReachability,
   formatBindReachabilityWarning,
@@ -73,9 +76,11 @@ import {
 } from "./auth/ws-ticket.js";
 import {
   buildDispatchReloadContext,
+  forceKillSession,
   type ReloadHostContext,
   respawnForRuntimeSwap,
 } from "./browser-handlers/session-action-handler.js";
+import { runLifecycleAction } from "./browser-handlers/session-lifecycle.js";
 import { createCommitDraftRelay } from "./commit-draft-relay.js";
 import { writeConfigPartial } from "./config-api.js";
 import {
@@ -102,6 +107,7 @@ import { ensureInstanceId } from "./lifecycle/instance-id.js";
 import { createLiveServerManager } from "./live-server/live-server-manager.js";
 import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
 import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
+import { startServerHeapTelemetry } from "./server-heap-telemetry.js";
 import { createEventLoopSpikeMetrics } from "./metrics/eventloop-spike-metrics.js";
 import { createHydrationMetrics } from "./metrics/hydration-metrics.js";
 import { createModelProxyAuthGate } from "./model-proxy/auth-gate.js";
@@ -123,7 +129,7 @@ import { createPendingPromptAcks } from "./pending/pending-prompt-acks.js";
 import { createPendingResumeIntentRegistry } from "./pending/pending-resume-intent-registry.js";
 import { createPendingWorktreeBaseRegistry } from "./pending/pending-worktree-base-registry.js";
 import { recordExitIntent, resolveExitIntent, stampBootStart } from "./persistence/boot-state.js";
-import { createMemoryEventStore, DEFAULT_MAX_EVENT_DATA_SIZE, type EventStore } from "./persistence/memory-event-store.js";
+import { createMemoryEventStore, DEFAULT_MAX_EVENT_DATA_SIZE, DEFAULT_MAX_STRING_SIZE, type EventStore } from "./persistence/memory-event-store.js";
 import { createMetaPersistence } from "./persistence/meta-persistence.js";
 import { migrateCustomEntryFallbackOverrides } from "./persistence/migrate-custom-entry-fallback.js";
 import { needsMigration, runMigration } from "./persistence/migrate-persistence.js";
@@ -258,6 +264,13 @@ export interface ServerConfig {
   /** Memory limit overrides from config */
   maxEventsPerSession?: number;
   maxStringFieldSize?: number;
+  /**
+   * The whole `memoryLimits` block. Carried (like `maxReplayEvents`) so the
+   * byte budgets and the resident-session count thread from config without
+   * re-loading. Absent → each `createMemoryEventStore` default applies.
+   * See change: bound-event-store-by-bytes (D6/D8, task 5.1).
+   */
+  memoryLimits?: import("@blackbelt-technology/pi-dashboard-shared/memory-limits.js").MemoryLimitsConfig;
   /** Override the event-store per-event data byte ceiling. Default DEFAULT_MAX_EVENT_DATA_SIZE. */
   maxEventDataSize?: number;
   maxWsBufferBytes?: number;
@@ -286,6 +299,13 @@ export interface ServerConfig {
   resolvedTrustedNetworks?: string[];
   /** CORS allowed origins from config */
   corsAllowedOrigins?: string[];
+  /**
+   * @internal Test/observability only: invoked for every route as Fastify
+   * registers it (before `listen`), so the MCP manifest completeness test can
+   * enumerate the route set R exactly as it boots. Additive; no runtime effect.
+   * See change: expand-mcp-tiered-surface (D6).
+   */
+  onRoute?: (route: { method: string | string[]; url: string }) => void;
 }
 
 export interface DashboardServer {
@@ -795,6 +815,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // activity. Negligible libuv-timer overhead. See change above.
   const eventLoopDelayHistogram = monitorEventLoopDelay({ resolution: 20 });
   eventLoopDelayHistogram.enable();
+
+  // Major-GC counter for THIS process, started once at boot alongside the
+  // event-loop histogram. Unlike that histogram it is cumulative and never
+  // reset: `/api/health` is polled, and "is the major count climbing?" is the
+  // question the 1536 ceiling's accepted occupancy depends on being answerable.
+  // See change: bound-session-heap-and-gc-telemetry (D13).
+  startServerHeapTelemetry();
   const readEventLoopDelay = () => {
     const ms = (ns: number) => (Number.isFinite(ns) ? ns / 1e6 : 0);
     const snapshot = {
@@ -931,10 +958,20 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     (sessionId) =>
       piGateway.isSessionConnected(sessionId) ||
       browserGateway.getSubscriberCount(sessionId) > 0,
-    undefined, // maxCachedSessions (use default)
+    // Operator-configurable resident count (was a hardcoded `undefined`,
+    // silently defaulting to 100). The direct multiplier on every per-session
+    // bound. See change: bound-event-store-by-bytes (D8, task 5.1).
+    config.memoryLimits?.maxCachedSessions ?? DEFAULT_MEMORY_LIMITS.maxCachedSessions,
     config.maxEventsPerSession,
     config.maxStringFieldSize,
     eventDataCeiling,
+    // Per-session and global serialized-byte budgets. Fall back to the SHARED
+    // config defaults when `memoryLimits` is absent (a bare ServerConfig, e.g.
+    // the docker test harness): the store factory default is `0`/unbounded so
+    // that direct call sites opt in, but a server must be bounded by default.
+    // See change: bound-event-store-by-bytes (D5/D7).
+    config.memoryLimits?.maxBytesPerSession ?? DEFAULT_MEMORY_LIMITS.maxBytesPerSession,
+    config.memoryLimits?.maxTotalEventBytes ?? DEFAULT_MEMORY_LIMITS.maxTotalEventBytes,
   );
 
   // Derive the inline-terminal transcript byte budget from the event-store
@@ -1168,7 +1205,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // See change: add-dashboard-mcp-server.
   pluginServiceRegistry.set(
     "host.verifyDeviceToken",
-    (token: string): string | null => pairedDeviceRegistry.verify(token),
+    (token: string): string | null => pairedDeviceRegistry.verify(token)?.id ?? null,
+  );
+  // Tier-aware service board entry (change: expand-mcp-tiered-surface, D1).
+  // A NEW key, not a signature change to the old one: `mcp-server-plugin` is
+  // published separately and may run against an older/newer host. The plugin
+  // consumes this when present and otherwise falls back to
+  // `host.verifyDeviceToken` with `tier: "operate"`.
+  pluginServiceRegistry.set(
+    "host.verifyDeviceTokenTier",
+    (token: string) => pairedDeviceRegistry.verify(token),
   );
   // Prefers the BOUND port, falls back to the CONFIGURED one.
   //
@@ -1282,6 +1328,26 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     logger: false,
     keepAliveTimeout: 30_000,
     connectionTimeout: 10_000,
+  });
+
+  // Route inventory (test-only): fires as each route registers, before listen,
+  // so a caller can enumerate the full route set. See change:
+  // expand-mcp-tiered-surface (D6).
+  if (config.onRoute) {
+    const collect = config.onRoute;
+    fastify.addHook("onRoute", (route) => collect({ method: route.method, url: route.url }));
+  }
+
+  // Global rate limiter. Two jobs: a real remote-caller ceiling, and making the
+  // app recognizable to static analysis (`js/missing-rate-limiting` otherwise
+  // flags every authenticated route handler). Loopback is allow-listed so
+  // same-host callers (tests, CLI, local browser, pi sessions) are never
+  // throttled; `/mcp` keeps its own stricter per-(ip, credential) throttle.
+  await fastify.register(rateLimit, {
+    global: true,
+    max: 100_000,
+    timeWindow: "1 minute",
+    allowList: ["127.0.0.1", "::1"],
   });
 
   // Compression: gzip/deflate for HTTP responses. Critical for large client
@@ -1446,6 +1512,25 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     fastify.get("/auth/status", async () => ({ authenticated: true, authEnabled: false }));
   }
 
+  // REST tier gate (change: expand-mcp-tiered-surface, D1b). Registered AFTER
+  // both admission hooks above (bearer-auth, then the cookie auth plugin) so
+  // `request.authVia`/`principalTier` are already set when it runs, and it
+  // reads the same live trusted-network source `networkGuard` does.
+  fastify.addHook(
+    "onRequest",
+    createRouteTierGate({
+      getTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
+    }),
+  );
+
+  // Shared network guard (thunk, not a boot snapshot — D15): a CIDR added at
+  // runtime admits without a restart. Created BEFORE registerSessionApi so the
+  // new lifecycle/extension-ui routes can carry it as a preHandler.
+  const networkGuard = createNetworkGuard(
+    () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
+    { localToken },
+  );
+
   // Session control REST API (wraps WebSocket-only operations)
   registerSessionApi(fastify, {
     sessionManager,
@@ -1458,16 +1543,28 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pendingPromptAcks,
     sessionArchive,
     pendingArchiveIntents,
+    networkGuard,
+    // Shared lifecycle handler (change: expand-mcp-tiered-surface, D3): the
+    // three bridge forwards plus the shared force-kill ladder.
+    handleLifecycle: (sessionId, action, extras) =>
+      runLifecycleAction(action, sessionId, {
+        piGateway,
+        forceKill: (sid) =>
+          forceKillSession(sid, {
+            sessionManager,
+            piGateway,
+            headlessPidRegistry: browserGateway.headlessPidRegistry,
+            broadcast: browserGateway.broadcastToAll,
+            metaPersistence,
+          }),
+      }, extras ?? {}),
+    getTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
   });
 
   // Register route modules
   // Create network guard from merged trusted networks
   // Thunk, not a boot snapshot (D15): a CIDR added through the gateway action
   // must admit that range on the next request, with no restart.
-  const networkGuard = createNetworkGuard(
-    () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
-    { localToken },
-  );
 
   // ── Reload fan-out plumbing ───────────────────────────────────────────
   // Every automated reload trigger goes through the SAME ladder as the
@@ -1504,6 +1601,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     sessionArchive,
     remoteTranscriptStore,
     isResolverActive: () => resolverRegistry.hasActiveResolver(),
+    // Transcript-sourced session diffs dispatch through the same pool the
+    // hydration path owns; `maxStringSize` is the store's cap so projected
+    // tool payloads match store-sourced ones. See change:
+    // fix-session-diff-durable-source.
+    loadWorkerPool: () => directoryService.ensureLoadWorkerPool(),
+    // The store's own parameter default resolves an unset cap to
+    // DEFAULT_MAX_STRING_SIZE; mirror it here so the transcript projection
+    // caps `args` with the SAME effective value the store used on ingest.
+    // Passing the raw `undefined` would make the projection's `?? 0` sentinel
+    // disable truncation and break payload/`truncated` parity.
+    // See change: fix-session-diff-durable-source.
+    maxStringSize: config.maxStringFieldSize ?? DEFAULT_MAX_STRING_SIZE,
   });
   // pi retry policy editor. Reload fan-out dispatches `/reload` to every
   // connected session so a saved policy applies without a manual restart
@@ -1813,6 +1922,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     registry: pairedDeviceRegistry,
     localToken,
     hostAdmission: () => getHostGateCtx().admission,
+    // Public (tunnel + configured public) base URLs, already TLS-gated.
+    getReachableUrls: () => pairingManager.reachableUrls(),
+    getPort: () => {
+      const addr = fastify.server.address();
+      return typeof addr === "object" && addr !== null ? addr.port : config.port;
+    },
   });
   // Mint a single-use WS ticket (D11). Authenticated (networkGuard: cookie,
   // trusted network, or Authorization: Bearer). The ticket is bound to a WS

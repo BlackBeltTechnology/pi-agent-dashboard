@@ -40,12 +40,18 @@ export function registerBearerAuth(
   fastify.addHook("onRequest", async (request: FastifyRequest) => {
     if ((request as any).isAuthenticated) return;
     const token = parseBearerHeader(request.headers.authorization);
-    if (token && deps.registry.verify(token)) {
+    const verified = token ? deps.registry.verify(token) : null;
+    if (verified) {
       (request as any).isAuthenticated = true;
       // Additive marker: HOW the request authenticated. `operatorGuard` on the
       // token-mint route reads it to REFUSE a device bearer (a paired device
-      // must not mint unrevocable credentials). Nothing else reads it yet.
+      // must not mint unrevocable credentials). `route-tier-gate` reads it to
+      // scope the REST tier check to bearer-admitted requests.
       (request as any).authVia = "device";
+      // The credential's tier and id, so the REST tier gate can refuse a route
+      // above the bearer's tier and name the device in the refusal log (D1b).
+      (request as any).principalTier = verified.tier;
+      (request as any).principalDeviceId = verified.id;
     }
   });
 }

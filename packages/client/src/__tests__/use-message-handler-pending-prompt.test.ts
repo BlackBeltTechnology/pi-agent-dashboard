@@ -53,7 +53,7 @@ function makeHarness(initialState: Map<string, SessionState>) {
     setRolesMap: noop,
     setSpawnResult: noop,
     setSessionOrderMap: noop,
-    setPinnedDirectories: noop, setFavoriteModels: noop,
+    setPinnedDirectories: noop, setCollapsedFolders: noop, setFavoriteModels: noop,
     setWorkspaces: noop,
     setTerminals: noop,
     setDiscoveredServers: noop,

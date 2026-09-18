@@ -1356,6 +1356,41 @@ Diagnostic: `ps -p <piPid>` after Shutdown. Alive after 3 s indicates regression
 
 See change: `fix-keeper-kill-escalation`. See also `docs/architecture.md` § "RPC keeper sidecar".
 
+## Why does my session die whenever it spawns subagents?
+
+Symptom: session dies immediately after issuing wide `Agent` fan-out. Last transcript entry shows unanswered subagent calls. Host marks session unresponsive and reaps process.
+
+Contributing cause: parallel subagent initialization blocks Node event loop on loaded host (contributing cause, not confirmed root cause; loaded-host and large-context factors untested). 13/14 census crash sessions died at fan-out start (correlation observed, causality not proven).
+
+Mitigation (change: `bound-subagent-fanout-under-host-pressure`): bridge admission gate bounds concurrent in-flight subagents per session (partial mitigation, not definitive fix).
+
+Mechanism:
+- Gate intercepts `tool_call` before execution starts.
+- Bound tracks in-flight concurrency, not batch width. Counter increments on admission, decrements on `tool_execution_end`.
+- Normal default cap: `DEFAULT_MAX_CONCURRENT_SUBAGENTS = 2`.
+- Host saturation (high event loop delay, process CPU, machine load) drops cap to 1 so session still makes progress.
+- Refused calls return terminal errored tool result with reason directing re-issue after running children finish. Card stops spinning immediately.
+- Refusals append durable `subagent-admission-refused` session entry so evidence survives process death.
+
+Configuration:
+- `maxConcurrentSubagents` in `~/.pi/dashboard/config.json`.
+- Default: `2`.
+- `0`: disables admission gate (rollback).
+- Absent: resolves to default (2).
+- Malformed: fails open (uncapped).
+
+Scope caveat:
+- Subagents skip bridge initialization via re-entry guard.
+- Admission gate protects top-level session only.
+- Grandchildren and `flow_agents` bypass gate.
+
+Cross-refs:
+- docs/architecture.md
+- packages/extension/src/subagent-fanout-admission.ts
+- packages/extension/src/subagent-saturation.ts
+- packages/shared/src/config.ts
+- openspec/changes/archive/2026-09-16-bound-subagent-fanout-under-host-pressure/
+
 ## Gemini session starts, model never responds, no error — "Gemini doesn't work with subagents"?
 
 Symptom: dashboard spawns Gemini session (`google-vertex/gemini-2.5-pro`). Model never emits visible text. No error on card. Session idles silent.
@@ -2983,12 +3018,84 @@ Caveats + configuration:
 
 Details: `docs/architecture.md` §MCP Endpoint.
 
-See change: mcp-legacy-clients-and-token-issuance.
+See change: mcp-legacy-clients-and-token-issuance, expand-mcp-tiered-surface.
 
 Cross-refs:
 - docs/architecture.md
 - packages/mcp-server-plugin/README.md
 - packages/client/src/components/connectivity/PairedDevicesSection.tsx
+- packages/server/src/routes/pairing-routes.ts
+
+## Which tier do I give Claude Code / Cursor?
+
+Tier choice depends on desired authority:
+
+- `observe` (default): inspect sessions, read files, list tools, view git diffs and transcripts. No execution or mutation.
+- `control`: drive sessions, send prompts, spawn sessions, abort runs, trigger session actions.
+- `operate`: full control including server restart, package management, process control, system settings.
+
+Details: `docs/architecture.md` §MCP Endpoint.
+
+See change: expand-mcp-tiered-surface.
+
+Cross-refs:
+- docs/architecture.md
+- packages/shared/src/route-tiers.ts
+- packages/mcp-server-plugin/src/server/tools.manifest.ts
+
+## How do I connect an agent from another machine?
+
+Steps:
+1. Navigate Settings → Security → Paired Devices.
+2. Click "Create token for an MCP client".
+3. Select base URL from "Reachable at" dropdown (shows LAN IP or active tunnel URL).
+4. Pick tier (`observe`, `control`, `operate`).
+5. Copy generated snippet containing target base URL and bearer token.
+
+CLI alternative on dashboard host:
+```bash
+pi-dashboard token create --label ci --tier control --url http://<lan-ip>:8000
+```
+
+Caveat: bearer token sends in cleartext over plain HTTP; LAN `http://` snippet exposes token to network sniffers. Use `https://` tunnel/base URL for agents off trusted LAN. Revoke + re-mint token after any exposure.
+
+Details: `docs/architecture.md` §MCP Endpoint.
+
+See change: expand-mcp-tiered-surface.
+
+Cross-refs:
+- docs/architecture.md
+- packages/server/src/routes/pairing-routes.ts
+- packages/server/src/cli.ts
+
+## Does observe still expose repo contents?
+
+Yes. `observe` grants inspection reach matching browser dashboard:
+- File reads, workspace directory tree, grep search.
+- Session diffs, transcripts, activity logs.
+- No session mutation, prompt dispatch, or process execution.
+
+Details: `docs/architecture.md` §MCP Endpoint.
+
+See change: expand-mcp-tiered-surface.
+
+Cross-refs:
+- docs/architecture.md
+- packages/shared/src/route-tiers.ts
+
+## My existing tokens changed behaviour
+
+Existing token registry rows written before `tier` field existed default to `operate`:
+- Full access preserved; existing automations continue working.
+- Paired Devices list displays assigned tier for each device row.
+- Re-mint narrower tokens (`observe` or `control`) to apply least privilege.
+
+Details: `docs/architecture.md` §MCP Endpoint.
+
+See change: expand-mcp-tiered-surface.
+
+Cross-refs:
+- docs/architecture.md
 - packages/server/src/routes/pairing-routes.ts
 
 ## Why is a subagent or tool card stuck `running` after the session ended?

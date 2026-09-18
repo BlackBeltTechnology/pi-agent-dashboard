@@ -2,15 +2,22 @@
  * In-memory event store with LRU eviction.
  * Replaces SQLite-backed event-store.ts.
  */
-import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+
 import {
   isBase64DataCarrier,
   isInlineImageBlock,
 } from "@blackbelt-technology/pi-dashboard-shared/image-block.js";
+import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 export interface StoredEvent {
   seq: number;
   event: DashboardEvent;
+  /**
+   * Serialized size of `event.data` as measured AFTER per-event truncation.
+   * Recorded once in `insertEvent` so every removal path decrements by the
+   * exact amount instead of re-measuring. See change: bound-event-store-by-bytes (D1).
+   */
+  bytes: number;
 }
 
 export interface EventStore {
@@ -69,6 +76,28 @@ export interface EventStore {
   /** Number of cached sessions */
   sessionCount(): number;
   /**
+   * TEST-ONLY probe: the session's recorded resident byte total, or `0` for an
+   * unknown session. Exposes `buf.bytes` for the accounting-exactness tests, in
+   * the style of `getRangeProbe`. See change: bound-event-store-by-bytes (D4).
+   */
+  getBufferBytes(sessionId: string): number;
+  /**
+   * TEST-ONLY instrumentation for the amortization bounds (P1-P3): how many
+   * reclaim passes have run. `perSession` counts per-session trim passes
+   * (count- and/or byte-triggered); `global` counts global reclaim passes;
+   * `fallback` counts the all-pinned fallback passes.
+   * See change: bound-event-store-by-bytes.
+   */
+  getTrimPassProbe(): TrimPassProbe;
+  /**
+   * Store-derived retention signals for `/api/health` (D4): the resident byte
+   * total, the EFFECTIVE budgets the store enforces (post floor-clamp), and the
+   * global-budget-exceeded latch. Deliberately NOT folded into `getTrimStats`,
+   * which is cumulative counters only.
+   * See change: bound-event-store-by-bytes (D4).
+   */
+  getRetention(): StoreRetention;
+  /**
    * Cumulative store-shed telemetry (process lifetime, never reset on read).
    * `trimmedEvents` counts per-session-cap drops; `evictedSessions` counts
    * whole-session LRU evictions; `collapsedUpdates` counts superseded
@@ -104,6 +133,40 @@ interface RangeProbe {
   lastEntriesExamined: number;
 }
 
+/** See `EventStore.getTrimPassProbe`. */
+interface TrimPassProbe {
+  perSession: number;
+  global: number;
+  fallback: number;
+}
+
+/** See `EventStore.getRetention`. */
+export interface StoreRetention {
+  /** Current global total of resident event bytes (gauge). */
+  residentBytes: number;
+  /** The EFFECTIVE budgets the store enforces, after the floor clamp. */
+  effective: {
+    maxBytesPerSession: number;
+    maxTotalEventBytes: number;
+    maxCachedSessions: number;
+  };
+  /** Latched when the all-pinned fallback accepted an overshoot (D7). */
+  globalBudgetExceeded: boolean;
+}
+
+/**
+ * All-zero `StoreRetention`, used as `/api/health`'s fallback when no event
+ * store is wired. Exported for the same reason `EMPTY_TRIM_STATS` is: `a ?? b`
+ * does not check `b` against `A`, so an inline literal could silently omit a
+ * newly-required field.
+ * See change: bound-event-store-by-bytes (D4).
+ */
+export const EMPTY_STORE_RETENTION: StoreRetention = {
+  residentBytes: 0,
+  effective: { maxBytesPerSession: 0, maxTotalEventBytes: 0, maxCachedSessions: 0 },
+  globalBudgetExceeded: false,
+};
+
 export interface TrimStats {
   trimmedEvents: {
     total: number;
@@ -120,6 +183,22 @@ export interface TrimStats {
    * See change: drop-final-update-on-tool-execution-end.
    */
   collapsedUpdates: number;
+  /**
+   * Cumulative bytes released by byte-triggered trims (D4). A pass the byte
+   * bound triggered (alone or together with the count bound) adds its released
+   * bytes; a count-only pass does NOT; whole-buffer eviction does NOT (it is
+   * counted in `evictedBytes`); the all-pinned fallback DOES (it is a byte
+   * trim). ADDITIVE `/api/health` field.
+   * See change: bound-event-store-by-bytes (D4).
+   */
+  trimmedBytes: number;
+  /**
+   * Cumulative bytes released by whole-buffer LRU eviction, the byte sibling of
+   * `evictedSessions`. Without it the largest byte sink this change introduces
+   * is invisible in bytes and a fall in the resident gauge cannot be attributed.
+   * See change: bound-event-store-by-bytes (D4).
+   */
+  evictedBytes: number;
   /**
    * Cumulative subagent-tick telemetry. ADDITIVE `/api/health` fields, never
    * reset on read, mirroring `collapsedUpdates`. `subagentTickBytes` is the
@@ -158,6 +237,8 @@ export const EMPTY_TRIM_STATS: TrimStats = {
   trimmedEvents: { total: 0, toolExecutionEnd: 0, bySession: {} },
   evictedSessions: 0,
   collapsedUpdates: 0,
+  trimmedBytes: 0,
+  evictedBytes: 0,
   subagentTicks: 0,
   subagentTickBytes: 0,
   subagentFatTicks: 0,
@@ -190,6 +271,12 @@ interface SessionBuffer {
   nextSeq: number;
   lastAccess: number;
   /**
+   * Running total of the resident events' recorded `bytes`. Decremented on
+   * EVERY removal path so it equals the sum of the recorded sizes at every
+   * observable point. See change: bound-event-store-by-bytes (D1).
+   */
+  bytes: number;
+  /**
    * Per-buffer collapse index, keyed by `toolCallId` and holding SEQ values —
    * never array positions (`trimBufferToLimit` rebuilds the array wholesale,
    * invalidating any position). Lives on the buffer so it is released with it
@@ -200,12 +287,45 @@ interface SessionBuffer {
   collapseIndex: Map<string, CollapseIndexEntry>;
 }
 
-export const DEFAULT_MAX_CACHED_SESSIONS = 100;
+export const DEFAULT_MAX_CACHED_SESSIONS = 32;
 // Raised 5000 → 20000: sessions that run subagents forward every subagent
 // lifecycle + inner tool-call/result event into the PARENT session buffer, so a
 // single subagent-heavy turn can emit thousands of events and blow the old cap,
 // trimming the start of the chat. See change: preserve-chat-head-on-event-trim.
 export const DEFAULT_MAX_EVENTS_PER_SESSION = 20000;
+
+/**
+ * Finite measurement cap used when the per-event ceiling is DISABLED (`0`).
+ * Handing `walkSize` an unbounded cap removes its only bailout and lets one
+ * adversarial payload walk an unbounded object graph synchronously on the
+ * event loop; a finite cap keeps the walk bounded. An event above it is
+ * accounted at `cap + 1`. See change: bound-event-store-by-bytes (D2).
+ */
+export const MEASURE_CEILING_FALLBACK = 16 * 1024 * 1024;
+
+/** Hard cap on the per-session byte-trim slack (5 % of the budget, max 4 MiB). */
+export const BYTE_TRIM_SLACK_MAX = 4 * 1024 * 1024;
+
+/** Hard cap on the global byte-trim slack (5 % of the budget, max 64 MiB). */
+export const GLOBAL_TRIM_SLACK_MAX = 64 * 1024 * 1024;
+
+/**
+ * Hysteresis margin for the per-session byte bound: 5 % of the budget, capped
+ * at 4 MiB. Reclaim fires only above `budget + byteTrimSlack(budget)` and
+ * reclaims DOWN TO the budget, so consecutive passes are separated by a whole
+ * slack window of inserts. See change: bound-event-store-by-bytes (D3).
+ */
+export function byteTrimSlack(maxBytes: number): number {
+  return Math.min(BYTE_TRIM_SLACK_MAX, Math.floor(maxBytes * 0.05));
+}
+
+/**
+ * Hysteresis margin for the global byte bound: 5 % of the budget, capped at
+ * 64 MiB. See change: bound-event-store-by-bytes (D7).
+ */
+export function globalTrimSlack(maxTotal: number): number {
+  return Math.min(GLOBAL_TRIM_SLACK_MAX, Math.floor(maxTotal * 0.05));
+}
 
 /**
  * Event types that carry the visible conversation transcript. The per-session
@@ -229,40 +349,67 @@ const ESSENTIAL_CHAT_EVENT_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Trim `buf.events` down to `cap` in a SINGLE O(n) pass, dropping the oldest
+ * Trim `buf.events` down to `limits` in a SINGLE O(n) pass, dropping the oldest
  * NON-essential events first (tool/subagent/flow/reasoning/stats/streaming
  * noise) and only dropping the oldest essential chat events when essentials
- * alone exceed the cap. Reassigns `buf.events`; safe because seq values ride
- * on the surviving entries and `getEvents` filters by seq (gaps are fine).
- * See change: preserve-chat-head-on-event-trim.
+ * alone exceed a bound. Reassigns `buf.events` and decrements `buf.bytes` by
+ * the released total; safe because seq values ride on the surviving entries and
+ * `getEvents` filters by seq (gaps are fine).
+ *
+ * Generalized from a single count cap to `{ maxEvents, maxBytes }` (D3): a
+ * disabled bound is `+Infinity`, so `{ maxEvents: 20000, maxBytes: 0 }` behaves
+ * exactly like the count-only trim. Reclaim stops when the buffer is down to a
+ * SINGLE event regardless of its size — the D9 one-event floor that keeps the
+ * store total rather than lossy.
+ * See change: preserve-chat-head-on-event-trim, bound-event-store-by-bytes.
  */
 function trimBufferToLimit(
   buf: SessionBuffer,
-  cap: number,
-): { dropped: number; toolEndDropped: number } {
-  let toDrop = buf.events.length - cap;
-  if (toDrop <= 0) return { dropped: 0, toolEndDropped: 0 };
+  limits: { maxEvents: number; maxBytes: number },
+): { dropped: number; toolEndDropped: number; bytesDropped: number } {
+  const eventCap = limits.maxEvents > 0 ? limits.maxEvents : Number.POSITIVE_INFINITY;
+  const byteCap = limits.maxBytes > 0 ? limits.maxBytes : Number.POSITIVE_INFINITY;
+  let excessCount = buf.events.length - eventCap;
+  let excessBytes = buf.bytes - byteCap;
+  const over = () => excessCount > 0 || excessBytes > 0;
+  if (!over()) return { dropped: 0, toolEndDropped: 0, bytesDropped: 0 };
+
   const kept: StoredEvent[] = [];
   let dropped = 0;
   let toolEndDropped = 0;
-  // Pass 1 (fused into the copy): drop the oldest non-essential entries.
+  let bytesDropped = 0;
+  // Pass 1 (fused into the copy): drop the oldest non-essential entries, but
+  // never the last surviving event (D9 single-event floor).
   for (const e of buf.events) {
-    if (toDrop > 0 && !ESSENTIAL_CHAT_EVENT_TYPES.has(e.event.eventType)) {
-      toDrop--;
+    if (
+      over() &&
+      dropped < buf.events.length - 1 &&
+      !ESSENTIAL_CHAT_EVENT_TYPES.has(e.event.eventType)
+    ) {
+      excessCount--;
+      excessBytes -= e.bytes;
       dropped++;
+      bytesDropped += e.bytes;
       if (e.event.eventType === "tool_execution_end") toolEndDropped++;
       continue;
     }
     kept.push(e);
   }
-  // Pass 2: essentials alone still exceed the cap → drop oldest essentials to
-  // hold the memory bound (pathological; cap is 20000 so never hit in practice).
-  if (kept.length > cap) {
-    dropped += kept.length - cap;
-    kept.splice(0, kept.length - cap);
+  // Pass 2: essentials (or the surviving tail) still exceed a bound → drop the
+  // oldest remaining entries to hold the memory bound. A byte budget that BINDS
+  // by design makes this reachable (D3a). Stops at one retained event.
+  while (over() && kept.length > 1) {
+    const e = kept.shift();
+    if (!e) break;
+    excessCount--;
+    excessBytes -= e.bytes;
+    dropped++;
+    bytesDropped += e.bytes;
+    if (e.event.eventType === "tool_execution_end") toolEndDropped++;
   }
   buf.events = kept;
-  return { dropped, toolEndDropped };
+  buf.bytes -= bytesDropped;
+  return { dropped, toolEndDropped, bytesDropped };
 }
 
 // ---- Superseded `tool_execution_update` collapse (D5/D6/D7) ----
@@ -577,8 +724,13 @@ function summarizeAtDepthLimit(obj: unknown, maxSize: number): unknown {
 /**
  * Recursively truncate large string fields in an object.
  * Returns a new object if any truncation occurred, otherwise the original.
+ *
+ * Exported (change: fix-session-diff-durable-source) so the transcript→diff
+ * projection (`session-diff-source.ts::projectDiffEvents`) caps tool `args`
+ * with the SAME helper + cap the store applies on ingest, keeping a
+ * transcript-sourced diff payload-identical to a store-sourced one.
  */
-function truncateStrings(obj: unknown, maxSize: number, depth = 0): unknown {
+export function truncateStrings(obj: unknown, maxSize: number, depth = 0): unknown {
   if (depth > 4) return summarizeAtDepthLimit(obj, maxSize);
   if (typeof obj === "string") return capString(obj, maxSize);
   if (Array.isArray(obj)) {
@@ -1098,6 +1250,8 @@ export function createMemoryEventStore(
   maxEventsPerSession: number = DEFAULT_MAX_EVENTS_PER_SESSION,
   maxStringFieldSize: number = DEFAULT_MAX_STRING_SIZE,
   maxEventDataSize: number = DEFAULT_MAX_EVENT_DATA_SIZE,
+  maxBytesPerSession: number = 0,
+  maxTotalEventBytes: number = 0,
 ): EventStore {
   const truncateEventData = createTruncator(maxStringFieldSize, maxEventDataSize);
   const buffers = new Map<string, SessionBuffer>();
@@ -1106,6 +1260,33 @@ export function createMemoryEventStore(
   // the exact-cap behavior) and to 256 for the 20000 production cap (~1 pass
   // per 256 inserts). See change: preserve-chat-head-on-event-trim.
   const trimSlack = Math.min(256, Math.floor(maxEventsPerSession * 0.05));
+
+  // ---- Byte-budget bounds (D2/D5/D7) ----
+  // The measurement cap is the per-event ceiling when one is set (exact by the
+  // truncator's guarantee), else a FINITE fallback so the walk stays bounded.
+  const measurementCap = maxEventDataSize > 0 ? maxEventDataSize : MEASURE_CEILING_FALLBACK;
+  // Floor clamp lives in the STORE because `maxEventDataSize` is a top-level
+  // DashboardConfig field invisible to the browser-safe shared loader. Derived
+  // from the EFFECTIVE ceiling; `0` is never clamped (it means unlimited, and
+  // clamping it would ENABLE a bound in the configuration that asked for none).
+  const byteFloor = 4 * measurementCap;
+  const effectiveMaxBytesPerSession =
+    maxBytesPerSession > 0 ? Math.max(maxBytesPerSession, byteFloor) : 0;
+  const effectiveMaxTotalEventBytes = maxTotalEventBytes > 0 ? maxTotalEventBytes : 0;
+  const perSessionByteSlack =
+    effectiveMaxBytesPerSession > 0 ? byteTrimSlack(effectiveMaxBytesPerSession) : 0;
+  const globalByteSlack =
+    effectiveMaxTotalEventBytes > 0 ? globalTrimSlack(effectiveMaxTotalEventBytes) : 0;
+
+  // Global resident byte total, maintained incrementally from the per-session
+  // totals — never a walk of all buffers (D7).
+  let globalBytes = 0;
+  // P1-P3 amortization probes.
+  let trimPassesPerSession = 0;
+  let trimPassesGlobal = 0;
+  let trimPassesFallback = 0;
+  // Latched when the all-pinned fallback accepted an overshoot (D7).
+  let globalBudgetExceeded = false;
 
   // Cumulative store-shed counters (process lifetime, never reset on read).
   // Mirrors browserGateway's droppedFramesTotal shape. Answers "does trim/evict
@@ -1119,7 +1300,13 @@ export function createMemoryEventStore(
   // counters above are the lifetime record. See change: instrument-event-store-trim.
   const trimmedEventsBySession = new Map<string, number>();
   let evictedSessionsTotal = 0;
+  let evictedBytesTotal = 0;
   let collapsedUpdatesTotal = 0;
+  // Cumulative bytes released by byte-triggered trims (D4). A pass the byte
+  // bound triggered (alone or with the count bound) adds its released bytes; a
+  // count-only pass does NOT, so the counter answers "did the byte bound ever
+  // bind". See change: bound-event-store-by-bytes (D4).
+  let trimmedBytesTotal = 0;
   // Subagent-tick byte telemetry (D6). Additive, never reset on read.
   // See change: reduce-subagent-details-payload.
   let subagentTicksTotal = 0;
@@ -1167,7 +1354,13 @@ export function createMemoryEventStore(
   function getOrCreate(sessionId: string): SessionBuffer {
     let buf = buffers.get(sessionId);
     if (!buf) {
-      buf = { events: [], nextSeq: 1, lastAccess: Date.now(), collapseIndex: new Map() };
+      buf = {
+        events: [],
+        nextSeq: 1,
+        lastAccess: Date.now(),
+        bytes: 0,
+        collapseIndex: new Map(),
+      };
       buffers.set(sessionId, buf);
     }
     buf.lastAccess = Date.now();
@@ -1191,12 +1384,131 @@ export function createMemoryEventStore(
     let evicted = 0;
     for (const [id] of evictable) {
       if (toEvict <= 0) break;
+      const buf = buffers.get(id);
+      if (buf) {
+        globalBytes -= buf.bytes;
+        evictedBytesTotal += buf.bytes;
+      }
       buffers.delete(id);
       trimmedEventsBySession.delete(id);
       toEvict--;
       evicted++;
     }
+    // Evicting a buffer can change the global-budget outcome — clear the latch.
+    if (evicted > 0) globalBudgetExceeded = false;
     return evicted;
+  }
+
+  /**
+   * Drop only NON-essential events from `buf` (oldest first), updating
+   * `buf.bytes`. Used by the all-pinned fallback, which must NEVER fall through
+   * to essentials: a session within its own per-session budget being stripped
+   * of its chat head to serve an unrelated session is a loss no operator asked
+   * for. See change: bound-event-store-by-bytes (D7).
+   */
+  function dropNonEssentials(buf: SessionBuffer): {
+    dropped: number;
+    toolEndDropped: number;
+    bytesDropped: number;
+  } {
+    const kept: StoredEvent[] = [];
+    let dropped = 0;
+    let toolEndDropped = 0;
+    let bytesDropped = 0;
+    for (const e of buf.events) {
+      if (!ESSENTIAL_CHAT_EVENT_TYPES.has(e.event.eventType)) {
+        dropped++;
+        bytesDropped += e.bytes;
+        if (e.event.eventType === "tool_execution_end") toolEndDropped++;
+        continue;
+      }
+      kept.push(e);
+    }
+    if (dropped > 0) {
+      buf.events = kept;
+      buf.bytes -= bytesDropped;
+    }
+    return { dropped, toolEndDropped, bytesDropped };
+  }
+
+  /**
+   * Global byte budget (D7): when the SUM of per-session totals exceeds
+   * `budget + globalSlack`, evict whole UNPINNED buffers LRU-first; if every
+   * resident session is pinned, fall back to a non-essential-only reclaim of
+   * the least-recently-accessed pinned buffer. Hysteretic and latched so it is
+   * never a per-insert scan.
+   *
+   * The latch (`globalBudgetExceeded`) is set when the fallback frees nothing —
+   * without it the fallback's precondition stays true on every subsequent insert
+   * and it re-walks every buffer per event. It clears on any event that can
+   * change the outcome: the total falls below the budget, a buffer is evicted or
+   * deleted, or a session unpins. See change: bound-event-store-by-bytes (D7).
+   */
+  function reclaimGlobalIfNeeded(): void {
+    if (effectiveMaxTotalEventBytes <= 0) return;
+    if (globalBudgetExceeded) {
+      // Cheap validity check: only a state change can lift the latch.
+      if (globalBytes < effectiveMaxTotalEventBytes || hasUnpinnedBuffer()) {
+        globalBudgetExceeded = false;
+      } else {
+        return;
+      }
+    }
+    if (globalBytes <= effectiveMaxTotalEventBytes + globalByteSlack) return;
+    trimPassesGlobal++;
+
+    // Phase 1: evict whole unpinned buffers LRU-first down to the budget.
+    const evictable: Array<[string, number]> = [];
+    for (const [id, buf] of buffers) {
+      if (!isSessionPinned(id)) evictable.push([id, buf.lastAccess]);
+    }
+    evictable.sort((a, b) => a[1] - b[1]);
+    for (const [id] of evictable) {
+      if (globalBytes <= effectiveMaxTotalEventBytes) break;
+      const buf = buffers.get(id);
+      if (!buf) continue;
+      globalBytes -= buf.bytes;
+      evictedBytesTotal += buf.bytes;
+      evictedSessionsTotal++;
+      buffers.delete(id);
+      trimmedEventsBySession.delete(id);
+    }
+    if (globalBytes <= effectiveMaxTotalEventBytes + globalByteSlack) return;
+
+    // Phase 2: every remaining session is pinned → non-essential-only reclaim
+    // of the LRU pinned buffers, down to `budget - globalSlack` so the next
+    // insert does not immediately re-trigger it.
+    trimPassesFallback++;
+    const target = Math.max(0, effectiveMaxTotalEventBytes - globalByteSlack);
+    const pinnedOrder: Array<[string, number]> = [];
+    for (const [id, buf] of buffers) pinnedOrder.push([id, buf.lastAccess]);
+    pinnedOrder.sort((a, b) => a[1] - b[1]);
+    for (const [id] of pinnedOrder) {
+      if (globalBytes <= target) break;
+      const buf = buffers.get(id);
+      if (!buf) continue;
+      const { dropped, toolEndDropped, bytesDropped } = dropNonEssentials(buf);
+      globalBytes -= bytesDropped;
+      trimmedBytesTotal += bytesDropped;
+      if (dropped > 0) {
+        trimmedEventsTotal += dropped;
+        trimmedToolEndTotal += toolEndDropped;
+        trimmedEventsBySession.set(id, (trimmedEventsBySession.get(id) ?? 0) + dropped);
+        pruneCollapseIndex(buf);
+      }
+    }
+    // Non-essentials alone could not bring the total under the budget: ACCEPT
+    // the overshoot and latch, rather than eating chat heads across every
+    // pinned session.
+    if (globalBytes > effectiveMaxTotalEventBytes) globalBudgetExceeded = true;
+  }
+
+  /** Is any resident buffer unpinned? (Latch-clear signal for the fallback.) */
+  function hasUnpinnedBuffer(): boolean {
+    for (const id of buffers.keys()) {
+      if (!isSessionPinned(id)) return true;
+    }
+    return false;
   }
 
   /**
@@ -1269,6 +1581,8 @@ export function createMemoryEventStore(
     if (readToolCallId(candidate.event) !== toolCallId) return false;
     if (!gate(candidate.event, successor)) return false;
     buf.events.splice(i, 1);
+    buf.bytes -= candidate.bytes;
+    globalBytes -= candidate.bytes;
     collapsedUpdatesTotal++;
     return true;
   }
@@ -1396,9 +1710,16 @@ export function createMemoryEventStore(
       const buf = getOrCreate(sessionId);
       const seq = buf.nextSeq++;
       lastEntriesExamined = 0;
-      const stored: StoredEvent = { seq, event: truncateEventData(event) };
+      const truncated = truncateEventData(event);
+      const stored: StoredEvent = {
+        seq,
+        event: truncated,
+        bytes: measureBytes(truncated.data, measurementCap),
+      };
       countSubagentTick(stored.event);
       buf.events.push(stored);
+      buf.bytes += stored.bytes;
+      globalBytes += stored.bytes;
       // Collapse superseded updates AFTER truncation (so the `{__truncated}`
       // placeholder is already resolved) and BEFORE trim/evict, so the shed
       // policies see the already-collapsed buffer.
@@ -1419,10 +1740,22 @@ export function createMemoryEventStore(
       // oldest tool/subagent/flow noise first. See change:
       // preserve-chat-head-on-event-trim.
       if (
-        maxEventsPerSession > 0 &&
-        buf.events.length > maxEventsPerSession + trimSlack
+        (maxEventsPerSession > 0 && buf.events.length > maxEventsPerSession + trimSlack) ||
+        (effectiveMaxBytesPerSession > 0 &&
+          buf.bytes > effectiveMaxBytesPerSession + perSessionByteSlack)
       ) {
-        const { dropped, toolEndDropped } = trimBufferToLimit(buf, maxEventsPerSession);
+        const overBytes =
+          effectiveMaxBytesPerSession > 0 &&
+          buf.bytes > effectiveMaxBytesPerSession + perSessionByteSlack;
+        const { dropped, toolEndDropped, bytesDropped } = trimBufferToLimit(buf, {
+          maxEvents: maxEventsPerSession,
+          maxBytes: effectiveMaxBytesPerSession,
+        });
+        trimPassesPerSession++;
+        globalBytes -= bytesDropped;
+        // A pass the byte bound triggered (alone or with the count bound) adds
+        // its released bytes; a count-only pass does NOT (D4).
+        if (overBytes) trimmedBytesTotal += bytesDropped;
         if (dropped > 0) {
           trimmedEventsTotal += dropped;
           trimmedToolEndTotal += toolEndDropped;
@@ -1437,6 +1770,7 @@ export function createMemoryEventStore(
         }
       }
       evictedSessionsTotal += evictIfNeeded();
+      reclaimGlobalIfNeeded();
       return seq;
     },
 
@@ -1553,6 +1887,9 @@ export function createMemoryEventStore(
       const buf = buffers.get(sessionId);
       if (!buf) return 0;
       const count = buf.events.length;
+      globalBytes -= buf.bytes;
+      // Deleting a buffer can change the global-budget outcome — clear the latch.
+      globalBudgetExceeded = false;
       // The collapse index rides on `buf`, so dropping the buffer releases it.
       buffers.delete(sessionId);
       trimmedEventsBySession.delete(sessionId);
@@ -1583,10 +1920,36 @@ export function createMemoryEventStore(
         },
         evictedSessions: evictedSessionsTotal,
         collapsedUpdates: collapsedUpdatesTotal,
+        trimmedBytes: trimmedBytesTotal,
+        evictedBytes: evictedBytesTotal,
         subagentTicks: subagentTicksTotal,
         subagentTickBytes: subagentTickBytesTotal,
         subagentFatTicks: subagentFatTicksTotal,
         subagentTickFatBytes: subagentTickFatBytesTotal,
+      };
+    },
+
+    getBufferBytes(sessionId: string): number {
+      return buffers.get(sessionId)?.bytes ?? 0;
+    },
+
+    getTrimPassProbe(): TrimPassProbe {
+      return {
+        perSession: trimPassesPerSession,
+        global: trimPassesGlobal,
+        fallback: trimPassesFallback,
+      };
+    },
+
+    getRetention(): StoreRetention {
+      return {
+        residentBytes: globalBytes,
+        effective: {
+          maxBytesPerSession: effectiveMaxBytesPerSession,
+          maxTotalEventBytes: effectiveMaxTotalEventBytes,
+          maxCachedSessions,
+        },
+        globalBudgetExceeded,
       };
     },
 

@@ -6,8 +6,10 @@ paired-device bearer token, independent of the caller's network position. An
 optional operator-supplied `label` on approval SHALL be trimmed and SHALL be
 accepted only when it is 1..64 bytes of UTF-8 — the same bound as direct token
 issuance; a label outside that bound SHALL be rejected with `400` and no device
-SHALL be approved. When no label is supplied the pending device's own label is
-kept.
+SHALL be approved. A supplied `label` that is not a string SHALL likewise be
+rejected with `400`, not treated as absent — only a genuinely absent key takes
+the keep-the-pending-label branch. When no label is supplied the pending
+device's own label is kept.
 
 #### Scenario: Paired device cannot approve a pending device
 - **GIVEN** a pending device awaiting approval
@@ -19,6 +21,12 @@ kept.
 - **WHEN** an operator posts a valid code and confirm code with a `label` of 65 bytes of UTF-8
 - **THEN** the server SHALL respond `400`
 - **AND** the pending device SHALL remain pending
+
+#### Scenario: Supplied non-string label is rejected
+- **WHEN** an operator posts a valid code and confirm code with `label: 123`
+- **THEN** the server SHALL respond `400`
+- **AND** the pending device SHALL remain pending
+- **AND** the server SHALL NOT respond `200` while silently keeping the pending label
 
 #### Scenario: Label absent keeps the pending label
 - **WHEN** an operator approves without a `label`

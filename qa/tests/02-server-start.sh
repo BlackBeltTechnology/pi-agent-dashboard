@@ -77,6 +77,35 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     fi
     echo "No blocking pi compatibility error"
 
+    # --- Retention + heap-headroom health fields (test-plan #T8) -----------
+    # See change: bound-event-store-by-bytes (D4).
+    #
+    # Process-level smoke: the aggregate byte budget is only observable
+    # through /api/health, so assert on a REAL boot that the retention gauge,
+    # the effective budgets and the V8 heap ceiling are all present and
+    # non-null. Unit tests cover their values; only a boot proves the wiring.
+    RETENTION_VERDICT=$(printf '%s' "$HEALTH_JSON" | node -e '
+      let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+        let j;try{j=JSON.parse(s)}catch{console.log("FAIL: /api/health body is not JSON");return;}
+        const r=j.storeRetention;
+        if(!r||typeof r!=="object"){console.log("FAIL: storeRetention missing from /api/health");return;}
+        if(typeof r.residentBytes!=="number"){console.log("FAIL: storeRetention.residentBytes is not a number ("+r.residentBytes+")");return;}
+        const e=r.effective;
+        if(!e||typeof e!=="object"){console.log("FAIL: storeRetention.effective missing");return;}
+        for(const k of ["maxBytesPerSession","maxTotalEventBytes","maxCachedSessions"]){
+          if(typeof e[k]!=="number"){console.log("FAIL: storeRetention.effective."+k+" is not a number ("+e[k]+")");return;}
+        }
+        if(typeof r.globalBudgetExceeded!=="boolean"){console.log("FAIL: storeRetention.globalBudgetExceeded is not a boolean");return;}
+        const hsl=j.server&&j.server.heapSizeLimit;
+        if(typeof hsl!=="number"||!(hsl>0)){console.log("FAIL: server.heapSizeLimit is not a positive number ("+hsl+")");return;}
+        console.log("OK: storeRetention residentBytes="+r.residentBytes+", effective="+JSON.stringify(e)+", heapSizeLimit="+hsl);
+      });
+    ')
+    case "$RETENTION_VERDICT" in
+      OK*) echo "$RETENTION_VERDICT" ;;
+      *) echo "$RETENTION_VERDICT"; exit 1 ;;
+    esac
+
     # --- Resolved spawn-runtime publication (test-plan #X7) ---------------
     # See change: unify-pi-runtime-identity (task 9.25).
     #
@@ -318,6 +347,123 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
       exit 1
     fi
     echo "#S3: no warning and reachability.unreachable empty under PI_DASHBOARD_HOST=0.0.0.0"
+
+    # =========================================================================
+    # Server heap ceiling from config (change: bound-session-heap-and-gc-telemetry)
+    # test-plan #E22, #X1, #X2, #X11
+    #
+    # These can only be proven against a REAL boot: the wrapper reads the config
+    # with plain `JSON.parse` before jiti exists, so no unit test covers the
+    # path that actually sizes the process.
+    # =========================================================================
+    echo "--- Checking serverHeap ceiling from config (E22, X1, X2, X11) ---"
+
+    # `heap_size_limit` is the REQUEST plus V8's fixed overhead (~192 MB on the
+    # measurement host) — never an exact match. The band is [request, request+300].
+    heap_limit_mb() {
+      curl -fsS http://localhost:8000/api/health 2>/dev/null \
+        | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{let j;try{j=JSON.parse(s)}catch{process.exit(2)}process.stdout.write(String(Math.round((j.server&&j.server.heapSizeLimit||0)/1048576)))})"
+    }
+    effective_mb() {
+      curl -fsS http://localhost:8000/api/health 2>/dev/null \
+        | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{let j;try{j=JSON.parse(s)}catch{process.exit(2)}process.stdout.write(String(j.server&&j.server.effectiveMaxOldSpaceMb))})"
+    }
+
+    # E22 — a configured ceiling reaches the process.
+    if ! boot_with_config '{"port":8000,"serverHeap":{"maxOldSpaceMb":4096}}'; then
+      echo "FAIL: server did not come up for the #E22 serverHeap check"
+      exit 1
+    fi
+    HEAP_MB=$(heap_limit_mb)
+    if [ "$HEAP_MB" -lt 4096 ] || [ "$HEAP_MB" -gt 4396 ]; then
+      echo "FAIL (#E22): heap_size_limit ${HEAP_MB} MB outside [4096, 4396] for a 4096 request"
+      exit 1
+    fi
+    if [ "$(effective_mb)" != "4096" ]; then
+      echo "FAIL (#E22): reported effective ceiling was '$(effective_mb)', expected 4096"
+      exit 1
+    fi
+    echo "#E22: serverHeap 4096 yields heap_size_limit ${HEAP_MB} MB and effective 4096"
+
+    # X1 — a malformed config must not stop the server booting; it takes 1536.
+    if ! boot_with_config '{"port":8000,"serverHeap":{'; then
+      echo "FAIL (#X1): server did not start with a malformed config.json"
+      exit 1
+    fi
+    HEAP_MB=$(heap_limit_mb)
+    if [ "$HEAP_MB" -lt 1536 ] || [ "$HEAP_MB" -gt 1836 ]; then
+      echo "FAIL (#X1): malformed config gave ${HEAP_MB} MB, expected the 1536 default band"
+      exit 1
+    fi
+    echo "#X1: malformed config boots at the 1536 default (${HEAP_MB} MB)"
+
+    # X2 — no config file at all behaves the same way.
+    pi-dashboard stop >/dev/null 2>&1 || true
+    sleep 2
+    rm -f "$CONFIG_PATH"
+    : > "$LOG_PATH"
+    pi-dashboard start >/dev/null 2>&1 &
+    waited=0
+    while [ $waited -lt 15 ]; do
+      curl -fsS http://localhost:8000/api/health >/dev/null 2>&1 && break
+      sleep 1
+      waited=$((waited + 1))
+    done
+    HEAP_MB=$(heap_limit_mb)
+    if [ "$HEAP_MB" -lt 1536 ] || [ "$HEAP_MB" -gt 1836 ]; then
+      echo "FAIL (#X2): absent config gave ${HEAP_MB} MB, expected the 1536 default band"
+      exit 1
+    fi
+    echo "#X2: absent config boots at the 1536 default (${HEAP_MB} MB)"
+
+    # X11 — an in-place restart inherits the environment, so it keeps the
+    # ceiling it is already running under. This is the property the settings
+    # copy promises; if the restart DID adopt the new value the copy would be
+    # wrong, so the assertion is on the restart keeping the old one.
+    if ! boot_with_config '{"port":8000,"serverHeap":{"maxOldSpaceMb":2048}}'; then
+      echo "FAIL: server did not come up for the #X11 cold-start check"
+      exit 1
+    fi
+    identity() {
+      curl -fsS http://localhost:8000/api/health 2>/dev/null \
+        | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{let j;try{j=JSON.parse(s)}catch{process.exit(2)}process.stdout.write(j.pid+'@'+j.startedAt)})"
+    }
+    BEFORE=$(effective_mb)
+    BEFORE_ID=$(identity)
+    printf '%s' '{"port":8000,"serverHeap":{"maxOldSpaceMb":3072}}' > "$CONFIG_PATH"
+    # The handler spawns the replacement and then exits, so curl's own status is
+    # meaningless here — a closed connection is the SUCCESS path.
+    curl -fsS -X POST http://localhost:8000/api/restart >/dev/null 2>&1 || true
+    sleep 6
+    waited=0
+    while [ $waited -lt 20 ]; do
+      curl -fsS http://localhost:8000/api/health >/dev/null 2>&1 && break
+      sleep 1
+      waited=$((waited + 1))
+    done
+    AFTER_ID=$(identity)
+    # Without this, "the POST never arrived" is indistinguishable from "the
+    # replacement kept the ceiling" — both leave the number unchanged.
+    if [ "$AFTER_ID" = "$BEFORE_ID" ]; then
+      echo "FAIL (#X11): no replacement process observed ($BEFORE_ID unchanged) — the restart did not happen"
+      exit 1
+    fi
+    AFTER=$(effective_mb)
+    if [ "$AFTER" != "$BEFORE" ]; then
+      echo "FAIL (#X11): in-place restart changed the ceiling from $BEFORE to $AFTER"
+      exit 1
+    fi
+    if ! boot_with_config '{"port":8000,"serverHeap":{"maxOldSpaceMb":3072}}'; then
+      echo "FAIL (#X11): server did not come up for the cold-start half"
+      exit 1
+    fi
+    if [ "$(effective_mb)" != "3072" ]; then
+      echo "FAIL (#X11): a cold start reported '$(effective_mb)', expected 3072"
+      exit 1
+    fi
+    echo "#X11: in-place restart keeps $BEFORE; a cold start adopts 3072"
+
+    restore_config
 
     # =========================================================================
     # Docker packaging: Kroki overlay configuration assertion (test-plan #D1, #D2)

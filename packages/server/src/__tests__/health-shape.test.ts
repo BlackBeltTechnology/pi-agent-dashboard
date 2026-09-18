@@ -14,11 +14,13 @@
  * under Electron, since bundled node_modules/ is read-only there).
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import {
   createMemoryEventStore,
   EMPTY_TRIM_STATS,
 } from "../persistence/memory-event-store.js";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
+import { effectiveServerMaxOldSpaceMb } from "../server-heap-telemetry.js";
 
 let handle: TestServerHandle | undefined;
 let savedStarter: string | undefined;
@@ -105,6 +107,79 @@ describe("GET /api/health — shape", () => {
     // Fresh server: no drops yet.
     expect(dropped.serverToBrowser.total).toBe(0);
     expect(dropped.bridgeToServer).toBe(0);
+  });
+
+  // T5 — the byte counters are ADDITIVE on `storeTrim`: present, and every
+  // pre-existing field keeps its original name and type.
+  // See change: bound-event-store-by-bytes (D4).
+  it("storeTrim gains trimmedBytes and evictedBytes additively (bound-event-store-by-bytes)", async () => {
+    delete process.env.DASHBOARD_STARTER;
+    handle = await createTestServer();
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = (await res.json()) as Record<string, unknown>;
+    const storeTrim = body.storeTrim as Record<string, unknown>;
+    expect(typeof storeTrim.trimmedBytes).toBe("number");
+    expect(storeTrim.trimmedBytes).toBe(0);
+    expect(typeof storeTrim.evictedBytes).toBe("number");
+    expect(storeTrim.evictedBytes).toBe(0);
+    // Every pre-existing field keeps its original name and type.
+    const trimmed = storeTrim.trimmedEvents as Record<string, unknown>;
+    expect(typeof trimmed.total).toBe("number");
+    expect(typeof trimmed.toolExecutionEnd).toBe("number");
+    expect(typeof trimmed.bySession).toBe("object");
+    expect(typeof storeTrim.evictedSessions).toBe("number");
+    expect(typeof storeTrim.collapsedUpdates).toBe("number");
+  });
+
+  // T6 — retention signals sit in their OWN block, NOT inside the cumulative
+  // counter struct; the process heap ceiling sits beside the process gauges.
+  // See change: bound-event-store-by-bytes (D4).
+  it("storeRetention groups gauges outside storeTrim; heapSizeLimit beside the process gauges", async () => {
+    delete process.env.DASHBOARD_STARTER;
+    handle = await createTestServer();
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = (await res.json()) as Record<string, unknown>;
+    const retention = body.storeRetention as {
+      residentBytes: number;
+      effective: {
+        maxBytesPerSession: number;
+        maxTotalEventBytes: number;
+        maxCachedSessions: number;
+      };
+      globalBudgetExceeded: boolean;
+    };
+    expect(typeof retention.residentBytes).toBe("number");
+    expect(typeof retention.effective.maxBytesPerSession).toBe("number");
+    expect(typeof retention.effective.maxTotalEventBytes).toBe("number");
+    expect(typeof retention.effective.maxCachedSessions).toBe("number");
+    expect(typeof retention.globalBudgetExceeded).toBe("boolean");
+    // storeTrim carries NONE of the retention signals.
+    const storeTrim = body.storeTrim as Record<string, unknown>;
+    expect(storeTrim.residentBytes).toBeUndefined();
+    expect(storeTrim.effective).toBeUndefined();
+    expect(storeTrim.globalBudgetExceeded).toBeUndefined();
+    // The heap ceiling sits with the process gauges.
+    const server = body.server as Record<string, unknown>;
+    expect(typeof server.heapSizeLimit).toBe("number");
+    expect(server.heapSizeLimit as number).toBeGreaterThan(0);
+    expect(typeof server.rss).toBe("number");
+    expect(typeof server.heapUsed).toBe("number");
+  });
+
+  // T7 — the EFFECTIVE budget is the clamped one the store enforces, because
+  // the floor clamp runs in the store and configured != enforced.
+  // See change: bound-event-store-by-bytes (D5).
+  it("the reported effective budget reflects the store's floor clamp", async () => {
+    delete process.env.DASHBOARD_STARTER;
+    handle = await createTestServer({
+      maxEventDataSize: 262_144,
+      memoryLimits: { ...DEFAULT_MEMORY_LIMITS, maxBytesPerSession: 1000 },
+    });
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = (await res.json()) as Record<string, unknown>;
+    const retention = body.storeRetention as { effective: { maxBytesPerSession: number } };
+    expect(retention.effective.maxBytesPerSession).toBe(4 * 262_144);
+    expect(retention.effective.maxBytesPerSession).toBeGreaterThan(1000);
   });
 
   it("surfaces store-trim counters (instrument-event-store-trim)", async () => {
@@ -291,5 +366,91 @@ describe("GET /api/health — shape", () => {
     // Pre-existing fields unchanged (the additive half of the contract).
     expect(typeof body.storeTrim).toBe("object");
     expect(typeof body.pid).toBe("number");
+  });
+});
+
+// ── Server heap + GC telemetry (change: bound-session-heap-and-gc-telemetry) ─
+// The server is the process the 1536 ceiling bounds, and the only one in the
+// log corpus that has ever died of `Reached heap limit`. Accepting ~84%
+// occupancy is only defensible if pressure is observable here (design D13).
+describe("GET /api/health — server heap + GC telemetry", () => {
+  let handle: TestServerHandle | undefined;
+
+  afterEach(async () => {
+    if (handle) {
+      try { await handle.stop(); } catch { /* already stopped */ }
+      handle = undefined;
+    }
+  });
+
+  it("the server block carries a heap ceiling, a major-GC count and the effective ceiling (test-plan #E28)", async () => {
+    handle = await createTestServer();
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = (await res.json()) as Record<string, unknown>;
+    const server = body.server as Record<string, unknown>;
+    expect(typeof server.heapSizeLimit).toBe("number");
+    expect(typeof server.gcMajorCount).toBe("number");
+    expect(typeof server.gcMajorPauseMsTotal).toBe("number");
+    // `null` is a legitimate value: a process running at the bare V8 default
+    // has no configured ceiling, and saying so beats reporting a fiction.
+    expect(
+      server.effectiveMaxOldSpaceMb === null ||
+        typeof server.effectiveMaxOldSpaceMb === "number",
+    ).toBe(true);
+  });
+
+  it("the major-GC count is cumulative, so a second poll never erases the first (test-plan #E28)", async () => {
+    handle = await createTestServer();
+    const read = async () => {
+      const r = await fetch(`http://localhost:${handle!.httpPort}/api/health`);
+      return ((await r.json()) as { server: { gcMajorCount: number } }).server.gcMajorCount;
+    };
+    const first = await read();
+    const second = await read();
+    // A read-and-reset counter would make a polled GET non-idempotent and let
+    // two pollers wipe each other's signal.
+    expect(second).toBeGreaterThanOrEqual(first);
+  });
+
+  it("the effective ceiling tracks the PROCESS, not the config (test-plan #E29)", async () => {
+    // A configured value the running process was never started with must not
+    // be echoed back as if it were in force — `serverHeap` is cold-start-only.
+    // Pick a CONFIGURED value the test process is not already running at, so
+    // the assertion cannot pass or fail on the ambient ceiling.
+    const effective = effectiveServerMaxOldSpaceMb();
+    const configured = effective === 4096 ? 3072 : 4096;
+    handle = await createTestServer({ serverHeap: { maxOldSpaceMb: configured } } as never);
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = (await res.json()) as { server: { effectiveMaxOldSpaceMb: number | null } };
+    expect(body.server.effectiveMaxOldSpaceMb).toBe(effective);
+    expect(body.server.effectiveMaxOldSpaceMb).not.toBe(configured);
+  });
+
+  it("reports no session-heap fallback on the normal argv route (test-plan #X4)", async () => {
+    handle = await createTestServer();
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = (await res.json()) as { sessionHeapFallback: { used: boolean } };
+    expect(body.sessionHeapFallback.used).toBe(false);
+  });
+});
+
+describe("effectiveServerMaxOldSpaceMb", () => {
+  it("prefers argv over NODE_OPTIONS, matching V8's own precedence", () => {
+    expect(
+      effectiveServerMaxOldSpaceMb(
+        ["--max-old-space-size=1024"],
+        "--max-old-space-size=8192",
+      ),
+    ).toBe(1024);
+  });
+
+  it("falls back to NODE_OPTIONS, which is how the wrapper delivers it", () => {
+    expect(
+      effectiveServerMaxOldSpaceMb([], "--enable-source-maps --max-old-space-size=1536"),
+    ).toBe(1536);
+  });
+
+  it("is null at the bare V8 default", () => {
+    expect(effectiveServerMaxOldSpaceMb([], "")).toBeNull();
   });
 });
