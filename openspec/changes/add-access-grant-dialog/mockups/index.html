@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>add-access-grant-dialog — mockups</title>
+<style>
+/* Tokens copied verbatim from packages/client/src/index.css. Mockup only —
+   component work must reference the vars, never these literals. */
+:root {
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#919191;
+  --border-primary:#252525;
+  --accent-primary:#3b82f6; --accent-text:#60a5fa;
+  --accent-red:#ef4444; --accent-orange:#f59e0b; --accent-green:#22c55e; --accent-blue:#3b82f6;
+}
+[data-theme="light"] {
+  --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+  --text-primary:#1a1a1a; --text-secondary:#444444; --text-tertiary:#636363;
+  --border-primary:#e0e0e0;
+  --accent-primary:#2563eb; --accent-text:#1d4ed8;
+}
+:root, [data-theme="light"] {
+  --severity-error-bg:color-mix(in srgb, var(--accent-red) 10%, var(--bg-tertiary));
+  --severity-error-fg:color-mix(in srgb, var(--accent-red) 46%, var(--text-primary));
+  --severity-warning-bg:color-mix(in srgb, var(--accent-orange) 10%, var(--bg-tertiary));
+  --severity-warning-fg:color-mix(in srgb, var(--accent-orange) 46%, var(--text-primary));
+  --severity-success-bg:color-mix(in srgb, var(--accent-green) 10%, var(--bg-tertiary));
+  --severity-success-fg:color-mix(in srgb, var(--accent-green) 46%, var(--text-primary));
+  --severity-info-bg:color-mix(in srgb, var(--accent-blue) 10%, var(--bg-tertiary));
+  --severity-info-fg:color-mix(in srgb, var(--accent-blue) 46%, var(--text-primary));
+}
+* { box-sizing:border-box; }
+body {
+  margin:0; background:var(--bg-primary); color:var(--text-secondary);
+  font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+code, .mono { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+.wrap { max-width:1180px; margin:0 auto; padding:24px 16px 80px; }
+.topbar {
+  display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between;
+  padding:14px 16px; background:var(--bg-secondary);
+  border:1px solid var(--border-primary); border-radius:8px; margin-bottom:8px;
+}
+.topbar h1 { font-size:15px; margin:0; color:var(--text-primary); font-weight:600; }
+.topbar p { margin:2px 0 0; font-size:12px; color:var(--text-tertiary); }
+.themebtn {
+  font-size:12px; padding:6px 12px; border-radius:6px; cursor:pointer;
+  background:var(--bg-surface); color:var(--text-primary); border:1px solid var(--border-primary);
+}
+h2.sec {
+  font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-tertiary);
+  margin:32px 0 4px; font-weight:600;
+}
+h2.sec + .note { margin:0 0 14px; font-size:12px; color:var(--text-tertiary); }
+/* min() so a 375px viewport collapses to one column instead of forcing a
+   360px track into a 343px container (17px horizontal overflow). */
+.grid { display:grid; gap:20px; grid-template-columns:repeat(auto-fit,minmax(min(360px,100%),1fr)); }
+
+/* ── Dialog shell (mirrors client-utils/src/Dialog.tsx) ─────────────── */
+.stage {
+  position:relative; border-radius:8px; overflow:hidden; min-width:0;
+  background:var(--bg-secondary); border:1px solid var(--border-primary);
+  padding:26px 18px; display:flex; align-items:center; justify-content:center;
+}
+.stage::before { content:""; position:absolute; inset:0; background:rgba(0,0,0,.60); }
+.stage.plain::before { display:none; }
+.stagelabel {
+  position:absolute; top:8px; left:10px; z-index:3; font-size:10px; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--text-tertiary); background:var(--bg-primary);
+  border:1px solid var(--border-primary); border-radius:4px; padding:2px 6px;
+}
+.panel {
+  position:relative; z-index:2; width:100%; max-width:28rem;
+  background:var(--bg-primary); border:1px solid var(--border-primary);
+  border-radius:8px; box-shadow:0 20px 25px -5px rgba(0,0,0,.5); padding:20px;
+  display:flex; flex-direction:column; gap:16px;
+}
+.dhead { display:flex; align-items:center; gap:12px; padding-right:32px; }
+.dicon {
+  flex:0 0 auto; width:36px; height:36px; border-radius:6px; display:flex;
+  align-items:center; justify-content:center;
+  background:color-mix(in srgb, var(--accent-primary) 15%, transparent);
+  color:var(--accent-primary);
+}
+.dicon svg { width:19px; height:19px; fill:currentColor; }
+.dtitle { font-size:16px; font-weight:600; color:var(--text-primary); margin:0; }
+.dclose {
+  position:absolute; top:12px; right:12px; width:28px; height:28px; border-radius:4px;
+  display:flex; align-items:center; justify-content:center; background:transparent;
+  border:0; color:var(--text-secondary); cursor:pointer;
+}
+.dclose svg { width:15px; height:15px; fill:currentColor; }
+.body { display:flex; flex-direction:column; gap:12px; }
+.subject {
+  background:var(--bg-tertiary); border:1px solid var(--border-primary); border-radius:6px;
+  padding:10px 12px; color:var(--text-primary); font-size:13px; word-break:break-all;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+.kv { font-size:12px; color:var(--text-tertiary); }
+.kv strong { color:var(--text-secondary); font-weight:500; }
+.lede { font-size:13px; color:var(--text-secondary); margin:0; }
+.pill {
+  display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:500;
+  border-radius:999px; padding:3px 9px; width:fit-content;
+}
+.pill.info { background:var(--severity-info-bg); color:var(--severity-info-fg); }
+.pill.warn { background:var(--severity-warning-bg); color:var(--severity-warning-fg); }
+.pill.ok { background:var(--severity-success-bg); color:var(--severity-success-fg); }
+.pill.err { background:var(--severity-error-bg); color:var(--severity-error-fg); }
+.pill.neutral { background:var(--bg-tertiary); color:var(--text-secondary); }
+.dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
+.dot.live { animation:blink 1.4s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+@media (prefers-reduced-motion:reduce){ .dot.live{animation:none} }
+.consequence {
+  font-size:12px; color:var(--text-secondary); background:var(--bg-tertiary);
+  border-left:2px solid var(--accent-primary); border-radius:0 4px 4px 0; padding:8px 10px;
+}
+/* Ancestor ladder: rungs exactly as carried by the denial. Narrowest rung is
+   preselected; there is no free-text entry. */
+.ladder { display:flex; flex-direction:column; gap:2px; }
+.ladder .lbl {
+  font-size:10.5px; letter-spacing:.06em; text-transform:uppercase;
+  color:var(--text-tertiary); margin-bottom:4px;
+}
+.rung {
+  display:flex; align-items:center; gap:9px; padding:7px 10px; border-radius:5px;
+  border:1px solid transparent; cursor:pointer; font-size:12.5px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color:var(--text-secondary); background:transparent;
+}
+.rung:hover { background:var(--bg-tertiary); }
+.rung.sel {
+  background:var(--bg-tertiary); border-color:var(--accent-primary); color:var(--text-primary);
+}
+.radio {
+  width:13px; height:13px; border-radius:50%; flex:0 0 auto;
+  border:1px solid var(--text-tertiary); position:relative;
+}
+.rung.sel .radio { border-color:var(--accent-primary); }
+.rung.sel .radio::after {
+  content:""; position:absolute; inset:2px; border-radius:50%; background:var(--accent-primary);
+}
+.rung .tail {
+  margin-left:auto; font-family:ui-sans-serif,system-ui,sans-serif; font-size:10.5px;
+  color:var(--text-tertiary); white-space:nowrap;
+}
+.ladder .bound {
+  font-size:10.5px; color:var(--text-tertiary); padding:4px 10px 0;
+  border-top:1px dashed var(--border-primary); margin-top:4px;
+}
+.consequence code { color:var(--text-primary); font-size:11.5px; }
+.footer { display:flex; justify-content:flex-end; align-items:center; gap:8px; padding-top:4px; flex-wrap:wrap; }
+.footer .spacer { margin-right:auto; font-size:11px; color:var(--text-tertiary); }
+.btn {
+  font-size:12px; padding:6px 12px; border-radius:4px; cursor:pointer; line-height:1.4;
+  border:1px solid transparent;
+}
+.btn.cancel { background:transparent; border-color:var(--border-primary); color:var(--text-secondary); }
+.btn.neutral { background:transparent; border-color:var(--border-primary); color:var(--text-secondary); }
+.btn.primary { background:var(--accent-primary); color:#fff; }
+.btn:focus-visible { outline:2px solid var(--accent-primary); outline-offset:2px; }
+
+/* ── Settings → Access ─────────────────────────────────────────────── */
+.card {
+  background:var(--bg-secondary); border:1px solid var(--border-primary);
+  border-radius:8px; overflow:hidden;
+}
+.cardhead {
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  padding:12px 14px; border-bottom:1px solid var(--border-primary);
+}
+.cardhead h3 { margin:0; font-size:13px; font-weight:600; color:var(--text-primary); }
+.cardhead .count { font-size:11px; color:var(--text-tertiary); }
+.banner { display:flex; gap:10px; padding:11px 14px; font-size:12px; align-items:flex-start; }
+.banner + .banner { border-top:1px solid var(--border-primary); }
+.banner.warn { background:var(--severity-warning-bg); color:var(--severity-warning-fg); }
+.banner svg { width:15px; height:15px; fill:currentColor; flex:0 0 auto; margin-top:1px; }
+.banner a { color:inherit; text-decoration:underline; text-underline-offset:2px; }
+.banner b { font-weight:600; }
+.row {
+  display:flex; gap:12px; align-items:flex-start; padding:12px 14px;
+  border-top:1px solid var(--border-primary);
+}
+.row:first-of-type { border-top:0; }
+.row .grow { min-width:0; flex:1; }
+.row .subj {
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px;
+  color:var(--text-primary); word-break:break-all;
+}
+.row .meta { font-size:11px; color:var(--text-tertiary); margin-top:3px; }
+.row .acts { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+.tag {
+  font-size:10px; letter-spacing:.04em; text-transform:uppercase; padding:2px 6px;
+  border-radius:3px; background:var(--bg-surface); color:var(--text-secondary);
+}
+.empty { padding:22px 14px; text-align:center; font-size:12px; color:var(--text-tertiary); }
+.toggle { display:flex; gap:12px; align-items:flex-start; padding:13px 14px; }
+/* YOLO indicator: undismissable while active. Warning severity, not error —
+   it is a deliberate operator state, not a failure. */
+.yolobar {
+  display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+  background:var(--severity-warning-bg); color:var(--severity-warning-fg);
+  border:1px solid color-mix(in srgb, var(--accent-orange) 35%, transparent);
+  border-radius:8px; padding:11px 14px; font-size:12.5px;
+}
+.yolobar svg { width:16px; height:16px; fill:currentColor; flex:0 0 auto; }
+.yolobar b { font-weight:600; }
+.yolobar .planes { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:11.5px; }
+.yolobar .clock {
+  margin-left:auto; display:flex; align-items:center; gap:8px; font-variant-numeric:tabular-nums;
+}
+.yolobar .endnow {
+  font-size:11.5px; padding:5px 10px; border-radius:4px; cursor:pointer;
+  background:var(--bg-primary); color:var(--text-primary);
+  border:1px solid color-mix(in srgb, var(--accent-orange) 35%, transparent);
+}
+.durations { display:flex; gap:6px; flex-wrap:wrap; padding:0 14px 13px; }
+.dur {
+  font-size:11.5px; padding:5px 10px; border-radius:999px; cursor:pointer;
+  background:transparent; border:1px solid var(--border-primary); color:var(--text-secondary);
+}
+.dur.sel { border-color:var(--accent-primary); color:var(--text-primary); background:var(--bg-tertiary); }
+.scopelabel {
+  padding:12px 14px 6px; font-size:10.5px; letter-spacing:.07em; text-transform:uppercase;
+  color:var(--text-tertiary);
+}
+.sidebarhdr {
+  display:flex; align-items:center; gap:10px; max-width:420px;
+  background:var(--bg-secondary); border:1px solid var(--border-primary);
+  border-radius:8px; padding:9px 11px; margin-bottom:14px;
+}
+.sidebarhdr .logo { font-size:15px; color:var(--text-primary); }
+.sidebarhdr .ico { font-size:13px; color:var(--text-tertiary); }
+.sidebarhdr .grow { flex:1; }
+.yolopill {
+  display:inline-flex; align-items:center; gap:5px; cursor:pointer;
+  font-size:11px; font-variant-numeric:tabular-nums; padding:3px 8px; border-radius:999px;
+  background:var(--severity-warning-bg); color:var(--severity-warning-fg);
+  border:1px solid color-mix(in srgb, var(--accent-orange) 35%, transparent);
+}
+.yolopill .dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
+.yolonudge {
+  margin-top:10px; padding:9px 11px; border-radius:6px;
+  background:var(--bg-tertiary); border:1px dashed var(--border-primary);
+  font-size:11.5px; color:var(--text-secondary);
+  display:flex; flex-wrap:wrap; gap:6px; align-items:baseline;
+}
+.yolonudge .bound { flex-basis:100%; padding:0; }
+.linkbtn {
+  background:none; border:0; padding:0; cursor:pointer; font:inherit;
+  color:var(--accent-text); text-decoration:underline; text-underline-offset:2px;
+}
+.rung.danger { color:var(--severity-warning-fg); margin-top:4px; }
+.rung.danger .radio { border-color:color-mix(in srgb, var(--accent-orange) 45%, transparent); }
+.switch {
+  width:34px; height:20px; border-radius:999px; background:var(--bg-surface);
+  border:1px solid var(--border-primary); position:relative; flex:0 0 auto; margin-top:1px;
+}
+.switch::after {
+  content:""; position:absolute; top:2px; left:2px; width:14px; height:14px; border-radius:50%;
+  background:var(--text-tertiary);
+}
+.switch.on { background:var(--accent-primary); border-color:transparent; }
+.switch.on::after { left:auto; right:2px; background:#fff; }
+.switch.locked { opacity:.5; }
+.toggle .t { font-size:13px; color:var(--text-primary); }
+.toggle .d { font-size:11.5px; color:var(--text-tertiary); margin-top:2px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <div>
+      <h1>add-access-grant-dialog — UX mockup</h1>
+      <p>S1 held dialog · S2 deferred dialog · S3–S5 Settings → Access. Tokens + Dialog shell mirror the shipped client.</p>
+    </div>
+    <button class="themebtn" id="tt" type="button">Switch to light</button>
+  </div>
+
+  <!-- ══ S1 ══════════════════════════════════════════════════════════ -->
+  <h2 class="sec">S1 — Grant dialog, HELD (filesystem · unknown cwd)</h2>
+  <p class="note">The request is suspended. Requires prompt-eligibility <em>and</em> host-gate <code>enforce</code>. Three verdicts. The ancestor ladder offers only rungs the denial carried — <strong>narrowest preselected, no free-text entry</strong>.</p>
+
+  <div class="grid">
+
+    <div class="stage">
+      <span class="stagelabel">filesystem · waiting</span>
+      <div class="panel" role="dialog" aria-modal="true" aria-labelledby="t1">
+        <button class="dclose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+        <div class="dhead">
+          <div class="dicon"><svg viewBox="0 0 24 24"><path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg></div>
+          <h3 class="dtitle" id="t1">Allow file access?</h3>
+        </div>
+        <div class="body">
+          <span class="pill info"><span class="dot live"></span>Request waiting — 24s left</span>
+          <p class="lede">A read was blocked because this path is outside the session's working directory.</p>
+          <div class="subject">/Users/robson/Documents/contracts/2026-q1</div>
+          <div class="kv"><strong>Plane</strong> filesystem · <strong>Session</strong> pi-agent-dashboard · <strong>Route</strong> GET /api/file</div>
+          <div class="ladder">
+            <div class="lbl">Grant which directory?</div>
+            <div class="rung sel"><span class="radio"></span>…/contracts/2026-q1<span class="tail">denied</span></div>
+            <div class="rung"><span class="radio"></span>…/Documents/contracts<span class="tail">1 level up</span></div>
+            <div class="rung"><span class="radio"></span>/Users/robson/Documents<span class="tail">2 levels up</span></div>
+            <div class="bound">Ladder stops below your home directory. <code>/Users/robson</code> and <code>/</code> are never offered.</div>
+          </div>
+          <div class="consequence"><b>Allow always</b> adds <code>…/contracts/2026-q1</code> and its subtree to <code>access-grants.json</code>. Revocable in Settings → Access.</div>
+          <div class="yolonudge">
+            <span>Being asked too often?</span>
+            <button class="linkbtn" type="button">Stop asking in this folder for 15 min</button>
+            <div class="bound">Uses the rungs above · creates no grants · still needs an answer below</div>
+          </div>
+        </div>
+        <div class="footer">
+          <span class="spacer">Dismissing denies.</span>
+          <button class="btn cancel">Deny</button>
+          <button class="btn neutral">Allow once</button>
+          <button class="btn primary">Allow always</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <span class="stagelabel">unknown cwd · waiting</span>
+      <div class="panel" role="dialog" aria-modal="true" aria-labelledby="t2">
+        <button class="dclose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+        <div class="dhead">
+          <div class="dicon"><svg viewBox="0 0 24 24"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg></div>
+          <h3 class="dtitle" id="t2">Allow this working directory?</h3>
+        </div>
+        <div class="body">
+          <span class="pill info"><span class="dot live"></span>Request waiting — 27s left</span>
+          <p class="lede">This directory is not pinned, so the dashboard refused to operate in it.</p>
+          <div class="subject">/Users/robson/Project/side-experiment</div>
+          <div class="kv"><strong>Plane</strong> working directory · <strong>Route</strong> POST /api/session/spawn · <strong>No ancestors offered</strong> — pinning is exact</div>
+          <div class="consequence"><b>Allow always</b> pins this directory. It appears under <code>Pinned directories</code> in Settings → Access.</div>
+        </div>
+        <div class="footer">
+          <span class="spacer">Dismissing denies.</span>
+          <button class="btn cancel">Deny</button>
+          <button class="btn neutral">Allow once</button>
+          <button class="btn primary">Allow always</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <span class="stagelabel">filesystem · ladder stops at checkout root</span>
+      <div class="panel" role="dialog" aria-modal="true" aria-labelledby="t1b">
+        <button class="dclose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+        <div class="dhead">
+          <div class="dicon"><svg viewBox="0 0 24 24"><path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg></div>
+          <h3 class="dtitle" id="t1b">Allow file access?</h3>
+        </div>
+        <div class="body">
+          <span class="pill info"><span class="dot live"></span>Request waiting — 29s left</span>
+          <p class="lede">Inside a git checkout, the ladder stops at the checkout root — it never climbs into the directory that holds your other repositories.</p>
+          <div class="subject">/Users/robson/Project/repo/packages/x/fixtures</div>
+          <div class="ladder">
+            <div class="lbl">Grant which directory?</div>
+            <div class="rung sel"><span class="radio"></span>…/packages/x/fixtures<span class="tail">denied</span></div>
+            <div class="rung"><span class="radio"></span>…/repo/packages/x<span class="tail">1 level up</span></div>
+            <div class="rung"><span class="radio"></span>…/repo/packages<span class="tail">2 levels up</span></div>
+            <div class="rung"><span class="radio"></span>/Users/robson/Project/repo<span class="tail">checkout root</span></div>
+            <div class="bound">Highest rung is the checkout root. <code>/Users/robson/Project</code> is never offered.</div>
+          </div>
+          <div class="consequence"><b>Allow always</b> adds <code>…/packages/x/fixtures</code> and its subtree to <code>access-grants.json</code>. Revocable in Settings → Access.</div>
+        </div>
+        <div class="footer">
+          <span class="spacer">Dismissing denies.</span>
+          <button class="btn cancel">Deny</button>
+          <button class="btn neutral">Allow once</button>
+          <button class="btn primary">Allow always</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ══ S2 ══════════════════════════════════════════════════════════ -->
+  <h2 class="sec">S2 — Grant dialog, DEFERRED (network · CORS)</h2>
+  <p class="note">Nothing is held: the requester is untrusted and already got its 403. <strong>“Allow once” is absent, not disabled</strong> — there is nothing in flight to allow once.</p>
+
+  <div class="grid">
+
+    <div class="stage">
+      <span class="stagelabel">network · deferred</span>
+      <div class="panel" role="dialog" aria-modal="true" aria-labelledby="t3">
+        <button class="dclose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+        <div class="dhead">
+          <div class="dicon"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm6.93 6h-2.95a15.6 15.6 0 0 0-1.38-3.56A8.03 8.03 0 0 1 18.93 8zM12 4.04c.83 1.2 1.48 2.53 1.91 3.96h-3.82c.43-1.43 1.08-2.76 1.91-3.96zM4.26 14A7.8 7.8 0 0 1 4 12c0-.69.1-1.36.26-2h3.38a16.5 16.5 0 0 0 0 4H4.26zm.81 2h2.95c.32 1.25.78 2.45 1.38 3.56A7.99 7.99 0 0 1 5.07 16zm2.95-8H5.07a7.99 7.99 0 0 1 4.33-3.56A15.6 15.6 0 0 0 8.02 8zM12 19.96c-.83-1.2-1.48-2.53-1.91-3.96h3.82c-.43 1.43-1.08 2.76-1.91 3.96zM14.34 14H9.66a14.7 14.7 0 0 1 0-4h4.68a14.7 14.7 0 0 1 0 4zm.28 5.56c.6-1.11 1.06-2.31 1.38-3.56h2.95a7.99 7.99 0 0 1-4.33 3.56zM16.36 14a16.5 16.5 0 0 0 0-4h3.38c.16.64.26 1.31.26 2s-.1 1.36-.26 2h-3.38z"/></svg></div>
+          <h3 class="dtitle" id="t3">Trust this network source?</h3>
+        </div>
+        <div class="body">
+          <span class="pill neutral">Already denied — verdict applies to the next attempt</span>
+          <p class="lede">A device on your LAN was refused. It cannot be resumed; allowing lets its retry through.</p>
+          <div class="subject">192.168.1.0/24 &nbsp;·&nbsp; last seen 192.168.1.42</div>
+          <div class="kv"><strong>Plane</strong> network · <strong>Attempts</strong> 3 in 40s · <strong>Route</strong> GET /api/sessions</div>
+          <div class="consequence"><b>Allow always</b> adds this range to <code>config.trustedNetworks</code>. Revocable in Settings → Access.</div>
+        </div>
+        <div class="footer">
+          <span class="spacer">Dismissing denies.</span>
+          <button class="btn cancel">Deny</button>
+          <button class="btn primary">Allow always</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <span class="stagelabel">CORS · deferred · hostile string</span>
+      <div class="panel" role="dialog" aria-modal="true" aria-labelledby="t4">
+        <button class="dclose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+        <div class="dhead">
+          <div class="dicon"><svg viewBox="0 0 24 24"><path d="M3.9 12a5 5 0 0 1 5-5h3V5h-3a7 7 0 0 0 0 14h3v-2h-3a5 5 0 0 1-5-5zm4.1 1h8v-2H8v2zm7-8h-3v2h3a5 5 0 0 1 0 10h-3v2h3a7 7 0 0 0 0-14z"/></svg></div>
+          <h3 class="dtitle" id="t4">Allow this origin?</h3>
+        </div>
+        <div class="body">
+          <span class="pill neutral">Already denied — verdict applies to the next attempt</span>
+          <p class="lede">A browser origin was refused by CORS. Without this prompt it would surface only as an opaque browser failure.</p>
+          <div class="subject">https://&lt;img src=x onerror=alert(1)&gt;.example.com</div>
+          <div class="kv"><strong>Plane</strong> CORS origin · <strong>Rendered escaped</strong> — a crafted origin cannot misrepresent itself</div>
+          <div class="consequence"><b>Allow always</b> adds exactly this origin to <code>cors.allowedOrigins</code>. No wildcard is derived from it.</div>
+        </div>
+        <div class="footer">
+          <span class="spacer">Dismissing denies.</span>
+          <button class="btn cancel">Deny</button>
+          <button class="btn primary">Allow always</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ══ S3/S4/S5 ════════════════════════════════════════════════════ -->
+  <h2 class="sec">S3–S5 — Settings → Access (new sections above the existing grant list)</h2>
+  <p class="note">The prompt-free path. Every pending request is answerable here, so the feature still works with prompting off.</p>
+
+  <div class="grid">
+
+    <div>
+      <div class="card" style="margin-bottom:20px">
+        <div class="cardhead">
+          <h3>Access requests</h3>
+          <span class="count">2 pending · 3 recent</span>
+        </div>
+
+        <div class="banner warn">
+          <svg viewBox="0 0 24 24"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+          <div><b>Held prompts unavailable.</b> Host admission is in <code>report</code> mode, so requests cannot be suspended while you decide. Verdicts still apply to the next attempt. <a href="#">Change host-gate mode →</a></div>
+        </div>
+
+        <div class="row">
+          <div class="grow">
+            <div class="subj">/Users/robson/Documents/contracts/2026-q1</div>
+            <div class="meta"><span class="tag">filesystem</span> &nbsp;deferred · 12s ago · GET /api/file</div>
+          </div>
+          <div class="acts">
+            <button class="btn cancel">Deny</button>
+            <button class="btn primary">Allow always</button>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="grow">
+            <div class="subj">192.168.1.0/24</div>
+            <div class="meta"><span class="tag">network</span> &nbsp;deferred · 3 attempts · 40s ago</div>
+          </div>
+          <div class="acts">
+            <button class="btn cancel">Deny</button>
+            <button class="btn primary">Allow always</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="cardhead"><h3>Recent verdicts</h3><span class="count">last 24h</span></div>
+        <div class="row">
+          <div class="grow">
+            <div class="subj">/Users/robson/Project/side-experiment</div>
+            <div class="meta">allow always · from prompt · wrote <code>pinned directories</code> · 6m ago</div>
+          </div>
+          <div class="acts"><span class="pill ok">granted</span></div>
+        </div>
+        <div class="row">
+          <div class="grow">
+            <div class="subj">https://unknown-share.share.zrok.io</div>
+            <div class="meta">denied · from prompt · nothing written · 18m ago</div>
+          </div>
+          <div class="acts"><span class="pill err">denied</span></div>
+        </div>
+        <div class="row">
+          <div class="grow">
+            <div class="subj">/etc/ssh</div>
+            <div class="meta">expired · no answer in 30s · nothing written · 41m ago</div>
+          </div>
+          <div class="acts"><span class="pill neutral">expired</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card" style="margin-bottom:20px">
+        <div class="cardhead"><h3>Prompting</h3></div>
+        <div class="toggle">
+          <div class="switch"></div>
+          <div class="grow">
+            <div class="t">Ask when access is denied</div>
+            <div class="d">Off by default. When on, a denial raises a dialog on every connected dashboard client. Existing grants apply either way.</div>
+          </div>
+        </div>
+        <div class="banner warn">
+          <svg viewBox="0 0 24 24"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+          <div><b>Prompting is force-disabled.</b> <code>PI_DASHBOARD_DISABLE_GRANT_PROMPT=1</code> is set in this environment. Denials are still recorded and answerable above.</div>
+        </div>
+        <div class="toggle" style="border-top:1px solid var(--border-primary)">
+          <div class="switch locked"></div>
+          <div class="grow">
+            <div class="t" style="color:var(--text-tertiary)">Ask when access is denied</div>
+            <div class="d">Locked by the environment variable — the toggle is inert until it is unset.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="cardhead"><h3>Access requests</h3><span class="count">empty state</span></div>
+        <div class="empty">No access has been denied recently.<br />Denials appear here whether or not prompting is on.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ══ S6 ══════════════════════════════════════════════════════════ -->
+  <h2 class="sec">S6 — YOLO mode (filesystem + working directory only)</h2>
+  <p class="note">Auto-answers <strong>allow-once</strong> at the point a prompt would appear. Persists nothing. Cannot reach network / CORS / auth. A drive-by is still denied while it is on.</p>
+
+  <p class="note" style="margin-top:-4px">Indicator rides three peer surfaces: <strong>sidebar header row 1</strong> (below), session surfaces in scope, and the Access page. The sidebar is never the <em>only</em> signal — it collapses on mobile.</p>
+
+  <div class="sidebarhdr">
+    <span class="logo">π</span>
+    <span class="ico">◐</span>
+    <span class="ico">☀</span>
+    <span class="grow"></span>
+    <span class="yolopill"><span class="dot"></span>YOLO 12:41</span>
+    <span class="ico">⇅</span>
+    <span class="ico">⚙</span>
+  </div>
+  <div class="bound" style="margin:-10px 0 20px">Sidebar header row 1 — conditional pill beside <code>TunnelButton</code>, the existing “something is exposed right now” affordance. Absent entirely when YOLO is off.</div>
+
+  <div class="yolobar" style="margin-bottom:20px">
+    <svg viewBox="0 0 24 24"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+    <div>
+      <b>YOLO active</b> — filesystem access is being allowed without asking
+      <b>in /Users/robson/Project/repo</b>.
+      <div class="planes">2 folders &nbsp;·&nbsp; planes: filesystem, working directory &nbsp;·&nbsp; nothing is persisted &nbsp;·&nbsp; 7 paths auto-allowed</div>
+      <div class="planes" style="margin-top:3px">· /Users/robson/Project/repo</div>
+      <div class="planes">· /Users/robson/scratch &nbsp;<span class="bound">added 4m ago — timer unchanged</span></div>
+    </div>
+    <div class="clock">
+      <span>12:41 remaining</span>
+      <button class="endnow" type="button">End now</button>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="cardhead"><h3>YOLO mode</h3><span class="count">inactive</span></div>
+      <div class="toggle">
+        <div class="switch"></div>
+        <div class="grow">
+          <div class="t">Stop asking about files for a while</div>
+          <div class="d">Auto-allows filesystem and working-directory denials <b>inside a folder you choose</b>. Creates no grants — everything reverts when the timer ends. Network, CORS, auth and pairing are never affected, and <code>~/.ssh</code>, <code>~/.pi</code>, <code>$HOME</code>, <code>/</code> and system directories stay refused.</div>
+        </div>
+      </div>
+      <div class="scopelabel">Where it applies &nbsp;<span style="text-transform:none;letter-spacing:0">— defaults to this session's folder; add more any time</span></div>
+      <div class="ladder" style="padding:0 14px 6px">
+        <label class="rung"><span class="radio on"></span><code>/Users/robson/Project/repo/packages/x</code> <span class="bound">session cwd — default</span></label>
+        <label class="rung"><span class="radio"></span><code>/Users/robson/Project/repo/packages</code></label>
+        <label class="rung"><span class="radio"></span><code>/Users/robson/Project/repo</code> <span class="bound">checkout root</span></label>
+        <div class="bound" style="padding:2px 0 8px">↑ ladder stops here — same rungs a denial offers. No free-text entry.</div>
+        <label class="rung danger"><span class="radio"></span><b>Everywhere</b> — the whole filesystem, not just a folder</label>
+        <div class="bound" style="padding:6px 0 0">Adding folders later never turns into “everywhere” — that needs a fresh activation.</div>
+      </div>
+      <div class="scopelabel">For how long</div>
+      <div class="durations">
+        <button class="dur sel" type="button">15 min</button>
+        <button class="dur" type="button">30 min</button>
+        <button class="dur" type="button">1 hour</button>
+        <button class="dur" type="button">Until I stop it</button>
+      </div>
+      <div class="banner warn">
+        <svg viewBox="0 0 24 24"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+        <div>The timer does <b>not</b> extend while you work. A longer window needs a fresh, explicit activation.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="cardhead"><h3>Auto-allowed this session</h3><span class="count">reviewable after it ends</span></div>
+      <div class="row">
+        <div class="grow">
+          <div class="subj">/Users/robson/Documents/contracts/2026-q1</div>
+          <div class="meta"><span class="tag">filesystem</span> &nbsp;auto-allowed · no human answered · 2m ago</div>
+        </div>
+        <div class="acts"><span class="pill warn">yolo</span></div>
+      </div>
+      <div class="row">
+        <div class="grow">
+          <div class="subj">/Users/robson/Project/repo/packages/x/fixtures</div>
+          <div class="meta"><span class="tag">filesystem</span> &nbsp;auto-allowed · no human answered · 4m ago</div>
+        </div>
+        <div class="acts"><span class="pill warn">yolo</span></div>
+      </div>
+      <div class="row">
+        <div class="grow">
+          <div class="subj">/Users/robson/Downloads/invoice.pdf</div>
+          <div class="meta">prompted normally — outside the YOLO scope · 3m ago</div>
+        </div>
+        <div class="acts"><span class="pill">asked</span></div>
+      </div>
+      <div class="row">
+        <div class="grow">
+          <div class="subj">/Users/robson/scratch/tmp.json</div>
+          <div class="meta"><span class="tag">filesystem</span> &nbsp;auto-allowed · 2nd folder, added mid-session · 1m ago</div>
+        </div>
+        <div class="acts"><span class="pill warn">yolo</span></div>
+      </div>
+      <div class="row">
+        <div class="grow">
+          <div class="subj">~/.ssh</div>
+          <div class="meta">refused under YOLO · forbidden subject · 5m ago</div>
+        </div>
+        <div class="acts"><span class="pill err">refused</span></div>
+      </div>
+      <div class="row">
+        <div class="grow">
+          <div class="subj">203.0.113.9</div>
+          <div class="meta"><span class="tag">network</span> &nbsp;denied — YOLO does not apply to this plane · 6m ago</div>
+        </div>
+        <div class="acts"><span class="pill err">denied</span></div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="sec">S1 — settled-by-another-client</h2>
+  <p class="note">First answer wins. The losing client's dialog removes itself; it is never left clickable into a second verdict.</p>
+  <div class="grid">
+    <div class="stage plain" style="min-height:150px">
+      <span class="stagelabel">after grant_dismiss</span>
+      <div style="text-align:center">
+        <span class="pill ok" style="margin:0 auto"><span class="dot"></span>Answered on another device — allow always</span>
+        <p class="note" style="margin:10px 0 0; font-size:11.5px">Dialog unmounted. No residual backdrop, no stale buttons.</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+<script>
+  const b = document.getElementById("tt");
+  b.addEventListener("click", () => {
+    const light = document.documentElement.getAttribute("data-theme") === "light";
+    document.documentElement.setAttribute("data-theme", light ? "dark" : "light");
+    b.textContent = light ? "Switch to light" : "Switch to dark";
+  });
+</script>
+</body>
+</html>

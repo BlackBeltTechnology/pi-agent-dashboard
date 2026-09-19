@@ -59,6 +59,7 @@ import { ensureServerIdentity } from "./auth/identity.js";
 import { ensureLocalToken, verifyLocalToken } from "./auth/local-token.js";
 import {
   createNetworkGuard,
+  createNetworkGuardHook,
   isBypassedHost,
   isGenuinelyLocal,
   isPluginScopePeerLocal,
@@ -159,7 +160,7 @@ import { registerNodeRuntimeRoutes } from "./routes/node-runtime-routes.js";
 import { registerOpenSpecGroupRoutes } from "./routes/openspec-group-routes.js";
 import { registerOpenSpecRoutes } from "./routes/openspec-routes.js";
 import { registerPackageRoutes } from "./routes/package-routes.js";
-import { registerPairingRoutes } from "./routes/pairing-routes.js";
+import { PUBLIC_PAIRING_PREFIXES, registerPairingRoutes } from "./routes/pairing-routes.js";
 import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
 import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
 import { registerPiRetryRoutes } from "./routes/pi-retry-routes.js";
@@ -2038,6 +2039,37 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     }
   }
 
+  // ── Universal network guard (change: add-universal-network-guard) ────────
+  // Registered LAST and UNCONDITIONALLY, so `request.isAuthenticated` reflects
+  // every auth source when the guard evaluates. The full root `onRequest` chain
+  // this sits behind:
+  //   createHostGate (1429) → @fastify/cors (1430) → createMutationOriginGate
+  //   (1456) → registerBearerAuth (1471) → registerAuthPlugin (conditional,
+  //   1473) → createRouteTierGate (1488) → proxyAuthGate (conditional, above)
+  //   → THIS HOOK.
+  // "Last" is deliberately NOT anchored on the model-proxy gate above: with
+  // `modelProxy` disabled that hook does not exist, so anchoring there would
+  // silently drop the guard to second-to-last. (CSP is an `onSend` hook, so it
+  // is not part of the `onRequest` ordering.)
+  //
+  // Being registered after the routes still covers them: Fastify binds root
+  // hooks to routes at `preReady` (verified against fastify@5.12.1 — `addHook`
+  // defers through `this.after` and then recurses `_addHook` over `kChildren`),
+  // including the encapsulated child scopes plugin routes register into. It does
+  // NOT cover a route registered after `ready()`; plugin activation is
+  // restart-effective today, so a future hot-load feature would reopen this.
+  fastify.addHook(
+    "onRequest",
+    createNetworkGuardHook({
+      // Live thunk, never a boot snapshot: a CIDR added at runtime admits
+      // without a restart (D15). Mirrors the per-route guard at 1499.
+      trustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
+      localToken,
+      getBypassUrls: () => config.authConfig?.bypassUrls ?? [],
+      getPairingPrefixes: () => PUBLIC_PAIRING_PREFIXES,
+    }),
+  );
+
   // serve static files / SPA fallback.
   // Client-dir resolution — single strategy under change:
   // eliminate-electron-runtime-install. The legacy 5-strategy chain
@@ -2954,6 +2986,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       console.log(`Pi gateway listening on port ${config.piPort}`);
 
       // ── Optional second port for model proxy (/v1/*) ──────────────
+      // INVARIANT (change: add-universal-network-guard): this instance runs ONLY
+      // `proxyAuthGate` — no universal guard, no `isAuthenticated` decoration,
+      // no network check. It is safe SOLELY because it binds hardcoded
+      // `127.0.0.1` below (safe-by-design, asserted by
+      // `__tests__/model-proxy-second-port.test.ts`). If that host is ever made
+      // configurable beyond loopback, the universal guard MUST be installed on
+      // this instance too (with the `isAuthenticated` decorator), or the /v1
+      // surface is exposed with no network policy at all.
       {
         const proxyCfg = loadConfig().modelProxy;
         if (proxyCfg.enabled && proxyCfg.secondPort) {

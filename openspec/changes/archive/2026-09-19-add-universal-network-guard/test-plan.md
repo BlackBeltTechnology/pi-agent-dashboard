@@ -31,13 +31,18 @@ No clarification gaps: every Triple below fills from the spec.
 | S16 | config | boundary | L1 | automated | modelProxy `secondPort` enabled · server start · second Fastify instance listens on **`127.0.0.1`** only (asserted) |
 | S17 | invariant | coverage | L1 | automated | enumerate the route table · every non-static/non-`/auth`/non-public route · resolves under `/api`,`/v1`,`/editor`,`/live`, else **test fails** |
 | S18 | error | fault/log | L1 | automated | guard denies `203.0.113.5` → `/api/sessions` · log line contains **path+ip+reason**, and **no** request body or token |
+| S19 | edge | boundary | L1 | automated | unauth untrusted · `GET /api/health?probe=1` · **allowed** (pathname match) AND `GET /api/healthz` · **403** AND `GET /apiv2/x` · out of jurisdiction (anchored prefix) |
 | S20 | integration | end-to-end | L3 | automated | docker harness, auth OFF, over the proxied frontend · `GET /` · **200** app shell AND `POST /api/plugins/automation/create` · **403** (flagship: shell loads, RCE route closed) |
-| S19 | smoke | manual | — | manual-only | real zrok tunnel, auth OFF · manual browse · `GET /` 200, automation/create 403, valid `pi-proxy` `/v1/messages` 200 (human confirmation over a real tunnel) |
+| S22 | edge | decision-table | L1 | automated | `auth.bypassUrls` matches a route that also carries a per-route `networkGuard` · untrusted unauth request · still **403** (exception does not widen guarded routes — same as today) |
+| S23 | error | fault/contract | L1 | automated | guard denies an in-jurisdiction request · response body is the existing `network_not_allowed` shape AND the denial appears in `GET /api/tunnel/block-events` |
+| S24 | invariant | coverage | L1 | automated | coverage test **with plugin routes loaded** · `/mcp*` admitted only via the enumerated independently-authenticated entry; every `/mcp*` route (incl. bare `/mcp`) requires device-token auth; `/sw.js` in static-allow; no client SPA route under a guarded namespace |
+| S25 | edge | boundary | L1 | automated | `HEAD /api/health` · **allowed**; unparseable URL · **denied** (fail-closed); CIDR added to trusted set at runtime · **admits without restart** |
+| S21 | smoke | manual | — | manual-only | real zrok tunnel, auth OFF · manual browse · `GET /` 200, automation/create 403, valid `pi-proxy` `/v1/messages` 200 (human confirmation over a real tunnel) |
 
 ## New infra needed
 None. L1 reuses `fastify.inject()` (sibling suites already do). L3 reuses the
 existing docker harness (`tests/e2e/`).
 
 ## Disposition summary
-- **automated:** S1–S18, S20 (18 L1 + 1 L3)
-- **manual-only:** S19 (deferred to post-merge by `ship-change`)
+- **automated:** S1–S20, S22–S25 (23 L1 + 1 L3)
+- **manual-only:** S21 (deferred to post-merge by `ship-change`)

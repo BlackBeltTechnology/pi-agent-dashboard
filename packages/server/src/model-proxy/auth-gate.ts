@@ -109,6 +109,13 @@ export function createModelProxyAuthGate(deps: AuthGateDeps) {
         // Attach key info to request for downstream handlers
         (request as any).proxyApiKeyId = result.entry.id;
         (request as any).proxyApiKeyLabel = result.entry.label;
+        // Mark the request authenticated so the universal network guard (an
+        // `onRequest` hook registered AFTER this one) admits it via the normal
+        // `isAuthenticated` pass condition. Without this a valid `pi-proxy-*`
+        // key would still be network-denied. There is deliberately no public
+        // `/v1` allowlist entry: with modelProxy disabled such an entry would
+        // be a hole. See change: add-universal-network-guard.
+        (request as any).isAuthenticated = true;
         return;
       }
     }
