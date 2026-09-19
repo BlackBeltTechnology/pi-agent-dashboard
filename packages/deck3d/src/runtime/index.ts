@@ -398,8 +398,49 @@ async function boot(): Promise<void> {
     return n - 1;
   }
 
+  /** Step to a 0-based slide, clamped at both ends, mirroring the index into the `#<n>` hash. */
+  function navTo(index: number, syncHash = true): void {
+    const target = Math.max(0, Math.min(builds.length - 1, index));
+    if (target === cur) return;
+    goTo(target);
+    // Setting the hash re-enters via `hashchange`, where `target === cur` returns early.
+    if (syncHash) window.location.hash = `#${target + 1}`;
+  }
+
   rig.resize(window.innerWidth, window.innerHeight);
   window.addEventListener("resize", () => rig.resize(window.innerWidth, window.innerHeight));
+  window.addEventListener("keydown", (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    switch (e.key) {
+      case "ArrowRight":
+      case "ArrowDown":
+      case "PageDown":
+      case " ":
+        navTo(cur + 1);
+        break;
+      case "ArrowLeft":
+      case "ArrowUp":
+      case "PageUp":
+        navTo(cur - 1);
+        break;
+      case "Home":
+        navTo(0);
+        break;
+      case "End":
+        navTo(builds.length - 1);
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
+  });
+  window.addEventListener("pointerup", (e) => {
+    if (e.button === 0) navTo(cur + 1);
+  });
+  window.addEventListener("hashchange", () => {
+    const i = hashIndex();
+    if (i !== null) navTo(i, false);
+  });
   snapTo(hashIndex() ?? 0);
 
   const api: Deck3dApi = {
