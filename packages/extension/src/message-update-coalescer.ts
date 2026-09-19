@@ -108,6 +108,9 @@ export class MessageUpdateCoalescer<E = unknown> {
   private readonly fallbackIds = new WeakMap<object, string>();
   private fallbackCounter = 0;
 
+  /** Generations bound to a message object at its `message_start`. */
+  private readonly genByMessage = new WeakMap<object, number>();
+
   constructor(private readonly opts: MessageUpdateCoalescerOptions<E>) {
     this.windowMs = opts.windowMs ?? COALESCE_WINDOW_MS;
     this.isActive = opts.isActive ?? (() => true);
@@ -140,8 +143,12 @@ export class MessageUpdateCoalescer<E = unknown> {
     return `${gen}:${role}:${id}`;
   }
 
-  /** `message_start` (user or assistant) opens the lifecycle for `key`. */
-  messageStart(gen: number, key: string): void {
+  /** `message_start` (user or assistant) opens the lifecycle for `key`.
+   *
+   * `message` (when supplied) is BOUND to `gen`, so later `messageEnd` / `offer`
+   * calls can recover the generation this message was actually opened under.
+   */
+  messageStart(gen: number, key: string, message?: unknown): void {
     // A new identity supersedes a parked snapshot of a different one: flush it
     // rather than let it land after this message begins.
     if (this.pending && this.pending.key !== key) this.flush();
@@ -149,6 +156,34 @@ export class MessageUpdateCoalescer<E = unknown> {
     this.closedKeys.delete(key);
     this.openKey = key;
     this.openGen = gen;
+    this.bindGeneration(gen, message);
+  }
+
+  /**
+   * Bind `message` to the generation assigned at its `message_start`.
+   *
+   * A `message_update` carries no generation of its own, so a late update for a
+   * message that has ALREADY ended would otherwise be keyed under the counter's
+   * current value. That key no longer matches the message's closed key, so the
+   * drop rule would fail open and the straggler would be forwarded after the
+   * next message started. Binding generation to the message object makes the
+   * barrier structural rather than dependent on pi's emit discipline.
+   */
+  bindGeneration(gen: number, message: unknown): void {
+    if (message && typeof message === "object") {
+      this.genByMessage.set(message as object, gen);
+    }
+  }
+
+  /**
+   * The generation bound to `message`, else `fallback`.
+   *
+   * `fallback` covers a message this instance never saw open — `npm run reload`
+   * mid-turn re-inits the bridge, and the rest of that turn must still stream.
+   */
+  generationOf(message: unknown, fallback: number): number {
+    if (!message || typeof message !== "object") return fallback;
+    return this.genByMessage.get(message as object) ?? fallback;
   }
 
   /**

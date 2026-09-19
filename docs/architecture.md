@@ -215,13 +215,13 @@ TypeScript type definitions shared across all components:
 
 **Measured baseline & scaling.**
 - Baseline (harness uncoalesced): 169 `message_update` frames, 616,534 bytes over 13.4 s stream = 12.6 deltas/s, 1:1 forward.
-- Reduction factor: `min(1, sourceDeltasPerSecond ÷ 20)`.
+- Reduction factor: `max(1, sourceDeltasPerSecond ÷ 20)`.
 - Win activates when provider emits > 20 deltas/s (< 50 ms delta interval). Real providers stream 1–4-token deltas at 20–150 tok/s (2.5×–7.5× reduction).
 - `FAUX_TPS=50` chunks 3–5 tokens (~12.5 deltas/s); harness measures ~1× by design.
 
 **References.**
-- Spec: `openspec/changes/coalesce-bridge-message-update-snapshots/specs/bridge-message-update-coalescing/spec.md`.
-- Design decisions: `openspec/changes/coalesce-bridge-message-update-snapshots/design.md` (D1–D9).
+- Spec: `openspec/specs/bridge-message-update-coalescing/spec.md`.
+- Design decisions: `openspec/changes/archive/2026-09-19-coalesce-bridge-message-update-snapshots/design.md` (D1–D9).
 - Unit tests: `packages/extension/src/__tests__/message-update-coalescer.test.ts`, `packages/extension/src/__tests__/bridge-coalesced-chat-order.test.ts`.
 - E2E test: `tests/e2e/coalesced-streaming.spec.ts`.
 

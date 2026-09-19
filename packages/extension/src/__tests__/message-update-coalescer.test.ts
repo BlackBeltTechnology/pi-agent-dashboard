@@ -395,12 +395,87 @@ describe("MessageUpdateCoalescer — lifecycle (E15, X1, X2, X3)", () => {
       const h = makeHarness();
       h.coalescer.messageStart(1, KEY_1);
       const first = update("text_delta", "no-ts");
+      // `update()` defaults the timestamp, so REMOVE it — otherwise this test
+      // would use the normal timestamp key and never touch the WeakMap fallback.
+      delete (first.message as { timestamp?: number }).timestamp;
       h.offer(first, 1);
       // Same object → same fallback key, so the drop rule can never fire on it.
-      expect(h.coalescer.keyOf(1, first.message)).toBe(h.coalescer.keyOf(1, first.message));
+      const key = h.coalescer.keyOf(1, first.message);
+      expect(key).toMatch(/^1:assistant:f\d+$/);
+      expect(key).toBe(h.coalescer.keyOf(1, first.message));
       h.advance(W);
       expect(h.sent).toHaveLength(1);
       expect(textOf(h.sent[0].event)).toBe("no-ts");
+    });
+  });
+
+  it("binds a message to its start generation, falling back for an unseen one", () => {
+    withFakeTimers(() => {
+      const h = makeHarness();
+      const a = { role: "assistant", timestamp: 1 };
+      const b = { role: "assistant", timestamp: 2 };
+      h.coalescer.messageStart(1, h.coalescer.keyOf(1, a), a);
+      h.coalescer.messageStart(2, h.coalescer.keyOf(2, b), b);
+      expect(h.coalescer.generationOf(a, 0)).toBe(1);
+      expect(h.coalescer.generationOf(b, 0)).toBe(2);
+      // Never seen open — reload mid-turn, or a non-object message.
+      expect(h.coalescer.generationOf({ role: "assistant", timestamp: 3 }, 7)).toBe(7);
+      expect(h.coalescer.generationOf(undefined, 7)).toBe(7);
+    });
+  });
+
+  it("E13b: the generation binding keeps a straggler for a CLOSED message dropped", () => {
+    withFakeTimers(() => {
+      /** A opens at gen 1 then closes; B opens at gen 2. Returns A's message. */
+      const setup = (): { h: Harness; messageA: any } => {
+        const h = makeHarness();
+        const a1 = update("text_delta", "a-final", { timestamp: 1000 });
+        const messageA = a1.message;
+        h.coalescer.messageStart(1, h.coalescer.keyOf(1, messageA), messageA);
+        h.offer(a1, h.coalescer.generationOf(messageA, 0));
+        h.coalescer.flush();
+        h.coalescer.messageEnd(1, h.coalescer.keyOf(1, messageA));
+        const b1 = update("text_delta", "b-first", { timestamp: 2000 });
+        const messageB = b1.message;
+        h.coalescer.messageStart(2, h.coalescer.keyOf(2, messageB), messageB);
+        h.offer(b1, h.coalescer.generationOf(messageB, 0));
+        return { h, messageA };
+      };
+      // The same live object pi mutates in place, carrying no generation.
+      const stragglerFor = (messageA: any) => ({
+        type: "message_update",
+        message: messageA,
+        assistantMessageEvent: { type: "text_delta", partial: messageA },
+      });
+
+      // Binding path: A still resolves to ITS generation, so keying the
+      // straggler hits A's closed identity and it is dropped.
+      {
+        const { h, messageA } = setup();
+        expect(h.coalescer.generationOf(messageA, 2)).toBe(1);
+        h.offer(stragglerFor(messageA), h.coalescer.generationOf(messageA, 2));
+        h.advance(200);
+        expect(h.sent.map((s) => textOf(s.event))).toEqual(["a-final", "b-first"]);
+      }
+
+      // Counter-factual: keyed under the counter's CURRENT value instead, the
+      // same straggler is accepted and lands after B started — the bug the
+      // binding removes. (This is why the assertion above can fail.)
+      //
+      // A FRESH object, not `messageA`: snapshots hold the live message by
+      // reference, so mutating `messageA.content` would retroactively rewrite
+      // the already-sent `a-final`. The key arithmetic is identical either way.
+      {
+        const { h } = setup();
+        const aStraggler = update("text_delta", "a-straggler", { timestamp: 1000 });
+        h.offer(aStraggler, 2);
+        h.advance(200);
+        expect(h.sent.map((s) => textOf(s.event))).toEqual([
+          "a-final",
+          "b-first",
+          "a-straggler",
+        ]);
+      }
     });
   });
 

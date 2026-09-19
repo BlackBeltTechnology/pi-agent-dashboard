@@ -20,9 +20,16 @@ Exports:
     unusable (pi stamps it only at post-handler persistence). The generation is
     folded INTO the key because a `message_update` carries no generation of its
     own — it can only be stamped with the counter's current value.
-  - `messageStart(gen, key)` / `messageEnd(gen, key)` — the lifecycle barrier.
-    `messageEnd` also records the identity as CLOSED. The bridge flushes BEFORE
-    closing, or the last text of a turn would be dropped.
+  - `messageStart(gen, key, message?)` / `messageEnd(gen, key)` — the lifecycle
+    barrier. `messageEnd` also records the identity as CLOSED. The bridge flushes
+    BEFORE closing, or the last text of a turn would be dropped. `messageStart`
+    binds `message` to `gen`.
+  - `bindGeneration(gen, message)` / `generationOf(message, fallback)` — the
+    generation the message was OPENED under. A `message_update` carries no
+    generation of its own, so without this binding a late update for an already
+    closed message would be keyed under the counter's CURRENT value, miss the
+    closed key and fail open — landing after the next message started. `fallback`
+    covers a message this instance never saw open (`npm run reload` mid-turn).
   - `offer(event, gen)` — the TEXT family (`text_start`/`text_delta`/`text_end`)
     parks, last wins. EVERY other sub-event, including one this build does not
     recognise, flushes pending text then forwards immediately and unmodified —

@@ -90,9 +90,10 @@ rationale does not apply**, and the numbers say why:
   the regime D2's `COALESCE_WINDOW_MS = 50` was chosen for ("an order of
   magnitude above the per-token interval of a fast provider").
 
-So the measured reduction factor is `min(1, sourceDeltasPerSecond ÷ 20)`: ~1× for
-a slow or coarse stream, ~2.5× at the 50 deltas/s the design assumed, more for a
-fast provider. The change was accepted on that basis, with the before-numbers
+So the measured reduction factor is `max(1, sourceDeltasPerSecond ÷ 20)`: ~1× for
+a slow or coarse stream (the floor: coalescing can never send MORE than the
+source did), ~2.5× at the 50 deltas/s the design assumed, more for a fast
+provider. The change was accepted on that basis, with the before-numbers
 recorded here. The after-number (task 9.1) and the perceptual window check
 (task 9.2) stay manual-only.
 

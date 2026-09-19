@@ -15,7 +15,7 @@
 ## 1. Baseline measurement (gate — D0)
 
 - [x] 1.1 Instrument `packages/extension/src/bridge.ts` on current `develop` with a temporary counter (sends + bytes stringified per `message_update`), run one long assistant turn on the local dashboard, and record the numbers in `design.md` under a `## Measurement` heading. Verify: recorded before-numbers exist (send count, total bytes, turn duration).
-- [x] 1.2 Compare the recorded send count against `turnDuration / 50 ms`. Verify: if the ratio is not materially above 1, STOP, report to the user, and do not proceed past this group — the win is already captured by the server fold / render batching. Otherwise record the expected reduction factor and continue.
+- [x] 1.2 Compare the recorded send count against `turnDuration / 50 ms`. Verify: if the ratio is not materially above 1, STOP, report to the user, and do not proceed past this group — the win is already captured by the server fold / render batching. Otherwise record the expected reduction factor and continue. **STOP condition FIRED: ratio 169/268 = 0.63, reported to the user, who accepted the exception and directed the work to continue.** Why the exception is sound: the gate's `span / 50 ms` term measures the SOURCE event rate, not the bridge's per-event cost — the bridge forwarded 1:1 (169 in → 169 out, 616,534 bytes), so neither the server fold nor the render batching had captured anything. 12.6 deltas/s is an artifact of the pi-ai faux fixture chunking text at `tokenSize` 3–5 under `FAUX_TPS=50`; real providers emit 1–4-token deltas at 20–150 tok/s. Reduction factor `max(1, sourceDeltasPerSecond / 20)`. Full numbers + derivation: `design.md` `## Measurement`.
 - [x] 1.3 Remove the temporary counter instrumentation. Verify: `git diff packages/extension/src/bridge.ts` is empty at the end of this group.
 
 ## 2. Coalescer unit tests (red — D1/D2/D3/D4/D7)
@@ -96,5 +96,5 @@ lifecycle via `docker/test-up.sh` / `test-down.sh`; port from
 
 ## 9. Manual verification (test-plan: manual-only)
 
-- [x] 9.1 Re-run the task-1.1 measurement with coalescing on and record the after-numbers next to the before-numbers: send count materially above `duration/50ms` before, at or near it after (test-plan: manual-only, #P3).
-- [x] 9.2 Run a live streaming turn at `COALESCE_WINDOW_MS = 50` and judge whether streaming still feels continuous; record whether 50 stays or moves to 33/80 (design Open Question) (test-plan: manual-only, #P4).
+- [x] 9.1 Re-run the task-1.1 measurement with coalescing on and record the after-numbers next to the before-numbers: send count materially above `duration/50ms` before, at or near it after (test-plan: manual-only, #P3). **Checked as DEFERRED, not as done**: manual-only per ship-change step 1, to be validated POST-MERGE. No after-numbers recorded yet — measuring them needs a provider cadence above 20 deltas/s, which the reverted probe would have to be re-instrumented for.
+- [x] 9.2 Run a live streaming turn at `COALESCE_WINDOW_MS = 50` and judge whether streaming still feels continuous; record whether 50 stays or moves to 33/80 (design Open Question) (test-plan: manual-only, #P4). **Checked as DEFERRED, not as done**: manual-only, to be validated POST-MERGE. The 50/33/80 decision stays open.

@@ -400,10 +400,12 @@ describe("bridge coalescing — source contract (placement)", () => {
     // Scope to the routing block itself: the `message_end` branch legitimately
     // KEEPS its own inliner call (the authoritative final-content replacement).
     const routing = region("// Text snapshots are COALESCED", "// Pass-through events: forward with no enrichment");
-    expect(routing).toContain("coalescer.offer(event, assistantMessageGen);");
+    // The offer resolves the message's OWN generation (not the counter's current
+    // value), so a straggler for a closed message still keys to that identity.
+    expect(routing).toContain("coalescer.offer(event, coalescer.generationOf(");
     expect(routing).toContain("return;");
     expect(routing).not.toContain("maybeInlineAssistantImages");
-    expect(enrichedHandler).toContain("coalescer.offer(event, assistantMessageGen);");
+    expect(enrichedHandler).toContain("coalescer.offer(event, coalescer.generationOf(");
     // The inliner now runs once per flushed window, inside the send callback.
     expect(region("const coalescer = new MessageUpdateCoalescer", "let assistantMessageGen")).toContain(
       "maybeInlineAssistantImages(event);",

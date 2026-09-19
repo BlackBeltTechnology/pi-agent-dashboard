@@ -66,7 +66,7 @@ import { healthUrlForInstance, probeEndpointReachability, verifyInstanceIdentity
 import { localTokenHeaders } from "./local-token-header.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
 import { handleMcpTokenMinted, MCP_TOKEN_ENV_VAR } from "./mcp-token-delivery.js";
-import { COALESCE_WINDOW_MS, MessageUpdateCoalescer, flushesParkedText } from "./message-update-coalescer.js";
+import { COALESCE_WINDOW_MS, flushesParkedText, MessageUpdateCoalescer } from "./message-update-coalescer.js";
 import { reportRefresh } from "./model-refresh.js";
 import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged } from "./model-tracker.js";
 import { decodeMultiselectAnswer } from "./multiselect-decode.js";
@@ -2403,6 +2403,7 @@ function initBridge(pi: ExtensionAPI) {
         coalescer.messageStart(
           assistantMessageGen,
           messageKeyOf(assistantMessageGen, (event as any).message),
+          (event as any).message,
         );
         // Custom messages are forwarded by wrapCustomPersistenceForCtx (pi's
         // idle-path sendMessage emits message_start/end internally only, and
@@ -2505,10 +2506,13 @@ function initBridge(pi: ExtensionAPI) {
         // here means any update arriving during the macrotask gap is dropped by
         // the closed slot instead of landing after the `message_end`.
         // See change: coalesce-bridge-message-update-snapshots (D4/D5).
-        coalescer.messageEnd(
-          assistantMessageGen,
-          messageKeyOf(assistantMessageGen, (event as any).message),
-        );
+        // The generation this message was OPENED under, not the counter's
+        // current value: a message_end for a message whose start we saw must
+        // close ITS identity, never a newer one. Falls back to the current
+        // counter for a message this instance never saw open (reload mid-turn).
+        const endMessage = (event as any).message;
+        const endGen = coalescer.generationOf(endMessage, assistantMessageGen);
+        coalescer.messageEnd(endGen, messageKeyOf(endGen, endMessage));
         // Custom messages are forwarded by wrapCustomPersistenceForCtx — see
         // the message_start guard above. See change:
         // render-inline-reasoning-and-custom-entries (D2).
@@ -2567,7 +2571,11 @@ function initBridge(pi: ExtensionAPI) {
       // tail below never sees a `message_update`.
       // See change: coalesce-bridge-message-update-snapshots (D6).
       if (eventType === "message_update") {
-        coalescer.offer(event, assistantMessageGen);
+        // Resolve the message's OWN generation, so a late update for an already
+        // closed message still keys to that closed identity and is dropped —
+        // keying it under the counter's current value would fail open.
+        const updateMessage = (event as any)?.message;
+        coalescer.offer(event, coalescer.generationOf(updateMessage, assistantMessageGen));
         return;
       }
 
