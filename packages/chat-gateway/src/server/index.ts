@@ -32,6 +32,7 @@ import {
   getPluginStatusStore,
   type ServerPluginContext,
 } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { createFakeAdapterFromEnv } from "../adapters/fake.js";
 import type { ChatGatewayConfig } from "../shared/types.js";
 import { TEAM_CONFIG_MESSAGE, TEAM_SURFACE_MESSAGE } from "../shared/types.js";
 import { isConfigured, resolveConfig } from "./config.js";
@@ -152,9 +153,15 @@ export default async function registerChatGateway(ctx: ServerPluginContext): Pro
     limit: teamConfig.auditRetention,
   });
 
+  // Harness fixture (`adapters/fake.ts`), env-guarded: a socket-less platform so
+  // the L3 team-controls scenarios have something to render. With it the layer
+  // counts as CONFIGURED despite having no token — which is the point, since the
+  // docker harness carries no Discord credential.
+  const fakeAdapter = createFakeAdapterFromEnv();
+
   // Inert by design: no token, no work. This is the ONLY early return that is
   // not an error.
-  if (!isConfigured(config)) {
+  if (fakeAdapter === undefined && !isConfigured(config)) {
     ctx.logger.info(
       "chat-gateway: inert (no bot token configured) — no adapter, no connection",
     );
@@ -196,17 +203,19 @@ export default async function registerChatGateway(ctx: ServerPluginContext): Pro
   }
 
   const seam = createHostSeam(ctx);
-  // Deferred so an unconfigured install never loads discord.js.
-  const { DiscordAdapter } = await import("../adapters/discord.js");
-  const adapter = new DiscordAdapter({
-    enabled: true,
-    platform: "discord",
-    botToken: config.token,
-    // L4: the adapter drops every guild channel that is not opted in (DMs are
-    // unaffected). Without this, the adapter would forward every hidden-channel
-    // message to the edge.
-    allowedChannels: config.groupChannels,
-  });
+  // `discord.js` is imported LAZILY and on the real path only, so neither an
+  // unconfigured install nor the harness fixture ever loads it.
+  const adapter =
+    fakeAdapter ??
+    new (await import("../adapters/discord.js")).DiscordAdapter({
+      enabled: true,
+      platform: "discord",
+      botToken: config.token,
+      // L4: the adapter drops every guild channel that is not opted in (DMs are
+      // unaffected). Without this, the adapter would forward every hidden-channel
+      // message to the edge.
+      allowedChannels: config.groupChannels,
+    });
 
   // initialize() creates the client and logs in; start() only wires handlers.
   // Skipping it makes start() throw `adapter not initialized` and the loader
@@ -241,7 +250,7 @@ export default async function registerChatGateway(ctx: ServerPluginContext): Pro
   });
 
   const gateway = createChatGateway({
-    platform: "discord",
+    platform: adapter.platform,
     seam,
     adapter,
     config,

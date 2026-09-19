@@ -10,7 +10,11 @@
  */
 
 /** Only Discord ships in this change; the interface is the extension point. */
-export type ChatPlatform = "discord";
+/**
+ * `"fake"` is the socket-less harness fixture (`adapters/fake.ts`), reachable
+ * only under `PI_CHAT_GATEWAY_FAKE` — never a production platform.
+ */
+export type ChatPlatform = "discord" | "fake";
 
 // ── Configuration ─────────────────────────────────────────────────────────
 
