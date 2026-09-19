@@ -6,14 +6,14 @@
  * NOT leak to `/api/file` or `/api/file/render`.
  * See change: serve-agent-artifact-previews.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import Fastify, { type FastifyInstance } from "fastify";
-import fsp from "node:fs/promises";
-import path from "node:path";
-import os from "node:os";
 
-import { registerFileRoutes } from "../routes/file-routes.js";
+import fsp from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import Fastify, { type FastifyInstance } from "fastify";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetArtifactRootsCache } from "../lib/artifact-roots.js";
+import { registerFileRoutes } from "../routes/file-routes.js";
 
 /**
  * Task 3.0 / design D7: containment denials gained ADDITIVE remedy fields

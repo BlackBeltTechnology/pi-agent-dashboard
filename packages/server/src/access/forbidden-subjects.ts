@@ -128,3 +128,17 @@ export function subsumesForbiddenGrantSubject(
   const { whole, sensitive } = forbiddenGrantSubjects(env);
   return [...whole, ...sensitive].some((forbidden) => subsumes(real, forbidden));
 }
+
+/**
+ * The complete grantability test: forbidden in its own right, OR an ancestor
+ * that would subsume a forbidden subject.
+ *
+ * Both enforcement points need this EXACT pair — the grant route's validation
+ * and the store's post-normalization backstop — so it is named once here rather
+ * than re-spelled as a `||` at each site, where one of the two halves could be
+ * dropped without any test noticing. Callers must pass the subject that will be
+ * PERSISTED, not a pre-normalization input (design D15).
+ */
+export function isUngrantableSubject(subject: string, env?: { homedir?: string }): boolean {
+  return isForbiddenGrantSubject(subject, env) || subsumesForbiddenGrantSubject(subject, env);
+}

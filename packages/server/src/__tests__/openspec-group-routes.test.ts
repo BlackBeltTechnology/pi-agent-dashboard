@@ -6,13 +6,14 @@
  *
  * See change: add-openspec-change-grouping.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import Fastify, { type FastifyInstance } from "fastify";
+
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { registerOpenSpecGroupRoutes } from "../routes/openspec-group-routes.js";
+import Fastify, { type FastifyInstance } from "fastify";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createOpenSpecGroupStore, type OpenSpecGroupStore } from "../openspec/openspec-group-store.js";
+import { registerOpenSpecGroupRoutes } from "../routes/openspec-group-routes.js";
 
 const PASSTHRU_GUARD = async () => {};
 const DENY_GUARD = async (_req: any, reply: any) => {

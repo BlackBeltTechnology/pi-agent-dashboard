@@ -7,15 +7,23 @@ import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
+import { type DenialRemedy, evaluateContainment } from "../access/containment-gate.js";
+import {
+  assertRegularFile,
+  openVerifiedRegularFile,
+  readFileVerified,
+  readFileVerifiedUtf8,
+  VerifiedReadRefused,
+} from "../access/verified-read.js";
 import { classifyPaths, createDirectory, listDirectories, parseFlagsQuery } from "../browse.js";
 import { isImageUnderArtifactRoot } from "../lib/artifact-roots.js";
 import { decodeFileUri } from "../lib/decode-file-uri.js";
-import { EML_SIZE_CAP, loadParsedEml, toParseResult } from "../lib/eml.js";
 import { renderDiagram } from "../lib/diagram-render.js";
-import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { EML_SIZE_CAP, loadParsedEml, toParseResult } from "../lib/eml.js";
 import { enumerateMdCandidates } from "../lib/md-candidates.js";
 import { extToContentType } from "../lib/mime-types.js";
 import {
@@ -31,7 +39,6 @@ import {
   resolveRowLimit,
 } from "../lib/office-preview.js";
 import { isAllowed } from "../lib/path-containment.js";
-import { evaluateContainment, type DenialRemedy } from "../access/containment-gate.js";
 
 /**
  * A gate failure. `error` is byte-identical to what the site returned before
@@ -55,10 +62,11 @@ function denialBody(gate: GateFailure): ApiResponse {
   if (gate.ancestors !== undefined) body.ancestors = gate.ancestors;
   return body as unknown as ApiResponse;
 }
+
 import { resolveFileMention } from "../lib/resolve-file-mention.js";
 import { isWritableMdTarget } from "../lib/writable-md-target.js";
-import type { SessionManager } from "../session/memory-session-manager.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
 import {
   buildOpenCommand,
   buildRevealCommand,
@@ -261,7 +269,7 @@ export function registerFileRoutes(
     allowedExts: string[],
     sizeCap: number,
   ): Promise<
-    | { resolved: string; ext: string; stat: import("node:fs").Stats }
+    | { resolved: string; ext: string; stat: import("node:fs").Stats; viaGrant: boolean }
     | GateFailure
   > {
     if (!cwd || !relPath) return { code: 400, error: "cwd and path parameters required" };
@@ -282,7 +290,22 @@ export function registerFileRoutes(
       return { code: 404, error: "not found" };
     }
     if (stat.size > sizeCap) return { code: 413, error: "file too large to preview" };
-    return { resolved, ext, stat };
+    // A grant-admitted office/EML file is refused unless it is a regular file
+    // (design D14, task 2.8). This gate hands a PATH to an out-of-process
+    // renderer, so it closes the blocking hazard (a granted FIFO would otherwise
+    // be opened and hang the request) but not the inode bind — see
+    // `assertRegularFile`.
+    if (decision.viaGrant) {
+      try {
+        await assertRegularFile(resolved);
+      } catch (err) {
+        if (err instanceof VerifiedReadRefused) {
+          return { code: 403, error: "path outside working directory" };
+        }
+        throw err;
+      }
+    }
+    return { resolved, ext, stat, viaGrant: decision.viaGrant };
   }
 
   // Directory browse endpoint.
@@ -398,7 +421,13 @@ export function registerFileRoutes(
         // `content` (no binary-bytes-in-JSON leak).
         // See change: add-internal-monaco-editor-pane,
         //             open-view-command-in-editor-pane (D4).
-        const fh = await fs.open(resolved, "r");
+        // A grant-admitted read is verified against the OPEN HANDLE, not a
+        // re-resolved path (design D14, task 2.8): containment and this open are
+        // two syscalls, so without it the path could be swapped for a symlink or
+        // a FIFO in the gap. Layer ①/② reads keep the pre-existing open.
+        const fh = readDecision.viaGrant
+          ? await openVerifiedRegularFile(resolved)
+          : await fs.open(resolved, "r");
         let kindResult;
         let content: string | undefined;
         try {
@@ -429,7 +458,14 @@ export function registerFileRoutes(
             ...(content !== undefined ? { content } : {}),
           },
         } satisfies ApiResponse;
-      } catch {
+      } catch (err) {
+        if (err instanceof VerifiedReadRefused) {
+          // A granted path whose file is not a regular file, or was swapped
+          // between the check and the open. Refused in the site's existing
+          // containment shape — deliberately no new user-facing string.
+          reply.code(403);
+          return { success: false, error: "path outside working directory" } satisfies ApiResponse;
+        }
         reply.code(404);
         return { success: false, error: "not found" } satisfies ApiResponse;
       }
@@ -794,6 +830,9 @@ export function registerFileRoutes(
       // Ordering is load-bearing (design D1): the image-only artifact-root
       // admission at this site ("Layer ③" in source) runs BEFORE the grant
       // layer, and the grant layer is never consulted when it admits.
+      // True only when the GRANT layer admitted this read — layers ①/② and the
+      // artifact root do NOT get handle verification (task 2.8 scope).
+      let viaGrant = false;
       if (!(await isAllowed(resolved, { anchors: [cwd, homePiAnchor()] }))) {
         if (!(await isImageUnderArtifactRoot(resolved))) {
           const rawDecision = await evaluateContainment(resolved, [cwd, homePiAnchor()], {
@@ -804,6 +843,7 @@ export function registerFileRoutes(
             reply.code(403);
             return { success: false, error: "path outside working directory", ...rawDecision.remedy } as unknown as ApiResponse;
           }
+          viaGrant = rawDecision.viaGrant;
         }
       }
 
@@ -815,6 +855,8 @@ export function registerFileRoutes(
         return { success: false, error: "not found" } satisfies ApiResponse;
       }
       if (!stat.isFile()) {
+        // Already refuses a FIFO/dir before any open, and so before it could
+        // block. Unchanged for every admission path.
         reply.code(404);
         return { success: false, error: "not a file" } satisfies ApiResponse;
       }
@@ -830,7 +872,14 @@ export function registerFileRoutes(
 
       // Range support — required for video seek. Parse a single
       // `bytes=start-end` range; reject multipart/syntax errors with 416.
+      //
+      // Parsed BEFORE the verified handle is opened below. The 416 paths return
+      // early, so opening first leaked one descriptor per malformed range —
+      // `Range: bytes=abc` repeated against any grant-admitted file drove the
+      // process to EMFILE. Keeping the open after this block makes the leak
+      // impossible by construction rather than by remembering to close.
       const rangeHeader = request.headers.range;
+      let range: { start: number; end: number } | undefined;
       if (rangeHeader && /^bytes=/.test(rangeHeader)) {
         const spec = rangeHeader.slice("bytes=".length).trim();
         const m = /^(\d*)-(\d*)$/.exec(spec);
@@ -866,14 +915,38 @@ export function registerFileRoutes(
           reply.header("Content-Range", `bytes */${size}`);
           return reply.send();
         }
+        range = { start, end };
+      }
+
+      // A grant-admitted read additionally binds the bytes served to the inode
+      // that was checked (design D14, task 2.8).
+      let grantedHandle: Awaited<ReturnType<typeof openVerifiedRegularFile>> | undefined;
+      if (viaGrant) {
+        try {
+          grantedHandle = await openVerifiedRegularFile(resolved);
+        } catch (err) {
+          if (err instanceof VerifiedReadRefused) {
+            reply.code(403);
+            return { success: false, error: "path outside working directory" } satisfies ApiResponse;
+          }
+          reply.code(404);
+          return { success: false, error: "not found" } satisfies ApiResponse;
+        }
+      }
+
+      if (range) {
         reply.code(206);
-        reply.header("Content-Range", `bytes ${start}-${end}/${size}`);
-        reply.header("Content-Length", String(end - start + 1));
-        return reply.send(createReadStream(resolved, { start, end }));
+        reply.header("Content-Range", `bytes ${range.start}-${range.end}/${size}`);
+        reply.header("Content-Length", String(range.end - range.start + 1));
+        return reply.send(
+          grantedHandle
+            ? grantedHandle.createReadStream({ start: range.start, end: range.end })
+            : createReadStream(resolved, { start: range.start, end: range.end }),
+        );
       }
 
       reply.header("Content-Length", String(size));
-      return reply.send(createReadStream(resolved));
+      return reply.send(grantedHandle ? grantedHandle.createReadStream() : createReadStream(resolved));
     },
   );
 
@@ -965,11 +1038,26 @@ export function registerFileRoutes(
       }
 
       let source: string;
-      try {
-        source = await fs.readFile(resolved, "utf-8");
-      } catch {
-        reply.code(404);
-        return { success: false, error: "not found" } satisfies ApiResponse;
+      if (renderDecision.viaGrant) {
+        // Verified against the open handle (design D14, task 2.8) — a granted
+        // FIFO would otherwise block this read indefinitely.
+        try {
+          source = await readFileVerifiedUtf8(resolved);
+        } catch (err) {
+          if (err instanceof VerifiedReadRefused) {
+            reply.code(403);
+            return { success: false, error: "path outside working directory" } satisfies ApiResponse;
+          }
+          reply.code(404);
+          return { success: false, error: "not found" } satisfies ApiResponse;
+        }
+      } else {
+        try {
+          source = await fs.readFile(resolved, "utf-8");
+        } catch {
+          reply.code(404);
+          return { success: false, error: "not found" } satisfies ApiResponse;
+        }
       }
 
       try {
@@ -1049,11 +1137,26 @@ export function registerFileRoutes(
         return denialBody(gate);
       }
       let buffer: Buffer;
-      try {
-        buffer = await fs.readFile(gate.resolved);
-      } catch {
-        reply.code(404);
-        return { success: false, error: "not found" } satisfies ApiResponse;
+      if (gate.viaGrant) {
+        // Read from the VERIFIED handle, so the bytes parsed are the bytes
+        // checked (design D14, task 2.8) — not a third resolution of the path.
+        try {
+          buffer = await readFileVerified(gate.resolved);
+        } catch (err) {
+          if (err instanceof VerifiedReadRefused) {
+            reply.code(403);
+            return { success: false, error: "path outside working directory" } satisfies ApiResponse;
+          }
+          reply.code(404);
+          return { success: false, error: "not found" } satisfies ApiResponse;
+        }
+      } else {
+        try {
+          buffer = await fs.readFile(gate.resolved);
+        } catch {
+          reply.code(404);
+          return { success: false, error: "not found" } satisfies ApiResponse;
+        }
       }
       const limit = request.query.limit ? Number(request.query.limit) : undefined;
       const rowLimit = resolveRowLimit(limit, officeCaps);

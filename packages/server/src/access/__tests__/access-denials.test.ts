@@ -14,8 +14,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  DENIAL_TTL_MS,
   __resetPathDenials,
+  DENIAL_TTL_MS,
   getPathDenial,
   listPathDenials,
   recordPathDenial,

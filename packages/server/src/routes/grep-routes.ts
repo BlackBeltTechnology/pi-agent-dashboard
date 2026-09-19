@@ -11,11 +11,11 @@
 import path from "node:path";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
+import { grantedSubjects } from "../access/access-grants.js";
 import { runGrep } from "../lib/grep.js";
 import { isAllowed, isGrantAdmitted } from "../lib/path-containment.js";
-import { grantedSubjects } from "../access/access-grants.js";
-import type { SessionManager } from "../session/memory-session-manager.js";
 import { detectRipgrep } from "../ripgrep-detection.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 /** Minimum query length (mirrors the client min-3-char guard). */

@@ -30,21 +30,22 @@
  */
 import * as fs from "node:fs";
 import path from "node:path";
+import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
-import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { getPathDenial } from "../access/access-denials.js";
 import {
   __accessGrantsLoadCount,
+  type GrantScope,
   listGrants,
+  normalizeGrantSubject,
   recordGrant,
   revokeGrant,
-  type GrantScope,
 } from "../access/access-grants.js";
-import { getPathDenial } from "../access/access-denials.js";
-import { isForbiddenGrantSubject, subsumesForbiddenGrantSubject } from "../access/forbidden-subjects.js";
+import { isUngrantableSubject } from "../access/forbidden-subjects.js";
 import { revokeTrust as revokeWorktreeTrust } from "../git-worktree/worktree-init-trust.js";
-import { AGENT_DIR } from "../pi/pi-resource-activation.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
+import { AGENT_DIR } from "../pi/pi-resource-activation.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 /** pi's own project-trust store file. Read in place; never rewritten here. */
@@ -313,9 +314,15 @@ export function registerAccessRoutes(
 
     // (d) The subject must be the one the denial named, or one of its offered
     // ancestors. A sibling, an unrelated directory, or an arbitrary path cannot
-    // be grafted onto the grant path.
-    const named = new Set([denial.subject, ...(denial.ancestors ?? [])]);
-    if (!named.has(subject)) {
+    // be grafted onto the grant path. Compared in CANONICAL form, because that
+    // is what the store persists — `recordGrant` normalizes a non-directory
+    // subject onto its containing directory, so a raw-string comparison would
+    // let that normalization move an approved grant off the named subject.
+    const named = new Set(
+      [denial.subject, ...(denial.ancestors ?? [])].map(normalizeGrantSubject),
+    );
+    const normalized = normalizeGrantSubject(subject);
+    if (!named.has(normalized)) {
       reply.code(403);
       return {
         success: false,
@@ -324,16 +331,25 @@ export function registerAccessRoutes(
     }
 
     // (e) Forbidden subjects, applied identically to a named subject and to a
-    // rung. `subsumes` also rejects a rung that would admit a forbidden subject
-    // (`/private` admitting `/private/etc` on macOS).
-    if (isForbiddenGrantSubject(subject) || subsumesForbiddenGrantSubject(subject)) {
+    // rung, and applied to the NORMALIZED subject — the value that gets
+    // persisted. `subsumes` also rejects a rung that would admit a forbidden
+    // subject (`/private` admitting `/private/etc` on macOS).
+    //
+    // Checking only the RAW subject left a one-click escalation: a denial
+    // subject is the LEXICAL dirname of the refused path (`grantableSubjectOf`),
+    // so it is a regular FILE whenever the refused path has one extra component.
+    // Refusing `$HOME/.CFUserTextEncoding/x` named the file
+    // `$HOME/.CFUserTextEncoding`, which is not itself forbidden and passed the
+    // filter, and it then normalized into a grant for the whole of `$HOME`;
+    // `/.file` normalized into a grant for `/`.
+    if (isUngrantableSubject(normalized)) {
       reply.code(403);
       return { success: false, error: "subject may not be granted" } satisfies ApiResponse;
     }
 
-    const widened = subject !== denial.subject;
+    const widened = normalized !== normalizeGrantSubject(denial.subject);
     const result = recordGrant({
-      subject,
+      subject: normalized,
       scope: scope === "session" ? "session" : "project",
       origin: denial.session,
       widenedFrom: widened ? (widenedFrom ?? denial.subject) : undefined,
@@ -346,6 +362,16 @@ export function registerAccessRoutes(
       reply.code(500);
       return { success: false, error: `grant not recorded: ${result.error}` } satisfies ApiResponse;
     }
+
+    // Audited (STRIDE: Repudiation), mirroring the network-trust accept path
+    // (`[network-trust] accepted pending request ip=…`). A grant is a PERSISTENT
+    // filesystem widening, so it must leave an operational trail and not only a
+    // store entry. See change: add-access-grants-and-review (task 7b.4).
+    console.log(
+      `[access-grant] granted subject=${result.grant.subject} scope=${result.grant.scope} site=${
+        denial.site
+      } denialId=${denialId}${widened ? ` widenedFrom=${denial.subject}` : ""}`,
+    );
     return { success: true, data: result.grant } satisfies ApiResponse;
   });
 

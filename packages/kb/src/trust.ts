@@ -4,9 +4,9 @@
 // `sha256(canonical(SourceSpec))` so editing the spec re-prompts.
 // Persisted at `~/.pi/dashboard/kb-source-trust.json`.
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import type { SourceConfig } from "./config.js";
 
 function storePath(): string {

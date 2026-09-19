@@ -2,10 +2,11 @@
  * Session-related REST API routes.
  */
 import { readFile } from "node:fs/promises";
-import { evaluateContainment } from "../access/containment-gate.js";
 import { isAbsolute, relative, resolve } from "node:path";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
+import { evaluateContainment } from "../access/containment-gate.js";
+import { readFileVerifiedUtf8, VerifiedReadRefused } from "../access/verified-read.js";
 import type { EventStore } from "../persistence/memory-event-store.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import type { RemoteTranscriptStore } from "../session/remote-transcript-store.js";
@@ -390,6 +391,7 @@ export function registerSessionRoutes(
       // Resolve and ensure path is within cwd
       const absPath = isAbsolute(filePath) ? filePath : resolve(session.cwd, filePath);
       const rel = relative(session.cwd, absPath);
+      let viaGrant = false;
       if (rel.startsWith("..") || isAbsolute(rel)) {
         // The tenth containment site (design D19). A path grant admits here
         // exactly as it does at the file-routes sites; the refusal string is
@@ -402,11 +404,21 @@ export function registerSessionRoutes(
           reply.code(403);
           return { success: false, error: "path outside session directory", ...sessionDecision.remedy } as ApiResponse;
         }
+        viaGrant = sessionDecision.viaGrant;
       }
       try {
-        const content = await readFile(absPath, "utf-8");
+        // A grant-admitted read is verified against the open handle (design D14,
+        // task 2.8): without it a granted FIFO would block this read, and a path
+        // swapped after the containment check would be served.
+        const content = viaGrant
+          ? await readFileVerifiedUtf8(absPath)
+          : await readFile(absPath, "utf-8");
         return { success: true, data: { content } } satisfies ApiResponse;
-      } catch {
+      } catch (err) {
+        if (err instanceof VerifiedReadRefused) {
+          reply.code(403);
+          return { success: false, error: "path outside session directory" } as ApiResponse;
+        }
         reply.code(404);
         return { success: false, error: "file not found" } satisfies ApiResponse;
       }

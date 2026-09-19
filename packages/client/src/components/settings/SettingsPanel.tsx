@@ -7,8 +7,6 @@ import {
   mergeCustomEventGroupPrefs,
   normalizeNotifyMinLevel,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
-// Type-only import — erased at bundle time, so the rule above holds.
-import type { HostGateMode } from "@blackbelt-technology/pi-dashboard-shared/host-admission.js";
 // From the BROWSER-SAFE module, never `config.js`: a value import of the latter
 // pulls node:fs/os/path into the bundle and the SPA dies at boot with
 // `uv.homedir is not a function`. See change: fix-lazy-history-backfill-ux (D7).
@@ -19,6 +17,8 @@ import {
   MIN_HEAP_MB,
   subagentHeapBudget,
 } from "@blackbelt-technology/pi-dashboard-shared/heap-limits.js";
+// Type-only import — erased at bundle time, so the rule above holds.
+import type { HostGateMode } from "@blackbelt-technology/pi-dashboard-shared/host-admission.js";
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import { mergeModelOptions } from "@blackbelt-technology/pi-dashboard-shared/model-catalogue.js";
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
@@ -56,7 +56,6 @@ import { logRejection } from "../../lib/report-error.js";
 import { useCustomEventGroups } from "../../lib/state/custom-event-groups.js";
 import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
-import { AccessSection } from "./AccessSection.js";
 import { KnownServersSection } from "../connectivity/KnownServersSection.js";
 import { NetworkDiscoverySection } from "../connectivity/NetworkDiscoverySection.js";
 import { PairedDevicesSection } from "../connectivity/PairedDevicesSection.js";
@@ -73,6 +72,7 @@ import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 import type { ResourceType } from "../resource/ResourceCardGrid.js";
 import { RESOURCE_PAGE_TYPE, type ResourcePageId, ScopedResourceGrid } from "../resource/ScopedResourceGrid.js";
+import { AccessSection } from "./AccessSection.js";
 import { AllowedHostsSection } from "./AllowedHostsSection.js";
 import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
 import { DiagnosticsSection } from "./DiagnosticsSection.js";

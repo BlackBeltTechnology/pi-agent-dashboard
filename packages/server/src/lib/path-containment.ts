@@ -34,8 +34,9 @@
  *
  * See change: widen-containment-to-resolved-checkout (was: git-root-file-containment).
  */
-import path from "node:path";
+
 import fs from "node:fs/promises";
+import path from "node:path";
 import { checkoutRootsAsync, isBoundCheckoutAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import { samePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
 
@@ -52,7 +53,7 @@ const PROBE_TIMEOUT_MS = 2_000;
  */
 export function within(p: string, base: string): boolean {
   const rel = path.relative(base, p);
-  return rel === "" || (!rel.startsWith(".." + path.sep) && rel !== ".." && !path.isAbsolute(rel));
+  return rel === "" || (!rel.startsWith(`..${path.sep}`) && rel !== ".." && !path.isAbsolute(rel));
 }
 
 /**

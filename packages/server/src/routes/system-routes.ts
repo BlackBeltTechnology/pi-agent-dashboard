@@ -29,13 +29,13 @@ import {
   sameReachability,
 } from "../auth/bind-reachability-service.js";
 import { localhostGuard } from "../auth/localhost-guard.js";
+import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
+import type { DirectoryService } from "../directory-service.js";
 import {
   type ClientBuildSnapshot,
   readClientBuildSnapshot,
   runtimePluginRegistryHash,
 } from "../lib/client-dist.js";
-import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
-import type { DirectoryService } from "../directory-service.js";
 import { bootParentPid, computeBootParentAlive, readLivePpid } from "../lifecycle/boot-parent-liveness.js";
 import { ensureInstanceId, instanceIdHealthFields } from "../lifecycle/instance-id.js";
 import { computeEffectiveLaunchSource } from "../lifecycle/launch-source-effective.js";
@@ -59,8 +59,8 @@ import {
   readPiCompatibility,
 } from "../pi/pi-version-skew.js";
 import { EMPTY_KEEPER_LOG_STATS, type KeeperLogStats } from "../rpc-keeper/keeper-manager.js";
-import { serverHeapTelemetry } from "../server-heap-telemetry.js";
 import type { ServerConfig } from "../server.js";
+import { serverHeapTelemetry } from "../server-heap-telemetry.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import { heapFallbackStatus } from "../spawn-process/heap-args.js";
 import { spawnRestart } from "../spawn-process/restart-helper.js";

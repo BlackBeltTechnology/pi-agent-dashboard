@@ -16,16 +16,17 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { __resetPathDenials, getPathDenial, recordPathDenial } from "../access/access-denials.js";
 import {
   __resetAccessGrants,
   grantedSubjects,
-  grantedSubjects as subjects,
   recordGrant,
+  grantedSubjects as subjects,
 } from "../access/access-grants.js";
-import { __resetPathDenials, getPathDenial, recordPathDenial } from "../access/access-denials.js";
-import { registerAccessRoutes } from "../routes/access-routes.js";
+import { isForbiddenGrantSubject } from "../access/forbidden-subjects.js";
 import { createMutationOriginGate } from "../auth/mutation-origin-gate.js";
+import { registerAccessRoutes } from "../routes/access-routes.js";
 
 let app: FastifyInstance;
 let tmp: string;
@@ -421,5 +422,109 @@ describe("7b.0a grant-endpoint write failure is reported, never silent", () => {
     expect(res.json().error).toMatch(/grant not recorded/);
     // The admitted set never widens on a failed write.
     expect(grantedSubjects()).toEqual([]);
+  });
+});
+
+/**
+ * Regression for a defect found by the pre-ship security audit (design D15).
+ *
+ * A denial's `subject` is the LEXICAL dirname of the refused path
+ * (`grantableSubjectOf`), so it is a regular FILE whenever the refused path had
+ * one extra component. The forbidden filter originally ran on that raw subject
+ * — which is not itself forbidden — and `recordGrant` then normalized it onto
+ * its containing directory, persisting a grant for the parent. On macOS a
+ * denial naming `$HOME/.CFUserTextEncoding` became a grant for the whole of
+ * `$HOME`, and `/.file` became a grant for `/`; one operator click on the
+ * offered remedy would then have admitted `~/.ssh` and `~/.pi`.
+ *
+ * The fix runs the filter on the NORMALIZED subject, at both the route and the
+ * store, so the value that is checked is the value that is persisted.
+ */
+describe("subject normalization cannot move a grant past the forbidden filter", () => {
+  it("refuses a denial whose FILE subject normalizes into $HOME, recording nothing", async () => {
+    const home = os.homedir();
+    const file = path.join(home, `audit-regression-${process.pid}.txt`);
+    await fsp.writeFile(file, "x", "utf8");
+    try {
+      // The trap, asserted explicitly: the raw subject passes the filter…
+      expect(isForbiddenGrantSubject(file)).toBe(false);
+      // …while the value it normalizes onto does not.
+      expect(isForbiddenGrantSubject(home)).toBe(true);
+
+      const entry = recordPathDenial({ subject: file, site: "s" });
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/access/grants",
+        payload: { denialId: entry.denialId, subject: file },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(grantedSubjects()).toEqual([]);
+    } finally {
+      await fsp.rm(file, { force: true });
+    }
+  });
+
+  it("the STORE backstops the filter when a caller skips route validation", async () => {
+    const home = os.homedir();
+    const file = path.join(home, `audit-store-${process.pid}.txt`);
+    await fsp.writeFile(file, "x", "utf8");
+    try {
+      const result = recordGrant({ subject: file, origin: "test" });
+      expect(result.ok).toBe(false);
+      expect(grantedSubjects()).toEqual([]);
+    } finally {
+      await fsp.rm(file, { force: true });
+    }
+  });
+});
+
+/**
+ * Task 7b.4 — the grant path mirrors the hardening `tunnel-block-events.ts`
+ * applies to its own one-click trust action. That action is AUDITED
+ * (`[network-trust] accepted pending request ip=…`, STRIDE: Repudiation); a
+ * grant is a PERSISTENT filesystem widening, so it must leave an operational
+ * trail and not merely a store entry.
+ */
+describe("7b.4 a successful grant is audited", () => {
+  it("emits an [access-grant] line naming the subject, scope and denial", async () => {
+    const dir = mkdir("audited");
+    const entry = recordPathDenial({ subject: dir, site: "file-routes:read" });
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/access/grants",
+        payload: { denialId: entry.denialId, subject: dir },
+      });
+      expect(res.statusCode).toBe(200);
+      const line = spy.mock.calls
+        .map((c) => String(c[0]))
+        .find((m) => m.startsWith("[access-grant] granted"));
+      expect(line, "expected an [access-grant] audit line").toBeDefined();
+      expect(line).toContain(dir);
+      expect(line).toContain(`denialId=${entry.denialId}`);
+      expect(line).toContain("scope=project");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("does not emit the audit line when the grant is refused", async () => {
+    const home = os.homedir();
+    const entry = recordPathDenial({ subject: home, site: "s" });
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/access/grants",
+        payload: { denialId: entry.denialId, subject: home },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(
+        spy.mock.calls.some((c) => String(c[0]).startsWith("[access-grant] granted")),
+      ).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

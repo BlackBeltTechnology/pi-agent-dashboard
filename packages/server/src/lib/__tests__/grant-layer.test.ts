@@ -12,8 +12,8 @@
  * See change: add-access-grants-and-review.
  */
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import * as fs from "node:fs";
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -34,6 +34,7 @@ vi.mock("node:fs", async (importOriginal) => {
     realpathSync: (...a: any[]) => (spies.realpathSync ?? actual.realpathSync)(...a),
   };
 });
+
 import { __resetAccessGrants, grantedSubjects, recordGrant, revokeGrant } from "../../access/access-grants.js";
 import { isAllowed, isGrantAdmitted, within } from "../path-containment.js";
 
@@ -204,9 +205,11 @@ describe("9a.14 / 9a.17 missing and malformed degrade safely", () => {
 
   it("9a.24 containment admits a FIFO path; the site's lstat rule is the actual gate", async () => {
     // The predicate answers containment only. The FIFO refusal is the
-    // lstat-before-open rule at the byte-serving sites (design D14, task 2.8) —
-    // which is load-bearing beyond correctness, since opening a FIFO BLOCKS and
-    // would hold a request open.
+    // lstat-before-open rule at the byte-serving sites (design D14, task 2.8),
+    // which is load-bearing beyond correctness since opening a FIFO BLOCKS and
+    // would hold a request open. That rule now lives in `access/verified-read.ts`
+    // and is asserted end-to-end by `__tests__/granted-read-verification.test.ts`
+    // (route level) and `access/__tests__/verified-read.test.ts` (unit level).
     const granted = mkdir("fifo");
     const pipe = path.join(granted, "pipe");
     execFileSync("mkfifo", [pipe]);
@@ -227,7 +230,7 @@ describe("9a.5 / 9a.16 empty-store equivalence and fail-closed", () => {
   });
 
   it("9d.4 an empty store short-circuits with zero syscalls", async () => {
-    let realpaths = 0;
+    const realpaths = 0;
     const spy = fs.realpathSync;
     // Directly assert the early return: no subjects → no realpath attempted.
     const result = await isGrantAdmitted(path.join(root, "whatever"), []);

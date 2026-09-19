@@ -3,11 +3,12 @@
  * `{ type: "file", kind, mimeType, size, content? }`, with content present
  * only for text-renderable kinds. See change: add-internal-monaco-editor-pane.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import Fastify, { type FastifyInstance } from "fastify";
+
 import fsp from "node:fs/promises";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+import Fastify, { type FastifyInstance } from "fastify";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { registerFileRoutes } from "../routes/file-routes.js";
 

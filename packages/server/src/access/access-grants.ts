@@ -37,6 +37,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+import { isUngrantableSubject } from "./forbidden-subjects.js";
 
 /** `session` = in-memory, until server restart. `project` = persisted JSON. */
 export type GrantScope = "session" | "project";
@@ -71,7 +72,7 @@ interface StoreFile {
  */
 export function accessGrantsStorePath(): string {
   const override = process.env.PI_ACCESS_GRANTS_STORE;
-  if (override && override.trim()) return path.resolve(override);
+  if (override?.trim()) return path.resolve(override);
   return path.join(getDashboardConfigDir(), "access-grants.json");
 }
 
@@ -239,6 +240,18 @@ export function recordGrant(input: RecordGrantInput): RecordGrantResult {
   const origin = input.origin ?? "unknown";
   const subject = normalizeGrantSubject(input.subject);
   const grantedAt = input.now ?? Date.now();
+
+  // Defence in depth (design D15): the forbidden filter must run on the value
+  // that is actually STORED, never on the caller's pre-normalization input.
+  // `normalizeGrantSubject` maps a non-directory onto its containing directory,
+  // so a caller that validated a FILE subject would otherwise persist a grant
+  // for that file's parent: on macOS a denial naming `$HOME/.CFUserTextEncoding`
+  // normalized into a grant for `$HOME`, and `/.file` into a grant for `/`.
+  // `access-routes` applies the same filter post-normalization; this is the
+  // backstop that makes the invariant hold for any future caller.
+  if (isUngrantableSubject(subject)) {
+    return { ok: false, error: "forbidden subject" };
+  }
 
   const widen =
     input.widenedFrom && normalizeGrantSubject(input.widenedFrom) !== subject

@@ -1226,3 +1226,64 @@ describe("POST /api/diagram/render and Kroki resolution (test-plan #E1–#E7, #X
     }
   });
 });
+
+/**
+ * Task 9b.6 / test-plan E25 (design D7): `gateFilePath` and `gateOfficeFile`
+ * return an INTERNAL `{ code, error }` failure, which the route converts via
+ * `denialBody`. The wire must carry `{ success: false, error }` with the gate's
+ * status — the internal `code` key must never reach the client, or the two
+ * shapes would have merged into one and the pre-existing contract would have
+ * changed.
+ */
+describe("gate refusals never leak their internal `code` to the wire (test-plan #E25)", () => {
+  let app: FastifyInstance;
+  let tmp: string;
+
+  beforeEach(async () => {
+    tmp = await fsp.mkdtemp(path.join(os.tmpdir(), "gate-wire-"));
+    app = makeApp([tmp]);
+    await app.ready();
+  });
+
+  afterEach(async () => {
+    await app.close();
+    await fsp.rm(tmp, { recursive: true, force: true });
+  });
+
+  it("gateOfficeFile keeps { success, error } at both its 400 and its 403", async () => {
+    const badExt = await app.inject({
+      method: "GET",
+      url: `/api/file/sheet?cwd=${encodeURIComponent(tmp)}&path=${encodeURIComponent(
+        path.join(tmp, "x.txt"),
+      )}`,
+    });
+    expect(badExt.statusCode).toBe(400);
+    expect(badExt.json()).toMatchObject({
+      success: false,
+      error: "renderer not supported for extension",
+    });
+    expect(badExt.json()).not.toHaveProperty("code");
+
+    const unknownCwd = await app.inject({
+      method: "GET",
+      url: `/api/file/sheet?cwd=${encodeURIComponent("/nope")}&path=${encodeURIComponent(
+        "/nope/x.csv",
+      )}`,
+    });
+    expect(unknownCwd.statusCode).toBe(403);
+    expect(unknownCwd.json()).toMatchObject({ success: false, error: "unknown session path" });
+    expect(unknownCwd.json()).not.toHaveProperty("code");
+  });
+
+  it("gateFilePath keeps { success, error } on the EML route", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/eml?cwd=${encodeURIComponent("/nope")}&path=${encodeURIComponent(
+        "/nope/x.eml",
+      )}`,
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ success: false, error: "unknown session path" });
+    expect(res.json()).not.toHaveProperty("code");
+  });
+});

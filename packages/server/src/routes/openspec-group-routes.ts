@@ -8,21 +8,22 @@
  *
  * See change: add-openspec-change-grouping (tasks 3.1–3.13).
  */
-import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import type { SessionManager } from "../session/memory-session-manager.js";
-import type { PreferencesStore } from "../persistence/preferences-store.js";
-import type { NetworkGuard } from "./route-deps.js";
+
 import type {
   ApiResponse,
   OpenSpecGroupsFile,
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   ConcurrentEditError,
   GroupNotFoundError,
+  type OpenSpecGroupStore,
   UnknownGroupIdError,
   UnsupportedSchemaVersionError,
-  type OpenSpecGroupStore,
 } from "../openspec/openspec-group-store.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
+import type { NetworkGuard } from "./route-deps.js";
 
 export interface OpenSpecGroupRoutesDeps {
   sessionManager: SessionManager;

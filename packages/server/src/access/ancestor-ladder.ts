@@ -25,7 +25,7 @@ import os from "node:os";
 import path from "node:path";
 import { checkoutRootsAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import { samePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
-import { isForbiddenGrantSubject, subsumesForbiddenGrantSubject } from "./forbidden-subjects.js";
+import { subsumesForbiddenGrantSubject } from "./forbidden-subjects.js";
 
 const PROBE_TIMEOUT_MS = 2_000;
 

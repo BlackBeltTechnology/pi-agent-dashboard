@@ -20,10 +20,12 @@
  *
  * See change: add-access-grants-and-review.
  */
-import { grantedSubjects } from "./access-grants.js";
-import { recordPathDenial } from "./access-denials.js";
-import { offeredAncestorLadder } from "./ancestor-ladder.js";
+
 import { isAllowed, isGrantAdmitted } from "../lib/path-containment.js";
+import { recordPathDenial } from "./access-denials.js";
+import { grantedSubjects } from "./access-grants.js";
+import { offeredAncestorLadder } from "./ancestor-ladder.js";
+
 /** The grantable subject of a refused path: its containing directory. */
 function grantableSubjectOf(resolved: string): string {
   return resolved.replace(/[/\\][^/\\]*$/, "") || resolved;

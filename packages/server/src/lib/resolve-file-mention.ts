@@ -24,8 +24,8 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { isAllowed, isGrantAdmitted } from "./path-containment.js";
 import { grantedSubjects } from "../access/access-grants.js";
+import { isAllowed, isGrantAdmitted } from "./path-containment.js";
 
 export type MentionKind = "abs" | "tilde" | "relative";
 

@@ -4,17 +4,17 @@
  * an absolute path outside every session cwd is rejected exactly as a
  * traversal attempt. See change: unify-file-link-openability.
  */
-import { describe, it, expect, afterAll, afterEach, beforeAll, beforeEach } from "vitest";
-import Fastify, { type FastifyInstance } from "fastify";
-import fsp from "node:fs/promises";
-import path from "node:path";
-import os from "node:os";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 
-import { registerFileRoutes } from "../routes/file-routes.js";
-import { recordGrant, __resetAccessGrants } from "../access/access-grants.js";
+import { execFile } from "node:child_process";
+import fsp from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
 import { buildGitFixtures, type GitFixtures } from "@blackbelt-technology/pi-dashboard-shared/test-support/git-fixtures.js";
+import Fastify, { type FastifyInstance } from "fastify";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { __resetAccessGrants, recordGrant } from "../access/access-grants.js";
+import { registerFileRoutes } from "../routes/file-routes.js";
 
 /**
  * Task 3.0 / design D7: containment denials gained ADDITIVE remedy fields

@@ -37,11 +37,12 @@ vi.mock("node:fs", async (importOriginal) => {
     realpathSync: (...a: any[]) => (spies.realpathSync ?? actual.realpathSync)(...a),
   };
 });
+
 import {
-  GRANT_CAP_PER_SCOPE,
   __accessGrantsLoadCount,
   __resetAccessGrants,
   accessGrantsStorePath,
+  GRANT_CAP_PER_SCOPE,
   grantedSubjects,
   listGrants,
   normalizeGrantSubject,

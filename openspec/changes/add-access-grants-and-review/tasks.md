@@ -69,7 +69,7 @@ Nothing here suspends or holds open a request — that is `add-access-grant-dial
 - [x] 2.6 Apply the grant check to the two containment sites outside `file-routes` — `grep-routes.ts:60` (filters matches rather than 403ing) and `resolve-file-mention.ts`. → verify: test asserts a granted directory's matches appear in grep results
 - [x] 2.7 Assert the empty-store invariant, including cost: short-circuit before any syscall when the grant set is empty (design.md D16). → verify: two tests — identical outcomes to layers 1–2 alone, and zero filesystem syscalls attributable to the grant layer
 - [x] 2.10 Order the grant layer **after** the existing image-only artifact-root admission at `file-routes.ts:746`, and refer to it as the grant layer, never "layer 3" (avoids colliding with the in-source "Layer ③"). → verify: test asserts an artifact-root image is admitted with an empty grant store, grant layer never consulted
-- [ ] 2.8 Verify grant-admitted reads against the opened handle rather than a re-resolved path (`lstat` → reject non-regular → `open` → `fstat` dev+ino compare → serve from the fd), closing the check→open window (design.md D14). Scope: byte-serving sites only (read, raw, render, office/EML gates) — NOT tree, exists, mention, or grep, which never open a file and whose directory admission the regular-file rule would break. Grant layer only; do not touch layer 2's identical pre-existing window. → verify: race test asserts a refusal, plus a regression test that tree/exists/mention still work under a grant
+- [x] 2.8 Verify grant-admitted reads against the opened handle rather than a re-resolved path (`lstat` → reject non-regular → `open` → `fstat` dev+ino compare → serve from the fd), closing the check→open window (design.md D14). Scope: byte-serving sites only (read, raw, render, office/EML gates) — NOT tree, exists, mention, or grep, which never open a file and whose directory admission the regular-file rule would break. Grant layer only; do not touch layer 2's identical pre-existing window. → verify: race test asserts a refusal, plus a regression test that tree/exists/mention still work under a grant
 - [x] 2.9 **`eng-disciplines` → `systematic-debugging`** if any pre-existing containment test goes red — root-cause before touching the test. → verify: the full `file-read-containment` suite is green
 
 ## 3. Denial bodies name their remedy
@@ -79,7 +79,7 @@ Nothing here suspends or holds open a request — that is `add-access-grant-dial
 - [x] 3.2 Add the grantable subject and `denialId` to the containment denial bodies. The wire shape is uniformly `{ success, error }` — `gateFilePath`/`gateOfficeFile` return `{ code, error }` to their callers only, and every caller converts at `file-routes.ts:446,858,877,946,987,1021,1069`; do NOT emit the internal shape (design.md D7). → verify: test per shape asserts byte-identical pre-existing fields
 - [x] 3.3a Preserve the `exists` site's own strings — `"unknown cwd"` / `"path outside cwd"` (`file-routes.ts:657,663`) — and leave the two body-less sites (`grep-routes.ts:60`, `resolve-file-mention.ts:76`) emitting no denial body. → verify: per-site test asserts each string, plus a test asserting no body was introduced at the body-less sites
 - [x] 3.3 Confirm the non-HTTP denial sites stay untouched: `kb-plugin/src/server/index.ts:47`, `apple-tools/src/server/index.ts:113` (the file is 156 lines — the previously cited `:169` was past EOF), `embed-lifecycle/visitor-session-registry.ts:155`. → verify: test asserts their behaviour is unchanged
-- [ ] 3.4 Wire the pinned-directory remedy so accepting it pins the refused directory, and assert a path grant never pins a cwd. → verify: two tests — remedy pins and retry returns 200; a path grant alone leaves the cwd refused
+- [x] 3.4 Wire the pinned-directory remedy so accepting it pins the refused directory, and assert a path grant never pins a cwd. → verify: two tests — remedy pins and retry returns 200; a path grant alone leaves the cwd refused
 
 ## 4. Denial ledger and network request/accept
 
@@ -92,11 +92,11 @@ Nothing here suspends or holds open a request — that is `add-access-grant-dial
 - [x] 4.7 Suppress accept for `trustable: false` entries. → verify: test asserts no accept action for loopback and proxy-terminated peers
 - [x] 4.8 Assert no unauthenticated inbound endpoint exists for creating a pending request. → verify: route-inventory test asserts the ledger is written only by the guard
 - [x] 4.9 **`eng-disciplines` → `security-hardening`** on the accept path — the one action that widens network trust. → verify: findings recorded and addressed
-- [ ] 4.10 **Spawn `Audit`** on the diff for groups 1–4 (auth/untrusted-input surface). → verify: findings triaged; parent fixes what lands
+- [x] 4.10 **Spawn `Audit`** on the diff for groups 1–4 (auth/untrusted-input surface). → verify: findings triaged; parent fixes what lands
 
 ## 5. CORS observability
 
-- [ ] 5.1 Record CORS origin refusals into the ledger without altering the CORS decision. → verify: test asserts the entry exists and the response is unchanged
+- [x] 5.1 Record CORS origin refusals into the ledger without altering the CORS decision. → verify: test asserts the entry exists and the response is unchanged
 - [x] 5.2 Distinguish configured origins (revocable) from structural allowances. Note `cors-origin.ts` allows more than the configured list — loopback any port, the active tunnel URL, every live tunnel origin, any `*.share.zrok.io` / `*.shares.zrok.io` host, `pi-dashboard.dev`, and any host matching `trustedNetworks`/`bypassHosts`. → verify: unit test classifies each of those branches
 
 ## 6. Revoke support in stores that lack it
@@ -115,7 +115,7 @@ Nothing here suspends or holds open a request — that is `add-access-grant-dial
 - [x] 7.5 Implement revoke per entry against the correct store. → verify: test per store asserts the correct write path is called
 - [x] 7.6 Render legacy hash-only KB entries as opaque hashes with a working revoke. → verify: test asserts no error and a functioning revoke
 - [x] 7.7 Assert loading the page performs no store writes. → verify: test asserts zero writes during render
-- [ ] 7.8 Assert revocation takes effect on the next request without a restart. → verify: integration test grants, revokes, retries, expects 403
+- [x] 7.8 Assert revocation takes effect on the next request without a restart. → verify: integration test grants, revokes, retries, expects 403
 - [x] 7.9 Ship the tab with no grant-creation control — review and revoke only (design.md D12). → verify: test asserts no control creates a grant for an arbitrary subject
 - [x] 7.12 Route project-trust revoke through the existing `persistTrustDecision` wrapper (`pi/resource-toggle-trust.ts:158`, already used at `resource-activation-routes.ts:222`); confirm its delete semantics remove the entry rather than record a standing refusal (design.md D13). → verify: test asserts the entry is absent afterwards and no negative decision was written
 - [x] 7.13 List session-scoped grants alongside persisted ones with all four fields and a working revoke (design.md D17). → verify: fixture test asserts the session grant renders and revokes
@@ -131,15 +131,15 @@ Nothing here suspends or holds open a request — that is `add-access-grant-dial
 - [x] 7b.1b Record on a widened grant that its subject was widened, and the denied subject it came from, so the Access surface can display both. → verify: test asserts both fields persist and render
 - [x] 7b.2 Refuse `/`, `$HOME`, `~/.ssh`, `~/.pi` and the platform system directories (`/etc`, `/usr`, `/var`, `/Library`, Windows equivalents) as grant subjects, comparing **real paths** so `/etc` via `/private/etc` and a symlinked `$HOME` are caught. The filter SHALL apply identically to a ladder rung and to a named subject. → verify: test per subject plus a symlink-alias case, each run against both a named subject and an ancestor rung
 - [x] 7b.3 Require authentication on the grant endpoint and reject cross-origin invocation. Record in `design.md` that this does NOT establish operator presence — `auth-plugin.ts:298` bypasses auth for genuinely-local requests, so a local process can read the denial and satisfy the binding itself (design.md D15). → verify: two tests — unauthenticated refused, disallowed origin refused; plus the limit stated in the design
-- [ ] 7b.4 **`eng-disciplines` → `security-hardening`** on the grant-creation path, mirroring the hardening `tunnel-block-events.ts` applies to its own one-click trust action. → verify: findings recorded and addressed
+- [x] 7b.4 **`eng-disciplines` → `security-hardening`** on the grant-creation path, mirroring the hardening `tunnel-block-events.ts` applies to its own one-click trust action. → verify: findings recorded and addressed
 
 ## 8. Verification and landing
 
 - [ ] 8.1 Add an E2E spec covering grant → read succeeds → revoke → denied again, following an existing `tests/e2e/` spec as harness exemplar (there is no `author-dashboard-e2e-spec` skill; the runner skill is `run-dashboard-e2e-local-changes`). → verify: `npm run test:e2e` green against the docker harness
 - [ ] 8.2 Assert suite runtime is unchanged within noise. → verify: before/after timing on `npm test`
-- [ ] 8.3 Run `npm run quality:changed` and clear findings (`code-quality`). → verify: clean
+- [x] 8.3 Run `npm run quality:changed` and clear findings (`code-quality`). → verify: clean
 - [x] 8.4 Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then grep the summary. → verify: no `FAIL`, summary line shows passed
-- [ ] 8.5 Update the directory `AGENTS.md` rows for every new and changed file. → verify: `kb dox lint` reports no `missing` or `stale` rows
+- [x] 8.5 Update the directory `AGENTS.md` rows for every new and changed file. → verify: `kb dox lint` reports no `missing` or `stale` rows
 - [ ] 8.6 **Spawn `DocScribe`** for `docs/` prose — why grants are a subtree check rather than an `isAllowed` anchor, and the realpath-at-grant-time rule. → verify: caveman-style rows returned and applied by the parent
 - [ ] 8.7 **`eng-disciplines` → `review-code`** on the full diff before commit. → verify: findings resolved or consciously accepted
 - [ ] 8.8 **`eng-disciplines` → `doubt-driven-review`** on the persisted store format — effectively irreversible once shipped. → verify: decision recorded in `design.md` if anything changes
@@ -154,88 +154,88 @@ id. C1–C5 are resolved (manifest banner); no row is blocked.
 
 Exemplar for all of 9a: `packages/server/src/lib/__tests__/path-containment.test.ts`
 
-- [ ] 9a.1 Grant does not widen to git root. grant `/repo/sub` in a real git repo whose common root is `/repo` · read `/repo/other/secret.txt` · 403 `{success:false,error:"path outside working directory"}` (test-plan #E1)
-- [ ] 9a.2 Grant admits its subtree. grant `/a/b` · read `/a/b/deep/c.txt` · allowed 200 (test-plan #E2)
-- [ ] 9a.3 Prefix-adjacent sibling refused. grant `/a/b` · read `/a/bb/c.txt` · 403, separator-aware compare not raw startsWith (test-plan #E3)
-- [ ] 9a.4 Grant does not admit its parent. grant `/a/b` · read `/a/sibling` · 403 (test-plan #E4)
-- [ ] 9a.5 Empty-store equivalence. grant store absent · run the full pre-existing containment suite · every outcome byte-identical to layers 1-2; the only permitted edits are the 20 body-assertion widenings of task 3.0 (test-plan #E5)
-- [ ] 9a.6 `isAllowed` untouched. store populated with `/other` · call `isAllowed(p,{anchors})` directly · return value identical to pre-change for every input, grants never reach it (test-plan #E6)
-- [ ] 9a.7 Grant store bounds. store holding exactly 200 grants · record a 201st · size stays 200, oldest-by-`grantedAt` evicted, a read under the evicted subject 403s (test-plan #E7)
-- [ ] 9a.8 Scope decision table. scope {session,project} x restart {yes,no} · evaluate after each · only session+restart is NOT in force (test-plan #E8)
-- [ ] 9a.9 Subject normalisation. grant requested for `/a/b/c.txt` · record it · persisted subject is `/a/b` (test-plan #E9)
-- [ ] 9a.10 Symlink escape refused. `/a/b` granted containing `esc -> /etc` · read `/a/b/esc/passwd` · 403 (test-plan #X2)
-- [ ] 9a.11 Symlink retarget does not move the grant. `/wt/current -> /wt/v1` granted at v1 · repoint to `/wt/v2`, read under v2 · 403 (test-plan #X3)
-- [ ] 9a.12 Grant write failure. store write throws `EACCES` · operator grants `/a/b` · subject stays ungranted so the next read 403s, failure logged, no 500 and no unhandled rejection, request not failed (test-plan #X4)
-- [ ] 9a.13 TOCTOU between check and open. granted dir, path replaced with a symlink to `/etc` between check and open · read racing the swap · refused via open-handle verification; an unswapped read is unaffected (test-plan #X5)
-- [ ] 9a.14 realpath on a missing subject. granted dir deleted after grant · read under it · 403, no unhandled rejection, no 500 (test-plan #X6)
-- [ ] 9a.15 Granted dir recreated as a symlink. `/a/b` deleted then recreated as symlink to `/etc` · read `/a/b/passwd` · 403, stored real path no longer matches (test-plan #X7)
-- [ ] 9a.16 Degraded git still fails closed. `git` unavailable, store populated · read outside every anchor and grant · 403, grant check does not mask fail-closed (test-plan #X8)
-- [ ] 9a.18 Per-scope eviction. 200 persisted project grants · session grants recorded past the session bound · every project grant still on disk (test-plan #E15)
-- [ ] 9a.19 Grant binds to a recorded denial. grant requested for a directory no denial named · submit · refused, nothing recorded (test-plan #E16)
-- [ ] 9a.20 Forbidden subjects. a denial naming `/`, `$HOME`, `~/.ssh`, `~/.pi` · grant each · each refused, nothing recorded (test-plan #E17)
-- [ ] 9a.21 Session grant is process-global. session-scoped grant from session A · session B reads under the subject · admitted (test-plan #E18)
-- [ ] 9a.22 Session grant fully described. a session-scoped grant · list grants · subject, scope, `grantedAt`, origin present, not a bare string key (test-plan #E19)
-- [ ] 9a.23 Interrupted write. process interrupted mid-write · read the store back · old-or-new contents, never truncated, no silent wipe of persisted grants (test-plan #X13)
-- [ ] 9a.24 FIFO in a granted dir. `/a/b` granted containing a FIFO · read it · refused before any `open`, request does not block (test-plan #X14)
-- [ ] 9a.26 Denial registry records the subject. a containment denial at a body-emitting site · inspect registry + response · entry carries subject, id, site, session, timestamp; body carries id + subject beside an unchanged `error` (test-plan #E22)
-- [ ] 9a.27 Registry expiry and cap. registry at cap plus an expired entry · record another denial, then grant against the expired id · oldest evicted, size at cap, expired id refused (test-plan #E23)
-- [ ] 9a.28 Session-directory site admits grants. a grant covering a path outside the session directory · read via `session-routes.ts` · admitted; without the grant the string is unchanged (test-plan #E24)
-- [ ] 9a.29 Handle verification scoped to byte-serving sites. a grant covering a directory · list via tree, probe via `exists`, resolve a mention · each succeeds — the regular-file rule does not break directory admission (test-plan #X16)
-- [ ] 9a.30 Forbidden subject via symlink. a denial naming `/etc` through `/private/etc` · grant it · refused, comparison against real paths (test-plan #X17)
-- [ ] 9a.31 No inbound write to the denial registry. full route inventory · scan for an endpoint creating an entry · none exists (test-plan #X18)
-- [ ] 9a.25 Cross-origin / unauthenticated grant. grant from a disallowed origin, and one unauthenticated · submit each · both refused, nothing recorded (test-plan #X15)
-- [ ] 9a.17 Malformed store degrades to empty. `access-grants.json` containing `{not json` · any containment check · zero grants, falls back to layers 1-2, no throw and no 500 (test-plan #X1)
+- [x] 9a.1 Grant does not widen to git root. grant `/repo/sub` in a real git repo whose common root is `/repo` · read `/repo/other/secret.txt` · 403 `{success:false,error:"path outside working directory"}` (test-plan #E1)
+- [x] 9a.2 Grant admits its subtree. grant `/a/b` · read `/a/b/deep/c.txt` · allowed 200 (test-plan #E2)
+- [x] 9a.3 Prefix-adjacent sibling refused. grant `/a/b` · read `/a/bb/c.txt` · 403, separator-aware compare not raw startsWith (test-plan #E3)
+- [x] 9a.4 Grant does not admit its parent. grant `/a/b` · read `/a/sibling` · 403 (test-plan #E4)
+- [x] 9a.5 Empty-store equivalence. grant store absent · run the full pre-existing containment suite · every outcome byte-identical to layers 1-2; the only permitted edits are the 20 body-assertion widenings of task 3.0 (test-plan #E5)
+- [x] 9a.6 `isAllowed` untouched. store populated with `/other` · call `isAllowed(p,{anchors})` directly · return value identical to pre-change for every input, grants never reach it (test-plan #E6)
+- [x] 9a.7 Grant store bounds. store holding exactly 200 grants · record a 201st · size stays 200, oldest-by-`grantedAt` evicted, a read under the evicted subject 403s (test-plan #E7)
+- [x] 9a.8 Scope decision table. scope {session,project} x restart {yes,no} · evaluate after each · only session+restart is NOT in force (test-plan #E8)
+- [x] 9a.9 Subject normalisation. grant requested for `/a/b/c.txt` · record it · persisted subject is `/a/b` (test-plan #E9)
+- [x] 9a.10 Symlink escape refused. `/a/b` granted containing `esc -> /etc` · read `/a/b/esc/passwd` · 403 (test-plan #X2)
+- [x] 9a.11 Symlink retarget does not move the grant. `/wt/current -> /wt/v1` granted at v1 · repoint to `/wt/v2`, read under v2 · 403 (test-plan #X3)
+- [x] 9a.12 Grant write failure. store write throws `EACCES` · operator grants `/a/b` · subject stays ungranted so the next read 403s, failure logged, no 500 and no unhandled rejection, request not failed (test-plan #X4)
+- [x] 9a.13 TOCTOU between check and open. granted dir, path replaced with a symlink to `/etc` between check and open · read racing the swap · refused via open-handle verification; an unswapped read is unaffected (test-plan #X5)
+- [x] 9a.14 realpath on a missing subject. granted dir deleted after grant · read under it · 403, no unhandled rejection, no 500 (test-plan #X6)
+- [x] 9a.15 Granted dir recreated as a symlink. `/a/b` deleted then recreated as symlink to `/etc` · read `/a/b/passwd` · 403, stored real path no longer matches (test-plan #X7)
+- [x] 9a.16 Degraded git still fails closed. `git` unavailable, store populated · read outside every anchor and grant · 403, grant check does not mask fail-closed (test-plan #X8)
+- [x] 9a.18 Per-scope eviction. 200 persisted project grants · session grants recorded past the session bound · every project grant still on disk (test-plan #E15)
+- [x] 9a.19 Grant binds to a recorded denial. grant requested for a directory no denial named · submit · refused, nothing recorded (test-plan #E16)
+- [x] 9a.20 Forbidden subjects. a denial naming `/`, `$HOME`, `~/.ssh`, `~/.pi` · grant each · each refused, nothing recorded (test-plan #E17)
+- [x] 9a.21 Session grant is process-global. session-scoped grant from session A · session B reads under the subject · admitted (test-plan #E18)
+- [x] 9a.22 Session grant fully described. a session-scoped grant · list grants · subject, scope, `grantedAt`, origin present, not a bare string key (test-plan #E19)
+- [x] 9a.23 Interrupted write. process interrupted mid-write · read the store back · old-or-new contents, never truncated, no silent wipe of persisted grants (test-plan #X13)
+- [x] 9a.24 FIFO in a granted dir. `/a/b` granted containing a FIFO · read it · refused before any `open`, request does not block (test-plan #X14)
+- [x] 9a.26 Denial registry records the subject. a containment denial at a body-emitting site · inspect registry + response · entry carries subject, id, site, session, timestamp; body carries id + subject beside an unchanged `error` (test-plan #E22)
+- [x] 9a.27 Registry expiry and cap. registry at cap plus an expired entry · record another denial, then grant against the expired id · oldest evicted, size at cap, expired id refused (test-plan #E23)
+- [x] 9a.28 Session-directory site admits grants. a grant covering a path outside the session directory · read via `session-routes.ts` · admitted; without the grant the string is unchanged (test-plan #E24)
+- [x] 9a.29 Handle verification scoped to byte-serving sites. a grant covering a directory · list via tree, probe via `exists`, resolve a mention · each succeeds — the regular-file rule does not break directory admission (test-plan #X16)
+- [x] 9a.30 Forbidden subject via symlink. a denial naming `/etc` through `/private/etc` · grant it · refused, comparison against real paths (test-plan #X17)
+- [x] 9a.31 No inbound write to the denial registry. full route inventory · scan for an endpoint creating an entry · none exists (test-plan #X18)
+- [x] 9a.25 Cross-origin / unauthenticated grant. grant from a disallowed origin, and one unauthenticated · submit each · both refused, nothing recorded (test-plan #X15)
+- [x] 9a.17 Malformed store degrades to empty. `access-grants.json` containing `{not json` · any containment check · zero grants, falls back to layers 1-2, no throw and no 500 (test-plan #X1)
 
 ### 9b. Denial bodies and cwd remedy — L1
 
 Exemplar: `packages/server/src/__tests__/file-absolute-containment.test.ts`
 
-- [ ] 9b.1 Denial body additivity across the three real WIRE shapes. refuse at a `{success,error}` site, a bare `{error}` site (kb `rejectCwd`) and an `{error,message}` site (mcp-client) · inspect each · pre-existing fields byte-identical, `reason`/`hint` added alongside. The gates' `{code,error}` is internal only — covered by 9b.6, not here (test-plan #E13)
-- [ ] 9b.2 Path grant never pins a cwd. `/a/b` granted as path anchor and not pinned · request with `cwd=/a/b` · still 403 unknown-cwd (test-plan #E14)
-- [ ] 9b.7 MCP-client and goal cwd denials enriched. refuse at `mcp-client-plugin/src/server/routes.ts:131,:163` and at `goal-plugin/src/server/routes.ts` `rejectInvalidCwd` · inspect each body · `reason`/`hint` added, pre-existing `error` (and `message`) byte-identical (test-plan #E26)
-- [ ] 9b.6 Gate wire shape unchanged. a refusal at `gateFilePath` and `gateOfficeFile` · inspect the wire body · `{ success: false, error }` with the same status; the internal `{ code, error }` never reaches the wire (test-plan #E25)
-- [ ] 9b.4 Per-site rejection strings preserved. a refusal at each of the 8 body-emitting containment sites · inspect each `error` · `exists` keeps `"unknown cwd"`/`"path outside cwd"`, `session-routes` keeps `"path outside session directory"`, the rest keep `"path outside working directory"` (test-plan #E20)
-- [ ] 9b.5 Artifact-root admission runs first. an image under an artifact root, empty grant store · request it at `GET /api/file/raw` (the raw site owns "Layer ③", not render) · admitted as before, grant layer never consulted (test-plan #E21)
-- [ ] 9b.3 Non-HTTP denial sites untouched. trigger unknown-cwd at kb-plugin `index.ts:47`, apple-tools `index.ts:113`, `visitor-session-registry.ts:155` · behaviour byte-identical, no remedy fields, no crash (test-plan #X11)
+- [x] 9b.1 Denial body additivity across the three real WIRE shapes. refuse at a `{success,error}` site, a bare `{error}` site (kb `rejectCwd`) and an `{error,message}` site (mcp-client) · inspect each · pre-existing fields byte-identical, `reason`/`hint` added alongside. The gates' `{code,error}` is internal only — covered by 9b.6, not here (test-plan #E13)
+- [x] 9b.2 Path grant never pins a cwd. `/a/b` granted as path anchor and not pinned · request with `cwd=/a/b` · still 403 unknown-cwd (test-plan #E14)
+- [x] 9b.7 MCP-client and goal cwd denials enriched. refuse at `mcp-client-plugin/src/server/routes.ts:131,:163` and at `goal-plugin/src/server/routes.ts` `rejectInvalidCwd` · inspect each body · `reason`/`hint` added, pre-existing `error` (and `message`) byte-identical (test-plan #E26)
+- [x] 9b.6 Gate wire shape unchanged. a refusal at `gateFilePath` and `gateOfficeFile` · inspect the wire body · `{ success: false, error }` with the same status; the internal `{ code, error }` never reaches the wire (test-plan #E25)
+- [x] 9b.4 Per-site rejection strings preserved. a refusal at each of the 8 body-emitting containment sites · inspect each `error` · `exists` keeps `"unknown cwd"`/`"path outside cwd"`, `session-routes` keeps `"path outside session directory"`, the rest keep `"path outside working directory"` (test-plan #E20)
+- [x] 9b.5 Artifact-root admission runs first. an image under an artifact root, empty grant store · request it at `GET /api/file/raw` (the raw site owns "Layer ③", not render) · admitted as before, grant layer never consulted (test-plan #E21)
+- [x] 9b.3 Non-HTTP denial sites untouched. trigger unknown-cwd at kb-plugin `index.ts:47`, apple-tools `index.ts:113`, `visitor-session-registry.ts:155` · behaviour byte-identical, no remedy fields, no crash (test-plan #X11)
 
 ### 9c. Denial ledger — L1
 
 Exemplar for all of 9c: `packages/server/src/__tests__/tunnel-block-events.test.ts`
 
-- [ ] 9c.1 Ledger cap under the queue role. ledger at 50 distinct IPs · denial from a 51st · oldest-distinct evicted, size stays 50, no grant side effect (test-plan #E10)
-- [ ] 9c.2 Anti-poisoning properties preserved. generalized ledger · run the pre-existing ring-buffer suite · passes unchanged (test-plan #E11)
-- [ ] 9c.3 CORS origin captured without changing the dedupe key. two refusals, same IP, different origins · record both · one entry keyed by IP, origin captured as an extra field (test-plan #E12)
-- [ ] 9c.4 Recording never disrupts the denial. ledger `record()` throws · a denial occurs · error swallowed, 403 still sent (test-plan #X9)
-- [ ] 9c.5 Accept writes only through the config path. trustable pending entry · accept it · `trustedNetworks` mutated via the existing config write path only, ledger never mutates policy (test-plan #X10)
-- [ ] 9c.6 No unauthenticated write to the ledger. full route inventory · scan for an endpoint creating a pending request · none exists, ledger written only by the guard (test-plan #X12)
+- [x] 9c.1 Ledger cap under the queue role. ledger at 50 distinct IPs · denial from a 51st · oldest-distinct evicted, size stays 50, no grant side effect (test-plan #E10)
+- [x] 9c.2 Anti-poisoning properties preserved. generalized ledger · run the pre-existing ring-buffer suite · passes unchanged (test-plan #E11)
+- [x] 9c.3 CORS origin captured without changing the dedupe key. two refusals, same IP, different origins · record both · one entry keyed by IP, origin captured as an extra field (test-plan #E12)
+- [x] 9c.4 Recording never disrupts the denial. ledger `record()` throws · a denial occurs · error swallowed, 403 still sent (test-plan #X9)
+- [x] 9c.5 Accept writes only through the config path. trustable pending entry · accept it · `trustedNetworks` mutated via the existing config write path only, ledger never mutates policy (test-plan #X10)
+- [x] 9c.6 No unauthenticated write to the ledger. full route inventory · scan for an endpoint creating a pending request · none exists, ledger written only by the guard (test-plan #X12)
 
 ### 9d. Performance — L1
 
 Exemplar: any timed vitest in `packages/server/src/lib/__tests__/`
 
-- [ ] 9d.1 Hot path unaffected. 1000 layer-1 reads with 50 grants stored · added p95 ~0 and zero `realpath` calls attributable to the grant check (test-plan #P1)
-- [ ] 9d.2 Cold path bounded. 200 containment misses with 50 grants · p95 of the grant check under 50ms (test-plan #P2)
-- [ ] 9d.4 Empty store costs zero syscalls. empty store, a containment miss · zero filesystem syscalls attributable to the grant layer, zero sync reads on the containment path (test-plan #P4)
-- [ ] 9d.5 Grep amplification bounded. 500 grep matches with 200 grants · at most one store load across the whole request (test-plan #P5)
+- [x] 9d.1 Hot path unaffected. 1000 layer-1 reads with 50 grants stored · added p95 ~0 and zero `realpath` calls attributable to the grant check (test-plan #P1)
+- [x] 9d.2 Cold path bounded. 200 containment misses with 50 grants · p95 of the grant check under 50ms (test-plan #P2)
+- [x] 9d.4 Empty store costs zero syscalls. empty store, a containment miss · zero filesystem syscalls attributable to the grant layer, zero sync reads on the containment path (test-plan #P4)
+- [x] 9d.5 Grep amplification bounded. 500 grep matches with 200 grants · at most one store load across the whole request (test-plan #P5)
 - [ ] 9d.3 Suite runtime unaffected. full `npm test` before and after · within +/-5% over 3 runs each (test-plan #P3)
 
 ### 9e. Access tab — L3
 
 Exemplar for all of 9e: `tests/e2e/blackhole-settings.spec.ts`; read `dashboardPort` from `.pi-test-harness.json`, never hardcode a port
 
-- [ ] 9e.1 Every in-scope store is listed. fixtures in all 8 stores · open Settings > Access · at least one entry per store, each labelled with its origin store (test-plan #F1)
-- [ ] 9e.2 bypassHosts distinguishable from trustedNetworks. a host in `auth.bypassHosts` and a CIDR in `config.trustedNetworks` · open the tab · separate entries with distinct labels, revoking one leaves the other (test-plan #F2)
-- [ ] 9e.3 Empty state. every store empty · open the tab · empty state, no error boundary, no console error (test-plan #F3)
-- [ ] 9e.4 Revoke takes effect without restart. `/other/repo` granted and readable · revoke then repeat the read · converges to 403 with no server restart (test-plan #F4)
-- [ ] 9e.5 No grant creation from the tab. tab open with entries from every store · scan the rendered surface · no control creates a grant for an arbitrary subject, revoke is the only per-entry write (test-plan #F5)
-- [ ] 9e.6 Project-trust revoke. a project-trust entry exists · revoke from the tab · revocation goes through pi's API and the dashboard never writes pi's store; if no API exists, the entry renders read-only marked managed-by-pi (test-plan #F6)
-- [ ] 9e.7 Legacy KB entry renders. pre-change hash-only entry in `kb-source-trust.json` · open the tab · renders as opaque hash with working revoke, no error (test-plan #F7)
-- [ ] 9e.9 Session grants listed like persisted ones. a session-scoped path grant in effect · open the tab · listed with subject, scope, grant time, origin and a working revoke (test-plan #F10)
-- [ ] 9e.10 Project-trust revoke deletes. a project-trust entry exists · revoke from the tab · routed through `persistTrustDecision`, entry absent afterwards, no standing negative decision (test-plan #F11)
-- [ ] 9e.8 Accept suppressed for non-trustable peers. ledger with loopback, proxy-terminated and genuine remote entries · open the pending-request surface · accept offered only for the genuine remote (test-plan #F9)
+- [x] 9e.1 Every in-scope store is listed. fixtures in all 8 stores · open Settings > Access · at least one entry per store, each labelled with its origin store (test-plan #F1)
+- [x] 9e.2 bypassHosts distinguishable from trustedNetworks. a host in `auth.bypassHosts` and a CIDR in `config.trustedNetworks` · open the tab · separate entries with distinct labels, revoking one leaves the other (test-plan #F2)
+- [x] 9e.3 Empty state. every store empty · open the tab · empty state, no error boundary, no console error (test-plan #F3)
+- [x] 9e.4 Revoke takes effect without restart. `/other/repo` granted and readable · revoke then repeat the read · converges to 403 with no server restart (test-plan #F4)
+- [x] 9e.5 No grant creation from the tab. tab open with entries from every store · scan the rendered surface · no control creates a grant for an arbitrary subject, revoke is the only per-entry write (test-plan #F5)
+- [x] 9e.6 Project-trust revoke. a project-trust entry exists · revoke from the tab · revocation goes through pi's API and the dashboard never writes pi's store; if no API exists, the entry renders read-only marked managed-by-pi (test-plan #F6)
+- [x] 9e.7 Legacy KB entry renders. pre-change hash-only entry in `kb-source-trust.json` · open the tab · renders as opaque hash with working revoke, no error (test-plan #F7)
+- [x] 9e.9 Session grants listed like persisted ones. a session-scoped path grant in effect · open the tab · listed with subject, scope, grant time, origin and a working revoke (test-plan #F10)
+- [x] 9e.10 Project-trust revoke deletes. a project-trust entry exists · revoke from the tab · routed through `persistTrustDecision`, entry absent afterwards, no standing negative decision (test-plan #F11)
+- [x] 9e.8 Accept suppressed for non-trustable peers. ledger with loopback, proxy-terminated and genuine remote entries · open the pending-request surface · accept offered only for the genuine remote (test-plan #F9)
 
 ### 9f. Access tab purity — L1
 
 Exemplar: `packages/client/src/components/settings/__tests__/settings-page-composition.test.tsx`
 
-- [ ] 9f.1 Rendering the tab writes nothing. hash all 8 store files before render · render the Access tab · every hash unchanged (test-plan #F8)
+- [x] 9f.1 Rendering the tab writes nothing. hash all 8 store files before render · render the Access tab · every hash unchanged (test-plan #F8)
