@@ -42,8 +42,9 @@ function stubFetch(statuses: any[] = [ANTHROPIC_CONNECTED]) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: any) => {
-      if (url.includes("/api/provider-auth/handlers")) return { ok: true, json: async () => ({ ids: ["anthropic", "openai-codex", "github-copilot"] }) } as any;
       if (url.includes("/api/provider-auth/status")) return { ok: true, json: async () => statuses } as any;
+      if (url.includes("/api/providers")) return { ok: true, json: async () => ({ success: true, providers: {}, health: {} }) } as any;
+      if (url.includes("/api/provider-auth/catalogue-ready")) return { ok: true, json: async () => ({ ready: true }) } as any;
       if (init?.method === "DELETE") {
         ctl.deleteCalls++;
         return ctl.deleteMode === "lock"
@@ -102,10 +103,12 @@ describe("anthropic peer hint — detection", () => {
     expect(hint(c)).toBeNull();
   });
 
-  it("E3 renders no hint on a signed-out anthropic row", async () => {
-    stubFetch([{ ...ANTHROPIC_CONNECTED, authenticated: false }]);
+  it("E3 renders no hint on a signed-out anthropic — the row itself is no longer rendered", async () => {
+    stubFetch([{ ...ANTHROPIC_CONNECTED, authenticated: false, configured: false }]);
     const c = render(<ProviderAuthSection />);
-    await waitFor(() => expect(c.getAllByText("Sign In").length).toBe(1));
+    // The redesigned section lists only providers holding a credential, so a
+    // signed-out anthropic produces no row at all — and therefore no hint.
+    await waitFor(() => expect(c.container.querySelector('[data-testid="provider-row"]')).toBeNull());
     await waitFor(() => expect(ctl.healthCalls).toBeGreaterThan(0));
     expect(hint(c)).toBeNull();
   });
@@ -122,9 +125,9 @@ describe("anthropic peer hint — detection", () => {
   });
 
   it("E5 renders no hint on the anthropic-api key row", async () => {
-    stubFetch([{ id: "anthropic-api", name: "Anthropic API", flowType: "api_key", authenticated: true, maskedKey: "sk-…xyz" }]);
+    stubFetch([{ id: "anthropic-api", name: "Anthropic API", flowType: "api_key", authenticated: true, maskedKey: "sk-…xyz", configured: true, source: "stored" }]);
     const c = render(<ProviderAuthSection />);
-    await waitFor(() => expect(c.getAllByText("Configured").length).toBe(1));
+    await waitFor(() => expect(c.getByTestId("provider-badge").textContent).toBe("API key"));
     await waitFor(() => expect(ctl.healthCalls).toBeGreaterThan(0));
     expect(hint(c)).toBeNull();
   });

@@ -150,7 +150,9 @@ describe("provider-auth-routes", () => {
       url: "/api/provider-auth/anthropic",
     });
     expect(res.statusCode).toBe(200);
-    expect(removeCredential).toHaveBeenCalledWith("anthropic");
+    // The route passes the ADDRESSED row kind: "anthropic" is an OAuth handler
+    // id, so the removal is guarded to oauth credentials (D2/X2).
+    expect(removeCredential).toHaveBeenCalledWith("anthropic", "oauth");
     expect(piGateway.broadcast).toHaveBeenCalledWith({ type: "credentials_updated" });
     expect(browserGateway.broadcastToAll).not.toHaveBeenCalledWith({ type: "models_refreshed" });
   });

@@ -840,3 +840,121 @@ export async function assertHitAreas(page: Page, selector: string, min = 44): Pr
   );
   expect(undersized, `controls below the ${min}×${min} hit-area floor in ${selector}`).toEqual([]);
 }
+
+// ── Providers settings fixtures (change: redesign-providers-settings-page) ──
+
+/**
+ * Structural stand-in for a `GET /api/provider-auth/status` row — the fields
+ * the redesigned section and its Add-provider dialog read. Only the fields a
+ * scenario needs need to be set; the rest default to an unconfigured OAuth
+ * row (the harness-fresh state for every registry provider).
+ */
+export interface ProviderStatusFixture {
+  id: string;
+  name: string;
+  flowType: "auth_code" | "device_code" | "api_key";
+  authenticated: boolean;
+  configured?: boolean;
+  maskedKey?: string;
+  envVar?: string;
+  ambient?: boolean;
+  expires?: number;
+}
+
+export function providerStatusRow(patch: Partial<ProviderStatusFixture> & { id: string }): ProviderStatusFixture {
+  return {
+    name: patch.id,
+    flowType: "auth_code",
+    authenticated: false,
+    ...patch,
+  };
+}
+
+/** A custom-endpoint entry as `GET /api/providers` carries it (redacted read). */
+export interface CustomEndpointFixture {
+  baseUrl?: string;
+  apiKey?: string;
+  api?: string;
+  apiKeyResolved?: boolean;
+}
+
+export interface RoutedProviderData {
+  /** Replace the array subsequent `GET /api/provider-auth/status` calls serve. */
+  serveStatuses(rows: ProviderStatusFixture[]): void;
+  /** Replace the `{ providers, health }` map subsequent `GET /api/providers` calls serve. */
+  serveProviders(map: Record<string, CustomEndpointFixture>, health?: Record<string, unknown>): void;
+}
+
+/**
+ * Fixture the redesigned providers section's three reads. The rows are what
+ * the REAL server would emit for the scenario's state (auth rows from the
+ * handler registry, api-key rows from a bridge-pushed catalogue); the section,
+ * the Add-provider dialog and the Settings shell all run for real on top.
+ * Armed routes serve the CURRENT payload on every call, so a scenario can
+ * flip server state mid-test with `serveStatuses` / `serveProviders` — the
+ * same trick the real server exhibits when a credential lands in auth.json.
+ */
+export function routeProviderData(
+  page: Page,
+  opts: {
+    statuses?: ProviderStatusFixture[];
+    providers?: Record<string, CustomEndpointFixture>;
+    health?: Record<string, unknown>;
+    /** `GET /api/provider-auth/catalogue-ready` → `{ ready }`. Default true. */
+    catalogueReady?: boolean;
+  },
+): RoutedProviderData {
+  let statuses = opts.statuses ?? [];
+  let providers = opts.providers ?? {};
+  let health = opts.health ?? {};
+  void page.route("**/api/provider-auth/status", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(statuses) }),
+  );
+  void page.route("**/api/providers", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ success: true, providers, health }),
+    }),
+  );
+  void page.route("**/api/provider-auth/catalogue-ready", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ready: opts.catalogueReady ?? true }) }),
+  );
+  return {
+    serveStatuses(rows) {
+      statuses = rows;
+    },
+    serveProviders(map, nextHealth) {
+      providers = map;
+      if (nextHealth) health = nextHealth;
+    },
+  };
+}
+
+/** Open Settings ▸ Providers and wait until the redesigned section is mounted. */
+export async function openProvidersSettings(page: Page): Promise<void> {
+  await gotoDashboard(page);
+  await page.goto("/settings/providers");
+  await page.getByTestId("settings-nav-rail").waitFor({ state: "visible", timeout: 20_000 });
+  await page
+    .getByTestId("add-provider-button")
+    .waitFor({ state: "visible", timeout: 20_000 });
+}
+
+/**
+ * Open the Add-provider picker and return its dialog panel.
+ *
+ * The picker renders through `DialogPortal`, so the `provider-add-dialog`
+ * wrapper is an EMPTY node — content must be scoped to the portal panel
+ * (`role=dialog`) instead, filtered by the picker's unique search placeholder
+ * to distinguish it from the Settings overlay's own dialog.
+ */
+export async function openAddPicker(page: Page): Promise<Locator> {
+  await page.getByTestId("add-provider-button").click();
+  const root = page
+    .getByRole("dialog")
+    .filter({ has: page.getByPlaceholder("Search providers…") });
+  await root.waitFor({ state: "visible", timeout: 15_000 });
+  return root;
+}
+

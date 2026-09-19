@@ -277,6 +277,32 @@ function writeAuthJson(data: AuthData, forceMode?: number): void {
 // ── Public API: write/remove ─────────────────────────────────────────────────
 
 /**
+ * Thrown when a credential write would replace a stored credential of a
+ * DIFFERENT `type` under the same auth.json key (D2): an api-key save over a
+ * stored OAuth login, or a completed OAuth sign-in over a stored api key.
+ * Throws rather than returning because `writeCredential` is `void` and every
+ * call site ignores return values — a return-valued refusal would be silent.
+ * `code` is the stable machine code the client translates; `storedType` names
+ * the STORED credential's type (what the caller must remove first).
+ * See change: redesign-providers-settings-page (D2).
+ */
+export class CredentialTypeConflictError extends Error {
+  readonly code = "provider_auth.credential_type_conflict";
+  readonly provider: string;
+  readonly storedType: AuthCredential["type"];
+
+  constructor(provider: string, storedType: AuthCredential["type"], attemptedKind: AuthCredential["type"]) {
+    super(
+      `"${provider}" already holds a ${storedType} credential. ` +
+      `Remove it before writing a ${attemptedKind} credential.`,
+    );
+    this.name = "CredentialTypeConflictError";
+    this.provider = provider;
+    this.storedType = storedType;
+  }
+}
+
+/**
  * Persist one provider credential.
  *
  * Async: the lock wait must not block the server's event loop, so a caller has
@@ -288,17 +314,39 @@ export async function writeCredential(provider: string, credential: AuthCredenti
     const checked = readAuthJsonChecked();
     if (checked.corrupt && !checked.quarantined) throw corruptUnbackedRefusal();
     const data = checked.data;
+    // D2 — refuse the cross-type clobber. Several UI rows resolve to ONE
+    // storage key (`anthropic-api` → `anthropic`), so a different-type write
+    // here would silently destroy a stored subscription login or key. Same-type
+    // writes (api-key overwrite, OAuth token refresh) are unaffected.
+    // See change: redesign-providers-settings-page (D2).
+    const stored = data[provider];
+    if (stored && stored.type !== credential.type) {
+      throw new CredentialTypeConflictError(provider, stored.type, credential.type);
+    }
     data[provider] = credential;
     writeAuthJson(data, checked.corrupt ? 0o600 : undefined);
   });
 }
 
-/** Remove one provider credential. Async — see `writeCredential`. */
-export async function removeCredential(provider: string): Promise<void> {
+/** Remove one provider credential. Async — see `writeCredential`.
+ *
+ *  `expectedKind` carries the kind of the UI row the removal was addressed to
+ *  ("oauth" for a handler id, "api_key" otherwise — including an `<id>-api`
+ *  twin). A stored credential of a DIFFERENT type refuses the same way a write
+ *  does (D2/X2): a delete addressed to the api-key row must not revoke the
+ *  sibling's OAuth login. Removing the credential the row owns — or removing
+ *  when nothing is stored — succeeds. Omitting `expectedKind` keeps the
+ *  unguarded legacy behavior for any caller that has no row kind.
+ */
+export async function removeCredential(provider: string, expectedKind?: AuthCredential["type"]): Promise<void> {
   await withLock(() => {
     const checked = readAuthJsonChecked();
     if (checked.corrupt && !checked.quarantined) throw corruptUnbackedRefusal();
     const data = checked.data;
+    const stored = data[provider];
+    if (stored && expectedKind && stored.type !== expectedKind) {
+      throw new CredentialTypeConflictError(provider, stored.type, expectedKind);
+    }
     delete data[provider];
     writeAuthJson(data, checked.corrupt ? 0o600 : undefined);
   });
@@ -322,13 +370,16 @@ export function _buildAuthStatus(
   // OAuth rows from local handler registry.
   for (const h of oauthHandlers) {
     const cred = authData[h.providerId];
-    if (cred && cred.type === "oauth") {
+    const hasOAuthCredential = !!(cred && cred.type === "oauth");
+    if (hasOAuthCredential) {
       statuses.push({
         id: h.providerId,
         name: h.displayName,
         flowType: h.flowType,
         authenticated: true,
         expires: (cred as OAuthCredential).expires,
+        configured: true,
+        source: "stored",
       });
     } else {
       statuses.push({
@@ -336,6 +387,7 @@ export function _buildAuthStatus(
         name: h.displayName,
         flowType: h.flowType,
         authenticated: false,
+        configured: false,
       });
     }
   }
@@ -356,13 +408,41 @@ export function _buildAuthStatus(
     const authJsonKey = entry.id;
     const cred = authData[authJsonKey];
     const hasStoredKey = !!(cred && cred.type === "api_key" && (cred as ApiKeyCredential).key);
+    // D1 — one rule for EVERY api-key row, twin or not.
+    //
+    // `source: "stored"` is excluded as catalogue evidence because a stored
+    // credential of ANY kind sets `entry.configured` with `source: "stored"`.
+    // Without the exclusion, an OAuth credential on a catalogue id with no
+    // dashboard handler emits a phantom `api_key` row — `configured: true`, no
+    // `maskedKey` — whose Remove would delete that OAuth credential.
+    // `hasStoredKey` already covers every stored api-*key* credential, so the
+    // exclusion loses nothing.
+    //
+    // `source == null` is likewise not evidence: the bridge's fallback branch
+    // sets `configured` with no `source`, and treating `undefined !== "stored"`
+    // as evidence would reopen the clobber against an older pi.
+    const rowConfigured =
+      hasStoredKey ||
+      !!entry.ambient ||
+      (entry.configured && entry.source != null && entry.source !== "stored");
 
     const row: ProviderAuthStatus = {
       id: uiId,
       name: displayName,
       flowType: "api_key",
       authenticated: hasStoredKey || !!entry.ambient,
+      configured: rowConfigured,
     };
+    // `source` mirrors the catalogue's evidence whenever the row is configured
+    // by it; `stored` evidence sets it through `hasStoredKey` instead.
+    //
+    // A STORED key outranks the catalogue's own `source`. pi-ai reports
+    // `source: "environment"` whenever the env var is also set, so a provider
+    // with BOTH a key in auth.json and the env var exported would otherwise be
+    // labelled `environment` while carrying a `maskedKey` — contradicting the
+    // status contract, which reserves `stored` for auth.json-backed rows.
+    if (hasStoredKey) row.source = "stored";
+    else if (rowConfigured && entry.source != null) row.source = entry.source;
     if (hasStoredKey) {
       const key = (cred as ApiKeyCredential).key;
       row.maskedKey = key.length >= 12 ? `${key.slice(0, 5)}...${key.slice(-3)}` : "****";

@@ -162,8 +162,41 @@ function redactErrorText(text: string, apiKey: string): string {
   if (apiKey && out.includes(apiKey)) {
     out = out.split(apiKey).join("[REDACTED]");
   }
+  // The SUBMITTED key is not the only credential that can appear here. This
+  // text is cached into ProviderHealth, which the spec requires to carry no
+  // credential material at all — and an upstream (or an intermediary proxy)
+  // routinely echoes a DIFFERENT secret: the Authorization header it received,
+  // a token in a redirect URL, an `api_key` query parameter. Strip those
+  // shapes too, so the cached value is sanitized at ingestion rather than
+  // trusting every upstream to be discreet.
+  out = out.replace(CREDENTIAL_PATTERNS, (...args: unknown[]) => {
+    // One alternative matches per hit, so exactly one capture group is defined;
+    // keep that naming prefix and redact only the value behind it.
+    const prefix = (args.slice(1, 4) as (string | undefined)[]).find((g) => g !== undefined) ?? "";
+    return `${prefix}[REDACTED]`;
+  });
   return out.length > MAX_ERROR_BODY_CHARS ? out.slice(0, MAX_ERROR_BODY_CHARS) : out;
 }
+
+/**
+ * Credential shapes to strip from a probe error body before it is cached.
+ * Each alternative captures the NAMING prefix and replaces only the value, so
+ * the error stays diagnosable ("Bearer [REDACTED]" still says which mechanism
+ * failed). Deliberately narrow: it targets labelled secrets, not every
+ * high-entropy token, because over-broad redaction destroys the error's
+ * diagnostic value — which is the whole reason the body is surfaced.
+ */
+const CREDENTIAL_PATTERNS = new RegExp(
+  [
+    // `Bearer <token>` / `Basic <blob>` in an echoed Authorization header.
+    String.raw`(\b(?:Bearer|Basic)\s+)[\w\-._~+/]{8,}={0,2}`,
+    // `"api_key": "..."`, `apiKey=...`, `access_token: ...` and friends.
+    String.raw`((?:api[-_]?key|access[-_]?token|refresh[-_]?token|client[-_]?secret)["']?\s*[:=]\s*["']?)[\w\-._~+/]{8,}={0,2}`,
+    // Vendor-prefixed keys that are self-identifying regardless of context.
+    String.raw`(\b(?:sk|pk|rk|sk-proj|xoxb|ghp|gho|ghs|glpat)-)[\w\-]{12,}`,
+  ].join("|"),
+  "gi",
+);
 
 function extractModelIds(body: any): string[] {
   // OpenAI-style { data: [{ id }, ...] }
