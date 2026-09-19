@@ -3,7 +3,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { FastifyInstance } from "fastify";
@@ -165,6 +165,20 @@ function readProvidersFileDataChecked(): CheckedProvidersRead {
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
       throw new SyntaxError("providers.json content is not a JSON object");
     }
+    // The `providers` VALUE needs the same check as the document: every route
+    // does `fileData.providers ?? {}` and then writes through it. An ARRAY
+    // accepts `existing[name] = entry` but `JSON.stringify` serialises it
+    // positionally and DROPS the named key, so the write is acknowledged and
+    // silently lost; a STRING throws on that same assignment (strict mode) and
+    // 500s. `null`/absent keeps its established "no providers yet" meaning.
+    const providers = (parsed as Record<string, any>).providers;
+    if (
+      providers !== undefined &&
+      providers !== null &&
+      (typeof providers !== "object" || Array.isArray(providers))
+    ) {
+      throw new SyntaxError("providers.json `providers` is not a JSON object");
+    }
     return { fileData: parsed as Record<string, any>, corrupt: false, quarantined: false };
   } catch (err: any) {
     if (!(err instanceof SyntaxError)) throw err;
@@ -200,7 +214,14 @@ function writeProvidersFileData(fileData: Record<string, any>): void {
   const dir = dirname(CONFIG_PATH);
   mkdirSync(dir, { recursive: true });
   const tmp = `${CONFIG_PATH}.tmp-${process.pid}-${Date.now()}`;
-  writeFileSync(tmp, JSON.stringify(fileData, null, 2) + "\n", "utf-8");
+  // 0600: this file stores API keys, and `renameSync` REPLACES the destination
+  // with the tmp inode — the live file inherits the tmp's mode, not its own
+  // previous one. Without this a permissive umask publishes the credentials
+  // group/world-readable. Mirrors auth.json (provider-auth-storage.ts).
+  writeFileSync(tmp, JSON.stringify(fileData, null, 2) + "\n", { encoding: "utf-8", mode: 0o600 });
+  // `mode` applies only at CREATION, so a tmp left by a crashed earlier write
+  // would carry its old (possibly 0644) mode through the rename.
+  chmodSync(tmp, 0o600);
   renameSync(tmp, CONFIG_PATH);
 }
 
@@ -319,13 +340,11 @@ export function registerProviderRoutes(fastify: FastifyInstance, deps: { network
       const fileData = putRead.fileData;
       fileData.providers = merged;
 
-      const dir = dirname(CONFIG_PATH);
-      mkdirSync(dir, { recursive: true });
       // Atomic tmp+rename so concurrent readers never observe a partial file
-      // (Bug 7). See change: add-agent-role-model-tools.
-      const tmp = `${CONFIG_PATH}.tmp-${process.pid}-${Date.now()}`;
-      writeFileSync(tmp, JSON.stringify(fileData, null, 2) + "\n", "utf-8");
-      renameSync(tmp, CONFIG_PATH);
+      // (Bug 7). See change: add-agent-role-model-tools. Shares the
+      // single-provider helper so the 0600 credential-file mode cannot drift
+      // between the whole-map and single-provider write paths.
+      writeProvidersFileData(fileData);
 
       // Broadcast credentials_updated so each bridge re-reads providers.json
       // and pushes a fresh per-session models_list. Browsers receive those
