@@ -41,6 +41,27 @@ export function getLatestCatalogue(): ProviderInfo[] {
   return latest ?? [];
 }
 
+/**
+ * D5 — catalogue availability: `true` iff a catalogue push is held. `false`
+ * means "no bridge has pushed since server start" OR "the last bridge
+ * disconnected and the snapshot was invalidated" — never "nothing configured".
+ * See change: redesign-providers-settings-page (D5).
+ */
+export function isCatalogueReady(): boolean {
+  return latest !== null;
+}
+
+/**
+ * Drop the held snapshot. Fired when the LAST bridge disconnects (wired in
+ * event-wiring.ts): `latest` used to be assigned-only, so after the first
+ * disconnect the ready signal reported true forever. Api-key rows vanish from
+ * `GET /api/provider-auth/status` until the next push — the stored credentials
+ * are untouched. See change: redesign-providers-settings-page (D5).
+ */
+export function invalidateCatalogue(): void {
+  latest = null;
+}
+
 /** Test-only: reset all cached state. */
 export function _resetForTests(): void {
   latest = null;

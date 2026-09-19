@@ -46,6 +46,8 @@ The kind SHALL be conveyed by the badge's text, not by colour alone.
 
 A custom endpoint counts as configured when its stored key is non-empty AND is not an unresolved environment reference. An entry whose key is empty, or whose key is a `$NAME` reference to an environment variable that is not set, SHALL NOT be listed as configured; an entry whose `$NAME` reference resolves SHALL be listed, badged **Custom endpoint** (not Environment — the row is an endpoint the operator registered, and it keeps its Test / Edit / Remove actions).
 
+Resolution SHALL be signalled by the server on the redacted provider payload (`apiKeyResolved`), because a `$NAME` reference is resolved in the **server's** environment and a browser client cannot evaluate it. A client SHALL use that signal when present, and SHALL fall back to its own conservative treatment of an unresolvable reference when it is absent (an older server).
+
 When a provider has both a stored key and an ambient credential, the stored key takes precedence and the row renders as an API-key row.
 
 A row SHALL be listed when its `configured` field is true. A client SHALL tolerate a server that does not send `configured` by falling back to `authenticated`, so an older server does not produce an empty list while credentials exist.
@@ -97,6 +99,12 @@ When no provider holds a credential the section SHALL render an empty state offe
 #### Scenario: Custom endpoint with a resolved environment reference is listed as a custom endpoint
 - **WHEN** an entry's key is `$SOME_VAR` and `SOME_VAR` is set
 - **THEN** the entry SHALL be listed with the **Custom endpoint** badge and its Test / Edit / Remove actions
+
+#### Scenario: Resolution state is served, not inferred
+- **WHEN** `providers.json` holds an entry whose key is a `$NAME` reference and a client reads `GET /api/providers`
+- **THEN** the redacted entry SHALL carry that reference's resolution state, computed in the server's environment
+- **AND** the client SHALL NOT be required to read an environment it cannot see
+- **AND** a literal (non-`$NAME`) key SHALL NOT carry resolution state, because it is redacted rather than resolvable
 
 #### Scenario: A non-environment, non-stored source is not badged Environment
 - **WHEN** a provider's credential source is a runtime or models-json source

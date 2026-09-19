@@ -5,6 +5,7 @@ import {
   probeProvider,
   type ProbeInput,
 } from "../package/provider-probe.js";
+import { startStalledUpstream } from "./stalled-upstream.js";
 
 describe("buildProbeRequest", () => {
   it("openai-completions: GET {baseUrl}/models with Authorization: Bearer", () => {
@@ -283,5 +284,44 @@ describe("probeProvider", () => {
     expect(capturedUrl).toContain("?key=AIzaTest");
     const headers = (capturedInit!.headers ?? {}) as Record<string, string>;
     expect(headers.Authorization).toBeUndefined();
+  });
+});
+
+describe("probeProvider against a stalled upstream (real fixture, P1/task 4.6)", () => {
+  let originalFetch: typeof globalThis.fetch;
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  // Distinct from the refused-connection case above (a mocked fetch that throws
+  // ECONNREFUSED): here a REAL listener accepts the TCP connection and never
+  // responds, so the probe only ends via its abort ceiling. See task 4.6 of
+  // redesign-providers-settings-page.
+  it("stalled upstream: probe waits out timeoutMs, then returns ok:false with no status", async () => {
+    const stalled = await startStalledUpstream();
+    try {
+      const t0 = Date.now();
+      const result = await probeProvider({
+        baseUrl: stalled.url,
+        apiKey: "sk-x",
+        api: "openai-completions",
+        timeoutMs: 400,
+      });
+      const elapsed = Date.now() - t0;
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        // No HTTP status: the request never got a response.
+        expect(result.status).toBeUndefined();
+        expect(result.error).toBeTruthy();
+      }
+      // It WAITED (stalled), not refused fast — and it was bounded by timeoutMs.
+      expect(elapsed).toBeGreaterThanOrEqual(350);
+      expect(elapsed).toBeLessThan(5_000);
+    } finally {
+      await stalled.close();
+    }
   });
 });

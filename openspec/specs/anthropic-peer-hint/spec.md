@@ -6,7 +6,9 @@ probe reports the `@pi/anthropic-messages` peer as unresolved — with a one-cli
 operator who has connected Claude but is missing the bridge peer sees the remaining step instead of
 silently landing in `waiting_peers`. The signal is derived strictly from the bridge probe on
 `/api/health`; every other shape fails open (renders nothing).
+
 ## Requirements
+
 ### Requirement: Missing-peer hint on the authenticated Anthropic OAuth row
 The `anthropic` OAuth provider row in Provider Authentication SHALL render an inline advisory hint
 naming `@blackbelt-technology/pi-anthropic-messages` with an install affordance, whenever that row
@@ -56,12 +58,24 @@ render no hint. The bridge's overall `lastProbe.status` SHALL NOT be used as the
 - **THEN** no hint is rendered
 
 ### Requirement: Hint gated on the authenticated state
-The hint SHALL NOT render on a signed-out `anthropic` row.
+The hint SHALL render only on an `anthropic` row that holds a credential. Because the providers
+section lists only providers that hold a credential, a signed-out `anthropic` row is no longer
+rendered at all; the gate therefore holds by construction, and the hint SHALL NOT be attached to any
+surface that represents an unconfigured provider — in particular the Add-provider picker and its
+panes.
 
 #### Scenario: Signed-out anthropic row
-- **WHEN** the `anthropic` OAuth row renders with `authenticated: false` and the probe reports the
-  peer as not resolving
-- **THEN** no hint is rendered
+- **WHEN** `anthropic` holds no credential and the probe reports the peer as not resolving
+- **THEN** no `anthropic` row is rendered
+- **AND** no hint is rendered
+
+#### Scenario: Hint is absent from the Add-provider surfaces
+- **WHEN** the operator opens the Add-provider dialog and selects Anthropic
+- **THEN** no missing-peer hint is rendered in the picker or the pane
+
+#### Scenario: Hint renders on the connected anthropic row
+- **WHEN** `anthropic` holds an OAuth credential and the probe reports the peer as not resolving
+- **THEN** the hint is rendered on that row
 
 ### Requirement: Hint scoped to the anthropic OAuth provider
 No provider other than the `anthropic` OAuth row SHALL render the hint.
@@ -78,8 +92,9 @@ No provider other than the `anthropic` OAuth row SHALL render the hint.
 
 ### Requirement: Hint is advisory and non-blocking
 The hint SHALL NOT gate any existing provider-authentication behaviour: the Connected marker, the
-expiry countdown, Sign In and Sign Out SHALL remain fully available while the hint is shown, and
-the hint SHALL NOT be presented as a modal.
+expiry countdown and Sign Out SHALL remain fully available while the hint is shown, and
+the hint SHALL NOT be presented as a modal. Sign-in is no longer a row control — it is reached from
+the Add-provider dialog — and the hint SHALL NOT gate that path either.
 
 #### Scenario: Row remains usable with the hint shown
 - **WHEN** the hint is rendered on the authenticated `anthropic` row
@@ -161,4 +176,3 @@ shape SHALL keep the install affordance.
 #### Scenario: The bridge still emits the coupled prefix
 - **WHEN** the bridge's peer probe fails at the import step
 - **THEN** the emitted `reason` begins with `import failed:`
-

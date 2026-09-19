@@ -1,3 +1,8 @@
+## RENAMED Requirements
+
+- FROM: `### Requirement: Test button on Add Provider card`
+- TO: `### Requirement: Test button on the custom-endpoint surface`
+
 ## MODIFIED Requirements
 
 ### Requirement: Test button on the custom-endpoint surface
@@ -52,6 +57,11 @@ auth-error yellow with the HTTP status / unreachable red), with the verbatim
 #### Scenario: Test does not write
 - **WHEN** the user clicks Test
 - **THEN** the client SHALL NOT issue any provider write
+
+#### Scenario: Save is independent of Test
+- **WHEN** the user clicks Test
+- **THEN** the client SHALL NOT call `PUT /api/providers`
+- **AND** the Settings Save Bar SHALL NOT open as a result of the Test
 - **AND** the outcome of Test SHALL NOT gate whether the provider can be submitted
 
 ### Requirement: Provider health is probed on save and cached

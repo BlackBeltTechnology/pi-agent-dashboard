@@ -3,7 +3,9 @@
 Verify a custom LLM provider's `baseUrl` + `apiKey` + `api` combination against the
 upstream `/models`-style endpoint, and surface the resulting health (connected /
 auth-error / unreachable / not-tested) in Settings → Providers.
+
 ## Requirements
+
 ### Requirement: Server exposes POST /api/providers/test
 
 The dashboard server SHALL expose `POST /api/providers/test` behind the localhost/auth network guard. The endpoint accepts `{ name?: string, baseUrl: string, apiKey: string, api: string }` and performs a live HTTP probe against the provider using the per-API-type request shape, returning a structured pass/fail result.
@@ -55,9 +57,15 @@ The dashboard server SHALL expose `POST /api/providers/test` behind the localhos
 - **WHEN** the request arrives from a non-loopback, non-bypassed, non-authenticated origin
 - **THEN** the network guard SHALL reject the request before any upstream probe is issued
 
-### Requirement: Test button on Add Provider card
+### Requirement: Test button on the custom-endpoint surface
 
-The Settings \u2192 Providers \u2192 LLM Providers \u2192 **Add Provider** card SHALL display a **Test** button next to the Remove button. Clicking it SHALL invoke `POST /api/providers/test` with the card's current unsaved values and display an inline status pill beneath the form.
+The custom-endpoint pane of the Add-provider dialog, and the Edit state of a custom-endpoint row, SHALL each display a **Test** button. Clicking it SHALL invoke `POST /api/providers/test` with the surface's current unsaved values and display an inline status pill beneath the fields.
+
+#### Scenario: Test is available in the row's Edit state
+
+- **WHEN** the operator opens the Edit state of a saved custom-endpoint row
+- **THEN** a Test button SHALL be present
+- **AND** clicking it SHALL probe the surface's current values without writing
 
 #### Scenario: Test button enabled state
 - **WHEN** both `baseUrl` and `apiKey` fields are non-empty
@@ -70,7 +78,7 @@ The Settings \u2192 Providers \u2192 LLM Providers \u2192 **Add Provider** card 
 #### Scenario: Testing in progress
 - **WHEN** the user clicks Test
 - **THEN** the button SHALL switch to a disabled loading state with a spinner and label `"Testing\u2026"`
-- **AND** the card SHALL display an inline status pill with text `"Testing\u2026"`
+- **AND** the surface SHALL display an inline status pill with text `"Testing\u2026"`
 
 The failure/success pill uses the single visual contract defined by the
 "Settings → Providers renders a health pill" requirement below (connected green /
@@ -80,7 +88,7 @@ auth-error yellow with the HTTP status / unreachable red), with the verbatim
 #### Scenario: Test succeeds
 - **WHEN** the server responds with `{ ok: true, modelCount: N, sample: [...] }`
 - **THEN** the status pill SHALL show a green check with text `"Connected \u00b7 N models"` (or `"Connected"` when `modelCount` is 0 or missing)
-- **AND** the pill SHALL fall back to the row's cached health when the user edits a field (baseUrl / apiKey / api) or discards the edit
+- **AND** the pill SHALL fall back to the row's cached health when the user edits a field (baseUrl / apiKey / api)
 
 #### Scenario: Test fails with HTTP status
 - **WHEN** the server responds with `{ ok: false, status: 401, error: "..." }`
@@ -93,23 +101,30 @@ auth-error yellow with the HTTP status / unreachable red), with the verbatim
 - **AND** the verbatim `error` string SHALL render on a monospace line beneath the pill
 
 #### Scenario: Test works for already-saved providers
-- **WHEN** the user clicks Test on a non-new card (apiKey field shows the `***` placeholder)
+- **WHEN** the user clicks Test while editing a saved provider (apiKey field shows the `***` placeholder)
 - **THEN** the client SHALL send `{ name, baseUrl, apiKey: "***", api }` to the endpoint
 - **AND** the server SHALL resolve the real key from `providers.json` and probe upstream
 - **AND** the client SHALL show the resulting success/failure pill
 
+#### Scenario: Test does not write
+- **WHEN** the user clicks Test
+- **THEN** the client SHALL NOT issue any provider write
+
 #### Scenario: Save is independent of Test
 - **WHEN** the user clicks Test
 - **THEN** the client SHALL NOT call `PUT /api/providers`
-- **AND** the card's dirty/save state SHALL be unchanged regardless of Test outcome
+- **AND** the Settings Save Bar SHALL NOT open as a result of the Test
+- **AND** the outcome of Test SHALL NOT gate whether the provider can be submitted
 
 ### Requirement: Provider health is probed on save and cached
 
-When a provider is saved (`PUT /api/providers`), the server SHALL run the same `probeProvider`
+When a provider is saved — through the whole-map write or a single-provider write — the server SHALL run the same `probeProvider`
 check used by `POST /api/providers/test` and store the result as that provider's cached health
 `{ ok, status, error, modelCount, testedAt }`. The `POST /api/providers/test` handler SHALL also
 store its result into the same cache. The server SHALL NOT probe on any panel-open/read path and
 SHALL NOT run a background/periodic health poll.
+
+A single-provider write SHALL probe **only the provider it touched**, and SHALL NOT delay its response on the probe; the probe result lands in the cache and is read on the next health read. A single-provider write SHALL NOT discard another provider's cached health.
 
 The cached health SHALL be readable under the same auth posture as `/api/providers` (either folded
 into the providers read payload or a sibling read), and SHALL NOT include the provider's API key or
@@ -117,9 +132,16 @@ any credential material.
 
 #### Scenario: Save probes and caches
 
-- **WHEN** a provider is saved via `PUT /api/providers`
+- **WHEN** a provider is saved
 - **THEN** the server SHALL run `probeProvider` for it
 - **AND** store `{ ok, status, error, modelCount, testedAt }` as that provider's cached health
+
+#### Scenario: A single-provider write probes only that provider
+
+- **WHEN** one provider of five is saved through a single-provider write
+- **THEN** exactly one probe SHALL be issued
+- **AND** the response SHALL NOT wait for it
+- **AND** the other four providers' cached health SHALL be unchanged
 
 #### Scenario: Test updates the cache
 
@@ -138,8 +160,12 @@ any credential material.
 
 ### Requirement: Settings → Providers renders a health pill
 
-Each provider row in Settings → Providers SHALL render a health pill derived from the provider's
-cached health, in one of four registers:
+Each **custom-endpoint** row in Settings → Providers SHALL render a health pill derived from the
+provider's cached health, in one of four registers. Rows backed by a credential rather than by an
+endpoint (subscription, API key, environment) have no probe defined for them and SHALL NOT render a
+health pill — rendering one would report "not tested" permanently.
+
+Registers:
 
 - **Connected** (green): `ok: true` — SHALL show the model count (e.g. "Connected · 142 models").
 - **Error** (yellow): `ok: false` with an HTTP `status` — SHALL show the status code (e.g. "401").
@@ -175,11 +201,22 @@ verbatim error line).
 
 #### Scenario: Never-probed provider
 
-- **WHEN** a provider has no cached health
+- **WHEN** a custom-endpoint provider has no cached health
 - **THEN** its row SHALL show a neutral "not tested" pill and no error line
+
+#### Scenario: Credential rows carry no pill
+
+- **WHEN** a subscription, API-key, or environment row renders
+- **THEN** it SHALL NOT render a health pill
+
+#### Scenario: A pending write shows a pending pill
+
+- **WHEN** a custom endpoint has just been saved and its probe has not yet landed
+- **THEN** its row SHALL show a pending state
+- **AND** the client SHALL issue exactly one health read about 2 s after the write response
+- **AND** the row SHALL reconcile to the health that read returns
 
 #### Scenario: Test updates the pill live
 
 - **WHEN** the user clicks Test and the response differs from the current pill
 - **THEN** the pill (and error line) SHALL update from the response without a reload
-

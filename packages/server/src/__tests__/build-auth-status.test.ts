@@ -31,6 +31,7 @@ describe("_buildAuthStatus", () => {
         name: "Anthropic (Claude Pro/Max)",
         flowType: "auth_code",
         authenticated: false,
+        configured: false,
       },
     ]);
   });
@@ -70,6 +71,7 @@ describe("_buildAuthStatus", () => {
       name: "DeepSeek",
       flowType: "api_key",
       authenticated: false,
+      configured: false,
     });
   });
 
@@ -186,5 +188,149 @@ describe("_buildAuthStatus", () => {
     ];
     const result = _buildAuthStatus(catalogue, {}, [ANTHROPIC_HANDLER]);
     expect(result.map((r) => r.id)).toEqual(["anthropic", "deepseek", "groq"]);
+  });
+});
+
+/**
+ * D1 — kind-aware `configured` derivation (test-plan E1–E6).
+ *
+ * `configured` is projected per ROW KIND from evidence the row itself owns:
+ *   - OAuth row   → auth.json[id] holds an **oauth** credential
+ *   - api-key row → `hasStoredKey || ambient ||
+ *                    (entry.configured && entry.source != null && entry.source !== "stored")`
+ *
+ * The `source !== "stored"` exclusion is what closes the phantom twin: a
+ * stored credential of ANY kind sets `entry.configured` with `source: "stored"`,
+ * so without the exclusion an OAuth credential on a catalogue id emits a
+ * keyless `configured:true` api-key row whose Remove destroys that credential.
+ * `entry.source == null` is likewise not evidence — the bridge's fallback branch
+ * sets `configured` with no source, and treating `undefined !== "stored"` as
+ * evidence reopens the clobber against an older pi.
+ */
+describe("_buildAuthStatus — D1 kind-aware `configured`", () => {
+  const ALL_SOURCES: Array<ProviderInfo["source"]> = [
+    undefined,
+    "stored",
+    "runtime",
+    "environment",
+    "fallback",
+    "models_json_key",
+    "models_json_command",
+  ];
+
+  it("E1 — api-key `configured` follows the decision table across every source × entry.configured × stored key × ambient", () => {
+    let cases = 0;
+    for (const source of ALL_SOURCES) {
+      for (const entryConfigured of [true, false]) {
+        for (const stored of [true, false]) {
+          for (const ambient of [true, false]) {
+            const label = `source=${String(source)} entry.configured=${entryConfigured} stored=${stored} ambient=${ambient}`;
+            const catalogue: ProviderInfo[] = [
+              {
+                id: "p",
+                displayName: "P",
+                hasOAuth: false,
+                configured: entryConfigured,
+                ...(source !== undefined ? { source } : {}),
+                ...(ambient ? { ambient: true } : {}),
+              },
+            ];
+            const auth: AuthData = stored
+              ? { p: { type: "api_key", key: "sk-abcdef123456789" } }
+              : {};
+            const row = _buildAuthStatus(catalogue, auth, [])[0];
+            const expected =
+              stored ||
+              ambient ||
+              (entryConfigured && source != null && source !== "stored");
+            expect(row.configured, `configured — ${label}`).toBe(expected);
+            expect(row.source, `source — ${label}`).toBe(expected ? source : undefined);
+            cases++;
+          }
+        }
+      }
+    }
+    expect(cases).toBe(56);
+  });
+
+  it("E2 — a stored OAuth credential configures the OAuth row; the -api twin stays unconfigured with no maskedKey", () => {
+    const catalogue: ProviderInfo[] = [
+      { id: "anthropic", displayName: "Anthropic", hasOAuth: true, configured: true, source: "stored" },
+    ];
+    const auth: AuthData = {
+      anthropic: { type: "oauth", refresh: "r", access: "a", expires: 999 },
+    };
+    const result = _buildAuthStatus(catalogue, auth, [ANTHROPIC_HANDLER]);
+    const oauthRow = result.find((r) => r.id === "anthropic")!;
+    const apiRow = result.find((r) => r.id === "anthropic-api")!;
+    expect(oauthRow.configured).toBe(true);
+    expect(oauthRow.source).toBe("stored");
+    expect(apiRow.configured).toBe(false);
+    expect(apiRow.source).toBeUndefined();
+    expect(apiRow.maskedKey).toBeUndefined();
+  });
+
+  it("E3 — a stored api_key at the shared key unconfigures the OAuth row and configures the -api twin as stored", () => {
+    const catalogue: ProviderInfo[] = [
+      { id: "anthropic", displayName: "Anthropic", hasOAuth: true, configured: true, source: "stored" },
+    ];
+    const auth: AuthData = {
+      anthropic: { type: "api_key", key: "sk-anthropic-key-1234" },
+    };
+    const result = _buildAuthStatus(catalogue, auth, [ANTHROPIC_HANDLER]);
+    const oauthRow = result.find((r) => r.id === "anthropic")!;
+    const apiRow = result.find((r) => r.id === "anthropic-api")!;
+    expect(oauthRow.configured).toBe(false);
+    expect(apiRow.configured).toBe(true);
+    expect(apiRow.source).toBe("stored");
+  });
+
+  it("E4 — an absent `source` is not evidence: `configured:true` alone does not configure an api-key row", () => {
+    const catalogue: ProviderInfo[] = [
+      { id: "deepseek", displayName: "DeepSeek", hasOAuth: false, configured: true },
+    ];
+    const row = _buildAuthStatus(catalogue, {}, [])[0];
+    expect(row.configured).toBe(false);
+    expect(row.source).toBeUndefined();
+  });
+
+  it("E5 — an env-var credential on an OAuth id configures the -api twin as environment-sourced", () => {
+    const catalogue: ProviderInfo[] = [
+      {
+        id: "anthropic",
+        displayName: "Anthropic",
+        hasOAuth: true,
+        configured: true,
+        source: "environment",
+        envVar: "ANTHROPIC_API_KEY",
+      },
+    ];
+    const result = _buildAuthStatus(catalogue, {}, [ANTHROPIC_HANDLER]);
+    const apiRow = result.find((r) => r.id === "anthropic-api")!;
+    expect(apiRow.configured).toBe(true);
+    expect(apiRow.source).toBe("environment");
+    expect(apiRow.envVar).toBe("ANTHROPIC_API_KEY");
+    // The env key is not independently visible to the OAuth row, which owns
+    // only auth.json evidence — so the OAuth row stays unconfigured.
+    expect(result.find((r) => r.id === "anthropic")!.configured).toBe(false);
+  });
+
+  it("E6 — a stored key beats ambient for maskedKey", () => {
+    const catalogue: ProviderInfo[] = [
+      {
+        id: "google-vertex",
+        displayName: "Google Vertex AI",
+        hasOAuth: false,
+        configured: true,
+        ambient: true,
+        source: "stored",
+      },
+    ];
+    const auth: AuthData = {
+      "google-vertex": { type: "api_key", key: "sk-abcdef123456789" },
+    };
+    const row = _buildAuthStatus(catalogue, auth, [])[0];
+    expect(row.maskedKey).toBe("sk-ab...789");
+    expect(row.configured).toBe(true);
   });
 });
