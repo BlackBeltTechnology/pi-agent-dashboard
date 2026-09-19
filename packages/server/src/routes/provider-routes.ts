@@ -3,7 +3,18 @@
  */
 
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { FastifyInstance } from "fastify";
@@ -222,7 +233,37 @@ function writeProvidersFileData(fileData: Record<string, any>): void {
   // `mode` applies only at CREATION, so a tmp left by a crashed earlier write
   // would carry its old (possibly 0644) mode through the rename.
   chmodSync(tmp, 0o600);
+  // tmp+rename is atomic against a concurrent READER, but not durable against
+  // power loss on its own: the rename can reach disk before the bytes do, so a
+  // write this function already acknowledged could come back empty. Flush the
+  // contents first, then the directory entry after the rename.
+  syncPath(tmp);
   renameSync(tmp, CONFIG_PATH);
+  syncPath(dir);
+}
+
+/**
+ * Best-effort fsync of a file or directory. Directory fsync is what makes the
+ * RENAME durable; it is not portable (Windows rejects opening a directory), so
+ * a failure here degrades to the previous non-durable behaviour rather than
+ * failing a write the caller already validated.
+ */
+function syncPath(path: string): void {
+  let fd: number | undefined;
+  try {
+    fd = openSync(path, "r");
+    fsyncSync(fd);
+  } catch {
+    /* durability is best-effort; never fail the write for it */
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
 }
 
 function redactProviders(

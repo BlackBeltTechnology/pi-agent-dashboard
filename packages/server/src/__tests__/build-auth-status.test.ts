@@ -206,6 +206,11 @@ describe("_buildAuthStatus", () => {
  * `entry.source == null` is likewise not evidence — the bridge's fallback branch
  * sets `configured` with no source, and treating `undefined !== "stored"` as
  * evidence reopens the clobber against an older pi.
+ *
+ * `row.source` PRECEDENCE: a stored key wins outright. pi-ai reports
+ * `source: "environment"` whenever the env var is also set, so an auth.json
+ * row would otherwise be labelled `environment` while carrying a `maskedKey`
+ * and Edit/Remove. `stored` is reserved for exactly that row.
  */
 describe("_buildAuthStatus — D1 kind-aware `configured`", () => {
   const ALL_SOURCES: Array<ProviderInfo["source"]> = [
@@ -244,7 +249,13 @@ describe("_buildAuthStatus — D1 kind-aware `configured`", () => {
               ambient ||
               (entryConfigured && source != null && source !== "stored");
             expect(row.configured, `configured — ${label}`).toBe(expected);
-            expect(row.source, `source — ${label}`).toBe(expected ? source : undefined);
+            // A stored key outranks whatever `source` the catalogue reported.
+            const expectedSource = stored
+              ? "stored"
+              : expected && source != null
+                ? source
+                : undefined;
+            expect(row.source, `source — ${label}`).toBe(expectedSource);
             cases++;
           }
         }
@@ -313,6 +324,31 @@ describe("_buildAuthStatus — D1 kind-aware `configured`", () => {
     // The env key is not independently visible to the OAuth row, which owns
     // only auth.json evidence — so the OAuth row stays unconfigured.
     expect(result.find((r) => r.id === "anthropic")!.configured).toBe(false);
+  });
+
+  it("E5b — a STORED key outranks a catalogue `source: environment`", () => {
+    // pi-ai reports `source: "environment"` whenever the env var is also set.
+    // With a key in auth.json the row is auth.json-backed, carries a
+    // `maskedKey`, and offers Edit/Remove — labelling it `environment` would
+    // contradict the status contract, which reserves `stored` for exactly this.
+    const catalogue: ProviderInfo[] = [
+      {
+        id: "deepseek",
+        displayName: "DeepSeek",
+        hasOAuth: false,
+        configured: true,
+        source: "environment",
+        envVar: "DEEPSEEK_API_KEY",
+      },
+    ];
+    const auth = { deepseek: { type: "api_key", key: "sk-stored-abcdef123456" } } as any;
+    const row = _buildAuthStatus(catalogue, auth, [])[0];
+
+    expect(row.configured).toBe(true);
+    expect(row.source).toBe("stored");
+    // The evidence that makes `stored` the right label.
+    expect(row.maskedKey).toBeDefined();
+    expect(row.maskedKey).not.toBe("(ambient)");
   });
 
   it("E6 — a stored key beats ambient for maskedKey", () => {

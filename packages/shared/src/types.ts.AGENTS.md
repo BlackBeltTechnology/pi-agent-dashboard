@@ -9,3 +9,5 @@ Core dashboard shared type surface. Exports `DashboardSession`, `DashboardEvent`
 `DashboardSession.hostPressure?: {state:"degraded"|"unresponsive"; since:number} | null` — server-derived bridge-silence verdict, pushed on transition only (`server/src/session/host-pressure-tracker.ts`). `undefined` = unknown (server silent), explicit `null` = recovered. `since` = server receipt time of the last frame, the anchor the card counts from. Transient: NOT in `sessionToMeta`, never persisted. See change: fix-false-unresponsive-badge.
 
 Adds `ProviderSource` — the six-member pi-ai union (`stored | runtime | environment | fallback | models_json_key | models_json_command`). `ProviderInfo.source` widens from the old four members to it. See change: redesign-providers-settings-page (D1).
+
+`ProviderInfo.configured` is REGISTRY-level, not auth.json-level: an env var or a key in pi's runtime configuration also sets it, with `source` naming which. Consumers must not read `configured: true` as "stored in auth.json" — test `source === "stored"` for that. See change: redesign-providers-settings-page (CodeRabbit PR #709).

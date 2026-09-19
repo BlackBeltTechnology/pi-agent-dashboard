@@ -251,6 +251,50 @@ describe("probeProvider", () => {
     }
   });
 
+  // The probe error is CACHED into ProviderHealth, and the spec requires the
+  // cached value to carry no credential material at all — not merely "not the
+  // key we sent". An upstream or an intermediary proxy routinely echoes a
+  // DIFFERENT secret than the one submitted, so the sanitization has to happen
+  // at ingestion rather than by trusting the upstream.
+  // See change: redesign-providers-settings-page (CodeRabbit PR #709).
+  describe("error sanitization: a credential OTHER than the submitted key", () => {
+    async function errorFor(upstreamBody: string): Promise<string> {
+      mockFetch(async () => new Response(upstreamBody, { status: 502 }));
+      const result = await probeProvider({ ...baseInput, apiKey: "sk-submitted" });
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error("unreachable");
+      return result.error ?? "";
+    }
+
+    it("strips an echoed Authorization: Bearer token", async () => {
+      const err = await errorFor("upstream rejected Authorization: Bearer abcdef0123456789XYZ");
+      expect(err).not.toContain("abcdef0123456789XYZ");
+      expect(err).toContain("[REDACTED]");
+      // The mechanism stays visible — a fully-scrubbed error is undiagnosable.
+      expect(err).toContain("Bearer");
+    });
+
+    it("strips a labelled api_key / access_token value", async () => {
+      const err = await errorFor('{"error":{"api_key":"other-secret-value-1234"}}');
+      expect(err).not.toContain("other-secret-value-1234");
+      expect(err).toContain("[REDACTED]");
+
+      const err2 = await errorFor("access_token=zzzzzzzzzzzzzzzz9999");
+      expect(err2).not.toContain("zzzzzzzzzzzzzzzz9999");
+    });
+
+    it("strips a vendor-prefixed key belonging to a DIFFERENT provider", async () => {
+      const err = await errorFor("proxy forwarded sk-livekeyfromanotheraccount123 upstream");
+      expect(err).not.toContain("sk-livekeyfromanotheraccount123");
+      expect(err).toContain("[REDACTED]");
+    });
+
+    it("leaves an ordinary error message intact (no over-redaction)", async () => {
+      const msg = "Bad gateway: upstream model gpt-4o-mini is not available in region eu-west-1";
+      expect(await errorFor(msg)).toBe(msg);
+    });
+  });
+
   it("anthropic-messages uses x-api-key header (not Authorization)", async () => {
     let capturedInit: RequestInit | undefined;
     mockFetch(async (_url, init) => {

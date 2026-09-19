@@ -818,7 +818,13 @@ export interface ProviderInfo {
   displayName: string;
   /** True iff `authStorage.getOAuthProviders()` includes this id. */
   hasOAuth: boolean;
-  /** True iff a credential is stored in auth.json. */
+  /**
+   * True iff the provider holds a usable credential at REGISTRY level — not
+   * only an auth.json entry. An environment variable or a key registered in
+   * pi's runtime configuration also sets this, with `source` naming which.
+   * Consumers must not read `configured: true` as "stored in auth.json";
+   * check `source === "stored"` for that.
+   */
   configured: boolean;
   /** Where the credential is sourced from, when configured. */
   source?: ProviderSource;

@@ -435,7 +435,14 @@ export function _buildAuthStatus(
     };
     // `source` mirrors the catalogue's evidence whenever the row is configured
     // by it; `stored` evidence sets it through `hasStoredKey` instead.
-    if (rowConfigured && entry.source != null) row.source = entry.source;
+    //
+    // A STORED key outranks the catalogue's own `source`. pi-ai reports
+    // `source: "environment"` whenever the env var is also set, so a provider
+    // with BOTH a key in auth.json and the env var exported would otherwise be
+    // labelled `environment` while carrying a `maskedKey` — contradicting the
+    // status contract, which reserves `stored` for auth.json-backed rows.
+    if (hasStoredKey) row.source = "stored";
+    else if (rowConfigured && entry.source != null) row.source = entry.source;
     if (hasStoredKey) {
       const key = (cred as ApiKeyCredential).key;
       row.maskedKey = key.length >= 12 ? `${key.slice(0, 5)}...${key.slice(-3)}` : "****";

@@ -242,7 +242,13 @@ test.describe("redesign-providers-settings-page — Add-provider flow (L3)", () 
         contentType: "application/json",
         body: JSON.stringify({
           code: "provider_auth.credential_type_conflict",
-          error: "A credential of a different type (api_key) is already stored for this provider — remove it first.",
+          // A SENTINEL, deliberately not the English translation. The server's
+          // raw `error` normally reads the same as `err.provider_auth.
+          // credential_type_conflict`, so asserting that phrase would pass
+          // even if the UI rendered `body.error` verbatim and never consulted
+          // the code — the assertion could not tell translation from
+          // pass-through. With the sentinel, only the translated path matches.
+          error: "RAW_SERVER_ERROR_MUST_NOT_RENDER",
           vars: { storedType: "api_key" },
         }),
       });
@@ -262,7 +268,11 @@ test.describe("redesign-providers-settings-page — Add-provider flow (L3)", () 
     const refusal = page.getByTestId("provider-flow-error");
     await expect(refusal).toBeVisible({ timeout: 10_000 });
     await expect(refusal).toContainText("Anthropic");
+    // The TRANSLATED message, interpolated from `vars.storedType`.
+    await expect(refusal).toContainText("A credential of a different type (api_key)");
     await expect(refusal).toContainText("remove it first");
+    // ...and the raw server string must never reach the surface.
+    await expect(refusal).not.toContainText("RAW_SERVER_ERROR_MUST_NOT_RENDER");
 
     // The provider was never written — it must not show connected.
     await expect(page.locator('[data-testid="provider-row"][data-row-id="anthropic"]')).toHaveCount(0);

@@ -27,7 +27,7 @@ The bridge SHALL push a `models_list` message for its own `sessionId` whenever i
 - **THEN** the server emits `credentials_updated` and the bridge cycle delivers fresh per-session `models_list` updates
 - **AND** the dropdown reflects the removal without any global wipe
 
-#### Scenario: Custom provider added via Settings → LLM Providers
+#### Scenario: Custom provider added via Settings → Providers
 - **WHEN** a user adds a custom provider entry to `~/.pi/agent/providers.json` through a single-provider write (or the retained whole-map write)
 - **THEN** the server emits `credentials_updated` to every bridge
 - **AND** each bridge runs `reloadProviders` (registers the new provider via `pi.registerProvider(...)`, including async `discoverModels` for its `/v1/models` endpoint)
