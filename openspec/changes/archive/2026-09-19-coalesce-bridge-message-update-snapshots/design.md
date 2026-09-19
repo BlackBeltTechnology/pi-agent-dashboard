@@ -54,6 +54,49 @@ against `origin/develop`:
   `onTerminal()` to discard. It throttles subagent tool frames only and is
   untouched here.
 
+## Measurement
+
+Task 1's D0 gate, measured on the **uncoalesced** bridge in the docker harness
+(`PI_E2E_SEED=1`, prompt `[[faux:coalesce-multiparagraph]]` — 8 paragraphs
+streamed by the faux provider at the default `FAUX_TPS=50`). A temporary counter
+at the `message_update` forward site recorded the sends and the stringified
+bytes; task 1.3 removed it, so the tree is otherwise untouched.
+
+| quantity | value |
+|---|---|
+| `message_update` sends | 169 |
+| bytes stringified | 616,534 (≈ 46 KB/s) |
+| first→last update span | 13.4 s |
+| **source update rate** | **12.6 /s** |
+| gate target `span / 50 ms` | 268 windows |
+| **ratio (sends ÷ windows)** | **0.63** |
+
+The ratio is below 1, so the gate's STOP condition fires — **but its stated
+rationale does not apply**, and the numbers say why:
+
+- The bridge forwards **1:1** (169 in → 169 out, 616 KB). Neither the server fold
+  nor the client render batching batches at the bridge, so nothing had "already
+  captured" this win. The change's premise — the bridge pays a full snapshot
+  `JSON.stringify` per source update — is confirmed as stated.
+- The gate's `span / 50 ms` term measures the **source event rate**, not the
+  bridge's per-event cost. Coalescing writes at most one snapshot per window, so
+  the reduction factor is `sourceRate ÷ 20`: it only exists once the source emits
+  deltas faster than once per 50 ms. At 12.6 deltas/s coalescing is exactly 1:1.
+- 12.6 deltas/s is an artifact of the **fixture's chunking**, not of pi. pi-ai's
+  faux provider slices text at `tokenSize` 3–5 tokens (`faux.js`
+  `splitStringByTokenSize`, defaults 3/5) and paces each chunk by
+  `estimateTokens(chunk) / tokensPerSecond`, so `FAUX_TPS=50` yields
+  50 ÷ 4 ≈ 12.5 deltas/s. Real providers emit 1–4-token deltas at 20–150 tok/s —
+  the regime D2's `COALESCE_WINDOW_MS = 50` was chosen for ("an order of
+  magnitude above the per-token interval of a fast provider").
+
+So the measured reduction factor is `max(1, sourceDeltasPerSecond ÷ 20)`: ~1× for
+a slow or coarse stream (the floor: coalescing can never send MORE than the
+source did), ~2.5× at the 50 deltas/s the design assumed, more for a fast
+provider. The change was accepted on that basis, with the before-numbers
+recorded here. The after-number (task 9.1) and the perceptual window check
+(task 9.2) stay manual-only.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -230,6 +273,22 @@ this enumeration IS the contract, and the coalescer's own send must not re-enter
 it. `first_message_update` (`bridge.ts:3659`) is deliberately excluded: it is a
 once-per-session **metadata** send feeding the session card's label, not a chat
 row, so its position relative to a snapshot is unobservable.
+
+Two further members of the enumeration, both named because they are wire writes
+from outside the two loops and neither is reached by the entry choke point:
+
+- **`subagentTickThrottle`'s trailing timer.** It writes held
+  `tool_execution_update` frames from its own timeout. Unreachable concurrently
+  with a parked snapshot today — a subagent tick reaches the bridge as a
+  `tool_execution_update`, so the entry choke point flushes the snapshot BEFORE
+  the tick is offered, and `tool_execution_end` DISCARDs a held frame rather than
+  flushing it — but it is a timer-driven wire write, so it belongs in the
+  contract rather than in the unstated remainder.
+- **The pass-through loop flushes unconditionally**, not through
+  `flushesParkedText(eventType)`. Every pass-through type must flush, and
+  `message_update` is registered on the ENRICHED list, never on that one, so the
+  predicate would be constant-true there and the condition would read as
+  load-bearing when it is not.
 
 **Placement against the deferred branches.** `message_end` flushes at handler
 entry (synchronous) and calls `messageEnd(gen, key)` there too — before its own

@@ -50,7 +50,7 @@ L3 rows read their observable against the harness port recorded in
 
 | id | requirement | technique | level | disposition | workload | metric + threshold | window |
 |----|-------------|-----------|-------|-------------|----------|--------------------|--------|
-| P1 | D0 gate | before/after counting | L1 | automated | synthetic 2000-update turn (one `text_delta` per 3ms, 6s of stream) driven through the coalescer with a counting `send` | sends ≤ `ceil(6000/50) + 2`; bytes mapped ≤ 3% of the uncoalesced baseline | one synthetic turn |
+| P1 | D0 gate | before/after counting | L1 | automated | synthetic 2000-update turn (one `text_delta` per 3ms, 6s of stream) driven through the coalescer with a counting `send` | sends ≤ `ceil(6000/50) + 2`; bytes mapped ≤ 7% of the uncoalesced baseline (ratio ≈ tick/window ≈ 6%; the original 3% figure assumed a different growth model — see `design.md` `## Measurement`) | one synthetic turn |
 | P2 | R1 | tail-latency on the park→send delay | L1 | automated | the E5 gapless stream | p100 park→send delay ≤ 50ms (one window, non-cumulative — not 100ms) | 500ms run |
 | P3 | D0 gate | live before/after measurement | — | manual-only | one long real assistant turn on the local dashboard, instrumented on `develop` then on the branch | [judgment: is the bridge send count materially above `duration/50ms` before, and at/near it after] | one turn |
 | P4 | design Open Question | perceptual check | — | manual-only | live streaming turn at `COALESCE_WINDOW_MS = 50` | [judgment: streaming still feels continuous; decide whether 50 stays or moves to 33/80] | one turn |
