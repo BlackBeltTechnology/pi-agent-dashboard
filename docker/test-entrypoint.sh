@@ -200,7 +200,7 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
     node -e '
       const crypto = require("node:crypto");
       const fs = require("node:fs");
-      const [key, spawnStrategy, out, trusted, relayFake] = process.argv.slice(1);
+      const [key, spawnStrategy, out, trusted, relayFake, chatFake] = process.argv.slice(1);
       const hash = crypto.createHash("sha256").update(key).digest("hex");
       const networks = (trusted || "").split(",").map((s) => s.trim()).filter(Boolean);
       const cfg = {
@@ -229,8 +229,38 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
       // the config enables it BEFORE boot (the server entry seeds the fake at
       // activation). See docker/test-up.sh.
       if (relayFake === "1") cfg.plugins.browser = { enabled: true };
+      // Chat-gateway TEAM CONTROLS (change: add-chat-gateway-team-controls,
+      // task 10g). Seeded BEFORE boot for the same reason as the block above:
+      // pi-state is a RAM-backed tmpfs, and the plugin reads teamControls at
+      // ACTIVATION, so a config written through the API later cannot reach it.
+      //
+      // `PI_CHAT_GATEWAY_FAKE` ALSO selects the socket-less platform
+      // (packages/chat-gateway/src/adapters/fake.ts, env-guarded). The harness
+      // carries no Discord credential, so without it the plugin is inert and 5
+      // of the 7 L3 rows have nothing to render.
+      //
+      // `guildId` is REQUIRED for the delegation read. Without it the layer
+      // answers `unavailable` naming "a configured teamControls.guildId" —
+      // which is the OTHER branch of F2, so a spec asserting the
+      // missing-PERMISSION wording needs this set (PI_CHAT_GATEWAY_FAKE=nolist
+      // supplies that one).
+      //
+      // Deliberately NO `bindings` here: a binding is keyed by the DASHBOARD
+      // workspace id (server-generated), which this seed cannot know. A spec
+      // creates its workspace first, then writes the binding for that id.
+      if (chatFake) {
+        cfg.plugins["chat-gateway"] = {
+          enabled: true,
+          allowedRoots: ["/fixtures/sample-git"],
+          teamControls: {
+            guildId: "e2e_guild_1",
+            ceiling: "control",
+            auditRetention: 500,
+          },
+        };
+      }
       fs.writeFileSync(out, JSON.stringify(cfg) + "\n");
-    ' "${E2E_PROXY_KEY}" "${PI_SPAWN_STRATEGY:-tmux}" "${PI_DIR}/dashboard/config.json" "${PI_E2E_TRUSTED_NETWORKS:-}" "${PI_BROWSER_RELAY_FAKE:-}"
+    ' "${E2E_PROXY_KEY}" "${PI_SPAWN_STRATEGY:-tmux}" "${PI_DIR}/dashboard/config.json" "${PI_E2E_TRUSTED_NETWORKS:-}" "${PI_BROWSER_RELAY_FAKE:-}" "${PI_CHAT_GATEWAY_FAKE:-}"
     echo "[test-entrypoint] PI_E2E_SEED: seeded trustedNetworks (${PI_E2E_TRUSTED_NETWORKS:-0.0.0.0/0}) + defaultModel + modelProxy apiKey → config.json"
   fi
 
