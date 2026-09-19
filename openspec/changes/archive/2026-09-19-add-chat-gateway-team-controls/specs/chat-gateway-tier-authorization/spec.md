@@ -19,6 +19,17 @@ Every action-bearing message or interaction SHALL resolve to exactly one tier (`
 - **WHEN** a principal mapped at `control` for one binding acts in a different bound channel where they are not mapped
 - **THEN** the request resolves to a refusal
 
+### Requirement: Direct messages are enrollment-only
+A direct message SHALL NOT drive a session while this layer is active, because a binding is per channel and a DM can never carry one. A session-control request originating in a DM SHALL be refused with the unbound-channel reason and SHALL direct its author to a workspace-bound channel rather than reporting that condition bare. Every other refusal reason SHALL continue to be reported as its own specific reason, including for a DM. Pairing SHALL remain available over DM as the enrollment path, and its success reply SHALL NOT promise session control.
+
+#### Scenario: Allowlisted principal acts from a DM
+- **WHEN** an allowlisted principal holding `control` sends an action-bearing message in a direct message
+- **THEN** the request is refused with the unbound-channel reason, no session is spawned or driven, and the reply directs the author to a workspace-bound channel
+
+#### Scenario: Pairing does not promise what the layer refuses
+- **WHEN** a user redeems the current pairing code in a direct message
+- **THEN** the user is added to the allowlist and the reply states that session control happens in a workspace-bound channel
+
 ### Requirement: Authorization is a single chokepoint
 Every action-bearing request SHALL be authorized at one place that returns either a grant carrying the resolved tier, binding, and verb, or a refusal. No action path SHALL reach a session without a grant. Scope containment SHALL be evaluated inside that authorization, not as a separate check.
 

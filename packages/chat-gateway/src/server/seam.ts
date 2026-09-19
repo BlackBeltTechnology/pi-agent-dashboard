@@ -70,6 +70,8 @@ export interface HostSeam {
   getSession(id: string): SeamSession | undefined;
   /** Mint a fresh spawn-correlation token. */
   mintSpawnToken(): string;
+  /** Merge a plugin-owned provenance ref onto a session (trusted-gated). */
+  assignSessionRef(sessionId: string, ref: Record<string, unknown>): boolean;
   /** Persist the plugin allowlist after a successful pairing redemption. */
   persistAllowlist(ids: string[]): void;
   /** Subscribe to resolution of THIS plugin's own spawned sessions. */
@@ -150,6 +152,9 @@ export function createHostSeam(ctx: ServerPluginContext): HostSeam {
       return s ?? undefined;
     },
     mintSpawnToken: () => ctx.mintSpawnToken(),
+    assignSessionRef(sessionId, ref) {
+      return ctx.assignSessionRef(sessionId, ref);
+    },
     persistAllowlist(ids) {
       void Promise.resolve(ctx.updatePluginConfig({ allowlist: ids })).catch((err) =>
         ctx.logger.warn(`chat-gateway: could not persist allowlist: ${String(err)}`),

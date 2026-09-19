@@ -15,12 +15,26 @@ let configValue: Record<string, unknown> = {};
 vi.mock("@blackbelt-technology/dashboard-plugin-runtime/context", () => ({
   usePluginConfig: () => configValue,
   usePluginSend: () => sendMock,
+  // The nested TeamControlsPanel subscribes to its own message types; a no-op
+  // keeps this suite focused on the config fields it owns.
+  usePluginMessage: () => {},
 }));
 
 import { ChatGatewaySettings } from "../index.js";
 
 function renderPanel() {
   return render(<ChatGatewaySettings pluginContext={{} as never} />);
+}
+
+/**
+ * Only the config-PERSISTENCE sends. The nested team-controls panel also asks
+ * for its surface on mount, so a total call count is no longer one-to-one with
+ * a config write.
+ */
+function configWrites(): Array<{ type?: string; id?: string; config: Record<string, unknown> }> {
+  return sendMock.mock.calls
+    .map((c) => c[0] as { type?: string; id?: string; config: Record<string, unknown> })
+    .filter((m) => m?.type === "plugin_config_write");
 }
 
 beforeEach(() => {
@@ -55,12 +69,8 @@ describe("ChatGatewaySettings (10.1)", () => {
     });
     fireEvent.click(screen.getByTestId("chat-gateway-save"));
 
-    await waitFor(() => expect(sendMock).toHaveBeenCalledTimes(1));
-    const msg = sendMock.mock.calls[0][0] as unknown as {
-      type: string;
-      id: string;
-      config: Record<string, unknown>;
-    };
+    await waitFor(() => expect(configWrites()).toHaveLength(1));
+    const msg = configWrites()[0];
     expect(msg.type).toBe("plugin_config_write");
     expect(msg.id).toBe("chat-gateway");
     expect(msg.config.allowlist).toEqual(["u1", "u2"]);
@@ -74,8 +84,8 @@ describe("ChatGatewaySettings (10.1)", () => {
     });
     fireEvent.click(screen.getByTestId("chat-gateway-save"));
 
-    await waitFor(() => expect(sendMock).toHaveBeenCalledTimes(1));
-    const msg = sendMock.mock.calls[0][0] as unknown as { config: Record<string, unknown> };
+    await waitFor(() => expect(configWrites()).toHaveLength(1));
+    const msg = configWrites()[0];
     expect(msg.config.token).toBe("bot-secret");
   });
 
@@ -86,8 +96,10 @@ describe("ChatGatewaySettings (10.1)", () => {
     });
     fireEvent.click(screen.getByTestId("chat-gateway-save"));
 
-    await waitFor(() => expect(sendMock).toHaveBeenCalledTimes(1));
-    const msg = sendMock.mock.calls[0][0] as unknown as { config: { fixedMap: Record<string, string> } };
+    await waitFor(() => expect(configWrites()).toHaveLength(1));
+    const msg = configWrites()[0] as unknown as {
+      config: { fixedMap: Record<string, string> };
+    };
     expect(msg.config.fixedMap).toEqual({
       "discord:c1:-": "/repos/proj",
       "discord:c2:-": "/repos/other",

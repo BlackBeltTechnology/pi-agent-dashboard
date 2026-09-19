@@ -31,7 +31,8 @@ import {
   type InboundMessage,
 } from "../shared/types.js";
 import { authorize, createPairing, type Pairing } from "./auth.js";
-import { isWithinAllowedRoots, resolveCwd } from "./binding.js";
+import { isWithinAllowedRoots } from "./binding.js";
+import { dispatchToSession } from "./dispatch.js";
 import {
   composeBatchAnswers,
   composeMultiselectAnswer,
@@ -42,6 +43,12 @@ import {
 import type { BindingStore, SpawnCorrelator } from "./routing.js";
 import type { HostSeam, SpawnOutcome } from "./seam.js";
 import { createEditThrottle, type EditThrottle, shouldSteer, stripSteerPrefix } from "./stream.js";
+import type { Grant } from "./team/authorize.js";
+import { resolveCwdWithWorkspace, type WorkspaceResolveOutcome } from "./team/binding.js";
+import type { TeamController } from "./team/controller.js";
+import { type MirrorEvent, renderMirror } from "./team/output-filter.js";
+import { createPacer } from "./team/pacing.js";
+import { isWithinWorkspace } from "./team/workspace.js";
 
 export interface ChatGatewayDeps {
   platform: ChatPlatform;
@@ -50,6 +57,11 @@ export interface ChatGatewayDeps {
   config: ResolvedConfig;
   store: BindingStore;
   correlator: SpawnCorrelator;
+  /**
+   * Optional team-controls layer. When present it gates every action-bearing
+   * request at one chokepoint, records the attempt, and gates prompt answers.
+   */
+  team?: TeamController;
   now?: () => number;
   /** The L1 pairing code state machine; a fresh one is minted by default. */
   pairing?: Pairing;
@@ -82,6 +94,8 @@ interface PendingPrompt {
   messageId: string;
   /** Whether the prompt's channel is a DM (L4 re-authorization on click). */
   isDM: boolean;
+  /** The principal whose command raised this question; absent for an attached session. */
+  invoker?: string;
   /** Set when this prompt is one step of a multiselect/batch sequence (7.2). */
   sequenceRootId?: string;
 }
@@ -145,6 +159,72 @@ function assistantTextFrom(frame: unknown): string | null {
   return typeof content === "string" ? content : "";
 }
 
+/** File/dir a tool call targeted, when the args name one. */
+function toolTarget(args: Record<string, unknown> | undefined): string | undefined {
+  if (!args) return undefined;
+  for (const k of ["file_path", "filePath", "path", "target"]) {
+    const v = args[k];
+    if (typeof v === "string" && v !== "") return v;
+  }
+  return undefined;
+}
+
+/** The edit payload a names-and-diffs binding may reveal. `null` when none. */
+function editDiff(toolName: string, args: Record<string, unknown> | undefined): string | null {
+  if (!args) return null;
+  if (!/^(edit|write|patch|apply_patch|str_replace)/i.test(toolName)) return null;
+  const oldText = typeof args.oldText === "string" ? args.oldText : undefined;
+  const newText = typeof args.newText === "string" ? args.newText : undefined;
+  if (oldText !== undefined || newText !== undefined) {
+    return [`- ${oldText ?? ""}`, `+ ${newText ?? ""}`].join("\n");
+  }
+  return typeof args.content === "string" ? args.content : null;
+}
+
+/** Map a `tool_execution_start` payload; null when it names no tool. */
+function toolCallMirrorEvent(data: Record<string, unknown>): MirrorEvent | null {
+  const toolName = typeof data.toolName === "string" ? data.toolName : undefined;
+  if (!toolName) return null;
+  const args = data.args as Record<string, unknown> | undefined;
+  const target = toolTarget(args);
+  const diff = editDiff(toolName, args);
+  return {
+    kind: "tool_call",
+    toolName,
+    ...(target ? { target } : {}),
+    ...(args !== undefined ? { args } : {}),
+    ...(diff ? { diff } : {}),
+  };
+}
+
+/** Map a `tool_execution_end` payload. A shell's stdout is TERMINAL output. */
+function toolResultMirrorEvent(data: Record<string, unknown>): MirrorEvent | null {
+  const output = typeof data.output === "string" ? data.output : undefined;
+  if (output === undefined) return null;
+  const toolName = typeof data.toolName === "string" ? data.toolName : "";
+  return { kind: /^(bash|shell|exec)$/i.test(toolName) ? "terminal" : "tool_result", output };
+}
+
+/**
+ * Map a bridge event frame onto a `MirrorEvent` for the team-controls mirror
+ * lane. Assistant prose is NOT mapped here — it keeps chat-gateway's existing
+ * edit-in-place streaming path (F6/F7/F10); only STRUCTURED activity is posted.
+ * Returns null for any frame the filter has no opinion about.
+ */
+function mirrorEventFrom(frame: unknown): MirrorEvent | null {
+  const event = (frame as Record<string, unknown>).event as Record<string, unknown> | undefined;
+  if (!event) return null;
+  const data = (event.data ?? {}) as Record<string, unknown>;
+  switch (event.eventType) {
+    case "tool_execution_start":
+      return toolCallMirrorEvent(data);
+    case "tool_execution_end":
+      return toolResultMirrorEvent(data);
+    default:
+      return null;
+  }
+}
+
 /** Map a normalized prompt control onto the vendored adapter's prompt shape. */
 function toInteractivePrompt(control: PromptControl) {
   const method =
@@ -168,8 +248,45 @@ function toInteractivePrompt(control: PromptControl) {
   };
 }
 
+/**
+ * An adapter message → the edge's inbound shape.
+ *
+ * Extracted from the `onMessage` closure to keep it within the complexity
+ * budget, and because this mapping is where non-human + role identity either
+ * survives or is lost: without `bot`/`webhook` the chokepoint's
+ * `non_human_author` refusal is unreachable, and without `roleIds` every
+ * role→tier mapping the panel advertises is inert.
+ *
+ * Absent optional fields are OMITTED rather than set to `undefined`, so
+ * downstream `in`/presence checks stay honest.
+ */
+function toInbound(
+  m: PlatformMessage,
+  platform: ChatPlatform,
+  startedAt: number,
+): InboundMessage {
+  const md = m.metadata;
+  const inbound: InboundMessage = {
+    platform,
+    channelId: m.channelId,
+    userId: m.userId,
+    text: m.content,
+    isDM: md?.isDM === true,
+    startedAt,
+  };
+  if (typeof md?.threadId === "string") inbound.threadId = md.threadId;
+  if (typeof md?.parentChannelId === "string") inbound.parentChannelId = md.parentChannelId;
+  if (md?.bot === true) inbound.bot = true;
+  if (md?.webhook === true) inbound.webhook = true;
+  const roleIds = Array.isArray(md?.roleIds)
+    ? md.roleIds.filter((r): r is string => typeof r === "string")
+    : [];
+  if (roleIds.length > 0) inbound.roleIds = roleIds;
+  return inbound;
+}
+
 export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
-  const { seam, adapter, config, store, correlator, platform } = deps;
+  const { seam, adapter, config, store, correlator, platform, team } = deps;
   const now = deps.now ?? Date.now;
   const pairing = deps.pairing ?? createPairing({ now });
 
@@ -179,12 +296,53 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
   const sequences = new Map<string, SequenceState>();
   const unsubscribes = new Map<string, () => void>();
   const subscriptions = new Set<string>();
+  /** sessionId → the principal whose command last drove it (question-invoker). */
+  const lastInvoker = new Map<string, string>();
   /** channelKey → the in-flight spawn correlation token. */
   const pendingSpawns = new Map<string, string>();
   /** channelKey → when the spawn started (for the stale-spawn sweep). */
   const pendingSpawnAt = new Map<string, number>();
   /** A spawn that never resolves must not block its channel forever. */
   const SPAWN_TTL_MS = 5 * 60_000;
+
+  /**
+   * Team-controls mirror lane (D9): STRUCTURED session activity posted into the
+   * bound thread at the binding's mirror level. Assistant prose keeps its own
+   * edit-in-place path below (F6/F7/F10) — this lane only ADDS the tool
+   * activity that path never rendered. Posted through the pacer so a burst
+   * cannot exceed Discord's per-channel budget. Present only with the layer.
+   */
+  const mirrorPacer = team
+    ? createPacer({
+        send: async (channelKey, content) => {
+          const channelId = store.get(channelKey)?.channelId;
+          if (!channelId) return;
+          await adapter.sendMessage(channelId, content);
+        },
+      })
+    : undefined;
+
+  /**
+   * POST one mapped structured event into the bound thread at the binding's
+   * mirror level (D9). Extracted from `handleFrame` so the frame dispatcher does
+   * not grow a nested-conditional tree per mirror rule.
+   */
+  function mirrorFrame(channelKey: string, frame: unknown): void {
+    if (!mirrorPacer || !team) return;
+    const entry = store.get(channelKey);
+    const channelId = entry?.channelId;
+    const mirrorEvent = mirrorEventFrom(frame);
+    if (!channelId || !mirrorEvent) return;
+    // Pass the parent for a THREAD binding: the operator sets the mirror level on
+    // the channel they bound, and a thread's messages carry the thread id.
+    const rendered = renderMirror(
+      mirrorEvent,
+      team.mirrorLevel(channelId, entry?.parentChannelId),
+    );
+    if (rendered === null || rendered === "") return;
+    mirrorPacer.submit(channelKey, rendered);
+    void mirrorPacer.pump(channelKey);
+  }
 
   /** Drop spawn entries older than the TTL so a lost resolution cannot wedge a channel. */
   function sweepStaleSpawns(): void {
@@ -272,6 +430,41 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
   }
 
   /** Resolve (or create) the binding for an inbound message. Null = already replied. */
+  /**
+   * The bound workspace's folders for this channel (D8), or undefined when the
+   * layer owns no binding for it.
+   *
+   * The folders come from the PROVISIONED channel→workspace binding, so a
+   * channel the layer does not own resolves exactly as before. A THREAD
+   * inherits its parent channel's binding: the layer provisions a channel, and
+   * a thread under it belongs to that channel's workspace.
+   */
+  function boundWorkspaceFolders(msg: InboundMessage): string[] | undefined {
+    const bound =
+      team?.bindingFor(msg.channelId) ??
+      (msg.parentChannelId ? team?.bindingFor(msg.parentChannelId) : undefined);
+    return bound?.binding.folders;
+  }
+
+  /**
+   * Resolve this channel's spawn cwd across the whole precedence chain (D8):
+   * persisted binding → bound workspace folders → fixed map → default.
+   *
+   * Extracted so `ensureBinding` stays within the complexity budget; the
+   * ordering and the `allowedRoots` gate live in `resolveCwdWithWorkspace`.
+   */
+  function resolveBindCwd(msg: InboundMessage, channelKey: string): WorkspaceResolveOutcome {
+    const workspaceFolders = boundWorkspaceFolders(msg);
+    return resolveCwdWithWorkspace({
+      persisted: undefined,
+      ...(workspaceFolders ? { workspaceFolders } : {}),
+      fixedMap: config.fixedMap,
+      channelKey,
+      ...(config.defaultCwd ? { defaultCwd: config.defaultCwd } : {}),
+      allowedRoots: config.allowedRoots,
+    });
+  }
+
   async function ensureBinding(msg: InboundMessage, channelKey: string): Promise<Binding | null> {
     const existing = store.get(channelKey);
     if (existing) return existing;
@@ -300,13 +493,12 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       return null;
     }
 
-    const resolved = resolveCwd({
-      persisted: undefined,
-      fixedMap: config.fixedMap,
-      channelKey,
-      defaultCwd: config.defaultCwd,
-      allowedRoots: config.allowedRoots,
-    });
+    // D8: the WORKSPACE source sits between a persisted binding and the fixed
+    // map. Without it a workspace folder inside `allowedRoots` was never
+    // offered, so a bind that should have used it fell through to fixedMap/
+    // defaultCwd or refused — narrower than the spec, never wider, since
+    // `resolveCwdWithWorkspace` skips inert folders rather than adopting them.
+    const resolved = resolveBindCwd(msg, channelKey);
 
     if (resolved.kind === "resolved") {
       // The session id is NOT known until the host resolves the spawn, so no
@@ -320,14 +512,33 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
 
     // Interactive source: attach to a live in-range session if there is exactly
     // one unambiguous candidate; otherwise refuse. Never guess between several.
+    //
+    // "In range" means the BOUND WORKSPACE when there is one, not `allowedRoots`.
+    // Filtering only by allowedRoots let a bind adopt a session from anywhere the
+    // host may run — another workspace, or none at all — and the binding, the
+    // subscription and the mirror were all established before the NEXT message
+    // refused `scope_violation`. Attaching to the wrong session is not something
+    // a later refusal repairs, so the narrower net is the correct default (11.4).
+    const wsFolders = boundWorkspaceFolders(msg);
+    const inScope =
+      wsFolders && wsFolders.length > 0
+        ? (cwd: string) => isWithinWorkspace(cwd, wsFolders)
+        : (cwd: string) => isWithinAllowedRoots(cwd, config.allowedRoots);
     const candidates = seam
       .listSessions()
-      .filter((s) => typeof s.cwd === "string" && isWithinAllowedRoots(s.cwd, config.allowedRoots));
+      .filter((s) => typeof s.cwd === "string" && inScope(s.cwd));
     if (candidates.length !== 1) {
+      // Name the actual constraint. "Configure a fixed channel→cwd map" is the
+      // wrong advice when the channel is already bound to a workspace whose
+      // folders the host cannot run in — the operator would go looking for a
+      // missing map instead of the folder that is out of range.
+      const boundToWorkspace = wsFolders !== undefined && wsFolders.length > 0;
       await reply(
         msg.channelId,
         candidates.length === 0
-          ? "No session to attach to and no cwd configured (fixedMap/defaultCwd). Set a bound channel or configure a default cwd."
+          ? boundToWorkspace
+            ? `This channel is bound to a workspace, but no live session is inside it (${wsFolders.join(", ")}). Nothing was attached.`
+            : "No session to attach to and no cwd configured (fixedMap/defaultCwd). Set a bound channel or configure a default cwd."
           : "Several sessions are open in allowedRoots — ambiguous attach. Configure a fixed channel→cwd map instead.",
       );
       return null;
@@ -337,6 +548,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       platform,
       channelId: msg.channelId,
       threadId: msg.threadId,
+      parentChannelId: msg.parentChannelId,
       sessionId: only.id,
       cwd: only.cwd as string,
       boundBy: msg.userId,
@@ -380,6 +592,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       channelKey,
       channelId: msg.channelId,
       threadId: msg.threadId,
+      parentChannelId: msg.parentChannelId,
       isDM: msg.isDM,
       cwd,
       by: msg.userId,
@@ -501,6 +714,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       channelId: state.channelId,
       messageId,
       isDM: state.isDM,
+      invoker: lastInvoker.get(state.sessionId),
       sequenceRootId: state.rootId,
     });
   }
@@ -655,6 +869,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
           platform,
           channelId: meta.channelId,
           threadId: meta.threadId,
+          parentChannelId: meta.parentChannelId,
           sessionId,
           cwd: meta.cwd,
           boundBy: meta.by,
@@ -667,19 +882,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       await adapter.start({
         onMessage: async (m: PlatformMessage) => {
           try {
-            await gateway.handleInbound({
-              platform,
-              channelId: m.channelId,
-              threadId: typeof m.metadata?.threadId === "string" ? m.metadata.threadId : undefined,
-              parentChannelId:
-                typeof m.metadata?.parentChannelId === "string"
-                  ? m.metadata.parentChannelId
-                  : undefined,
-              userId: m.userId,
-              text: m.content,
-              isDM: m.metadata?.isDM === true,
-              startedAt: now(),
-            });
+            await gateway.handleInbound(toInbound(m, platform, now()));
           } catch (err) {
             seam.log("error", `chat-gateway inbound failed: ${String(err)}`);
           }
@@ -687,15 +890,27 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
         onInteractiveResponse: (resp) => {
           const rec = prompts.get(resp.requestId);
           if (!rec) return;
-          // L1/L4: a click is an ACTOR's action, so re-authorize it. Rendering
+          // A click is an ACTOR's action, so re-authorize it. Rendering
           // the prompt is NOT a grant — any member of an opted-in group channel
           // can see the bot's buttons. A refused click must NOT consume the
           // prompt (an authorized user may still answer it).
+          //
+          // Resolve the SESSION's binding first, not just its channel id. A
+          // session in a THREAD carries the THREAD id as `channelId`, so both
+          // layers below need `parentChannelId` to resolve the binding at all —
+          // and the binding's `cwd` is what scope containment must be evaluated
+          // against. Omitting these reproduced two defects: prompts in threads
+          // were unanswerable (refused, logged, and silently never delivered,
+          // so the session blocked forever), and an out-of-scope target was
+          // authorized, answered, and recorded `permitted` — containment was
+          // simply never evaluated.
+          const bound = store.get(channelKeyFor(rec.sessionId) ?? "");
           const decision = authorize({
             config: { allowlist: config.allowlist, admins: config.admins, groupChannels: config.groupChannels },
             userId: resp.userId ?? "",
             action: "talk",
             channelId: rec.channelId,
+            ...(bound?.parentChannelId ? { parentChannelId: bound.parentChannelId } : {}),
             // L4: use the BINDING's real DM-ness. A synthesized value would
             // treat a THREAD (id not in groupChannels) as a DM and skip L4.
             isDM: rec.isDM,
@@ -706,6 +921,30 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
               `chat-gateway refused prompt response (${decision.reason}) channel=${rec.channelId}`,
             );
             return;
+          }
+          // Team-controls: answering requires >= control, and is invoker-only
+          // when the question was raised by a specific principal's command
+          // (X19/X20/X21). A refused click must NOT consume the prompt.
+          if (team) {
+            const gate = team.authorizeRequest({
+              author: { id: resp.userId ?? "" },
+              channelId: rec.channelId,
+              ...(bound?.parentChannelId ? { parentChannelId: bound.parentChannelId } : {}),
+              // Scope containment is evaluated INSIDE the chokepoint; without a
+              // target it is skipped entirely, so a target outside the binding's
+              // workspace was authorized and logged `permitted`.
+              ...(bound?.cwd ? { targetCwd: bound.cwd } : {}),
+              verb: "prompt_response",
+              target: rec.sessionId,
+            });
+            if (gate.kind === "refusal") {
+              seam.log("info", `chat-gateway refused prompt response (${gate.reason})`);
+              return;
+            }
+            if (rec.invoker && rec.invoker !== resp.userId) {
+              seam.log("info", "chat-gateway refused prompt response (not the invoker)");
+              return;
+            }
           }
           prompts.delete(resp.requestId);
           if (rec.sequenceRootId) {
@@ -758,6 +997,8 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       for (const token of correlator.pending()) correlator.reject(token);
       pendingSpawns.clear();
       pendingSpawnAt.clear();
+      lastInvoker.clear();
+      await mirrorPacer?.drain();
       await adapter.stop();
     },
 
@@ -771,7 +1012,12 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
         if (/^\d{6}$/.test(candidate) && pairing.attempt(candidate)) {
           config.allowlist = [...config.allowlist, msg.userId];
           seam.persistAllowlist(config.allowlist);
-          await reply(msg.channelId, "Paired. You can now talk to sessions.");
+          // Enrollment is the ONE flow that legitimately happens in a DM. Since
+          // team controls scope DMs out of session control, the reply must not
+          // promise what the layer will refuse — "you can now talk to sessions"
+          // followed by a refusal on every message is a dead flow that
+          // advertises itself as working.
+          await reply(msg.channelId, "Paired. Session control happens in a workspace-bound channel, not here.");
           return;
         }
       }
@@ -797,7 +1043,81 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
         return;
       }
 
+      // Team-controls: the command log is NEVER readable from chat (X26).
+      if (team && /^\s*!?\s*(command[-_ ]?log|audit[-_ ]?log|show\s+log)\b/i.test(msg.text)) {
+        await reply(msg.channelId, "Refused: the command log is only readable from the dashboard.");
+        return;
+      }
+
       const key = bindingKey({ platform, channelId: msg.channelId, threadId: msg.threadId });
+
+      // Team-controls: the disarm switch (spec "Disarm switch" — ANY `observe`+
+      // principal may disarm from chat; only the DASHBOARD re-arms). The whole
+      // message must be the command: the `!` sigil is the DEFAULT `steerPrefix`,
+      // so a looser match let an ordinary steer instruction ("!disarm the rate
+      // limiter in auth.ts") halt the entire layer for every principal — and only
+      // a dashboard operator could undo it. This is NOT a second authorization
+      // path — the request is authorized by the SAME chokepoint below, as the
+      // verb `disarm`.
+      const disarmCommand = team !== undefined && /^\s*!\s*disarm\s*$/i.test(msg.text);
+
+      // Team-controls chokepoint (X11): every action-bearing request passes
+      // through `authorizeRequest` BEFORE any session is spawned or driven.
+      let gate: Grant | undefined;
+      if (team) {
+        const existing = store.get(key);
+        const decision = team.authorizeRequest({
+          author: {
+            id: msg.userId,
+            ...(msg.bot === true ? { isBot: true } : {}),
+            ...(msg.webhook === true ? { isWebhook: true } : {}),
+            ...(msg.roleIds ? { roleIds: msg.roleIds } : {}),
+          },
+          channelId: msg.channelId,
+          // Threads carry the thread id as `channelId`; pass the parent so the
+          // chokepoint can resolve the binding the operator actually created.
+          ...(msg.parentChannelId ? { parentChannelId: msg.parentChannelId } : {}),
+          ...(msg.threadId ? { threadId: msg.threadId } : {}),
+          verb: disarmCommand ? "disarm" : existing ? "send_prompt" : "spawn_session",
+          ...(existing && !disarmCommand ? { targetCwd: existing.cwd, target: existing.sessionId } : {}),
+        });
+        if (decision.kind === "refusal") {
+          // Disarming twice is not an error worth a bare machine reason.
+          if (disarmCommand && decision.reason === "disarmed") {
+            await reply(msg.channelId, "Already disarmed.");
+            return;
+          }
+          // A DM can never carry a workspace binding, so THIS refusal is by
+          // design — not an operator forgetting to bind the channel — and the
+          // bare `unbound_channel` would read as a misconfiguration. Say what is
+          // true and what to do instead. Narrowed to `unbound_channel` on
+          // purpose: every OTHER reason (insufficient tier, disarmed, scope
+          // violation, non-human author) must still reach the author verbatim,
+          // or this spec's "refusals carry a specific reason" breaks. The AUDIT
+          // reason stays specific either way.
+          const dmScopedOut = msg.isDM && decision.reason === "unbound_channel";
+          await reply(
+            msg.channelId,
+            dmScopedOut
+              ? "Refused: direct messages don't drive sessions — use a workspace-bound channel."
+              : `Refused: ${decision.reason}.`,
+          );
+          return;
+        }
+        gate = decision;
+        if (disarmCommand) {
+          // Authorized by the chokepoint, so the audit log already carries the
+          // attempt (with tier and outcome) before we flip the switch. Mirroring
+          // deliberately continues; only action-bearing requests are refused.
+          team?.disarm();
+          await reply(
+            msg.channelId,
+            "Disarmed. Actions are refused until an operator re-arms from the dashboard.",
+          );
+          return;
+        }
+      }
+
       const binding = await ensureBinding(msg, key);
       if (!binding || !binding.sessionId) return; // spawn pending; resolution binds it
 
@@ -814,8 +1134,31 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
 
       const steer = shouldSteer(msg.text, config.steerPrefix);
       const text = stripSteerPrefix(msg.text, config.steerPrefix);
-      const ok = seam.sendPrompt(binding.sessionId, text, steer ? "steer" : "followUp");
-      if (!ok) {
+      // Provenance (X24): persisted, plugin-owned — never the user tag namespace.
+      lastInvoker.set(binding.sessionId, msg.userId);
+      if (team) {
+        const assigned = seam.assignSessionRef(binding.sessionId, {
+          kind: "chat-gateway-team",
+          principal: msg.userId,
+          channelId: msg.channelId,
+          workspaceId: team.bindingFor(msg.channelId)?.workspaceId,
+        });
+        // D5 call-site trust detection: `assignSessionRef` is trusted-gated, so
+        // `false` means THIS plugin lacks the required trust level — not that
+        // the ref was rejected on content. Refuse the originating command and
+        // name the missing trust level rather than driving the session while
+        // provenance silently fails to persist (a phantom success).
+        if (!assigned) {
+          await reply(msg.channelId, `Refused: ${team.reportTrustFailure("assignSessionRef")}.`);
+          return;
+        }
+      }
+      const res = dispatchToSession(
+        seam,
+        { teamControlled: team !== undefined, ...(gate ? { grant: gate } : {}) },
+        { sessionId: binding.sessionId, text, delivery: steer ? "steer" : "followUp" },
+      );
+      if (!res.ok) {
         await reply(msg.channelId, "That session is unreachable (no bridge connection)."); // X1
       }
     },
@@ -825,6 +1168,14 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       const key = channelKeyFor(sessionId);
       if (!key) return;
       const st = stateFor(key);
+
+      // Team-controls mirror lane (D9): structured activity — tool calls,
+      // results, terminal output — rendered at the binding's mirror level. It
+      // runs BEFORE the assistant-text early return below, which would
+      // otherwise drop a tool frame as "not assistant text". Mirroring is
+      // deliberately independent of disarm and of any principal's tier (X15):
+      // the passive stream is not an action, so it is never gated.
+      mirrorFrame(key, frame);
 
       if (type === "event") {
         const text = assistantTextFrom(frame);
@@ -876,6 +1227,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
               channelId,
               messageId,
               isDM: store.get(key)?.isDM === true,
+              invoker: lastInvoker.get(sessionId),
             });
           })
           .catch((err) => seam.log("error", `prompt render failed: ${String(err)}`));

@@ -91,38 +91,40 @@ export function createBindingStore(deps: BindingStoreDeps): BindingStore {
   };
 }
 
+/**
+ * Pending-spawn metadata: the binding identity to persist when the spawn
+ * resolves.
+ */
+interface SpawnMeta {
+  channelKey: string;
+  /** Binding identity to persist on resolution (threadId preserved). */
+  channelId: string;
+  threadId?: string;
+  /**
+   * Parent channel of a THREAD spawn. Persisted onto the binding because a
+   * thread's messages carry the THREAD id while the operator binds the PARENT —
+   * so both authorization and the mirror lane need the parent to resolve the
+   * policy the operator actually configured.
+   */
+  parentChannelId?: string;
+  /** Whether the originating channel is a DM (for L4 re-authorization). */
+  isDM: boolean;
+  cwd: string;
+  by: string;
+}
+
 export interface SpawnCorrelator {
   /** Register a pending spawn keyed by a caller-supplied correlation token. */
-  expect(
-    token: string,
-    meta: {
-      channelKey: string;
-      /** Binding identity to persist on resolution (threadId preserved). */
-      channelId: string;
-      threadId?: string;
-      /** Whether the originating channel is a DM (for L4 re-authorization). */
-      isDM: boolean;
-      cwd: string;
-      by: string;
-    },
-  ): void;
+  expect(token: string, meta: SpawnMeta): void;
   /** Resolve a registered token to a sessionId; consumes the entry. Returns false when unknown. */
-  resolve(
-    token: string,
-    sessionId: string,
-  ):
-    | { channelKey: string; channelId: string; threadId?: string; isDM: boolean; cwd: string; by: string }
-    | false;
+  resolve(token: string, sessionId: string): SpawnMeta | false;
   /** Drop a pending spawn that failed (spawn returned 500). */
   reject(token: string): void;
   pending(): string[];
 }
 
 export function createSpawnCorrelator(): SpawnCorrelator {
-  const waiting = new Map<
-    string,
-    { channelKey: string; channelId: string; threadId?: string; isDM: boolean; cwd: string; by: string }
-  >();
+  const waiting = new Map<string, SpawnMeta>();
   return {
     expect(token, meta) {
       waiting.set(token, meta);

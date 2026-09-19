@@ -27,13 +27,12 @@ import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/to
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import compress from "@fastify/compress";
 import cors from "@fastify/cors";
-import fastifyStatic from "@fastify/static";
 import rateLimit from "@fastify/rate-limit";
+import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
 import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
 import { registerAuthPlugin, validateWsUpgrade } from "./auth/auth-plugin.js";
 import { registerBearerAuth } from "./auth/bearer-auth.js";
-import { createRouteTierGate } from "./auth/route-tier-gate.js";
 import {
   computeBindReachability,
   formatBindReachabilityWarning,
@@ -67,6 +66,7 @@ import {
 } from "./auth/localhost-guard.js";
 import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
 import { readAuthJson } from "./auth/provider-auth-storage.js";
+import { createRouteTierGate } from "./auth/route-tier-gate.js";
 import { mintSpawnToken } from "./auth/spawn-token.js";
 import {
   type CoreWsRouteScope,
@@ -111,7 +111,6 @@ import {
 import { createLiveServerManager } from "./live-server/live-server-manager.js";
 import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
 import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
-import { startServerHeapTelemetry } from "./server-heap-telemetry.js";
 import { createEventLoopSpikeMetrics } from "./metrics/eventloop-spike-metrics.js";
 import { createHydrationMetrics } from "./metrics/hydration-metrics.js";
 import { createModelProxyAuthGate } from "./model-proxy/auth-gate.js";
@@ -182,6 +181,7 @@ import {
   dispatchReload as dispatchReloadRaw,
   reloadTargetSessionIds,
 } from "./rpc-keeper/dispatch-reload.js";
+import { startServerHeapTelemetry } from "./server-heap-telemetry.js";
 import { createArchiveSweeper } from "./session/archive-sweeper.js";
 import { CustomEventGroupMatcher } from "./session/custom-event-group-matcher.js";
 import { CustomEventGroupResolver } from "./session/custom-event-group-resolver.js";
@@ -2666,6 +2666,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   pluginShutdownSubs.delete(fn);
                 };
               },
+              // Workspace seam (add-chat-gateway-team-controls): read-only,
+              // store-anchored, over-fire tolerant. Not trust-gated. The
+              // accessor maps to `{id,name,folders}` and re-clones so the
+              // plugin can never mutate host state.
+              listWorkspaces: () =>
+                preferencesStore.getWorkspaces().map((w) => ({
+                  id: w.id,
+                  name: w.name,
+                  folders: [...w.folders],
+                })),
+              onWorkspacesChanged: (handler) => preferencesStore.onWorkspacesChanged(handler),
               // The host's network guard — the SAME instance core mounts on
               // its own route groups. Attaching a guard only tightens, so
               // this is NOT trust-gated. See change:
