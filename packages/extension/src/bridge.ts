@@ -66,6 +66,7 @@ import { healthUrlForInstance, probeEndpointReachability, verifyInstanceIdentity
 import { localTokenHeaders } from "./local-token-header.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
 import { handleMcpTokenMinted, MCP_TOKEN_ENV_VAR } from "./mcp-token-delivery.js";
+import { COALESCE_WINDOW_MS, flushesParkedText, MessageUpdateCoalescer } from "./message-update-coalescer.js";
 import { reportRefresh } from "./model-refresh.js";
 import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged } from "./model-tracker.js";
 import { decodeMultiselectAnswer } from "./multiselect-decode.js";
@@ -410,6 +411,58 @@ function initBridge(pi: ExtensionAPI) {
     canSend: (frameSessionId) => isActive() && sessionReady && frameSessionId === sessionId,
   });
 
+  // Bound the bridge's per-token streaming cost. pi's `message_update` carries
+  // the FULL accumulated text snapshot, so forwarding each one synchronously
+  // paid a `JSON.stringify` per source token on pi's own event loop — O(N²)
+  // bytes for an N-token turn. Only contiguous `text_*` snapshots coalesce;
+  // thinking/toolcall/unknown sub-events flush first and forward immediately so
+  // they stay lossless and in source order.
+  //
+  // `send` resolves `connection` / `sessionReady` at CALL time: both can move
+  // while a snapshot is parked, and a captured reference would write a stale
+  // snapshot over a dead socket. The inliner moves INTO the send callback so it
+  // runs once per flushed window instead of once per token, still ahead of the
+  // snapshot that references its assets. `setTimer`/`clearTimer` own the single
+  // armed window and keep it in the bridge-timer registry so a reload cannot
+  // leak it.
+  // See change: coalesce-bridge-message-update-snapshots (D1–D7).
+  const coalescer = new MessageUpdateCoalescer<Record<string, unknown>>({
+    windowMs: COALESCE_WINDOW_MS,
+    isActive: () => isActive() && sessionReady,
+    send: (event) => {
+      if (!isActive() || !sessionReady) return;
+      maybeInlineAssistantImages(event);
+      connection.send(mapEventToProtocol(sessionId, event));
+    },
+    setTimer: (fn, ms) => {
+      const timer = setTimeout(fn, ms);
+      getBridgeState().timers!.push(timer as unknown as ReturnType<typeof setInterval>);
+      return timer;
+    },
+    clearTimer: (timer) => {
+      clearTimeout(timer);
+      const timers = getBridgeState().timers;
+      const index = timers ? timers.indexOf(timer as unknown as ReturnType<typeof setInterval>) : -1;
+      if (index !== -1) timers!.splice(index, 1);
+    },
+  });
+
+  // Per-message generation for the coalescing barrier. Distinct from the
+  // bridge-instance `generation` above, which only changes on `initBridge` and
+  // so gives no intra-session ordering. Incremented on EVERY `message_start`
+  // (user and assistant): a retry chain or a new turn must reset the barrier
+  // too. Folded into the message key rather than compared standalone, because a
+  // `message_update` carries no generation of its own — an update can only be
+  // stamped with the counter's current value.
+  // See change: coalesce-bridge-message-update-snapshots (D4).
+  let assistantMessageGen = 0;
+
+  /**
+   * Identity of a message for the barrier: `<gen>:<role>:<timestamp>`.
+   * `message.id` is unusable — pi stamps it only at post-handler persistence.
+   */
+  const messageKeyOf = (gen: number, message: unknown): string => coalescer.keyOf(gen, message);
+
   // Bridge-owned queue structures with TWO different ownership models:
   //
   // • bridgeSteering (pi-OWNED + SHADOW) — mirrors pi's Agent.steeringQueue.
@@ -669,6 +722,9 @@ function initBridge(pi: ExtensionAPI) {
   /** Forward a synthesized auto_retry_* event using the standard event_forward shape. */
   const sendSyntheticRetryEvent = (eventType: string, data: Record<string, unknown>): void => {
     if (!isActive() || !sessionReady) return;
+    // A synthesized retry event renders as a chat row, so a parked snapshot must
+    // still land first. See change: coalesce-bridge-message-update-snapshots (D5).
+    coalescer.flush();
     connection.send({
       type: "event_forward",
       sessionId,
@@ -851,6 +907,9 @@ function initBridge(pi: ExtensionAPI) {
     const origMessage = sm.appendCustomMessageEntry.bind(sm);
     sm.appendCustomMessageEntry = (customType: any, content: any, display: any, details: any) => {
       const entryId = origMessage(customType, content, display, details);
+      // Chat-row ordering: this sink is OUTSIDE the two event loops, so it needs
+      // its own flush. See change: coalesce-bridge-message-update-snapshots (D5).
+      coalescer.flush();
       try {
         const forward = toCustomMessageForward({ customType, content, display, details, entryId });
         if (forward && sessionReady && isActive()) {
@@ -872,6 +931,8 @@ function initBridge(pi: ExtensionAPI) {
     const origEntry = sm.appendCustomEntry.bind(sm);
     sm.appendCustomEntry = (customType: any, data: any) => {
       const entryId = origEntry(customType, data);
+      // Chat-row ordering: the second out-of-loop sink. See D5.
+      coalescer.flush();
       try {
         const forward = toCustomEntryForward({ type: "custom", customType, data, id: entryId });
         if (forward && sessionReady && isActive()) {
@@ -1482,6 +1543,11 @@ function initBridge(pi: ExtensionAPI) {
     }),
     onReconnect: safe(() => {
       if (!isActive()) return; // Stale listener guard
+      // A reconnect is a TRANSPORT boundary, not a session boundary: the live
+      // content is still valid (dropping it would lose the tail of an in-flight
+      // turn) but must never land after the replay below. Flush it first.
+      // See change: coalesce-bridge-message-update-snapshots (D8).
+      coalescer.flush();
       // Reset caches that aren't persisted server-side so the upcoming
       // 30s tick (and the inline calls below) re-emit the live state.
       const _bc = syncBc();
@@ -2139,6 +2205,14 @@ function initBridge(pi: ExtensionAPI) {
       cachedCtx = ctx;
       // Don't send events before session_start has established the correct session ID
       if (!sessionReady) return;
+      // ── Flush choke point (D5) ──────────────────────────────────────────
+      // The invariant is "no non-`message_update` event may reach the wire while
+      // a text snapshot is parked". ONE statement here — before ANY branch, so
+      // it covers every early return below, including ones added later. Do not
+      // move it into a branch: a branch-scoped flush is exactly the bug this
+      // change exists to prevent.
+      // See change: coalesce-bridge-message-update-snapshots.
+      if (flushesParkedText(eventType)) coalescer.flush();
       // Track agent streaming state (survives reconnect/reload)
       if (eventType === "agent_start") {
         getBridgeState().isAgentStreaming = true;
@@ -2321,6 +2395,16 @@ function initBridge(pi: ExtensionAPI) {
       // streamingTextFlushed reset depends on message_start being processed
       // first. See change: add-followup-edit-and-steer-cancel (chat-order).
       if (eventType === "message_start") {
+        // Barrier, at ENTRY: bump the generation and open the identity BEFORE
+        // the `role === "custom"` early return below, so a custom message still
+        // closes out the previous identity's slot.
+        // See change: coalesce-bridge-message-update-snapshots (D4).
+        assistantMessageGen += 1;
+        coalescer.messageStart(
+          assistantMessageGen,
+          messageKeyOf(assistantMessageGen, (event as any).message),
+          (event as any).message,
+        );
         // Custom messages are forwarded by wrapCustomPersistenceForCtx (pi's
         // idle-path sendMessage emits message_start/end internally only, and
         // the agent-loop path would double-forward here). See change:
@@ -2417,6 +2501,18 @@ function initBridge(pi: ExtensionAPI) {
       // earlier message_start nonce is what the reducer is waiting on).
       // See change: fix-per-message-fork.
       if (eventType === "message_end") {
+        // Barrier, at ENTRY and BEFORE the deferred send is scheduled below: the
+        // entry flush has already put the final snapshot on the wire, so closing
+        // here means any update arriving during the macrotask gap is dropped by
+        // the closed slot instead of landing after the `message_end`.
+        // See change: coalesce-bridge-message-update-snapshots (D4/D5).
+        // The generation this message was OPENED under, not the counter's
+        // current value: a message_end for a message whose start we saw must
+        // close ITS identity, never a newer one. Falls back to the current
+        // counter for a message this instance never saw open (reload mid-turn).
+        const endMessage = (event as any).message;
+        const endGen = coalescer.generationOf(endMessage, assistantMessageGen);
+        coalescer.messageEnd(endGen, messageKeyOf(endGen, endMessage));
         // Custom messages are forwarded by wrapCustomPersistenceForCtx — see
         // the message_start guard above. See change:
         // render-inline-reasoning-and-custom-entries (D2).
@@ -2467,11 +2563,20 @@ function initBridge(pi: ExtensionAPI) {
         return;
       }
 
-      // Apply markdown image inliner to assistant message_update events.
-      // For other event types this is a no-op (role check inside the helper).
-      // See change: chat-markdown-local-images-and-math.
+      // Text snapshots are COALESCED (D1–D3): one wire write per fixed window
+      // instead of one per source token. `offer` owns the family split and the
+      // closed-identity drop rule; the markdown-image inliner now runs inside the
+      // coalescer's send callback (once per flushed window, still ahead of the
+      // snapshot that references its assets). This branch returns, so the shared
+      // tail below never sees a `message_update`.
+      // See change: coalesce-bridge-message-update-snapshots (D6).
       if (eventType === "message_update") {
-        maybeInlineAssistantImages(event);
+        // Resolve the message's OWN generation, so a late update for an already
+        // closed message still keys to that closed identity and is dropped —
+        // keying it under the counter's current value would fail open.
+        const updateMessage = (event as any)?.message;
+        coalescer.offer(event, coalescer.generationOf(updateMessage, assistantMessageGen));
+        return;
       }
 
       // Inline path-referenced image tool results (e.g. browser `screenshot`)
@@ -2565,6 +2670,8 @@ function initBridge(pi: ExtensionAPI) {
       if (!isActive()) return;
       cachedCtx = ctx;
       if (!sessionReady) return;
+      // Same choke point as the enriched loop (D5).
+      coalescer.flush();
       const msg = mapEventToProtocol(sessionId, event);
       connection.send(msg);
     }));
@@ -3593,6 +3700,11 @@ function initBridge(pi: ExtensionAPI) {
     // can fire against the new one.
     // See change: reduce-bridge-tick-bandwidth (D3).
     subagentTickThrottle.reset();
+    // A session boundary invalidates the CONTENT itself (unlike a reconnect), so
+    // drop any parked text snapshot and cancel its window rather than flushing
+    // it into the new session. See change:
+    // coalesce-bridge-message-update-snapshots (D8).
+    coalescer.clear();
     // Clear the stop-after-turn latch so a new/fork/resumed session does not
     // inherit the previous session's pending graceful-stop and shut down on
     // its first turn_end. See change: adopt-pi-071-072-073-features.
@@ -3688,6 +3800,9 @@ function initBridge(pi: ExtensionAPI) {
     subagentFrameBuffer.reset();
     // See change: reduce-bridge-tick-bandwidth (D3).
     subagentTickThrottle.reset();
+    // A shutdown is a session boundary: discard parked text, cancel the window.
+    // See change: coalesce-bridge-message-update-snapshots (D8).
+    coalescer.clear();
 
     // Best-effort: remove this session's pasted ask_user attachments.
     // See change: add-ask-user-input-multiline-paste.

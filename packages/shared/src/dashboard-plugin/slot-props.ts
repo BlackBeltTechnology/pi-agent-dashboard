@@ -54,6 +54,37 @@ export interface ToolRendererContext {
   session?: unknown;
 }
 
+/**
+ * Props passed to a `custom-entry-renderer` contribution.
+ *
+ * The render container (`CustomEntryRow` in the client) owns the claim lookup,
+ * the group-visibility gate, the expand state, and the on-demand payload
+ * fetch; the contribution owns only presentation. This keeps the collapsed
+ * line derivable from the row alone (no fetch until `expanded`) and gives
+ * every absorption site (top level, burst, inner ×N group) the same content.
+ *
+ * See change: add-custom-entry-renderer-slot.
+ */
+export interface CustomEntryRendererProps {
+  /** Extension-authored label — rendered verbatim, never interpreted. */
+  customType: string;
+  /** Row display body, already extracted + truncated at row creation. */
+  body: string;
+  timestamp: number;
+  /** Absent on rows from the `message_end` path → collapsed-only, no affordance. */
+  entryId?: string;
+  sessionId?: string;
+  /** Expand state, owned by the container so every site behaves identically. */
+  expanded: boolean;
+  /** Toggle expansion. The container issues the payload fetch on first expand. */
+  onToggle: () => void;
+  /** Fetched payload; `undefined` while collapsed, loading, or unavailable. */
+  payload?: unknown;
+  /** Human-readable payload failure reason; `undefined` when none/not attempted. */
+  payloadError?: string;
+  payloadLoading: boolean;
+}
+
 /** Map of slot id → props type for that slot's contributions. */
 export interface SlotPropsMap {
   "sidebar-folder-section": {
@@ -156,6 +187,7 @@ export interface SlotPropsMap {
     images?: ToolRendererImage[];
     context?: ToolRendererContext;
   };
+  "custom-entry-renderer": CustomEntryRendererProps;
   "automation-action-editor": {
     /** Current automation action payload; the editor mutates and returns it. */
     payload: Record<string, unknown>;

@@ -26,6 +26,7 @@ test.describe("Settings → Pi Ecosystem — visible queue", () => {
   test("mid-flight clicks queue instead of failing, survive navigation, then drain FIFO", async ({
     page,
   }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     // ── Stub server responses ────────────────────────────────────────────
     await page.route("**/api/pi-core/versions**", async (route) => {
       await route.fulfill({

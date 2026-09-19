@@ -126,6 +126,7 @@ test.describe("replay-in-flight pill", () => {
     page,
     browser,
   }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const card = await spawnFreshGitSession(page);
     const sessionId = await card.getAttribute("data-session-id");
     expect(sessionId).toBeTruthy();

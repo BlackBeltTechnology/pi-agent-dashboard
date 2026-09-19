@@ -18,6 +18,7 @@ import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js
 import { mdiClose, mdiConsoleLine, mdiFileTreeOutline, mdiMagnify, mdiRefresh, mdiWeb } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { grepContents } from "../../lib/api/grep-api.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { useRailWidth } from "../../lib/layout/rail-width.js";
@@ -345,9 +346,22 @@ export function EditorPane() {
                 the chunk loads. Once latched it stays mounted, preserving the
                 keep-alive contract on file-tab switches. */}
             {terminalActivated && (
-              <Suspense fallback={<div className="min-h-0 flex-1" data-testid="terminal-layer-loading" />}>
-                <TerminalPaneLayer />
-              </Suspense>
+              // ErrorBoundary guards the chunk-fetch FETCH phase: a rejected
+              // `import()` throws during render, and without a boundary React
+              // unmounts the whole tree (blank app). Contained here, the shell,
+              // tab strip and chat stay interactive. See change:
+              // add-lazy-terminal-diff-bootstrap.
+              <ErrorBoundary
+                fallback={
+                  <div className="min-h-0 flex-1 p-3 text-xs text-[var(--text-tertiary)]" data-testid="terminal-layer-error">
+                    {t("editor.terminalLoadFailed", undefined, "Terminal failed to load.")}
+                  </div>
+                }
+              >
+                <Suspense fallback={<div className="min-h-0 flex-1" data-testid="terminal-layer-loading" />}>
+                  <TerminalPaneLayer />
+                </Suspense>
+              </ErrorBoundary>
             )}
           </div>
         </div>

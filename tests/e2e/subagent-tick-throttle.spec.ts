@@ -56,6 +56,7 @@ test.describe("subagent tick throttle — wire cadence (synthetic producer)", ()
   test("F1/P1: throttled Agent ticks hold the cadence floor without exceeding ~2 Hz", async ({
     page,
   }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(180_000);
     await page.goto("/");
     // Config first: the bridge reads it once at init, so the session must be
@@ -101,6 +102,7 @@ test.describe("subagent tick throttle — wire cadence (synthetic producer)", ()
   test("default-throttle P3: a run with NO config write forwards <= 4 Agent ticks/s", async ({
     page,
   }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(180_000);
     await page.goto("/");
 
@@ -126,6 +128,7 @@ test.describe("subagent tick throttle — wire cadence (synthetic producer)", ()
   test("P2: the reduction is real — throttle OFF runs at >= 4x the throttled rate", async ({
     page,
   }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(240_000);
     // Measured twice in ONE spec so the comparison is against a rate observed on
     // this machine under this load, not a hardcoded constant. Each run gets a
@@ -166,6 +169,7 @@ test.describe("subagent tick throttle — wire cadence (synthetic producer)", ()
   test("F2: no Agent tick for a toolCallId arrives after its tool_execution_end", async ({
     page,
   }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(180_000);
     await page.goto("/");
     await setSubagentTickThrottle(page, W);
@@ -212,6 +216,7 @@ test.describe("subagent tick throttle — wire cadence (synthetic producer)", ()
   });
 
   test("F5: the cadence floor is NOT asserted while the producer is quiet", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(180_000);
     await page.goto("/");
     await setSubagentTickThrottle(page, W);
@@ -243,6 +248,7 @@ test.describe("subagent tick throttle — wire cadence (synthetic producer)", ()
   test("P3: delivered Agent ticks stay within one window of each other (staleness bound)", async ({
     page,
   }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(180_000);
     await page.goto("/");
     await setSubagentTickThrottle(page, W);

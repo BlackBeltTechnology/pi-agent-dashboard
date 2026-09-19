@@ -154,6 +154,32 @@ export function findSessionToolCallPayload(
 }
 
 /**
+ * Resolve a persisted custom entry's FULL payload by scanning the on-disk
+ * session JSONL — the same rationale as `findSessionToolCallPayload`: the
+ * in-memory event store caps strings at ~4 KB and drops arrays >20 at ingest,
+ * so it cannot serve the untruncated payload this exists for.
+ *
+ * SECURITY (add-custom-entry-renderer-slot): the ONLY inputs are a session
+ * transcript path (resolved by the caller via `sessionManager`, never built
+ * from the `sessionId` string) and an `entryId` used solely for equality
+ * against `entry.id`. No filesystem path is ever taken from the request; a
+ * missing file, unknown id, or an id outside the active leaf→root branch all
+ * yield `null` (the caller returns 404).
+ */
+export function findSessionCustomEntry(
+  filePath: string,
+  entryId: string,
+): { customType?: unknown; data?: unknown } | null {
+  if (!entryId) return null;
+  const entries = loadSessionEntries(filePath);
+  for (const entry of entries) {
+    if (entry.type !== "custom" || entry.id !== entryId) continue;
+    return { customType: entry.customType, data: entry.data };
+  }
+  return null;
+}
+
+/**
  * Create a new session file containing only the path from root to the given entry.
  * This is used for "fork from message" — the new file is then passed to `pi --fork`.
  * Returns the path of the new session file, or throws if entryId is not found.

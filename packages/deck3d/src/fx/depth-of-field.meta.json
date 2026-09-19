@@ -1,0 +1,28 @@
+{
+  "id": "depth-of-field",
+  "kind": "post",
+  "tags": {
+    "mood": [
+      "cinematic",
+      "premium"
+    ],
+    "content": [
+      "focus"
+    ]
+  },
+  "cost": 3,
+  "modes": "both",
+  "params": {
+    "focus": {
+      "type": "number",
+      "default": 0.5,
+      "minimum": 0,
+      "maximum": 1
+    }
+  },
+  "conflicts": [
+    "god-rays"
+  ],
+  "source": "https://github.com/pmndrs/postprocessing",
+  "licence": "Zlib"
+}

@@ -40,6 +40,28 @@ describe("PluginStalenessBanner", () => {
     });
   });
 
+  // F1 — the regression this change fixes. A client-less plugin
+  // (`mcp-server` shape) used to be counted only by the server-side hash, so
+  // the two hashes never matched and the banner never converged. Now both
+  // sides select through the same client-registry set, so a matching
+  // `bundleHash` hides the banner even though the server's plugin list
+  // contains a client-less plugin. The DISCRIMINATING assertion for the hash
+  // basis lives in
+  // packages/dashboard-plugin-runtime/src/server/__tests__/registry-hash-parity.test.ts
+  // (E4) — the banner itself only consumes `bundleHash`.
+  it("F1 stays hidden on a parity host whose plugin set includes a client-less plugin", async () => {
+    mockFetch({
+      bundleHash: PLUGIN_REGISTRY_HASH,
+      plugins: [
+        { id: "mcp-server", enabled: true, hasClient: false },
+        { id: "flows", enabled: true, hasClient: true },
+      ],
+    });
+    const { container } = render(<PluginStalenessBanner />);
+    await act(async () => {});
+    expect(container.querySelector("[data-testid='plugin-staleness-banner']")).toBeNull();
+  });
+
   it("renders the banner when hashes differ", async () => {
     mockFetch({ bundleHash: "ffeeddccbbaa00112233445566778899" });
     const { findByTestId } = render(<PluginStalenessBanner />);

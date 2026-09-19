@@ -20,10 +20,10 @@
  * See change: persist-folder-collapse-server-side.
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { connectBus, expect, type Page } from "../fixtures.js";
+import { DASHBOARD_PORT } from "../lifecycle.js";
 
 /** Send browser→server commands over the bus and close. */
 export async function busSend(msgs: BrowserToServerMessage[]): Promise<void> {
@@ -111,18 +111,19 @@ export async function expandedFrameCount(page: Page): Promise<number> {
 
 /** The harness container, resolved by the dashboard port it publishes. */
 export function harnessContainer(): string {
-  const harness = JSON.parse(readFileSync(join(process.cwd(), ".pi-test-harness.json"), "utf8")) as {
-    dashboardPort: number;
-  };
+  // The port comes from PW_E2E_PORT (set by globalSetup) via lifecycle's
+  // DASHBOARD_PORT. Reading `.pi-test-harness.json` from process.cwd() made
+  // every folder-collapse test die with ENOENT on CI, where the state file
+  // lives in the throwaway workspace, not the checkout.
   const name = execFileSync(
     "docker",
-    ["ps", "--filter", `publish=${harness.dashboardPort}`, "--format", "{{.Names}}"],
+    ["ps", "--filter", `publish=${DASHBOARD_PORT}`, "--format", "{{.Names}}"],
     { encoding: "utf8" },
   )
     .split("\n")
     .map((s) => s.trim())
     .find(Boolean);
-  if (!name) throw new Error(`no container publishing port ${harness.dashboardPort}`);
+  if (!name) throw new Error(`no container publishing port ${DASHBOARD_PORT}`);
   return name;
 }
 

@@ -413,6 +413,17 @@ export const CUSTOM_MESSAGE_HIDDEN = "llm-only custom message body";
 export const CUSTOM_ENTRY_SHORT_TYPE = "e2e:state";
 export const CUSTOM_ENTRY_LONG_TYPE = "e2e:big";
 
+/**
+ * Observation-memory ledger scenario (change: add-custom-entry-renderer-slot,
+ * test-plan #F15). Emits a real `om.observations.recorded` custom entry so the
+ * blackhole `custom-entry-renderer` claim owns the row in a live session.
+ * NOTE: the `om.*` `memory` event group defaults HIDDEN — the spec enables it
+ * through the View popover before asserting the row.
+ */
+export const OM_ENTRY_TAIL = "om entry sent";
+export const OM_OBSERVATION_ALPHA = "e2e-observation-alpha";
+export const OM_OBSERVATION_BETA = "e2e-observation-beta";
+
 /** Read `[[fanout:N]]` from any message; default 1, clamped 1..10. */
 export function fanoutWidth(context: FauxContext): number {
   for (const message of context.messages ?? []) {
@@ -448,11 +459,75 @@ function fanoutWidthStep(context: FauxContext): unknown {
   );
 }
 
+/**
+ * Bridge-coalescing streaming fixtures (change:
+ * coalesce-bridge-message-update-snapshots).
+ *
+ * `COALESCE_PARAGRAPHS` is a several-paragraph assistant reply long enough to
+ * stream for ~10 s at the default `FAUX_TPS=50` (~500 tokens), so the bridge
+ * sees a sustained `message_update` run: the D0 baseline workload and the L3
+ * F1/F4/X4 rows (text converges to the full content, no ghost streaming
+ * bubble; transport boundary + mid-turn reload).
+ *
+ * The paragraphs are deterministic and individually numbered so a spec can
+ * assert the FINAL rendered text equals the whole streamed text rather than
+ * merely that some marker appeared.
+ */
+export const COALESCE_PARAGRAPHS_TAIL = "coalesce stream complete";
+
+const COALESCE_PARAGRAPHS =
+  Array.from(
+    { length: 8 },
+    (_unused, index) =>
+      `Coalesce paragraph ${index + 1}. ` +
+      "The bridge holds at most one pending text snapshot per window, so this " +
+      "sentence streams token by token while only the newest accumulated " +
+      "snapshot reaches the wire at the end of each fifty millisecond window. " +
+      "Nothing in this paragraph is allowed to go missing, and nothing here is " +
+      "allowed to render twice.",
+  ).join("\n\n") +
+  `\n\n${COALESCE_PARAGRAPHS_TAIL}`;
+
+/** Reasoning that must render in full ahead of the tool row (L3 F2). */
+export const COALESCE_REASONING_TAIL = "coalesce reasoning complete";
+const COALESCE_REASONING =
+  "Reasoning about the coalescing boundary. " +
+  Array.from(
+    { length: 12 },
+    (_unused, index) => `Reasoning step ${index + 1} weighs the ordering tradeoff.`,
+  ).join(" ");
+
+/** Text preceding the tool call; must survive replay above the tool row (L3 F3). */
+export const COALESCE_PRE_TOOL_TEXT = "coalesce pre-tool text";
+export const COALESCE_TOOL_COMMAND = "echo coalesce-tool-ran";
+
 export const SCENARIOS: Record<string, Scenario> = {
   // ── Server-side round-trip scenarios ────────────────────────────────────
   "plain-text": {
     script: [fauxAssistantMessage([fauxText(PLAIN_TEXT_MARKER)])],
     expect: { text: PLAIN_TEXT_MARKER },
+  },
+
+  // Bridge-coalescing streaming fixtures (change:
+  // coalesce-bridge-message-update-snapshots). See the constants above.
+  "coalesce-multiparagraph": {
+    script: [fauxAssistantMessage([fauxText(COALESCE_PARAGRAPHS)])],
+    expect: { text: COALESCE_PARAGRAPHS_TAIL },
+  },
+
+  "coalesce-reasoning-tool": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxThinking(COALESCE_REASONING),
+          fauxText(COALESCE_PRE_TOOL_TEXT),
+          fauxToolCall("bash", { command: COALESCE_TOOL_COMMAND }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(COALESCE_REASONING_TAIL)]),
+    ],
+    expect: { text: COALESCE_REASONING_TAIL },
   },
 
   // Echoes the dashboard session-context fragment out of the live system
@@ -523,17 +598,18 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "settings.json" },
   },
 
-  // Assistant text referencing a REAL fixture file. The explicit `./` prefix
-  // gives the tokenizer the separator it needs to linkify (a bare `hello.txt`
-  // has no separator and stays prose); the link resolves against the session
-  // cwd to `/fixtures/sample-git/hello.txt`, which `/api/file` reads
-  // successfully — so the preview overlay shows real content. Used by the
-  // file-preview-survives-churn e2e to assert the overlay persists across
-  // message churn with live content (not a stale-file error body).
-  // See change: fix-file-preview-survives-message-churn.
+  // Assistant text referencing a REAL fixture file by ABSOLUTE path. The
+  // absolute path matters: FileLink prefers the in-dashboard editor split for
+  // cwd-RELATIVE tokens and only falls back to the preview overlay for absolute
+  // ones (useFileOpenRouting.canSplitOpen). The churn spec exists to guard the
+  // OVERLAY's hoisted open-state, so it must exercise the overlay path.
+  // Resolves to /fixtures/sample-git/hello.txt, which /api/file reads
+  // successfully. Used by the file-preview-survives-churn e2e. See change:
+  // fix-file-preview-survives-message-churn, stabilize-browser-e2e (drift:
+  // the old `./hello.txt` now opens the split pane, not the overlay).
   "text-realfile": {
     script: [
-      fauxAssistantMessage([fauxText("preview ./hello.txt for the greeting")]),
+      fauxAssistantMessage([fauxText("preview /fixtures/sample-git/hello.txt for the greeting")]),
     ],
     expect: { text: "hello.txt" },
   },
@@ -645,7 +721,12 @@ export const SCENARIOS: Record<string, Scenario> = {
   // See change: add-internal-monaco-editor-pane.
   "tool-read-fixture": toolScenario("read", { path: "README.md" }),
   "tool-edit": toolScenario("edit", {
-    path: "src/example.ts",
+    // A file that REALLY exists in the sample-git fixture. The editor-pane
+    // Changes rail renders its per-file rows inline in the DISK-backed file
+    // tree (change: collapse-diff-file-tree), so an edit to a fabricated path
+    // (the old `src/example.ts`) has no tree row to open. Drives
+    // tests/e2e/change-summary-table.spec.ts.
+    path: "README.md",
     edits: [{ oldText: "alpha", newText: "beta" }],
   }),
   "tool-write": toolScenario("write", {
@@ -1519,6 +1600,32 @@ export const SCENARIOS: Record<string, Scenario> = {
         { stopReason: "toolUse" },
       ),
       fauxAssistantMessage([fauxText(CUSTOM_ENTRIES_TAIL)]),
+    ],
+    expect: { toolName: "e2e_custom_entry" },
+  },
+
+  /**
+   * Observation-memory ledger row (change: add-custom-entry-renderer-slot).
+   * Drives `pi.appendEntry("om.observations.recorded", ...)`, which the server
+   * stamps into the `memory` event group (pattern `^om\.`).
+   */
+  "om-entry": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_custom_entry", {
+            customType: "om.observations.recorded",
+            data: JSON.stringify({
+              observations: [
+                { content: OM_OBSERVATION_ALPHA },
+                { content: OM_OBSERVATION_BETA },
+              ],
+            }),
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(OM_ENTRY_TAIL)]),
     ],
     expect: { toolName: "e2e_custom_entry" },
   },

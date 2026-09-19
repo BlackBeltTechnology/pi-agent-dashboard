@@ -1,0 +1,26 @@
+{
+  "id": "volumetric-spot",
+  "kind": "light",
+  "tags": {
+    "mood": [
+      "dramatic",
+      "cinematic"
+    ],
+    "content": [
+      "staging"
+    ]
+  },
+  "cost": 3,
+  "modes": "dark",
+  "params": {
+    "intensity": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 2
+    }
+  },
+  "conflicts": [],
+  "source": "https://threejs.org/examples/",
+  "licence": "MIT"
+}

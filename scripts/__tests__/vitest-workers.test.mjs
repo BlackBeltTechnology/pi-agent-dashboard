@@ -20,6 +20,7 @@ const REPO_ROOT = join(import.meta.dirname, '..', '..');
 
 /** The 7 projects that run serial by design — pinned by the spec delta. */
 const SERIAL_PROJECTS = [
+  'deck3d',
   'electron',
   'image-fit-extension',
   'kb-extension',
@@ -101,6 +102,7 @@ describe('no dependency edge added (E17)', () => {
 });
 
 describe('effective worker count unchanged (P1)', () => {
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing census; this change only added deck3d to the serial list.
   it('every importing config resolves to the shared target; serial configs to 1', async () => {
     const wrong = [];
     for (const { pkg, path } of configs) {

@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -68,6 +69,178 @@ export function resolvePortsFromStateFile(workspace: string): {
     );
   }
   return { dashboardPort, gatewayPort };
+}
+
+/**
+ * Compose project name test-up.sh derived for this workspace (state file
+ * `project`). Undefined when the file is absent/malformed: this runs on the
+ * FAILURE path, so it degrades to "nothing to inspect" instead of throwing.
+ */
+export function resolveHarnessProject(workspace: string): string | undefined {
+  try {
+    const parsed = JSON.parse(
+      fs.readFileSync(path.join(workspace, ".pi-test-harness.json"), "utf8"),
+    ) as { project?: unknown };
+    return typeof parsed.project === "string" && parsed.project ? parsed.project : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Where globalSetup writes its container state + log snapshot on a boot failure. */
+export function harnessFailureLogPath(logPath: string): string {
+  return path.join(path.dirname(logPath), "harness-failure.log");
+}
+
+/** Injectable docker invocation, so the report builders stay unit-testable. */
+export interface DockerProbe {
+  (args: string[]): { status: number; stdout: string; stderr: string };
+}
+
+const defaultDockerProbe: DockerProbe = (args) => {
+  const res = spawnSync("docker", args, { encoding: "utf8", timeout: 20_000 });
+  return { status: res.status ?? 1, stdout: res.stdout ?? "", stderr: res.stderr ?? "" };
+};
+
+/** Names of the containers in a harness compose project (empty when none). */
+function harnessContainerNames(project: string, probe: DockerProbe): string[] {
+  return probe([
+    "ps",
+    "-a",
+    "--filter",
+    `label=com.docker.compose.project=${project}`,
+    "--format",
+    "{{.Names}}",
+  ])
+    .stdout.split("\n")
+    .map((n) => n.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Docker restart count of the harness container, or undefined before it exists.
+ *
+ * compose.test.yml sets `restart: unless-stopped` (so `/api/restart` works), so
+ * an entrypoint that FAILS after `Container ... Started` looks exactly like a
+ * slow boot — except for this count, which increments on every respawn.
+ */
+export function harnessRestartCount(
+  workspace: string,
+  probe: DockerProbe = defaultDockerProbe,
+): number | undefined {
+  const project = resolveHarnessProject(workspace);
+  if (!project) return undefined;
+  const name = harnessContainerNames(project, probe)[0];
+  if (!name) return undefined;
+  const raw = probe(["inspect", "-f", "{{.RestartCount}}", name]).stdout.trim();
+  // `Number("") === 0`: an inspect that FAILED with empty stdout must read as
+  // "unknown", not "zero restarts", or a busy daemon hides a crash-loop.
+  if (raw === "") return undefined;
+  const n = Number(raw);
+  return Number.isInteger(n) ? n : undefined;
+}
+
+/** Change name for triage brackets in harness-lifecycle error messages. */
+const LIFECYCLE_CHANGE = "change stabilize-browser-e2e";
+
+/**
+ * Docker restart count that proves a crash-loop. Two separate restarts can
+ * never be a healthy boot: PID 1 only exits on a failed entrypoint.
+ */
+const CRASH_LOOP_RESTARTS = 2;
+
+/**
+ * Throw when the harness container is crash-looping.
+ *
+ * compose.test.yml sets `restart: unless-stopped` (so `/api/restart` works), so
+ * an entrypoint that FAILS after `Container ... Started` looks exactly like a
+ * slow boot in the health poll. This is the only signal that separates them.
+ * Reporting it in ~2min beats burning a 20-min CI budget on a poll that cannot
+ * win. `probe` is injectable so the policy is unit-testable without a daemon.
+ */
+export function throwIfCrashLooping(
+  workspace: string,
+  logPath: string,
+  probe: DockerProbe = defaultDockerProbe,
+): void {
+  const restarts = harnessRestartCount(workspace, probe);
+  if (restarts === undefined || restarts < CRASH_LOOP_RESTARTS) return;
+  const dump = captureHarnessFailure(workspace, logPath, probe);
+  throw new Error(
+    `[${LIFECYCLE_CHANGE}] harness container is crash-looping (restarts=${restarts}): ` +
+      `the entrypoint failed after "Container ... Started". ` +
+      `${dump ? `Container state + logs: ${dump}. ` : ""}See ${logPath}.`,
+  );
+}
+
+/**
+ * Compose project for the CURRENT run — what spec code needs to reach the
+ * harness container.
+ *
+ * globalSetup boots the managed harness from a THROWAWAY workspace, so the
+ * state file lands THERE, not at the repo root; it exports the project to
+ * workers as `PW_E2E_PROJECT` (same mechanism as `PW_E2E_PORT`). The repo-root
+ * file is only the manual fallback (`docker/test-up.sh` run from the repo).
+ * Reading the repo-root file directly made 11 specs die with
+ * `ENOENT .../pi-agent-dashboard/.pi-test-harness.json` on every CI shard.
+ */
+export function harnessProject(repoRoot: string = REPO_ROOT): string {
+  const fromEnv = process.env.PW_E2E_PROJECT;
+  if (fromEnv) return fromEnv;
+  const project = resolveHarnessProject(repoRoot);
+  if (!project) {
+    throw new Error(
+      `no harness compose project: PW_E2E_PROJECT is unset and ` +
+        `${path.join(repoRoot, ".pi-test-harness.json")} carries none`,
+    );
+  }
+  return project;
+}
+
+/**
+ * Snapshot a container that booted but never answered `/api/health`.
+ *
+ * test-up.sh's output ends at `Container ... Started` (compose returns as soon
+ * as the container is up), so an entrypoint that then crash-loops leaves NO
+ * trace anywhere — how the first CI dispatches failed with no diagnosable
+ * cause. Collect the container's state + a tail of its logs into a bundle the
+ * workflow uploads. Never throws: a diagnostic must not mask the real failure.
+ *
+ * Returns the bundle path, or undefined when no project/container was found.
+ */
+export function captureHarnessFailure(
+  workspace: string,
+  logPath: string,
+  probe: DockerProbe = defaultDockerProbe,
+): string | undefined {
+  const project = resolveHarnessProject(workspace);
+  if (!project) return undefined;
+  const names = harnessContainerNames(project, probe);
+  if (names.length === 0) return undefined;
+
+  const parts = [`harness project: ${project}`, `containers: ${names.join(", ")}`];
+  for (const name of names) {
+    const state = probe([
+      "inspect",
+      "-f",
+      "status={{.State.Status}} restarts={{.RestartCount}} exit={{.State.ExitCode}}",
+      name,
+    ]);
+    parts.push(`--- ${name} state ---\n${(state.stdout || state.stderr).trim()}`);
+    const logs = probe(["logs", "--tail", "200", name]);
+    parts.push(`--- ${name} logs (tail 200) ---\n${(logs.stdout + logs.stderr).trim()}`);
+  }
+
+  const out = harnessFailureLogPath(logPath);
+  try {
+    // The real caller (globalSetup) already created this dir, but the helper is
+    // best-effort: it must not throw on a path that is not there yet.
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    fs.writeFileSync(out, `${parts.join("\n\n")}\n`);
+  } catch {
+    return undefined;
+  }
+  return out;
 }
 
 /** Poll the health endpoint until 200 or timeout. Resolves true on healthy. */

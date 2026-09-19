@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "./fixtures.js";
-import { byTestId, spawnFreshGitSession } from "./helpers/index.js";
+import { byTestId, dismissToasts, spawnFreshGitSession } from "./helpers/index.js";
 import { watchRejections } from "./helpers/rejections.js";
 
 // Browser E2E — EML (email) preview in the editor pane.
@@ -14,14 +14,6 @@ import { watchRejections } from "./helpers/rejections.js";
 // Security asserts (opaque-origin sandbox, escaped headers, remote-block,
 // cid→blob, lazy attachments) mirror the reused EmlPreview posture (test-plan
 // X4) and are unchanged by the surface move.
-
-/** Dismiss the harness's recurring "Pi session spawned" toasts (they sit at
- * `fixed top-4 right-4` and intercept the send button). */
-async function dismissToasts(page: Page): Promise<void> {
-  for (const btn of await page.getByRole("button", { name: "Dismiss" }).all()) {
-    await btn.click().catch(() => {});
-  }
-}
 
 /** `/view @<file>` → wait for the editor-pane EmlPreview to mount. */
 async function openEml(page: Page, file: string) {

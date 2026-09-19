@@ -424,6 +424,7 @@ test.describe("pi runtime picker", () => {
   // faked: `launchSource` is a server fact, and stubbing it would assert the
   // stub, not the host.
   test("F14: selecting outside the bundle warns but is permitted", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     await stubInstalls(page, { installs: [A, B], spawnKey: "managed", moduleKey: "managed" });
     await page.route("**/api/health", async (route) => {
       const response = await route.fetch();

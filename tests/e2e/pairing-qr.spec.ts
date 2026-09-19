@@ -16,6 +16,7 @@
  * the `request` fixture is the OPERATOR at the authenticated desktop (approve).
  */
 import { expect, test } from "./fixtures.js";
+import { operatorHeaders } from "./helpers/bridge-credential.js";
 import { gotoDashboard } from "./helpers/index.js";
 
 const BEARER_KEY = "pi-dashboard:device-bearer";
@@ -53,6 +54,7 @@ test.describe("pairing QR — /pair landing handshake", () => {
     // 4. Operator APPROVES by typing the confirm code (D12) — authenticated route.
     const approveRes = await request.post("/api/pair/approve", {
       data: { code: payload.code, confirmCode },
+      headers: operatorHeaders(),
     });
     const approveJson = await approveRes.json();
     expect(approveJson.success, JSON.stringify(approveJson)).toBe(true);

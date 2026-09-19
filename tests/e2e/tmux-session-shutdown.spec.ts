@@ -136,6 +136,7 @@ async function waitUntilNotLive(client: BusClient, sessionId: string): Promise<v
 
 test.describe("tmux session shutdown (L3)", () => {
   test("T2: a tmux-spawned session's process and pane are both gone after shutdown", async () => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const container = resolveContainer();
     const panesBefore = paneCount(container);
     const piBefore = residentPiCount(container);

@@ -8,10 +8,11 @@
  *
  * See change: fix-corrupt-auth-json-500.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import fs from "node:fs";
+import { homedir, userInfo } from "node:os";
 import path from "node:path";
-import { userInfo, homedir } from "node:os";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const authDir = path.join(homedir(), ".pi", "agent");
 const authPath = path.join(authDir, "auth.json");
@@ -259,13 +260,12 @@ describe("credential writes refuse to clobber un-backed-up bytes", () => {
     vi.spyOn(fs, "writeFileSync").mockImplementation(() => {
       throw Object.assign(new Error("simulated EACCES"), { code: "EACCES" });
     });
-    expect(() =>
+    await expect(
       writeCredential("openai", { type: "api_key", key: "sk-new" }),
-    ).toThrow(/corrupt|backed up/i);
+    ).rejects.toThrow(/corrupt|backed up/i);
     expect(authFileBytes().toString()).toBe(corrupt);
     expect(quarantineFiles()).toHaveLength(0);
   });
-
   // #E12 — with the backup in place the write proceeds on {}.
   it("writeCredential proceeds when the backup exists, old bytes survive in quarantine", async () => {
     const { writeCredential, readAuthJson } = await storage();
@@ -274,7 +274,7 @@ describe("credential writes refuse to clobber un-backed-up bytes", () => {
     // The corrupt file is world-readable; the repaired credential file must
     // not inherit those bits.
     fs.chmodSync(authPath, 0o644);
-    writeCredential("openai", { type: "api_key", key: "sk-new" });
+    await writeCredential("openai", { type: "api_key", key: "sk-new" });
     expect(readAuthJson()).toEqual({
       openai: { type: "api_key", key: "sk-new" },
     });
@@ -290,9 +290,10 @@ describe("credential writes refuse to clobber un-backed-up bytes", () => {
     const { readAuthJson, writeCredential } = await storage();
     writeAuthFile('{"deadlock":');
     expect(readAuthJson()).toEqual({}); // mount-time read quarantines + records the hash
-    expect(() =>
-      writeCredential("openai", { type: "api_key", key: "sk-repair" }),
-    ).not.toThrow();
+    await writeCredential("openai", { type: "api_key", key: "sk-repair" });
+    // The repair lands in THIS instance's view of the file too, not just a
+    // freshly-imported module's.
+    expect(readAuthJson()["openai"]).toEqual({ type: "api_key", key: "sk-repair" });
     const { readAuthJson: reread } = await storage();
     expect(reread()["openai"]).toEqual({ type: "api_key", key: "sk-repair" });
   });
@@ -301,7 +302,7 @@ describe("credential writes refuse to clobber un-backed-up bytes", () => {
   it("writeCredential merges into a valid file without clobbering other providers", async () => {
     const { writeCredential, readAuthJson } = await storage();
     writeAuthFile('{"anthropic":{"type":"oauth","refresh":"r","access":"a","expires":1}}');
-    writeCredential("openai", { type: "api_key", key: "sk-new" });
+    await writeCredential("openai", { type: "api_key", key: "sk-new" });
     const data = readAuthJson();
     expect(data["openai"]).toEqual({ type: "api_key", key: "sk-new" });
     expect(data["anthropic"]).toEqual({ type: "oauth", refresh: "r", access: "a", expires: 1 });
@@ -312,7 +313,7 @@ describe("credential writes refuse to clobber un-backed-up bytes", () => {
   it("a locked op on a missing auth.json leaves the file at mode 0600", async () => {
     const { writeCredential } = await storage();
     try { fs.rmSync(authPath, { force: true }); } catch { /* absent */ }
-    writeCredential("openai", { type: "api_key", key: "sk-mode" });
+    await writeCredential("openai", { type: "api_key", key: "sk-mode" });
     expect(fs.statSync(authPath).mode & 0o777).toBe(0o600);
   });
 
@@ -322,7 +323,7 @@ describe("credential writes refuse to clobber un-backed-up bytes", () => {
     const { writeCredential } = await storage();
     writeAuthFile('{"anthropic":{"type":"oauth","refresh":"r","access":"a","expires":1}}');
     fs.chmodSync(authPath, 0o644);
-    writeCredential("openai", { type: "api_key", key: "sk-norm" });
+    await writeCredential("openai", { type: "api_key", key: "sk-norm" });
     expect(fs.statSync(authPath).mode & 0o777).toBe(0o600);
   });
 
@@ -333,7 +334,7 @@ describe("credential writes refuse to clobber un-backed-up bytes", () => {
     fs.mkdirSync(authDir, { recursive: true });
     fs.writeFileSync(path.join(authDir, "auth.json.tmp"), "stale");
     fs.chmodSync(path.join(authDir, "auth.json.tmp"), 0o644);
-    writeCredential("openai", { type: "api_key", key: "sk-tmp" });
+    await writeCredential("openai", { type: "api_key", key: "sk-tmp" });
     expect(fs.statSync(authPath).mode & 0o777).toBe(0o600);
     try { fs.rmSync(path.join(authDir, "auth.json.tmp"), { force: true }); } catch { /* gone */ }
   });

@@ -4,16 +4,42 @@ import os from "node:os";
 import path from "node:path";
 import { chromium } from "@playwright/test";
 import {
+  captureHarnessFailure,
   DASHBOARD_PORT,
   HEALTH_URL,
   MARKER_PATH,
+  resolveHarnessProject,
   resolvePortsFromStateFile,
   TEST_UP,
+  throwIfCrashLooping,
   USE_RUNNING,
   waitForHealth,
 } from "./lifecycle.js";
 
 const CHANGE = "change add-playwright-e2e";
+
+/**
+ * How long the managed boot may take before globalSetup gives up.
+ *
+ * 180s covers a WARM image (warm runs are seconds) and is the local default.
+ * It does NOT cover a COLD docker build: `test-up.sh --build` is spawned
+ * detached and this poll starts immediately, while a from-scratch build of the
+ * dashboard image is ~6-8 min (design D2 of stabilize-browser-e2e). On a CI
+ * runner with no Docker layer cache every shard therefore timed out at exactly
+ * 180s with "container never became healthy" — the build was still running.
+ * CI raises this via PW_E2E_BOOT_TIMEOUT_MS (see ci-e2e-browser.yml).
+ */
+const BOOT_TIMEOUT_MS = (() => {
+  const raw = process.env.PW_E2E_BOOT_TIMEOUT_MS;
+  if (raw === undefined || raw === "") return 180_000;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1_000) {
+    throw new Error(
+      `Invalid PW_E2E_BOOT_TIMEOUT_MS: "${raw}". Expected an integer >= 1000 (ms).`,
+    );
+  }
+  return parsed;
+})();
 
 // Fail fast (sub-second) if the host Chromium binary is absent, BEFORE the
 // container boot (≤180s). Resolves the executable via the @playwright/test
@@ -41,13 +67,6 @@ function assertBrowserInstalled(): void {
   }
 }
 
-/**
- * Poll the workspace state file + health endpoint until a derived dashboard port
- * is healthy. Re-reads .pi-test-harness.json EACH iteration so a bind-collision
- * retry that rewrites the ports (change fix-parallel-e2e-docker-collisions D2) is
- * followed instead of pinning a stale, abandoned port. First run builds the
- * image (slow); warm runs are seconds. Throws on timeout.
- */
 async function bootHealthyPorts(
   workspace: string,
   logPath: string,
@@ -55,7 +74,12 @@ async function bootHealthyPorts(
 ): Promise<{ dashboardPort: number; gatewayPort: number }> {
   const deadline = Date.now() + timeoutMs;
   let ports: { dashboardPort: number; gatewayPort: number } | undefined;
+  let tick = 0;
   while (Date.now() < deadline) {
+    // Probe for a crash-loop every ~10s (see throwIfCrashLooping): a failed
+    // entrypoint restarts within seconds, so this reports in ~2min instead of
+    // burning the whole CI budget on a poll that can never succeed.
+    if (++tick % 5 === 0) throwIfCrashLooping(workspace, logPath);
     try {
       ports = resolvePortsFromStateFile(workspace);
     } catch {
@@ -76,9 +100,11 @@ async function bootHealthyPorts(
   const where = ports
     ? `${ports.dashboardPort}/${ports.gatewayPort}`
     : "none (state file never written)";
+  const dump = captureHarnessFailure(workspace, logPath);
   throw new Error(
     `[${CHANGE}] container never became healthy within ${timeoutMs / 1_000}s ` +
-      `(last ports: ${where}). Check ${logPath} and docker/test-up.sh.`,
+      `(last ports: ${where}). ` +
+      `${dump ? `Container state + logs: ${dump}. ` : ""}Check ${logPath} and docker/test-up.sh.`,
   );
 }
 
@@ -191,6 +217,16 @@ export default async function globalSetup(): Promise<void> {
     // written through `PUT /api/config`.
     // See change: config-override-oauth-redirect-base.
     PI_E2E_OAUTH: process.env.PI_E2E_OAUTH ?? "1",
+    // PI_BROWSER_RELAY_FAKE is deliberately NOT defaulted here. `1` forces the
+    // browser plugin enabled AND seeds a live Fake relay instance, which makes
+    // `isLiveViewActive()` true for EVERY session: the `content-view` slot then
+    // renders the live-browser tile instead of the chat and NO spec can reach
+    // the composer (2026-09-17: seeding it by default turned a 5-test
+    // browser-relay cluster into ~150 reds). It is a VARIANT-harness faucet:
+    // opt in by exporting PI_BROWSER_RELAY_FAKE=1 for a dedicated run;
+    // browser-relay.spec.ts skips itself otherwise.
+    // See change: add-browser-relay (task 7.61), stabilize-browser-e2e (4.2).
+    PI_BROWSER_RELAY_FAKE: process.env.PI_BROWSER_RELAY_FAKE ?? "",
     ANTHROPIC_API_KEY: "",
     OPENAI_API_KEY: "",
     GEMINI_API_KEY: "",
@@ -224,11 +260,16 @@ export default async function globalSetup(): Promise<void> {
   // Mark managed BEFORE the wait so a crash mid-boot still gets torn down.
   fs.writeFileSync(MARKER_PATH, JSON.stringify({ workspace, pid: child.pid, logPath }));
 
-  const ports = await bootHealthyPorts(workspace, logPath, 180_000);
+  const ports = await bootHealthyPorts(workspace, logPath, BOOT_TIMEOUT_MS);
   // Lock in the healthy ports so worker processes (spawned after this) inherit
   // the container port → baseURL in sync.
   process.env.PW_E2E_PORT = String(ports.dashboardPort);
   process.env.PW_GATEWAY_PORT = String(ports.gatewayPort);
+  // Same inheritance for the compose project: specs reach the container by
+  // project label, and the state file lives in THIS throwaway workspace, not at
+  // the repo root (see harnessProject).
+  const project = resolveHarnessProject(workspace);
+  if (project) process.env.PW_E2E_PROJECT = project;
 
   await waitForHarnessOwnedSessions(ports.dashboardPort);
 }

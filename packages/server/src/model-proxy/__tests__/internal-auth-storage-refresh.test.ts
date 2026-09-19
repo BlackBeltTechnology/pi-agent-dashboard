@@ -7,7 +7,7 @@
  *
  * See change: update-pi-core-0-84-adopt-apis (test-plan #X4, #X5, #X6).
  */
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const writeCredential = vi.fn();
 const readAuthJson = vi.fn();
@@ -144,5 +144,39 @@ describe("InternalAuthStorage — OAuth refresh abort signal (pi 0.84.x)", () =>
     );
     // Failure must surface, not be swallowed, and must not overwrite storage.
     expect(writeCredential).not.toHaveBeenCalled();
+  });
+});
+
+// ── fix-provider-auth-lock-contention: the write is now async and awaited ─────
+
+describe("InternalAuthStorage — refreshed token is persisted before headers are returned", () => {
+  it("X4 awaits the credential write instead of fire-and-forgetting it", async () => {
+    // The write stays in flight until the test releases it; if the refresh does
+    // not await it, the caller gets headers before the token is on disk.
+    let releaseWrite!: () => void;
+    writeCredential.mockReturnValue(new Promise<void>((resolve) => { releaseWrite = resolve; }));
+    try {
+      const refreshToken = vi.fn(async () => ({
+        accessToken: "new-access",
+        refreshToken: "new-refresh",
+        expiresAt: Date.now() + 3600_000,
+      }));
+      const storage = storageWith({ getOAuthProvider: () => ({ refreshToken }) });
+
+      let settled = false;
+      const settle = () => { settled = true; };
+      const pending = storage.getApiKeyAndHeaders(model);
+      const settlement = pending.then(settle, settle);
+
+      await new Promise((r) => setTimeout(r, 20));
+      expect(writeCredential).toHaveBeenCalledWith("anthropic", expect.objectContaining({ access: "new-access" }));
+      expect(settled).toBe(false);
+
+      releaseWrite();
+      await expect(pending).resolves.toBeDefined();
+      await settlement;
+    } finally {
+      writeCredential.mockReset();
+    }
   });
 });

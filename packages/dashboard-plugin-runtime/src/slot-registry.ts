@@ -31,6 +31,12 @@ export interface ClaimEntry<S extends SlotId = SlotId> {
   command?: string;
   trigger?: string;
   toolName?: string;
+  /**
+   * The `customType` a `custom-entry-renderer` claim owns, matched by EXACT
+   * equality against a chat custom row's `customType`.
+   * See change: add-custom-entry-renderer-slot.
+   */
+  customType?: string;
   /** Wouter path pattern for `shell-overlay-route` claims. */
   path?: string;
   /** Session-id URL parameter name for `shell-overlay-route` claims. */
@@ -242,6 +248,14 @@ export function forCommand(claims: ClaimEntry[], command: string): ClaimEntry[] 
 /** Filter tool-renderer claims by tool name. */
 export function forToolName(claims: ClaimEntry[], toolName: string): ClaimEntry[] {
   return claims.filter(c => c.toolName === toolName);
+}
+
+/**
+ * Filter `custom-entry-renderer` claims by `customType` (exact match).
+ * See change: add-custom-entry-renderer-slot.
+ */
+export function forCustomType(claims: ClaimEntry[], customType: string): ClaimEntry[] {
+  return claims.filter(c => c.customType === customType);
 }
 
 /**

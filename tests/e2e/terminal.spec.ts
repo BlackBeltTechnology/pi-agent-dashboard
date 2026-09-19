@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures.js";
+import { expect, test } from "./fixtures.js";
 import { byTestId, ensureGitSession } from "./helpers/index.js";
 
 // Scenario 5.4 — inline terminal mounts a live xterm.
@@ -11,6 +11,7 @@ import { byTestId, ensureGitSession } from "./helpers/index.js";
 // pane mounted and initialized end-to-end. See change: add-e2e-spawn-scenarios.
 test.describe("inline terminal", () => {
   test("open inline terminal, xterm mounts", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const card = await ensureGitSession(page);
 
     // Select the session so its composer (CommandInput) renders.

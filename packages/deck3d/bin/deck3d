@@ -1,0 +1,49 @@
+#!/usr/bin/env node
+// deck3d CLI launcher.
+//
+// Dev checkout: run `src/cli.ts` through tsx (resolved to an absolute path so
+// it works from any cwd). The working tree — not a stale `dist/` — is what a
+// local user and the test suite execute.
+//
+// Published package: `tsx` is a devDependency and absent, so run the built
+// `dist/cli.js` in a `node` subprocess. The subprocess is load-bearing: only a
+// real entry `process.argv[1]` matches `import.meta.url`, which is the guard
+// that fires `run()` in `src/cli.ts` (an `await import(distCli)` would not).
+//
+// Neither: tell the user to build.
+import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const srcCli = join(pkgRoot, "src", "cli.ts");
+const distCli = join(pkgRoot, "dist", "cli.js");
+
+function resolveTsx() {
+  try {
+    return createRequire(import.meta.url).resolve("tsx");
+  } catch {
+    return undefined;
+  }
+}
+
+const args = process.argv.slice(2);
+const tsx = existsSync(srcCli) ? resolveTsx() : undefined;
+
+let r;
+if (tsx) {
+  r = spawnSync(process.execPath, ["--import", tsx, srcCli, ...args], { stdio: "inherit" });
+} else if (existsSync(distCli)) {
+  r = spawnSync(process.execPath, [distCli, ...args], { stdio: "inherit" });
+} else {
+  console.error("[deck3d] neither src/cli.ts (with tsx) nor dist/cli.js is available — run `npm run build` in this package");
+  process.exit(1);
+}
+
+if (r.error) {
+  console.error(`[deck3d] failed to launch: ${r.error.message}`);
+  process.exit(1);
+}
+process.exit(r.status ?? 1);

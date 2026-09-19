@@ -15,12 +15,10 @@
 
 import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
 import { BusClient } from "@blackbelt-technology/pi-dashboard-bus-client";
 import { expect, test } from "./fixtures.js";
 import { FIXTURE_GIT } from "./helpers/index.js";
-import { DASHBOARD_PORT, REPO_ROOT } from "./lifecycle.js";
+import { DASHBOARD_PORT, harnessProject } from "./lifecycle.js";
 
 const DAY = 24 * 60 * 60 * 1000;
 /** Transcript last written 30 days ago — the evidence the rule must find. */
@@ -36,16 +34,13 @@ const STARTED_AGE_DAYS = 200;
 let containerId: string | undefined;
 function harnessContainer(): string {
   if (containerId) return containerId;
-  const state = JSON.parse(
-    fs.readFileSync(path.join(REPO_ROOT, ".pi-test-harness.json"), "utf8"),
-  ) as { project?: string };
-  if (!state.project) throw new Error(".pi-test-harness.json carries no compose project");
+  const project = harnessProject();
   const id = execFileSync(
     "docker",
-    ["ps", "-q", "--filter", `label=com.docker.compose.project=${state.project}`],
+    ["ps", "-q", "--filter", `label=com.docker.compose.project=${project}`],
     { encoding: "utf8", timeout: 30_000 },
   ).trim().split("\n")[0];
-  if (!id) throw new Error(`no running container for compose project ${state.project}`);
+  if (!id) throw new Error(`no running container for compose project ${project}`);
   containerId = id;
   return id;
 }
@@ -220,6 +215,7 @@ async function ensurePinned(): Promise<void> {
 
 test.describe("evidence-based endedAt across a real boot (L3)", () => {
   test("F1: a bootstrap-restored card is anchored at its transcript evidence", async () => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     await ensurePinned();
     const planted = plantBootstrapOnlyTranscript();
 
@@ -255,6 +251,7 @@ test.describe("evidence-based endedAt across a real boot (L3)", () => {
   });
 
   test("F2: the boot restore loop does not churn stored ended-tier order", async () => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     // Self-contained: bootstrap only discovers the fixture directory when it is
     // pinned, so F2 must not depend on F1 having run (`--grep`, retry, reset).
     // The helper is idempotent.

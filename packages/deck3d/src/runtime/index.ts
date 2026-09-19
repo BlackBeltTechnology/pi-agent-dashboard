@@ -1,0 +1,435 @@
+/**
+ * Runtime entry — bundled by esbuild into `dist/runtime.js` and inlined into
+ * `deck.html`. Reads `window.__DECK` (merged IR) + `window.__DECK_FONT`
+ * (base64 subset TTF), builds one 3D group per slide, and exposes the
+ * `window.__deck3d` measurement/debug surface (design D8).
+ */
+import type { Font } from "opentype.js";
+import * as THREE from "three";
+import { composeEffects, QUALITY_BUDGET } from "../fx/compose.js";
+import { REGISTRY } from "../fx/index.js";
+import type { FxParams } from "../fx/types.js";
+import { type Animator, backgroundFor } from "./backgrounds.js";
+import { buildDiagram, type DiagramBuild } from "./builders.js";
+import { anchorFor, CULL_RADIUS } from "./camera.js";
+import { diagramMaterial, titleMaterial } from "./materials.js";
+import { type PaletteColors, resolvePalette } from "./palette.js";
+import { applyProps, createPropMaterials, loadPropModels, type PropLayer, type PropMaterials } from "./props.js";
+import { type QualityProfile, qualityProfile } from "./quality.js";
+import { createSceneRig } from "./scene.js";
+import { buildTitle, bulletTexture, loadFont } from "./text.js";
+import "./types.js";
+import type { Deck3dApi, Measurement, RuntimeDeck, SlideConfig } from "./types.js";
+
+type DeckSlide = RuntimeDeck["slides"][number];
+
+interface LabelRef {
+  kind: "title" | "label";
+  id: string;
+  text: string;
+  object: THREE.Object3D;
+  height: number;
+  color?: string;
+}
+
+interface SlideBuild {
+  group: THREE.Group;
+  anchor: ReturnType<typeof anchorFor>;
+  diagram: DiagramBuild | null;
+  background: Animator | null;
+  props: PropLayer | null;
+  labels: LabelRef[];
+  nodes: Array<{ id: string; object: THREE.Object3D }>;
+  cfg: SlideConfig;
+  palette: PaletteColors;
+  skipped: string[];
+  budget: { sum: number; limit: number; warning?: string };
+}
+
+function effective(defaults: SlideConfig, slide: DeckSlide): SlideConfig {
+  return { ...defaults, ...slide } as SlideConfig;
+}
+
+function addTitle(g: THREE.Group, slide: DeckSlide, isTitle: boolean, font: Font, P: PaletteColors, cfg: SlideConfig, labels: LabelRef[]): void {
+  const title = buildTitle(font, slide.title, isTitle ? 0.62 : 0.5, cfg.extrudeDepth ?? 0.18, titleMaterial(P, cfg));
+  const bb = new THREE.Box3().setFromObject(title.group);
+  title.group.position.set(
+    isTitle ? -(bb.max.x - bb.min.x) / 2 : -5.2,
+    isTitle ? 1.5 + (title.lines - 1) * 0.85 : 2.2 + (title.lines - 1) * 0.68,
+    0.2,
+  );
+  g.add(title.group);
+  title.group.userData.ownerId = `${slide.id}/title`;
+  labels.push({ kind: "title", id: `${slide.id}/title`, text: slide.title, object: title.group, height: (isTitle ? 0.62 : 0.5) * 1.4 });
+}
+
+function slabBack(P: PaletteColors, cfg: SlideConfig, slabH: number): THREE.Mesh {
+  const back = new THREE.Mesh(
+    new THREE.BoxGeometry(5.6, slabH, 0.08),
+    new THREE.MeshPhysicalMaterial({
+      color: P.card,
+      metalness: 0,
+      roughness: 0.35,
+      transmission: cfg.material === "glass" ? (cfg.mode === "dark" ? 0.55 : 0.25) : 0,
+      thickness: 0.4,
+      envMapIntensity: cfg.envReflections !== false ? 0.8 : 0,
+      transparent: true,
+      opacity: cfg.material === "glass" ? 0.85 : 1,
+    }),
+  );
+  back.receiveShadow = true;
+  back.castShadow = true;
+  return back;
+}
+
+function addBody(g: THREE.Group, slide: DeckSlide, isTitle: boolean, P: PaletteColors, cfg: SlideConfig): void {
+  if (!slide.bullets.length && !slide.subtitle) return;
+  const slabH = isTitle && !slide.bullets.length ? 1.0 : 2.9;
+  const slab = new THREE.Group();
+  slab.add(slabBack(P, cfg, slabH));
+  const txt = new THREE.Mesh(
+    new THREE.PlaneGeometry(5.2, 2.6),
+    new THREE.MeshBasicMaterial({ map: bulletTexture(slide, P), transparent: true, toneMapped: false, depthWrite: false }),
+  );
+  txt.position.set(0, -(2.9 - slabH) / 2, 0.06);
+  txt.renderOrder = 2;
+  slab.add(txt);
+  slab.position.set(isTitle ? 0 : -2.4, isTitle ? (slabH < 2 ? -0.3 : -1.1) : -0.35, 0);
+  g.add(slab);
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(isTitle ? 3 : 1.6, 0.06, 0.06), diagramMaterial(P, "accent", cfg));
+  bar.position.set(isTitle ? 0 : -4.4, isTitle ? 0.55 : 1.55, 0.25);
+  g.add(bar);
+}
+
+function addDiagram(g: THREE.Group, slide: DeckSlide, font: Font, P: PaletteColors, cfg: SlideConfig, labels: LabelRef[]): DiagramBuild | null {
+  if (slide.diagram.kind === "none") return null;
+  const holder = new THREE.Group();
+  holder.position.set(2.9, 0.1, 0.9);
+  const diagram = buildDiagram(slide, P, cfg, font);
+  holder.add(diagram.g);
+  const disc = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.7, 1.75, 0.08, 64),
+    new THREE.MeshStandardMaterial({ color: P.card, metalness: 0.4, roughness: 0.35, envMapIntensity: cfg.envReflections !== false ? 1 : 0 }),
+  );
+  disc.position.y = -1.7;
+  disc.receiveShadow = true;
+  holder.add(disc);
+  g.add(holder);
+  for (const l of diagram.labels ?? []) labels.push({ kind: "label", id: l.id, text: l.text, object: l.object, height: l.height, color: P.text });
+  return diagram;
+}
+
+function backgroundFromEffects(slide: DeckSlide, P: PaletteColors, profile: QualityProfile, mode: "dark" | "light"): Animator | null {
+  for (const ref of slide.effects ?? []) {
+    const entry = REGISTRY[ref.id];
+    if (entry?.card.kind !== "background") continue;
+    const handle = entry.create({ THREE, palette: P, mode, quality: profile }, (ref.params ?? {}) as FxParams);
+    if (!handle.object) continue;
+    return { g: handle.object as THREE.Group, tick: handle.tick ?? (() => {}) };
+  }
+  return null;
+}
+
+function buildSlideGroup(
+  deck: RuntimeDeck,
+  slide: DeckSlide,
+  index: number,
+  font: Font,
+  models: Map<string, THREE.Object3D>,
+  propMaterials: PropMaterials,
+): SlideBuild {
+  const cfg = effective(deck.defaults, slide);
+  const P = resolvePalette(cfg);
+  const g = new THREE.Group();
+  const anchor = anchorFor(index, cfg.camera?.distance);
+  g.position.copy(anchor.pos);
+  g.rotation.y = anchor.rotY;
+  const labels: LabelRef[] = [];
+  const isTitle = slide.kind === "title";
+  addTitle(g, slide, isTitle, font, P, cfg, labels);
+  addBody(g, slide, isTitle, P, cfg);
+  const diagram = addDiagram(g, slide, font, P, cfg, labels);
+  const props = applyProps(deck, slide.id, g, diagram, models, propMaterials);
+  const nodes = diagram?.nodes ? Object.entries(diagram.nodes).map(([id, object]) => ({ id, object })) : [];
+  const profile = qualityProfile(cfg.quality ?? deck.defaults.quality);
+  const mode = (cfg.mode ?? "dark") as "dark" | "light";
+  const background = backgroundFromEffects(slide, P, profile, mode) ?? backgroundFor(slide.scene, P, profile) ?? null;
+  if (background) {
+    background.g.position.z = -2;
+    g.add(background.g);
+  }
+  const quality = cfg.quality ?? deck.defaults.quality ?? "high";
+  const comp = composeEffects(slide.effects, mode, quality, slide.id);
+  const skipped = comp.skipped.map((s) => `${s.id}: ${s.reason}`);
+  // The budget warning text is `composeEffects`' own, so the runtime and the
+  // render CLI agree byte-for-byte (`warn budget slide <id> <sum> > <limit>`).
+  const warning = comp.warnings.find((w) => w.startsWith("warn budget"));
+  const budget = {
+    sum: comp.active.reduce((total, e) => total + (REGISTRY[e.id]?.card.cost ?? 0), 0),
+    limit: QUALITY_BUDGET[quality],
+    ...(warning ? { warning } : {}),
+  };
+  return { group: g, anchor, diagram, background, props, labels, nodes, cfg, palette: P, skipped, budget };
+}
+
+function projectRect(
+  object: THREE.Object3D,
+  camera: THREE.PerspectiveCamera,
+  width: number,
+  height: number,
+): { x: number; y: number; w: number; h: number } | null {
+  const box = new THREE.Box3().setFromObject(object);
+  if (box.isEmpty()) return null;
+  const v = new THREE.Vector3();
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (const x of [box.min.x, box.max.x]) {
+    for (const y of [box.min.y, box.max.y]) {
+      for (const z of [box.min.z, box.max.z]) {
+        v.set(x, y, z).project(camera);
+        const px = (v.x * 0.5 + 0.5) * width;
+        const py = (-v.y * 0.5 + 0.5) * height;
+        minX = Math.min(minX, px);
+        minY = Math.min(minY, py);
+        maxX = Math.max(maxX, px);
+        maxY = Math.max(maxY, py);
+      }
+    }
+  }
+  if (![minX, minY, maxX, maxY].every(Number.isFinite)) return null;
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
+
+async function boot(): Promise<void> {
+  const deck = window.__DECK;
+  const font = loadFont(window.__DECK_FONT ?? "");
+  try {
+    await document.fonts.load("700 16px Poppins");
+  } catch {
+    // Canvas labels fall back to a system font; titles still use the TTF.
+  }
+
+  const deckProfile = qualityProfile(deck.defaults.quality);
+  // `overrides.effects` (folded into each slide's list by `applyOverrides`) may
+  // request the `bloom` post effect even at `quality: low`; honour it so the
+  // composer pass and `effects().active` agree with the composed effect list.
+  const wantsBloom = deck.slides.some((slide) => (slide.effects ?? []).some((e) => e.id === "bloom"));
+  const rig = createSceneRig(wantsBloom ? { ...deckProfile, bloom: true } : deckProfile);
+  document.body.appendChild(rig.renderer.domElement);
+
+  const propModels = await loadPropModels(deck);
+  const propMaterials = createPropMaterials(resolvePalette(deck.defaults), deck.defaults);
+  const builds = deck.slides.map((slide, i) => buildSlideGroup(deck, slide, i, font, propModels, propMaterials));
+  for (const b of builds) rig.world.add(b.group);
+  rig.world.children.forEach((g, i) => {
+    g.userData.index = i;
+  });
+
+  const camState = { pos: new THREE.Vector3(), target: new THREE.Vector3() };
+  let cur = 0;
+  let frozen: number | null = null;
+  const clock = new THREE.Clock();
+  type Anim = { from: { pos: THREE.Vector3; target: THREE.Vector3 }; to: ReturnType<typeof anchorFor>; t: number; mode: string; dur: number; mid: THREE.Vector3 };
+  let anim: Anim | null = null;
+
+  function snapTo(i: number): void {
+    cur = i;
+    const a = builds[i].anchor;
+    camState.pos.copy(a.cam);
+    camState.target.copy(a.target);
+    anim = null;
+    rig.camera.position.copy(camState.pos);
+    rig.camera.lookAt(camState.target);
+    rig.applyLook(builds[i].palette, builds[i].cfg, qualityProfile(builds[i].cfg.quality));
+  }
+
+  const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
+
+  function stepAnim(dt: number): void {
+    if (!anim) return;
+    anim.t = Math.min(1, anim.t + dt / anim.dur);
+    const k = ease(anim.t);
+    if (anim.mode === "fade") {
+      if (anim.t >= 0.5) {
+        camState.pos.copy(anim.to.cam);
+        camState.target.copy(anim.to.target);
+      }
+    } else {
+      camState.pos.lerpVectors(anim.from.pos, anim.to.cam, k);
+      camState.target.lerpVectors(anim.from.target, anim.to.target, k);
+      if (anim.mode === "swing") {
+        const out = camState.pos.clone().sub(anim.mid).normalize();
+        camState.pos.addScaledVector(out, Math.sin(anim.t * Math.PI) * 6);
+      }
+    }
+    if (anim.t >= 1) anim = null;
+  }
+
+  function goTo(i: number): void {
+    const target = ((i % builds.length) + builds.length) % builds.length;
+    const mode = builds[target].cfg.transition ?? "dolly";
+    if (target === cur || mode === "cut") return snapTo(target);
+    const from = { pos: camState.pos.clone(), target: camState.target.clone() };
+    anim = {
+      from,
+      to: builds[target].anchor,
+      t: 0,
+      mode,
+      dur: builds[target].cfg.durationSec ?? 1.4,
+      mid: from.target.clone().add(builds[target].anchor.target).multiplyScalar(0.5),
+    };
+    cur = target;
+    rig.applyLook(builds[target].palette, builds[target].cfg, qualityProfile(builds[target].cfg.quality));
+  }
+
+  function cullNeighbours(): void {
+    const cp = rig.camera.position;
+    rig.world.children.forEach((g) => {
+      g.visible = g.position.distanceTo(cp) < CULL_RADIUS;
+    });
+  }
+
+  function renderAt(t: number): void {
+    const slide = builds[cur];
+    slide.diagram?.tick(t);
+    slide.background?.tick(t * 0.7);
+    slide.props?.tick(t);
+    rig.updateFloor(camState.target);
+    cullNeighbours();
+    rig.render();
+  }
+
+  function applyTime(t: number): void {
+    frozen = t;
+    anim = null; // a deterministic time cancels any in-flight transition
+    const a = builds[cur].anchor;
+    camState.pos.copy(a.cam);
+    camState.target.copy(a.target);
+    rig.camera.position.copy(a.cam);
+    rig.camera.lookAt(a.target);
+    renderAt(t);
+  }
+
+  const tmp = new THREE.Vector3();
+  function frame(): void {
+    const dt = frozen === null ? clock.getDelta() : 1 / 60;
+    const t = frozen === null ? clock.elapsedTime : frozen;
+    stepAnim(dt);
+    tmp.copy(camState.pos);
+    if (frozen === null) tmp.add(new THREE.Vector3(Math.sin(t * 0.35) * 0.25, Math.cos(t * 0.27) * 0.12, Math.sin(t * 0.2) * 0.15));
+    rig.camera.position.lerp(tmp, frozen === null ? 0.2 : 1);
+    rig.camera.lookAt(camState.target);
+    cullNeighbours();
+    rig.updateFloor(camState.target);
+    builds[cur].diagram?.tick(t);
+    builds[cur].background?.tick(t * 0.7);
+    builds[cur].props?.tick(t);
+    rig.render();
+    if (document.hidden) setTimeout(frame, 66);
+    else requestAnimationFrame(frame);
+  }
+
+  const raycaster = new THREE.Raycaster();
+  function ownerOf(object: THREE.Object3D): string | null {
+    let o: THREE.Object3D | null = object;
+    while (o) {
+      if (typeof o.userData.ownerId === "string") return o.userData.ownerId;
+      o = o.parent;
+    }
+    return null;
+  }
+
+  function raycastOwner(rect: { x: number; y: number; w: number; h: number }, width: number, height: number, target: THREE.Object3D): string | null {
+    const ndc = new THREE.Vector2(((rect.x + rect.w / 2) / width) * 2 - 1, -(((rect.y + rect.h / 2) / height) * 2 - 1));
+    raycaster.setFromCamera(ndc, rig.camera);
+    for (const h of raycaster.intersectObject(target, true)) {
+      const owner = ownerOf(h.object);
+      if (owner) return owner;
+    }
+    return null;
+  }
+
+  function labelMeasurement(ref: LabelRef, width: number, height: number, target: THREE.Object3D): Measurement | null {
+    const rect = projectRect(ref.object, rig.camera, width, height);
+    if (!rect) return null;
+    const box = new THREE.Box3().setFromObject(ref.object);
+    const worldH = Math.max(0.0001, box.max.y - box.min.y);
+    return {
+      kind: ref.kind,
+      id: ref.id,
+      text: ref.text,
+      rect,
+      capHeight: (ref.height / worldH) * rect.h,
+      hit: raycastOwner(rect, width, height, target),
+      color: ref.color ?? null,
+    };
+  }
+
+  function measure(): Measurement[] {
+    const width = rig.renderer.domElement.clientWidth || window.innerWidth;
+    const height = rig.renderer.domElement.clientHeight || window.innerHeight;
+    const target = builds[cur].group;
+    const out: Measurement[] = [];
+    for (const ref of builds[cur].labels) {
+      const m = labelMeasurement(ref, width, height, target);
+      if (m) out.push(m);
+    }
+    for (const node of builds[cur].nodes) {
+      const rect = projectRect(node.object, rig.camera, width, height);
+      if (rect) out.push({ kind: "node", id: node.id, text: "", rect, capHeight: 0, hit: null });
+    }
+    return out;
+  }
+
+  function peaks(): number[] {
+    const diagram = deck.slides[cur]?.diagram;
+    if (diagram?.kind === "sequence" && diagram.messages) return diagram.messages.map((_, k) => k * 1.1);
+    return [0];
+  }
+
+  function hashIndex(): number | null {
+    const raw = window.location.hash.replace(/^#/, "");
+    if (!raw) return null;
+    const n = Number.parseInt(raw, 10);
+    if (!Number.isFinite(n)) return null;
+    if (n < 1 || n > builds.length) return 0;
+    return n - 1;
+  }
+
+  rig.resize(window.innerWidth, window.innerHeight);
+  window.addEventListener("resize", () => rig.resize(window.innerWidth, window.innerHeight));
+  snapTo(hashIndex() ?? 0);
+
+  const api: Deck3dApi = {
+    gotoSlide: (index1Based: number) => {
+      goTo(Math.max(1, Math.min(builds.length, index1Based)) - 1);
+      builds[cur].diagram?.tick(0);
+      rig.render();
+    },
+    setTime: (seconds: number) => applyTime(seconds),
+    ready: () => Promise.resolve(),
+    measure,
+    peaks,
+    effects: () => ({ active: rig.passNames(), skipped: builds[cur].skipped, budget: builds[cur].budget }),
+    debug: {
+      titleGlyphs: () => {
+        const title = builds[cur].labels.find((l) => l.kind === "title");
+        if (!title) return 0;
+        let count = 0;
+        title.object.traverse((o) => {
+          if ((o as THREE.Mesh).isMesh) count++;
+        });
+        return count;
+      },
+      liftedMessage: () => builds[cur].diagram?.lifted?.() ?? null,
+    },
+    current: () => cur + 1,
+  };
+  applyTime(0);
+  window.__deck3d = api;
+  frame();
+}
+
+void boot();

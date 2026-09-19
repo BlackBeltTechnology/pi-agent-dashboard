@@ -31,7 +31,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `session-diff-cache.ts` | `SessionDiffCache<T>` (per-session TTL result cache + single-flight coalesce; TTL 0 disables; bounded eviction) + `djb2` key hash. Backs `/api/session-diff` poll coalescing. See change: fix-session-diff-eventloop-block. |
 | `session-diff-source.ts` | Transcript-sourced session-diff events for LOCAL sessions. → see `session-diff-source.ts.AGENTS.md` |
 | `session-discovery.ts` | Standalone per-cwd session discovery from `~/.pi/agent/sessions/<encoded-cwd>/`. → see `session-discovery.ts.AGENTS.md` |
-| `session-file-reader.ts` | Standalone JSONL session reader. Exports `SessionEntry`, `loadSessionEntries(filePath)` (leaf→root branch… → see `session-file-reader.ts.AGENTS.md` |
+| `session-file-reader.ts` | Standalone JSONL session reader. Exports `SessionEntry`, `loadSessionEntries(filePath)` (leaf→root branch… → see `session-file-reader.ts.AGENTS.md` Adds `findSessionCustomEntry(filePath, entryId)` for the custom-entry endpoint. See change: add-custom-entry-renderer-slot. |
 | `session-load-worker-pool.ts` | Session-load worker pool. Fixed slots = `max(1, min(maxConcurrentSpawns, os.cpus().length))`; FIFO queue when… → see `session-load-worker-pool.ts.AGENTS.md` |
 | `session-load-worker.ts` | Pure `loadAndReplay(req): {jobId, success, events, error, entryCount?, lastEntryTs?}` + `parentPort` bootstrap. `mode:"diff-events"` returns the `projectDiffEvents` projection (+`maxStringSize`, `lastEntryTs`). See change: fix-session-diff-durable-source. → see `session-load-worker.ts.AGENTS.md` |
 | `session-order-manager.ts` | Per-cwd session ordering persisted via `PreferencesStore`. → see `session-order-manager.ts.AGENTS.md` |

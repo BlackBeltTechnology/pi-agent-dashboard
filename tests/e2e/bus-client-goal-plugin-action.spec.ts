@@ -1,9 +1,9 @@
 import crypto from "node:crypto";
-import { expect, test } from "./fixtures.js";
 import { BusClient, NoPluginHandlerError } from "@blackbelt-technology/pi-dashboard-bus-client";
 import type { SpawnResultBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import { DASHBOARD_PORT } from "./lifecycle.js";
+import { expect, test } from "./fixtures.js";
 import { FIXTURE_GIT } from "./helpers/index.js";
+import { DASHBOARD_PORT } from "./lifecycle.js";
 
 /**
  * Acquire a real session id over the bus. `client.spawn()`'s exact
@@ -42,8 +42,12 @@ async function spawnSession(client: BusClient, cwd: string): Promise<string> {
  *   FIRM   — goal is loaded (`/api/health`), `plugin("goal", …)` transmits with
  *            a real sessionId WITHOUT the client throwing or dropping the socket,
  *            and the deny-gate specifically rejects an unhandled pluginId
- *            (`plugin("flows", …)` → NoPluginHandlerError) — proving goal is the
- *            allowed handler, not a blanket pass.
+ *            (`plugin("<bogus>", …)` → NoPluginHandlerError) — proving goal is
+ *            the allowed handler, not a blanket pass. The probe id MUST stay
+ *            outside `KNOWN_PLUGIN_HANDLERS` (goal, flows, kb, automation); it
+ *            is a synthetic token, never a real plugin name that can be added.
+ *            See change: stabilize-browser-e2e (baseline triage 4.2 drift:
+ *            `flows` became a known handler, so it no longer trips the gate).
  *   BEST-EFFORT — the downstream `plugin_event` goal snapshot depends on the
  *            harness pi session running the goal extension under the faux model;
  *            asserted only if it arrives (documented build-dependence).
@@ -91,7 +95,7 @@ test.describe("bus-client goal plugin_action (L3)", () => {
 
       // FIRM 3: the deny-gate is specific — an unhandled pluginId is rejected,
       // proving goal was allowed BY NAME, not by a blanket pass-through.
-      expect(() => client.plugin("flows", "noop", {}, { sessionId })).toThrow(
+      expect(() => client.plugin("no-such-plugin", "noop", {}, { sessionId })).toThrow(
         NoPluginHandlerError,
       );
 

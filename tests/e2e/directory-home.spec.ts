@@ -1,9 +1,7 @@
 import { execFileSync } from "node:child_process";
-import fs from "node:fs";
-import path from "node:path";
 import { expect, type Page, test } from "./fixtures.js";
 import { ensureGitSession, FIXTURE_GIT, gotoDashboard, pinDirectory } from "./helpers/index.js";
-import { REPO_ROOT } from "./lifecycle.js";
+import { harnessProject } from "./lifecycle.js";
 
 // Mirror of packages/client/src/lib/folder-encoding.ts::encodeFolderPath — the
 // web package does not export internals, and duplicating this 6-line pure fn is
@@ -103,18 +101,19 @@ test.describe("directory home page (mobile)", () => {
 let harnessContainerId: string | undefined;
 function harnessContainer(): string {
   if (harnessContainerId) return harnessContainerId;
-  const state = JSON.parse(
-    fs.readFileSync(path.join(REPO_ROOT, ".pi-test-harness.json"), "utf8"),
-  ) as { project?: string };
-  if (!state.project) throw new Error(".pi-test-harness.json carries no compose project");
+  // harnessProject() prefers PW_E2E_PROJECT (set by globalSetup) and only falls
+  // back to the repo-root state file for a manual `docker/test-up.sh` run. Read
+  // the file directly made this spec die with ENOENT on every CI shard, where
+  // the state file lives in the throwaway workspace, not the checkout.
+  const project = harnessProject();
   const id = execFileSync(
     "docker",
-    ["ps", "-q", "--filter", `label=com.docker.compose.project=${state.project}`],
+    ["ps", "-q", "--filter", `label=com.docker.compose.project=${project}`],
     { encoding: "utf8", timeout: 30_000 },
   )
     .trim()
     .split("\n")[0];
-  if (!id) throw new Error(`no running container for compose project ${state.project}`);
+  if (!id) throw new Error(`no running container for compose project ${project}`);
   harnessContainerId = id;
   return id;
 }

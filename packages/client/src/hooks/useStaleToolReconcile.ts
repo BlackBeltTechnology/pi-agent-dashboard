@@ -89,6 +89,40 @@ export function selectSupersededHealTargets(
 }
 
 /**
+ * Pure scan: every `${sessionId}:${toolCallId}` key whose row is still in
+ * `running` state. Used to prune the per-row bookkeeping maps each tick.
+ *
+ * "Active" MUST mean `status === "running"`, NOT "still present in state":
+ * `event-reducer.ts` never evicts tool rows, so every tool call a session has
+ * ever executed remains a present row. A presence-keyed prune would therefore
+ * delete nothing and leave the bookkeeping growing for the session's lifetime.
+ * See change: fix-long-session-ux-degradation (D3).
+ */
+export function selectActiveToolKeys(sessionStates: Map<string, SessionState>): Set<string> {
+  const keys = new Set<string>();
+  for (const [sessionId, state] of sessionStates) {
+    for (const [toolCallId, tc] of state.toolCalls) {
+      if (tc.status !== "running") continue;
+      keys.add(`${sessionId}:${toolCallId}`);
+    }
+  }
+  return keys;
+}
+
+/**
+ * Pure helper: drop every key of `map` that is not a member of `active`.
+ * The tick runs this against `lastAttemptRef`/`count404Ref` before scanning, so
+ * their size tracks the currently-running rows rather than every tool call ever
+ * executed. `inFlightRef` is deliberately never passed here — it self-clears in
+ * `finally`.
+ */
+export function pruneInactiveKeys<T>(map: Map<string, T>, active: Set<string>): void {
+  for (const key of map.keys()) {
+    if (!active.has(key)) map.delete(key);
+  }
+}
+
+/**
  * Pure scan: every `status:"running"` tool row across all sessions whose
  * `startedAt` is older than `staleMs`. `skip(key)` excludes rows already
  * in-flight or recently probed (re-arm window). Keyed by `sessionId:toolCallId`.
@@ -181,6 +215,17 @@ export function useStaleToolReconcile(
 
     const tick = () => {
       const now = Date.now();
+
+      // Prune bookkeeping whose row is no longer running BEFORE scanning, so
+      // the maps stay proportional to running rows instead of growing with
+      // every tool call ever executed. Both scans below are gated on
+      // `status === "running"`, so a pruned key is by construction one no scan
+      // can reach — a running row keeps its backoff and 404 count. See change:
+      // fix-long-session-ux-degradation (D3).
+      const active = selectActiveToolKeys(statesRef.current);
+      pruneInactiveKeys(lastAttemptRef.current, active);
+      pruneInactiveKeys(count404Ref.current, active);
+
       const skip = (key: string) => {
         if (inFlightRef.current.has(key)) return true;
         const last = lastAttemptRef.current.get(key);

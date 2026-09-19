@@ -1,0 +1,4 @@
+deck3d vendored prop corpus
+
+All models in this directory are dedicated to the public domain under CC0-1.0.
+Author: deck3d corpus. These are minimal synthetic glTF stand-ins.

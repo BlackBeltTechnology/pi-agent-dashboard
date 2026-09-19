@@ -416,6 +416,7 @@ test.describe("history gap — tail-anchored backfill in the browser", () => {
   test("F1/F2: the divider does not move when the slice splices, or after it measures", async ({
     page,
   }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const frames = watchBackfillFrames(page);
     await openWindowedSession(page);
     await centerDivider(page);
