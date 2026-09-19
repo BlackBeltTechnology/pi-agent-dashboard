@@ -13,7 +13,7 @@ Inbound chat control plane plugin (`@blackbelt-technology/pi-dashboard-chat-gate
 - Interactive prompts (`ask_user`, `confirm`, `select`) render native Discord buttons and select menus.
 - Complex prompt types (`multiselect`, `batch`) sequence sub-prompts, collect answers, submit single `prompt_response`.
 - Web UI prompt response dismisses pending Discord controls automatically (`prompt_dismiss` / `prompt_cancel`).
-- Plugin stays inert when `token` omitted; defers importing `discord.js`.
+- Plugin stays inert when `token` omitted; defers importing `discord.js`. Settings panel remains available while inert.
 
 ## Discord Bot Setup
 
@@ -224,7 +224,7 @@ flowchart TD
 - Disarm blocks action requests; passive mirroring continues.
 - Workspace deletion marks binding inactive; leaves channel and message history intact. Channel deletion drops binding; leaves running sessions active.
 - Channel provisioning executes atomic create-with-overwrites (`@everyone` view denied); missing overwrite permissions aborts channel creation and flags plugin health.
-- Missing bot token leaves plugin inert (no adapter, socket, or timers).
+- Missing bot token leaves plugin inert (no adapter, socket, or timers). Settings panel still works: surface is a local projection (in-memory policy + file reads), so an operator inspects and edits policy before a token exists; delegation reports unavailable, never an empty roster.
 - Team layer optional to `createChatGateway`; omitting `teamControls` restores baseline L1/L2 operation.
 - Command log: append-only ring buffer bounded by `auditRetention` (default 10000, max 1000000); no edit or delete operations.
 
