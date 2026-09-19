@@ -12,8 +12,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { type SessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { writeSessionMeta, type SessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { scanAllSessions } from "../session-scanner.js";
 
 let tmpDir: string;

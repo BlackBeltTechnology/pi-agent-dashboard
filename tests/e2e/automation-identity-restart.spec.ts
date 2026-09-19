@@ -51,23 +51,20 @@ function harnessContainer(): string {
   return id;
 }
 
-function inContainer(script: string): string {
-  // Bounded: an unbounded `docker` call would hang the single worker until the
-  // Playwright timeout fires, hiding the real cause.
-  return execFileSync("docker", ["exec", harnessContainer(), "sh", "-c", script], {
+/**
+ * Run a JS snippet inside the container with `node`.
+ *
+ * The snippet is piped on STDIN (`docker exec -i … node`) rather than base64-
+ * staged into `node -e 'eval(…)'`. Stdin needs no shell quoting, so the seed
+ * cannot be corrupted by quotes, AND it avoids constructing code for `eval` —
+ * which CodeQL flags as improper sanitization.
+ */
+function runNode(script: string): string {
+  return execFileSync("docker", ["exec", "-i", harnessContainer(), "node"], {
+    input: script,
     encoding: "utf8",
     timeout: 60_000,
   }).trim();
-}
-
-/**
- * Run a JS snippet inside the container with `node`. The snippet is base64-
- * staged so it may contain any quotes — hand-escaping JSON into a
- * `sh -c 'node -e ...'` nesting is a reliable way to corrupt the seed.
- */
-function runNode(script: string): string {
-  const b64 = Buffer.from(script, "utf8").toString("base64");
-  return inContainer(`node -e 'eval(Buffer.from("${b64}","base64").toString("utf8"))'`);
 }
 
 /** pi's on-disk encoding of a cwd into a sessions subdirectory name. */

@@ -12,16 +12,16 @@
 import { mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, it, expect } from "vitest";
 import {
   mergeSessionMeta,
   readSessionMeta,
-  writeSessionMeta,
   type SessionMeta,
+  writeSessionMeta,
 } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
-import { sessionToMeta } from "../session/session-to-meta.js";
-import { sessionFromMeta } from "../session/session-scanner.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it } from "vitest";
+import { sessionFromMeta } from "../session/session-scanner.js";
+import { sessionToMeta } from "../session/session-to-meta.js";
 
 function tmpMeta(): string {
   return path.join(mkdtempSync(path.join(os.tmpdir(), "pi-meta-")), "s.meta.json");

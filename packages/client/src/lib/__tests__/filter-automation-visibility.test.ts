@@ -6,8 +6,10 @@
  * be revealed via the "show hidden" toggle (same affordance as user-hidden
  * sessions). See change: add-automation-plugin.
  */
-import { describe, it, expect } from "vitest";
-import { filterSessions } from "../session/session-grouping.js";
+
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it } from "vitest";
+import { sessionFromMeta } from "../../../../server/src/session/session-scanner.js";
 // Deliberate cross-package import: E5 is an integration property — the SERVER
 // round-trip (project → restore) feeding the CLIENT board filter. Both halves
 // must be real code, or the guard cannot see a restore that drops the identity
@@ -15,8 +17,7 @@ import { filterSessions } from "../session/session-grouping.js";
 // are pure w.r.t. this path (no bridge, no I/O beyond a stat that tolerates a
 // missing file). See change: fix-automation-identity-persistence.
 import { sessionToMeta } from "../../../../server/src/session/session-to-meta.js";
-import { sessionFromMeta } from "../../../../server/src/session/session-scanner.js";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { filterSessions } from "../session/session-grouping.js";
 
 function mk(partial: Partial<DashboardSession>): DashboardSession {
   return {
