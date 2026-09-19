@@ -89,6 +89,19 @@ export PI_TEST_PEERS="${PI_TEST_PEERS:-}"
 #   PI_E2E_SEED=1 PI_BROWSER_RELAY_FAKE=1 docker/test-up.sh -d --build
 export PI_BROWSER_RELAY_FAKE="${PI_BROWSER_RELAY_FAKE:-}"
 
+# Chat-gateway team-controls e2e faucet (change:
+# add-chat-gateway-team-controls, task 10g). Passed through to the container
+# (compose.test.yml -> test-entrypoint.sh) which seeds `plugins["chat-gateway"]`
+# and selects the socket-less platform fixture, so the L3 specs have a surface
+# to render. Requires PI_E2E_SEED=1.
+#   1 | nolist   (unset => harness unchanged)
+#   PI_E2E_SEED=1 PI_CHAT_GATEWAY_FAKE=1 docker/test-up.sh -d --build
+# Exported here deliberately: compose substitutes ${PI_CHAT_GATEWAY_FAKE} from
+# the SHELL environment, so without this the faucet resolves to empty and
+# silently does nothing even when the caller sets it.
+export PI_CHAT_GATEWAY_FAKE="${PI_CHAT_GATEWAY_FAKE:-}"
+export PI_CHAT_GATEWAY_FAKE_DIR="${PI_CHAT_GATEWAY_FAKE_DIR:-}"
+
 # Record the resolved ports + project for teardown + the Playwright lifecycle.
 # Gitignored; harmless inside the container (read-only overlay lower).
 write_state_file() {
