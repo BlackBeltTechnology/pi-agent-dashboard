@@ -94,6 +94,14 @@ export function sessionToMeta(session: DashboardSession): SessionMeta {
     // session. `undefined` (a normal user session) serializes to no key, so the
     // byte-identity guard holds. See change: detach-automation-goal-from-core.
     recover: session.recover,
+    // Session classification + automation-run identity. MUST be enumerated here
+    // because this save is a FULL overwrite (not a merge) — the spawn seam
+    // merges them onto the sidecar, and omitting them here wipes both on the
+    // next routine save, so a hidden run resurfaces on the board after a
+    // restart. `undefined` (a plain user session) serializes to no key, so the
+    // byte-identity invariant holds. See change: fix-automation-identity-persistence.
+    kind: session.kind,
+    automationRun: session.automationRun,
     // Persist retained notifications. MUST be listed here because this save
     // does a full .meta.json overwrite (not a merge) — omitting it wipes the
     // notify log, making notifications the one transcript row type that
