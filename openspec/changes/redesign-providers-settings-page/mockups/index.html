@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Providers — connected list</title>
+<link rel="stylesheet" href="tokens.css">
+<script src="theme-init.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 24px 16px 64px; }
+
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0; }
+  .themebtn {
+    font-size: 12px; padding: 6px 10px; border-radius: 6px; cursor: pointer;
+    background: var(--bg-tertiary); color: var(--text-secondary);
+    border: 1px solid var(--border-secondary);
+  }
+  .themebtn:hover { background: var(--bg-surface); }
+
+  .sectionhead {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 12px; margin: 28px 0 10px;
+  }
+  .sectionhead h2 { font-size: 13px; font-weight: 600; margin: 0; letter-spacing: .02em; }
+  .count { font-size: 12px; color: var(--text-secondary); }
+
+  /* ── Row ─────────────────────────────────────────────────────── */
+  .row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px; margin-bottom: 6px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+  }
+  .row-main { flex: 1; min-width: 0; }
+  .row-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .name { font-size: 14px; font-weight: 500; color: var(--text-primary); }
+  .meta { font-size: 12px; color: var(--text-secondary); margin-top: 2px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+
+  /* Badge names the KIND in words; colour is a SECOND channel on top, never
+     the only one (WCAG 1.4.1 use-of-colour). Hue comes from the per-theme
+     --accent-*-text tokens, which clear 4.5:1 on this surface in both themes;
+     the base --accent-* ramp does not (purple 3.63 dark / 3.00 light). */
+  .badge {
+    font-size: 11px; line-height: 1; padding: 3px 7px; border-radius: 4px;
+    border: 1px solid var(--border-secondary);
+    background: var(--bg-surface); color: var(--text-secondary);
+    white-space: nowrap;
+  }
+
+  .actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  button.act {
+    font-size: 12px; padding: 5px 9px; border-radius: 5px; cursor: pointer;
+    background: var(--bg-secondary); color: var(--text-secondary);
+    border: 1px solid var(--border-secondary);
+    min-height: 28px;
+  }
+  button.act:hover { background: var(--bg-surface); color: var(--text-primary); }
+  button.act.danger:hover { border-color: color-mix(in srgb, var(--accent-red) 60%, transparent); text-decoration: underline; }
+  button.primary {
+    background: var(--accent-primary-strong); color: #fff; border-color: transparent; font-weight: 500;
+  }
+  button.primary:hover { filter: brightness(1.12); }
+  :focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+
+  /* health pill — custom endpoints only (design D8). Glyph + word carry the
+     status; hue is the third, redundant channel. */
+  .pill { font-size: 11px; padding: 3px 7px; border-radius: 999px; border: 1px solid var(--border-secondary); color: var(--text-secondary); }
+  .pill.err  { border-color: color-mix(in srgb, var(--accent-red) 60%, transparent); }
+
+  .addbar { margin-top: 14px; }
+  .addbtn {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 13px; padding: 9px 14px; border-radius: 6px; cursor: pointer;
+    background: var(--bg-tertiary); color: var(--text-primary);
+    border: 1px dashed var(--border-strong);
+    width: 100%; justify-content: center; min-height: 40px;
+  }
+  .addbtn:hover { background: var(--bg-surface); border-style: solid; }
+  .addbtn .hint { color: var(--text-secondary); font-size: 12px; }
+
+  .notice {
+    display: flex; gap: 8px; align-items: flex-start;
+    font-size: 12px; padding: 9px 11px; border-radius: 6px; margin-bottom: 10px;
+    background: color-mix(in srgb, var(--accent-yellow) 10%, var(--bg-tertiary));
+    border: 1px solid color-mix(in srgb, var(--accent-yellow) 40%, transparent);
+    color: var(--text-secondary);
+  }
+  .notice .ico { color: var(--text-secondary); flex-shrink: 0; }
+
+  .empty {
+    text-align: center; padding: 34px 20px; border-radius: 6px;
+    border: 1px dashed var(--border-secondary); color: var(--text-secondary); font-size: 13px;
+  }
+  .empty strong { display: block; color: var(--text-secondary); font-size: 14px; margin-bottom: 4px; font-weight: 500; }
+
+  .statecap {
+    margin: 34px 0 8px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--text-muted); border-top: 1px solid var(--border-primary); padding-top: 14px;
+  }
+  @media (max-width: 560px) {
+    .row { flex-wrap: wrap; }
+    .actions { width: 100%; justify-content: flex-end; }
+  }
+
+  /* WCAG 2.5.8 AA needs 24px; 2.5.5 AAA + Apple HIG want 44px. Desktop keeps
+     the shipped compact density; coarse pointers get the 44px target. */
+  @media (pointer: coarse) {
+    button, .addbtn, .opt, input, select { min-height: 44px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <h1>Providers</h1>
+    <button class="themebtn" id="t">Toggle theme</button>
+  </div>
+
+  <!-- ═══ STATE 1 — credentials present (the common case) ═══ -->
+  <div class="sectionhead">
+    <h2>Connected</h2>
+    <span class="count">6 providers</span>
+  </div>
+
+  <div class="row">
+    <div class="row-main">
+      <div class="row-title">
+        <span class="name">Anthropic</span>
+        <span class="badge sub">Subscription</span>
+      </div>
+      <div class="meta">Claude Pro/Max · expires in 5h</div>
+    </div>
+    <div class="actions"><button class="act">Sign out</button></div>
+  </div>
+
+  <div class="row">
+    <div class="row-main">
+      <div class="row-title">
+        <span class="name">ChatGPT Plus/Pro</span>
+        <span class="badge sub">Subscription</span>
+      </div>
+      <div class="meta">Codex · expires in 1d</div>
+    </div>
+    <div class="actions"><button class="act">Sign out</button></div>
+  </div>
+
+  <div class="row">
+    <div class="row-main">
+      <div class="row-title">
+        <span class="name">OpenRouter</span>
+        <span class="badge key">API key</span>
+      </div>
+      <div class="meta"><code>sk-or…9f2</code></div>
+    </div>
+    <div class="actions">
+      <button class="act">Replace</button>
+      <button class="act danger">Remove</button>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="row-main">
+      <div class="row-title">
+        <span class="name">Z.ai</span>
+        <span class="badge key">API key</span>
+      </div>
+      <div class="meta">from <code>ZAI_API_KEY</code></div>
+    </div>
+    <div class="actions">
+      <button class="act">Replace</button>
+      <button class="act danger">Remove</button>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="row-main">
+      <div class="row-title">
+        <span class="name">Google Vertex</span>
+        <span class="badge env">Environment</span>
+      </div>
+      <div class="meta">application default credentials · not stored by pi</div>
+    </div>
+    <div class="actions"><button class="act" disabled style="opacity:.45;cursor:default">Managed outside pi</button></div>
+  </div>
+
+  <div class="row">
+    <div class="row-main">
+      <div class="row-title">
+        <span class="name">local-vllm</span>
+        <span class="badge cust">Custom endpoint</span>
+        <span class="pill ok">&#10003; reachable · 14 models</span>
+      </div>
+      <div class="meta"><code>http://10.0.0.4:8000/v1</code> · openai-completions</div>
+    </div>
+    <div class="actions">
+      <button class="act">Test</button>
+      <button class="act">Edit</button>
+      <button class="act danger">Remove</button>
+    </div>
+  </div>
+
+  <div class="addbar">
+    <button class="addbtn" id="add">+ Add provider <span class="hint">35 available</span></button>
+  </div>
+
+  <!-- ═══ STATE 2 — catalogue unavailable (design D5) ═══ -->
+  <div class="statecap">State — catalogue unavailable (no connected pi session)</div>
+  <div class="sectionhead">
+    <h2>Connected</h2>
+    <span class="count">2 providers</span>
+  </div>
+  <div class="notice">
+    <span class="ico" aria-hidden="true">&#9888;</span>
+    <span><strong>API-key provider list unavailable.</strong> No pi session is connected, so providers configured by API key or environment may be missing from this list. Subscriptions below are unaffected.</span>
+  </div>
+  <div class="row">
+    <div class="row-main">
+      <div class="row-title"><span class="name">Anthropic</span><span class="badge sub">Subscription</span></div>
+      <div class="meta">Claude Pro/Max · expires in 5h</div>
+    </div>
+    <div class="actions"><button class="act">Sign out</button></div>
+  </div>
+  <div class="row">
+    <div class="row-main">
+      <div class="row-title"><span class="name">local-vllm</span><span class="badge cust">Custom endpoint</span><span class="pill">&middot; not tested</span></div>
+      <div class="meta"><code>http://10.0.0.4:8000/v1</code> · openai-completions</div>
+    </div>
+    <div class="actions"><button class="act">Test</button><button class="act">Edit</button><button class="act danger">Remove</button></div>
+  </div>
+
+  <!-- ═══ STATE 3 — genuinely nothing configured ═══ -->
+  <div class="statecap">State — nothing configured</div>
+  <div class="empty">
+    <strong>No providers configured</strong>
+    pi needs at least one provider credential before it can run a model.
+  </div>
+  <div class="addbar">
+    <button class="addbtn">+ Add provider <span class="hint">41 available</span></button>
+  </div>
+
+  <!-- ═══ STATE 4 — status fetch failed, custom endpoints still reachable ═══ -->
+  <div class="statecap">State — provider-auth status failed (custom endpoints unaffected)</div>
+  <div class="notice" style="background:color-mix(in srgb, var(--accent-red) 10%, var(--bg-tertiary)); border-color:color-mix(in srgb, var(--accent-red) 40%, transparent)">
+    <span class="ico" aria-hidden="true" >&#9888;</span>
+    <span>Provider status is unavailable (500). <button class="act" style="margin-left:6px">Retry</button></span>
+  </div>
+  <div class="row">
+    <div class="row-main">
+      <div class="row-title"><span class="name">local-vllm</span><span class="badge cust">Custom endpoint</span><span class="pill err">&#10007; 401 auth error</span></div>
+      <div class="meta"><code>http://10.0.0.4:8000/v1</code> · openai-completions</div>
+    </div>
+    <div class="actions"><button class="act">Test</button><button class="act">Edit</button><button class="act danger">Remove</button></div>
+  </div>
+
+</div>
+<script>
+  document.getElementById('t').onclick = function () {
+    var r = document.documentElement;
+    r.dataset.theme = r.dataset.theme === 'light' ? '' : 'light';
+  };
+  document.getElementById('add').onclick = function () { location.href = 'add-dialog.html'; };
+</script>
+</body>
+</html>
