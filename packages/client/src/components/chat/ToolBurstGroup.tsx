@@ -40,6 +40,7 @@ import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
+import { CustomEntryRow } from "./CustomEntryRow.js";
 import { ThinkingBlock } from "./ThinkingBlock.js";
 import { ToolCallStep } from "./ToolCallStep.js";
 
@@ -180,7 +181,32 @@ export function ToolBurstGroup({ burst, toolContext }: Props) {
     prevRunning.current = isRunning;
   }, [isRunning]);
 
-  if (visibleMembers.length === 0) return null;
+  // Third vanish path (design D8): the per-tool gate emptied the container, but
+  // a VISIBLE absorbed custom row is content worth rendering on its own. Render
+  // those rows directly (a header counting zero tool calls would mislead);
+  // CustomEntryRow applies its own group gate, so hidden rows render nothing.
+  if (visibleMembers.length === 0) {
+    // Keep DIRECT custom rows AND nested ×N groups: a group whose tool members
+    // are all hidden can still hold an absorbed custom row, which
+    // CollapsedToolGroup renders. BurstBodyItem handles both item kinds.
+    const customItems = burst.items.filter(
+      (it) => isGroup(it) || (it as ChatMessage).role === "custom",
+    );
+    if (customItems.length === 0) return null;
+    return (
+      <>
+        {customItems.map((it) => (
+          <BurstBodyItem
+            key={isGroup(it) ? it.messages[0]?.id ?? it.toolName : (it as ChatMessage).id}
+            item={it}
+            toolContext={toolContext}
+            turnActive={false}
+            isVisible={isVisible}
+          />
+        ))}
+      </>
+    );
+  }
 
   const total = visibleMembers.length;
   // `elided` is terminal but NOT done: its result was never loaded, so counting
@@ -312,6 +338,11 @@ function BurstBodyItem({
         <MarkdownContent content={msg.content} context={toolContext} />
       </div>
     );
+  }
+  // An absorbed custom row renders through the SAME container as the top-level
+  // site, so absorption changes position, never content (D8).
+  if (msg.role === "custom") {
+    return <CustomEntryRow key={msg.id} msg={msg} sessionId={toolContext.sessionId} />;
   }
   if (msg.role !== "toolResult") return null; // skip empty/separator rows
   if (!isVisible(msg.toolName)) return null;

@@ -120,6 +120,25 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     }
   }
 
+  // custom-entry-renderer: require a non-empty `customType` + `component`.
+  // The claim is keyed by `customType` (exact match); a missing/blank key could
+  // never resolve, and a missing component has nothing to render.
+  // See change: add-custom-entry-renderer-slot.
+  if (slotId === "custom-entry-renderer") {
+    if (typeof c.customType !== "string" || !c.customType.trim()) {
+      throw new ManifestValidationError(
+        pluginId,
+        `claims[${index}] slot "custom-entry-renderer" requires a non-empty "customType"`,
+      );
+    }
+    if (typeof c.component !== "string" || !c.component.trim()) {
+      throw new ManifestValidationError(
+        pluginId,
+        `claims[${index}] slot "custom-entry-renderer" requires a non-empty "component"`,
+      );
+    }
+  }
+
   // settings-section: `tab` is accepted but inert. Every `settings-section`
   // claim renders on its owning plugin's page (`/settings/plugins/<id>`), so
   // rejecting an unknown VALUE would fail a manifest over a field nothing
@@ -158,6 +177,7 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     ...(typeof c.command === "string" ? { command: c.command } : {}),
     ...(typeof c.trigger === "string" ? { trigger: c.trigger } : {}),
     ...(typeof c.toolName === "string" ? { toolName: c.toolName } : {}),
+    ...(typeof c.customType === "string" ? { customType: c.customType } : {}),
     ...(typeof c.path === "string" ? { path: c.path } : {}),
     ...(typeof c.sessionParam === "string" ? { sessionParam: c.sessionParam } : {}),
     ...(c.depth === 1 || c.depth === 2 ? { depth: c.depth } : {}),
@@ -305,7 +325,17 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
   // Check for duplicate (slot, toolName) or (slot, command) pairs within one plugin
   const toolRendererNames = new Set<string>();
   const commandRoutes = new Set<string>();
+  const customEntryTypes = new Set<string>();
   for (const claim of claims) {
+    if (claim.slot === "custom-entry-renderer" && claim.customType) {
+      if (customEntryTypes.has(claim.customType)) {
+        throw new ManifestValidationError(
+          pluginId,
+          `duplicate custom-entry-renderer claim for customType "${claim.customType}"`,
+        );
+      }
+      customEntryTypes.add(claim.customType);
+    }
     if (claim.slot === "tool-renderer" && claim.toolName) {
       if (toolRendererNames.has(claim.toolName)) {
         throw new ManifestValidationError(

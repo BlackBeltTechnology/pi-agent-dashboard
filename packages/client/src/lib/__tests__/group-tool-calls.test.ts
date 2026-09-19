@@ -244,4 +244,34 @@ describe("groupConsecutiveToolCalls — elided rows (E29)", () => {
     expect((result[0] as ChatMessage).id).toBe(elided.id);
     expect(result.filter(isGroup)).toHaveLength(1);
   });
+
+  // ── add-custom-entry-renderer-slot: conditional custom transparency (D7) ──
+  function customMsg(customType: string): ChatMessage {
+    return { id: `msg-custom-${customType}`, role: "custom", customType, content: "{}", timestamp: Date.now() };
+  }
+  const claimed = (ct: string) => ct === "om.observations.recorded";
+
+  it("E8: a CLAIMED custom row is absorbed into the ×N run, in original order", () => {
+    const c = customMsg("om.observations.recorded");
+    const [a, b, d] = [toolMsg(), toolMsg(), toolMsg()];
+    const result = groupConsecutiveToolCalls([a, b, c, d], claimed);
+    const groups = result.filter(isGroup);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].messages).toHaveLength(3);
+    expect(groups[0].rendered.map((m) => m.id)).toEqual([a.id, b.id, c.id, d.id]);
+  });
+
+  it("E9: an UNCLAIMED custom row ends the run; no ×3 group forms", () => {
+    const c = customMsg("om.observations.recorded");
+    const [a, b, d] = [toolMsg(), toolMsg(), toolMsg()];
+    const result = groupConsecutiveToolCalls([a, b, c, d], () => false);
+    expect(result.filter(isGroup)).toHaveLength(0);
+    expect(result.map((r) => (r as ChatMessage).id)).toEqual([a.id, b.id, c.id, d.id]);
+  });
+
+  it("grouping is unchanged with no predicate (pre-change shape)", () => {
+    const c = customMsg("om.observations.recorded");
+    const msgs = [toolMsg(), toolMsg(), c, toolMsg()];
+    expect(groupConsecutiveToolCalls(msgs, () => false)).toEqual(groupConsecutiveToolCalls(msgs));
+  });
 });

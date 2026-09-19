@@ -32,6 +32,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `csp.spec.ts` | Baseline CSP e2e (§7). Asserts a CSP header (report-only or enforce) present on `/` with… → see `csp.spec.ts.AGENTS.md` |
 | `ctx-running-render.spec.ts` | Browser E2E for `fix-ctx-running-render`. Drives `[[faux:ctx-batch-running]]` (single… → see `ctx-running-render.spec.ts.AGENTS.md` |
 | `custom-entry-fallback.spec.ts` | L3 (change: render-inline-reasoning-and-custom-entries, E11). → see `custom-entry-fallback.spec.ts.AGENTS.md` |
+| `custom-entry-om-renderer.spec.ts` | L3 (change: add-custom-entry-renderer-slot, F15). → see `custom-entry-om-renderer.spec.ts.AGENTS.md` |
 | `custom-entry-replay-parity.spec.ts` | L3 (change: render-inline-reasoning-and-custom-entries, F2). Live custom rows vs… → see `custom-entry-replay-parity.spec.ts.AGENTS.md` |
 | `dashboard-slash.spec.ts` | Browser E2E: spawn session → `/dashboard:server-health` asserts bash card + "ran locally"… → see `dashboard-slash.spec.ts.AGENTS.md` |
 | `directory-home.spec.ts` | L3 for the `/folder/:encodedCwd` directory home page (change: add-directory-home-page). → see `directory-home.spec.ts.AGENTS.md` |

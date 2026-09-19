@@ -104,6 +104,13 @@ export const catalog = {
     transcriptNote:
       "观察与反思的计数仅在会话运行时存在 —— 观察与反思出现在会话转录中。",
     pipelineLoadError: "无法加载管线状态。",
+    omLabelRecorded: "已记录观察",
+    omLabelReflections: "已记录反思",
+    omLabelDropped: "已丢弃观察",
+    omExpand: "展开条目",
+    omCollapse: "折叠条目",
+    omLoading: "加载中…",
+    omNoRecords: "无记录",
   },
   hu: {
     loadError: "A konfiguráció betöltése sikertelen: {error}",
@@ -196,5 +203,12 @@ export const catalog = {
     transcriptNote:
       "A megfigyelési és reflexiós számlálók csak futó munkamenetben léteznek — a megfigyelések és reflexiók a munkamenet átiratában jelennek meg.",
     pipelineLoadError: "A folyamat állapota nem tölthető be.",
+    omLabelRecorded: "Rögzített megfigyelések",
+    omLabelReflections: "Rögzített reflexiók",
+    omLabelDropped: "Eldobott megfigyelések",
+    omExpand: "Bejegyzés kibontása",
+    omCollapse: "Bejegyzés összecsukása",
+    omLoading: "Betöltés…",
+    omNoRecords: "Nincsenek rekordok",
   },
 };

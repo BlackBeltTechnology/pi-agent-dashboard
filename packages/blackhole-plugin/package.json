@@ -57,6 +57,21 @@
         "slot": "content-view",
         "component": "PipelineDetailView",
         "predicate": "isPipelineDetailActive"
+      },
+      {
+        "slot": "custom-entry-renderer",
+        "customType": "om.observations.recorded",
+        "component": "OmEntryCard"
+      },
+      {
+        "slot": "custom-entry-renderer",
+        "customType": "om.reflections.recorded",
+        "component": "OmEntryCard"
+      },
+      {
+        "slot": "custom-entry-renderer",
+        "customType": "om.observations.dropped",
+        "component": "OmEntryCard"
       }
     ],
     "requires": {
@@ -73,7 +88,9 @@
   },
   "dependencies": {
     "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0"
+    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
+    "@mdi/js": "^7.4.47",
+    "@mdi/react": "^1.6.1"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
