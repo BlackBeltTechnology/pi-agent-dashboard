@@ -329,6 +329,61 @@ genuine-local, trusted-network IP, or `isAuthenticated`).
 - **WHEN** an unauthenticated, untrusted request arrives at the `/api` ws-ticket mint endpoint
 - **THEN** the guard SHALL deny it (the mint is not public)
 
+### Requirement: Guard jurisdiction and exceptions are evaluated on BOTH views of the target
+The guard SHALL derive two views of every request target and SHALL use BOTH:
+
+- the **raw** view — the percent-decoded request target with query string and
+  fragment stripped, dot-segments UNRESOLVED; and
+- the **resolved** view — the same pathname with `.` / `..` segments resolved per
+  RFC 3986.
+
+A request SHALL be treated as **in jurisdiction** when EITHER view lies inside a
+jurisdiction namespace. An in-namespace public exception SHALL be granted only
+when it holds on **BOTH** views. A target that cannot be parsed into a pathname
+(malformed percent-escape, or an authority-form / absolute-form target) SHALL be
+treated as in-jurisdiction and denied.
+
+Both rules are load-bearing; neither is redundant, because the router and the
+guard disagree about dot-segments. Fastify passes `onRequest` the RAW target and
+find-my-way does not resolve dot-segments — it matches them into a `:param` or
+`*` slot as a literal value.
+
+- Deciding on the resolved view ALONE would let `/api/provider-auth/..` reach
+  `/api/provider-auth/:provider` with `provider = ".."`, because the resolved
+  pathname is `/api`, which is not inside `/api/` under trailing-slash anchoring.
+- Deciding on the raw view ALONE would treat `/foo/../api/x` as out of
+  jurisdiction, although the same target resolves into `/api/x`.
+- Judging an exception on ONE view would let
+  `/live/<id>/../../api/pair/challenge` be admitted as the pairing exception while
+  the router matches the RAW path into `/live/:id/*` and runs the live proxy with
+  an attacker-chosen sub-path.
+
+This union SHALL NOT be replaced by a blanket "deny any target containing a
+dot-segment" rule: a dotted target that is out of jurisdiction under BOTH views
+(e.g. `/foo/../settings`, the SPA deep-link fallback) SHALL remain a no-op, so
+"outside jurisdiction the guard does nothing" continues to hold.
+
+#### Scenario: dotted target that resolves INTO a guarded namespace is denied
+- **WHEN** an unauthenticated, untrusted request arrives at `/foo/../api/sessions`
+- **THEN** the guard SHALL deny it (the resolved view is in jurisdiction)
+
+#### Scenario: dotted target that resolves OUT of a guarded namespace is denied
+- **WHEN** an unauthenticated, untrusted request arrives at `/api/provider-auth/..` or `/live/x/../..`, which the router matches into a `:param` / `*` slot
+- **THEN** the guard SHALL deny it (the raw view is in jurisdiction)
+- **AND** the route handler SHALL NOT run
+
+#### Scenario: a public exception cannot be smuggled through a wildcard route
+- **WHEN** an unauthenticated, untrusted request arrives at `/live/<id>/../../api/pair/challenge`, whose resolved view is the public pairing path while its raw view matches `/live/:id/*`
+- **THEN** the guard SHALL deny it (the exception does not hold on both views)
+
+#### Scenario: an encoded namespace prefix is still in jurisdiction
+- **WHEN** an unauthenticated, untrusted request arrives at `/%61pi/sessions`
+- **THEN** the guard SHALL deny it (the raw view percent-decodes into `/api/`)
+
+#### Scenario: a dotted target outside both views stays a no-op
+- **WHEN** an unauthenticated request arrives at `/foo/../settings`
+- **THEN** the guard SHALL NOT deny it on network policy (the SPA fallback serves it)
+
 ### Requirement: Non-API surfaces are not guarded
 The guard SHALL NOT act on requests outside its jurisdiction namespaces, so the
 app shell, static assets, `/manifest.json`, `/auth/*`, favicon, and PWA icons
