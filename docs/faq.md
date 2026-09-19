@@ -403,6 +403,20 @@ Before flipping to `enforce`, check what would break: Settings ▸ Security ▸ 
 
 See change: add-host-allowlist-admission.
 
+## Plugin pages 403 `network_not_allowed` after upgrade?
+
+Auth-off tunnel deployment. Old per-route guard never covered plugin routes (`/api/plugins/automation/*`, kb, flows) or `/api/provider-auth/*`. New universal `onRequest` guard covers every `/api/`, `/v1/`, `/editor/`, `/live/` route — auth configured or not.
+
+Symptom: plugin UI loads (app shell + static assets unaffected) but its API calls return `403 { error: "network_not_allowed" }`.
+
+Two remedies:
+- Enable auth — OAuth provider, or pair the device. Paired device sends the bearer token → `isAuthenticated` → guard admits.
+- Add the caller's network to Trusted Networks — Settings ▸ Servers, or Settings ▸ Security. Writes `auth.bypassHosts`. Applies live, no restart.
+
+Same-host browser (`localhost`) unaffected — genuine-local passes.
+
+See change: add-universal-network-guard.
+
 ## My Tailscale device is not trusted after Add Local Network?
 
 Old offer was `<self>/32`. Tailscale gives each node its own `/32` from `100.64.0.0/10`, so netmask-only offer trusted nobody new — host already loopback-exempt.

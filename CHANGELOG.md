@@ -20,6 +20,42 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Security
 
+- **Universal network guard — the per-route opt-in `networkGuard` is now a single
+  root `onRequest` hook, so no route can be forgotten.** Enforcement used to be
+  exactly as strong as a registrar's memory: `networkGuard` was created once and
+  attached as a `preHandler` to ~20 core route registrars, and three surfaces
+  never got it — the plugin routes (`POST /api/plugins/automation/create` +
+  `/run`, i.e. *write a prompt to an attacker-chosen path and spawn a pi agent to
+  execute it*), `PUT /api/provider-auth/api-key`, and `GET /api/provider-auth/status`.
+  With OAuth off (the default) the only other rejecting hook is not even
+  registered, so over a tunnel those surfaces were **unguarded** — the
+  security-boundary audit's VD2 remote-code-execution finding.
+
+  The guard is now installed **once, last, and unconditionally**, with
+  jurisdiction over the sensitive namespaces `/api/*`, `/v1/*`, `/editor/*`,
+  `/live/*`: inside them it is deny-by-default, outside them it does nothing.
+  **Outside jurisdiction is deliberate** — static assets, the SPA shell (`/` and
+  the deep-link fallback), `/manifest.json`, `/auth/*`, favicon and PWA icons
+  keep loading, so an *auth-off, over-a-tunnel* deployment still reaches its own
+  app shell. In-namespace public exceptions are `GET`/`HEAD /api/health`, the
+  device-pairing bootstrap paths, and configured `auth.bypassUrls`. `/mcp` is
+  deliberately **out** of jurisdiction and enumerated as independently
+  authenticated: it verifies the paired-device token in-handler and does not
+  trust `isAuthenticated`, so guarding it would 403 every legitimate remote MCP
+  client. Pass conditions (loopback / genuine-local, local-IPC token, trusted
+  network, authenticated) are unchanged; the `/v1/*` model proxy now marks the
+  request authenticated on a valid `pi-proxy-*` key so proxy traffic is admitted
+  through the same pass condition rather than a public allowlist entry.
+
+  **Behavior change to be aware of:** a deployment that tunnels with auth OFF
+  and relied on the plugin UIs (kb / flows / automation) will now get `403` on
+  those **API** routes. Enable auth, or add the caller's network to
+  `trustedNetworks` (Settings ▸ Servers) — the same `403 network_not_allowed` body
+  and "Trust this network?" prompt as every other guarded route. Denials are now
+  logged (`[network-guard] denied reason=… path=… ip=…`) and a namespace-coverage
+  test fails if a future dangerous route is registered outside the guarded
+  namespaces.
+
 - **DNS-rebinding defence for the dashboard's own origin (issue #637), report-only
   by default.** Admission previously trusted any request whose `Origin` host
   equalled its `Host` header; a page at a name that re-resolves to `127.0.0.1`

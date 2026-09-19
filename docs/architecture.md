@@ -2569,22 +2569,61 @@ Plugin content-view claims (flows-plugin) still predicate-driven via SlotRegistr
 
 ### Network Access Control
 
-The server has a two-layer access model:
+One universal network guard plus the auth plugin. Universal guard runs whether or not auth is configured.
 
-**Layer 1: Network Guard (`createNetworkGuard`)** — Fastify `preHandler` on all sensitive routes. Allows requests via three paths:
-1. **Loopback** — `127.0.0.1`, `::1`, `::ffff:127.0.0.1` (always allowed)
-2. **Trusted networks** — IPs matching `resolvedTrustedNetworks` (CIDR, wildcard, exact). `resolvedTrustedNetworks` computed at load time by merging two config sources: Settings UI writes new entries to `auth.bypassHosts` (canonical path on Security tab, surfaced as "Trusted Networks" section); legacy top-level `trustedNetworks` field remains readable for back-compat with hand-edited `config.json`. Both honor same matching logic; UI does not modify legacy field. **Both fields work independently of whether `auth.providers` is configured** — config with `auth: { providers: {}, bypassHosts: [...] }` honored as-is; auth plugin no-ops when provider registry empty + network guard serves bypass path directly. See `openspec/changes/archive/` for `fix-trusted-networks-no-oauth` which restored this after regression in `consolidate-trusted-networks`.
-3. **Authenticated** — `request.isAuthenticated === true` (set by auth `onRequest` hook via `decorateRequest`)
+**Layer 1: Network Guard (`createNetworkGuardHook`)** — `packages/server/src/auth/localhost-guard.ts`. Registered ONCE at root in `packages/server/src/server.ts` as the LAST `onRequest` hook, unconditionally. Not anchored on the model-proxy gate above it: that gate does not exist when `modelProxy` is disabled. Fastify binds root hooks to routes at `preReady`, including encapsulated plugin child scopes, so registering after the routes still covers them. Does NOT cover a route registered after `ready()` (plugin activation is restart-effective today; a future hot-load reopens this).
 
-Otherwise → 403. The guard strips `::ffff:` IPv4-mapped prefixes before matching.
+Replaces the old per-route-only model. `createNetworkGuard` was a `preHandler` on ~20 core route registrars. Three surfaces never got it and were unguarded when auth was off: plugin routes (`/api/plugins/automation/*`, kb, flows) and `/api/provider-auth/*`. Existing per-route `preHandler: networkGuard` calls stay as redundant defense-in-depth.
+
+**Jurisdiction** — 4 namespaces, trailing-slash anchored: `/api/`, `/v1/`, `/editor/`, `/live/`. `/apiv2` is a near-miss, not `/api`.
+- INSIDE jurisdiction: deny by default.
+- OUTSIDE jurisdiction: no-op.
+
+Outside is deliberate and load-bearing. Static assets, SPA shell (`/`), SPA deep-link fallback (`setNotFoundHandler`), `/manifest.json`, `/auth/*`, favicon, PWA icons, `/sw.js` keep loading. Auth-off tunnel deployment still reaches its own app shell.
+
+**In-namespace public exceptions** (reachable unauthenticated inside `/api`): `GET`/`HEAD /api/health` (exact pathname; `HEAD` admitted because Fastify auto-exposes HEAD for a GET route); device-pairing bootstrap (`/api/pair/challenge`, `/api/pair/redeem`, `/api/pair/poll`); configured `auth.bypassUrls` prefixes.
+
+An exception must hold on **both** views of the target (see **Matching**). Note the scope of `auth.bypassUrls`: it is an exception from the **universal hook only**. A route that also carries a retained per-route `preHandler: networkGuard` is still refused by that `preHandler`, so a `bypassUrls` match is public only for routes WITHOUT a per-route guard. This is unchanged from before this guard existed — `auth.bypassUrls` has only ever skipped the auth plugin, never a per-route guard.
+
+**Pass conditions** (unchanged from the old per-route guard):
+1. **Genuine-local** — loopback AND no proxy-forwarding header (`x-forwarded-for`, `x-forwarded-host`, `x-forwarded-proto`, `x-real-ip`, `forwarded`). Tunnel presenting as `127.0.0.1` injects a forwarding header and fails here.
+2. **Local-IPC token** — `X-Pi-Local-Token` allowlist.
+3. **Trusted network** — source IP matches `resolvedTrustedNetworks` (CIDR, wildcard, exact). Read live via thunk, so a CIDR added at runtime admits without restart.
+4. **Authenticated** — `request.isAuthenticated === true`.
+
+Otherwise → 403.
+
+**Matching** runs on TWO views of the target, and jurisdiction is the UNION of them:
+- the **raw** view — percent-decoded, query string and fragment stripped, dot-segments UNRESOLVED;
+- the **resolved** view — the same pathname with `.` / `..` resolved per RFC 3986.
+
+A request is in jurisdiction when **either** view is in jurisdiction. Unparseable target → fail closed (denied, treated as in-jurisdiction). `::ffff:` IPv4-mapped prefixes stripped before IP match. In-namespace exceptions must hold on **both** views.
+
+Both views are load-bearing because the router and the guard disagree about dot-segments: Fastify passes `onRequest` the RAW target, and find-my-way does not resolve dot-segments — it matches them into a `:param` / `*` slot as a literal value. Deciding on the resolved view alone would let `/api/provider-auth/..` reach `/api/provider-auth/:provider` with `provider = ".."`; deciding on the raw view alone would miss `/foo/../api/x`; judging an exception on one view would let `/live/<id>/../../api/pair/challenge` through as the pairing exception while `/live/:id/*` runs. A dotted target that is outside jurisdiction under BOTH views (e.g. `/foo/../settings`) stays a no-op.
+
+**`/v1/*` model proxy.** `createModelProxyAuthGate` (`packages/server/src/model-proxy/auth-gate.ts`) sets `request.isAuthenticated = true` on a valid `pi-proxy-*` key. Universal guard admits it via pass condition 4. Deliberately NO public `/v1` allowlist entry — such an entry would be a hole when the proxy is disabled.
+
+**`/mcp` deliberately OUT of jurisdiction.** `/mcp` authenticates in-handler from the paired-device bearer token and does not trust `isAuthenticated`; guarding it would 403 every legitimate remote MCP client. Classified as an ENUMERATED independently-authenticated namespace, not silently skipped.
+
+**Denial contract.** `403` with body `{ success: false, error: "network_not_allowed", reason, hint }` — clients branch on `error`. Recorded in the buffer behind `GET /api/tunnel/block-events`, which powers the "Trust this network?" prompt. Logged as `[network-guard] denied reason=… path=… ip=…` — path + socket-peer IP + reason only; no body, no token.
+
+**Second port.** Optional model-proxy second-port Fastify instance runs ONLY the proxy gate, no universal guard. Safe solely because it binds `127.0.0.1` (asserted by `packages/server/src/__tests__/model-proxy-second-port.test.ts`). If that bind ever becomes configurable, install the universal guard there too.
+
+**Namespace-coverage test.** `packages/server/src/__tests__/network-guard-namespace-coverage.test.ts` enumerates the real route table with plugin routes loaded. Fails if any non-static/non-`/auth`/non-public route sits outside the guarded namespaces or the enumerated independently-authenticated set (`/mcp`).
+
+**Trusted-network config sources.** `resolvedTrustedNetworks` merges two sources:
+- `auth.bypassHosts` — canonical. Settings UI writes here (Security tab "Trusted Networks" section; also surfaced on Settings ▸ Servers).
+- legacy top-level `trustedNetworks` — readable for back-compat with hand-edited `config.json`. UI does not modify it.
+
+Both honor same matching logic. Both work independently of whether `auth.providers` is configured: `auth: { providers: {}, bypassHosts: [...] }` honored as-is; auth plugin no-ops when provider registry empty and the universal guard serves the bypass path directly. See `openspec/changes/archive/` for `fix-trusted-networks-no-oauth` (restored this after a `consolidate-trusted-networks` regression).
 
 **Layer 2: Auth Plugin (`onRequest` hook)** — Only registered when `auth` is configured. Skips loopback, trusted networks, `/auth/*`, `/api/health`, and `bypassUrls`. Validates JWT cookie for all other requests. Tags valid requests with `request.isAuthenticated = true`.
 
-**Execution order**: `onRequest` (auth) → `preHandler` (guard) → handler. This means the auth hook tags the request before the guard checks it.
+**Execution order** (root `onRequest` hooks run in registration order): auth plugin (when configured) → model-proxy auth gate (when proxy enabled) → universal network guard LAST → route `preHandler` (per-route guards, defense-in-depth) → handler. Auth and proxy gates tag the request before the universal guard reads the pass conditions.
 
-**WebSocket upgrades** follow the same logic: loopback → trusted network → JWT cookie validation.
+**WebSocket upgrades** follow the same admission logic: loopback/genuine-local → trusted network → local-IPC token → JWT cookie validation.
 
-**Zrok tunnel** connections appear as `127.0.0.1` (zrok proxies to localhost), so both layers pass automatically.
+**Zrok tunnel** connections appear as `127.0.0.1` (zrok proxies to localhost) but carry proxy-forwarding headers, so they are NOT genuine-local. A zrok peer passes only when in `trustedNetworks` or authenticated.
 
 **`GET /api/network-interfaces`** returns detected non-internal IPv4 interfaces with computed CIDRs. Used by the Settings UI "Add Local Network" button. This endpoint uses the legacy `localhostGuard` (localhost-only, not network-guard-aware) since it exposes machine network topology.
 
