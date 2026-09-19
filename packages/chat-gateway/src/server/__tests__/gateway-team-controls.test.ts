@@ -424,6 +424,53 @@ describe("gateway team-controls integration", () => {
     expect(seam.spawns.length).toBe(before);
   });
 
+  it("3.10: an OBSERVE principal disarms from chat, every action is then refused, and only the dashboard re-arms", async () => {
+    const { seam, adapter, gateway, team } = setup();
+    await gateway.start();
+
+    // The spec says ANY principal holding at least `observe` may disarm — so the
+    // panic button must not be reserved for control/operate. `eve` is `observe`
+    // on ws_1 and the ceiling is `operate`, so her tier is the binding factor.
+    await gateway.handleInbound(msg("eve", "!disarm"));
+    await flush();
+    expect(team.isDisarmed()).toBe(true);
+    expect(adapter.sent.map((s) => s.content).join("\n")).toMatch(/disarm/i);
+
+    // While disarmed every action-bearing request is refused — including a
+    // `control` principal's, because the switch is global, not per-principal.
+    adapter.sent.length = 0;
+    const before = seam.spawns.length;
+    await gateway.handleInbound(msg("alice", "please run this"));
+    await flush();
+    expect(adapter.sent.map((s) => s.content).join("\n")).toContain("disarmed");
+    expect(seam.spawns.length).toBe(before);
+
+    // ...but the command log / mirroring lane is untouched: only ACTIONS halt.
+
+    // Re-arming from chat is refused; the dashboard is the only way back.
+    expect(team.rearmFromChat().ok).toBe(false);
+    expect(team.isDisarmed()).toBe(true);
+    team.rearmFromDashboard();
+    expect(team.isDisarmed()).toBe(false);
+
+    adapter.sent.length = 0;
+    await gateway.handleInbound(msg("alice", "hello"));
+    await flush();
+    expect(seam.sentPrompts.at(-1)?.text).toContain("hello");
+  });
+
+  it("3.10: a bare 'disarm' in prose is NOT the command — an innocent prompt must never halt the layer", async () => {
+    const { seam, gateway, team } = setup();
+    await gateway.start();
+    await gateway.handleInbound(msg("alice", "how do I disarm a device?"));
+    await flush();
+    // Matching a bare word would let a normal prompt halt the whole team layer,
+    // so the `!` sigil is REQUIRED here (unlike the log commands, whose bare
+    // form merely refuses one harmless message).
+    expect(team.isDisarmed()).toBe(false);
+    expect(seam.sentPrompts.at(-1)?.text).toContain("disarm a device");
+  });
+
   it("6.4: a refused activation is not consumed — the invoker can still answer the same prompt", async () => {
     const { seam, adapter, gateway } = setup();
     await gateway.start();

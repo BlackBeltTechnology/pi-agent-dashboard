@@ -81,6 +81,21 @@ export function commandLogFilePath(): string {
 }
 
 /**
+ * Whether a dashboard-written `disarmed` flag should be applied to the layer.
+ *
+ * Compares against the LIVE latch, never `teamConfig.disarmed`. A chat-initiated
+ * disarm flips the runtime latch WITHOUT writing config (the dashboard stays the
+ * only config writer), so the two deliberately disagree afterwards — and a
+ * caller comparing against CONFIG would see "no change" on the dashboard's
+ * re-arm, silently leaving the layer disarmed with no way back. Applying only on
+ * a real change is also what stops an unrelated edit, which echoes the live
+ * value it displays, from undoing a chat disarm as a side effect.
+ */
+export function shouldApplyDisarm(written: boolean, live: boolean): boolean {
+  return written !== live;
+}
+
+/**
  * The mode-specific half of the settings surface lane.
  *
  * Everything else the panel needs (policy, workspaces, inert folders, channel
@@ -410,10 +425,8 @@ export default async function registerChatGateway(ctx: ServerPluginContext): Pro
           return;
         }
 
-        // Only a CHANGE in the flag applies it. An unrelated edit must not
-        // silently undo a chat-initiated disarm — the dashboard re-arms by
-        // setting this flag, so it is applied deliberately, not as a side effect.
-        const disarmChanged = parsed.value.disarmed !== teamConfig.disarmed;
+        // Only a CHANGE from what the layer is CURRENTLY doing applies the flag.
+        const disarmChanged = shouldApplyDisarm(parsed.value.disarmed, team.isDisarmed());
         const refused = await applyWrite(parsed.value);
         if (refused !== undefined) {
           await failWrite(refused, true);

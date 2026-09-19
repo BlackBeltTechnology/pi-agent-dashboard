@@ -11,7 +11,13 @@ import {
   type BindingContext,
   type RefusalReason,
 } from "../authorize.js";
-import { CHAT_COMMAND_ALLOWLIST, NON_DELEGABLE, tierOfVerb, VERB_TIERS } from "../tier.js";
+import {
+  CHAT_COMMAND_ALLOWLIST,
+  CHAT_LOCAL_VERB_TIERS,
+  NON_DELEGABLE,
+  tierOfVerb,
+  VERB_TIERS,
+} from "../tier.js";
 
 function binding(over: Partial<BindingContext> = {}): BindingContext {
   return {
@@ -36,9 +42,19 @@ function run(over: Partial<AuthorizeInput>): AuthorizeInput & { result: ReturnTy
 }
 
 describe("verb allowlist coverage", () => {
-  it("3.1: every allowlisted command resolves to a tier in the shared table", () => {
+  it("3.1: every allowlisted command resolves to a tier — shared table, or the chat-local one", () => {
     for (const verb of CHAT_COMMAND_ALLOWLIST) {
       expect(tierOfVerb(verb), verb).toBeDefined();
+    }
+  });
+
+  it("3.1: the chat-local table never SHADOWS a platform verb", () => {
+    // It exists for chat-ONLY verbs (`disarm`) that have no MCP counterpart, so
+    // there is nothing for them to drift from. Re-declaring a PLATFORM verb here
+    // would silently override the shared table — exactly the drift that reading
+    // tiers from the manifest exists to prevent.
+    for (const verb of CHAT_LOCAL_VERB_TIERS.keys()) {
+      expect(VERB_TIERS.has(verb), verb).toBe(false);
     }
   });
 });

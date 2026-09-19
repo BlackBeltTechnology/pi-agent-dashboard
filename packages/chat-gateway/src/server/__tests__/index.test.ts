@@ -14,7 +14,7 @@ import {
   TEAM_SURFACE_MESSAGE,
   type TeamSurfaceView,
 } from "../../shared/types.js";
-import registerChatGateway, { commandLogFilePath } from "../index.js";
+import registerChatGateway, { commandLogFilePath, shouldApplyDisarm } from "../index.js";
 
 function fakeCtx(
   config: Record<string, unknown>,
@@ -98,6 +98,26 @@ describe("chat-gateway plugin entry", () => {
  * gateway is inert — including the browser harness — and there is no way to
  * review or edit the policy before enabling the bot.
  */
+describe("dashboard disarm writes (task 3.10)", () => {
+  it("re-arms a CHAT-initiated disarm, by comparing against the LIVE latch", () => {
+    // The scenario that motivated this: a chat disarm flips the live latch but
+    // writes NO config (the dashboard remains the only config writer), so
+    // config.disarmed stays false. The dashboard then re-arms by writing false.
+    // A caller comparing against CONFIG would see `false !== false` — "no
+    // change" — and never apply it, leaving the layer disarmed permanently with
+    // no way back. Comparing against the LIVE latch applies it.
+    expect(shouldApplyDisarm(false, true)).toBe(true);
+
+    // An unrelated edit echoes the live value it displays, so it is NOT a change
+    // and cannot undo a chat disarm as a side effect.
+    expect(shouldApplyDisarm(true, true)).toBe(false);
+
+    // A plain dashboard disarm still applies, and an idle re-write does nothing.
+    expect(shouldApplyDisarm(true, false)).toBe(true);
+    expect(shouldApplyDisarm(false, false)).toBe(false);
+  });
+});
+
 describe("settings surface while inert (no token)", () => {
   const workspaces = [{ id: "ws_1", name: "Alpha", folders: [] }];
   const policies = {

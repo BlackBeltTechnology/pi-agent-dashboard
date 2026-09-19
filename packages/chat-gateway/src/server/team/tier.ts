@@ -53,7 +53,24 @@ export const CHAT_COMMAND_ALLOWLIST: readonly string[] = [
   "get_session_file",
   "get_transcript",
   "get_tool_result",
+  // The spec's emergency switch. A chat-ONLY verb (see CHAT_LOCAL_VERB_TIERS).
+  "disarm",
 ];
+
+/**
+ * Verbs the CHAT surface owns that have NO MCP counterpart, so they cannot
+ * appear in the shared table. Kept separate from `VERB_TIERS` deliberately: the
+ * "read the tier from the shared table, never re-declare it" invariant still
+ * holds for every platform verb, and there is no MCP row for these to drift
+ * from. Declaring a PLATFORM verb here would silently override the shared
+ * table, so don't.
+ *
+ * `disarm` is the spec's emergency switch: any `observe`-and-up principal may
+ * disarm; only the dashboard re-arms.
+ */
+export const CHAT_LOCAL_VERB_TIERS: ReadonlyMap<string, Tier> = new Map([
+  ["disarm", "observe"],
+]);
 
 /** The effective per-verb tier table, read from the shared generated manifest. */
 export const VERB_TIERS: ReadonlyMap<string, Tier> = new Map(
@@ -65,7 +82,7 @@ export function tierOfVerb(
   verb: string,
   table: ReadonlyMap<string, Tier> = VERB_TIERS,
 ): Tier | undefined {
-  return table.get(verb);
+  return table.get(verb) ?? CHAT_LOCAL_VERB_TIERS.get(verb);
 }
 
 export function isNonDelegable(verb: string): boolean {

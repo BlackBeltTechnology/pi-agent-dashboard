@@ -1005,6 +1005,14 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
 
       const key = bindingKey({ platform, channelId: msg.channelId, threadId: msg.threadId });
 
+      // Team-controls: the disarm switch (spec "Disarm switch" — ANY `observe`+
+      // principal may disarm from chat; only the DASHBOARD re-arms). The `!` sigil
+      // is REQUIRED, unlike the log commands above: matching a bare word would let
+      // an ordinary prompt ("how do I disarm X?") halt the whole layer. This is
+      // NOT a second authorization path — the request is authorized by the SAME
+      // chokepoint below, as the verb `disarm`.
+      const disarmCommand = team !== undefined && /^\s*!\s*disarm\b/i.test(msg.text);
+
       // Team-controls chokepoint (X11): every action-bearing request passes
       // through `authorizeRequest` BEFORE any session is spawned or driven.
       let gate: Grant | undefined;
@@ -1022,10 +1030,15 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
           // chokepoint can resolve the binding the operator actually created.
           ...(msg.parentChannelId ? { parentChannelId: msg.parentChannelId } : {}),
           ...(msg.threadId ? { threadId: msg.threadId } : {}),
-          verb: existing ? "send_prompt" : "spawn_session",
-          ...(existing ? { targetCwd: existing.cwd, target: existing.sessionId } : {}),
+          verb: disarmCommand ? "disarm" : existing ? "send_prompt" : "spawn_session",
+          ...(existing && !disarmCommand ? { targetCwd: existing.cwd, target: existing.sessionId } : {}),
         });
         if (decision.kind === "refusal") {
+          // Disarming twice is not an error worth a bare machine reason.
+          if (disarmCommand && decision.reason === "disarmed") {
+            await reply(msg.channelId, "Already disarmed.");
+            return;
+          }
           // A DM can never carry a workspace binding, so THIS refusal is by
           // design — not an operator forgetting to bind the channel — and the
           // bare `unbound_channel` would read as a misconfiguration. Say what is
@@ -1044,6 +1057,17 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
           return;
         }
         gate = decision;
+        if (disarmCommand) {
+          // Authorized by the chokepoint, so the audit log already carries the
+          // attempt (with tier and outcome) before we flip the switch. Mirroring
+          // deliberately continues; only action-bearing requests are refused.
+          team?.disarm();
+          await reply(
+            msg.channelId,
+            "Disarmed. Actions are refused until an operator re-arms from the dashboard.",
+          );
+          return;
+        }
       }
 
       const binding = await ensureBinding(msg, key);
