@@ -87,9 +87,11 @@ export function commandLogFilePath(): string {
  * disarm flips the runtime latch WITHOUT writing config (the dashboard stays the
  * only config writer), so the two deliberately disagree afterwards — and a
  * caller comparing against CONFIG would see "no change" on the dashboard's
- * re-arm, silently leaving the layer disarmed with no way back. Applying only on
- * a real change is also what stops an unrelated edit, which echoes the live
- * value it displays, from undoing a chat disarm as a side effect.
+ * re-arm, silently leaving the layer disarmed with no way back.
+ *
+ * The CALLER must also require that the write actually carried the field: an
+ * omitted `disarmed` is defaulted to `false` by `validateTeamControlsWrite`, and
+ * `false` against a live `true` reads as a re-arm. Absence is a no-op.
  */
 export function shouldApplyDisarm(written: boolean, live: boolean): boolean {
   return written !== live;
@@ -425,8 +427,15 @@ export default async function registerChatGateway(ctx: ServerPluginContext): Pro
           return;
         }
 
-        // Only a CHANGE from what the layer is CURRENTLY doing applies the flag.
-        const disarmChanged = shouldApplyDisarm(parsed.value.disarmed, team.isDisarmed());
+        // Only a change from what the layer is CURRENTLY doing applies the flag,
+        // and only when the write actually CARRIES `disarmed`. An omitted field
+        // defaults to `false` downstream, which against a chat-disarmed layer's
+        // live `true` would read as "re-arm" and silently undo it — so absence
+        // must be a no-op, not a `false`.
+        const wroteDisarm = (msg as { teamControls?: { disarmed?: unknown } } | null)?.teamControls
+          ?.disarmed;
+        const disarmChanged =
+          typeof wroteDisarm === "boolean" && shouldApplyDisarm(wroteDisarm, team.isDisarmed());
         const refused = await applyWrite(parsed.value);
         if (refused !== undefined) {
           await failWrite(refused, true);
