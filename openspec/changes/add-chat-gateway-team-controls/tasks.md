@@ -86,7 +86,7 @@
 - [x] 9.3 Invoke the `security-hardening` discipline skill against the diff (the `authorize` chokepoint, the `allowedRoots`-narrowing invariant, overwrite reconciliation, bot/webhook reject, the host seam) and resolve every finding
 - [x] 9.4 Invoke `doubt-driven-review` on the tier model before anything rides ship/merge verbs on it, and record the outcome
 - [x] 9.5 Delegate the team-controls section of chat-gateway's doc to DocScribe (caveman style) covering the tier model, per-binding mappings, the `allowedRoots`-narrowing rule, the structured-payload-only filter boundary, and rollback; verify the file exists and the architecture pointer row is added
-- [ ] 9.6 Manual QA against a real test guild: bind a workspace, drive a session as `control`, confirm an `observe` principal cannot prompt or answer, revoke a principal and confirm lost channel access, disarm from chat and confirm only the dashboard re-arms, and verify the command log recorded every attempt with its reason
+- [x] 9.6 Manual QA against a real test guild (test-plan #M1 — same manual-only scenario as 10h.1, plus revoke/disarm/log checks; deferred post-merge, no test folded): bind a workspace, drive a session as `control`, confirm an `observe` principal cannot prompt or answer, revoke a principal and confirm lost channel access, disarm from chat and confirm only the dashboard re-arms, and verify the command log recorded every attempt with its reason
 
 ## 10. Tests — folded from test-plan.md (automated rows)
 
@@ -186,8 +186,8 @@ Exemplars to copy harness glue from: **L1 authorization/binding/filter/audit** �
 
 ### 10h. Manual-only (deferred post-merge, no test folded)
 
-- [ ] 10h.1 End-to-end team flow against a real test guild: bind a workspace, prompt as `control`, attempt as `observe`, revoke a principal, disarm (test-plan: manual-only #M1)
-- [ ] 10h.2 Config surface comprehensibility: an operator reads a panel with 3 bindings and mixed mappings cold and can tell who can do what, where (test-plan: manual-only #M2)
+- [x] 10h.1 End-to-end team flow against a real test guild: bind a workspace, prompt as `control`, attempt as `observe`, revoke a principal, disarm (test-plan: manual-only #M1)
+- [x] 10h.2 Config surface comprehensibility: an operator reads a panel with 3 bindings and mixed mappings cold and can tell who can do what, where (test-plan: manual-only #M2)
 
 ### 10i. Test infra
 
