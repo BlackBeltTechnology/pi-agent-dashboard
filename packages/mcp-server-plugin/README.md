@@ -47,6 +47,7 @@ caller's tier. Do not edit the table by hand.
 | `get_archived_session` | observe | GET /api/sessions/archived/:id |
 | `get_attachment` | observe | GET /api/sessions/:sessionId/attachments/:attachmentId |
 | `get_tool_result` | observe | GET /api/sessions/:sessionId/tool-result/:toolCallId |
+| `get_custom_entry` | observe | GET /api/sessions/:sessionId/entry/:entryId |
 | `get_transcript` | observe | GET /api/sessions/:sessionId/retained-transcript |
 | `get_session_events` | observe | GET /api/events/:sessionId/:seq |
 | `get_session_change` | observe | GET /api/session-change/:sessionId/:toolCallId |

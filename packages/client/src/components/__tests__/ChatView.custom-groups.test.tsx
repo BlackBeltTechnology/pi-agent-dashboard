@@ -1,11 +1,16 @@
 /**
  * Per-group custom-row gating in the chat transcript
- * (change: add-custom-event-group-filters, tasks 7.1–7.3).
+ * (change: add-custom-event-group-filters, tasks 7.1–7.3; updated by
+ * add-custom-entry-renderer-slot).
  *
  * Same two-site contract as the notify gate: `isRowVisible` filters
  * `displayRows` (a filtered row is never counted nor mounted), and the render
- * branch mirrors the gate. Both sites key on the server-stamped `groupId`,
- * falling back to the catch-all `other`.
+ * path mirrors the gate. Since add-custom-entry-renderer-slot the render-site
+ * gate lives in the shared `CustomEntryRow` container — used by ChatView AND
+ * both absorption sites (ToolBurstGroup / CollapsedToolGroup) — so a hidden
+ * row is suppressed identically everywhere, including inside an expanded
+ * burst. Both sites key on the server-stamped `groupId`, falling back to the
+ * catch-all `other`.
  *
  * Flow cards are structurally exempt: they render through the flows-plugin
  * slot from `flow_*` events, never as `role: "custom"` rows — the group gate
@@ -26,6 +31,7 @@ import type { ToolContext } from "../tool-renderers/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CHAT_VIEW_SRC = readFileSync(resolve(here, "../chat/ChatView.tsx"), "utf8");
+const CUSTOM_ENTRY_ROW_SRC = readFileSync(resolve(here, "../chat/CustomEntryRow.tsx"), "utf8");
 
 // Prefs are injected through the hook so each case picks a group map.
 const prefsRef: { current: DisplayPrefs } = {
@@ -139,21 +145,22 @@ describe("custom group gate (task 7.1)", () => {
     expect(text).toContain("visible-search-body");
   });
 
-  it("the render branch mirrors the per-group gate (structural pin, two sites)", () => {
-    // Exactly two gate lookups — isRowVisible + render branch — so a hidden
-    // row can never survive as a counted blank wrapper.
-    const sites = CHAT_VIEW_SRC.match(/customEventGroups\[msg\.groupId \?\? "other"\]/g) ?? [];
-    expect(sites).toHaveLength(2);
-    // And the flow-card path is structurally untouched: the gate expression
-    // never appears outside the role=custom blocks.
-    for (const idx of matchAllIndexes(CHAT_VIEW_SRC, /customEventGroups\[msg\.groupId \?\? "other"\]/g)) {
-      const context = CHAT_VIEW_SRC.slice(Math.max(0, idx - 700), idx);
-      // Site 1 sits in the isRowVisible switch (case "custom"), site 2 in the
-      // render branch (msg.role === "custom").
-      expect(
-        context.includes('msg.role === "custom"') || context.includes('case "custom":'),
-      ).toBe(true);
-    }
+  it("the render path mirrors the per-group gate via the shared container (structural pin)", () => {
+    const gateRe = /customEventGroups\[msg\.groupId \?\? "other"\]/g;
+    // ONE lookup in ChatView — the isRowVisible filter. The render branch
+    // delegates to `CustomEntryRow`, which owns the mirrored gate.
+    const chatSites = CHAT_VIEW_SRC.match(gateRe) ?? [];
+    expect(chatSites).toHaveLength(1);
+    const chatIdx = matchAllIndexes(CHAT_VIEW_SRC, gateRe)[0];
+    const chatContext = CHAT_VIEW_SRC.slice(Math.max(0, chatIdx - 700), chatIdx);
+    expect(chatContext.includes('case "custom":')).toBe(true);
+
+    // The container carries the SAME gate expression, so a row absorbed into a
+    // burst/×N group (where isRowVisible never reaches) is still suppressed.
+    expect(CUSTOM_ENTRY_ROW_SRC.match(gateRe) ?? []).toHaveLength(1);
+
+    // The role=custom render branch routes through the container.
+    expect(CHAT_VIEW_SRC).toContain('<CustomEntryRow');
   });
 });
 

@@ -1,4 +1,5 @@
 import { isWidgetBarPrompt } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { EmptyState } from "@blackbelt-technology/pi-dashboard-client-utils/EmptyState";
 import { Skeleton } from "@blackbelt-technology/pi-dashboard-client-utils/Skeleton";
 import {
@@ -65,7 +66,7 @@ import { withDefaultFileLink } from "../tool-renderers/make-tool-context.js";
 import { BashOutputCard } from "./BashOutputCard.js";
 import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
 import { CommandFeedbackCard } from "./CommandFeedbackCard.js";
-import { CustomEntryCard } from "./CustomEntryCard.js";
+import { CustomEntryRow } from "./CustomEntryRow.js";
 import { HistoryGapDivider } from "./HistoryGapDivider.js";
 import { MissingToolInlineError } from "./MissingToolInlineError.js";
 import { MultiAskPanel } from "./MultiAskPanel.js";
@@ -967,6 +968,27 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     () => new Set(pendingFreeFloating.map((r) => r.requestId)),
     [pendingFreeFloating],
   );
+  // Registry-backed transparency predicate: a `custom` row is transparent to
+  // BOTH grouping passes ONLY when its `customType` is claimed by a
+  // `custom-entry-renderer` contribution. Read once and memoized on the
+  // claim-list identity (D7b) — never evaluated live, so claims registering
+  // late re-group at most once and a preference toggle never reshuffles the
+  // transcript. With no claims the set is empty and burst formation is
+  // byte-identical to before this change (D7).
+  // See change: add-custom-entry-renderer-slot.
+  const slotRegistry = useSlotRegistryOrNull();
+  const transparentCustomTypes = useMemo(() => {
+    const types = new Set<string>();
+    if (!slotRegistry) return types;
+    for (const claim of slotRegistry.getClaims("custom-entry-renderer")) {
+      if (claim.customType) types.add(claim.customType);
+    }
+    return types;
+  }, [slotRegistry]);
+  const isTransparentCustomType = useCallback(
+    (customType: string) => transparentCustomTypes.has(customType),
+    [transparentCustomTypes],
+  );
   // Drop the redundant `ask_user` tool card BEFORE tool-burst grouping (every
   // toolResult is wrapped in a burst — threshold 1 — so post-group row filtering
   // never reaches it). The interactive card is the single render while its
@@ -977,8 +999,8 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       (m) =>
         !(m.role === "toolResult" && m.toolName === "ask_user" && interactiveToolCallIds.has(m.toolCallId ?? m.id)),
     );
-    return groupToolBursts(forGrouping);
-  }, [filteredMessages, interactiveToolCallIds]);
+    return groupToolBursts(forGrouping, isTransparentCustomType);
+  }, [filteredMessages, interactiveToolCallIds, isTransparentCustomType]);
   // Single-red-surface: while the error-lifecycle surface (SessionBanner) owns
   // a failure, collapse the trailing inline failed-tool card so red isn't
   // shown twice. See change: unify-error-retry-lifecycle.
@@ -2051,19 +2073,12 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         }
 
         if (msg.role === "custom") {
-          // Mirrored gate (isRowVisible already filters; render branch keeps
-          // the branch safe if reached via another path). Per-group lookup;
-          // un-annotated rows follow the catch-all `other` group.
-          // See change: add-custom-event-group-filters (D1).
-          if (prefs.customEventGroups[msg.groupId ?? "other"] === false) return null;
-          return (
-            <CustomEntryCard
-              key={msg.id}
-              customType={msg.customType ?? "custom"}
-              body={msg.content}
-              timestamp={msg.timestamp}
-            />
-          );
+          // `CustomEntryRow` owns the group gate, the plugin-claim lookup, the
+          // per-claim ErrorBoundary, and the collapsed-first expand/fetch — the
+          // identical container the burst and ×N absorption sites use, so
+          // absorption changes position, never content.
+          // See change: add-custom-entry-renderer-slot (D3/D6/D8/D9).
+          return <CustomEntryRow key={msg.id} msg={msg} sessionId={toolContext.sessionId} />;
         }
 
         if (msg.role === "rawEvent") {

@@ -413,6 +413,17 @@ export const CUSTOM_MESSAGE_HIDDEN = "llm-only custom message body";
 export const CUSTOM_ENTRY_SHORT_TYPE = "e2e:state";
 export const CUSTOM_ENTRY_LONG_TYPE = "e2e:big";
 
+/**
+ * Observation-memory ledger scenario (change: add-custom-entry-renderer-slot,
+ * test-plan #F15). Emits a real `om.observations.recorded` custom entry so the
+ * blackhole `custom-entry-renderer` claim owns the row in a live session.
+ * NOTE: the `om.*` `memory` event group defaults HIDDEN — the spec enables it
+ * through the View popover before asserting the row.
+ */
+export const OM_ENTRY_TAIL = "om entry sent";
+export const OM_OBSERVATION_ALPHA = "e2e-observation-alpha";
+export const OM_OBSERVATION_BETA = "e2e-observation-beta";
+
 /** Read `[[fanout:N]]` from any message; default 1, clamped 1..10. */
 export function fanoutWidth(context: FauxContext): number {
   for (const message of context.messages ?? []) {
@@ -1525,6 +1536,32 @@ export const SCENARIOS: Record<string, Scenario> = {
         { stopReason: "toolUse" },
       ),
       fauxAssistantMessage([fauxText(CUSTOM_ENTRIES_TAIL)]),
+    ],
+    expect: { toolName: "e2e_custom_entry" },
+  },
+
+  /**
+   * Observation-memory ledger row (change: add-custom-entry-renderer-slot).
+   * Drives `pi.appendEntry("om.observations.recorded", ...)`, which the server
+   * stamps into the `memory` event group (pattern `^om\.`).
+   */
+  "om-entry": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_custom_entry", {
+            customType: "om.observations.recorded",
+            data: JSON.stringify({
+              observations: [
+                { content: OM_OBSERVATION_ALPHA },
+                { content: OM_OBSERVATION_BETA },
+              ],
+            }),
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(OM_ENTRY_TAIL)]),
     ],
     expect: { toolName: "e2e_custom_entry" },
   },

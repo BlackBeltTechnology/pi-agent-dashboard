@@ -272,3 +272,75 @@ describe("validateManifest — shell-overlay-route presentation (add-route-backe
     expect(() => validateManifest(overlay({ presentation: 42 }))).toThrow(ManifestValidationError);
   });
 });
+
+describe("validateManifest — custom-entry-renderer (add-custom-entry-renderer-slot)", () => {
+  const claim = (extra: Record<string, unknown>) => ({
+    ...validManifest,
+    claims: [{ slot: "custom-entry-renderer", ...extra }],
+  });
+
+  it("E2: accepts a well-formed claim and carries customType onto the resolved claim", () => {
+    const m = validateManifest(claim({ customType: "om.observations.recorded", component: "OmRow" }));
+    expect(m.claims[0].slot).toBe("custom-entry-renderer");
+    expect(m.claims[0].customType).toBe("om.observations.recorded");
+    expect(m.claims[0].component).toBe("OmRow");
+  });
+
+  it("E2: rejects a claim missing customType, naming plugin + claim index", () => {
+    try {
+      validateManifest(claim({ component: "OmRow" }));
+      expect.fail("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(ManifestValidationError);
+      expect((e as ManifestValidationError).pluginId).toBe("demo");
+      expect((e as Error).message).toContain("claims[0]");
+      expect((e as Error).message).toContain("customType");
+    }
+  });
+
+  it("E2: rejects a blank customType", () => {
+    expect(() => validateManifest(claim({ customType: "", component: "OmRow" }))).toThrow(
+      ManifestValidationError,
+    );
+  });
+
+  it("E2: rejects a claim missing component", () => {
+    try {
+      validateManifest(claim({ customType: "om.x" }));
+      expect.fail("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(ManifestValidationError);
+      expect((e as Error).message).toContain("claims[0]");
+      expect((e as Error).message).toContain("component");
+    }
+  });
+
+  it("E3: rejects an intra-plugin duplicate customType, naming plugin + duplicated value", () => {
+    const dup = {
+      ...validManifest,
+      claims: [
+        { slot: "custom-entry-renderer", customType: "om.observations.recorded", component: "A" },
+        { slot: "custom-entry-renderer", customType: "om.observations.recorded", component: "B" },
+      ],
+    };
+    try {
+      validateManifest(dup);
+      expect.fail("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(ManifestValidationError);
+      expect((e as ManifestValidationError).pluginId).toBe("demo");
+      expect((e as Error).message).toContain("om.observations.recorded");
+    }
+  });
+
+  it("accepts distinct customTypes in one manifest", () => {
+    const m = validateManifest({
+      ...validManifest,
+      claims: [
+        { slot: "custom-entry-renderer", customType: "om.a", component: "A" },
+        { slot: "custom-entry-renderer", customType: "om.b", component: "B" },
+      ],
+    });
+    expect(m.claims).toHaveLength(2);
+  });
+});

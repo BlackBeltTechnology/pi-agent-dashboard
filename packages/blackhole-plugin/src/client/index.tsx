@@ -22,6 +22,7 @@ if (!isTestEnvironment()) {
 export { catalog } from "../i18n.js";
 export { BlackholeSettings } from "./BlackholeSettings.js";
 export { MemorySubcard } from "./MemorySubcard.js";
+export { OmEntryCard } from "./OmEntryCard.js";
 export { PipelineDetailView } from "./PipelineDetailView.js";
 export { shouldRenderMemorySubcard } from "./installed-gate.js";
 export { isPipelineDetailActive } from "./detail-navigation.js";

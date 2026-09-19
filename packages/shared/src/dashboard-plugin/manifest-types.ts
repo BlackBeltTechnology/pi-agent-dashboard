@@ -15,6 +15,14 @@ export interface PluginClaim {
   /** toolName for "tool-renderer" slot. */
   toolName?: string;
   /**
+   * `customType` for `custom-entry-renderer` slot. Matched by EXACT equality
+   * against a chat custom row's `customType`. Two plugins claiming the same
+   * value is a fatal load-time collision.
+   *
+   * See change: add-custom-entry-renderer-slot.
+   */
+  customType?: string;
+  /**
    * For "settings-section" slot: which SettingsPanel tab to render in.
    * Defaults to "general" if omitted.
    */

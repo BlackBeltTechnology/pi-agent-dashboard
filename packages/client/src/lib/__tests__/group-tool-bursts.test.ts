@@ -353,4 +353,94 @@ describe("groupToolBursts", () => {
   it("handles empty array", () => {
     expect(groupToolBursts([])).toEqual([]);
   });
+
+  // ── add-custom-entry-renderer-slot: conditional custom transparency (D7) ──
+  function customMsg(customType: string): ChatMessage {
+    return { id: `custom-${customType}`, role: "custom", customType, content: "{}", timestamp: Date.now() };
+  }
+  const claimed = (ct: string) => ct === "om.observations.recorded";
+
+  it("E7: a CLAIMED custom row is absorbed into ONE burst; an unclaimed one splits it", () => {
+    const c = customMsg("om.observations.recorded");
+    const a = distinctTool("grep", { pattern: "a" });
+    const b = distinctTool("read", { path: "/b" });
+
+    const withClaim = groupToolBursts([a, c, b], claimed);
+    const bursts = withClaim.filter(isBurst);
+    expect(bursts).toHaveLength(1);
+    expect(bursts[0].items.map((it) => (it as ChatMessage).id)).toEqual([a.id, c.id, b.id]);
+
+    const withoutClaim = groupToolBursts([a, c, b], () => false);
+    expect(withoutClaim.filter(isBurst)).toHaveLength(2);
+    // The custom row is emitted verbatim at the top level, not absorbed.
+    expect(withoutClaim.some((it) => !isBurst(it) && (it as ChatMessage).id === c.id)).toBe(true);
+  });
+
+  it("E10: burst formation is unchanged with no claims registered", () => {
+    const fixture = [
+      userMsg(),
+      distinctTool("grep", { pattern: "a" }),
+      customMsg("om.observations.recorded"),
+      distinctTool("read", { path: "/b" }),
+      assistantMsg("done"),
+    ];
+    expect(groupToolBursts(fixture, () => false)).toEqual(groupToolBursts(fixture));
+  });
+
+  it("E11: a lone ×N group flanked only by a CLAIMED custom row is WRAPPED", () => {
+    const c = customMsg("om.observations.recorded");
+    const reads = [
+      toolMsg({ toolName: "read", args: { path: "/a" } }),
+      toolMsg({ toolName: "read", args: { path: "/a" } }),
+      toolMsg({ toolName: "read", args: { path: "/a" } }),
+    ];
+    const withClaim = groupToolBursts([c, ...reads], claimed);
+    expect(isBurst(withClaim[0])).toBe(true);
+    expect(withClaim.filter(isBurst)).toHaveLength(1);
+    // Unclaimed: the custom row is a HARD boundary and the ×N group stays bare
+    // (unwrapped) — the bare-group exception applies.
+    const withoutClaim = groupToolBursts([c, ...reads], () => false);
+    expect(withoutClaim.filter(isBurst)).toHaveLength(0);
+    expect(isGroup(withoutClaim[1] as ChatItem)).toBe(true);
+  });
+
+  it("F9: display preferences do not re-form bursts (grouping is claim-set only)", () => {
+    const fixture = [
+      distinctTool("grep", { pattern: "a" }),
+      customMsg("om.observations.recorded"),
+      distinctTool("read", { path: "/b" }),
+    ];
+    // No display-pref input exists — re-grouping yields identical boundaries.
+    const once = groupToolBursts(fixture, claimed);
+    const twice = groupToolBursts(fixture, claimed);
+    expect(twice).toEqual(once);
+  });
+
+  it("F10: a claim set arriving later re-forms bursts at most once", () => {
+    const fixture = [
+      distinctTool("grep", { pattern: "a" }),
+      customMsg("om.observations.recorded"),
+      distinctTool("read", { path: "/b" }),
+    ];
+    const empty = groupToolBursts(fixture, () => false);
+    const registered = groupToolBursts(fixture, claimed);
+    expect(registered.filter(isBurst).length).toBeLessThan(empty.filter(isBurst).length);
+    // A later re-render with an UNCHANGED claim list produces identical boundaries.
+    expect(groupToolBursts(fixture, claimed)).toEqual(registered);
+  });
+
+  it("P3: burst-transparency reduces burst splits on an om.*-dense profile", () => {
+    // Synthetic stand-in for the ~4.3k-row captured profile: many tool calls
+    // sprayed with claimed custom rows between them.
+    const fixture: ChatMessage[] = [];
+    for (let i = 0; i < 60; i++) {
+      fixture.push(toolMsg({ toolName: i % 2 ? "grep" : "read", args: { i } }));
+      if (i % 2 === 0) fixture.push(customMsg("om.observations.recorded"));
+    }
+    const withClaims = groupToolBursts(fixture, claimed).filter(isBurst).length;
+    const withoutClaims = groupToolBursts(fixture, () => false).filter(isBurst).length;
+    // eslint-disable-next-line no-console
+    console.log(`[P3] burst count — claimed: ${withClaims}, none: ${withoutClaims}`);
+    expect(withClaims).toBeLessThan(withoutClaims);
+  });
 });

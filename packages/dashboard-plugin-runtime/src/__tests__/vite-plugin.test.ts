@@ -88,6 +88,64 @@ describe("viteDashboardPluginsPlugin", () => {
     expect(content).not.toContain("DemoBadge");
   });
 
+  it("E4: cross-plugin customType collision fails the build naming BOTH plugins + the type", async () => {
+    writePlugin("alpha-plugin", {
+      id: "alpha",
+      displayName: "Alpha",
+      client: "./dist/client/index.js",
+      claims: [
+        { slot: "custom-entry-renderer", customType: "om.reflections.recorded", component: "AlphaRow" },
+      ],
+    });
+    writePlugin("beta-plugin", {
+      id: "beta",
+      displayName: "Beta",
+      client: "./dist/client/index.js",
+      claims: [
+        { slot: "custom-entry-renderer", customType: "om.reflections.recorded", component: "BetaRow" },
+      ],
+    });
+
+    let message = "";
+    try {
+      await invokePlugin();
+      expect.fail("should have thrown");
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message).toContain("alpha");
+    expect(message).toContain("beta");
+    expect(message).toContain("om.reflections.recorded");
+    // No registry emitted on a fatal collision.
+    const outPath = path.join(tmpDir, "packages", "client", "src", "generated", "plugin-registry.tsx");
+    expect(fs.existsSync(outPath)).toBe(false);
+  });
+
+  it("E5: distinct customTypes across plugins build fine; both claims land in the registry", async () => {
+    writePlugin("alpha-plugin", {
+      id: "alpha",
+      displayName: "Alpha",
+      client: "./dist/client/index.js",
+      claims: [
+        { slot: "custom-entry-renderer", customType: "om.observations.recorded", component: "AlphaRow" },
+      ],
+    });
+    writePlugin("beta-plugin", {
+      id: "beta",
+      displayName: "Beta",
+      client: "./dist/client/index.js",
+      claims: [
+        { slot: "custom-entry-renderer", customType: "om.reflections.recorded", component: "BetaRow" },
+      ],
+    });
+
+    const content = await invokePlugin();
+    expect(content).toContain('customType: "om.observations.recorded"');
+    expect(content).toContain('customType: "om.reflections.recorded"');
+    expect(content).toContain("AlphaRow");
+    expect(content).toContain("BetaRow");
+  });
+
   it("does not regenerate when manifest content hasn't changed", async () => {
     writePlugin("stable-plugin", {
       id: "stable",
