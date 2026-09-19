@@ -4,6 +4,9 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createFakeAdapterFromEnv, FakeAdapter } from "../fake.js";
 
+/** Mirrors the module's default scratch dir (the value under test). */
+const DEFAULT_FAKE_DIR = "/tmp/chat-gateway-fake";
+
 /**
  * The harness fixture. Its own unit tests matter because the L3 specs assert on
  * what it produces: a fixture whose delegation answer disagreed with the real
@@ -166,5 +169,34 @@ describe("createFakeAdapterFromEnv", () => {
 		const noList = createFakeAdapterFromEnv();
 		const unavailable = await noList?.assignersForRoles("g1", ["r1"]);
 		expect(unavailable?.r1.kind).toBe("unavailable");
+	});
+
+	it("treats an EMPTY dir override as unset, so the default dir is used", async () => {
+		// Regression: compose passes `PI_CHAT_GATEWAY_FAKE_DIR: ""` for an unset
+		// var. With `??` the empty string won and the fixture died in `mkdir ''`
+		// (observed in the harness as "adapter failed to initialize — gateway not
+		// started"). An empty value must behave exactly like an absent one.
+		vi.stubEnv("PI_CHAT_GATEWAY_FAKE", "1");
+		// Assigned DIRECTLY, not via stubEnv: the bug needs a PRESENT-but-empty
+		// value, and `vi.stubEnv(name, "")` does not reliably produce one (a
+		// stubEnv-based version of this test passed against the buggy code, i.e.
+		// it proved nothing).
+		const prev = process.env.PI_CHAT_GATEWAY_FAKE_DIR;
+		process.env.PI_CHAT_GATEWAY_FAKE_DIR = "";
+		try {
+			const adapter = createFakeAdapterFromEnv();
+			expect(adapter, "=1 still builds with an empty dir").toBeDefined();
+			// initialize() is the method that mkdirs the dir — NOT start().
+			// (An earlier version of this test asserted on start(), which only arms
+			// the poll; it passed against the buggy code and proved nothing.)
+			await expect(adapter?.initialize()).resolves.toBeUndefined();
+			await adapter?.start({ onMessage: async () => {} });
+			await adapter?.stop();
+		} finally {
+			if (prev === undefined) delete process.env.PI_CHAT_GATEWAY_FAKE_DIR;
+			else process.env.PI_CHAT_GATEWAY_FAKE_DIR = prev;
+			// The default dir is outside tempDir()'s bookkeeping.
+			fs.rmSync(DEFAULT_FAKE_DIR, { recursive: true, force: true });
+		}
 	});
 });

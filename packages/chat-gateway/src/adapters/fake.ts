@@ -263,6 +263,10 @@ export class FakeAdapter extends BaseAdapter {
 	}
 }
 
+/** Where the fixture keeps `inbound.jsonl`/`outbound.jsonl` when the env
+ * override is absent OR empty. */
+const DEFAULT_FAKE_DIR = "/tmp/chat-gateway-fake";
+
 /**
  * Build the fake from the environment, or `undefined` when the guard is unset.
  *
@@ -272,8 +276,14 @@ export class FakeAdapter extends BaseAdapter {
 export function createFakeAdapterFromEnv(): FakeAdapter | undefined {
 	const mode = process.env.PI_CHAT_GATEWAY_FAKE;
 	if (mode !== "1" && mode !== "nolist") return undefined;
+	// `||` not `??`: compose passes EMPTY STRING for an unset var, and `??` only
+	// falls back on undefined/null — so `??` here yields `dir: ""` and the
+	// fixture dies in `mkdir ''` (observed: "adapter failed to initialize —
+	// gateway not started (Error: ENOENT: ... mkdir '')"). Empty and unset must
+	// behave identically, because a spec sets NEITHER and still needs the dir.
+	const override = process.env.PI_CHAT_GATEWAY_FAKE_DIR;
 	return new FakeAdapter({
-		dir: process.env.PI_CHAT_GATEWAY_FAKE_DIR ?? "/tmp/chat-gateway-fake",
+		dir: override !== undefined && override.length > 0 ? override : DEFAULT_FAKE_DIR,
 		mode: mode === "nolist" ? "nolist" : "list",
 	});
 }
