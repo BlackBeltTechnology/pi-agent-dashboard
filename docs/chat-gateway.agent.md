@@ -36,7 +36,8 @@ Pull-only condensed map. Source: docs/chat-gateway.md.
 - Mints 6-digit code at startup; logged once (`"L1 pairing code <code>"`).
 - Settings / HTTP API never display code.
 - DM-only (`isDM: true`); guild attempts ignored. Code expires 15m (`DEFAULT_TTL_MS = 900_000`); locks after 10 failed attempts (`DEFAULT_MAX_ATTEMPTS = 10`).
-- Valid code appends Discord `userId` to `allowlist`; persists config via `updatePluginConfig`.
+- Valid code appends Discord `userId` to `allowlist`; persists config via `updatePluginConfig`; replies `"Paired. Session control happens in a workspace-bound channel, not here."`.
+- DMs enrollment-only under team controls: DM adds user to L1 allowlist; DM cannot carry workspace binding; DM session control refused.
 
 ## Authorization Semantics
 - Fail-closed; refusals emit distinct reasons:
@@ -59,20 +60,22 @@ Pull-only condensed map. Source: docs/chat-gateway.md.
 
 ## Team Controls
 - Multi-user governance under L1 allowlist / L2 admins; optional to `createChatGateway`.
-- Not yet wired: channel provisioning (tasks 4.4–4.8), workspace↔channel binding store (`bindings.json`, task 2.5), dashboard config UI (tasks 8.x).
+- Implemented: tier model, chokepoint, workspace scoping, outbound filter/pacer, audit log, channel provisioning (`channels.json`), binding store (`bindings.json`), dashboard config surface (tasks 8.x), L3 Playwright specs (10g.1–10g.6; 10g.7 at L1).
 - Tier ladder: `observe` < `control` < `operate`.
-- Verb tiers read from `GENERATED_TOOLS`; allowed chat verbs restricted to `CHAT_COMMAND_ALLOWLIST`.
+- Verb tiers read from `GENERATED_TOOLS`; allowed chat verbs restricted to `CHAT_COMMAND_ALLOWLIST` (includes `disarm`).
+- Chat-local verbs declare tier in `CHAT_LOCAL_VERB_TIERS` (`disarm` -> `observe`).
 - `NON_DELEGABLE` verbs (`mint_device_token`, `set_providers`, `install_package`, `tunnel_connect`) refused across all tiers.
 - Global ceiling defaults to `observe`; `clampTier` caps, never raises.
 - Resolution: explicit ID outranks role; roles cap at `control`; `operate` requires explicit ID.
 - Single chokepoint: `team.authorizeRequest(...)` → `Grant | Refusal`; `dispatchToSession` requires Grant.
 - Nine refusal reasons: `non_human_author`, `unbound_channel`, `no_principal_mapping`, `scope_violation`, `disarmed`, `non_delegable_verb`, `verb_not_allowlisted`, `verb_unknown_tier`, `insufficient_tier`.
+- Direct messages enrollment-only: DM cannot carry workspace binding; `unbound_channel` in DM directs author to bound channel; other refusal reasons report verbatim.
 - Interactive prompts: `>= control` required; invoker-only if principal initiated turn.
 - Workspace scoping: binding only narrows `allowedRoots`; outside folders inert; free-text cwd never resolves; `scope_violation` inside chokepoint.
 - Host trust failure: no-op from host trust-gated verb marks layer unhealthy, refuses commands; sticky.
 - Outbound filtering: mirror levels `names-only` (default), `names-and-diffs`, `full-transcript`. Structured payloads only; assistant prose mirrors verbatim (`FILTER_BOUNDARY_NOTE`). Raising level forward-only; truncation adds `… [elided N characters]`.
 - Outbound pacing: 5 msgs / 5 s per channel (`RATE_WINDOW_MS = 5000`, `RATE_MAX_POSTS = 5`); 1 in-flight per thread; coalesces excess. Mirroring independent of disarm/tier.
-- Disarm: `>= observe` disarms via chat; re-arm from dashboard only. Passive mirroring continues.
+- Disarm command: `!disarm` in bound channel; `!` sigil required (bare prose ignored); `>= observe` can disarm; sets in-memory latch; re-arm from dashboard only; server restart re-arms (task 11.3). Passive mirroring continues.
 - Lifecycle: workspace deletion deactivates binding; channel deletion drops binding, keeps sessions.
 - Command log: append-only ring buffer bounded by `auditRetention` (default 10000, max 1000000).
 

@@ -88,7 +88,7 @@ sequenceDiagram
   alt Code matches and valid
     GW->>GW: Append userId to config.allowlist
     GW->>GW: Persist config to disk
-    GW->>Bot: Send "Paired. You can now talk to sessions."
+    GW->>Bot: Send "Paired. Session control happens in a workspace-bound channel, not here."
   else Code invalid / expired / locked
     GW->>Bot: Refuse unauthorized message
   end
@@ -100,11 +100,12 @@ sequenceDiagram
 - Settings panel renders guidance text only; never displays code.
 - Operator reads pairing code from server log.
 - Inbound DM from unknown user containing exact matching 6-digit code pairs user.
-- Successful pairing consumes code; appends sender Discord `userId` to `allowlist`; persists updated `allowlist` to disk config.
+- Successful pairing consumes code; appends sender Discord `userId` to `allowlist`; persists updated `allowlist` to disk config; replies `"Paired. Session control happens in a workspace-bound channel, not here."`.
 - Code expires after 15 minutes TTL (`DEFAULT_TTL_MS = 900_000`).
 - State machine locks after 10 failed attempts (`DEFAULT_MAX_ATTEMPTS = 10`).
 - Pairing accepts Direct Messages only (`isDM: true`).
 - Guild channel pairing attempts ignored; prevents pairing code exposure in shared channels.
+- Direct messages enrollment-only under team controls: DM adds user to L1 allowlist; DM cannot carry workspace binding; DM session-control requests refused.
 
 ## Authorization Semantics
 
@@ -162,7 +163,7 @@ Read-only inspection API for monitoring and settings integration:
 
 ## Team Controls
 
-> **Status.** Implemented: tier model + authorization chokepoint, workspace scoping and `allowedRoots` narrowing, outbound filter + pacing, append-only command log, disarm, question gating, trust-failure detection, channel provisioning with create-time overwrites, access reconciliation, and the workspace↔channel binding store. Not yet wired: the dashboard configuration surface (tasks 8.x) and its Playwright specs — so reconciliation currently runs at activation and on every workspace change, and the config-write path will call it once that surface lands.
+> **Status.** Implemented: tier model + authorization chokepoint, workspace scoping and `allowedRoots` narrowing, outbound filter + pacing, append-only command log, chat `!disarm`, question gating, trust-failure detection, channel provisioning with create-time overwrites, access reconciliation, workspace↔channel binding store, dashboard configuration surface (tasks 8.x: settings panel, delegation queries, config-write reconciliation with rollback), and L3 Playwright E2E specs (scenarios 10g.1–10g.6 at `tests/e2e/chat-gateway-team-controls.spec.ts`, passing under `PI_CHAT_GATEWAY_FAKE=1` and `=nolist`; scenario 10g.7 covered at L1 due to mirror lane injection constraints).
 
 Layered multi-user governance under L1 allowlist and L2 admins. Enforces role-based tiering, workspace scoping, outbound payload filtering, and rate pacing.
 
@@ -186,12 +187,14 @@ flowchart TD
 
 - Tiers: `observe` < `control` < `operate` (`tiers.js`).
 - Shared verb tiers read directly from `GENERATED_TOOLS` (`@blackbelt-technology/pi-dashboard-mcp-server-plugin/manifest`); prevents web/chat/MCP drift.
-- Allowed chat verbs restricted to curated `CHAT_COMMAND_ALLOWLIST` (`list_sessions`, `send_prompt`, `abort`, `spawn_session`, `resume_session`, `prompt_response`, `get_session_diff`, `get_session_file`, `get_transcript`, `get_tool_result`). Unlisted verbs refused.
+- Allowed chat verbs restricted to curated `CHAT_COMMAND_ALLOWLIST` (`list_sessions`, `send_prompt`, `abort`, `spawn_session`, `resume_session`, `prompt_response`, `get_session_diff`, `get_session_file`, `get_transcript`, `get_tool_result`, `disarm`). Unlisted verbs refused.
+- Chat-local verbs without MCP counterpart declare tier in `CHAT_LOCAL_VERB_TIERS` (`disarm` -> `observe`).
 - `NON_DELEGABLE` verbs (`mint_device_token`, `set_providers`, `install_package`, `tunnel_connect`) refused across all tiers/ceilings; non-configurable.
 - Global ceiling defaults to `observe`. Acts as HARD maximum; caps resolved principal tier. Per-binding ceiling may only LOWER global ceiling; effective ceiling evaluates as `min(binding, global)`. Prevents global `observe` defeat by stale binding `operate`. `clampTier` caps, never raises. Unconfigured layer grants nothing.
 - Tier resolution: explicit identifier mapping outranks platform role; highest wins. Missing mapping refuses (`no_principal_mapping`); fails closed without fallback.
 - Platform roles map at most `control`. `operate` requires explicit identifier mapping; role mapped to `operate` rejected with `role_cannot_map_to_operate_requires_explicit_identifier`.
 - Nine distinct refusal reasons: `non_human_author`, `unbound_channel`, `no_principal_mapping`, `scope_violation`, `disarmed`, `non_delegable_verb`, `verb_not_allowlisted`, `verb_unknown_tier`, `insufficient_tier`. Refusal emits exact cause.
+- Direct messages enrollment-only: DM cannot carry workspace binding. DM session-control request refused with reason `unbound_channel`; outbound reply directs author to workspace-bound channel (`"Refused: direct messages don't drive sessions — use a workspace-bound channel."`). Every other refusal reason (`insufficient_tier`, `disarmed`, `scope_violation`, `non_human_author`) reports itself verbatim in DM.
 - Bot and webhook authors refused first before tier checks.
 - Sits under L1/L2: only refuses, never bypasses L1/L2.
 - Single chokepoint: action requests pass `team.authorizeRequest(...)` returning `Grant | Refusal`. `dispatchToSession` requires and runtime-guards `Grant`.
@@ -220,8 +223,11 @@ flowchart TD
 
 ### Rollback & Lifecycle Safety
 
-- Disarm switch: any principal at `>= observe` can disarm via chat; re-arm allowed from dashboard only. Chat re-arm refused.
-- Disarm blocks action requests; passive mirroring continues.
+- Disarm command syntax: `!disarm` in workspace-bound chat channel. `!` sigil required (`/^\s*!\s*disarm\b/i`); bare word `disarm` in prose ignored (never halts layer).
+- Disarm authorization: any principal holding `>= observe` can disarm via chat (declared in `CHAT_LOCAL_VERB_TIERS`); chokepoint `team.authorizeRequest` authorizes request as verb `disarm`.
+- Disarm outcome: sets in-memory latch; logs disarm attempt to audit log; replies `"Disarmed. Actions are refused until an operator re-arms from the dashboard."` (duplicate disarm replies `"Already disarmed."`); blocks subsequent action requests; passive mirroring continues.
+- Re-arm switch: dashboard-only (`rearmFromDashboard`); chat re-arm refused (`rearmFromChat` returns `rearm_requires_dashboard`).
+- Disarm limitation: latch in-memory; server restart clears latch and re-arms layer (task 11.3).
 - Workspace deletion marks binding inactive; leaves channel and message history intact. Channel deletion drops binding; leaves running sessions active.
 - Channel provisioning executes atomic create-with-overwrites (`@everyone` view denied); missing overwrite permissions aborts channel creation and flags plugin health.
 - Missing bot token leaves plugin inert (no adapter, socket, or timers). Settings panel still works: surface is a local projection (in-memory policy + file reads), so an operator inspects and edits policy before a token exists; delegation reports unavailable, never an empty roster.
