@@ -1,19 +1,32 @@
 /**
- * Plugin entry tests — the inertness contract (task 1.3) and the fail-loud
- * behaviour when the host lacks the in-process frame seam.
+ * Plugin entry tests — the inertness contract (task 1.3), the settings surface
+ * that must stay reachable while inert, and the fail-loud behaviour when the
+ * host lacks the in-process frame seam.
  *
  * See change: add-chat-gateway.
+ * See change: add-chat-gateway-team-controls.
  */
 import { describe, expect, it, vi } from "vitest";
+import {
+  TEAM_CONFIG_MESSAGE,
+  TEAM_SURFACE_MESSAGE,
+  type TeamSurfaceView,
+} from "../../shared/types.js";
 import registerChatGateway from "../index.js";
 
-function fakeCtx(config: Record<string, unknown>, opts: { frameSeam?: boolean } = {}) {
+function fakeCtx(
+  config: Record<string, unknown>,
+  opts: { frameSeam?: boolean; workspaces?: unknown[] } = {},
+) {
   const info = vi.fn();
   const error = vi.fn();
+  const warn = vi.fn();
   const onShutdown = vi.fn();
   const spawnSession = vi.fn(async () => ({ success: false }));
+  const broadcastToSubscribers = vi.fn();
+  const handlers = new Map<string, (msg?: unknown) => void>();
   const ctx = {
-    logger: { info, warn: vi.fn(), error, debug: vi.fn() },
+    logger: { info, warn, error, debug: vi.fn() },
     getPluginConfig: () => config,
     onShutdown,
     spawnSession,
@@ -23,9 +36,27 @@ function fakeCtx(config: Record<string, unknown>, opts: { frameSeam?: boolean } 
     onSessionResolved: () => () => {},
     sessionManager: { listActive: () => [], listAll: () => [], getSession: () => undefined },
     subscribeSession: opts.frameSeam === false ? undefined : () => () => {},
+    // Registered even while inert: the settings panel reads local state, so it
+    // must work with no bot token.
+    registerBrowserHandler: (type: string, fn: (msg?: unknown) => void) => {
+      handlers.set(type, fn);
+    },
+    broadcastToSubscribers,
+    listWorkspaces: () => opts.workspaces ?? [],
+    updatePluginConfig: vi.fn(async () => {}),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any;
-  return { ctx, info, error, onShutdown, spawnSession };
+  return { ctx, info, error, warn, onShutdown, spawnSession, handlers, broadcastToSubscribers };
+}
+
+/** Drive the surface lane the way the panel does, and return the snapshot. */
+async function requestSurface(
+  handlers: Map<string, (msg?: unknown) => void>,
+  broadcast: ReturnType<typeof vi.fn>,
+): Promise<TeamSurfaceView> {
+  handlers.get(TEAM_SURFACE_MESSAGE)?.();
+  await vi.waitFor(() => expect(broadcast).toHaveBeenCalled());
+  return broadcast.mock.calls.at(-1)?.[0].surface as TeamSurfaceView;
 }
 
 describe("chat-gateway plugin entry", () => {
@@ -56,5 +87,91 @@ describe("chat-gateway plugin entry", () => {
     expect(error).toHaveBeenCalledWith(expect.stringContaining("subscribeSession"));
     // Never claims to have started.
     expect(info).not.toHaveBeenCalledWith(expect.stringContaining("started"));
+  });
+});
+
+/**
+ * Task 10g: the panel is a LOCAL projection, so it must not require a bot
+ * token. Without this the settings surface is unreachable on any install whose
+ * gateway is inert — including the browser harness — and there is no way to
+ * review or edit the policy before enabling the bot.
+ */
+describe("settings surface while inert (no token)", () => {
+  const workspaces = [{ id: "ws_1", name: "Alpha", folders: [] }];
+  const policies = {
+    teamControls: {
+      ceiling: "control",
+      bindings: {
+        ws_1: {
+          ceiling: "observe",
+          mirrorLevel: "names-only",
+          principals: { u1: "observe" },
+          roles: { r1: "control" },
+        },
+      },
+    },
+  };
+
+  it("registers the surface lane, so the panel is not something you enable the bot for", async () => {
+    const { ctx, info, handlers } = fakeCtx(policies, { workspaces });
+
+    await registerChatGateway(ctx);
+
+    // Inertness itself is unchanged — no adapter, no connection, no hook.
+    expect(info).toHaveBeenCalledWith(expect.stringContaining("inert"));
+    // The read AND write lanes exist, so the panel can render and save.
+    expect([...handlers.keys()]).toEqual([TEAM_SURFACE_MESSAGE, TEAM_CONFIG_MESSAGE]);
+  });
+
+  it("projects the configured policy, so it can be reviewed before a token exists", async () => {
+    const { ctx, handlers, broadcastToSubscribers: broadcast } = fakeCtx(policies, { workspaces });
+
+    await registerChatGateway(ctx);
+    const surface = await requestSurface(handlers, broadcast);
+
+    expect(surface.configured).toBe(true);
+    expect(surface.ceiling).toBe("control");
+    expect(surface.bindings).toHaveLength(1);
+    expect(surface.bindings[0].workspaceId).toBe("ws_1");
+    expect(surface.bindings[0].workspaceName).toBe("Alpha");
+    expect(surface.bindings[0].bound).toBe(true);
+    expect(surface.bindings[0].principals).toEqual([{ id: "u1", tier: "observe" }]);
+    // The binding ceiling NARROWS the global one (see team-config).
+    expect(surface.bindings[0].ceiling).toBe("observe");
+  });
+
+  it("names the delegation as UNAVAILABLE, never an empty roster", async () => {
+    const { ctx, handlers, broadcastToSubscribers: broadcast } = fakeCtx(policies, { workspaces });
+
+    await registerChatGateway(ctx);
+    const surface = await requestSurface(handlers, broadcast);
+
+    // An empty `assigners` list would read as "nobody can hand this out", which
+    // understates who holds the role. The inert lane must say what is missing.
+    expect(surface.bindings[0].roles).toHaveLength(1);
+    expect(surface.bindings[0].roles[0].assigners).toEqual({
+      kind: "unavailable",
+      missingPermission: "the gateway is not connected",
+    });
+  });
+
+  it("shows a REJECTED policy with the fail-closed banner rather than hiding it", async () => {
+    // A role may not be mapped to `operate` — the one binding shape the config
+    // refuses outright, rather than clamping.
+    const { ctx, error, handlers, broadcastToSubscribers: broadcast } = fakeCtx(
+      { teamControls: { bindings: { ws_1: { roles: { r1: "operate" } } } } },
+      { workspaces },
+    );
+
+    await registerChatGateway(ctx);
+    const surface = await requestSurface(handlers, broadcast);
+
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("rejected"));
+    // Fail-closed values, not the operator's rejected ones.
+    expect(surface.ceiling).toBe("observe");
+    expect(surface.bindings).toEqual([]);
+    // The operator is TOLD, rather than shown an empty panel with no
+    // explanation — and told WHICH path was refused.
+    expect(surface.configError).toContain("teamControls.bindings.ws_1.roles.r1");
   });
 });
