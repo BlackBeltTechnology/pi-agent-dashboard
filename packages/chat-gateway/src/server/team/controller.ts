@@ -35,6 +35,17 @@ export interface TeamControllerDeps {
    * the plugin can mark itself unhealthy in `/api/health.plugins[]` (D5).
    */
   onTrustFailure?: (reason: string) => void;
+  /**
+   * Latch state restored from disk. `undefined` (nothing ever persisted) seeds
+   * from `config().disarmed` instead.
+   */
+  initialDisarmed?: boolean;
+  /**
+   * Notified whenever the latch CHANGES, so it can be persisted. The latch is
+   * runtime state that intentionally never writes config, so without this the
+   * halt would not survive a restart (task 11.3).
+   */
+  onDisarmChange?: (disarmed: boolean) => void;
   now?: () => number;
 }
 
@@ -94,7 +105,18 @@ export interface TeamController {
 export function createTeamController(deps: TeamControllerDeps): TeamController {
   const now = deps.now ?? Date.now;
   const trust = createTrustHealth();
-  let disarmed = deps.config().disarmed === true;
+  let disarmed = deps.initialDisarmed ?? (deps.config().disarmed === true);
+
+  /**
+   * The ONLY writer of the latch. Every transition routes through here so none
+   * can forget to persist — an assignment added at a new call site would
+   * reintroduce task 11.3 silently, which is exactly how it was found.
+   */
+  function setDisarmed(next: boolean): void {
+    if (disarmed === next) return;
+    disarmed = next;
+    deps.onDisarmChange?.(next);
+  }
 
   function bindingFor(channelId: string, parentChannelId?: string): ResolvedBinding | undefined {
     // A thread's messages carry the THREAD id, but the operator provisions the
@@ -124,14 +146,14 @@ export function createTeamController(deps: TeamControllerDeps): TeamController {
   return {
     isDisarmed: () => disarmed,
     disarm() {
-      disarmed = true;
+      setDisarmed(true);
     },
     rearmFromDashboard() {
-      disarmed = false;
+      setDisarmed(false);
       return true;
     },
     syncDisarmFromConfig(next) {
-      disarmed = next;
+      setDisarmed(next);
     },
     rearmFromChat() {
       // Re-arming from chat would let whoever can talk undo a deliberate halt.

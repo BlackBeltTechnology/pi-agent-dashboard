@@ -9,6 +9,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RecordingAdapter } from "../../adapters/__tests__/recording-adapter.js";
 import type { InboundMessage, ResolvedConfig } from "../../shared/types.js";
+import { bindingKey } from "../../shared/types.js";
 import { createChatGateway } from "../gateway.js";
 import { createBindingStore, createSpawnCorrelator } from "../routing.js";
 import { createCommandLog } from "../team/audit.js";
@@ -128,6 +129,33 @@ describe("gateway team-controls integration", () => {
     text,
     isDM: true,
     startedAt: 1,
+  });
+
+  it("11.4: an attach never adopts a session outside the BOUND workspace", async () => {
+    // Here the workspace's folders are INERT (outside `allowedRoots`), so D8
+    // resolution finds nothing and falls through to the interactive attach — which
+    // filtered candidates by `allowedRoots` alone. That adopted whatever session
+    // the host happened to be running (s1 at /repo/proj, a DIFFERENT workspace's
+    // path), and the binding, the subscription and the mirror were all in place
+    // before the next message refused `scope_violation`. Attaching to the wrong
+    // session is not something a later refusal repairs, so it must not happen.
+    const { adapter, gateway, store } = setup({
+      allowedRoots: ["/repo"],
+      workspaces: [
+        { id: "ws_1", name: "Team", folders: ["/outside"] },
+        { id: "ws_2", name: "Other", folders: ["/repo2"] },
+      ],
+      channelBindings: () => new Map([["chan9", "ws_1"]]),
+      config: { groupChannels: ["chan9"] },
+    });
+    await gateway.start();
+    await gateway.handleInbound({ ...msg("alice", "hello"), channelId: "chan9", isDM: false });
+    await flush();
+
+    // Nothing attached, and the operator is told which constraint bit — not sent
+    // looking for a missing fixedMap.
+    expect(store.get(bindingKey({ platform: "discord", channelId: "chan9" }))).toBeUndefined();
+    expect(adapter.sent.at(-1)?.content).toContain("bound to a workspace");
   });
 
   it("D8: a bind resolves to the BOUND WORKSPACE's folder, not just fixedMap/default", async () => {

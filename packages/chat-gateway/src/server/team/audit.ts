@@ -36,6 +36,12 @@ export interface CommandLogDeps {
   /** Omit for an in-memory log (tests). */
   filePath?: string;
   limit: number;
+  /**
+   * Report a failed write. The write happens on the MESSAGE path, so the failure
+   * cannot be thrown at the caller (it would silence the bot) and must not be
+   * dropped either — the operator needs to know the trail has a hole in it.
+   */
+  onPersistFailure?: (message: string) => void;
   now?: () => number;
 }
 
@@ -52,7 +58,16 @@ export interface CommandLog {
 function isEntry(v: unknown): v is CommandLogEntry {
   if (typeof v !== "object" || v === null) return false;
   const e = v as Record<string, unknown>;
-  return typeof e.principal === "string" && typeof e.verb === "string" && typeof e.channelId === "string";
+  // `outcome` is part of the check on purpose. The panel and the reason summary
+  // treat anything that is not "refused" as permitted, so loading an entry with
+  // no outcome would manufacture evidence of an authorization that never
+  // happened. An entry with no usable outcome is not evidence — drop it.
+  return (
+    typeof e.principal === "string" &&
+    typeof e.verb === "string" &&
+    typeof e.channelId === "string" &&
+    (e.outcome === "permitted" || e.outcome === "refused")
+  );
 }
 
 export function createCommandLog(deps: CommandLogDeps): CommandLog {
@@ -62,17 +77,26 @@ export function createCommandLog(deps: CommandLogDeps): CommandLog {
 
   function persist(): void {
     if (!deps.filePath) return;
-    const dir = path.dirname(deps.filePath);
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     try {
-      fs.chmodSync(dir, 0o700);
-    } catch {
-      // best effort — non-POSIX filesystems ignore mode
+      const dir = path.dirname(deps.filePath);
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+      try {
+        fs.chmodSync(dir, 0o700);
+      } catch {
+        // best effort — non-POSIX filesystems ignore mode
+      }
+      const tmp = path.join(dir, `.${path.basename(deps.filePath)}.${process.pid}.tmp`);
+      fs.writeFileSync(tmp, `${JSON.stringify({ entries }, null, 2)}\n`, { mode: 0o600 });
+      fs.renameSync(tmp, deps.filePath);
+      fs.chmodSync(deps.filePath, 0o600);
+    } catch (err) {
+      // `append` runs for EVERY authorized action, inside `authorizeRequest`. A
+      // throw here propagated to the adapter's catch (which only logs), so a full
+      // disk or a read-only state dir became a bot that stopped answering every
+      // message — a worse failure than a lost write. Reported, not swallowed: a
+      // missing write means the trail no longer matches what happened.
+      deps.onPersistFailure?.(`command log write failed: ${String(err)}`);
     }
-    const tmp = path.join(dir, `.${path.basename(deps.filePath)}.${process.pid}.tmp`);
-    fs.writeFileSync(tmp, `${JSON.stringify({ entries }, null, 2)}\n`, { mode: 0o600 });
-    fs.renameSync(tmp, deps.filePath);
-    fs.chmodSync(deps.filePath, 0o600);
   }
 
   function load(): void {

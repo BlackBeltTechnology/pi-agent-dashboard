@@ -41,6 +41,7 @@ import { createBindingStore, createSpawnCorrelator } from "./routing.js";
 import { createHostSeam } from "./seam.js";
 import { createCommandLog } from "./team/audit.js";
 import { createTeamController } from "./team/controller.js";
+import { createDisarmStore } from "./team/disarm-store.js";
 import { createProvisioner } from "./team/provisioner.js";
 import { createProvisioningStore } from "./team/provisioning-store.js";
 import {
@@ -78,6 +79,14 @@ export function channelsFilePath(): string {
 /** Append-only command log (D6). */
 export function commandLogFilePath(): string {
   return path.join(chatGatewayStateDir(), "command-log.json");
+}
+
+/**
+ * The disarm latch (task 11.3). Its own file, NOT config: a chat disarm must not
+ * write config, because the dashboard is the only config writer.
+ */
+export function disarmFilePath(): string {
+  return path.join(chatGatewayStateDir(), "disarm.json");
 }
 
 /**
@@ -168,6 +177,10 @@ export default async function registerChatGateway(ctx: ServerPluginContext): Pro
   const commandLog = createCommandLog({
     filePath: commandLogFilePath(),
     limit: teamConfig.auditRetention,
+    // A lost audit write is a real degradation: the panel would show a trail that
+    // no longer matches what happened. Surfaced in `/api/health.plugins[]` rather
+    // than silently swallowed or thrown into the message path.
+    onPersistFailure: reportLayerFailure,
   });
   // Restore the persisted trail. The log is written append-only FOR the purpose
   // of surviving a restart, so skipping this would leave the operator looking at
@@ -176,6 +189,9 @@ export default async function registerChatGateway(ctx: ServerPluginContext): Pro
   // return so the settings panel (which stays up without a token) still shows
   // the history it is perfectly capable of reading.
   commandLog.load();
+  // Task 11.3: the disarm latch, read at boot by the controller below. Loaded
+  // here with the other file reads so the restart story is one place to read.
+  const disarmStore = createDisarmStore({ filePath: disarmFilePath() });
 
   // Harness fixture (`adapters/fake.ts`), env-guarded: a socket-less platform so
   // the L3 team-controls scenarios have something to render. With it the layer
@@ -271,6 +287,11 @@ export default async function registerChatGateway(ctx: ServerPluginContext): Pro
     listWorkspaces: () => ctx.listWorkspaces(),
     channelBindings: provisioner.channelBindings,
     onTrustFailure: reportLayerFailure,
+    // Task 11.3: the latch outlives the process, or a restart silently re-arms
+    // the layer. `undefined` (never persisted) falls back to config, so a
+    // dashboard-authored `disarmed: true` still works on a fresh install.
+    initialDisarmed: disarmStore.load(),
+    onDisarmChange: (disarmed) => disarmStore.save(disarmed),
   });
 
   const gateway = createChatGateway({

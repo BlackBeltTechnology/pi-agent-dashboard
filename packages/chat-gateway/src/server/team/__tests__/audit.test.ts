@@ -95,3 +95,60 @@ describe("command log", () => {
     });
   });
 });
+
+/**
+ * Task 11.6 (round-2 review): the log is the operator's evidence, so it must
+ * neither INVENT records nor go silent.
+ */
+describe("command log durability", () => {
+  let tmp: string;
+  let filePath: string;
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "audit-durability-"));
+    filePath = path.join(tmp, "command-log.json");
+  });
+  afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
+
+  it("drops an entry with a missing or unknown outcome, rather than loading it", () => {
+    // `isEntry` checked principal/channel/verb but never `outcome`, so a
+    // hand-edited or truncated file could load an entry with NO outcome — and
+    // both the panel and the reason summary treat anything that is not
+    // "refused" as permitted. That manufactures evidence of authorization that
+    // never happened. An entry with no usable outcome is not evidence: drop it.
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({
+        entries: [
+          entry({ target: "ok" }),
+          { principal: "u1", channelId: "c1", verb: "abort_run" },
+          entry({ target: "bad", outcome: "maybe" }),
+        ],
+      }),
+      { mode: 0o600 },
+    );
+    const log = createCommandLog({ filePath, limit: 10 });
+    log.load();
+    expect(log.entries().map((e) => e.target)).toEqual(["ok"]);
+  });
+
+  it("does not throw into the message path when the write fails, and reports it", () => {
+    // `append` runs for EVERY authorized action, inside `authorizeRequest`. A
+    // throw here reached the adapter's catch, which only logs — so a full disk
+    // or a read-only state dir turned into a bot that stopped answering every
+    // message. It must not be silent either: a lost write means the audit trail
+    // no longer matches what happened.
+    const failures: string[] = [];
+    const blocked = path.join(tmp, "not-a-dir");
+    fs.writeFileSync(blocked, "x", { mode: 0o600 });
+    const log = createCommandLog({
+      filePath: path.join(blocked, "command-log.json"),
+      limit: 10,
+      onPersistFailure: (message) => failures.push(message),
+    });
+
+    expect(() => log.append(entry())).not.toThrow();
+    expect(log.size()).toBe(1); // the in-memory trail is still complete
+    expect(failures).toHaveLength(1);
+  });
+});

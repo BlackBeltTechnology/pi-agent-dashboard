@@ -48,6 +48,7 @@ import { resolveCwdWithWorkspace, type WorkspaceResolveOutcome } from "./team/bi
 import type { TeamController } from "./team/controller.js";
 import { type MirrorEvent, renderMirror } from "./team/output-filter.js";
 import { createPacer } from "./team/pacing.js";
+import { isWithinWorkspace } from "./team/workspace.js";
 
 export interface ChatGatewayDeps {
   platform: ChatPlatform;
@@ -511,14 +512,33 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
 
     // Interactive source: attach to a live in-range session if there is exactly
     // one unambiguous candidate; otherwise refuse. Never guess between several.
+    //
+    // "In range" means the BOUND WORKSPACE when there is one, not `allowedRoots`.
+    // Filtering only by allowedRoots let a bind adopt a session from anywhere the
+    // host may run — another workspace, or none at all — and the binding, the
+    // subscription and the mirror were all established before the NEXT message
+    // refused `scope_violation`. Attaching to the wrong session is not something
+    // a later refusal repairs, so the narrower net is the correct default (11.4).
+    const wsFolders = boundWorkspaceFolders(msg);
+    const inScope =
+      wsFolders && wsFolders.length > 0
+        ? (cwd: string) => isWithinWorkspace(cwd, wsFolders)
+        : (cwd: string) => isWithinAllowedRoots(cwd, config.allowedRoots);
     const candidates = seam
       .listSessions()
-      .filter((s) => typeof s.cwd === "string" && isWithinAllowedRoots(s.cwd, config.allowedRoots));
+      .filter((s) => typeof s.cwd === "string" && inScope(s.cwd));
     if (candidates.length !== 1) {
+      // Name the actual constraint. "Configure a fixed channel→cwd map" is the
+      // wrong advice when the channel is already bound to a workspace whose
+      // folders the host cannot run in — the operator would go looking for a
+      // missing map instead of the folder that is out of range.
+      const boundToWorkspace = wsFolders !== undefined && wsFolders.length > 0;
       await reply(
         msg.channelId,
         candidates.length === 0
-          ? "No session to attach to and no cwd configured (fixedMap/defaultCwd). Set a bound channel or configure a default cwd."
+          ? boundToWorkspace
+            ? `This channel is bound to a workspace, but no live session is inside it (${wsFolders.join(", ")}). Nothing was attached.`
+            : "No session to attach to and no cwd configured (fixedMap/defaultCwd). Set a bound channel or configure a default cwd."
           : "Several sessions are open in allowedRoots — ambiguous attach. Configure a fixed channel→cwd map instead.",
       );
       return null;

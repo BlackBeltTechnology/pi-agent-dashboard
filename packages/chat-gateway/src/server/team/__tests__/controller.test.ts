@@ -11,7 +11,7 @@ import type { WorkspaceView } from "../workspace.js";
 
 const workspaces: WorkspaceView[] = [{ id: "ws_1", name: "Team", folders: ["/repo"] }];
 
-function makeTeam(over: Record<string, unknown> = {}) {
+function makeTeam(over: Record<string, unknown> = {}, deps: Record<string, unknown> = {}) {
   const validated = validateTeamControls({
     bindings: {
       ws_1: {
@@ -31,6 +31,7 @@ function makeTeam(over: Record<string, unknown> = {}) {
     listWorkspaces: () => workspaces,
     channelBindings: () => new Map([["chan1", "ws_1"]]),
     now: () => 1,
+    ...deps,
   });
   return { team, log };
 }
@@ -63,6 +64,36 @@ describe("team controller", () => {
     team.authorizeRequest({ author: { id: "dave" }, channelId: "chan1", verb: "mint_device_token" });
     const reasons = log.entries().map((e) => e.reason);
     expect(reasons).toEqual(["no_principal_mapping", "non_delegable_verb"]);
+  });
+
+  it("11.3: every latch transition is PERSISTED, so a restart cannot silently re-arm", () => {
+    // The latch deliberately never writes CONFIG (the dashboard stays the only
+    // config writer), so without its own durable record a bounce handed the layer
+    // back ARMED. A safety halt a restart undoes is worse than no halt, because
+    // the operator believes it still holds. Every transition must persist — which
+    // is why they all route through one setter: a call site that assigns the flag
+    // directly is a call site that can forget to persist.
+    const persisted: boolean[] = [];
+    const { team } = makeTeam({}, { onDisarmChange: (d: boolean) => persisted.push(d) });
+    team.disarm(); // chat disarm
+    team.disarm(); // idempotent: no redundant write
+    team.rearmFromDashboard(); // dashboard re-arm
+    team.syncDisarmFromConfig(true); // config write that arms
+    expect(persisted).toEqual([true, false, true]);
+  });
+
+  it("11.3: a persisted disarm OUTRANKS the config it was never written to", () => {
+    // After a chat disarm, config still reads `disarmed: false` — that disagreement
+    // is the entire reason the latch is separate state. A restart that trusted the
+    // stale config field would hand the layer back armed.
+    const { team } = makeTeam({ disarmed: false }, { initialDisarmed: true });
+    expect(team.isDisarmed()).toBe(true);
+  });
+
+  it("11.3: with nothing persisted, the config still seeds the latch", () => {
+    // The `undefined` case: first boot, or a state dir that was never written to.
+    const { team } = makeTeam({ disarmed: true }, { initialDisarmed: undefined });
+    expect(team.isDisarmed()).toBe(true);
   });
 
   it("X14: any observe+ principal disarms; only the dashboard re-arms", () => {

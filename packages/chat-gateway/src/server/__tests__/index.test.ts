@@ -7,6 +7,7 @@
  * See change: add-chat-gateway-team-controls.
  */
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -14,7 +15,12 @@ import {
   TEAM_SURFACE_MESSAGE,
   type TeamSurfaceView,
 } from "../../shared/types.js";
-import registerChatGateway, { commandLogFilePath, shouldApplyDisarm } from "../index.js";
+import registerChatGateway, {
+  commandLogFilePath,
+  disarmFilePath,
+  shouldApplyDisarm,
+} from "../index.js";
+import { createDisarmStore } from "../team/disarm-store.js";
 
 function fakeCtx(
   config: Record<string, unknown>,
@@ -45,6 +51,12 @@ function fakeCtx(
     },
     broadcastToSubscribers,
     listWorkspaces: () => opts.workspaces ?? [],
+    // The workspace-change seam (host workspace seam, section 1): the gateway
+    // subscribes on the LIVE path to reconcile provisioning.
+    onWorkspacesChanged: () => () => {},
+    // The live path also publishes a bindings route for the operator.
+    fastify: { get: vi.fn() },
+    networkGuard: vi.fn(),
     updatePluginConfig: vi.fn(async () => {}),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any;
@@ -195,6 +207,91 @@ describe("settings surface while inert (no token)", () => {
     // The operator is TOLD, rather than shown an empty panel with no
     // explanation — and told WHICH path was refused.
     expect(surface.configError).toContain("teamControls.bindings.ws_1.roles.r1");
+  });
+
+  it("11.3: a chat disarm survives a restart, so the halt the operator sees is real", async () => {
+    // The spec says the layer stays disarmed until an OPERATOR re-arms. The latch
+    // is deliberately not kept in config (a chat disarm must not write config, as
+    // the dashboard is the only config writer), so it needs its own file — and a
+    // FILE is only half the contract: if the entry point never reads it back, the
+    // layer comes back armed on every bounce, silently. Same failure mode as the
+    // command log below, and the same reason it is worth a test.
+    const file = disarmFilePath();
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(file, JSON.stringify({ disarmed: true }), { mode: 0o600 });
+    // The latch is only read on the LIVE path (an inert install has no layer to
+    // disarm), so this needs an adapter. The socket-less fake is exactly the
+    // fixture for that, and it keeps the test off the network.
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "disarm-boot-"));
+    vi.stubEnv("PI_CHAT_GATEWAY_FAKE", "1");
+    vi.stubEnv("PI_CHAT_GATEWAY_FAKE_DIR", scratch);
+
+    try {
+      const { ctx, handlers, broadcastToSubscribers: broadcast } = fakeCtx(
+        {
+          enabled: true,
+          token: "t",
+          allowedRoots: ["/repo"],
+          teamControls: {
+            bindings: { ws_1: { principals: { alice: "control" } } },
+            ceiling: "operate",
+          },
+        },
+        { workspaces: [{ id: "ws_1", name: "Team", folders: ["/repo"] }] },
+      );
+      await registerChatGateway(ctx);
+      const surface = await requestSurface(handlers, broadcast);
+      expect(surface.disarmed).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+      fs.rmSync(scratch, { recursive: true, force: true });
+      fs.rmSync(file, { force: true });
+    }
+  });
+
+  it("11.3: a dashboard disarm is PERSISTED, not just applied to the live latch", async () => {
+    // The other half of the join: `onDisarmChange` must actually reach the store.
+    // Without it the latch works perfectly until the next restart, which is the
+    // failure mode task 11.3 is about — so it needs coverage, not a code read.
+    const file = disarmFilePath();
+    fs.rmSync(file, { force: true });
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "disarm-write-"));
+    vi.stubEnv("PI_CHAT_GATEWAY_FAKE", "1");
+    vi.stubEnv("PI_CHAT_GATEWAY_FAKE_DIR", scratch);
+
+    try {
+      const { ctx, handlers, broadcastToSubscribers: broadcast } = fakeCtx(
+        {
+          enabled: true,
+          token: "t",
+          allowedRoots: ["/repo"],
+          teamControls: {
+            bindings: { ws_1: { principals: { alice: "control" } } },
+            ceiling: "operate",
+            guildId: "g1",
+          },
+        },
+        { workspaces: [{ id: "ws_1", name: "Team", folders: ["/repo"] }] },
+      );
+      await registerChatGateway(ctx);
+
+      handlers.get(TEAM_CONFIG_MESSAGE)?.({
+        teamControls: {
+          bindings: { ws_1: { principals: { alice: "control" } } },
+          ceiling: "operate",
+          guildId: "g1",
+          disarmed: true,
+        },
+      });
+
+      await vi.waitFor(() => expect(createDisarmStore({ filePath: file }).load()).toBe(true));
+      const surface = await requestSurface(handlers, broadcast);
+      expect(surface.disarmed).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+      fs.rmSync(scratch, { recursive: true, force: true });
+      fs.rmSync(file, { force: true });
+    }
   });
 
   it("restores the command log from disk, so a restart cannot erase the audit trail", async () => {
