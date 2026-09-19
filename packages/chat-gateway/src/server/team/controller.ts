@@ -38,13 +38,13 @@ export interface TeamControllerDeps {
   now?: () => number;
 }
 
-export interface ResolvedBinding {
+interface ResolvedBinding {
   workspaceId: string;
   binding: BindingContext;
   policy: ValidatedBinding;
 }
 
-export interface AuthorizeRequestInput {
+interface AuthorizeRequestInput {
   author: Author;
   channelId: string;
   verb: string;

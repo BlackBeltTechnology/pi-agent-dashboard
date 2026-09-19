@@ -13,14 +13,14 @@
 import { isTier, minTier, type Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import type { RoleTier } from "./tier.js";
 
-export const MIRROR_LEVELS = ["names-only", "names-and-diffs", "full-transcript"] as const;
+const MIRROR_LEVELS = ["names-only", "names-and-diffs", "full-transcript"] as const;
 export type MirrorLevel = (typeof MIRROR_LEVELS)[number];
 
 export const DEFAULT_MIRROR_LEVEL: MirrorLevel = "names-only";
-export const DEFAULT_CEILING: Tier = "observe";
-export const DEFAULT_AUDIT_RETENTION = 10_000;
+const DEFAULT_CEILING: Tier = "observe";
+const DEFAULT_AUDIT_RETENTION = 10_000;
 /** A hard upper bound so a typo cannot ask for an unbounded in-memory log. */
-export const MAX_AUDIT_RETENTION = 1_000_000;
+const MAX_AUDIT_RETENTION = 1_000_000;
 
 /**
  * The fail-closed default: ceiling `observe` (no one may act), no bindings (no
@@ -56,12 +56,12 @@ export interface ValidatedTeamConfig {
   guildId?: string;
 }
 
-export interface ValidationOk {
+interface ValidationOk {
   ok: true;
   value: ValidatedTeamConfig;
 }
 
-export interface ValidationErr {
+interface ValidationErr {
   ok: false;
   /** Stable machine reason. */
   reason: string;

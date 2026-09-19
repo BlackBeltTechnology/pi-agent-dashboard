@@ -14,12 +14,7 @@
 import path from "node:path";
 import type { MirrorLevel } from "./team-config.js";
 
-/** Stated, not papered over: the filter governs structured payloads only. */
-export const FILTER_BOUNDARY_NOTE =
-  "Mirror levels bound structured payloads (tool arguments, results, diffs, terminal output). " +
-  "Assistant prose is mirrored as written and may itself quote file content.";
-
-export type MirrorEventKind = "assistant_text" | "tool_call" | "tool_result" | "diff" | "terminal";
+type MirrorEventKind = "assistant_text" | "tool_call" | "tool_result" | "diff" | "terminal";
 
 export interface MirrorEvent {
   kind: MirrorEventKind;

@@ -32,7 +32,7 @@ import type { WorkspaceView } from "./workspace.js";
  * The slice of `PlatformAdapter` provisioning needs. `PlatformAdapter`
  * satisfies it structurally; a test passes a plain object.
  */
-export interface ChannelProvisioningPort {
+interface ChannelProvisioningPort {
   provisionChannel?: (input: ProvisionChannelInput) => Promise<{ channelId: string }>;
   setChannelOverwrites?: (
     channelId: string,
@@ -51,7 +51,7 @@ export interface ProvisionerDeps {
   onFailure?: (reason: string) => void;
 }
 
-export interface ReconcileSummary {
+interface ReconcileSummary {
   ok: true;
   provisioned: number;
   reconciled: number;
@@ -59,7 +59,7 @@ export interface ReconcileSummary {
   deactivated: number;
 }
 
-export type ReconcileResult = ReconcileSummary | { ok: false; reason: string };
+type ReconcileResult = ReconcileSummary | { ok: false; reason: string };
 
 export interface Provisioner {
   /** Make the platform match the config. Idempotent; safe to replay. */
@@ -79,7 +79,7 @@ export interface Provisioner {
  * alters what a principal may DO, not who can READ the channel, so it must
  * cause no platform call at all.
  */
-export function accessSignature(binding: ValidatedBinding): string {
+function accessSignature(binding: ValidatedBinding): string {
   const ids = (record: Record<string, string>) => Object.keys(record).sort();
   return JSON.stringify({
     principals: ids(binding.principals),
@@ -88,7 +88,7 @@ export function accessSignature(binding: ValidatedBinding): string {
 }
 
 /** The access list a binding grants: its principals and its roles. */
-export function grantsFor(binding: ValidatedBinding): ChannelOverwrite[] {
+function grantsFor(binding: ValidatedBinding): ChannelOverwrite[] {
   return [
     ...Object.keys(binding.principals).map((targetId) => ({
       targetId,

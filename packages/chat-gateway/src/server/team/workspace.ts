@@ -56,7 +56,7 @@ function contains(root: string, candidate: string): boolean {
 }
 
 /** True when `cwd` is a path-segment descendant of `folder` (symlinks resolved). */
-export function isWithinFolder(cwd: string, folder: string): boolean {
+function isWithinFolder(cwd: string, folder: string): boolean {
   if (!cwd || !folder) return false;
   return contains(realOrResolved(folder), realOrResolved(cwd));
 }

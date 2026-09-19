@@ -78,7 +78,7 @@ export interface Grant {
   binding: BindingContext;
 }
 
-export interface Refusal {
+interface Refusal {
   kind: "refusal";
   reason: RefusalReason;
   verb: string;
@@ -147,20 +147,4 @@ export function authorize(input: AuthorizeInput): AuthorizeResult {
   if (maxTier(tier, required) !== tier) return refuse("insufficient_tier", verb);
 
   return { kind: "grant", tier, verb, binding };
-}
-
-/**
- * Disarm state machine. Any `observe`+ principal may disarm from chat; only the
- * dashboard may re-arm. Kept as pure transitions so the gateway owns the I/O.
- */
-export interface DisarmState {
-  disarmed: boolean;
-}
-
-export function disarmed(): DisarmState {
-  return { disarmed: true };
-}
-
-export function armed(): DisarmState {
-  return { disarmed: false };
 }

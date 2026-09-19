@@ -26,7 +26,7 @@ import type { ValidatedTeamConfig } from "./team-config.js";
 import type { WorkspaceView } from "./workspace.js";
 
 /** A platform member who can assign a role. */
-export interface RoleAssigner {
+interface RoleAssigner {
   id: string;
   name?: string;
 }
@@ -77,7 +77,7 @@ export interface BuildSurfaceInput {
 }
 
 /** Rows the panel asks for by default. */
-export const SURFACE_LOG_LIMIT = 50;
+const SURFACE_LOG_LIMIT = 50;
 
 /** Defaults shown when team controls are entirely unconfigured. */
 const UNCONFIGURED_CEILING = "observe" as const;
