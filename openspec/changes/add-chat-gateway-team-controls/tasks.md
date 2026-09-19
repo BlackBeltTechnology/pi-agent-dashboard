@@ -176,12 +176,12 @@ Exemplars to copy harness glue from: **L1 authorization/binding/filter/audit** �
 
 ### 10g. Configuration surface (L3 Playwright, docker harness)
 
-- [ ] 10g.1 Spec the delegation list: binding with a role mapped `control` assignable by a non-owner · open the config surface · converges to showing the mapping alongside those members (test-plan #F1; see `tests/e2e/plugin-settings-pages.spec.ts`)
-- [ ] 10g.2 Spec delegation unavailable: stubbed platform lacking member enumeration · open the config surface · states the list is unavailable and names the missing permission, never an empty list (test-plan #F2; see `tests/e2e/plugin-settings-pages.spec.ts`)
-- [ ] 10g.3 Spec inert workspace folders: bound workspace with one folder inside and one outside `allowedRoots` · open the config surface · the outside folder shows as inert (test-plan #F3; see `tests/e2e/blackhole-settings.spec.ts`)
-- [ ] 10g.4 Spec disarmed state visible: layer disarmed from chat · open the config surface · shows disarmed with a re-arm control (test-plan #F4; see `tests/e2e/blackhole-settings.spec.ts`)
-- [ ] 10g.5 Spec log view ordering: 3 log entries written in known order · open the log view · rendered most-recent-first (test-plan #F5; see `tests/e2e/plugin-settings-pages.spec.ts`)
-- [ ] 10g.6 Spec config immutability from chat: config surface open with a chat-originated mutation attempt in flight · attempt it · rendered config values unchanged (test-plan #F6; see `tests/e2e/plugin-settings-pages.spec.ts`)
+- [x] 10g.1 Spec the delegation list: binding with a role mapped `control` assignable by a non-owner · open the config surface · converges to showing the mapping alongside those members (test-plan #F1; see `tests/e2e/plugin-settings-pages.spec.ts`)
+- [x] 10g.2 Spec delegation unavailable: stubbed platform lacking member enumeration · open the config surface · states the list is unavailable and names the missing permission, never an empty list (test-plan #F2; see `tests/e2e/plugin-settings-pages.spec.ts`)
+- [x] 10g.3 Spec inert workspace folders: bound workspace with one folder inside and one outside `allowedRoots` · open the config surface · the outside folder shows as inert (test-plan #F3; see `tests/e2e/blackhole-settings.spec.ts`)
+- [x] 10g.4 Spec disarmed state visible: layer disarmed from chat · open the config surface · shows disarmed with a re-arm control (test-plan #F4; see `tests/e2e/blackhole-settings.spec.ts`)
+- [x] 10g.5 Spec log view ordering: 3 log entries written in known order · open the log view · rendered most-recent-first (test-plan #F5; see `tests/e2e/plugin-settings-pages.spec.ts`)
+- [x] 10g.6 Spec config immutability from chat: config surface open with a chat-originated mutation attempt in flight · attempt it · rendered config values unchanged (test-plan #F6; see `tests/e2e/plugin-settings-pages.spec.ts`)
 - [ ] 10g.7 Spec elision marker rendering: assistant message exceeding the platform message limit · mirror it · thread shows an explicit elision marker (test-plan #F7; see `tests/e2e/blackhole-settings.spec.ts`)
 
 ### 10h. Manual-only (deferred post-merge, no test folded)

@@ -6,13 +6,15 @@
  * See change: add-chat-gateway.
  * See change: add-chat-gateway-team-controls.
  */
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   TEAM_CONFIG_MESSAGE,
   TEAM_SURFACE_MESSAGE,
   type TeamSurfaceView,
 } from "../../shared/types.js";
-import registerChatGateway from "../index.js";
+import registerChatGateway, { commandLogFilePath } from "../index.js";
 
 function fakeCtx(
   config: Record<string, unknown>,
@@ -173,5 +175,35 @@ describe("settings surface while inert (no token)", () => {
     // The operator is TOLD, rather than shown an empty panel with no
     // explanation — and told WHICH path was refused.
     expect(surface.configError).toContain("teamControls.bindings.ws_1.roles.r1");
+  });
+
+  it("restores the command log from disk, so a restart cannot erase the audit trail", async () => {
+    // The log is append-only and persisted precisely so it survives a restart.
+    // Writing the file is therefore only half the contract: if the entry point
+    // never READS it back, every restart silently presents an empty audit trail
+    // to the operator — the one failure mode an audit log must not have. Caught
+    // by the L3 panel scenario (F5), which rendered zero rows against a seeded
+    // file that was verifiably on disk.
+    const file = commandLogFilePath();
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    const seeded = {
+      entries: [
+        { at: 1, principal: "u1", channelId: "c1", verb: "list_sessions", outcome: "permitted" },
+        { at: 2, principal: "u1", channelId: "c1", verb: "abort_run", outcome: "permitted" },
+      ],
+    };
+    fs.writeFileSync(file, JSON.stringify(seeded), { mode: 0o600 });
+
+    try {
+      const { ctx, handlers, broadcastToSubscribers: broadcast } = fakeCtx({});
+      await registerChatGateway(ctx);
+      const surface = await requestSurface(handlers, broadcast);
+
+      // Present, and ordered by the LOG's own rule (most-recent-first) rather
+      // than the renderer's — the panel prints them in the order it is given.
+      expect(surface.log.map((e) => e.verb)).toEqual(["abort_run", "list_sessions"]);
+    } finally {
+      fs.rmSync(file, { force: true });
+    }
   });
 });

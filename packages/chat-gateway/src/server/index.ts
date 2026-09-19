@@ -152,6 +152,13 @@ export default async function registerChatGateway(ctx: ServerPluginContext): Pro
     filePath: commandLogFilePath(),
     limit: teamConfig.auditRetention,
   });
+  // Restore the persisted trail. The log is written append-only FOR the purpose
+  // of surviving a restart, so skipping this would leave the operator looking at
+  // "No activity recorded." after every reboot while the file sat full on disk —
+  // the one failure mode an audit log must not have. Sits above the inert early
+  // return so the settings panel (which stays up without a token) still shows
+  // the history it is perfectly capable of reading.
+  commandLog.load();
 
   // Harness fixture (`adapters/fake.ts`), env-guarded: a socket-less platform so
   // the L3 team-controls scenarios have something to render. With it the layer
