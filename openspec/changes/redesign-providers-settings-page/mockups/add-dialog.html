@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Providers — Add provider dialog</title>
+<link rel="stylesheet" href="tokens.css">
+<script src="theme-init.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg-primary); color: var(--text-primary);
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 24px 16px 64px; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0; }
+  .themebtn, .back {
+    font-size: 12px; padding: 6px 10px; border-radius: 6px; cursor: pointer;
+    background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-secondary);
+  }
+  .statecap {
+    margin: 30px 0 10px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--text-muted); border-top: 1px solid var(--border-primary); padding-top: 14px;
+  }
+
+  /* Dialog shell — mirrors DialogPortal: --bg-overlay scrim, --z-dialog. */
+  .scrim {
+    background: var(--bg-overlay); border-radius: 8px; padding: 26px 16px;
+    display: flex; justify-content: center;
+  }
+  .dialog {
+    width: 100%; max-width: 460px; background: var(--bg-secondary);
+    border: 1px solid var(--border-secondary); border-radius: 8px;
+    box-shadow: 0 10px 34px rgba(0,0,0,.45); overflow: hidden;
+  }
+  .dhead {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 13px 15px; border-bottom: 1px solid var(--border-primary);
+  }
+  .dtitle { font-size: 14px; font-weight: 600; }
+  .x { background: none; border: 0; color: var(--text-muted); cursor: pointer; font-size: 17px; line-height: 1; padding: 4px 6px; border-radius: 4px; }
+  .x:hover { color: var(--text-primary); background: var(--bg-hover); }
+  .dbody { padding: 13px 15px; }
+  .dfoot { padding: 11px 15px; border-top: 1px solid var(--border-primary); display: flex; justify-content: flex-end; gap: 8px; }
+
+  .search {
+    width: 100%; padding: 8px 10px; font-size: 13px; border-radius: 6px;
+    background: var(--bg-tertiary); border: 1px solid var(--border-secondary);
+    color: var(--text-primary); min-height: 36px;
+  }
+  .search::placeholder { color: var(--text-secondary); }
+  :focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+
+  .list { margin-top: 9px; max-height: 268px; overflow-y: auto; }
+  .opt {
+    display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+    padding: 8px 10px; border-radius: 5px; cursor: pointer; min-height: 40px;
+    background: none; border: 1px solid transparent; color: inherit; font: inherit;
+  }
+  .opt:hover { background: var(--bg-hover); }
+  .opt[aria-selected="true"] { background: var(--bg-tertiary); border-color: var(--border-secondary); }
+  .opt .lbl { flex: 1; min-width: 0; }
+  .opt .sub { display: block; font-size: 11px; color: var(--text-secondary); }
+  .opt.disabled { opacity: .55; cursor: not-allowed; }
+  /* Same contract as the list badges: word first, hue as a second channel,
+     using the per-theme --accent-*-text tokens. */
+  .tag {
+    font-size: 10px; padding: 2px 6px; border-radius: 4px; white-space: nowrap;
+    border: 1px solid var(--border-secondary); color: var(--text-secondary);
+  }
+  .groupcap {
+    font-size: 10px; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--text-muted); padding: 10px 10px 4px;
+  }
+  .divider { border-top: 1px solid var(--border-primary); margin: 8px 0 0; }
+
+  button.btn {
+    font-size: 12px; padding: 7px 12px; border-radius: 6px; cursor: pointer; min-height: 32px;
+    background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-secondary);
+  }
+  button.btn:hover { background: var(--bg-surface); color: var(--text-primary); }
+  button.btn.primary { background: var(--accent-primary-strong); color: #fff; border-color: transparent; font-weight: 500; }
+  button.btn.primary:hover { filter: brightness(1.12); }
+  button.btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  label.f { display: block; font-size: 12px; color: var(--text-secondary); margin: 11px 0 4px; }
+  input.f, select.f {
+    width: 100%; padding: 7px 9px; font-size: 13px; border-radius: 5px; min-height: 34px;
+    background: var(--bg-tertiary); border: 1px solid var(--border-secondary); color: var(--text-primary);
+  }
+  input.f::placeholder { color: var(--text-secondary); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .hint { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
+  .hint code { color: var(--text-primary); }
+
+  .callout {
+    display: flex; gap: 8px; font-size: 12px; padding: 9px 11px; border-radius: 6px; margin-top: 10px;
+    background: color-mix(in srgb, var(--accent-yellow) 10%, var(--bg-tertiary));
+    border: 1px solid color-mix(in srgb, var(--accent-yellow) 40%, transparent);
+    color: var(--text-secondary);
+  }
+  .callout.err {
+    background: color-mix(in srgb, var(--accent-red) 10%, var(--bg-tertiary));
+    border-color: color-mix(in srgb, var(--accent-red) 40%, transparent);
+  }
+  .callout .ico { flex-shrink: 0; color: var(--text-secondary); }
+
+  .code-big {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 21px; letter-spacing: .16em; font-weight: 600; color: var(--text-primary);
+  }
+  .waiting { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-secondary); margin-top: 11px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-secondary); }
+  @media (prefers-reduced-motion: no-preference) { .dot { animation: p 1.3s ease-in-out infinite; } }
+  @keyframes p { 50% { opacity: .3; } }
+  /* Underline carries link-ness; --accent-blue-text supplies the hue and
+     clears 4.5:1 in both themes (the base --accent-blue is 3.52:1 light). */
+  a { color: var(--text-primary); text-decoration: underline; }
+
+  /* WCAG 2.5.8 AA needs 24px; 2.5.5 AAA + Apple HIG want 44px. Desktop keeps
+     the shipped compact density; coarse pointers get the 44px target. */
+  @media (pointer: coarse) {
+    button, .addbtn, .opt, input, select { min-height: 44px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <h1>Add provider — dialog panes</h1>
+    <span>
+      <button class="back" onclick="location.href='index.html'">&larr; List</button>
+      <button class="themebtn" id="t">Toggle theme</button>
+    </span>
+  </div>
+
+  <!-- ── PANE 1: picker ─────────────────────────────────────────── -->
+  <div class="statecap">Pane 1 — picker (unconfigured providers only)</div>
+  <div class="scrim">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="t1">
+      <div class="dhead"><span class="dtitle" id="t1">Add provider</span><button class="x" aria-label="Close">&times;</button></div>
+      <div class="dbody">
+        <input class="search" placeholder="Search 35 providers…" aria-label="Search providers">
+        <div class="list" role="listbox">
+          <div class="groupcap">Subscriptions</div>
+          <button class="opt" role="option" aria-selected="true">
+            <span class="lbl">GitHub Copilot<span class="sub">Sign in with a device code</span></span>
+            <span class="tag oauth">OAuth</span>
+          </button>
+          <button class="opt disabled" role="option" aria-selected="false" aria-disabled="true" title="Anthropic is already connected as a subscription">
+            <span class="lbl">Anthropic (API Key)<span class="sub">Unavailable — Anthropic is connected as a subscription. Sign out first to use a key instead.</span></span>
+            <span class="tag key">API key</span>
+          </button>
+          <div class="groupcap">API keys</div>
+          <button class="opt" role="option" aria-selected="false">
+            <span class="lbl">Cerebras</span><span class="tag key">API key</span>
+          </button>
+          <button class="opt" role="option" aria-selected="false">
+            <span class="lbl">DeepSeek<span class="sub">or set DEEPSEEK_API_KEY</span></span><span class="tag key">API key</span>
+          </button>
+          <button class="opt" role="option" aria-selected="false">
+            <span class="lbl">Fireworks</span><span class="tag key">API key</span>
+          </button>
+          <div class="divider"></div>
+          <button class="opt" role="option" aria-selected="false">
+            <span class="lbl">Custom endpoint…<span class="sub">Any OpenAI- or Anthropic-compatible base URL</span></span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── PANE 2: API key ────────────────────────────────────────── -->
+  <div class="statecap">Pane 2 — API key</div>
+  <div class="scrim">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="t2">
+      <div class="dhead"><span class="dtitle" id="t2">Add DeepSeek</span><button class="x" aria-label="Close">&times;</button></div>
+      <div class="dbody">
+        <label class="f" for="k">API key</label>
+        <input class="f mono" id="k" type="password" placeholder="sk-…" autocomplete="off">
+        <div class="hint">Stored in <code>~/.pi/agent/auth.json</code>. pi also reads <code>DEEPSEEK_API_KEY</code> from the environment — set that instead to keep the key out of the file.</div>
+      </div>
+      <div class="dfoot"><button class="btn">Cancel</button><button class="btn primary">Add provider</button></div>
+    </div>
+  </div>
+
+  <!-- ── PANE 3: device code ────────────────────────────────────── -->
+  <div class="statecap">Pane 3 — device code (GitHub Copilot)</div>
+  <div class="scrim">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="t3">
+      <div class="dhead"><span class="dtitle" id="t3">Sign in to GitHub Copilot</span><button class="x" aria-label="Close">&times;</button></div>
+      <div class="dbody">
+        <div style="font-size:12px;color:var(--text-secondary)">Enter this code at <a href="#">github.com/login/device</a>:</div>
+        <!-- copy states the abandoned-dialog contract from design D4 -->
+        <div style="display:flex;align-items:center;gap:9px;margin-top:8px">
+          <span class="code-big">WDJB-MJHT</span>
+          <button class="btn" style="min-height:28px;padding:5px 9px">Copy</button>
+        </div>
+        <button class="btn primary" style="margin-top:12px">Open registration page</button>
+        <div class="waiting"><span class="dot"></span> Waiting for authorization… you can close this dialog, sign-in will finish in the background.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── PANE 4: custom endpoint ────────────────────────────────── -->
+  <div class="statecap">Pane 4 — custom endpoint</div>
+  <div class="scrim">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="t4">
+      <div class="dhead"><span class="dtitle" id="t4">Add custom endpoint</span><button class="x" aria-label="Close">&times;</button></div>
+      <div class="dbody">
+        <label class="f" for="n">Name</label>
+        <input class="f" id="n" placeholder="local-vllm" value="local-vllm">
+        <label class="f" for="u">Base URL</label>
+        <input class="f mono" id="u" placeholder="http://localhost:8000/v1">
+        <label class="f" for="a">API type</label>
+        <select class="f" id="a"><option>openai-completions</option><option>openai-responses</option><option>anthropic-messages</option></select>
+        <label class="f" for="ck">API key</label>
+        <input class="f mono" id="ck" type="password" placeholder="sk-…">
+      </div>
+      <div class="dfoot">
+        <button class="btn" style="margin-right:auto">Test connection</button>
+        <button class="btn">Cancel</button>
+        <button class="btn primary" disabled>Add provider</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── PANE 5: cross-type refusal (design D2, 409) ─────────────── -->
+  <div class="statecap">Pane 5 — cross-type credential conflict (409 from writeCredential)</div>
+  <div class="scrim">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="t5">
+      <div class="dhead"><span class="dtitle" id="t5">Add Anthropic (API Key)</span><button class="x" aria-label="Close">&times;</button></div>
+      <div class="dbody">
+        <div class="callout err">
+          <span class="ico">&#9888;</span>
+          <span><strong>Anthropic already has a subscription sign-in.</strong> Saving an API key here would replace it, and you would be signed out of Claude Pro/Max. Sign out of the subscription first if you meant to switch.</span>
+        </div>
+      </div>
+      <div class="dfoot"><button class="btn">Cancel</button><button class="btn">Sign out of subscription…</button></div>
+    </div>
+  </div>
+
+</div>
+<script>
+  document.getElementById('t').onclick = function () {
+    var r = document.documentElement;
+    r.dataset.theme = r.dataset.theme === 'light' ? '' : 'light';
+  };
+</script>
+</body>
+</html>
