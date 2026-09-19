@@ -25,17 +25,15 @@ import {
   verifyToken,
   warnOnInvalidRedirectBase,
 } from "./auth.js";
+import { isBypassed } from "./bypass-urls.js";
 import { verifyLocalToken } from "./local-token.js";
 import { isBypassedHost, isGenuinelyLocal } from "./localhost-guard.js";
 import type { CoreWsRouteScope } from "./ws-ticket.js";
 
-/**
- * Returns true if the request URL matches any of the configured bypass prefixes.
- * Exported for unit testing.
- */
-export function isBypassed(url: string, bypassUrls: string[]): boolean {
-  return bypassUrls.some((prefix) => url.startsWith(prefix));
-}
+// Re-exported so the existing `auth-plugin.js` import surface is unchanged; the
+// implementation moved to the leaf `bypass-urls.ts` so the universal network
+// guard can share it without importing this plugin (cycle).
+export { isBypassed };
 
 
 

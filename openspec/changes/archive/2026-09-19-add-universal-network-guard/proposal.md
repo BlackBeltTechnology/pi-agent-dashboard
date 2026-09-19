@@ -2,8 +2,8 @@
 
 ## Why
 
-`networkGuard` is opt-in per route. It is created once (`server.ts:1013`) and
-passed as a `preHandler` to ~20 **core** route registrars (session, git, file,
+`networkGuard` is opt-in per route. It is created once at startup in `server.ts`
+and passed as a `preHandler` to ~20 **core** route registrars (session, git, file,
 grep, goal, system, tool, editor, …). Two classes of route never receive it:
 
 1. **Plugin routes** — `automation-plugin`, `flows-plugin`, `kb-plugin` register
@@ -12,7 +12,7 @@ grep, goal, system, tool, editor, …). Two classes of route never receive it:
 2. **provider-auth + models-introspection routes** — omit the `preHandler`.
 
 The only thing that would otherwise gate those routes is the OAuth `onRequest`
-hook (`registerAuthPlugin`, `server.ts:989`) — but it is registered **only when
+hook (`registerAuthPlugin`, `server.ts:1473`) — but it is registered **only when
 auth is configured**. The always-on `registerBearerAuth` hook merely *sets*
 `request.isAuthenticated`; it never rejects. So in the **default deployment
 (localhost, OAuth off, occasional zrok tunnel)** those routes have **no guard at
@@ -62,10 +62,20 @@ the guard **structural** so no route can be forgotten.
   stays **guarded** (an authed client mints a ticket; it is not public).
 - **Leave the per-route `preHandler: networkGuard` in place** as redundant
   defense-in-depth.
-- **Add a namespace-coverage test** asserting no dangerous route sits outside the
-  guarded namespaces (preserves the deny-by-default guarantee).
+- **Leave `/mcp` out of jurisdiction, but enumerated.** `mcp-server-plugin`
+  registers `/mcp`, `/mcp/observe`, `/mcp/control`, `/mcp/*` and authenticates
+  in-handler via the paired-device registry, deliberately distrusting
+  `request.isAuthenticated` (`server.ts:1185-1191`). Guarding it would 403 every
+  legitimate MCP client. It is classified as an **independently-authenticated
+  namespace** in an explicit enumerated set, not silently skipped.
+- **Add a namespace-coverage test** (with plugin routes loaded) asserting no
+  dangerous route sits outside the guarded namespaces or the enumerated
+  independently-authenticated set (preserves the deny-by-default guarantee).
 - **Log every denial** (path, source IP, reason) so a probing LAN/tunnel client
-  is observable.
+  is observable — while **preserving** the existing `network_not_allowed`
+  response body and the `blockEvents` recording behind
+  `GET /api/tunnel/block-events` (the hook denies before the per-route
+  preHandler, so a divergent shape would regress already-guarded routes).
 
 Out of scope (tracked separately in `security-boundary-audit/tasks.md`): the
 bridge↔server WS authentication (S2), the client XSS trio (S3), the
@@ -79,13 +89,20 @@ each plugin (defense-in-depth on top of this guard).
 - **Behavior change / risk:** previously-ungated `/api` sensitive routes become
   guarded when auth is off (intended). Residual risks: (a) a future dangerous
   route added *outside* the guarded namespaces would be unguarded — mitigated by
-  the namespace-coverage test; (b) the `/v1` proxy-gate ordering + `isAuthenticated`
+  the namespace-coverage test (which must run with plugin routes loaded, and must
+  treat `/mcp` as an explicit enumerated entry rather than an implicit
+  fall-through); (b) the `/v1` proxy-gate ordering + `isAuthenticated`
   wiring must be correct or model-proxy traffic bricks — covered by dedicated
   scenarios. The SPA/login lockout risk of the first draft is eliminated by
   scoping (public surface is out of jurisdiction).
-- **Affected specs:** `trusted-networks`, `auth-bypass-url-list`,
-  `dashboard-plugin-loader` (plugin routes now inherit the guard). Delta specs to
-  be authored in the next artifact step.
+- **Affected specs:** `trusted-networks` (delta authored). Plugin routes inherit
+  the guard structurally — no `dashboard-plugin-loader` contract changes; the
+  `auth.bypassUrls` semantics are reused unchanged, so no `auth-bypass-url-list`
+  delta either.
+- **User-visible regression to document:** a tunnel + auth-off deployment that
+  today reaches the kb/flows/automation plugin UI will get 403 unless auth is
+  enabled or the caller's network is added to `trustedNetworks`. Needs a
+  CHANGELOG entry + docs note (task 4.3).
 - **Affected code:** `packages/server/src/server.ts` (hook registration),
   `packages/server/src/localhost-guard.ts` / `auth-plugin.ts` (allowlist +
   onRequest form of the guard).

@@ -95,6 +95,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `mermaid-colorize.spec.ts` | Playwright spec. Mermaid default-node colorization end-to-end via faux model. → see `mermaid-colorize.spec.ts.AGENTS.md` |
 | `model-proxy-oauth-filter.spec.ts` | Playwright spec (`request` fixture, no page). Model-proxy OAuth-incompatible filtering. → see `model-proxy-oauth-filter.spec.ts.AGENTS.md` |
 | `navigation.spec.ts` | Scenario 5.6 spec. Registers `page.on(pageerror)`. `gotoDashboard`, clicks `settings-btn`, asserts… → see `navigation.spec.ts.AGENTS.md` |
+| `network-guard.spec.ts` | L3 flagship refusal (test-plan #S20, change: add-universal-network-guard): auth OFF + untrusted peer ⇒ `GET… → see `network-guard.spec.ts.AGENTS.md` |
 | `notify-channel.spec.ts` | Playwright spec. Drives `[[faux:notify-probe]]` (→ `e2e_notify` fixture tool →… → see `notify-channel.spec.ts.AGENTS.md` |
 | `notify-min-level.spec.ts` | L3 spec (change: gate-notify-rows-by-level). Drives `[[faux:notify-levels]]` (four… → see `notify-min-level.spec.ts.AGENTS.md` |
 | `oauth-redirect-base.spec.ts` | L3 spec (change: config-override-oauth-redirect-base, review of PR #409). → see `oauth-redirect-base.spec.ts.AGENTS.md` |

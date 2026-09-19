@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { AuthConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   type AuthUser,
   buildAuthorizeUrl,
@@ -16,6 +16,7 @@ import {
   signToken,
   verifyToken,
 } from "../auth/auth.js";
+import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
 
 // ─── JWT Token Tests ────────────────────────────────────────────────────────
 
@@ -255,5 +256,49 @@ describe("buildAuthorizeUrl", () => {
     expect(url).toContain("scope=user%3Aemail");
     expect(url).toContain("state=state123");
     expect(url).toContain("response_type=code");
+  });
+});
+
+// ── The login/SPA surface stays reachable with auth OFF (S9, S10, S11) ───────
+// The universal guard's jurisdiction is namespace-scoped precisely so the
+// "auth off, over a tunnel" deployment — the one this change exists to fix —
+// does not lock itself out of its own app shell. These are the lock-out
+// regression tests for that deployment.
+//
+// See change: add-universal-network-guard.
+describe("auth-off tunnel surface stays reachable (S9, S10, S11)", () => {
+  let handle: TestServerHandle;
+  const TUNNELED = { "x-forwarded-for": "203.0.113.5" };
+
+  beforeAll(async () => {
+    handle = await createTestServer();
+  }, 60_000);
+
+  afterAll(async () => {
+    await handle?.stop();
+  });
+
+  const url = (p: string) => `http://127.0.0.1:${handle.httpPort}${p}`;
+
+  // test-plan #S9 — the SPA index is outside jurisdiction.
+  it("serves GET / to an unauthenticated tunneled request", async () => {
+    const res = await fetch(url("/"), { headers: TUNNELED });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('<div id="root"');
+  });
+
+  // test-plan #S10 — the deep-link refresh path goes through setNotFoundHandler.
+  it("serves GET /settings via the SPA fallback", async () => {
+    const res = await fetch(url("/settings"), { headers: TUNNELED });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('<div id="root"');
+  });
+
+  // test-plan #S11 — the client must be able to detect that auth is off.
+  it("serves GET /auth/status unauthenticated", async () => {
+    const res = await fetch(url("/auth/status"), { headers: TUNNELED });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toHaveProperty("authEnabled");
   });
 });
