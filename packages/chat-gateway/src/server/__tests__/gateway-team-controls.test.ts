@@ -53,6 +53,8 @@ describe("gateway team-controls integration", () => {
       workspaces?: typeof WORKSPACES;
       /** Override allowedRoots (real dirs, for the D8 resolution tests). */
       allowedRoots?: string[];
+      /** Override the L1 config (e.g. `groupChannels`), to get past L1 to the team layer. */
+      config?: Partial<ResolvedConfig>;
       /** Override the provisioned channel→workspace map. */
       channelBindings?: () => Map<string, string>;
       /** Override the configured per-workspace policies. */
@@ -111,7 +113,7 @@ describe("gateway team-controls integration", () => {
       platform: "discord",
       seam,
       adapter,
-      config: opts.allowedRoots ? { ...makeConfig(), allowedRoots: opts.allowedRoots } : makeConfig(),
+      config: { ...makeConfig(), ...(opts.allowedRoots ? { allowedRoots: opts.allowedRoots } : {}), ...(opts.config ?? {}) },
       store,
       correlator: createSpawnCorrelator(),
       team,
@@ -357,6 +359,32 @@ describe("gateway team-controls integration", () => {
     expect(reported).not.toBeNull();
     const visible = posted.slice(0, posted.indexOf("\n… [elided"));
     expect(visible.length + Number(reported?.[1])).toBe(HUGE.length);
+  });
+
+  it("F2 (threads): a THREAD of a bound channel inherits the binding, not unbound_channel", async () => {
+    // `chan1` is opted into L1 so the message actually REACHES the team layer;
+    // the thread id is deliberately NOT opted in and NOT in the binding map.
+    const { seam, adapter, gateway } = setup({ config: { groupChannels: ["chan1"] } });
+    await gateway.start();
+    const before = seam.spawns.length;
+    // Discord sets `channelId` to the THREAD id and `parentChannelId` to the
+    // parent channel (see discord.ts). The workspace-binding spec requires that
+    // a command from "a bound channel OR ITS THREADS" resolve that channel's
+    // workspace — so a thread the operator never explicitly provisioned must
+    // inherit, or per-thread session granularity is dead under team controls.
+    await gateway.handleInbound({
+      ...msg("alice", "thread hello"),
+      isDM: false,
+      channelId: "thread1",
+      parentChannelId: "chan1",
+    });
+    await flush();
+    expect(allSent(adapter)).not.toContain("unbound_channel");
+    // A thread with no session of its own yet SPAWNS one (per-thread session
+    // granularity), which only happens if the request was authorized — so this
+    // is the observable that proves the parent binding was inherited rather
+    // than the thread being waved through.
+    expect(seam.spawns.length).toBeGreaterThan(before);
   });
 
   it("6.4: a refused activation is not consumed — the invoker can still answer the same prompt", async () => {

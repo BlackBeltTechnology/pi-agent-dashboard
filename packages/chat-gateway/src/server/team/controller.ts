@@ -47,6 +47,11 @@ interface ResolvedBinding {
 interface AuthorizeRequestInput {
   author: Author;
   channelId: string;
+  /**
+   * Parent channel id. A THREAD's messages carry the THREAD id while the
+   * operator provisions the PARENT, so this is what lets a thread inherit.
+   */
+  parentChannelId?: string;
   verb: string;
   /** Session cwd the verb would affect (scope containment). */
   targetCwd?: string;
@@ -70,8 +75,8 @@ export interface TeamController {
    * or an unrelated config edit would silently undo a chat-initiated disarm.
    */
   syncDisarmFromConfig(disarmed: boolean): void;
-  bindingFor(channelId: string): ResolvedBinding | undefined;
-  mirrorLevel(channelId: string): MirrorLevel;
+  bindingFor(channelId: string, parentChannelId?: string): ResolvedBinding | undefined;
+  mirrorLevel(channelId: string, parentChannelId?: string): MirrorLevel;
   /**
    * Record a trusted-gated verb's host no-op (D5). Sticky; returns the reason
    * naming the missing trust level so the caller can refuse with it.
@@ -91,8 +96,14 @@ export function createTeamController(deps: TeamControllerDeps): TeamController {
   const trust = createTrustHealth();
   let disarmed = deps.config().disarmed === true;
 
-  function bindingFor(channelId: string): ResolvedBinding | undefined {
-    const workspaceId = deps.channelBindings().get(channelId);
+  function bindingFor(channelId: string, parentChannelId?: string): ResolvedBinding | undefined {
+    // A thread's messages carry the THREAD id, but the operator provisions the
+    // PARENT channel. Without this fallback every thread is refused
+    // `unbound_channel`, which kills the per-thread session granularity the
+    // workspace-binding spec requires ("a bound channel OR ITS THREADS").
+    const bindings = deps.channelBindings();
+    const workspaceId =
+      bindings.get(channelId) ?? (parentChannelId ? bindings.get(parentChannelId) : undefined);
     if (!workspaceId) return undefined;
     const policy = deps.config().bindings[workspaceId];
     const workspace = deps.listWorkspaces().find((w) => w.id === workspaceId);
@@ -127,8 +138,8 @@ export function createTeamController(deps: TeamControllerDeps): TeamController {
       return { ok: false, reason: "rearm_requires_dashboard" };
     },
     bindingFor,
-    mirrorLevel(channelId) {
-      return bindingFor(channelId)?.policy.mirrorLevel ?? DEFAULT_MIRROR_LEVEL;
+    mirrorLevel(channelId, parentChannelId) {
+      return bindingFor(channelId, parentChannelId)?.policy.mirrorLevel ?? DEFAULT_MIRROR_LEVEL;
     },
     reportTrustFailure(verb) {
       const wasHealthy = trust.snapshot().healthy;
@@ -140,7 +151,7 @@ export function createTeamController(deps: TeamControllerDeps): TeamController {
     },
     trustHealth: () => trust.snapshot(),
     authorizeRequest(input) {
-      const resolved = bindingFor(input.channelId);
+      const resolved = bindingFor(input.channelId, input.parentChannelId);
       const result = authorize({
         author: input.author,
         channelId: input.channelId,

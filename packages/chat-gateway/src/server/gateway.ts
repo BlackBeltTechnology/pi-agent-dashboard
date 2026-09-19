@@ -1013,6 +1013,9 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
             ...(msg.roleIds ? { roleIds: msg.roleIds } : {}),
           },
           channelId: msg.channelId,
+          // Threads carry the thread id as `channelId`; pass the parent so the
+          // chokepoint can resolve the binding the operator actually created.
+          ...(msg.parentChannelId ? { parentChannelId: msg.parentChannelId } : {}),
           ...(msg.threadId ? { threadId: msg.threadId } : {}),
           verb: existing ? "send_prompt" : "spawn_session",
           ...(existing ? { targetCwd: existing.cwd, target: existing.sessionId } : {}),
