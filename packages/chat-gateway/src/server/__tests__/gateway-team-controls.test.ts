@@ -333,6 +333,32 @@ describe("gateway team-controls integration", () => {
     expect(allSent(adapter)).toContain("disarmed");
   });
 
+  it("F7: an oversized mirrored payload is elided with an EXPLICIT, truthful marker", async () => {
+    const { adapter, gateway, teamConfig } = setup();
+    await gateway.start();
+    // `full-transcript` is the only level that renders a tool RESULT, so it is
+    // the only one where a payload can reach the post large enough to be cut.
+    teamConfig.bindings.ws_1.mirrorLevel = "full-transcript";
+
+    const HUGE = "A".repeat(5_000);
+    gateway.handleFrame("s1", toolEndFrame("Bash", HUGE));
+    await flush();
+
+    const posted = adapter.sent.at(-1)?.content ?? "";
+    // The post is bounded, so it fits inside the platform's message limit...
+    expect(posted.length).toBeLessThanOrEqual(2_000);
+    // ...the HEAD is preserved rather than mangled...
+    expect(posted.startsWith("A".repeat(64))).toBe(true);
+    // ...and the cut is DISCLOSED. Summing the surviving text against the
+    // reported count must reproduce the original length EXACTLY: that is what
+    // makes the marker truthful rather than decorative, and a marker that
+    // under-reports would be a silent cut wearing a label.
+    const reported = posted.match(/\[elided (\d+) characters\]/);
+    expect(reported).not.toBeNull();
+    const visible = posted.slice(0, posted.indexOf("\n… [elided"));
+    expect(visible.length + Number(reported?.[1])).toBe(HUGE.length);
+  });
+
   it("6.4: a refused activation is not consumed — the invoker can still answer the same prompt", async () => {
     const { seam, adapter, gateway } = setup();
     await gateway.start();

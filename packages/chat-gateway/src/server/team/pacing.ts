@@ -14,6 +14,13 @@ import { elide } from "./output-filter.js";
 
 export const RATE_WINDOW_MS = 5_000;
 export const RATE_MAX_POSTS = 5;
+/**
+ * Conservative per-post bound for coalesced content. Deliberately BELOW
+ * Discord's 2000-char message limit: this module is platform-agnostic and never
+ * consults the adapter's limit, so erring low is the safe direction. The cost
+ * is that a mirrored payload between this bound and 2000 chars is elided early
+ * — lossy, but disclosed, and never a cut the reader cannot see.
+ */
 const DEFAULT_MAX_CHARS = 1_800;
 
 export interface PacerDeps {
