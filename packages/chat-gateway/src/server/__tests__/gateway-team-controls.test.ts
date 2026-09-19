@@ -118,7 +118,7 @@ describe("gateway team-controls integration", () => {
       correlator: createSpawnCorrelator(),
       team,
     });
-    return { seam, adapter, gateway, log, team, teamConfig: validated.value };
+    return { seam, adapter, gateway, log, team, teamConfig: validated.value, store };
   }
 
   const msg = (userId: string, text: string): InboundMessage => ({
@@ -316,6 +316,49 @@ describe("gateway team-controls integration", () => {
     expect(last).toContain("FRESH");
     // ...and the three earlier posts are byte-identical (not back-filled).
     expect(adapter.sent.slice(0, 3).map((m) => m.content)).toEqual(before);
+  });
+
+  it("11.2: a session in a THREAD mirrors at its PARENT binding's level, not the default", async () => {
+    const { adapter, gateway, store, teamConfig } = setup();
+    // `chan1` is bound to `ws_1`; this session was spawned in a THREAD of it, so
+    // its binding carries the THREAD id as `channelId` plus the parent. The
+    // operator's level is `full-transcript` while the default is `names-only`,
+    // so a lane that looked up the bare thread id would miss the binding and
+    // silently drop the diff — making the per-thread level a no-op.
+    teamConfig.bindings.ws_1.mirrorLevel = "full-transcript";
+    const threadBinding = {
+      platform: "discord" as const,
+      channelId: "thread1",
+      threadId: "thread1",
+      parentChannelId: "chan1",
+      sessionId: "s_thr",
+      cwd: "/repo/proj",
+      boundBy: "alice",
+      source: "spawn" as const,
+      isDM: false,
+      createdAt: 2,
+    };
+    store.set(threadBinding);
+    await gateway.start();
+    gateway.handleFrame(
+      "s_thr",
+      toolFrame("Edit", { file_path: "/repo/src/foo.ts", oldText: "OLD", newText: "NEW_SECRET" }),
+    );
+    await flush();
+    expect(allSent(adapter)).toContain("NEW_SECRET");
+
+    // Teeth: with the SAME session and level but no `parentChannelId`, the lane
+    // falls back to the default and the diff is filtered out. So it is genuinely
+    // the persisted parent that resolves the operator's level.
+    adapter.sent.length = 0;
+    const { parentChannelId: _dropped, ...withoutParent } = threadBinding;
+    store.set(withoutParent);
+    gateway.handleFrame(
+      "s_thr",
+      toolFrame("Edit", { file_path: "/repo/src/foo.ts", oldText: "OLD", newText: "NEW_SECRET" }),
+    );
+    await flush();
+    expect(allSent(adapter)).not.toContain("NEW_SECRET");
   });
 
   it("X15: mirroring survives disarm while every action-bearing request refuses", async () => {

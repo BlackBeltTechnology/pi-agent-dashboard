@@ -178,6 +178,13 @@ export interface Binding {
   platform: ChatPlatform;
   channelId: string;
   threadId?: string;
+  /**
+   * Parent channel of a THREAD binding. A thread's messages arrive with the
+   * THREAD id as `channelId`, but the operator binds the PARENT — so this is what
+   * lets authorization and the mirror lane resolve the parent's workspace and
+   * per-thread mirror level instead of falling back to defaults.
+   */
+  parentChannelId?: string;
   sessionId: string;
   cwd: string;
   /** Platform user id that created the binding (provenance). */

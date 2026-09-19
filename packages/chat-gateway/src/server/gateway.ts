@@ -328,10 +328,16 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
    */
   function mirrorFrame(channelKey: string, frame: unknown): void {
     if (!mirrorPacer || !team) return;
-    const channelId = store.get(channelKey)?.channelId;
+    const entry = store.get(channelKey);
+    const channelId = entry?.channelId;
     const mirrorEvent = mirrorEventFrom(frame);
     if (!channelId || !mirrorEvent) return;
-    const rendered = renderMirror(mirrorEvent, team.mirrorLevel(channelId));
+    // Pass the parent for a THREAD binding: the operator sets the mirror level on
+    // the channel they bound, and a thread's messages carry the thread id.
+    const rendered = renderMirror(
+      mirrorEvent,
+      team.mirrorLevel(channelId, entry?.parentChannelId),
+    );
     if (rendered === null || rendered === "") return;
     mirrorPacer.submit(channelKey, rendered);
     void mirrorPacer.pump(channelKey);
@@ -522,6 +528,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       platform,
       channelId: msg.channelId,
       threadId: msg.threadId,
+      parentChannelId: msg.parentChannelId,
       sessionId: only.id,
       cwd: only.cwd as string,
       boundBy: msg.userId,
@@ -565,6 +572,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       channelKey,
       channelId: msg.channelId,
       threadId: msg.threadId,
+      parentChannelId: msg.parentChannelId,
       isDM: msg.isDM,
       cwd,
       by: msg.userId,
@@ -841,6 +849,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
           platform,
           channelId: meta.channelId,
           threadId: meta.threadId,
+          parentChannelId: meta.parentChannelId,
           sessionId,
           cwd: meta.cwd,
           boundBy: meta.by,
