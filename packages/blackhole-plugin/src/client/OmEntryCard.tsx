@@ -246,7 +246,7 @@ export function OmEntryCard({
           aria-expanded={expanded}
           title={label}
           data-testid="om-entry-toggle"
-          aria-label={expanded ? t("omCollapse", undefined, "Collapse entry") : t("omExpand", undefined, "Expand entry")}
+          aria-label={`${label}: ${expanded ? t("omCollapse", undefined, "Collapse entry") : t("omExpand", undefined, "Expand entry")}`}
           className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-[var(--bg-secondary)] cursor-pointer"
         >
           {headerInner}

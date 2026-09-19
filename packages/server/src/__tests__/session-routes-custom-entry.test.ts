@@ -144,8 +144,13 @@ describe("GET /api/sessions/:sessionId/entry/:entryId", () => {
   it("X8: traversal-shaped identifiers are rejected and read only the addressed session file", async () => {
     writeEntries([
       { type: "session", id: "s1", cwd: "/tmp" },
+      // A persisted id that literally LOOKS like a traversal path must still be
+      // refused by shape, never resolved (defense-in-depth).
+      { type: "custom", id: "../../etc/passwd", parentId: null, customType: "om.x", data: { leaked: true } },
       { type: "custom", id: "safe", parentId: null, customType: "om.x", data: {} },
     ]);
+    // A legitimate lookup reads ONLY the addressed session file.
+    expect((await fastify.inject({ method: "GET", url: "/api/sessions/s1/entry/safe" })).statusCode).toBe(200);
     for (const evil of ["..%2F..%2Fetc%2Fpasswd", "..%2f..%2fetc%2fpasswd", "a%2Fb"]) {
       const res = await fastify.inject({ method: "GET", url: `/api/sessions/s1/entry/${evil}` });
       expect(res.statusCode, evil).toBe(404);

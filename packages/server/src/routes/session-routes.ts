@@ -216,6 +216,14 @@ export function registerSessionRoutes(
         reply.code(404);
         return { success: false, error: "session not found" } satisfies ApiResponse;
       }
+      // Reject traversal-shaped ids up front (defense-in-depth, spec X8): the
+      // lookup is equality-only, but the contract forbids separators/parent
+      // segments outright, so no persisted id can lease a traversal-shaped
+      // request — and no file is read for one.
+      if (entryId.includes("/") || entryId.includes("\\") || entryId.includes("..")) {
+        reply.code(404);
+        return { success: false, error: "entry not found" } satisfies ApiResponse;
+      }
       const entry = findSessionCustomEntry(session.sessionFile, entryId);
       if (!entry) {
         // Debug, never error: an unflushed/evicted/off-branch entry is expected.

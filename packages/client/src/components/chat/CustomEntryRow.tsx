@@ -17,6 +17,7 @@ import {
   CurrentPluginLayer,
   forCustomType,
   type SlotRegistry,
+  useSlotClaimsVersion,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import React, { useCallback, useMemo, useState } from "react";
@@ -72,9 +73,14 @@ export function CustomEntryRow({ msg, sessionId }: Props) {
 
   const [expanded, setExpanded] = useState(false);
   const entry = useCustomEntryPayload(sessionId, msg.entryId);
+  // Re-read claims after the plugin enabled-set resolves (`setEnabledSet`
+  // mutates the same registry reference) so a disabled plugin's claim stops
+  // resolving and resolution falls through to the generic fallback.
+  const claimsVersion = useSlotClaimsVersion();
   const claim = useMemo(
     () => resolveCustomEntryClaim(registry, customType),
-    [registry, customType],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- claimsVersion is the invalidation signal, not a value input
+    [registry, customType, claimsVersion],
   );
 
   const onToggle = useCallback(() => {

@@ -7,9 +7,9 @@
  * collapsed-first fetch contract (test-plan F1, F2, F11, P1, P2, X1, X2, X10).
  */
 import { DISPLAY_PRESETS, type DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
-import { createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { createSlotRegistry, bumpSlotClaimsVersion } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime/context";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage } from "../../../lib/chat/event-reducer.js";
 import { DisplayPrefsProvider } from "../../../lib/state/DisplayPrefsContext.js";
@@ -166,6 +166,21 @@ describe("CustomEntryRow — resolution chain", () => {
     renderRow(customMsg({ id: "boom" }), {
       registry: registryWith({ customType: "om.observations.recorded", Component: Boom as never }),
     });
+    expect(screen.getByTestId("custom-entry-card")).toBeTruthy();
+  });
+
+  it("re-reads claims when the plugin enabled-set resolves (disabled plugin falls back)", async () => {
+    // `setEnabledSet` mutates the SAME registry object, so without the
+    // slot-claims invalidation signal the memoized claim would survive and keep
+    // rendering a disabled plugin. See change: add-custom-entry-renderer-slot.
+    const registry = registryWith({ customType: "om.observations.recorded" });
+    renderRow(customMsg(), { registry });
+    expect(screen.getByTestId("stub-plugin")).toBeTruthy();
+    await act(async () => {
+      registry.setEnabledSet(new Set());
+      bumpSlotClaimsVersion();
+    });
+    expect(screen.queryByTestId("stub-plugin")).toBeNull();
     expect(screen.getByTestId("custom-entry-card")).toBeTruthy();
   });
 });

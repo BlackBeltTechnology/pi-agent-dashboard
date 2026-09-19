@@ -137,6 +137,27 @@ describe("ToolBurstGroup — absorbed custom rows (F3/F4/F7)", () => {
     expect(container.querySelector('[data-testid="tool-burst-header"]')).toBeNull();
     expect(screen.getByTestId("stub-plugin")).toBeTruthy();
   });
+
+  it("F7b: a NESTED ×N group's absorbed custom row also survives an all-tools-hidden burst", () => {
+    const msgs = [tool("bash"), tool("bash"), tool("bash")];
+    const c = custom();
+    const nested: ToolCallGroup = {
+      type: "group",
+      toolName: "bash",
+      summary: "Bash",
+      messages: msgs,
+      rendered: [msgs[0], c, msgs[1], msgs[2]],
+    };
+    const { container } = wrap(
+      <ToolBurstGroup
+        burst={{ type: "burst", id: "b1", items: [nested] as ChatItem[] }}
+        toolContext={toolContext}
+      />,
+      prefsWith({ preset: DISPLAY_PRESETS.simple }),
+    );
+    expect(container.querySelector('[data-testid="tool-burst-header"]')).toBeNull();
+    expect(screen.getByTestId("stub-plugin")).toBeTruthy();
+  });
 });
 
 describe("CollapsedToolGroup — absorbed custom rows (F5/F6/F8)", () => {

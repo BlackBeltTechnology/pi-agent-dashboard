@@ -1,4 +1,4 @@
-import { isWidgetBarPrompt } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { isWidgetBarPrompt, useSlotClaimsVersion } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { EmptyState } from "@blackbelt-technology/pi-dashboard-client-utils/EmptyState";
 import { Skeleton } from "@blackbelt-technology/pi-dashboard-client-utils/Skeleton";
@@ -977,6 +977,10 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   // byte-identical to before this change (D7).
   // See change: add-custom-entry-renderer-slot.
   const slotRegistry = useSlotRegistryOrNull();
+  // The plugin enabled-set resolves AFTER first render and mutates the SAME
+  // registry object, so subscribe to the invalidation signal and include it in
+  // the deps — otherwise a disabled plugin's claimed types stay transparent.
+  const claimsVersion = useSlotClaimsVersion();
   const transparentCustomTypes = useMemo(() => {
     const types = new Set<string>();
     if (!slotRegistry) return types;
@@ -984,7 +988,8 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       if (claim.customType) types.add(claim.customType);
     }
     return types;
-  }, [slotRegistry]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- claimsVersion is the invalidation signal, not a value input
+  }, [slotRegistry, claimsVersion]);
   const isTransparentCustomType = useCallback(
     (customType: string) => transparentCustomTypes.has(customType),
     [transparentCustomTypes],

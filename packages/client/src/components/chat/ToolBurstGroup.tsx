@@ -186,15 +186,18 @@ export function ToolBurstGroup({ burst, toolContext }: Props) {
   // those rows directly (a header counting zero tool calls would mislead);
   // CustomEntryRow applies its own group gate, so hidden rows render nothing.
   if (visibleMembers.length === 0) {
-    const customRows = burst.items.filter(
-      (it) => !isGroup(it) && (it as ChatMessage).role === "custom",
+    // Keep DIRECT custom rows AND nested ×N groups: a group whose tool members
+    // are all hidden can still hold an absorbed custom row, which
+    // CollapsedToolGroup renders. BurstBodyItem handles both item kinds.
+    const customItems = burst.items.filter(
+      (it) => isGroup(it) || (it as ChatMessage).role === "custom",
     );
-    if (customRows.length === 0) return null;
+    if (customItems.length === 0) return null;
     return (
       <>
-        {customRows.map((it) => (
+        {customItems.map((it) => (
           <BurstBodyItem
-            key={(it as ChatMessage).id}
+            key={isGroup(it) ? it.messages[0]?.id ?? it.toolName : (it as ChatMessage).id}
             item={it}
             toolContext={toolContext}
             turnActive={false}
