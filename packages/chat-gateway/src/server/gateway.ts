@@ -966,7 +966,12 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
         if (/^\d{6}$/.test(candidate) && pairing.attempt(candidate)) {
           config.allowlist = [...config.allowlist, msg.userId];
           seam.persistAllowlist(config.allowlist);
-          await reply(msg.channelId, "Paired. You can now talk to sessions.");
+          // Enrollment is the ONE flow that legitimately happens in a DM. Since
+          // team controls scope DMs out of session control, the reply must not
+          // promise what the layer will refuse — "you can now talk to sessions"
+          // followed by a refusal on every message is a dead flow that
+          // advertises itself as working.
+          await reply(msg.channelId, "Paired. Session control happens in a workspace-bound channel, not here.");
           return;
         }
       }
@@ -1021,7 +1026,21 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
           ...(existing ? { targetCwd: existing.cwd, target: existing.sessionId } : {}),
         });
         if (decision.kind === "refusal") {
-          await reply(msg.channelId, `Refused: ${decision.reason}.`);
+          // A DM can never carry a workspace binding, so THIS refusal is by
+          // design — not an operator forgetting to bind the channel — and the
+          // bare `unbound_channel` would read as a misconfiguration. Say what is
+          // true and what to do instead. Narrowed to `unbound_channel` on
+          // purpose: every OTHER reason (insufficient tier, disarmed, scope
+          // violation, non-human author) must still reach the author verbatim,
+          // or this spec's "refusals carry a specific reason" breaks. The AUDIT
+          // reason stays specific either way.
+          const dmScopedOut = msg.isDM && decision.reason === "unbound_channel";
+          await reply(
+            msg.channelId,
+            dmScopedOut
+              ? "Refused: direct messages don't drive sessions — use a workspace-bound channel."
+              : `Refused: ${decision.reason}.`,
+          );
           return;
         }
         gate = decision;

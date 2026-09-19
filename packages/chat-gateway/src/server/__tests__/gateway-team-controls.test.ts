@@ -387,6 +387,43 @@ describe("gateway team-controls integration", () => {
     expect(seam.spawns.length).toBeGreaterThan(before);
   });
 
+  it("F3/b: enrollment still works over DM, and a DM is refused with GUIDANCE, never a bare reason", async () => {
+    const { seam, adapter, gateway } = setup();
+    await gateway.start();
+
+    // 1. Enrollment is UNTOUCHED: the pairing branch returns before the
+    //    chokepoint, so scoping DMs out of session control must not break the
+    //    one flow that legitimately happens in a DM. The allowlist is also the
+    //    enrollment path for GUILD channels (auth.ts gates all talk on it), so
+    //    this is what makes "DM = enrollment channel" coherent rather than a
+    //    dead end.
+    const code = gateway.status().pairingCode;
+    expect(code).toMatch(/^\d{6}$/);
+    await gateway.handleInbound({ ...msg("dave", code), channelId: "dm_dave" });
+    await flush();
+    expect(seam.persistedAllowlists.at(-1)).toContain("dave");
+
+    // 2. ...but it must stop PROMISING session control the layer will refuse.
+    //    This was the actual defect: the reply said "You can now talk to
+    //    sessions.", then every later message was refused — a dead flow that
+    //    advertised itself as working.
+    const paired = adapter.sent.map((s) => s.content).join("\n");
+    expect(paired).not.toContain("You can now talk to sessions");
+    expect(paired).toContain("workspace-bound channel");
+
+    // 3. An allowlisted DM is refused BY DESIGN — a DM can never carry a
+    //    workspace binding — and the reply says what to do instead of dumping a
+    //    machine reason that reads like an operator forgot to bind the channel.
+    adapter.sent.length = 0;
+    const before = seam.spawns.length;
+    await gateway.handleInbound({ ...msg("alice", "hello"), channelId: "dm_alice" });
+    await flush();
+    const refusal = adapter.sent.map((s) => s.content).join("\n");
+    expect(refusal).toContain("don't drive sessions");
+    expect(refusal).not.toContain("unbound_channel");
+    expect(seam.spawns.length).toBe(before);
+  });
+
   it("6.4: a refused activation is not consumed — the invoker can still answer the same prompt", async () => {
     const { seam, adapter, gateway } = setup();
     await gateway.start();
