@@ -7,7 +7,7 @@
  * The test uses a valid proxy API key on both ports.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { homedir, networkInterfaces } from "node:os";
 import { join } from "node:path";
@@ -154,10 +154,16 @@ describe("second port is loopback-only even when the main server binds all inter
     const dashDir = join(homedir(), ".pi", "dashboard");
     const configPath = join(dashDir, "config.json");
     mkdirSync(dashDir, { recursive: true });
+    // Snapshot then RESTORE the config: `~/.pi/dashboard/config.json` is shared by
+    // every test file in this worker, so leaking `modelProxy.enabled` + a stale
+    // `secondPort` would change what later suites boot with. The restore runs in
+    // the `finally` below, and a file we created is removed again.
+    const hadConfig = existsSync(configPath);
+    const originalConfig = hadConfig ? readFileSync(configPath, "utf-8") : null;
     let existing: any = {};
     try {
-      existing = JSON.parse(readFileSync(configPath, "utf-8"));
-    } catch { /* no config yet */ }
+      existing = JSON.parse(originalConfig ?? "{}");
+    } catch { /* malformed — treat as empty; the restore below still runs */ }
     writeFileSync(configPath, JSON.stringify({
       ...existing,
       modelProxy: {
@@ -179,6 +185,11 @@ describe("second port is loopback-only even when the main server binds all inter
       expect(await canConnect(external, secondPort), "second port must not answer on a non-loopback address").toBe(false);
     } finally {
       await h.stop();
+      // Restore the shared config exactly as found (or remove a file we created).
+      try {
+        if (originalConfig === null) rmSync(configPath, { force: true });
+        else writeFileSync(configPath, originalConfig);
+      } catch { /* best-effort: never mask the assertion failure above */ }
     }
   }, 60_000);
 });

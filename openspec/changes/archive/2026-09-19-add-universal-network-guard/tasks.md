@@ -63,7 +63,7 @@ _Folded from `test-plan.md`. L1 = vitest `fastify.inject`; L3 = Playwright vs do
 ## Discipline checkpoints
 
 - [x] D1 `doubt-driven-review` — COMPLETE, 2 cycles. Cycle 1: pivot to namespace-scoped, `/v1` proxy-gate + guard-last ordering, SPA/auth out of jurisdiction. Cycle 2 (single-model + cross-model on `@propose-review-2`; `@propose-review-1` probed empty): `/mcp` omission, `/sw.js` false claim, denial-shape + blockEvents preservation, full 8-hook inventory, live-thunk trusted networks, bypassUrls-vs-preHandler trade-off, HEAD/fail-closed matching, Fastify preReady binding invariant. All folded. Re-review if the jurisdiction set or the independently-authenticated set changes.
-- [x] D2 `security-hardening` — COMPLETE, STRIDE over the three named surfaces. Findings folded: (1) the unparseable-URL branch logged the RAW target, so `/api/%zz?token=…` would have written a credential into `server.log` — fixed with `bestEffortPathForLog` (strips `?`/`#`, 200-byte bound) + tests (Info disclosure); (2) nested-path tricks (`/foo/../api/evil`) DO reach the guard normalized to `/api/evil`, so deny holds — the dependency on Fastify normalizing `request.url` before `onRequest` is now pinned by a 7-variant regression test rather than assumed (Tampering). Verified sound: `trustProxy` stays off so `X-Forwarded-For` cannot forge `request.ip` (pre-existing S1/S2 pin); the `/v1` gate returns early for non-`/v1` URLs so it can never set `isAuthenticated` for an `/api` request; `blockEvents` stays bounded + coalesced (DoS); `bypassUrls` reads `config.authConfig`, absent when auth is off, so the widest exception class is operator-only.
+- [x] D2 `security-hardening` — COMPLETE, STRIDE over the three named surfaces. Findings folded: (1) the unparseable-URL branch logged the RAW target, so `/api/%zz?token=…` would have written a credential into `server.log` — fixed with `bestEffortPathForLog` (strips `?`/`#`, 200-byte bound) + tests (Info disclosure); (2) nested-path tricks (Tampering) — originally recorded here as "Fastify normalizes `request.url` before `onRequest`", which the step-4.5 round-2 review DISPROVED: `request.url` is `raw.url`, unnormalized, and only the `inject` helper normalizes. The guard therefore resolves dot-segments itself and decides jurisdiction on the UNION of the raw and resolved views (see the round-2 and round-3 records below), pinned by real-socket tests in both directions. Verified sound: `trustProxy` stays off so `X-Forwarded-For` cannot forge `request.ip` (pre-existing S1/S2 pin); the `/v1` gate returns early for non-`/v1` URLs so it can never set `isAuthenticated` for an `/api` request; `blockEvents` stays bounded + coalesced (DoS); `bypassUrls` reads `config.authConfig`, absent when auth is off, so the widest exception class is operator-only.
 - [x] D3 `scenario-design` — matrix realized (see folded Tests): loopback · trusted · tunnel-authed · tunnel-anon · plugin · /v1 valid/invalid · /api/health · pairing · ws-mint · SPA shell · /auth/status · preflight.
 
 ## Validate
@@ -74,9 +74,13 @@ _Folded from `test-plan.md`. L1 = vitest `fastify.inject`; L3 = Playwright vs do
 
 ## Verification record
 
-- **T21 / V3 remain deferred** (manual-only, real zrok tunnel): the docker harness
-  cannot exercise a real tunnel. Deferred to post-merge by `ship-change`, as the
-  manifest allows.
+- **T21 / V3 are checked and their EVIDENCE IS NOT YET COLLECTED** (manual-only,
+  real zrok tunnel). They are flipped to `- [x]` by `ship-change` step 1 precisely
+  so the change can ship; the manifest (`test-plan.md` row S21) classifies both as
+  `manual-only`, and the docker harness cannot exercise a real tunnel, so no local
+  evidence is possible. Per this repo's convention these are marked done for
+  **post-merge verification**: the real-tunnel confirmation is performed after
+  merge, and both tasks stay unverified until it is.
 - **Local gates:** 312 tests green across 16 affected suites. All 7 deterministic
   enforcers exit 0. Zero new TypeScript errors and zero new Biome errors (both
   diffed against the pre-change baseline; the remaining `server.ts` /

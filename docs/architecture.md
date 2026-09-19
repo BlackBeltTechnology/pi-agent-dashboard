@@ -2583,6 +2583,8 @@ Outside is deliberate and load-bearing. Static assets, SPA shell (`/`), SPA deep
 
 **In-namespace public exceptions** (reachable unauthenticated inside `/api`): `GET`/`HEAD /api/health` (exact pathname; `HEAD` admitted because Fastify auto-exposes HEAD for a GET route); device-pairing bootstrap (`/api/pair/challenge`, `/api/pair/redeem`, `/api/pair/poll`); configured `auth.bypassUrls` prefixes.
 
+An exception must hold on **both** views of the target (see **Matching**). Note the scope of `auth.bypassUrls`: it is an exception from the **universal hook only**. A route that also carries a retained per-route `preHandler: networkGuard` is still refused by that `preHandler`, so a `bypassUrls` match is public only for routes WITHOUT a per-route guard. This is unchanged from before this guard existed — `auth.bypassUrls` has only ever skipped the auth plugin, never a per-route guard.
+
 **Pass conditions** (unchanged from the old per-route guard):
 1. **Genuine-local** — loopback AND no proxy-forwarding header (`x-forwarded-for`, `x-forwarded-host`, `x-forwarded-proto`, `x-real-ip`, `forwarded`). Tunnel presenting as `127.0.0.1` injects a forwarding header and fails here.
 2. **Local-IPC token** — `X-Pi-Local-Token` allowlist.
@@ -2591,7 +2593,13 @@ Outside is deliberate and load-bearing. Static assets, SPA shell (`/`), SPA deep
 
 Otherwise → 403.
 
-**Matching** runs on the parsed pathname, not the raw URL: query string and fragment stripped. `::ffff:` IPv4-mapped prefixes stripped before IP match. Unparseable target → fail closed (denied, treated as in-jurisdiction).
+**Matching** runs on TWO views of the target, and jurisdiction is the UNION of them:
+- the **raw** view — percent-decoded, query string and fragment stripped, dot-segments UNRESOLVED;
+- the **resolved** view — the same pathname with `.` / `..` resolved per RFC 3986.
+
+A request is in jurisdiction when **either** view is in jurisdiction. Unparseable target → fail closed (denied, treated as in-jurisdiction). `::ffff:` IPv4-mapped prefixes stripped before IP match. In-namespace exceptions must hold on **both** views.
+
+Both views are load-bearing because the router and the guard disagree about dot-segments: Fastify passes `onRequest` the RAW target, and find-my-way does not resolve dot-segments — it matches them into a `:param` / `*` slot as a literal value. Deciding on the resolved view alone would let `/api/provider-auth/..` reach `/api/provider-auth/:provider` with `provider = ".."`; deciding on the raw view alone would miss `/foo/../api/x`; judging an exception on one view would let `/live/<id>/../../api/pair/challenge` through as the pairing exception while `/live/:id/*` runs. A dotted target that is outside jurisdiction under BOTH views (e.g. `/foo/../settings`) stays a no-op.
 
 **`/v1/*` model proxy.** `createModelProxyAuthGate` (`packages/server/src/model-proxy/auth-gate.ts`) sets `request.isAuthenticated = true` on a valid `pi-proxy-*` key. Universal guard admits it via pass condition 4. Deliberately NO public `/v1` allowlist entry — such an entry would be a hole when the proxy is disabled.
 
