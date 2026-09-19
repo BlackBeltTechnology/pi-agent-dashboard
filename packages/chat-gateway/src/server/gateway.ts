@@ -870,15 +870,27 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
         onInteractiveResponse: (resp) => {
           const rec = prompts.get(resp.requestId);
           if (!rec) return;
-          // L1/L4: a click is an ACTOR's action, so re-authorize it. Rendering
+          // A click is an ACTOR's action, so re-authorize it. Rendering
           // the prompt is NOT a grant — any member of an opted-in group channel
           // can see the bot's buttons. A refused click must NOT consume the
           // prompt (an authorized user may still answer it).
+          //
+          // Resolve the SESSION's binding first, not just its channel id. A
+          // session in a THREAD carries the THREAD id as `channelId`, so both
+          // layers below need `parentChannelId` to resolve the binding at all —
+          // and the binding's `cwd` is what scope containment must be evaluated
+          // against. Omitting these reproduced two defects: prompts in threads
+          // were unanswerable (refused, logged, and silently never delivered,
+          // so the session blocked forever), and an out-of-scope target was
+          // authorized, answered, and recorded `permitted` — containment was
+          // simply never evaluated.
+          const bound = store.get(channelKeyFor(rec.sessionId) ?? "");
           const decision = authorize({
             config: { allowlist: config.allowlist, admins: config.admins, groupChannels: config.groupChannels },
             userId: resp.userId ?? "",
             action: "talk",
             channelId: rec.channelId,
+            ...(bound?.parentChannelId ? { parentChannelId: bound.parentChannelId } : {}),
             // L4: use the BINDING's real DM-ness. A synthesized value would
             // treat a THREAD (id not in groupChannels) as a DM and skip L4.
             isDM: rec.isDM,
@@ -897,6 +909,11 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
             const gate = team.authorizeRequest({
               author: { id: resp.userId ?? "" },
               channelId: rec.channelId,
+              ...(bound?.parentChannelId ? { parentChannelId: bound.parentChannelId } : {}),
+              // Scope containment is evaluated INSIDE the chokepoint; without a
+              // target it is skipped entirely, so a target outside the binding's
+              // workspace was authorized and logged `permitted`.
+              ...(bound?.cwd ? { targetCwd: bound.cwd } : {}),
               verb: "prompt_response",
               target: rec.sessionId,
             });
@@ -1015,12 +1032,14 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       const key = bindingKey({ platform, channelId: msg.channelId, threadId: msg.threadId });
 
       // Team-controls: the disarm switch (spec "Disarm switch" — ANY `observe`+
-      // principal may disarm from chat; only the DASHBOARD re-arms). The `!` sigil
-      // is REQUIRED, unlike the log commands above: matching a bare word would let
-      // an ordinary prompt ("how do I disarm X?") halt the whole layer. This is
-      // NOT a second authorization path — the request is authorized by the SAME
-      // chokepoint below, as the verb `disarm`.
-      const disarmCommand = team !== undefined && /^\s*!\s*disarm\b/i.test(msg.text);
+      // principal may disarm from chat; only the DASHBOARD re-arms). The whole
+      // message must be the command: the `!` sigil is the DEFAULT `steerPrefix`,
+      // so a looser match let an ordinary steer instruction ("!disarm the rate
+      // limiter in auth.ts") halt the entire layer for every principal — and only
+      // a dashboard operator could undo it. This is NOT a second authorization
+      // path — the request is authorized by the SAME chokepoint below, as the
+      // verb `disarm`.
+      const disarmCommand = team !== undefined && /^\s*!\s*disarm\s*$/i.test(msg.text);
 
       // Team-controls chokepoint (X11): every action-bearing request passes
       // through `authorizeRequest` BEFORE any session is spawned or driven.

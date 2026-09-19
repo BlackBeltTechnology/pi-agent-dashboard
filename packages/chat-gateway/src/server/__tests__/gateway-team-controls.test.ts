@@ -225,6 +225,74 @@ describe("gateway team-controls integration", () => {
     ]);
   });
 
+  it("B1: a prompt raised by a session in a THREAD is answerable at all (parent binding resolves)", async () => {
+    // A click is an actor's action, so it is re-authorized. The session lives in
+    // a THREAD, so its binding's `channelId` is the THREAD id and `chan1` is only
+    // reachable via `parentChannelId` — at BOTH layers (L4 opted-in check and the
+    // team chokepoint). Omitting it made every prompt in a thread unanswerable:
+    // the click was refused, nothing was sent, and because the refusal path only
+    // logs, the user saw NOTHING while the session blocked forever.
+    const { seam, adapter, gateway, store } = setup({ config: { groupChannels: ["chan1"] } });
+    store.set({
+      platform: "discord",
+      channelId: "thread1",
+      threadId: "thread1",
+      parentChannelId: "chan1",
+      sessionId: "s_thr",
+      cwd: "/repo/proj",
+      boundBy: "alice",
+      source: "spawn",
+      isDM: false,
+      createdAt: 2,
+    });
+    await gateway.start();
+    gateway.handleFrame("s_thr", {
+      type: "prompt_request",
+      promptId: "p_thr",
+      prompt: { type: "select", title: "Pick", options: ["a", "b"] },
+    });
+    await flush();
+    adapter.emitInteractiveResponse({ requestId: "p_thr", userId: "alice", value: "a" });
+    await flush();
+    expect(seam.sentResponses.length).toBeGreaterThan(0);
+  });
+
+  it("B2: a prompt for a session OUTSIDE the binding's workspace is refused, never recorded as permitted", async () => {
+    // Scope containment must be evaluated INSIDE the chokepoint (spec: "Scope
+    // containment SHALL be evaluated inside that authorization, not as a separate
+    // check"). The prompt path passed no `targetCwd`, so containment was never
+    // evaluated: an out-of-scope target was authorized, the answer WAS delivered,
+    // and the audit log — the operator's record of what happened — affirmatively
+    // recorded `permitted`. Reachable from any pre-existing binding whose cwd
+    // falls outside a newly-configured workspace.
+    const { seam, adapter, gateway, store, log } = setup({ config: { groupChannels: ["chan1"] } });
+    store.set({
+      platform: "discord",
+      channelId: "chan1",
+      sessionId: "s_out",
+      cwd: "/elsewhere/secret",
+      boundBy: "alice",
+      source: "spawn",
+      isDM: false,
+      createdAt: 3,
+    });
+    await gateway.start();
+    gateway.handleFrame("s_out", {
+      type: "prompt_request",
+      promptId: "p_out",
+      prompt: { type: "select", title: "Pick", options: ["a", "b"] },
+    });
+    await flush();
+    adapter.emitInteractiveResponse({ requestId: "p_out", userId: "alice", value: "a" });
+    await flush();
+    // The ANSWER must not be delivered — asserting on `sentPrompts` would pass
+    // vacuously, because an interactive answer travels as a RESPONSE.
+    expect(seam.sentResponses).toHaveLength(0);
+    const entry = log.entries().findLast((e) => e.verb === "prompt_response");
+    expect(entry?.outcome).toBe("refused");
+    expect(entry?.reason).toBe("scope_violation");
+  });
+
   it("X26: the command log is unreachable from chat", async () => {
     const { seam, adapter, gateway } = setup();
     await gateway.start();
@@ -502,16 +570,23 @@ describe("gateway team-controls integration", () => {
     expect(seam.sentPrompts.at(-1)?.text).toContain("hello");
   });
 
-  it("3.10: a bare 'disarm' in prose is NOT the command — an innocent prompt must never halt the layer", async () => {
+  it("3.10: a bare or in-sentence 'disarm' is NOT the command — prose must never halt the layer", async () => {
     const { seam, gateway, team } = setup();
     await gateway.start();
     await gateway.handleInbound(msg("alice", "how do I disarm a device?"));
     await flush();
-    // Matching a bare word would let a normal prompt halt the whole team layer,
-    // so the `!` sigil is REQUIRED here (unlike the log commands, whose bare
-    // form merely refuses one harmless message).
+    // Matching a bare word would let a normal prompt halt the whole team layer.
     expect(team.isDisarmed()).toBe(false);
     expect(seam.sentPrompts.at(-1)?.text).toContain("disarm a device");
+
+    // The stronger case: `!` is the DEFAULT `steerPrefix`, so `!disarm` followed
+    // by arguments is an ordinary STEER instruction. It must reach the session —
+    // not halt every principal's actions until a dashboard operator intervenes.
+    seam.sentPrompts.length = 0;
+    await gateway.handleInbound(msg("alice", "!disarm the rate limiter in auth.ts"));
+    await flush();
+    expect(team.isDisarmed()).toBe(false);
+    expect(seam.sentPrompts.at(-1)?.text).toContain("rate limiter");
   });
 
   it("6.4: a refused activation is not consumed — the invoker can still answer the same prompt", async () => {
