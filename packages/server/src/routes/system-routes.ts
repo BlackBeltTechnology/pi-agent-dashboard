@@ -67,7 +67,7 @@ import { spawnRestart } from "../spawn-process/restart-helper.js";
 import { readSpawnFailures } from "../spawn-process/spawn-failure-log.js";
 import { systemOpenCapability } from "../system-open-capability.js";
 import { connectResolvedProviders, createTunnel, deleteTunnel, disconnectResolvedProviders, ensureReservedName, getProviderReadiness, getTunnelStatus, getTunnelUrl, releaseShare, setPrimaryProvider } from "../tunnel/tunnel.js";
-import { blockEvents } from "../tunnel/tunnel-block-events.js";
+import { acceptTargetFor, blockEvents } from "../tunnel/tunnel-block-events.js";
 import { collectEndpoints } from "../tunnel/tunnel-endpoints.js";
 import { runEnrollStep } from "../tunnel/tunnel-enroll.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "../tunnel/tunnel-watchdog.js";
@@ -387,14 +387,81 @@ export function registerSystemRoutes(
     },
   );
 
-  // Recent network-guard denials for the "Trust this network?" banner.
-  // Anti-poisoning buffer; trust/remove itself goes through PUT /api/config
-  // (config.trustedNetworks). Auth-gated.
+  // Recent network-guard denials = the pending-access-request queue. The same
+  // anti-poisoning buffer backs the "Trust this network?" banner; reading it is
+  // auth-gated (networkGuard), so an untrusted peer cannot enumerate it.
+  // See change: add-access-grants-and-review.
   fastify.get(
     "/api/tunnel/block-events",
     { preHandler: networkGuard },
     async () => {
       return { success: true, data: { events: blockEvents.list() } } satisfies ApiResponse;
+    },
+  );
+
+  // Accept a pending access request. The denial IS the request (design D5), so
+  // this path performs exactly one write: the recorded socket peer is added to
+  // trusted networks through the EXISTING config write path
+  // (`writeConfigPartial`, the same one `PUT /api/config` uses). The ledger is
+  // never mutated and never mutates policy.
+  //
+  // ACCEPT-PATH SECURITY REVIEW (task 4.9) — this is the one action that widens
+  // network trust, so the checks and their rationale:
+  //   * The peer must be PRESENT in the ledger. An IP with no recorded pending
+  //     request is refused, so this is not a generic "trust any host" endpoint.
+  //   * `trustable:false` (loopback / proxy-terminated) is REFUSED: its socket
+  //     peer is the tunnel/reverse-proxy itself, and trusting it would trust
+  //     every client behind it (task 4.7).
+  //   * The value written is the ledger's recorded socket peer
+  //     (`request.ip` at denial time), never a caller-supplied network. A
+  //     spoofed `X-Forwarded-For` cannot become the accepted value, and the
+  //     caller cannot widen the blast radius to a subnet through this path.
+  //   * Auth-gated by `networkGuard` like every sibling route, so an
+  //     unauthenticated remote cannot accept. A genuinely-local process is
+  //     trusted by the pre-existing loopback model (design D15's stated limit).
+  //   * The mutating-origin gate (`createMutationOriginGate`) runs BESIDE this
+  //     route for every `/api/*` POST, so a cross-site page cannot drive an
+  //     accept even in the operator's own browser.
+  //   * On a config-write failure the failure is REPORTED (design D11) rather
+  //     than claiming a grant that did not persist; the pending entry stays
+  //     queued for a retry.
+  //   * Every accept is AUDITED (STRIDE: Repudiation) — the widening action is
+  //     recorded server-side, not just in the persisted config.
+  fastify.post<{ Body: { ip?: unknown } }>(
+    "/api/tunnel/block-events",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const ip = request.body?.ip;
+      if (typeof ip !== "string" || ip.length === 0) {
+        return reply.code(400).send({ success: false, error: "ip required" });
+      }
+      const entry = blockEvents.list().find((e) => e.ip === ip);
+      if (!entry) {
+        return reply
+          .code(404)
+          .send({ success: false, error: "no pending access request for that peer" });
+      }
+      if (acceptTargetFor(entry) === null) {
+        return reply.code(403).send({
+          success: false,
+          error: "not_acceptable",
+          reason: "Loopback or proxy-terminated peer — trusting it would trust the whole tunnel.",
+        });
+      }
+      // The canonical UI write path for host trust is `auth.bypassHosts` (the
+      // trusted-networks spec forbids the UI writing top-level
+      // `config.trustedNetworks` directly); the guard merges both at runtime.
+      const existing = readConfigRedacted().auth?.bypassHosts ?? [];
+      if (!existing.includes(ip)) {
+        const written = writeConfigPartial({ auth: { bypassHosts: [...existing, ip] } });
+        if (!written.success) {
+          return reply.code(500).send({ success: false, error: written.error });
+        }
+      }
+      // Audit the one action that widens network trust. `ip` is the guard's
+      // recorded socket peer (server-derived), so it needs no sanitizing.
+      console.log(`[network-trust] accepted pending request ip=${ip}`);
+      return { success: true } satisfies ApiResponse;
     },
   );
 

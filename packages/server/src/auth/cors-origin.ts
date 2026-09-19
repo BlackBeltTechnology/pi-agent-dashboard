@@ -62,7 +62,37 @@ export interface CorsOriginOptions {
 }
 
 /**
- * Decide whether `origin` may read a cross-origin response.
+ * Why a CORS origin decision came out the way it did.
+ *
+ * `configured` is the ONE revocable kind: it is allowed because the operator
+ * listed it in `cors.allowedOrigins`, so removing it from that list removes the
+ * allowance. Every other kind is a STRUCTURAL allowance (loopback, a live
+ * tunnel, the zrok wildcard, the neutral shell, a trusted-network host) and
+ * stays allowed no matter what the configured list says — the Access surface
+ * must show those as non-revocable rather than offer a revoke that cannot take
+ * effect. See change: add-access-grants-and-review (task 5.2).
+ */
+export type CorsAllowanceKind =
+  | "same-origin"
+  | "opaque"
+  | "loopback"
+  | "active-tunnel"
+  | "live-tunnel"
+  | "zrok-wildcard"
+  | "pwa-shell"
+  | "trusted-network"
+  | "configured"
+  | "denied";
+
+export interface CorsAllowance {
+  allowed: boolean;
+  /** True only for `kind: "configured"` — the one kind a revoke can remove. */
+  revocable: boolean;
+  kind: CorsAllowanceKind;
+}
+
+/**
+ * Decide whether `origin` may read a cross-origin response, and WHY.
  *
  * Ordered branches (first match wins):
  *  1. No Origin (same-origin navigation) → allow.
@@ -76,26 +106,30 @@ export interface CorsOriginOptions {
  *  7. Explicitly configured origin → allow.
  *  8. Origin host matches a trusted network (CIDR / wildcard / exact) → allow.
  *  9. Otherwise → deny (unknown-origin fallthrough).
+ *
+ * `isCorsOriginAllowed` delegates here, so the allow/deny decision and the
+ * revocability classification can never drift.
  */
-export function isCorsOriginAllowed(
+export function classifyCorsOrigin(
   origin: string | undefined,
   opts: CorsOriginOptions,
-): boolean {
+): CorsAllowance {
+  const allow = (kind: CorsAllowanceKind): CorsAllowance => ({ allowed: true, revocable: false, kind });
   // 1. Same-origin navigation — no Origin header.
-  if (!origin) return true;
+  if (!origin) return allow("same-origin");
   // 2. Opaque-origin document. Never echo an ACAO for it, so an embedded
   //    untrusted app cannot call dashboard APIs even cross-origin.
-  if (origin === "null") return false;
+  if (origin === "null") return { allowed: false, revocable: false, kind: "opaque" };
   try {
     const u = new URL(origin);
     const host = u.hostname;
-    // 3. Loopback — any port.
+    // 3. Loopback — any port. Structural: no configured list can revoke it.
     if (host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "::1") {
-      return true;
+      return allow("loopback");
     }
     // 4. Active zrok tunnel URL (dynamic — rotation without restart).
     const tunnelUrl = opts.getTunnelUrl?.() ?? null;
-    if (tunnelUrl && origin === tunnelUrl) return true;
+    if (tunnelUrl && origin === tunnelUrl) return allow("active-tunnel");
     // 4b. Any live tunnel's origin, for every provider. Compared as ORIGINS,
     //     not as URLs: a provider reports `https://host/path`, and a browser
     //     sends `https://host`, so a string equality against the raw URL would
@@ -107,30 +141,43 @@ export function isCorsOriginAllowed(
       } catch {
         continue;
       }
-      if (candidate === u.origin) return true;
+      if (candidate === u.origin) return allow("live-tunnel");
     }
     // 5. Any *.share.zrok.io (v1) or *.shares.zrok.io (v2) host.
     if (
       opts.allowZrokWildcard !== false &&
       (host.endsWith(".share.zrok.io") || host.endsWith(".shares.zrok.io"))
     ) {
-      return true;
+      return allow("zrok-wildcard");
     }
     // 6. Neutral static PWA shell (D1/D8).
-    if (origin === "https://pi-dashboard.dev") return true;
+    if (origin === "https://pi-dashboard.dev") return allow("pwa-shell");
     // 8. Trusted-network origin — LAN-to-LAN switching. Same matcher the WS
     //    upgrade / network guard uses, so `trustedNetworks` governs both the
     //    auth bypass and this read allowance from a single operator decision.
     if (opts.trustedNetworks.length > 0 && isBypassedHost(host, opts.trustedNetworks)) {
-      return true;
+      return allow("trusted-network");
     }
   } catch {
-    // Malformed origin → fall through to deny.
+    // Malformed origin → fall through; a configured literal may still match.
   }
-  // 7. Explicitly configured origins.
-  if (opts.configuredOrigins.includes(origin)) return true;
+  // 7. Explicitly configured origins — the ONLY revocable allowance.
+  if (opts.configuredOrigins.includes(origin)) {
+    return { allowed: true, revocable: true, kind: "configured" };
+  }
   // 9. Unknown cross-origin request — no CORS headers.
-  return false;
+  return { allowed: false, revocable: false, kind: "denied" };
+}
+
+/**
+ * Decide whether `origin` may read a cross-origin response. Thin wrapper over
+ * {@link classifyCorsOrigin} so allow/deny and classification cannot drift.
+ */
+export function isCorsOriginAllowed(
+  origin: string | undefined,
+  opts: CorsOriginOptions,
+): boolean {
+  return classifyCorsOrigin(origin, opts).allowed;
 }
 
 // ─── Admission: who may OPEN a socket / MUTATE state ────────────────────────

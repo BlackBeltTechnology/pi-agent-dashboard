@@ -1,5 +1,36 @@
 # Tasks — add-access-grants-and-review
 
+> **Implementation status (worktree `os/add-access-grants-and-review`).**
+> Ticked boxes are backed by a test file that EXISTS and PASSES (checked with
+> `packages/server/vitest.config.ts` from `packages/server`, or the owning
+> package's config). Notable evidence:
+> `packages/server/src/access/__tests__/access-grants.test.ts` (21),
+> `packages/server/src/lib/__tests__/grant-layer.test.ts` (20),
+> `packages/server/src/access/__tests__/access-denials.test.ts` (24),
+> `packages/server/src/__tests__/access-routes.test.ts` (22),
+> `packages/server/src/__tests__/network-denial-queue.test.ts` (21),
+> `packages/server/src/__tests__/cors-origin-classification.test.ts` (12),
+> `packages/kb/src/__tests__/trust.test.ts` (8),
+> plus the widened `file-absolute-containment`/`file-artifact-serving` suites.
+>
+> **Still open** (deliberately unticked): `2.8` (open-handle TOCTOU verification),
+> `4.10` (Audit spawn), `7.8` (server-side restart-free revoke assertion),
+> `7b.4` (security-hardening pass on the grant path), all of `8.1`–`8.3` and
+> `8.5`–`8.8`, and the folded `9*` rows whose test does not yet exist.
+> `3.4` is implemented as remedy copy only (pinning is accepted through the
+> pre-existing preferences write path); `5.1` records only when the request is
+> also network-denied, because the CORS origin callback is outside this change's
+> file scope.
+>
+> **Design corrections made during implementation** (details in each module's
+> header comment): the forbidden-subject list is exact-match for `/`, `$HOME` and
+> the platform system roots but exact-OR-descendant for `~/.ssh`/`~/.pi` — a
+> blanket descendant rule forbids every project directory (all live under
+> `$HOME`) and macOS temp dirs under `/private/var`; and a ladder rung is refused
+> when it SUBSUMES a forbidden subject, because on macOS `/private` would
+> otherwise admit `/private/etc`.
+
+
 Test-first throughout: write the failing test named in each `→ verify`, watch it
 fail, then implement to green. Discipline-skill checkpoints are called out where
 their trigger fires (`eng-disciplines`).
@@ -8,98 +39,98 @@ Nothing here suspends or holds open a request — that is `add-access-grant-dial
 
 ## 0. Dependency gate
 
-- [ ] 0.1 Confirm `add-universal-network-guard` is archived (or explicitly waived by the user). → verify: `openspec list --json` shows it archived, or a recorded waiver in this change's notes
-- [ ] 0.2 Record which UNG outputs this change consumes: the single `onRequest` denial site, the settled `request.isAuthenticated`, and the denial log fields. → verify: each named with a file:line reference
-- [ ] 0.3 If UNG is waived, add the ledger-generalization tasks it would have supplied to group 4 before starting. → verify: group 4 task count reflects the decision
+- [x] 0.1 Confirm `add-universal-network-guard` is archived (or explicitly waived by the user). → verify: `openspec list --json` shows it archived, or a recorded waiver in this change's notes
+- [x] 0.2 Record which UNG outputs this change consumes: the single `onRequest` denial site, the settled `request.isAuthenticated`, and the denial log fields. → verify: each named with a file:line reference
+- [x] 0.3 If UNG is waived, add the ledger-generalization tasks it would have supplied to group 4 before starting. → verify: group 4 task count reflects the decision
 
 ## 1. Path-grant store
 
-- [ ] 1.1 Add `packages/server/src/access/access-grants.ts` persisting `~/.pi/dashboard/access-grants.json` with subject, scope, grantedAt, origin. → verify: test writes and re-reads a grant with all four fields
-- [ ] 1.2 Implement `"session" | "project"` scope per the `worktree-init-trust.ts` precedent; session scope is in-memory only. → verify: two tests — project survives reload, session does not
-- [ ] 1.3 Treat a missing or malformed store as empty. → verify: tests for absent file and invalid JSON both yield zero grants
-- [ ] 1.4 Implement `listGrants` / `recordGrant` / `revokeGrant`. → verify: round-trip test through all three
-- [ ] 1.5 Enforce that a subject is a directory; a file path is stored as its `dirname`. → verify: test asserts `/a/b/c.txt` records `/a/b`
-- [ ] 1.6 Store the subject as its `realpath` at grant time, and display that value. → verify: two tests — granting a symlinked dir persists the target; retargeting the symlink afterwards does not move the grant
-- [ ] 1.7 Add a store-path override env var so tests never touch the real `~/.pi`. → verify: suite passes with a temp-dir store and no writes under `$HOME`
-- [ ] 1.8 On a grant-write failure, leave the subject ungranted and log the failure server-side; never fail the request (design.md D11). → verify: test injects `EACCES`, asserts a later read still 403s, a log line exists, and no 500 or unhandled rejection
-- [ ] 1.9 Cap the store at 200 entries **per scope**, evicting oldest-by-`grantedAt` within that scope only (design.md D10). → verify: two tests — a 201st grant evicts the oldest; session churn never removes a persisted project grant
-- [ ] 1.10 Write the store atomically (temp file + rename) (design.md D11). → verify: test interrupts mid-write and asserts the store reads back as old-or-new, never truncated
-- [ ] 1.11 Load the store into memory once and invalidate on write; never read it synchronously on the containment path (design.md D16). → verify: test asserts at most one store load across a 500-match grep request and zero sync reads
-- [ ] 1.12 Give session-scoped grants the same four fields as persisted ones, in memory only — not a bare string Set (design.md D17). → verify: test asserts a session grant lists subject, scope, `grantedAt`, origin
+- [x] 1.1 Add `packages/server/src/access/access-grants.ts` persisting `~/.pi/dashboard/access-grants.json` with subject, scope, grantedAt, origin. → verify: test writes and re-reads a grant with all four fields
+- [x] 1.2 Implement `"session" | "project"` scope per the `worktree-init-trust.ts` precedent; session scope is in-memory only. → verify: two tests — project survives reload, session does not
+- [x] 1.3 Treat a missing or malformed store as empty. → verify: tests for absent file and invalid JSON both yield zero grants
+- [x] 1.4 Implement `listGrants` / `recordGrant` / `revokeGrant`. → verify: round-trip test through all three
+- [x] 1.5 Enforce that a subject is a directory; a file path is stored as its `dirname`. → verify: test asserts `/a/b/c.txt` records `/a/b`
+- [x] 1.6 Store the subject as its `realpath` at grant time, and display that value. → verify: two tests — granting a symlinked dir persists the target; retargeting the symlink afterwards does not move the grant
+- [x] 1.7 Add a store-path override env var so tests never touch the real `~/.pi`. → verify: suite passes with a temp-dir store and no writes under `$HOME`
+- [x] 1.8 On a grant-write failure, leave the subject ungranted and log the failure server-side; never fail the request (design.md D11). → verify: test injects `EACCES`, asserts a later read still 403s, a log line exists, and no 500 or unhandled rejection
+- [x] 1.9 Cap the store at 200 entries **per scope**, evicting oldest-by-`grantedAt` within that scope only (design.md D10). → verify: two tests — a 201st grant evicts the oldest; session churn never removes a persisted project grant
+- [x] 1.10 Write the store atomically (temp file + rename) (design.md D11). → verify: test interrupts mid-write and asserts the store reads back as old-or-new, never truncated
+- [x] 1.11 Load the store into memory once and invalidate on write; never read it synchronously on the containment path (design.md D16). → verify: test asserts at most one store load across a 500-match grep request and zero sync reads
+- [x] 1.12 Give session-scoped grants the same four fields as persisted ones, in memory only — not a bare string Set (design.md D17). → verify: test asserts a session grant lists subject, scope, `grantedAt`, origin
 
 ## 2. Containment integration
 
-- [ ] 2.1 Add a grant subtree predicate to `path-containment.ts` — realpath the **requested path only**, compare against the stored subject verbatim, no checkout-root resolution, no widening — and prove it is NOT wired into `isAllowed`'s anchor list (design.md D1). → verify: two tests — granting `/repo/sub` in a real git repo still refuses `/repo/other`; replacing the granted directory with a symlink does not move the grant
-- [ ] 2.2 Assert the grant check preserves layer 2's symlink safety. → verify: two tests — a symlink out of a granted directory is refused; a symlink within it is allowed
-- [ ] 2.3 Assert `isAllowed` itself is behaviourally unchanged. → verify: the pre-existing `file-read-containment` suite passes with no change to any status code or `error` string — only the 20 strict body assertions of task 3.0 widen
-- [ ] 2.4 Apply the grant check at the 7 `isAllowed` sites in `file-routes.ts`, preserving each site's existing anchors — including `homePiAnchor()` at `:350,:746,:901` and the pinned anchor at `:661`. Note `isAllowed` is `async` since `widen-containment-to-resolved-checkout`; the grant predicate is too. → verify: per-site test asserts the anchor set is unchanged and `~/.pi` reads still succeed
-- [ ] 2.5 Apply the same treatment to `session-routes.ts:350` (the tenth containment site), preserving its `"path outside session directory"` string. The `file-read-containment` delta now names this site. → verify: route test asserts a grant admits there and the string is unchanged without one
-- [ ] 2.5a Confirm `openspec-routes.ts:541`'s local lexical cwd check is left untouched and out of scope, and note that pinning (task 3.4's remedy) widens its `knownCwds` set as a pre-existing consequence of pinning. → verify: test asserts that route's behaviour is unchanged by a path grant
-- [ ] 2.6 Apply the grant check to the two containment sites outside `file-routes` — `grep-routes.ts:60` (filters matches rather than 403ing) and `resolve-file-mention.ts`. → verify: test asserts a granted directory's matches appear in grep results
-- [ ] 2.7 Assert the empty-store invariant, including cost: short-circuit before any syscall when the grant set is empty (design.md D16). → verify: two tests — identical outcomes to layers 1–2 alone, and zero filesystem syscalls attributable to the grant layer
-- [ ] 2.10 Order the grant layer **after** the existing image-only artifact-root admission at `file-routes.ts:746`, and refer to it as the grant layer, never "layer 3" (avoids colliding with the in-source "Layer ③"). → verify: test asserts an artifact-root image is admitted with an empty grant store, grant layer never consulted
+- [x] 2.1 Add a grant subtree predicate to `path-containment.ts` — realpath the **requested path only**, compare against the stored subject verbatim, no checkout-root resolution, no widening — and prove it is NOT wired into `isAllowed`'s anchor list (design.md D1). → verify: two tests — granting `/repo/sub` in a real git repo still refuses `/repo/other`; replacing the granted directory with a symlink does not move the grant
+- [x] 2.2 Assert the grant check preserves layer 2's symlink safety. → verify: two tests — a symlink out of a granted directory is refused; a symlink within it is allowed
+- [x] 2.3 Assert `isAllowed` itself is behaviourally unchanged. → verify: the pre-existing `file-read-containment` suite passes with no change to any status code or `error` string — only the 20 strict body assertions of task 3.0 widen
+- [x] 2.4 Apply the grant check at the 7 `isAllowed` sites in `file-routes.ts`, preserving each site's existing anchors — including `homePiAnchor()` at `:350,:746,:901` and the pinned anchor at `:661`. Note `isAllowed` is `async` since `widen-containment-to-resolved-checkout`; the grant predicate is too. → verify: per-site test asserts the anchor set is unchanged and `~/.pi` reads still succeed
+- [x] 2.5 Apply the same treatment to `session-routes.ts:350` (the tenth containment site), preserving its `"path outside session directory"` string. The `file-read-containment` delta now names this site. → verify: route test asserts a grant admits there and the string is unchanged without one
+- [x] 2.5a Confirm `openspec-routes.ts:541`'s local lexical cwd check is left untouched and out of scope, and note that pinning (task 3.4's remedy) widens its `knownCwds` set as a pre-existing consequence of pinning. → verify: test asserts that route's behaviour is unchanged by a path grant
+- [x] 2.6 Apply the grant check to the two containment sites outside `file-routes` — `grep-routes.ts:60` (filters matches rather than 403ing) and `resolve-file-mention.ts`. → verify: test asserts a granted directory's matches appear in grep results
+- [x] 2.7 Assert the empty-store invariant, including cost: short-circuit before any syscall when the grant set is empty (design.md D16). → verify: two tests — identical outcomes to layers 1–2 alone, and zero filesystem syscalls attributable to the grant layer
+- [x] 2.10 Order the grant layer **after** the existing image-only artifact-root admission at `file-routes.ts:746`, and refer to it as the grant layer, never "layer 3" (avoids colliding with the in-source "Layer ③"). → verify: test asserts an artifact-root image is admitted with an empty grant store, grant layer never consulted
 - [ ] 2.8 Verify grant-admitted reads against the opened handle rather than a re-resolved path (`lstat` → reject non-regular → `open` → `fstat` dev+ino compare → serve from the fd), closing the check→open window (design.md D14). Scope: byte-serving sites only (read, raw, render, office/EML gates) — NOT tree, exists, mention, or grep, which never open a file and whose directory admission the regular-file rule would break. Grant layer only; do not touch layer 2's identical pre-existing window. → verify: race test asserts a refusal, plus a regression test that tree/exists/mention still work under a grant
-- [ ] 2.9 **`eng-disciplines` → `systematic-debugging`** if any pre-existing containment test goes red — root-cause before touching the test. → verify: the full `file-read-containment` suite is green
+- [x] 2.9 **`eng-disciplines` → `systematic-debugging`** if any pre-existing containment test goes red — root-cause before touching the test. → verify: the full `file-read-containment` suite is green
 
 ## 3. Denial bodies name their remedy
 
-- [ ] 3.0 Widen every strict `toEqual` denial-body assertion so additive fields pass — 20 across 5 files: `file-absolute-containment.test.ts` (10, incl. the `"unknown cwd"` assertion), `file-artifact-serving.test.ts` (7), `file-kind-endpoint.test.ts` (1), `file-raw-render-endpoints.test.ts` (1), `resolve-mention-endpoint.test.ts` (1) (design.md D7). → verify: diff touches only assertion shape — no status code, no `error` string
-- [ ] 3.1 Add `reason` and `hint` beside the unchanged `error` string at the cwd-allowlist sites, per the corrected census (design.md D18): `openspec-group-routes.ts:56`, `kb-plugin/src/server/kb-routes.ts` `rejectCwd` (one helper, four call sites, bare `{ error }`), `mcp-client-plugin/src/server/routes.ts:131,:163` (`{ error, message }`), `goal-plugin/src/server/routes.ts` (`rejectInvalidCwd` at `:80`, six call sites), and `file-routes.ts:647` (`"unknown cwd"`). There is no `routes/goal-routes.ts`; the goal denial lives in the goal plugin. → verify: test per site asserts the added fields and a byte-identical `error`
-- [ ] 3.2 Add the grantable subject and `denialId` to the containment denial bodies. The wire shape is uniformly `{ success, error }` — `gateFilePath`/`gateOfficeFile` return `{ code, error }` to their callers only, and every caller converts at `file-routes.ts:446,858,877,946,987,1021,1069`; do NOT emit the internal shape (design.md D7). → verify: test per shape asserts byte-identical pre-existing fields
-- [ ] 3.3a Preserve the `exists` site's own strings — `"unknown cwd"` / `"path outside cwd"` (`file-routes.ts:657,663`) — and leave the two body-less sites (`grep-routes.ts:60`, `resolve-file-mention.ts:76`) emitting no denial body. → verify: per-site test asserts each string, plus a test asserting no body was introduced at the body-less sites
-- [ ] 3.3 Confirm the non-HTTP denial sites stay untouched: `kb-plugin/src/server/index.ts:47`, `apple-tools/src/server/index.ts:113` (the file is 156 lines — the previously cited `:169` was past EOF), `embed-lifecycle/visitor-session-registry.ts:155`. → verify: test asserts their behaviour is unchanged
+- [x] 3.0 Widen every strict `toEqual` denial-body assertion so additive fields pass — 20 across 5 files: `file-absolute-containment.test.ts` (10, incl. the `"unknown cwd"` assertion), `file-artifact-serving.test.ts` (7), `file-kind-endpoint.test.ts` (1), `file-raw-render-endpoints.test.ts` (1), `resolve-mention-endpoint.test.ts` (1) (design.md D7). → verify: diff touches only assertion shape — no status code, no `error` string
+- [x] 3.1 Add `reason` and `hint` beside the unchanged `error` string at the cwd-allowlist sites, per the corrected census (design.md D18): `openspec-group-routes.ts:56`, `kb-plugin/src/server/kb-routes.ts` `rejectCwd` (one helper, four call sites, bare `{ error }`), `mcp-client-plugin/src/server/routes.ts:131,:163` (`{ error, message }`), `goal-plugin/src/server/routes.ts` (`rejectInvalidCwd` at `:80`, six call sites), and `file-routes.ts:647` (`"unknown cwd"`). There is no `routes/goal-routes.ts`; the goal denial lives in the goal plugin. → verify: test per site asserts the added fields and a byte-identical `error`
+- [x] 3.2 Add the grantable subject and `denialId` to the containment denial bodies. The wire shape is uniformly `{ success, error }` — `gateFilePath`/`gateOfficeFile` return `{ code, error }` to their callers only, and every caller converts at `file-routes.ts:446,858,877,946,987,1021,1069`; do NOT emit the internal shape (design.md D7). → verify: test per shape asserts byte-identical pre-existing fields
+- [x] 3.3a Preserve the `exists` site's own strings — `"unknown cwd"` / `"path outside cwd"` (`file-routes.ts:657,663`) — and leave the two body-less sites (`grep-routes.ts:60`, `resolve-file-mention.ts:76`) emitting no denial body. → verify: per-site test asserts each string, plus a test asserting no body was introduced at the body-less sites
+- [x] 3.3 Confirm the non-HTTP denial sites stay untouched: `kb-plugin/src/server/index.ts:47`, `apple-tools/src/server/index.ts:113` (the file is 156 lines — the previously cited `:169` was past EOF), `embed-lifecycle/visitor-session-registry.ts:155`. → verify: test asserts their behaviour is unchanged
 - [ ] 3.4 Wire the pinned-directory remedy so accepting it pins the refused directory, and assert a path grant never pins a cwd. → verify: two tests — remedy pins and retry returns 200; a path grant alone leaves the cwd refused
 
 ## 4. Denial ledger and network request/accept
 
-- [ ] 4.1 Generalize `BlockEventBuffer` past tunnel-only denials into the pending-access-request queue. → verify: test records a denial from a non-tunnel guarded namespace
-- [ ] 4.2 Assert all four anti-poisoning properties survive — socket-peer-only IP, dedupe, cap eviction, `trustable`. → verify: the existing `network-denial-ring-buffer` suite passes unchanged
-- [ ] 4.3 Add the refused-origin field for CORS entries without changing the IP dedupe key. → verify: test asserts origin captured and dedupe still by IP
-- [ ] 4.4 Assert eviction under the queue role degrades to a terminal 403 and re-records on retry. → verify: flood test asserts no grant side effect and successful re-record
-- [ ] 4.5 Expose pending access requests to trusted clients (auth-gated read). → verify: route test asserts the list and that an unauthenticated read is refused
-- [ ] 4.6 Implement accept → add the peer to trusted networks through the existing config write path. → verify: test asserts the config patch and that the ledger never mutated policy itself
-- [ ] 4.7 Suppress accept for `trustable: false` entries. → verify: test asserts no accept action for loopback and proxy-terminated peers
-- [ ] 4.8 Assert no unauthenticated inbound endpoint exists for creating a pending request. → verify: route-inventory test asserts the ledger is written only by the guard
-- [ ] 4.9 **`eng-disciplines` → `security-hardening`** on the accept path — the one action that widens network trust. → verify: findings recorded and addressed
+- [x] 4.1 Generalize `BlockEventBuffer` past tunnel-only denials into the pending-access-request queue. → verify: test records a denial from a non-tunnel guarded namespace
+- [x] 4.2 Assert all four anti-poisoning properties survive — socket-peer-only IP, dedupe, cap eviction, `trustable`. → verify: the existing `network-denial-ring-buffer` suite passes unchanged
+- [x] 4.3 Add the refused-origin field for CORS entries without changing the IP dedupe key. → verify: test asserts origin captured and dedupe still by IP
+- [x] 4.4 Assert eviction under the queue role degrades to a terminal 403 and re-records on retry. → verify: flood test asserts no grant side effect and successful re-record
+- [x] 4.5 Expose pending access requests to trusted clients (auth-gated read). → verify: route test asserts the list and that an unauthenticated read is refused
+- [x] 4.6 Implement accept → add the peer to trusted networks through the existing config write path. → verify: test asserts the config patch and that the ledger never mutated policy itself
+- [x] 4.7 Suppress accept for `trustable: false` entries. → verify: test asserts no accept action for loopback and proxy-terminated peers
+- [x] 4.8 Assert no unauthenticated inbound endpoint exists for creating a pending request. → verify: route-inventory test asserts the ledger is written only by the guard
+- [x] 4.9 **`eng-disciplines` → `security-hardening`** on the accept path — the one action that widens network trust. → verify: findings recorded and addressed
 - [ ] 4.10 **Spawn `Audit`** on the diff for groups 1–4 (auth/untrusted-input surface). → verify: findings triaged; parent fixes what lands
 
 ## 5. CORS observability
 
 - [ ] 5.1 Record CORS origin refusals into the ledger without altering the CORS decision. → verify: test asserts the entry exists and the response is unchanged
-- [ ] 5.2 Distinguish configured origins (revocable) from structural allowances. Note `cors-origin.ts` allows more than the configured list — loopback any port, the active tunnel URL, every live tunnel origin, any `*.share.zrok.io` / `*.shares.zrok.io` host, `pi-dashboard.dev`, and any host matching `trustedNetworks`/`bypassHosts`. → verify: unit test classifies each of those branches
+- [x] 5.2 Distinguish configured origins (revocable) from structural allowances. Note `cors-origin.ts` allows more than the configured list — loopback any port, the active tunnel URL, every live tunnel origin, any `*.share.zrok.io` / `*.shares.zrok.io` host, `pi-dashboard.dev`, and any host matching `trustedNetworks`/`bypassHosts`. → verify: unit test classifies each of those branches
 
 ## 6. Revoke support in stores that lack it
 
-- [ ] 6.1 Add a revoke function to `git-worktree/worktree-init-trust.ts` clearing both the persisted entry and the in-memory `sessionTrust` Set. → verify: test grants at session scope, revokes, asserts not trusted without restart
-- [ ] 6.2 Add a revoke function to `packages/kb/src/trust.ts`. → verify: test records then revokes and asserts `isTrusted` is false
-- [ ] 6.3 Record the source subject alongside the hash in `kb-source-trust.json`, additively. → verify: two tests — a new entry exposes its subject; a legacy hash-only entry reads without error
-- [ ] 6.4 Assert no existing store file is rewritten or migrated. → verify: test snapshots each store file before/after a read and asserts equality
+- [x] 6.1 Add a revoke function to `git-worktree/worktree-init-trust.ts` clearing both the persisted entry and the in-memory `sessionTrust` Set. → verify: test grants at session scope, revokes, asserts not trusted without restart
+- [x] 6.2 Add a revoke function to `packages/kb/src/trust.ts`. → verify: test records then revokes and asserts `isTrusted` is false
+- [x] 6.3 Record the source subject alongside the hash in `kb-source-trust.json`, additively. → verify: two tests — a new entry exposes its subject; a legacy hash-only entry reads without error
+- [x] 6.4 Assert no existing store file is rewritten or migrated. → verify: test snapshots each store file before/after a read and asserts equality
 
 ## 7. Client — Settings → Access tab
 
-- [ ] 7.1 Add the `Access` page to `navGroups` in `SettingsPanel.tsx` with its route page id. → verify: test asserts the tab renders and routes
-- [ ] 7.2 Aggregate entries from all eight in-scope stores, each labelled with its origin store, with `auth.bypassHosts` listed separately from `config.trustedNetworks`. → verify: fixture test asserts each store appears and the two host stores are distinguishable
-- [ ] 7.3 Confirm the two deliberately excluded stores stay excluded and the rationale is recorded: `paired-devices.json` and `auth.bypassUrls`. → verify: the exclusion rationale is present in `design.md` D6
-- [ ] 7.4 Render an empty state when no store holds a grant. → verify: test asserts the empty state, not an error
-- [ ] 7.5 Implement revoke per entry against the correct store. → verify: test per store asserts the correct write path is called
-- [ ] 7.6 Render legacy hash-only KB entries as opaque hashes with a working revoke. → verify: test asserts no error and a functioning revoke
-- [ ] 7.7 Assert loading the page performs no store writes. → verify: test asserts zero writes during render
+- [x] 7.1 Add the `Access` page to `navGroups` in `SettingsPanel.tsx` with its route page id. → verify: test asserts the tab renders and routes
+- [x] 7.2 Aggregate entries from all eight in-scope stores, each labelled with its origin store, with `auth.bypassHosts` listed separately from `config.trustedNetworks`. → verify: fixture test asserts each store appears and the two host stores are distinguishable
+- [x] 7.3 Confirm the two deliberately excluded stores stay excluded and the rationale is recorded: `paired-devices.json` and `auth.bypassUrls`. → verify: the exclusion rationale is present in `design.md` D6
+- [x] 7.4 Render an empty state when no store holds a grant. → verify: test asserts the empty state, not an error
+- [x] 7.5 Implement revoke per entry against the correct store. → verify: test per store asserts the correct write path is called
+- [x] 7.6 Render legacy hash-only KB entries as opaque hashes with a working revoke. → verify: test asserts no error and a functioning revoke
+- [x] 7.7 Assert loading the page performs no store writes. → verify: test asserts zero writes during render
 - [ ] 7.8 Assert revocation takes effect on the next request without a restart. → verify: integration test grants, revokes, retries, expects 403
-- [ ] 7.9 Ship the tab with no grant-creation control — review and revoke only (design.md D12). → verify: test asserts no control creates a grant for an arbitrary subject
-- [ ] 7.12 Route project-trust revoke through the existing `persistTrustDecision` wrapper (`pi/resource-toggle-trust.ts:158`, already used at `resource-activation-routes.ts:222`); confirm its delete semantics remove the entry rather than record a standing refusal (design.md D13). → verify: test asserts the entry is absent afterwards and no negative decision was written
-- [ ] 7.13 List session-scoped grants alongside persisted ones with all four fields and a working revoke (design.md D17). → verify: fixture test asserts the session grant renders and revokes
-- [ ] 7.10 Add i18n strings for every new user-facing string. → verify: no hard-coded English; i18n source updated
-- [ ] 7.11 Style with theme tokens only, per the `theme-system` skill. → verify: no raw hex or px in the new component
+- [x] 7.9 Ship the tab with no grant-creation control — review and revoke only (design.md D12). → verify: test asserts no control creates a grant for an arbitrary subject
+- [x] 7.12 Route project-trust revoke through the existing `persistTrustDecision` wrapper (`pi/resource-toggle-trust.ts:158`, already used at `resource-activation-routes.ts:222`); confirm its delete semantics remove the entry rather than record a standing refusal (design.md D13). → verify: test asserts the entry is absent afterwards and no negative decision was written
+- [x] 7.13 List session-scoped grants alongside persisted ones with all four fields and a working revoke (design.md D17). → verify: fixture test asserts the session grant renders and revokes
+- [x] 7.10 Add i18n strings for every new user-facing string. → verify: no hard-coded English; i18n source updated
+- [x] 7.11 Style with theme tokens only, per the `theme-system` skill. → verify: no raw hex or px in the new component
 
 ## 7b. Denial registry, grant endpoint, and creation hardening
 
-- [ ] 7b.0 Add the path-denial registry: keyed by grantable subject, entries carrying id + subject + site + session + timestamp, TTL-expiring, capped with oldest-evicted, written only by the denial path (design.md D20). → verify: tests for record, expiry, cap eviction, and a route-inventory scan proving no inbound endpoint creates an entry
-- [ ] 7b.0a Add the grant endpoint itself, returning a persistence-failure indication in its own response per D11 — no other task creates it. → verify: test asserts the success response and the write-failure response
-- [ ] 7b.1 Bind a grant request to a recorded denial id and grant only the subject that denial named **or one of its offered ancestors**; refuse a sibling, an unrelated directory, and expired or unknown ids (design.md D15). → verify: four tests — unnamed directory refused, sibling refused, offered ancestor accepted, expired id refused
-- [ ] 7b.1a Compute the offered-ancestor ladder from the subject's **real path**, truncated at the nearest boundary (git checkout root inclusive; home directory / mount point exclusive), with the forbidden-subject filter applied to every rung, and carry it in the denial body. → verify: tests for the no-repo ladder stopping below `$HOME`, the in-repo ladder stopping at the checkout root, ancestors derived from the real path (a symlink's lexical parent never offered), a forbidden rung removed, and an empty ladder when the parent is `$HOME`
-- [ ] 7b.1b Record on a widened grant that its subject was widened, and the denied subject it came from, so the Access surface can display both. → verify: test asserts both fields persist and render
-- [ ] 7b.2 Refuse `/`, `$HOME`, `~/.ssh`, `~/.pi` and the platform system directories (`/etc`, `/usr`, `/var`, `/Library`, Windows equivalents) as grant subjects, comparing **real paths** so `/etc` via `/private/etc` and a symlinked `$HOME` are caught. The filter SHALL apply identically to a ladder rung and to a named subject. → verify: test per subject plus a symlink-alias case, each run against both a named subject and an ancestor rung
-- [ ] 7b.3 Require authentication on the grant endpoint and reject cross-origin invocation. Record in `design.md` that this does NOT establish operator presence — `auth-plugin.ts:298` bypasses auth for genuinely-local requests, so a local process can read the denial and satisfy the binding itself (design.md D15). → verify: two tests — unauthenticated refused, disallowed origin refused; plus the limit stated in the design
+- [x] 7b.0 Add the path-denial registry: keyed by grantable subject, entries carrying id + subject + site + session + timestamp, TTL-expiring, capped with oldest-evicted, written only by the denial path (design.md D20). → verify: tests for record, expiry, cap eviction, and a route-inventory scan proving no inbound endpoint creates an entry
+- [x] 7b.0a Add the grant endpoint itself, returning a persistence-failure indication in its own response per D11 — no other task creates it. → verify: test asserts the success response and the write-failure response
+- [x] 7b.1 Bind a grant request to a recorded denial id and grant only the subject that denial named **or one of its offered ancestors**; refuse a sibling, an unrelated directory, and expired or unknown ids (design.md D15). → verify: four tests — unnamed directory refused, sibling refused, offered ancestor accepted, expired id refused
+- [x] 7b.1a Compute the offered-ancestor ladder from the subject's **real path**, truncated at the nearest boundary (git checkout root inclusive; home directory / mount point exclusive), with the forbidden-subject filter applied to every rung, and carry it in the denial body. → verify: tests for the no-repo ladder stopping below `$HOME`, the in-repo ladder stopping at the checkout root, ancestors derived from the real path (a symlink's lexical parent never offered), a forbidden rung removed, and an empty ladder when the parent is `$HOME`
+- [x] 7b.1b Record on a widened grant that its subject was widened, and the denied subject it came from, so the Access surface can display both. → verify: test asserts both fields persist and render
+- [x] 7b.2 Refuse `/`, `$HOME`, `~/.ssh`, `~/.pi` and the platform system directories (`/etc`, `/usr`, `/var`, `/Library`, Windows equivalents) as grant subjects, comparing **real paths** so `/etc` via `/private/etc` and a symlinked `$HOME` are caught. The filter SHALL apply identically to a ladder rung and to a named subject. → verify: test per subject plus a symlink-alias case, each run against both a named subject and an ancestor rung
+- [x] 7b.3 Require authentication on the grant endpoint and reject cross-origin invocation. Record in `design.md` that this does NOT establish operator presence — `auth-plugin.ts:298` bypasses auth for genuinely-local requests, so a local process can read the denial and satisfy the binding itself (design.md D15). → verify: two tests — unauthenticated refused, disallowed origin refused; plus the limit stated in the design
 - [ ] 7b.4 **`eng-disciplines` → `security-hardening`** on the grant-creation path, mirroring the hardening `tunnel-block-events.ts` applies to its own one-click trust action. → verify: findings recorded and addressed
 
 ## 8. Verification and landing
@@ -107,7 +138,7 @@ Nothing here suspends or holds open a request — that is `add-access-grant-dial
 - [ ] 8.1 Add an E2E spec covering grant → read succeeds → revoke → denied again, following an existing `tests/e2e/` spec as harness exemplar (there is no `author-dashboard-e2e-spec` skill; the runner skill is `run-dashboard-e2e-local-changes`). → verify: `npm run test:e2e` green against the docker harness
 - [ ] 8.2 Assert suite runtime is unchanged within noise. → verify: before/after timing on `npm test`
 - [ ] 8.3 Run `npm run quality:changed` and clear findings (`code-quality`). → verify: clean
-- [ ] 8.4 Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then grep the summary. → verify: no `FAIL`, summary line shows passed
+- [x] 8.4 Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then grep the summary. → verify: no `FAIL`, summary line shows passed
 - [ ] 8.5 Update the directory `AGENTS.md` rows for every new and changed file. → verify: `kb dox lint` reports no `missing` or `stale` rows
 - [ ] 8.6 **Spawn `DocScribe`** for `docs/` prose — why grants are a subtree check rather than an `isAllowed` anchor, and the realpath-at-grant-time rule. → verify: caveman-style rows returned and applied by the parent
 - [ ] 8.7 **`eng-disciplines` → `review-code`** on the full diff before commit. → verify: findings resolved or consciously accepted

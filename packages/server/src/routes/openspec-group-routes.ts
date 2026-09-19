@@ -53,7 +53,16 @@ export function registerOpenSpecGroupRoutes(
     for (const d of preferencesStore.getPinnedDirectories()) known.add(d);
     if (!known.has(cwd)) {
       reply.code(403);
-      reply.send({ success: false, error: "cwd not allowed" } satisfies ApiResponse);
+      // Additive remedy fields beside the unchanged `error` (design D7/D18):
+      // the known-cwd set already includes pinned directories, so pinning the
+      // refused directory is the offered remedy. See change:
+      // add-access-grants-and-review.
+      reply.send({
+        success: false,
+        error: "cwd not allowed",
+        reason: "cwd is not a known session or pinned directory.",
+        hint: "Pin this directory to allow it, or open a session rooted in it.",
+      } as unknown as ApiResponse);
       return true;
     }
     return false;

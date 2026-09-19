@@ -91,7 +91,10 @@ describe("openspec group REST routes", () => {
       expect(res.statusCode).toBe(403);
       const body = JSON.parse(res.payload);
       expect(body.success).toBe(false);
-      expect(body.error).toMatch(/cwd/i);
+      // Task 3.1 (design D7/D18): `error` byte-identical, `reason`/`hint` additive.
+      expect(body.error).toBe("cwd not allowed");
+      expect(typeof body.reason).toBe("string");
+      expect(typeof body.hint).toBe("string");
     } finally {
       await fs.rm(otherDir, { recursive: true, force: true });
     }

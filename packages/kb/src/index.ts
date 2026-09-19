@@ -34,7 +34,20 @@ export type { SearchOptsOverrides } from "./search-opts.js";
 export { SCHEMA_VERSION } from "./sqlite-store.js";
 export { resolveAll, classifyRef, sourceIdentity, resolverFor } from "./sources.js";
 export type { KbSourceKind, ResolvedSource, ResolveCtx, SourceResolver } from "./sources.js";
-export { isTrusted, recordTrust, canonicalSource, sourceHash } from "./trust.js";
+// The Access review surface (change: add-access-grants-and-review) needs the
+// trust store's revoke + displayable listing. Exported from the package ROOT
+// because kb's `exports` map exposes only "." — a `/trust.js` subpath import
+// does not resolve.
+export {
+  isTrusted,
+  recordTrust,
+  revokeTrust,
+  revokeTrustByHash,
+  listTrustedSources,
+  sourceSubject,
+  canonicalSource,
+  sourceHash,
+} from "./trust.js";
 export { agentsChain, doxInit, doxLint, fallbackManifest, parseRowPaths, resolveRowPath } from "./dox.js";
 export type { AgentsEntry, DoxInitPlan, DoxIssue, DoxLintResult } from "./dox.js";
 export { enrichHits, HASH_CAP_BYTES, COVERAGE_CAP_BYTES, SUBJECT_CAP } from "./verdict.js";

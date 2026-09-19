@@ -24,7 +24,8 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { isAllowed } from "./path-containment.js";
+import { isAllowed, isGrantAdmitted } from "./path-containment.js";
+import { grantedSubjects } from "../access/access-grants.js";
 
 export type MentionKind = "abs" | "tilde" | "relative";
 
@@ -73,8 +74,10 @@ export async function resolveFileMention(
 
   // Containment BEFORE stat (design D2). Anchors: cwd + fixed `~/.pi`; git-root
   // widening comes from isAllowed's layer ②.
+  // Consumes grants; returns null rather than a body, so it can never
+  // originate a grant (design D12).
   if (!(await isAllowed(candidate, { anchors: [cwd, homePiAnchor()] }))) {
-    return null;
+    if (!(await isGrantAdmitted(candidate, grantedSubjects()))) return null;
   }
   try {
     await fs.stat(candidate);

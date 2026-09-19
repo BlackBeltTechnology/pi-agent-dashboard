@@ -148,6 +148,7 @@ import { registerDoctorRoutes } from "./routes/doctor-routes.js";
 import { registerFileRoutes } from "./routes/file-routes.js";
 import { registerGitRoutes } from "./routes/git-routes.js";
 import { registerGrepRoutes } from "./routes/grep-routes.js";
+import { registerAccessRoutes } from "./routes/access-routes.js";
 import { registerHostGateRoutes } from "./routes/host-gate-routes.js";
 import { registerKnownServersRoutes } from "./routes/known-servers-routes.js";
 import { registerLiveServerRoutes } from "./routes/live-server-routes.js";
@@ -1634,6 +1635,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
   registerFileRoutes(fastify, { sessionManager, preferencesStore, networkGuard });
   registerGrepRoutes(fastify, { sessionManager, networkGuard });
+  // Settings → Access review surface + the one endpoint that can create a
+  // filesystem grant. See change: add-access-grants-and-review.
+  registerAccessRoutes(fastify, { networkGuard, preferencesStore, writeConfigPartial });
   // Grammar routes moved into the grammar plugin's server entry
   // (packages/grammar-plugin/src/server), which registers
   // /api/grammar/* via ctx.fastify + ctx.modelRuntime. See change:

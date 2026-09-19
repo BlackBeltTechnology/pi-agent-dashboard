@@ -103,6 +103,44 @@ export async function checkoutAnchors(anchor: string): Promise<string[]> {
 }
 
 /**
+ * The **grant layer**: is `resolved` inside one of the granted subtrees?
+ *
+ * Applied *after* `isAllowed` returns false, and deliberately NOT expressed as
+ * an extra `isAllowed` anchor — `isAllowed` widens every anchor it receives to
+ * that anchor's bound checkout roots (`checkoutAnchors`), so appending a grant
+ * for `…/repo/sub` would silently admit all of `…/repo`. What the UI names must
+ * be exactly what is granted (design D1).
+ *
+ * Symlink handling is asymmetric by design:
+ *   - `realpath` the **request** side only. A lexical compare would reintroduce
+ *     the escape layer ② exists to close, inside granted directories.
+ *   - The **stored subject is already a realpath** (captured at grant time,
+ *     design D2) and is compared verbatim. Re-resolving it at check time would
+ *     let a symlink swapped in over the subject — or over any ancestor of it —
+ *     silently migrate the grant, reopening the hole D2 closes.
+ *
+ * Strict `fs.realpath`, NOT `safeRealpath`: a path that does not resolve is
+ * refused rather than compared via its nearest existing ancestor. That is what
+ * makes a granted directory that was later deleted (or recreated as a symlink)
+ * refuse instead of match. An empty grant list short-circuits before any
+ * syscall, which is what keeps "empty store is byte-identical" true of cost too
+ * (design D16).
+ */
+export async function isGrantAdmitted(
+  resolved: string,
+  subjects: readonly string[],
+): Promise<boolean> {
+  if (subjects.length === 0) return false;
+  let real: string;
+  try {
+    real = await fs.realpath(resolved);
+  } catch {
+    return false;
+  }
+  return subjects.some((subject) => within(real, subject));
+}
+
+/**
  * Allow `resolved` if it is contained by ANY anchor's cwd-subtree (layer ①) or
  * by that anchor's bound checkout roots (layer ②). All anchors are checked
  * against layer ① first so git is spawned only when every fast path misses.

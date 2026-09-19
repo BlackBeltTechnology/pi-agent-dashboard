@@ -94,3 +94,22 @@ export function recordTrust(repoRoot: string, hash: string, scope: TrustScope = 
   map[key] = true;
   save(map);
 }
+
+/**
+ * Revoke trust for this `repoRoot + hash` from BOTH stores. Idempotent.
+ *
+ * A subject may hold session trust, project trust, or both; revoke clears the
+ * in-memory session entry (so the grant dies without a process restart) AND
+ * deletes the persisted project entry. A key absent from both is a no-op and
+ * leaves the store file untouched.
+ * See change: add-access-grants-and-review (task 6.1).
+ */
+export function revokeTrust(repoRoot: string, hash: string): void {
+  const key = trustKey(repoRoot, hash);
+  sessionTrust.delete(key);
+  const map = load();
+  if (Object.prototype.hasOwnProperty.call(map, key)) {
+    delete map[key];
+    save(map);
+  }
+}

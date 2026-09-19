@@ -2,6 +2,7 @@
  * Session-related REST API routes.
  */
 import { readFile } from "node:fs/promises";
+import { evaluateContainment } from "../access/containment-gate.js";
 import { isAbsolute, relative, resolve } from "node:path";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
@@ -390,8 +391,17 @@ export function registerSessionRoutes(
       const absPath = isAbsolute(filePath) ? filePath : resolve(session.cwd, filePath);
       const rel = relative(session.cwd, absPath);
       if (rel.startsWith("..") || isAbsolute(rel)) {
-        reply.code(403);
-        return { success: false, error: "path outside session directory" } satisfies ApiResponse;
+        // The tenth containment site (design D19). A path grant admits here
+        // exactly as it does at the file-routes sites; the refusal string is
+        // unchanged when no grant covers it.
+        const sessionDecision = await evaluateContainment(absPath, [session.cwd], {
+          site: "session-routes:session-file",
+          session: sessionId,
+        });
+        if (!sessionDecision.allowed) {
+          reply.code(403);
+          return { success: false, error: "path outside session directory", ...sessionDecision.remedy } as ApiResponse;
+        }
       }
       try {
         const content = await readFile(absPath, "utf-8");

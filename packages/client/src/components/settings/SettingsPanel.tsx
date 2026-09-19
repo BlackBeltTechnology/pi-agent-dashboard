@@ -23,7 +23,7 @@ import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared
 import { mergeModelOptions } from "@blackbelt-technology/pi-dashboard-shared/model-catalogue.js";
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
+import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
@@ -56,6 +56,7 @@ import { logRejection } from "../../lib/report-error.js";
 import { useCustomEventGroups } from "../../lib/state/custom-event-groups.js";
 import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
+import { AccessSection } from "./AccessSection.js";
 import { KnownServersSection } from "../connectivity/KnownServersSection.js";
 import { NetworkDiscoverySection } from "../connectivity/NetworkDiscoverySection.js";
 import { PairedDevicesSection } from "../connectivity/PairedDevicesSection.js";
@@ -456,7 +457,10 @@ const SETTINGS_PAGE_ALIASES: Record<string, string> = {
 // `gateway` is a built-in Network-group page (tunnel providers UI), added to
 // the client route whitelist only (not a plugin-claimable slot).
 // See change: add-tunnel-providers.
-const VALID_PAGES = new Set<string>([...VALID_SETTINGS_TABS, "instructions", "gateway"]);
+// `access` is a built-in Network-group page (the grant review/revoke surface),
+// added to the client route whitelist only (not a plugin-claimable slot), like
+// `gateway` above. See change: add-access-grants-and-review.
+const VALID_PAGES = new Set<string>([...VALID_SETTINGS_TABS, "instructions", "gateway", "access"]);
 
 // Global-scope resource card pages. Page id → the singular `PiResource.type` its
 // grid renders. See change: resources-card-tabs.
@@ -1220,6 +1224,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
         { id: "remote", label: t("settings.remoteServers", undefined, "Remote Servers"), icon: mdiWeb },
         { id: "gateway", label: t("settings.gateway", undefined, "Gateway"), icon: mdiTunnel },
         { id: "security", label: t("settings.security", undefined, "Security"), icon: mdiLock },
+        { id: "access", label: t("settings.access", undefined, "Access"), icon: mdiShieldCheck },
       ],
     },
     {
@@ -2161,6 +2166,8 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                 <ServersTab />
               </>
             )}
+
+            {activeTab === "access" && <AccessSection />}
 
             {activeTab === "security" && (
               <>

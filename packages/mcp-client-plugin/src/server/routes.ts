@@ -34,6 +34,15 @@ export interface McpClientRouteDeps {
 
 const PREFIX = "/api/mcp-client";
 
+/**
+ * Additive remedy fields on a cwd-allowlist refusal (design D7/D18). `error`
+ * and `message` are unchanged; the known-cwd set already includes pinned
+ * directories, so pinning the refused directory is the offered remedy. See
+ * change: add-access-grants-and-review.
+ */
+const CWD_DENIED_REASON = "cwd is not a known session or pinned directory.";
+const CWD_DENIED_HINT = "Pin this directory to allow it, or open a session rooted in it.";
+
 function refusalParts(refusal: ConfigRefusal): { status: number; body: Record<string, unknown> } {
   switch (refusal.code) {
     case "invalid-name":
@@ -42,7 +51,19 @@ function refusalParts(refusal: ConfigRefusal): { status: number; body: Record<st
     case "missing-transport":
       return { status: 400, body: { error: refusal.code, message: refusal.message, fields: refusal.fields ?? [] } };
     case "not-allowed":
-      return { status: 403, body: { error: refusal.code, message: refusal.message } };
+      // The config writer's cwd refusal (`NotAllowedCwdError`) reaches the wire
+      // through this case on the DELETE / `disabled` routes, which have no
+      // inline `isAllowedCwd` pre-check. Same `{ error, message }` shape, plus
+      // the additive cwd remedy. See change: add-access-grants-and-review.
+      return {
+        status: 403,
+        body: {
+          error: refusal.code,
+          message: refusal.message,
+          reason: CWD_DENIED_REASON,
+          hint: CWD_DENIED_HINT,
+        },
+      };
     case "unparseable":
     case "entry-not-object":
       return { status: 409, body: { error: refusal.code, message: refusal.message } };
@@ -128,7 +149,15 @@ async function handleServerPatch(
   // Admit the cwd BEFORE the adapter merge read (same rule as the writer,
   // hoisted so a disallowed cwd performs no IO).
   if (parsed.scope.kind === "project" && !isAllowedCwd(parsed.scope.cwd, deps.knownCwds)) {
-    return { status: 403, body: { error: "not-allowed", message: `cwd not allowed: ${parsed.scope.cwd}` } };
+    return {
+      status: 403,
+      body: {
+        error: "not-allowed",
+        message: `cwd not allowed: ${parsed.scope.cwd}`,
+        reason: CWD_DENIED_REASON,
+        hint: CWD_DENIED_HINT,
+      },
+    };
   }
   const validation = validateServerPatch(body.set);
   if (!validation.ok) {
@@ -160,7 +189,12 @@ export function mountMcpClientRoutes(fastify: FastifyInstance, deps: McpClientRo
     }
     const cwd = rawCwd;
     if (cwd !== undefined && !isAllowedCwd(cwd, deps.knownCwds)) {
-      return reply.code(403).send({ error: "not-allowed", message: `cwd not allowed: ${cwd}` });
+      return reply.code(403).send({
+        error: "not-allowed",
+        message: `cwd not allowed: ${cwd}`,
+        reason: CWD_DENIED_REASON,
+        hint: CWD_DENIED_HINT,
+      });
     }
     const scope: Scope = cwd ? { kind: "project", cwd } : { kind: "global" };
     try {

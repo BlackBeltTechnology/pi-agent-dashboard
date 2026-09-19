@@ -31,6 +31,30 @@ import {
   resolveRowLimit,
 } from "../lib/office-preview.js";
 import { isAllowed } from "../lib/path-containment.js";
+import { evaluateContainment, type DenialRemedy } from "../access/containment-gate.js";
+
+/**
+ * A gate failure. `error` is byte-identical to what the site returned before
+ * this change; `reason`/`hint`/`subject`/`denialId` are ADDITIVE (design D7) so
+ * the denial can name its remedy and bind a later grant to this refusal (D15).
+ * `{ code, error }` stays INTERNAL — callers convert via `denialBody`.
+ */
+type GateFailure = { code: number; error: string } & Partial<DenialRemedy>;
+
+/**
+ * The single conversion from a gate failure to the wire body. Every containment
+ * caller uses this so the additive fields cannot drift between sites, and so
+ * pre-existing fields stay byte-identical (task 3.2).
+ */
+function denialBody(gate: GateFailure): ApiResponse {
+  const body: Record<string, unknown> = { success: false, error: gate.error };
+  if (gate.reason !== undefined) body.reason = gate.reason;
+  if (gate.hint !== undefined) body.hint = gate.hint;
+  if (gate.subject !== undefined) body.subject = gate.subject;
+  if (gate.denialId !== undefined) body.denialId = gate.denialId;
+  if (gate.ancestors !== undefined) body.ancestors = gate.ancestors;
+  return body as unknown as ApiResponse;
+}
 import { resolveFileMention } from "../lib/resolve-file-mention.js";
 import { isWritableMdTarget } from "../lib/writable-md-target.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
@@ -186,14 +210,15 @@ async function gateFilePath(
   cwd: string | undefined,
   relPath: string | undefined,
   sessionManager: SessionManager,
-): Promise<{ resolved: string } | { code: number; error: string }> {
+): Promise<{ resolved: string } | GateFailure> {
   if (!cwd || !relPath) return { code: 400, error: "cwd and path parameters required" };
   if (!sessionManager.listAll().some((s) => s.cwd === cwd)) {
     return { code: 403, error: "unknown session path" };
   }
   const resolved = path.resolve(cwd, relPath);
-  if (!(await isAllowed(resolved, { anchors: [cwd] }))) {
-    return { code: 403, error: "path outside working directory" };
+  const decision = await evaluateContainment(resolved, [cwd], { site: "file-routes:gateFilePath" });
+  if (!decision.allowed) {
+    return { code: 403, error: "path outside working directory", ...decision.remedy };
   }
   return { resolved };
 }
@@ -237,7 +262,7 @@ export function registerFileRoutes(
     sizeCap: number,
   ): Promise<
     | { resolved: string; ext: string; stat: import("node:fs").Stats }
-    | { code: number; error: string }
+    | GateFailure
   > {
     if (!cwd || !relPath) return { code: 400, error: "cwd and path parameters required" };
     const ext = path.extname(relPath).toLowerCase();
@@ -246,8 +271,9 @@ export function registerFileRoutes(
       return { code: 403, error: "unknown session path" };
     }
     const resolved = path.resolve(cwd, relPath);
-    if (!(await isAllowed(resolved, { anchors: [cwd] }))) {
-      return { code: 403, error: "path outside working directory" };
+    const decision = await evaluateContainment(resolved, [cwd], { site: "file-routes:gateOfficeFile" });
+    if (!decision.allowed) {
+      return { code: 403, error: "path outside working directory", ...decision.remedy };
     }
     let stat: import("node:fs").Stats;
     try {
@@ -347,9 +373,13 @@ export function registerFileRoutes(
       const resolved = path.resolve(cwd, relPath);
       // Anchors include the fixed `~/.pi` allowlist so a resolved `~/.pi/…`
       // mention (from `/api/file/resolve-mention`) previews without a 403 (D7).
-      if (!(await isAllowed(resolved, { anchors: [cwd, homePiAnchor()] }))) {
+      const readDecision = await evaluateContainment(resolved, [cwd, homePiAnchor()], {
+        site: "file-routes:read",
+        session: cwd,
+      });
+      if (!readDecision.allowed) {
         reply.code(403);
-        return { success: false, error: "path outside working directory" } satisfies ApiResponse;
+        return { success: false, error: "path outside working directory", ...readDecision.remedy } as unknown as ApiResponse;
       }
 
       try {
@@ -444,7 +474,7 @@ export function registerFileRoutes(
     const gate = await gateFilePath(cwd, rawPath, sessionManager);
     if ("code" in gate) {
       reply.code(gate.code);
-      return { success: false, error: gate.error };
+      return denialBody(gate);
     }
     const { cmd, args } = build(systemOpenPlatform, gate.resolved);
     systemOpenRun(cmd, args);
@@ -487,9 +517,13 @@ export function registerFileRoutes(
       }
 
       const resolved = path.resolve(cwd, relPath);
-      if (!(await isAllowed(resolved, { anchors: [cwd] }))) {
+      const treeDecision = await evaluateContainment(resolved, [cwd], {
+        site: "file-routes:tree",
+        session: cwd,
+      });
+      if (!treeDecision.allowed) {
         reply.code(403);
-        return { success: false, error: "path outside working directory" } satisfies ApiResponse;
+        return { success: false, error: "path outside working directory", ...treeDecision.remedy } as unknown as ApiResponse;
       }
 
       try {
@@ -644,7 +678,18 @@ export function registerFileRoutes(
       for (const dir of preferencesStore.getPinnedDirectories()) knownCwds.add(dir);
       if (!knownCwds.has(cwd)) {
         reply.code(403);
-        return { success: false, error: "unknown cwd" } satisfies ApiResponse;
+        // Additive remedy fields beside the unchanged `"unknown cwd"` string
+        // (design D7/D18); the known-cwd set already includes pinned
+        // directories, so pinning the refused directory is the offered remedy.
+        // The `"path outside cwd"` refusals below are a different site and keep
+        // their shape (the relative-probe guard carries no remedy). See change:
+        // add-access-grants-and-review.
+        return {
+          success: false,
+          error: "unknown cwd",
+          reason: "cwd is not a known session or pinned directory.",
+          hint: "Pin this directory to allow it, or open a session rooted in it.",
+        } as unknown as ApiResponse;
       }
       // Anti-traversal: probePath MUST be inside cwd (or a pinned dir / repo
       // git root). Pinned-dir anchor is exists-only; not folded onto read/raw/render.
@@ -658,9 +703,13 @@ export function registerFileRoutes(
       }
       const resolved = path.resolve(probePath);
       const anchors = [cwd, ...preferencesStore.getPinnedDirectories()];
-      if (!(await isAllowed(resolved, { anchors }))) {
+      const existsDecision = await evaluateContainment(resolved, anchors, {
+        site: "file-routes:exists",
+        session: cwd,
+      });
+      if (!existsDecision.allowed) {
         reply.code(403);
-        return { success: false, error: "path outside cwd" } satisfies ApiResponse;
+        return { success: false, error: "path outside cwd", ...existsDecision.remedy } as unknown as ApiResponse;
       }
       try {
         await fs.access(resolved);
@@ -742,12 +791,20 @@ export function registerFileRoutes(
       // roots — is image-only and real-path contained; it covers agent
       // screenshots that live outside every cwd and git root.
       // See change: serve-agent-artifact-previews.
-      if (
-        !(await isAllowed(resolved, { anchors: [cwd, homePiAnchor()] })) &&
-        !(await isImageUnderArtifactRoot(resolved))
-      ) {
-        reply.code(403);
-        return { success: false, error: "path outside working directory" } satisfies ApiResponse;
+      // Ordering is load-bearing (design D1): the image-only artifact-root
+      // admission at this site ("Layer ③" in source) runs BEFORE the grant
+      // layer, and the grant layer is never consulted when it admits.
+      if (!(await isAllowed(resolved, { anchors: [cwd, homePiAnchor()] }))) {
+        if (!(await isImageUnderArtifactRoot(resolved))) {
+          const rawDecision = await evaluateContainment(resolved, [cwd, homePiAnchor()], {
+            site: "file-routes:raw",
+            session: cwd,
+          });
+          if (!rawDecision.allowed) {
+            reply.code(403);
+            return { success: false, error: "path outside working directory", ...rawDecision.remedy } as unknown as ApiResponse;
+          }
+        }
       }
 
       let stat;
@@ -856,7 +913,7 @@ export function registerFileRoutes(
         const gate = await gateOfficeFile(cwd, relPath, [".pptx"], officeCaps.pptxSizeCap);
         if ("code" in gate) {
           reply.code(gate.code);
-          return { success: false, error: gate.error } satisfies ApiResponse;
+          return denialBody(gate);
         }
         const result = await renderPptx(
           gate.resolved,
@@ -875,7 +932,7 @@ export function registerFileRoutes(
         const gate = await gateOfficeFile(cwd, relPath, [".docx"], officeCaps.docxSizeCap);
         if ("code" in gate) {
           reply.code(gate.code);
-          return { success: false, error: gate.error } satisfies ApiResponse;
+          return denialBody(gate);
         }
         const result = await renderDocx(
           gate.resolved,
@@ -898,9 +955,13 @@ export function registerFileRoutes(
       }
 
       const resolved = path.resolve(cwd, relPath);
-      if (!(await isAllowed(resolved, { anchors: [cwd, homePiAnchor()] }))) {
+      const renderDecision = await evaluateContainment(resolved, [cwd, homePiAnchor()], {
+        site: "file-routes:render",
+        session: cwd,
+      });
+      if (!renderDecision.allowed) {
         reply.code(403);
-        return { success: false, error: "path outside working directory" } satisfies ApiResponse;
+        return { success: false, error: "path outside working directory", ...renderDecision.remedy } as unknown as ApiResponse;
       }
 
       let source: string;
@@ -944,7 +1005,7 @@ export function registerFileRoutes(
       );
       if ("code" in gate) {
         reply.code(gate.code);
-        return { success: false, error: gate.error } satisfies ApiResponse;
+        return denialBody(gate);
       }
       const out = pdfCachePath(gate.resolved, gate.stat.mtimeMs, gate.stat.size);
       try {
@@ -985,7 +1046,7 @@ export function registerFileRoutes(
       );
       if ("code" in gate) {
         reply.code(gate.code);
-        return { success: false, error: gate.error } satisfies ApiResponse;
+        return denialBody(gate);
       }
       let buffer: Buffer;
       try {
@@ -1019,7 +1080,7 @@ export function registerFileRoutes(
       const gate = await gateFilePath(request.query.cwd, request.query.path, sessionManager);
       if ("code" in gate) {
         reply.code(gate.code);
-        return { success: false, error: gate.error } satisfies ApiResponse;
+        return denialBody(gate);
       }
       const ext = path.extname(request.query.path ?? "").toLowerCase();
       if (ext !== ".eml") {
@@ -1067,7 +1128,7 @@ export function registerFileRoutes(
       const gate = await gateFilePath(request.query.cwd, request.query.path, sessionManager);
       if ("code" in gate) {
         reply.code(gate.code);
-        return { success: false, error: gate.error } satisfies ApiResponse;
+        return denialBody(gate);
       }
       if (path.extname(request.query.path ?? "").toLowerCase() !== ".eml") {
         reply.code(400);
