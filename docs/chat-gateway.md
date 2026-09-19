@@ -14,6 +14,11 @@ Inbound chat control plane plugin (`@blackbelt-technology/pi-dashboard-chat-gate
 - Complex prompt types (`multiselect`, `batch`) sequence sub-prompts, collect answers, submit single `prompt_response`.
 - Web UI prompt response dismisses pending Discord controls automatically (`prompt_dismiss` / `prompt_cancel`).
 - Plugin stays inert when `token` omitted; defers importing `discord.js`. Settings panel remains available while inert.
+- State directory (`~/.pi/dashboard/chat-gateway/`):
+  - `bindings.json`: active channel/thread session routing records.
+  - `channels.json`: workspace↔channel provisioning store.
+  - `command-log.json`: append-only action audit trail (mode 0600).
+  - `disarm.json`: persistent emergency disarm latch (mode 0600).
 
 ## Discord Bot Setup
 
@@ -63,9 +68,10 @@ Precedence ladder:
    - Disconnected live session emits unreachable error into channel (`no bridge connection`).
 2. **Fixed mapping (`fixedMap`)**: Resolves `fixedMap[channelKey]`. If configured and within `allowedRoots`, spawns new session in mapped directory.
 3. **Default directory (`defaultCwd`)**: Falls back to `defaultCwd`. If configured and within `allowedRoots`, spawns new session.
-4. **Interactive attach**: Attaches to running session when exactly one open session exists within `allowedRoots`.
-   - Zero open sessions in range: refuses attach; prompts operator to configure `fixedMap` or `defaultCwd`.
-   - Multiple open sessions in range: refuses attach; prevents ambiguous session hijack.
+4. **Interactive attach**: Attaches to running session when exactly one open session exists within scope.
+   - Bound channel: filters running sessions by bound workspace folders (`isWithinWorkspace`). Zero open sessions in range refuses attach, naming bound workspace folders (`This channel is bound to a workspace, but no live session is inside it (<folders>). Nothing was attached.`); prevents adopting out-of-workspace sessions from broader `allowedRoots`.
+   - Unbound channel: filters running sessions by `allowedRoots`. Zero open sessions in range refuses attach; prompts operator to configure `fixedMap` or `defaultCwd`.
+   - Ambiguous attach: multiple open sessions in scope refuses attach; prevents session hijack.
 5. **Refusal**: Returns explicit reason if candidate directory fails `allowedRoots` or resolution finds no target.
 
 ## L1 Pairing Flow
@@ -163,7 +169,7 @@ Read-only inspection API for monitoring and settings integration:
 
 ## Team Controls
 
-> **Status.** Implemented: tier model + authorization chokepoint, workspace scoping and `allowedRoots` narrowing, outbound filter + pacing, append-only command log, chat `!disarm`, question gating, trust-failure detection, channel provisioning with create-time overwrites, access reconciliation, workspace↔channel binding store, dashboard configuration surface (tasks 8.x: settings panel, delegation queries, config-write reconciliation with rollback), and L3 Playwright E2E specs (scenarios 10g.1–10g.6 at `tests/e2e/chat-gateway-team-controls.spec.ts`, passing under `PI_CHAT_GATEWAY_FAKE=1` and `=nolist`; scenario 10g.7 covered at L1 due to mirror lane injection constraints).
+> **Status.** Implemented: tier model + authorization chokepoint, workspace scoping and `allowedRoots` narrowing, bound-workspace attach confinement, outbound filter + pacing, append-only command log with outcome validation and `/api/health` persist reporting, chat `!disarm` with regex confinement, persistent disarm latch (`disarm.json`), per-thread mirror levels, question gating, trust-failure detection, channel provisioning with create-time overwrites, access reconciliation, workspace↔channel binding store (`channels.json`), dashboard configuration surface (tasks 8.x: settings panel, delegation queries, config-write reconciliation with rollback), and L3 Playwright E2E specs (scenarios 10g.1–10g.6 at `tests/e2e/chat-gateway-team-controls.spec.ts`, passing under `PI_CHAT_GATEWAY_FAKE=1` and `=nolist`; scenario 10g.7 covered at L1 due to mirror lane injection constraints). Remaining open tasks: manual QA against a real Discord test guild (tasks 9.6, 10h.1, 10h.2).
 
 Layered multi-user governance under L1 allowlist and L2 admins. Enforces role-based tiering, workspace scoping, outbound payload filtering, and rate pacing.
 
@@ -207,6 +213,7 @@ flowchart TD
 - Narrowing invariant: workspace binding only narrows `allowedRoots`, never widens. Workspace folders outside `allowedRoots` remain inert and skipped during spawn/attach.
 - Real-path (`fs.realpathSync.native`) containment checked on every transition and resume.
 - Scope containment evaluated inside chokepoint: target session cwd must reside inside bound workspace folders, else `scope_violation`. Free-text cwd in chat never resolves targets.
+- Interactive attach candidate confinement: bound channel filters candidate sessions via `isWithinWorkspace` against workspace folders; ignores sessions in other `allowedRoots` directories.
 - Channel→workspace bindings in the separate provisioning store `channels.json`; session↔thread routing stays in `bindings.json`. One channel per workspace; records retained after a binding goes inactive. Channel and history never deleted.
 - Trust failure: host trust-gated verb returning no-op (e.g. `assignSessionRef` returning `false`) marks layer unhealthy and refuses command. Requires plugin manifest `priority: 100` (`<= 100`). Sticky; first cause wins.
 
@@ -223,16 +230,19 @@ flowchart TD
 
 ### Rollback & Lifecycle Safety
 
-- Disarm command syntax: `!disarm` in workspace-bound chat channel. `!` sigil required (`/^\s*!\s*disarm\b/i`); bare word `disarm` in prose ignored (never halts layer).
+- Disarm command syntax: `!disarm` as entire message in workspace-bound chat channel (regex `/^\s*!\s*disarm\s*$/i`). Exact whole-message match required; `!` matches default `steerPrefix`, so conversational instructions (`!disarm the rate limiter`) dispatch as steer instructions and never halt layer. Bare word `disarm` in prose ignored.
 - Disarm authorization: any principal holding `>= observe` can disarm via chat (declared in `CHAT_LOCAL_VERB_TIERS`); chokepoint `team.authorizeRequest` authorizes request as verb `disarm`.
-- Disarm outcome: sets in-memory latch; logs disarm attempt to audit log; replies `"Disarmed. Actions are refused until an operator re-arms from the dashboard."` (duplicate disarm replies `"Already disarmed."`); blocks subsequent action requests; passive mirroring continues.
-- Re-arm switch: dashboard-only (`rearmFromDashboard`); chat re-arm refused (`rearmFromChat` returns `rearm_requires_dashboard`).
-- Disarm limitation: latch in-memory; server restart clears latch and re-arms layer (task 11.3).
+- Disarm outcome: sets persistent latch; writes `disarm.json`; logs disarm attempt to audit log; replies `"Disarmed. Actions are refused until an operator re-arms from the dashboard."` (duplicate disarm replies `"Already disarmed."`); blocks subsequent action requests; passive mirroring continues.
+- Global disarm decision: disarm latch is global across entire layer, never per-binding. Deliberate: per-binding latch fails open during incident (operator halt in one workspace leaves runaway principal active in other workspaces). Spec mandates layer halt. Latch only revokes authority, never grants it.
+- Re-arm switch: dashboard-only (`rearmFromDashboard`, or dashboard config write); chat re-arm refused (`rearmFromChat` returns `rearm_requires_dashboard`).
+- Disarm persistence: latch survives server restarts. Persisted to `~/.pi/dashboard/chat-gateway/disarm.json` (mode 0600, atomic rename). Controller boots from `disarm.json` (`initialDisarmed`); falls back to `config.disarmed` only when nothing was ever persisted. Controller routes all transitions through single `setDisarmed` chokepoint, notifying `onDisarmChange`.
 - Workspace deletion marks binding inactive; leaves channel and message history intact. Channel deletion drops binding; leaves running sessions active.
 - Channel provisioning executes atomic create-with-overwrites (`@everyone` view denied); missing overwrite permissions aborts channel creation and flags plugin health.
 - Missing bot token leaves plugin inert (no adapter, socket, or timers). Settings panel still works: surface is a local projection (in-memory policy + file reads), so an operator inspects and edits policy before a token exists; delegation reports unavailable, never an empty roster.
 - Team layer optional to `createChatGateway`; omitting `teamControls` restores baseline L1/L2 operation.
-- Command log: append-only ring buffer bounded by `auditRetention` (default 10000, max 1000000); no edit or delete operations.
+- Command log: append-only ring buffer in `~/.pi/dashboard/chat-gateway/command-log.json` (mode 0600, atomic rename) bounded by `auditRetention` (default 10000, max 1000000); exposes no edit or delete operations. Synchronous whole-log rewrite per append ensures durability over latency.
+- Command log validation: `isEntry` drops entries missing valid `outcome` (`permitted` or `refused`) on load; prevents truncated/corrupted log entries manufacturing false authorizations.
+- Command log error reporting: failed write catches error, invokes `onPersistFailure`, surfaces warning in `/api/health.plugins[]`; never throws into message path (prevents disk errors silencing bot).
 
 ## Configuration Reference
 

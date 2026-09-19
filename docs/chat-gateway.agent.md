@@ -10,6 +10,7 @@ Pull-only condensed map. Source: docs/chat-gateway.md.
 - Streaming deltas edit throttled (`editThrottleMs`, default 1000 ms); chunks responses >2000 chars.
 - Interactive prompts (`ask_user`, `confirm`, `select`, `multiselect`, `batch`) map native buttons/menus; web response dismisses Discord controls.
 - Inert without `token`: no adapter, no socket, no timer; defers `discord.js` import.
+- State directory (`~/.pi/dashboard/chat-gateway/`): `bindings.json` (routing), `channels.json` (provisioning), `command-log.json` (audit, 0600), `disarm.json` (latch, 0600).
 
 ## Discord Bot Setup
 - Discord Developer Portal: create application, add Bot, copy token, enable **Message Content Intent**.
@@ -29,7 +30,7 @@ Pull-only condensed map. Source: docs/chat-gateway.md.
   1. Persisted binding (`~/.pi/dashboard/chat-gateway/bindings.json`): routes prompt; resumes ended via transcript; unreachable error if disconnected.
   2. `fixedMap[channelKey]` (within `allowedRoots`): spawns new session.
   3. `defaultCwd` (within `allowedRoots`): spawns new session.
-  4. Interactive attach: attaches if exactly 1 session open in `allowedRoots`; refuses if 0 or >1.
+  4. Interactive attach: bound channel filters running sessions to bound workspace folders (`isWithinWorkspace`); refuses if 0 (names folders) or >1. Unbound channel filters `allowedRoots`; refuses if 0 or >1.
   5. Refusal: fails `allowedRoots` or no target.
 
 ## L1 Pairing Flow
@@ -60,7 +61,7 @@ Pull-only condensed map. Source: docs/chat-gateway.md.
 
 ## Team Controls
 - Multi-user governance under L1 allowlist / L2 admins; optional to `createChatGateway`.
-- Implemented: tier model, chokepoint, workspace scoping, outbound filter/pacer, audit log, channel provisioning (`channels.json`), binding store (`bindings.json`), dashboard config surface (tasks 8.x), L3 Playwright specs (10g.1–10g.6; 10g.7 at L1).
+- Implemented: tier model, chokepoint, workspace scoping, bound-workspace attach confinement, outbound filter/pacer, audit log (`command-log.json`), channel provisioning (`channels.json`), binding store (`bindings.json`), durable disarm latch (`disarm.json`), per-thread mirror levels, dashboard config surface (tasks 8.x), L3 Playwright specs (10g.1–10g.6; 10g.7 at L1). Remaining: manual test guild QA (9.6, 10h.1, 10h.2).
 - Tier ladder: `observe` < `control` < `operate`.
 - Verb tiers read from `GENERATED_TOOLS`; allowed chat verbs restricted to `CHAT_COMMAND_ALLOWLIST` (includes `disarm`).
 - Chat-local verbs declare tier in `CHAT_LOCAL_VERB_TIERS` (`disarm` -> `observe`).
@@ -71,13 +72,15 @@ Pull-only condensed map. Source: docs/chat-gateway.md.
 - Nine refusal reasons: `non_human_author`, `unbound_channel`, `no_principal_mapping`, `scope_violation`, `disarmed`, `non_delegable_verb`, `verb_not_allowlisted`, `verb_unknown_tier`, `insufficient_tier`.
 - Direct messages enrollment-only: DM cannot carry workspace binding; `unbound_channel` in DM directs author to bound channel; other refusal reasons report verbatim.
 - Interactive prompts: `>= control` required; invoker-only if principal initiated turn.
-- Workspace scoping: binding only narrows `allowedRoots`; outside folders inert; free-text cwd never resolves; `scope_violation` inside chokepoint.
+- Workspace scoping: binding only narrows `allowedRoots`; outside folders inert; interactive attach confines to bound workspace folders; free-text cwd never resolves; `scope_violation` inside chokepoint.
 - Host trust failure: no-op from host trust-gated verb marks layer unhealthy, refuses commands; sticky.
 - Outbound filtering: mirror levels `names-only` (default), `names-and-diffs`, `full-transcript`. Structured payloads only; assistant prose mirrors verbatim (`FILTER_BOUNDARY_NOTE`). Raising level forward-only; truncation adds `… [elided N characters]`.
 - Outbound pacing: 5 msgs / 5 s per channel (`RATE_WINDOW_MS = 5000`, `RATE_MAX_POSTS = 5`); 1 in-flight per thread; coalesces excess. Mirroring independent of disarm/tier.
-- Disarm command: `!disarm` in bound channel; `!` sigil required (bare prose ignored); `>= observe` can disarm; sets in-memory latch; re-arm from dashboard only; server restart re-arms (task 11.3). Passive mirroring continues.
+- Disarm command: `!disarm` whole message (`/^\s*!\s*disarm\s*$/i`); conversational instructions with steer prefix (`!`) ignored; `>= observe` can disarm; passive mirroring continues.
+- Disarm latch: global across layer (never per-binding; prevents failing open); survives restart via `disarm.json` (0600, atomic rename); boot seeds from file, falls back to config only if unpersisted; re-arm dashboard-only; single `setDisarmed` writer.
 - Lifecycle: workspace deletion deactivates binding; channel deletion drops binding, keeps sessions.
-- Command log: append-only ring buffer bounded by `auditRetention` (default 10000, max 1000000).
+- Command log: append-only ring buffer in `command-log.json` (0600) bounded by `auditRetention` (default 10000, max 1000000); synchronous rewrite for durability.
+- Command log validation/error: `isEntry` drops entries missing valid `outcome` on load; write errors report via `onPersistFailure` to `/api/health.plugins[]` instead of throwing.
 
 ## Configuration Reference
 - `enabled` (boolean, default true), `token` (string, writeOnly), `allowedRoots` (string[], default []), `fixedMap` (object), `defaultCwd` (string).
