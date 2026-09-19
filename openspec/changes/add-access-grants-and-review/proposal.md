@@ -4,8 +4,8 @@
 
 Every access guard in the dashboard denies **silently and terminally**. A blocked
 request returns a 403 and stops there: the filesystem containment sites in
-`file-routes.ts` return a bare `"path outside working directory"`, and four HTTP
-routes return an unknown-`cwd` refusal (while the knob that would *unblock* them
+`file-routes.ts` return a bare `"path outside working directory"`, and five HTTP
+route families return an unknown-`cwd` refusal (while the knob that would *unblock* them
 — a pinned directory — already exists and is never mentioned). The user is
 expected to guess which of eight scattered trust stores to edit, and most of them
 are not reviewable or revocable from the UI at all.
@@ -13,7 +13,9 @@ are not reviewable or revocable from the UI at all.
 Exactly one guard already does this properly. `distinguish-offline-from-network-denied`
 plus `add-tunnel-providers` built the full loop for the network plane: a
 self-describing 403, a typed client error, a remedy surface, and a
-"Trust this network" banner that writes `config.trustedNetworks`. That loop is
+"Trust this network" banner that writes `auth.bypassHosts` (the canonical UI
+write path — the `trusted-networks` spec forbids the UI writing top-level
+`config.trustedNetworks` directly). That loop is
 the proof the pattern works — it has simply never been generalized.
 
 This change makes a denial **name its remedy**, gives the filesystem plane a real
@@ -24,21 +26,35 @@ revocable home.
 
 - **Filesystem grants exist for the first time.** A persisted grant store adds
   directories to what the containment check will admit — the knob that simply did
-  not exist for `/api/file*` before. Grants are created from a remedy surface and
-  from the new Access tab, and revoked from the Access tab.
+  not exist for `/api/file*` before. Grants are created ONLY from a remedy
+  surface attached to an actual denial, and revoked from the Access tab; the tab
+  itself never creates one (design D12).
+
+- **A grant may widen up a bounded ancestor ladder.** A denial offers its own
+  containing directory *and* a truncated list of that directory's ancestors, so
+  an operator working across a tree is not asked once per sibling directory —
+  prompt volume is itself a hazard, because it habituates the persistent answer.
+  The ladder is derived from the subject's **real path**, truncated at the
+  nearest boundary (the git checkout root inclusive, otherwise the home
+  directory or mount point exclusive), and the forbidden-subject filter applies
+  to every rung. An arbitrary directory is still never grantable.
 
 - **A grant admits its own subtree only.** Grants are checked by a dedicated
   subtree predicate, *not* by appending to the `isAllowed` anchor list: that
-  function runs a git-common-root widening pass over every anchor it is given, so
+  function runs a bound-checkout-root widening pass over every anchor it is given
+  (`thisCheckout` + `mainCheckout`, per `git-checkout-root-resolution`), so
   appending a grant for `…/repo/sub` would silently admit all of `…/repo`. The
-  check resolves symlinks on both sides, preserving the symlink safety the
-  existing git-root layer already provides, and the subject is stored as its
-  `realpath` so a grant cannot follow a symlink that is later repointed.
+  check resolves symlinks on the **requested path**, preserving the symlink
+  safety the existing checkout-root layer already provides, and compares against
+  the stored subject verbatim — the subject was already `realpath`'d at grant
+  time, so a grant cannot follow a symlink that is later repointed.
 
 - **Denial bodies name their remedy.** The bare-string denial sites gain `reason`
   and `hint` fields alongside their existing, unchanged `error` string — matching
   the shape `localhost-guard` already emits. A client reading only `error` sees
-  no difference.
+  no difference. Twenty existing assertions across five test files compare
+  denial bodies by strict equality, so they widen mechanically; no status code
+  and no `error` string changes.
 
 - **Network / CORS / auth planes get request→accept.** The requester there is
   untrusted by definition, so asking *it* for permission is not a gate. Worse,
@@ -86,8 +102,8 @@ revocable home.
   dashboard-spawned session runs in a PTY. Its trust entries are still listed and
   revocable in the Access tab.
 
-**Depends on `add-universal-network-guard`** (37 tasks, unstarted) landing first.
-It collapses ~20 per-route `preHandler` denials into a single `onRequest` hook —
+**Depends on `add-universal-network-guard`** (49 tasks, unstarted) landing first.
+It collapses the per-route `preHandler` denials across ~25 core route registrars into a single `onRequest` hook —
 one instrumentation point instead of twenty — registers *last* so
 `request.isAuthenticated` is settled when the denial is recorded, and already
 commits to logging every denial with path, source IP and reason. It also creates
@@ -107,10 +123,11 @@ the denials this change exists to make recoverable.
 ### Modified Capabilities
 
 - `file-read-containment`: a persisted-grant subtree check is added after the
-  existing layers, and denials name their grantable subject. The existing
-  per-site anchor sets — including the `homePiAnchor()` (`~/.pi`) anchor on the
-  render/preview sites and the pinned-directory anchor on `exists` — are
-  preserved exactly.
+  existing layers, at all ten containment sites (seven in `file-routes.ts`, plus
+  `grep-routes.ts`, `resolve-file-mention.ts` and `session-routes.ts:350`), and denials name their
+  grantable subject. The existing per-site anchor sets — including the
+  `homePiAnchor()` (`~/.pi`) anchor on the read/raw/render/mention sites and the
+  pinned-directory anchor on `exists` — are preserved exactly.
 - `network-denial-ring-buffer`: generalized past tunnel-only denials into the
   pending-access-request queue that backs request→accept, retaining its dedupe,
   IP cap, and `trustable` classification.
@@ -126,26 +143,36 @@ the denials this change exists to make recoverable.
 
 - **Affected code:** `packages/server/src/lib/path-containment.ts` (grant subtree
   predicate, additive — the existing `isAllowed` semantics are untouched),
-  `packages/server/src/routes/file-routes.ts` (7 `isAllowed` sites, incl. the
-  `gateFilePath`/`gateOfficeFile` gates whose rejection bodies use a different
-  `{ code, error }` shape), `packages/server/src/lib/resolve-file-mention.ts` and
-  `packages/server/src/routes/grep-routes.ts` (the two containment sites outside
-  `file-routes`), `packages/server/src/routes/session-routes.ts`,
-  `packages/server/src/routes/goal-routes.ts`,
-  `packages/server/src/routes/openspec-group-routes.ts`,
-  `packages/kb-plugin/src/server/kb-routes.ts` (the four HTTP cwd-allowlist
-  denials, plus `file-routes.ts:645` whose string is `"unknown cwd"`),
+  `packages/server/src/routes/file-routes.ts` (7 `isAllowed` sites; the
+  `gateFilePath`/`gateOfficeFile` `{ code, error }` return is internal only —
+  every caller converts it to `{ success, error }` before replying),
+  `packages/server/src/lib/resolve-file-mention.ts` and
+  `packages/server/src/routes/grep-routes.ts` (two containment sites outside
+  `file-routes`), `packages/server/src/routes/session-routes.ts` (`:350`, the
+  tenth containment site, string `"path outside session directory"`),
+  `packages/server/src/routes/openspec-group-routes.ts` (`:56`),
+  `packages/kb-plugin/src/server/kb-routes.ts` (one `rejectCwd` helper, four call
+  sites, bare `{ error }`), `packages/mcp-client-plugin/src/server/routes.ts`
+  (`:131,:163`, a fourth body shape `{ error, message }`),
+  `packages/goal-plugin/src/server/routes.ts` (`rejectInvalidCwd` at `:80`, six
+  call sites), plus
+  `file-routes.ts:647` whose string is `"unknown cwd"`,
   `packages/server/src/tunnel/tunnel-block-events.ts` (generalized ledger),
   `packages/server/src/git-worktree/worktree-init-trust.ts` and
   `packages/kb/src/trust.ts` (add revoke),
   `packages/client/src/components/settings/` (Access tab).
+- **New in-memory state:** a bounded, expiring path-denial registry keyed by
+  grantable subject, distinct from the IP-keyed network ledger. Each grant binds
+  to one of its entries; it is written only by the denial path.
 - **New persisted state:** a path-grant store under `~/.pi/dashboard/`, alongside
   the existing `worktree-init-trust.json` and `kb-source-trust.json`. Unlike
   `worktree-init-trust.json` (a flat `Record<string, true>`), this store records
   subject, scope, grant time, and origin, because the Access tab must display
   them.
 - **Behaviour change:** none until the operator grants something. Denial bodies
-  gain additive fields; the pre-existing `error` strings are unchanged.
+  gain additive fields; the pre-existing `error` strings and status codes are
+  unchanged, including the `exists` site's distinct `"unknown cwd"` /
+  `"path outside cwd"` pair.
 - **Not affected:** no request is ever suspended or held open by this change.
   That is entirely the dialog change's concern.
 
