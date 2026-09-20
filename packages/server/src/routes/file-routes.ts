@@ -569,6 +569,9 @@ export function registerFileRoutes(
       const treeDecision = await evaluateContainment(resolved, [cwd], {
         site: "file-routes:tree",
         session: cwd,
+        // Directory-only site: the remedy must name THIS directory, not its
+        // parent (task 4.5 review).
+        subjectKind: "directory",
       });
       if (!treeDecision.allowed) {
         reply.code(403);

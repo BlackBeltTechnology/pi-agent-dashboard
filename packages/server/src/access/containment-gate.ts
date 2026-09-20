@@ -70,7 +70,7 @@ export interface DenialRemedy {
 export async function evaluateContainment(
   resolved: string,
   anchors: string[],
-  opts: { site: string; session?: string; allowGrant?: boolean },
+  opts: { site: string; session?: string; allowGrant?: boolean; subjectKind?: "file" | "directory" },
 ): Promise<ContainmentDecision & { remedy?: DenialRemedy }> {
   // Layers ①/② first — untouched and still authoritative (design D1) — then the
   // grant layer, and only on a miss does the denial get recorded.
@@ -84,7 +84,15 @@ export async function evaluateContainment(
   }
   if (decision.allowed) return decision;
 
-  const subject = grantableSubjectOf(resolved);
+  // `subjectKind` decides what the remedy names. `grantableSubjectOf` strips the
+  // last component, which is right for a FILE read — granting the containing
+  // directory is what unblocks it. At a DIRECTORY-only site the resource IS the
+  // directory, so stripping names the parent: denying `/outside/project` would
+  // offer `/outside` and hand over every SIBLING tree in one click, and a
+  // directory sitting directly under `$HOME` would name `$HOME`, which the
+  // forbidden filter refuses, making it un-grantable at all. (Task 4.5 review.)
+  const subject =
+    opts.subjectKind === "directory" ? resolved : grantableSubjectOf(resolved);
   let ancestors: string[] = [];
   try {
     ancestors = await offeredAncestorLadder(subject);

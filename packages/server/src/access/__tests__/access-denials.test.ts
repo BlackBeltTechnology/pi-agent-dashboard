@@ -21,6 +21,7 @@ import {
   recordPathDenial,
 } from "../../access/access-denials.js";
 import { offeredAncestorLadder } from "../../access/ancestor-ladder.js";
+import { evaluateContainment } from "../../access/containment-gate.js";
 import { forbiddenGrantSubjects, isForbiddenGrantSubject } from "../../access/forbidden-subjects.js";
 
 let root: string;
@@ -300,6 +301,38 @@ describe("7b.1a / 9a.20–9a.21 offered-ancestor ladder", () => {
     const home = mkdir("home");
     fs.mkdirSync(path.join(home, ".ssh", "keys"), { recursive: true });
     expect(await offeredAncestorLadder(path.join(home, ".ssh", "keys"), { homedir: home })).toEqual([]);
+  });
+});
+
+describe("4.5 review #4 — the remedy names the resource, not its parent", () => {
+  it("a FILE denial names its containing directory", async () => {
+    const session = mkdir("sess");
+    const outside = mkdir("outside", "project");
+
+    const d = await evaluateContainment(path.join(outside, "f.txt"), [session], {
+      site: "test:file",
+    });
+    expect(d.allowed).toBe(false);
+    expect(d.remedy?.subject).toBe(outside);
+  });
+
+  it("a DIRECTORY denial names the directory itself, never the parent holding siblings", async () => {
+    // Pre-fix the subject was the lexical dirname — `outside/` — so accepting the
+    // remedy granted every SIBLING tree in one click, and a directory sitting
+    // directly under `$HOME` named `$HOME`, which the forbidden filter refuses,
+    // making the directory impossible to grant at all. (Task 4.5 review, #4.)
+    const session = mkdir("sess");
+    const outside = mkdir("outside", "project");
+    const sibling = mkdir("outside", "sibling-secret");
+
+    const d = await evaluateContainment(outside, [session], {
+      site: "test:tree",
+      subjectKind: "directory",
+    });
+    expect(d.allowed).toBe(false);
+    expect(d.remedy?.subject).toBe(outside);
+    expect(d.remedy?.subject).not.toBe(path.dirname(outside));
+    expect(sibling.startsWith(`${d.remedy?.subject}/`)).toBe(false);
   });
 });
 
