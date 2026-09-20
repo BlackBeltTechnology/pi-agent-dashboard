@@ -12,6 +12,9 @@
     "packages/pi-forms-bpmn/.pi/skills/**",
     "packages/browser-plugin/src/server/relay/vendor/**"
   ],
+  "ignoreIssues": {
+    "packages/server/src/pi/pi-resource-activation.ts": ["types"]
+  },
   "rules": {
     "unlisted": "off",
     "binaries": "off",
