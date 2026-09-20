@@ -1,5 +1,5 @@
-import react from "@vitejs/plugin-react";
 import path from "node:path";
+import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 import { PARALLEL_MAX_WORKERS } from "../../vitest.workers";
 
@@ -35,6 +35,12 @@ export default defineConfig({
         "../dashboard-plugin-runtime/src/index.ts",
       ),
       "@blackbelt-technology/pi-dashboard-shared": path.resolve(__dirname, "../shared/src"),
+      // The verb→tier table is read from the mcp-server plugin's generated
+      // manifest; alias to worktree-local source like the others above.
+      "@blackbelt-technology/pi-dashboard-mcp-server-plugin/manifest": path.resolve(
+        __dirname,
+        "../mcp-server-plugin/src/server/manifest-export.ts",
+      ),
     },
   },
 });

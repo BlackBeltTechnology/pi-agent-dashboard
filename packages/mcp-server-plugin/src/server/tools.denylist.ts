@@ -13,6 +13,11 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/auth/", reason: "auth internals" },
   { pattern: "/api/model-proxy/", reason: "model-proxy; host-local only" },
   { pattern: "/api/provider-auth/", reason: "provider auth + API-key material" },
+  {
+    pattern: "/api/providers/:name",
+    reason:
+      "single-provider credential write; the whole-map set_providers row remains the MCP surface",
+  },
   { pattern: "/api/electron/", reason: "Electron-only" },
   { pattern: "/api/mcp-client/", reason: "MCP client config; UI-only" },
   { pattern: "/api/live-server/", reason: "live-server preview UI" },

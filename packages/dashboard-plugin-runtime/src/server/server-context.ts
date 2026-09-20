@@ -634,6 +634,26 @@ export interface PluginModelRuntime {
   streamSimple: PluginStreamSimpleFn;
 }
 
+/**
+ * A dashboard workspace as exposed to plugins: identifier, display name, and
+ * member folder paths. Read-only view — the seam exposes no mutation.
+ * See change: add-chat-gateway-team-controls.
+ */
+export interface PluginWorkspace {
+  id: string;
+  name: string;
+  folders: string[];
+}
+
+/** Read the dashboard's current workspaces (defensive copy). */
+export type ListWorkspacesFn = () => PluginWorkspace[];
+
+/**
+ * Subscribe to workspace mutations; returns an unsubscribe fn. The handler is a
+ * coalescable hint to re-read `listWorkspaces()`, never a diff.
+ */
+export type OnWorkspacesChangedFn = (handler: () => void) => () => void;
+
 /** Full ServerPluginContext API exposed to plugin server entries. */
 export interface ServerPluginContext {
   fastify: FastifyInstance;
@@ -762,6 +782,13 @@ export interface ServerPluginContext {
    */
   onShutdown: OnShutdownFn;
   /**
+   * Read the dashboard's workspaces (defensive copy) and subscribe to their
+   * mutations. Read-only and store-anchored; never trust-gated.
+   * See change: add-chat-gateway-team-controls.
+   */
+  listWorkspaces: ListWorkspacesFn;
+  onWorkspacesChanged: OnWorkspacesChangedFn;
+  /**
    * Own a WebSocket route scope on the main HTTP listener. Only valid during
    * the plugin's server-entry activation (the loader opens/closes the
    * window); the core upgrade gates (host admission, origin policy,
@@ -814,6 +841,9 @@ export interface ServerContextDeps {
   networkGuard: PluginNetworkGuard;
   /** Subscribe to server shutdown. See change: relocate-goal-product-to-plugin. */
   onShutdown: OnShutdownFn;
+  /** Workspace seam (optional on test hosts; the context defaults it). See change: add-chat-gateway-team-controls. */
+  listWorkspaces?: ListWorkspacesFn;
+  onWorkspacesChanged?: OnWorkspacesChangedFn;
 }
 
 /**
@@ -864,6 +894,10 @@ export function createServerPluginContext(
     assignSessionRef: deps.assignSessionRef,
     networkGuard: deps.networkGuard,
     onShutdown: deps.onShutdown,
+    // Workspace seam (add-chat-gateway-team-controls): defaulted so a host that
+    // does not wire it still exposes a total accessor to plugins.
+    listWorkspaces: deps.listWorkspaces ?? (() => []),
+    onWorkspacesChanged: deps.onWorkspacesChanged ?? (() => () => {}),
     registerWsRoute: (scope, opts) => getWsRouteRegistry().register(pluginId, scope, opts),
     logger,
   };

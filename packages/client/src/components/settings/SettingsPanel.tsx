@@ -33,12 +33,10 @@ import { usePackageOperations } from "../../hooks/usePackageOperations.js";
 import { usePiCompatibility } from "../../hooks/usePiCompatibility.js";
 import { usePiResources } from "../../hooks/usePiResources.js";
 import { usePluginList, usePluginToggle } from "../../hooks/usePluginToggle.js";
-import { PROVIDER_AUTH_EVENT } from "../../hooks/useProvidersReady.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { listKnownServers } from "../../lib/api/known-servers-api.js";
 import { fetchModelCatalogue, type ModelCatalogueResult } from "../../lib/api/models-api.js";
-import { type ProviderHealth, type TestProviderResult, testProvider } from "../../lib/api/providers-api.js";
 import { type BlockEvent, getBlockEvents } from "../../lib/gateway/gateway-api.js";
 import {
   type BindReachability,
@@ -94,14 +92,6 @@ interface ProviderConfig {
   clientSecret: string;
   issuerUrl?: string;
   name?: string;
-}
-
-interface LlmProvider {
-  name: string;
-  baseUrl: string;
-  apiKey: string;
-  api: string;
-  isNew?: boolean; // true for newly added providers (name is editable)
 }
 
 interface AuthConfig {
@@ -508,7 +498,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
   const settingsPaneRef = useRef<HTMLDivElement>(null);
   const [config, setConfig] = useState<Config | null>(null);
   const [original, setOriginal] = useState<Config | null>(null);
-  const [llmProviders, setLlmProviders] = useState<LlmProvider[]>([]);
   /**
    * Bind-vs-trust reachability, held OUTSIDE the editable config draft: it is
    * computed server-side, must never enter `configPartial`, and is pushed over
@@ -516,10 +505,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
    * See change: warn-unreachable-trusted-networks.
    */
   const [reachability, setReachability] = useState<BindReachability | null>(null);
-  // Cached per-provider health from GET /api/providers (`health[name]`), used to
-  // seed each row's pill. See change: surface-provider-health-in-settings.
-  const [providerHealth, setProviderHealth] = useState<Record<string, ProviderHealth>>({});
-  const [originalLlmProviders, setOriginalLlmProviders] = useState<LlmProvider[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [spawnTimeoutInvalid, setSpawnTimeoutInvalid] = useState(false);
@@ -754,31 +739,13 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
 
   useEffect(() => {
     const configPromise = fetch(`${getApiBase()}/api/config`).then((res) => res.json());
-    const providersPromise = fetch(`${getApiBase()}/api/providers`)
-      .then((res) => (res.ok ? res.json() : null))
-      .catch(() => null);
 
-    Promise.all([configPromise, providersPromise])
-      .then(([configData, providersData]) => {
+    configPromise
+      .then((configData) => {
         if (configData.success) {
           setConfig(configData.data);
           setOriginal(JSON.parse(JSON.stringify(configData.data)));
           setReachability(configData.data.reachability ?? null);
-        }
-        if (providersData?.success && providersData.providers) {
-          const list: LlmProvider[] = Object.entries(providersData.providers).map(
-            ([name, entry]: [string, any]) => ({
-              name,
-              baseUrl: entry.baseUrl || "",
-              apiKey: entry.apiKey || "",
-              api: entry.api || "openai-completions",
-            })
-          );
-          setLlmProviders(list);
-          setOriginalLlmProviders(JSON.parse(JSON.stringify(list)));
-          if (providersData.health && typeof providersData.health === "object") {
-            setProviderHealth(providersData.health as Record<string, ProviderHealth>);
-          }
         }
       })
       .catch(() => setMessage({ type: "error", text: t("settings.failedLoad", undefined, "Failed to load settings") }))
@@ -812,15 +779,11 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     [config, original],
   );
   const configDirty = Object.keys(configPartial).length > 0;
-  const llmChanged = useMemo(
-    () => JSON.stringify(llmProviders) !== JSON.stringify(originalLlmProviders),
-    [llmProviders, originalLlmProviders],
-  );
   const dirtyDraftCount = useMemo(
     () => Array.from(draftSources.values()).filter((s) => s.isDirty).length,
     [draftSources],
   );
-  const unsavedCount = (configDirty ? 1 : 0) + (llmChanged ? 1 : 0) + dirtyDraftCount;
+  const unsavedCount = (configDirty ? 1 : 0) + dirtyDraftCount;
   const isDirty = unsavedCount > 0;
   // Pages with unsaved edits → nav-rail dirty dots.
   const dirtyPages = useMemo(() => {
@@ -829,10 +792,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
       const p = CONFIG_FIELD_PAGE[k];
       if (p) pages.add(p);
     }
-    if (llmChanged) pages.add("providers");
     for (const s of draftSources.values()) if (s.isDirty) pages.add(s.page);
     return pages;
-  }, [configPartial, llmChanged, draftSources]);
+  }, [configPartial, draftSources]);
 
   // ── Bind-vs-trust reachability ───────────────────────────────────────
   // The predicate's input is the RESOLVED bind host, never `config.bindHost`:
@@ -890,10 +852,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
 
   const handleDiscard = useCallback(() => {
     if (original) setConfig(JSON.parse(JSON.stringify(original)));
-    setLlmProviders(JSON.parse(JSON.stringify(originalLlmProviders)));
     for (const s of draftSources.values()) s.reset();
     setMessage(null);
-  }, [original, originalLlmProviders, draftSources]);
+  }, [original, draftSources]);
 
   const handleSave = useCallback(async (): Promise<boolean> => {
     if (!config || !original) return false;
@@ -933,67 +894,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
             // See change: bound-session-heap-and-gc-telemetry.
             coldStartRequired: !!data.coldStartRequired,
           };
-        },
-      });
-    }
-
-    if (llmChanged) {
-      tasks.push({
-        label: t("settings.sourceProviders", undefined, "LLM providers"),
-        run: async () => {
-          // Reject blank/whitespace names before building the PUT body so the
-          // row is not silently dropped; throwing keeps this source dirty via
-          // the Promise.allSettled failure path. See change:
-          // fix-custom-provider-save-and-auth.
-          if (llmProviders.some((p) => p.name.trim() === "")) {
-            throw new Error(
-              t("settings.providerNameRequired", undefined, "Provider name is required"),
-            );
-          }
-          const validProviders = llmProviders.filter((p) => p.name.trim() !== "");
-          const providersObj: Record<string, any> = {};
-          for (const p of validProviders) {
-            providersObj[p.name] = { baseUrl: p.baseUrl, apiKey: p.apiKey, api: p.api };
-          }
-          const res = await fetch(`${getApiBase()}/api/providers`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ providers: providersObj }),
-          });
-          const data = await res.json();
-          if (!data.success) throw new Error(data.error || "providers");
-          // Success branch only — a body-level failure must not dispatch. The
-          // PUT has replace semantics, so this one dispatch covers adding,
-          // editing, and deleting a custom provider. Over-dispatch (a save
-          // that changes no credential) is accepted. See change:
-          // dispatch-provider-auth-event.
-          window.dispatchEvent(new CustomEvent(PROVIDER_AUTH_EVENT));
-          const saved = validProviders.map(({ isNew, ...rest }) => rest);
-          setLlmProviders(saved);
-          // A provider save/removal changes the catalogue; refetch off THIS
-          // response, never a fixed delay.
-          // See change: settings-default-model-without-session.
-          void refetchCatalogue();
-          setOriginalLlmProviders(JSON.parse(JSON.stringify(saved)));
-          // The PUT awaited a server-side probe per provider; refetch so each
-          // pill reflects the freshly cached health without a remount. See
-          // change: surface-provider-health-in-settings.
-          try {
-            const refetched = await fetch(`${getApiBase()}/api/providers`).then((r) => (r.ok ? r.json() : null));
-            if (refetched?.health && typeof refetched.health === "object") {
-              setProviderHealth(refetched.health as Record<string, ProviderHealth>);
-            }
-          } catch {
-            // Refetch failed: the just-saved providers' cached health is stale
-            // (their config changed), so drop it to not-tested rather than show
-            // a stale pill. See change: surface-provider-health-in-settings.
-            setProviderHealth((prev) => {
-              const next = { ...prev };
-              for (const p of saved) delete next[p.name];
-              return next;
-            });
-          }
-          return {};
         },
       });
     }
@@ -1041,7 +941,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     }
     setSaving(false);
     return failed.length === 0;
-  }, [config, original, isDirty, configDirty, configPartial, llmChanged, llmProviders, draftSources, refreshGitSourceReadout, t]);
+  }, [config, original, isDirty, configDirty, configPartial, draftSources, refreshGitSourceReadout, t]);
 
   // ── Unsaved-changes navigation guards ─────────────────────────────────────
   const [pendingNav, setPendingNav] = useState<string | null>(null);
@@ -2326,42 +2226,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
               <>
                 <Section title={t("settings.providerAuth", undefined, "Provider Authentication")}>
                   <ProviderAuthSection onCredentialsChanged={refetchCatalogue} />
-                </Section>
-                <Section title={t("settings.llmProviders", undefined, "LLM Providers")}>
-                  <p className="text-xs text-[var(--text-tertiary)] mb-3">
-                    {t("settings.llmProvidersDescription", undefined, "Register custom OpenAI-compatible API endpoints for model access.")}
-                  </p>
-                  {llmProviders.map((provider, index) => {
-                    // Suppress cached health for a row edited since its last save:
-                    // the cache reflects the SAVED config, so showing it against
-                    // unsaved edits would be misleading. See change:
-                    // surface-provider-health-in-settings.
-                    const savedOriginal = originalLlmProviders.find((o) => o.name === provider.name);
-                    const rowDirty = provider.isNew || !savedOriginal
-                      || savedOriginal.baseUrl !== provider.baseUrl
-                      || savedOriginal.apiKey !== provider.apiKey
-                      || savedOriginal.api !== provider.api;
-                    return (
-                    <LlmProviderCard
-                      key={`${provider.name}-${index}`}
-                      provider={provider}
-                      health={rowDirty ? undefined : providerHealth[provider.name]}
-                      onChange={(updated) => {
-                        setLlmProviders((prev) => prev.map((p, i) => (i === index ? updated : p)));
-                      }}
-                      onRemove={() => {
-                        setLlmProviders((prev) => prev.filter((_, i) => i !== index));
-                      }}
-                    />
-                    );
-                  })}
-                  <button
-                    onClick={() => setLlmProviders((prev) => [...prev, { name: "", baseUrl: "", apiKey: "", api: "openai-completions", isNew: true }])}
-                    className="flex items-center gap-1.5 text-sm text-[var(--accent-blue)] hover:text-blue-400 mt-1"
-                  >
-                    <Icon path={mdiPlus} size={0.6} />
-                    {t("settings.addProvider", undefined, "Add Provider")}
-                  </button>
                 </Section>
                 <Section title={t("settings.apiProxy", undefined, "API Proxy")}>
                   <ModelProxySection
@@ -3743,18 +3607,6 @@ export function TextField({ label, value, onChange, type = "text", placeholder, 
     </FieldShell>
   );
 }
-
-const API_TYPE_OPTIONS = [
-  { value: "openai-completions", label: "OpenAI Completions" },
-  { value: "openai-responses", label: "OpenAI Responses" },
-  { value: "anthropic-messages", label: "Anthropic Messages" },
-  { value: "azure-openai-responses", label: "Azure OpenAI" },
-  { value: "mistral-conversations", label: "Mistral" },
-  { value: "bedrock-converse-stream", label: "AWS Bedrock" },
-  { value: "google-generative-ai", label: "Google Gemini" },
-  { value: "google-vertex", label: "Google Vertex AI" },
-];
-
 // ─── Global Packages Browse + Confirm-install Dialog ──────────────────────────
 //
 // The unified packages section above handles the installed-rows view
@@ -3821,223 +3673,3 @@ type TestState =
   | { kind: "ok"; modelCount: number; sample: string[] }
   | { kind: "err"; status?: number; message: string };
 
-export function LlmProviderCard({ provider, health, onChange, onRemove }: {
-  provider: LlmProvider;
-  health?: ProviderHealth;
-  onChange: (p: LlmProvider) => void;
-  onRemove: () => void;
-}) {
-  const { t } = useI18n();
-  const [testState, setTestState] = useState<TestState>({ kind: "idle" });
-
-  // Reset the live Test result when the provider's config changes from OUTSIDE
-  // this card (e.g. Discard restoring saved values). derivePillView prioritizes
-  // testState, so a stale failed-Test would otherwise mask the restored cached
-  // health. See change: surface-provider-health-in-settings.
-  useEffect(() => {
-    setTestState({ kind: "idle" });
-  }, [provider.baseUrl, provider.apiKey, provider.api]);
-
-  const handleChange = (update: LlmProvider) => {
-    // Any change to baseUrl / apiKey / api clears a stale test result.
-    if (
-      update.baseUrl !== provider.baseUrl ||
-      update.apiKey !== provider.apiKey ||
-      update.api !== provider.api
-    ) {
-      setTestState({ kind: "idle" });
-    }
-    onChange(update);
-  };
-
-  const canTest =
-    provider.baseUrl.trim().length > 0 &&
-    provider.apiKey.trim().length > 0 &&
-    testState.kind !== "testing";
-
-  const handleTest = async () => {
-    if (!canTest) return;
-    setTestState({ kind: "testing" });
-    const result: TestProviderResult = await testProvider({
-      name: provider.isNew ? undefined : provider.name,
-      baseUrl: provider.baseUrl,
-      apiKey: provider.apiKey,
-      api: provider.api,
-    });
-    if (result.ok) {
-      setTestState({ kind: "ok", modelCount: result.modelCount, sample: result.sample ?? [] });
-    } else {
-      // Keep the verbatim error for the monospace error line; the pill itself
-      // shows only the status code / Unreachable. See change:
-      // surface-provider-health-in-settings.
-      setTestState({ kind: "err", status: result.status, message: result.error ?? "Test failed" });
-    }
-  };
-
-  return (
-    <div className="border border-[var(--border-secondary)] rounded p-3 mb-2">
-      <div className="flex items-center justify-between mb-2 gap-2">
-        {provider.isNew ? (
-          <input
-            type="text"
-            className="bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-0.5 text-sm font-medium text-[var(--text-primary)] w-48"
-            placeholder={t("settings.providerName", undefined, "Provider name")}
-            value={provider.name}
-            onChange={(e) => onChange({ ...provider, name: e.target.value })}
-            autoFocus
-          />
-        ) : (
-          <span className="text-sm font-medium text-[var(--text-primary)]">{provider.name}</span>
-        )}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleTest}
-            disabled={!canTest}
-            title={
-              !canTest && testState.kind !== "testing"
-                ? t("settings.baseUrlFirst", undefined, "Enter Base URL and API Key first")
-                : t("settings.pingModels", undefined, "Ping the provider's /models endpoint")
-            }
-            className="text-xs px-2 py-0.5 rounded bg-blue-600/20 text-blue-300 hover:bg-blue-600/30 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
-            data-testid="test-provider-button"
-          >
-            {testState.kind === "testing" ? (
-              <>
-                <Icon path={mdiLoading} size={0.45} className="animate-spin" />
-                {t("common.testing", undefined, "Testing...")}
-              </>
-            ) : (
-              <>
-                <Icon path={mdiPlay} size={0.45} />
-                {t("common.test", undefined, "Test")}
-              </>
-            )}
-          </button>
-          <button
-            onClick={onRemove}
-            className="text-xs px-2 py-0.5 rounded bg-red-600/20 text-red-400 hover:bg-red-600/30 flex items-center gap-1"
-          >
-            <Icon path={mdiDelete} size={0.45} />
-            {t("common.remove", undefined, "Remove")}
-          </button>
-        </div>
-      </div>
-      <div className="space-y-2">
-        <TextField
-          hint={null}
-          label={i18nT("providers.baseUrl", undefined, "Base URL")}
-          value={provider.baseUrl}
-          onChange={(v) => handleChange({ ...provider, baseUrl: v })}
-          placeholder="https://api.example.com/v1"
-        />
-        <TextField
-          hint={null}
-          label={i18nT("gateway.apiKey", undefined, "API Key")}
-          value={provider.apiKey}
-          onChange={(v) => handleChange({ ...provider, apiKey: v })}
-          type="password"
-          placeholder={i18nT("common.skOrEnvVarName", undefined, "sk-... or $ENV_VAR_NAME")}
-        />
-        <div>
-          <label className="block text-xs text-[var(--text-tertiary)] mb-0.5">{i18nT("gateway.apiType", undefined, "API Type")}</label>
-          <select
-            className="w-full bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)]"
-            value={provider.api}
-            onChange={(e) => handleChange({ ...provider, api: e.target.value })}
-          >
-            {API_TYPE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </div>
-        <HealthPill state={testState} health={health} />
-      </div>
-    </div>
-  );
-}
-
-// Normalized pill view derived from either a live Test result (`state`) or the
-// server-cached health. Four registers per the spec: connected / error (HTTP
-// status) / unreachable (no status) / not-tested.
-type PillView =
-  | { kind: "testing" }
-  | { kind: "ok"; modelCount: number; sample: string[] }
-  | { kind: "error"; status: number; error: string }
-  | { kind: "unreachable"; error: string }
-  | { kind: "not-tested" };
-
-function derivePillView(state: TestState, health?: ProviderHealth): PillView {
-  if (state.kind === "testing") return { kind: "testing" };
-  if (state.kind === "ok") return { kind: "ok", modelCount: state.modelCount, sample: state.sample };
-  if (state.kind === "err") {
-    return state.status !== undefined
-      ? { kind: "error", status: state.status, error: state.message }
-      : { kind: "unreachable", error: state.message };
-  }
-  // idle — fall back to the server-cached health.
-  if (!health) return { kind: "not-tested" };
-  if (health.ok) return { kind: "ok", modelCount: health.modelCount ?? 0, sample: [] };
-  return health.status !== undefined
-    ? { kind: "error", status: health.status, error: health.error ?? "" }
-    : { kind: "unreachable", error: health.error ?? "" };
-}
-
-function HealthPill({ state, health }: { state: TestState; health?: ProviderHealth }) {
-  const { t } = useI18n();
-  const view = derivePillView(state, health);
-
-  if (view.kind === "testing") {
-    return (
-      <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]" data-testid="test-pill" data-state="testing">
-        <Icon path={mdiLoading} size={0.45} className="animate-spin" />
-        {t("common.testing", undefined, "Testing...")}
-      </div>
-    );
-  }
-
-  if (view.kind === "ok") {
-    const label = view.modelCount > 0
-      ? t("settings.connectedModels", { count: view.modelCount }, `Connected · ${view.modelCount} models`)
-      : t("settings.connectedOnly", undefined, "Connected");
-    return (
-      <div
-        className="flex items-center gap-1.5 text-xs text-green-400"
-        data-testid="test-pill"
-        data-state="ok"
-        title={view.sample.length > 0 ? i18nT("settings.sampleModels", { list: view.sample.join(", ") }, "Sample: {list}") : undefined}
-      >
-        <Icon path={mdiCheckCircle} size={0.5} />
-        {label}
-      </div>
-    );
-  }
-
-  if (view.kind === "not-tested") {
-    return (
-      <div className="flex items-center gap-1.5 text-xs text-[var(--text-tertiary)]" data-testid="test-pill" data-state="not-tested">
-        {t("settings.providerNotTested", undefined, "Not tested")}
-      </div>
-    );
-  }
-
-  // error (yellow, HTTP status) or unreachable (red, no status) — both carry a
-  // verbatim error line beneath the pill.
-  const isError = view.kind === "error";
-  return (
-    <>
-      <div
-        className={`flex items-center gap-1.5 text-xs ${isError ? "text-yellow-400" : "text-red-400"}`}
-        data-testid="test-pill"
-        data-state={view.kind}
-      >
-        <Icon path={isError ? mdiAlert : mdiCloseCircle} size={0.5} />
-        {isError ? String(view.status) : t("settings.providerUnreachable", undefined, "Unreachable")}
-      </div>
-      {view.error && (
-        <div className="font-mono text-[11px] text-[var(--text-tertiary)] break-all whitespace-pre-wrap" data-testid="provider-error-line">
-          {view.error}
-        </div>
-      )}
-    </>
-  );
-}

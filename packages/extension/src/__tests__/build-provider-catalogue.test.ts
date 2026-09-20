@@ -70,14 +70,19 @@ describe("_buildProviderCatalogue", () => {
     expect(cat.find((c) => c.id === "custom-llm")?.displayName).toBe("custom-llm");
   });
 
-  it("populates configured + source from authStorage.getAuthStatus", () => {
+  it("populates configured + source from authStorage.getAuthStatus (E19: env-var credential reports configured:true)", () => {
     const reg = makeRegistry({
       models: [{ provider: "openai", id: "gpt-4" }],
-      authStatus: { openai: { configured: false, source: "environment" } },
+      // What pi-ai's getAuthStatus reports when OPENAI_API_KEY is exported and
+      // auth.json has no openai entry. The catalogue passes it through
+      // verbatim — the prior fixture (configured:false with source
+      // "environment") contradicted how an env-var-credentialed provider
+      // actually reports. See redesign-providers-settings-page task 5.3.
+      authStatus: { openai: { configured: true, source: "environment" } },
     });
     const cat = _buildProviderCatalogue(reg, {});
     const row = cat.find((c) => c.id === "openai")!;
-    expect(row.configured).toBe(false);
+    expect(row.configured).toBe(true);
     expect(row.source).toBe("environment");
   });
 

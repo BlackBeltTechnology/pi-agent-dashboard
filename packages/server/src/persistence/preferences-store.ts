@@ -28,6 +28,37 @@ import { readJsonFile, writeJsonFile } from "./json-store.js";
 
 export const PREFERENCES_FILE = path.join(CONFIG_DIR, "preferences.json");
 
+/**
+ * Every store method that mutates the workspace collection. The notification
+ * wiring contract — a mutator missing from this list is a defect (see
+ * `discoverWorkspaceMutators` and the completeness guard test).
+ * See change: add-chat-gateway-team-controls.
+ */
+export const WORKSPACE_MUTATOR_NAMES: readonly string[] = [
+  "createWorkspace",
+  "renameWorkspace",
+  "deleteWorkspace",
+  "setWorkspaceCollapsed",
+  "addFolderToWorkspace",
+  "removeFolderFromWorkspace",
+  "moveFolderToWorkspace",
+  "reorderWorkspaceFolders",
+  "reorderWorkspaces",
+];
+
+/**
+ * Discover workspace-mutating methods from a store's public surface. Heuristic
+ * on purpose: it makes a NEWLY added `*Workspace*` mutator show up here even
+ * when nobody updated `WORKSPACE_MUTATOR_NAMES`, so the guard test fails
+ * instead of the seam silently missing that mutation. `getWorkspaces` (read)
+ * and `onWorkspacesChanged` (subscription) are excluded.
+ */
+export function discoverWorkspaceMutators(methodNames: string[]): string[] {
+  return methodNames.filter(
+    (n) => /workspace/i.test(n) && !/^get/i.test(n) && n !== "onWorkspacesChanged",
+  );
+}
+
 const NAME_MAX = 80;
 
 interface PreferencesData {
@@ -161,6 +192,12 @@ export interface PreferencesStore {
   reorderWorkspaceFolders(id: string, paths: string[]): boolean;
   /** Reorders workspaces. Rejected if `ids` doesn't equal current id set. */
   reorderWorkspaces(ids: string[]): boolean;
+  /**
+   * Subscribe to workspace mutations. Fired from every workspace mutator —
+   * a coalescable hint to re-read `getWorkspaces()`, never a diff. Returns an
+   * unsubscribe fn. See change: add-chat-gateway-team-controls.
+   */
+  onWorkspacesChanged(handler: () => void): () => void;
   // ── configurable-chat-display ──────────────────────────────
   /** Returns `undefined` when display prefs have never been seeded. */
   getDisplayPrefs(): DisplayPrefs | undefined;
@@ -380,7 +417,7 @@ export function createPreferencesStore(
     ? data.collapsedFolders.filter((p): p is string => typeof p === "string")
     : [];
   const collapsedPlatform = inferPlatform(rawCollapsed);
-  let collapsedFolders: string[] = dedupePreserveOrder(
+  const collapsedFolders: string[] = dedupePreserveOrder(
     rawCollapsed.map((p) => pathKey(p, collapsedPlatform)),
   );
   // Favorite model labels — deduped, insertion-ordered. Default [] for legacy files.
@@ -432,6 +469,23 @@ let dirty =
 
   function findWs(id: string): Workspace | undefined {
     return workspaces.find((w) => w.id === id);
+  }
+
+  // Workspace seam (change: add-chat-gateway-team-controls). Notified from
+  // every mutator below after a successful mutation — NOT from the browser
+  // broadcast, so correctness does not depend on any transport.
+  const workspaceListeners = new Set<() => void>();
+
+  function notifyWorkspaces(): void {
+    // Per-subscriber isolation: a throwing handler must neither block other
+    // subscribers nor fail the workspace mutation (spec plugin-workspace-seam).
+    for (const handler of [...workspaceListeners]) {
+      try {
+        handler();
+      } catch (err) {
+        console.error("[preferences-store] onWorkspacesChanged handler threw", err);
+      }
+    }
   }
 
   return {
@@ -531,6 +585,13 @@ let dirty =
       return workspaces.map((w) => ({ ...w, folders: [...w.folders] }));
     },
 
+    onWorkspacesChanged(handler: () => void): () => void {
+      workspaceListeners.add(handler);
+      return () => {
+        workspaceListeners.delete(handler);
+      };
+    },
+
     createWorkspace(name: string): Workspace | null {
       const clean = sanitizeName(name);
       if (clean === null) return null;
@@ -542,6 +603,7 @@ let dirty =
       };
       workspaces.push(ws);
       scheduleSave();
+      notifyWorkspaces();
       return { ...ws, folders: [...ws.folders] };
     },
 
@@ -553,6 +615,7 @@ let dirty =
       if (ws.name === clean) return false;
       ws.name = clean;
       scheduleSave();
+      notifyWorkspaces();
       return true;
     },
 
@@ -561,6 +624,7 @@ let dirty =
       if (idx === -1) return false;
       workspaces.splice(idx, 1);
       scheduleSave();
+      notifyWorkspaces();
       return true;
     },
 
@@ -570,6 +634,7 @@ let dirty =
       if (ws.collapsed === collapsed) return false;
       ws.collapsed = collapsed;
       scheduleSave();
+      notifyWorkspaces();
       return true;
     },
 
@@ -587,6 +652,7 @@ let dirty =
       }
       ws.folders.push(canon);
       scheduleSave();
+      notifyWorkspaces();
       return true;
     },
 
@@ -598,6 +664,7 @@ let dirty =
       if (i === -1) return false;
       ws.folders.splice(i, 1);
       scheduleSave();
+      notifyWorkspaces();
       return true;
     },
 
@@ -627,6 +694,7 @@ let dirty =
         detach();
       }
       scheduleSave();
+      notifyWorkspaces();
       return true;
     },
 
@@ -640,6 +708,7 @@ let dirty =
       if (new Set(canon).size !== canon.length) return false;
       ws.folders = canon;
       scheduleSave();
+      notifyWorkspaces();
       return true;
     },
 
@@ -736,6 +805,7 @@ let dirty =
       const byId = new Map(workspaces.map((w) => [w.id, w] as const));
       workspaces = ids.map((id) => byId.get(id)!).filter(Boolean) as Workspace[];
       scheduleSave();
+      notifyWorkspaces();
       return true;
     },
 

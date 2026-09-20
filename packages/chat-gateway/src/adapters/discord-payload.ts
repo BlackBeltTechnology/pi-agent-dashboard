@@ -10,7 +10,7 @@
  * See change: add-chat-gateway.
  */
 
-import type { InteractivePrompt } from "./base.js";
+import type { ChannelOverwrite, InteractivePrompt, ProvisionChannelInput } from "./base.js";
 
 // ── Control spec ──────────────────────────────────────────────────────────
 
@@ -298,6 +298,95 @@ export function toDiscordControl(prompt: InteractivePrompt): DiscordControlSpec 
   }
 }
 
+// ── Channel provisioning payload ──────────────────────────────────────────
+
+/**
+ * Discord `VIEW_CHANNEL` permission bit (`1 << 10`). Written as a literal so
+ * this module stays free of a `discord.js` import — the payload must be
+ * unit-testable with no Discord connection, and a wrong bit here is exactly the
+ * bug that would silently publish a channel.
+ */
+const VIEW_CHANNEL = 1n << 10n;
+
+/** Discord overwrite `type`: 0 = role, 1 = member. */
+const OVERWRITE_ROLE = 0 as const;
+const OVERWRITE_MEMBER = 1 as const;
+
+/** Discord channel name limit. */
+const CHANNEL_NAME_LIMIT = 100;
+
+export interface DiscordOverwrite {
+	id: string;
+	type: 0 | 1;
+	allow: bigint;
+	deny: bigint;
+}
+
+export interface DiscordChannelCreatePayload {
+	name: string;
+	permissionOverwrites: DiscordOverwrite[];
+}
+
+export interface DiscordChannelUpdatePayload {
+	name?: string;
+	permissionOverwrites?: DiscordOverwrite[];
+}
+
+/**
+ * Normalize a workspace name into a Discord channel name: lowercase, spaces and
+ * unsupported characters collapsed to `-`, capped at the platform limit. Never
+ * returns an empty string (Discord rejects those).
+ */
+export function channelNameFor(name: string): string {
+	const slug = name
+		.trim()
+		.toLowerCase()
+		.replace(/\s+/g, "-")
+		.replace(/[^a-z0-9\-_]/g, "")
+		.replace(/-{2,}/g, "-")
+		.replace(/^-+|-+$/g, "");
+	return (slug || "workspace").slice(0, CHANNEL_NAME_LIMIT);
+}
+
+/**
+ * Map the platform-agnostic access list onto Discord overwrites, PREPENDING the
+ * platform-default-role deny.
+ *
+ * `@everyone`'s role id IS the guild id in Discord — that identity is what lets
+ * the deny travel in the create call with no extra lookup. The deny is added
+ * here, not by callers, so no call path can forget it.
+ */
+export function channelOverwrites(
+	guildId: string,
+	grants: readonly ChannelOverwrite[],
+): DiscordOverwrite[] {
+	const overwrites: DiscordOverwrite[] = [
+		{ id: guildId, type: OVERWRITE_ROLE, allow: 0n, deny: VIEW_CHANNEL },
+	];
+	for (const grant of grants) {
+		overwrites.push({
+			id: grant.targetId,
+			type: grant.kind === "role" ? OVERWRITE_ROLE : OVERWRITE_MEMBER,
+			allow: grant.viewChannel ? VIEW_CHANNEL : 0n,
+			deny: grant.viewChannel ? 0n : VIEW_CHANNEL,
+		});
+	}
+	return overwrites;
+}
+
+/**
+ * The single create call. `permissionOverwrites` is part of it by construction:
+ * the transport has no create-then-patch path to fall back to.
+ */
+export function channelCreatePayload(
+	input: ProvisionChannelInput,
+): DiscordChannelCreatePayload {
+	return {
+		name: channelNameFor(input.name),
+		permissionOverwrites: channelOverwrites(input.guildId, input.overwrites),
+	};
+}
+
 // ── Chunking ──────────────────────────────────────────────────────────────
 
 /**
@@ -322,4 +411,54 @@ export function chunkForDiscord(text: string, limit: number = DISCORD_MESSAGE_LI
   }
   if (rest.length > 0) chunks.push(rest);
   return chunks;
+}
+
+// ── Role delegation (task 8.2) ────────────────────────────────────────────
+//
+// Pure, so the rule is testable with no guild. The transport fetches and maps
+// onto these summaries; it decides nothing.
+
+/** A guild member, reduced to what the delegation rule needs. */
+export interface MemberSummary {
+  id: string;
+  name?: string;
+  /** Position of the member's highest role; -1 when they hold none. */
+  highestRolePosition: number;
+  /** Whether the member holds Manage Roles. */
+  canManageRoles: boolean;
+}
+
+export interface RoleSummary {
+  id: string;
+  position: number;
+}
+
+/**
+ * The answer to "who can assign this role?".
+ *
+ * `unavailable` names the MISSING PERMISSION. It is never an empty `assigners`
+ * list, which would read as "nobody can assign this" — the opposite of the
+ * truth when the platform merely declined to enumerate.
+ */
+export type RoleAssigners =
+  | { kind: "assigners"; members: Array<{ id: string; name?: string }> }
+  | { kind: "unavailable"; missingPermission: string };
+
+/**
+ * Which members can assign `role`.
+ *
+ * The guild OWNER always can. Anyone else needs Manage Roles AND a highest role
+ * STRICTLY ABOVE the target's position: Discord refuses a manager assigning a
+ * role at or above their own highest, so listing one would promise a delegation
+ * the platform then rejects. Erring the other way is also wrong — this list is
+ * what tells an operator how widely a `control` mapping is delegated.
+ */
+export function assignersForRole(
+  members: readonly MemberSummary[],
+  role: RoleSummary,
+  ownerId: string,
+): Array<{ id: string; name?: string }> {
+  return members
+    .filter((m) => m.id === ownerId || (m.canManageRoles && m.highestRolePosition > role.position))
+    .map((m) => (m.name === undefined ? { id: m.id } : { id: m.id, name: m.name }));
 }

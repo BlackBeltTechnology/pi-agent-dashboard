@@ -107,6 +107,20 @@ services:
       # seed a `Fake` profile row — the docker harness has no real Chrome.
       # Default empty => no Fake instance, no relay config.
       PI_BROWSER_RELAY_FAKE: "${PI_BROWSER_RELAY_FAKE:-}"
+      # Chat-gateway team-controls e2e faucet (change:
+      # add-chat-gateway-team-controls, task 10g). Non-empty makes
+      # test-entrypoint seed `plugins["chat-gateway"]` (enabled + allowedRoots +
+      # teamControls) BEFORE boot, and selects the socket-less platform fixture
+      # in packages/chat-gateway/src/adapters/fake.ts: `1` lists delegation
+      # assigners, `nolist` reports it unavailable naming the missing
+      # permission. The docker harness has no Discord credential, so without
+      # this the plugin is inert and most L3 rows have nothing to render.
+      # Default empty => harness unchanged. See docker/test-entrypoint.sh.
+      PI_CHAT_GATEWAY_FAKE: "${PI_CHAT_GATEWAY_FAKE:-}"
+      # Scratch dir the fixture's `inbound.jsonl`/`outbound.jsonl` live in; a
+      # spec drives the fake by appending to and reading these. See
+      # packages/chat-gateway/src/adapters/fake.ts.
+      PI_CHAT_GATEWAY_FAKE_DIR: "${PI_CHAT_GATEWAY_FAKE_DIR:-}"
       # PI_E2E_OAUTH=1 seeds a resolvable `github` OAuth provider plus
       # `bypassUrls:["/"]` BEFORE the server boots, so `/auth/*` routes exist
       # for oauth-redirect-base.spec.ts. A spec cannot arrange this itself:
