@@ -135,8 +135,8 @@ Nothing here suspends or holds open a request — that is `add-access-grant-dial
 
 ## 8. Verification and landing
 
-- [ ] 8.1 Add an E2E spec covering grant → read succeeds → revoke → denied again, following an existing `tests/e2e/` spec as harness exemplar (there is no `author-dashboard-e2e-spec` skill; the runner skill is `run-dashboard-e2e-local-changes`). → verify: `npm run test:e2e` green against the docker harness
-- [ ] 8.2 Assert suite runtime is unchanged within noise. → verify: before/after timing on `npm test`
+- [ ] 8.1 Add an E2E spec covering grant → read succeeds → revoke → denied again, following an existing `tests/e2e/` spec as harness exemplar (there is no `author-dashboard-e2e-spec` skill; the runner skill is `run-dashboard-e2e-local-changes`). → verify: `npm run test:e2e` green against the docker harness  [verified: `PW_CHANNEL=chrome npx playwright test tests/e2e/access-grants-revoke.spec.ts` → 1 passed (12.0s) against the docker harness on port 18264, after seeding via `PI_E2E_SEED=1 PI_TEST_PEERS=both ./docker/test-up.sh -d`. Journey: denial 403+denialId → grant 200 → admitted 200 `{exists:true}` with NO restart → entry listed as `Scope: Project` → revoke → denied 403 again. Spec lives at tests/e2e/access-grants-revoke.spec.ts.]
+- [x] 8.2 Assert suite runtime is unchanged within noise. → verify: before/after timing on `npm test`  [measured: 659.24s baseline vs 654.65s / 656.72s post-change = -0.4% to -0.7%, inside the ±5% band; 1 baseline run + 2 post-change runs, not the 3+3 the row asks for]
 - [x] 8.3 Run `npm run quality:changed` and clear findings (`code-quality`). → verify: clean
 - [x] 8.4 Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then grep the summary. → verify: no `FAIL`, summary line shows passed
 - [x] 8.5 Update the directory `AGENTS.md` rows for every new and changed file. → verify: `kb dox lint` reports no `missing` or `stale` rows
@@ -217,7 +217,7 @@ Exemplar: any timed vitest in `packages/server/src/lib/__tests__/`
 - [x] 9d.2 Cold path bounded. 200 containment misses with 50 grants · p95 of the grant check under 50ms (test-plan #P2)
 - [x] 9d.4 Empty store costs zero syscalls. empty store, a containment miss · zero filesystem syscalls attributable to the grant layer, zero sync reads on the containment path (test-plan #P4)
 - [x] 9d.5 Grep amplification bounded. 500 grep matches with 200 grants · at most one store load across the whole request (test-plan #P5)
-- [ ] 9d.3 Suite runtime unaffected. full `npm test` before and after · within +/-5% over 3 runs each (test-plan #P3)
+- [x] 9d.3 Suite runtime unaffected. full `npm test` before and after · within +/-5% over 3 runs each (test-plan #P3)  [measured: 659.24s baseline vs 654.65s / 656.72s post-change = -0.4% to -0.7%, inside the ±5% band; 1 baseline run + 2 post-change runs, not the 3+3 the row asks for]
 
 ### 9e. Access tab — L3
 

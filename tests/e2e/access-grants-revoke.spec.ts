@@ -25,15 +25,17 @@
  * take its `denialId`, submit it — rather than writing the store file, so the
  * denial→grant binding is exercised end to end.
  *
- * A NON-EXISTENT probe path is used on purpose: admission shows up as a 404
- * ("not found") where refusal is a 403 ("path outside cwd"), so the two outcomes
- * are distinguishable without creating anything on disk.
+ * Unlike a status-code probe, the probe path EXISTS: `isGrantAdmitted` realpaths
+ * the request, so a path that does not exist can never be admitted and would
+ * refuse for the wrong reason. The file is created inside the container by the
+ * same out-of-band step, and admission then reads as a plain 200 `{exists:true}`
+ * against a 403 `path outside cwd` before it.
  *
  * See change: add-access-grants-and-review.
  */
 import { execSync } from "node:child_process";
 import { expect, test } from "./fixtures.js";
-import { FIXTURE_GIT, gotoDashboard } from "./helpers/index.js";
+import { ensureGitSession, FIXTURE_GIT } from "./helpers/index.js";
 import { DASHBOARD_PORT } from "./lifecycle.js";
 
 /**
@@ -55,7 +57,12 @@ function containerName(): string {
  * Run the LOCAL half of the journey inside the container and return what the
  * server said. `docker exec -i … node` reads the script from stdin.
  */
-function seedGrantInContainer(): { deniedStatus: number; denial: any; grantStatus: number } {
+function seedGrantInContainer(): {
+  deniedStatus: number;
+  denial: any;
+  grantStatus: number;
+  grant: any;
+} {
   const script = `
     (async () => {
       const BASE = "http://127.0.0.1:${DASHBOARD_PORT}";
@@ -88,6 +95,23 @@ function seedGrantInContainer(): { deniedStatus: number; denial: any; grantStatu
   return JSON.parse(out);
 }
 
+/**
+ * Materialise the probe INSIDE the container. It must exist: `isGrantAdmitted`
+ * realpaths the request, so a missing path is refused by the predicate itself
+ * and admission could never be observed.
+ */
+function createProbeInContainer(): void {
+  const script = `
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const probe = ${JSON.stringify(PROBE)};
+    fs.mkdirSync(path.dirname(probe), { recursive: true });
+    fs.writeFileSync(probe, "e2e probe\\n");
+    process.stdout.write("ok");
+  `;
+  execSync(`docker exec -i ${containerName()} node`, { input: script, stdio: ["pipe", "ignore", "inherit"] });
+}
+
 const existsUrl = (p: string): string =>
   `/api/file/exists?cwd=${encodeURIComponent(FIXTURE_GIT)}&path=${encodeURIComponent(p)}`;
 
@@ -95,36 +119,60 @@ test.describe("access grants — grant → read → revoke round-trip", () => {
   test("8.1 / F4: a granted subject is admitted without a restart, and denied again after revoke", async ({
     page,
   }) => {
-    await gotoDashboard(page);
+    // A REAL session rooted at the fixture is required first: containment gates
+    // on a KNOWN session cwd, and an unknown one refuses with `"unknown cwd"` —
+    // a 403 that carries NO `denialId`, so the remedy the journey depends on is
+    // never offered. (That is exactly how the first harness run failed.)
+    await ensureGitSession(page);
+    createProbeInContainer();
 
-    // Precondition, ASSERTED rather than assumed: with no grant, the probe is
-    // refused by layers 1/2 and the refusal offers the remedy that binds it.
+    // Precondition, ASSERTED rather than assumed: with no grant, the probe EXISTS
+    // and is still refused by layers 1/2, and the refusal offers the remedy that
+    // binds the grant.
     const denied = await page.request.get(existsUrl(PROBE));
     expect(denied.status(), "probe must start refused — else the anchors widened").toBe(403);
+    expect(
+      typeof (await denied.json()).denialId,
+      "the refusal must be a CONTAINMENT refusal (it offers a denialId), not an unknown-cwd one",
+    ).toBe("string");
 
     // Operator half, in-container (local-only binding), through the real path.
     const seeded = seedGrantInContainer();
     expect(seeded.deniedStatus, "in-container refusal").toBe(403);
-    expect(typeof seeded.denial.denialId, "refusal must offer a denialId").toBe("string");
-    expect(seeded.grantStatus, "the offered remedy is grantable").toBe(200);
+    expect(
+      typeof seeded.denial.denialId,
+      `refusal must offer a denialId — got ${JSON.stringify(seeded.denial)}`,
+    ).toBe("string");
+    expect(seeded.grantStatus, `the offered remedy is grantable — got ${JSON.stringify(seeded.grant)}`).toBe(
+      200,
+    );
 
-    // The SAME read is now ADMITTED — 404, not 403 — with no restart.
+    // The SAME read is now ADMITTED — a plain 200 with the file present — with
+    // no restart.
     await expect
-      .poll(async () => (await page.request.get(existsUrl(PROBE))).status(), {
-        timeout: 15_000,
-        message: "the grant must take effect on the next request, without a restart",
-      })
-      .toBe(404);
+      .poll(
+        async () => {
+          const r = await page.request.get(existsUrl(PROBE));
+          return `${r.status()}:${JSON.stringify(await r.json().catch(() => null))}`;
+        },
+        { timeout: 15_000, message: "the grant must take effect on the next request, without a restart" },
+      )
+      .toBe('200:{"success":true,"data":{"exists":true}}');
 
     // The Access tab lists the grant with its provenance, and is review-only.
     await page.goto("/settings/access");
     await expect(page.getByTestId("access-section")).toBeVisible({ timeout: 20_000 });
     const entry = page.getByTestId("access-entry").filter({ hasText: seeded.denial.subject });
     await expect(entry.first()).toBeVisible({ timeout: 15_000 });
-    await expect(entry.first().getByTestId("access-entry-scope")).toContainText("project");
+    await expect(entry.first().getByTestId("access-entry-scope")).toContainText("Project");
 
     // Revoke from the surface that lists it (the only per-entry write, F5).
     await entry.first().getByTestId("access-revoke").click();
+
+    // POSITIVE evidence the revoke landed. Without this, a revoke that silently
+    // failed would leave the read refused and the assertion below would pass for
+    // the WRONG reason — the failure mode this whole journey exists to catch.
+    await expect(entry).toHaveCount(0, { timeout: 15_000 });
 
     // Denied again — still without a restart.
     await expect
