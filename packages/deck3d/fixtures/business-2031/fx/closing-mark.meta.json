@@ -1,20 +1,16 @@
 {
-  "id": "proof-gate",
+  "id": "closing-mark",
   "kind": "background",
   "tags": {
     "mood": [
-      "decisive",
-      "commercial"
+      "custom"
     ],
     "content": [
-      "pipeline",
-      "proof"
+      "closing-mark"
     ],
-    "topic": [
-      "sales"
-    ]
+    "topic": []
   },
-  "cost": 3,
+  "cost": 2,
   "modes": "both",
   "params": {
     "density": {

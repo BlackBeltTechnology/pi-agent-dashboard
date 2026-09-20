@@ -4,41 +4,896 @@
     "floor": "water",
     "rail": "tunnel"
   },
-  "effects": [
-    {
-      "id": "local:proof-gate",
-      "sha256": "ed4ade9ee837d2a299232d644bec04df66f96f7698a53016f3f8c5510849d123",
-      "params": { "density": 0.2 }
-    },
-    {
-      "id": "signal-pulse",
-      "params": { "intensity": 0.85 }
-    }
-  ],
+  "effects": [],
   "slides": {
+    "how-business-changes-by-2031": {
+      "effects": [
+        {
+          "id": "local:closing-mark",
+          "sha256": "3b7a410d380f9f9365b7ead17ea5b93447421af068b0336b406d7cccd66695a2"
+        },
+        {
+          "id": "vignette"
+        }
+      ]
+    },
+    "why": {
+      "effects": [
+        {
+          "id": "grid-horizon"
+        },
+        {
+          "id": "fog"
+        }
+      ],
+      "diagram": {
+        "kind": "stack",
+        "data": {
+          "labels": [
+            "Buyers changed",
+            "Proof beats promise",
+            "Sourced + dated"
+          ]
+        }
+      }
+    },
+    "forces": {
+      "effects": [
+        {
+          "id": "neural-mesh"
+        },
+        {
+          "id": "glass"
+        },
+        {
+          "id": "signal-pulse",
+          "params": {
+            "intensity": 0.85
+          }
+        }
+      ],
+      "diagram": {
+        "scale": 1
+      }
+    },
+    "capability": {
+      "effects": [
+        {
+          "id": "curve-flow"
+        },
+        {
+          "id": "bloom"
+        }
+      ],
+      "diagram": {
+        "kind": "bars",
+        "data": {
+          "labels": [
+            "SWE-bench",
+            "Science",
+            "Agents",
+            "US–CN"
+          ],
+          "values": [
+            100,
+            88,
+            66,
+            4
+          ]
+        }
+      }
+    },
+    "jagged": {
+      "effects": [
+        {
+          "id": "tessellate"
+        },
+        {
+          "id": "sobel"
+        }
+      ],
+      "diagram": {
+        "kind": "bars",
+        "data": {
+          "labels": [
+            "IMO",
+            "Clocks",
+            "Tasks",
+            "Spike"
+          ],
+          "values": [
+            100,
+            50,
+            67,
+            30
+          ]
+        }
+      }
+    },
+    "adoption": {
+      "effects": [
+        {
+          "id": "data-columns"
+        },
+        {
+          "id": "smaa"
+        },
+        {
+          "id": "fade"
+        }
+      ],
+      "diagram": {
+        "kind": "bars",
+        "data": {
+          "labels": [
+            "Orgs",
+            "Function",
+            "People",
+            "Students"
+          ],
+          "values": [
+            88,
+            70,
+            53,
+            80
+          ]
+        }
+      }
+    },
+    "agentgap": {
+      "effects": [
+        {
+          "id": "agent-depth"
+        },
+        {
+          "id": "float"
+        }
+      ],
+      "diagram": {
+        "kind": "orbit-cluster",
+        "data": {
+          "labels": [
+            "Bought AI",
+            "Piloting",
+            "In production",
+            "At depth"
+          ]
+        }
+      }
+    },
+    "money": {
+      "effects": [
+        {
+          "id": "capital-flows"
+        },
+        {
+          "id": "film"
+        }
+      ],
+      "diagram": {
+        "kind": "bars",
+        "data": {
+          "labels": [
+            "Private",
+            "Corporate",
+            "Capex",
+            "Free"
+          ],
+          "values": [
+            285.9,
+            200,
+            150,
+            172
+          ]
+        }
+      }
+    },
+    "trust": {
+      "effects": [
+        {
+          "id": "trust-ledger"
+        },
+        {
+          "id": "glow-tube"
+        }
+      ],
+      "diagram": {
+        "kind": "funnel",
+        "data": {
+          "labels": [
+            "Ambition",
+            "Evidence demanded",
+            "Governance",
+            "Measured value"
+          ]
+        }
+      }
+    },
+    "dealflow": {
+      "effects": [
+        {
+          "id": "proof-gate",
+          "params": {
+            "density": 0.2
+          }
+        },
+        {
+          "id": "depth-of-field"
+        },
+        {
+          "id": "particle-stream"
+        }
+      ],
+      "diagram": {
+        "scale": 1.3
+      }
+    },
+    "work": {
+      "effects": [
+        {
+          "id": "cohort-grid"
+        },
+        {
+          "id": "outline"
+        }
+      ],
+      "diagram": {
+        "kind": "bars",
+        "data": {
+          "labels": [
+            "Churn",
+            "Created",
+            "Displaced",
+            "Net"
+          ],
+          "values": [
+            22,
+            170,
+            92,
+            78
+          ]
+        }
+      }
+    },
+    "skills": {
+      "effects": [
+        {
+          "id": "swarm"
+        },
+        {
+          "id": "accent-cycle"
+        }
+      ],
+      "diagram": {
+        "kind": "orbit-cluster",
+        "data": {
+          "labels": [
+            "AI + data",
+            "Cybersecurity",
+            "Analytical",
+            "Creative"
+          ]
+        }
+      }
+    },
+    "reskill": {
+      "effects": [
+        {
+          "id": "points-on-geometry"
+        },
+        {
+          "id": "matcap"
+        }
+      ],
+      "diagram": {
+        "kind": "bars",
+        "data": {
+          "labels": [
+            "Training",
+            "Upskilled",
+            "Redeployed",
+            "Nothing"
+          ],
+          "values": [
+            59,
+            29,
+            19,
+            11
+          ]
+        }
+      }
+    },
+    "entry": {
+      "effects": [
+        {
+          "id": "sprites"
+        },
+        {
+          "id": "stagger-reveal"
+        }
+      ],
+      "diagram": {
+        "kind": "bars",
+        "data": {
+          "labels": [
+            "Devs 22–25",
+            "Exposed",
+            "Cuts"
+          ],
+          "values": [
+            20,
+            33,
+            33
+          ]
+        }
+      }
+    },
     "geo": {
       "effects": [
         {
-          "id": "local:geo-fragments",
-          "sha256": "a804bd05e2b071c70ce8ef67da56ecc4bfae643174bafaf602185250472341ff",
-          "params": { "activity": 0.75, "breathe": 1, "spin": 1.2 }
+          "id": "geo-fragments",
+          "params": {
+            "activity": 0.75,
+            "breathe": 1,
+            "spin": 1.2
+          }
+        },
+        {
+          "id": "lightformers"
+        },
+        {
+          "id": "dolly"
         }
-      ]
+      ],
+      "diagram": {
+        "kind": "globe",
+        "data": {
+          "labels": [
+            "Geoeconomics",
+            "Model change",
+            "Fragmented order",
+            "Sovereignty"
+          ]
+        }
+      }
     },
     "compute": {
       "effects": [
         {
-          "id": "local:fab-wafer",
-          "sha256": "9842d6ffd874eb1f316685d2bdb4d159d10f2233b1aa1782f05a4986c28e402b",
-          "params": { "wave": 2, "waveSpeed": 3, "density": 3 }
+          "id": "fab-wafer",
+          "params": {
+            "wave": 2,
+            "waveSpeed": 3,
+            "density": 3
+          }
+        },
+        {
+          "id": "god-rays"
         }
-      ]
+      ],
+      "diagram": {
+        "kind": "stack",
+        "data": {
+          "labels": [
+            "Data centres",
+            "One foundry",
+            "Energy + capex",
+            "Latency terms"
+          ]
+        }
+      }
+    },
+    "productivity": {
+      "effects": [
+        {
+          "id": "market-tape"
+        },
+        {
+          "id": "selective-bloom"
+        }
+      ],
+      "diagram": {
+        "kind": "bars",
+        "data": {
+          "labels": [
+            "Support",
+            "Dev",
+            "Marketing",
+            "Reasoning"
+          ],
+          "values": [
+            15,
+            26,
+            50,
+            5
+          ]
+        }
+      }
+    },
+    "model": {
+      "effects": [
+        {
+          "id": "extruded-shapes"
+        },
+        {
+          "id": "iridescent"
+        }
+      ],
+      "diagram": {
+        "scale": 1.3
+      }
+    },
+    "sales": {
+      "effects": [
+        {
+          "id": "orbit-agents"
+        },
+        {
+          "id": "chromatic-aberration"
+        }
+      ],
+      "diagram": {
+        "kind": "funnel",
+        "data": {
+          "labels": [
+            "Benchmarks",
+            "Governance",
+            "Agent gap",
+            "Reskilling",
+            "Trust"
+          ]
+        }
+      }
+    },
+    "timeline": {
+      "effects": [
+        {
+          "id": "rings"
+        },
+        {
+          "id": "room-ibl"
+        }
+      ],
+      "diagram": {
+        "scale": 0.95
+      }
     },
     "monday": {
-      "effects": [{ "id": "hex-grid", "params": { "scale": 4 } }]
+      "effects": [
+        {
+          "id": "hex-grid",
+          "params": {
+            "scale": 4
+          }
+        },
+        {
+          "id": "metal"
+        },
+        {
+          "id": "dashed-flow"
+        }
+      ],
+      "diagram": {
+        "kind": "loop",
+        "data": {
+          "labels": [
+            "Audit accounts",
+            "Swap in proof",
+            "Name governance",
+            "Book reskilling"
+          ]
+        }
+      }
+    },
+    "wrong": {
+      "effects": [
+        {
+          "id": "glyph-rain"
+        },
+        {
+          "id": "ascii"
+        }
+      ],
+      "diagram": {
+        "kind": "funnel",
+        "data": {
+          "labels": [
+            "Downturn",
+            "Regulation",
+            "Plateau",
+            "Trust collapse"
+          ]
+        }
+      }
     },
     "sources": {
-      "effects": [{ "id": "paper-stack", "params": { "density": 3, "speed": 3 } }]
+      "effects": [
+        {
+          "id": "paper-stack",
+          "params": {
+            "density": 3,
+            "speed": 3
+          }
+        },
+        {
+          "id": "camera-drift"
+        }
+      ],
+      "diagram": {
+        "kind": "timeline-rail",
+        "data": {
+          "labels": [
+            "WEF Jobs 25",
+            "HAI Index 26",
+            "Global Risks 26",
+            "Entry-Level 26",
+            "Forrester 26"
+          ]
+        }
+      }
+    },
+    "procurement": {
+      "effects": [
+        {
+          "id": "vault-glyphs"
+        },
+        {
+          "id": "soft-shadows"
+        }
+      ],
+      "diagram": {
+        "kind": "funnel",
+        "data": {
+          "labels": [
+            "Questionnaire",
+            "Provenance",
+            "Residency",
+            "Reuse"
+          ]
+        }
+      }
+    },
+    "proof-library": {
+      "effects": [
+        {
+          "id": "billboards"
+        },
+        {
+          "id": "emissive"
+        }
+      ],
+      "diagram": {
+        "kind": "stack",
+        "data": {
+          "labels": [
+            "Benchmark",
+            "Reference",
+            "Honest miss",
+            "Versioned"
+          ]
+        }
+      }
+    },
+    "pricing": {
+      "effects": [
+        {
+          "id": "tokens"
+        },
+        {
+          "id": "trail"
+        }
+      ],
+      "diagram": {
+        "kind": "bars",
+        "data": {
+          "labels": [
+            "Per-seat",
+            "Usage",
+            "Outcome",
+            "Defensible"
+          ],
+          "values": [
+            30,
+            55,
+            80,
+            95
+          ]
+        }
+      }
+    },
+    "dataroom": {
+      "effects": [
+        {
+          "id": "server-racks"
+        },
+        {
+          "id": "orbit"
+        }
+      ],
+      "diagram": {
+        "kind": "orbit-cluster",
+        "data": {
+          "labels": [
+            "Location",
+            "Retention",
+            "Subprocessors",
+            "Diagram"
+          ]
+        }
+      }
+    },
+    "energy": {
+      "effects": [
+        {
+          "id": "volume-cloud"
+        },
+        {
+          "id": "sao"
+        }
+      ],
+      "diagram": {
+        "kind": "bars",
+        "data": {
+          "labels": [
+            "Capacity",
+            "Locality",
+            "Efficiency",
+            "Cost"
+          ],
+          "values": [
+            80,
+            60,
+            45,
+            70
+          ]
+        }
+      }
+    },
+    "sovereignty": {
+      "effects": [
+        {
+          "id": "globe-arcs"
+        },
+        {
+          "id": "volumetric-spot"
+        }
+      ],
+      "diagram": {
+        "kind": "globe",
+        "data": {
+          "labels": [
+            "Region",
+            "Public first",
+            "Portability",
+            "Split deploy"
+          ]
+        }
+      }
+    },
+    "identity": {
+      "effects": [
+        {
+          "id": "constellation"
+        },
+        {
+          "id": "holo-fresnel"
+        }
+      ],
+      "diagram": {
+        "kind": "brain",
+        "data": {
+          "labels": [
+            "Scoped creds",
+            "Attribution",
+            "Revocation",
+            "Least privilege"
+          ]
+        }
+      }
+    },
+    "security": {
+      "effects": [
+        {
+          "id": "scatter"
+        },
+        {
+          "id": "dot-screen"
+        }
+      ],
+      "diagram": {
+        "kind": "swarm",
+        "data": {
+          "labels": [
+            "Prompt path",
+            "Retrieval",
+            "Agent output",
+            "Red team"
+          ]
+        }
+      }
+    },
+    "integration": {
+      "effects": [
+        {
+          "id": "clipped-solids"
+        },
+        {
+          "id": "wireframe-overlay"
+        }
+      ],
+      "diagram": {
+        "kind": "timeline-rail",
+        "data": {
+          "labels": [
+            "Legacy",
+            "Data quality",
+            "Change mgmt",
+            "The tax"
+          ]
+        }
+      }
+    },
+    "evals": {
+      "effects": [
+        {
+          "id": "dynamic-instances"
+        },
+        {
+          "id": "iris"
+        }
+      ],
+      "diagram": {
+        "kind": "loop",
+        "data": {
+          "labels": [
+            "Define good",
+            "Regression",
+            "Dashboards",
+            "Renewal"
+          ]
+        }
+      }
+    },
+    "support": {
+      "effects": [
+        {
+          "id": "shader-particles"
+        },
+        {
+          "id": "mirror-floor"
+        }
+      ],
+      "diagram": {
+        "kind": "funnel",
+        "data": {
+          "labels": [
+            "Volume",
+            "Deflection",
+            "Escalation",
+            "Expansion"
+          ]
+        }
+      }
+    },
+    "talent": {
+      "effects": [
+        {
+          "id": "city-grid"
+        },
+        {
+          "id": "flythrough"
+        }
+      ],
+      "diagram": {
+        "kind": "bars",
+        "data": {
+          "labels": [
+            "Specialists",
+            "Generalists",
+            "Hiring bar",
+            "Skills"
+          ],
+          "values": [
+            40,
+            70,
+            55,
+            85
+          ]
+        }
+      }
+    },
+    "partners": {
+      "effects": [
+        {
+          "id": "starfield"
+        }
+      ],
+      "diagram": {
+        "kind": "orbit-cluster",
+        "data": {
+          "labels": [
+            "Day rate",
+            "Ref arch",
+            "Co-sell",
+            "Evidence"
+          ]
+        }
+      }
+    },
+    "smb": {
+      "effects": [
+        {
+          "id": "particles"
+        },
+        {
+          "id": "pixelate"
+        }
+      ],
+      "diagram": {
+        "kind": "stack",
+        "data": {
+          "labels": [
+            "Defaults",
+            "Thin WTP",
+            "Distribution",
+            "Self-serve"
+          ]
+        }
+      }
+    },
+    "metrics": {
+      "effects": [
+        {
+          "id": "volume-perlin"
+        }
+      ],
+      "diagram": {
+        "kind": "funnel",
+        "data": {
+          "labels": [
+            "Cost",
+            "Change",
+            "Exposure",
+            "Stop test"
+          ]
+        }
+      }
+    },
+    "risks": {
+      "effects": [
+        {
+          "id": "aurora"
+        }
+      ],
+      "diagram": {
+        "kind": "timeline-rail",
+        "data": {
+          "labels": [
+            "Supply chain",
+            "Regulation",
+            "Drift",
+            "Trust"
+          ]
+        }
+      }
+    },
+    "close": {
+      "effects": [
+        {
+          "id": "horizon-gates"
+        }
+      ],
+      "diagram": {
+        "kind": "loop",
+        "data": {
+          "labels": [
+            "Depth",
+            "Evidence",
+            "Measure",
+            "One account"
+          ]
+        }
+      }
     }
   }
 }

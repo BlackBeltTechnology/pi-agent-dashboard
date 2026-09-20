@@ -154,3 +154,21 @@ The corpus SHALL provide `background` cards ported from the three.js WebGL examp
 - **GIVEN** `extruded-shapes` with `svgPath: "M0 0 L10 0 L5 8 Z"`
 - **WHEN** constructed
 - **THEN** the extruded geometry has a non-zero triangle count and no console error is raised
+
+### Requirement: The reference deck presents the whole corpus
+The `business-2031` fixture SHALL present every corpus card on exactly one slide: no card left unpresented, no card on two slides, and nothing parked at deck scope (deck-scope effects prepend to every slide, which is duplication by construction). A card the fixture cannot place SHALL fail the build of the corpus, not be silently skipped — the fixture is the corpus's only end-to-end demonstration.
+
+#### Scenario: Every card is presented exactly once
+- **GIVEN** the built `business-2031` IR after `applyOverrides`
+- **WHEN** the per-slide effect lists are collected
+- **THEN** every `src/fx/*.meta.json` id appears in exactly one slide's list, `overrides.effects` is empty, and `check` reports clean
+
+#### Scenario: A new card must be placed
+- **GIVEN** a card added to `src/fx/` and not placed on a fixture slide
+- **WHEN** the corpus-coverage test runs
+- **THEN** it fails, naming the unplaced card
+
+#### Scenario: The local-effect pipeline stays exercised
+- **GIVEN** the fixture after its local modules were promoted into the corpus
+- **WHEN** its `fx/` directory is read
+- **THEN** exactly one local module remains, referenced as `local:` with a matching `sha256` pin

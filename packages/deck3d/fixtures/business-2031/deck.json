@@ -2,8 +2,8 @@
   "meta": {
     "engine": "0.1.0",
     "mermaid": "11.17.2",
-    "source": "/Users/robson/Project/pi-agent-dashboard/.worktrees/os-deck3d-cinematic-worlds/packages/deck3d/fixtures/business-2031/deck.md",
-    "derivedHash": "30bb227ea09fc4d125e32c52622e440e38a90e5c84462d54c0af08474c5693af"
+    "source": "deck.md",
+    "derivedHash": "c9c7d4c6e1744178aee5b67d3614f31f6ed463761a23bbff8b30f62442369337"
   },
   "defaults": {
     "mode": "dark",
@@ -63,6 +63,35 @@
     },
     {
       "index": 2,
+      "id": "why",
+      "title": "Why This Talk",
+      "bullets": [
+        "Buyers changed faster than sellers",
+        "Proof now beats promise",
+        "Everything here is sourced and dated"
+      ],
+      "scene": "particles",
+      "diagram": {
+        "kind": "none"
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "particles"
+        }
+      ],
+      "subtitle": "Your quota survives. Your playbook does not."
+    },
+    {
+      "index": 3,
       "id": "forces",
       "title": "Five Forces to 2031",
       "bullets": [],
@@ -919,7 +948,83 @@
       "subtitle": "The macro drivers reshaping every deal you will work"
     },
     {
-      "index": 3,
+      "index": 4,
+      "id": "capability",
+      "title": "Force 1: Capability Is Not Plateauing",
+      "bullets": [
+        "SWE-bench Verified: 60% to near 100% in one year",
+        "Matches human baselines on PhD-level science",
+        "Agents on real computer tasks: 12% to 66% success",
+        "US–China model gap effectively closed"
+      ],
+      "scene": "agent-depth",
+      "diagram": {
+        "kind": "swarm",
+        "data": {
+          "labels": [
+            "SWE-bench Verified: 60% to near 100% in one year",
+            "Matches human baselines on PhD-level science",
+            "Agents on real computer tasks: 12% to 66% success",
+            "US–China model gap effectively closed"
+          ]
+        }
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "agent-depth"
+        }
+      ],
+      "subtitle": "Stanford HAI AI Index 2026"
+    },
+    {
+      "index": 5,
+      "id": "jagged",
+      "title": "The Jagged Frontier",
+      "bullets": [
+        "IMO gold medal, but clocks read right 50.1%",
+        "Agents still fail roughly 1 in 3 structured tasks",
+        "Capability is spiky, not uniform",
+        "Sell the spike, scope around the gap"
+      ],
+      "scene": "agent-depth",
+      "diagram": {
+        "kind": "swarm",
+        "data": {
+          "labels": [
+            "IMO gold medal, but clocks read right 50.1%",
+            "Agents still fail roughly 1 in 3 structured tasks",
+            "Capability is spiky, not uniform",
+            "Sell the spike, scope around the gap"
+          ]
+        }
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "agent-depth"
+        }
+      ],
+      "subtitle": "Superhuman and incompetent in the same system"
+    },
+    {
+      "index": 6,
       "id": "adoption",
       "title": "Adoption Broke Every Record",
       "bullets": [
@@ -957,7 +1062,7 @@
       "subtitle": "Faster than the PC. Faster than the internet."
     },
     {
-      "index": 4,
+      "index": 7,
       "id": "agentgap",
       "title": "The Agent Gap Is the Opportunity",
       "bullets": [
@@ -995,7 +1100,37 @@
       "subtitle": "Everyone bought AI. Few run agents."
     },
     {
-      "index": 5,
+      "index": 8,
+      "id": "money",
+      "title": "Money Moved, Then Got Strict",
+      "bullets": [
+        "US private AI investment: $285.9B in 2025",
+        "Corporate AI investment doubled in 2025",
+        "Google alone: $150B+ annual capex",
+        "Consumer value from free tools: $172B/year"
+      ],
+      "scene": "neural-mesh",
+      "diagram": {
+        "kind": "none"
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "neural-mesh"
+        }
+      ],
+      "subtitle": "Record investment arriving with record scrutiny"
+    },
+    {
+      "index": 9,
       "id": "trust",
       "title": "Force 2: The Trust Correction",
       "bullets": [
@@ -1025,7 +1160,7 @@
       "subtitle": "Forrester 2026: proof over promises"
     },
     {
-      "index": 6,
+      "index": 10,
       "id": "dealflow",
       "title": "How the Deal Actually Runs Now",
       "bullets": [],
@@ -1115,7 +1250,157 @@
       "subtitle": "Proof gates appear before commercial terms"
     },
     {
-      "index": 7,
+      "index": 11,
+      "id": "work",
+      "title": "Force 3: Work Gets Redesigned",
+      "bullets": [
+        "22% of today's jobs churn by 2030",
+        "170M roles created, 92M displaced, net +78M",
+        "40% cut roles where AI automates",
+        "Half of employers re-orient the business around AI"
+      ],
+      "scene": "neural-mesh",
+      "diagram": {
+        "kind": "bars",
+        "data": {
+          "labels": [
+            "of today's jobs churn by 2030",
+            "M roles created, 92M displaced, net +78M",
+            "cut roles where AI automates",
+            "Half of employers re-orient the business around AI"
+          ]
+        }
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "neural-mesh"
+        }
+      ],
+      "subtitle": "WEF Future of Jobs 2025 — 2025 to 2030"
+    },
+    {
+      "index": 12,
+      "id": "skills",
+      "title": "Skills Beat Headcount",
+      "bullets": [
+        "Fastest-growing: AI, data, cybersecurity",
+        "Still #1 core skill: analytical thinking",
+        "Rising: creative thinking, resilience, curiosity",
+        "63%: skill gaps are the top barrier"
+      ],
+      "scene": "glyph-rain",
+      "diagram": {
+        "kind": "none"
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "glyph-rain"
+        }
+      ],
+      "subtitle": "39% of skill sets expire by 2030"
+    },
+    {
+      "index": 13,
+      "id": "reskill",
+      "title": "The 59-in-100 Problem",
+      "bullets": [
+        "59 need training by 2030",
+        "29 upskilled in place, 19 redeployed",
+        "11 get nothing — and their prospects erode",
+        "85% of employers prioritize upskilling"
+      ],
+      "scene": "particles",
+      "diagram": {
+        "kind": "bars",
+        "data": {
+          "labels": [
+            "need training by 2030",
+            "upskilled in place, 19 redeployed",
+            "get nothing — and their prospects erode",
+            "of employers prioritize upskilling"
+          ],
+          "values": [
+            59,
+            29,
+            11,
+            85
+          ]
+        }
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "particles"
+        }
+      ],
+      "subtitle": "If the workforce were 100 people"
+    },
+    {
+      "index": 14,
+      "id": "entry",
+      "title": "The Entry-Level Squeeze",
+      "bullets": [
+        "Devs aged 22-25: employment down ~20%",
+        "1 in 3 young workers sit in AI-exposed occupations",
+        "1 in 3 orgs expect AI-driven cuts",
+        "Your future buyers are being trained differently"
+      ],
+      "scene": "neural-mesh",
+      "diagram": {
+        "kind": "bars",
+        "data": {
+          "labels": [
+            "Devs aged 22-25: employment down ~20%",
+            "in 3 young workers sit in AI-exposed occupations",
+            "in 3 orgs expect AI-driven cuts",
+            "Your future buyers are being trained differently"
+          ]
+        }
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "neural-mesh"
+        }
+      ],
+      "subtitle": "Where the damage is already measurable"
+    },
+    {
+      "index": 15,
       "id": "geo",
       "title": "Force 4: Geoeconomics Rewrites Strategy",
       "bullets": [
@@ -1153,7 +1438,7 @@
       "subtitle": "WEF Global Risks Report 2026 — an age of competition"
     },
     {
-      "index": 8,
+      "index": 16,
       "id": "compute",
       "title": "Force 5: Concentrated Physical Reality",
       "bullets": [
@@ -1183,7 +1468,846 @@
       "subtitle": "Intelligence runs on a very narrow supply chain"
     },
     {
-      "index": 9,
+      "index": 17,
+      "id": "productivity",
+      "title": "Productivity Is Real — Where Work Is Measurable",
+      "bullets": [
+        "Customer support: 14–15% gains",
+        "Software development: 26%",
+        "Marketing output: 50%",
+        "Deep reasoning: smaller, riskier gains"
+      ],
+      "scene": "city-grid",
+      "diagram": {
+        "kind": "none"
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "city-grid"
+        }
+      ],
+      "subtitle": "The evidence is uneven, and that is the useful part"
+    },
+    {
+      "index": 18,
+      "id": "model",
+      "title": "The Business Model Shift",
+      "bullets": [],
+      "scene": "tokens",
+      "diagram": {
+        "kind": "flowchart",
+        "dir": "LR",
+        "nodes": [
+          {
+            "id": "A",
+            "label": "Seats",
+            "shape": "rect",
+            "x": 58.46,
+            "y": 94.88,
+            "w": 100.92,
+            "h": 54
+          },
+          {
+            "id": "B",
+            "label": "Proof",
+            "shape": "hexagon",
+            "x": 195.3,
+            "y": 94.88,
+            "w": 72.75,
+            "h": 39
+          },
+          {
+            "id": "C",
+            "label": "Outcomes",
+            "shape": "stadium",
+            "x": 359.4,
+            "y": 46.63,
+            "w": 97.65,
+            "h": 39
+          },
+          {
+            "id": "D",
+            "label": "Cut",
+            "shape": "rect",
+            "x": 359.4,
+            "y": 143.13,
+            "w": 84.91,
+            "h": 54
+          },
+          {
+            "id": "G",
+            "label": "Renewal",
+            "shape": "circle",
+            "x": 553.36,
+            "y": 46.63,
+            "w": 77.27,
+            "h": 77.27
+          }
+        ],
+        "edges": [
+          {
+            "id": "A->B#0",
+            "from": "A",
+            "to": "B",
+            "kind": "normal",
+            "path": [
+              [
+                108.92,
+                94.88
+              ],
+              [
+                111.83,
+                94.88
+              ],
+              [
+                114.74,
+                94.88
+              ],
+              [
+                117.64,
+                94.88
+              ],
+              [
+                120.55,
+                94.89
+              ],
+              [
+                123.45,
+                94.9
+              ],
+              [
+                126.36,
+                94.91
+              ],
+              [
+                129.27,
+                94.92
+              ],
+              [
+                132.17,
+                94.94
+              ],
+              [
+                135.08,
+                94.97
+              ],
+              [
+                137.99,
+                95
+              ],
+              [
+                140.89,
+                95.04
+              ],
+              [
+                143.8,
+                95.09
+              ],
+              [
+                146.71,
+                95.14
+              ],
+              [
+                149.61,
+                95.19
+              ],
+              [
+                152.52,
+                95.25
+              ],
+              [
+                155.42,
+                95.3
+              ]
+            ]
+          },
+          {
+            "id": "B->C#0",
+            "from": "B",
+            "to": "C",
+            "kind": "normal",
+            "label": "yes",
+            "path": [
+              [
+                223.39,
+                77.82
+              ],
+              [
+                228.16,
+                74.71
+              ],
+              [
+                232.94,
+                71.59
+              ],
+              [
+                237.73,
+                68.5
+              ],
+              [
+                242.56,
+                65.48
+              ],
+              [
+                247.45,
+                62.56
+              ],
+              [
+                252.41,
+                59.75
+              ],
+              [
+                257.46,
+                57.09
+              ],
+              [
+                262.59,
+                54.62
+              ],
+              [
+                267.84,
+                52.4
+              ],
+              [
+                273.23,
+                50.54
+              ],
+              [
+                278.73,
+                49.07
+              ],
+              [
+                284.33,
+                48
+              ],
+              [
+                289.99,
+                47.33
+              ],
+              [
+                295.68,
+                47.02
+              ],
+              [
+                301.38,
+                47.01
+              ],
+              [
+                307.08,
+                47.08
+              ]
+            ]
+          },
+          {
+            "id": "B->D#0",
+            "from": "B",
+            "to": "D",
+            "kind": "normal",
+            "label": "no",
+            "path": [
+              [
+                223.39,
+                112.94
+              ],
+              [
+                228.49,
+                116.17
+              ],
+              [
+                233.59,
+                119.39
+              ],
+              [
+                238.72,
+                122.57
+              ],
+              [
+                243.91,
+                125.65
+              ],
+              [
+                249.17,
+                128.61
+              ],
+              [
+                254.51,
+                131.41
+              ],
+              [
+                259.95,
+                134.03
+              ],
+              [
+                265.5,
+                136.4
+              ],
+              [
+                271.18,
+                138.44
+              ],
+              [
+                276.98,
+                140.1
+              ],
+              [
+                282.88,
+                141.36
+              ],
+              [
+                288.85,
+                142.26
+              ],
+              [
+                294.85,
+                142.82
+              ],
+              [
+                300.88,
+                143.09
+              ],
+              [
+                306.92,
+                143.13
+              ],
+              [
+                312.95,
+                143.13
+              ]
+            ]
+          },
+          {
+            "id": "C->G#0",
+            "from": "C",
+            "to": "G",
+            "kind": "thick",
+            "label": "expand",
+            "path": [
+              [
+                408.73,
+                47.13
+              ],
+              [
+                415.1,
+                47.07
+              ],
+              [
+                421.48,
+                47.01
+              ],
+              [
+                427.85,
+                46.96
+              ],
+              [
+                434.23,
+                46.9
+              ],
+              [
+                440.6,
+                46.85
+              ],
+              [
+                446.98,
+                46.8
+              ],
+              [
+                453.35,
+                46.76
+              ],
+              [
+                459.73,
+                46.72
+              ],
+              [
+                466.1,
+                46.69
+              ],
+              [
+                472.48,
+                46.67
+              ],
+              [
+                478.85,
+                46.65
+              ],
+              [
+                485.23,
+                46.64
+              ],
+              [
+                491.6,
+                46.64
+              ],
+              [
+                497.98,
+                46.63
+              ],
+              [
+                504.35,
+                46.63
+              ],
+              [
+                510.73,
+                46.63
+              ]
+            ]
+          }
+        ],
+        "groups": []
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "tokens"
+        },
+        {
+          "id": "signal-pulse"
+        }
+      ],
+      "subtitle": "Software & IT services: from seats to outcomes"
+    },
+    {
+      "index": 19,
+      "id": "sales",
+      "title": "What Changes in Your Job",
+      "bullets": [
+        "Bring benchmarks to the first call",
+        "A governance reviewer joins every deal",
+        "Quantify the client's agent gap",
+        "Reskilling becomes part of the offer",
+        "Trust is scarce: it is your product"
+      ],
+      "scene": "trust-ledger",
+      "diagram": {
+        "kind": "swarm",
+        "data": {
+          "labels": [
+            "Bring benchmarks to the first call",
+            "A governance reviewer joins every deal",
+            "Quantify the client's agent gap",
+            "Reskilling becomes part of the offer",
+            "Trust is scarce: it is your product"
+          ]
+        }
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "trust-ledger"
+        }
+      ],
+      "subtitle": "Five shifts for client-facing teams"
+    },
+    {
+      "index": 20,
+      "id": "timeline",
+      "title": "Timeline to 2031",
+      "bullets": [],
+      "scene": "tokens",
+      "diagram": {
+        "kind": "flowchart",
+        "dir": "TB",
+        "nodes": [
+          {
+            "id": "Y1",
+            "label": "2026 proof",
+            "shape": "rect",
+            "x": 192.18,
+            "y": 35,
+            "w": 136.52,
+            "h": 54
+          },
+          {
+            "id": "Y2",
+            "label": "2027 agents",
+            "shape": "rect",
+            "x": 192.18,
+            "y": 139,
+            "w": 148.08,
+            "h": 54
+          },
+          {
+            "id": "Y3",
+            "label": "2028 outcomes",
+            "shape": "rect",
+            "x": 92.7,
+            "y": 243,
+            "w": 169.41,
+            "h": 54
+          },
+          {
+            "id": "Y5",
+            "label": "2031 trust moat",
+            "shape": "stadium",
+            "x": 92.7,
+            "y": 339.5,
+            "w": 135.9,
+            "h": 39
+          },
+          {
+            "id": "R",
+            "label": "Downturn",
+            "shape": "rect",
+            "x": 291.65,
+            "y": 243,
+            "w": 128.48,
+            "h": 54
+          }
+        ],
+        "edges": [
+          {
+            "id": "Y1->Y2#0",
+            "from": "Y1",
+            "to": "Y2",
+            "kind": "normal",
+            "path": [
+              [
+                192.18,
+                62
+              ],
+              [
+                192.18,
+                64.88
+              ],
+              [
+                192.18,
+                67.75
+              ],
+              [
+                192.18,
+                70.63
+              ],
+              [
+                192.18,
+                73.5
+              ],
+              [
+                192.18,
+                76.38
+              ],
+              [
+                192.18,
+                79.25
+              ],
+              [
+                192.18,
+                82.13
+              ],
+              [
+                192.18,
+                85
+              ],
+              [
+                192.18,
+                87.88
+              ],
+              [
+                192.18,
+                90.75
+              ],
+              [
+                192.18,
+                93.63
+              ],
+              [
+                192.18,
+                96.5
+              ],
+              [
+                192.18,
+                99.38
+              ],
+              [
+                192.18,
+                102.25
+              ],
+              [
+                192.18,
+                105.13
+              ],
+              [
+                192.18,
+                108
+              ]
+            ]
+          },
+          {
+            "id": "Y2->Y3#0",
+            "from": "Y2",
+            "to": "Y3",
+            "kind": "normal",
+            "path": [
+              [
+                140.53,
+                166
+              ],
+              [
+                136.61,
+                168.05
+              ],
+              [
+                132.68,
+                170.1
+              ],
+              [
+                128.77,
+                172.16
+              ],
+              [
+                124.87,
+                174.25
+              ],
+              [
+                121,
+                176.4
+              ],
+              [
+                117.16,
+                178.61
+              ],
+              [
+                113.38,
+                180.91
+              ],
+              [
+                109.67,
+                183.32
+              ],
+              [
+                106.05,
+                185.86
+              ],
+              [
+                102.58,
+                188.61
+              ],
+              [
+                99.37,
+                191.65
+              ],
+              [
+                96.6,
+                195.1
+              ],
+              [
+                94.46,
+                198.96
+              ],
+              [
+                93.14,
+                203.18
+              ],
+              [
+                92.71,
+                207.57
+              ],
+              [
+                92.7,
+                212
+              ]
+            ]
+          },
+          {
+            "id": "Y3->Y5#0",
+            "from": "Y3",
+            "to": "Y5",
+            "kind": "normal",
+            "path": [
+              [
+                92.7,
+                270
+              ],
+              [
+                92.7,
+                272.91
+              ],
+              [
+                92.7,
+                275.81
+              ],
+              [
+                92.71,
+                278.72
+              ],
+              [
+                92.71,
+                281.63
+              ],
+              [
+                92.72,
+                284.53
+              ],
+              [
+                92.73,
+                287.44
+              ],
+              [
+                92.74,
+                290.35
+              ],
+              [
+                92.76,
+                293.25
+              ],
+              [
+                92.79,
+                296.16
+              ],
+              [
+                92.82,
+                299.06
+              ],
+              [
+                92.86,
+                301.97
+              ],
+              [
+                92.91,
+                304.88
+              ],
+              [
+                92.96,
+                307.78
+              ],
+              [
+                93.01,
+                310.69
+              ],
+              [
+                93.07,
+                313.6
+              ],
+              [
+                93.13,
+                316.5
+              ]
+            ]
+          },
+          {
+            "id": "Y2->R#0",
+            "from": "Y2",
+            "to": "R",
+            "kind": "dotted",
+            "path": [
+              [
+                243.82,
+                166
+              ],
+              [
+                247.75,
+                168.05
+              ],
+              [
+                251.67,
+                170.1
+              ],
+              [
+                255.59,
+                172.16
+              ],
+              [
+                259.49,
+                174.25
+              ],
+              [
+                263.36,
+                176.4
+              ],
+              [
+                267.19,
+                178.61
+              ],
+              [
+                270.97,
+                180.91
+              ],
+              [
+                274.68,
+                183.32
+              ],
+              [
+                278.3,
+                185.86
+              ],
+              [
+                281.77,
+                188.61
+              ],
+              [
+                284.98,
+                191.65
+              ],
+              [
+                287.75,
+                195.1
+              ],
+              [
+                289.9,
+                198.96
+              ],
+              [
+                291.22,
+                203.18
+              ],
+              [
+                291.64,
+                207.57
+              ],
+              [
+                291.65,
+                212
+              ]
+            ]
+          }
+        ],
+        "groups": []
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "tokens"
+        },
+        {
+          "id": "signal-pulse"
+        }
+      ],
+      "subtitle": "A plausible, evidence-anchored sequence"
+    },
+    {
+      "index": 21,
       "id": "monday",
       "title": "Monday Morning",
       "bullets": [
@@ -1213,7 +2337,37 @@
       "subtitle": "Do these before the forecast call"
     },
     {
-      "index": 10,
+      "index": 22,
+      "id": "wrong",
+      "title": "What Would Prove Me Wrong",
+      "bullets": [
+        "Downturn freezes budgets early",
+        "Hard regulation lands: #5 risk by 2036",
+        "Capability plateaus unexpectedly",
+        "Trust collapses faster than proof can be produced"
+      ],
+      "scene": "trust-ledger",
+      "diagram": {
+        "kind": "none"
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "trust-ledger"
+        }
+      ],
+      "subtitle": "Honest failure modes for this forecast"
+    },
+    {
+      "index": 23,
       "id": "sources",
       "title": "Sources",
       "bullets": [
@@ -1251,6 +2405,580 @@
         }
       ],
       "subtitle": "Everything above is dated and traceable"
+    },
+    {
+      "index": 24,
+      "id": "procurement",
+      "title": "Procurement Learns AI",
+      "bullets": [
+        "An AI reviewer now reads your answers",
+        "Questionnaires ask for model provenance",
+        "Expect data-residency clauses by default",
+        "Answer once, reuse the artefact"
+      ],
+      "scene": "data-columns",
+      "diagram": {
+        "kind": "brain",
+        "data": {
+          "labels": [
+            "An AI reviewer now reads your answers",
+            "Questionnaires ask for model provenance",
+            "Expect data-residency clauses by default",
+            "Answer once, reuse the artefact"
+          ]
+        }
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "data-columns"
+        }
+      ],
+      "subtitle": "The buying committee grew a new seat"
+    },
+    {
+      "index": 25,
+      "id": "proof-library",
+      "title": "Build a Proof Library",
+      "bullets": [
+        "One benchmark, run on the buyer's shape of data",
+        "A reference that survives a reference call",
+        "A failure you can describe honestly",
+        "Version it like product, not like slides"
+      ],
+      "scene": "data-columns",
+      "diagram": {
+        "kind": "none"
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "data-columns"
+        }
+      ],
+      "subtitle": "Stop rebuilding evidence per deal"
+    },
+    {
+      "index": 26,
+      "id": "pricing",
+      "title": "Pricing Moves to Outcomes",
+      "bullets": [
+        "Per-seat erodes when the seat is an agent",
+        "Usage pricing exposes your cost floor",
+        "Outcome pricing needs measurement you trust",
+        "Pick the unit you can defend in a QBR"
+      ],
+      "scene": "trust-ledger",
+      "diagram": {
+        "kind": "swarm",
+        "data": {
+          "labels": [
+            "Per-seat erodes when the seat is an agent",
+            "Usage pricing exposes your cost floor",
+            "Outcome pricing needs measurement you trust",
+            "Pick the unit you can defend in a QBR"
+          ]
+        }
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "trust-ledger"
+        }
+      ],
+      "subtitle": "Seats price the tool, not the result"
+    },
+    {
+      "index": 27,
+      "id": "dataroom",
+      "title": "Your Data Room Is the Demo",
+      "bullets": [
+        "Where the data sits, and who can reach it",
+        "What is retained, and for how long",
+        "Which subprocessor sees what",
+        "Have the diagram ready before they ask"
+      ],
+      "scene": "data-columns",
+      "diagram": {
+        "kind": "none"
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "data-columns"
+        }
+      ],
+      "subtitle": "Buyers inspect the plumbing now"
+    },
+    {
+      "index": 28,
+      "id": "energy",
+      "title": "Energy Becomes a Sales Term",
+      "bullets": [
+        "Capacity is booked years ahead",
+        "Locality changes latency and price",
+        "Efficiency turns into a commercial argument",
+        "Know what your workload actually costs"
+      ],
+      "scene": "capital-flows",
+      "diagram": {
+        "kind": "none"
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "capital-flows"
+        }
+      ],
+      "subtitle": "Compute has a physical bill"
+    },
+    {
+      "index": 29,
+      "id": "sovereignty",
+      "title": "Sovereign by Default",
+      "bullets": [
+        "Region is a requirement, not a preference",
+        "Public sector leads, enterprise follows",
+        "Portability beats promises of portability",
+        "Design for a split deployment early"
+      ],
+      "scene": "geo-fragments",
+      "diagram": {
+        "kind": "globe",
+        "data": {
+          "labels": [
+            "Region is a requirement, not a preference",
+            "Public sector leads, enterprise follows",
+            "Portability beats promises of portability",
+            "Design for a split deployment early"
+          ]
+        }
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "geo-fragments"
+        }
+      ],
+      "subtitle": "Where it runs is part of the product"
+    },
+    {
+      "index": 30,
+      "id": "identity",
+      "title": "Agents Need Identity",
+      "bullets": [
+        "Credentials scoped per agent, not per team",
+        "Every action attributable after the fact",
+        "Revocation that works in minutes",
+        "Least privilege survives the pilot"
+      ],
+      "scene": "agent-depth",
+      "diagram": {
+        "kind": "swarm",
+        "data": {
+          "labels": [
+            "Credentials scoped per agent, not per team",
+            "Every action attributable after the fact",
+            "Revocation that works in minutes",
+            "Least privilege survives the pilot"
+          ]
+        }
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "agent-depth"
+        }
+      ],
+      "subtitle": "A non-human actor still needs a name"
+    },
+    {
+      "index": 31,
+      "id": "security",
+      "title": "The New Attack Surface",
+      "bullets": [
+        "Untrusted text reaching a tool call",
+        "Retrieval as an injection channel",
+        "Agent output treated as trusted input",
+        "Red-team the loop, not just the model"
+      ],
+      "scene": "agent-depth",
+      "diagram": {
+        "kind": "swarm",
+        "data": {
+          "labels": [
+            "Untrusted text reaching a tool call",
+            "Retrieval as an injection channel",
+            "Agent output treated as trusted input",
+            "Red-team the loop, not just the model"
+          ]
+        }
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "agent-depth"
+        }
+      ],
+      "subtitle": "Prompt paths are input paths"
+    },
+    {
+      "index": 32,
+      "id": "integration",
+      "title": "The Integration Tax",
+      "bullets": [
+        "Legacy systems set the real timeline",
+        "Data quality sets the real accuracy",
+        "Change management sets the real adoption",
+        "Quote the tax, or absorb it later"
+      ],
+      "scene": "data-columns",
+      "diagram": {
+        "kind": "timeline-rail",
+        "data": {
+          "labels": [
+            "Legacy systems set the real timeline",
+            "Data quality sets the real accuracy",
+            "Change management sets the real adoption",
+            "Quote the tax, or absorb it later"
+          ]
+        }
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "data-columns"
+        }
+      ],
+      "subtitle": "The demo is not the deployment"
+    },
+    {
+      "index": 33,
+      "id": "evals",
+      "title": "Evaluation Becomes a Product",
+      "bullets": [
+        "A shared definition of good, written down",
+        "Regression runs before every release",
+        "Buyer-visible dashboards, not screenshots",
+        "Evaluation is the contract's spine"
+      ],
+      "scene": "market-tape",
+      "diagram": {
+        "kind": "none"
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "market-tape"
+        }
+      ],
+      "subtitle": "If you cannot measure it, you cannot renew it"
+    },
+    {
+      "index": 34,
+      "id": "support",
+      "title": "Support Is the Beachhead",
+      "bullets": [
+        "Volume, repetition and written history",
+        "Deflection is measurable on day one",
+        "Escalation design decides the outcome",
+        "Win here, expand from evidence"
+      ],
+      "scene": "particles",
+      "diagram": {
+        "kind": "none"
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "particles"
+        }
+      ],
+      "subtitle": "The first place agents actually land"
+    },
+    {
+      "index": 35,
+      "id": "talent",
+      "title": "The Talent Market Splits",
+      "bullets": [
+        "Deep specialists become scarcer",
+        "Generalists gain reach, then get squeezed",
+        "Hiring bars move mid-process",
+        "Skills currency beats a title"
+      ],
+      "scene": "city-grid",
+      "diagram": {
+        "kind": "none"
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "city-grid"
+        }
+      ],
+      "subtitle": "Two curves, moving apart"
+    },
+    {
+      "index": 36,
+      "id": "partners",
+      "title": "Partners Change Shape",
+      "bullets": [
+        "Day-rate models lose their basis",
+        "Reference architectures become products",
+        "Co-selling needs shared proof",
+        "Pick partners by evidence, not logo"
+      ],
+      "scene": "neural-mesh",
+      "diagram": {
+        "kind": "orbit-cluster",
+        "data": {
+          "labels": [
+            "Day-rate models lose their basis",
+            "Reference architectures become products",
+            "Co-selling needs shared proof",
+            "Pick partners by evidence, not logo"
+          ]
+        }
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "neural-mesh"
+        }
+      ],
+      "subtitle": "Integrators sell outcomes, not bodies"
+    },
+    {
+      "index": 37,
+      "id": "smb",
+      "title": "The Long Tail Wakes Up",
+      "bullets": [
+        "Defaults do the adoption for them",
+        "Willingness to pay stays thin",
+        "Distribution beats feature depth",
+        "Self-serve proof or no proof"
+      ],
+      "scene": "particles",
+      "diagram": {
+        "kind": "none"
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "particles"
+        }
+      ],
+      "subtitle": "Capability arrives without a project"
+    },
+    {
+      "index": 38,
+      "id": "metrics",
+      "title": "What the Board Will Ask",
+      "bullets": [
+        "What did it cost, all-in",
+        "What changed that we can measure",
+        "What is the exposure if it is wrong",
+        "What happens if we stop"
+      ],
+      "scene": "capital-flows",
+      "diagram": {
+        "kind": "none"
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "capital-flows"
+        }
+      ],
+      "subtitle": "Four questions, every quarter"
+    },
+    {
+      "index": 39,
+      "id": "risks",
+      "title": "Risk Register 2031",
+      "bullets": [
+        "Concentration in one supply chain",
+        "Regulatory divergence across regions",
+        "Model behaviour drifting under you",
+        "Organisational trust spent too early"
+      ],
+      "scene": "trust-ledger",
+      "diagram": {
+        "kind": "brain",
+        "data": {
+          "labels": [
+            "Concentration in one supply chain",
+            "Regulatory divergence across regions",
+            "Model behaviour drifting under you",
+            "Organisational trust spent too early"
+          ]
+        }
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "trust-ledger"
+        }
+      ],
+      "subtitle": "Name them before a buyer does"
+    },
+    {
+      "index": 40,
+      "id": "close",
+      "title": "The Bet",
+      "bullets": [
+        "Broad adoption is already priced in",
+        "Depth is where the next five years pay",
+        "Proof compounds; narrative does not",
+        "Start with one account, this quarter"
+      ],
+      "scene": "constellation",
+      "diagram": {
+        "kind": "none"
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "constellation"
+        }
+      ],
+      "subtitle": "Depth, evidence, and the patience to measure"
     }
   ],
   "overrides": {
@@ -1266,10 +2994,41 @@
         },
         "effects": [
           {
-            "id": "local:horizon-2031",
-            "sha256": "94e46a8fe125c6b391beb092d12fdf29018a09318df787c1d30873c147e8dcf9"
+            "id": "local:closing-mark",
+            "sha256": "3b7a410d380f9f9365b7ead17ea5b93447421af068b0336b406d7cccd66695a2"
+          },
+          {
+            "id": "vignette"
           }
         ]
+      },
+      "why": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "grid-horizon"
+          },
+          {
+            "id": "fog"
+          }
+        ],
+        "diagram": {
+          "kind": "stack",
+          "data": {
+            "labels": [
+              "Buyers changed",
+              "Proof beats promise",
+              "Sourced + dated"
+            ]
+          }
+        }
       },
       "forces": {
         "camera": {
@@ -1291,9 +3050,85 @@
             "id": "neural-mesh"
           },
           {
-            "id": "signal-pulse"
+            "id": "glass"
+          },
+          {
+            "id": "signal-pulse",
+            "params": {
+              "intensity": 0.85
+            }
           }
         ]
+      },
+      "capability": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "curve-flow"
+          },
+          {
+            "id": "bloom"
+          }
+        ],
+        "diagram": {
+          "kind": "bars",
+          "data": {
+            "labels": [
+              "SWE-bench",
+              "Science",
+              "Agents",
+              "US–CN"
+            ],
+            "values": [
+              100,
+              88,
+              66,
+              4
+            ]
+          }
+        }
+      },
+      "jagged": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "tessellate"
+          },
+          {
+            "id": "sobel"
+          }
+        ],
+        "diagram": {
+          "kind": "bars",
+          "data": {
+            "labels": [
+              "IMO",
+              "Clocks",
+              "Tasks",
+              "Spike"
+            ],
+            "values": [
+              100,
+              50,
+              67,
+              30
+            ]
+          }
+        }
       },
       "adoption": {
         "camera": {
@@ -1306,7 +3141,13 @@
         },
         "effects": [
           {
-            "id": "city-grid"
+            "id": "data-columns"
+          },
+          {
+            "id": "smaa"
+          },
+          {
+            "id": "fade"
           }
         ],
         "diagram": {
@@ -1338,8 +3179,10 @@
         },
         "effects": [
           {
-            "id": "local:agent-depth",
-            "sha256": "81218d7baba30c0ad2320b5ea2a57530363c78e41b1422b7751dcbddb9871abf"
+            "id": "agent-depth"
+          },
+          {
+            "id": "float"
           }
         ],
         "diagram": {
@@ -1350,6 +3193,41 @@
               "Piloting",
               "In production",
               "At depth"
+            ]
+          }
+        }
+      },
+      "money": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "capital-flows"
+          },
+          {
+            "id": "film"
+          }
+        ],
+        "diagram": {
+          "kind": "bars",
+          "data": {
+            "labels": [
+              "Private",
+              "Corporate",
+              "Capex",
+              "Free"
+            ],
+            "values": [
+              285.9,
+              200,
+              150,
+              172
             ]
           }
         }
@@ -1365,8 +3243,10 @@
         },
         "effects": [
           {
-            "id": "local:trust-ledger",
-            "sha256": "bc034269342603ba9cdf1013d13b6967f5278fda0df641a69490f6f1c97e3910"
+            "id": "trust-ledger"
+          },
+          {
+            "id": "glow-tube"
           }
         ],
         "diagram": {
@@ -1398,13 +3278,150 @@
         },
         "effects": [
           {
-            "id": "local:proof-gate",
-            "sha256": "ed4ade9ee837d2a299232d644bec04df66f96f7698a53016f3f8c5510849d123"
+            "id": "proof-gate",
+            "params": {
+              "density": 0.2
+            }
           },
           {
-            "id": "signal-pulse"
+            "id": "depth-of-field"
+          },
+          {
+            "id": "particle-stream"
           }
         ]
+      },
+      "work": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "cohort-grid"
+          },
+          {
+            "id": "outline"
+          }
+        ],
+        "diagram": {
+          "kind": "bars",
+          "data": {
+            "labels": [
+              "Churn",
+              "Created",
+              "Displaced",
+              "Net"
+            ],
+            "values": [
+              22,
+              170,
+              92,
+              78
+            ]
+          }
+        }
+      },
+      "skills": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "swarm"
+          },
+          {
+            "id": "accent-cycle"
+          }
+        ],
+        "diagram": {
+          "kind": "orbit-cluster",
+          "data": {
+            "labels": [
+              "AI + data",
+              "Cybersecurity",
+              "Analytical",
+              "Creative"
+            ]
+          }
+        }
+      },
+      "reskill": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "points-on-geometry"
+          },
+          {
+            "id": "matcap"
+          }
+        ],
+        "diagram": {
+          "kind": "bars",
+          "data": {
+            "labels": [
+              "Training",
+              "Upskilled",
+              "Redeployed",
+              "Nothing"
+            ],
+            "values": [
+              59,
+              29,
+              19,
+              11
+            ]
+          }
+        }
+      },
+      "entry": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "sprites"
+          },
+          {
+            "id": "stagger-reveal"
+          }
+        ],
+        "diagram": {
+          "kind": "bars",
+          "data": {
+            "labels": [
+              "Devs 22–25",
+              "Exposed",
+              "Cuts"
+            ],
+            "values": [
+              20,
+              33,
+              33
+            ]
+          }
+        }
       },
       "geo": {
         "camera": {
@@ -1417,13 +3434,18 @@
         },
         "effects": [
           {
-            "id": "local:geo-fragments",
-            "sha256": "a804bd05e2b071c70ce8ef67da56ecc4bfae643174bafaf602185250472341ff",
+            "id": "geo-fragments",
             "params": {
               "activity": 0.75,
               "breathe": 1,
               "spin": 1.2
             }
+          },
+          {
+            "id": "lightformers"
+          },
+          {
+            "id": "dolly"
           }
         ],
         "diagram": {
@@ -1449,13 +3471,15 @@
         },
         "effects": [
           {
-            "id": "local:fab-wafer",
-            "sha256": "9842d6ffd874eb1f316685d2bdb4d159d10f2233b1aa1782f05a4986c28e402b",
+            "id": "fab-wafer",
             "params": {
               "wave": 2,
               "waveSpeed": 3,
               "density": 3
             }
+          },
+          {
+            "id": "god-rays"
           }
         ],
         "diagram": {
@@ -1469,6 +3493,119 @@
             ]
           }
         }
+      },
+      "productivity": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "market-tape"
+          },
+          {
+            "id": "selective-bloom"
+          }
+        ],
+        "diagram": {
+          "kind": "bars",
+          "data": {
+            "labels": [
+              "Support",
+              "Dev",
+              "Marketing",
+              "Reasoning"
+            ],
+            "values": [
+              15,
+              26,
+              50,
+              5
+            ]
+          }
+        }
+      },
+      "model": {
+        "camera": {
+          "distance": 13
+        },
+        "diagram": {
+          "scale": 1.3
+        },
+        "labels": {
+          "size": 0.2
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "extruded-shapes"
+          },
+          {
+            "id": "iridescent"
+          }
+        ]
+      },
+      "sales": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "orbit-agents"
+          },
+          {
+            "id": "chromatic-aberration"
+          }
+        ],
+        "diagram": {
+          "kind": "funnel",
+          "data": {
+            "labels": [
+              "Benchmarks",
+              "Governance",
+              "Agent gap",
+              "Reskilling",
+              "Trust"
+            ]
+          }
+        }
+      },
+      "timeline": {
+        "camera": {
+          "distance": 15
+        },
+        "diagram": {
+          "scale": 0.95
+        },
+        "labels": {
+          "size": 0.2
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "rings"
+          },
+          {
+            "id": "room-ibl"
+          }
+        ]
       },
       "monday": {
         "camera": {
@@ -1485,6 +3622,12 @@
             "params": {
               "scale": 4
             }
+          },
+          {
+            "id": "metal"
+          },
+          {
+            "id": "dashed-flow"
           }
         ],
         "diagram": {
@@ -1495,6 +3638,35 @@
               "Swap in proof",
               "Name governance",
               "Book reskilling"
+            ]
+          }
+        }
+      },
+      "wrong": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "glyph-rain"
+          },
+          {
+            "id": "ascii"
+          }
+        ],
+        "diagram": {
+          "kind": "funnel",
+          "data": {
+            "labels": [
+              "Downturn",
+              "Regulation",
+              "Plateau",
+              "Trust collapse"
             ]
           }
         }
@@ -1515,6 +3687,9 @@
               "density": 3,
               "speed": 3
             }
+          },
+          {
+            "id": "camera-drift"
           }
         ],
         "diagram": {
@@ -1529,6 +3704,505 @@
             ]
           }
         }
+      },
+      "procurement": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "vault-glyphs"
+          },
+          {
+            "id": "soft-shadows"
+          }
+        ],
+        "diagram": {
+          "kind": "funnel",
+          "data": {
+            "labels": [
+              "Questionnaire",
+              "Provenance",
+              "Residency",
+              "Reuse"
+            ]
+          }
+        }
+      },
+      "proof-library": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "billboards"
+          },
+          {
+            "id": "emissive"
+          }
+        ],
+        "diagram": {
+          "kind": "stack",
+          "data": {
+            "labels": [
+              "Benchmark",
+              "Reference",
+              "Honest miss",
+              "Versioned"
+            ]
+          }
+        }
+      },
+      "pricing": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "tokens"
+          },
+          {
+            "id": "trail"
+          }
+        ],
+        "diagram": {
+          "kind": "bars",
+          "data": {
+            "labels": [
+              "Per-seat",
+              "Usage",
+              "Outcome",
+              "Defensible"
+            ],
+            "values": [
+              30,
+              55,
+              80,
+              95
+            ]
+          }
+        }
+      },
+      "dataroom": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "server-racks"
+          },
+          {
+            "id": "orbit"
+          }
+        ],
+        "diagram": {
+          "kind": "orbit-cluster",
+          "data": {
+            "labels": [
+              "Location",
+              "Retention",
+              "Subprocessors",
+              "Diagram"
+            ]
+          }
+        }
+      },
+      "energy": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "volume-cloud"
+          },
+          {
+            "id": "sao"
+          }
+        ],
+        "diagram": {
+          "kind": "bars",
+          "data": {
+            "labels": [
+              "Capacity",
+              "Locality",
+              "Efficiency",
+              "Cost"
+            ],
+            "values": [
+              80,
+              60,
+              45,
+              70
+            ]
+          }
+        }
+      },
+      "sovereignty": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "globe-arcs"
+          },
+          {
+            "id": "volumetric-spot"
+          }
+        ],
+        "diagram": {
+          "kind": "globe",
+          "data": {
+            "labels": [
+              "Region",
+              "Public first",
+              "Portability",
+              "Split deploy"
+            ]
+          }
+        }
+      },
+      "identity": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "constellation"
+          },
+          {
+            "id": "holo-fresnel"
+          }
+        ],
+        "diagram": {
+          "kind": "brain",
+          "data": {
+            "labels": [
+              "Scoped creds",
+              "Attribution",
+              "Revocation",
+              "Least privilege"
+            ]
+          }
+        }
+      },
+      "security": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "scatter"
+          },
+          {
+            "id": "dot-screen"
+          }
+        ],
+        "diagram": {
+          "kind": "swarm",
+          "data": {
+            "labels": [
+              "Prompt path",
+              "Retrieval",
+              "Agent output",
+              "Red team"
+            ]
+          }
+        }
+      },
+      "integration": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "clipped-solids"
+          },
+          {
+            "id": "wireframe-overlay"
+          }
+        ],
+        "diagram": {
+          "kind": "timeline-rail",
+          "data": {
+            "labels": [
+              "Legacy",
+              "Data quality",
+              "Change mgmt",
+              "The tax"
+            ]
+          }
+        }
+      },
+      "evals": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "dynamic-instances"
+          },
+          {
+            "id": "iris"
+          }
+        ],
+        "diagram": {
+          "kind": "loop",
+          "data": {
+            "labels": [
+              "Define good",
+              "Regression",
+              "Dashboards",
+              "Renewal"
+            ]
+          }
+        }
+      },
+      "support": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "shader-particles"
+          },
+          {
+            "id": "mirror-floor"
+          }
+        ],
+        "diagram": {
+          "kind": "funnel",
+          "data": {
+            "labels": [
+              "Volume",
+              "Deflection",
+              "Escalation",
+              "Expansion"
+            ]
+          }
+        }
+      },
+      "talent": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "city-grid"
+          },
+          {
+            "id": "flythrough"
+          }
+        ],
+        "diagram": {
+          "kind": "bars",
+          "data": {
+            "labels": [
+              "Specialists",
+              "Generalists",
+              "Hiring bar",
+              "Skills"
+            ],
+            "values": [
+              40,
+              70,
+              55,
+              85
+            ]
+          }
+        }
+      },
+      "partners": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "starfield"
+          }
+        ],
+        "diagram": {
+          "kind": "orbit-cluster",
+          "data": {
+            "labels": [
+              "Day rate",
+              "Ref arch",
+              "Co-sell",
+              "Evidence"
+            ]
+          }
+        }
+      },
+      "smb": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "particles"
+          },
+          {
+            "id": "pixelate"
+          }
+        ],
+        "diagram": {
+          "kind": "stack",
+          "data": {
+            "labels": [
+              "Defaults",
+              "Thin WTP",
+              "Distribution",
+              "Self-serve"
+            ]
+          }
+        }
+      },
+      "metrics": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "volume-perlin"
+          }
+        ],
+        "diagram": {
+          "kind": "funnel",
+          "data": {
+            "labels": [
+              "Cost",
+              "Change",
+              "Exposure",
+              "Stop test"
+            ]
+          }
+        }
+      },
+      "risks": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "aurora"
+          }
+        ],
+        "diagram": {
+          "kind": "timeline-rail",
+          "data": {
+            "labels": [
+              "Supply chain",
+              "Regulation",
+              "Drift",
+              "Trust"
+            ]
+          }
+        }
+      },
+      "close": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "horizon-gates"
+          }
+        ],
+        "diagram": {
+          "kind": "loop",
+          "data": {
+            "labels": [
+              "Depth",
+              "Evidence",
+              "Measure",
+              "One account"
+            ]
+          }
+        }
       }
     },
     "deck": {
@@ -1536,20 +4210,6 @@
       "floor": "water",
       "rail": "tunnel"
     },
-    "effects": [
-      {
-        "id": "local:proof-gate",
-        "sha256": "ed4ade9ee837d2a299232d644bec04df66f96f7698a53016f3f8c5510849d123",
-        "params": {
-          "density": 0.2
-        }
-      },
-      {
-        "id": "signal-pulse",
-        "params": {
-          "intensity": 0.85
-        }
-      }
-    ]
+    "effects": []
   }
 }

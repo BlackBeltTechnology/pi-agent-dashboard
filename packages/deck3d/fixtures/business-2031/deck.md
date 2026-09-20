@@ -15,6 +15,16 @@ AI, fragmentation and trust: what it means for sellers
 
 <!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
 
+# Why This Talk {#why}
+
+Your quota survives. Your playbook does not.
+
+- Buyers changed faster than sellers
+- Proof now beats promise
+- Everything here is sourced and dated
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
 # Five Forces to 2031 {#forces}
 
 The macro drivers reshaping every deal you will work
@@ -35,6 +45,28 @@ flowchart LR
 
 <!-- deck3d: {"camera":{"distance":15},"diagram":{"scale":1.0},"labels":{"size":0.2},"check":{"ignore":["contrast"]}} -->
 
+# Force 1: Capability Is Not Plateauing {#capability}
+
+Stanford HAI AI Index 2026
+
+- SWE-bench Verified: 60% to near 100% in one year
+- Matches human baselines on PhD-level science
+- Agents on real computer tasks: 12% to 66% success
+- US–China model gap effectively closed
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
+# The Jagged Frontier {#jagged}
+
+Superhuman and incompetent in the same system
+
+- IMO gold medal, but clocks read right 50.1%
+- Agents still fail roughly 1 in 3 structured tasks
+- Capability is spiky, not uniform
+- Sell the spike, scope around the gap
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
 # Adoption Broke Every Record {#adoption}
 
 Faster than the PC. Faster than the internet.
@@ -54,6 +86,17 @@ Everyone bought AI. Few run agents.
 - Adoption is broad and shallow
 - The 2026–2031 money is in depth, not first contact
 - Ask: what is actually in production
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
+# Money Moved, Then Got Strict {#money}
+
+Record investment arriving with record scrutiny
+
+- US private AI investment: $285.9B in 2025
+- Corporate AI investment doubled in 2025
+- Google alone: $150B+ annual capex
+- Consumer value from free tools: $172B/year
 
 <!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
 
@@ -88,6 +131,50 @@ sequenceDiagram
 
 <!-- deck3d: {"camera":{"distance":13},"diagram":{"scale":1.3},"labels":{"size":0.26},"check":{"ignore":["contrast"]}} -->
 
+# Force 3: Work Gets Redesigned {#work}
+
+WEF Future of Jobs 2025 — 2025 to 2030
+
+- 22% of today's jobs churn by 2030
+- 170M roles created, 92M displaced, net +78M
+- 40% cut roles where AI automates
+- Half of employers re-orient the business around AI
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
+# Skills Beat Headcount {#skills}
+
+39% of skill sets expire by 2030
+
+- Fastest-growing: AI, data, cybersecurity
+- Still #1 core skill: analytical thinking
+- Rising: creative thinking, resilience, curiosity
+- 63%: skill gaps are the top barrier
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
+# The 59-in-100 Problem {#reskill}
+
+If the workforce were 100 people
+
+- 59 need training by 2030
+- 29 upskilled in place, 19 redeployed
+- 11 get nothing — and their prospects erode
+- 85% of employers prioritize upskilling
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
+# The Entry-Level Squeeze {#entry}
+
+Where the damage is already measurable
+
+- Devs aged 22-25: employment down ~20%
+- 1 in 3 young workers sit in AI-exposed occupations
+- 1 in 3 orgs expect AI-driven cuts
+- Your future buyers are being trained differently
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
 # Force 4: Geoeconomics Rewrites Strategy {#geo}
 
 WEF Global Risks Report 2026 — an age of competition
@@ -110,6 +197,57 @@ Intelligence runs on a very narrow supply chain
 
 <!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
 
+# Productivity Is Real — Where Work Is Measurable {#productivity}
+
+The evidence is uneven, and that is the useful part
+
+- Customer support: 14–15% gains
+- Software development: 26%
+- Marketing output: 50%
+- Deep reasoning: smaller, riskier gains
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
+# The Business Model Shift {#model}
+
+Software & IT services: from seats to outcomes
+
+```mermaid
+flowchart LR
+  A[Seats] --> B{{Proof}}
+  B -->|yes| C([Outcomes])
+  B -->|no| D[Cut]
+  C ==>|expand| G((Renewal))
+```
+
+<!-- deck3d: {"camera":{"distance":13},"diagram":{"scale":1.3},"labels":{"size":0.2},"check":{"ignore":["contrast"]}} -->
+
+# What Changes in Your Job {#sales}
+
+Five shifts for client-facing teams
+
+- Bring benchmarks to the first call
+- A governance reviewer joins every deal
+- Quantify the client's agent gap
+- Reskilling becomes part of the offer
+- Trust is scarce: it is your product
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
+# Timeline to 2031 {#timeline}
+
+A plausible, evidence-anchored sequence
+
+```mermaid
+flowchart TD
+  Y1[2026 proof] --> Y2[2027 agents]
+  Y2 --> Y3[2028 outcomes]
+  Y3 --> Y5([2031 trust moat])
+  Y2 -.-> R[Downturn]
+```
+
+<!-- deck3d: {"camera":{"distance":15},"diagram":{"scale":0.95},"labels":{"size":0.2},"check":{"ignore":["contrast"]}} -->
+
 # Monday Morning {#monday}
 
 Do these before the forecast call
@@ -118,6 +256,17 @@ Do these before the forecast call
 - Swap a promise slide for a proof point
 - Name the governance stakeholder
 - Book your own reskilling hours this quarter
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
+# What Would Prove Me Wrong {#wrong}
+
+Honest failure modes for this forecast
+
+- Downturn freezes budgets early
+- Hard regulation lands: #5 risk by 2036
+- Capability plateaus unexpectedly
+- Trust collapses faster than proof can be produced
 
 <!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
 
@@ -130,5 +279,192 @@ Everything above is dated and traceable
 - WEF Global Risks Report 2026 — 1,300+ experts
 - WEF + PwC, Entry-Level Work, Jun 2026
 - Forrester Predictions 2026
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
+# Procurement Learns AI {#procurement}
+
+The buying committee grew a new seat
+
+- An AI reviewer now reads your answers
+- Questionnaires ask for model provenance
+- Expect data-residency clauses by default
+- Answer once, reuse the artefact
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
+# Build a Proof Library {#proof-library}
+
+Stop rebuilding evidence per deal
+
+- One benchmark, run on the buyer's shape of data
+- A reference that survives a reference call
+- A failure you can describe honestly
+- Version it like product, not like slides
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
+# Pricing Moves to Outcomes {#pricing}
+
+Seats price the tool, not the result
+
+- Per-seat erodes when the seat is an agent
+- Usage pricing exposes your cost floor
+- Outcome pricing needs measurement you trust
+- Pick the unit you can defend in a QBR
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
+# Your Data Room Is the Demo {#dataroom}
+
+Buyers inspect the plumbing now
+
+- Where the data sits, and who can reach it
+- What is retained, and for how long
+- Which subprocessor sees what
+- Have the diagram ready before they ask
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
+# Energy Becomes a Sales Term {#energy}
+
+Compute has a physical bill
+
+- Capacity is booked years ahead
+- Locality changes latency and price
+- Efficiency turns into a commercial argument
+- Know what your workload actually costs
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
+# Sovereign by Default {#sovereignty}
+
+Where it runs is part of the product
+
+- Region is a requirement, not a preference
+- Public sector leads, enterprise follows
+- Portability beats promises of portability
+- Design for a split deployment early
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
+# Agents Need Identity {#identity}
+
+A non-human actor still needs a name
+
+- Credentials scoped per agent, not per team
+- Every action attributable after the fact
+- Revocation that works in minutes
+- Least privilege survives the pilot
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
+# The New Attack Surface {#security}
+
+Prompt paths are input paths
+
+- Untrusted text reaching a tool call
+- Retrieval as an injection channel
+- Agent output treated as trusted input
+- Red-team the loop, not just the model
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
+# The Integration Tax {#integration}
+
+The demo is not the deployment
+
+- Legacy systems set the real timeline
+- Data quality sets the real accuracy
+- Change management sets the real adoption
+- Quote the tax, or absorb it later
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
+# Evaluation Becomes a Product {#evals}
+
+If you cannot measure it, you cannot renew it
+
+- A shared definition of good, written down
+- Regression runs before every release
+- Buyer-visible dashboards, not screenshots
+- Evaluation is the contract's spine
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
+# Support Is the Beachhead {#support}
+
+The first place agents actually land
+
+- Volume, repetition and written history
+- Deflection is measurable on day one
+- Escalation design decides the outcome
+- Win here, expand from evidence
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
+# The Talent Market Splits {#talent}
+
+Two curves, moving apart
+
+- Deep specialists become scarcer
+- Generalists gain reach, then get squeezed
+- Hiring bars move mid-process
+- Skills currency beats a title
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
+# Partners Change Shape {#partners}
+
+Integrators sell outcomes, not bodies
+
+- Day-rate models lose their basis
+- Reference architectures become products
+- Co-selling needs shared proof
+- Pick partners by evidence, not logo
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
+# The Long Tail Wakes Up {#smb}
+
+Capability arrives without a project
+
+- Defaults do the adoption for them
+- Willingness to pay stays thin
+- Distribution beats feature depth
+- Self-serve proof or no proof
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
+# What the Board Will Ask {#metrics}
+
+Four questions, every quarter
+
+- What did it cost, all-in
+- What changed that we can measure
+- What is the exposure if it is wrong
+- What happens if we stop
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
+# Risk Register 2031 {#risks}
+
+Name them before a buyer does
+
+- Concentration in one supply chain
+- Regulatory divergence across regions
+- Model behaviour drifting under you
+- Organisational trust spent too early
+
+<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+
+# The Bet {#close}
+
+Depth, evidence, and the patience to measure
+
+- Broad adoption is already priced in
+- Depth is where the next five years pay
+- Proof compounds; narrative does not
+- Start with one account, this quarter
 
 <!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
