@@ -218,7 +218,7 @@ async function gateFilePath(
   cwd: string | undefined,
   relPath: string | undefined,
   sessionManager: SessionManager,
-): Promise<{ resolved: string } | GateFailure> {
+): Promise<{ resolved: string; viaGrant: boolean } | GateFailure> {
   if (!cwd || !relPath) return { code: 400, error: "cwd and path parameters required" };
   if (!sessionManager.listAll().some((s) => s.cwd === cwd)) {
     return { code: 403, error: "unknown session path" };
@@ -228,7 +228,12 @@ async function gateFilePath(
   if (!decision.allowed) {
     return { code: 403, error: "path outside working directory", ...decision.remedy };
   }
-  return { resolved };
+  // `viaGrant` MUST be propagated: `assertRegularFile` and the handle-verified
+  // read are documented as grant-only (verified-read.ts), because they use
+  // `lstat` and therefore refuse an in-scope final-component SYMLINK that
+  // layers ①/② admit. Dropping it turned "apply only on a grant" into
+  // "apply always".
+  return { resolved, viaGrant: decision.viaGrant };
 }
 
 export function registerFileRoutes(
@@ -1206,12 +1211,16 @@ export function registerFileRoutes(
         return { success: false, error: "file too large" } satisfies ApiResponse;
       }
       try {
-        // D14 names the office/EML gates in scope. `stat` above is a PATH check and
-        // the read below is a separate syscall, so assert regular-file here too:
-        // a FIFO inside a granted tree would otherwise block the request open.
-        // (Task 8.7 review — the office gates had this, EML did not.)
-        await assertRegularFile(gate.resolved);
-        const parsed = await loadParsedEml(gate.resolved, stat);
+        // D14: the handle-verified read is GRANT-ONLY (verified-read.ts states
+        // the precondition). Applying the regular-file assertion to every
+        // admission regressed layers ①/②: `assertRegularFile` uses `lstat`, so an
+        // in-scope final-component SYMLINK — which `fs.stat` plus this read
+        // previously followed — started failing 400. For a grant admission the
+        // bytes now come from the VERIFIED handle, so the path is not resolved a
+        // third time to race. (Found by the task 4.5 review gate.)
+        const parsed = gate.viaGrant
+          ? await loadParsedEml(gate.resolved, stat, await readFileVerified(gate.resolved))
+          : await loadParsedEml(gate.resolved, stat);
         const data = await toParseResult(parsed, { allowRemote: request.query.allowRemote === "1" });
         return { success: true, data } satisfies ApiResponse;
       } catch (err) {
@@ -1261,9 +1270,10 @@ export function registerFileRoutes(
       }
       let parsed;
       try {
-        // Same D14 guard as the EML parse site above (task 8.7 review).
-        await assertRegularFile(gate.resolved);
-        parsed = await loadParsedEml(gate.resolved, stat);
+        // Same grant-only rule as the EML parse site above (task 4.5 review).
+        parsed = gate.viaGrant
+          ? await loadParsedEml(gate.resolved, stat, await readFileVerified(gate.resolved))
+          : await loadParsedEml(gate.resolved, stat);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "failed to parse EML";
         reply.code(400);

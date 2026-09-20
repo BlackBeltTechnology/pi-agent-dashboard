@@ -445,6 +445,20 @@ describe("GET /api/file/eml", () => {
     expect(JSON.stringify(body.data)).not.toContain(PDF_BYTES.toString("base64"));
   });
 
+  it("serves an in-scope SYMLINKED .eml — the grant-only guard must not run here", async () => {
+    // `assertRegularFile` uses `lstat`, so applying it to EVERY admission rather
+    // than only a grant refuses an in-scope final-component symlink that
+    // `fs.stat` plus the read previously followed. That is a behaviour change at
+    // a layer-①/② site, which the gate integration must never introduce.
+    // Regression from the task 8.7 pass; found by the task 4.5 review gate.
+    await writeEml("real.eml", buildEml({ subject: "Linked" }));
+    await fsp.symlink(path.join(tmp, "real.eml"), path.join(tmp, "alias.eml"));
+
+    const res = await get(`cwd=${cwd()}&path=alias.eml`);
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as any).data.headers.subject).toBe("Linked");
+  });
+
   it("sanitizes <script> + onclick out of the body (test-plan #6)", async () => {
     await writeEml(
       "x.eml",

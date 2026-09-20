@@ -74,7 +74,11 @@ export async function parseEmlBuffer(buf: Buffer): Promise<ParsedMail> {
  * read and parsed; the LRU keeps at most `CACHE_MAX` entries. A changed mtime or
  * size produces a new key, so the stale entry is never returned (and ages out).
  */
-export async function loadParsedEml(absPath: string, stat: Stats): Promise<ParsedMail> {
+export async function loadParsedEml(
+  absPath: string,
+  stat: Stats,
+  prefetched?: Buffer,
+): Promise<ParsedMail> {
   const key = cacheKey(absPath, stat);
   const hitIdx = parseCache.findIndex((e) => e.key === key);
   if (hitIdx >= 0) {
@@ -82,7 +86,11 @@ export async function loadParsedEml(absPath: string, stat: Stats): Promise<Parse
     parseCache.unshift(hit);
     return hit.parsed;
   }
-  const buf = await fs.readFile(absPath);
+  // `prefetched` carries bytes a grant-admitted caller already read from its
+  // VERIFIED handle (design D14), so the path is not resolved a third time to
+  // race. A caller that leaves it undefined keeps the original read-and-cache
+  // behaviour.
+  const buf = prefetched ?? (await fs.readFile(absPath));
   const parsed = await parseEmlBuffer(buf);
   parseCache.unshift({ key, parsed });
   if (parseCache.length > CACHE_MAX) parseCache.length = CACHE_MAX;
