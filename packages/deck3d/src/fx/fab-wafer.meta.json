@@ -1,17 +1,17 @@
 {
-  "id": "workforce-100",
+  "id": "fab-wafer",
   "kind": "background",
   "tags": {
     "mood": [
-      "human",
-      "ordered"
+      "technical",
+      "precise"
     ],
     "content": [
-      "workforce",
-      "reskilling"
+      "supply-chain",
+      "silicon"
     ],
     "topic": [
-      "work"
+      "compute"
     ]
   },
   "cost": 3,
@@ -23,20 +23,20 @@
       "minimum": 0.2,
       "maximum": 3
     },
-    "cycleSpeed": {
+    "wave": {
       "type": "number",
-      "default": 0.12,
+      "default": 1,
       "minimum": 0,
-      "maximum": 1
+      "maximum": 2
     },
-    "cycleDepth": {
+    "waveSpeed": {
       "type": "number",
-      "default": 0.6,
+      "default": 1.1,
       "minimum": 0,
-      "maximum": 1
+      "maximum": 3
     }
   },
   "conflicts": [],
-  "source": "local",
+  "source": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
   "licence": "MIT"
 }

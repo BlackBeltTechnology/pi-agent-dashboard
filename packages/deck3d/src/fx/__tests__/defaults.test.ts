@@ -51,7 +51,9 @@ describe("E32 topic routing sits below the v1 rows", () => {
   });
 
   it("routes a content slide by topic where v1 fell through to particles", () => {
-    expect(defaultEffectsFor(content("Regional trade shifts")).map((e) => e.id)).toEqual(["globe-arcs"]);
+    // Cheapest-wins: `geo-fragments` (cost 2) outranks `globe-arcs` (cost 3) on
+    // `geo` since the business deck's effects were promoted into the corpus.
+    expect(defaultEffectsFor(content("Regional trade shifts")).map((e) => e.id)).toEqual(["geo-fragments"]);
   });
 
   it("restores the v1 fallback when autoStyle is off", () => {

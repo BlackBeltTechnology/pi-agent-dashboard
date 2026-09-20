@@ -197,3 +197,13 @@
 - [x] 15.10 Security pass on the write endpoints (loopback bind, path confinement, payload validation, no deck-dir escape) — `security-hardening`
 - [x] 15.11 Docs: SKILL.md tune loop uses `serve`; README `serve` section; `src/serve/AGENTS.md`
 
+
+## 16. Promote the deck's local effects into the corpus
+
+- [x] 16.1 Audit the eight local `fx/` modules for baked-in deck content: none render text; only `workforce-100` carried a claim (`0.59` cohort split)
+- [x] 16.2 Lift the `0.59` into a declared `share` param (corpus default `0.5`); deck passes its own value via `effects[].params`
+- [x] 16.3 Rename the two content-named modules: `horizon-2031` → `horizon-gates`, `workforce-100` → `cohort-grid`; scrub deck claims from `agent-depth` / `fab-wafer` headers
+- [x] 16.4 `fx promote` all eight (`--source` repo URL, `--licence MIT`); add corpus typing (`FxFactory`/`FxContext`/`FxParams`) and register in `src/fx/index.ts`
+- [x] 16.5 Rewire the deck's 11 effect refs from `{id:"local:<n>", sha256}` to corpus presets `{id:"<n>"}`; delete the now-empty `fx/`
+- [x] 16.6 Accept the re-ranked topic defaults (cheapest-wins, ties by id): `geo`→`geo-fragments`, `agents`→`agent-depth`, `trust`→`trust-ledger`, `compute`→`fab-wafer`, `money`→`capital-flows`; update #E32
+- [x] 16.7 Regenerate `reference/effects.md`; docs: `src/fx/AGENTS.md`, `presentations/AGENTS.md`

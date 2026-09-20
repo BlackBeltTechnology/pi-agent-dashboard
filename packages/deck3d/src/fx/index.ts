@@ -3,6 +3,22 @@
  * with its module factory (design D9).
  */
 
+import { create as agent_depth } from "./agent-depth.js";
+import agent_depthCard from "./agent-depth.meta.json";
+import { create as capital_flows } from "./capital-flows.js";
+import capital_flowsCard from "./capital-flows.meta.json";
+import { create as cohort_grid } from "./cohort-grid.js";
+import cohort_gridCard from "./cohort-grid.meta.json";
+import { create as fab_wafer } from "./fab-wafer.js";
+import fab_waferCard from "./fab-wafer.meta.json";
+import { create as geo_fragments } from "./geo-fragments.js";
+import geo_fragmentsCard from "./geo-fragments.meta.json";
+import { create as horizon_gates } from "./horizon-gates.js";
+import horizon_gatesCard from "./horizon-gates.meta.json";
+import { create as proof_gate } from "./proof-gate.js";
+import proof_gateCard from "./proof-gate.meta.json";
+import { create as trust_ledger } from "./trust-ledger.js";
+import trust_ledgerCard from "./trust-ledger.meta.json";
 import { create as accent_cycle } from "./accent-cycle.js";
 import accent_cycleCard from "./accent-cycle.meta.json";
 import { create as aurora } from "./aurora.js";
@@ -171,6 +187,14 @@ export const REGISTRY: Record<string, FxEntry> = {
   "paper-stack": { card: paper_stackCard as FxCard, create: paper_stack },
   "server-racks": { card: server_racksCard as FxCard, create: server_racks },
   "vault-glyphs": { card: vault_glyphsCard as FxCard, create: vault_glyphs },
+  "agent-depth": { card: agent_depthCard as FxCard, create: agent_depth },
+  "capital-flows": { card: capital_flowsCard as FxCard, create: capital_flows },
+  "cohort-grid": { card: cohort_gridCard as FxCard, create: cohort_grid },
+  "fab-wafer": { card: fab_waferCard as FxCard, create: fab_wafer },
+  "geo-fragments": { card: geo_fragmentsCard as FxCard, create: geo_fragments },
+  "horizon-gates": { card: horizon_gatesCard as FxCard, create: horizon_gates },
+  "proof-gate": { card: proof_gateCard as FxCard, create: proof_gate },
+  "trust-ledger": { card: trust_ledgerCard as FxCard, create: trust_ledger },
 };
 
 export const FX_IDS: string[] = Object.keys(REGISTRY);

@@ -3,7 +3,7 @@
     "engine": "0.1.0",
     "mermaid": "11.17.2",
     "source": "deck.md",
-    "derivedHash": "ff952bc9e6e203d7ca9675644993233ee5f5deb4f930bd33db31210f72f4398e"
+    "derivedHash": "8c245eaa1cd65c8ca5614102e18e01a6257582864caa1dec9466d24776ea3f50"
   },
   "defaults": {
     "mode": "dark",
@@ -957,7 +957,7 @@
         "Agents on real computer tasks: 12% to 66% success",
         "US–China model gap effectively closed"
       ],
-      "scene": "orbit-agents",
+      "scene": "agent-depth",
       "diagram": {
         "kind": "swarm",
         "data": {
@@ -980,7 +980,7 @@
       },
       "effects": [
         {
-          "id": "orbit-agents"
+          "id": "agent-depth"
         }
       ],
       "subtitle": "Stanford HAI AI Index 2026"
@@ -995,7 +995,7 @@
         "Capability is spiky, not uniform",
         "Sell the spike, scope around the gap"
       ],
-      "scene": "orbit-agents",
+      "scene": "agent-depth",
       "diagram": {
         "kind": "swarm",
         "data": {
@@ -1018,7 +1018,7 @@
       },
       "effects": [
         {
-          "id": "orbit-agents"
+          "id": "agent-depth"
         }
       ],
       "subtitle": "Superhuman and incompetent in the same system"
@@ -1071,7 +1071,7 @@
         "The 2026–2031 money is in depth, not first contact",
         "Ask: what is actually in production"
       ],
-      "scene": "orbit-agents",
+      "scene": "agent-depth",
       "diagram": {
         "kind": "timeline-rail",
         "data": {
@@ -1094,7 +1094,7 @@
       },
       "effects": [
         {
-          "id": "orbit-agents"
+          "id": "agent-depth"
         }
       ],
       "subtitle": "Everyone bought AI. Few run agents."
@@ -1139,7 +1139,7 @@
         "AI adoption outpaced governance",
         "Differentiation: trust and measured value"
       ],
-      "scene": "vault-glyphs",
+      "scene": "trust-ledger",
       "diagram": {
         "kind": "none"
       },
@@ -1154,7 +1154,7 @@
       },
       "effects": [
         {
-          "id": "vault-glyphs"
+          "id": "trust-ledger"
         }
       ],
       "subtitle": "Forrester 2026: proof over promises"
@@ -1894,7 +1894,7 @@
         "Reskilling becomes part of the offer",
         "Trust is scarce: it is your product"
       ],
-      "scene": "vault-glyphs",
+      "scene": "trust-ledger",
       "diagram": {
         "kind": "swarm",
         "data": {
@@ -1918,7 +1918,7 @@
       },
       "effects": [
         {
-          "id": "vault-glyphs"
+          "id": "trust-ledger"
         }
       ],
       "subtitle": "Five shifts for client-facing teams"
@@ -2316,7 +2316,7 @@
         "Name the governance stakeholder",
         "Book your own reskilling hours this quarter"
       ],
-      "scene": "vault-glyphs",
+      "scene": "trust-ledger",
       "diagram": {
         "kind": "none"
       },
@@ -2331,7 +2331,7 @@
       },
       "effects": [
         {
-          "id": "vault-glyphs"
+          "id": "trust-ledger"
         }
       ],
       "subtitle": "Do these before the forecast call"
@@ -2346,7 +2346,7 @@
         "Capability plateaus unexpectedly",
         "Trust collapses faster than proof can be produced"
       ],
-      "scene": "vault-glyphs",
+      "scene": "trust-ledger",
       "diagram": {
         "kind": "none"
       },
@@ -2361,7 +2361,7 @@
       },
       "effects": [
         {
-          "id": "vault-glyphs"
+          "id": "trust-ledger"
         }
       ],
       "subtitle": "Honest failure modes for this forecast"
@@ -2420,8 +2420,7 @@
         },
         "effects": [
           {
-            "id": "local:horizon-2031",
-            "sha256": "94e46a8fe125c6b391beb092d12fdf29018a09318df787c1d30873c147e8dcf9"
+            "id": "horizon-gates"
           }
         ]
       },
@@ -2581,8 +2580,7 @@
         },
         "effects": [
           {
-            "id": "local:agent-depth",
-            "sha256": "81218d7baba30c0ad2320b5ea2a57530363c78e41b1422b7751dcbddb9871abf"
+            "id": "agent-depth"
           }
         ],
         "diagram": {
@@ -2608,8 +2606,7 @@
         },
         "effects": [
           {
-            "id": "local:capital-flows",
-            "sha256": "3188d7baab5d932efca4c279a8d63079388762b2c619c06bc87fd304f1386543"
+            "id": "capital-flows"
           }
         ],
         "diagram": {
@@ -2641,8 +2638,7 @@
         },
         "effects": [
           {
-            "id": "local:trust-ledger",
-            "sha256": "bc034269342603ba9cdf1013d13b6967f5278fda0df641a69490f6f1c97e3910"
+            "id": "trust-ledger"
           }
         ],
         "diagram": {
@@ -2674,8 +2670,7 @@
         },
         "effects": [
           {
-            "id": "local:proof-gate",
-            "sha256": "ed4ade9ee837d2a299232d644bec04df66f96f7698a53016f3f8c5510849d123"
+            "id": "proof-gate"
           },
           {
             "id": "signal-pulse"
@@ -2693,8 +2688,10 @@
         },
         "effects": [
           {
-            "id": "local:workforce-100",
-            "sha256": "6e37df6c204c00cdaf24eaad5abb1dfa7a963d814ae55f4a939bfee95b589883"
+            "id": "cohort-grid",
+            "params": {
+              "share": 0.59
+            }
           }
         ],
         "diagram": {
@@ -2752,8 +2749,10 @@
         },
         "effects": [
           {
-            "id": "local:workforce-100",
-            "sha256": "6e37df6c204c00cdaf24eaad5abb1dfa7a963d814ae55f4a939bfee95b589883"
+            "id": "cohort-grid",
+            "params": {
+              "share": 0.59
+            }
           }
         ],
         "diagram": {
@@ -2815,8 +2814,7 @@
         },
         "effects": [
           {
-            "id": "local:geo-fragments",
-            "sha256": "a804bd05e2b071c70ce8ef67da56ecc4bfae643174bafaf602185250472341ff"
+            "id": "geo-fragments"
           }
         ],
         "diagram": {
@@ -2842,8 +2840,7 @@
         },
         "effects": [
           {
-            "id": "local:fab-wafer",
-            "sha256": "9842d6ffd874eb1f316685d2bdb4d159d10f2233b1aa1782f05a4986c28e402b"
+            "id": "fab-wafer"
           }
         ],
         "diagram": {
@@ -2925,8 +2922,7 @@
         },
         "effects": [
           {
-            "id": "local:proof-gate",
-            "sha256": "ed4ade9ee837d2a299232d644bec04df66f96f7698a53016f3f8c5510849d123"
+            "id": "proof-gate"
           }
         ],
         "diagram": {
@@ -2959,8 +2955,7 @@
         },
         "effects": [
           {
-            "id": "local:horizon-2031",
-            "sha256": "94e46a8fe125c6b391beb092d12fdf29018a09318df787c1d30873c147e8dcf9"
+            "id": "horizon-gates"
           },
           {
             "id": "signal-pulse"

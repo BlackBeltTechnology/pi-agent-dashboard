@@ -1,17 +1,17 @@
 {
-  "id": "fab-wafer",
+  "id": "cohort-grid",
   "kind": "background",
   "tags": {
     "mood": [
-      "technical",
-      "precise"
+      "human",
+      "ordered"
     ],
     "content": [
-      "supply-chain",
-      "silicon"
+      "cohort",
+      "split"
     ],
     "topic": [
-      "compute"
+      "work"
     ]
   },
   "cost": 3,
@@ -23,20 +23,26 @@
       "minimum": 0.2,
       "maximum": 3
     },
-    "wave": {
+    "cycleSpeed": {
       "type": "number",
-      "default": 1,
+      "default": 0.12,
       "minimum": 0,
-      "maximum": 2
+      "maximum": 1
     },
-    "waveSpeed": {
+    "cycleDepth": {
       "type": "number",
-      "default": 1.1,
+      "default": 0.6,
       "minimum": 0,
-      "maximum": 3
+      "maximum": 1
+    },
+    "share": {
+      "type": "number",
+      "default": 0.5,
+      "minimum": 0,
+      "maximum": 1
     }
   },
   "conflicts": [],
-  "source": "local",
+  "source": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
   "licence": "MIT"
 }

@@ -1,5 +1,7 @@
-// horizon-2031 — year gates receding toward a horizon (topic: timeline). Licence: MIT.
-export default function (ctx, params) {
+// horizon-gates — year gates receding toward a horizon (topic: timeline). Licence: MIT.
+import type { FxContext, FxFactory, FxHandle, FxParams } from "./types.js";
+
+export const create: FxFactory = function (ctx: FxContext, params: FxParams): FxHandle {
   const { THREE, palette, quality } = ctx;
   const density = typeof params.density === "number" ? params.density : 1;
   const speed = typeof params.speed === "number" ? params.speed : 1;
@@ -25,7 +27,7 @@ export default function (ctx, params) {
   const q = new THREE.Quaternion();
   const sc = new THREE.Vector3();
   const AXIS = new THREE.Vector3(0.3, 0.6, 0.74).normalize();
-  const place = function (t) {
+  const place = function (t: number) {
     for (let i = 0; i < count; i++) {
       // Wrap so the corridor never runs out of years.
       const z = -(((i * 6 + t * 1.6 * speed) % (count * 6)) - count * 3);

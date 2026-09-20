@@ -1,5 +1,7 @@
 // geo-fragments — drifting continental plates pulling apart (topic: geo). Licence: MIT.
-export default function (ctx, params) {
+import type { FxContext, FxFactory, FxHandle, FxParams } from "./types.js";
+
+export const create: FxFactory = function (ctx: FxContext, params: FxParams): FxHandle {
   const { THREE, palette, quality, rng } = ctx;
   const density = typeof params.density === "number" ? params.density : 1;
   const activity = typeof params.activity === "number" ? params.activity : 1;
@@ -14,7 +16,7 @@ export default function (ctx, params) {
     transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false,
   });
   const plates = new THREE.InstancedMesh(geo, mat, count);
-  const seeds = [];
+  const seeds: Array<Record<string, number>> = [];
   for (let i = 0; i < count; i++) {
     const a = rng() * Math.PI * 2;
     const r = 3 + rng() * 9;
@@ -33,7 +35,7 @@ export default function (ctx, params) {
   const q = new THREE.Quaternion();
   const v = new THREE.Vector3();
   const scale = new THREE.Vector3();
-  const place = function (t) {
+  const place = function (t: number) {
     for (let i = 0; i < count; i++) {
       const s = seeds[i];
       // The drift is the point: the map keeps coming apart, never back together.

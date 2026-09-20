@@ -1,5 +1,7 @@
 // trust-ledger — verification seals stacking into an append-only chain (topic: trust). Licence: MIT.
-export default function (ctx, params) {
+import type { FxContext, FxFactory, FxHandle, FxParams } from "./types.js";
+
+export const create: FxFactory = function (ctx: FxContext, params: FxParams): FxHandle {
   const { THREE, palette, quality, rng } = ctx;
   const density = typeof params.density === "number" ? params.density : 1;
   const count = Math.max(12, Math.round((quality.particles / 30) * density));
@@ -8,7 +10,7 @@ export default function (ctx, params) {
   const mat = new THREE.MeshStandardMaterial({ color: palette.second, metalness: 0.6, roughness: 0.35, transparent: true, opacity: 0.6 });
   const blocks = new THREE.InstancedMesh(geo, mat, count);
 
-  const seeds = [];
+  const seeds: Array<Record<string, number>> = [];
   for (let i = 0; i < count; i++) {
     seeds.push({ x: (i % 4 - 1.5) * 4.5, y: -5 + Math.floor(i / 4) * 1.1, ph: rng() * 6.283 });
   }
@@ -25,7 +27,7 @@ export default function (ctx, params) {
   holder.userData.count = count;
 
   const m = new THREE.Matrix4();
-  const place = function (t) {
+  const place = function (t: number) {
     for (let i = 0; i < count; i++) {
       const s = seeds[i];
       const y = s.y + Math.sin(t * 0.35 + s.ph) * 0.12;

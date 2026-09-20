@@ -1,5 +1,7 @@
 // capital-flows — capital streams converging on a narrowing gate (topic: money). Licence: MIT.
-export default function (ctx, params) {
+import type { FxContext, FxFactory, FxHandle, FxParams } from "./types.js";
+
+export const create: FxFactory = function (ctx: FxContext, params: FxParams): FxHandle {
   const { THREE, palette, quality, rng } = ctx;
   const density = typeof params.density === "number" ? params.density : 1;
   const count = Math.max(30, Math.round((quality.particles / 6) * density));
@@ -12,7 +14,7 @@ export default function (ctx, params) {
   const mat = new THREE.PointsMaterial({ color: palette.accent, size: 0.16, transparent: true, opacity: 0.85, vertexColors: true });
   const points = new THREE.Points(geo, mat);
 
-  const seeds = [];
+  const seeds: Array<Record<string, number>> = [];
   // Each mote gets its own angle AND radius, so the stream fills the cone
   // instead of tracing one curve: `sin(lane)` alone put every mote on a line.
   for (let i = 0; i < count; i++) {
@@ -33,15 +35,15 @@ export default function (ctx, params) {
   holder.userData.count = count;
 
   // Ramp over the first and last 18% of a mote's travel.
-  const fade = function (k) {
+  const fade = function (k: number) {
     return Math.min(1, k / 0.18, (1 - k) / 0.18);
   };
 
-  const place = function (t) {
+  const place = function (t: number) {
     for (let i = 0; i < count; i++) {
       const s = seeds[i];
       const k = (s.off + t * s.speed) % 1;
-      // Wide at the source, pinched at the gate: scrutiny, not scarcity.
+      // Wide at the source, pinched at the gate.
       const spread = (1 - k) * 9 + 0.3;
       positions[i * 3] = Math.cos(s.ang) * s.rad * spread;
       positions[i * 3 + 1] = s.jitter + Math.sin(s.ang) * s.rad * spread * 0.55;

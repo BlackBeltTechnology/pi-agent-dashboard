@@ -1,5 +1,5 @@
 {
-  "id": "horizon-2031",
+  "id": "horizon-gates",
   "kind": "background",
   "tags": {
     "mood": [
@@ -31,6 +31,6 @@
     }
   },
   "conflicts": [],
-  "source": "local",
+  "source": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
   "licence": "MIT"
 }

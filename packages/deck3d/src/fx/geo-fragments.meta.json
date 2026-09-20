@@ -43,6 +43,6 @@
     }
   },
   "conflicts": [],
-  "source": "local",
+  "source": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
   "licence": "MIT"
 }

@@ -1,5 +1,7 @@
 // proof-gate — deals passing a proof gate before commercial terms (topic: sales). Licence: MIT.
-export default function (ctx, params) {
+import type { FxContext, FxFactory, FxHandle, FxParams } from "./types.js";
+
+export const create: FxFactory = function (ctx: FxContext, params: FxParams): FxHandle {
   const { THREE, palette, quality, rng } = ctx;
   const density = typeof params.density === "number" ? params.density : 1;
   const count = Math.max(16, Math.round((quality.particles / 20) * density));
@@ -19,7 +21,7 @@ export default function (ctx, params) {
   const held = new THREE.InstancedMesh(dealGeo, holdMat, count);
   group.add(passing, held);
 
-  const seeds = [];
+  const seeds: Array<Record<string, number>> = [];
   for (let i = 0; i < count; i++) {
     seeds.push({ x: (rng() - 0.5) * 3.2, y: (rng() - 0.5) * 3.2, off: rng(), speed: 0.12 + rng() * 0.2 });
   }
@@ -35,10 +37,10 @@ export default function (ctx, params) {
   const sc = new THREE.Vector3();
   // A deal used to blink out of existence at the wrap. Scaling it up at birth
   // and down at death reads as arriving and clearing.
-  const fade = function (k) {
+  const fade = function (k: number) {
     return Math.min(1, k / 0.18, (1 - k) / 0.18);
   };
-  const place = function (t) {
+  const place = function (t: number) {
     for (let i = 0; i < count; i++) {
       const s = seeds[i];
       const k = (s.off + t * s.speed) % 1;

@@ -1,5 +1,7 @@
-// fab-wafer — one wafer feeding everything: a deliberately single-source supply chain (topic: compute). Licence: MIT.
-export default function (ctx, params) {
+// fab-wafer — a single wafer of dies feeding outward lanes (topic: compute). Licence: MIT.
+import type { FxContext, FxFactory, FxHandle, FxParams } from "./types.js";
+
+export const create: FxFactory = function (ctx: FxContext, params: FxParams): FxHandle {
   const { THREE, palette, quality, rng } = ctx;
   const density = typeof params.density === "number" ? params.density : 1;
   const wave = typeof params.wave === "number" ? params.wave : 1;
@@ -19,8 +21,8 @@ export default function (ctx, params) {
   const dies = new THREE.InstancedMesh(dieGeo, dieMat, count);
   const side = Math.ceil(Math.sqrt(count));
   const m = new THREE.Matrix4();
-  const phases = [];
-  const cells = [];
+  const phases: number[] = [];
+  const cells: Array<Record<string, number>> = [];
   for (let i = 0; i < count; i++) {
     const x = ((i % side) - side / 2) * 0.78;
     const y = (Math.floor(i / side) - side / 2) * 0.78;
@@ -36,7 +38,7 @@ export default function (ctx, params) {
   const sc = new THREE.Vector3();
   // Die height rides a wave radiating out from the wafer centre — the dies
   // grow OUT of the wafer (z), which is the axis the box is flat on.
-  const place = function (t) {
+  const place = function (t: number) {
     for (let i = 0; i < count; i++) {
       const c = cells[i];
       const rad = Math.sqrt(c.x * c.x + c.y * c.y);

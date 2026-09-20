@@ -1,5 +1,8 @@
-// agent-depth — everyone bought AI (wide, shallow); few run agents (narrow, deep). Topic: agents. Licence: MIT.
-export default function (ctx, params) {
+// agent-depth — a wide shallow field pierced by a few narrow deep shafts (topic: agents). Licence: MIT.
+import type * as ThreeNS from "three";
+import type { FxContext, FxFactory, FxHandle, FxParams } from "./types.js";
+
+export const create: FxFactory = function (ctx: FxContext, params: FxParams): FxHandle {
   const { THREE, palette, quality, rng } = ctx;
   const density = typeof params.density === "number" ? params.density : 1;
   const wave = typeof params.wave === "number" ? params.wave : 0.55;
@@ -15,7 +18,7 @@ export default function (ctx, params) {
   const deep = new THREE.InstancedMesh(geo, deepMat, deepCount);
 
   const side = Math.ceil(Math.sqrt(count));
-  const seeds = [];
+  const seeds: Array<Record<string, number>> = [];
   for (let i = 0; i < count; i++) {
     seeds.push({ x: ((i % side) - side / 2) * 2.3, z: (Math.floor(i / side) - side / 2) * 2.3, d: 0.4 + rng() * 0.5, ph: rng() * 6.283 });
   }
@@ -27,7 +30,7 @@ export default function (ctx, params) {
   const v = new THREE.Vector3();
   const q = new THREE.Quaternion();
   const sc = new THREE.Vector3();
-  const put = function (mesh, list, t, wobble) {
+  const put = function (mesh: ThreeNS.InstancedMesh, list: Array<Record<string, number>>, t: number, wobble: number) {
     for (let i = 0; i < list.length; i++) {
       const s = list[i];
       // Height is a travelling sine across the grid: the phase carries the
@@ -52,7 +55,7 @@ export default function (ctx, params) {
   holder.add(group);
   holder.userData.count = count;
 
-  const place = function (t) { put(shafts, seeds, t, 0.08); put(deep, deepSeeds, t, 0.03); };
+  const place = function (t: number) { put(shafts, seeds, t, 0.08); put(deep, deepSeeds, t, 0.03); };
   place(0);
 
   return { object: holder, tick: place, dispose: function () { geo.dispose(); mat.dispose(); deepMat.dispose(); } };

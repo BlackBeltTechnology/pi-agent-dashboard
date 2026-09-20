@@ -1,8 +1,8 @@
 # deck3d effect catalogue
 
-GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards hash: `4ae7b47368910d9077ee5b96948ea6195e2ae158e65276f5c2a2353e58d1a977`.
+GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards hash: `0758a80db1d0131d538fe0924f1ee2e7ae6348c127274fc640b9f814bbc2ac50`.
 
-55 effects.
+63 effects.
 
 ## accent-cycle
 
@@ -17,6 +17,22 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | Param | Type | Range | Default |
 |---|---|---|---|
 | speed | number | 0..2 | 0.5 |
+
+## agent-depth
+
+- kind: `background`
+- cost: 3
+- modes: `both`
+- tags: mood=[technical, uneven] content=[agents, depth]
+- source: https://github.com/BlackBeltTechnology/pi-agent-dashboard
+- licence: MIT
+- preview: `fx/previews/agent-depth.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| wave | number | 0..1.5 | 0.55 |
+| waveSpeed | number | 0..3 | 0.9 |
 
 ## aurora
 
@@ -60,6 +76,20 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
 
+## capital-flows
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[kinetic, commercial] content=[investment, scrutiny]
+- source: https://github.com/BlackBeltTechnology/pi-agent-dashboard
+- licence: MIT
+- preview: `fx/previews/capital-flows.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+
 ## chromatic-aberration
 
 - kind: `post`
@@ -88,6 +118,23 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | density | number | 0.2..3 | 1 |
 | speed | number | 0..3 | 1 |
+
+## cohort-grid
+
+- kind: `background`
+- cost: 3
+- modes: `both`
+- tags: mood=[human, ordered] content=[cohort, split]
+- source: https://github.com/BlackBeltTechnology/pi-agent-dashboard
+- licence: MIT
+- preview: `fx/previews/cohort-grid.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| cycleSpeed | number | 0..1 | 0.12 |
+| cycleDepth | number | 0..1 | 0.6 |
+| share | number | 0..1 | 0.5 |
 
 ## constellation
 
@@ -173,6 +220,22 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
 
+## fab-wafer
+
+- kind: `background`
+- cost: 3
+- modes: `both`
+- tags: mood=[technical, precise] content=[supply-chain, silicon]
+- source: https://github.com/BlackBeltTechnology/pi-agent-dashboard
+- licence: MIT
+- preview: `fx/previews/fab-wafer.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| wave | number | 0..2 | 1 |
+| waveSpeed | number | 0..3 | 1.1 |
+
 ## fade
 
 - kind: `transition`
@@ -242,6 +305,23 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | Param | Type | Range | Default |
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
+
+## geo-fragments
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[unsettled, wide] content=[geography, fragmentation]
+- source: https://github.com/BlackBeltTechnology/pi-agent-dashboard
+- licence: MIT
+- preview: `fx/previews/geo-fragments.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| activity | number | 0..3 | 1 |
+| spin | number | 0..2 | 0.35 |
+| breathe | number | 0..1 | 0.18 |
 
 ## glass
 
@@ -355,6 +435,21 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | Param | Type | Range | Default |
 |---|---|---|---|
 | power | number | 0.5..6 | 2 |
+
+## horizon-gates
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[forward, calm] content=[timeline, forecast]
+- source: https://github.com/BlackBeltTechnology/pi-agent-dashboard
+- licence: MIT
+- preview: `fx/previews/horizon-gates.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| speed | number | 0..3 | 1 |
 
 ## iridescent
 
@@ -562,6 +657,20 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
 
+## proof-gate
+
+- kind: `background`
+- cost: 3
+- modes: `both`
+- tags: mood=[decisive, commercial] content=[pipeline, proof]
+- source: https://github.com/BlackBeltTechnology/pi-agent-dashboard
+- licence: MIT
+- preview: `fx/previews/proof-gate.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+
 ## rings
 
 - kind: `background`
@@ -731,6 +840,20 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | Param | Type | Range | Default |
 |---|---|---|---|
 | length | number | 0..1 | 0.5 |
+
+## trust-ledger
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[formal, secure] content=[governance, evidence]
+- source: https://github.com/BlackBeltTechnology/pi-agent-dashboard
+- licence: MIT
+- preview: `fx/previews/trust-ledger.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
 
 ## vault-glyphs
 
