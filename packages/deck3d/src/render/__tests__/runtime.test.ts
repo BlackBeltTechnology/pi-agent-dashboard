@@ -582,3 +582,37 @@ describe.skipIf(!hasChromium)("configurator blocks (chromium)", () => {
     }
   });
 });
+
+/**
+ * F15 — the deck animates on its own clock after boot.
+ *
+ * `boot()` primed the first frame with `applyTime(0)`, which also sets
+ * `frozen`, so every deck shipped pinned at t=0: the render loop ran, slide
+ * transitions still moved the camera, and nothing in the scene ever moved.
+ * `debug.motion()` fingerprints the animated transforms, so this fails on the
+ * symptom a screenshot diff cannot isolate from camera idle drift.
+ */
+describe.skipIf(!hasChromium)("runtime clock (chromium)", () => {
+  it("animates diagrams, backgrounds and local fx after boot, and freezes only on setTime", async () => {
+    const browser = await chromium.launch({ channel: "chromium" });
+    try {
+      const { page } = await open(browser, await writeDeck());
+      const first = await page.evaluate(() => window.__deck3d?.debug.motion());
+      await page.waitForTimeout(1200);
+      const later = await page.evaluate(() => window.__deck3d?.debug.motion());
+      expect(later).not.toBe(first);
+
+      // `check` pins the clock through setTime; that must still hold.
+      await page.evaluate(() => window.__deck3d?.setTime(3));
+      const frozenA = await page.evaluate(() => window.__deck3d?.debug.motion());
+      await page.waitForTimeout(800);
+      expect(await page.evaluate(() => window.__deck3d?.debug.motion())).toBe(frozenA);
+      // ...and the same time always yields the same pose (determinism).
+      await page.evaluate(() => window.__deck3d?.setTime(9));
+      await page.evaluate(() => window.__deck3d?.setTime(3));
+      expect(await page.evaluate(() => window.__deck3d?.debug.motion())).toBe(frozenA);
+    } finally {
+      await browser.close();
+    }
+  });
+});

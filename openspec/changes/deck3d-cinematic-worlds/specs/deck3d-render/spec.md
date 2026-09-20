@@ -45,6 +45,10 @@ Flowchart nodes SHALL map shape → primitive (`rect` slab, `stadium`/`round` ca
 - **WHEN** the flowchart fixture is rendered and screenshotted
 - **THEN** each node is present with the primitive for its shape, every edge is a tube ending in an arrowhead at its target, and the group plate encloses exactly its members
 
+#### Scenario: The deck runs on a live clock
+- **WHEN** a rendered deck is opened in a browser and left alone
+- **THEN** diagrams, backgrounds, props and `local:` effects SHALL advance on the wall clock; the clock SHALL be pinned ONLY by `setTime` (used by `check`), and priming the first frame at boot SHALL NOT pin it
+
 #### Scenario: Message order animation
 - **WHEN** the sequence fixture plays
 - **THEN** exactly one message is highlighted at a time, in source order, with its tube, arrowhead and label moving as one unit
@@ -62,7 +66,7 @@ Flowchart nodes SHALL map shape → primitive (`rect` slab, `stadium`/`round` ca
 - **THEN** four pucks lie along one rail in label order with labels alternating above and below the rail
 
 ### Requirement: Browser fit-and-legibility check
-`check <deck.html> [--viewport WxH[,WxH]] [--slide n] [--strict] [--style] [-o report.json]` (default viewports `1920x1080,1280x720`; 120 s timeout per viewport, exit non-zero naming the viewport on timeout) SHALL open the deck headless at devicePixelRatio 1 with every request whose scheme is not `file:`, `data:`, `blob:` or `about:` blocked, and for every slide at `t=0` and at each animation peak reported by the deck evaluate: **fit** — union of all content rects inside the viewport minus a safe margin (default 4 %); **legibility** — every label cap height ≥ minimum (default 14 px at 1920×1080, scaled by viewport height); **overlap** — no two label rects intersect with IoU > 0.1; **occlusion** — no label's raycast hit is an object other than the label or its own node; **contrast** — luminance ratio between label text colour and the mean rendered pixels behind its rect ≥ 3:1; **local-fx-error** — every entry the deck reports in `effects().errors` for the slide; **local-fx-network** — every blocked request attempted while the slide was measured, as `{ slide, host }` deduplicated and sorted; and, under `--style`, **style-defaults** — a slide whose effects equal the parse defaults, that has no prop and whose `diagram.kind` is the parse default. Each finding SHALL name slide, object id/label text, measured vs threshold values, a severity (`error` for fit/overlap/occlusion/local-fx-error/local-fx-network, `warn` for legibility/contrast/style-defaults) and a suggested key spelled in the `overrides` grammar (e.g. `overrides.slides["<slideId>"].diagram.scale`; `overrides.slides["<slideId>"].effects` for effect findings). Contrast ratios SHALL be rounded to 0.1; contrast and local-fx-network findings are excluded from the report byte-equality guarantee (GPU- and timing-dependent); all other findings SHALL be identical for the same IR and viewport. The command SHALL write a JSON report, print one line per finding on stderr, and exit non-zero when any `error` exists, or when any finding exists under `--strict`.
+`check <deck.html> [--viewport WxH[,WxH]] [--slide n] [--strict] [--style] [-o report.json]` (default viewports `1920x1080,1280x720`; 120 s timeout per viewport, exit non-zero naming the viewport on timeout) SHALL open the deck headless at devicePixelRatio 1 with every request whose scheme is not `file:`, `data:`, `blob:` or `about:` blocked, and for every slide at `t=0` and at each animation peak reported by the deck evaluate: **fit** — union of all content rects inside the viewport minus a safe margin (default 4 %); **legibility** — every label cap height ≥ minimum (default 14 px at 1920×1080, scaled by viewport height); **overlap** — no two label rects intersect with IoU > 0.1; **occlusion** — no label's raycast hit is an object other than the label or its own node; **contrast** — luminance ratio between label text colour and the mean rendered pixels behind its rect ≥ 3:1; **local-fx-error** — every entry the deck reports in `effects().errors` for the slide; **fx-content-layer** — every background or `local:` effect whose subtree escaped the backdrop layer onto the content layer; **local-fx-network** — every blocked request attempted while the slide was measured, as `{ slide, host }` deduplicated and sorted; and, under `--style`, **style-defaults** — a slide whose effects equal the parse defaults, that has no prop and whose `diagram.kind` is the parse default. Each finding SHALL name slide, object id/label text, measured vs threshold values, a severity (`error` for fit/overlap/occlusion/local-fx-error/local-fx-network/fx-content-layer, `warn` for legibility/contrast/style-defaults) and a suggested key spelled in the `overrides` grammar (e.g. `overrides.slides["<slideId>"].diagram.scale`; `overrides.slides["<slideId>"].effects` for effect findings). Contrast ratios SHALL be rounded to 0.1; contrast and local-fx-network findings are excluded from the report byte-equality guarantee (GPU- and timing-dependent); all other findings SHALL be identical for the same IR and viewport. The command SHALL write a JSON report, print one line per finding on stderr, and exit non-zero when any `error` exists, or when any finding exists under `--strict`.
 
 #### Scenario: Diagram spills out of frame
 - **WHEN** a flowchart's projected right edge exceeds the safe area at 1920×1080
@@ -86,6 +90,14 @@ Flowchart nodes SHALL map shape → primitive (`rect` slab, `stadium`/`round` ca
 
 #### Scenario: Local effect error reported
 - **WHEN** a local effect throws during `create` on slide `geo`
+#### Scenario: A background can never cover slide content
+- **WHEN** a deck renders a background or `local:` effect whose geometry reaches in front of the title, card or diagram
+- **THEN** the runtime SHALL draw backdrop objects and content objects as two passes with the depth buffer cleared between them, so the effect renders behind the content regardless of its geometry, and `check` SHALL be clean
+
+#### Scenario: Geometry that escapes the backdrop layer is a finding
+- **WHEN** a `local:` module attaches geometry to its object after creation (e.g. during `tick`), which lands on the content layer
+- **THEN** `check` reports `error fx-content-layer slide <id> local:<name>` with suggestion `overrides.slides["<id>"].effects` and exits non-zero
+
 - **THEN** `check` reports `error local-fx-error slide geo local:<name> create` with suggestion `overrides.slides["geo"].effects`, the report contains no exception message text, and the command exits non-zero
 
 #### Scenario: Network attempt reported

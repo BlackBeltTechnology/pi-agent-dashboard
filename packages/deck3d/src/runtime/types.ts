@@ -33,6 +33,10 @@ export interface Deck3dApi {
     titleGlyphs: () => number;
     liftedMessage: () => string | null;
     look: () => { bg: string; fog: string; rim: string; title: string; camZ: number };
+    /** Backdrop objects that leaked onto the content layer (checked by `check`). */
+    backdropLeaks: () => string[];
+    /** Fingerprint of the current slide's animated transforms. */
+    motion: () => string;
     /** Every slide's live anchor, for rail/spacing assertions. */
     anchors: () => Array<{ pos: [number, number, number]; rotY: number }>;
   };

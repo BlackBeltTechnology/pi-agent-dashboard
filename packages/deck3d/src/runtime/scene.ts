@@ -8,7 +8,7 @@ import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment
 import { Reflector } from "three/examples/jsm/objects/Reflector.js";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
-import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { Pass } from "three/examples/jsm/postprocessing/Pass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import type { PaletteColors } from "./palette.js";
 import type { QualityProfile } from "./quality.js";
@@ -64,6 +64,65 @@ interface RigParts {
   veil: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>;
   mirror: Reflector | null;
   envMap: THREE.Texture;
+}
+
+/**
+ * Backdrop objects (scene backgrounds + every `local:` effect) live on
+ * `BACKDROP_LAYER`; content lives on the default layer. Drawing them as two
+ * passes with the depth buffer cleared in between makes a background
+ * structurally incapable of occluding a title, card or diagram, however deep
+ * its geometry reaches — the failure "geo-fragments plates slice the card".
+ */
+export const BACKDROP_LAYER = 1;
+const CONTENT_LAYER = 0;
+
+/** Put `object` and everything under it on the backdrop layer. */
+export function markBackdrop(object: THREE.Object3D): void {
+  object.traverse((n) => {
+    n.layers.set(BACKDROP_LAYER);
+    n.userData.backdrop = true;
+  });
+}
+
+function renderLayered(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera): void {
+  camera.layers.set(BACKDROP_LAYER);
+  renderer.render(scene, camera);
+  renderer.clearDepth();
+  // A Color/Texture background force-clears on every render, which would wipe
+  // the backdrop just drawn; suppressing the clear flags makes it a no-op.
+  const c = renderer.autoClearColor;
+  const d = renderer.autoClearDepth;
+  const st = renderer.autoClearStencil;
+  renderer.autoClearColor = false;
+  renderer.autoClearDepth = false;
+  renderer.autoClearStencil = false;
+  camera.layers.set(CONTENT_LAYER);
+  renderer.render(scene, camera);
+  renderer.autoClearColor = c;
+  renderer.autoClearDepth = d;
+  renderer.autoClearStencil = st;
+  camera.layers.enableAll();
+}
+
+/**
+ * Drop-in for `RenderPass` that renders backdrop and content depth-isolated.
+ * Reports as `RenderPass` in `effects().active` so the pass names stay stable.
+ */
+class BackdropRenderPass extends Pass {
+  constructor(
+    private readonly rigScene: THREE.Scene,
+    private readonly rigCamera: THREE.Camera,
+  ) {
+    super();
+    this.clear = true;
+    this.needsSwap = false;
+  }
+
+  render(renderer: THREE.WebGLRenderer, _write: THREE.WebGLRenderTarget, read: THREE.WebGLRenderTarget): void {
+    renderer.setRenderTarget(this.renderToScreen ? null : read);
+    renderer.clear();
+    renderLayered(renderer, this.rigScene, this.rigCamera);
+  }
 }
 
 export function createSceneRig(profile: QualityProfile): SceneRig {
@@ -140,7 +199,7 @@ export function createSceneRig(profile: QualityProfile): SceneRig {
     },
     render: () => {
       if (r.bloom) r.composer.render();
-      else r.renderer.render(r.scene, r.camera);
+      else renderLayered(r.renderer, r.scene, r.camera);
     },
     updateFloor: (target) => {
       r.floor.position.x = target.x;
@@ -161,7 +220,7 @@ function createParts(profile: QualityProfile): RigParts {
   const camera = new THREE.PerspectiveCamera(42, 1, 0.5, 300);
 
   const composer = new EffectComposer(renderer);
-  composer.addPass(new RenderPass(scene, camera));
+  composer.addPass(new BackdropRenderPass(scene, camera));
   const bloom = profile.bloom ? new UnrealBloomPass(new THREE.Vector2(1, 1), 0.5, 0.5, 0.9) : null;
   if (bloom) composer.addPass(bloom);
   composer.addPass(new OutputPass());
@@ -181,6 +240,8 @@ function createParts(profile: QualityProfile): RigParts {
   Object.assign(key.shadow.camera, { left: -14, right: 14, top: 10, bottom: -10 });
   const fill = new THREE.HemisphereLight(0xffffff, 0x222233, 0.6);
   const rimLight = new THREE.SpotLight(0xffffff, 60, 40, 0.6, 0.5, 1.2);
+  // A light only lights objects sharing its layer; the backdrop lives on its own.
+  for (const l of [key, fill, rimLight]) l.layers.enable(BACKDROP_LAYER);
   scene.add(key, key.target, fill, rimLight, rimLight.target);
 
   const { floor, veil, mirror } = createFloor(profile);

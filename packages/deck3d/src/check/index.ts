@@ -13,6 +13,7 @@ import {
   filterIgnored,
   fitFindings,
   legibilityFindings,
+  backdropLeakFindings,
   localFxErrorFindings,
   localFxNetworkFindings,
   type Measurement,
@@ -169,6 +170,7 @@ async function checkSlide(
   // Merged per-slide `check.ignore` (derived slide + override), applied per viewport.
   const ignore = (await page.evaluate((i) => (window.__DECK.slides[i - 1]?.check?.ignore ?? []) as string[], index)) as string[];
   const slideFindings: Finding[] = [];
+  const leaks: string[] = [];
   const peaks = await page.evaluate(() => window.__deck3d?.peaks() ?? [0]);
   const times = [...new Set([0, ...peaks.filter((t) => t > 0)])];
   for (const t of times) {
@@ -176,7 +178,12 @@ async function checkSlide(
     const measurements = (await page.evaluate(() => window.__deck3d?.measure() ?? [])) as Measurement[];
     const annotated = await annotate(page, measurements);
     slideFindings.push(...ruleFindings(annotated, viewport, slideRef));
+    // Sampled per time step: a module may only leak geometry once it ticks.
+    for (const id of (await page.evaluate(() => window.__deck3d?.debug.backdropLeaks() ?? [])) as string[]) {
+      if (!leaks.includes(id)) leaks.push(id);
+    }
   }
+  slideFindings.push(...backdropLeakFindings(leaks, slideRef));
   const effects = (await page.evaluate(() => window.__deck3d?.effects() ?? {
     active: [],
     skipped: [],

@@ -26,7 +26,7 @@
   #deck3d-hud-toggle:hover, #deck3d-hud-toggle:focus { opacity: 1; }
   #deck3d-hud {
     display: none; position: fixed; right: 12px; bottom: 56px; z-index: 11;
-    width: 268px; max-height: 78vh; overflow: auto;
+    width: 286px; max-height: 78vh; overflow: auto;
     padding: 12px 14px; border-radius: 10px;
     border: 1px solid rgba(255,255,255,.18); background: rgba(16,16,18,.92);
     color: #f2f2f2; font: 12px/1.5 system-ui, sans-serif;
@@ -40,7 +40,17 @@
   .deck3d-hud-scopes button.active { background: rgba(255,255,255,.16); }
   .deck3d-hud-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 5px 0; }
   .deck3d-hud-row select, .deck3d-hud-row input { width: 108px; font: inherit; }
-  .deck3d-hud-effects { margin: 10px 0 6px; border-top: 1px solid rgba(255,255,255,.14); padding-top: 8px; }
+  .deck3d-hud-row input[type=checkbox] { width: auto; }
+  .deck3d-hud-row input[type=color] { width: 108px; height: 22px; padding: 0; background: none; border: 1px solid rgba(255,255,255,.2); }
+  .deck3d-hud-block { border-top: 1px solid rgba(255,255,255,.12); padding: 6px 0; }
+  .deck3d-hud-block > summary {
+    cursor: pointer; font-weight: 600; letter-spacing: .02em; padding: 2px 0;
+    list-style: none; display: flex; align-items: center; gap: 6px;
+  }
+  .deck3d-hud-block > summary::-webkit-details-marker { display: none; }
+  .deck3d-hud-block > summary::before { content: "\25B8"; opacity: .6; transition: transform .12s; }
+  .deck3d-hud-block[open] > summary::before { transform: rotate(90deg); }
+  .deck3d-hud-effects { margin: 6px 0; }
   .deck3d-hud-effect { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
   .deck3d-hud-note { margin: 8px 0; opacity: .7; font-size: 11px; }
   #deck3d-hud-export { width: 100%; padding: 6px; border-radius: 6px; cursor: pointer;
@@ -47314,7 +47324,7 @@
     const holder = new THREE.Group();
     holder.add(group);
     holder.userData.count = count;
-    const place = (t) => {
+    const place2 = (t) => {
       seeds.forEach((s, i) => {
         const x = ((s.x0 + t * 1.4 * speed + 13) % 26 + 26) % 26 - 13;
         m.makeScale(1, s.h, 1);
@@ -47323,10 +47333,10 @@
       });
       bars.instanceMatrix.needsUpdate = true;
     };
-    place(0);
+    place2(0);
     return {
       object: holder,
-      tick: place,
+      tick: place2,
       dispose: () => {
         barGeo.dispose();
         barMat.dispose();
@@ -47499,7 +47509,7 @@
     const q = new THREE.Quaternion();
     const v = new THREE.Vector3();
     const one = new THREE.Vector3(1, 1, 1);
-    const place = (t) => {
+    const place2 = (t) => {
       seeds.forEach((s, i) => {
         const a = s.ph + t * s.sp * speed;
         v.set(Math.cos(a) * s.r, Math.sin(a) * s.r * Math.cos(s.tilt), Math.sin(a) * s.r * Math.sin(s.tilt));
@@ -47508,11 +47518,11 @@
       });
       agents.instanceMatrix.needsUpdate = true;
     };
-    place(0);
+    place2(0);
     return {
       object: holder,
       tick: (t) => {
-        place(t);
+        place2(t);
         core.rotation.set(t * 0.1 * speed, t * 0.14 * speed, 0);
       },
       dispose: () => {
@@ -47593,7 +47603,7 @@
     const q = new THREE.Quaternion();
     const v = new THREE.Vector3();
     const one = new THREE.Vector3(1, 1, 1);
-    const place = (t) => {
+    const place2 = (t) => {
       seeds.forEach((s, i) => {
         v.set(s.x, s.y0 + Math.sin(t * 0.3 * speed + s.ph) * 0.8, s.z);
         q.setFromEuler(new THREE.Euler(-Math.PI / 7, 0, s.rot + Math.sin(t * 0.2 * speed + s.ph) * 0.1));
@@ -47601,10 +47611,10 @@
       });
       sheets.instanceMatrix.needsUpdate = true;
     };
-    place(0);
+    place2(0);
     return {
       object: holder,
-      tick: place,
+      tick: place2,
       dispose: () => {
         geo.dispose();
         mat.dispose();
@@ -47761,7 +47771,7 @@
     holder.add(group);
     holder.userData.count = count;
     const m = new THREE.Matrix4();
-    const place = (t) => {
+    const place2 = (t) => {
       seeds.forEach((s, i) => {
         const a = s.ph + t * s.sp * speed;
         m.makeRotationZ(a);
@@ -47770,11 +47780,11 @@
       });
       glyphs.instanceMatrix.needsUpdate = true;
     };
-    place(0);
+    place2(0);
     return {
       object: holder,
       tick: (t) => {
-        place(t);
+        place2(t);
         group.rotation.z = t * 0.02 * speed;
       },
       dispose: () => {
@@ -50443,14 +50453,84 @@
   }
 
   // src/runtime/camera.ts
-  function anchorFor(i, distance = 9) {
-    const a = { pos: new Vector3(), rotY: 0, cam: new Vector3(), target: new Vector3() };
-    a.pos.set(i * 40, 0, 0);
-    a.cam.set(i * 40 + 0.6, 0.6, distance);
-    a.target.copy(a.pos);
-    return a;
+  var DEFAULT_SPACING = 40;
+  var HELIX_RISE = 0.18;
+  var GRID_ROW = 0.8;
+  function place(pos, rotY, distance) {
+    const cam = new Vector3(0.6, 0.6, distance).applyAxisAngle(new Vector3(0, 1, 0), rotY).add(pos);
+    return { pos, rotY, cam, target: pos.clone() };
   }
-  var CULL_RADIUS = 52;
+  function anchorFor(i, distance = 9, spacing = DEFAULT_SPACING, rail = "line", count = 1) {
+    const n = Math.max(count, 1);
+    switch (rail) {
+      case "orbit":
+      case "helix": {
+        const radius = spacing * n / (2 * Math.PI);
+        const theta = i * 2 * Math.PI / n;
+        const pos = new Vector3(Math.sin(theta) * radius, rail === "helix" ? i * spacing * HELIX_RISE : 0, Math.cos(theta) * radius - radius);
+        return place(pos, theta, distance);
+      }
+      case "tunnel":
+        return place(new Vector3(0, 0, -i * spacing), 0, distance);
+      case "grid": {
+        const cols = Math.max(Math.ceil(Math.sqrt(n)), 1);
+        return place(new Vector3(i % cols * spacing, -Math.floor(i / cols) * spacing * GRID_ROW, 0), 0, distance);
+      }
+      default:
+        return place(new Vector3(i * spacing, 0, 0), 0, distance);
+    }
+  }
+  function cullRadius(spacing = DEFAULT_SPACING, rail = "line") {
+    return spacing * (rail === "tunnel" ? 0.6 : 1.3);
+  }
+  var CULL_RADIUS = cullRadius();
+
+  // src/runtime/measure.ts
+  var localBox = new Box3();
+  var childBox = new Box3();
+  var toLocal = new Matrix4();
+  var childToLocal = new Matrix4();
+  var corner = new Vector3();
+  function boundsInOwnFrame(object) {
+    object.updateWorldMatrix(true, true);
+    toLocal.copy(object.matrixWorld).invert();
+    localBox.makeEmpty();
+    object.traverse((child) => {
+      const mesh = child;
+      const geometry = mesh.geometry;
+      if (!geometry) return;
+      if (!geometry.boundingBox) geometry.computeBoundingBox();
+      if (!geometry.boundingBox) return;
+      childBox.copy(geometry.boundingBox);
+      childToLocal.multiplyMatrices(toLocal, child.matrixWorld);
+      childBox.applyMatrix4(childToLocal);
+      localBox.union(childBox);
+    });
+    return localBox;
+  }
+  function projectRect(object, camera, width, height) {
+    const box = boundsInOwnFrame(object);
+    if (box.isEmpty()) return null;
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+    for (const x of [box.min.x, box.max.x]) {
+      for (const y of [box.min.y, box.max.y]) {
+        for (const z of [box.min.z, box.max.z]) {
+          corner.set(x, y, z).applyMatrix4(object.matrixWorld).project(camera);
+          const px2 = (corner.x * 0.5 + 0.5) * width;
+          const py2 = (-corner.y * 0.5 + 0.5) * height;
+          minX = Math.min(minX, px2);
+          minY = Math.min(minY, py2);
+          maxX = Math.max(maxX, px2);
+          maxY = Math.max(maxY, py2);
+        }
+      }
+    }
+    if (![minX, minY, maxX, maxY].every(Number.isFinite)) return null;
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+  }
 
   // src/runtime/palette.ts
   var PALETTES = {
@@ -53383,12 +53463,63 @@
   }
 
   // src/runtime/hud.ts
-  var DECK_CONTROLS = ["mode", "palette", "quality", "transition", "durationSec", "backgroundIntensity"];
-  var SLIDE_CONTROLS = ["mode", "palette", "quality", "camera.distance", "labels.size", "backgroundIntensity"];
   var PALETTES2 = ["blackbelt", "zenit", "dapp", "midnight", "ember", "arctic", "forest", "mono", "neon", "custom"];
   var MODES = ["dark", "light"];
   var QUALITIES = ["low", "medium", "high"];
+  var MATERIALS = ["glass", "metal", "matte"];
+  var LAYOUTS = ["split", "split-reverse"];
+  var RAILS = ["line", "orbit", "tunnel", "helix", "grid"];
+  var DIAGRAM_KINDS = ["none", "brain", "loop", "swarm", "bars", "funnel", "timeline-rail", "globe", "orbit-cluster", "stack"];
   var TRANSITIONS = ["dolly", "fade", "iris", "flythrough", "cut"];
+  var enumC = (path, options) => ({ path, kind: "enum", options });
+  var numC = (path, step) => ({ path, kind: "number", step });
+  var boolC = (path) => ({ path, kind: "bool" });
+  var colourC = (path) => ({ path, kind: "colour" });
+  var LOOK = [
+    enumC("mode", MODES),
+    enumC("palette", PALETTES2),
+    colourC("colors.card"),
+    colourC("colors.accent"),
+    colourC("colors.secondary"),
+    enumC("material", MATERIALS)
+  ];
+  var LIGHTING = [
+    boolC("bloom"),
+    boolC("rimLight"),
+    boolC("fog"),
+    boolC("mirrorFloor"),
+    boolC("softShadows"),
+    boolC("envReflections"),
+    numC("backgroundIntensity", "0.05")
+  ];
+  var CAMERA = [numC("camera.distance"), numC("labels.size", "0.02"), numC("depthRelief"), numC("extrudeDepth", "0.02")];
+  var BLOCKS = [
+    { title: "Look", deck: LOOK, slide: LOOK },
+    { title: "Lighting & FX", deck: LIGHTING, slide: LIGHTING },
+    { title: "Camera & labels", deck: CAMERA, slide: CAMERA },
+    {
+      title: "Layout",
+      // `rail`/`spacing` describe the rail the slides hang on — deck-wide by
+      // definition. `diagram.*`/`cardOffset` tune one slide's composition.
+      deck: [enumC("layout", LAYOUTS), enumC("rail", RAILS), numC("spacing", "5")],
+      slide: [
+        enumC("layout", LAYOUTS),
+        enumC("diagram.kind", DIAGRAM_KINDS),
+        numC("diagram.scale", "0.05"),
+        numC("diagram.offset.x"),
+        numC("diagram.offset.y"),
+        numC("cardOffset.x"),
+        numC("cardOffset.y")
+      ]
+    },
+    {
+      title: "Motion",
+      deck: [enumC("transition", TRANSITIONS), numC("durationSec"), { path: "autoplay", kind: "autoplay" }],
+      slide: [enumC("transition", TRANSITIONS)]
+    },
+    { title: "Quality", deck: [enumC("quality", QUALITIES)], slide: [enumC("quality", QUALITIES)] },
+    { title: "Effects", deck: [{ path: "effects", kind: "effects" }], slide: [{ path: "effects", kind: "effects" }] }
+  ];
   var AUTOPLAY_MIN = 1;
   var AUTOPLAY_MAX = 600;
   function parseAutoplay(raw) {
@@ -53401,13 +53532,21 @@
   function storageKey(hash) {
     return `deck3d:${hash}`;
   }
+  function defaultOpen() {
+    return Object.fromEntries(BLOCKS.map((b, i) => [b.title, i === 0]));
+  }
   function loadState(hash) {
-    const empty2 = { deck: {}, slides: {}, autoplaySec: 0 };
+    const empty2 = { deck: {}, slides: {}, autoplaySec: 0, open: defaultOpen() };
     try {
       const raw = localStorage.getItem(storageKey(hash));
       if (!raw) return empty2;
       const parsed = JSON.parse(raw);
-      return { deck: parsed.deck ?? {}, slides: parsed.slides ?? {}, autoplaySec: parsed.autoplaySec ?? 0 };
+      return {
+        deck: parsed.deck ?? {},
+        slides: parsed.slides ?? {},
+        autoplaySec: parsed.autoplaySec ?? 0,
+        open: { ...defaultOpen(), ...parsed.open ?? {} }
+      };
     } catch {
       return empty2;
     }
@@ -53450,7 +53589,7 @@
     if (!rootEl || !gearEl) {
       const noop = () => {
       };
-      return { toggle: noop, close: noop, isOpen: () => false, hasFocus: () => false, contains: () => false, refresh: noop, state: () => ({ deck: {}, slides: {}, autoplaySec: 0 }) };
+      return { toggle: noop, close: noop, isOpen: () => false, hasFocus: () => false, contains: () => false, refresh: noop, state: () => ({ deck: {}, slides: {}, autoplaySec: 0, open: {} }) };
     }
     const root = rootEl;
     const gear = gearEl;
@@ -53480,12 +53619,51 @@
     function isOverridden(path, slideId) {
       return scope === "deck" ? host.overridden.deck.has(path) : host.overridden.slides[slideId]?.has(path) ?? false;
     }
-    function addRow(label, control, marked) {
+    function addRow(parent, label, control, marked) {
       const row = el("label", { class: "deck3d-hud-row" });
       const name = el("span");
       name.textContent = marked ? `\u25CF ${label}` : label;
       row.append(name, control);
-      body.appendChild(row);
+      parent.appendChild(row);
+    }
+    function checkbox(path, slideId) {
+      const node = el("input", { type: "checkbox", "data-path": path });
+      node.checked = (effectiveValue(state, scope, slideId, path, host.defaults) ?? true) !== false;
+      node.addEventListener("change", () => stage(path, node.checked));
+      return node;
+    }
+    function colour(path, slideId) {
+      const current = effectiveValue(state, scope, slideId, path, host.defaults);
+      const node = el("input", { type: "color", "data-path": path });
+      node.value = typeof current === "string" && /^#[0-9a-f]{6}$/i.test(current) ? current : "#000000";
+      node.addEventListener("change", () => {
+        stage("palette", "custom");
+        stage(path, node.value);
+      });
+      return node;
+    }
+    function renderBlock(block, slideId) {
+      const controls = scope === "deck" ? block.deck : block.slide;
+      if (!controls.length) return null;
+      const details = el("details", { class: "deck3d-hud-block", "data-block": block.title });
+      if (state.open[block.title]) details.setAttribute("open", "");
+      const summary = el("summary");
+      summary.textContent = block.title;
+      details.appendChild(summary);
+      details.addEventListener("toggle", () => {
+        state.open[block.title] = details.hasAttribute("open");
+        persist();
+      });
+      for (const spec of controls) {
+        const marked = isOverridden(spec.path, slideId);
+        if (spec.kind === "enum") addRow(details, spec.path, select(spec.path, spec.options, slideId), marked);
+        else if (spec.kind === "number") addRow(details, spec.path, number(spec.path, slideId, spec.step ?? "0.1"), marked);
+        else if (spec.kind === "bool") addRow(details, spec.path, checkbox(spec.path, slideId), marked);
+        else if (spec.kind === "colour") addRow(details, spec.path, colour(spec.path, slideId), marked);
+        else if (spec.kind === "autoplay") addRow(details, "autoplay (s)", autoplayField(), false);
+        else details.appendChild(effectsChecklist(slideId));
+      }
+      return details;
     }
     function select(path, options, slideId) {
       const node = el("select", { "data-path": path });
@@ -53602,17 +53780,10 @@
         scopes.appendChild(button);
       }
       body.appendChild(scopes);
-      const controls = scope === "deck" ? DECK_CONTROLS : SLIDE_CONTROLS;
-      for (const path of controls) {
-        const marked = isOverridden(path, slideId);
-        if (path === "mode") addRow(path, select(path, MODES, slideId), marked);
-        else if (path === "palette") addRow(path, select(path, PALETTES2, slideId), marked);
-        else if (path === "quality") addRow(path, select(path, QUALITIES, slideId), marked);
-        else if (path === "transition") addRow(path, select(path, TRANSITIONS, slideId), marked);
-        else addRow(path, number(path, slideId), marked);
+      for (const block of BLOCKS) {
+        const node = renderBlock(block, slideId);
+        if (node) body.appendChild(node);
       }
-      if (scope === "deck") addRow("autoplay (s)", autoplayField(), false);
-      body.appendChild(effectsChecklist(slideId));
       const notice = el("div", { class: "deck3d-hud-note" });
       notice.textContent = "Export writes overrides.json. Markdown inline overrides win over this file, and an exported effects list pins that scope's effects.";
       body.appendChild(notice);
@@ -54456,57 +54627,6 @@
     }
   };
 
-  // ../../../../node_modules/three/examples/jsm/postprocessing/RenderPass.js
-  var RenderPass = class extends Pass {
-    constructor(scene, camera, overrideMaterial = null, clearColor = null, clearAlpha = null) {
-      super();
-      this.scene = scene;
-      this.camera = camera;
-      this.overrideMaterial = overrideMaterial;
-      this.clearColor = clearColor;
-      this.clearAlpha = clearAlpha;
-      this.clear = true;
-      this.clearDepth = false;
-      this.needsSwap = false;
-      this._oldClearColor = new Color();
-    }
-    render(renderer, writeBuffer, readBuffer) {
-      const oldAutoClear = renderer.autoClear;
-      renderer.autoClear = false;
-      let oldClearAlpha, oldOverrideMaterial;
-      if (this.overrideMaterial !== null) {
-        oldOverrideMaterial = this.scene.overrideMaterial;
-        this.scene.overrideMaterial = this.overrideMaterial;
-      }
-      if (this.clearColor !== null) {
-        renderer.getClearColor(this._oldClearColor);
-        renderer.setClearColor(this.clearColor);
-      }
-      if (this.clearAlpha !== null) {
-        oldClearAlpha = renderer.getClearAlpha();
-        renderer.setClearAlpha(this.clearAlpha);
-      }
-      if (this.clearDepth == true) {
-        renderer.clearDepth();
-      }
-      renderer.setRenderTarget(this.renderToScreen ? null : readBuffer);
-      if (this.clear === true) {
-        renderer.clear(renderer.autoClearColor, renderer.autoClearDepth, renderer.autoClearStencil);
-      }
-      renderer.render(this.scene, this.camera);
-      if (this.clearColor !== null) {
-        renderer.setClearColor(this._oldClearColor);
-      }
-      if (this.clearAlpha !== null) {
-        renderer.setClearAlpha(oldClearAlpha);
-      }
-      if (this.overrideMaterial !== null) {
-        this.scene.overrideMaterial = oldOverrideMaterial;
-      }
-      renderer.autoClear = oldAutoClear;
-    }
-  };
-
   // ../../../../node_modules/three/examples/jsm/shaders/LuminosityHighPassShader.js
   var LuminosityHighPassShader = {
     name: "LuminosityHighPassShader",
@@ -54838,6 +54958,47 @@
     veilAlphaCache[base] = tex;
     return tex;
   }
+  var BACKDROP_LAYER = 1;
+  var CONTENT_LAYER = 0;
+  function markBackdrop(object) {
+    object.traverse((n) => {
+      n.layers.set(BACKDROP_LAYER);
+      n.userData.backdrop = true;
+    });
+  }
+  function renderLayered(renderer, scene, camera) {
+    camera.layers.set(BACKDROP_LAYER);
+    renderer.render(scene, camera);
+    renderer.clearDepth();
+    const c = renderer.autoClearColor;
+    const d = renderer.autoClearDepth;
+    const st = renderer.autoClearStencil;
+    renderer.autoClearColor = false;
+    renderer.autoClearDepth = false;
+    renderer.autoClearStencil = false;
+    camera.layers.set(CONTENT_LAYER);
+    renderer.render(scene, camera);
+    renderer.autoClearColor = c;
+    renderer.autoClearDepth = d;
+    renderer.autoClearStencil = st;
+    camera.layers.enableAll();
+  }
+  var BackdropRenderPass = class extends Pass {
+    constructor(rigScene, rigCamera) {
+      super();
+      this.rigScene = rigScene;
+      this.rigCamera = rigCamera;
+      this.clear = true;
+      this.needsSwap = false;
+    }
+    rigScene;
+    rigCamera;
+    render(renderer, _write, read) {
+      renderer.setRenderTarget(this.renderToScreen ? null : read);
+      renderer.clear();
+      renderLayered(renderer, this.rigScene, this.rigCamera);
+    }
+  };
   function createSceneRig(profile) {
     const r = createParts(profile);
     const world = new Group();
@@ -54904,7 +55065,7 @@
       },
       render: () => {
         if (r.bloom) r.composer.render();
-        else r.renderer.render(r.scene, r.camera);
+        else renderLayered(r.renderer, r.scene, r.camera);
       },
       updateFloor: (target) => {
         r.floor.position.x = target.x;
@@ -54922,7 +55083,7 @@
     const scene = new Scene();
     const camera = new PerspectiveCamera(42, 1, 0.5, 300);
     const composer = new EffectComposer(renderer);
-    composer.addPass(new RenderPass(scene, camera));
+    composer.addPass(new BackdropRenderPass(scene, camera));
     const bloom = profile.bloom ? new UnrealBloomPass(new Vector2(1, 1), 0.5, 0.5, 0.9) : null;
     if (bloom) composer.addPass(bloom);
     composer.addPass(new OutputPass());
@@ -54940,6 +55101,7 @@
     Object.assign(key.shadow.camera, { left: -14, right: 14, top: 10, bottom: -10 });
     const fill = new HemisphereLight(16777215, 2236979, 0.6);
     const rimLight = new SpotLight(16777215, 60, 40, 0.6, 0.5, 1.2);
+    for (const l of [key, fill, rimLight]) l.layers.enable(BACKDROP_LAYER);
     scene.add(key, key.target, fill, rimLight, rimLight.target);
     const { floor, veil, mirror } = createFloor(profile);
     scene.add(floor);
@@ -54982,12 +55144,23 @@
   function effective(defaults, slide) {
     return { ...defaults, ...slide };
   }
+  var LAYOUTS2 = {
+    split: { titleX: -5.2, titleY: 2.2, cardX: -2.4, cardY: -0.35, barX: -4.4, barY: 1.55, diagram: [2.9, 0.1, 0.9] },
+    // Mirrored: the title is right-ALIGNED, so its left edge depends on its width.
+    "split-reverse": { titleX: 5.2, titleY: 2.2, cardX: 2.4, cardY: -0.35, barX: 4.4, barY: 1.55, diagram: [-2.9, 0.1, 0.9] }
+  };
+  function layoutFor(cfg) {
+    return LAYOUTS2[cfg.layout ?? "split"] ?? LAYOUTS2.split;
+  }
   function addTitle(g, slide, isTitle, font, P, cfg, labels) {
     const title = buildTitle(font, slide.title, isTitle ? 0.62 : 0.5, cfg.extrudeDepth ?? 0.18, titleMaterial(P, cfg));
     const bb = new Box3().setFromObject(title.group);
+    const L = layoutFor(cfg);
+    const width = bb.max.x - bb.min.x;
+    const x = L.titleX === "centre" ? -width / 2 : L.titleX > 0 ? L.titleX - width : L.titleX;
     title.group.position.set(
-      isTitle ? -(bb.max.x - bb.min.x) / 2 : -5.2,
-      isTitle ? 1.5 + (title.lines - 1) * 0.85 : 2.2 + (title.lines - 1) * 0.68,
+      isTitle ? -width / 2 : x,
+      isTitle ? 1.5 + (title.lines - 1) * 0.85 : L.titleY + (title.lines - 1) * 0.68,
       0.2
     );
     g.add(title.group);
@@ -55024,16 +55197,22 @@
     txt.position.set(0, -(2.9 - slabH) / 2, 0.06);
     txt.renderOrder = 2;
     slab.add(txt);
-    slab.position.set(isTitle ? 0 : -2.4, isTitle ? slabH < 2 ? -0.3 : -1.1 : -0.35, 0);
+    const L = layoutFor(cfg);
+    const nudge = cfg.cardOffset ?? {};
+    slab.position.set(
+      (isTitle ? 0 : L.cardX) + (nudge.x ?? 0),
+      (isTitle ? slabH < 2 ? -0.3 : -1.1 : L.cardY) + (nudge.y ?? 0),
+      0
+    );
     g.add(slab);
     const bar = new Mesh(new BoxGeometry(isTitle ? 3 : 1.6, 0.06, 0.06), diagramMaterial(P, "accent", cfg));
-    bar.position.set(isTitle ? 0 : -4.4, isTitle ? 0.55 : 1.55, 0.25);
+    bar.position.set(isTitle ? 0 : L.barX, isTitle ? 0.55 : L.barY, 0.25);
     g.add(bar);
   }
   function addDiagram(g, slide, font, P, cfg, labels) {
     if (slide.diagram.kind === "none") return null;
     const holder = new Group();
-    holder.position.set(2.9, 0.1, 0.9);
+    holder.position.set(...layoutFor(cfg).diagram);
     const diagram = buildDiagram(slide, P, cfg, font);
     holder.add(diagram.g);
     const disc = new Mesh(
@@ -55090,7 +55269,10 @@
         localFxErrors
       );
       if (!handle) continue;
-      if (handle.object) g.add(handle.object);
+      if (handle.object) {
+        markBackdrop(handle.object);
+        g.add(handle.object);
+      }
       out.push(handle);
     }
     return out;
@@ -55100,7 +55282,7 @@
     const cfg = patch ? { ...effective(deck.defaults, slide), ...patch } : effective(deck.defaults, slide);
     const P = resolvePalette(cfg);
     const g = new Group();
-    const anchor = anchorFor(index, cfg.camera?.distance);
+    const anchor = anchorFor(index, cfg.camera?.distance, cfg.spacing, cfg.rail, deck.slides.length);
     g.position.copy(anchor.pos);
     g.rotation.y = anchor.rotY;
     const labels = [];
@@ -55115,6 +55297,7 @@
     const background = backgroundFromEffects(slide, P, profile, mode) ?? backgroundFor(slide.scene, P, profile) ?? null;
     if (background) {
       background.g.position.z = -2;
+      markBackdrop(background.g);
       g.add(background.g);
     }
     const localFx = localEffectsFor(slide, P, profile, mode, g);
@@ -55128,30 +55311,6 @@
       ...warning ? { warning } : {}
     };
     return { group: g, anchor, diagram, background, props, labels, nodes, cfg, palette: P, skipped, budget, localFx };
-  }
-  function projectRect(object, camera, width, height) {
-    const box = new Box3().setFromObject(object);
-    if (box.isEmpty()) return null;
-    const v = new Vector3();
-    let minX = Number.POSITIVE_INFINITY;
-    let minY = Number.POSITIVE_INFINITY;
-    let maxX = Number.NEGATIVE_INFINITY;
-    let maxY = Number.NEGATIVE_INFINITY;
-    for (const x of [box.min.x, box.max.x]) {
-      for (const y of [box.min.y, box.max.y]) {
-        for (const z of [box.min.z, box.max.z]) {
-          v.set(x, y, z).project(camera);
-          const px2 = (v.x * 0.5 + 0.5) * width;
-          const py2 = (-v.y * 0.5 + 0.5) * height;
-          minX = Math.min(minX, px2);
-          minY = Math.min(minY, py2);
-          maxX = Math.max(maxX, px2);
-          maxY = Math.max(maxY, py2);
-        }
-      }
-    }
-    if (![minX, minY, maxX, maxY].every(Number.isFinite)) return null;
-    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
   }
   async function boot() {
     const deck = window.__DECK;
@@ -55238,10 +55397,20 @@
       cur = target;
       rig.applyLook(builds[target].palette, builds[target].cfg, qualityProfile(builds[target].cfg.quality));
     }
+    const railState = { spacing: deck.defaults.spacing, rail: deck.defaults.rail };
+    function reanchorAll() {
+      builds.forEach((build, i) => {
+        const anchor = anchorFor(i, build.cfg.camera?.distance, railState.spacing, railState.rail, deck.slides.length);
+        build.anchor = anchor;
+        build.group.position.copy(anchor.pos);
+        build.group.rotation.y = anchor.rotY;
+      });
+      snapTo(cur);
+    }
     function cullNeighbours() {
       const cp = rig.camera.position;
       rig.world.children.forEach((g) => {
-        g.visible = g.position.distanceTo(cp) < CULL_RADIUS;
+        g.visible = g.position.distanceTo(cp) < cullRadius(railState.spacing, railState.rail);
       });
     }
     function renderAt(t) {
@@ -55254,8 +55423,7 @@
       cullNeighbours();
       rig.render();
     }
-    function applyTime(t) {
-      frozen = t;
+    function poseAt(t) {
       anim = null;
       const a = builds[cur].anchor;
       camState.pos.copy(a.cam);
@@ -55263,6 +55431,10 @@
       rig.camera.position.copy(a.cam);
       rig.camera.lookAt(a.target);
       renderAt(t);
+    }
+    function applyTime(t) {
+      frozen = t;
+      poseAt(t);
     }
     const tmp2 = new Vector3();
     function frame() {
@@ -55359,9 +55531,18 @@
       current: () => cur + 1,
       gotoSlide: (index1Based) => navTo(index1Based - 1),
       applySlide: (patch) => {
-        const slide = deck.slides[cur];
+        const { scene, diagram: diagramPatch, ...cfgPatch } = patch;
+        const base = deck.slides[cur];
+        const slide = scene !== void 0 || diagramPatch ? { ...base, ...scene === void 0 ? {} : { scene }, ...diagramPatch ? { diagram: { ...base.diagram, ...diagramPatch } } : {} } : base;
         const previous = builds[cur];
-        const cfg = { ...previous.cfg, ...patch };
+        const cfg = { ...previous.cfg, ...cfgPatch };
+        if (cfgPatch.rail !== void 0 || cfgPatch.spacing !== void 0) {
+          railState.rail = cfgPatch.rail ?? railState.rail;
+          railState.spacing = cfgPatch.spacing ?? railState.spacing;
+          reanchorAll();
+        }
+        cfg.rail = railState.rail;
+        cfg.spacing = railState.spacing;
         disposeLocalFx(cur);
         rig.world.remove(previous.group);
         const mats = createPropMaterials(resolvePalette(cfg), cfg);
@@ -55471,6 +55652,19 @@
           return count;
         },
         liftedMessage: () => builds[cur].diagram?.lifted?.() ?? null,
+        /** Fingerprint of the current slide's animated transforms, for motion probes. */
+        motion: () => {
+          const parts = [];
+          const walk = (o) => {
+            if (!o) return;
+            o.traverse((n) => parts.push(n.position.x, n.position.y, n.position.z, n.rotation.y));
+          };
+          walk(builds[cur].diagram?.g);
+          walk(builds[cur].background?.g);
+          for (const h of builds[cur].localFx) walk(h.object);
+          return parts.map((n) => Math.round(n * 1e4) / 1e4).join(",");
+        },
+        anchors: () => builds.map((b) => ({ pos: [b.group.position.x, b.group.position.y, b.group.position.z], rotY: b.group.rotation.y })),
         /**
          * Scene-side look, read from the live objects rather than from the
          * config that was *meant* to produce them. Configurator tests assert
@@ -55496,7 +55690,7 @@
       },
       current: () => cur + 1
     };
-    applyTime(0);
+    poseAt(0);
     window.__deck3d = api;
     frame();
   }

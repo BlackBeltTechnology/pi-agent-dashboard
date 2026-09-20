@@ -96,6 +96,13 @@ Playbook: `.pi/skills/deck3d/SKILL.md`.
 - Built topologies (no mermaid needed): `brain loop swarm bars funnel
   timeline-rail globe orbit-cluster stack`, driven by `diagram.data`.
 
+## Backgrounds never cover text
+
+Backgrounds and every `local:` effect render in a depth-isolated pass behind the
+slide, so an effect cannot occlude a title, card or diagram whatever its
+geometry reaches. A module that attaches geometry AFTER creation escapes that
+pass; `check` reports it as `fx-content-layer`.
+
 ## Placement
 
 - `defaults.rail` — how the slides are strung in space: `line` (straight dolly,

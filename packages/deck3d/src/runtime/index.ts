@@ -21,7 +21,7 @@ import { createHud } from "./hud.js";
 import { createLocalEffect, localCards, type LocalFxError, type LocalHandle, localFxRegistry } from "./local-fx.js";
 import { type QualityProfile, qualityProfile } from "./quality.js";
 import { makeRng } from "./rng.js";
-import { createSceneRig } from "./scene.js";
+import { createSceneRig, markBackdrop } from "./scene.js";
 import { buildTitle, bulletTexture, loadFont } from "./text.js";
 import "./types.js";
 import type { Deck3dApi, Measurement, RuntimeDeck, SlideConfig } from "./types.js";
@@ -205,9 +205,11 @@ function localEffectsFor(
   profile: QualityProfile,
   mode: "dark" | "light",
   g: THREE.Group,
+  index: number,
 ): LocalHandle[] {
   const registry = localFxRegistry();
   const out: LocalHandle[] = [];
+  const ids: string[] = [];
   for (const ref of slide.effects ?? []) {
     if (!ref.id.startsWith("local:")) continue;
     const module = registry[ref.id.slice("local:".length)];
@@ -219,11 +221,21 @@ function localEffectsFor(
       localFxErrors,
     );
     if (!handle) continue;
-    if (handle.object) g.add(handle.object as THREE.Object3D);
+    ids.push(ref.id);
+    if (handle.object) {
+      // Both `background` and `motion` local effects are backdrop: nothing an
+      // effect draws may ever cover the text.
+      markBackdrop(handle.object as THREE.Object3D);
+      g.add(handle.object as THREE.Object3D);
+    }
     out.push(handle);
   }
+  localFxIds[index] = ids;
   return out;
 }
+
+/** Per-slide `local:` ids, index-aligned with `SlideBuild.localFx` (for leak reporting). */
+const localFxIds: string[][] = [];
 
 /** Deck-wide local-effect failures, surfaced through `effects().errors`. */
 const localFxErrors: LocalFxError[] = [];
@@ -256,9 +268,10 @@ function buildSlideGroup(
   const background = backgroundFromEffects(slide, P, profile, mode) ?? backgroundFor(slide.scene, P, profile) ?? null;
   if (background) {
     background.g.position.z = -2;
+    markBackdrop(background.g);
     g.add(background.g);
   }
-  const localFx = localEffectsFor(slide, P, profile, mode, g);
+  const localFx = localEffectsFor(slide, P, profile, mode, g, index);
   const quality = cfg.quality ?? deck.defaults.quality ?? "high";
   const comp = composeEffects(slide.effects, mode, quality, slide.id, localCards());
   const skipped = comp.skipped.map((s) => `${s.id}: ${s.reason}`);
@@ -420,8 +433,13 @@ async function boot(): Promise<void> {
     rig.render();
   }
 
-  function applyTime(t: number): void {
-    frozen = t;
+  /**
+   * Pose the deck at `t` and draw one frame: camera snapped to the anchor, every
+   * animator ticked. Does NOT touch the clock, so boot can prime a deterministic
+   * first frame without pinning the deck (that was the "camera drifts but
+   * nothing animates" bug — `boot()` called the freezing variant).
+   */
+  function poseAt(t: number): void {
     anim = null; // a deterministic time cancels any in-flight transition
     const a = builds[cur].anchor;
     camState.pos.copy(a.cam);
@@ -429,6 +447,12 @@ async function boot(): Promise<void> {
     rig.camera.position.copy(a.cam);
     rig.camera.lookAt(a.target);
     renderAt(t);
+  }
+
+  /** `setTime`: pose at `t` AND pin the clock there — `check` renders deterministically. */
+  function applyTime(t: number): void {
+    frozen = t;
+    poseAt(t);
   }
 
   const tmp = new THREE.Vector3();
@@ -688,6 +712,36 @@ async function boot(): Promise<void> {
         return count;
       },
       liftedMessage: () => builds[cur].diagram?.lifted?.() ?? null,
+      /**
+       * Backdrop objects whose subtree escaped onto the content layer. An
+       * effect that `add()`s children during `tick` gets the default layer, and
+       * those children CAN cover the text — the one hole the two-pass render
+       * cannot close by construction. `check` turns this into a finding.
+       */
+      backdropLeaks: () => {
+        const leaked: string[] = [];
+        const scan = (root: THREE.Object3D | undefined, owner: string): void => {
+          if (!root) return;
+          root.traverse((n) => {
+            if (!n.userData.backdrop && !leaked.includes(owner)) leaked.push(owner);
+          });
+        };
+        scan(builds[cur].background?.g, "scene-background");
+        for (const [i, h] of builds[cur].localFx.entries()) scan(h.object as THREE.Object3D | undefined, localFxIds[cur]?.[i] ?? `local[${i}]`);
+        return leaked;
+      },
+      /** Fingerprint of the current slide's animated transforms, for motion probes. */
+      motion: () => {
+        const parts: number[] = [];
+        const walk = (o: THREE.Object3D | undefined): void => {
+          if (!o) return;
+          o.traverse((n) => parts.push(n.position.x, n.position.y, n.position.z, n.rotation.y));
+        };
+        walk(builds[cur].diagram?.g);
+        walk(builds[cur].background?.g);
+        for (const h of builds[cur].localFx) walk(h.object as THREE.Object3D | undefined);
+        return parts.map((n) => Math.round(n * 1e4) / 1e4).join(",");
+      },
       anchors: () =>
         builds.map((b) => ({ pos: [b.group.position.x, b.group.position.y, b.group.position.z] as [number, number, number], rotY: b.group.rotation.y })),
       /**
@@ -715,7 +769,7 @@ async function boot(): Promise<void> {
     },
     current: () => cur + 1,
   };
-  applyTime(0);
+  poseAt(0);
   window.__deck3d = api;
   frame();
 }

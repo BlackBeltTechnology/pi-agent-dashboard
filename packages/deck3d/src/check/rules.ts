@@ -15,6 +15,7 @@ export type RuleName =
   | "skipped"
   | "budget"
   | "local-fx-error"
+  | "fx-content-layer"
   | "local-fx-network"
   | "style-defaults";
 
@@ -306,6 +307,26 @@ export function localFxErrorFindings(
       detail: `${e.effectId} threw in ${e.phase}`,
       suggest: slideKnob(slide.id, "effects"),
     }));
+}
+
+/**
+ * A backdrop object that escaped onto the content layer. Backgrounds and
+ * `local:` effects render in a depth-isolated pass behind the slide, so they
+ * cannot cover the text — unless a module `add()`s children after creation,
+ * which lands them on the content layer. Those children CAN slice the card.
+ */
+export function backdropLeakFindings(leaks: string[], slide: SlideRef): Finding[] {
+  return [...leaks].sort().map((effectId) => ({
+    severity: "error" as const,
+    rule: "fx-content-layer" as const,
+    slide: slide.id,
+    slideIndex: slide.index,
+    effectId,
+    measured: "content layer",
+    threshold: "backdrop layer",
+    detail: `${effectId} put geometry on the content layer; it can cover slide text`,
+    suggest: slideKnob(slide.id, "effects"),
+  }));
 }
 
 /**
