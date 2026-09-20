@@ -25,6 +25,8 @@ export interface HudHost {
   gotoSlide: (index1Based: number) => void;
   /** Re-apply look/camera/label knobs for the current slide. */
   applySlide: (patch: SlidePatch) => void;
+  /** Same, for EVERY slide — a deck-scope value is not a property of one slide. */
+  applyDeck: (patchFor: (slideId: string) => SlidePatch) => void;
   /** Recompose the current slide's effects from this list. */
   applyEffects: (ids: string[]) => void;
 }
@@ -278,7 +280,8 @@ export function createHud(host: HudHost): Hud {
       setAt(state.slides[slideId], path, value);
     }
     persist();
-    host.applySlide(patchForCurrent());
+    if (scope === "deck") host.applyDeck((id) => ({ ...(state.deck as SlidePatch), ...(state.slides[id] as SlidePatch | undefined) }));
+    else host.applySlide(patchForCurrent());
   }
 
   /** Deck-scope staged values with the current slide's staged values on top. */

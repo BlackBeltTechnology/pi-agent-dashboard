@@ -243,3 +243,84 @@ describe.skipIf(!hasChromium)("F9 configurator geometry controls preview live (c
     }
   }, 240_000);
 });
+
+/**
+ * #F18 — a DECK-scope control must reach EVERY slide, not just the visible one.
+ * Slides sit on a shared rail and neighbours stay in frame, so rebuilding only
+ * `builds[cur]` leaves the rest of the deck visibly stale. Asserted on the
+ * title material, which is baked per slide by `buildSlideGroup`.
+ */
+describe.skipIf(!hasChromium)("F18 deck scope reaches every slide (chromium)", () => {
+  it("repaints a slide that was not current when the value changed", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "deck3d-f18-"));
+    writeFileSync(join(dir, "deck.md"), "# Geo\n\n- one\n\n# Ai\n\n- two\n");
+    expect(spawnSync(BIN, ["build", "deck.md", "-o", "deck.html"], { cwd: dir, encoding: "utf8" }).status).toBe(0);
+
+    const browser = await chromium.launch({ channel: "chromium" });
+    try {
+      const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
+      await page.goto(pathToFileURL(join(dir, "deck.html")).href);
+      await page.waitForFunction(() => window.__deck3d !== undefined, undefined, { timeout: 30_000 });
+      await page.keyboard.press("c");
+
+      // Deck scope is the default selection.
+      await page.selectOption('#deck3d-hud select[data-path="palette"]', "ember");
+      await page.waitForTimeout(200);
+      expect((await page.evaluate(() => window.__deck3d!.debug.look())).title).toBe("#f59e0b");
+
+      // Slide 2 was never current while the change was staged.
+      await page.evaluate(() => window.__deck3d!.gotoSlide(2));
+      await page.waitForTimeout(1500);
+      expect((await page.evaluate(() => window.__deck3d!.debug.look())).title).toBe("#f59e0b");
+    } finally {
+      await browser.close();
+    }
+  }, 240_000);
+});
+
+/**
+ * #F19 — when two slides carry different palettes the transition must MORPH
+ * the look, not snap it. `goTo` applied the target palette at t=0 while the
+ * camera glided for `durationSec`, so the background changed a full second
+ * before the camera arrived.
+ */
+describe.skipIf(!hasChromium)("F19 palette morphs across a transition (chromium)", () => {
+  it("passes through intermediate background colours instead of snapping", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "deck3d-f19-"));
+    writeFileSync(
+      join(dir, "deck.md"),
+      ['<!-- deck3d: {"palette":"midnight"} -->', "# Geo", "", "- one", "", '<!-- deck3d: {"palette":"ember"} -->', "# Ai", "", "- two", ""].join("\n"),
+    );
+    expect(spawnSync(BIN, ["build", "deck.md", "-o", "deck.html"], { cwd: dir, encoding: "utf8" }).status).toBe(0);
+
+    const browser = await chromium.launch({ channel: "chromium" });
+    try {
+      const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
+      await page.goto(pathToFileURL(join(dir, "deck.html")).href);
+      await page.waitForFunction(() => window.__deck3d !== undefined, undefined, { timeout: 30_000 });
+
+      const from = (await page.evaluate(() => window.__deck3d!.debug.look())).bg;
+      // Sample the background for the whole flight, then inspect the trace.
+      const seen = (await page.evaluate(async () => {
+        const out: string[] = [];
+        window.__deck3d!.gotoSlide(2);
+        for (let i = 0; i < 120; i++) {
+          out.push(window.__deck3d!.debug.look().bg);
+          await new Promise((r) => requestAnimationFrame(() => r(null)));
+        }
+        return out;
+      })) as string[];
+      const to = (await page.evaluate(() => window.__deck3d!.debug.look())).bg;
+
+      expect(from).not.toBe(to);
+      expect(seen.at(-1)).toBe(to); // lands exactly on the target
+      // The morph is the point: colours that are neither endpoint must appear.
+      // The bound is 5, not "most frames": midnight #0f172a and ember #1c1917
+      // are close, so the 8-bit blend quantises to only ~8 distinct steps.
+      const between = seen.filter((c) => c !== from && c !== to);
+      expect(between.length).toBeGreaterThan(5);
+    } finally {
+      await browser.close();
+    }
+  }, 240_000);
+});

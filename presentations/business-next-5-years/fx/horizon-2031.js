@@ -24,6 +24,7 @@ export default function (ctx, params) {
   const v = new THREE.Vector3();
   const q = new THREE.Quaternion();
   const sc = new THREE.Vector3();
+  const AXIS = new THREE.Vector3(0.3, 0.6, 0.74).normalize();
   const place = function (t) {
     for (let i = 0; i < count; i++) {
       // Wrap so the corridor never runs out of years.
@@ -32,9 +33,17 @@ export default function (ctx, params) {
       v.set(0, 0, z);
       sc.set(1, 1, 1);
       gates.setMatrixAt(i, m.compose(v, q, sc));
-      v.set(4, 0, z);
+      // The marker rides ITS gate: a phase offset per ring plus a steady
+      // sweep, so each cube travels the circumference instead of sitting
+      // pinned at x = 4. Depends only on `i` and `t`, so a fixed time still
+      // renders byte-identically.
+      const a = i * 1.7 + t * 0.55 * speed;
+      v.set(Math.cos(a) * 4, Math.sin(a) * 4, z);
+      // Tumble as it rides, so the travel reads on a cube's flat faces.
+      q.setFromAxisAngle(AXIS, a * 0.8);
       sc.set(1 + k, 1 + k, 1 + k);
       marks.setMatrixAt(i, m.compose(v, q, sc));
+      q.identity();
     }
     gates.instanceMatrix.needsUpdate = true;
     marks.instanceMatrix.needsUpdate = true;

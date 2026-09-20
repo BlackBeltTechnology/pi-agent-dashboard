@@ -168,3 +168,6 @@
 - [x] 14.11 Diagram captions draw depth-free (`depthTest: false`, `renderOrder: 12`) so plinth and globe geometry cannot swallow them. NOT covered by a test: the occlusion could not be reproduced in any fixture deck (swept `swarm`/`orbit-cluster`/`globe` across time and camera distance; every zero-pixel label turned out to be off-screen, identical with and without the fix). Verified visually only
 - [x] 14.12 Diagram plate reads as polished metal (metalness 0.95 / roughness 0.12 / envMapIntensity 1.6) so key and rim lights register as highlights
 - [x] 14.13 `geo-fragments` plates stop shimmering: every instance sat at exactly z=0, so overlapping translucent hexagons z-fought. Stratified per-instance depth + `depthWrite: false`; module rehashed and repinned in both decks
+- [x] 14.14 Deck-scope configurator values reach EVERY slide (`applyDeck`), not only the visible one — neighbours share the rail and stayed stale (#F18)
+- [x] 14.15 Palette morphs across a transition instead of snapping at t=0 (`mixPalette`, driven from `stepAnim`) (#F19)
+- [x] 14.16 `horizon-2031` markers ride their gate ring (phase per ring + steady sweep + tumble) instead of sitting pinned at x=4

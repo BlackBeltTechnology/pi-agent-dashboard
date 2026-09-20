@@ -15,9 +15,9 @@ import { buildDiagram, type DiagramBuild } from "./builders.js";
 import { anchorFor, cullRadius } from "./camera.js";
 import { diagramMaterial, titleMaterial } from "./materials.js";
 import { projectRect } from "./measure.js";
-import { type PaletteColors, resolvePalette } from "./palette.js";
+import { mixPalette, type PaletteColors, resolvePalette } from "./palette.js";
 import { applyProps, createPropMaterials, loadPropModels, type PropLayer, type PropMaterials } from "./props.js";
-import { createHud } from "./hud.js";
+import { createHud, type SlidePatch } from "./hud.js";
 import { createLocalEffect, localCards, type LocalFxError, type LocalHandle, localFxRegistry } from "./local-fx.js";
 import { type QualityProfile, qualityProfile } from "./quality.js";
 import { makeRng } from "./rng.js";
@@ -322,7 +322,16 @@ async function boot(): Promise<void> {
   let cur = 0;
   let frozen: number | null = null;
   const clock = new THREE.Clock();
-  type Anim = { from: { pos: THREE.Vector3; target: THREE.Vector3 }; to: ReturnType<typeof anchorFor>; t: number; mode: string; dur: number; mid: THREE.Vector3 };
+  type Anim = {
+    from: { pos: THREE.Vector3; target: THREE.Vector3 };
+    to: ReturnType<typeof anchorFor>;
+    t: number;
+    mode: string;
+    dur: number;
+    mid: THREE.Vector3;
+    /** Set only when the two slides differ in palette; drives the look morph. */
+    look?: { from: PaletteColors; to: PaletteColors; cfg: SlideConfig };
+  };
   let anim: Anim | null = null;
 
   function snapTo(i: number): void {
@@ -354,6 +363,10 @@ async function boot(): Promise<void> {
         const out = camState.pos.clone().sub(anim.mid).normalize();
         camState.pos.addScaledVector(out, Math.sin(anim.t * Math.PI) * 6);
       }
+    }
+    if (anim.look) {
+      const l = anim.look;
+      rig.applyLook(anim.t >= 1 ? l.to : mixPalette(l.from, l.to, k), l.cfg, qualityProfile(l.cfg.quality));
     }
     if (anim.t >= 1) anim = null;
   }
@@ -395,6 +408,10 @@ async function boot(): Promise<void> {
     const mode = builds[target].cfg.transition ?? "dolly";
     if (target === cur || mode === "cut") return snapTo(target);
     const from = { pos: camState.pos.clone(), target: camState.target.clone() };
+    const fromPalette = builds[cur].palette;
+    const toPalette = builds[target].palette;
+    // Same palette ⇒ nothing to morph, so the look is applied once as before.
+    const morph = JSON.stringify(fromPalette) !== JSON.stringify(toPalette);
     anim = {
       from,
       to: builds[target].anchor,
@@ -402,9 +419,10 @@ async function boot(): Promise<void> {
       mode,
       dur: builds[target].cfg.durationSec ?? 1.4,
       mid: from.target.clone().add(builds[target].anchor.target).multiplyScalar(0.5),
+      look: morph ? { from: fromPalette, to: toPalette, cfg: builds[target].cfg } : undefined,
     };
     cur = target;
-    rig.applyLook(builds[target].palette, builds[target].cfg, qualityProfile(builds[target].cfg.quality));
+    if (!morph) rig.applyLook(toPalette, builds[target].cfg, qualityProfile(builds[target].cfg.quality));
   }
 
   // Live rail state: the configurator may move every anchor, and `window.__DECK`
@@ -580,6 +598,65 @@ async function boot(): Promise<void> {
   }
 
   /**
+   * Rebuild one slide from a patched config. Colours, label sizes, the camera
+   * anchor and the background FX are BAKED by `buildSlideGroup`, so re-running
+   * `applyLook` alone reaches only the lights. `follow` moves the camera and
+   * the lights, which is right for the slide the viewer is on and wrong for
+   * the rest of the deck.
+   */
+  function rebuildSlide(i: number, patch: SlidePatch, follow: boolean): void {
+    // Colours, label sizes, the camera anchor and the background FX are all
+    // BAKED by `buildSlideGroup`. Re-running `applyLook` alone reaches only
+    // the lights, so the slide is rebuilt from the patched config — measured
+    // at ~10-21 ms for the heaviest real slide, i.e. about one frame.
+    const { scene, diagram: diagramPatch, ...cfgPatch } = patch;
+    // `scene` and `diagram.*` are properties of the SLIDE, not of the config,
+    // so they are layered onto a copy — `window.__DECK` is never touched.
+    const base = deck.slides[i];
+    const slide = (scene !== undefined || diagramPatch
+      ? { ...base, ...(scene === undefined ? {} : { scene }), ...(diagramPatch ? { diagram: { ...base.diagram, ...diagramPatch } } : {}) }
+      : base) as DeckSlide;
+    const previous = builds[i];
+    const cfg = { ...previous.cfg, ...cfgPatch } as SlideConfig;
+
+    // The rail moves EVERY anchor, so it is applied deck-wide before the
+    // current slide is rebuilt at its new place.
+    if (cfgPatch.rail !== undefined || cfgPatch.spacing !== undefined) {
+      railState.rail = cfgPatch.rail ?? railState.rail;
+      railState.spacing = cfgPatch.spacing ?? railState.spacing;
+      reanchorAll();
+    }
+    cfg.rail = railState.rail;
+    cfg.spacing = railState.spacing;
+
+    disposeLocalFx(i);
+    rig.world.remove(previous.group);
+
+    // Props are tinted from the palette too, so they get materials derived
+    // from the patched config rather than the deck defaults.
+    const mats = createPropMaterials(resolvePalette(cfg), cfg);
+    const rebuilt = buildSlideGroup(deck, slide, i, font, propModels, mats, cfg);
+    builds[i] = rebuilt;
+    rig.world.add(rebuilt.group);
+    rebuilt.group.userData.index = i;
+    disposeBuild(previous);
+
+    if (follow) {
+      // A new anchor means the camera must follow, or `camera.distance` stages
+      // a value the view never honours.
+      camState.pos.copy(rebuilt.anchor.cam);
+      camState.target.copy(rebuilt.anchor.target);
+      anim = null;
+      rig.camera.position.copy(camState.pos);
+      rig.camera.lookAt(camState.target);
+    }
+
+    if (follow) rig.applyLook(rebuilt.palette, cfg, qualityProfile(cfg.quality));
+    rebuilt.diagram?.tick(0);
+    rig.render();
+  }
+
+  /**
    * Configurator. Built after the slides so it can read the composed effect
    * list, and given callbacks that re-apply the look WITHOUT touching `__DECK`.
    */
@@ -590,54 +667,12 @@ async function boot(): Promise<void> {
     derivedHash: (window.__DECK as unknown as { derivedHash?: string }).derivedHash ?? "",
     current: () => cur + 1,
     gotoSlide: (index1Based) => navTo(index1Based - 1),
-    applySlide: (patch) => {
-      // Colours, label sizes, the camera anchor and the background FX are all
-      // BAKED by `buildSlideGroup`. Re-running `applyLook` alone reaches only
-      // the lights, so the slide is rebuilt from the patched config — measured
-      // at ~10-21 ms for the heaviest real slide, i.e. about one frame.
-      const { scene, diagram: diagramPatch, ...cfgPatch } = patch;
-      // `scene` and `diagram.*` are properties of the SLIDE, not of the config,
-      // so they are layered onto a copy — `window.__DECK` is never touched.
-      const base = deck.slides[cur];
-      const slide = (scene !== undefined || diagramPatch
-        ? { ...base, ...(scene === undefined ? {} : { scene }), ...(diagramPatch ? { diagram: { ...base.diagram, ...diagramPatch } } : {}) }
-        : base) as DeckSlide;
-      const previous = builds[cur];
-      const cfg = { ...previous.cfg, ...cfgPatch } as SlideConfig;
-
-      // The rail moves EVERY anchor, so it is applied deck-wide before the
-      // current slide is rebuilt at its new place.
-      if (cfgPatch.rail !== undefined || cfgPatch.spacing !== undefined) {
-        railState.rail = cfgPatch.rail ?? railState.rail;
-        railState.spacing = cfgPatch.spacing ?? railState.spacing;
-        reanchorAll();
-      }
-      cfg.rail = railState.rail;
-      cfg.spacing = railState.spacing;
-
-      disposeLocalFx(cur);
-      rig.world.remove(previous.group);
-
-      // Props are tinted from the palette too, so they get materials derived
-      // from the patched config rather than the deck defaults.
-      const mats = createPropMaterials(resolvePalette(cfg), cfg);
-      const rebuilt = buildSlideGroup(deck, slide, cur, font, propModels, mats, cfg);
-      builds[cur] = rebuilt;
-      rig.world.add(rebuilt.group);
-      rebuilt.group.userData.index = cur;
-      disposeBuild(previous);
-
-      // A new anchor means the camera must follow, or `camera.distance` stages
-      // a value the view never honours.
-      camState.pos.copy(rebuilt.anchor.cam);
-      camState.target.copy(rebuilt.anchor.target);
-      anim = null;
-      rig.camera.position.copy(camState.pos);
-      rig.camera.lookAt(camState.target);
-
-      rig.applyLook(rebuilt.palette, cfg, qualityProfile(cfg.quality));
-      rebuilt.diagram?.tick(0);
-      rig.render();
+    applySlide: (patch) => rebuildSlide(cur, patch, true),
+    applyDeck: (patchFor) => {
+      // A deck-scope value belongs to every slide, and neighbours stay in
+      // frame on the shared rail — rebuilding only the current slide leaves
+      // the rest of the deck visibly stale.
+      for (let i = 0; i < builds.length; i++) rebuildSlide(i, patchFor(deck.slides[i].id), i === cur);
     },
     applyEffects: (ids) => {
       const slide = deck.slides[cur];

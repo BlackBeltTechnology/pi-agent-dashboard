@@ -1,3 +1,4 @@
+import * as THREE from "three";
 /**
  * Palette resolution (ported from the strategy lab). A named palette plus
  * mode yields the five colours; `custom` derives bg/text from the card colour.
@@ -96,4 +97,15 @@ export function resolvePalette(cfg: SlideConfig): PaletteColors {
   }
   const p = PALETTES[palette];
   return { accent: p.accent, second: p.second, ...p[mode] };
+}
+
+/**
+ * Blend two palettes channel-wise. Used to MORPH the scene look across a
+ * transition when neighbouring slides carry different palettes — snapping the
+ * background at t=0 changed the world a full `durationSec` before the camera
+ * arrived.
+ */
+export function mixPalette(a: PaletteColors, b: PaletteColors, k: number): PaletteColors {
+  const mix = (x: string, y: string): string => `#${new THREE.Color(x).lerp(new THREE.Color(y), k).getHexString()}`;
+  return { accent: mix(a.accent, b.accent), second: mix(a.second, b.second), bg: mix(a.bg, b.bg), card: mix(a.card, b.card), text: mix(a.text, b.text) };
 }
