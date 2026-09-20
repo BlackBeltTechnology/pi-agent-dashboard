@@ -556,7 +556,11 @@ async function boot(): Promise<void> {
     stepAnim(dt);
     tmp.copy(camState.pos);
     if (frozen === null) tmp.add(new THREE.Vector3(Math.sin(t * 0.35) * 0.25, Math.cos(t * 0.27) * 0.12, Math.sin(t * 0.2) * 0.15));
-    rig.camera.position.lerp(tmp, frozen === null ? 0.2 : 1);
+    // The 0.2 smoothing exists for the idle drift ONLY. Applying it while a
+    // transition flies made the camera trail `camState` by seconds: `anim`
+    // cleared while the view still sat over the previous slide, so its
+    // backdrop stayed on screen well after the move was "done".
+    rig.camera.position.lerp(tmp, frozen === null && anim === null ? 0.2 : 1);
     rig.camera.lookAt(camState.target);
     cullNeighbours();
     rig.updateFloor(camState.target);

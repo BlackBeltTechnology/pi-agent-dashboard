@@ -51,7 +51,13 @@ export const create: FxFactory = (ctx: FxContext, params: FxParams): FxHandle =>
     object: holder,
     tick: (t) => {
       group.rotation.y = t * 0.06 * speed;
-      for (const tr of travellers) tr.m.position.copy(tr.curve.getPoint((t * 0.12 * speed + tr.off) % 1));
+      for (const tr of travellers) {
+        const k = (t * 0.12 * speed + tr.off) % 1;
+        tr.m.position.copy(tr.curve.getPoint(k));
+        // Scale in at the start of the arc and out at its end: a traveller
+        // used to disappear the instant it reached the far anchor.
+        tr.m.scale.setScalar(Math.min(1, k / 0.15, (1 - k) / 0.15));
+      }
     },
     dispose: () => {
       for (const g of geometries) g.dispose();

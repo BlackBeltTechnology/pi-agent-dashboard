@@ -35,7 +35,9 @@ export default function (ctx, params) {
       // pumping in unison.
       const k = Math.sin(t * waveSpeed + s.ph + s.x * 0.18 + s.z * 0.12);
       const d = s.d * (1 + Math.sin(t * 0.5 + s.ph) * wobble + k * wave);
-      v.set(s.x, -3 - d / 2, s.z);
+      // Base-anchored: the foot stays on the floor plane and the TOP rises
+      // and falls. Pinning the top instead made the wave read upside down.
+      v.set(s.x, -3 + d / 2, s.z);
       sc.set(1, d, 1);
       mesh.setMatrixAt(i, m.compose(v, q, sc));
     }

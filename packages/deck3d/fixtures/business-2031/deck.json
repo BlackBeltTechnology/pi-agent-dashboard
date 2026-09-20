@@ -1339,7 +1339,7 @@
         "effects": [
           {
             "id": "local:agent-depth",
-            "sha256": "797f1d5c493a6502e50bf1ac7719e548f014a0153b8993b13c6ada92320ff491"
+            "sha256": "81218d7baba30c0ad2320b5ea2a57530363c78e41b1422b7751dcbddb9871abf"
           }
         ],
         "diagram": {
@@ -1399,7 +1399,7 @@
         "effects": [
           {
             "id": "local:proof-gate",
-            "sha256": "e2381220001abeea90070ceb02a95de63973c7dacb21bafef1a4d400fdc3e08f"
+            "sha256": "ed4ade9ee837d2a299232d644bec04df66f96f7698a53016f3f8c5510849d123"
           },
           {
             "id": "signal-pulse"

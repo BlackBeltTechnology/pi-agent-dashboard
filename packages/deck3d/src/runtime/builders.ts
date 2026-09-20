@@ -10,7 +10,7 @@ import { diagramMaterial } from "./materials.js";
 import { nodeGeometry } from "./node-geometry.js";
 import type { PaletteColors } from "./palette.js";
 import { makeRng } from "./rng.js";
-import { buildLabel, buildTitle } from "./text.js";
+import { buildLabel } from "./text.js";
 import type { SlideConfig } from "./types.js";
 
 export interface BuiltLabel {
@@ -415,10 +415,9 @@ function buildLoop(slide: MergedSlide, P: PaletteColors, cfg: SlideConfig, font:
     const s = new THREE.Mesh(new THREE.SphereGeometry(0.3, 32, 32), matA);
     s.castShadow = true;
     n.add(s);
-    const tx = buildTitle(font, l, 0.16, 0.04, new THREE.MeshStandardMaterial({ color: P.text, metalness: 0.3, roughness: 0.4 }));
-    const bb = new THREE.Box3().setFromObject(tx.group);
-    tx.group.position.set(-(bb.max.x - bb.min.x) / 2, 0.42, 0);
-    n.add(tx.group);
+    // The caption is drawn ONCE, by `addPart` below: that label is the
+    // measurable one, is billboarded, and honours `labels.size`. An extruded
+    // copy here rendered the same text a second time at a fixed size.
     g.add(n);
     nodes.push(n);
     addPart(g, parts, `n${i}`, l, s, at.clone().multiplyScalar(1.42), P, cfg);

@@ -30,13 +30,27 @@ export default function (ctx, params) {
   holder.userData.count = count;
 
   const m = new THREE.Matrix4();
+  const v = new THREE.Vector3();
+  const q = new THREE.Quaternion();
+  const sc = new THREE.Vector3();
+  // A deal used to blink out of existence at the wrap. Scaling it up at birth
+  // and down at death reads as arriving and clearing.
+  const fade = function (k) {
+    return Math.min(1, k / 0.18, (1 - k) / 0.18);
+  };
   const place = function (t) {
     for (let i = 0; i < count; i++) {
       const s = seeds[i];
       const k = (s.off + t * s.speed) % 1;
       // Past the gate it accelerates; short of it, it stalls and drifts back.
-      passing.setMatrixAt(i, m.makeTranslation(s.x * (1 - k * 0.7), s.y * (1 - k * 0.7), -12 + k * 24));
-      held.setMatrixAt(i, m.makeTranslation(s.x * 2.4, s.y * 2.4, -14 + ((k * 0.35) % 1) * 10));
+      const f = fade(k);
+      v.set(s.x * (1 - k * 0.7), s.y * (1 - k * 0.7), -12 + k * 24);
+      sc.setScalar(f);
+      passing.setMatrixAt(i, m.compose(v, q, sc));
+      const hk = (k * 0.35) % 1;
+      v.set(s.x * 2.4, s.y * 2.4, -14 + hk * 10);
+      sc.setScalar(fade(hk));
+      held.setMatrixAt(i, m.compose(v, q, sc));
     }
     passing.instanceMatrix.needsUpdate = true;
     held.instanceMatrix.needsUpdate = true;

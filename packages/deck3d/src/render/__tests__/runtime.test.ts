@@ -763,4 +763,70 @@ describe.skipIf(!hasChromium)("F16 spun diagram labels keep facing the viewer (c
       await browser.close();
     }
   }, 180_000);
+
+});
+
+// #F22 — a finished transition must LAND. The idle-drift smoothing applied
+// during the fly too, so `anim` went null ~1.5 s before the camera arrived and
+// the previous slide's backdrop stayed on screen.
+describe.skipIf(!hasChromium)("F22 a finished transition lands on its anchor (chromium)", () => {
+  const md = ["---", "title: Land", "---", "", "# One", "", "text", "", "# Two", "", "text", "", "# Three", "", "text", ""].join("\n");
+
+  it("leaves no camera lag once anim clears", async () => {
+    const browser = await chromium.launch({ channel: "chromium" });
+    try {
+      const { ir } = await deriveDeckIR(parseMarkdown(md), { harvest: (src, id) => harvestDiagram(src, id) });
+      const path = join(mkdtempSync(join(tmpdir(), "deck3d-f22-")), "deck.html");
+      writeFileSync(path, renderDeck(ir, { runtime: await ensureRuntime() }));
+      const { page } = await open(browser, path);
+
+      await page.evaluate(() => window.__deck3d?.gotoSlide(3));
+      await page.waitForFunction(() => window.__deck3d?.debug.look().anim === null, undefined, { timeout: 15000 });
+      await page.waitForTimeout(100);
+      const gap = await page.evaluate(() => {
+        const look = window.__deck3d!.debug.look();
+        const anchor = window.__deck3d!.debug.anchors()[2] as { pos: number[] };
+        return Math.abs((look.cam as number[])[0] - anchor.pos[0]);
+      });
+      // Idle drift is ±0.25 on x, so past 1 unit is lag, not drift.
+      expect(gap).toBeLessThan(1);
+      await page.close();
+    } finally {
+      await browser.close();
+    }
+  }, 120_000);
+});
+
+// #F23 — `buildLoop` drew every caption twice: an extruded `buildTitle` mesh
+// on the node PLUS the canvas label `addPart` adds for measurability. Only the
+// measurable one is billboarded and sized by `labels.size`, so the pair
+// visibly diverged.
+describe.skipIf(!hasChromium)("F23 built topologies draw each caption once (chromium)", () => {
+  const md = ["---", "title: Loop", "---", "", "# Cycle", "", "- Audit accounts", "- Swap in proof", "- Name governance", ""].join("\n");
+
+  it("renders no duplicate caption geometry", async () => {
+    const browser = await chromium.launch({ channel: "chromium" });
+    try {
+      const { ir } = await deriveDeckIR(parseMarkdown(md), { harvest: (src, id) => harvestDiagram(src, id) });
+      ir.slides[0].diagram = { kind: "loop", data: { labels: ["Audit accounts", "Swap in proof", "Name governance"] } };
+      const path = join(mkdtempSync(join(tmpdir(), "deck3d-f23-")), "deck.html");
+      writeFileSync(path, renderDeck(ir, { runtime: await ensureRuntime() }));
+      const { page } = await open(browser, path);
+      await page.evaluate(() => window.__deck3d?.gotoSlide(1));
+      await page.waitForTimeout(600);
+
+      // One measurable label per node, and no extra text-bearing node beside it.
+      const counts = await page.evaluate(() => {
+        const labels = window.__deck3d!.measure().filter((m) => m.kind === "label");
+        return { labels: labels.length, nodes: window.__deck3d!.debug.sceneNodes() };
+      });
+      expect(counts.labels).toBe(3);
+      // 32 with the extruded duplicate, 20 without: each node carried an
+      // extra glyph group drawing the same words.
+      expect(counts.nodes).toBeLessThan(32);
+      await page.close();
+    } finally {
+      await browser.close();
+    }
+  }, 120_000);
 });

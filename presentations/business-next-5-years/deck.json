@@ -2582,7 +2582,7 @@
         "effects": [
           {
             "id": "local:agent-depth",
-            "sha256": "797f1d5c493a6502e50bf1ac7719e548f014a0153b8993b13c6ada92320ff491"
+            "sha256": "81218d7baba30c0ad2320b5ea2a57530363c78e41b1422b7751dcbddb9871abf"
           }
         ],
         "diagram": {
@@ -2609,7 +2609,7 @@
         "effects": [
           {
             "id": "local:capital-flows",
-            "sha256": "bc61e8a202a69727ce0b1c05b9959daf56f61a73d85b6db2dc71350b29ed8246"
+            "sha256": "3188d7baab5d932efca4c279a8d63079388762b2c619c06bc87fd304f1386543"
           }
         ],
         "diagram": {
@@ -2675,7 +2675,7 @@
         "effects": [
           {
             "id": "local:proof-gate",
-            "sha256": "e2381220001abeea90070ceb02a95de63973c7dacb21bafef1a4d400fdc3e08f"
+            "sha256": "ed4ade9ee837d2a299232d644bec04df66f96f7698a53016f3f8c5510849d123"
           },
           {
             "id": "signal-pulse"
@@ -2926,7 +2926,7 @@
         "effects": [
           {
             "id": "local:proof-gate",
-            "sha256": "e2381220001abeea90070ceb02a95de63973c7dacb21bafef1a4d400fdc3e08f"
+            "sha256": "ed4ade9ee837d2a299232d644bec04df66f96f7698a53016f3f8c5510849d123"
           }
         ],
         "diagram": {

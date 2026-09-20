@@ -175,3 +175,7 @@
 - [x] 14.18 Disposing a slide's `local:` effects detaches their nodes — `dispose()` frees GPU buffers but leaves the `Object3D` attached, so reviving stacked a second frozen copy (duplicated background) (#F20)
 - [x] 14.19 Per-effect params are generated in the configurator from each effect's card, applied live and exported as `effects[].params` (#F21)
 - [x] 14.20 Effect pass: `neural-mesh` nodes drift + metallic/emissive balls; `market-tape` thin bars, joined by a value trace, slower default scroll; `agent-depth` sine height field; `workforce-100` slow palette cycling; `geo-fragments` livelier drift/spin/breathe; `fab-wafer` sine die height
+- [x] 14.21 A finished transition LANDS on its anchor — idle-drift smoothing no longer applies mid-fly, so the previous slide's backdrop stops lingering after the move completes (#F22)
+- [x] 14.22 Built topologies draw each caption ONCE — `buildLoop` emitted an extruded `buildTitle` beside the measurable canvas label (#F23)
+- [x] 14.23 Wrapping particles fade in/out (`capital-flows`, `proof-gate`, `globe-arcs` travellers) instead of blinking out at the wrap
+- [x] 14.24 `agent-depth` shafts are base-anchored so the wave reads upright; `capital-flows` motes fill the cone via per-mote angle+radius
