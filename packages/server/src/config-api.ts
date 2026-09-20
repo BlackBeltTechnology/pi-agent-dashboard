@@ -169,7 +169,12 @@ export function deleteAuthProvider(
 export function readRawConfig(): Record<string, any> {
   const { file } = getConfigPaths();
   try {
-    return JSON.parse(fs.readFileSync(file, "utf-8")) as Record<string, any>;
+    // Guard the RESULT, not just the parse: valid JSON can be `null`, an array or
+    // a scalar, and every caller dereferences fields off this object. `null` in
+    // particular would throw at `.cors`.
+    const parsed = JSON.parse(fs.readFileSync(file, "utf-8")) as unknown;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
+    return parsed as Record<string, any>;
   } catch {
     return {};
   }

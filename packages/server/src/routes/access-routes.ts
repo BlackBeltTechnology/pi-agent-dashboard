@@ -273,9 +273,8 @@ export function registerAccessRoutes(
       // would silently DROP any key the `CorsConfig` type does not model — a
       // data-loss bug a seeded-config test caught here (task 4.5 fresh round 1).
       const rawCors = (readRawConfig().cors ?? {}) as Record<string, unknown>;
-      const remaining = ((rawCors.allowedOrigins as string[] | undefined) ?? []).filter(
-        (o) => o !== origin,
-      );
+      const rawOrigins = Array.isArray(rawCors.allowedOrigins) ? rawCors.allowedOrigins : [];
+      const remaining = rawOrigins.filter((o) => o !== origin);
       const result = writeConfigPartial({ cors: { ...rawCors, allowedOrigins: remaining } });
       if (!result.success) {
         reply.code(500);

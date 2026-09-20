@@ -20,7 +20,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 
 /** Mirror of pi's `PathMetadata` (core/package-manager.ts). */
-interface ResolvedResourceMeta {
+export interface ResolvedResourceMeta {
   source: string;
   scope: string;
   origin: "package" | "top-level";
@@ -89,7 +89,7 @@ export interface PiSettingsManager {
 }
 
 /** Subset of pi's `PackageManager` used to read activation state. */
-interface PiPackageManager {
+export interface PiPackageManager {
   resolve(onMissing?: (source: string) => Promise<"install" | "skip" | "error">): Promise<ResolvedPaths>;
 }
 
