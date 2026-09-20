@@ -21,6 +21,7 @@
  * See change: add-access-grants-and-review.
  */
 
+import { lstat } from "node:fs/promises";
 import { isAllowed, isGrantAdmitted } from "../lib/path-containment.js";
 import { recordPathDenial } from "./access-denials.js";
 import { grantedSubjects } from "./access-grants.js";
@@ -29,6 +30,32 @@ import { offeredAncestorLadder } from "./ancestor-ladder.js";
 /** The grantable subject of a refused path: its containing directory. */
 function grantableSubjectOf(resolved: string): string {
   return resolved.replace(/[/\\][^/\\]*$/, "") || resolved;
+}
+
+/**
+ * What the remedy should NAME (design D20, task 4.5 round 2).
+ *
+ * - `"file"` — the containing directory is what unblocks a refused file read.
+ * - `"directory"` — the resource IS the directory, so name it. Naming the parent
+ *   would offer every SIBLING tree in one click.
+ * - `"auto"` — a POLYMORPHIC site (`/api/file`, `/api/file/exists`) admits both,
+ *   so the target's own kind decides. Passed by sites that cannot know statically.
+ */
+type SubjectKind = "file" | "directory" | "auto";
+
+async function remedySubject(resolved: string, kind: SubjectKind): Promise<string> {
+  if (kind === "directory") return resolved;
+  if (kind === "file") return grantableSubjectOf(resolved);
+  // "auto". On an INDETERMINATE lstat, answer with the resource itself rather
+  // than its parent: `recordGrant` normalizes a non-directory onto its
+  // containing directory, so a file subject still resolves correctly, whereas
+  // naming the PARENT of a directory is the widening bug this exists to avoid.
+  // The invariant is "never wider than the refused resource".
+  try {
+    return (await lstat(resolved)).isDirectory() ? resolved : grantableSubjectOf(resolved);
+  } catch {
+    return resolved;
+  }
 }
 
 export interface ContainmentDecision {
@@ -70,7 +97,12 @@ export interface DenialRemedy {
 export async function evaluateContainment(
   resolved: string,
   anchors: string[],
-  opts: { site: string; session?: string; allowGrant?: boolean; subjectKind?: "file" | "directory" },
+  opts: {
+    site: string;
+    session?: string;
+    allowGrant?: boolean;
+    subjectKind?: SubjectKind;
+  },
 ): Promise<ContainmentDecision & { remedy?: DenialRemedy }> {
   // Layers ①/② first — untouched and still authoritative (design D1) — then the
   // grant layer, and only on a miss does the denial get recorded.
@@ -84,15 +116,10 @@ export async function evaluateContainment(
   }
   if (decision.allowed) return decision;
 
-  // `subjectKind` decides what the remedy names. `grantableSubjectOf` strips the
-  // last component, which is right for a FILE read — granting the containing
-  // directory is what unblocks it. At a DIRECTORY-only site the resource IS the
-  // directory, so stripping names the parent: denying `/outside/project` would
-  // offer `/outside` and hand over every SIBLING tree in one click, and a
-  // directory sitting directly under `$HOME` would name `$HOME`, which the
-  // forbidden filter refuses, making it un-grantable at all. (Task 4.5 review.)
-  const subject =
-    opts.subjectKind === "directory" ? resolved : grantableSubjectOf(resolved);
+  // `subjectKind` decides what the remedy names — see `remedySubject`. The
+  // default ("file") is right for the majority of sites (a refused file read);
+  // directory-only and polymorphic sites must say so explicitly.
+  const subject = await remedySubject(resolved, opts.subjectKind ?? "file");
   let ancestors: string[] = [];
   try {
     ancestors = await offeredAncestorLadder(subject);

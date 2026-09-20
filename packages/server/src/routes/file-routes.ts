@@ -408,6 +408,9 @@ export function registerFileRoutes(
       const readDecision = await evaluateContainment(resolved, [cwd, homePiAnchor()], {
         site: "file-routes:read",
         session: cwd,
+        // Polymorphic: this route serves files AND directories, so the remedy
+        // must name whichever the target is (task 4.5 round 2, B1).
+        subjectKind: "auto",
       });
       if (!readDecision.allowed) {
         reply.code(403);
@@ -758,6 +761,8 @@ export function registerFileRoutes(
       const existsDecision = await evaluateContainment(resolved, anchors, {
         site: "file-routes:exists",
         session: cwd,
+        // `fs.access` accepts files AND directories — polymorphic, see above.
+        subjectKind: "auto",
       });
       if (!existsDecision.allowed) {
         reply.code(403);

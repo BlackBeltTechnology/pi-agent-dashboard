@@ -41,10 +41,12 @@
  * is a separate, broader change. Callers therefore invoke this only when the
  * containment decision reported `viaGrant`.
  *
- * `assertRegularFile` exists for the office/EML gates, which hand a PATH to an
+ * `assertRegularFile` exists for the OFFICE gate, which hands a PATH to an
  * out-of-process renderer (document-converter/LibreOffice) and so cannot serve
- * from a handle. See the note on that function for exactly what it does and does
- * not close.
+ * from a handle — it gets a regular-file assertion, not handle binding. The EML
+ * gates DO serve from a handle (they read the verified bytes and parse them in
+ * process), so they are handle-verified, not merely asserted. See the note on
+ * that function for exactly what it does and does not close.
  *
  * See change: add-access-grants-and-review (D14).
  */

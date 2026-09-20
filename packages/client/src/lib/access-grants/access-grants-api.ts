@@ -20,12 +20,12 @@
  *                            `POST /api/resources/trust`: that route is gated on
  *                            an outstanding trust challenge and takes an option
  *                            id, so it cannot express a revoke.
- * - trusted networks       → PUT /api/config `trustedNetworks` — the existing
- *                            config write path (spec: revoking a trusted
- *                            network).
+ * - trusted networks       → DELETE /api/access/trusted-network (per-entry;
+ *                            the server read-modify-writes the array, so no
+ *                            client snapshot is sent — task 4.5 #5)
  * - auth bypass hosts      → DELETE /api/access/bypass-hosts (the
  *                            `auth.bypassHosts` field, never trustedNetworks)
- * - CORS origins           → PUT /api/config `cors.allowedOrigins`
+ * - CORS origins           → DELETE /api/access/cors-origin (per-entry, as above)
  * - pinned directories     → PATCH /api/preferences/pinned-directories (the
  *                            preferences-store write path)
  *

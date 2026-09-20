@@ -330,12 +330,24 @@ check, not a path check:
 4. Serve from the verified `fd`, never by re-opening the path.
 
 **Scope: byte-serving read sites only** (`GET /api/file` read, `raw`, `render`,
-and the office/EML gates). The rule as first written would have broken the other
+and the EML parse/attachment gates, which this change routes through the verified
+handle). The rule as first written would have broken the other
 sites outright: `tree` admits a *directory* and calls `readdir` with no open at
 all, `exists` calls `fs.access`, the mention resolver calls `stat`, grep opens
 inside a `ripgrep` subprocess, and the office/PDF path hands a path to an
 external engine. Those sites keep path-based grant checking only, and carry the
 same pre-existing window as layer 2.
+
+The **office gate belongs to that second group even though it shares a route
+family with EML.** `file-routes.ts` runs `assertRegularFile(resolved)` on it — so
+a FIFO, or a symlink, is refused before anything is spawned — and then hands the
+**pathname** to an out-of-process renderer. It never performs
+`open → fstat → serve from fd`, so it has no handle binding and is not claimed to
+have one. Binding it would require the external renderer to consume a descriptor,
+which its interface does not accept. The first draft of this decision was
+ambiguous on exactly this point, listing the office gates both as in scope and as
+path-based-only; corrected in task 4.5 round 2 (B3), as was the matching claim in
+`verified-read.ts`.
 
 Note this is deliberately *stricter than layer 2*, which carries the identical
 window today. Closing it there is out of scope — a pre-existing gap, untouched

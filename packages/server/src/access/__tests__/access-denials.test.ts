@@ -334,6 +334,32 @@ describe("4.5 review #4 — the remedy names the resource, not its parent", () =
     expect(d.remedy?.subject).not.toBe(path.dirname(outside));
     expect(sibling.startsWith(`${d.remedy?.subject}/`)).toBe(false);
   });
+
+  it("subjectKind 'auto' names a refused DIRECTORY itself and a refused FILE's parent", async () => {
+    // `"auto"` is for polymorphic sites (`/api/file`, `/api/file/exists`) that
+    // admit files AND directories, so the target's own kind must decide. Passing
+    // the default would leave the sibling-widening bug in place at those two
+    // routes; passing a blanket "directory" would be wrong for a refused FILE.
+    const session = mkdir("sess");
+    const outside = mkdir("outside", "project");
+    mkdir("outside", "sibling-secret");
+    const file = path.join(outside, "f.txt");
+    fs.writeFileSync(file, "x");
+
+    const dir = await evaluateContainment(outside, [session], {
+      site: "test:auto-dir",
+      subjectKind: "auto",
+    });
+    expect(dir.allowed).toBe(false);
+    expect(dir.remedy?.subject).toBe(outside);
+
+    const asFile = await evaluateContainment(file, [session], {
+      site: "test:auto-file",
+      subjectKind: "auto",
+    });
+    expect(asFile.allowed).toBe(false);
+    expect(asFile.remedy?.subject).toBe(outside);
+  });
 });
 
 describe("9a.31 / 9c.6 no inbound write path to the registry", () => {
