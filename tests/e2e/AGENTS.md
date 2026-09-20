@@ -5,6 +5,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | File | Purpose |
 |------|---------|
 | `README.md` | Docs for browser E2E. Prerequisites: Docker, `npx playwright install chromium`. → see `README.md.AGENTS.md` |
+| `access-grants-revoke.spec.ts` | L3 for the access-grant remedy journey — denial → grant → admitted with NO restart → revoke → denied again (change: add-access-grants-and-review, test-plan F4). VERIFIED on the docker harness. → see `access-grants-revoke.spec.ts.AGENTS.md` |
 | `anthropic-bridge-activation.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). → see `anthropic-bridge-activation.spec.ts.AGENTS.md` |
 | `archive-fold.spec.ts` | L3 for the per-folder `Archive (N)` fold (test-plan #F4, #F8, #F9, #F10, #F14, #… → see `archive-fold.spec.ts.AGENTS.md` |
 | `asciidoc-preview.spec.ts` | L3 AsciiDoc preview styling (change: asciidoc-support, test-plan #F1–#F6). → see `asciidoc-preview.spec.ts.AGENTS.md` |
