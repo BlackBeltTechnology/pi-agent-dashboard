@@ -621,3 +621,30 @@ an operator's vanishing grants are never *silent*.
 - **Relative/empty subject in `recordGrant`** resolves against the server's cwd.
   The route's denial binding makes it unreachable, so no second guard was added
   beyond the forbidden filter that D15 already requires.
+
+---
+
+### D22 — A read grant is not an app-launch capability (grant-eligibility policy)
+
+**Provenance.** Task 4.5 review gate, blocking #2. Verified in source, then by a
+regression test that fails on the pre-fix code.
+
+`gateFilePath` is shared, so making it grant-aware also made
+`/api/open-in-system` and `/api/reveal-in-file-manager` grant-eligible. Those
+routes do not read: they spawn a local application (or reveal in the file
+manager) on the path. A grant framed as *read-widening* therefore silently
+became an **app-launch** capability. The pre-fix test shows the real severity —
+both routes returned `200` and spawned.
+
+**Decision.** Grant eligibility is now declared per site, not inherited from the
+shared helper: `evaluateContainment` takes `allowGrant` (default `true`), and the
+two spawn routes pass `false`, keeping exactly the pre-change `isAllowed`-only
+decision. Reads opt in by default; a capability that is not reading opts out
+explicitly.
+
+This is a deliberate narrowing, not an oversight: opening a file in an external
+application is a different primitive from reading its bytes into the dashboard,
+and it is one the operator's remedy copy never described. If a future change
+wants a grant to authorize spawning, that is a separate decision with its own
+remedy text and tests — the flag makes it an explicit one-liner rather than a
+silent consequence of sharing a helper.

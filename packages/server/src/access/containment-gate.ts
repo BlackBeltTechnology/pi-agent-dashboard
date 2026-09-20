@@ -60,18 +60,24 @@ export interface DenialRemedy {
  *
  * `site` is a stable identifier (`file-routes:661`) so the Access surface and
  * the tests can attribute a refusal to the site that produced it.
+ *
+ * `allowGrant` (default `true`) lets a site declare that a grant must NOT admit
+ * it. A grant is a READ remedy; `open-in-system` / `reveal-in-file-manager`
+ * spawn a local application instead, so they pass `false` and keep exactly the
+ * pre-change `isAllowed`-only decision. Without this the grant layer silently
+ * widened a read grant into an app-launch capability (task 4.5 review gate).
  */
 export async function evaluateContainment(
   resolved: string,
   anchors: string[],
-  opts: { site: string; session?: string },
+  opts: { site: string; session?: string; allowGrant?: boolean },
 ): Promise<ContainmentDecision & { remedy?: DenialRemedy }> {
   // Layers ①/② first — untouched and still authoritative (design D1) — then the
   // grant layer, and only on a miss does the denial get recorded.
   let decision: ContainmentDecision;
   if (await isAllowed(resolved, { anchors })) {
     decision = { allowed: true, viaGrant: false };
-  } else if (await isGrantAdmitted(resolved, grantedSubjects())) {
+  } else if ((opts.allowGrant ?? true) && (await isGrantAdmitted(resolved, grantedSubjects()))) {
     decision = { allowed: true, viaGrant: true };
   } else {
     decision = { allowed: false, viaGrant: false };

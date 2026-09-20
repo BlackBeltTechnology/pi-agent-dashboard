@@ -173,4 +173,37 @@ describe("grant-admitted byte serving is verified against the open handle (task 
 
     await app.close();
   });
+
+  it("a read grant does NOT authorize the OS spawn routes (task 4.5 review, blocking #2)", async () => {
+    // A grant is a READ remedy. `/api/open-in-system` and
+    // `/api/reveal-in-file-manager` spawn a local application instead, so a read
+    // grant must not silently become an app-launch capability. Before the fix
+    // both routes went through the grant-aware gate and returned 200 here.
+    const app = makeApp();
+    await app.ready();
+    const file = path.join(granted, "spawn-target.txt");
+    await fsp.writeFile(file, "x\n");
+    await expectContainmentAdmits(file);
+
+    // The grant is real: a READ route admits the path.
+    const read = await app.inject({ method: "GET", url: readUrl(file) });
+    expect(read.statusCode).toBe(200);
+
+    for (const url of ["/api/open-in-system", "/api/reveal-in-file-manager"]) {
+      const res = await app.inject({
+        method: "POST",
+        url,
+        headers: { origin: "http://localhost:8000" },
+        payload: { cwd, path: file },
+      });
+      // Assert the REASON, not only the code: these routes also 403 when the
+      // host cannot spawn, or when the origin is not loopback, so a bare status
+      // assertion could pass for the wrong reason.
+      expect(res.statusCode, url).toBe(403);
+      expect((res.json() as { error?: string }).error, url).toBe(
+        "path outside working directory",
+      );
+    }
+    await app.close();
+  });
 });

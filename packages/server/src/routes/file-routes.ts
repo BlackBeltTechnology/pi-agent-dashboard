@@ -218,13 +218,17 @@ async function gateFilePath(
   cwd: string | undefined,
   relPath: string | undefined,
   sessionManager: SessionManager,
+  opts: { allowGrant?: boolean } = {},
 ): Promise<{ resolved: string; viaGrant: boolean } | GateFailure> {
   if (!cwd || !relPath) return { code: 400, error: "cwd and path parameters required" };
   if (!sessionManager.listAll().some((s) => s.cwd === cwd)) {
     return { code: 403, error: "unknown session path" };
   }
   const resolved = path.resolve(cwd, relPath);
-  const decision = await evaluateContainment(resolved, [cwd], { site: "file-routes:gateFilePath" });
+  const decision = await evaluateContainment(resolved, [cwd], {
+    site: "file-routes:gateFilePath",
+    allowGrant: opts.allowGrant,
+  });
   if (!decision.allowed) {
     return { code: 403, error: "path outside working directory", ...decision.remedy };
   }
@@ -512,7 +516,11 @@ export function registerFileRoutes(
     }
     const cwd = typeof request.body?.cwd === "string" ? request.body.cwd : undefined;
     const rawPath = typeof request.body?.path === "string" ? request.body.path : undefined;
-    const gate = await gateFilePath(cwd, rawPath, sessionManager);
+    // `allowGrant: false` — a read grant must NOT authorize launching a local
+    // application or revealing in the file manager. Those are a different
+    // capability from reading, so the two spawn routes keep the pre-change
+    // `isAllowed`-only decision (task 4.5 review gate, blocking #2).
+    const gate = await gateFilePath(cwd, rawPath, sessionManager, { allowGrant: false });
     if ("code" in gate) {
       reply.code(gate.code);
       return denialBody(gate);
