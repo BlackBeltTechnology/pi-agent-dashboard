@@ -1,7 +1,27 @@
 ## MODIFIED Requirements
 
 ### Requirement: IR carries every visual knob the renderer consumes
-The IR SHALL expose, as plain JSON, every parameter the renderer reads: deck-level defaults (mode, palette, material, transition, camera rail, depth relief, background intensity, quality, `autoStyle`), per-slide values (title, subtitle, bullets, background scene, diagram, `diagram.kind`, `diagram.data`, `diagram.scale`/`diagram.offset`, `camera.distance`, `labels.size`, `check.ignore` id list, `effects[]` derived defaults), deck-level and per-slide `overrides.effects[]` (`{id, params}` for corpus ids; `{id, sha256, params}` for `local:` ids), and per-diagram geometry (node position/size/shape/group, edge path samples/kind/label, layout direction). `palette` SHALL admit `blackbelt`, `zenit`, `dapp`, `midnight`, `ember`, `arctic`, `forest`, `mono`, `neon`, `custom`. `diagram.kind` SHALL admit `none`, `flowchart`, `sequence`, `brain`, `loop`, `swarm`, `bars`, `funnel`, `timeline-rail`, `globe`, `orbit-cluster`, `stack`; `overrides.slides["<slideId>"].diagram.kind` SHALL admit every value except `flowchart` and `sequence`. `diagram.data` SHALL be `{ labels?: string[], values?: number[] }` with every value `≥ 0`; `validate` SHALL reject a negative value naming its path. The renderer SHALL NOT read hidden state outside the IR.
+The IR SHALL expose, as plain JSON, every parameter the renderer reads: deck-level defaults (mode, palette, material, transition, camera rail, depth relief, background intensity, quality, `autoStyle`, `layout`, `spacing`), per-slide values (title, subtitle, bullets, background scene, diagram, `diagram.kind`, `diagram.data`, `diagram.scale`/`diagram.offset`, `camera.distance`, `labels.size`, `cardOffset`, `check.ignore` id list, `effects[]` derived defaults), deck-level and per-slide `overrides.effects[]` (`{id, params}` for corpus ids; `{id, sha256, params}` for `local:` ids), and per-diagram geometry (node position/size/shape/group, edge path samples/kind/label, layout direction). `palette` SHALL admit `blackbelt`, `zenit`, `dapp`, `midnight`, `ember`, `arctic`, `forest`, `mono`, `neon`, `custom`. `diagram.kind` SHALL admit `none`, `flowchart`, `sequence`, `brain`, `loop`, `swarm`, `bars`, `funnel`, `timeline-rail`, `globe`, `orbit-cluster`, `stack`; `overrides.slides["<slideId>"].diagram.kind` SHALL admit every value except `flowchart` and `sequence`. `diagram.data` SHALL be `{ labels?: string[], values?: number[] }` with every value `≥ 0`; `validate` SHALL reject a negative value naming its path. `layout` SHALL admit `split` (title and card left, diagram right) and `split-reverse` (mirrored), defaulting to `split`, and SHALL be settable deck-wide and per slide. `rail` SHALL admit `line` (straight dolly), `orbit` (ring, each slide turned to face its camera), `tunnel` (receding along -Z), `helix` (ascending orbit) and `grid` (rows and columns), defaulting to `line`, and SHALL be deck-level only. `spacing` SHALL be the world-unit gap between consecutive slide anchors (`> 0`, default `40`) and SHALL be deck-level only; the neighbour cull radius SHALL be derived from `spacing` and `rail` so no rail culls the slide in frame. `cardOffset` SHALL be `{ x?: number, y?: number }` in world units, applied to the text card after the layout preset places it, and SHALL be settable per slide. The renderer SHALL NOT read hidden state outside the IR.
+
+#### Scenario: Layout preset mirrors the composition
+- **WHEN** `overrides.slides["market"].layout` is `split-reverse`
+- **THEN** the rendered slide places the title and card on the right and the diagram on the left, and `check` reports no overlap or fit finding
+
+#### Scenario: Card offset nudges only the card
+- **WHEN** `overrides.slides["market"].cardOffset` is `{ x: -0.5, y: 0.4 }`
+- **THEN** the card moves by that amount and the title, diagram and background are unmoved
+
+#### Scenario: Spacing is deck-level only
+- **WHEN** `overrides.slides["market"].spacing` is set
+- **THEN** `validate` exits non-zero naming the path as an unsupported property, while `overrides.deck.spacing: 60` validates and widens every anchor gap to 60
+
+#### Scenario: Every rail renders the same slide identically
+- **WHEN** the same deck is rendered with `overrides.deck.rail` set to each of `line`, `orbit`, `tunnel`, `helix` and `grid`
+- **THEN** `check` is clean for every rail, because each rail places the camera at the same slide-local offset and the measured screen rect of a slide's contents is independent of how the slide is turned
+
+#### Scenario: Turned slides measure true
+- **WHEN** a slide sits on `orbit` and is therefore rotated about Y
+- **THEN** `measure()` reports the same screen rect it would report for the identical slide on `line`, so a turned slide never raises a `fit` finding a straight one would not
 
 #### Scenario: Knob edit is visible in output
 - **WHEN** `overrides.nodes["<slideId>/<nodeId>"].shape` is set to `circle` for a `rect` node in `deck.json` and the deck is re-rendered

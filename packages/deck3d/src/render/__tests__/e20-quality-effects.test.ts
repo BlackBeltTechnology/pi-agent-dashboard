@@ -212,6 +212,10 @@ describe.skipIf(!hasChromium)("F9 configurator geometry controls preview live (c
       await page.goto(pathToFileURL(join(dir, "deck.html")).href);
       await page.waitForFunction(() => window.__deck3d !== undefined, undefined, { timeout: 30_000 });
       await page.keyboard.press("c");
+      // Controls live in collapsible blocks; open them so the inputs are reachable.
+      await page.evaluate(() => {
+        for (const d of document.querySelectorAll("#deck3d-hud .deck3d-hud-block")) (d as HTMLDetailsElement).open = true;
+      });
       await page.click('#deck3d-hud button[data-scope="slide"]');
 
       const baseZ = await page.evaluate(() => window.__deck3d!.debug.look().camZ);

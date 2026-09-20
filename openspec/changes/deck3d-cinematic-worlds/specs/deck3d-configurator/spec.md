@@ -5,7 +5,9 @@ Gives the presenter and the tuning agent an on-deck control panel to try look se
 ## ADDED Requirements
 
 ### Requirement: Panel visibility and controls
-The rendered deck SHALL contain a configurator panel hidden by default, toggled by a gear button in a screen corner and by the `C` key, closed by `Escape`. The panel SHALL show the slide counter `n / N` and a scope switch **Deck | This slide**. Deck scope SHALL offer `mode`, `palette`, `quality`, `transition`, `durationSec`, `backgroundIntensity`, autoplay (integer seconds per slide, `1`–`600`; `0` = off, the default; other input rejected by the control) and the deck-level effects checklist; slide scope SHALL offer `mode`, `palette`, `quality`, `camera.distance`, `labels.size`, `backgroundIntensity` and the slide's composed effects checklist. A control whose current value comes from an override SHALL carry a `●` marker. With the panel hidden the rendered frame SHALL be pixel-identical to a deck without the panel.
+The rendered deck SHALL contain a configurator panel hidden by default, toggled by a gear button in a screen corner and by the `C` key, closed by `Escape`. The panel SHALL show the slide counter `n / N` and a scope switch **Deck | This slide**. A control whose current value comes from an override SHALL carry a `●` marker. With the panel hidden the rendered frame SHALL be pixel-identical to a deck without the panel.
+
+Controls SHALL be grouped into collapsible blocks, each independently openable and closed by default except the first: **Look** (`mode`, `palette`, `colors.card`/`colors.accent`/`colors.secondary`, `material`), **Lighting & FX** (`bloom`, `rimLight`, `fog`, `mirrorFloor`, `softShadows`, `envReflections`, `backgroundIntensity`), **Camera & labels** (`camera.distance`, `labels.size`, `depthRelief`, `extrudeDepth`), **Layout** (`layout`; `rail` and `spacing` deck scope only; `diagram.kind`, `diagram.scale`, `diagram.offset.x`, `diagram.offset.y`, `cardOffset.x`, `cardOffset.y` slide scope only), **Motion** (`transition`, `durationSec`, autoplay — integer seconds per slide, `1`–`600`; `0` = off, the default; other input rejected by the control), **Quality** (`quality`) and **Effects** (that scope's effects checklist). A block offering no control in the active scope SHALL be omitted. Each block's open/closed state SHALL persist in local storage beside the staged values and SHALL survive a scope switch, a slide change and a reload.
 
 #### Scenario: Toggle
 - **WHEN** the presenter presses `C`
@@ -19,12 +21,28 @@ The rendered deck SHALL contain a configurator panel hidden by default, toggled 
 - **WHEN** slide `geo` has `overrides.slides["geo"].camera.distance` set
 - **THEN** in slide scope on `geo` the `camera.distance` control is marked `●` and other controls are not
 
+#### Scenario: Blocks collapse and remember
+- **WHEN** the presenter opens **Layout**, closes **Look**, steps to the next slide and reloads the deck
+- **THEN** the panel shows **Layout** open and **Look** closed
+
+#### Scenario: Scope-specific blocks
+- **WHEN** the panel is in deck scope
+- **THEN** the **Layout** block offers `layout`, `rail` and `spacing` and no `diagram.*` or `cardOffset.*` control; in slide scope it offers `layout`, `diagram.*` and `cardOffset.*` and neither `rail` nor `spacing`
+
 ### Requirement: Live application without IR mutation
 Changing a control SHALL apply to the rendered scene immediately (look, camera, labels, effects composition) and SHALL persist only in memory and browser local storage keyed by the deck's derived hash; the embedded IR object SHALL be unchanged afterwards. Unchecking an effect SHALL remove it from that scope's composed list while preserving the order of the rest. While a panel input has focus, slide navigation keys and the `C` toggle SHALL not fire, and clicks inside the panel SHALL not advance the slide.
 
 #### Scenario: Palette switch
 - **WHEN** the presenter selects palette `ember` in deck scope
 - **THEN** the current slide re-renders with the `ember` colours and `window.__DECK.defaults.palette` still reads the original value
+
+#### Scenario: Layout change previews
+- **WHEN** the presenter selects `layout: split-reverse` and sets `cardOffset.x` to `-0.5`
+- **THEN** the current slide re-renders with the mirrored composition and the nudged card, and `window.__DECK` is unchanged
+
+#### Scenario: Rail change moves the whole deck
+- **WHEN** the presenter selects `rail: orbit` in deck scope
+- **THEN** every slide is re-anchored onto the ring (not just the slide in view), the camera re-frames the current slide, and `window.__DECK.defaults.rail` still reads its original value
 
 #### Scenario: Typing in a field does not navigate
 - **WHEN** the `durationSec` input has focus and the presenter types `2` then presses `Space`

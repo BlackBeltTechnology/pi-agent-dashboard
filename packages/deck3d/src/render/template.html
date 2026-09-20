@@ -26,7 +26,7 @@
   #deck3d-hud-toggle:hover, #deck3d-hud-toggle:focus { opacity: 1; }
   #deck3d-hud {
     display: none; position: fixed; right: 12px; bottom: 56px; z-index: 11;
-    width: 268px; max-height: 78vh; overflow: auto;
+    width: 286px; max-height: 78vh; overflow: auto;
     padding: 12px 14px; border-radius: 10px;
     border: 1px solid rgba(255,255,255,.18); background: rgba(16,16,18,.92);
     color: #f2f2f2; font: 12px/1.5 system-ui, sans-serif;
@@ -40,7 +40,17 @@
   .deck3d-hud-scopes button.active { background: rgba(255,255,255,.16); }
   .deck3d-hud-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 5px 0; }
   .deck3d-hud-row select, .deck3d-hud-row input { width: 108px; font: inherit; }
-  .deck3d-hud-effects { margin: 10px 0 6px; border-top: 1px solid rgba(255,255,255,.14); padding-top: 8px; }
+  .deck3d-hud-row input[type=checkbox] { width: auto; }
+  .deck3d-hud-row input[type=color] { width: 108px; height: 22px; padding: 0; background: none; border: 1px solid rgba(255,255,255,.2); }
+  .deck3d-hud-block { border-top: 1px solid rgba(255,255,255,.12); padding: 6px 0; }
+  .deck3d-hud-block > summary {
+    cursor: pointer; font-weight: 600; letter-spacing: .02em; padding: 2px 0;
+    list-style: none; display: flex; align-items: center; gap: 6px;
+  }
+  .deck3d-hud-block > summary::-webkit-details-marker { display: none; }
+  .deck3d-hud-block > summary::before { content: "\25B8"; opacity: .6; transition: transform .12s; }
+  .deck3d-hud-block[open] > summary::before { transform: rotate(90deg); }
+  .deck3d-hud-effects { margin: 6px 0; }
   .deck3d-hud-effect { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
   .deck3d-hud-note { margin: 8px 0; opacity: .7; font-size: 11px; }
   #deck3d-hud-export { width: 100%; padding: 6px; border-radius: 6px; cursor: pointer;

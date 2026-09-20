@@ -149,6 +149,10 @@ last `credits` slide at render. Never fetch a model whose licence you cannot nam
   Poppins TTF through opentype.js — do not swap in a typeface.json.
 - Extruded small text blooms and is unreadable; diagram labels are flat canvas
   planes with a background-colour outline. Tune `labels.size`, not the material.
+- Placement: `defaults.rail` (`line` `orbit` `tunnel` `helix` `grid`) strings the
+  slides in space, `defaults.spacing` sets the gap, `layout` (`split`
+  `split-reverse`) composes one slide, `cardOffset` nudges the card. Every rail
+  frames a slide identically, so a rail switch never needs a per-slide re-tune.
 - The mermaid engine is pinned exactly; a bump is a deliberate change and the
   harvest fixtures will fail if the rendered id scheme moves.
 - Headless/background tabs stall `requestAnimationFrame`; the loop falls back to

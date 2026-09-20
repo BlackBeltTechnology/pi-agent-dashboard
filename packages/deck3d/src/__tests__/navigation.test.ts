@@ -206,6 +206,10 @@ describe.skipIf(!hasChromium)("navigation with the configurator", () => {
   it("suppresses navigation and the C toggle while an input has focus", async () => {
     const page = await openHud();
     await page.keyboard.press("c");
+    // Controls live in collapsible blocks; a closed block's input cannot take focus.
+    await page.evaluate(() => {
+      for (const d of document.querySelectorAll("#deck3d-hud .deck3d-hud-block")) (d as HTMLDetailsElement).open = true;
+    });
     await page.focus('#deck3d-hud input[data-path="durationSec"]');
 
     await page.keyboard.type("2");

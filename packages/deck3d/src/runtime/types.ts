@@ -4,7 +4,7 @@
  * Structural copies of `DeckIR` types; the runtime bundle is compiled with
  * esbuild from `src/runtime/index.ts` and receives `window.__DECK`.
  */
-import type { Defaults, MergedSlide, PropOverride } from "../ir/types.js";
+import type { CardOffset, Defaults, MergedSlide, PropOverride } from "../ir/types.js";
 
 export interface RuntimeDeck {
   defaults: Defaults;
@@ -13,8 +13,8 @@ export interface RuntimeDeck {
   props?: PropOverride[];
 }
 
-/** Deck defaults with one slide's overrides folded in. */
-export type SlideConfig = Defaults;
+/** Deck defaults with one slide's overrides folded in (incl. slide-only knobs). */
+export type SlideConfig = Defaults & { cardOffset?: CardOffset };
 
 export interface Deck3dApi {
   gotoSlide: (index1Based: number) => void;
@@ -33,6 +33,8 @@ export interface Deck3dApi {
     titleGlyphs: () => number;
     liftedMessage: () => string | null;
     look: () => { bg: string; fog: string; rim: string; title: string; camZ: number };
+    /** Every slide's live anchor, for rail/spacing assertions. */
+    anchors: () => Array<{ pos: [number, number, number]; rotY: number }>;
   };
   current: () => number;
 }

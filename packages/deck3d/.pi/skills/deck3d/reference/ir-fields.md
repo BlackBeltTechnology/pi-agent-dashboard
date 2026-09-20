@@ -32,6 +32,9 @@
 | `defaults.quality` | low \| medium \| high | `"high"` | Quality tier: scales bloom, reflections, shadow resolution and particle count, and sets the effect cost budget (low 6 / medium 12 / high 20). |
 | `defaults.extrudeDepth` | number | `0.18` | Extrusion depth of 3D title glyphs. |
 | `defaults.autoStyle` | boolean | `true` | Let parse pick a built diagram kind and a topic-matched background per slide. `false` restores the v1 fallback routing (no built kinds, `particles` background). |
+| `defaults.layout` | split \| split-reverse | `"split"` | Slide composition preset. `split` = title and card left, diagram right; `split-reverse` mirrors it. |
+| `defaults.rail` | line \| orbit \| tunnel \| helix \| grid | `"line"` | Topology the slides are strung along. `line` dollies along a straight rail; `orbit` rings them facing outward; `tunnel` recedes along -Z; `helix` is an ascending orbit; `grid` wraps into rows and columns. Deck-level only. |
+| `defaults.spacing` | number | `40` | World-unit gap between consecutive slide anchors on the rail. Deck-level only; also scales the cull radius. |
 | `defaults.camera` | object |  | Default camera framing. |
 | `defaults.camera.distance` | number | `9` | Distance from the slide's focal plane. Larger = more content in frame but smaller labels. |
 | `defaults.labels` | object |  | Default diagram-label treatment. |
@@ -98,6 +101,10 @@
 | `slides[].diagram.messages[].to` | string |  | Receiver actor id (equal to `from` for self-messages). |
 | `slides[].diagram.messages[].text` | string |  | Message label text. |
 | `slides[].diagram.messages[].kind` | solid \| dotted |  | Solid request/response vs dotted reply. |
+| `slides[].layout` | split \| split-reverse |  | Composition preset for this slide. Falls back to `defaults.layout`. |
+| `slides[].cardOffset` | object |  | World-unit nudge applied to the text card AFTER the layout preset places it. Leaves the title, diagram and background where they are. |
+| `slides[].cardOffset.x` | number |  | Horizontal nudge, positive = right. |
+| `slides[].cardOffset.y` | number |  | Vertical nudge, positive = up. |
 | `slides[].camera` | object |  | Camera framing for this slide. |
 | `slides[].camera.distance` | number |  | Distance from the focal plane. Larger pulls back and shrinks labels. |
 | `slides[].labels` | object |  | Diagram-label treatment for this slide. |
@@ -132,6 +139,9 @@
 | `overrides.deck.quality` | low \| medium \| high | `"high"` | Quality tier: scales bloom, reflections, shadow resolution and particle count, and sets the effect cost budget (low 6 / medium 12 / high 20). |
 | `overrides.deck.extrudeDepth` | number | `0.18` | Extrusion depth of 3D title glyphs. |
 | `overrides.deck.autoStyle` | boolean | `true` | Let parse pick a built diagram kind and a topic-matched background per slide. `false` restores the v1 fallback routing (no built kinds, `particles` background). |
+| `overrides.deck.layout` | split \| split-reverse | `"split"` | Slide composition preset. `split` = title and card left, diagram right; `split-reverse` mirrors it. |
+| `overrides.deck.rail` | line \| orbit \| tunnel \| helix \| grid | `"line"` | Topology the slides are strung along. `line` dollies along a straight rail; `orbit` rings them facing outward; `tunnel` recedes along -Z; `helix` is an ascending orbit; `grid` wraps into rows and columns. Deck-level only. |
+| `overrides.deck.spacing` | number | `40` | World-unit gap between consecutive slide anchors on the rail. Deck-level only; also scales the cull radius. |
 | `overrides.deck.camera` | object |  | Default camera framing. |
 | `overrides.deck.camera.distance` | number | `9` | Distance from the slide's focal plane. Larger = more content in frame but smaller labels. |
 | `overrides.deck.labels` | object |  | Default diagram-label treatment. |
@@ -177,6 +187,10 @@
 | `overrides.slides["<key>"].diagram.offset` | object |  | Translate the diagram. |
 | `overrides.slides["<key>"].diagram.offset.x` | number |  | Horizontal offset. |
 | `overrides.slides["<key>"].diagram.offset.y` | number |  | Vertical offset. |
+| `overrides.slides["<key>"].layout` | split \| split-reverse |  | Override the composition preset for this slide. |
+| `overrides.slides["<key>"].cardOffset` | object |  | World-unit nudge applied to the text card AFTER the layout preset places it. Leaves the title, diagram and background where they are. |
+| `overrides.slides["<key>"].cardOffset.x` | number |  | Horizontal nudge, positive = right. |
+| `overrides.slides["<key>"].cardOffset.y` | number |  | Vertical nudge, positive = up. |
 | `overrides.slides["<key>"].camera` | object |  | Camera framing override. |
 | `overrides.slides["<key>"].camera.distance` | number |  | Pull the camera closer/further to fix fit or label size. |
 | `overrides.slides["<key>"].labels` | object |  | Label treatment override. |

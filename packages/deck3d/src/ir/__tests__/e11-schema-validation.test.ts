@@ -282,3 +282,65 @@ describe("E23 local referent resolution", () => {
     expect(r.stderr).toContain("fx/globe.js");
   });
 });
+
+/**
+ * E47 (task 13.2) — ir: placement knobs validate at the right scope.
+ *
+ * `layout` and `cardOffset` are per-slide as well as deck-wide; `spacing` is a
+ * property of the slide rail itself, so it exists deck-level ONLY and a slide
+ * that sets it must be reported rather than silently ignored.
+ */
+describe("E47 placement knobs", () => {
+  function seedDeck(): { dir: string; deck: Record<string, unknown> } {
+    const dir = mkdtempSync(join(tmpdir(), "deck3d-e47-"));
+    writeFileSync(join(dir, "talk.md"), "# Intro\n\n- a\n");
+    const parsed = runCli(["parse", "talk.md", "-o", "deck.json"], dir);
+    expect(parsed.status, parsed.stderr).toBe(0);
+    return { dir, deck: JSON.parse(readFileSync(join(dir, "deck.json"), "utf8")) as Record<string, unknown> };
+  }
+
+  function validateWith(patch: (o: Record<string, unknown>) => void) {
+    const { dir, deck } = seedDeck();
+    const next = clone(deck);
+    patch(next.overrides as Record<string, unknown>);
+    writeFileSync(join(dir, "deck.json"), JSON.stringify(next, null, 2));
+    return runCli(["validate", "deck.json"], dir);
+  }
+
+  it("accepts deck-level layout and spacing", () => {
+    const r = validateWith((o) => {
+      o.deck = { ...(o.deck as object), layout: "split-reverse", spacing: 60 };
+    });
+    expect(r.status, r.stderr).toBe(0);
+  });
+
+  it("accepts per-slide layout and cardOffset", () => {
+    const r = validateWith((o) => {
+      o.slides = { intro: { layout: "split-reverse", cardOffset: { x: -0.5, y: 0.4 } } };
+    });
+    expect(r.status, r.stderr).toBe(0);
+  });
+
+  it("rejects per-slide spacing naming the path", () => {
+    const r = validateWith((o) => {
+      o.slides = { intro: { spacing: 60 } };
+    });
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain('overrides.slides["intro"]');
+    expect(r.stderr).toContain("spacing");
+  });
+
+  it("rejects an unknown layout preset and a non-positive spacing", () => {
+    const bad = validateWith((o) => {
+      o.deck = { ...(o.deck as object), layout: "diagonal" };
+    });
+    expect(bad.status).not.toBe(0);
+    expect(bad.stderr).toContain("overrides.deck.layout");
+
+    const zero = validateWith((o) => {
+      o.deck = { ...(o.deck as object), spacing: 0 };
+    });
+    expect(zero.status).not.toBe(0);
+    expect(zero.stderr).toContain("overrides.deck.spacing");
+  });
+});

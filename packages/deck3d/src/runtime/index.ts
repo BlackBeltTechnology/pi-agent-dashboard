@@ -8,11 +8,13 @@ import type { Font } from "opentype.js";
 import * as THREE from "three";
 import { composeEffects, QUALITY_BUDGET } from "../fx/compose.js";
 import { REGISTRY } from "../fx/index.js";
+import type { Layout } from "../ir/types.js";
 import type { FxContext, FxParams } from "../fx/types.js";
 import { type Animator, backgroundFor } from "./backgrounds.js";
 import { buildDiagram, type DiagramBuild } from "./builders.js";
-import { anchorFor, CULL_RADIUS } from "./camera.js";
+import { anchorFor, cullRadius } from "./camera.js";
 import { diagramMaterial, titleMaterial } from "./materials.js";
+import { projectRect } from "./measure.js";
 import { type PaletteColors, resolvePalette } from "./palette.js";
 import { applyProps, createPropMaterials, loadPropModels, type PropLayer, type PropMaterials } from "./props.js";
 import { createHud } from "./hud.js";
@@ -54,12 +56,43 @@ function effective(defaults: SlideConfig, slide: DeckSlide): SlideConfig {
   return { ...defaults, ...slide } as SlideConfig;
 }
 
+/**
+ * Where the composition puts each element. `split` reproduces the v1 numbers
+ * exactly, so an untouched deck renders byte-identically. A vertical `stacked`
+ * preset was tried and dropped: floor y=-2.6 to frame top ~4.0 is 6.6 units and
+ * title+disc+card need 7.7, so it needs a lower-third card variant first.
+ */
+interface LayoutSpec {
+  /** Title left edge; `centre` centres the text box instead. */
+  titleX: number | "centre";
+  titleY: number;
+  cardX: number;
+  cardY: number;
+  barX: number;
+  barY: number;
+  diagram: [number, number, number];
+}
+
+const LAYOUTS: Record<Layout, LayoutSpec> = {
+  split: { titleX: -5.2, titleY: 2.2, cardX: -2.4, cardY: -0.35, barX: -4.4, barY: 1.55, diagram: [2.9, 0.1, 0.9] },
+  // Mirrored: the title is right-ALIGNED, so its left edge depends on its width.
+  "split-reverse": { titleX: 5.2, titleY: 2.2, cardX: 2.4, cardY: -0.35, barX: 4.4, barY: 1.55, diagram: [-2.9, 0.1, 0.9] },
+};
+
+function layoutFor(cfg: SlideConfig): LayoutSpec {
+  return LAYOUTS[(cfg.layout as Layout) ?? "split"] ?? LAYOUTS.split;
+}
+
 function addTitle(g: THREE.Group, slide: DeckSlide, isTitle: boolean, font: Font, P: PaletteColors, cfg: SlideConfig, labels: LabelRef[]): void {
   const title = buildTitle(font, slide.title, isTitle ? 0.62 : 0.5, cfg.extrudeDepth ?? 0.18, titleMaterial(P, cfg));
   const bb = new THREE.Box3().setFromObject(title.group);
+  const L = layoutFor(cfg);
+  const width = bb.max.x - bb.min.x;
+  // `split-reverse` pins the title's RIGHT edge; every other preset its left.
+  const x = L.titleX === "centre" ? -width / 2 : L.titleX > 0 ? L.titleX - width : L.titleX;
   title.group.position.set(
-    isTitle ? -(bb.max.x - bb.min.x) / 2 : -5.2,
-    isTitle ? 1.5 + (title.lines - 1) * 0.85 : 2.2 + (title.lines - 1) * 0.68,
+    isTitle ? -width / 2 : x,
+    isTitle ? 1.5 + (title.lines - 1) * 0.85 : L.titleY + (title.lines - 1) * 0.68,
     0.2,
   );
   g.add(title.group);
@@ -98,17 +131,23 @@ function addBody(g: THREE.Group, slide: DeckSlide, isTitle: boolean, P: PaletteC
   txt.position.set(0, -(2.9 - slabH) / 2, 0.06);
   txt.renderOrder = 2;
   slab.add(txt);
-  slab.position.set(isTitle ? 0 : -2.4, isTitle ? (slabH < 2 ? -0.3 : -1.1) : -0.35, 0);
+  const L = layoutFor(cfg);
+  const nudge = cfg.cardOffset ?? {};
+  slab.position.set(
+    (isTitle ? 0 : L.cardX) + (nudge.x ?? 0),
+    (isTitle ? (slabH < 2 ? -0.3 : -1.1) : L.cardY) + (nudge.y ?? 0),
+    0,
+  );
   g.add(slab);
   const bar = new THREE.Mesh(new THREE.BoxGeometry(isTitle ? 3 : 1.6, 0.06, 0.06), diagramMaterial(P, "accent", cfg));
-  bar.position.set(isTitle ? 0 : -4.4, isTitle ? 0.55 : 1.55, 0.25);
+  bar.position.set(isTitle ? 0 : L.barX, isTitle ? 0.55 : L.barY, 0.25);
   g.add(bar);
 }
 
 function addDiagram(g: THREE.Group, slide: DeckSlide, font: Font, P: PaletteColors, cfg: SlideConfig, labels: LabelRef[]): DiagramBuild | null {
   if (slide.diagram.kind === "none") return null;
   const holder = new THREE.Group();
-  holder.position.set(2.9, 0.1, 0.9);
+  holder.position.set(...layoutFor(cfg).diagram);
   const diagram = buildDiagram(slide, P, cfg, font);
   holder.add(diagram.g);
   const disc = new THREE.Mesh(
@@ -202,7 +241,7 @@ function buildSlideGroup(
   const cfg = patch ? { ...effective(deck.defaults, slide), ...patch } : effective(deck.defaults, slide);
   const P = resolvePalette(cfg);
   const g = new THREE.Group();
-  const anchor = anchorFor(index, cfg.camera?.distance);
+  const anchor = anchorFor(index, cfg.camera?.distance, cfg.spacing, cfg.rail, deck.slides.length);
   g.position.copy(anchor.pos);
   g.rotation.y = anchor.rotY;
   const labels: LabelRef[] = [];
@@ -232,36 +271,6 @@ function buildSlideGroup(
     ...(warning ? { warning } : {}),
   };
   return { group: g, anchor, diagram, background, props, labels, nodes, cfg, palette: P, skipped, budget, localFx };
-}
-
-function projectRect(
-  object: THREE.Object3D,
-  camera: THREE.PerspectiveCamera,
-  width: number,
-  height: number,
-): { x: number; y: number; w: number; h: number } | null {
-  const box = new THREE.Box3().setFromObject(object);
-  if (box.isEmpty()) return null;
-  const v = new THREE.Vector3();
-  let minX = Number.POSITIVE_INFINITY;
-  let minY = Number.POSITIVE_INFINITY;
-  let maxX = Number.NEGATIVE_INFINITY;
-  let maxY = Number.NEGATIVE_INFINITY;
-  for (const x of [box.min.x, box.max.x]) {
-    for (const y of [box.min.y, box.max.y]) {
-      for (const z of [box.min.z, box.max.z]) {
-        v.set(x, y, z).project(camera);
-        const px = (v.x * 0.5 + 0.5) * width;
-        const py = (-v.y * 0.5 + 0.5) * height;
-        minX = Math.min(minX, px);
-        minY = Math.min(minY, py);
-        maxX = Math.max(maxX, px);
-        maxY = Math.max(maxY, py);
-      }
-    }
-  }
-  if (![minX, minY, maxX, maxY].every(Number.isFinite)) return null;
-  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 }
 
 async function boot(): Promise<void> {
@@ -378,10 +387,25 @@ async function boot(): Promise<void> {
     rig.applyLook(builds[target].palette, builds[target].cfg, qualityProfile(builds[target].cfg.quality));
   }
 
+  // Live rail state: the configurator may move every anchor, and `window.__DECK`
+  // must stay the record of what was RENDERED, so the state lives here.
+  const railState = { spacing: deck.defaults.spacing, rail: deck.defaults.rail };
+
+  /** Re-place every slide group when the rail topology or spacing changes. */
+  function reanchorAll(): void {
+    builds.forEach((build, i) => {
+      const anchor = anchorFor(i, build.cfg.camera?.distance, railState.spacing, railState.rail, deck.slides.length);
+      build.anchor = anchor;
+      build.group.position.copy(anchor.pos);
+      build.group.rotation.y = anchor.rotY;
+    });
+    snapTo(cur);
+  }
+
   function cullNeighbours(): void {
     const cp = rig.camera.position;
     rig.world.children.forEach((g) => {
-      g.visible = g.position.distanceTo(cp) < CULL_RADIUS;
+      g.visible = g.position.distanceTo(cp) < cullRadius(railState.spacing, railState.rail);
     });
   }
 
@@ -520,9 +544,25 @@ async function boot(): Promise<void> {
       // BAKED by `buildSlideGroup`. Re-running `applyLook` alone reaches only
       // the lights, so the slide is rebuilt from the patched config — measured
       // at ~10-21 ms for the heaviest real slide, i.e. about one frame.
-      const slide = deck.slides[cur];
+      const { scene, diagram: diagramPatch, ...cfgPatch } = patch;
+      // `scene` and `diagram.*` are properties of the SLIDE, not of the config,
+      // so they are layered onto a copy — `window.__DECK` is never touched.
+      const base = deck.slides[cur];
+      const slide = (scene !== undefined || diagramPatch
+        ? { ...base, ...(scene === undefined ? {} : { scene }), ...(diagramPatch ? { diagram: { ...base.diagram, ...diagramPatch } } : {}) }
+        : base) as DeckSlide;
       const previous = builds[cur];
-      const cfg = { ...previous.cfg, ...patch } as SlideConfig;
+      const cfg = { ...previous.cfg, ...cfgPatch } as SlideConfig;
+
+      // The rail moves EVERY anchor, so it is applied deck-wide before the
+      // current slide is rebuilt at its new place.
+      if (cfgPatch.rail !== undefined || cfgPatch.spacing !== undefined) {
+        railState.rail = cfgPatch.rail ?? railState.rail;
+        railState.spacing = cfgPatch.spacing ?? railState.spacing;
+        reanchorAll();
+      }
+      cfg.rail = railState.rail;
+      cfg.spacing = railState.spacing;
 
       disposeLocalFx(cur);
       rig.world.remove(previous.group);
@@ -648,6 +688,8 @@ async function boot(): Promise<void> {
         return count;
       },
       liftedMessage: () => builds[cur].diagram?.lifted?.() ?? null,
+      anchors: () =>
+        builds.map((b) => ({ pos: [b.group.position.x, b.group.position.y, b.group.position.z] as [number, number, number], rotY: b.group.rotation.y })),
       /**
        * Scene-side look, read from the live objects rather than from the
        * config that was *meant* to produce them. Configurator tests assert

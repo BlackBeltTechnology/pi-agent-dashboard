@@ -70,6 +70,18 @@ export interface PropOverride {
   anim?: "none" | "float" | "orbit" | "spin";
 }
 
+/** Slide composition presets. `split` is the v1 look (title + card left, diagram right). */
+export type Layout = "split" | "split-reverse";
+
+/** Topology the slides are strung along (deck-level). `line` is the v1 rail. */
+export type Rail = "line" | "orbit" | "tunnel" | "helix" | "grid";
+
+/** World-unit nudge on the text card, applied after the layout preset places it. */
+export interface CardOffset {
+  x?: number;
+  y?: number;
+}
+
 export interface CameraKnobs {
   distance?: number;
 }
@@ -100,6 +112,11 @@ export interface Defaults extends CameraKnobs, LabelKnobs, CheckKnobs {
   quality?: Quality;
   extrudeDepth?: number;
   autoStyle?: boolean;
+  layout?: Layout;
+  /** Slide topology. Deck-level only. */
+  rail?: Rail;
+  /** World-unit gap between slide anchors. Deck-level only; also scales the cull radius. */
+  spacing?: number;
   camera?: CameraKnobs;
   labels?: LabelKnobs;
   check?: CheckKnobs;
@@ -166,6 +183,8 @@ export interface Slide {
   bullets: string[];
   scene: string;
   diagram: Diagram;
+  layout?: Layout;
+  cardOffset?: CardOffset;
   camera?: CameraKnobs;
   labels?: LabelKnobs;
   check?: CheckKnobs;
@@ -190,6 +209,8 @@ export interface SlideOverride {
   scene?: string;
   backgroundIntensity?: number;
   diagram?: { kind?: BuiltDiagramKind; data?: DiagramData; scale?: number; offset?: { x?: number; y?: number } };
+  layout?: Layout;
+  cardOffset?: CardOffset;
   camera?: CameraKnobs;
   labels?: LabelKnobs;
   check?: CheckKnobs;

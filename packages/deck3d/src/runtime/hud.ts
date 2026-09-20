@@ -6,7 +6,7 @@
  * embedded IR stays the record of what was rendered, and the panel's state
  * lives in memory plus `localStorage["deck3d:" + derivedHash]`.
  */
-import type { Defaults, EffectRef, Mode, Palette, Quality } from "../ir/types.js";
+import type { BuiltDiagramKind, CardOffset, Defaults, EffectRef, Layout, Material, Mode, Palette, Quality, Rail } from "../ir/types.js";
 
 export interface HudSlide {
   id: string;
@@ -33,9 +33,27 @@ export interface SlidePatch {
   mode?: Mode;
   palette?: Palette;
   quality?: Quality;
+  material?: Material;
   transition?: string;
   durationSec?: number;
   backgroundIntensity?: number;
+  bloom?: boolean;
+  rimLight?: boolean;
+  fog?: boolean;
+  mirrorFloor?: boolean;
+  softShadows?: boolean;
+  envReflections?: boolean;
+  depthRelief?: number;
+  extrudeDepth?: number;
+  colors?: { card?: string; accent?: string; secondary?: string };
+  layout?: Layout;
+  /** Deck-level: moves EVERY anchor, so the runtime re-anchors the whole rail. */
+  rail?: Rail;
+  spacing?: number;
+  cardOffset?: CardOffset;
+  /** Slide-level lane: layered onto a COPY of the slide, never onto `__DECK`. */
+  scene?: string;
+  diagram?: { kind?: BuiltDiagramKind; scale?: number; offset?: { x?: number; y?: number } };
   camera?: { distance?: number };
   labels?: { size?: number };
 }
@@ -47,15 +65,91 @@ export interface HudState {
   deck: Record<string, unknown>;
   slides: Record<string, Record<string, unknown>>;
   autoplaySec: number;
+  /** Block title → open. Persisted so the panel reopens where it was left. */
+  open: Record<string, boolean>;
 }
-
-const DECK_CONTROLS = ["mode", "palette", "quality", "transition", "durationSec", "backgroundIntensity"] as const;
-const SLIDE_CONTROLS = ["mode", "palette", "quality", "camera.distance", "labels.size", "backgroundIntensity"] as const;
 
 const PALETTES: Palette[] = ["blackbelt", "zenit", "dapp", "midnight", "ember", "arctic", "forest", "mono", "neon", "custom"];
 const MODES: Mode[] = ["dark", "light"];
 const QUALITIES: Quality[] = ["low", "medium", "high"];
+const MATERIALS: Material[] = ["glass", "metal", "matte"];
+const LAYOUTS: Layout[] = ["split", "split-reverse"];
+const RAILS: Rail[] = ["line", "orbit", "tunnel", "helix", "grid"];
+const DIAGRAM_KINDS: BuiltDiagramKind[] = ["none", "brain", "loop", "swarm", "bars", "funnel", "timeline-rail", "globe", "orbit-cluster", "stack"];
 const TRANSITIONS = ["dolly", "fade", "iris", "flythrough", "cut"];
+
+/** How one control is rendered. `enum` carries its own option list. */
+type ControlSpec =
+  | { path: string; kind: "enum"; options: readonly string[] }
+  | { path: string; kind: "number"; step?: string }
+  | { path: string; kind: "bool" }
+  | { path: string; kind: "colour" }
+  | { path: string; kind: "autoplay" }
+  | { path: string; kind: "effects" };
+
+interface Block {
+  title: string;
+  /** Which scope(s) the control belongs to; a block with none is omitted. */
+  deck: ControlSpec[];
+  slide: ControlSpec[];
+}
+
+const enumC = (path: string, options: readonly string[]): ControlSpec => ({ path, kind: "enum", options });
+const numC = (path: string, step?: string): ControlSpec => ({ path, kind: "number", step });
+const boolC = (path: string): ControlSpec => ({ path, kind: "bool" });
+const colourC = (path: string): ControlSpec => ({ path, kind: "colour" });
+
+const LOOK: ControlSpec[] = [
+  enumC("mode", MODES),
+  enumC("palette", PALETTES),
+  colourC("colors.card"),
+  colourC("colors.accent"),
+  colourC("colors.secondary"),
+  enumC("material", MATERIALS),
+];
+const LIGHTING: ControlSpec[] = [
+  boolC("bloom"),
+  boolC("rimLight"),
+  boolC("fog"),
+  boolC("mirrorFloor"),
+  boolC("softShadows"),
+  boolC("envReflections"),
+  numC("backgroundIntensity", "0.05"),
+];
+const CAMERA: ControlSpec[] = [numC("camera.distance"), numC("labels.size", "0.02"), numC("depthRelief"), numC("extrudeDepth", "0.02")];
+
+/**
+ * The panel's control plane. Order is the render order; a block whose list for
+ * the active scope is empty is not rendered at all, so deck scope never shows a
+ * `diagram.*` row and slide scope never shows `spacing`.
+ */
+const BLOCKS: Block[] = [
+  { title: "Look", deck: LOOK, slide: LOOK },
+  { title: "Lighting & FX", deck: LIGHTING, slide: LIGHTING },
+  { title: "Camera & labels", deck: CAMERA, slide: CAMERA },
+  {
+    title: "Layout",
+    // `rail`/`spacing` describe the rail the slides hang on — deck-wide by
+    // definition. `diagram.*`/`cardOffset` tune one slide's composition.
+    deck: [enumC("layout", LAYOUTS), enumC("rail", RAILS), numC("spacing", "5")],
+    slide: [
+      enumC("layout", LAYOUTS),
+      enumC("diagram.kind", DIAGRAM_KINDS),
+      numC("diagram.scale", "0.05"),
+      numC("diagram.offset.x"),
+      numC("diagram.offset.y"),
+      numC("cardOffset.x"),
+      numC("cardOffset.y"),
+    ],
+  },
+  {
+    title: "Motion",
+    deck: [enumC("transition", TRANSITIONS), numC("durationSec"), { path: "autoplay", kind: "autoplay" }],
+    slide: [enumC("transition", TRANSITIONS)],
+  },
+  { title: "Quality", deck: [enumC("quality", QUALITIES)], slide: [enumC("quality", QUALITIES)] },
+  { title: "Effects", deck: [{ path: "effects", kind: "effects" }], slide: [{ path: "effects", kind: "effects" }] },
+];
 
 export const AUTOPLAY_MIN = 1;
 export const AUTOPLAY_MAX = 600;
@@ -73,13 +167,23 @@ function storageKey(hash: string): string {
   return `deck3d:${hash}`;
 }
 
+/** Only the first block starts open; the rest are one click away. */
+function defaultOpen(): Record<string, boolean> {
+  return Object.fromEntries(BLOCKS.map((b, i) => [b.title, i === 0]));
+}
+
 function loadState(hash: string): HudState {
-  const empty: HudState = { deck: {}, slides: {}, autoplaySec: 0 };
+  const empty: HudState = { deck: {}, slides: {}, autoplaySec: 0, open: defaultOpen() };
   try {
     const raw = localStorage.getItem(storageKey(hash));
     if (!raw) return empty;
     const parsed = JSON.parse(raw) as Partial<HudState>;
-    return { deck: parsed.deck ?? {}, slides: parsed.slides ?? {}, autoplaySec: parsed.autoplaySec ?? 0 };
+    return {
+      deck: parsed.deck ?? {},
+      slides: parsed.slides ?? {},
+      autoplaySec: parsed.autoplaySec ?? 0,
+      open: { ...defaultOpen(), ...(parsed.open ?? {}) },
+    };
   } catch {
     return empty;
   }
@@ -149,7 +253,7 @@ export function createHud(host: HudHost): Hud {
   const gearEl = document.getElementById("deck3d-hud-toggle");
   if (!rootEl || !gearEl) {
     const noop = (): void => {};
-    return { toggle: noop, close: noop, isOpen: () => false, hasFocus: () => false, contains: () => false, refresh: noop, state: () => ({ deck: {}, slides: {}, autoplaySec: 0 }) };
+    return { toggle: noop, close: noop, isOpen: () => false, hasFocus: () => false, contains: () => false, refresh: noop, state: () => ({ deck: {}, slides: {}, autoplaySec: 0, open: {} }) };
   }
   const root = rootEl;
   const gear = gearEl;
@@ -187,12 +291,59 @@ export function createHud(host: HudHost): Hud {
     return scope === "deck" ? host.overridden.deck.has(path) : (host.overridden.slides[slideId]?.has(path) ?? false);
   }
 
-  function addRow(label: string, control: HTMLElement, marked: boolean): void {
+  function addRow(parent: HTMLElement, label: string, control: HTMLElement, marked: boolean): void {
     const row = el("label", { class: "deck3d-hud-row" });
     const name = el("span");
     name.textContent = marked ? `● ${label}` : label;
     row.append(name, control);
-    body.appendChild(row);
+    parent.appendChild(row);
+  }
+
+  function checkbox(path: string, slideId: string): HTMLInputElement {
+    const node = el("input", { type: "checkbox", "data-path": path });
+    // Every boolean knob in the IR defaults to ON when absent.
+    node.checked = (effectiveValue(state, scope, slideId, path, host.defaults) ?? true) !== false;
+    node.addEventListener("change", () => stage(path, node.checked));
+    return node;
+  }
+
+  function colour(path: string, slideId: string): HTMLInputElement {
+    const current = effectiveValue(state, scope, slideId, path, host.defaults);
+    const node = el("input", { type: "color", "data-path": path });
+    node.value = typeof current === "string" && /^#[0-9a-f]{6}$/i.test(current) ? current : "#000000";
+    // `colors` only takes effect under `palette: custom`; staging the colour
+    // without the palette would look like a dead control.
+    node.addEventListener("change", () => {
+      stage("palette", "custom");
+      stage(path, node.value);
+    });
+    return node;
+  }
+
+  /** One collapsible block; returns null when it has nothing for this scope. */
+  function renderBlock(block: Block, slideId: string): HTMLElement | null {
+    const controls = scope === "deck" ? block.deck : block.slide;
+    if (!controls.length) return null;
+    const details = el("details", { class: "deck3d-hud-block", "data-block": block.title });
+    if (state.open[block.title]) details.setAttribute("open", "");
+    const summary = el("summary");
+    summary.textContent = block.title;
+    details.appendChild(summary);
+    details.addEventListener("toggle", () => {
+      state.open[block.title] = details.hasAttribute("open");
+      persist();
+    });
+
+    for (const spec of controls) {
+      const marked = isOverridden(spec.path, slideId);
+      if (spec.kind === "enum") addRow(details, spec.path, select(spec.path, spec.options, slideId), marked);
+      else if (spec.kind === "number") addRow(details, spec.path, number(spec.path, slideId, spec.step ?? "0.1"), marked);
+      else if (spec.kind === "bool") addRow(details, spec.path, checkbox(spec.path, slideId), marked);
+      else if (spec.kind === "colour") addRow(details, spec.path, colour(spec.path, slideId), marked);
+      else if (spec.kind === "autoplay") addRow(details, "autoplay (s)", autoplayField(), false);
+      else details.appendChild(effectsChecklist(slideId));
+    }
+    return details;
   }
 
   function select(path: string, options: readonly string[], slideId: string): HTMLSelectElement {
@@ -322,18 +473,10 @@ export function createHud(host: HudHost): Hud {
     }
     body.appendChild(scopes);
 
-    const controls = scope === "deck" ? DECK_CONTROLS : SLIDE_CONTROLS;
-    for (const path of controls) {
-      const marked = isOverridden(path, slideId);
-      if (path === "mode") addRow(path, select(path, MODES, slideId), marked);
-      else if (path === "palette") addRow(path, select(path, PALETTES, slideId), marked);
-      else if (path === "quality") addRow(path, select(path, QUALITIES, slideId), marked);
-      else if (path === "transition") addRow(path, select(path, TRANSITIONS, slideId), marked);
-      else addRow(path, number(path, slideId), marked);
+    for (const block of BLOCKS) {
+      const node = renderBlock(block, slideId);
+      if (node) body.appendChild(node);
     }
-
-    if (scope === "deck") addRow("autoplay (s)", autoplayField(), false);
-    body.appendChild(effectsChecklist(slideId));
 
     const notice = el("div", { class: "deck3d-hud-note" });
     notice.textContent =

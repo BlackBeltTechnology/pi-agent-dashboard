@@ -151,6 +151,24 @@
           "default": true,
           "description": "Let parse pick a built diagram kind and a topic-matched background per slide. `false` restores the v1 fallback routing (no built kinds, `particles` background)."
         },
+        "layout": {
+          "type": "string",
+          "enum": ["split", "split-reverse"],
+          "default": "split",
+          "description": "Slide composition preset. `split` = title and card left, diagram right; `split-reverse` mirrors it."
+        },
+        "rail": {
+          "type": "string",
+          "enum": ["line", "orbit", "tunnel", "helix", "grid"],
+          "default": "line",
+          "description": "Topology the slides are strung along. `line` dollies along a straight rail; `orbit` rings them facing outward; `tunnel` recedes along -Z; `helix` is an ascending orbit; `grid` wraps into rows and columns. Deck-level only."
+        },
+        "spacing": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 40,
+          "description": "World-unit gap between consecutive slide anchors on the rail. Deck-level only; also scales the cull radius."
+        },
         "camera": {
           "type": "object",
           "description": "Default camera framing.",
@@ -238,6 +256,14 @@
         "diagram": {
           "$ref": "#/definitions/diagram"
         },
+        "layout": {
+          "type": "string",
+          "enum": ["split", "split-reverse"],
+          "description": "Composition preset for this slide. Falls back to `defaults.layout`."
+        },
+        "cardOffset": {
+          "$ref": "#/definitions/cardOffset"
+        },
         "camera": {
           "$ref": "#/definitions/camera"
         },
@@ -255,6 +281,15 @@
       }
     },
 
+    "cardOffset": {
+      "type": "object",
+      "description": "World-unit nudge applied to the text card AFTER the layout preset places it. Leaves the title, diagram and background where they are.",
+      "additionalProperties": false,
+      "properties": {
+        "x": { "type": "number", "description": "Horizontal nudge, positive = right." },
+        "y": { "type": "number", "description": "Vertical nudge, positive = up." }
+      }
+    },
     "camera": {
       "type": "object",
       "description": "Camera framing for this slide.",
@@ -593,6 +628,14 @@
                     }
                   }
                 }
+              },
+              "layout": {
+                "type": "string",
+                "enum": ["split", "split-reverse"],
+                "description": "Override the composition preset for this slide."
+              },
+              "cardOffset": {
+                "$ref": "#/definitions/cardOffset"
               },
               "camera": {
                 "type": "object",

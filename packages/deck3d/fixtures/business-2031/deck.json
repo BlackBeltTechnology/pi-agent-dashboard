@@ -2,7 +2,7 @@
   "meta": {
     "engine": "0.1.0",
     "mermaid": "11.17.2",
-    "source": "fixtures/business-2031/deck.md",
+    "source": "deck.md",
     "derivedHash": "b795b06921ec3f96106dac0f73947ff351e829dec826b4eec8aef61ee8a6e34e"
   },
   "defaults": {

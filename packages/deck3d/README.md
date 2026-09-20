@@ -96,6 +96,18 @@ Playbook: `.pi/skills/deck3d/SKILL.md`.
 - Built topologies (no mermaid needed): `brain loop swarm bars funnel
   timeline-rail globe orbit-cluster stack`, driven by `diagram.data`.
 
+## Placement
+
+- `defaults.rail` — how the slides are strung in space: `line` (straight dolly,
+  default), `orbit` (ring, each slide turned to face its camera), `tunnel`
+  (recedes along -Z), `helix` (ascending orbit), `grid` (rows + columns).
+  Deck-level; `defaults.spacing` (default 40) sets the gap and scales culling.
+- `layout` — composition within a slide: `split` (title + card left, diagram
+  right, default) or `split-reverse` (mirrored). Deck-wide or per slide.
+- `cardOffset: {x, y}` and `diagram.offset`/`diagram.scale` — per-slide nudges
+  applied after the preset places things.
+- All of it is live in the configurator (`C`) under the **Layout** block.
+
 ## Props
 
 - `deck3d props search <keywords>` — vendored CC0 corpus first, Poly Pizza second

@@ -39,6 +39,16 @@ async function open(browser: Browser, path: string, onRoute?: (page: Page) => Pr
   return { page, errors };
 }
 
+/**
+ * Controls live inside collapsible blocks and only the first starts open, so a
+ * test that drives a control must open its block the way a presenter would.
+ */
+async function openAllBlocks(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    for (const d of document.querySelectorAll("#deck3d-hud .deck3d-hud-block")) (d as HTMLDetailsElement).open = true;
+  });
+}
+
 describe.skipIf(!hasChromium)("runtime (chromium)", () => {
   it("boots, measures deterministically, and logs no console error", async () => {
     const browser = await chromium.launch({ channel: "chromium" });
@@ -320,6 +330,7 @@ describe.skipIf(!hasChromium)("configurator (chromium)", () => {
       await page.keyboard.press("c");
       const before = await page.evaluate(() => window.__DECK.defaults.palette);
 
+      await openAllBlocks(page);
       await page.selectOption('#deck3d-hud select[data-path="palette"]', "ember");
       await page.waitForTimeout(100);
 
@@ -342,6 +353,7 @@ describe.skipIf(!hasChromium)("configurator (chromium)", () => {
       await page.waitForFunction(() => window.__deck3d !== undefined, undefined, { timeout: 30_000 });
 
       await page.keyboard.press("c");
+      await openAllBlocks(page);
       await page.selectOption('#deck3d-hud select[data-path="quality"]', "low");
       await page.waitForTimeout(100);
 
@@ -394,6 +406,7 @@ describe.skipIf(!hasChromium)("configurator (chromium)", () => {
       await page.keyboard.press("c");
 
       const set = async (value: string) => {
+        await openAllBlocks(page);
         await page.fill("#deck3d-hud-autoplay", value);
         await page.dispatchEvent("#deck3d-hud-autoplay", "change");
         return page.inputValue("#deck3d-hud-autoplay");
@@ -416,6 +429,7 @@ describe.skipIf(!hasChromium)("configurator (chromium)", () => {
       const { page } = await open(browser, hudDeck("deck3d-e41-"));
       await page.keyboard.press("c");
       await page.click('#deck3d-hud button[data-scope="slide"]');
+      await openAllBlocks(page);
       await page.selectOption('#deck3d-hud select[data-path="mode"]', "light");
       await page.fill('#deck3d-hud input[data-path="camera.distance"]', "11");
       await page.dispatchEvent('#deck3d-hud input[data-path="camera.distance"]', "change");
@@ -449,4 +463,122 @@ describe.skipIf(!hasChromium)("configurator (chromium)", () => {
       await browser.close();
     }
   }, 240_000);
+});
+
+/**
+ * F14 (task 13.9) — configurator: collapsible blocks.
+ *
+ * The panel groups controls into `<details>` blocks. What matters to a user is
+ * that a block stays where they left it (across a scope switch, a slide change
+ * and a reload) and that a block never offers a control the active scope cannot
+ * express — `spacing` moves the whole rail, `diagram.*` only one slide.
+ */
+describe.skipIf(!hasChromium)("configurator blocks (chromium)", () => {
+  const blocks = (page: Page) =>
+    page.evaluate(() =>
+      [...document.querySelectorAll("#deck3d-hud .deck3d-hud-block")].map((d) => ({
+        title: (d as HTMLElement).dataset.block ?? "",
+        open: d.hasAttribute("open"),
+        paths: [...d.querySelectorAll("[data-path]")].map((c) => (c as HTMLElement).dataset.path ?? ""),
+      })),
+    );
+
+  const setScope = async (page: Page, scope: "deck" | "slide") => {
+    await page.evaluate((s) => (document.querySelector(`#deck3d-hud [data-scope="${s}"]`) as HTMLElement).click(), scope);
+  };
+
+  it("scopes the Layout block: rail/spacing deck-wide, diagram/cardOffset per slide", async () => {
+    const browser = await chromium.launch({ channel: "chromium" });
+    try {
+      const { page } = await open(browser, await writeDeck());
+      await page.keyboard.press("c");
+
+      const deckLayout = (await blocks(page)).find((b) => b.title === "Layout");
+      expect(deckLayout?.paths).toContain("rail");
+      expect(deckLayout?.paths).toContain("spacing");
+      expect(deckLayout?.paths.some((p) => p.startsWith("diagram."))).toBe(false);
+      expect(deckLayout?.paths.some((p) => p.startsWith("cardOffset."))).toBe(false);
+
+      await setScope(page, "slide");
+      const slideLayout = (await blocks(page)).find((b) => b.title === "Layout");
+      expect(slideLayout?.paths).toContain("diagram.kind");
+      expect(slideLayout?.paths).toContain("cardOffset.x");
+      expect(slideLayout?.paths).not.toContain("spacing");
+      expect(slideLayout?.paths).not.toContain("rail");
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("remembers each block's open state across scope, slide and reload", async () => {
+    const browser = await chromium.launch({ channel: "chromium" });
+    try {
+      const path = await writeDeck();
+      const { page } = await open(browser, path);
+      await page.keyboard.press("c");
+      // Default: only the first block is open.
+      expect((await blocks(page)).map((b) => b.open)).toEqual([true, false, false, false, false, false, false]);
+
+      await page.evaluate(() => {
+        const open = (title: string, want: boolean) => {
+          const d = [...document.querySelectorAll("#deck3d-hud .deck3d-hud-block")].find(
+            (n) => (n as HTMLElement).dataset.block === title,
+          ) as HTMLDetailsElement;
+          d.open = want;
+        };
+        open("Layout", true);
+        open("Look", false);
+      });
+      // `toggle` is dispatched as a task, so the persist handler runs after the
+      // assignment returns — wait for the state to actually carry the change.
+      await page.waitForFunction(() => {
+        const key = Object.keys(localStorage).find((k) => k.startsWith("deck3d:"));
+        const open = key ? (JSON.parse(localStorage.getItem(key) as string).open ?? {}) : {};
+        return open.Layout === true && open.Look === false;
+      });
+
+      await setScope(page, "slide");
+      const afterScope = await blocks(page);
+      expect(afterScope.find((b) => b.title === "Layout")?.open).toBe(true);
+      expect(afterScope.find((b) => b.title === "Look")?.open).toBe(false);
+
+      await page.evaluate(() => window.__deck3d?.gotoSlide(2));
+      await page.evaluate(() => (document.querySelector("#deck3d-hud [data-scope=deck]") as HTMLElement).click());
+      const afterSlide = await blocks(page);
+      expect(afterSlide.find((b) => b.title === "Layout")?.open).toBe(true);
+
+      await page.reload();
+      await page.waitForFunction(() => window.__deck3d !== undefined, undefined, { timeout: 30_000 });
+      await page.keyboard.press("c");
+      const afterReload = await blocks(page);
+      expect(afterReload.find((b) => b.title === "Layout")?.open).toBe(true);
+      expect(afterReload.find((b) => b.title === "Look")?.open).toBe(false);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("applies a rail change to every slide without mutating the embedded IR", async () => {
+    const browser = await chromium.launch({ channel: "chromium" });
+    try {
+      const { page, errors } = await open(browser, await writeDeck());
+      await page.keyboard.press("c");
+      const before = await page.evaluate(() => window.__deck3d?.debug?.anchors?.() ?? []);
+
+      await page.evaluate(() => {
+        const sel = document.querySelector('#deck3d-hud [data-path="rail"]') as HTMLSelectElement;
+        sel.value = "orbit";
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+
+      const after = await page.evaluate(() => window.__deck3d?.debug?.anchors?.() ?? []);
+      expect(after.length).toBe(before.length);
+      // Slide 1 stays at the origin on every rail; the rest must have moved.
+      expect(after.slice(1).some((a, i) => a.rotY !== before[i + 1].rotY || a.pos[2] !== before[i + 1].pos[2])).toBe(true);
+      expect(await page.evaluate(() => window.__DECK.defaults.rail)).toBeUndefined();
+      expect(errors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  });
 });
