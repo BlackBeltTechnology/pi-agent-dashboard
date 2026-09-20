@@ -101,7 +101,10 @@ function serverTestFiles(dir: string, acc: string[] = []): string[] {
   return acc;
 }
 
-const SKIP_DIRS = new Set(["node_modules", ".git", "dist"]);
+// `.worktrees` holds full checkouts of THIS repo created by the ship-it flow;
+// descending re-reports every config under a `.worktrees/<name>/` prefix and
+// charges a local-only branch's `retry:` to the main tree.
+const SKIP_DIRS = new Set(["node_modules", ".git", "dist", ".worktrees"]);
 
 /** Every `vitest*.config.ts` in the tree. */
 function vitestConfigs(dir: string, acc: string[] = []): string[] {

@@ -602,11 +602,14 @@ describe("session-diff cache + event loop (7.1–7.7)", () => {
     // ~80 MB: the in-process parse must stall the loop well past the 100 ms
     // budget on a FAST CI runner too (a 40 MB fixture measured ~86 ms there).
     const bigText = "x".repeat(40_000);
-    const lines: string[] = [JSON.stringify({ type: "session", id: "big", cwd: "/tmp" })];
-    for (let i = 0; i < COUNT; i++) {
-      lines.push(JSON.stringify(assistant(1_000_000 + i, `step ${i}`, [editCall(`c${i}`, `f${i}.ts`, [{ oldText: "a", newText: bigText }])])));
-    }
-    writeFileSync(file, `${lines.join("\n")}\n`);
+    const writeBig = (target: string, count: number): void => {
+      const lines: string[] = [JSON.stringify({ type: "session", id: "big", cwd: "/tmp" })];
+      for (let i = 0; i < count; i++) {
+        lines.push(JSON.stringify(assistant(1_000_000 + i, `step ${i}`, [editCall(`c${i}`, `f${i}.ts`, [{ oldText: "a", newText: bigText }])])));
+      }
+      writeFileSync(target, `${lines.join("\n")}\n`);
+    };
+    writeBig(file, COUNT);
     const entries = loadSessionEntries(file);
     expect(entries.length).toBe(COUNT);
 
@@ -627,14 +630,34 @@ describe("session-diff cache + event loop (7.1–7.7)", () => {
     }
 
     // In-process sanity: the parse runs on the main thread → the loop stalls.
-    const inProc = await buildHarness({ session: { id: "s1", cwd: repo, status: "active", sessionFile: file }, store: createMemoryEventStore(() => false), pool: () => null, maxStringSize: 4000 });
-    try {
-      const { maxGap, diff } = await maxLoopGap(inProc, "s1");
-      expect(diff.data.files.length).toBeGreaterThan(0);
-      expect(maxGap).toBeGreaterThanOrEqual(100);
-    } finally {
-      await inProc.close();
+    // HOW BIG a transcript that takes is hardware-dependent — the 80 MB
+    // fixture stalls a CI runner ~150 ms but an M-series dev box only 66 ms,
+    // which failed this gate for hardware reasons alone. Grow the fixture
+    // until it crosses the floor rather than pin a size calibrated on one
+    // machine. CI still settles on the first attempt.
+    let stallGap = 0;
+    let stallCount = COUNT;
+    for (let attempt = 0; attempt < 3 && stallGap < 100; attempt++) {
+      // Attempt 0 reuses the fixture the pool half needs; later attempts get
+      // a scratch file, removed immediately so the doubling cannot fill /tmp.
+      const scaled = attempt === 0 ? file : join(dir, `big-stall-${attempt}.jsonl`);
+      if (attempt > 0) writeBig(scaled, stallCount);
+      const inProc = await buildHarness({ session: { id: "s1", cwd: repo, status: "active", sessionFile: scaled }, store: createMemoryEventStore(() => false), pool: () => null, maxStringSize: 4000 });
+      try {
+        const { maxGap, diff } = await maxLoopGap(inProc, "s1");
+        expect(diff.data.files.length).toBeGreaterThan(0);
+        stallGap = maxGap;
+      } finally {
+        await inProc.close();
+        if (attempt > 0) rmSync(scaled, { force: true });
+      }
+      stallCount *= 2;
     }
+    expect(
+      stallGap,
+      `the in-process parse never stalled ≥100ms (best ${stallGap.toFixed(1)}ms up to ${stallCount / 2} entries) — ` +
+        `the pool assertion below would be passing for free`,
+    ).toBeGreaterThanOrEqual(100);
 
     // Pool owns the parse (resolved off the measured window) → loop stays responsive.
     const precomputed = projectDiffEvents("s1", entries, { maxStringSize: 4000 });
@@ -658,7 +681,9 @@ describe("session-diff cache + event loop (7.1–7.7)", () => {
     } finally {
       await offThread.close();
     }
-  });
+    // Explicit budget: the stall probe may rebuild a doubled fixture on fast
+    // hardware, which does not fit the project's 30 s default.
+  }, 120_000);
 
   it("7.8 live→ended transition is not served from the live cache entry (CR-5)", async () => {
     const T = Date.now() - 10_000;

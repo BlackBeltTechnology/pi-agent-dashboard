@@ -150,10 +150,15 @@ describe("browser skill — shipped tarball", () => {
   // test-plan #E7 — packlist boundary: `files[]` ships the reference, the
   // `!**/*.AGENTS.md` negation keeps the sidecar out.
   it("packs references/challenge.md but not its AGENTS sidecar", () => {
+    // `npm pack --json` changed shape: npm <=11 emits an ARRAY of results,
+    // npm 12 emits an OBJECT keyed by package name. Indexing [0] silently
+    // yields undefined on the newer CLI, so accept both.
     const out = JSON.parse(
       execFileSync("npm", ["pack", "--dry-run", "--json"], { cwd: pkgDir, encoding: "utf8" }),
-    ) as Array<{ files: Array<{ path: string }> }>;
-    const files = out[0].files.map((f) => f.path);
+    ) as Array<{ files: Array<{ path: string }> }> | Record<string, { files: Array<{ path: string }> }>;
+    const [result] = Array.isArray(out) ? out : Object.values(out);
+    expect(result, `unexpected \`npm pack --json\` shape from npm ${process.env.npm_config_user_agent ?? "?"}`).toBeDefined();
+    const files = result.files.map((f) => f.path);
     expect(files).toContain(".pi/skills/browser/references/challenge.md");
     expect(files).not.toContain(".pi/skills/browser/references/challenge.md.AGENTS.md");
   });
