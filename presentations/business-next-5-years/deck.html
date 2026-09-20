@@ -53997,7 +53997,26 @@
     });
     root.addEventListener("click", (e) => e.stopPropagation());
     root.addEventListener("pointerup", (e) => e.stopPropagation());
+    function restoreToScene() {
+      const slideIds = host.slides.map((s) => s.id);
+      let staged = Object.keys(state.deck).length > 0;
+      for (const id of slideIds) {
+        const entry = state.slides[id];
+        if (entry && Object.keys(entry).length) staged = true;
+      }
+      if (!staged) return;
+      const seed = (slideId, bucket) => {
+        const params = bucket?.effectParams;
+        for (const [effectId, patch] of Object.entries(params ?? {})) host.seedEffectParams(slideId, effectId, patch);
+      };
+      for (const id of slideIds) {
+        seed(id, state.deck);
+        seed(id, state.slides[id]);
+      }
+      host.applyDeck((id) => ({ ...state.deck, ...state.slides[id] }));
+    }
     setOpen(false);
+    restoreToScene();
     restartAutoplay();
     return {
       toggle: () => setOpen(!open),
@@ -55848,6 +55867,13 @@
         return out;
       },
       /** Re-instantiate ONE effect of the current slide under edited params. */
+      // Restore path: stage params for ANY slide without rebuilding. `paramsFor`
+      // reads `fxParamEdits` at build time, so seeding then rebuilding restores
+      // every slide's tuning, not just the one on screen.
+      seedEffectParams: (slideId, id, patch) => {
+        const key = `${slideId}|${id}`;
+        fxParamEdits[key] = { ...fxParamEdits[key] ?? {}, ...patch };
+      },
       applyEffectParams: (id, patch) => {
         const slide = deck.slides[cur];
         const key = `${slide.id}|${id}`;

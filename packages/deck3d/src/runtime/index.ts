@@ -766,6 +766,13 @@ async function boot(): Promise<void> {
       return out;
     },
     /** Re-instantiate ONE effect of the current slide under edited params. */
+    // Restore path: stage params for ANY slide without rebuilding. `paramsFor`
+    // reads `fxParamEdits` at build time, so seeding then rebuilding restores
+    // every slide's tuning, not just the one on screen.
+    seedEffectParams: (slideId, id, patch) => {
+      const key = `${slideId}|${id}`;
+      fxParamEdits[key] = { ...(fxParamEdits[key] ?? {}), ...(patch as FxParams) };
+    },
     applyEffectParams: (id, patch) => {
       const slide = deck.slides[cur];
       const key = `${slide.id}|${id}`;

@@ -871,3 +871,44 @@ describe.skipIf(!hasChromium)("F24 the outgoing backdrop survives the fly (chrom
     }
   }, 120_000);
 });
+
+// #F25 — the configurator persisted its state to localStorage and restored it
+// into the CONTROLS on reload, but never replayed it into the scene: the panel
+// read "blackbelt" while the deck rendered its default palette.
+describe.skipIf(!hasChromium)("F25 configurator state survives a reload (chromium)", () => {
+  it("replays persisted edits into the scene, not just the panel", async () => {
+    const { dir } = makeLocalDeck({
+      markdown: "# Geo\n\n- one\n\n# Second\n\n- two\n",
+      slide: "geo",
+      effects: [{ name: "spinner" }],
+    });
+    expect(runCli(["render", "deck.json", "-o", "deck.html"], dir).status).toBe(0);
+
+    const browser = await chromium.launch({ channel: "chromium" });
+    const page = await browser.newPage({ viewport: { width: 900, height: 560 } });
+    try {
+      await page.goto(pathToFileURL(join(dir, "deck.html")).href);
+      await page.waitForFunction(() => window.__deck3d !== undefined, undefined, { timeout: 30_000 });
+      const booted = await page.evaluate(() => window.__deck3d!.debug.look().bg);
+
+      await page.keyboard.press("c");
+      await openAllBlocks(page);
+      await page.evaluate(() => {
+        const n = document.querySelector('#deck3d-hud [data-path="palette"]') as HTMLSelectElement;
+        n.value = "ember";
+        n.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await page.waitForTimeout(400);
+      const edited = await page.evaluate(() => window.__deck3d!.debug.look().bg);
+      expect(edited).not.toBe(booted);
+
+      await page.reload();
+      await page.waitForFunction(() => window.__deck3d !== undefined, undefined, { timeout: 30_000 });
+      await page.waitForTimeout(600);
+      // The scene must come back as it was left, not at the deck default.
+      expect(await page.evaluate(() => window.__deck3d!.debug.look().bg)).toBe(edited);
+    } finally {
+      await browser.close();
+    }
+  }, 120_000);
+});

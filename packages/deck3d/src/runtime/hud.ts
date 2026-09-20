@@ -33,6 +33,8 @@ export interface HudHost {
   effectParams: () => Array<{ id: string; schema: Record<string, unknown>; values: Record<string, unknown> }>;
   /** Rebuild one effect of the current slide under edited params. */
   applyEffectParams: (id: string, patch: Record<string, unknown>) => void;
+  /** Stage params for any slide WITHOUT rebuilding — used to restore on boot. */
+  seedEffectParams: (slideId: string, id: string, patch: Record<string, unknown>) => void;
 }
 
 export interface SlidePatch {
@@ -576,7 +578,7 @@ export function createHud(host: HudHost): Hud {
 
     const notice = el("div", { class: "deck3d-hud-note" });
     notice.textContent =
-      "Export writes overrides.json. Markdown inline overrides win over this file, and an exported effects list pins that scope's effects.";
+      "Tuning here is remembered in this browser only. Export writes overrides.json; make it permanent with `deck3d overrides apply deck.json overrides.json`, then rebuild. Markdown inline overrides win over this file, and an exported effects list pins that scope's effects.";
     body.appendChild(notice);
 
     const exportButton = el("button", { type: "button", id: "deck3d-hud-export" });
@@ -598,7 +600,35 @@ export function createHud(host: HudHost): Hud {
   root.addEventListener("click", (e) => e.stopPropagation());
   root.addEventListener("pointerup", (e) => e.stopPropagation());
 
+  /**
+   * Persisted state was restored into the CONTROLS only, so a reload showed the
+   * panel reading e.g. "blackbelt" over a scene rendering the deck default.
+   * Replay it into the scene too, once, at boot.
+   */
+  function restoreToScene(): void {
+    const slideIds = host.slides.map((s) => s.id);
+    let staged = Object.keys(state.deck).length > 0;
+    for (const id of slideIds) {
+      const entry = state.slides[id] as Record<string, unknown> | undefined;
+      if (entry && Object.keys(entry).length) staged = true;
+    }
+    if (!staged) return;
+
+    // Seed effect params first: `applyDeck` rebuilds slides, and the factories
+    // read the staged params during that rebuild.
+    const seed = (slideId: string, bucket: Record<string, unknown> | undefined): void => {
+      const params = bucket?.effectParams as Record<string, Record<string, unknown>> | undefined;
+      for (const [effectId, patch] of Object.entries(params ?? {})) host.seedEffectParams(slideId, effectId, patch);
+    };
+    for (const id of slideIds) {
+      seed(id, state.deck as Record<string, unknown>);
+      seed(id, state.slides[id] as Record<string, unknown> | undefined);
+    }
+    host.applyDeck((id) => ({ ...(state.deck as SlidePatch), ...(state.slides[id] as SlidePatch | undefined) }));
+  }
+
   setOpen(false);
+  restoreToScene();
   restartAutoplay();
 
   return {
