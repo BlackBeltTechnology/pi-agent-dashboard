@@ -6,11 +6,13 @@
  *
  * The test uses a valid proxy API key on both ports.
  */
-import { describe, it, expect, afterAll } from "vitest";
-import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
-import { writeFileSync } from "node:fs";
+
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import net from "node:net";
+import { homedir, networkInterfaces } from "node:os";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { afterAll, describe, expect, it } from "vitest";
+import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
 
 let handle: TestServerHandle;
 
@@ -113,4 +115,81 @@ describe("model proxy second port (task 9.3)", () => {
       expect(secondBody.code).toBe(mainBody.code);
     }
   });
+});
+
+// ── Second port stays loopback-only (S16) ────────────────────────────────────
+// The second instance runs ONLY the proxy gate — no universal network guard, no
+// `isAuthenticated` decoration, no network check — so its loopback bind IS its
+// security boundary. The regression this guards: someone switching the bind to
+// `config.host`. Started here with `host: "0.0.0.0"` so the main port really is
+// exposed, which makes the second port's refusal meaningful rather than vacuous.
+//
+// See change: add-universal-network-guard.
+describe("second port is loopback-only even when the main server binds all interfaces", () => {
+  /** Resolves true only if a TCP connection to host:port succeeds. */
+  function canConnect(host: string, port: number, timeoutMs = 2000): Promise<boolean> {
+    return new Promise((resolve) => {
+      const socket = net.createConnection({ host, port });
+      const done = (ok: boolean) => {
+        socket.destroy();
+        resolve(ok);
+      };
+      socket.setTimeout(timeoutMs);
+      socket.once("connect", () => done(true));
+      socket.once("timeout", () => done(false));
+      socket.once("error", () => done(false));
+    });
+  }
+
+  it("serves the external interface on the main port but refuses it on the second port", async () => {
+    const external = Object.values(networkInterfaces())
+      .flat()
+      .find((i) => i && i.family === "IPv4" && !i.internal)?.address;
+    if (!external) {
+      console.warn("no non-loopback IPv4 address — skipping the external-interface half");
+      return;
+    }
+
+    const secondPort = await findFreePort();
+    const dashDir = join(homedir(), ".pi", "dashboard");
+    const configPath = join(dashDir, "config.json");
+    mkdirSync(dashDir, { recursive: true });
+    // Snapshot then RESTORE the config: `~/.pi/dashboard/config.json` is shared by
+    // every test file in this worker, so leaking `modelProxy.enabled` + a stale
+    // `secondPort` would change what later suites boot with. The restore runs in
+    // the `finally` below, and a file we created is removed again.
+    const hadConfig = existsSync(configPath);
+    const originalConfig = hadConfig ? readFileSync(configPath, "utf-8") : null;
+    let existing: any = {};
+    try {
+      existing = JSON.parse(originalConfig ?? "{}");
+    } catch { /* malformed — treat as empty; the restore below still runs */ }
+    writeFileSync(configPath, JSON.stringify({
+      ...existing,
+      modelProxy: {
+        ...(existing.modelProxy ?? {}),
+        enabled: true,
+        secondPort,
+        apiKeys: [],
+        maxConcurrentStreams: 16,
+        perKeyConcurrentStreams: 4,
+        logRequests: false,
+      },
+    }));
+
+    const h = await createTestServer({ host: "0.0.0.0" });
+    try {
+      // The main port IS reachable on the LAN address — proving the probe is valid.
+      expect(await canConnect(external, h.httpPort), "main port must be reachable on the external interface").toBe(true);
+      // The second port must NOT be, even though the main bind is `0.0.0.0`.
+      expect(await canConnect(external, secondPort), "second port must not answer on a non-loopback address").toBe(false);
+    } finally {
+      await h.stop();
+      // Restore the shared config exactly as found (or remove a file we created).
+      try {
+        if (originalConfig === null) rmSync(configPath, { force: true });
+        else writeFileSync(configPath, originalConfig);
+      } catch { /* best-effort: never mask the assertion failure above */ }
+    }
+  }, 60_000);
 });

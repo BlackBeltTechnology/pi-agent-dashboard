@@ -11,11 +11,23 @@
 import {
   type AdapterCallbacks,
   BaseAdapter,
+  type ChannelOverwrite,
   type InteractivePrompt,
   type InteractiveResponse,
   type PlatformConfig,
   type PlatformMessage,
+  type ProvisionChannelInput,
 } from "../base.js";
+
+/** One recorded provisioning call, for the call-sequence assertions. */
+export interface RecordedProvisionCall {
+  kind: "create-channel" | "set-overwrites" | "rename-channel";
+  at: number;
+  guildId?: string;
+  channelId?: string;
+  name?: string;
+  overwrites?: ChannelOverwrite[];
+}
 
 export class RecordingAdapter extends BaseAdapter {
   readonly platform = "recording";
@@ -27,6 +39,20 @@ export class RecordingAdapter extends BaseAdapter {
   typing: Array<{ channelId: string; isTyping: boolean }> = [];
   interactive: Array<{ channelId: string; prompt: InteractivePrompt; messageId: string }> = [];
   cleaned: string[] = [];
+
+  // ── Provisioning fixture (task 10i.1) ───────────────────────────────────
+
+  /** EVERY provisioning call in order, with a timestamp — the call sequence. */
+  provisionCalls: RecordedProvisionCall[] = [];
+  /** Set to reject provisioning (a platform that cannot set overwrites). */
+  failProvision: string | null = null;
+  /** Set to reject an overwrite update (a reconciliation failure). */
+  failOverwrites: string | null = null;
+  /** Delay applied to `setChannelOverwrites`, to test synchronous revocation. */
+  overwriteDelayMs = 0;
+  /** Resolved by test control to hold an overwrite update open. */
+  private releaseOverwrites: (() => void) | null = null;
+  private nowMs = 1_000;
 
   private seq = 0;
 
@@ -65,6 +91,64 @@ export class RecordingAdapter extends BaseAdapter {
     this.cleaned.push(messageId);
   }
 
+  // ── Provisioning ────────────────────────────────────────────────────────
+
+  async provisionChannel(
+    input: ProvisionChannelInput,
+  ): Promise<{ channelId: string }> {
+    if (this.failProvision) throw new Error(this.failProvision);
+    const channelId = `c${++this.seq}`;
+    this.provisionCalls.push({
+      kind: "create-channel",
+      at: (this.nowMs += 1),
+      guildId: input.guildId,
+      channelId,
+      name: input.name,
+      overwrites: input.overwrites.map((o) => ({ ...o })),
+    });
+    return { channelId };
+  }
+
+  async setChannelOverwrites(
+    channelId: string,
+    overwrites: ChannelOverwrite[],
+  ): Promise<void> {
+    if (this.overwriteDelayMs > 0) {
+      await new Promise<void>((resolve) => {
+        this.releaseOverwrites = resolve;
+        setTimeout(resolve, this.overwriteDelayMs);
+      });
+      this.releaseOverwrites = null;
+    }
+    if (this.failOverwrites) throw new Error(this.failOverwrites);
+    this.provisionCalls.push({
+      kind: "set-overwrites",
+      at: (this.nowMs += 1),
+      channelId,
+      overwrites: overwrites.map((o) => ({ ...o })),
+    });
+  }
+
+  async renameChannel(channelId: string, name: string): Promise<void> {
+    this.provisionCalls.push({
+      kind: "rename-channel",
+      at: (this.nowMs += 1),
+      channelId,
+      name,
+    });
+  }
+
+  /** Release a held overwrite update early (with `overwriteDelayMs` set). */
+  releaseHeldOverwrites(): void {
+    this.releaseOverwrites?.();
+    this.releaseOverwrites = null;
+  }
+
+  /** Only the provisioning calls of one kind — the create-then-patch assertion. */
+  provisionCallsOfKind(kind: RecordedProvisionCall["kind"]): RecordedProvisionCall[] {
+    return this.provisionCalls.filter((c) => c.kind === kind);
+  }
+
   // ── Test drivers ────────────────────────────────────────────────────────
 
   /** Drive `callbacks.onMessage` as if the platform delivered `msg`. */
@@ -85,6 +169,10 @@ export class RecordingAdapter extends BaseAdapter {
     this.typing = [];
     this.interactive = [];
     this.cleaned = [];
+    this.provisionCalls = [];
+    this.failProvision = null;
+    this.failOverwrites = null;
+    this.overwriteDelayMs = 0;
     this.seq = 0;
   }
 

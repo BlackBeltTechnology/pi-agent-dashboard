@@ -227,6 +227,11 @@ export function sessionFromMeta(
     // visibility). Recovery no longer reads `kind` — it reads the core-owned
     // `recover` flag below. See change: reopen-sessions-after-shutdown.
     kind: meta.kind,
+    // Restore the automation-run identity beside `kind`: the board filter keys
+    // on `automationRun.visibility`, so a lost identity makes a run the user
+    // opted to SHOW disappear after a restart (and a hidden one gain a card
+    // when re-projected). See change: fix-automation-identity-persistence.
+    automationRun: meta.automationRun,
     // Restore the core-owned recovery opt-out so cold-start recovery can
     // classify an interrupted session without re-reading the sidecar. Absent
     // ⇒ recoverable (default true). See change: detach-automation-goal-from-core.

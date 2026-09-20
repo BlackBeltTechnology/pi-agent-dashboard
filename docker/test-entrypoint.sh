@@ -213,7 +213,7 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
     node -e '
       const crypto = require("node:crypto");
       const fs = require("node:fs");
-      const [key, spawnStrategy, out, trusted, relayFake] = process.argv.slice(1);
+      const [key, spawnStrategy, out, trusted, relayFake, chatFake] = process.argv.slice(1);
       const hash = crypto.createHash("sha256").update(key).digest("hex");
       const networks = (trusted || "").split(",").map((s) => s.trim()).filter(Boolean);
       const cfg = {
@@ -242,9 +242,95 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
       // the config enables it BEFORE boot (the server entry seeds the fake at
       // activation). See docker/test-up.sh.
       if (relayFake === "1") cfg.plugins.browser = { enabled: true };
+      // Chat-gateway TEAM CONTROLS (change: add-chat-gateway-team-controls,
+      // task 10g). Seeded BEFORE boot for the same reason as the block above:
+      // pi-state is a RAM-backed tmpfs, and the plugin reads teamControls at
+      // ACTIVATION, so a config written through the API later cannot reach it.
+      //
+      // `PI_CHAT_GATEWAY_FAKE` ALSO selects the socket-less platform
+      // (packages/chat-gateway/src/adapters/fake.ts, env-guarded). The harness
+      // carries no Discord credential, so without it the plugin is inert and 5
+      // of the 7 L3 rows have nothing to render.
+      //
+      // `guildId` is REQUIRED for the delegation read. Without it the layer
+      // answers `unavailable` naming "a configured teamControls.guildId" —
+      // which is the OTHER branch of F2, so a spec asserting the
+      // missing-PERMISSION wording needs this set (PI_CHAT_GATEWAY_FAKE=nolist
+      // supplies that one).
+      //
+      // A BINDING is keyed by the DASHBOARD workspace id. That id is
+      // server-generated, so the seed cannot invent one at runtime — instead it
+      // pins a LITERAL id here and writes the matching workspace into
+      // preferences.json below. Both halves must agree or the row renders
+      // `team-binding-unbound-*`.
+      //
+      // `e2e_role_1` is mapped `control` so the roles section has something to
+      // resolve: the delegation read is driven by the roles a binding maps, so
+      // with no roles there is no row for F1/F2 to assert on.
+      //
+      // `mirrorLevel: names-only` is the level the D9 mirror rows assert.
+      if (chatFake) {
+        cfg.plugins["chat-gateway"] = {
+          enabled: true,
+          allowedRoots: ["/fixtures/sample-git"],
+          teamControls: {
+            guildId: "e2e_guild_1",
+            ceiling: "control",
+            auditRetention: 500,
+            bindings: {
+              ws_e2e: {
+                ceiling: "control",
+                mirrorLevel: "names-only",
+                principals: { e2e_invoker: "observe" },
+                roles: { e2e_role_1: "control" },
+              },
+            },
+          },
+        };
+      }
       fs.writeFileSync(out, JSON.stringify(cfg) + "\n");
-    ' "${E2E_PROXY_KEY}" "${PI_SPAWN_STRATEGY:-tmux}" "${PI_DIR}/dashboard/config.json" "${PI_E2E_TRUSTED_NETWORKS:-}" "${PI_BROWSER_RELAY_FAKE:-}"
+      if (chatFake) {
+        const dir = out.replace(/\/config\.json$/, "");
+        // The workspace the binding above points at. `folders` deliberately
+        // straddles allowedRoots: `/fixtures/sample-git` is inside, the second
+        // is outside and must render inert (F3). Minimal file is safe — the
+        // loader coalesces every absent key to its default.
+        fs.writeFileSync(
+          dir + "/preferences.json",
+          JSON.stringify({
+            workspaces: [
+              {
+                id: "ws_e2e",
+                name: "E2E Workspace",
+                collapsed: false,
+                folders: ["/fixtures/sample-git", "/tmp/inert-folder"],
+              },
+            ],
+          }) + "\n",
+        );
+        // Three entries in known order, so the log view can be asserted
+        // most-recent-first (F5). Distinct verbs keep the assertion readable.
+        fs.mkdirSync(dir + "/chat-gateway", { recursive: true });
+        fs.writeFileSync(
+          dir + "/chat-gateway/command-log.json",
+          JSON.stringify({
+            entries: [
+              { at: 1700000000000, principal: "e2e_invoker", channelId: "chan-1", verb: "list_sessions", outcome: "permitted" },
+              { at: 1700000001000, principal: "e2e_invoker", channelId: "chan-1", verb: "send_prompt", outcome: "refused", reason: "insufficient_tier" },
+              { at: 1700000002000, principal: "e2e_invoker", channelId: "chan-1", verb: "abort_run", outcome: "permitted" },
+            ],
+          }) + "\n",
+          { mode: 0o600 },
+        );
+      }
+    ' "${E2E_PROXY_KEY}" "${PI_SPAWN_STRATEGY:-tmux}" "${PI_DIR}/dashboard/config.json" "${PI_E2E_TRUSTED_NETWORKS:-}" "${PI_BROWSER_RELAY_FAKE:-}" "${PI_CHAT_GATEWAY_FAKE:-}"
     echo "[test-entrypoint] PI_E2E_SEED: seeded trustedNetworks (${PI_E2E_TRUSTED_NETWORKS:-0.0.0.0/0}) + defaultModel + modelProxy apiKey → config.json"
+  fi
+
+  # Workspace the chat-gateway binding points at, plus an inert folder outside
+  # allowedRoots. Gated on the chat-gateway faucet so no other spec sees it.
+  if [ -n "${PI_E2E_SEED:-}" ] && [ -n "${PI_CHAT_GATEWAY_FAKE:-}" ]; then
+    mkdir -p /tmp/inert-folder
   fi
 
   # --- Work-source inbox seed (schedule.batch fan-out e2e) ------------------

@@ -10,6 +10,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `asciidoc-preview.spec.ts` | L3 AsciiDoc preview styling (change: asciidoc-support, test-plan #F1–#F6). → see `asciidoc-preview.spec.ts.AGENTS.md` |
 | `diagram-preview.spec.ts` | L3 diagram preview (.puml and adoc hydration) in the editor pane (change: diagra… → see `diagram-preview.spec.ts.AGENTS.md` |
 | `automation-fanout.spec.ts` | L3 fan-out E2E (test-plan F5/F6). Creates an `actions:` fan-out automation via `… → see `automation-fanout.spec.ts.AGENTS.md` |
+| `automation-identity-restart.spec.ts` | L3: automation run identity survives a restart (#F1/#F2). → see `automation-identity-restart.spec.ts.AGENTS.md` |
 | `background-stream-selection.spec.ts` | #F11 — held selection survives a background session stream. → see `background-stream-selection.spec.ts.AGENTS.md` |
 | `copy-insecure-context.spec.ts` | L3 test-plan #X3 (change: fix-long-session-ux-degradation, D2). → see `copy-insecure-context.spec.ts.AGENTS.md` |
 | `drag-body-style.spec.ts` | #F23 — breakpoint flip unmounts dragger mid-drag; body cursor cleared, text selectable. → see `drag-body-style.spec.ts.AGENTS.md` |
@@ -18,7 +19,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `mobile-viewport-bound.spec.ts` | L3 mobile viewport bound (test-plan F12-F15, change: fix-long-session-ux-degradation §4, D4). → see `mobile-viewport-bound.spec.ts.AGENTS.md` |
 | `bind-reachability-advisory.spec.ts` | L3 for the bind-vs-trust advisory (test-plan F1–F19, X5, X6): visibility, draft… → see `bind-reachability-advisory.spec.ts.AGENTS.md` |
 | `blackhole-settings.spec.ts` | L3 spec (change: add-blackhole-plugin). Covers test-plan X3 + F1-F9 for… → see `blackhole-settings.spec.ts.AGENTS.md` |
-| `blackhole-session-pipeline.spec.ts` | L3 (add-blackhole-session-pipeline, F9;… → see `blackhole-session-pipeline.spec.ts.AGENTS.md` |
+| `blackhole-session-pipeline.spec.ts` | L3 blackhole session pipeline (add-blackhole-session-pipeline, F9). → see `blackhole-session-pipeline.spec.ts.AGENTS.md` |
 | `bridge-contention-health.spec.ts` | L3 contention health surface (test-plan #F6). → see `bridge-contention-health.spec.ts.AGENTS.md` |
 | `browser-relay.spec.ts` | L3 for the browser relay (change: add-browser-relay, test-plan F1–F5 + F10). Needs the… → see `browser-relay.spec.ts.AGENTS.md` |
 | `bus-client-goal-plugin-action.spec.ts` | L3/P1 `BusClient` host scripting (add-dashboard-bus-client-scripting). → see `bus-client-goal-plugin-action.spec.ts.AGENTS.md` |
@@ -95,6 +96,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `mermaid-colorize.spec.ts` | Playwright spec. Mermaid default-node colorization end-to-end via faux model. → see `mermaid-colorize.spec.ts.AGENTS.md` |
 | `model-proxy-oauth-filter.spec.ts` | Playwright spec (`request` fixture, no page). Model-proxy OAuth-incompatible filtering. → see `model-proxy-oauth-filter.spec.ts.AGENTS.md` |
 | `navigation.spec.ts` | Scenario 5.6 spec. Registers `page.on(pageerror)`. `gotoDashboard`, clicks `settings-btn`, asserts… → see `navigation.spec.ts.AGENTS.md` |
+| `network-guard.spec.ts` | L3 flagship refusal (test-plan #S20, change: add-universal-network-guard): auth OFF + untrusted peer ⇒ `GET… → see `network-guard.spec.ts.AGENTS.md` |
 | `notify-channel.spec.ts` | Playwright spec. Drives `[[faux:notify-probe]]` (→ `e2e_notify` fixture tool →… → see `notify-channel.spec.ts.AGENTS.md` |
 | `notify-min-level.spec.ts` | L3 spec (change: gate-notify-rows-by-level). Drives `[[faux:notify-levels]]` (four… → see `notify-min-level.spec.ts.AGENTS.md` |
 | `oauth-redirect-base.spec.ts` | L3 spec (change: config-override-oauth-redirect-base, review of PR #409). → see `oauth-redirect-base.spec.ts.AGENTS.md` |
@@ -102,9 +104,9 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `openspec-board-drop-contrast.spec.ts` | L3 fix-openspec-board-drop-targeting: contrast. → see `openspec-board-drop-contrast.spec.ts.AGENTS.md` |
 | `openspec-board-drop-indicator.spec.ts` | L3 fix-openspec-board-drop-targeting: indicator. → see `openspec-board-drop-indicator.spec.ts.AGENTS.md` |
 | `openspec-board-drop.spec.ts` | L3 spec (change: fix-openspec-board-drop-targeting). Drop resolution + commit:… → see `openspec-board-drop.spec.ts.AGENTS.md` |
-| `openspec-board-worktree-availability.spec.ts` | L3 fix-openspec-board-worktree-button-gating #F6. → see `openspec-board-worktree-availability.spec.ts.AGENTS.md` |
-| `openspec-connect-coverage.spec.ts` | L3 for F1/F2… → see `openspec-connect-coverage.spec.ts.AGENTS.md` |
-| `openspec-init-affordances-folder.spec.ts` | L3 FOLDER-SECTION slice of… → see `openspec-init-affordances-folder.spec.ts.AGENTS.md` |
+| `openspec-board-worktree-availability.spec.ts` | L3 spec (test-plan #F6, change: fix-openspec-board-worktree-button-gating). → see `openspec-board-worktree-availability.spec.ts.AGENTS.md` |
+| `openspec-connect-coverage.spec.ts` | L3 connect coverage, fix-connect-snapshot-frame-loss (F1/F2). → see `openspec-connect-coverage.spec.ts.AGENTS.md` |
+| `openspec-init-affordances-folder.spec.ts` | L3 folder-section slice (add-openspec-init-affordances). → see `openspec-init-affordances-folder.spec.ts.AGENTS.md` |
 | `openspec-locality-gate.spec.ts` | L3 spec (change: scope-openspec-auto-attach-to-session-cwd). → see `openspec-locality-gate.spec.ts.AGENTS.md` |
 | `optimistic-prompt.spec.ts` | Playwright E2E for optimistic-prompt-progress. Two faux round-trip tests. → see `optimistic-prompt.spec.ts.AGENTS.md` |
 | `out-of-cwd-session-diffs.spec.ts` | L3 spec (change: opt-in-out-of-cwd-session-diffs). Faux `tool-write-out-of-cwd` (writes… → see `out-of-cwd-session-diffs.spec.ts.AGENTS.md` |

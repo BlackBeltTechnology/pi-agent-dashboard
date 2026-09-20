@@ -86,6 +86,60 @@
     "guardExtension": {
       "type": "string",
       "description": "Installed identifier (package subpath, e.g. `@blackbelt-technology/pi-dashboard-chat-gateway-plugin/guard`, or an absolute path to the guard entry) of the companion L3 guard extension. Required for the guard to load into spawned sessions; never invented by the gateway. An id that does not resolve leaves the session UNGATED (pi treats a bad `-e` as non-fatal), so verify it."
+    },
+    "teamControls": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Team-controls layer (change: add-chat-gateway-team-controls). Absent => fail-closed defaults (ceiling observe, no bindings, retention 10000).",
+      "properties": {
+        "guildId": {
+          "type": "string",
+          "description": "Discord guild a workspace channel is provisioned in. Required for provisioning: a binding configured without it cannot produce a channel and is reported as a failure. The `@everyone` overwrite id is this guild's id."
+        },
+        "ceiling": {
+          "type": "string",
+          "enum": ["observe", "control", "operate"],
+          "default": "observe",
+          "description": "HARD maximum tier any principal may resolve to. Defaults to observe. A per-binding ceiling may only LOWER this, never raise it."
+        },
+        "disarmed": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, every action-bearing request is refused while mirroring continues. Only the dashboard re-arms."
+        },
+        "auditRetention": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 10000,
+          "description": "Command-log ring-buffer size in entries; oldest discarded first."
+        },
+        "bindings": {
+          "type": "object",
+          "description": "Per-binding policy keyed by workspace id.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "principals": {
+                "type": "object",
+                "additionalProperties": { "type": "string", "enum": ["observe", "control", "operate"] },
+                "description": "Discord snowflake -> tier."
+              },
+              "roles": {
+                "type": "object",
+                "additionalProperties": { "type": "string", "enum": ["observe", "control"] },
+                "description": "Discord role id -> tier. Roles cap at control; operate requires an explicit identifier."
+              },
+              "mirrorLevel": {
+                "type": "string",
+                "enum": ["names-only", "names-and-diffs", "full-transcript"],
+                "default": "names-only"
+              },
+              "ceiling": { "type": "string", "enum": ["observe", "control", "operate"], "description": "Ceiling for this binding. May only LOWER the global teamControls.ceiling; effective value is min(binding, global)." }
+            }
+          }
+        }
+      }
     }
   }
 }

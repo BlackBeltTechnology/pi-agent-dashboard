@@ -27,13 +27,12 @@ import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/to
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import compress from "@fastify/compress";
 import cors from "@fastify/cors";
-import fastifyStatic from "@fastify/static";
 import rateLimit from "@fastify/rate-limit";
+import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
 import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
 import { registerAuthPlugin, validateWsUpgrade } from "./auth/auth-plugin.js";
 import { registerBearerAuth } from "./auth/bearer-auth.js";
-import { createRouteTierGate } from "./auth/route-tier-gate.js";
 import {
   computeBindReachability,
   formatBindReachabilityWarning,
@@ -60,12 +59,14 @@ import { ensureServerIdentity } from "./auth/identity.js";
 import { ensureLocalToken, verifyLocalToken } from "./auth/local-token.js";
 import {
   createNetworkGuard,
+  createNetworkGuardHook,
   isBypassedHost,
   isGenuinelyLocal,
   isPluginScopePeerLocal,
 } from "./auth/localhost-guard.js";
 import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
 import { readAuthJson } from "./auth/provider-auth-storage.js";
+import { createRouteTierGate } from "./auth/route-tier-gate.js";
 import { mintSpawnToken } from "./auth/spawn-token.js";
 import {
   type CoreWsRouteScope,
@@ -110,7 +111,6 @@ import {
 import { createLiveServerManager } from "./live-server/live-server-manager.js";
 import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
 import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
-import { startServerHeapTelemetry } from "./server-heap-telemetry.js";
 import { createEventLoopSpikeMetrics } from "./metrics/eventloop-spike-metrics.js";
 import { createHydrationMetrics } from "./metrics/hydration-metrics.js";
 import { createModelProxyAuthGate } from "./model-proxy/auth-gate.js";
@@ -160,7 +160,7 @@ import { registerNodeRuntimeRoutes } from "./routes/node-runtime-routes.js";
 import { registerOpenSpecGroupRoutes } from "./routes/openspec-group-routes.js";
 import { registerOpenSpecRoutes } from "./routes/openspec-routes.js";
 import { registerPackageRoutes } from "./routes/package-routes.js";
-import { registerPairingRoutes } from "./routes/pairing-routes.js";
+import { PUBLIC_PAIRING_PREFIXES, registerPairingRoutes } from "./routes/pairing-routes.js";
 import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
 import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
 import { registerPiRetryRoutes } from "./routes/pi-retry-routes.js";
@@ -181,6 +181,7 @@ import {
   dispatchReload as dispatchReloadRaw,
   reloadTargetSessionIds,
 } from "./rpc-keeper/dispatch-reload.js";
+import { startServerHeapTelemetry } from "./server-heap-telemetry.js";
 import { createArchiveSweeper } from "./session/archive-sweeper.js";
 import { CustomEventGroupMatcher } from "./session/custom-event-group-matcher.js";
 import { CustomEventGroupResolver } from "./session/custom-event-group-resolver.js";
@@ -2038,6 +2039,37 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     }
   }
 
+  // ── Universal network guard (change: add-universal-network-guard) ────────
+  // Registered LAST and UNCONDITIONALLY, so `request.isAuthenticated` reflects
+  // every auth source when the guard evaluates. The full root `onRequest` chain
+  // this sits behind:
+  //   createHostGate (1429) → @fastify/cors (1430) → createMutationOriginGate
+  //   (1456) → registerBearerAuth (1471) → registerAuthPlugin (conditional,
+  //   1473) → createRouteTierGate (1488) → proxyAuthGate (conditional, above)
+  //   → THIS HOOK.
+  // "Last" is deliberately NOT anchored on the model-proxy gate above: with
+  // `modelProxy` disabled that hook does not exist, so anchoring there would
+  // silently drop the guard to second-to-last. (CSP is an `onSend` hook, so it
+  // is not part of the `onRequest` ordering.)
+  //
+  // Being registered after the routes still covers them: Fastify binds root
+  // hooks to routes at `preReady` (verified against fastify@5.12.1 — `addHook`
+  // defers through `this.after` and then recurses `_addHook` over `kChildren`),
+  // including the encapsulated child scopes plugin routes register into. It does
+  // NOT cover a route registered after `ready()`; plugin activation is
+  // restart-effective today, so a future hot-load feature would reopen this.
+  fastify.addHook(
+    "onRequest",
+    createNetworkGuardHook({
+      // Live thunk, never a boot snapshot: a CIDR added at runtime admits
+      // without a restart (D15). Mirrors the per-route guard at 1499.
+      trustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
+      localToken,
+      getBypassUrls: () => config.authConfig?.bypassUrls ?? [],
+      getPairingPrefixes: () => PUBLIC_PAIRING_PREFIXES,
+    }),
+  );
+
   // serve static files / SPA fallback.
   // Client-dir resolution — single strategy under change:
   // eliminate-electron-runtime-install. The legacy 5-strategy chain
@@ -2634,6 +2666,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   pluginShutdownSubs.delete(fn);
                 };
               },
+              // Workspace seam (add-chat-gateway-team-controls): read-only,
+              // store-anchored, over-fire tolerant. Not trust-gated. The
+              // accessor maps to `{id,name,folders}` and re-clones so the
+              // plugin can never mutate host state.
+              listWorkspaces: () =>
+                preferencesStore.getWorkspaces().map((w) => ({
+                  id: w.id,
+                  name: w.name,
+                  folders: [...w.folders],
+                })),
+              onWorkspacesChanged: (handler) => preferencesStore.onWorkspacesChanged(handler),
               // The host's network guard — the SAME instance core mounts on
               // its own route groups. Attaching a guard only tightens, so
               // this is NOT trust-gated. See change:
@@ -2943,6 +2986,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       console.log(`Pi gateway listening on port ${config.piPort}`);
 
       // ── Optional second port for model proxy (/v1/*) ──────────────
+      // INVARIANT (change: add-universal-network-guard): this instance runs ONLY
+      // `proxyAuthGate` — no universal guard, no `isAuthenticated` decoration,
+      // no network check. It is safe SOLELY because it binds hardcoded
+      // `127.0.0.1` below (safe-by-design, asserted by
+      // `__tests__/model-proxy-second-port.test.ts`). If that host is ever made
+      // configurable beyond loopback, the universal guard MUST be installed on
+      // this instance too (with the `isAuthenticated` decorator), or the /v1
+      // surface is exposed with no network policy at all.
       {
         const proxyCfg = loadConfig().modelProxy;
         if (proxyCfg.enabled && proxyCfg.secondPort) {
