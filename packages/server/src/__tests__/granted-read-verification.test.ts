@@ -23,6 +23,7 @@ import os from "node:os";
 import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { __resetPathDenials, listPathDenials } from "../access/access-denials.js";
 import { __resetAccessGrants, grantedSubjects, recordGrant } from "../access/access-grants.js";
 import { isAllowed, isGrantAdmitted } from "../lib/path-containment.js";
 import { registerFileRoutes } from "../routes/file-routes.js";
@@ -63,6 +64,7 @@ describe("grant-admitted byte serving is verified against the open handle (task 
     savedStore = process.env.PI_ACCESS_GRANTS_STORE;
     process.env.PI_ACCESS_GRANTS_STORE = path.join(cwd, "grants.json");
     __resetAccessGrants();
+    __resetPathDenials();
     recordGrant({ subject: granted, scope: "project", origin: "test" });
   });
 
@@ -200,10 +202,23 @@ describe("grant-admitted byte serving is verified against the open handle (task 
       // host cannot spawn, or when the origin is not loopback, so a bare status
       // assertion could pass for the wrong reason.
       expect(res.statusCode, url).toBe(403);
-      expect((res.json() as { error?: string }).error, url).toBe(
-        "path outside working directory",
-      );
+      const body = res.json() as {
+        error?: string;
+        denialId?: string;
+        subject?: string;
+        ancestors?: unknown;
+      };
+      expect(body.error, url).toBe("path outside working directory");
+      // A grant-ineligible site must not ORIGINATE a grant. These routes cannot
+      // be admitted by one, so offering a remedy would invite the operator to
+      // accept a grant that cannot remedy the refused operation — a remedy loop
+      // with no reachable fix (task 4.5 fresh round 1). No remedy fields, and
+      // nothing recorded in the denial registry.
+      expect(body.denialId, url).toBeUndefined();
+      expect(body.subject, url).toBeUndefined();
+      expect(body.ancestors, url).toBeUndefined();
     }
+    expect(listPathDenials()).toEqual([]);
     await app.close();
   });
 });

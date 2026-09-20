@@ -26,6 +26,7 @@ import {
 } from "../access/access-grants.js";
 import { isForbiddenGrantSubject } from "../access/forbidden-subjects.js";
 import { createMutationOriginGate } from "../auth/mutation-origin-gate.js";
+import { writeConfigPartial as realWriteConfigPartial } from "../config-api.js";
 import { registerAccessRoutes } from "../routes/access-routes.js";
 
 let app: FastifyInstance;
@@ -33,7 +34,9 @@ let tmp: string;
 let storePath: string;
 
 /** Minimal deps: a permissive guard, a real prefs double, a config double. */
-function makeApp(opts: { writeFails?: boolean; withOriginGate?: boolean } = {}): FastifyInstance {
+function makeApp(
+  opts: { writeFails?: boolean; withOriginGate?: boolean; realConfigWrite?: boolean } = {},
+): FastifyInstance {
   const pinned: string[] = [];
   const instance = Fastify({ logger: false });
   if (opts.withOriginGate) {
@@ -54,8 +57,10 @@ function makeApp(opts: { writeFails?: boolean; withOriginGate?: boolean } = {}):
         if (i >= 0) pinned.splice(i, 1);
       },
     } as never,
-    writeConfigPartial: () =>
-      opts.writeFails ? { success: false, error: "config write failed" } : { success: true },
+    writeConfigPartial: opts.realConfigWrite
+      ? realWriteConfigPartial
+      : () =>
+          opts.writeFails ? { success: false, error: "config write failed" } : { success: true },
   });
   return instance;
 }
@@ -452,6 +457,75 @@ describe("4.5 #5 — per-entry config revokes", () => {
       expect(res.json().success).toBe(true);
     });
   }
+});
+
+/**
+ * Task 4.5, fresh cycle round 1 (finding C). The sibling-preservation assertion
+ * above runs against a CLIENT-side double that implements `.filter()` itself, so
+ * it cannot catch a server bug — dropping `{ ...config.cors }` in the route, or
+ * losing unrelated top-level fields, would stay green. These tests seed a REAL
+ * config file and inject the REAL `writeConfigPartial`, so they exercise the
+ * production route end-to-end against the writer's actual merge semantics.
+ */
+describe("4.5 fresh round 1 (C) — sibling preservation against a SEEDED config", () => {
+  const configFile = (): string => path.join(os.homedir(), ".pi", "dashboard", "config.json");
+
+  async function seedConfig(cfg: Record<string, unknown>): Promise<void> {
+    await fsp.mkdir(path.dirname(configFile()), { recursive: true });
+    await fsp.writeFile(configFile(), JSON.stringify(cfg, null, 2), "utf8");
+  }
+  const readConfig = async (): Promise<Record<string, any>> =>
+    JSON.parse(await fsp.readFile(configFile(), "utf8"));
+
+  afterEach(async () => {
+    await fsp.rm(configFile(), { force: true });
+  });
+
+  it("trusted-network: removes ONE entry, keeps siblings AND unrelated top-level fields", async () => {
+    await seedConfig({ trustedNetworks: ["10.0.0.0/8", "192.168.1.0/24"], port: 8123 });
+    const real = makeApp({ realConfigWrite: true });
+    await real.ready();
+
+    const res = await real.inject({
+      method: "DELETE",
+      url: "/api/access/trusted-network",
+      payload: { network: "10.0.0.0/8" },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const cfg = await readConfig();
+    expect(cfg.trustedNetworks).toEqual(["192.168.1.0/24"]);
+    // `writeConfigPartial` merges into the RAW file, so an unrelated field must
+    // survive: a naive whole-file rewrite would drop it.
+    expect(cfg.port).toBe(8123);
+    await real.close();
+  });
+
+  it("cors-origin: removes ONE origin, keeps siblings and the rest of the cors key", async () => {
+    // A second key inside `cors` is what the spread actually protects:
+    // `writeConfigPartial` replaces the whole `cors` top-level key, so an
+    // implementation that passed `{ cors: { allowedOrigins } }` would silently
+    // DROP any sibling cors field.
+    await seedConfig({
+      cors: { allowedOrigins: ["https://a.example.com", "https://b.example.com"], maxAge: 42 },
+      piPort: 9999,
+    });
+    const real = makeApp({ realConfigWrite: true });
+    await real.ready();
+
+    const res = await real.inject({
+      method: "DELETE",
+      url: "/api/access/cors-origin",
+      payload: { origin: "https://b.example.com" },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const cfg = await readConfig();
+    expect(cfg.cors.allowedOrigins).toEqual(["https://a.example.com"]);
+    expect(cfg.cors.maxAge).toBe(42);
+    expect(cfg.piPort).toBe(9999);
+    await real.close();
+  });
 });
 
 describe("7b.0a grant-endpoint write failure is reported, never silent", () => {

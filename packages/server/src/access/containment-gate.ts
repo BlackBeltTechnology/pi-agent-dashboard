@@ -116,6 +116,18 @@ export async function evaluateContainment(
   }
   if (decision.allowed) return decision;
 
+  // A site that cannot be ADMITTED by a grant must not ORIGINATE one. Recording a
+  // denial here would return a `denialId` the operator could accept, minting a
+  // read grant that cannot remedy the refused operation — a remedy loop with no
+  // reachable fix, which is the one thing the denial registry (D15/D20) exists to
+  // prevent. So a grant-ineligible site refuses with exactly the plain error it
+  // returned before this change and records nothing: no remedy fields, therefore
+  // no `denialId`, therefore no grant. Callers tolerate the absent remedy —
+  // `denialBody` emits only the fields that are present. (Task 4.5, fresh cycle
+  // round 1: `allowGrant: false` previously blocked admission but still minted a
+  // remedy at `/api/open-in-system` and `/api/reveal-in-file-manager`.)
+  if (opts.allowGrant === false) return decision;
+
   // `subjectKind` decides what the remedy names — see `remedySubject`. The
   // default ("file") is right for the majority of sites (a refused file read);
   // directory-only and polymorphic sites must say so explicitly.

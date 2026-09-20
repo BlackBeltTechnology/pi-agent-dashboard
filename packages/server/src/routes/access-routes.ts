@@ -43,9 +43,11 @@ import {
   revokeGrant,
 } from "../access/access-grants.js";
 import { isUngrantableSubject } from "../access/forbidden-subjects.js";
+import { readRawConfig } from "../config-api.js";
 import { revokeTrust as revokeWorktreeTrust } from "../git-worktree/worktree-init-trust.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
 import { AGENT_DIR } from "../pi/pi-resource-activation.js";
+import { persistTrustDecision } from "../pi/resource-toggle-trust.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 /** pi's own project-trust store file. Read in place; never rewritten here. */
@@ -266,11 +268,15 @@ export function registerAccessRoutes(
         reply.code(400);
         return { success: false, error: "origin is required" } satisfies ApiResponse;
       }
-      const config = loadConfig();
-      const remaining = (config.cors?.allowedOrigins ?? []).filter((o) => o !== origin);
-      // `writeConfigPartial` replaces whole top-level keys, so pass the complete
-      // `cors` object rather than a partial one.
-      const result = writeConfigPartial({ cors: { ...config.cors, allowedOrigins: remaining } });
+      // Read the RAW `cors` object, NOT `loadConfig().cors`. `writeConfigPartial`
+      // replaces whole top-level keys, so rebuilding `cors` from the TYPED view
+      // would silently DROP any key the `CorsConfig` type does not model — a
+      // data-loss bug a seeded-config test caught here (task 4.5 fresh round 1).
+      const rawCors = (readRawConfig().cors ?? {}) as Record<string, unknown>;
+      const remaining = ((rawCors.allowedOrigins as string[] | undefined) ?? []).filter(
+        (o) => o !== origin,
+      );
+      const result = writeConfigPartial({ cors: { ...rawCors, allowedOrigins: remaining } });
       if (!result.success) {
         reply.code(500);
         return { success: false, error: result.error ?? "config write failed" } satisfies ApiResponse;
@@ -293,10 +299,13 @@ export function registerAccessRoutes(
         return { success: false, error: "subject is required" } satisfies ApiResponse;
       }
       try {
-        const { ProjectTrustStore } = await import("../pi/pi-resource-activation.js").then((m) =>
-          m.getPiCore(),
-        );
-        new ProjectTrustStore(AGENT_DIR).setMany([{ path: subject, decision: null }]);
+        // Through `persistTrustDecision`, NOT a direct
+        // `new ProjectTrustStore(AGENT_DIR).setMany(...)`: the spec
+        // (`access-settings-tab/spec.md`) mandates the repository wrapper, and it
+        // is the single place that knows `decision: null` DELETES the key rather
+        // than recording a standing refusal (design D13). Writing the store
+        // directly duplicated that knowledge and diverged from the wrapper.
+        await persistTrustDecision(AGENT_DIR, [{ path: subject, decision: null }]);
       } catch (err) {
         reply.code(500);
         return {

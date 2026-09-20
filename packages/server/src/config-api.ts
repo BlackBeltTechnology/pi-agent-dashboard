@@ -160,6 +160,22 @@ export function deleteAuthProvider(
 }
 
 /**
+ * The config file's RAW contents (unknown keys included), or `{}` when absent or
+ * unparseable. A read-modify-write route needs this: `loadConfig()` returns the
+ * TYPED view, so rebuilding a whole top-level key from it silently DROPS every
+ * key the type does not model — `writeConfigPartial` replaces top-level keys
+ * wholesale. Used by the per-entry CORS-origin revoke (task 4.5 fresh round 1).
+ */
+export function readRawConfig(): Record<string, any> {
+  const { file } = getConfigPaths();
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf-8")) as Record<string, any>;
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Merge partial config into existing, preserving redacted secrets, write to disk.
  * Returns whether a restart is needed.
  */
