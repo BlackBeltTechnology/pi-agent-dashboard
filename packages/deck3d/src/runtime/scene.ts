@@ -88,19 +88,21 @@ function renderLayered(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera
   camera.layers.set(BACKDROP_LAYER);
   renderer.render(scene, camera);
   renderer.clearDepth();
-  // A Color/Texture background force-clears on every render, which would wipe
-  // the backdrop just drawn; suppressing the clear flags makes it a no-op.
-  const c = renderer.autoClearColor;
-  const d = renderer.autoClearDepth;
-  const st = renderer.autoClearStencil;
-  renderer.autoClearColor = false;
-  renderer.autoClearDepth = false;
-  renderer.autoClearStencil = false;
+
+  // The content pass must not wipe the backdrop just drawn. Suppress it with
+  // `autoClear` (the single flag) and a null background, NOT the three
+  // `autoClearColor/Depth/Stencil` flags: `Reflector` clears its own render
+  // target only when `renderer.autoClear === false`, so zeroing the sub-flags
+  // instead leaves the mirror target uncleared and the reflection accumulates
+  // every past frame. A Color background would also force-clear regardless.
+  const autoClear = renderer.autoClear;
+  const background = scene.background;
+  renderer.autoClear = false;
+  scene.background = null;
   camera.layers.set(CONTENT_LAYER);
   renderer.render(scene, camera);
-  renderer.autoClearColor = c;
-  renderer.autoClearDepth = d;
-  renderer.autoClearStencil = st;
+  renderer.autoClear = autoClear;
+  scene.background = background;
   camera.layers.enableAll();
 }
 
@@ -245,6 +247,12 @@ function createParts(profile: QualityProfile): RigParts {
   scene.add(key, key.target, fill, rimLight, rimLight.target);
 
   const { floor, veil, mirror } = createFloor(profile);
+  // The floor is scenery, not content: on the content layer it would paint over
+  // every backdrop pixel below its horizon (the depth buffer is cleared between
+  // passes), clipping backgrounds along a hard horizontal line. In the backdrop
+  // pass it depth-tests against them normally. Slide content sits above it, so
+  // the content pass still draws on top.
+  markBackdrop(floor);
   scene.add(floor);
 
   return { renderer, scene, camera, composer, bloom, key, fill, rimLight, floor, veil, mirror, envMap };

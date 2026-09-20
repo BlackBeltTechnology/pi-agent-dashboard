@@ -422,6 +422,24 @@ async function boot(): Promise<void> {
     });
   }
 
+  const pq = new THREE.Quaternion();
+  /**
+   * Point every diagram label at the camera. `loop`, `globe`, `swarm` and
+   * `orbit-cluster` spin a group that CONTAINS its labels, so once the clock
+   * runs the captions turn edge-on and then away — invisible in every deck,
+   * and invisible to `check`, which measures frozen at t=0 where they happen
+   * to face front. Enforced here rather than per builder so a new topology
+   * cannot reintroduce it. Deterministic: the camera pose at a given `t` is.
+   */
+  function billboardLabels(): void {
+    for (const label of builds[cur].diagram?.labels ?? []) {
+      const o = label.object as THREE.Object3D;
+      if (!o.parent) continue;
+      o.parent.getWorldQuaternion(pq);
+      o.quaternion.copy(pq.invert()).multiply(rig.camera.quaternion);
+    }
+  }
+
   function renderAt(t: number): void {
     const slide = builds[cur];
     slide.diagram?.tick(t);
@@ -430,6 +448,7 @@ async function boot(): Promise<void> {
     for (const handle of slide.localFx) handle.tick(t);
     rig.updateFloor(camState.target);
     cullNeighbours();
+    billboardLabels();
     rig.render();
   }
 
@@ -470,6 +489,7 @@ async function boot(): Promise<void> {
     builds[cur].background?.tick(t * 0.7);
     builds[cur].props?.tick(t);
     for (const handle of builds[cur].localFx) handle.tick(t);
+    billboardLabels();
     rig.render();
     if (document.hidden) setTimeout(frame, 66);
     else requestAnimationFrame(frame);
@@ -713,6 +733,27 @@ async function boot(): Promise<void> {
       },
       liftedMessage: () => builds[cur].diagram?.lifted?.() ?? null,
       /**
+       * How squarely each diagram label faces the camera: 1 = head-on,
+       * 0 = edge-on, negative = facing away. `measure()` cannot answer this —
+       * its projection is rotation-invariant by design (rails rotate slides),
+       * so a caption spun edge-on still measures full width. That blindness is
+       * why spinning topologies shipped with unreadable captions.
+       */
+      labelFacing: () => {
+        // Billboards are screen-aligned (parallel to the view plane), so the
+        // metric is the label normal against the camera's own forward axis —
+        // NOT against the direction to the label, which undershoots off-axis.
+        const camForward = new THREE.Vector3();
+        rig.camera.getWorldDirection(camForward);
+        const q = new THREE.Quaternion();
+        const labelDir = new THREE.Vector3();
+        return (builds[cur].diagram?.labels ?? []).map((label) => {
+          const o = label.object as THREE.Object3D;
+          labelDir.set(0, 0, 1).applyQuaternion(o.getWorldQuaternion(q));
+          return -labelDir.dot(camForward);
+        });
+      },
+      /**
        * Backdrop objects whose subtree escaped onto the content layer. An
        * effect that `add()`s children during `tick` gets the default layer, and
        * those children CAN cover the text — the one hole the two-pass render
@@ -764,6 +805,11 @@ async function boot(): Promise<void> {
           rim: hex(rig.rimColor()),
           title: hex(titleColor),
           camZ: rig.camera.position.z,
+          // Full camera + its target: the rail runs on X, so `camZ` alone
+          // cannot tell a settled camera from one still travelling.
+          cam: rig.camera.position.toArray() as [number, number, number],
+          camTarget: camState.target.toArray() as [number, number, number],
+          anim: anim === null ? null : { mode: anim.mode, t: anim.t, dur: anim.dur },
         };
       },
     },

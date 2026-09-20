@@ -616,3 +616,58 @@ describe.skipIf(!hasChromium)("runtime clock (chromium)", () => {
     }
   });
 });
+
+/**
+ * #F16 — `globe`, `loop`, `swarm` and `orbit-cluster` spin a group that
+ * CONTAINS its captions. Before the engine billboarded labels, those captions
+ * turned edge-on as soon as the clock advanced and then faced away entirely:
+ * fully legible at t=0 (which is all `check` ever measures) and unreadable in
+ * the room. The rendered width of a spun label must survive time passing.
+ */
+describe.skipIf(!hasChromium)("F16 spun diagram labels keep facing the viewer (chromium)", () => {
+  const md = [
+    "---",
+    "title: Spin",
+    "---",
+    "",
+    "# Globe",
+    "",
+    "- EMEA",
+    "- AMER",
+    "- APAC",
+    "",
+  ].join("\n");
+
+  it("keeps caption width stable while the topology rotates", async () => {
+    const browser = await chromium.launch({ channel: "chromium" });
+    try {
+      const { ir } = await deriveDeckIR(parseMarkdown(md), { harvest: (src, id) => harvestDiagram(src, id) });
+      ir.slides[0].diagram = { kind: "globe", data: { labels: ["EMEA", "AMER", "APAC"] } };
+      const path = join(mkdtempSync(join(tmpdir(), "deck3d-f16-")), "deck.html");
+      writeFileSync(path, renderDeck(ir, { runtime: await ensureRuntime() }));
+      const { page } = await open(browser, path);
+
+      const facingAt = async (t: number): Promise<number[]> =>
+        (await page.evaluate((time) => {
+          window.__deck3d?.gotoSlide(1);
+          window.__deck3d?.setTime(time);
+          return window.__deck3d?.debug.labelFacing() ?? [];
+        }, t)) as number[];
+
+      const front = await facingAt(0);
+      expect(front.length).toBeGreaterThan(0);
+
+      // A quarter turn (globe spins at 0.18 rad/s) puts unbillboarded captions
+      // exactly edge-on; a half turn puts them backwards.
+      for (const t of [Math.PI / 2 / 0.18, Math.PI / 0.18]) {
+        for (const f of await facingAt(t)) expect(f).toBeGreaterThan(0.9);
+      }
+
+      // Same time ⇒ same pose: billboarding must not break determinism.
+      expect(await facingAt(0)).toEqual(front);
+      await page.close();
+    } finally {
+      await browser.close();
+    }
+  }, 180_000);
+});

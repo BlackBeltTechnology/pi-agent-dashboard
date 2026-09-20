@@ -32,7 +32,19 @@ export interface Deck3dApi {
   debug: {
     titleGlyphs: () => number;
     liftedMessage: () => string | null;
-    look: () => { bg: string; fog: string; rim: string; title: string; camZ: number };
+    look: () => {
+      bg: string;
+      fog: string;
+      rim: string;
+      title: string;
+      camZ: number;
+      /** Full camera position + target: the rail runs on X, so `camZ` alone cannot tell a settled camera from a travelling one. */
+      cam: [number, number, number];
+      camTarget: [number, number, number];
+      anim: { mode: string; t: number; dur: number } | null;
+    };
+    /** Per diagram label: 1 = faces the camera head-on, 0 = edge-on, negative = facing away. */
+    labelFacing: () => number[];
     /** Backdrop objects that leaked onto the content layer (checked by `check`). */
     backdropLeaks: () => string[];
     /** Fingerprint of the current slide's animated transforms. */

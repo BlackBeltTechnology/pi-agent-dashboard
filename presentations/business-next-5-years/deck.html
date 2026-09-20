@@ -54970,17 +54970,14 @@
     camera.layers.set(BACKDROP_LAYER);
     renderer.render(scene, camera);
     renderer.clearDepth();
-    const c = renderer.autoClearColor;
-    const d = renderer.autoClearDepth;
-    const st = renderer.autoClearStencil;
-    renderer.autoClearColor = false;
-    renderer.autoClearDepth = false;
-    renderer.autoClearStencil = false;
+    const autoClear = renderer.autoClear;
+    const background = scene.background;
+    renderer.autoClear = false;
+    scene.background = null;
     camera.layers.set(CONTENT_LAYER);
     renderer.render(scene, camera);
-    renderer.autoClearColor = c;
-    renderer.autoClearDepth = d;
-    renderer.autoClearStencil = st;
+    renderer.autoClear = autoClear;
+    scene.background = background;
     camera.layers.enableAll();
   }
   var BackdropRenderPass = class extends Pass {
@@ -55104,6 +55101,7 @@
     for (const l of [key, fill, rimLight]) l.layers.enable(BACKDROP_LAYER);
     scene.add(key, key.target, fill, rimLight, rimLight.target);
     const { floor, veil, mirror } = createFloor(profile);
+    markBackdrop(floor);
     scene.add(floor);
     return { renderer, scene, camera, composer, bloom, key, fill, rimLight, floor, veil, mirror, envMap };
   }
@@ -55255,9 +55253,10 @@
     }
     return null;
   }
-  function localEffectsFor(slide, P, profile, mode, g) {
+  function localEffectsFor(slide, P, profile, mode, g, index) {
     const registry = localFxRegistry();
     const out = [];
+    const ids = [];
     for (const ref of slide.effects ?? []) {
       if (!ref.id.startsWith("local:")) continue;
       const module = registry[ref.id.slice("local:".length)];
@@ -55269,14 +55268,17 @@
         localFxErrors
       );
       if (!handle) continue;
+      ids.push(ref.id);
       if (handle.object) {
         markBackdrop(handle.object);
         g.add(handle.object);
       }
       out.push(handle);
     }
+    localFxIds[index] = ids;
     return out;
   }
+  var localFxIds = [];
   var localFxErrors = [];
   function buildSlideGroup(deck, slide, index, font, models, propMaterials, patch) {
     const cfg = patch ? { ...effective(deck.defaults, slide), ...patch } : effective(deck.defaults, slide);
@@ -55300,7 +55302,7 @@
       markBackdrop(background.g);
       g.add(background.g);
     }
-    const localFx = localEffectsFor(slide, P, profile, mode, g);
+    const localFx = localEffectsFor(slide, P, profile, mode, g, index);
     const quality = cfg.quality ?? deck.defaults.quality ?? "high";
     const comp = composeEffects(slide.effects, mode, quality, slide.id, localCards());
     const skipped = comp.skipped.map((s) => `${s.id}: ${s.reason}`);
@@ -55413,6 +55415,15 @@
         g.visible = g.position.distanceTo(cp) < cullRadius(railState.spacing, railState.rail);
       });
     }
+    const pq = new Quaternion();
+    function billboardLabels() {
+      for (const label of builds[cur].diagram?.labels ?? []) {
+        const o = label.object;
+        if (!o.parent) continue;
+        o.parent.getWorldQuaternion(pq);
+        o.quaternion.copy(pq.invert()).multiply(rig.camera.quaternion);
+      }
+    }
     function renderAt(t) {
       const slide = builds[cur];
       slide.diagram?.tick(t);
@@ -55421,6 +55432,7 @@
       for (const handle of slide.localFx) handle.tick(t);
       rig.updateFloor(camState.target);
       cullNeighbours();
+      billboardLabels();
       rig.render();
     }
     function poseAt(t) {
@@ -55451,6 +55463,7 @@
       builds[cur].background?.tick(t * 0.7);
       builds[cur].props?.tick(t);
       for (const handle of builds[cur].localFx) handle.tick(t);
+      billboardLabels();
       rig.render();
       if (document.hidden) setTimeout(frame, 66);
       else requestAnimationFrame(frame);
@@ -55652,6 +55665,42 @@
           return count;
         },
         liftedMessage: () => builds[cur].diagram?.lifted?.() ?? null,
+        /**
+         * How squarely each diagram label faces the camera: 1 = head-on,
+         * 0 = edge-on, negative = facing away. `measure()` cannot answer this —
+         * its projection is rotation-invariant by design (rails rotate slides),
+         * so a caption spun edge-on still measures full width. That blindness is
+         * why spinning topologies shipped with unreadable captions.
+         */
+        labelFacing: () => {
+          const camForward = new Vector3();
+          rig.camera.getWorldDirection(camForward);
+          const q = new Quaternion();
+          const labelDir = new Vector3();
+          return (builds[cur].diagram?.labels ?? []).map((label) => {
+            const o = label.object;
+            labelDir.set(0, 0, 1).applyQuaternion(o.getWorldQuaternion(q));
+            return -labelDir.dot(camForward);
+          });
+        },
+        /**
+         * Backdrop objects whose subtree escaped onto the content layer. An
+         * effect that `add()`s children during `tick` gets the default layer, and
+         * those children CAN cover the text — the one hole the two-pass render
+         * cannot close by construction. `check` turns this into a finding.
+         */
+        backdropLeaks: () => {
+          const leaked = [];
+          const scan = (root, owner) => {
+            if (!root) return;
+            root.traverse((n) => {
+              if (!n.userData.backdrop && !leaked.includes(owner)) leaked.push(owner);
+            });
+          };
+          scan(builds[cur].background?.g, "scene-background");
+          for (const [i, h] of builds[cur].localFx.entries()) scan(h.object, localFxIds[cur]?.[i] ?? `local[${i}]`);
+          return leaked;
+        },
         /** Fingerprint of the current slide's animated transforms, for motion probes. */
         motion: () => {
           const parts = [];
@@ -55684,7 +55733,12 @@
             fog: hex(rig.scene.fog instanceof Fog ? rig.scene.fog.color : void 0),
             rim: hex(rig.rimColor()),
             title: hex(titleColor),
-            camZ: rig.camera.position.z
+            camZ: rig.camera.position.z,
+            // Full camera + its target: the rail runs on X, so `camZ` alone
+            // cannot tell a settled camera from one still travelling.
+            cam: rig.camera.position.toArray(),
+            camTarget: camState.target.toArray(),
+            anim: anim === null ? null : { mode: anim.mode, t: anim.t, dur: anim.dur }
           };
         }
       },
