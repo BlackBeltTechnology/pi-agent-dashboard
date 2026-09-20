@@ -75,7 +75,13 @@ all of:
 
 1. a **non-absent** `Origin` that is admitted (an absent `Origin` SHALL NOT
    qualify);
-2. a `Sec-Fetch-Site` value consistent with a page served by this server; and
+2. a `Sec-Fetch-Site` of `same-origin`, **or** `cross-site` when the `Origin` is
+   admitted by the **admission** origin rule (the variant that disables the
+   zrok wildcard, not the CORS-readability variant — defeat #3 turned on exactly
+   that difference). `same-site` and `none` SHALL NOT qualify. The `cross-site`
+   branch exists for the neutral `https://pi-dashboard.dev` shell, which is
+   cross-site by construction and would otherwise be permanently prompt-less;
+   and
 3. whatever credential tier the dashboard UI itself requires of that connection.
 
 A connection failing any of these SHALL still function normally for every other

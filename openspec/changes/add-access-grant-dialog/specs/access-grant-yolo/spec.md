@@ -369,7 +369,13 @@ exist:
    widen what a non-browser client may reach. It SHALL accept a root
    directory to scope the session, and SHALL treat an explicit unscoped value as
    the deliberate opt-out of scoping.
-2. An operator control in the dashboard, which SHALL require choosing a duration,
+2. An operator control in the dashboard, which SHALL require choosing a duration
+   from **15 minutes, 30 minutes, or 1 hour**. No unbounded or
+   "until I stop it" option SHALL be offered to an operator: a session an
+   operator can forget indefinitely is the failure mode the fixed timer exists
+   to prevent. (Environment activation remains the deliberate exception and
+   lasts the process lifetime, because a container has no operator to re-arm
+   it.) The control SHALL require choosing a duration,
    SHALL default its scope to the session's working directory, and SHALL
    auto-expire.
 

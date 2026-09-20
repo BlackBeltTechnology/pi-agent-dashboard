@@ -2,34 +2,25 @@
 
 Stage: apply   Generated: 2026-09-18
 
-## ⚠ Clarifications needed (5)
+## ✓ Clarifications resolved (6 of 6)
 
-- [ ] **C1** — Prompt-volume constants (design D9 open question) block every
-  threshold scenario (E20–E23, P2). Needed as numbers, not adjectives: the
-  per-subject backoff window, the per-plane prompt ceiling and its period, the
-  global concurrent-dialog cap, and the new per-channel share of registry
-  capacity. Candidates to choose between: (a) backoff 60s / plane 10 per min /
-  global 3 concurrent / per-channel 25% of capacity; (b) backoff 5 min / plane 3
-  per min / global 1 concurrent / per-channel 10%. Without values, "one requester
-  cannot exhaust the budget" has no boundary to test.
-- [ ] **C2** — Pending-entry TTL and registry capacity (design D4) are unnamed.
-  E10/E11/X6 need the exact expiry seconds and the exact entry ceiling to test
-  just-below / at / just-above.
-- [ ] **C3** — YOLO session durations. The mockup shows 15 min / 30 min / 1 hour /
-  until-stopped; the spec names none. E30–E32 need the shipped set and whether
-  "until I stop it" is unbounded or capped.
-- [x] **C4** — ~~Remembered-`deny` lifetime.~~ **RESOLVED:** durable across
-  restart, never self-expiring, cleared only by an explicit operator action on
-  the Access surface (`access-grant-yolo`; `design.md` Migration Plan).
-- [ ] **C5** — `Sec-Fetch-Site` accepted value set for capability issuance.
-  `same-origin` only, or also `same-site` / `none` (a top-level navigation sends
-  `none`)? E2/E3 partition on this, and getting it wrong either blocks the real
-  dashboard or admits a cross-site caller.
-- [ ] **C6** — Held-request suspension ceiling. `git-routes` restores
-  `socket.timeout` after `setTimeout(0)`, but no maximum hold is specified. P1 and
-  X2 need the cap and what the requester receives when it elapses.
+- [x] **C1** — Prompt-volume constants: backoff **120 s** per `(plane, subject)`,
+  **5** prompts per plane per minute, **2** concurrent dialogs globally,
+  per-channel share **20%** of capacity (12 of 64). Midpoint of the two
+  candidate sets (`design.md` D9).
+- [x] **C2** — Registry: TTL **120 s**, capacity **64** entries (`design.md` D4).
+- [x] **C3** — YOLO durations: **15 min / 30 min / 1 hour**. No operator-facing
+  until-stopped option; env activation still lasts the process lifetime.
+- [x] **C4** — Remembered refusals are **durable** across restart, never
+  self-expiring, cleared only by an explicit operator action on the Access
+  surface.
+- [x] **C5** — `Sec-Fetch-Site` accepted for issuance: `same-origin`, plus
+  `cross-site` when the `Origin` is admitted by the **admission** origin rule
+  (zrok wildcard disabled). `same-site` and `none` do not qualify.
+- [x] **C6** — Max hold = the registry TTL, **120 s**. On elapse the requester
+  receives the denial it would have received with no prompt at all.
 
-> Resolve before the blocked scenarios (marked below) can be authored.
+> No scenario remains blocked.
 
 ---
 
@@ -41,7 +32,7 @@ Stage: apply   Generated: 2026-09-18
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------|
 | E1 | eligibility · capability issued only to browser-shaped connections | decision-table | L1 | automated | WS upgrade with `Origin` absent, ticket valid | connection established | no capability issued; `grant_channel` frame never sent |
 | E2 | eligibility · issuance signals | decision-table | L1 | automated | upgrade with non-absent admitted `Origin` + `Sec-Fetch-Site: same-origin` + valid credential tier | connection established | capability issued exactly once |
-| E3 | eligibility · issuance signals | decision-table | L1 | automated | upgrade with admitted `Origin` but `Sec-Fetch-Site: cross-site` | connection established | [NEEDS CLARIFICATION: expected observable — depends on C5 accepted-value set] |
+| E3 | eligibility · issuance signals | decision-table | L1 | automated | upgrade with admitted `Origin` but `Sec-Fetch-Site: cross-site` | connection established | capability issued when the Origin is admitted by the admission rule (the `pi-dashboard.dev` shell); refused for `same-site` and `none` |
 | E4 | eligibility · issuance signals | decision-table | L1 | automated | upgrade with `Origin: ""` (empty, not absent) | connection established | refused by existing origin rule; no capability |
 | E5 | eligibility · held plane requires request-borne capability | decision-table | L1 | automated | filesystem denial, request carries no capability header | denial evaluated | not suspended; 403 returned; entry recorded as `degraded:ineligible` |
 | E6 | eligibility · held plane requires request-borne capability | BVA | L1 | automated | filesystem denial, capability header present but value off by one byte | denial evaluated | treated exactly as absent; no prompt |
@@ -49,7 +40,7 @@ Stage: apply   Generated: 2026-09-18
 | E8 | eligibility · deferred plane needs only a live operator channel | decision-table | L1 | automated | network-guard denial from `203.0.113.9`, zero operator channels connected | denial evaluated | no prompt raised; denial still recorded in ring buffer |
 | E9 | eligibility · deferred plane needs only a live operator channel | decision-table | L1 | automated | same denial, one operator channel connected | denial evaluated | prompt raised on that channel; request stays denied, never suspended |
 | E10 | registry · bounded and expiring | BVA | L1 | automated | registry filled to capacity−1 | one more pending entry | accepted | 
-| E11 | registry · bounded and expiring | BVA | L1 | automated | registry at capacity | one more denial | [NEEDS CLARIFICATION: input — exact capacity, C2] recorded without prompting; no eviction of a live entry |
+| E11 | registry · bounded and expiring | BVA | L1 | automated | registry at capacity (64 entries) | one more denial | recorded without prompting; no eviction of a live entry |
 | E12 | registry · settled at most once | state-transition | L1 | automated | one pending entry, two `grant_response` frames | second arrives 10ms after first | second is a no-op; verdict unchanged; no second store write |
 | E13 | registry · keyed by plane + normalised subject | equivalence | L1 | automated | two denials naming `/a/b` and `/a/b/` on the filesystem plane | both recorded | one entry, not two |
 | E14 | registry · keyed by plane + normalised subject | equivalence | L1 | automated | filesystem denial for `/a/b` and cwd denial for `/a/b` | both recorded | two distinct entries; settling one leaves the other pending |
@@ -58,7 +49,7 @@ Stage: apply   Generated: 2026-09-18
 | E17 | forbidden-subject · component-wise comparison | BVA | L1 | automated | granted subtree `/repo`, candidate `/repo-secrets/x` | containment evaluated | not contained — string-prefix must not match |
 | E18 | forbidden-subject · filesystem-canonical comparison | EP | L2 | automated | candidate `~/.SSH` on a case-insensitive volume | forbidden rule applied | refused |
 | E19 | forbidden-subject · sensitivity probed from volume | decision-table | L2 | automated | case-sensitive volume mounted on a case-insensitive host, candidate differing only in case | containment evaluated | treated as distinct; sensitivity read from the volume, not the platform |
-| E20 | registry · repeat prompting rate limited | BVA | L1 | automated | same subject denied N times | N at the per-subject backoff boundary | [NEEDS CLARIFICATION: trigger + observable — C1 constants] |
+| E20 | registry · repeat prompting rate limited | BVA | L1 | automated | same subject denied repeatedly | second denial at 119 s, then at 121 s, after a settled verdict | suppressed inside the 120 s backoff; prompts again after it |
 | E21 | registry · per-channel bound | BVA | L1 | automated | one capability emitting denials against distinct subjects up to its share | share boundary crossed | further denials from it recorded without prompting |
 | E22 | registry · per-channel bound isolates requesters | decision-table | L1 | automated | requester A at its per-channel bound, requester B idle | B's denial arrives | B still prompts; A still suppressed |
 | E23 | registry · starvation diagnosable | decision-table | L1 | automated | suppression caused by per-channel bound vs by global cap | each occurs | log/metric distinguishes the two reasons |
@@ -70,7 +61,7 @@ Stage: apply   Generated: 2026-09-18
 | E29 | ladder · subject is an exclusive boundary | BVA | L1 | automated | subject is the home directory | ladder computed | ladder empty; no rung offered |
 | E30 | YOLO · time-boxed | BVA | L1 | automated | session with chosen duration | clock advanced to duration−1s, then +1s | active, then inactive; next denial prompts or refuses as if never active |
 | E31 | YOLO · expiry not extended by use | BVA | L1 | automated | session with duration D, continuous auto-allows throughout | clock reaches D | session ends at the originally fixed time |
-| E32 | YOLO · duration set | EP | L3 | automated | activation UI | operator opens it | [NEEDS CLARIFICATION: input — shipped duration set, C3] |
+| E32 | YOLO · duration set | EP | L3 | automated | activation UI | operator opens it | exactly 15 min / 30 min / 1 hour offered; no until-stopped option; none pre-selected |
 | E33 | YOLO · scope is a set of roots | decision-table | L1 | automated | session with roots `/repo` and `/scratch` | denial for `/scratch/x` | auto-allowed |
 | E34 | YOLO · scope containment on real path | EP | L1 | automated | session scoped to `/repo`; path inside `/repo` only before symlink resolution | denial evaluated | not auto-allowed |
 | E35 | YOLO · adding a root does not extend expiry | BVA | L1 | automated | active session, 3 min remaining | root added | still ends at the original time |
@@ -101,8 +92,8 @@ Stage: apply   Generated: 2026-09-18
 
 | id | requirement | technique | level | disposition | workload | metric + threshold | window |
 |----|-------------|-----------|-------|-------------|----------|--------------------|--------|
-| P1 | registry · suspended request survives connection timeout | threshold | L1 | automated | one held request across the 10s Fastify `connectionTimeout` | request not terminated at 10s; socket timeout restored on finish | [NEEDS CLARIFICATION: window — max hold, C6] |
-| P2 | registry · prompt-volume controls | tail-latency | L2 | automated | 500 denials across 50 distinct subjects from one capability | p95 denial-path added latency | [NEEDS CLARIFICATION: threshold — C1] |
+| P1 | registry · suspended request survives connection timeout | threshold | L1 | automated | one held request across the 10s Fastify `connectionTimeout` | request not terminated at 10s; socket timeout restored on finish | 120 s max hold |
+| P2 | registry · prompt-volume controls | tail-latency | L2 | automated | 500 denials across 50 distinct subjects from one capability | p95 denial-path added latency < 5 ms; never more than 2 concurrent dialogs; channel suppressed past 12 entries | 500 denials |
 | P3 | ladder · computation cost on the denial path | tail-latency | L1 | automated | denial 12 levels deep, ladder computed per denial | p95 ladder computation < 5ms | 1000 iterations |
 | P4 | registry · no leak across settled entries | soak | L1 | automated | 10k prompt→settle cycles | RSS delta < 10MB; registry size returns to baseline | 10k cycles |
 
@@ -127,7 +118,7 @@ Stage: apply   Generated: 2026-09-18
 | id | requirement | technique | level | disposition | fault | trigger | expected observable |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------|
 | X1 | registry · released on abort | fault-injection (abort) | L1 | automated | client aborts a suspended request | abort mid-hold | entry released; socket timeout restored; no orphaned handle; nothing persisted |
-| X2 | registry · suspension ceiling | fault-injection (delay) | L1 | automated | operator never answers | hold exceeds its maximum | [NEEDS CLARIFICATION: observable — C6 cap and requester outcome] |
+| X2 | registry · suspension ceiling | fault-injection (delay) | L1 | automated | operator never answers | hold reaches 120 s | request receives the denial it would have received with no prompt; entry expires; socket timeout restored |
 | X3 | registry · resumed request re-runs the guard | fault-injection (race) | L1 | automated | subject replaced by a link to another location after the verdict | request released | guard re-runs and denies |
 | X4 | registry · revoke while pending | fault-injection (race) | L1 | automated | grant revoked between verdict and release | request released | re-run guard reflects the revocation |
 | X5 | eligibility · every degradation fails closed | fault-injection (abort) | L1 | automated | browser gateway unavailable when a prompt would be pushed | denial evaluated | denial stands; no allow; recorded as degraded |
@@ -147,7 +138,7 @@ Stage: apply   Generated: 2026-09-18
 - Scenarios by class: edge 57 · perf 4 · frontend 11 · error 12
 - Scenarios by level: L1 52 · L2 6 · L3 24 · manual-only 2
 - Scenarios by disposition: automated 82 · manual-only 2
-- Blocked on clarification: 6 rows (E3, E11, E20, E32, P1, P2, X2 minus E37/X10, now resolved by C4 and the enforce-precondition decision)
+- Blocked on clarification: 0 rows (C1-C6 all resolved)
 
 ## New infra needed
 

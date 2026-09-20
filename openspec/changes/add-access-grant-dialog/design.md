@@ -123,8 +123,11 @@ from YOLO"*) was exactly backwards: such a process gained automatic filesystem
 allow.
 
 **Correction.** Capability *issuance* is now gated on browser-shaped provenance:
-a **non-absent** admitted `Origin`, a `Sec-Fetch-Site` consistent with a page
-this server served, and the credential tier the UI itself requires. An absent
+a **non-absent** admitted `Origin`; a `Sec-Fetch-Site` of `same-origin`, or
+`cross-site` when the `Origin` is admitted by the *admission* rule (which
+disables the zrok wildcard) so the neutral `pi-dashboard.dev` shell still
+qualifies; and the credential tier the UI itself requires. `same-site` and
+`none` do not qualify. An absent
 `Origin` no longer qualifies.
 
 **What this does and does not buy — stated plainly.** These are **provenance
@@ -228,6 +231,13 @@ Subject normalisation is the plane's job (D5) — filesystem normalises to
 `realpath`, matching the parent change's grant-store subject so a verdict and its
 grant cannot disagree.
 
+**Constants (resolved).** Entry TTL **120 s**, capacity **64** entries. The
+hold ceiling (D7) is the *same* 120 s rather than a second number: two knobs
+that can disagree about when a suspended request dies is a bug waiting for a
+config drift. The in-repo precedent, `ResyncRequesterRegistry`, uses 30 s /
+256 — both wrong here in opposite directions: 30 s does not wait for a human,
+and 256 pending modals is not a state any operator can triage.
+
 Capacity is a hard cap with **fail-closed overflow**: at capacity, a new denial
 is recorded but does not prompt.
 
@@ -261,7 +271,8 @@ a refactor after the fact that produced it has changed.
 
 Reuse `git-routes.ts:470-478` verbatim in shape: capture `socket.timeout`,
 `socket.setTimeout(0)`, restore on `reply.raw.once("finish")` behind
-`!socket.destroyed`. The hold is additionally bounded by the registry TTL and by
+`!socket.destroyed`. The hold ceiling **is** the registry TTL (120 s, D4), not a
+second independent timeout. The hold is additionally bounded by
 `request.raw.once("close")` → `forget` + deny, so a client abort never leaks an
 entry or a socket.
 
@@ -279,7 +290,14 @@ Generalizing to every plane makes denial-of-attention the realistic attack even
 when no grant is ever obtained. Three layers: per-`(plane, subject)` **backoff
 after settlement** (a polling client must not re-prompt on every poll — a
 `Deny` is remembered for a backoff window); a per-plane rate limit; and a global
-concurrent-prompt cap. Exhausting any layer degrades to record-only (D3), never
+concurrent-prompt cap.
+
+**Constants (resolved):** backoff **120 s** per `(plane, subject)`, **5 prompts
+per plane per minute**, **2 concurrent dialogs** globally, per-channel share
+**20%** of capacity (12 of 64). Chosen as the midpoint of the two candidate
+sets: the aggressive set (5 min / 3 per min / 1 concurrent) makes a legitimate
+multi-file operation feel broken, and the loose set (60 s / 10 per min / 3
+concurrent) is a usable flood. Exhausting any layer degrades to record-only (D3), never
 to auto-allow. This reuses the ring buffer's existing dedupe and IP cap rather
 than adding a parallel mechanism.
 
@@ -579,6 +597,6 @@ ships after `add-universal-network-guard`.
 
 ## Open Questions
 
-- Which per-plane rate-limit numbers (D9) to ship as defaults. Deferrable: the
-  layers and their degrade behaviour are specified; only the constants are open,
-  and changing a constant changes no spec, approach, or task.
+None. The prompt-volume constants (D9), the registry TTL and capacity (D4), the
+hold ceiling (D7), the YOLO duration set (D13), and the `Sec-Fetch-Site`
+accepted values (D1a) are all resolved above.

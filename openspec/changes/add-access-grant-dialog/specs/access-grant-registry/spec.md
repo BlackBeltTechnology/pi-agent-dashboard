@@ -36,6 +36,12 @@ to different things.
 
 ### Requirement: Entries are bounded, expiring, and settled at most once
 
+The registry SHALL hold at most **64** entries and every entry SHALL expire
+**120 s** after it is recorded. A held request SHALL NOT be suspended longer
+than that same 120 s — the hold ceiling and the entry TTL are deliberately one
+number, so they cannot disagree — and on elapse the requester SHALL receive the
+denial it would have received with no prompt at all.
+
 The registry SHALL be bounded in size and every entry SHALL expire after a
 bounded lifetime. An entry SHALL be settled at most once: the first well-formed
 verdict SHALL settle it, and later verdicts for that entry SHALL be ignored.
@@ -164,7 +170,11 @@ evidence that the subject still means what it meant when the operator answered.
 ### Requirement: Repeat prompting is rate limited
 
 After an entry settles, further denials for the same plane and subject SHALL be
-suppressed from prompting for a backoff window. The server SHALL additionally
+suppressed from prompting for a backoff window of **120 s**. The server SHALL
+additionally hold to a ceiling of **5 prompts per plane per minute**, at most
+**2 concurrent dialogs** across all planes, and a per-channel share of at most
+**20%** of registry capacity (12 of 64 entries). Exhausting any of these SHALL
+degrade to record-only, never to an automatic allow. The server SHALL additionally
 limit prompts per plane and cap the number of dialogs outstanding at once.
 Exhausting any limit SHALL degrade to recording the denial without prompting.
 
