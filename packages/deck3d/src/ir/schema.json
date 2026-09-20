@@ -90,6 +90,11 @@
           "default": true,
           "description": "Show the reflective floor plane."
         },
+        "floor": {
+          "enum": ["mirror", "water"],
+          "default": "mirror",
+          "description": "Floor surface: the reflective plane, or an animated water surface (three shaders_ocean) driven by the deck clock."
+        },
         "softShadows": {
           "type": "boolean",
           "default": true,

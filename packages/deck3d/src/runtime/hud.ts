@@ -49,6 +49,7 @@ export interface SlidePatch {
   rimLight?: boolean;
   fog?: boolean;
   mirrorFloor?: boolean;
+  floor?: "mirror" | "water";
   softShadows?: boolean;
   envReflections?: boolean;
   depthRelief?: number;
@@ -120,6 +121,7 @@ const LIGHTING: ControlSpec[] = [
   boolC("rimLight"),
   boolC("fog"),
   boolC("mirrorFloor"),
+  enumC("floor", ["mirror", "water"]),
   boolC("softShadows"),
   boolC("envReflections"),
   numC("backgroundIntensity", "0.05"),

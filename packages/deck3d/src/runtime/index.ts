@@ -1049,6 +1049,7 @@ async function boot(): Promise<void> {
           cam: rig.camera.position.toArray() as [number, number, number],
           camTarget: camState.target.toArray() as [number, number, number],
           anim: anim === null ? null : { mode: anim.mode, t: anim.t, dur: anim.dur },
+          floor: rig.floorMode(),
         };
       },
     },

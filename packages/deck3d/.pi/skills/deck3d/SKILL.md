@@ -52,6 +52,8 @@ Manual headless / agent / CI path:
    - illustrate the section: `deck3d props search <kw> --role hero`,
      `--role illustration`, and `props search --role ambient` for
      low-triangle background instances;
+   - for a deck that wants a horizon, set `overrides.deck.floor: "water"`
+     (one global surface; per-slide is not a thing);
    - grade the frame with a `post` card (`deck3d fx list --kind post`): add
      `{ "id": "outline", "params": { "parts": "diagram" } }` (or
      `selective-bloom`, `god-rays`, `depth-of-field`, `pixelate`, `ascii`, …)

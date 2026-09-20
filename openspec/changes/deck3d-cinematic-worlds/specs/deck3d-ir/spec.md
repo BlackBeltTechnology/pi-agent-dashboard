@@ -100,3 +100,18 @@ A JSON Schema SHALL define the IR. `validate` SHALL reject unknown fields, wrong
 #### Scenario: Missing local effect file
 - **WHEN** `overrides.slides["geo"].effects` references `local:globe` and `fx/globe.js` does not exist beside `deck.json`
 - **THEN** `validate` exits non-zero naming `overrides.slides["geo"].effects[0]` and `fx/globe.js`
+
+## ADDED Requirements
+
+### Requirement: Floor mode
+`defaults.floor` SHALL select the floor surface: `mirror` (default; the reflective plane) or `water` (three `webgl_shaders_ocean` — an animated, reflecting water surface driven by the deterministic deck clock, tinted from the palette). `mirrorFloor: false` SHALL hide the surface in either mode. Like the other lighting knobs the mode is deck-scope only (the floor is one global surface), editable live in the configurator's Lighting & FX block.
+
+#### Scenario: Water floor renders and animates deterministically
+- **GIVEN** a deck with `defaults.floor: "water"`
+- **WHEN** rendered at `setTime(1)` and at `setTime(3)`
+- **THEN** `debug.look().floor` is `"water"`, the two frames differ in the floor region, and each frame is pixel-identical (within GPU tolerance) across two page loads
+
+#### Scenario: Unknown floor mode is rejected
+- **GIVEN** `defaults.floor: "lava"`
+- **WHEN** validated
+- **THEN** validation fails naming `defaults.floor` and the allowed values

@@ -6,6 +6,9 @@
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { Reflector } from "three/examples/jsm/objects/Reflector.js";
+import { Water } from "three/examples/jsm/objects/Water.js";
+import { makeNoise3 } from "../fx/util.js";
+import { makeRng } from "./rng.js";
 import { Pass } from "three/examples/jsm/postprocessing/Pass.js";
 import type { PaletteColors } from "./palette.js";
 import { createPostStack, type PostLook, type PostRef, type PostStack } from "./post.js";
@@ -27,6 +30,8 @@ export interface SceneRig {
   applyLook: (P: PaletteColors, cfg: SlideConfig, profile: QualityProfile) => void;
   /** Live rim-light colour, for the configurator's debug surface. */
   rimColor: () => THREE.Color;
+  /** Which floor surface is showing, for `debug.look()`. */
+  floorMode: () => "mirror" | "water" | "none";
   resize: (w: number, h: number) => void;
   /** Draw one frame; `t` is the deck clock for time-dependent post passes. */
   render: (t?: number) => void;
@@ -65,6 +70,8 @@ interface RigParts {
   floor: THREE.Group;
   veil: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>;
   mirror: Reflector | null;
+  /** Created on first use: most decks never ask for it and it owns a render target. */
+  water: Water | null;
   envMap: THREE.Texture;
 }
 
@@ -132,6 +139,7 @@ class BackdropRenderPass extends Pass {
 export function createSceneRig(profile: QualityProfile): SceneRig {
   const r = createParts(profile);
   let lastT = 0;
+  let floorNow: "mirror" | "water" | "none" = "mirror";
   const world = new THREE.Group();
   r.scene.add(world);
   const veilOp = (cfg: SlideConfig, q: QualityProfile): number => (cfg.mirrorFloor !== false && q.mirror ? (cfg.mode === "dark" ? 0.55 : 0.35) : 1);
@@ -148,12 +156,31 @@ export function createSceneRig(profile: QualityProfile): SceneRig {
     r.veil.material.opacity = 1;
     r.veil.material.needsUpdate = true;
     r.scene.environment = cfg.envReflections !== false ? r.envMap : null;
+    const wantWater = mirrored && cfg.floor === "water";
+    if (wantWater && !r.water) {
+      r.water = createWater();
+      r.floor.add(r.water);
+      markBackdrop(r.water);
+    }
     if (r.mirror) {
-      r.mirror.visible = mirrored;
+      r.mirror.visible = mirrored && !wantWater;
       (r.mirror.material as unknown as { uniforms: { color: { value: THREE.Color } } }).uniforms.color.value.set(
         cfg.mode === "dark" ? 0x777777 : 0xbbbbbb,
       );
     }
+    if (r.water) {
+      r.water.visible = wantWater;
+      const u = r.water.material.uniforms;
+      // Water reads as the palette's dark ground with the accent as its sun.
+      u.waterColor.value.set(P.bg).lerp(new THREE.Color(P.second), cfg.mode === "dark" ? 0.18 : 0.45);
+      u.sunColor.value.set(P.accent);
+      u.distortionScale.value = 3.2;
+      u.size.value = 6;
+      // The veil is what fades the floor into the background; over water it
+      // reads as fog on the surface, so keep it lighter than over the mirror.
+      if (wantWater) r.veil.material.alphaMap = veilAlpha(cfg.mode === "dark" ? 0.75 : 0.55);
+    }
+    floorNow = !mirrored ? "none" : wantWater ? "water" : "mirror";
   }
 
   function applyLights(P: PaletteColors, cfg: SlideConfig, q: QualityProfile): void {
@@ -190,6 +217,7 @@ export function createSceneRig(profile: QualityProfile): SceneRig {
     sunPosition: () => r.rimLight.getWorldPosition(new THREE.Vector3()),
     applyLook,
     rimColor: () => r.rimLight.color,
+    floorMode: () => floorNow,
     resize: (w, h) => {
       r.renderer.setSize(w, h);
       r.post.resize(w, h);
@@ -198,6 +226,7 @@ export function createSceneRig(profile: QualityProfile): SceneRig {
     },
     render: (t) => {
       if (t !== undefined) lastT = t;
+      if (r.water?.visible) r.water.material.uniforms.time.value = lastT * 0.6;
       r.post.tick(lastT, r.camera);
       // The composer costs a full-screen copy per pass; with nothing enabled
       // the direct layered draw is byte-identical and cheaper.
@@ -255,7 +284,7 @@ function createParts(profile: QualityProfile): RigParts {
   markBackdrop(floor);
   scene.add(floor);
 
-  return { renderer, scene, camera, post, key, fill, rimLight, floor, veil, mirror, envMap };
+  return { renderer, scene, camera, post, key, fill, rimLight, floor, veil, mirror, water: null, envMap };
 }
 
 function createFloor(profile: QualityProfile): { floor: THREE.Group; veil: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>; mirror: Reflector | null } {
@@ -289,4 +318,49 @@ function createFloor(profile: QualityProfile): { floor: THREE.Group; veil: THREE
   veil.renderOrder = 1;
   floor.add(veil);
   return { floor, veil, mirror };
+}
+
+/**
+ * Procedural water normal map (three's example loads a JPG; the deck is
+ * offline and deterministic). Two octaves of seeded noise, gradients packed as
+ * a tangent-space normal.
+ */
+function waterNormals(): THREE.DataTexture {
+  const size = 256;
+  const noise = makeNoise3(makeRng(41)); // fixed seed: identical on every build
+  const h = (x: number, y: number) => noise(x * 0.05, y * 0.05, 0.7) + 0.5 * noise(x * 0.11, y * 0.11, 3.1);
+  const data = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = h(x + 1, y) - h(x - 1, y);
+      const dy = h(x, y + 1) - h(x, y - 1);
+      const n = new THREE.Vector3(-dx * 3, -dy * 3, 1).normalize();
+      const i = (y * size + x) * 4;
+      data[i] = Math.round((n.x * 0.5 + 0.5) * 255);
+      data[i + 1] = Math.round((n.y * 0.5 + 0.5) * 255);
+      data[i + 2] = Math.round((n.z * 0.5 + 0.5) * 255);
+      data[i + 3] = 255;
+    }
+  }
+  const tex = new THREE.DataTexture(data, size, size);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/** Three `shaders_ocean` surface in the floor group; `time` is fed from the deck clock in `render(t)`. */
+function createWater(): Water {
+  const water = new Water(new THREE.PlaneGeometry(400, 400), {
+    textureWidth: 512,
+    textureHeight: 512,
+    waterNormals: waterNormals(),
+    sunDirection: new THREE.Vector3(0.4, 0.8, 0.45).normalize(),
+    sunColor: 0xffffff,
+    waterColor: 0x1a2a33,
+    distortionScale: 3.2,
+    fog: false,
+  });
+  water.rotation.x = -Math.PI / 2;
+  water.position.y = -0.005;
+  return water;
 }

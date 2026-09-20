@@ -42,6 +42,8 @@ export interface Deck3dApi {
       cam: [number, number, number];
       camTarget: [number, number, number];
       anim: { mode: string; t: number; dur: number } | null;
+      /** Which floor surface is showing. */
+      floor: "mirror" | "water" | "none";
     };
     /** Per diagram label: 1 = faces the camera head-on, 0 = edge-on, negative = facing away. */
     labelFacing: () => number[];

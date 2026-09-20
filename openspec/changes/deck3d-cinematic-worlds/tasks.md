@@ -234,3 +234,10 @@
 - [x] 18.10 `constellation.nodeShape` (buffergeometry_drawrange — the existing card IS that example; nodes as point/sphere/cube) (#E52)
 - [x] 18.11 No `tags.topic` on any new card; routing table unchanged (#E54)
 - [x] 18.12 Catalogue regen; `src/fx/AGENTS.md`; README + SKILL list the stylistic set
+
+## 19. Water floor (three `webgl_shaders_ocean`)
+
+- [x] 19.1 IR: `defaults.floor` enum `mirror` | `water` (deck-scope, like `mirrorFloor`); schema, types, `ir-fields.md` regen (#E55)
+- [x] 19.2 `scene.ts`: `Water` beside the `Reflector` in the floor group, created lazily on first use; procedural `DataTexture` normals (offline); `time` from the deck clock via `render(t)`; palette-tinted `waterColor`/`sunColor`; `applySurface` toggles by `cfg.floor` + `mirrorFloor` (#F32)
+- [x] 19.3 `debug.look().floor` probe; configurator `floor` select in Lighting & FX (deck scope)
+- [x] 19.4 Docs: README, SKILL, `src/runtime/AGENTS.md`, `src/ir/AGENTS.md`

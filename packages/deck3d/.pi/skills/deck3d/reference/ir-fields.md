@@ -21,6 +21,7 @@
 | `defaults.material` | glass \| metal \| matte | `"glass"` | PBR material family for node cards and diagram primitives. |
 | `defaults.envReflections` | boolean | `true` | Enable environment-map reflections on metallic/glass materials. |
 | `defaults.mirrorFloor` | boolean | `true` | Show the reflective floor plane. |
+| `defaults.floor` | mirror \| water | `"mirror"` | Floor surface: the reflective plane, or an animated water surface (three shaders_ocean) driven by the deck clock. |
 | `defaults.softShadows` | boolean | `true` | Enable soft (PCF) shadows under objects. |
 | `defaults.bloom` | boolean | `true` | Enable the bloom post pass (titles glow). Disabled at `quality: low`. |
 | `defaults.rimLight` | boolean | `true` | Enable the rim light that outlines silhouettes. |
@@ -128,6 +129,7 @@
 | `overrides.deck.material` | glass \| metal \| matte | `"glass"` | PBR material family for node cards and diagram primitives. |
 | `overrides.deck.envReflections` | boolean | `true` | Enable environment-map reflections on metallic/glass materials. |
 | `overrides.deck.mirrorFloor` | boolean | `true` | Show the reflective floor plane. |
+| `overrides.deck.floor` | mirror \| water | `"mirror"` | Floor surface: the reflective plane, or an animated water surface (three shaders_ocean) driven by the deck clock. |
 | `overrides.deck.softShadows` | boolean | `true` | Enable soft (PCF) shadows under objects. |
 | `overrides.deck.bloom` | boolean | `true` | Enable the bloom post pass (titles glow). Disabled at `quality: low`. |
 | `overrides.deck.rimLight` | boolean | `true` | Enable the rim light that outlines silhouettes. |

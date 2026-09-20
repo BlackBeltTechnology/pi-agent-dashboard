@@ -101,6 +101,8 @@ export interface Defaults extends CameraKnobs, LabelKnobs, CheckKnobs {
   material?: Material;
   envReflections?: boolean;
   mirrorFloor?: boolean;
+  /** Floor surface: reflective plane (default) or animated water. */
+  floor?: "mirror" | "water";
   softShadows?: boolean;
   bloom?: boolean;
   rimLight?: boolean;
