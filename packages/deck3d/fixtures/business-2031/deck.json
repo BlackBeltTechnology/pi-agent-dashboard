@@ -2,8 +2,8 @@
   "meta": {
     "engine": "0.1.0",
     "mermaid": "11.17.2",
-    "source": "deck.md",
-    "derivedHash": "b795b06921ec3f96106dac0f73947ff351e829dec826b4eec8aef61ee8a6e34e"
+    "source": "/Users/robson/Project/pi-agent-dashboard/.worktrees/os-deck3d-cinematic-worlds/packages/deck3d/fixtures/business-2031/deck.md",
+    "derivedHash": "30bb227ea09fc4d125e32c52622e440e38a90e5c84462d54c0af08474c5693af"
   },
   "defaults": {
     "mode": "dark",
@@ -963,17 +963,17 @@
       "bullets": [
         "Agent deployment: single digits everywhere",
         "Adoption is broad and shallow",
-        "The 2026\u20132031 money is in depth, not first contact",
+        "The 2026–2031 money is in depth, not first contact",
         "Ask: what is actually in production"
       ],
-      "scene": "orbit-agents",
+      "scene": "agent-depth",
       "diagram": {
         "kind": "timeline-rail",
         "data": {
           "labels": [
             "Agent deployment: single digits everywhere",
             "Adoption is broad and shallow",
-            "The 2026\u20132031 money is in depth, not first contact",
+            "The 2026–2031 money is in depth, not first contact",
             "Ask: what is actually in production"
           ]
         }
@@ -989,7 +989,7 @@
       },
       "effects": [
         {
-          "id": "orbit-agents"
+          "id": "agent-depth"
         }
       ],
       "subtitle": "Everyone bought AI. Few run agents."
@@ -1004,7 +1004,7 @@
         "AI adoption outpaced governance",
         "Differentiation: trust and measured value"
       ],
-      "scene": "vault-glyphs",
+      "scene": "trust-ledger",
       "diagram": {
         "kind": "none"
       },
@@ -1019,7 +1019,7 @@
       },
       "effects": [
         {
-          "id": "vault-glyphs"
+          "id": "trust-ledger"
         }
       ],
       "subtitle": "Forrester 2026: proof over promises"
@@ -1150,7 +1150,7 @@
           "id": "neural-mesh"
         }
       ],
-      "subtitle": "WEF Global Risks Report 2026 \u2014 an age of competition"
+      "subtitle": "WEF Global Risks Report 2026 — an age of competition"
     },
     {
       "index": 8,
@@ -1192,7 +1192,7 @@
         "Name the governance stakeholder",
         "Book your own reskilling hours this quarter"
       ],
-      "scene": "vault-glyphs",
+      "scene": "trust-ledger",
       "diagram": {
         "kind": "none"
       },
@@ -1207,7 +1207,7 @@
       },
       "effects": [
         {
-          "id": "vault-glyphs"
+          "id": "trust-ledger"
         }
       ],
       "subtitle": "Do these before the forecast call"
@@ -1219,7 +1219,7 @@
       "bullets": [
         "WEF Future of Jobs 2025 (1,000+ employers)",
         "Stanford HAI AI Index 2026",
-        "WEF Global Risks Report 2026 \u2014 1,300+ experts",
+        "WEF Global Risks Report 2026 — 1,300+ experts",
         "WEF + PwC, Entry-Level Work, Jun 2026",
         "Forrester Predictions 2026"
       ],
@@ -1230,7 +1230,7 @@
           "labels": [
             "WEF Future of Jobs 2025 (1,000+ employers)",
             "Stanford HAI AI Index 2026",
-            "WEF Global Risks Report 2026 \u2014 1,300+ experts",
+            "WEF Global Risks Report 2026 — 1,300+ experts",
             "WEF + PwC, Entry-Level Work, Jun 2026",
             "Forrester Predictions 2026"
           ]
@@ -1418,7 +1418,12 @@
         "effects": [
           {
             "id": "local:geo-fragments",
-            "sha256": "a804bd05e2b071c70ce8ef67da56ecc4bfae643174bafaf602185250472341ff"
+            "sha256": "a804bd05e2b071c70ce8ef67da56ecc4bfae643174bafaf602185250472341ff",
+            "params": {
+              "activity": 0.75,
+              "breathe": 1,
+              "spin": 1.2
+            }
           }
         ],
         "diagram": {
@@ -1445,7 +1450,12 @@
         "effects": [
           {
             "id": "local:fab-wafer",
-            "sha256": "9842d6ffd874eb1f316685d2bdb4d159d10f2233b1aa1782f05a4986c28e402b"
+            "sha256": "9842d6ffd874eb1f316685d2bdb4d159d10f2233b1aa1782f05a4986c28e402b",
+            "params": {
+              "wave": 2,
+              "waveSpeed": 3,
+              "density": 3
+            }
           }
         ],
         "diagram": {
@@ -1471,7 +1481,10 @@
         },
         "effects": [
           {
-            "id": "hex-grid"
+            "id": "hex-grid",
+            "params": {
+              "scale": 4
+            }
           }
         ],
         "diagram": {
@@ -1497,7 +1510,11 @@
         },
         "effects": [
           {
-            "id": "paper-stack"
+            "id": "paper-stack",
+            "params": {
+              "density": 3,
+              "speed": 3
+            }
           }
         ],
         "diagram": {
@@ -1515,7 +1532,24 @@
       }
     },
     "deck": {
-      "palette": "midnight"
-    }
+      "palette": "blackbelt",
+      "floor": "water",
+      "rail": "tunnel"
+    },
+    "effects": [
+      {
+        "id": "local:proof-gate",
+        "sha256": "ed4ade9ee837d2a299232d644bec04df66f96f7698a53016f3f8c5510849d123",
+        "params": {
+          "density": 0.2
+        }
+      },
+      {
+        "id": "signal-pulse",
+        "params": {
+          "intensity": 0.85
+        }
+      }
+    ]
   }
 }

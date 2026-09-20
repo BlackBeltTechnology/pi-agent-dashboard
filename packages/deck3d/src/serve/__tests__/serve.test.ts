@@ -6,9 +6,11 @@
  * the reason this server never leaves loopback, so its refusals are asserted
  * as hard requirements, not conveniences.
  */
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { startServe, type ServeHandle } from "../index.js";
 
@@ -38,6 +40,18 @@ afterEach(async () => {
   while (open.length) await open.pop()?.close();
 });
 
+/**
+ * The palette the SERVED copy actually carries. A substring match on the html
+ * is worthless here: the runtime bundle contains "remember", so
+ * `toContain("ember")` passes even when nothing rebuilt.
+ */
+async function servedPalette(h: ServeHandle): Promise<string | undefined> {
+  const html = await (await fetch(h.url)).text();
+  const m = html.match(/window\.__DECK=(\{[\s\S]*?\});window\.__DECK_FONT=/);
+  if (!m) return undefined;
+  return (JSON.parse(m[1]) as { defaults?: { palette?: string } }).defaults?.palette;
+}
+
 async function post(h: ServeHandle, path: string, body: unknown): Promise<{ status: number; text: string }> {
   const res = await fetch(`${h.url}${path}`, {
     method: "POST",
@@ -58,6 +72,28 @@ describe("S serve: watch and rebuild", () => {
     writeFileSync(join(dir, "deck.md"), `${DECK}\n# Appended\n\n- three\n`);
     await h.settled();
     expect(await (await fetch(h.url)).text()).toContain("Appended");
+  }, 120_000);
+
+  it("#S12 rebuilds when deck.json is edited out of band, without a rebuild storm", async () => {
+    const dir = deckDir();
+    const h = await serve(dir);
+    const jsonPath = join(dir, "deck.json");
+
+    // An editor or `deck3d overrides apply` writing the overrides block is the
+    // other half of the tune loop — the HTTP endpoints are not the only writer.
+    const ir = JSON.parse(readFileSync(jsonPath, "utf8")) as { overrides?: Record<string, unknown> };
+    ir.overrides = { ...(ir.overrides ?? {}), deck: { palette: "ember" } };
+    writeFileSync(jsonPath, `${JSON.stringify(ir, null, 2)}\n`);
+    await new Promise((r) => setTimeout(r, 600));
+    await h.settled();
+    expect(await servedPalette(h)).toBe("ember");
+
+    // Watching the file the rebuild itself rewrites must not self-trigger:
+    // a settled server leaves deck.json alone.
+    const stable = statSync(jsonPath).mtimeMs;
+    await new Promise((r) => setTimeout(r, 900));
+    await h.settled();
+    expect(statSync(jsonPath).mtimeMs).toBe(stable);
   }, 120_000);
 
   it("#S3 keeps serving the last good deck when a rebuild fails", async () => {
@@ -117,7 +153,7 @@ describe("S serve: write endpoints", () => {
     expect(deck.overrides.deck.palette).toBe("ember");
     // The merged value is what gets served next.
     await h.settled();
-    expect(await (await fetch(h.url)).text()).toContain("ember");
+    expect(await servedPalette(h)).toBe("ember");
   }, 120_000);
 
   it("#S9 refuses an invalid payload and leaves both targets untouched", async () => {
@@ -177,4 +213,43 @@ describe.skipIf(!process.env.CI && !existsSync(join(process.env.HOME ?? "", "Lib
       await browser.close();
     }
   }, 180_000);
+});
+
+/**
+ * #S10 — the CLI path, not the in-process one. Every other test here calls
+ * `startServe()` directly, which never evaluates `cli.ts` as the process
+ * ENTRY. That mattered: `serve/index.ts` imports `run` from `cli.ts`, so when
+ * `cli.ts` is the entry its top-level `await run(...)` is still pending and
+ * the cycle's `await import("./serve/index.js")` can never resolve — the
+ * process just exits 13 ("unsettled top-level await"). Only a spawned CLI
+ * reproduces it.
+ */
+describe("S10 serve: the spawned CLI actually serves", () => {
+  it("stays up and answers on its port", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "deck3d-serve-cli-"));
+    writeFileSync(join(dir, "deck.md"), DECK);
+    const bin = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "bin", "deck3d");
+    const child = spawn(process.execPath, [bin, "serve", "deck.md", "--port", "4839"], { cwd: dir, stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    child.stdout.on("data", (b) => {
+      out += String(b);
+    });
+    child.stderr.on("data", (b) => {
+      out += String(b);
+    });
+    try {
+      const deadline = Date.now() + 60_000;
+      let res: Response | null = null;
+      while (Date.now() < deadline && res === null) {
+        await new Promise((r) => setTimeout(r, 500));
+        if (child.exitCode !== null) break;
+        res = await fetch("http://127.0.0.1:4839/").catch(() => null);
+      }
+      expect(child.exitCode, `CLI exited early:\n${out}`).toBeNull();
+      expect(res?.status).toBe(200);
+      expect(await res!.text()).toContain("__deck3dServe");
+    } finally {
+      child.kill("SIGTERM");
+    }
+  }, 90_000);
 });

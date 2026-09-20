@@ -51,6 +51,9 @@ export interface ServeHandle {
 
 const HOST = "127.0.0.1";
 
+/** How often `deck.json` is re-digested to catch an out-of-band override write. */
+const JSON_POLL_MS = 150;
+
 /** Injected only into the served HTML. Reloads in place, keeping the slide. */
 const CLIENT = `<script>
 (() => {
@@ -129,6 +132,14 @@ export async function startServe(mdPath: string, opts: ServeOptions = {}): Promi
     if (touched) writeFileSync(jsonPath, `${JSON.stringify(ir, null, 2)}\n`);
   }
 
+  /**
+   * Digest of `deck.json` as the last rebuild left it. Every rebuild rewrites
+   * that file (`parse -o`), so a bare watcher on it would re-trigger itself
+   * forever; comparing the digest tells a foreign write from our own.
+   */
+  let jsonDigest = "";
+  const digestJson = (): string => (existsSync(jsonPath) ? createHash("sha256").update(readFileSync(jsonPath)).digest("hex") : "");
+
   async function rebuild(): Promise<void> {
     const errors: string[] = [];
     const collect: CliIO = { stdout: () => {}, stderr: (m) => errors.push(m) };
@@ -152,6 +163,8 @@ export async function startServe(mdPath: string, opts: ServeOptions = {}): Promi
       lastError = (err as Error).message;
       io.stderr(`deck3d serve: ${lastError}`);
       emit("error-report", { message: lastError });
+    } finally {
+      jsonDigest = digestJson();
     }
   }
 
@@ -183,16 +196,25 @@ export async function startServe(mdPath: string, opts: ServeOptions = {}): Promi
     if (timer) clearTimeout(timer);
     timer = setTimeout(queue, debounceMs);
   };
-  const watchPath = (p: string, recursive = false): void => {
+  const watchPath = (p: string, recursive = false, handler: () => void = onChange): void => {
     if (!existsSync(p)) return;
     try {
-      watchers.push(watch(p, { recursive }, onChange));
+      watchers.push(watch(p, { recursive }, handler));
     } catch {
       // A platform without recursive watch still gets the deck.md watcher.
     }
   };
   watchPath(md);
   watchPath(join(deckDir, "fx"), true);
+  // `deck3d overrides apply` and a hand edit are writers too, not just the
+  // HTTP endpoints. Polled rather than watched: macOS delivers `fs.watch`
+  // events for this file seconds late, and the rebuild rewrites it anyway, so
+  // a digest compare is both the change detector and the self-write filter.
+  const jsonPoll = setInterval(() => {
+    if (digestJson() === jsonDigest) return;
+    onChange();
+  }, JSON_POLL_MS);
+  jsonPoll.unref();
 
   function jsonBody(req: import("node:http").IncomingMessage): Promise<unknown> {
     return new Promise((res, rej) => {
@@ -302,6 +324,7 @@ export async function startServe(mdPath: string, opts: ServeOptions = {}): Promi
     findings: () => findings,
     close: async () => {
       for (const w of watchers) w.close();
+      clearInterval(jsonPoll);
       if (timer) clearTimeout(timer);
       for (const c of clients) c.end();
       await new Promise<void>((done) => server.close(() => done()));

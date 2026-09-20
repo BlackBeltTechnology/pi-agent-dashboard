@@ -1,0 +1,44 @@
+{
+  "deck": {
+    "palette": "blackbelt",
+    "floor": "water",
+    "rail": "tunnel"
+  },
+  "effects": [
+    {
+      "id": "local:proof-gate",
+      "sha256": "ed4ade9ee837d2a299232d644bec04df66f96f7698a53016f3f8c5510849d123",
+      "params": { "density": 0.2 }
+    },
+    {
+      "id": "signal-pulse",
+      "params": { "intensity": 0.85 }
+    }
+  ],
+  "slides": {
+    "geo": {
+      "effects": [
+        {
+          "id": "local:geo-fragments",
+          "sha256": "a804bd05e2b071c70ce8ef67da56ecc4bfae643174bafaf602185250472341ff",
+          "params": { "activity": 0.75, "breathe": 1, "spin": 1.2 }
+        }
+      ]
+    },
+    "compute": {
+      "effects": [
+        {
+          "id": "local:fab-wafer",
+          "sha256": "9842d6ffd874eb1f316685d2bdb4d159d10f2233b1aa1782f05a4986c28e402b",
+          "params": { "wave": 2, "waveSpeed": 3, "density": 3 }
+        }
+      ]
+    },
+    "monday": {
+      "effects": [{ "id": "hex-grid", "params": { "scale": 4 } }]
+    },
+    "sources": {
+      "effects": [{ "id": "paper-stack", "params": { "density": 3, "speed": 3 } }]
+    }
+  }
+}

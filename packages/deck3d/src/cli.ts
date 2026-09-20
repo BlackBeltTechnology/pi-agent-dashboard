@@ -795,5 +795,17 @@ export async function run(argv: string[], io: CliIO = defaultIO): Promise<number
 
 const entry = process.argv[1];
 if (entry && import.meta.url === pathToFileURL(entry).href) {
-  process.exit(await run(process.argv.slice(2)));
+  // NOT `process.exit(await run(...))`. A top-level await here keeps this
+  // module's evaluation pending for the whole command, and `serve/index.ts`
+  // imports `run` from this file — so `serve`'s own `await import()` would
+  // wait on a module that is waiting on `serve`, and the process would exit 13
+  // before ever listening (#S10). Settling the promise in a callback lets
+  // evaluation finish immediately, which breaks the cycle.
+  void run(process.argv.slice(2)).then(
+    (code) => process.exit(code),
+    (err) => {
+      console.error(`deck3d: ${(err as Error).stack ?? err}`);
+      process.exit(1);
+    },
+  );
 }

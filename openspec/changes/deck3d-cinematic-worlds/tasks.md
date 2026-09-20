@@ -196,6 +196,8 @@
 - [x] 15.9 `--check` runs check out of band per rebuild; findings for the current slide render in the panel; the reload never waits on it (#S10, #S11)
 - [x] 15.10 Security pass on the write endpoints (loopback bind, path confinement, payload validation, no deck-dir escape) — `security-hardening`
 - [x] 15.11 Docs: SKILL.md tune loop uses `serve`; README `serve` section; `src/serve/AGENTS.md`
+- [x] 15.12 Fix: the spawned CLI exited 13 instead of serving — `serve/index.ts` imports `run` from `cli.ts`, so a top-level `await run(...)` in the entry deadlocked the cycle. Entry settles `run()` in a callback; guarded by a spawned-binary test (#S10)
+- [x] 15.13 Fix: `deck.json` was never actually watched (only `deck.md` + `fx/`), so `overrides apply` and hand edits did not rebuild. Polled digest (150 ms) detects the foreign write and filters the rebuild's own rewrite — no self-trigger loop (#S12)
 
 
 ## 16. Promote the deck's local effects into the corpus

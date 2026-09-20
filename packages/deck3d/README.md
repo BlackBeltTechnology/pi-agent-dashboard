@@ -49,7 +49,7 @@ Default check viewports: `1920x1080,1280x720`. Default `check` timeout 120 s/vie
 `deck3d serve <deck.md> [--port n] [--check]` starts authoring server.
 
 - Binds `127.0.0.1` only (exposes filesystem write endpoints). `--port` omitted ⇒ OS assigns free port.
-- Watches `deck.md`, `fx/`, `deck.json`. Rebuilds on change (debounced, default 120 ms).
+- Watches `deck.md`, `fx/`, `deck.json`. Rebuilds on change (debounced, default 120 ms) — including an out-of-band `deck3d overrides apply` or hand edit of `deck.json`.
 - Re-pins local effect `sha256` in `deck.json` on rebuild; editing `fx/*.js` live never trips render hash check.
 - Broken edit keeps serving last good deck; reports error overlay in browser; recovers on next valid edit.
 - Injects SSE reload client (`/__events`) into served copy only; `build` output stays offline and self-contained.
