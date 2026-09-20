@@ -14,6 +14,7 @@ import {
 } from "../auth/provider-auth-handlers.js";
 import {
   type ApiKeyCredential,
+  CredentialTypeConflictError,
   getAuthStatus,
   getOAuthProvidersMeta,
   removeCredential,
@@ -21,7 +22,7 @@ import {
   writeCredential,
 } from "../auth/provider-auth-storage.js";
 import { refreshModelRegistry } from "../model-proxy/registry-singleton.js";
-import { getLatestCatalogue } from "../package/provider-catalogue-cache.js";
+import { getLatestCatalogue, isCatalogueReady } from "../package/provider-catalogue-cache.js";
 import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import type { PiGateway } from "../pi/pi-gateway.js";
 
@@ -124,6 +125,15 @@ export function registerProviderAuthRoutes(
       }
     }
     return getAuthStatus();
+  });
+
+  // Catalogue availability (D5): lets the client distinguish "no api-key
+  // credentials" from "the api-key provider list is unavailable". A separate
+  // route on purpose — the /status body is a bare array clients pin, and a
+  // header is invisible to non-browser consumers. See change:
+  // redesign-providers-settings-page.
+  fastify.get("/api/provider-auth/catalogue-ready", async () => {
+    return { ready: isCatalogueReady() };
   });
 
   // Start auth-code flow — opens system browser, starts temp callback server
@@ -234,22 +244,46 @@ export function registerProviderAuthRoutes(
         notifyBridges();
         return { ok: true };
       } catch (err: any) {
+        // D2 — a cross-type clobber is a CONFLICT, not a server fault: 409 with
+        // the stable machine code + the stored type, so the client renders a
+        // translated message. See change: redesign-providers-settings-page.
+        if (err instanceof CredentialTypeConflictError) {
+          return reply.code(409).send({
+            error: err.message,
+            code: err.code,
+            vars: { storedType: err.storedType },
+          });
+        }
         request.log.error(err, "Failed to save API key");
         return reply.code(500).send({ error: err.message || "Failed to save API key" });
       }
     },
   );
 
-  // Remove credential. A refusal (corrupt auth.json whose bytes could not be
-  // backed up) maps to the SAME { error } shape PUT returns, so the Settings UI
-  // can show why. See change: fix-corrupt-auth-json-500.
+  // Remove credential. A refusal (cross-type removal per D2/X2, or corrupt
+  // auth.json whose bytes could not be backed up) maps to the SAME { error,
+  // code, vars } shape PUT returns, so the Settings UI can show why. See
+  // changes: fix-corrupt-auth-json-500, redesign-providers-settings-page.
   fastify.delete<{ Params: { provider: string } }>(
     "/api/provider-auth/:provider",
     async (request, reply) => {
       try {
-        const authJsonKey = resolveAuthJsonKey(request.params.provider);
-        await removeCredential(authJsonKey);
+        const rawId = request.params.provider;
+        // The kind of the row the removal was addressed to: "oauth" for a
+        // handler id (the Subscription row), "api_key" otherwise — including
+        // an `<id>-api` twin, which resolves to the bare id. A stored OAuth
+        // credential must not be revocable through the api-key row (X2).
+        const isOAuthRow = getAllHandlers().some((h) => h.providerId === rawId);
+        const authJsonKey = resolveAuthJsonKey(rawId);
+        await removeCredential(authJsonKey, isOAuthRow ? "oauth" : "api_key");
       } catch (err: any) {
+        if (err instanceof CredentialTypeConflictError) {
+          return reply.code(409).send({
+            error: err.message,
+            code: err.code,
+            vars: { storedType: err.storedType },
+          });
+        }
         request.log.error(err, "Failed to remove credential");
         return reply.code(500).send({ error: err.message || "Failed to remove credential" });
       }

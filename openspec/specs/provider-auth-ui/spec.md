@@ -1,28 +1,108 @@
 ## Purpose
 
 Provider Authentication settings UI: OAuth login rows, API-key rows, device-code flow, and detection of catalogue OAuth providers that lack a dashboard handler.
+
 ## Requirements
+
 ### Requirement: Provider authentication section in Settings
-The Settings panel SHALL include a "Provider Authentication" section displaying all OAuth providers and a separate area for API key providers. Each OAuth provider SHALL show its name, authentication status, and a login or logout button. Each API key provider SHALL show its name and a text input for the key.
+The Settings panel SHALL include a provider section that lists **only providers that hold a credential**, in one list. It SHALL NOT render the provider catalogue. Each row SHALL name the provider, carry a badge naming the credential's kind, show that kind's status, and offer that kind's actions:
+
+| Badge | Row source | Status shown | Actions |
+|---|---|---|---|
+| Subscription | OAuth credential (`auth_code` / `device_code`) | relative expiry when known | Sign out |
+| API key | stored api-key credential | masked key | Edit · Remove |
+| Environment | `ambient`, or a credential whose source is the environment | the environment variable's name, or the ambient mechanism when no variable name is known | none (not removable from the dashboard) |
+| Custom endpoint | a configured entry in `providers.json` | health pill | Test · Edit · Remove |
+
+The kind SHALL be conveyed by the badge's text, not by colour alone.
+
+A custom endpoint counts as configured when its stored key is non-empty AND is not an unresolved environment reference. An entry whose key is empty, or whose key is a `$NAME` reference to an environment variable that is not set, SHALL NOT be listed as configured; an entry whose `$NAME` reference resolves SHALL be listed, badged **Custom endpoint** (not Environment — the row is an endpoint the operator registered, and it keeps its Test / Edit / Remove actions).
+
+Resolution SHALL be signalled by the server on the redacted provider payload (`apiKeyResolved`), because a `$NAME` reference is resolved in the **server's** environment and a browser client cannot evaluate it. A client SHALL use that signal when present, and SHALL fall back to its own conservative treatment of an unresolvable reference when it is absent (an older server).
+
+When a provider has both a stored key and an ambient credential, the stored key takes precedence and the row renders as an API-key row.
+
+A row SHALL be listed when its `configured` field is true. A client SHALL tolerate a server that does not send `configured` by falling back to `authenticated`, so an older server does not produce an empty list while credentials exist.
+
+Only `ambient` or an environment-sourced credential SHALL earn the Environment badge. Other non-stored sources SHALL render as ordinary API-key rows, because they are neither environment variables nor necessarily un-removable.
+
+When no provider holds a credential the section SHALL render an empty state offering the Add-provider control. An empty list SHALL NOT be rendered as an empty state when the api-key provider catalogue is unavailable — see "Catalogue-unavailable is distinguished from no-credentials".
 
 #### Scenario: Render unauthenticated OAuth provider
-- **WHEN** the Settings panel loads and `anthropic` has `authenticated: false` in the status response
-- **THEN** the UI SHALL show "Anthropic (Claude Pro/Max)" with a "Sign In" button
+- **WHEN** the Settings panel loads and `anthropic` reports `configured: false`
+- **THEN** the section SHALL NOT render an Anthropic row
+- **AND** Anthropic SHALL be offered in the Add-provider picker instead, unless the picker's cross-type suppression applies to it
+
+#### Scenario: Configured providers only
+- **WHEN** the status response holds 41 rows of which 6 report `configured: true`
+- **THEN** the section SHALL render 6 rows
+- **AND** SHALL NOT render a row, key input, or login button for the other 35
 
 #### Scenario: Render authenticated OAuth provider
-- **WHEN** `anthropic` has `authenticated: true` with an `expires` timestamp
-- **THEN** the UI SHALL show "Anthropic (Claude Pro/Max)" with a green status indicator, the expiry as a relative time (e.g., "expires in 6 days"), and a "Sign Out" button
+- **WHEN** `anthropic` is configured by an OAuth credential with an `expires` timestamp
+- **THEN** its row SHALL carry a **Subscription** badge, the expiry as a relative time, and a Sign Out action
 
 #### Scenario: Render API key provider with saved key
-- **WHEN** `openai` has `authenticated: true` in the status response
-- **THEN** the UI SHALL show "OpenAI" with a masked key display (e.g., "sk-...xxxx") and a remove button
+- **WHEN** `openrouter` is configured by a stored API key
+- **THEN** its row SHALL carry an **API key** badge, a masked key, and Edit and Remove actions
+
+#### Scenario: Render an Environment row
+- **WHEN** `openai` is configured only by `OPENAI_API_KEY` in the environment
+- **THEN** its row SHALL carry an **Environment** badge naming `OPENAI_API_KEY`
+- **AND** SHALL NOT offer a Remove action
+
+#### Scenario: Ambient credential without a known environment variable
+- **WHEN** a provider is configured by an ambient credential chain and the status row carries no `envVar`
+- **THEN** its row SHALL carry the **Environment** badge naming the ambient mechanism
+- **AND** SHALL NOT render an empty variable name
+
+#### Scenario: Stored key takes precedence over ambient
+- **WHEN** a provider reports both a stored key and `ambient: true`
+- **THEN** its row SHALL render as an API-key row showing the masked stored key
+
+#### Scenario: Custom endpoint with an empty key is not listed
+- **WHEN** `providers.json` holds an entry whose `apiKey` is empty
+- **THEN** the section SHALL NOT list it as configured
+
+#### Scenario: Custom endpoint with an unresolved environment reference is not listed
+- **WHEN** an entry's key is `$SOME_VAR` and `SOME_VAR` is not set
+- **THEN** the section SHALL NOT list it as configured
+
+#### Scenario: Custom endpoint with a resolved environment reference is listed as a custom endpoint
+- **WHEN** an entry's key is `$SOME_VAR` and `SOME_VAR` is set
+- **THEN** the entry SHALL be listed with the **Custom endpoint** badge and its Test / Edit / Remove actions
+
+#### Scenario: Resolution state is served, not inferred
+- **WHEN** `providers.json` holds an entry whose key is a `$NAME` reference and a client reads `GET /api/providers`
+- **THEN** the redacted entry SHALL carry that reference's resolution state, computed in the server's environment
+- **AND** the client SHALL NOT be required to read an environment it cannot see
+- **AND** a literal (non-`$NAME`) key SHALL NOT carry resolution state, because it is redacted rather than resolvable
+
+#### Scenario: A non-environment, non-stored source is not badged Environment
+- **WHEN** a provider's credential source is a runtime or models-json source
+- **THEN** its row SHALL render as an API-key row, not as an Environment row
+
+#### Scenario: Kind is readable without colour
+- **WHEN** the rows render
+- **THEN** each badge SHALL name its kind in text
+
+#### Scenario: Old server without the configured field
+- **WHEN** the status response rows carry `authenticated` but no `configured` field
+- **THEN** the section SHALL list the rows reporting `authenticated: true`
+- **AND** SHALL NOT render an empty list
+
+#### Scenario: Empty state
+- **WHEN** no provider holds a credential and the catalogue is available
+- **THEN** the section SHALL render an empty state with the Add-provider control
 
 ### Requirement: OAuth popup login flow
-When a user clicks "Sign In" for an auth-code provider, the UI SHALL call `POST /api/provider-auth/authorize`, open the returned `authUrl` in a popup window, and listen for the authorization code via `postMessage`, `BroadcastChannel`, and `localStorage` events. Upon receiving the code, it SHALL call `POST /api/provider-auth/exchange` and update the status display on success.
+When a user starts an auth-code sign-in from the Add-provider dialog, the UI SHALL call `POST /api/provider-auth/authorize`, open the returned `authUrl`, and observe the flow's completion. Upon completion it SHALL update the connected list. The completion mechanism is owned by the providers section, so dismissing the dialog does not end the flow.
+
+*This requirement's relay-and-exchange mechanics (`postMessage` / `BroadcastChannel` / `localStorage`, and a `POST /api/provider-auth/exchange` route) do not describe what ships and are NOT reconciled by this change; only the trigger is corrected, so the requirement no longer names a control this change deletes.*
 
 #### Scenario: Successful popup login
-- **WHEN** the user clicks "Sign In" for Anthropic, completes consent in the popup, and the code is relayed back
-- **THEN** the UI SHALL exchange the code, show a success indicator, and update the provider status to authenticated
+- **WHEN** the user starts an Anthropic sign-in from the Add-provider dialog and completes consent in the browser
+- **THEN** the UI SHALL show a success indicator and list Anthropic as connected
 
 #### Scenario: Popup blocked fallback
 - **WHEN** the browser blocks the popup
@@ -33,40 +113,59 @@ When a user clicks "Sign In" for an auth-code provider, the UI SHALL call `POST 
 - **THEN** the UI SHALL display the error message and a "Try Again" button
 
 ### Requirement: Device code login flow
-When a user clicks "Sign In" for GitHub Copilot, the UI SHALL call `POST /api/provider-auth/device-code`, display the verification URL and user code in a modal, and poll `GET /api/provider-auth/device-status/:flowId` until authorization completes or the code expires. The UI SHALL NOT automatically open the verification URL; the user must click an explicit "Open Registration Page" button (see "Device code flow requires explicit user action to open browser").
+When a user starts a device-code sign-in from the Add-provider dialog, the UI SHALL call `POST /api/provider-auth/device-code`, display the verification URL and user code, and poll `GET /api/provider-auth/device-status/:flowId` until authorization completes or the code expires. The poll SHALL be owned by the providers section, so dismissing the dialog does not end the flow. The UI SHALL NOT automatically open the verification URL; the user must click an explicit "Open Registration Page" button (see "Device code flow requires explicit user action to open browser").
 
 #### Scenario: Successful device code login
 - **WHEN** the user enters the code on GitHub and authorizes
-- **THEN** the polling SHALL detect success, close the modal, and update the provider status to authenticated
+- **THEN** the polling SHALL detect success, close the dialog, and add the provider to the connected list
 
 #### Scenario: Device code expires
 - **WHEN** the device code expires without authorization
-- **THEN** the modal SHALL show "Code expired" with a "Try Again" button
+- **THEN** the pane SHALL show "Code expired" with a "Try Again" button
 
 #### Scenario: GitHub Enterprise domain prompt
-- **WHEN** the user clicks "Sign In" for GitHub Copilot
+- **WHEN** the user selects GitHub Copilot in the Add-provider picker
 - **THEN** the UI SHALL first prompt for a GitHub Enterprise domain (with a placeholder "blank for github.com") before starting the device code flow
 
 ### Requirement: API key entry
-The UI SHALL provide text inputs for API key providers. When the user enters a key and confirms, the UI SHALL call `PUT /api/provider-auth/api-key` with the provider name and key. The input SHALL mask the key value after saving.
+Key entry SHALL occur in exactly two places: the Add-provider dialog for a provider that holds no credential, and the Edit state of an existing API-key row. The section SHALL NOT render a persistent key input on a row. On confirm the UI SHALL call `PUT /api/provider-auth/api-key` with the provider name and key, and SHALL render the stored key masked thereafter. A refusal from the server SHALL be rendered inline with the server's message, and SHALL NOT be reported as a success.
 
 #### Scenario: Save new API key
-- **WHEN** the user enters "sk-..." for OpenAI and clicks save
-- **THEN** the UI SHALL call the API, show a success indicator, and mask the key display
+- **WHEN** the user enters "sk-..." for OpenAI in the Add-provider dialog and confirms
+- **THEN** the UI SHALL call the API and the provider SHALL appear in the connected list with a masked key
+
+#### Scenario: Edit an existing key from its row
+- **WHEN** the user activates Edit on an API-key row and submits a new key
+- **THEN** the UI SHALL call the API and re-render the row with the new key masked
+
+#### Scenario: No key input on a row at rest
+- **WHEN** the connected list renders
+- **THEN** no row SHALL present a key text input until Edit is activated
 
 #### Scenario: Remove API key
-- **WHEN** the user clicks the remove button for an authenticated API key provider
-- **THEN** the UI SHALL call `DELETE /api/provider-auth/openai` and update the status to unauthenticated
+- **WHEN** the user clicks the remove button on an API-key row
+- **THEN** the UI SHALL call `DELETE /api/provider-auth/openai` and remove the row from the list
+
+#### Scenario: Refused key write is surfaced
+- **WHEN** the server refuses the write because a credential of a different type is stored under the same key
+- **THEN** the UI SHALL render the server's message inline
+- **AND** SHALL NOT report the key as saved
 
 ### Requirement: Logout for OAuth providers
-When the user clicks "Sign Out" for an authenticated OAuth provider, the UI SHALL call `DELETE /api/provider-auth/:provider` and update the display to unauthenticated.
+When the user activates "Sign Out" on a Subscription row, the UI SHALL call `DELETE /api/provider-auth/:provider` and remove the row from the connected list. The provider SHALL thereafter be offered again in the Add-provider picker.
 
 #### Scenario: Sign out from Anthropic
-- **WHEN** the user clicks "Sign Out" for Anthropic
-- **THEN** the UI SHALL remove the credential via API and show the "Sign In" button again
+- **WHEN** the user clicks "Sign Out" on the Anthropic row
+- **THEN** the UI SHALL remove the credential via API
+- **AND** the row SHALL leave the connected list
+- **AND** Anthropic SHALL become selectable again in the Add-provider picker
 
 ### Requirement: Status refresh on load and after changes
-The UI SHALL fetch provider status from `GET /api/provider-auth/status` when the Settings panel mounts and after any login, logout, or API key change. The status SHALL reflect the current state of `auth.json`.
+The UI SHALL fetch provider status from `GET /api/provider-auth/status` when the Settings panel mounts and after any login, logout, API key change, or custom-endpoint write. The status SHALL reflect the current state of `auth.json`. Every such refresh SHALL pass through the section's single change-handling path, which SHALL dispatch the credential-change notification exactly once per successful write, whichever control initiated it.
+
+#### Scenario: Custom-endpoint write refreshes the list
+- **WHEN** a custom endpoint is added, edited, or removed
+- **THEN** the section SHALL refresh and dispatch the credential-change notification once
 
 #### Scenario: Status refresh after login
 - **WHEN** the user completes an OAuth login
@@ -85,26 +184,12 @@ When the device code flow is initiated, the system SHALL NOT automatically open 
 - **WHEN** the user clicks the "Open Registration Page" button in the device code modal
 - **THEN** the verification URL opens in a new browser tab
 
-### Requirement: OAuth providers without server handler render disabled
-
-The Provider Authentication section SHALL fetch `GET /api/provider-auth/handlers` once on mount and cache the returned `ids` as a Set. For each row in the catalogue whose `flowType !== "api_key"` (i.e. OAuth flow), if its `id` is NOT present in the handler-id set, the UI SHALL render its login button with `disabled` and a `title` tooltip in the form `"OAuth flow not yet supported in dashboard for <displayName>"`. Click handlers SHALL be suppressed for those rows. All other rendering (display name, expiry indicator, sign-out for stored credentials) SHALL be unchanged.
-
-#### Scenario: Extension-registered OAuth provider has no handler
-- **WHEN** the catalogue contains `{ id: "custom-llm", displayName: "Custom LLM", hasOAuth: true }` and `GET /api/provider-auth/handlers` returns `["anthropic", "openai-codex", "github-copilot"]`
-- **THEN** the row for Custom LLM SHALL render the login button with the `disabled` attribute and a tooltip "OAuth flow not yet supported in dashboard for Custom LLM"
-
-#### Scenario: Built-in provider with handler unaffected
-- **WHEN** the catalogue contains `{ id: "anthropic", hasOAuth: true }` and the handler-id set contains `"anthropic"`
-- **THEN** the Anthropic row SHALL render the login button enabled, click-handler attached, exactly as before
-
-#### Scenario: Already-authenticated provider with no handler keeps "Sign Out"
-- **WHEN** the catalogue contains an OAuth row with no matching handler but `auth.json` has stored credentials for it
-- **THEN** the Sign Out button SHALL remain enabled (revoking is a `DELETE /api/provider-auth/credential` call, not a handler-driven flow), and the disabled state applies only to a new login click
-
 ### Requirement: Provider section degrades on a failed or malformed status response
 The Settings provider section SHALL fail closed when `GET /api/provider-auth/status` does not deliver a JSON array. A non-`ok` HTTP response, a body that is not an array, or a network failure SHALL render an inline error inside the section — the section SHALL NOT throw, and SHALL NOT let an ErrorBoundary replace the surrounding Settings panel.
 
 The section SHALL remain interactive in this state so the operator can still reach the controls that repair credentials.
+
+The list merges two independent sources — the credential status and the custom-endpoint list. Each source SHALL render its own inline error, and a failure of one SHALL NOT hide the rows contributed by the other.
 
 #### Scenario: 500 response renders an inline error, not a white screen
 - **WHEN** `GET /api/provider-auth/status` responds `500` with `{"statusCode":500,"error":"Internal Server Error","message":"..."}`
@@ -120,10 +205,23 @@ The section SHALL remain interactive in this state so the operator can still rea
 - **WHEN** the status fetch rejects
 - **THEN** the section SHALL render an inline error and SHALL leave the Settings panel mounted
 
+#### Scenario: A failed status fetch does not hide custom endpoints
+- **WHEN** `GET /api/provider-auth/status` fails and `/api/providers` succeeds with one entry
+- **THEN** the custom-endpoint row SHALL still render
+- **AND** the credential-status error SHALL render inline beside it
+
+#### Scenario: A failed providers fetch does not hide credential rows
+- **WHEN** `/api/providers` fails and the credential status succeeds
+- **THEN** the credential rows SHALL still render with their own actions
+
 ### Requirement: OAuth status poll tolerates transient failures
 The auth-code login poll SHALL treat a malformed or non-`ok` status response as a *transient* failure and continue polling, ending the flow with an error message only after a bounded number of consecutive such failures. A single failed poll — a transient `5xx`, or a server restart mid-login — SHALL NOT abort an in-flight login, and a persistent failure SHALL NOT leave the UI reporting "waiting" until the 5-minute timeout.
 
 The poll SHALL NOT invoke an array method on a body that is not an array.
+
+Poll state SHALL live in the providers section and SHALL be keyed per provider, so concurrent flows do not share a timer or a failure counter and one flow's cleanup does not end another's. The poll SHALL read the unfiltered status response rather than the rendered (configured-only) list, or the transition it is waiting for is never observable.
+
+The device-code poll retains its existing behaviour of retrying until expiry without a consecutive-failure bound; that asymmetry with the auth-code poll is preserved deliberately.
 
 #### Scenario: One transient failure does not abort the login
 - **GIVEN** an auth-code login is polling for completion
@@ -140,3 +238,42 @@ The poll SHALL NOT invoke an array method on a body that is not an array.
 - **WHEN** a poll response body is a JSON object
 - **THEN** the poll SHALL NOT throw a TypeError
 
+#### Scenario: One flow's failures do not abort another
+- **GIVEN** two auth-code flows are polling concurrently
+- **WHEN** one of them reaches its consecutive-failure bound and ends
+- **THEN** the other SHALL continue polling
+
+#### Scenario: The poll sees a provider become configured
+- **GIVEN** the rendered list excludes unconfigured providers
+- **WHEN** the provider being polled becomes configured
+- **THEN** the poll SHALL observe the transition and complete the flow
+
+### Requirement: Catalogue-unavailable is distinguished from no-credentials
+
+API-key rows exist only while a provider catalogue has been pushed by a connected pi session. When no catalogue is available the section SHALL NOT report that nothing is configured. It SHALL render a notice scoped to the api-key portion of the list, stating that the API-key provider list is unavailable and MAY be out of date, while continuing to render every row whose source does not depend on the catalogue.
+
+The notice SHALL NOT replace the list, and the Add-provider control SHALL remain rendered beside it — it is the only path to adding a credential, and the unavailable state is precisely when an operator is likely to need it.
+
+#### Scenario: No catalogue with stored keys
+- **WHEN** the catalogue-availability signal reports not ready and `auth.json` holds API keys
+- **THEN** the section SHALL NOT render the "nothing configured" empty state
+- **AND** SHALL render the unavailable notice
+
+#### Scenario: Add control remains available while the catalogue is unavailable
+- **WHEN** the catalogue is unavailable
+- **THEN** the Add-provider control SHALL still render
+- **AND** the picker SHALL still offer the Custom endpoint entry
+
+#### Scenario: No catalogue with an OAuth credential
+- **WHEN** the catalogue is unavailable and an OAuth provider is connected
+- **THEN** its Subscription row SHALL still render
+- **AND** the notice SHALL be scoped beside the list, not substituted for it
+
+### Requirement: Rows are identified by source, not by id alone
+
+A provider id can be present both as an authentication row and as an entry in `providers.json`. The section SHALL identify rows by the pair (source, id) and SHALL render both, each labelled by its own kind, rather than collapsing or dropping one. The custom-endpoint row SHALL be labelled by its `providers.json` name.
+
+#### Scenario: Same id from both sources
+- **WHEN** `anthropic` holds an OAuth credential and `providers.json` also has an entry named `anthropic`
+- **THEN** the section SHALL render a Subscription row and a Custom endpoint row
+- **AND** neither SHALL replace the other

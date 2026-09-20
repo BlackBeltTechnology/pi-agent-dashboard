@@ -7,6 +7,7 @@ import type {
   DashboardSession,
   OpenSpecGroup,
   OpenSpecGroupsFile,
+  ProviderSource,
 } from "./types.js";
 
 export type { ApiResponse } from "./types.js";
@@ -649,6 +650,20 @@ export interface ProviderAuthStatus {
   envVar?: string;
   /** True when configured via ambient credential chain (AWS profile / GCP ADC). */
   ambient?: boolean;
+  /**
+   * Whether *this row's own* credential kind is configured. Deliberately
+   * distinct from `authenticated`: derived per row kind in the server
+   * (`_buildAuthStatus`), so a keyless `-api` twin reads `false` rather than
+   * inheriting its OAuth sibling's state — and an env-var credential reads
+   * `true` even though `authenticated` under-counts it.
+   *
+   * Optional: an older server omits it, so consumers must fall back to
+   * `configured ?? authenticated` rather than filtering on a falsy value,
+   * which would drop every row. See change: redesign-providers-settings-page (D1, D6).
+   */
+  configured?: boolean;
+  /** Where this row's credential is sourced from, when configured. */
+  source?: ProviderSource;
 }
 
 export interface AuthorizeResponse {

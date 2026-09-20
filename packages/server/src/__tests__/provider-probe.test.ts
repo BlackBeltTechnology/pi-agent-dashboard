@@ -5,6 +5,7 @@ import {
   probeProvider,
   type ProbeInput,
 } from "../package/provider-probe.js";
+import { startStalledUpstream } from "./stalled-upstream.js";
 
 describe("buildProbeRequest", () => {
   it("openai-completions: GET {baseUrl}/models with Authorization: Bearer", () => {
@@ -250,6 +251,50 @@ describe("probeProvider", () => {
     }
   });
 
+  // The probe error is CACHED into ProviderHealth, and the spec requires the
+  // cached value to carry no credential material at all — not merely "not the
+  // key we sent". An upstream or an intermediary proxy routinely echoes a
+  // DIFFERENT secret than the one submitted, so the sanitization has to happen
+  // at ingestion rather than by trusting the upstream.
+  // See change: redesign-providers-settings-page (CodeRabbit PR #709).
+  describe("error sanitization: a credential OTHER than the submitted key", () => {
+    async function errorFor(upstreamBody: string): Promise<string> {
+      mockFetch(async () => new Response(upstreamBody, { status: 502 }));
+      const result = await probeProvider({ ...baseInput, apiKey: "sk-submitted" });
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error("unreachable");
+      return result.error ?? "";
+    }
+
+    it("strips an echoed Authorization: Bearer token", async () => {
+      const err = await errorFor("upstream rejected Authorization: Bearer abcdef0123456789XYZ");
+      expect(err).not.toContain("abcdef0123456789XYZ");
+      expect(err).toContain("[REDACTED]");
+      // The mechanism stays visible — a fully-scrubbed error is undiagnosable.
+      expect(err).toContain("Bearer");
+    });
+
+    it("strips a labelled api_key / access_token value", async () => {
+      const err = await errorFor('{"error":{"api_key":"other-secret-value-1234"}}');
+      expect(err).not.toContain("other-secret-value-1234");
+      expect(err).toContain("[REDACTED]");
+
+      const err2 = await errorFor("access_token=zzzzzzzzzzzzzzzz9999");
+      expect(err2).not.toContain("zzzzzzzzzzzzzzzz9999");
+    });
+
+    it("strips a vendor-prefixed key belonging to a DIFFERENT provider", async () => {
+      const err = await errorFor("proxy forwarded sk-livekeyfromanotheraccount123 upstream");
+      expect(err).not.toContain("sk-livekeyfromanotheraccount123");
+      expect(err).toContain("[REDACTED]");
+    });
+
+    it("leaves an ordinary error message intact (no over-redaction)", async () => {
+      const msg = "Bad gateway: upstream model gpt-4o-mini is not available in region eu-west-1";
+      expect(await errorFor(msg)).toBe(msg);
+    });
+  });
+
   it("anthropic-messages uses x-api-key header (not Authorization)", async () => {
     let capturedInit: RequestInit | undefined;
     mockFetch(async (_url, init) => {
@@ -283,5 +328,44 @@ describe("probeProvider", () => {
     expect(capturedUrl).toContain("?key=AIzaTest");
     const headers = (capturedInit!.headers ?? {}) as Record<string, string>;
     expect(headers.Authorization).toBeUndefined();
+  });
+});
+
+describe("probeProvider against a stalled upstream (real fixture, P1/task 4.6)", () => {
+  let originalFetch: typeof globalThis.fetch;
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  // Distinct from the refused-connection case above (a mocked fetch that throws
+  // ECONNREFUSED): here a REAL listener accepts the TCP connection and never
+  // responds, so the probe only ends via its abort ceiling. See task 4.6 of
+  // redesign-providers-settings-page.
+  it("stalled upstream: probe waits out timeoutMs, then returns ok:false with no status", async () => {
+    const stalled = await startStalledUpstream();
+    try {
+      const t0 = Date.now();
+      const result = await probeProvider({
+        baseUrl: stalled.url,
+        apiKey: "sk-x",
+        api: "openai-completions",
+        timeoutMs: 400,
+      });
+      const elapsed = Date.now() - t0;
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        // No HTTP status: the request never got a response.
+        expect(result.status).toBeUndefined();
+        expect(result.error).toBeTruthy();
+      }
+      // It WAITED (stalled), not refused fast — and it was bounded by timeoutMs.
+      expect(elapsed).toBeGreaterThanOrEqual(350);
+      expect(elapsed).toBeLessThan(5_000);
+    } finally {
+      await stalled.close();
+    }
   });
 });

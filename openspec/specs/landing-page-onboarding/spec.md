@@ -89,7 +89,9 @@ Step ③ SHALL spawn a session in the first pinned directory when its CTA is act
 ### Requirement: Providers-ready detection
 The client SHALL provide a `useProvidersReady()` hook that observes BOTH `/api/providers` (OpenAI-style baseUrl+apiKey config entries) AND `/api/provider-auth/status` (pi OAuth / API-key credentials stored in `~/.pi/agent/auth.json`) and returns `{ ready, count, loading }`. `ready` SHALL be `true` if either source has at least one authenticated/keyed entry; `count` SHALL be the sum across both sources. The hook SHALL refetch on initial mount, on window `focus`, and on `provider-auth-event` custom events. When one endpoint fails, the hook SHALL still derive readiness from the other.
 
-The client SHALL dispatch a `provider-auth-event` on `window` after each credential write that succeeds, covering the API-key save, the API-key removal, the OAuth sign-in completion, the OAuth sign-out, the device-code completion, and the custom-LLM-provider save (which has replace semantics and therefore covers adding, editing, and deleting a custom provider). Writes that DECREASE the credential count SHALL dispatch on the same terms as writes that increase it.
+The client SHALL dispatch a `provider-auth-event` on `window` after each credential write that succeeds, covering the API-key save, the API-key removal, the OAuth sign-in completion, the OAuth sign-out, the device-code completion, and each custom-provider write (the single-provider create, update, and delete, and the retained whole-map write). Writes that DECREASE the credential count SHALL dispatch on the same terms as writes that increase it.
+
+The readiness hook continues to derive readiness from `authenticated`. It SHALL NOT be rewired onto the credential-status `configured` field by this contract; its under-count of environment-credentialed providers is pre-existing and is changed, if at all, by its own change.
 
 The dispatch SHALL occur on the success branch by which each write path already determines success, and SHALL NOT introduce a new success gate. A write that the call site treats as failed SHALL NOT dispatch the event.
 
@@ -99,7 +101,9 @@ The event SHALL carry no credential material.
 
 The dispatch SHALL be attached to the credential-write path only, never to a status refresh that also runs on component mount.
 
-This contract is bounded to writes performed by a mounted client surface in the current window. Credential writes that complete server-side after the initiating component unmounts, writes originating outside the client (CLI, direct API calls), and writes in another browser window are NOT covered; those surfaces continue to rely on the hook's `focus` and mount refetches.
+This contract is bounded to writes performed by a mounted client surface in the current window. Writes originating outside the client (CLI, direct API calls) and writes in another browser window are NOT covered; those surfaces continue to rely on the hook's `focus` and mount refetches.
+
+An authentication flow started from the Add-provider dialog is **in** scope even when it completes after the dialog closed, because the flow is owned by the providers section rather than by the dialog. The exclusion for a write completing after the *initiating component* unmounts therefore applies to the unmount of the owning section, not to the dismissal of the dialog that started the flow.
 
 #### Scenario: Ready is true when any `/api/providers` entry has an API key
 - **GIVEN** `/api/providers` returns `{ providers: { openai: { apiKey: "sk-..." } } }`
@@ -150,10 +154,17 @@ This contract is bounded to writes performed by a mounted client surface in the 
 - **THEN** a `provider-auth-event` SHALL be dispatched on `window`
 
 #### Scenario: A successful custom-LLM-provider save dispatches the event
-- **GIVEN** the settings panel has a dirty custom-LLM-provider list
-- **AND** the `/api/providers` `PUT` is mocked to return `success: true`
-- **WHEN** the save is submitted
+- **GIVEN** the operator submits a custom endpoint from the Add-provider dialog
+- **AND** the single-provider write is mocked to succeed
+- **WHEN** the write completes
 - **THEN** a `provider-auth-event` SHALL be dispatched on `window`
+
+#### Scenario: A flow completing after the dialog closed still dispatches
+- **GIVEN** an OAuth flow started from the Add-provider dialog and the dialog has since been dismissed
+- **AND** the providers section is still mounted
+- **WHEN** the flow completes successfully
+- **THEN** a `provider-auth-event` SHALL be dispatched on `window`
+- **AND** the list SHALL refresh
 
 #### Scenario: Removing the last API key dispatches the event
 - **GIVEN** the provider auth settings section is mounted with exactly one keyed provider
@@ -164,7 +175,7 @@ This contract is bounded to writes performed by a mounted client surface in the 
 - **AND** `useProvidersReady()` SHALL subsequently report `ready=false`
 
 #### Scenario: A provider save that writes no credential still dispatches
-- **GIVEN** an existing custom LLM provider whose API key is unchanged and round-trips as the redaction sentinel
+- **GIVEN** an existing custom provider whose API key is unchanged and round-trips as the redaction sentinel
 - **AND** only its base URL or api type is edited
 - **WHEN** the save succeeds
 - **THEN** a `provider-auth-event` SHALL be dispatched
@@ -177,9 +188,9 @@ This contract is bounded to writes performed by a mounted client surface in the 
 - **THEN** a `provider-auth-event` SHALL be dispatched on `window`
 
 #### Scenario: Deleting a custom LLM provider dispatches the event
-- **GIVEN** the settings panel has an existing custom LLM provider
-- **AND** the `/api/providers` `PUT` that omits it is mocked to return `success: true`
-- **WHEN** the save is submitted
+- **GIVEN** an existing custom provider row
+- **AND** the single-provider delete is mocked to succeed
+- **WHEN** the operator removes it
 - **THEN** a `provider-auth-event` SHALL be dispatched on `window`
 
 #### Scenario: A transport-failed credential write dispatches nothing
