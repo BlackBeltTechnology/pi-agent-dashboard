@@ -54845,10 +54845,9 @@
     const veilOp = (cfg, q) => cfg.mirrorFloor !== false && q.mirror ? cfg.mode === "dark" ? 0.55 : 0.35 : 1;
     function applySurface(P, cfg, q) {
       const mirrored = cfg.mirrorFloor !== false && q.mirror;
-      if (!r.scene.background) {
-        r.scene.background = new Color(P.bg);
-        r.veil.material.color.set(P.bg);
-      }
+      if (r.scene.background instanceof Color) r.scene.background.set(P.bg);
+      else r.scene.background = new Color(P.bg);
+      r.veil.material.color.set(P.bg);
       r.veil.material.alphaMap = mirrored ? veilAlpha(veilOp(cfg, q)) : null;
       r.veil.material.opacity = 1;
       r.veil.material.needsUpdate = true;
@@ -54896,6 +54895,7 @@
         return names;
       },
       applyLook,
+      rimColor: () => r.rimLight.color,
       resize: (w, h) => {
         r.renderer.setSize(w, h);
         r.composer.setSize(w, h);
@@ -55096,8 +55096,8 @@
     return out;
   }
   var localFxErrors = [];
-  function buildSlideGroup(deck, slide, index, font, models, propMaterials) {
-    const cfg = effective(deck.defaults, slide);
+  function buildSlideGroup(deck, slide, index, font, models, propMaterials, patch) {
+    const cfg = patch ? { ...effective(deck.defaults, slide), ...patch } : effective(deck.defaults, slide);
     const P = resolvePalette(cfg);
     const g = new Group();
     const anchor = anchorFor(index, cfg.camera?.distance);
@@ -55209,6 +55209,17 @@
     function disposeLocalFx(index) {
       for (const handle of builds[index]?.localFx ?? []) handle.dispose();
       if (builds[index]) builds[index].localFx = [];
+    }
+    function disposeBuild(build) {
+      const propsRoot = build.props?.group;
+      build.group.traverse((o) => {
+        if (propsRoot && (o === propsRoot || propsRoot.getObjectById(o.id))) return;
+        const mesh = o;
+        if (!mesh.isMesh) return;
+        mesh.geometry?.dispose();
+        const mat = mesh.material;
+        for (const m of Array.isArray(mat) ? mat : [mat]) m?.dispose();
+      });
     }
     function goTo(i) {
       const target = (i % builds.length + builds.length) % builds.length;
@@ -55348,11 +55359,24 @@
       current: () => cur + 1,
       gotoSlide: (index1Based) => navTo(index1Based - 1),
       applySlide: (patch) => {
-        const build = builds[cur];
-        const cfg = { ...build.cfg, ...patch };
-        build.cfg = cfg;
-        build.palette = resolvePalette(cfg);
-        rig.applyLook(build.palette, cfg, qualityProfile(cfg.quality));
+        const slide = deck.slides[cur];
+        const previous = builds[cur];
+        const cfg = { ...previous.cfg, ...patch };
+        disposeLocalFx(cur);
+        rig.world.remove(previous.group);
+        const mats = createPropMaterials(resolvePalette(cfg), cfg);
+        const rebuilt = buildSlideGroup(deck, slide, cur, font, propModels, mats, cfg);
+        builds[cur] = rebuilt;
+        rig.world.add(rebuilt.group);
+        rebuilt.group.userData.index = cur;
+        disposeBuild(previous);
+        camState.pos.copy(rebuilt.anchor.cam);
+        camState.target.copy(rebuilt.anchor.target);
+        anim = null;
+        rig.camera.position.copy(camState.pos);
+        rig.camera.lookAt(camState.target);
+        rig.applyLook(rebuilt.palette, cfg, qualityProfile(cfg.quality));
+        rebuilt.diagram?.tick(0);
         rig.render();
       },
       applyEffects: (ids) => {
@@ -55446,7 +55470,29 @@
           });
           return count;
         },
-        liftedMessage: () => builds[cur].diagram?.lifted?.() ?? null
+        liftedMessage: () => builds[cur].diagram?.lifted?.() ?? null,
+        /**
+         * Scene-side look, read from the live objects rather than from the
+         * config that was *meant* to produce them. Configurator tests assert
+         * on this so a control that stages a value without reaching the frame
+         * still fails.
+         */
+        look: () => {
+          const hex = (c) => c ? `#${c.getHexString()}` : "";
+          const title = builds[cur].labels.find((l) => l.kind === "title");
+          let titleColor;
+          title?.object.traverse((o) => {
+            const mat = o.material;
+            if (!titleColor && mat?.color) titleColor = mat.color;
+          });
+          return {
+            bg: hex(rig.scene.background),
+            fog: hex(rig.scene.fog instanceof Fog ? rig.scene.fog.color : void 0),
+            rim: hex(rig.rimColor()),
+            title: hex(titleColor),
+            camZ: rig.camera.position.z
+          };
+        }
       },
       current: () => cur + 1
     };

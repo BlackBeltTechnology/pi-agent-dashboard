@@ -23,6 +23,8 @@ export interface SceneRig {
   bloom: UnrealBloomPass | null;
   passNames: () => string[];
   applyLook: (P: PaletteColors, cfg: SlideConfig, profile: QualityProfile) => void;
+  /** Live rim-light colour, for the configurator's debug surface. */
+  rimColor: () => THREE.Color;
   resize: (w: number, h: number) => void;
   render: () => void;
   updateFloor: (target: THREE.Vector3) => void;
@@ -72,10 +74,12 @@ export function createSceneRig(profile: QualityProfile): SceneRig {
 
   function applySurface(P: PaletteColors, cfg: SlideConfig, q: QualityProfile): void {
     const mirrored = cfg.mirrorFloor !== false && q.mirror;
-    if (!r.scene.background) {
-      r.scene.background = new THREE.Color(P.bg);
-      r.veil.material.color.set(P.bg);
-    }
+    // Repaint on every call, not just the first: the configurator changes the
+    // palette after boot, and a first-run-only guard here left the dominant
+    // colour on screen frozen at whatever the deck booted with.
+    if (r.scene.background instanceof THREE.Color) r.scene.background.set(P.bg);
+    else r.scene.background = new THREE.Color(P.bg);
+    r.veil.material.color.set(P.bg);
     r.veil.material.alphaMap = mirrored ? veilAlpha(veilOp(cfg, q)) : null;
     r.veil.material.opacity = 1;
     r.veil.material.needsUpdate = true;
@@ -127,6 +131,7 @@ export function createSceneRig(profile: QualityProfile): SceneRig {
       return names;
     },
     applyLook,
+    rimColor: () => r.rimLight.color,
     resize: (w, h) => {
       r.renderer.setSize(w, h);
       r.composer.setSize(w, h);

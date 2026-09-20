@@ -29,7 +29,11 @@ export interface Deck3dApi {
     /** Local-effect failures, `{ slide, effectId, phase }` (design D1). */
     errors: Array<{ slide: string; effectId: string; phase: "create" | "tick" | "dispose" }>;
   };
-  debug: { titleGlyphs: () => number; liftedMessage: () => string | null };
+  debug: {
+    titleGlyphs: () => number;
+    liftedMessage: () => string | null;
+    look: () => { bg: string; fog: string; rim: string; title: string; camZ: number };
+  };
   current: () => number;
 }
 

@@ -12,7 +12,7 @@
  * `low` budget (6) overflow only once `bloom` (cost 2) is added.
  */
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -129,9 +129,15 @@ describe("P2 topic backgrounds scale with the quality tier", () => {
 /**
  * test-plan #F3 (scene side) — a palette change must reach the rendered frame,
  * not just the panel's own widgets.
+ *
+ * This asserts the resulting COLOUR, not merely that the frame changed. The
+ * camera carries a permanent idle drift (`index.ts` `frame()`), so consecutive
+ * screenshots always differ and a `Buffer.compare(...) !== 0` assertion cannot
+ * fail — that spelling passed while the palette reached nothing but the rim
+ * light.
  */
 describe.skipIf(!hasChromium)("F3 configurator palette reaches the scene (chromium)", () => {
-  it("repaints the background within two frames and leaves __DECK alone", async () => {
+  it("repaints the background and label colours, and leaves __DECK alone", async () => {
     const dir = mkdtempSync(join(tmpdir(), "deck3d-f3scene-"));
     writeFileSync(join(dir, "deck.md"), "# Geo\n\n- one\n\n# Ai\n\n- two\n");
     expect(spawnSync(BIN, ["build", "deck.md", "-o", "deck.html"], { cwd: dir, encoding: "utf8" }).status).toBe(0);
@@ -143,13 +149,91 @@ describe.skipIf(!hasChromium)("F3 configurator palette reaches the scene (chromi
       await page.waitForFunction(() => window.__deck3d !== undefined, undefined, { timeout: 30_000 });
       await page.keyboard.press("c");
 
-      const before = await page.screenshot();
+      const before = await page.evaluate(() => window.__deck3d!.debug.look());
+      expect(before.bg).toBe("#1a1a1c"); // blackbelt dark
+
       await page.selectOption('#deck3d-hud select[data-path="palette"]', "ember");
       await page.waitForTimeout(120);
-      const after = await page.screenshot();
+      const after = await page.evaluate(() => window.__deck3d!.debug.look());
 
-      expect(Buffer.compare(before, after)).not.toBe(0);
+      // ember dark: bg #1C1917, accent #F59E0B. Background, fog and the slide's
+      // own text must all move — the fog tracks the background, and the title
+      // colour proves the rebuilt slide picked up the new palette.
+      expect(after.bg).toBe("#1c1917");
+      expect(after.fog).toBe("#1c1917");
+      expect(after.rim).toBe("#f59e0b");
+      // The title is drawn in the accent (`titleMaterial`), so this moving from
+      // blackbelt's #ff5722 to ember's #f59e0b is what proves the slide itself
+      // was rebuilt — `applyLook` cannot reach a baked material.
+      expect(before.title).toBe("#ff5722");
+      expect(after.title).toBe("#f59e0b");
+
       expect(await page.evaluate(() => window.__DECK.defaults.palette)).toBe("blackbelt");
+    } finally {
+      await browser.close();
+    }
+  }, 240_000);
+});
+
+/**
+ * test-plan #F9 — the geometry-bearing controls. `camera.distance` and
+ * `labels.size` are baked by `buildSlideGroup` at boot, so re-running
+ * `applyLook` alone cannot move them; both were silently inert.
+ */
+describe.skipIf(!hasChromium)("F9 configurator geometry controls preview live (chromium)", () => {
+  it("moves the camera on camera.distance and resizes diagram labels on labels.size", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "deck3d-f9-"));
+    // `labels.size` drives DIAGRAM labels (`builders.ts`), not the title, so the
+    // slide needs a diagram or the control is legitimately inert.
+    writeFileSync(join(dir, "deck.md"), "# Market\n\n- a\n- b\n");
+    expect(spawnSync(BIN, ["parse", "deck.md", "-o", "deck.json"], { cwd: dir, encoding: "utf8" }).status).toBe(0);
+    const parsed = JSON.parse(readFileSync(join(dir, "deck.json"), "utf8"));
+    parsed.overrides = parsed.overrides ?? {};
+    parsed.overrides.slides = {
+      market: { diagram: { kind: "bars", data: { labels: ["aa", "bb", "cc"], values: [3, 5, 8] } } },
+    };
+    writeFileSync(join(dir, "deck.json"), JSON.stringify(parsed, null, 2));
+    expect(spawnSync(BIN, ["render", "deck.json", "-o", "deck.html"], { cwd: dir, encoding: "utf8" }).status).toBe(0);
+
+    const titleWidth = async (page: import("playwright").Page): Promise<number> => {
+      const rect = await page.evaluate(() => window.__deck3d!.measure().find((m) => m.kind === "title")?.rect ?? null);
+      expect(rect).not.toBeNull();
+      return (rect as { w: number }).w;
+    };
+    const labelWidth = async (page: import("playwright").Page): Promise<number> => {
+      const rect = await page.evaluate(() => window.__deck3d!.measure().find((m) => m.kind === "label")?.rect ?? null);
+      expect(rect).not.toBeNull();
+      return (rect as { w: number }).w;
+    };
+
+    const browser = await chromium.launch({ channel: "chromium" });
+    try {
+      const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
+      await page.goto(pathToFileURL(join(dir, "deck.html")).href);
+      await page.waitForFunction(() => window.__deck3d !== undefined, undefined, { timeout: 30_000 });
+      await page.keyboard.press("c");
+      await page.click('#deck3d-hud button[data-scope="slide"]');
+
+      const baseZ = await page.evaluate(() => window.__deck3d!.debug.look().camZ);
+      const baseW = await titleWidth(page);
+
+      // Pull the camera back: the projected title must shrink.
+      await page.fill('#deck3d-hud input[data-path="camera.distance"]', "16");
+      await page.dispatchEvent('#deck3d-hud input[data-path="camera.distance"]', "change");
+      await page.waitForTimeout(150);
+      expect(await page.evaluate(() => window.__deck3d!.debug.look().camZ)).toBeGreaterThan(baseZ + 4);
+      expect(await titleWidth(page)).toBeLessThan(baseW);
+
+      // Grow the diagram type at that same distance: labels must widen.
+      const pulledLabelW = await labelWidth(page);
+      await page.fill('#deck3d-hud input[data-path="labels.size"]', "0.4");
+      await page.dispatchEvent('#deck3d-hud input[data-path="labels.size"]', "change");
+      await page.waitForTimeout(150);
+      expect(await labelWidth(page)).toBeGreaterThan(pulledLabelW);
+
+      // The embedded IR materialises the default distance; staging 16 in the
+      // panel must leave that 9 alone — the panel previews, it does not write.
+      expect(await page.evaluate(() => JSON.stringify(window.__DECK.slides[0].camera ?? null))).toBe('{"distance":9}');
     } finally {
       await browser.close();
     }

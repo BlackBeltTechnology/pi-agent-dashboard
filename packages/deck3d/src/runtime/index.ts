@@ -196,8 +196,10 @@ function buildSlideGroup(
   font: Font,
   models: Map<string, THREE.Object3D>,
   propMaterials: PropMaterials,
+  /** Configurator patch, layered over the slide's own config (not persisted). */
+  patch?: SlideConfig,
 ): SlideBuild {
-  const cfg = effective(deck.defaults, slide);
+  const cfg = patch ? { ...effective(deck.defaults, slide), ...patch } : effective(deck.defaults, slide);
   const P = resolvePalette(cfg);
   const g = new THREE.Group();
   const anchor = anchorFor(index, cfg.camera?.distance);
@@ -334,6 +336,28 @@ async function boot(): Promise<void> {
   function disposeLocalFx(index: number): void {
     for (const handle of builds[index]?.localFx ?? []) handle.dispose();
     if (builds[index]) builds[index].localFx = [];
+  }
+
+  /**
+   * Free a discarded slide build's GPU resources. The configurator rebuilds
+   * the same slide once per edit, so dropping the reference is not enough —
+   * three.js never frees buffers on GC.
+   *
+   * The props subtree is skipped on purpose: `applyProps` places
+   * `Object3D.clone()`s of shared model templates, and clones share their
+   * geometry and material BY REFERENCE. Disposing them here would blank the
+   * same prop on every other slide using it.
+   */
+  function disposeBuild(build: SlideBuild): void {
+    const propsRoot = build.props?.group;
+    build.group.traverse((o) => {
+      if (propsRoot && (o === propsRoot || propsRoot.getObjectById(o.id))) return;
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.geometry?.dispose();
+      const mat = mesh.material;
+      for (const m of Array.isArray(mat) ? mat : [mat]) m?.dispose();
+    });
   }
 
   function goTo(i: number): void {
@@ -492,13 +516,36 @@ async function boot(): Promise<void> {
     current: () => cur + 1,
     gotoSlide: (index1Based) => navTo(index1Based - 1),
     applySlide: (patch) => {
-      const build = builds[cur];
-      // Panel values layer over the slide's own config; the IR object is not
-      // mutated, only this render-time copy.
-      const cfg = { ...build.cfg, ...patch } as SlideConfig;
-      build.cfg = cfg;
-      build.palette = resolvePalette(cfg);
-      rig.applyLook(build.palette, cfg, qualityProfile(cfg.quality));
+      // Colours, label sizes, the camera anchor and the background FX are all
+      // BAKED by `buildSlideGroup`. Re-running `applyLook` alone reaches only
+      // the lights, so the slide is rebuilt from the patched config — measured
+      // at ~10-21 ms for the heaviest real slide, i.e. about one frame.
+      const slide = deck.slides[cur];
+      const previous = builds[cur];
+      const cfg = { ...previous.cfg, ...patch } as SlideConfig;
+
+      disposeLocalFx(cur);
+      rig.world.remove(previous.group);
+
+      // Props are tinted from the palette too, so they get materials derived
+      // from the patched config rather than the deck defaults.
+      const mats = createPropMaterials(resolvePalette(cfg), cfg);
+      const rebuilt = buildSlideGroup(deck, slide, cur, font, propModels, mats, cfg);
+      builds[cur] = rebuilt;
+      rig.world.add(rebuilt.group);
+      rebuilt.group.userData.index = cur;
+      disposeBuild(previous);
+
+      // A new anchor means the camera must follow, or `camera.distance` stages
+      // a value the view never honours.
+      camState.pos.copy(rebuilt.anchor.cam);
+      camState.target.copy(rebuilt.anchor.target);
+      anim = null;
+      rig.camera.position.copy(camState.pos);
+      rig.camera.lookAt(camState.target);
+
+      rig.applyLook(rebuilt.palette, cfg, qualityProfile(cfg.quality));
+      rebuilt.diagram?.tick(0);
       rig.render();
     },
     applyEffects: (ids) => {
@@ -601,6 +648,28 @@ async function boot(): Promise<void> {
         return count;
       },
       liftedMessage: () => builds[cur].diagram?.lifted?.() ?? null,
+      /**
+       * Scene-side look, read from the live objects rather than from the
+       * config that was *meant* to produce them. Configurator tests assert
+       * on this so a control that stages a value without reaching the frame
+       * still fails.
+       */
+      look: () => {
+        const hex = (c: THREE.Color | undefined): string => (c ? `#${c.getHexString()}` : "");
+        const title = builds[cur].labels.find((l) => l.kind === "title");
+        let titleColor: THREE.Color | undefined;
+        title?.object.traverse((o) => {
+          const mat = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
+          if (!titleColor && mat?.color) titleColor = mat.color;
+        });
+        return {
+          bg: hex(rig.scene.background as THREE.Color | undefined),
+          fog: hex(rig.scene.fog instanceof THREE.Fog ? rig.scene.fog.color : undefined),
+          rim: hex(rig.rimColor()),
+          title: hex(titleColor),
+          camZ: rig.camera.position.z,
+        };
+      },
     },
     current: () => cur + 1,
   };
