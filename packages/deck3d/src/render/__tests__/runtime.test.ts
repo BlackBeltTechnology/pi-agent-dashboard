@@ -912,3 +912,37 @@ describe.skipIf(!hasChromium)("F25 configurator state survives a reload (chromiu
     }
   }, 120_000);
 });
+
+// #F26 — Export was a blob download only. Inside a sandboxed iframe without
+// `allow-downloads` (the dashboard's live-server viewer) Chrome drops it
+// SILENTLY, so the panel looked dead. The JSON must always be reachable.
+describe.skipIf(!hasChromium)("F26 export survives a download-blocked frame (chromium)", () => {
+  it("shows the overrides JSON in-panel when the download cannot fire", async () => {
+    const { dir } = makeLocalDeck({
+      markdown: "# Geo\n\n- one\n\n# Second\n\n- two\n",
+      slide: "geo",
+      effects: [{ name: "spinner" }],
+    });
+    expect(runCli(["render", "deck.json", "-o", "deck.html"], dir).status).toBe(0);
+    // Host the deck inside an opaque-origin, download-blocked frame.
+    writeFileSync(
+      join(dir, "host.html"),
+      '<!doctype html><iframe id="f" src="deck.html" sandbox="allow-scripts allow-forms allow-popups" style="width:900px;height:560px;border:0"></iframe>',
+    );
+
+    const browser = await chromium.launch({ channel: "chromium" });
+    const page = await browser.newPage({ viewport: { width: 940, height: 600 } });
+    try {
+      await page.goto(pathToFileURL(join(dir, "host.html")).href);
+      const frame = page.frameLocator("#f");
+      await page.waitForTimeout(2500);
+      await frame.locator("#deck3d-hud-toggle").click();
+      await frame.locator("#deck3d-hud button:has-text('Export')").click();
+      const text = await frame.locator("#deck3d-hud-payload textarea").inputValue();
+      // Valid D1-grammar JSON, reachable without any download.
+      expect(() => JSON.parse(text) as unknown).not.toThrow();
+    } finally {
+      await browser.close();
+    }
+  }, 120_000);
+});

@@ -542,11 +542,55 @@ export function createHud(host: HudHost): Hud {
     }
     if (Object.keys(slides).length) payload.slides = slides;
 
-    const blob = new Blob([`${JSON.stringify(payload, null, 2)}\n`], { type: "application/json" });
-    const a = el("a", { href: URL.createObjectURL(blob), download: "overrides.json" });
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    const text = `${JSON.stringify(payload, null, 2)}\n`;
+
+    // A blob download is silently DROPPED in a sandboxed iframe without
+    // `allow-downloads` (the dashboard's live-server viewer is one): no bar, no
+    // badge, no error. So the text is always surfaced in-panel as well, and the
+    // download is treated as the optimistic path rather than the only one.
+    try {
+      const blob = new Blob([text], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = el("a", { href: url, download: "overrides.json" });
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch {
+      // Ignored: the in-panel copy below is the guaranteed path.
+    }
+    showPayload(text);
+  }
+
+  /** Always-available fallback: the JSON, selectable, with a copy button. */
+  function showPayload(text: string): void {
+    document.getElementById("deck3d-hud-payload")?.remove();
+    const box = el("div", { id: "deck3d-hud-payload", class: "deck3d-hud-payload" });
+    const area = el("textarea", { readonly: "readonly", rows: "8", spellcheck: "false" }) as HTMLTextAreaElement;
+    area.value = text;
+    const copy = el("button", { type: "button" });
+    copy.textContent = "Copy";
+    copy.addEventListener("click", () => {
+      area.select();
+      const done = (ok: boolean): void => {
+        copy.textContent = ok ? "Copied" : "Press ⌘C";
+        setTimeout(() => {
+          copy.textContent = "Copy";
+        }, 1500);
+      };
+      // `navigator.clipboard` needs a secure context AND is blocked in an
+      // opaque-origin frame; `execCommand` still works there.
+      navigator.clipboard?.writeText(text).then(
+        () => done(true),
+        () => done(document.execCommand("copy")),
+      ) ?? done(document.execCommand("copy"));
+    });
+    const hint = el("div", { class: "deck3d-hud-note" });
+    hint.textContent = "Save as overrides.json, then: deck3d overrides apply deck.json overrides.json";
+    box.append(area, copy, hint);
+    body.appendChild(box);
+    area.focus();
+    area.select();
   }
 
   function render(): void {

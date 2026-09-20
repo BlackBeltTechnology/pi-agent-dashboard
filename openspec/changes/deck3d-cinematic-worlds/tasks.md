@@ -181,3 +181,4 @@
 - [x] 14.24 `agent-depth` shafts are base-anchored so the wave reads upright; `capital-flows` motes fill the cone via per-mote angle+radius
 - [x] 14.25 Outgoing slide keeps its local fx for the whole fly — disposal deferred to transition landing, and the outgoing backdrop keeps ticking while still in frame (#F24)
 - [x] 14.26 Configurator restores persisted state into the SCENE on reload, not only into the controls; `seedEffectParams` restores per-slide effect tuning across the rebuild (#F25)
+- [x] 14.27 Export always surfaces the overrides JSON in-panel (copy button) because a blob download is silently dropped in a sandboxed iframe without `allow-downloads` (#F26)
