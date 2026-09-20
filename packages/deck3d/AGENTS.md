@@ -5,7 +5,7 @@ Deterministic Markdown → self-contained 3D presentation engine (`deck3d` CLI +
 | File | Purpose |
 |------|---------|
 | `AGENTS.md` | This file — per-file map for the package root. |
-| `README.md` | Install, markdown grammar, CLI commands, IR/overrides, tune loop, effects, props, tests, build. |
+| `README.md` | Install, markdown grammar, CLI commands, authoring server (`serve`), IR/overrides, tune loop, effects, props, tests, build. |
 | `package.json` | Manifest. Name `@blackbelt-technology/pi-dashboard-deck3d`. `pi.skills` → `.pi/skills/deck3d`, bin `deck3d` → `bin/deck3d`. deps three (pinned 0.160.0), mermaid (exact 11.17.2, harvest), opentype.js, ajv, esbuild, playwright. `build` = bundle CLI + harvest + runtime + regenerate IR field reference; `files` ships `src/`+`assets/`+`dist/` and excludes every `__tests__`. |
 | `bin/deck3d` | CLI launcher. Dev (tsx resolvable + `src/cli.ts` present) → `node --import tsx src/cli.ts`; else built `dist/cli.js` via a `node` subprocess (the CLI entry guard needs `argv[1]`); else exit 1 naming `npm run build`. |
 | `tsconfig.json` | Extends `../../tsconfig.base.json`; `rootDir` src → `outDir` dist. |

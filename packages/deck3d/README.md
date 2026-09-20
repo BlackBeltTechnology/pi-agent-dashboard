@@ -26,6 +26,7 @@ deck3d parse   <deck.md> [-o deck.json] [--fresh]   # markdown (+ mermaid) → I
 deck3d validate <deck.json>                          # schema + derived-edit checks
 deck3d render  <deck.json> -o deck.html              # IR → self-contained HTML
 deck3d build   <deck.md> -o deck.html                # parse → render; writes .json beside
+deck3d serve   <deck.md> [--port n] [--check]        # watch + rebuild + live reload; panel saves to disk
 deck3d check   <deck.html> [--viewport WxH[,WxH]] [--slide n] [--strict] [-o report.json]
 deck3d snapshot <deck.html> [--slide n] [-o png]     # one slide → PNG
 deck3d check   <deck.html> [--style]                 # + warn on slides still on parse defaults
@@ -42,6 +43,20 @@ deck3d overrides apply <deck.json> <file>            # merge an overrides-gramma
 
 Exit codes: `0` ok, `1` failure (one-line stderr reason), `2` usage.
 Default check viewports: `1920x1080,1280x720`. Default `check` timeout 120 s/viewport.
+
+## Serve
+
+`deck3d serve <deck.md> [--port n] [--check]` starts authoring server.
+
+- Binds `127.0.0.1` only (exposes filesystem write endpoints). `--port` omitted ⇒ OS assigns free port.
+- Watches `deck.md`, `fx/`, `deck.json`. Rebuilds on change (debounced, default 120 ms).
+- Re-pins local effect `sha256` in `deck.json` on rebuild; editing `fx/*.js` live never trips render hash check.
+- Broken edit keeps serving last good deck; reports error overlay in browser; recovers on next valid edit.
+- Injects SSE reload client (`/__events`) into served copy only; `build` output stays offline and self-contained.
+- Live reload preserves current slide via `location.hash` and staged configurator values via `localStorage`.
+- Configurator (`C`) adds **Save overrides.json** (POST `/__overrides`) and **Apply to deck.json** (POST `/__apply`, merges via `overrides apply` grammar, then rebuilds). Unserved decks fall back to panel copy/download (avoids silent drops in download-restricted iframes).
+- Write endpoints IR-validate payload before write. Invalid payload returns 400 and leaves target file untouched. Write targets confined to deck directory (path traversal refused). 1 MB body cap.
+- `--check` runs fit check out of band after rebuild; findings stream over SSE as `findings` event; reload never waits for check.
 
 ## Markdown grammar
 
@@ -66,6 +81,8 @@ Default check viewports: `1920x1080,1280x720`. Default `check` timeout 120 s/vie
   grammar; merge it with `deck3d overrides apply`.
 
 ## Tune loop
+
+Interactive authoring: `deck3d serve talk.md [--check]` watches sources, reloads browser in place, and lets configurator save/apply overrides directly. Headless/scripted loop:
 
 1. `deck3d parse talk.md`
 2. `deck3d validate talk.json`

@@ -30,6 +30,12 @@ by writing `overrides` in `deck.json`**, never by editing the HTML.
 
 ## The tune loop
 
+Interactive authoring path: `deck3d serve talk.md [--check]`. Watches sources,
+rebuilds on change, reloads in place, re-pins local fx hashes, and lets the
+configurator save or apply overrides directly.
+
+Manual headless / agent / CI path:
+
 1. `deck3d parse talk.md` → `talk.json` (derived IR + empty `overrides`).
 2. `deck3d validate talk.json` → schema + derived-edit + orphan/prop warnings.
 3. `deck3d build talk.md -o talk.html` → `talk.json` + `talk.html`; runs `check`
@@ -69,8 +75,11 @@ Objects deep-merge; **arrays replace** (an `effects`/`props` list is the whole l
 `diagram.data` replaces as a whole object so labels and values never mix provenance.
 Full field list: [`reference/ir-fields.md`](reference/ir-fields.md).
 
-The deck's `⚙` configurator (`C` key, or the gear) tries knobs live and its
-**Export** writes an `overrides.json` in exactly this grammar. Merge it with:
+The deck's `⚙` configurator (`C` key, or the gear) tries knobs live. Under
+`deck3d serve`, **Apply to deck.json** merges straight into `talk.json` and rebuilds;
+**Save overrides.json** writes `overrides.json` beside the deck. In unserved decks
+or headless workflows, **Export** writes an `overrides.json` in exactly this grammar.
+Merge it manually with:
 
 ```
 deck3d overrides apply talk.json overrides.json

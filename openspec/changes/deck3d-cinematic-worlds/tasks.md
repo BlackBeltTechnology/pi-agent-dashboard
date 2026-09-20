@@ -182,3 +182,18 @@
 - [x] 14.25 Outgoing slide keeps its local fx for the whole fly — disposal deferred to transition landing, and the outgoing backdrop keeps ticking while still in frame (#F24)
 - [x] 14.26 Configurator restores persisted state into the SCENE on reload, not only into the controls; `seedEffectParams` restores per-slide effect tuning across the rebuild (#F25)
 - [x] 14.27 Export always surfaces the overrides JSON in-panel (copy button) because a blob download is silently dropped in a sandboxed iframe without `allow-downloads` (#F26)
+
+## 15. Authoring server (`deck3d serve`)
+
+- [x] 15.1 `serve <deck.md> [--port] [--check]` in `src/serve/index.ts` + CLI wiring; binds `127.0.0.1` ONLY (it exposes a write endpoint)
+- [x] 15.2 Watch `deck.md`, `fx/`, `deck.json`; debounce a write burst into one rebuild; a failed rebuild keeps serving the last good deck and reports the error (#S1, #S2, #S3)
+- [x] 15.3 Re-pin local `fx/` sha256 on rebuild so an edited module does not trip the render hash check (#S2)
+- [x] 15.4 SSE `/__events` + reload client injected ONLY when served; `build` output stays byte-identical and offline (#S5)
+- [x] 15.5 Reload returns to the slide on screen and keeps staged configurator values (#S4)
+- [x] 15.6 `POST /__overrides` writes `overrides.json` beside the deck; path confined to the deck dir; IR-validated; target untouched on failure (#S6, #S8, #S9)
+- [x] 15.7 `POST /__apply` merges into `deck.json` `overrides` under the `overrides apply` grammar (#S7)
+- [x] 15.8 Configurator shows Save / Apply when served, falls back to the in-panel payload + download when not (#S6)
+- [x] 15.9 `--check` runs check out of band per rebuild; findings for the current slide render in the panel; the reload never waits on it (#S10, #S11)
+- [x] 15.10 Security pass on the write endpoints (loopback bind, path confinement, payload validation, no deck-dir escape) — `security-hardening`
+- [x] 15.11 Docs: SKILL.md tune loop uses `serve`; README `serve` section; `src/serve/AGENTS.md`
+

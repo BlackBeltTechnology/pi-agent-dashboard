@@ -1,0 +1,9 @@
+# DOX — packages/deck3d/src/serve
+
+Watch-and-rebuild authoring server (`deck3d serve`). See change: deck3d-cinematic-worlds.
+
+| File | Purpose |
+|------|---------|
+| `AGENTS.md` | This file. |
+| `index.ts` | `startServe(mdPath, opts)`: HTTP authoring server on `127.0.0.1` (`opts.port`, 0 = OS free port). Watches `<deck>.md`, `fx/`, `<deck>.json`. Debounces rebuilds (`opts.debounceMs`, default 120 ms). Rebuild runs `parse`, re-pins local fx `sha256` in `<deck>.json`, renders to scratch file, writes `<deck>.html`, injects reload script into served copy only. Preserves slide via `location.hash` and staged tuning via `localStorage`. Rebuild failure keeps serving last good deck and emits `error-report` SSE overlay. Exposes SSE at `/__events` (`rebuild`, `ok`, `error-report`, `findings`). POST `/__overrides` writes `overrides.json` beside deck. POST `/__apply` deep-merges overrides into `<deck>.json` and rebuilds. Confines write targets to deck directory (`safeTarget`). Validates payloads via `validate()` before write; invalid payload returns 400 and leaves file byte-identical. Caps request body at 1 MB. Runs out-of-band `runCheck` on rebuild when `opts.check` set. `ServeHandle`: `url`, `host`, `port`, `htmlPath`, `settled()`, `lastError()`, `findings()`, `close()`. See change: deck3d-cinematic-worlds. |
+| `__tests__/serve.test.ts` | Vitest suite for `deck3d serve`. Asserts watch rebuild on source edit, local effect edit rebuild + hash re-pin, last-good deck retention on invalid edit, loopback binding refusal for non-loopback, reload client injection into served HTML only, POST `/__overrides` and `/__apply` directory confinement, pre-write IR validation refusal, 1 MB payload cap, out-of-band check findings emission. See change: deck3d-cinematic-worlds. |

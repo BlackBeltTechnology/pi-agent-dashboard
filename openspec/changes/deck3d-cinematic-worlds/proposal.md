@@ -14,6 +14,7 @@ The governing constraint stays: **deterministic converter, LLM tunes the result.
 - **Palettes.** Add `midnight`, `ember`, `arctic`, `forest`, `mono`, `neon` (dark + light variants) beside `blackbelt`/`zenit`/`dapp`/`custom`.
 - **Background-world props.** `props search --role ambient` filters for low-triangle, silhouette-friendly models and prints an `ambient` entry with `count` + `anim: float`; `props generate --prompt <text>` adds a text path to the existing Hunyuan3D fallback via a free text-to-image hop (optional dep, exits non-zero with install hint when absent).
 - **Live navigation** — keyboard (`ArrowRight`/`ArrowLeft`/`Space`/`Home`/`End`), click-to-advance, live `hashchange`, hash kept in sync. Implements the existing `deck3d-render` "Navigation and slide model" requirement, which shipped unimplemented. (Code already on the tree, folded here.)
+- **Authoring server (`deck3d serve`).** Watches `deck.md` + `fx/` + `deck.json`, rebuilds on change, and live-reloads the open browser onto the slide the author was already on. The configurator gains **Save** (writes `overrides.json` beside the deck) and **Apply to deck** (merges into `deck.json` under the `overrides apply` grammar), closing the export round trip: the download path alone is unreliable, since a sandboxed iframe without `allow-downloads` drops it silently. `--check` runs the fit check per rebuild out of band and surfaces findings in the panel. Authoring-only: `build` output stays self-contained and offline.
 - **On-deck configurator (re-scopes a v1 non-goal).** Lab-style `⚙` panel hidden by default (`C` key / gear button): slide counter, deck scope + this-slide scope, mode, palette, quality, transition, effects toggle list, autoplay; overridden controls marked; **Export `overrides.json`** downloads the live overrides for the agent to merge. Runtime-only state; never mutates the embedded IR.
 - **Skill: mandatory Style pass.** The tune loop gains step 4 "Style": for every slide choose a corpus effect *or* scaffold a local one, pick a built diagram for content slides without mermaid, run `props search` per section (`hero`, `illustration`, `ambient`). `check --style` warns on any slide that still runs on parse defaults only; `build` prints the style summary.
 - Fixture: `presentations/business-next-5-years/` is restyled with the new machinery and becomes the package's second fixture deck.
@@ -21,6 +22,7 @@ The governing constraint stays: **deterministic converter, LLM tunes the result.
 ## Capabilities
 
 ### New Capabilities
+- `deck3d-serve`: authoring server — watch/rebuild, position-preserving live reload, configurator write-back to `overrides.json` / `deck.json`, optional out-of-band check findings. Loopback-only because it writes files.
 - `deck3d-local-effects`: LLM-authored per-deck effect modules — file layout, `local:` id grammar, hash pinning, sandbox rules, scaffold/preview/promote CLI, render embedding, determinism guarantee.
 - `deck3d-configurator`: the on-deck `⚙` panel — visibility, scopes, controls, export format, no-IR-mutation invariant, keyboard shortcut.
 
@@ -37,12 +39,14 @@ The governing constraint stays: **deterministic converter, LLM tunes the result.
 - Deps: none new for core. `props generate --prompt` optional python path only.
 - Behaviour change for existing decks: `validate` is unaffected. Render changes only for slides that (a) fall to the `particles` fallback today and carry no `effects` override, or (b) are `content` slides without a supported mermaid block that match the built-kind table and carry no `diagram.kind` override (a slide tuned only via `diagram.scale`/`offset` gains a built object). `overrides.deck.autoStyle: false` restores v1 for both.
 - Output size: configurator HTML/CSS ≈ +15 KB; each local effect adds its own bytes — counted in the existing build budget.
-- No server/client/extension code touched.
+- New: `packages/deck3d/src/serve/` (watch server, SSE, write endpoints). Node built-ins only (`node:http`, `node:fs.watch`) — no new deps.
+- `deck3d serve` binds loopback only and writes files under the served deck's directory; see `## Discipline Skills`.
+- No dashboard server/client/extension code touched. (The dashboard's `LiveServerViewer` lacking `allow-downloads` is filed separately.)
 
 ## Discipline Skills
 
 - **`scenario-design`** — local effect hash mismatch, sandbox token rejection, built-kind on a slide that later gains mermaid, configurator export round-trip, navigation clamping, topic default routing.
-- **`security-hardening`** — local effects are LLM-written JS embedded into the deck: token blocklist, no `import`/network/DOM, hash pin, size cap; configurator export must not leak file paths.
+- **`security-hardening`** — `deck3d serve` accepts browser-driven filesystem WRITES: loopback-only bind, path confinement to the served deck's directory, IR validation before any write, no partial write on rejection. Also: local effects are LLM-written JS embedded into the deck: token blocklist, no `import`/network/DOM, hash pin, size cap; configurator export must not leak file paths.
 - **`doubt-driven-review`** — the `local:` id + sandbox contract and the configurator export format are public surfaces the skill teaches agents to use.
 - **`review-code`** — non-trivial change.
 - Not triggered: `performance-optimization` (cost budget already bounds effects; no measured regression), `observability-instrumentation` (CLI + static output).

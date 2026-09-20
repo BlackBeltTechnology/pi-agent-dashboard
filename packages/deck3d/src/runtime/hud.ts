@@ -518,7 +518,7 @@ export function createHud(host: HudHost): Hud {
     return list.map((id) => (params?.[id] ? { id, params: params[id] } : { id }));
   }
 
-  function exportOverrides(): void {
+  function buildPayload(): Record<string, unknown> {
     const payload: Record<string, unknown> = {};
     const deck = { ...state.deck };
     const deckEffects = deck.effects as string[] | undefined;
@@ -541,7 +541,11 @@ export function createHud(host: HudHost): Hud {
       if (Object.keys(entry).length) slides[id] = entry;
     }
     if (Object.keys(slides).length) payload.slides = slides;
+    return payload;
+  }
 
+  function exportOverrides(): void {
+    const payload = buildPayload();
     const text = `${JSON.stringify(payload, null, 2)}\n`;
 
     // A blob download is silently DROPPED in a sandboxed iframe without
@@ -560,6 +564,37 @@ export function createHud(host: HudHost): Hud {
       // Ignored: the in-panel copy below is the guaranteed path.
     }
     showPayload(text);
+  }
+
+  /**
+   * Served by `deck3d serve`: the payload goes straight to disk over loopback,
+   * so the author never depends on a download the frame may drop.
+   */
+  async function postPayload(route: string, button: HTMLButtonElement): Promise<void> {
+    const label = button.textContent ?? "";
+    try {
+      const res = await fetch(route, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(buildPayload()),
+      });
+      const body = (await res.json()) as { ok?: boolean; wrote?: string; error?: string };
+      button.textContent = res.ok ? `Wrote ${body.wrote}` : "Rejected";
+      if (!res.ok) showMessage(body.error ?? "rejected");
+    } catch (err) {
+      button.textContent = "Failed";
+      showMessage((err as Error).message);
+    }
+    setTimeout(() => {
+      button.textContent = label;
+    }, 2000);
+  }
+
+  function showMessage(message: string): void {
+    document.getElementById("deck3d-hud-payload")?.remove();
+    const box = el("div", { id: "deck3d-hud-payload", class: "deck3d-hud-note" });
+    box.textContent = message;
+    body.appendChild(box);
   }
 
   /** Always-available fallback: the JSON, selectable, with a copy button. */
@@ -620,10 +655,35 @@ export function createHud(host: HudHost): Hud {
       if (node) body.appendChild(node);
     }
 
+    // Under `deck3d serve` the panel writes to disk; standalone it can only
+    // hand the author the text.
+    const served = (window as { __deck3dServe?: boolean }).__deck3dServe === true;
+
+    // `serve --check` pushes findings out of band; show this slide's.
+    const findings = ((window as { __deck3dFindings?: Record<string, string[]> }).__deck3dFindings ?? {})[slideId] ?? [];
+    if (findings.length) {
+      const box = el("div", { id: "deck3d-hud-findings", class: "deck3d-hud-note" });
+      box.textContent = `check: ${findings.join(" · ")}`;
+      body.appendChild(box);
+    }
+
     const notice = el("div", { class: "deck3d-hud-note" });
-    notice.textContent =
-      "Tuning here is remembered in this browser only. Export writes overrides.json; make it permanent with `deck3d overrides apply deck.json overrides.json`, then rebuild. Markdown inline overrides win over this file, and an exported effects list pins that scope's effects.";
+    notice.textContent = served
+      ? "Save writes overrides.json beside the deck. Apply merges into deck.json and rebuilds. Markdown inline overrides win over the file, and a saved effects list pins that scope's effects."
+      : "Tuning here is remembered in this browser only. Export writes overrides.json; make it permanent with `deck3d overrides apply deck.json overrides.json`, then rebuild. Markdown inline overrides win over this file, and an exported effects list pins that scope's effects.";
     body.appendChild(notice);
+
+    if (served) {
+      const save = el("button", { type: "button", id: "deck3d-hud-save" });
+      save.textContent = "Save overrides.json";
+      save.addEventListener("click", () => void postPayload("/__overrides", save));
+      body.appendChild(save);
+
+      const apply = el("button", { type: "button", id: "deck3d-hud-apply" });
+      apply.textContent = "Apply to deck.json";
+      apply.addEventListener("click", () => void postPayload("/__apply", apply));
+      body.appendChild(apply);
+    }
 
     const exportButton = el("button", { type: "button", id: "deck3d-hud-export" });
     exportButton.textContent = "Export overrides.json";
@@ -670,6 +730,11 @@ export function createHud(host: HudHost): Hud {
     }
     host.applyDeck((id) => ({ ...(state.deck as SlidePatch), ...(state.slides[id] as SlidePatch | undefined) }));
   }
+
+  // Findings arrive after the reload, by contract — repaint when they land.
+  window.addEventListener("deck3d-findings", () => {
+    if (open) render();
+  });
 
   setOpen(false);
   restoreToScene();

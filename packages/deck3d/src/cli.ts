@@ -38,6 +38,7 @@ Commands:
   validate <deck.json>                       Schema + derived-edit checks
   render <deck.json> -o deck.html            Deck IR → self-contained HTML
   build <deck.md> -o deck.html               parse → render (writes .json beside it)
+  serve <deck.md> [--port n] [--check]       Watch + rebuild + live reload; panel saves overrides to disk
   check <deck.html> [--style]                Measure fit/legibility in headless chromium
   snapshot <deck.html> [--slide n] [-o png]  Screenshot a slide to PNG
   fx <list|preview>                          Inspect the effects corpus
@@ -83,6 +84,7 @@ const VALUE_FLAGS = new Set([
   "--for",
   "--source",
   "--licence",
+  "--port",
 ]);
 
 function parseArgs(args: string[]): Flags {
@@ -640,6 +642,40 @@ async function cmdBuild(args: string[], io: CliIO): Promise<number> {
   }
 }
 
+/**
+ * `serve <deck.md>` — authoring loop. Runs until interrupted; loopback only,
+ * because the panel can write `overrides.json` / `deck.json` through it.
+ */
+async function cmdServe(args: string[], io: CliIO): Promise<number> {
+  const flags = parseArgs(args);
+  const mdPath = flags.positional[0];
+  if (!mdPath) {
+    io.stderr("deck3d serve: missing <deck.md>");
+    return 2;
+  }
+  const { startServe } = await import("./serve/index.js");
+  try {
+    const handle = await startServe(mdPath, {
+      port: flags.value.port ? Number.parseInt(flags.value.port, 10) : 0,
+      check: flags.bool.has("check"),
+      io,
+    });
+    io.stdout(`serving ${mdPath} on ${handle.url}`);
+    io.stdout("watching deck.md, fx/ and deck.json — edit and the browser reloads");
+    await new Promise<void>((resolve) => {
+      const stop = (): void => {
+        void handle.close().then(resolve);
+      };
+      process.once("SIGINT", stop);
+      process.once("SIGTERM", stop);
+    });
+    return 0;
+  } catch (err) {
+    io.stderr(`deck3d serve: ${(err as Error).message}`);
+    return 1;
+  }
+}
+
 async function cmdSnapshot(args: string[], io: CliIO): Promise<number> {
   const flags = parseArgs(args);
   const html = flags.positional[0];
@@ -739,6 +775,8 @@ export async function run(argv: string[], io: CliIO = defaultIO): Promise<number
       return cmdRender(rest, io);
     case "build":
       return cmdBuild(rest, io);
+    case "serve":
+      return cmdServe(rest, io);
     case "check":
       return cmdCheck(rest, io);
     case "fx":
