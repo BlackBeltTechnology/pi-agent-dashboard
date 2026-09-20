@@ -1,0 +1,30 @@
+{
+  "id": "proof-gate",
+  "kind": "background",
+  "tags": {
+    "mood": [
+      "decisive",
+      "commercial"
+    ],
+    "content": [
+      "pipeline",
+      "proof"
+    ],
+    "topic": [
+      "sales"
+    ]
+  },
+  "cost": 3,
+  "modes": "both",
+  "params": {
+    "density": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0.2,
+      "maximum": 3
+    }
+  },
+  "conflicts": [],
+  "source": "local",
+  "licence": "MIT"
+}

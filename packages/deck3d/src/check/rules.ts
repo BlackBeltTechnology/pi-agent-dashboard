@@ -6,7 +6,24 @@
  * it is excluded from the report byte-equality guarantee.
  */
 export type Severity = "error" | "warn";
-export type RuleName = "fit" | "legibility" | "overlap" | "occlusion" | "contrast" | "skipped" | "budget";
+export type RuleName =
+  | "fit"
+  | "legibility"
+  | "overlap"
+  | "occlusion"
+  | "contrast"
+  | "skipped"
+  | "budget"
+  | "local-fx-error"
+  | "local-fx-network"
+  | "style-defaults";
+
+/**
+ * Rules whose presence depends on rendered pixels or on request timing, so
+ * they are excluded from the report byte-equality guarantee. Severity is
+ * unaffected — a `local-fx-network` finding still fails the deck.
+ */
+export const NON_DETERMINISTIC_RULES: readonly RuleName[] = ["contrast", "local-fx-network"];
 
 export interface Rect {
   x: number;
@@ -39,6 +56,12 @@ export interface Finding {
   slideIndex: number;
   id?: string;
   text?: string;
+  /** `local-fx-error` only: the failing effect reference. */
+  effectId?: string;
+  /** `local-fx-error` only: which entry point threw. */
+  phase?: "create" | "tick" | "dispose";
+  /** `local-fx-network` only: the host the deck tried to reach. */
+  host?: string;
   /** Human-measured value, e.g. `1844px`. */
   measured: string;
   /** Human threshold, e.g. `1843px`. */
@@ -170,7 +193,8 @@ export function occlusionFindings(measurements: Measurement[], slide: SlideRef):
     }));
 }
 
-function luminanceFromHex(hex: string): number {
+/** WCAG relative luminance of a `#rrggbb` colour. */
+export function luminanceFromHex(hex: string): number {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
   if (!m) return 0;
   const n = Number.parseInt(m[1], 16);
@@ -261,4 +285,88 @@ export function budgetFindings(budget: BudgetInfo | undefined | null, slide: Sli
 export function filterIgnored(findings: Finding[], ignore: string[] | undefined): Finding[] {
   if (!ignore?.length) return findings;
   return findings.filter((f) => !(ignore.includes(f.rule) || (f.id != null && ignore.includes(f.id))));
+}
+
+/** A local effect that threw. No message text: the report must stay byte-stable. */
+export function localFxErrorFindings(
+  errors: Array<{ slide: string; effectId: string; phase: "create" | "tick" | "dispose" }>,
+  slide: SlideRef,
+): Finding[] {
+  return errors
+    .filter((e) => e.slide === slide.id)
+    .map((e) => ({
+      severity: "error" as const,
+      rule: "local-fx-error" as const,
+      slide: slide.id,
+      slideIndex: slide.index,
+      effectId: e.effectId,
+      phase: e.phase,
+      measured: e.phase,
+      threshold: "no throw",
+      detail: `${e.effectId} threw in ${e.phase}`,
+      suggest: slideKnob(slide.id, "effects"),
+    }));
+}
+
+/**
+ * A request the deck attempted to a non-local scheme. Slide-level (no per-effect
+ * attribution): `check` knows which slide it was measuring, not which effect
+ * asked. Deduplicated and sorted so the list is stable for a given run.
+ */
+export function localFxNetworkFindings(hits: Array<{ slide: string; host: string }>, slides: SlideRef[]): Finding[] {
+  const index = new Map(slides.map((s) => [s.id, s.index]));
+  const unique = [...new Map(hits.map((h) => [`${h.slide}\u0000${h.host}`, h])).values()].sort(
+    (a, b) => a.slide.localeCompare(b.slide) || a.host.localeCompare(b.host),
+  );
+  return unique.map((h) => ({
+    severity: "error" as const,
+    rule: "local-fx-network" as const,
+    slide: h.slide,
+    slideIndex: index.get(h.slide) ?? 0,
+    host: h.host,
+    measured: h.host,
+    threshold: "no network",
+    detail: `deck requested ${h.host} (decks must open offline)`,
+    suggest: slideKnob(h.slide, "effects"),
+  }));
+}
+
+/** Enough of a merged slide to decide whether it is still on parse defaults. */
+export interface StyleSlide {
+  id: string;
+  title: string;
+  bullets: string[];
+  diagram: { kind: string };
+  effects?: Array<{ id: string }>;
+}
+
+/**
+ * `style-defaults` (D7): the slide runs exactly what `parse` chose — default
+ * effects, the default diagram kind, and no prop aimed at it. A `check: clean`
+ * deck can still be visually bare; this is what surfaces that.
+ */
+export function styleFindings(
+  slides: StyleSlide[],
+  propSlides: ReadonlySet<string>,
+  defaults: (slide: StyleSlide) => string[],
+  derivedKind: (slide: StyleSlide) => string,
+): Finding[] {
+  return slides.flatMap((slide, i) => {
+    const effects = (slide.effects ?? []).map((e) => e.id);
+    const onDefaultEffects = effects.join("\u0000") === defaults(slide).join("\u0000");
+    const onDefaultKind = slide.diagram.kind === derivedKind(slide);
+    if (!onDefaultEffects || !onDefaultKind || propSlides.has(slide.id)) return [];
+    return [
+      {
+        severity: "warn" as const,
+        rule: "style-defaults" as const,
+        slide: slide.id,
+        slideIndex: i + 1,
+        measured: "parse defaults",
+        threshold: "an authored choice",
+        detail: `slide ${slide.id} runs only parse defaults (effects ${effects.join(", ") || "none"}, diagram ${slide.diagram.kind})`,
+        suggest: slideKnob(slide.id, "effects"),
+      },
+    ];
+  });
 }

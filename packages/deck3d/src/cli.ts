@@ -4,15 +4,20 @@
  *
  * Exit codes: 0 success, 1 failure (with a one-line reason on stderr), 2 usage.
  */
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { DeckIR } from "./ir/types.js";
+import type { DeckIR, Palette } from "./ir/types.js";
 import { formatIssue, validate } from "./ir/validate.js";
 import { type DeriveOptions, parseDeck } from "./parse/derive.js";
+import { pkgRoot } from "./util/paths.js";
 
 export const VERSION = "0.1.0";
+
+/** Named palettes accepted by `--palette`; mirrors the schema enum. */
+const PALETTE_IDS: Palette[] = ["blackbelt", "zenit", "dapp", "midnight", "ember", "arctic", "forest", "mono", "neon", "custom"];
 
 export interface CliIO {
   stdout: (line: string) => void;
@@ -33,16 +38,22 @@ Commands:
   validate <deck.json>                       Schema + derived-edit checks
   render <deck.json> -o deck.html            Deck IR → self-contained HTML
   build <deck.md> -o deck.html               parse → render (writes .json beside it)
-  check <deck.html>                          Measure fit/legibility in headless chromium
+  check <deck.html> [--style]                Measure fit/legibility in headless chromium
   snapshot <deck.html> [--slide n] [-o png]  Screenshot a slide to PNG
   fx <list|preview>                          Inspect the effects corpus
   props <search|fetch|generate>              Illustrate slides with glTF models
+  overrides apply <deck.json> <file>         Merge an overrides-grammar file into the deck
 
 fx options:
-  fx list [--kind k] [--tag t] [--json]      List effects (optionally filtered)
-  fx preview <id> [-o out.png]               Render one effect to a PNG
+  fx list [--kind k] [--tag t] [--topic p]   List effects (optionally filtered)
+  fx preview <id> [--palette p] [-o out.png] Render one effect to a PNG (accepts local:<name>)
+  fx scaffold <name> [--kind k] [--for id]   Write fx/<name>.js + card, print the override entry
+  fx hash <name>                             Print the sha256 of fx/<name>.js
+  fx promote <name> --source u --licence l   Move a local effect into the corpus
 props options:
+  props search <kw> [--role ambient]             Candidates (ambient = low-tri + entry template)
   props generate --from-image <img> --name <n>   Geometry-only GLB via Hunyuan3D-2
+  props generate --prompt <text> --name <n>      Text → image → GLB (DECK3D_T2I_URL)
 
 Options:
   -h, --help                                 Show this help
@@ -55,11 +66,30 @@ interface Flags {
   value: Record<string, string>;
 }
 
+/** Flags that consume the next argument as their value. */
+const VALUE_FLAGS = new Set([
+  "-o",
+  "--out",
+  "--viewport",
+  "--slide",
+  "--kind",
+  "--tag",
+  "--topic",
+  "--palette",
+  "--from-image",
+  "--prompt",
+  "--name",
+  "--role",
+  "--for",
+  "--source",
+  "--licence",
+]);
+
 function parseArgs(args: string[]): Flags {
   const flags: Flags = { positional: [], bool: new Set(), value: {} };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg === "-o" || arg === "--out" || arg === "--viewport" || arg === "--slide" || arg === "--kind" || arg === "--tag" || arg === "--from-image" || arg === "--name" || arg === "--role") {
+    if (VALUE_FLAGS.has(arg)) {
       const key = arg === "-o" ? "out" : arg.replace(/^--?/, "");
       flags.value[key] = args[++i] ?? "";
     } else if (arg.startsWith("-")) {
@@ -96,8 +126,8 @@ async function parseToFile(mdPath: string, outPath: string, flags: Flags, io: Cl
     opts.harvest = (mermaidSource, slideId) => harvestDiagram(mermaidSource, slideId);
   }
   const { defaultEffectsFor, defaultSceneFor } = await import("./fx/defaults.js");
-  opts.effectsForSlide = (slide) => defaultEffectsFor(slide);
-  opts.sceneForSlide = (slide) => defaultSceneFor(slide);
+  opts.effectsForSlide = (slide, autoStyle) => defaultEffectsFor(slide, autoStyle);
+  opts.sceneForSlide = (slide, autoStyle) => defaultSceneFor(slide, autoStyle);
   const { ir, warnings } = await parseDeck(source, opts);
   for (const warning of warnings) io.stderr(warning);
   writeJson(outPath, ir);
@@ -135,7 +165,7 @@ async function cmdValidate(args: string[], io: CliIO): Promise<number> {
     io.stderr(`deck3d validate: invalid JSON in ${file}: ${(err as Error).message}`);
     return 1;
   }
-  const result = validate(parsed, { propBytes: cachedPropBytes(file) });
+  const result = validate(parsed, { propBytes: cachedPropBytes(file), deckDir: dirname(file) });
   for (const issue of result.errors) io.stderr(formatIssue("error", issue));
   for (const warning of result.warnings) io.stderr(formatIssue("warn", warning));
   if (result.ok) {
@@ -157,7 +187,8 @@ function loadValidated(file: string, io: CliIO): DeckIR | undefined {
     io.stderr(`deck3d: invalid JSON in ${file}: ${(err as Error).message}`);
     return undefined;
   }
-  const result = validate(parsed);
+  // `render` re-checks the local referents it is about to embed.
+  const result = validate(parsed, { deckDir: dirname(file) });
   if (!result.ok) {
     for (const issue of result.errors) io.stderr(formatIssue("error", issue));
     return undefined;
@@ -169,7 +200,14 @@ async function renderFile(jsonPath: string, outPath: string, io: CliIO): Promise
   const ir = loadValidated(jsonPath, io);
   if (!ir) return 1;
   const { composeEffects, validateEffectParams } = await import("./fx/compose.js");
-  const violations = validateEffectParams(ir);
+  const { ensureRuntime, renderDeck, fontBase64, loadLocalEffects } = await import("./render/index.js");
+  // Resolve the local effects first: their cards take part in param bounds,
+  // conflict, mode and budget gating exactly like corpus cards.
+  const localFx = loadLocalEffects(ir, jsonPath);
+  const localCards = Object.fromEntries(
+    Object.entries(localFx).map(([name, m]) => [name, m.card as import("./fx/types.js").FxCard]),
+  );
+  const violations = validateEffectParams(ir, localCards);
   if (violations.length) {
     for (const v of violations) io.stderr(`error ${v.path}: ${v.message}`);
     return 1;
@@ -182,18 +220,17 @@ async function renderFile(jsonPath: string, outPath: string, io: CliIO): Promise
     const ov = ir.overrides.slides?.[slide.id];
     const mode = ov?.mode ?? ir.overrides.deck?.mode ?? ir.defaults.mode ?? "dark";
     const quality = ov?.quality ?? ir.overrides.deck?.quality ?? ir.defaults.quality ?? "high";
-    const comp = composeEffects(slide.effects, mode, quality, slide.id);
+    const comp = composeEffects(slide.effects, mode, quality, slide.id, localCards);
     for (const warning of comp.warnings) io.stderr(warning);
     if (comp.conflicts.length) {
       for (const c of comp.conflicts) io.stderr(`error conflict ${c}`);
       return 1;
     }
   }
-  const { ensureRuntime, renderDeck, fontBase64 } = await import("./render/index.js");
   const { loadProps } = await import("./props/embed.js");
   const runtime = await ensureRuntime();
   const props = loadProps(ir, jsonPath);
-  const html = renderDeck(ir, { runtime, font: fontBase64(), title: basename(jsonPath, ".json"), props });
+  const html = renderDeck(ir, { runtime, font: fontBase64(), title: basename(jsonPath, ".json"), props, localFx });
   writeFileSync(outPath, html);
   return 0;
 }
@@ -222,6 +259,7 @@ async function loadReport(htmlPath: string, flags: Flags, io: CliIO, strict: boo
     const report = await runCheck(htmlPath, {
       viewports: parseViewports(flags.value.viewport),
       ...(flags.value.slide ? { slides: [Number.parseInt(flags.value.slide, 10)] } : {}),
+      ...(flags.bool.has("style") ? { style: true } : {}),
     });
     return { code: 0, report };
   } catch (err) {
@@ -266,14 +304,28 @@ async function cmdFx(args: string[], io: CliIO): Promise<number> {
   const flags = parseArgs(args);
   const sub = flags.positional[0];
   if (sub === "preview") return fxPreview(flags, io);
+  if (sub === "scaffold") return fxScaffold(flags, io);
+  if (sub === "hash") return fxHash(flags, io);
+  if (sub === "promote") return fxPromote(flags, io);
   if (sub !== "list") {
-    io.stderr(`deck3d fx: unknown subcommand '${sub ?? ""}' (try list|preview)`);
+    io.stderr(`deck3d fx: unknown subcommand '${sub ?? ""}' (try list|preview|scaffold|hash|promote)`);
     return 2;
   }
   const { catalogue } = await import("./fx/catalogue.js");
+  const { FX_TOPICS } = await import("./fx/types.js");
   let rows = catalogue();
   if (flags.value.kind) rows = rows.filter((r) => r.kind === flags.value.kind);
   if (flags.value.tag) rows = rows.filter((r) => r.content.includes(flags.value.tag) || r.mood.includes(flags.value.tag));
+  if (flags.value.topic) {
+    const topic = flags.value.topic;
+    // A typo must fail loudly: an unknown topic silently matching nothing looks
+    // like "the corpus has no effect for this", which is a different problem.
+    if (!(FX_TOPICS as readonly string[]).includes(topic)) {
+      io.stderr(`deck3d fx list: unknown topic '${topic}' (one of ${FX_TOPICS.join(", ")})`);
+      return 1;
+    }
+    rows = rows.filter((r) => (r.topic as string[] | undefined)?.includes(topic));
+  }
   if (flags.bool.has("json")) {
     io.stdout(JSON.stringify(rows, null, 2));
     return 0;
@@ -283,11 +335,12 @@ async function cmdFx(args: string[], io: CliIO): Promise<number> {
 }
 
 /** One-slide deck whose only effect is `id` (design D9 / 7d.3 preview). */
-async function previewDeck(id: string): Promise<DeckIR> {
+async function previewDeck(id: string, palette?: Palette, sha?: string): Promise<DeckIR> {
   const { resolveDefaults } = await import("./ir/defaults.js");
+  const ref = sha ? { id, sha256: sha } : { id };
   return {
     meta: { engine: VERSION, mermaid: "11.17.2" },
-    defaults: resolveDefaults({}),
+    defaults: resolveDefaults(palette ? { palette } : {}),
     slides: [
       {
         index: 0,
@@ -298,11 +351,77 @@ async function previewDeck(id: string): Promise<DeckIR> {
         bullets: [],
         scene: "tokens",
         diagram: { kind: "none" },
-        effects: [{ id }],
+        effects: [ref],
       },
     ],
-    overrides: {},
+    // The preview deck is rendered from a temp dir, so the local reference has
+    // to live in `overrides` for `loadLocalEffects` to find and embed it.
+    overrides: sha ? { slides: { "fx-preview": { effects: [ref] } } } : {},
   };
+}
+
+/** `fx scaffold|hash|promote` — authoring a per-deck effect (design D1). */
+async function fxScaffold(flags: Flags, io: CliIO): Promise<number> {
+  const name = flags.positional[1];
+  if (!name) {
+    io.stderr("deck3d fx scaffold: missing <name>");
+    return 2;
+  }
+  const { scaffoldLocalEffect } = await import("./fx/scaffold.js");
+  const r = scaffoldLocalEffect(process.cwd(), name, flags.value.kind ?? "background", flags.value.for);
+  if (!r.ok) {
+    io.stderr(`deck3d fx scaffold: ${r.message}`);
+    return 1;
+  }
+  io.stdout(r.message);
+  if (r.entry) io.stdout(r.entry);
+  return 0;
+}
+
+async function fxHash(flags: Flags, io: CliIO): Promise<number> {
+  const name = flags.positional[1];
+  if (!name) {
+    io.stderr("deck3d fx hash: missing <name>");
+    return 2;
+  }
+  const { hashLocalEffect } = await import("./fx/scaffold.js");
+  const r = hashLocalEffect(process.cwd(), name);
+  if (!r.ok) {
+    io.stderr(`deck3d fx hash: ${r.message}`);
+    return 1;
+  }
+  io.stdout(r.message);
+  return 0;
+}
+
+async function fxPromote(flags: Flags, io: CliIO): Promise<number> {
+  const name = flags.positional[1];
+  if (!name) {
+    io.stderr("deck3d fx promote: missing <name>");
+    return 2;
+  }
+  const { promoteLocalEffect } = await import("./fx/scaffold.js");
+  const corpusDir = process.env.DECK3D_CORPUS_DIR ?? join(pkgRoot(), "src", "fx");
+  const r = promoteLocalEffect(process.cwd(), name, {
+    source: flags.value.source,
+    licence: flags.value.licence,
+    corpusDir,
+    // The corpus gate is the real test suite: a module that will not construct
+    // must never land in the shipped corpus.
+    verify: () => {
+      const run = spawnSync("npx", ["vitest", "run", "src/fx/__tests__/corpus.test.ts"], {
+        cwd: pkgRoot(),
+        encoding: "utf8",
+      });
+      return { ok: run.status === 0, detail: `${run.stdout ?? ""}${run.stderr ?? ""}`.slice(-400) };
+    },
+  });
+  if (!r.ok) {
+    io.stderr(`deck3d fx promote: ${r.message}`);
+    return 1;
+  }
+  io.stdout(r.message);
+  return 0;
 }
 
 /** `fx preview <id> [-o png]` — render one effect and screenshot it (7d.7). */
@@ -312,16 +431,32 @@ async function fxPreview(flags: Flags, io: CliIO): Promise<number> {
     io.stderr("deck3d fx preview: missing <id>");
     return 2;
   }
-  const { REGISTRY } = await import("./fx/index.js");
-  if (!REGISTRY[id]) {
-    io.stderr(`deck3d fx preview: unknown effect '${id}' (try fx list)`);
+  const { isLocalId, localName, sha256 } = await import("./fx/local.js");
+  const local = isLocalId(id);
+  if (!local) {
+    const { REGISTRY } = await import("./fx/index.js");
+    if (!REGISTRY[id]) {
+      io.stderr(`deck3d fx preview: unknown effect '${id}' (try fx list)`);
+      return 1;
+    }
+  }
+  const modulePath = local ? join(process.cwd(), "fx", `${localName(id)}.js`) : "";
+  if (local && !existsSync(modulePath)) {
+    io.stderr(`deck3d fx preview: missing fx/${localName(id)}.js`);
+    return 1;
+  }
+  const palette = flags.value.palette as Palette | undefined;
+  if (palette && !PALETTE_IDS.includes(palette)) {
+    io.stderr(`deck3d fx preview: unknown palette '${palette}' (one of ${PALETTE_IDS.join(", ")})`);
     return 1;
   }
   const out = flags.value.out ?? `${id}.png`;
   try {
-    const { ensureRuntime, renderDeck, fontBase64 } = await import("./render/index.js");
-    const deck = await previewDeck(id);
-    const html = renderDeck(deck, { runtime: await ensureRuntime(), font: fontBase64(), title: `fx ${id}` });
+    const { ensureRuntime, renderDeck, fontBase64, loadLocalEffects } = await import("./render/index.js");
+    const deck = await previewDeck(id, palette, local ? sha256(readFileSync(modulePath)) : undefined);
+    // Resolve against the deck dir (cwd), then render from a temp dir.
+    const localFx = local ? loadLocalEffects(deck, join(process.cwd(), "deck.json")) : {};
+    const html = renderDeck(deck, { runtime: await ensureRuntime(), font: fontBase64(), title: `fx ${id}`, localFx });
     const htmlPath = join(mkdtempSync(join(tmpdir(), "deck3d-fx-")), "fx.html");
     writeFileSync(htmlPath, html);
     const { chromium } = await import("playwright");
@@ -400,10 +535,17 @@ async function cmdProps(args: string[], io: CliIO): Promise<number> {
   const flags = parseArgs(args);
   const [sub, ...rest] = flags.positional;
   if (sub === "search") {
-    const { searchProps } = await import("./props/search.js");
+    const { searchProps, ambientCandidates, ambientTemplate } = await import("./props/search.js");
     const result = await searchProps(rest.join(" "));
     for (const notice of result.notices) io.stderr(notice);
-    for (const c of result.candidates) io.stdout(`${c.source}\t${c.id}\t${c.name}\t${c.licence}\t${c.bytes}b`);
+    const ambient = flags.value.role === "ambient";
+    const rows = ambient ? ambientCandidates(result.candidates) : result.candidates;
+    for (const c of rows) {
+      io.stdout(`${c.source}\t${c.id}\t${c.name}\t${c.licence}\t${c.bytes}b`);
+      // Ambient placement needs count/anim/size, which are easy to get wrong;
+      // print the entry rather than making the agent recall the shape.
+      if (ambient) io.stdout(JSON.stringify(ambientTemplate(c)));
+    }
     return 0;
   }
   if (sub === "fetch") return propsFetch(rest, flags, io);
@@ -414,15 +556,18 @@ async function cmdProps(args: string[], io: CliIO): Promise<number> {
 
 /** `props generate --from-image <img> --name <n>` (7b.7). */
 async function propsGenerate(flags: Flags, io: CliIO): Promise<number> {
-  const fromImage = flags.value["from-image"];
   const name = flags.value.name;
-  if (!fromImage || !name) {
-    io.stderr("deck3d props generate: missing --from-image <img> --name <n>");
+  const prompt = flags.value.prompt;
+  if ((!flags.value["from-image"] && !prompt) || !name) {
+    io.stderr("deck3d props generate: missing --from-image <img> | --prompt <text>, and --name <n>");
     return 2;
   }
-  const { generateProp } = await import("./props/generate.js");
+  const { generateProp, textToImage } = await import("./props/generate.js");
+  const destDir = join(process.cwd(), ".deck3d", "props");
   try {
-    const result = await generateProp({ fromImage, name, destDir: join(process.cwd(), ".deck3d", "props") });
+    // `--prompt` is a hop in FRONT of the existing image path: text → PNG → GLB.
+    const fromImage = prompt ? await textToImage({ prompt, name, destDir }) : (flags.value["from-image"] as string);
+    const result = await generateProp({ fromImage, name, destDir });
     io.stdout(JSON.stringify(result.entry, null, 2));
     return 0;
   } catch (err) {
@@ -441,6 +586,35 @@ async function cmdCheck(args: string[], io: CliIO): Promise<number> {
   return runCheckAndReport(html, flags, io, true, flags.value.out);
 }
 
+/** `style: <n>/<N> slides styled` — slides carrying an authored choice (D7). */
+async function styleSummary(jsonPath: string): Promise<string> {
+  const ir = JSON.parse(readFileSync(jsonPath, "utf8")) as DeckIR;
+  const { defaultEffectsFor } = await import("./fx/defaults.js");
+  const { builtKindFor } = await import("./parse/derive.js");
+  const { applyOverrides } = await import("./ir/merge.js");
+  const merged = applyOverrides(ir);
+  const autoStyle = ir.overrides.deck?.autoStyle ?? ir.defaults.autoStyle ?? true;
+  const propSlides = new Set((ir.overrides.props ?? []).map((p) => p.slide));
+
+  let styled = 0;
+  for (const slide of merged.slides) {
+    const effects = (slide.effects ?? []).map((e) => e.id);
+    const defaults = defaultEffectsFor(
+      { id: slide.id, title: slide.title, bullets: slide.bullets, diagram: slide.diagram },
+      autoStyle,
+    ).map((e) => e.id);
+    const derivedKind =
+      slide.diagram.kind === "flowchart" || slide.diagram.kind === "sequence"
+        ? slide.diagram.kind
+        : autoStyle
+          ? builtKindFor({ title: slide.title, bullets: slide.bullets })
+          : "none";
+    const onDefaults = effects.join("\u0000") === defaults.join("\u0000") && slide.diagram.kind === derivedKind;
+    if (!onDefaults || propSlides.has(slide.id)) styled++;
+  }
+  return `style: ${styled}/${merged.slides.length} slides styled`;
+}
+
 async function cmdBuild(args: string[], io: CliIO): Promise<number> {
   const flags = parseArgs(args);
   const mdPath = flags.positional[0];
@@ -455,7 +629,11 @@ async function cmdBuild(args: string[], io: CliIO): Promise<number> {
     if (code !== 0) return code;
     io.stdout(`wrote ${outPath}`);
     // `build` runs check, but only `--strict` fails on findings.
-    return runCheckAndReport(outPath, flags, io, false);
+    const checkCode = await runCheckAndReport(outPath, flags, io, false);
+    // A clean check says nothing about whether the deck was ever styled, so the
+    // style ratio is printed last, where the agent reads it.
+    io.stdout(await styleSummary(defaultJsonPath(mdPath)));
+    return checkCode;
   } catch (err) {
     io.stderr(`deck3d build: ${(err as Error).message}`);
     return 1;
@@ -492,6 +670,53 @@ async function cmdSnapshot(args: string[], io: CliIO): Promise<number> {
   }
 }
 
+/**
+ * `overrides apply <deck.json> <file>` — merge a file written in the D1
+ * `overrides` grammar into `deck.json`'s `overrides` block (objects deep-merge,
+ * arrays and `diagram.data` replace), re-validate, and only then write. A
+ * validation failure leaves `deck.json` byte-unchanged.
+ */
+async function overridesApply(rest: string[], io: CliIO): Promise<number> {
+  const [jsonPath, patchPath] = rest;
+  if (!jsonPath || !patchPath) {
+    io.stderr("deck3d overrides apply: missing <deck.json> <file>");
+    return 2;
+  }
+  let deck: DeckIR;
+  let patch: unknown;
+  try {
+    deck = JSON.parse(readFileSync(jsonPath, "utf8")) as DeckIR;
+  } catch (err) {
+    io.stderr(`deck3d overrides apply: invalid JSON in ${jsonPath}: ${(err as Error).message}`);
+    return 1;
+  }
+  try {
+    patch = JSON.parse(readFileSync(patchPath, "utf8"));
+  } catch (err) {
+    io.stderr(`deck3d overrides apply: invalid JSON in ${patchPath}: ${(err as Error).message}`);
+    return 1;
+  }
+
+  const { deepMerge } = await import("./ir/merge.js");
+  const merged = { ...deck, overrides: deepMerge(deck.overrides ?? {}, patch) as DeckIR["overrides"] };
+
+  const result = validate(merged, { propBytes: cachedPropBytes(jsonPath) });
+  for (const issue of result.errors) io.stderr(formatIssue("error", issue));
+  if (!result.ok) return 1;
+  for (const warning of result.warnings) io.stderr(formatIssue("warn", warning));
+
+  writeJson(jsonPath, merged);
+  io.stdout(JSON.stringify(merged.overrides, null, 2));
+  return 0;
+}
+
+async function cmdOverrides(args: string[], io: CliIO): Promise<number> {
+  const [sub, ...rest] = args;
+  if (sub === "apply") return overridesApply(rest, io);
+  io.stderr(`deck3d overrides: unknown subcommand '${sub ?? ""}' (try apply)`);
+  return 2;
+}
+
 export async function run(argv: string[], io: CliIO = defaultIO): Promise<number> {
   const [command, ...rest] = argv;
   switch (command) {
@@ -522,6 +747,8 @@ export async function run(argv: string[], io: CliIO = defaultIO): Promise<number
       return cmdProps(rest, io);
     case "snapshot":
       return cmdSnapshot(rest, io);
+    case "overrides":
+      return cmdOverrides(rest, io);
     default:
       io.stderr(`deck3d: unknown command '${command}' (try --help)`);
       return 2;

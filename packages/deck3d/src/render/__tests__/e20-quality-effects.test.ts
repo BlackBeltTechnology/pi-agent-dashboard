@@ -77,3 +77,81 @@ describe.skipIf(!hasChromium)("E20 quality tiers vs explicit effects (chromium)"
     }
   }, 180_000);
 });
+
+/**
+ * test-plan #P2 — the quality tier must actually buy something. Each topic
+ * background reports its instance count on `object.userData.count`; `low` must
+ * come in at or under half of `high`, or the tier is decorative.
+ */
+const TOPIC_BACKGROUNDS = [
+  "globe-arcs",
+  "city-grid",
+  "neural-mesh",
+  "vault-glyphs",
+  "server-racks",
+  "market-tape",
+  "orbit-agents",
+  "paper-stack",
+];
+
+describe("P2 topic backgrounds scale with the quality tier", () => {
+  it.each(TOPIC_BACKGROUNDS)("%s at low is at most half of high", async (id) => {
+    const { REGISTRY } = await import("../../fx/index.js");
+    const { resolvePalette } = await import("../../runtime/palette.js");
+    const { qualityProfile } = await import("../../runtime/quality.js");
+    const { makeRng } = await import("../../runtime/rng.js");
+    const THREE = await import("three");
+
+    const countAt = (tier: "low" | "high"): number => {
+      const handle = REGISTRY[id].create(
+        {
+          THREE,
+          palette: resolvePalette({ palette: "blackbelt", mode: "dark" }),
+          mode: "dark",
+          quality: qualityProfile(tier),
+          rng: makeRng(5),
+          slide: { id: "s", title: "t", kind: "content" },
+        },
+        {},
+      );
+      const n = handle.object?.userData.count as number;
+      handle.dispose();
+      return n;
+    };
+
+    const high = countAt("high");
+    const low = countAt("low");
+    expect(high, `${id} high`).toBeGreaterThan(0);
+    expect(low / high, `${id} low/high`).toBeLessThanOrEqual(0.5);
+  });
+});
+
+/**
+ * test-plan #F3 (scene side) — a palette change must reach the rendered frame,
+ * not just the panel's own widgets.
+ */
+describe.skipIf(!hasChromium)("F3 configurator palette reaches the scene (chromium)", () => {
+  it("repaints the background within two frames and leaves __DECK alone", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "deck3d-f3scene-"));
+    writeFileSync(join(dir, "deck.md"), "# Geo\n\n- one\n\n# Ai\n\n- two\n");
+    expect(spawnSync(BIN, ["build", "deck.md", "-o", "deck.html"], { cwd: dir, encoding: "utf8" }).status).toBe(0);
+
+    const browser = await chromium.launch({ channel: "chromium" });
+    try {
+      const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
+      await page.goto(pathToFileURL(join(dir, "deck.html")).href);
+      await page.waitForFunction(() => window.__deck3d !== undefined, undefined, { timeout: 30_000 });
+      await page.keyboard.press("c");
+
+      const before = await page.screenshot();
+      await page.selectOption('#deck3d-hud select[data-path="palette"]', "ember");
+      await page.waitForTimeout(120);
+      const after = await page.screenshot();
+
+      expect(Buffer.compare(before, after)).not.toBe(0);
+      expect(await page.evaluate(() => window.__DECK.defaults.palette)).toBe("blackbelt");
+    } finally {
+      await browser.close();
+    }
+  }, 240_000);
+});

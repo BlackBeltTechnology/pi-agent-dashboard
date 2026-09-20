@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { chromiumAvailable } from "../../__tests__/helpers/chromium.js";
+import { makeLocalDeck, runCli as runDeckCli } from "../../__tests__/helpers/local-fx.js";
+import { NON_DETERMINISTIC_RULES } from "../index.js";
 import type { DeckIR } from "../../ir/types.js";
 import { deriveDeckIR } from "../../parse/derive.js";
 import { harvestDiagram } from "../../parse/harvest/index.js";
@@ -78,4 +80,33 @@ describe.skipIf(!hasChromium)("deck3d check (chromium)", () => {
     const strict = spawnSync(BIN, ["build", "harvest.md", "-o", "b.html", "--strict"], { cwd: dir, encoding: "utf8" });
     expect(strict.status).not.toBe(0);
   }, 180_000);
+});
+
+/**
+ * test-plan #X6 — the report stays byte-stable. `contrast` (pixels) and
+ * `local-fx-network` (request timing) are the declared exceptions; everything
+ * else, including `local-fx-error`, must be identical run to run.
+ */
+describe.skipIf(!hasChromium)("X6 report byte-equality excludes only the declared rules", () => {
+  it("produces identical JSON across two runs once the volatile rules are stripped", () => {
+    const src = 'export default function (ctx, params) { throw new Error("boom"); }\n';
+    const { dir } = makeLocalDeck({ effects: [{ name: "x", src }] }, "deck3d-x6-");
+    expect(runDeckCli(["render", "deck.json", "-o", "deck.html"], dir).status).toBe(0);
+
+    const runOnce = (out: string): string => {
+      runDeckCli(["check", "deck.html", "-o", out], dir);
+      const report = JSON.parse(readFileSync(join(dir, out), "utf8")) as {
+        viewports: Array<{ viewport: string; findings: Array<{ rule: string }> }>;
+      };
+      for (const v of report.viewports) {
+        v.findings = v.findings.filter((f) => !NON_DETERMINISTIC_RULES.includes(f.rule as never));
+      }
+      return JSON.stringify(report);
+    };
+
+    const a = runOnce("a.json");
+    expect(a).toBe(runOnce("b.json"));
+    // The deterministic class really does still carry the local-fx error.
+    expect(a).toContain("local-fx-error");
+  }, 240_000);
 });

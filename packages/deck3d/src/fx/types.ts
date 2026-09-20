@@ -11,10 +11,32 @@ export type FxMode = "dark" | "light" | "both";
 
 export type FxParams = Record<string, number | string | boolean>;
 
+/**
+ * Closed topic vocabulary (design D3). `parse` routes a content slide to the
+ * cheapest `background` card carrying the matched topic, so the list is a
+ * contract between the keyword table and the corpus — not free-form like
+ * `tags.content`.
+ */
+export const FX_TOPICS = [
+  "ai",
+  "agents",
+  "geo",
+  "trust",
+  "security",
+  "compute",
+  "data",
+  "money",
+  "work",
+  "timeline",
+  "sales",
+  "process",
+] as const;
+export type FxTopic = (typeof FX_TOPICS)[number];
+
 export interface FxCard {
   id: string;
   kind: FxKind;
-  tags: { mood: string[]; content: string[] };
+  tags: { mood: string[]; content: string[]; topic?: FxTopic[] };
   cost: number;
   modes: FxMode;
   /** JSON Schema (object) for the effect's `params`. */
@@ -29,6 +51,10 @@ export interface FxContext {
   palette: PaletteColors;
   mode: "dark" | "light";
   quality: QualityProfile;
+  /** Seeded LCG — the only randomness an effect may use (keeps render deterministic). */
+  rng: () => number;
+  /** Read-only metadata of the slide the effect is being built for. */
+  slide: { id: string; title: string; kind: string };
 }
 
 export interface FxHandle {

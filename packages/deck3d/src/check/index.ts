@@ -13,15 +13,26 @@ import {
   filterIgnored,
   fitFindings,
   legibilityFindings,
+  localFxErrorFindings,
+  localFxNetworkFindings,
   type Measurement,
   occlusionFindings,
   overlapFindings,
   type SlideRef,
   skippedFindings,
+  type StyleSlide,
+  styleFindings,
 } from "./rules.js";
 
 export type { Finding, Measurement, RuleName, Severity } from "./rules.js";
-export { formatFinding } from "./rules.js";
+export { formatFinding, NON_DETERMINISTIC_RULES } from "./rules.js";
+
+/** `effects().errors` entry, as the runtime reports it. */
+interface LocalFxErrorRecord {
+  slide: string;
+  effectId: string;
+  phase: "create" | "tick" | "dispose";
+}
 
 export const DEFAULT_CHECK_TIMEOUT_MS = 120_000;
 export const DEFAULT_VIEWPORTS: Viewport[] = [
@@ -38,7 +49,12 @@ export interface CheckOptions {
   viewports?: Viewport[];
   slides?: number[];
   timeoutMs?: number;
+  /** Report `style-defaults` warnings for slides still on parse defaults (D7). */
+  style?: boolean;
 }
+
+/** Schemes a self-contained deck may legitimately load from. */
+const LOCAL_SCHEMES = new Set(["file:", "data:", "blob:", "about:"]);
 
 export interface ViewportReport {
   viewport: string;
@@ -138,9 +154,18 @@ async function annotate(page: Page, measurements: Measurement[]): Promise<Array<
   return measurements.map((m) => ({ ...m, bgLuminance: m.color ? (bg[bi++] ?? 0.5) : 0.5 }));
 }
 
-async function checkSlide(page: Page, index: number, ids: string[], viewport: Viewport, findings: Finding[]): Promise<void> {
-  await page.evaluate((n) => window.__deck3d?.gotoSlide(n), index);
+async function checkSlide(
+  page: Page,
+  index: number,
+  ids: string[],
+  viewport: Viewport,
+  findings: Finding[],
+  onSlide?: (id: string) => void,
+): Promise<void> {
   const slideRef = { id: ids[index - 1] ?? `slide-${index}`, index };
+  // Tell the route handler which slide any blocked request belongs to.
+  onSlide?.(slideRef.id);
+  await page.evaluate((n) => window.__deck3d?.gotoSlide(n), index);
   // Merged per-slide `check.ignore` (derived slide + override), applied per viewport.
   const ignore = (await page.evaluate((i) => (window.__DECK.slides[i - 1]?.check?.ignore ?? []) as string[], index)) as string[];
   const slideFindings: Finding[] = [];
@@ -156,25 +181,108 @@ async function checkSlide(page: Page, index: number, ids: string[], viewport: Vi
     active: [],
     skipped: [],
     budget: { sum: 0, limit: 0 },
-  })) as { skipped: string[]; budget: BudgetInfo };
+    errors: [],
+  })) as { skipped: string[]; budget: BudgetInfo; errors?: LocalFxErrorRecord[] };
   slideFindings.push(...skippedFindings(effects.skipped ?? [], slideRef));
   slideFindings.push(...budgetFindings(effects.budget, slideRef));
+  slideFindings.push(...localFxErrorFindings(effects.errors ?? [], slideRef));
   findings.push(...filterIgnored(slideFindings, ignore));
 }
 
-async function checkViewport(browser: Awaited<ReturnType<typeof chromium.launch>>, htmlPath: string, viewport: Viewport, slides: number[] | undefined): Promise<ViewportReport> {
+async function checkViewport(
+  browser: Awaited<ReturnType<typeof chromium.launch>>,
+  htmlPath: string,
+  viewport: Viewport,
+  opts: CheckOptions,
+): Promise<ViewportReport> {
   const page = await browser.newPage({ viewport: { width: viewport.w, height: viewport.h }, deviceScaleFactor: 1 });
   const findings: Finding[] = [];
+  const hits: Array<{ slide: string; host: string }> = [];
+  let current = "";
   try {
+    // "Offline" is measured, not assumed: every non-local request is blocked
+    // and reported against the slide being measured.
+    await page.route("**/*", (route) => {
+      const url = route.request().url();
+      const scheme = url.slice(0, url.indexOf(":") + 1);
+      if (LOCAL_SCHEMES.has(scheme)) return route.continue();
+      try {
+        hits.push({ slide: current, host: new URL(url).host });
+      } catch {
+        hits.push({ slide: current, host: url });
+      }
+      return route.abort();
+    });
+    await clearHudState(page);
+
     await page.goto(pathToFileURL(htmlPath).href);
     await page.waitForFunction(() => window.__deck3d !== undefined, undefined, { timeout: 30_000 });
     const ids = await page.evaluate(() => window.__DECK.slides.map((s) => s.id));
-    const indices = slides ?? ids.map((_, i) => i + 1);
-    for (const index of indices) await checkSlide(page, index, ids, viewport, findings);
+    current = ids[0] ?? "";
+    const indices = opts.slides ?? ids.map((_, i) => i + 1);
+    for (const index of indices) {
+      await checkSlide(page, index, ids, viewport, findings, (id) => {
+        current = id;
+      });
+    }
+    if (opts.style) findings.push(...(await styleFindingsFor(page)));
+    // Every slide is built at load, so a request can fire before any slide is
+    // being measured. That is a deck-level property; attribute it to slide 1
+    // rather than dropping it or inventing a per-effect owner.
+    for (const hit of hits) {
+      if (!hit.slide) hit.slide = ids[0] ?? "";
+    }
+    findings.push(...localFxNetworkFindings(hits, ids.map((id, i) => ({ id, index: i + 1 }))));
   } finally {
     await page.close();
   }
   return { viewport: `${viewport.w}x${viewport.h}`, findings };
+}
+
+/**
+ * The configurator persists per-deck state under `deck3d:<derivedHash>`;
+ * `check` must measure a deck as a fresh viewer sees it, not as the last
+ * person to fiddle with the panel left it.
+ */
+export async function clearHudState(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith("deck3d:")) localStorage.removeItem(key);
+    }
+  });
+}
+
+/** Recompute the parse defaults for the embedded deck and compare (D7). */
+async function styleFindingsFor(page: Page): Promise<Finding[]> {
+  const deck = (await page.evaluate(() => ({
+    slides: window.__DECK.slides.map((s) => ({
+      id: s.id,
+      title: s.title,
+      bullets: s.bullets ?? [],
+      diagram: { kind: s.diagram?.kind ?? "none" },
+      effects: (s.effects ?? []).map((e) => ({ id: e.id })),
+    })),
+    propSlides: ((window.__DECK as { props?: Array<{ slide: string }> }).props ?? []).map((p) => p.slide),
+    autoStyle: (window.__DECK.defaults as { autoStyle?: boolean }).autoStyle !== false,
+  }))) as { slides: StyleSlide[]; propSlides: string[]; autoStyle: boolean };
+
+  const { defaultEffectsFor } = await import("../fx/defaults.js");
+  const { builtKindFor } = await import("../parse/derive.js");
+  return styleFindings(
+    deck.slides,
+    new Set(deck.propSlides),
+    (slide) =>
+      defaultEffectsFor(
+        { id: slide.id, title: slide.title, bullets: slide.bullets, diagram: slide.diagram as never },
+        deck.autoStyle,
+      ).map((e) => e.id),
+    (slide) =>
+      slide.diagram.kind === "flowchart" || slide.diagram.kind === "sequence"
+        ? slide.diagram.kind
+        : deck.autoStyle
+          ? builtKindFor({ title: slide.title, bullets: slide.bullets })
+          : "none",
+  );
 }
 
 /** Open `htmlPath` headless and evaluate the rules for the requested viewports. */
@@ -190,7 +298,7 @@ export async function runCheck(htmlPath: string, opts: CheckOptions = {}): Promi
   try {
     const report: CheckReport = { viewports: [] };
     for (const viewport of viewports) {
-      const result = await withTimeout(checkViewport(browser, htmlPath, viewport, opts.slides), timeoutMs, `viewport ${viewport.w}x${viewport.h}: check timeout after ${timeoutMs} ms`);
+      const result = await withTimeout(checkViewport(browser, htmlPath, viewport, opts), timeoutMs, `viewport ${viewport.w}x${viewport.h}: check timeout after ${timeoutMs} ms`);
       report.viewports.push(result);
     }
     return report;

@@ -13,6 +13,22 @@ import { create as camera_drift } from "./camera-drift.js";
 import camera_driftCard from "./camera-drift.meta.json";
 import { create as chromatic_aberration } from "./chromatic-aberration.js";
 import chromatic_aberrationCard from "./chromatic-aberration.meta.json";
+import { create as city_grid } from "./city-grid.js";
+import city_gridCard from "./city-grid.meta.json";
+import { create as globe_arcs } from "./globe-arcs.js";
+import globe_arcsCard from "./globe-arcs.meta.json";
+import { create as market_tape } from "./market-tape.js";
+import market_tapeCard from "./market-tape.meta.json";
+import { create as neural_mesh } from "./neural-mesh.js";
+import neural_meshCard from "./neural-mesh.meta.json";
+import { create as orbit_agents } from "./orbit-agents.js";
+import orbit_agentsCard from "./orbit-agents.meta.json";
+import { create as paper_stack } from "./paper-stack.js";
+import paper_stackCard from "./paper-stack.meta.json";
+import { create as server_racks } from "./server-racks.js";
+import server_racksCard from "./server-racks.meta.json";
+import { create as vault_glyphs } from "./vault-glyphs.js";
+import vault_glyphsCard from "./vault-glyphs.meta.json";
 import { create as constellation } from "./constellation.js";
 import constellationCard from "./constellation.meta.json";
 import { create as dashed_flow } from "./dashed-flow.js";
@@ -147,6 +163,14 @@ export const REGISTRY: Record<string, FxEntry> = {
   "fade": { card: fadeCard as FxCard, create: fade },
   "iris": { card: irisCard as FxCard, create: iris },
   "flythrough": { card: flythroughCard as FxCard, create: flythrough },
+  "city-grid": { card: city_gridCard as FxCard, create: city_grid },
+  "globe-arcs": { card: globe_arcsCard as FxCard, create: globe_arcs },
+  "market-tape": { card: market_tapeCard as FxCard, create: market_tape },
+  "neural-mesh": { card: neural_meshCard as FxCard, create: neural_mesh },
+  "orbit-agents": { card: orbit_agentsCard as FxCard, create: orbit_agents },
+  "paper-stack": { card: paper_stackCard as FxCard, create: paper_stack },
+  "server-racks": { card: server_racksCard as FxCard, create: server_racks },
+  "vault-glyphs": { card: vault_glyphsCard as FxCard, create: vault_glyphs },
 };
 
 export const FX_IDS: string[] = Object.keys(REGISTRY);

@@ -1,0 +1,36 @@
+{
+  "id": "orbit-agents",
+  "kind": "background",
+  "tags": {
+    "mood": [
+      "dynamic",
+      "technical"
+    ],
+    "content": [
+      "agents",
+      "network"
+    ],
+    "topic": [
+      "agents"
+    ]
+  },
+  "cost": 3,
+  "modes": "both",
+  "params": {
+    "density": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0.2,
+      "maximum": 3
+    },
+    "speed": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 3
+    }
+  },
+  "conflicts": [],
+  "source": "https://threejs.org/examples/#webgl_instancing_dynamic",
+  "licence": "MIT"
+}

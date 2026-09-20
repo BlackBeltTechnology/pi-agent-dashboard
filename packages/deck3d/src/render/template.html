@@ -13,10 +13,44 @@
   }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
   canvas { display: block; }
+
+  /* Configurator (design D4). Hidden by default: a deck that is never
+     configured must render exactly as it did before the panel existed. */
+  #deck3d-hud-toggle {
+    position: fixed; right: 12px; bottom: 12px; z-index: 10;
+    width: 34px; height: 34px; border-radius: 17px;
+    border: 1px solid rgba(255,255,255,.25); background: rgba(20,20,22,.55);
+    color: #fff; font: 16px/1 system-ui, sans-serif; cursor: pointer;
+    opacity: .35; transition: opacity .15s;
+  }
+  #deck3d-hud-toggle:hover, #deck3d-hud-toggle:focus { opacity: 1; }
+  #deck3d-hud {
+    display: none; position: fixed; right: 12px; bottom: 56px; z-index: 11;
+    width: 268px; max-height: 78vh; overflow: auto;
+    padding: 12px 14px; border-radius: 10px;
+    border: 1px solid rgba(255,255,255,.18); background: rgba(16,16,18,.92);
+    color: #f2f2f2; font: 12px/1.5 system-ui, sans-serif;
+  }
+  #deck3d-hud-counter { font-weight: 700; margin-bottom: 8px; }
+  .deck3d-hud-scopes { display: flex; gap: 6px; margin-bottom: 10px; }
+  .deck3d-hud-scopes button {
+    flex: 1; padding: 4px 6px; border-radius: 6px; cursor: pointer;
+    border: 1px solid rgba(255,255,255,.2); background: transparent; color: inherit; font: inherit;
+  }
+  .deck3d-hud-scopes button.active { background: rgba(255,255,255,.16); }
+  .deck3d-hud-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 5px 0; }
+  .deck3d-hud-row select, .deck3d-hud-row input { width: 108px; font: inherit; }
+  .deck3d-hud-effects { margin: 10px 0 6px; border-top: 1px solid rgba(255,255,255,.14); padding-top: 8px; }
+  .deck3d-hud-effect { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+  .deck3d-hud-note { margin: 8px 0; opacity: .7; font-size: 11px; }
+  #deck3d-hud-export { width: 100%; padding: 6px; border-radius: 6px; cursor: pointer;
+    border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.1); color: inherit; font: inherit; }
 </style>
 </head>
 <body>
-<script>window.__DECK=__DECK__;window.__DECK_FONT="__FONT__";window.__DECK_PROPS=__DECK_PROPS__;</script>
+<button id="deck3d-hud-toggle" type="button" aria-label="Configurator">⚙</button>
+<aside id="deck3d-hud" aria-label="Deck configurator"></aside>
+<script>window.__DECK=__DECK__;window.__DECK_FONT="__FONT__";window.__DECK_PROPS=__DECK_PROPS__;window.__DECK_LOCAL_FX=__DECK_LOCAL_FX__;</script>
 <script>__RUNTIME__</script>
 </body>
 </html>

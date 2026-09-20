@@ -8,6 +8,7 @@ import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { makeLocalDeck, runCli as runDeckCli } from "../../__tests__/helpers/local-fx.js";
 import { glbOfSize, type MockServer, startMockServer } from "../../__tests__/helpers/mock-http.js";
 import { fetchProp } from "../fetch.js";
 import type { PropCandidate } from "../search.js";
@@ -109,4 +110,33 @@ describe("E31 oversized model (inclusive MiB cap)", () => {
     expect(r.stderr).toContain(String(CAP));
     expect(existsSync(join(dir, ".deck3d", "props", CACHE_FILE))).toBe(false);
   }, 30_000);
+});
+
+/**
+ * test-plan #E2 — the 64 KiB local-effect cap. Module bytes land in every
+ * rendered deck, so the boundary is enforced exactly, not approximately.
+ */
+describe("E2 local effect size cap", () => {
+  /** A valid module padded with a trailing comment to hit `bytes` exactly. */
+  function moduleOfSize(bytes: number): string {
+    const head = "export default function (ctx, params) { return { dispose: function () {} }; }\n//";
+    return head + "x".repeat(bytes - head.length - 1) + "\n";
+  }
+
+  it.each([
+    [65_536, true],
+    [65_537, false],
+  ])("a %i byte module is accepted=%s", (bytes, accepted) => {
+    const src = moduleOfSize(bytes);
+    expect(Buffer.byteLength(src)).toBe(bytes);
+    const { dir } = makeLocalDeck({ effects: [{ name: "big", src }] }, "deck3d-e2-");
+    const r = runDeckCli(["validate", "deck.json"], dir);
+    if (accepted) {
+      expect(r.status, r.stderr).toBe(0);
+    } else {
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain("fx/big.js");
+      expect(r.stderr).toContain("64 KiB");
+    }
+  });
 });

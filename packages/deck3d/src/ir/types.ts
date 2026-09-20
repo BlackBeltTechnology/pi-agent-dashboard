@@ -4,7 +4,17 @@
  */
 
 export type Mode = "dark" | "light";
-export type Palette = "blackbelt" | "zenit" | "dapp" | "custom";
+export type Palette =
+  | "blackbelt"
+  | "zenit"
+  | "dapp"
+  | "midnight"
+  | "ember"
+  | "arctic"
+  | "forest"
+  | "mono"
+  | "neon"
+  | "custom";
 export type Material = "glass" | "metal" | "matte";
 export type Quality = "low" | "medium" | "high";
 export type NodeShape =
@@ -17,11 +27,32 @@ export type NodeShape =
   | "diamond"
   | "cylinder";
 export type EdgeKind = "normal" | "dotted" | "thick";
-export type DiagramKind = "none" | "flowchart" | "sequence" | "brain" | "loop" | "swarm";
+/** Topologies `builders.ts` can raise from `diagram.data` alone (no mermaid harvest). */
+export type BuiltDiagramKind =
+  | "none"
+  | "brain"
+  | "loop"
+  | "swarm"
+  | "bars"
+  | "funnel"
+  | "timeline-rail"
+  | "globe"
+  | "orbit-cluster"
+  | "stack";
+export type DiagramKind = BuiltDiagramKind | "flowchart" | "sequence";
+
+/** Label/value series driving a built topology. Atomic: an override replaces it whole. */
+export interface DiagramData {
+  labels?: string[];
+  values?: number[];
+}
 export type FlowchartDir = "TD" | "TB" | "BT" | "LR" | "RL";
 
 export interface EffectRef {
+  /** Corpus id (`bloom`), or `local:<name>` for a module in `fx/` beside the deck. */
   id: string;
+  /** Lowercase hex sha256 of `fx/<name>.js`. Required for `local:` ids, forbidden otherwise. */
+  sha256?: string;
   params?: Record<string, unknown>;
 }
 
@@ -68,6 +99,7 @@ export interface Defaults extends CameraKnobs, LabelKnobs, CheckKnobs {
   depthRelief?: number;
   quality?: Quality;
   extrudeDepth?: number;
+  autoStyle?: boolean;
   camera?: CameraKnobs;
   labels?: LabelKnobs;
   check?: CheckKnobs;
@@ -114,6 +146,7 @@ export interface DiagramMessage {
 
 export interface Diagram {
   kind: DiagramKind;
+  data?: DiagramData;
   dir?: FlowchartDir;
   scale?: number;
   offset?: { x?: number; y?: number };
@@ -156,7 +189,7 @@ export interface SlideOverride {
   quality?: Quality;
   scene?: string;
   backgroundIntensity?: number;
-  diagram?: { scale?: number; offset?: { x?: number; y?: number } };
+  diagram?: { kind?: BuiltDiagramKind; data?: DiagramData; scale?: number; offset?: { x?: number; y?: number } };
   camera?: CameraKnobs;
   labels?: LabelKnobs;
   check?: CheckKnobs;
@@ -214,4 +247,12 @@ export interface MergedDeck {
   effects?: EffectRef[];
   /** Prop placements from `overrides.props` (render-only runtime input). */
   props?: PropOverride[];
+  /**
+   * Dotted key paths that came from `overrides`, so the configurator can mark
+   * them `●`. The merged view has folded the overrides in and cannot tell
+   * otherwise; the `overrides` block itself is deliberately not embedded.
+   */
+  overriddenKeys?: { deck: string[]; slides: Record<string, string[]> };
+  /** `meta.derivedHash`, carried through so the configurator can key its state per deck. */
+  derivedHash?: string;
 }

@@ -37,6 +37,25 @@ describe("applyOverrides (E9 grammar)", () => {
   });
 });
 
+// test-plan #E19 — `diagram.data` is the one named exception to deep-merge:
+// labels and values must never mix provenance.
+describe("E19 diagram.data replaces atomically", () => {
+  it("drops derived values when the override supplies only labels", () => {
+    const ir = validIR();
+    ir.slides[0].diagram = { kind: "bars", data: { labels: ["a", "b"], values: [1, 2] } };
+    ir.overrides.slides = { intro: { diagram: { data: { labels: ["x", "y"] } } } };
+
+    const merged = applyOverrides(ir);
+
+    expect(merged.slides[0].diagram.data).toEqual({ labels: ["x", "y"] });
+    expect(merged.slides[0].diagram.data).not.toHaveProperty("values");
+    // Sibling diagram keys still deep-merge as usual.
+    expect(merged.slides[0].diagram.kind).toBe("bars");
+    // The derived slide is untouched.
+    expect(ir.slides[0].diagram.data).toEqual({ labels: ["a", "b"], values: [1, 2] });
+  });
+});
+
 describe("findOrphanOverrides", () => {
   it("flags a node override whose target is gone (E6)", () => {
     const ir = flowchartIR();

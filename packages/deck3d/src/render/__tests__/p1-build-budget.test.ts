@@ -10,7 +10,7 @@
  * real regression in parse/render cost still blows the 20 s bound.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
@@ -40,4 +40,33 @@ describe.skipIf(!hasChromium)("P1 fixture build within budget (chromium)", () =>
     const postLaunchMs = wallMs - launchMs * 2;
     expect(postLaunchMs, `wall ${wallMs}ms − 2×launch ${launchMs.toFixed(0)}ms`).toBeLessThanOrEqual(20_000);
   }, 120_000);
+});
+
+/**
+ * test-plan #E42 — the business fixture must BUILD, not just render: parse with
+ * mermaid harvest, resolve six local effects, render and check, inside 60 s of
+ * work after the chromium launches it pays for.
+ */
+describe.skipIf(!hasChromium)("E42 business fixture builds within budget (chromium)", () => {
+  it("builds clean within 60 s after chromium launch", async () => {
+    const launched = performance.now();
+    const probe = await chromium.launch({ channel: "chromium" });
+    await probe.close();
+    const launchMs = performance.now() - launched;
+
+    const src = new URL("../../../fixtures/business-2031/", import.meta.url).pathname;
+    const dir = mkdtempSync(join(tmpdir(), "deck3d-e42biz-"));
+    cpSync(src, dir, { recursive: true });
+
+    const started = performance.now();
+    const r = spawnSync(BIN, ["build", "deck.md", "-o", "deck.html"], { cwd: dir, encoding: "utf8" });
+    const wallMs = performance.now() - started;
+
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain("check: clean");
+    expect(r.stdout).toContain("style: 10/10 slides styled");
+    expect(existsSync(join(dir, "deck.html"))).toBe(true);
+    // Two launches: the mermaid harvest and the fit check.
+    expect(wallMs - 2 * launchMs).toBeLessThanOrEqual(60_000);
+  }, 240_000);
 });

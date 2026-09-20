@@ -8,7 +8,10 @@
  * the CLI hint is always a key a human/LLM can actually write.
  */
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { chromiumAvailable } from "../../__tests__/helpers/chromium.js";
+import { makeLocalDeck, runCli as runDeckCli } from "../../__tests__/helpers/local-fx.js";
 import {
   contrastFindings,
   type Finding,
@@ -101,4 +104,35 @@ describe("check suggestions are overrides keys (E40)", () => {
       expect(resolves(f.suggest), `${f.rule}: ${f.suggest}`).toBe(true);
     }
   });
+});
+
+/**
+ * test-plan #X4 — a throwing local effect must surface as an ERROR finding
+ * naming the effect and the phase, and must NOT carry the browser's message
+ * text (that would make the report non-reproducible).
+ */
+describe.skipIf(!(await chromiumAvailable()))("X4 local-fx-error finding (chromium)", () => {
+  it("reports the effect, the phase and a usable suggestion, with no message text", async () => {
+    const src = 'export default function (ctx, params) { throw new Error("boom"); }\n';
+    const { dir } = makeLocalDeck({ effects: [{ name: "x", src }] }, "deck3d-x4-");
+    expect(runDeckCli(["render", "deck.json", "-o", "deck.html"], dir).status).toBe(0);
+
+    const r = runDeckCli(["check", "deck.html", "-o", "r.json"], dir);
+    expect(r.status).not.toBe(0);
+
+    const report = JSON.parse(readFileSync(join(dir, "r.json"), "utf8")) as {
+      viewports: Array<{ findings: Array<Record<string, unknown>> }>;
+    };
+    const found = report.viewports[0].findings.filter((f) => f.rule === "local-fx-error");
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({
+      rule: "local-fx-error",
+      slide: "geo",
+      effectId: "local:x",
+      phase: "create",
+      severity: "error",
+      suggest: 'overrides.slides["geo"].effects',
+    });
+    expect(found[0]).not.toHaveProperty("message");
+  }, 180_000);
 });

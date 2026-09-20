@@ -1,0 +1,30 @@
+{
+  "id": "capital-flows",
+  "kind": "background",
+  "tags": {
+    "mood": [
+      "kinetic",
+      "commercial"
+    ],
+    "content": [
+      "investment",
+      "scrutiny"
+    ],
+    "topic": [
+      "money"
+    ]
+  },
+  "cost": 2,
+  "modes": "both",
+  "params": {
+    "density": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0.2,
+      "maximum": 3
+    }
+  },
+  "conflicts": [],
+  "source": "local",
+  "licence": "MIT"
+}

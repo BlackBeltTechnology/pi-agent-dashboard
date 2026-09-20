@@ -107,3 +107,46 @@ export async function generateProp(opts: GenerateOptions): Promise<GenerateResul
     },
   };
 }
+
+/** Default free text-to-image endpoint; override with `DECK3D_T2I_URL`. */
+export const DEFAULT_T2I_URL = "https://image.pollinations.ai/prompt/{prompt}";
+
+export interface TextToImageOptions {
+  prompt: string;
+  name: string;
+  destDir: string;
+  url?: string;
+  timeoutMs?: number;
+  fetchImpl?: typeof fetch;
+}
+
+/**
+ * Text → PNG hop in front of the existing `--from-image` path. Network happens
+ * at AUTHORING time only; the render never depends on it.
+ */
+export async function textToImage(opts: TextToImageOptions): Promise<string> {
+  const template = opts.url ?? process.env.DECK3D_T2I_URL ?? DEFAULT_T2I_URL;
+  const url = template.includes("{prompt}")
+    ? template.replace("{prompt}", encodeURIComponent(opts.prompt))
+    : `${template}${template.includes("?") ? "&" : "?"}prompt=${encodeURIComponent(opts.prompt)}`;
+
+  const doFetch = opts.fetchImpl ?? fetch;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 30_000);
+  try {
+    const res = await doFetch(url, { signal: controller.signal });
+    if (!res.ok) throw new GenerateError(`text-to-image endpoint ${url} returned HTTP ${res.status}`);
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (bytes.length < 8) throw new GenerateError(`text-to-image endpoint ${url} returned no image`);
+    mkdirSync(opts.destDir, { recursive: true });
+    const dest = join(opts.destDir, `${propKey({ source: "generated", id: opts.name })}.png`);
+    writeFileSync(dest, bytes);
+    return dest;
+  } catch (err) {
+    if (err instanceof GenerateError) throw err;
+    const reason = (err as Error).name === "AbortError" ? "timed out" : (err as Error).message;
+    throw new GenerateError(`text-to-image endpoint ${url} failed (${reason})`);
+  } finally {
+    clearTimeout(timer);
+  }
+}

@@ -1,8 +1,8 @@
 # deck3d effect catalogue
 
-GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards hash: `4aa9220db4aee8283ef2adbcb3f5069b730365dfb0c697fbdce190dc23029515`.
+GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards hash: `ea7c3ecdb24acb89236237b7a6ba35d2ff7ca7945c85da3af1ef6955da4fbd4c`.
 
-47 effects.
+55 effects.
 
 ## accent-cycle
 
@@ -73,6 +73,21 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | Param | Type | Range | Default |
 |---|---|---|---|
 | offset | number | 0..0.01 | 0.001 |
+
+## city-grid
+
+- kind: `background`
+- cost: 3
+- modes: `both`
+- tags: mood=[urban, structured] content=[infrastructure, growth]
+- source: https://threejs.org/examples/#webgl_instancing_performance
+- licence: MIT
+- preview: `fx/previews/city-grid.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| speed | number | 0..3 | 1 |
 
 ## constellation
 
@@ -242,6 +257,21 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
 
+## globe-arcs
+
+- kind: `background`
+- cost: 3
+- modes: `both`
+- tags: mood=[expansive, calm] content=[network, geography]
+- source: https://threejs.org/examples/#webgl_geometry_shapes
+- licence: MIT
+- preview: `fx/previews/globe-arcs.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| speed | number | 0..3 | 1 |
+
 ## glow-tube
 
 - kind: `edge`
@@ -368,6 +398,21 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
 
+## market-tape
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[energetic, commercial] content=[metrics, finance]
+- source: https://threejs.org/examples/#webgl_instancing_performance
+- licence: MIT
+- preview: `fx/previews/market-tape.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| speed | number | 0..3 | 1 |
+
 ## matcap
 
 - kind: `material`
@@ -424,6 +469,21 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | radius | number | 0..4 | 1 |
 
+## neural-mesh
+
+- kind: `background`
+- cost: 3
+- modes: `both`
+- tags: mood=[technical, intelligent] content=[network, model]
+- source: https://threejs.org/examples/#webgl_lines_dashed
+- licence: MIT
+- preview: `fx/previews/neural-mesh.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| speed | number | 0..3 | 1 |
+
 ## orbit
 
 - kind: `motion`
@@ -437,6 +497,36 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | Param | Type | Range | Default |
 |---|---|---|---|
 | speed | number | 0..2 | 0.5 |
+
+## orbit-agents
+
+- kind: `background`
+- cost: 3
+- modes: `both`
+- tags: mood=[dynamic, technical] content=[agents, network]
+- source: https://threejs.org/examples/#webgl_instancing_dynamic
+- licence: MIT
+- preview: `fx/previews/orbit-agents.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| speed | number | 0..3 | 1 |
+
+## paper-stack
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[calm, procedural] content=[process, documents]
+- source: https://threejs.org/examples/#webgl_geometry_shapes
+- licence: MIT
+- preview: `fx/previews/paper-stack.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| speed | number | 0..3 | 1 |
 
 ## particle-stream
 
@@ -507,6 +597,21 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | Param | Type | Range | Default |
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
+
+## server-racks
+
+- kind: `background`
+- cost: 3
+- modes: `both`
+- tags: mood=[technical, dense] content=[infrastructure, compute]
+- source: https://threejs.org/examples/#webgl_instancing_performance
+- licence: MIT
+- preview: `fx/previews/server-racks.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| speed | number | 0..3 | 1 |
 
 ## signal-pulse
 
@@ -620,6 +725,21 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | Param | Type | Range | Default |
 |---|---|---|---|
 | length | number | 0..1 | 0.5 |
+
+## vault-glyphs
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[secure, formal] content=[security, compliance]
+- source: https://threejs.org/examples/#webgl_geometry_shapes
+- licence: MIT
+- preview: `fx/previews/vault-glyphs.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| speed | number | 0..3 | 1 |
 
 ## vignette
 

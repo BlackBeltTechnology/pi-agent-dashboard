@@ -13,7 +13,14 @@
       "required": ["mood", "content"],
       "properties": {
         "mood": { "type": "array", "items": { "type": "string" } },
-        "content": { "type": "array", "items": { "type": "string" } }
+        "content": { "type": "array", "items": { "type": "string" } },
+        "topic": {
+          "type": "array",
+          "description": "Closed vocabulary parse routes content slides by. Free-form belongs in `content`.",
+          "items": {
+            "enum": ["ai", "agents", "geo", "trust", "security", "compute", "data", "money", "work", "timeline", "sales", "process"]
+          }
+        }
       }
     },
     "cost": { "type": "integer", "minimum": 1, "maximum": 5 },
@@ -33,7 +40,10 @@
       }
     },
     "conflicts": { "type": "array", "items": { "type": "string" } },
-    "source": { "type": "string", "pattern": "^https://" },
+    "source": {
+      "description": "Upstream URL for a corpus card, or the literal `local` for a per-deck module in `fx/`.",
+      "anyOf": [{ "type": "string", "pattern": "^https://" }, { "const": "local" }]
+    },
     "licence": { "enum": ["MIT", "Zlib", "BSD-2-Clause", "BSD-3-Clause", "CC0-1.0", "Apache-2.0", "OFL-1.1"] }
   }
 }

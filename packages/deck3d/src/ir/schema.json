@@ -60,7 +60,7 @@
         },
         "palette": {
           "type": "string",
-          "enum": ["blackbelt", "zenit", "dapp", "custom"],
+          "enum": ["blackbelt", "zenit", "dapp", "midnight", "ember", "arctic", "forest", "mono", "neon", "custom"],
           "default": "blackbelt",
           "description": "Named colour palette. `custom` reads `colors` below."
         },
@@ -145,6 +145,11 @@
           "minimum": 0,
           "default": 0.18,
           "description": "Extrusion depth of 3D title glyphs."
+        },
+        "autoStyle": {
+          "type": "boolean",
+          "default": true,
+          "description": "Let parse pick a built diagram kind and a topic-matched background per slide. `false` restores the v1 fallback routing (no built kinds, `particles` background)."
         },
         "camera": {
           "type": "object",
@@ -284,8 +289,11 @@
       "properties": {
         "kind": {
           "type": "string",
-          "enum": ["none", "flowchart", "sequence", "brain", "loop", "swarm"],
+          "enum": ["none", "flowchart", "sequence", "brain", "loop", "swarm", "bars", "funnel", "timeline-rail", "globe", "orbit-cluster", "stack"],
           "description": "Diagram builder to use. `none` = no diagram."
+        },
+        "data": {
+          "$ref": "#/definitions/diagramData"
         },
         "dir": {
           "type": "string",
@@ -432,19 +440,54 @@
       }
     },
 
+    "diagramData": {
+      "type": "object",
+      "description": "Label/value series driving a built diagram topology. Replaced as a whole object by an override \u2014 never deep-merged, so labels and values cannot mix provenance.",
+      "additionalProperties": false,
+      "properties": {
+        "labels": {
+          "type": "array",
+          "description": "One caption per series entry, in source order.",
+          "items": { "type": "string" }
+        },
+        "values": {
+          "type": "array",
+          "description": "One magnitude per series entry. Absent \u2192 the builder uses equal magnitudes.",
+          "items": { "type": "number", "minimum": 0 }
+        }
+      }
+    },
+
     "effectRef": {
       "type": "object",
-      "description": "Reference to an effect in the fx corpus, with optional parameter values.",
+      "description": "Reference to an effect in the fx corpus (`{id, params}`), or to a per-deck module in `fx/` beside the deck (`{id: \"local:<name>\", sha256, params}`).",
       "additionalProperties": false,
       "required": ["id"],
       "properties": {
-        "id": { "type": "string", "description": "Effect id from `fx list` (e.g. `bloom`, `starfield`)." },
+        "id": { "type": "string", "description": "Effect id from `fx list` (e.g. `bloom`, `starfield`), or `local:<name>` for a module in `fx/` beside the deck." },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Lowercase hex sha256 of the `fx/<name>.js` bytes. Required for `local:` ids, forbidden for corpus ids."
+        },
         "params": {
           "type": "object",
           "description": "Effect parameters; each is bounded by the effect's card schema and validated by `validate`.",
           "additionalProperties": true
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["id"], "properties": { "id": { "pattern": "^local:" } } },
+          "then": {
+            "required": ["sha256"],
+            "properties": {
+              "id": { "pattern": "^local:[a-z][a-z0-9-]{0,63}$" }
+            }
+          },
+          "else": { "not": { "required": ["sha256"] } }
+        }
+      ]
     },
 
     "prop": {
@@ -522,7 +565,7 @@
             "additionalProperties": false,
             "properties": {
               "mode": { "type": "string", "enum": ["dark", "light"], "description": "Override the slide's palette mode." },
-              "palette": { "type": "string", "enum": ["blackbelt", "zenit", "dapp", "custom"], "description": "Override the slide's palette." },
+              "palette": { "type": "string", "enum": ["blackbelt", "zenit", "dapp", "midnight", "ember", "arctic", "forest", "mono", "neon", "custom"], "description": "Override the slide's palette." },
               "material": { "type": "string", "enum": ["glass", "metal", "matte"], "description": "Override the slide's material family." },
               "transition": { "type": "string", "description": "Override the transition effect id for entering this slide." },
               "quality": { "type": "string", "enum": ["low", "medium", "high"], "description": "Override the quality tier for this slide." },
@@ -533,6 +576,12 @@
                 "description": "Diagram framing overrides.",
                 "additionalProperties": false,
                 "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": ["none", "brain", "loop", "swarm", "bars", "funnel", "timeline-rail", "globe", "orbit-cluster", "stack"],
+                    "description": "Force a built topology on a slide without a mermaid block. `flowchart`/`sequence` are derived from markdown and cannot be set here."
+                  },
+                  "data": { "$ref": "#/definitions/diagramData" },
                   "scale": { "type": "number", "exclusiveMinimum": 0, "description": "Scale the diagram up/down to fit." },
                   "offset": {
                     "type": "object",

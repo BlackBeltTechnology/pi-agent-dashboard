@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { glbOfSize, type MockServer, startMockServer } from "../../__tests__/helpers/mock-http.js";
+import { makeLocalDeck, runCli as runDeckCli } from "../../__tests__/helpers/local-fx.js";
 import { validIR } from "../../ir/__tests__/fixtures.js";
 import { fetchProp, sha256 } from "../fetch.js";
 import type { PropCandidate } from "../search.js";
@@ -101,3 +102,45 @@ describe("E30 hash mismatch", () => {
     expect(existsSync(join(dir, "deck.html"))).toBe(false);
   });
 });
+
+/**
+ * test-plan #E3 — the sha256 pin is the whole local-effect contract: it is
+ * what makes an LLM-authored module admissible under the determinism rule.
+ * A drifted digest must stop `render` before any HTML is written.
+ */
+describe("E3 local effect hash pin", () => {
+  it("accepts the matching digest", () => {
+    const { dir } = makeLocalDeck({ effects: [{ name: "geo" }] }, "deck3d-e3-");
+    expect(runDeckCli(["validate", "deck.json"], dir).status).toBe(0);
+  });
+
+  it("rejects a digest one character off, naming the key and the file, writing no html", () => {
+    const { dir, digests } = makeLocalDeck({ effects: [{ name: "geo" }] }, "deck3d-e3-");
+    const wrong = `${digests.geo.slice(0, 63)}${digests.geo[63] === "a" ? "b" : "a"}`;
+    repin(dir, wrong);
+
+    const v = runDeckCli(["validate", "deck.json"], dir);
+    expect(v.status).not.toBe(0);
+    expect(v.stderr).toContain('overrides.slides["geo"].effects[0].sha256');
+    expect(v.stderr).toContain("fx/geo.js");
+
+    const r = runDeckCli(["render", "deck.json", "-o", "deck.html"], dir);
+    expect(r.status).not.toBe(0);
+    expect(existsSync(join(dir, "deck.html"))).toBe(false);
+  });
+
+  it("treats an uppercase digest as a mismatch", () => {
+    const { dir, digests } = makeLocalDeck({ effects: [{ name: "geo" }] }, "deck3d-e3-");
+    repin(dir, digests.geo.toUpperCase());
+    const r = runDeckCli(["validate", "deck.json"], dir);
+    expect(r.status).not.toBe(0);
+  });
+});
+
+/** Rewrite the pinned digest of the single local effect in `deck.json`. */
+function repin(dir: string, sha: string): void {
+  const path = join(dir, "deck.json");
+  const deck = JSON.parse(readFileSync(path, "utf8"));
+  deck.overrides.slides.geo.effects[0].sha256 = sha;
+  writeFileSync(path, `${JSON.stringify(deck, null, 2)}\n`);
+}

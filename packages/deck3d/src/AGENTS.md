@@ -2,7 +2,7 @@
 
 | File | Purpose |
 |------|---------|
-| `cli.ts` | `deck3d` CLI entry: `parse | validate | render | build | check | snapshot` + `fx`/`props` sub-trees. `--help`/`--version`; subcommand handlers wired as their modules land. |
+| `cli.ts` | `deck3d` CLI entry: `parse | validate | render | build | check | snapshot | overrides` + `fx`/`props` sub-trees. `--help`/`--version`; subcommand handlers wired as their modules land. Adds `overrides apply` (validate-then-write, so a bad patch leaves `deck.json` byte-unchanged), `fx list --topic`, `fx preview --palette` + `local:<name>`, `fx scaffold|hash|promote`, `check --style`, `props search --role ambient`, `props generate --prompt`, and the `style: <n>/<N> slides styled` line at the end of `build`. `VALUE_FLAGS` is the single list of flags consuming the next argv. See change: deck3d-cinematic-worlds. |
 | `ir/AGENTS.md` | Subfolder — Deck IR schema, ids, merge, validation. |
 | `parse/AGENTS.md` | Subfolder — markdown grammar + mermaid harvest. |
 | `runtime/AGENTS.md` | Subfolder — bundler-inlined browser engine (three.js). |

@@ -13,7 +13,7 @@
 | `meta.derivedHash` | string |  | sha256 over the canonical derived fields (defaults + slides). `validate` recomputes it to detect edits made outside `overrides`. |
 | `defaults` | object |  | Deck-level visual defaults applied to every slide unless a slide overrides them. |
 | `defaults.mode` | dark \| light | `"dark"` | Dark or light palette variant. Switches background, card and text colours together. |
-| `defaults.palette` | blackbelt \| zenit \| dapp \| custom | `"blackbelt"` | Named colour palette. `custom` reads `colors` below. |
+| `defaults.palette` | blackbelt \| zenit \| dapp \| midnight \| ember \| arctic \| forest \| mono \| neon \| custom | `"blackbelt"` | Named colour palette. `custom` reads `colors` below. |
 | `defaults.colors` | object |  | Colour overrides used when palette is `custom` (CSS hex). |
 | `defaults.colors.card` | string |  | Card/surface colour for the custom palette. |
 | `defaults.colors.accent` | string |  | Accent (primary highlight) colour. |
@@ -31,6 +31,7 @@
 | `defaults.depthRelief` | number | `0.7` | Depth offset (world units) applied per diagram rank so a 2D layout reads as a 3D staircase. Higher = more relief. |
 | `defaults.quality` | low \| medium \| high | `"high"` | Quality tier: scales bloom, reflections, shadow resolution and particle count, and sets the effect cost budget (low 6 / medium 12 / high 20). |
 | `defaults.extrudeDepth` | number | `0.18` | Extrusion depth of 3D title glyphs. |
+| `defaults.autoStyle` | boolean | `true` | Let parse pick a built diagram kind and a topic-matched background per slide. `false` restores the v1 fallback routing (no built kinds, `particles` background). |
 | `defaults.camera` | object |  | Default camera framing. |
 | `defaults.camera.distance` | number | `9` | Distance from the slide's focal plane. Larger = more content in frame but smaller labels. |
 | `defaults.labels` | object |  | Default diagram-label treatment. |
@@ -49,7 +50,12 @@
 | `slides[].bullets[]` | string |  |  |
 | `slides[].scene` | string |  | Background scene id (e.g. `tokens`, `rings`, `swarm`, `aurora`, `none`). |
 | `slides[].diagram` | object |  | Derived diagram geometry. `kind: none` means no diagram (unsupported or absent). |
-| `slides[].diagram.kind` | none \| flowchart \| sequence \| brain \| loop \| swarm |  | Diagram builder to use. `none` = no diagram. |
+| `slides[].diagram.kind` | none \| flowchart \| sequence \| brain \| loop \| swarm \| bars \| funnel \| timeline-rail \| globe \| orbit-cluster \| stack |  | Diagram builder to use. `none` = no diagram. |
+| `slides[].diagram.data` | object |  | Label/value series driving a built diagram topology. Replaced as a whole object by an override — never deep-merged, so labels and values cannot mix provenance. |
+| `slides[].diagram.data.labels` | array |  | One caption per series entry, in source order. |
+| `slides[].diagram.data.labels[]` | string |  |  |
+| `slides[].diagram.data.values` | array |  | One magnitude per series entry. Absent → the builder uses equal magnitudes. |
+| `slides[].diagram.data.values[]` | number |  |  |
 | `slides[].diagram.dir` | TD \| TB \| BT \| LR \| RL |  | Flowchart rank direction as declared in the source. |
 | `slides[].diagram.scale` | number | `1` | Overall diagram scale in world units (override: `overrides.slides[id].diagram.scale`). |
 | `slides[].diagram.offset` | object |  | Diagram translation in world units (override: `overrides.slides[id].diagram.offset`). |
@@ -100,13 +106,14 @@
 | `slides[].check.ignore` | array |  | Object ids the fit/legibility check should skip (reported as `skipped`, never silently). |
 | `slides[].check.ignore[]` | string |  |  |
 | `slides[].effects` | array |  | Derived default effect list for this slide (replaced wholesale by `overrides.slides[id].effects`). |
-| `slides[].effects[]` | object |  | Reference to an effect in the fx corpus, with optional parameter values. |
-| `slides[].effects[].id` | string |  | Effect id from `fx list` (e.g. `bloom`, `starfield`). |
+| `slides[].effects[]` | object |  | Reference to an effect in the fx corpus (`{id, params}`), or to a per-deck module in `fx/` beside the deck (`{id: "local:<name>", sha256, params}`). |
+| `slides[].effects[].id` | string |  | Effect id from `fx list` (e.g. `bloom`, `starfield`), or `local:<name>` for a module in `fx/` beside the deck. |
+| `slides[].effects[].sha256` | string |  | Lowercase hex sha256 of the `fx/<name>.js` bytes. Required for `local:` ids, forbidden for corpus ids. |
 | `slides[].effects[].params` | object |  | Effect parameters; each is bounded by the effect's card schema and validated by `validate`. |
 | `overrides` | object |  | The ONLY user-writable region. Objects deep-merge over derived values; arrays replace. |
 | `overrides.deck` | object |  | Deck-level visual defaults applied to every slide unless a slide overrides them. |
 | `overrides.deck.mode` | dark \| light | `"dark"` | Dark or light palette variant. Switches background, card and text colours together. |
-| `overrides.deck.palette` | blackbelt \| zenit \| dapp \| custom | `"blackbelt"` | Named colour palette. `custom` reads `colors` below. |
+| `overrides.deck.palette` | blackbelt \| zenit \| dapp \| midnight \| ember \| arctic \| forest \| mono \| neon \| custom | `"blackbelt"` | Named colour palette. `custom` reads `colors` below. |
 | `overrides.deck.colors` | object |  | Colour overrides used when palette is `custom` (CSS hex). |
 | `overrides.deck.colors.card` | string |  | Card/surface colour for the custom palette. |
 | `overrides.deck.colors.accent` | string |  | Accent (primary highlight) colour. |
@@ -124,6 +131,7 @@
 | `overrides.deck.depthRelief` | number | `0.7` | Depth offset (world units) applied per diagram rank so a 2D layout reads as a 3D staircase. Higher = more relief. |
 | `overrides.deck.quality` | low \| medium \| high | `"high"` | Quality tier: scales bloom, reflections, shadow resolution and particle count, and sets the effect cost budget (low 6 / medium 12 / high 20). |
 | `overrides.deck.extrudeDepth` | number | `0.18` | Extrusion depth of 3D title glyphs. |
+| `overrides.deck.autoStyle` | boolean | `true` | Let parse pick a built diagram kind and a topic-matched background per slide. `false` restores the v1 fallback routing (no built kinds, `particles` background). |
 | `overrides.deck.camera` | object |  | Default camera framing. |
 | `overrides.deck.camera.distance` | number | `9` | Distance from the slide's focal plane. Larger = more content in frame but smaller labels. |
 | `overrides.deck.labels` | object |  | Default diagram-label treatment. |
@@ -132,8 +140,9 @@
 | `overrides.deck.check.ignore` | array |  | Object ids the fit/legibility check should skip (reported as `skipped`, never silently). |
 | `overrides.deck.check.ignore[]` | string |  |  |
 | `overrides.effects` | array |  | Deck-level effect list (replaces the deck default list). |
-| `overrides.effects[]` | object |  | Reference to an effect in the fx corpus, with optional parameter values. |
-| `overrides.effects[].id` | string |  | Effect id from `fx list` (e.g. `bloom`, `starfield`). |
+| `overrides.effects[]` | object |  | Reference to an effect in the fx corpus (`{id, params}`), or to a per-deck module in `fx/` beside the deck (`{id: "local:<name>", sha256, params}`). |
+| `overrides.effects[].id` | string |  | Effect id from `fx list` (e.g. `bloom`, `starfield`), or `local:<name>` for a module in `fx/` beside the deck. |
+| `overrides.effects[].sha256` | string |  | Lowercase hex sha256 of the `fx/<name>.js` bytes. Required for `local:` ids, forbidden for corpus ids. |
 | `overrides.effects[].params` | object |  | Effect parameters; each is bounded by the effect's card schema and validated by `validate`. |
 | `overrides.props` | array |  | Models placed on slides. |
 | `overrides.props[]` | object |  | A glTF model placed on a slide. Selection is the LLM's job; code fetches, hash-pins and renders it. |
@@ -151,13 +160,19 @@
 | `overrides.slides` | object |  | Per-slide overrides keyed by slide id. |
 | `overrides.slides["<key>"]` | object |  | Partial per-slide override; every field deep-merges over the derived slide. |
 | `overrides.slides["<key>"].mode` | dark \| light |  | Override the slide's palette mode. |
-| `overrides.slides["<key>"].palette` | blackbelt \| zenit \| dapp \| custom |  | Override the slide's palette. |
+| `overrides.slides["<key>"].palette` | blackbelt \| zenit \| dapp \| midnight \| ember \| arctic \| forest \| mono \| neon \| custom |  | Override the slide's palette. |
 | `overrides.slides["<key>"].material` | glass \| metal \| matte |  | Override the slide's material family. |
 | `overrides.slides["<key>"].transition` | string |  | Override the transition effect id for entering this slide. |
 | `overrides.slides["<key>"].quality` | low \| medium \| high |  | Override the quality tier for this slide. |
 | `overrides.slides["<key>"].scene` | string |  | Override the background scene id. |
 | `overrides.slides["<key>"].backgroundIntensity` | number |  | Override the background scene opacity. |
 | `overrides.slides["<key>"].diagram` | object |  | Diagram framing overrides. |
+| `overrides.slides["<key>"].diagram.kind` | none \| brain \| loop \| swarm \| bars \| funnel \| timeline-rail \| globe \| orbit-cluster \| stack |  | Force a built topology on a slide without a mermaid block. `flowchart`/`sequence` are derived from markdown and cannot be set here. |
+| `overrides.slides["<key>"].diagram.data` | object |  | Label/value series driving a built diagram topology. Replaced as a whole object by an override — never deep-merged, so labels and values cannot mix provenance. |
+| `overrides.slides["<key>"].diagram.data.labels` | array |  | One caption per series entry, in source order. |
+| `overrides.slides["<key>"].diagram.data.labels[]` | string |  |  |
+| `overrides.slides["<key>"].diagram.data.values` | array |  | One magnitude per series entry. Absent → the builder uses equal magnitudes. |
+| `overrides.slides["<key>"].diagram.data.values[]` | number |  |  |
 | `overrides.slides["<key>"].diagram.scale` | number |  | Scale the diagram up/down to fit. |
 | `overrides.slides["<key>"].diagram.offset` | object |  | Translate the diagram. |
 | `overrides.slides["<key>"].diagram.offset.x` | number |  | Horizontal offset. |
@@ -170,8 +185,9 @@
 | `overrides.slides["<key>"].check.ignore` | array |  | Object ids the fit/legibility check should skip (reported as `skipped`, never silently). |
 | `overrides.slides["<key>"].check.ignore[]` | string |  |  |
 | `overrides.slides["<key>"].effects` | array |  | Replaces the slide's derived default effect list. |
-| `overrides.slides["<key>"].effects[]` | object |  | Reference to an effect in the fx corpus, with optional parameter values. |
-| `overrides.slides["<key>"].effects[].id` | string |  | Effect id from `fx list` (e.g. `bloom`, `starfield`). |
+| `overrides.slides["<key>"].effects[]` | object |  | Reference to an effect in the fx corpus (`{id, params}`), or to a per-deck module in `fx/` beside the deck (`{id: "local:<name>", sha256, params}`). |
+| `overrides.slides["<key>"].effects[].id` | string |  | Effect id from `fx list` (e.g. `bloom`, `starfield`), or `local:<name>` for a module in `fx/` beside the deck. |
+| `overrides.slides["<key>"].effects[].sha256` | string |  | Lowercase hex sha256 of the `fx/<name>.js` bytes. Required for `local:` ids, forbidden for corpus ids. |
 | `overrides.slides["<key>"].effects[].params` | object |  | Effect parameters; each is bounded by the effect's card schema and validated by `validate`. |
 | `overrides.nodes` | object |  | Per-node overrides keyed by `<slideId>/<nodeId>`. |
 | `overrides.nodes["<key>"]` | object |  |  |

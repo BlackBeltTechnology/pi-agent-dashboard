@@ -2,6 +2,32 @@ import { describe, expect, it } from "vitest";
 import { validate } from "../validate.js";
 import { flowchartIR, validIR } from "./fixtures.js";
 
+// test-plan #E18 — the palette enum is the deck's colour contract; every named
+// palette must validate and an unknown one must be rejected by name.
+describe("E18 palette enum", () => {
+  const VALID = ["blackbelt", "zenit", "dapp", "midnight", "ember", "arctic", "forest", "mono", "neon", "custom"];
+
+  it.each(VALID)("accepts overrides.deck.palette = %s", (palette) => {
+    const ir = validIR();
+    ir.overrides.deck = { palette: palette as never };
+    expect(validate(ir).errors).toEqual([]);
+  });
+
+  it("rejects an unknown palette naming the path and the enum", () => {
+    const ir = validIR();
+    ir.overrides.deck = { palette: "sunset" as never };
+    const result = validate(ir);
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({
+        path: "overrides.deck.palette",
+        message: expect.stringContaining("expected one of"),
+      }),
+    );
+    expect(result.errors.some((e) => e.message.includes("ember"))).toBe(true);
+  });
+});
+
 describe("IR schema validation", () => {
   it("accepts a valid fixture", () => {
     const result = validate(validIR());

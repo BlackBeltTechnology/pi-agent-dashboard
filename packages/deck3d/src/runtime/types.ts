@@ -22,7 +22,13 @@ export interface Deck3dApi {
   ready: () => Promise<void>;
   measure: () => Measurement[];
   peaks: () => number[];
-  effects: () => { active: string[]; skipped: string[]; budget: { sum: number; limit: number; warning?: string } };
+  effects: () => {
+    active: string[];
+    skipped: string[];
+    budget: { sum: number; limit: number; warning?: string };
+    /** Local-effect failures, `{ slide, effectId, phase }` (design D1). */
+    errors: Array<{ slide: string; effectId: string; phase: "create" | "tick" | "dispose" }>;
+  };
   debug: { titleGlyphs: () => number; liftedMessage: () => string | null };
   current: () => number;
 }

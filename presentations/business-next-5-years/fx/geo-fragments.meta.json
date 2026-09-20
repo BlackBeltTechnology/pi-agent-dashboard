@@ -1,0 +1,30 @@
+{
+  "id": "geo-fragments",
+  "kind": "background",
+  "tags": {
+    "mood": [
+      "unsettled",
+      "wide"
+    ],
+    "content": [
+      "geography",
+      "fragmentation"
+    ],
+    "topic": [
+      "geo"
+    ]
+  },
+  "cost": 2,
+  "modes": "both",
+  "params": {
+    "density": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0.2,
+      "maximum": 3
+    }
+  },
+  "conflicts": [],
+  "source": "local",
+  "licence": "MIT"
+}

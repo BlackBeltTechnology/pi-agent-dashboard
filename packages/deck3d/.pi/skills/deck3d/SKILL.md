@@ -32,11 +32,23 @@ by writing `overrides` in `deck.json`**, never by editing the HTML.
 
 1. `deck3d parse talk.md` → `talk.json` (derived IR + empty `overrides`).
 2. `deck3d validate talk.json` → schema + derived-edit + orphan/prop warnings.
-3. `deck3d build talk.md -o talk.html` → `talk.json` + `talk.html`; runs `check`.
-4. Read the `check` findings. **Fix only the suggested key** (e.g.
+3. `deck3d build talk.md -o talk.html` → `talk.json` + `talk.html`; runs `check`
+   and prints `style: <n>/<N> slides styled`.
+4. **Style** — mandatory, and the step that decides whether the deck looks
+   designed. `deck3d check talk.html --style` warns `style-defaults` for every
+   slide still running only what `parse` chose. For each one:
+   - pick a corpus effect (`deck3d fx list --topic geo`, `--kind background`)
+     *or* write a per-deck one with `deck3d fx scaffold <name> --for <slideId>`;
+   - give a content slide without a mermaid block a built topology
+     (`overrides.slides["<id>"].diagram.kind` + `data`);
+   - illustrate the section: `deck3d props search <kw> --role hero`,
+     `--role illustration`, and `props search --role ambient` for
+     low-triangle background instances.
+5. Read the `check` findings. **Fix only the suggested key** (e.g.
    `overrides.slides["arch"].diagram.scale`), then re-run step 3.
-5. `deck3d snapshot talk.html --slide 5 -o s5.png` to eyeball one slide.
-6. Repeat until `check` is clean (or only acceptable contrast warnings remain).
+6. `deck3d snapshot talk.html --slide 5 -o s5.png` to eyeball one slide.
+7. Repeat until `check` is clean **and** the style line accounts for every slide
+   you meant to design.
 
 Tune by writing `deck.json`'s `overrides` only:
 
@@ -53,8 +65,20 @@ overrides: {
 }
 ```
 
-Objects deep-merge; **arrays replace** (an `effects`/`props` list is the whole list).
+Objects deep-merge; **arrays replace** (an `effects`/`props` list is the whole list);
+`diagram.data` replaces as a whole object so labels and values never mix provenance.
 Full field list: [`reference/ir-fields.md`](reference/ir-fields.md).
+
+The deck's `⚙` configurator (`C` key, or the gear) tries knobs live and its
+**Export** writes an `overrides.json` in exactly this grammar. Merge it with:
+
+```
+deck3d overrides apply talk.json overrides.json
+```
+
+It deep-merges, re-validates, and refuses to write on a validation error. Note
+that **markdown inline overrides win** over anything in that file, and an
+exported `effects` list pins that scope's whole list.
 
 ## Styling with effects
 
@@ -62,8 +86,33 @@ Full field list: [`reference/ir-fields.md`](reference/ir-fields.md).
 [`reference/effects.md`](reference/effects.md) has params and licences.
 
 - `parse` assigns deterministic defaults (title→`swarm`, flowchart→`tokens`,
-  sequence→`rings`, security→`glyph-rain`, data→`data-columns`).
+  sequence→`rings`, security→`glyph-rain`, data→`data-columns`), then routes the
+  rest by topic (`deck3d fx list --topic <t>`; `ai agents geo trust security
+  compute data money work timeline sales process`). `autoStyle: false` restores
+  the plain v1 fallback.
 - Replace them with `overrides.slides["<id>"].effects = [{ id, params? }]`.
+
+### Per-deck (local) effects
+
+When no corpus effect fits the topic, write one beside `deck.md`:
+
+```
+deck3d fx scaffold neural-mesh --for ai   # writes fx/neural-mesh.{js,meta.json}
+deck3d fx preview local:neural-mesh --palette ember -o p.png
+deck3d fx hash neural-mesh                # re-pin after every edit
+```
+
+Paste the printed `{ id: "local:<name>", sha256 }` entry into the slide's
+`effects`. `render` embeds the source and refuses a stale hash, so the deck
+stays byte-deterministic and offline.
+
+Inside a local module the deck shadows the non-deterministic and I/O globals:
+`Math.random` **is the deck's seeded per-slide generator**, and `window`,
+`document`, `fetch`, `setTimeout`, `Date`, `Promise`, `eval` and friends are all
+`undefined`. No `import`, one default export, 64 KiB cap. A throw disables that
+effect only and shows up as `local-fx-error` in `check`; any network the deck
+attempts shows up as `local-fx-network`. Promote a good one with
+`deck3d fx promote <name> --source <url> --licence <spdx>`.
 - Conflicts fail `render`; mode-incompatible effects are skipped with a warning;
   the summed `cost` warns over the quality budget (`low` 6 / `medium` 12 / `high` 20).
 
@@ -77,6 +126,10 @@ Full field list: [`reference/ir-fields.md`](reference/ir-fields.md).
    (with the `sha256`) and caches it in `.deck3d/props/`.
 3. Add the entry to `overrides.props` (roles: `hero`, `illustration`,
    `ambient`, `node:<id>`), then `build`/`snapshot`.
+4. `deck3d props search <kw> --role ambient` filters to models cheap enough to
+   instance in the background and prints a ready `ambient` entry.
+5. No model fits? `deck3d props generate --prompt "<text>" --name <n>` (or
+   `--from-image`). Optional python path; network at authoring time only.
 
 Licences: CC0 needs no credits; CC-BY (and any non-CC0, non-`generated`) produces a
 last `credits` slide at render. Never fetch a model whose licence you cannot name.
@@ -100,6 +153,9 @@ last `credits` slide at render. Never fetch a model whose licence you cannot nam
   harvest fixtures will fail if the rendered id scheme moves.
 - Headless/background tabs stall `requestAnimationFrame`; the loop falls back to
   `setTimeout` so snapshots capture a finished frame.
+- **A `check: clean` deck can still be bare.** `check` measures fit and
+  legibility, not ambition — read the `style: <n>/<N> slides styled` line and
+  run `check --style` before calling a deck done.
 
 ## Contributing an effect
 

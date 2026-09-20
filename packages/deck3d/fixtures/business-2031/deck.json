@@ -1,0 +1,1521 @@
+{
+  "meta": {
+    "engine": "0.1.0",
+    "mermaid": "11.17.2",
+    "source": "fixtures/business-2031/deck.md",
+    "derivedHash": "b795b06921ec3f96106dac0f73947ff351e829dec826b4eec8aef61ee8a6e34e"
+  },
+  "defaults": {
+    "mode": "dark",
+    "palette": "blackbelt",
+    "material": "glass",
+    "envReflections": true,
+    "mirrorFloor": true,
+    "softShadows": true,
+    "bloom": true,
+    "rimLight": true,
+    "fog": true,
+    "backgroundIntensity": 0.7,
+    "transition": "dolly",
+    "durationSec": 1.4,
+    "depthRelief": 0.7,
+    "quality": "high",
+    "extrudeDepth": 0.18,
+    "camera": {
+      "distance": 9
+    },
+    "labels": {
+      "size": 0.28
+    },
+    "check": {
+      "ignore": []
+    }
+  },
+  "slides": [
+    {
+      "index": 1,
+      "id": "how-business-changes-by-2031",
+      "title": "How Business Changes by 2031",
+      "bullets": [
+        "Evidence-led forecast, not hype",
+        "Built for software & IT services sales",
+        "Sources: WEF, Stanford HAI, Forrester"
+      ],
+      "scene": "city-grid",
+      "diagram": {
+        "kind": "none"
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "city-grid"
+        }
+      ],
+      "subtitle": "AI, fragmentation and trust: what it means for sellers"
+    },
+    {
+      "index": 2,
+      "id": "forces",
+      "title": "Five Forces to 2031",
+      "bullets": [],
+      "scene": "tokens",
+      "diagram": {
+        "kind": "flowchart",
+        "dir": "LR",
+        "nodes": [
+          {
+            "id": "D",
+            "label": "Drivers",
+            "shape": "stadium",
+            "x": 45.7,
+            "y": 205.5,
+            "w": 75.4,
+            "h": 39
+          },
+          {
+            "id": "A",
+            "label": "AI agents",
+            "shape": "hexagon",
+            "x": 184.46,
+            "y": 27.5,
+            "w": 102.11,
+            "h": 39
+          },
+          {
+            "id": "T",
+            "label": "Trust",
+            "shape": "hexagon",
+            "x": 184.46,
+            "y": 116.5,
+            "w": 70.36,
+            "h": 39
+          },
+          {
+            "id": "W",
+            "label": "Work",
+            "shape": "hexagon",
+            "x": 184.46,
+            "y": 205.5,
+            "w": 71.55,
+            "h": 39
+          },
+          {
+            "id": "G",
+            "label": "Geo",
+            "shape": "hexagon",
+            "x": 184.46,
+            "y": 294.5,
+            "w": 64.75,
+            "h": 39
+          },
+          {
+            "id": "I",
+            "label": "Compute",
+            "shape": "hexagon",
+            "x": 184.46,
+            "y": 383.5,
+            "w": 99.42,
+            "h": 39
+          },
+          {
+            "id": "S",
+            "label": "Pipeline",
+            "shape": "rect",
+            "x": 343.98,
+            "y": 205.5,
+            "w": 116.94,
+            "h": 54
+          }
+        ],
+        "edges": [
+          {
+            "id": "D->A#0",
+            "from": "D",
+            "to": "A",
+            "kind": "normal",
+            "path": [
+              [
+                53.07,
+                186.5
+              ],
+              [
+                56.81,
+                175.76
+              ],
+              [
+                60.55,
+                165.01
+              ],
+              [
+                64.29,
+                154.27
+              ],
+              [
+                68.05,
+                143.53
+              ],
+              [
+                71.84,
+                132.8
+              ],
+              [
+                75.67,
+                122.09
+              ],
+              [
+                79.56,
+                111.4
+              ],
+              [
+                83.53,
+                100.73
+              ],
+              [
+                87.58,
+                90.1
+              ],
+              [
+                91.74,
+                79.52
+              ],
+              [
+                96.07,
+                68.99
+              ],
+              [
+                100.64,
+                58.58
+              ],
+              [
+                105.65,
+                48.37
+              ],
+              [
+                111.49,
+                38.6
+              ],
+              [
+                119.06,
+                30.18
+              ],
+              [
+                129.9,
+                27.92
+              ]
+            ]
+          },
+          {
+            "id": "D->T#0",
+            "from": "D",
+            "to": "T",
+            "kind": "normal",
+            "path": [
+              [
+                59.94,
+                186.5
+              ],
+              [
+                64.09,
+                180.5
+              ],
+              [
+                68.25,
+                174.5
+              ],
+              [
+                72.42,
+                168.51
+              ],
+              [
+                76.65,
+                162.57
+              ],
+              [
+                80.98,
+                156.69
+              ],
+              [
+                85.43,
+                150.9
+              ],
+              [
+                90.02,
+                145.23
+              ],
+              [
+                94.79,
+                139.7
+              ],
+              [
+                99.8,
+                134.4
+              ],
+              [
+                105.14,
+                129.42
+              ],
+              [
+                110.94,
+                125
+              ],
+              [
+                117.26,
+                121.37
+              ],
+              [
+                124.06,
+                118.73
+              ],
+              [
+                131.2,
+                117.24
+              ],
+              [
+                138.48,
+                116.87
+              ],
+              [
+                145.78,
+                116.95
+              ]
+            ]
+          },
+          {
+            "id": "D->W#0",
+            "from": "D",
+            "to": "W",
+            "kind": "normal",
+            "path": [
+              [
+                83.9,
+                206
+              ],
+              [
+                87.73,
+                205.92
+              ],
+              [
+                91.56,
+                205.85
+              ],
+              [
+                95.39,
+                205.78
+              ],
+              [
+                99.22,
+                205.73
+              ],
+              [
+                103.05,
+                205.69
+              ],
+              [
+                106.88,
+                205.67
+              ],
+              [
+                110.71,
+                205.66
+              ],
+              [
+                114.54,
+                205.66
+              ],
+              [
+                118.37,
+                205.68
+              ],
+              [
+                122.2,
+                205.7
+              ],
+              [
+                126.03,
+                205.73
+              ],
+              [
+                129.86,
+                205.77
+              ],
+              [
+                133.69,
+                205.81
+              ],
+              [
+                137.52,
+                205.86
+              ],
+              [
+                141.35,
+                205.9
+              ],
+              [
+                145.18,
+                205.95
+              ]
+            ]
+          },
+          {
+            "id": "D->G#0",
+            "from": "D",
+            "to": "G",
+            "kind": "normal",
+            "path": [
+              [
+                59.94,
+                225.5
+              ],
+              [
+                64.21,
+                231.58
+              ],
+              [
+                68.48,
+                237.66
+              ],
+              [
+                72.77,
+                243.72
+              ],
+              [
+                77.14,
+                249.74
+              ],
+              [
+                81.61,
+                255.67
+              ],
+              [
+                86.21,
+                261.5
+              ],
+              [
+                90.97,
+                267.21
+              ],
+              [
+                95.94,
+                272.73
+              ],
+              [
+                101.18,
+                278
+              ],
+              [
+                106.77,
+                282.88
+              ],
+              [
+                112.86,
+                287.13
+              ],
+              [
+                119.45,
+                290.56
+              ],
+              [
+                126.45,
+                293.02
+              ],
+              [
+                133.74,
+                294.43
+              ],
+              [
+                141.15,
+                294.87
+              ],
+              [
+                148.58,
+                294.95
+              ]
+            ]
+          },
+          {
+            "id": "D->I#0",
+            "from": "D",
+            "to": "I",
+            "kind": "normal",
+            "path": [
+              [
+                53.07,
+                225.5
+              ],
+              [
+                56.84,
+                236.27
+              ],
+              [
+                60.61,
+                247.04
+              ],
+              [
+                64.38,
+                257.8
+              ],
+              [
+                68.18,
+                268.57
+              ],
+              [
+                72,
+                279.31
+              ],
+              [
+                75.88,
+                290.05
+              ],
+              [
+                79.81,
+                300.75
+              ],
+              [
+                83.82,
+                311.44
+              ],
+              [
+                87.93,
+                322.08
+              ],
+              [
+                92.16,
+                332.68
+              ],
+              [
+                96.57,
+                343.2
+              ],
+              [
+                101.24,
+                353.61
+              ],
+              [
+                106.4,
+                363.79
+              ],
+              [
+                112.43,
+                373.46
+              ],
+              [
+                120.3,
+                381.65
+              ],
+              [
+                131.25,
+                383.93
+              ]
+            ]
+          },
+          {
+            "id": "A->S#0",
+            "from": "A",
+            "to": "S",
+            "kind": "normal",
+            "path": [
+              [
+                236.01,
+                28
+              ],
+              [
+                247.05,
+                29.3
+              ],
+              [
+                255.88,
+                36.16
+              ],
+              [
+                263.01,
+                44.86
+              ],
+              [
+                269.25,
+                54.21
+              ],
+              [
+                274.97,
+                63.9
+              ],
+              [
+                280.41,
+                73.74
+              ],
+              [
+                285.67,
+                83.69
+              ],
+              [
+                290.8,
+                93.7
+              ],
+              [
+                295.82,
+                103.76
+              ],
+              [
+                300.77,
+                113.86
+              ],
+              [
+                305.66,
+                123.99
+              ],
+              [
+                310.49,
+                134.15
+              ],
+              [
+                315.29,
+                144.33
+              ],
+              [
+                320.07,
+                154.51
+              ],
+              [
+                324.84,
+                164.69
+              ],
+              [
+                329.62,
+                174.88
+              ]
+            ]
+          },
+          {
+            "id": "T->S#0",
+            "from": "T",
+            "to": "S",
+            "kind": "normal",
+            "path": [
+              [
+                220.14,
+                117
+              ],
+              [
+                227.45,
+                116.91
+              ],
+              [
+                234.77,
+                117.1
+              ],
+              [
+                242.01,
+                118.08
+              ],
+              [
+                249.09,
+                119.94
+              ],
+              [
+                255.89,
+                122.62
+              ],
+              [
+                262.36,
+                126.03
+              ],
+              [
+                268.47,
+                130.06
+              ],
+              [
+                274.28,
+                134.5
+              ],
+              [
+                279.88,
+                139.21
+              ],
+              [
+                285.31,
+                144.11
+              ],
+              [
+                290.61,
+                149.17
+              ],
+              [
+                295.79,
+                154.33
+              ],
+              [
+                300.88,
+                159.59
+              ],
+              [
+                305.91,
+                164.91
+              ],
+              [
+                310.92,
+                170.24
+              ],
+              [
+                315.92,
+                175.58
+              ]
+            ]
+          },
+          {
+            "id": "W->S#0",
+            "from": "W",
+            "to": "S",
+            "kind": "normal",
+            "path": [
+              [
+                220.73,
+                206
+              ],
+              [
+                224.53,
+                205.95
+              ],
+              [
+                228.33,
+                205.9
+              ],
+              [
+                232.13,
+                205.86
+              ],
+              [
+                235.92,
+                205.81
+              ],
+              [
+                239.72,
+                205.77
+              ],
+              [
+                243.52,
+                205.72
+              ],
+              [
+                247.32,
+                205.68
+              ],
+              [
+                251.12,
+                205.64
+              ],
+              [
+                254.92,
+                205.6
+              ],
+              [
+                258.72,
+                205.57
+              ],
+              [
+                262.52,
+                205.55
+              ],
+              [
+                266.32,
+                205.53
+              ],
+              [
+                270.11,
+                205.51
+              ],
+              [
+                273.91,
+                205.5
+              ],
+              [
+                277.71,
+                205.5
+              ],
+              [
+                281.51,
+                205.5
+              ]
+            ]
+          },
+          {
+            "id": "G->S#0",
+            "from": "G",
+            "to": "S",
+            "kind": "normal",
+            "path": [
+              [
+                217.33,
+                295
+              ],
+              [
+                224.83,
+                294.91
+              ],
+              [
+                232.32,
+                294.6
+              ],
+              [
+                239.74,
+                293.58
+              ],
+              [
+                247.01,
+                291.76
+              ],
+              [
+                254.04,
+                289.15
+              ],
+              [
+                260.74,
+                285.8
+              ],
+              [
+                267.08,
+                281.8
+              ],
+              [
+                273.11,
+                277.34
+              ],
+              [
+                278.9,
+                272.58
+              ],
+              [
+                284.5,
+                267.59
+              ],
+              [
+                289.95,
+                262.45
+              ],
+              [
+                295.28,
+                257.17
+              ],
+              [
+                300.51,
+                251.8
+              ],
+              [
+                305.66,
+                246.36
+              ],
+              [
+                310.79,
+                240.89
+              ],
+              [
+                315.92,
+                235.42
+              ]
+            ]
+          },
+          {
+            "id": "I->S#0",
+            "from": "I",
+            "to": "S",
+            "kind": "normal",
+            "path": [
+              [
+                234.67,
+                384
+              ],
+              [
+                245.81,
+                382.49
+              ],
+              [
+                254.86,
+                375.75
+              ],
+              [
+                262.17,
+                367.09
+              ],
+              [
+                268.55,
+                357.72
+              ],
+              [
+                274.38,
+                347.99
+              ],
+              [
+                279.91,
+                338.08
+              ],
+              [
+                285.24,
+                328.06
+              ],
+              [
+                290.43,
+                317.98
+              ],
+              [
+                295.51,
+                307.84
+              ],
+              [
+                300.51,
+                297.65
+              ],
+              [
+                305.45,
+                287.44
+              ],
+              [
+                310.33,
+                277.2
+              ],
+              [
+                315.17,
+                266.94
+              ],
+              [
+                319.99,
+                256.66
+              ],
+              [
+                324.8,
+                246.39
+              ],
+              [
+                329.62,
+                236.12
+              ]
+            ]
+          }
+        ],
+        "groups": []
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "tokens"
+        },
+        {
+          "id": "signal-pulse"
+        }
+      ],
+      "subtitle": "The macro drivers reshaping every deal you will work"
+    },
+    {
+      "index": 3,
+      "id": "adoption",
+      "title": "Adoption Broke Every Record",
+      "bullets": [
+        "Organizational AI adoption: 88%",
+        "GenAI in a business function: 70%",
+        "53% population adoption in three years",
+        "4 in 5 university students use generative AI"
+      ],
+      "scene": "neural-mesh",
+      "diagram": {
+        "kind": "bars",
+        "data": {
+          "labels": [
+            "Organizational AI adoption: 88%",
+            "GenAI in a business function: 70%",
+            "population adoption in three years",
+            "in 5 university students use generative AI"
+          ]
+        }
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "neural-mesh"
+        }
+      ],
+      "subtitle": "Faster than the PC. Faster than the internet."
+    },
+    {
+      "index": 4,
+      "id": "agentgap",
+      "title": "The Agent Gap Is the Opportunity",
+      "bullets": [
+        "Agent deployment: single digits everywhere",
+        "Adoption is broad and shallow",
+        "The 2026–2031 money is in depth, not first contact",
+        "Ask: what is actually in production"
+      ],
+      "scene": "orbit-agents",
+      "diagram": {
+        "kind": "timeline-rail",
+        "data": {
+          "labels": [
+            "Agent deployment: single digits everywhere",
+            "Adoption is broad and shallow",
+            "The 2026–2031 money is in depth, not first contact",
+            "Ask: what is actually in production"
+          ]
+        }
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "orbit-agents"
+        }
+      ],
+      "subtitle": "Everyone bought AI. Few run agents."
+    },
+    {
+      "index": 5,
+      "id": "trust",
+      "title": "Force 2: The Trust Correction",
+      "bullets": [
+        "2025 ended in overly enthusiastic AI ambition",
+        "Buyers now demand evidence, not vision decks",
+        "AI adoption outpaced governance",
+        "Differentiation: trust and measured value"
+      ],
+      "scene": "vault-glyphs",
+      "diagram": {
+        "kind": "none"
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "vault-glyphs"
+        }
+      ],
+      "subtitle": "Forrester 2026: proof over promises"
+    },
+    {
+      "index": 6,
+      "id": "dealflow",
+      "title": "How the Deal Actually Runs Now",
+      "bullets": [],
+      "scene": "rings",
+      "diagram": {
+        "kind": "sequence",
+        "actors": [
+          {
+            "id": "B",
+            "label": "Buyer"
+          },
+          {
+            "id": "S",
+            "label": "Seller"
+          },
+          {
+            "id": "P",
+            "label": "Proof"
+          },
+          {
+            "id": "R",
+            "label": "Risk + Legal"
+          }
+        ],
+        "messages": [
+          {
+            "id": "m0",
+            "from": "B",
+            "to": "S",
+            "text": "Business outcome, not feature list",
+            "kind": "solid"
+          },
+          {
+            "id": "m1",
+            "from": "S",
+            "to": "P",
+            "text": "Reference, pilot, benchmark",
+            "kind": "solid"
+          },
+          {
+            "id": "m2",
+            "from": "P",
+            "to": "B",
+            "text": "Measured result",
+            "kind": "dotted"
+          },
+          {
+            "id": "m3",
+            "from": "B",
+            "to": "R",
+            "text": "AI governance review",
+            "kind": "solid"
+          },
+          {
+            "id": "m4",
+            "from": "R",
+            "to": "B",
+            "text": "Conditions",
+            "kind": "dotted"
+          },
+          {
+            "id": "m5",
+            "from": "B",
+            "to": "S",
+            "text": "Outcome-linked contract",
+            "kind": "dotted"
+          }
+        ]
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "rings"
+        },
+        {
+          "id": "signal-pulse"
+        }
+      ],
+      "subtitle": "Proof gates appear before commercial terms"
+    },
+    {
+      "index": 7,
+      "id": "geo",
+      "title": "Force 4: Geoeconomics Rewrites Strategy",
+      "bullets": [
+        "#1 risk 2026-2028: geoeconomics",
+        "34% expect a business-model change",
+        "68% expect a fragmented order by 2036",
+        "Sovereignty enters procurement"
+      ],
+      "scene": "neural-mesh",
+      "diagram": {
+        "kind": "timeline-rail",
+        "data": {
+          "labels": [
+            "#1 risk 2026-2028: geoeconomics",
+            "expect a business-model change",
+            "expect a fragmented order by 2036",
+            "Sovereignty enters procurement"
+          ]
+        }
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "neural-mesh"
+        }
+      ],
+      "subtitle": "WEF Global Risks Report 2026 — an age of competition"
+    },
+    {
+      "index": 8,
+      "id": "compute",
+      "title": "Force 5: Concentrated Physical Reality",
+      "bullets": [
+        "US hosts 5,427 data centers, 10x any other country",
+        "One Taiwanese foundry makes the chips",
+        "Energy and capex are now board-level constraints",
+        "Price, latency, locality become terms"
+      ],
+      "scene": "data-columns",
+      "diagram": {
+        "kind": "none"
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "data-columns"
+        }
+      ],
+      "subtitle": "Intelligence runs on a very narrow supply chain"
+    },
+    {
+      "index": 9,
+      "id": "monday",
+      "title": "Monday Morning",
+      "bullets": [
+        "Audit accounts for live AI usage",
+        "Swap a promise slide for a proof point",
+        "Name the governance stakeholder",
+        "Book your own reskilling hours this quarter"
+      ],
+      "scene": "vault-glyphs",
+      "diagram": {
+        "kind": "none"
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "vault-glyphs"
+        }
+      ],
+      "subtitle": "Do these before the forecast call"
+    },
+    {
+      "index": 10,
+      "id": "sources",
+      "title": "Sources",
+      "bullets": [
+        "WEF Future of Jobs 2025 (1,000+ employers)",
+        "Stanford HAI AI Index 2026",
+        "WEF Global Risks Report 2026 — 1,300+ experts",
+        "WEF + PwC, Entry-Level Work, Jun 2026",
+        "Forrester Predictions 2026"
+      ],
+      "scene": "neural-mesh",
+      "diagram": {
+        "kind": "timeline-rail",
+        "data": {
+          "labels": [
+            "WEF Future of Jobs 2025 (1,000+ employers)",
+            "Stanford HAI AI Index 2026",
+            "WEF Global Risks Report 2026 — 1,300+ experts",
+            "WEF + PwC, Entry-Level Work, Jun 2026",
+            "Forrester Predictions 2026"
+          ]
+        }
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "neural-mesh"
+        }
+      ],
+      "subtitle": "Everything above is dated and traceable"
+    }
+  ],
+  "overrides": {
+    "slides": {
+      "how-business-changes-by-2031": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "local:horizon-2031",
+            "sha256": "ccdaa3506445e5e11b574ddddacbcbc6db4a5ddd60a6c6b70231a875ec3a9f79"
+          }
+        ]
+      },
+      "forces": {
+        "camera": {
+          "distance": 15
+        },
+        "diagram": {
+          "scale": 1
+        },
+        "labels": {
+          "size": 0.2
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "neural-mesh"
+          },
+          {
+            "id": "signal-pulse"
+          }
+        ]
+      },
+      "adoption": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "city-grid"
+          }
+        ],
+        "diagram": {
+          "kind": "bars",
+          "data": {
+            "labels": [
+              "Orgs",
+              "Function",
+              "People",
+              "Students"
+            ],
+            "values": [
+              88,
+              70,
+              53,
+              80
+            ]
+          }
+        }
+      },
+      "agentgap": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "local:agent-depth",
+            "sha256": "f18db1c8bff0de4dea991fc48754b108915923e344086b5edb4593583bcbce3e"
+          }
+        ],
+        "diagram": {
+          "kind": "orbit-cluster",
+          "data": {
+            "labels": [
+              "Bought AI",
+              "Piloting",
+              "In production",
+              "At depth"
+            ]
+          }
+        }
+      },
+      "trust": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "local:trust-ledger",
+            "sha256": "bc034269342603ba9cdf1013d13b6967f5278fda0df641a69490f6f1c97e3910"
+          }
+        ],
+        "diagram": {
+          "kind": "funnel",
+          "data": {
+            "labels": [
+              "Ambition",
+              "Evidence demanded",
+              "Governance",
+              "Measured value"
+            ]
+          }
+        }
+      },
+      "dealflow": {
+        "camera": {
+          "distance": 13
+        },
+        "diagram": {
+          "scale": 1.3
+        },
+        "labels": {
+          "size": 0.26
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "local:proof-gate",
+            "sha256": "e2381220001abeea90070ceb02a95de63973c7dacb21bafef1a4d400fdc3e08f"
+          },
+          {
+            "id": "signal-pulse"
+          }
+        ]
+      },
+      "geo": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "local:geo-fragments",
+            "sha256": "0567e513fe54fcf4e74ef56f79c89d82193186ecfe7ee81e6ec28dd5da027976"
+          }
+        ],
+        "diagram": {
+          "kind": "globe",
+          "data": {
+            "labels": [
+              "Geoeconomics",
+              "Model change",
+              "Fragmented order",
+              "Sovereignty"
+            ]
+          }
+        }
+      },
+      "compute": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "local:fab-wafer",
+            "sha256": "2fecaf5bc25c7274dc3052e391debc536dec634645d3290f26774617f7f96b23"
+          }
+        ],
+        "diagram": {
+          "kind": "stack",
+          "data": {
+            "labels": [
+              "Data centres",
+              "One foundry",
+              "Energy + capex",
+              "Latency terms"
+            ]
+          }
+        }
+      },
+      "monday": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "hex-grid"
+          }
+        ],
+        "diagram": {
+          "kind": "loop",
+          "data": {
+            "labels": [
+              "Audit accounts",
+              "Swap in proof",
+              "Name governance",
+              "Book reskilling"
+            ]
+          }
+        }
+      },
+      "sources": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        },
+        "effects": [
+          {
+            "id": "paper-stack"
+          }
+        ],
+        "diagram": {
+          "kind": "timeline-rail",
+          "data": {
+            "labels": [
+              "WEF Jobs 25",
+              "HAI Index 26",
+              "Global Risks 26",
+              "Entry-Level 26",
+              "Forrester 26"
+            ]
+          }
+        }
+      }
+    },
+    "deck": {
+      "palette": "midnight"
+    }
+  }
+}

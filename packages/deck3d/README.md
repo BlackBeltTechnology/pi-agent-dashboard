@@ -28,9 +28,16 @@ deck3d render  <deck.json> -o deck.html              # IR → self-contained HTM
 deck3d build   <deck.md> -o deck.html                # parse → render; writes .json beside
 deck3d check   <deck.html> [--viewport WxH[,WxH]] [--slide n] [--strict] [-o report.json]
 deck3d snapshot <deck.html> [--slide n] [-o png]     # one slide → PNG
-deck3d fx      list [--kind k] [--tag t] [--json]    # effect catalogue
-deck3d props   search <query>                        # candidate models
+deck3d check   <deck.html> [--style]                 # + warn on slides still on parse defaults
+deck3d fx      list [--kind k] [--tag t] [--topic p] # effect catalogue
+deck3d fx      preview <id|local:name> [--palette p] # one effect → PNG
+deck3d fx      scaffold <name> [--kind k] [--for id] # write fx/<name>.{js,meta.json}
+deck3d fx      hash <name>                           # sha256 of fx/<name>.js
+deck3d fx      promote <name> --source u --licence l # local effect → corpus
+deck3d props   search <query> [--role ambient]       # candidate models
 deck3d props   fetch <source> <id>                    # cache + hash-pin, prints override entry
+deck3d props   generate --prompt <text> --name <n>   # text → image → GLB
+deck3d overrides apply <deck.json> <file>            # merge an overrides-grammar file
 ```
 
 Exit codes: `0` ok, `1` failure (one-line stderr reason), `2` usage.
@@ -53,17 +60,21 @@ Default check viewports: `1920x1080,1280x720`. Default `check` timeout 120 s/vie
 
 - `slides[]` and below are DERIVED (regenerated every parse).
 - Write only `overrides`: `deck`, `slides`, `nodes`, `edges`, `effects`, `props`.
-- Objects deep-merge. Arrays replace.
+- Objects deep-merge. Arrays replace. `diagram.data` replaces as a whole object.
 - Suggest keys spell the overrides grammar: `overrides.slides["arch"].diagram.scale`.
+- The deck's `⚙` configurator (`C` key) exports an `overrides.json` in this
+  grammar; merge it with `deck3d overrides apply`.
 
 ## Tune loop
 
 1. `deck3d parse talk.md`
 2. `deck3d validate talk.json`
-3. `deck3d build talk.md -o talk.html` (runs `check`)
-4. Fix only the suggested override key. Re-run 3.
-5. `deck3d snapshot talk.html --slide 5 -o s5.png`
-6. Repeat.
+3. `deck3d build talk.md -o talk.html` (runs `check`, prints `style: n/N slides styled`)
+4. Style: `deck3d check talk.html --style`, then pick an effect / built diagram /
+   props per flagged slide.
+5. Fix only the suggested override key. Re-run 3.
+6. `deck3d snapshot talk.html --slide 5 -o s5.png`
+7. Repeat.
 
 Full knobs: `.pi/skills/deck3d/reference/ir-fields.md`.
 Effect catalogue: `.pi/skills/deck3d/reference/effects.md`.
@@ -72,10 +83,18 @@ Playbook: `.pi/skills/deck3d/SKILL.md`.
 ## Effects
 
 - `parse` assigns deterministic defaults: title→`swarm`, flowchart→`tokens`,
-  sequence→`rings`, security→`glyph-rain`, data→`data-columns`.
+  sequence→`rings`, security→`glyph-rain`, data→`data-columns`, then routes the
+  remainder by `tags.topic`. `autoStyle: false` restores the v1 fallback.
 - Replace: `overrides.slides["<id>"].effects = [{ id, params? }]`.
+- Per-deck effects live in `fx/<name>.js` + `.meta.json` beside `deck.md`, are
+  referenced as `{ id: "local:<name>", sha256 }`, and are embedded at render.
+  Inside one, `Math.random` is the deck's seeded stream and `window`/`fetch`/
+  `setTimeout`/`Date` are `undefined`.
 - Conflicts fail `render`. Mode-incompatible effects skip + warn.
 - Quality budget: `low` 6, `medium` 12, `high` 20.
+- Palettes: `blackbelt zenit dapp midnight ember arctic forest mono neon custom`.
+- Built topologies (no mermaid needed): `brain loop swarm bars funnel
+  timeline-rail globe orbit-cluster stack`, driven by `diagram.data`.
 
 ## Props
 
@@ -83,6 +102,9 @@ Playbook: `.pi/skills/deck3d/SKILL.md`.
   (`POLY_PIZZA_KEY`). Offline/unreachable ⇒ vendored-only + notice.
 - `deck3d props fetch <source> <id>` — writes `.deck3d/props/<source>-<id>.glb`,
   pins sha256, prints the `overrides.props[]` entry.
+- `--role ambient` filters to ≤ 2 000-triangle models and prints a placement entry.
+- `deck3d props generate --prompt "<text>" --name <n>` — text → image
+  (`DECK3D_T2I_URL`) → GLB. Optional python path; authoring-time network only.
 - Roles: `hero`, `illustration`, `ambient`, `node:<id>`.
 - Cap: `.glb` ≤ 8 MiB (inclusive). External `.gltf` URIs rejected.
 

@@ -8,14 +8,17 @@ import type { Font } from "opentype.js";
 import * as THREE from "three";
 import { composeEffects, QUALITY_BUDGET } from "../fx/compose.js";
 import { REGISTRY } from "../fx/index.js";
-import type { FxParams } from "../fx/types.js";
+import type { FxContext, FxParams } from "../fx/types.js";
 import { type Animator, backgroundFor } from "./backgrounds.js";
 import { buildDiagram, type DiagramBuild } from "./builders.js";
 import { anchorFor, CULL_RADIUS } from "./camera.js";
 import { diagramMaterial, titleMaterial } from "./materials.js";
 import { type PaletteColors, resolvePalette } from "./palette.js";
 import { applyProps, createPropMaterials, loadPropModels, type PropLayer, type PropMaterials } from "./props.js";
+import { createHud } from "./hud.js";
+import { createLocalEffect, localCards, type LocalFxError, type LocalHandle, localFxRegistry } from "./local-fx.js";
 import { type QualityProfile, qualityProfile } from "./quality.js";
+import { makeRng } from "./rng.js";
 import { createSceneRig } from "./scene.js";
 import { buildTitle, bulletTexture, loadFont } from "./text.js";
 import "./types.js";
@@ -40,6 +43,7 @@ interface SlideBuild {
   props: PropLayer | null;
   labels: LabelRef[];
   nodes: Array<{ id: string; object: THREE.Object3D }>;
+  localFx: LocalHandle[];
   cfg: SlideConfig;
   palette: PaletteColors;
   skipped: string[];
@@ -119,16 +123,71 @@ function addDiagram(g: THREE.Group, slide: DeckSlide, font: Font, P: PaletteColo
   return diagram;
 }
 
+/** Per-slide seed: same slide id ⇒ same stream, so effects stay deterministic. */
+export function fxSeedFor(slideId: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < slideId.length; i++) {
+    h ^= slideId.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0) % 233280;
+}
+
+/** The context every effect (corpus or local) is constructed with. */
+function fxContextFor(slide: DeckSlide, P: PaletteColors, profile: QualityProfile, mode: "dark" | "light"): FxContext {
+  return {
+    THREE,
+    palette: P,
+    mode,
+    quality: profile,
+    rng: makeRng(fxSeedFor(slide.id)),
+    slide: { id: slide.id, title: slide.title, kind: slide.kind ?? "content" },
+  };
+}
+
 function backgroundFromEffects(slide: DeckSlide, P: PaletteColors, profile: QualityProfile, mode: "dark" | "light"): Animator | null {
   for (const ref of slide.effects ?? []) {
     const entry = REGISTRY[ref.id];
     if (entry?.card.kind !== "background") continue;
-    const handle = entry.create({ THREE, palette: P, mode, quality: profile }, (ref.params ?? {}) as FxParams);
+    const handle = entry.create(fxContextFor(slide, P, profile, mode), (ref.params ?? {}) as FxParams);
     if (!handle.object) continue;
     return { g: handle.object as THREE.Group, tick: handle.tick ?? (() => {}) };
   }
   return null;
 }
+
+/**
+ * Instantiate the slide's `local:` effects. A module that throws is dropped
+ * (recorded in `localFxErrors`); the slide and its other effects survive.
+ */
+function localEffectsFor(
+  slide: DeckSlide,
+  P: PaletteColors,
+  profile: QualityProfile,
+  mode: "dark" | "light",
+  g: THREE.Group,
+): LocalHandle[] {
+  const registry = localFxRegistry();
+  const out: LocalHandle[] = [];
+  for (const ref of slide.effects ?? []) {
+    if (!ref.id.startsWith("local:")) continue;
+    const module = registry[ref.id.slice("local:".length)];
+    const handle = createLocalEffect(
+      ref.id,
+      module,
+      fxContextFor(slide, P, profile, mode),
+      (ref.params ?? {}) as FxParams,
+      localFxErrors,
+    );
+    if (!handle) continue;
+    if (handle.object) g.add(handle.object as THREE.Object3D);
+    out.push(handle);
+  }
+  return out;
+}
+
+/** Deck-wide local-effect failures, surfaced through `effects().errors`. */
+const localFxErrors: LocalFxError[] = [];
 
 function buildSlideGroup(
   deck: RuntimeDeck,
@@ -158,8 +217,9 @@ function buildSlideGroup(
     background.g.position.z = -2;
     g.add(background.g);
   }
+  const localFx = localEffectsFor(slide, P, profile, mode, g);
   const quality = cfg.quality ?? deck.defaults.quality ?? "high";
-  const comp = composeEffects(slide.effects, mode, quality, slide.id);
+  const comp = composeEffects(slide.effects, mode, quality, slide.id, localCards());
   const skipped = comp.skipped.map((s) => `${s.id}: ${s.reason}`);
   // The budget warning text is `composeEffects`' own, so the runtime and the
   // render CLI agree byte-for-byte (`warn budget slide <id> <sum> > <limit>`).
@@ -169,7 +229,7 @@ function buildSlideGroup(
     limit: QUALITY_BUDGET[quality],
     ...(warning ? { warning } : {}),
   };
-  return { group: g, anchor, diagram, background, props, labels, nodes, cfg, palette: P, skipped, budget };
+  return { group: g, anchor, diagram, background, props, labels, nodes, cfg, palette: P, skipped, budget, localFx };
 }
 
 function projectRect(
@@ -267,8 +327,18 @@ async function boot(): Promise<void> {
     if (anim.t >= 1) anim = null;
   }
 
+  /**
+   * Local effects own real GPU resources, so leaving a slide disposes them.
+   * A throwing `dispose` is recorded and swallowed — navigation must complete.
+   */
+  function disposeLocalFx(index: number): void {
+    for (const handle of builds[index]?.localFx ?? []) handle.dispose();
+    if (builds[index]) builds[index].localFx = [];
+  }
+
   function goTo(i: number): void {
     const target = ((i % builds.length) + builds.length) % builds.length;
+    if (target !== cur) disposeLocalFx(cur);
     const mode = builds[target].cfg.transition ?? "dolly";
     if (target === cur || mode === "cut") return snapTo(target);
     const from = { pos: camState.pos.clone(), target: camState.target.clone() };
@@ -296,6 +366,7 @@ async function boot(): Promise<void> {
     slide.diagram?.tick(t);
     slide.background?.tick(t * 0.7);
     slide.props?.tick(t);
+    for (const handle of slide.localFx) handle.tick(t);
     rig.updateFloor(camState.target);
     cullNeighbours();
     rig.render();
@@ -326,6 +397,7 @@ async function boot(): Promise<void> {
     builds[cur].diagram?.tick(t);
     builds[cur].background?.tick(t * 0.7);
     builds[cur].props?.tick(t);
+    for (const handle of builds[cur].localFx) handle.tick(t);
     rig.render();
     if (document.hidden) setTimeout(frame, 66);
     else requestAnimationFrame(frame);
@@ -403,14 +475,69 @@ async function boot(): Promise<void> {
     const target = Math.max(0, Math.min(builds.length - 1, index));
     if (target === cur) return;
     goTo(target);
+    hud?.refresh();
     // Setting the hash re-enters via `hashchange`, where `target === cur` returns early.
     if (syncHash) window.location.hash = `#${target + 1}`;
+  }
+
+  /**
+   * Configurator. Built after the slides so it can read the composed effect
+   * list, and given callbacks that re-apply the look WITHOUT touching `__DECK`.
+   */
+  const hud = createHud({
+    slides: deck.slides.map((s) => ({ id: s.id, title: s.title, effects: [...(s.effects ?? [])] })),
+    defaults: deck.defaults,
+    overridden: overriddenKeys(),
+    derivedHash: (window.__DECK as unknown as { derivedHash?: string }).derivedHash ?? "",
+    current: () => cur + 1,
+    gotoSlide: (index1Based) => navTo(index1Based - 1),
+    applySlide: (patch) => {
+      const build = builds[cur];
+      // Panel values layer over the slide's own config; the IR object is not
+      // mutated, only this render-time copy.
+      const cfg = { ...build.cfg, ...patch } as SlideConfig;
+      build.cfg = cfg;
+      build.palette = resolvePalette(cfg);
+      rig.applyLook(build.palette, cfg, qualityProfile(cfg.quality));
+      rig.render();
+    },
+    applyEffects: (ids) => {
+      const slide = deck.slides[cur];
+      const keep = new Set(ids);
+      const build = builds[cur];
+      if (build.background) build.background.g.visible = (slide.effects ?? []).some((e) => keep.has(e.id));
+      rig.render();
+    },
+  });
+
+  /** Override key paths, precomputed by `render` (the merged IR cannot tell). */
+  function overriddenKeys(): { deck: Set<string>; slides: Record<string, Set<string>> } {
+    const raw = (window.__DECK as unknown as { overriddenKeys?: { deck: string[]; slides: Record<string, string[]> } })
+      .overriddenKeys ?? { deck: [], slides: {} };
+    const slides: Record<string, Set<string>> = {};
+    for (const [id, keys] of Object.entries(raw.slides)) slides[id] = new Set(keys);
+    return { deck: new Set(raw.deck), slides };
   }
 
   rig.resize(window.innerWidth, window.innerHeight);
   window.addEventListener("resize", () => rig.resize(window.innerWidth, window.innerHeight));
   window.addEventListener("keydown", (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
+    // A panel input owns the keyboard while it has focus — including `C`, or
+    // typing a palette name would toggle the panel away mid-edit.
+    if (hud.hasFocus()) {
+      if (e.key === "Escape") (document.activeElement as HTMLElement | null)?.blur();
+      return;
+    }
+    if (e.key === "c" || e.key === "C") {
+      hud.toggle();
+      e.preventDefault();
+      return;
+    }
+    if (e.key === "Escape") {
+      hud.close();
+      return;
+    }
     switch (e.key) {
       case "ArrowRight":
       case "ArrowDown":
@@ -435,7 +562,10 @@ async function boot(): Promise<void> {
     e.preventDefault();
   });
   window.addEventListener("pointerup", (e) => {
-    if (e.button === 0) navTo(cur + 1);
+    if (e.button !== 0) return;
+    // Clicks on the gear or inside the panel are panel interactions.
+    if (hud.contains(e.target)) return;
+    navTo(cur + 1);
   });
   window.addEventListener("hashchange", () => {
     const i = hashIndex();
@@ -446,6 +576,7 @@ async function boot(): Promise<void> {
   const api: Deck3dApi = {
     gotoSlide: (index1Based: number) => {
       goTo(Math.max(1, Math.min(builds.length, index1Based)) - 1);
+      hud?.refresh();
       builds[cur].diagram?.tick(0);
       rig.render();
     },
@@ -453,7 +584,12 @@ async function boot(): Promise<void> {
     ready: () => Promise.resolve(),
     measure,
     peaks,
-    effects: () => ({ active: rig.passNames(), skipped: builds[cur].skipped, budget: builds[cur].budget }),
+    effects: () => ({
+      active: rig.passNames(),
+      skipped: builds[cur].skipped,
+      budget: builds[cur].budget,
+      errors: localFxErrors.map((e) => ({ ...e })),
+    }),
     debug: {
       titleGlyphs: () => {
         const title = builds[cur].labels.find((l) => l.kind === "title");

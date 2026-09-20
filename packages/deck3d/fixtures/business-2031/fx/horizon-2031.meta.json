@@ -1,0 +1,36 @@
+{
+  "id": "horizon-2031",
+  "kind": "background",
+  "tags": {
+    "mood": [
+      "forward",
+      "calm"
+    ],
+    "content": [
+      "timeline",
+      "forecast"
+    ],
+    "topic": [
+      "timeline"
+    ]
+  },
+  "cost": 2,
+  "modes": "both",
+  "params": {
+    "density": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0.2,
+      "maximum": 3
+    },
+    "speed": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 3
+    }
+  },
+  "conflicts": [],
+  "source": "local",
+  "licence": "MIT"
+}

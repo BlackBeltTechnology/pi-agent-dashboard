@@ -12,8 +12,8 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { renderCatalogue } from "../catalogue.js";
-import { FX_IDS } from "../index.js";
-import { PERMISSIVE_LICENCES } from "../types.js";
+import { FX_IDS, REGISTRY } from "../index.js";
+import { FX_TOPICS, PERMISSIVE_LICENCES } from "../types.js";
 
 const FX_DIR = new URL("../", import.meta.url);
 const COMMITTED_CATALOGUE = new URL("../../../.pi/skills/deck3d/reference/effects.md", import.meta.url);
@@ -116,5 +116,19 @@ describe("E27 corpus size and licence audit", () => {
 
   it("regenerates reference/effects.md byte-equal to the committed file", () => {
     expect(renderCatalogue()).toBe(readFileSync(COMMITTED_CATALOGUE, "utf8"));
+  });
+});
+
+/**
+ * test-plan #E30 — parse routes a content slide by topic, so a topic with no
+ * background card is a routing dead end: the slide silently falls through to
+ * the generic fallback. Coverage is therefore a corpus invariant.
+ */
+describe("E30 every topic has a background card", () => {
+  const registry = Object.values(REGISTRY);
+
+  it.each(FX_TOPICS)("topic %s has at least one background card", (topic) => {
+    const owners = registry.filter((e) => e.card.kind === "background" && e.card.tags.topic?.includes(topic));
+    expect(owners.map((e) => e.card.id)).not.toHaveLength(0);
   });
 });

@@ -135,3 +135,46 @@ export async function searchProps(query: string, opts: { timeoutMs?: number; key
   if (online.notice) notices.push(online.notice);
   return { candidates: [...vendored, ...online.candidates], notices };
 }
+
+/**
+ * Ambient props are instanced many times in the background, so they must be
+ * silhouette-friendly and cheap. The cap is on triangles, inclusive.
+ */
+export const AMBIENT_MAX_TRIS = 2000;
+
+/** Entry template printed beside an `--role ambient` candidate. */
+export interface AmbientTemplate {
+  source: PropSource;
+  id: string;
+  licence: string;
+  author: string;
+  sha256: string;
+  slide: string;
+  role: "ambient";
+  count: number;
+  anim: "float";
+  restyle: "palette";
+  size: number;
+}
+
+export function ambientTemplate(candidate: PropCandidate): AmbientTemplate {
+  return {
+    source: candidate.source,
+    id: candidate.id,
+    licence: candidate.licence,
+    author: candidate.author,
+    // Filled in by `props fetch`, which is what pins the bytes.
+    sha256: "<sha256 from props fetch>",
+    slide: "<slide-id>",
+    role: "ambient",
+    count: 12,
+    anim: "float",
+    restyle: "palette",
+    size: 0.6,
+  };
+}
+
+/** Candidates a background instance can afford. */
+export function ambientCandidates(candidates: PropCandidate[]): PropCandidate[] {
+  return candidates.filter((c) => c.tris <= AMBIENT_MAX_TRIS);
+}

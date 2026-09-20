@@ -10,6 +10,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import Ajv, { type ErrorObject } from "ajv";
+import { localRefs, resolveLocalEffect } from "../fx/local.js";
 import { pkgRoot } from "../util/paths.js";
 import { computeDerivedHash } from "./hash.js";
 import { findOrphanOverrides, orphanOverridePath } from "./merge.js";
@@ -57,6 +58,8 @@ export function formatPath(instancePath: string): string {
     const prev = segs[i - 1];
     if (i === 0) out = seg;
     else if (prev !== undefined && MAP_CONTAINERS.has(prev)) out += `["${seg}"]`;
+    // An all-digit segment under a non-map parent is an array index: `values[1]`.
+    else if (/^\d+$/.test(seg)) out += `[${seg}]`;
     else if (IDENT.test(seg)) out += `.${seg}`;
     else out += `["${seg}"]`;
   }
@@ -115,6 +118,19 @@ function validateDerived(ir: DeckIR): ValidationIssue[] {
 export interface ValidateOptions {
   /** Cached prop byte counts keyed `<source>-<id>` (from `.deck3d/props/`). */
   propBytes?: Record<string, number>;
+  /** Directory holding the deck's `fx/`. Absent ⇒ `local:` referents are not resolved. */
+  deckDir?: string;
+}
+
+/** Resolve every `local:` reference against `fx/` beside the deck (design D1). */
+function validateLocalEffects(deck: DeckIR, deckDir: string): ValidationIssue[] {
+  const errors: ValidationIssue[] = [];
+  for (const { ref, path } of localRefs(deck.overrides)) {
+    for (const issue of resolveLocalEffect(ref, deckDir).issues) {
+      errors.push({ path: `${path}${issue.suffix}`, message: issue.message });
+    }
+  }
+  return errors;
 }
 
 const PROP_COUNT_BUDGET = 5;
@@ -157,6 +173,7 @@ export function validate(ir: unknown, opts: ValidateOptions = {}): ValidationRes
 
   const deck = ir as DeckIR;
   errors.push(...validateDerived(deck));
+  if (opts.deckDir !== undefined) errors.push(...validateLocalEffects(deck, opts.deckDir));
   warnings.push(...validateProps(deck, opts));
 
   for (const orphan of findOrphanOverrides(deck)) {

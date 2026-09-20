@@ -66,7 +66,7 @@ describe("E29 dangling node role", () => {
     const r = cli(["render", "deck.json", "-o", "deck.html"], dir);
     expect(r.status, r.stderr).toBe(0);
     const html = readFileSync(join(dir, "deck.html"), "utf8");
-    const props = inlineJson(html, "window\\.__DECK_PROPS", ";</script>") as Record<string, string>;
+    const props = inlineJson(html, "window\\.__DECK_PROPS", ";window\\.__DECK_LOCAL_FX") as Record<string, string>;
     expect(Object.keys(props)).not.toContain("vendored-robot");
     expect(props).toEqual({});
     const deck = inlineJson(html, "window\\.__DECK", ";window\\.__DECK_FONT") as { props?: unknown[] };

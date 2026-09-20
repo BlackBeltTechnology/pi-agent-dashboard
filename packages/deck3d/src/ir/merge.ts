@@ -3,6 +3,8 @@
  *
  *   objects deep-merge over derived values
  *   arrays replace wholesale
+ *   `diagram.data` replaces wholesale (named exception — labels and values
+ *   must not mix provenance)
  *
  * Persisted `slides[]` is never mutated: `applyOverrides` returns a fresh
  * merged view for the renderer, so re-parse always regenerates derived fields.
@@ -23,13 +25,19 @@ function isPlainObject(v: unknown): v is Json {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
-/** Deep merge: objects merge recursively, arrays and scalars replace. */
-export function deepMerge(base: unknown, override: unknown): unknown {
+/** `diagram.data` is the one object key that replaces instead of deep-merging. */
+function isAtomic(parentKey: string | undefined, key: string): boolean {
+  return key === "data" && parentKey === "diagram";
+}
+
+/** Deep merge: objects merge recursively, arrays, scalars and `diagram.data` replace. */
+export function deepMerge(base: unknown, override: unknown, parentKey?: string): unknown {
   if (!isPlainObject(base) || !isPlainObject(override)) return clone(override);
   const out: Json = { ...base };
   for (const [key, value] of Object.entries(override)) {
     if (value === undefined) continue;
-    out[key] = isPlainObject(value) && isPlainObject(base[key]) ? deepMerge(base[key], value) : clone(value);
+    const mergeable = isPlainObject(value) && isPlainObject(base[key]) && !isAtomic(parentKey, key);
+    out[key] = mergeable ? deepMerge(base[key], value, key) : clone(value);
   }
   return out;
 }

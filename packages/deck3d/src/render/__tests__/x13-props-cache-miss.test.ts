@@ -7,10 +7,11 @@
  * (`deck3d props fetch`).
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync , rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { makeLocalDeck, runCli as runDeckCli } from "../../__tests__/helpers/local-fx.js";
 import { validIR } from "../../ir/__tests__/fixtures.js";
 
 const BIN = new URL("../../../bin/deck3d", import.meta.url).pathname;
@@ -40,6 +41,23 @@ describe("X13 props cache miss", () => {
     expect(render.status, render.stderr).not.toBe(0);
     expect(render.stderr).toContain("ghost");
     expect(render.stderr).toContain("deck3d props fetch");
+    expect(existsSync(join(dir, "deck.html"))).toBe(false);
+  });
+});
+
+/**
+ * test-plan #X13 — `validate` and `render` are separate runs, so a module can
+ * vanish between them. `render` re-checks rather than trusting the earlier pass.
+ */
+describe("X13 local effect file removed after validate", () => {
+  it("fails naming the file and writes no html", () => {
+    const { dir } = makeLocalDeck({ effects: [{ name: "x" }] }, "deck3d-x13-");
+    expect(runDeckCli(["validate", "deck.json"], dir).status).toBe(0);
+
+    rmSync(join(dir, "fx", "x.js"));
+    const r = runDeckCli(["render", "deck.json", "-o", "deck.html"], dir);
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain("fx/x.js");
     expect(existsSync(join(dir, "deck.html"))).toBe(false);
   });
 });

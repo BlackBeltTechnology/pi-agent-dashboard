@@ -44,8 +44,289 @@ function empty(): DiagramBuild {
   return { g: new THREE.Group(), tick: () => {} };
 }
 
+/* ---------------------------------------------------------------- *
+ * Built topologies (D2). Each renders from `diagram.data` alone — no
+ * mermaid harvest — and exposes its parts to `measure()` like flowchart
+ * nodes: one `nodes` entry and one `labels` entry per series item, keyed
+ * `n<i>` so a check finding can name it.
+ * ---------------------------------------------------------------- */
+
+/** Series view of a slide: captions always, magnitudes only when complete. */
+function series(slide: MergedSlide, fallback: string[] = []): { labels: string[]; values?: number[] } {
+  const data = slide.diagram.data;
+  const labels = data?.labels?.length ? data.labels : fallback;
+  const values = data?.values?.length === labels.length ? data.values : undefined;
+  return { labels, values };
+}
+
+interface BuiltParts {
+  nodes: Record<string, THREE.Mesh>;
+  labels: BuiltLabel[];
+}
+
+/**
+ * Evenly spaced point on a ring. Captioned members of the cloud topologies are
+ * pinned to it: following the cloud's own random positions puts two captions in
+ * the same screen region, which `check` correctly reports as overlap/occlusion.
+ */
+function ringPoint(i: number, n: number, rx: number, ry = rx): THREE.Vector3 {
+  const a = Math.PI / 2 - (i * Math.PI * 2) / Math.max(1, n);
+  return new THREE.Vector3(Math.cos(a) * rx, Math.sin(a) * ry, 0);
+}
+
+/**
+ * Built-topology captions are labels, not prose: the slide card already shows
+ * the bullet in full, so a sentence-length caption is clipped here rather than
+ * allowed to grow wider than the topology it annotates.
+ */
+const CAPTION_MAX = 22;
+
+function caption(text: string): string {
+  return text.length <= CAPTION_MAX ? text : `${text.slice(0, CAPTION_MAX - 1).trimEnd()}\u2026`;
+}
+
+/** Attach a caption plane at `pos`, owned by `id`, and record it for `measure()`. */
+function addPart(
+  g: THREE.Group,
+  parts: BuiltParts,
+  id: string,
+  text: string,
+  mesh: THREE.Mesh,
+  pos: THREE.Vector3,
+  P: PaletteColors,
+  cfg: SlideConfig,
+): void {
+  const shown = caption(text);
+  mesh.userData.ownerId = id;
+  mesh.userData.label = shown;
+  parts.nodes[id] = mesh;
+  const lb = buildLabel(shown, cfg.labels?.size ?? 0.13, P);
+  lb.group.position.copy(pos);
+  lb.group.userData.ownerId = id;
+  g.add(lb.group);
+  parts.labels.push({ id, text: shown, object: lb.group, height: lb.height });
+}
+
+/** Columns on a plinth, height ∝ value. A zero value keeps a stub so its label stays. */
+function buildBars(slide: MergedSlide, P: PaletteColors, cfg: SlideConfig): DiagramBuild {
+  const { labels, values } = series(slide, ["A", "B", "C"]);
+  if (!labels.length) return empty();
+  const g = new THREE.Group();
+  const parts: BuiltParts = { nodes: {}, labels: [] };
+  const matA = diagramMaterial(P, "accent", cfg);
+  const matB = diagramMaterial(P, "second", cfg);
+  const MAX_H = 2.4;
+  const STUB = 0.12;
+  // High enough that BOTH staggered caption rows clear the diagram disc
+  // (its top sits at about y = -1.66).
+  const BASE = -1.0;
+  const DEPTH = 0.12;
+  const PLINTH_D = 0.6;
+  const peak = Math.max(...(values ?? [1]), Number.EPSILON);
+  // Kept inside the diagram disc; a wider spread also costs ratio fidelity,
+  // because off-axis columns sit further from the camera.
+  const span = 2.2;
+  const step = labels.length > 1 ? span / (labels.length - 1) : 0;
+  const width = Math.min(0.62, (span / Math.max(1, labels.length)) * 0.7);
+
+  labels.forEach((text, i) => {
+    const v = values?.[i];
+    // Heights are exactly proportional so the ratio survives projection; only a
+    // genuine zero falls back to the stub.
+    const h = v === undefined ? MAX_H : v === 0 ? STUB : (v / peak) * MAX_H;
+    const x = labels.length > 1 ? -span / 2 + i * step : 0;
+    // Shallow in z on purpose: the projected rect of a deep box picks up a
+    // depth term that does not scale with `h`, which would skew the ratio a
+    // reader (and `measure()`) is entitled to trust.
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(width, h, DEPTH), i === 0 ? matA : matB);
+    bar.position.set(x, BASE + h / 2, 0);
+    bar.castShadow = true;
+    g.add(bar);
+    // In front of the plinth, not on it: a caption drawn on the light plinth
+    // face loses its contrast and gets clipped by the plinth's front edge.
+    // Real captions are words, not letters, so consecutive ones alternate rows
+    // — at four columns a single row collides every time.
+    const row = labels.length > 2 && i % 2 === 1 ? 0.34 : 0;
+    addPart(g, parts, `n${i}`, text, bar, new THREE.Vector3(x, BASE - 0.26 - row, PLINTH_D / 2 + 0.15), P, cfg);
+  });
+
+  const plinth = new THREE.Mesh(new THREE.BoxGeometry(span + 0.9, 0.1, PLINTH_D), diagramMaterial(P, "second", cfg));
+  plinth.position.set(0, BASE - 0.05, 0);
+  plinth.receiveShadow = true;
+  g.add(plinth);
+
+  return { g, ...parts, tick: (t) => { g.rotation.y = Math.sin(t * 0.25) * 0.18; } };
+}
+
+/** Stacked slabs narrowing downward, one per label. */
+function buildFunnel(slide: MergedSlide, P: PaletteColors, cfg: SlideConfig): DiagramBuild {
+  const { labels } = series(slide, ["Leads", "Qualified", "Won"]);
+  if (!labels.length) return empty();
+  const g = new THREE.Group();
+  const parts: BuiltParts = { nodes: {}, labels: [] };
+  const n = labels.length;
+  const slabH = Math.min(0.5, 2.6 / n);
+  const top = ((n - 1) * slabH) / 2;
+
+  labels.forEach((text, i) => {
+    const rTop = 1.5 * (1 - i / (n + 1));
+    const rBottom = 1.5 * (1 - (i + 1) / (n + 1));
+    const y = top - i * slabH;
+    const slab = new THREE.Mesh(
+      new THREE.CylinderGeometry(rTop, rBottom, slabH * 0.82, 6),
+      diagramMaterial(P, i === 0 ? "accent" : "second", cfg),
+    );
+    slab.position.set(0, y, 0);
+    slab.castShadow = true;
+    g.add(slab);
+    addPart(g, parts, `n${i}`, text, slab, new THREE.Vector3(rTop + 0.95, y, 0.2), P, cfg);
+  });
+
+  return { g, ...parts, tick: (t) => { g.rotation.y = t * 0.2; } };
+}
+
+/** Milestone pucks along a rail; captions alternate above and below it. */
+function buildTimelineRail(slide: MergedSlide, P: PaletteColors, cfg: SlideConfig): DiagramBuild {
+  const { labels } = series(slide, ["Now", "Next", "Later"]);
+  if (!labels.length) return empty();
+  const g = new THREE.Group();
+  const parts: BuiltParts = { nodes: {}, labels: [] };
+  const span = 3.4;
+  const step = labels.length > 1 ? span / (labels.length - 1) : 0;
+  const RAIL_Y = 0;
+
+  const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, span + 0.6, 12), diagramMaterial(P, "second", cfg));
+  rail.rotation.z = Math.PI / 2;
+  rail.position.y = RAIL_Y;
+  g.add(rail);
+
+  labels.forEach((text, i) => {
+    const x = labels.length > 1 ? -span / 2 + i * step : 0;
+    const puck = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.14, 24), diagramMaterial(P, "accent", cfg));
+    puck.rotation.x = Math.PI / 2;
+    puck.position.set(x, RAIL_Y, 0);
+    puck.castShadow = true;
+    g.add(puck);
+    // Alternating sides keep captions from colliding on a dense rail.
+    const above = i % 2 === 0;
+    addPart(g, parts, `n${i}`, text, puck, new THREE.Vector3(x, RAIL_Y + (above ? 0.55 : -0.55), 0.12), P, cfg);
+  });
+
+  return { g, ...parts, tick: (t) => { g.rotation.y = Math.sin(t * 0.3) * 0.25; } };
+}
+
+/** Wire sphere with arcs between seeded surface points. */
+function buildGlobe(slide: MergedSlide, P: PaletteColors, cfg: SlideConfig): DiagramBuild {
+  const { labels } = series(slide, ["EMEA", "AMER", "APAC"]);
+  const g = new THREE.Group();
+  const parts: BuiltParts = { nodes: {}, labels: [] };
+  const R = 1.25;
+  const globe = new THREE.Mesh(
+    new THREE.SphereGeometry(R, 24, 16),
+    new THREE.MeshBasicMaterial({ color: P.second, wireframe: true, transparent: true, opacity: 0.35 }),
+  );
+  g.add(globe);
+
+  const rnd = makeRng(7);
+  const sites = labels.map((_, i) => {
+    const phi = Math.acos(1 - (2 * (i + 0.5)) / Math.max(1, labels.length));
+    const theta = rnd() * Math.PI * 2;
+    return new THREE.Vector3(Math.sin(phi) * Math.cos(theta), Math.cos(phi), Math.sin(phi) * Math.sin(theta)).multiplyScalar(R);
+  });
+
+  labels.forEach((text, i) => {
+    const pin = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 16), diagramMaterial(P, "accent", cfg));
+    pin.position.copy(sites[i]);
+    g.add(pin);
+    addPart(g, parts, `n${i}`, text, pin, sites[i].clone().multiplyScalar(1.28), P, cfg);
+  });
+
+  const arcMat = new THREE.MeshBasicMaterial({ color: P.accent, transparent: true, opacity: 0.7 });
+  for (let i = 0; i + 1 < sites.length; i++) {
+    const mid = sites[i].clone().add(sites[i + 1]).normalize().multiplyScalar(R * 1.45);
+    const curve = new THREE.QuadraticBezierCurve3(sites[i], mid, sites[i + 1]);
+    g.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 24, 0.02, 8, false), arcMat));
+  }
+
+  return { g, ...parts, tick: (t) => { g.rotation.y = t * 0.18; } };
+}
+
+/** Hub sphere with one satellite per label, each on its own tilted ring. */
+function buildOrbitCluster(slide: MergedSlide, P: PaletteColors, cfg: SlideConfig): DiagramBuild {
+  const { labels } = series(slide, ["Partner", "Reseller", "OEM"]);
+  const g = new THREE.Group();
+  const parts: BuiltParts = { nodes: {}, labels: [] };
+  const hub = new THREE.Mesh(new THREE.SphereGeometry(0.4, 32, 32), diagramMaterial(P, "accent", cfg));
+  hub.castShadow = true;
+  g.add(hub);
+
+  const sats = labels.map((text, i) => {
+    const radius = 0.9 + (i % 3) * 0.35;
+    const tilt = (i / Math.max(1, labels.length)) * Math.PI;
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(radius, 0.012, 8, 96),
+      new THREE.MeshBasicMaterial({ color: P.second, transparent: true, opacity: 0.4 }),
+    );
+    ring.rotation.set(Math.PI / 2, 0, tilt);
+    g.add(ring);
+
+    const sat = new THREE.Mesh(new THREE.OctahedronGeometry(0.17, 1), diagramMaterial(P, "second", cfg));
+    const holder = new THREE.Group();
+    holder.rotation.set(Math.PI / 2, 0, tilt);
+    holder.add(sat);
+    g.add(holder);
+
+    const phase = (i / Math.max(1, labels.length)) * Math.PI * 2;
+    sat.position.set(Math.cos(phase) * radius, Math.sin(phase) * radius, 0);
+    // Captions live on an even ring in the GROUP's own space. Following the
+    // satellite through `getWorldPosition` reads a stale matrix at build time
+    // and projects off-screen.
+    const at = ringPoint(i, labels.length, radius + 0.75, radius + 0.55);
+    addPart(g, parts, `n${i}`, text, sat, at, P, cfg);
+    return { sat, radius, phase };
+  });
+
+  return {
+    g,
+    ...parts,
+    tick(t) {
+      for (const s of sats) {
+        const a = s.phase + t * 0.35;
+        s.sat.position.set(Math.cos(a) * s.radius, Math.sin(a) * s.radius, 0);
+      }
+      hub.rotation.y = t * 0.4;
+    },
+  };
+}
+
+/** Offset layered slabs, one per label — a compute/infra "stack". */
+function buildStack(slide: MergedSlide, P: PaletteColors, cfg: SlideConfig): DiagramBuild {
+  const { labels } = series(slide, ["Edge", "Core", "Storage"]);
+  if (!labels.length) return empty();
+  const g = new THREE.Group();
+  const parts: BuiltParts = { nodes: {}, labels: [] };
+  const n = labels.length;
+  const gap = Math.min(0.46, 2.4 / n);
+  const top = ((n - 1) * gap) / 2;
+
+  labels.forEach((text, i) => {
+    const y = top - i * gap;
+    const slab = new THREE.Mesh(
+      new THREE.BoxGeometry(2.2, gap * 0.55, 1.2),
+      diagramMaterial(P, i === 0 ? "accent" : "second", cfg),
+    );
+    // A small lateral offset per layer reads as depth rather than one block.
+    slab.position.set(((i % 2 === 0 ? 1 : -1) * gap) / 3, y, 0);
+    slab.castShadow = true;
+    g.add(slab);
+    addPart(g, parts, `n${i}`, text, slab, new THREE.Vector3(slab.position.x + 1.5, y, 0.62), P, cfg);
+  });
+
+  return { g, ...parts, tick: (t) => { g.rotation.y = -0.35 + Math.sin(t * 0.25) * 0.2; } };
+}
+
 /** Abstract network ("brain") — 14 nodes, proximity edges, travelling pulses. */
-function buildBrain(P: PaletteColors, cfg: SlideConfig): DiagramBuild {
+function buildBrain(slide: MergedSlide, P: PaletteColors, cfg: SlideConfig): DiagramBuild {
   const g = new THREE.Group();
   const matA = diagramMaterial(P, "accent", cfg);
   const matB = diagramMaterial(P, "second", cfg);
@@ -80,10 +361,25 @@ function buildBrain(P: PaletteColors, cfg: SlideConfig): DiagramBuild {
     g.add(m);
     return { m, e, off: k / 10 };
   });
+  // Captioned cells are pinned to an even ring inside the cloud so their
+  // captions never land on top of each other.
+  const parts: BuiltParts = { nodes: {}, labels: [] };
+  const captioned = series(slide, []).labels.slice(0, nodes.length);
+  captioned.forEach((text, i) => {
+    const at = ringPoint(i, captioned.length, 1.05, 0.95);
+    nodes[i].base.copy(at);
+    nodes[i].mesh.position.copy(at);
+    addPart(g, parts, `n${i}`, text, nodes[i].mesh, at.clone().multiplyScalar(1.3), P, cfg);
+  });
   return {
     g,
+    ...parts,
     tick(t) {
       nodes.forEach((n) => n.mesh.position.copy(n.base).addScaledVector(n.base, Math.sin(t * 1.3 + n.ph) * 0.06));
+      captioned.forEach((_, i) => {
+        parts.labels[i].object.position.copy(nodes[i].mesh.position).multiplyScalar(1.3);
+      });
+
       edges.forEach((e) => {
         const a = nodes[e.a].mesh.position;
         const b = nodes[e.b].mesh.position;
@@ -100,20 +396,22 @@ function buildBrain(P: PaletteColors, cfg: SlideConfig): DiagramBuild {
   };
 }
 
-/** Plan → Act → Observe ring. */
-function buildLoop(P: PaletteColors, cfg: SlideConfig, font: Font): DiagramBuild {
+/** Ring of three or more stations with travelling pulses. */
+function buildLoop(slide: MergedSlide, P: PaletteColors, cfg: SlideConfig, font: Font): DiagramBuild {
   const g = new THREE.Group();
   const matA = diagramMaterial(P, "accent", cfg);
   const matB = diagramMaterial(P, "second", cfg);
   const ring = new THREE.Mesh(new THREE.TorusGeometry(1.2, 0.09, 24, 128), matB);
   ring.castShadow = true;
   g.add(ring);
-  const labels = ["Plan", "Act", "Observe"];
+  const labels = series(slide, ["Plan", "Act", "Observe"]).labels;
+  const parts: BuiltParts = { nodes: {}, labels: [] };
   const nodes: THREE.Group[] = [];
   labels.forEach((l, i) => {
-    const a = Math.PI / 2 - (i * Math.PI * 2) / 3;
+    const a = Math.PI / 2 - (i * Math.PI * 2) / labels.length;
     const n = new THREE.Group();
-    n.position.set(Math.cos(a) * 1.2, Math.sin(a) * 1.2, 0);
+    const at = new THREE.Vector3(Math.cos(a) * 1.2, Math.sin(a) * 1.2, 0);
+    n.position.copy(at);
     const s = new THREE.Mesh(new THREE.SphereGeometry(0.3, 32, 32), matA);
     s.castShadow = true;
     n.add(s);
@@ -123,15 +421,17 @@ function buildLoop(P: PaletteColors, cfg: SlideConfig, font: Font): DiagramBuild
     n.add(tx.group);
     g.add(n);
     nodes.push(n);
+    addPart(g, parts, `n${i}`, l, s, at.clone().multiplyScalar(1.42), P, cfg);
   });
   const cone = new THREE.ConeGeometry(0.14, 0.32, 16);
-  const arrows = [0, 1, 2].map((i) => {
+  const arrows = labels.map((_, i) => {
     const m = new THREE.Mesh(cone, matA);
     g.add(m);
-    return { m, off: i / 3 };
+    return { m, off: i / labels.length };
   });
   return {
     g,
+    ...parts,
     tick(t) {
       arrows.forEach((ar) => {
         const a = -Math.PI / 2 + (t * 0.5 + ar.off) * Math.PI * 2 + Math.PI / 3;
@@ -144,12 +444,15 @@ function buildLoop(P: PaletteColors, cfg: SlideConfig, font: Font): DiagramBuild
   };
 }
 
-/** Agent swarm — orbiting octahedra with proximity lines. */
-function buildSwarm(P: PaletteColors, cfg: SlideConfig): DiagramBuild {
+/** Hub with orbiting agents — octahedra with proximity lines. */
+function buildSwarm(slide: MergedSlide, P: PaletteColors, cfg: SlideConfig): DiagramBuild {
   const g = new THREE.Group();
   const matA = diagramMaterial(P, "accent", cfg);
   const matB = diagramMaterial(P, "second", cfg);
   const rnd = makeRng(11);
+  const hub = new THREE.Mesh(new THREE.SphereGeometry(0.32, 32, 32), matA);
+  hub.castShadow = true;
+  g.add(hub);
   const agents: Array<{ m: THREE.Mesh; r: number; sp: number; ph: number; tilt: number }> = [];
   for (let i = 0; i < 22; i++) {
     const m = new THREE.Mesh(new THREE.OctahedronGeometry(i % 5 === 0 ? 0.2 : 0.11, 1), i % 5 === 0 ? matA : matB);
@@ -161,10 +464,26 @@ function buildSwarm(P: PaletteColors, cfg: SlideConfig): DiagramBuild {
   const pos = new Float32Array(agents.length * agents.length * 6);
   lineGeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
   g.add(new THREE.LineSegments(lineGeo, new THREE.LineBasicMaterial({ color: P.second, transparent: true, opacity: 0.35 })));
+  // Captioned agents become fixed stations on an even ring around the hub; the
+  // rest keep orbiting. Captions on moving agents cross and occlude each other.
+  const parts: BuiltParts = { nodes: {}, labels: [] };
+  const captioned = series(slide, []).labels.slice(0, agents.length);
+  const pinned = new Set<number>();
+  captioned.forEach((text, i) => {
+    const at = ringPoint(i, captioned.length, 1.1, 0.95);
+    agents[i].m.position.copy(at);
+    pinned.add(i);
+    addPart(g, parts, `n${i}`, text, agents[i].m, at.clone().add(new THREE.Vector3(0, 0.3, 0)), P, cfg);
+  });
   return {
     g,
+    ...parts,
     tick(t) {
-      agents.forEach((a) => {
+      agents.forEach((a, i) => {
+        if (pinned.has(i)) {
+          a.m.rotation.set(t * 0.5, t * 0.35, 0);
+          return;
+        }
         const th = t * a.sp + a.ph;
         a.m.position.set(Math.cos(th) * a.r, Math.sin(th * 1.3 + a.tilt) * a.r * 0.5, Math.sin(th) * a.r);
         a.m.rotation.set(t, t * 0.7, 0);
@@ -467,11 +786,23 @@ export function buildDiagram(slide: MergedSlide, P: PaletteColors, cfg: SlideCon
     case "sequence":
       return buildSequence(slide, P, cfg);
     case "brain":
-      return buildBrain(P, cfg);
+      return buildBrain(slide, P, cfg);
     case "loop":
-      return buildLoop(P, cfg, font);
+      return buildLoop(slide, P, cfg, font);
     case "swarm":
-      return buildSwarm(P, cfg);
+      return buildSwarm(slide, P, cfg);
+    case "bars":
+      return buildBars(slide, P, cfg);
+    case "funnel":
+      return buildFunnel(slide, P, cfg);
+    case "timeline-rail":
+      return buildTimelineRail(slide, P, cfg);
+    case "globe":
+      return buildGlobe(slide, P, cfg);
+    case "orbit-cluster":
+      return buildOrbitCluster(slide, P, cfg);
+    case "stack":
+      return buildStack(slide, P, cfg);
     default:
       return empty();
   }
