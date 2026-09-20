@@ -22,23 +22,29 @@ written, two changes landed that move the ground:
 Other constraints that shape the approach:
 
 - `BrowserGateway` (`pairing/browser-gateway.ts`) is the only push channel to a
-  browser. Its upgrade is gated by a **single-use, scope-bound `ws-ticket`**
-  (`auth/ws-ticket.ts`, ~15 s TTL, `consume` deletes on first attempt) plus
-  `isWsOriginTrusted`. It exposes only a per-session `getSubscriberCount`
-  (`:111`) — there is no global connected-browser count.
+  browser. Its upgrade is gated by `isWsOriginTrusted`, plus — where auth is
+  configured or the caller is off-host — a cookie session, a local-IPC token, a
+  trusted CIDR, **or** a single-use scope-bound `ws-ticket`
+  (`auth/ws-ticket.ts`, ~15 s TTL, `consume` deletes on first attempt). These
+  are **disjuncts, not a chain**: with no auth secret, `server.ts:2934-2946`
+  admits any genuinely-local peer with no ticket at all, and
+  `device-auth.ts:85-88` says an unpaired browser deliberately connects
+  ticketless. So for the primary audience the channel is gated by origin
+  admission and `isGenuinelyLocal` alone — exactly the residual D1a names. It exposes only a per-session `getSubscriberCount`
+  (declared `:278`, implemented `:2060`) — there is no global connected-browser count.
 - `PromptBus` prompts are **session-scoped** and live in `packages/extension/`.
   A guard hit is sessionless. The existing relay cannot carry this.
 - `ResyncRequesterRegistry` (`pairing/subagent-resync-routing.ts`) is the
   in-repo precedent for a bounded, TTL'd, take-once correlation registry.
-- Fastify runs with `connectionTimeout: 10_000` (`server.ts:1119`). The
+- Fastify runs with `connectionTimeout: 10_000` (`server.ts:1314`). The
   clear-and-restore pattern for a long-running request is
-  `git-routes.ts:473-480` (capture `socket.timeout`, `setTimeout(0)`, restore on
+  `git-routes.ts:470-478` (capture `socket.timeout`, `setTimeout(0)`, restore on
   `reply.raw.once("finish")` behind `!socket.destroyed`).
 - `POST /api/git/worktree/init` already ships the DEFERRED shape: an untrusted
   hook returns `init_untrusted` **carrying the definition for the client to
   confirm**, and the client retries with `confirmHash`. Nothing is held.
 - `index.html` is served by `@fastify/static` with `preCompressed: true`, and in
-  dev by a Vite proxy in `setNotFoundHandler` (`server.ts:2103-2135`). There is
+  dev by a Vite proxy in `setNotFoundHandler` (`server.ts:2137-2166`). There is
   no HTML templating step.
 
 ## Goals / Non-Goals
@@ -80,10 +86,10 @@ the issuing socket and raises the dialog **on that socket's operator**.
 
 | Defeat | Why it does not apply |
 |---|---|
-| #1 caller-is-human | This is not an inference about the caller. A drive-by page has no `BrowserGateway` socket, therefore no nonce, therefore no dialog. |
+| #1 caller-is-human | This is not an inference about the caller. A drive-by page has no `BrowserGateway` socket, therefore no nonce, therefore no **held** dialog and no suspension. It may still reach a DEFERRED prompt — see the accepted residual **D3-R1**, which states that scope honestly rather than claiming "no dialog". |
 | #2 auth credential | The nonce is independent of auth configuration. It is issued to a loopback browser with auth off exactly as to a paired device — the primary audience is served, which is where #2 died. |
 | #3 CORS-gated custom header | Eligibility does not consult `isCorsOriginAllowed` at all. A zrok-share attacker who passes preflight and sets the header still has to *guess the value*. The header is a carrier, not the credential. |
-| #4 header-shape / legacy browsers | No `Sec-Fetch-*` dependence, so no Safari <16.4 both-headers-absent branch. And the legacy-browser-vs-local-curl ambiguity that killed #4 is **dissolved rather than solved**: neither has a nonce, and neither needs one, because both are served by DEFERRED. |
+| #4 header-shape / legacy browsers | No `Sec-Fetch-*` dependence **for request eligibility** — a request proves itself by the nonce alone. Issuance *does* consult `Sec-Fetch-Site` (D1a), so a browser that omits it is issued no capability and never gets a held dialog; that degradation is surfaced on the Access tab rather than left silent. And the legacy-browser-vs-local-curl ambiguity that killed #4 is **dissolved rather than solved**: neither has a nonce, and neither needs one, because both are served by DEFERRED. |
 
 **Why a WS-issued nonce rather than the proposal's "secret in the served HTML".**
 Same security property (a cross-origin page cannot read either), but: the WS
@@ -107,7 +113,7 @@ confirmed against source rather than accepted on assertion:
 - `cors-origin.ts:192` — `isOriginAdmitted` returns `true` when `Origin` is
   **absent**, deliberately, so that non-browser local clients keep working. The
   comment says so explicitly.
-- `auth-plugin.ts:298` — `if (isGenuinelyLocal(request.ip, ...)) return;` skips
+- `auth-plugin.ts:296` — `if (isGenuinelyLocal(request.ip, ...)) return;` skips
   the credential check for loopback callers.
 
 So a local process could mint a ticket, open the browser WebSocket with no
@@ -137,13 +143,27 @@ This is why the earlier "defeated" list still stands: `Sec-Fetch` shape *alone*
 was defeated, and it is not being used alone — it gates issuance of a
 per-connection secret, it does not replace it.
 
-### D2 — DNS rebinding is out of D1's reach, so HELD additionally requires `hostGate.mode === "enforce"`
+### D2 — DNS rebinding is out of D1's reach, so **prompting at all** requires `hostGate.mode === "enforce"`
 
 **Decision.** D1 alone does **not** beat rebinding: an `attacker.com` rebound to
 `127.0.0.1` is same-origin with the dashboard, so it can open the WebSocket and
-be issued a nonce. Only Host validation stops that. Therefore **HELD eligibility
-requires `hostGate` in `enforce` mode**; in `report` mode (the shipped default)
-every plane degrades to DEFERRED.
+be issued a nonce. Only Host validation stops that. Therefore
+**prompt-eligibility on every plane requires `hostGate` in `enforce` mode**; in
+`report` mode (the shipped default) every plane degrades to **record-only**.
+
+**Why the precondition covers prompting and not merely suspension.** An earlier
+spelling gated only *suspension* on `enforce`, leaving `report`-mode denials to
+prompt as DEFERRED. That was defeated against source: in `report` mode
+`isSameOriginByHost` short-circuits to `true` without consulting
+`isHostAdmitted` (`cors-origin.ts:181`), and with no auth secret the browser WS
+upgrade admits any genuinely-local peer with no ticket and no credential
+(`server.ts:2934-2946`). A rebound page therefore satisfies every D1a issuance
+signal, is issued a capability, and raises a real dialog. The hold is not the
+prize — the **persisted grant** is, and because the page is same-origin by
+rebinding it can read the retry that grant enables. The proposal's DEFERRED
+safety claim (*"it learns nothing except that a later retry works"*) is false
+against a rebound same-origin reader, so the precondition has to sit above the
+whole prompt path.
 
 **Is this defeat #2/#3's mistake — delegating eligibility to a foreign policy?**
 No, and the distinction is the point. Attempts 2 and 3 borrowed policies tuned
@@ -155,21 +175,40 @@ never as the affirmative grant: a request with an admitted Host but no nonce is
 still ineligible.
 
 **Consequence, stated plainly.** Most installs ship `report`, so most installs
-get **DEFERRED-only** at first, including for filesystem. That is a real product
-cost and is deliberately not papered over: the Access tab SHALL state *"held
-prompts unavailable — hostGate mode is `report`"* with a link to the setting, so
-the degradation is visible rather than silent. Auto-enabling `enforce` is
-rejected: it can lock an operator out of their own deployment, and this change
-must not be able to do that.
+get **no prompts at all** at first — every plane, filesystem included, is
+record-only and the Access surface is the whole product. That is a large,
+deliberate product cost and is not papered over: the Access tab SHALL state
+*"prompting unavailable — hostGate mode is `report`"* with a link to the
+setting, so the degradation is visible rather than silent, and the prompting
+toggle SHALL render inert rather than hidden for the same reason. Auto-enabling
+`enforce` is rejected: it can lock an operator out of their own deployment, and
+this change must not be able to do that. The install-wide default flips when
+`harden-server-request-surfaces` lands (D2b); this change gains prompting
+automatically at that point and re-decides nothing.
 
 ### D3 — Two settlement modes, with an explicit degrade ladder
 
 HELD and DEFERRED are as specified in `proposal.md — Two settlement modes`. The
 ladder is one-way: **HELD → DEFERRED → record-only**.
 
-- not eligible (D1), or `hostGate` not `enforce` (D2) → DEFERRED
+- `hostGate` not `enforce` (D2) → **record-only**, on every plane, skipping
+  DEFERRED entirely. This rung is evaluated first.
+- not eligible (D1) on a HELD plane → DEFERRED
 - prompting disabled, no audience, registry at capacity, or rate-limited →
   record-only (the denial lands in the pending list; no prompt)
+
+**Accepted residual (D3-R1).** In `enforce` mode, an *ineligible* HELD-plane
+denial still degrades to DEFERRED, and a DEFERRED prompt requires no
+request-borne proof (D2a) — so a request that carries no capability can still
+cause a modal to appear. D1's defeat-#1 row must therefore be read as *"no
+nonce ⇒ no **held** dialog"*, not *"no dialog"*. This is accepted rather than
+closed: the requester must already have passed Host admission under `enforce`,
+it is never suspended, and the alternative — record-only for every
+proof-less denial — would also silence the natively-deferred planes
+(network, CORS, pairing), where prompting the operator is the only remedy the
+untrusted requester can ever have. The dialog's plane-appropriate copy and the
+anti-habituation rules (D12) are the compensating controls, and the flooding
+layers (D9) bound the denial-of-attention cost.
 
 Every rung returns today's denial. No rung can produce an allow. Merging the two
 modes into a single "always hold" was rejected: a held request costs a connection
@@ -220,7 +259,7 @@ a refactor after the fact that produced it has changed.
 
 ### D7 — Transport for a HELD request
 
-Reuse `git-routes.ts:473-480` verbatim in shape: capture `socket.timeout`,
+Reuse `git-routes.ts:470-478` verbatim in shape: capture `socket.timeout`,
 `socket.setTimeout(0)`, restore on `reply.raw.once("finish")` behind
 `!socket.destroyed`. The hold is additionally bounded by the registry TTL and by
 `request.raw.once("close")` → `forget` + deny, so a client abort never leaks an
@@ -300,8 +339,11 @@ put a modal on the operator's screen.
 - **Deferred planes** ask *"may the operator be told about this?"* The requester
   is untrusted by definition and will never hold a capability, so the authority
   to prompt comes from **the operator's own live channel**, never from the
-  request. The requester gains nothing: still denied, no inbound surface, and it
-  learns only what a retry would have told it anyway.
+  request. The requester gains no *inbound surface* and no *information*: it is
+  still denied, and the verdict tells it nothing a retry would not have. On an
+  `allow-always` verdict it does gain exactly the access the operator
+  deliberately granted — that is the feature, not a leak, and it is why D2
+  refuses to let a prompt happen at all while Host admission is unenforced.
 
 Because a deferred prompt is raised on behalf of a requester that did not earn
 it, deferred planes are subject to the volume controls without exception, and a
@@ -416,20 +458,28 @@ further bounds the exposure is that a session is time-boxed, persists nothing,
 and logs every auto-allow. Promoting to the app-root banner stack remains a
 purely additive follow-up if mobile blindness proves uncomfortable.
 
-**D13a — Correction: YOLO answers the prompt, it does not release the request.**
+**D13a — Correction: YOLO requires `enforce`; it has no degraded-plane behaviour.**
 As first written, YOLO was incoherent on the default configuration. `hostGate`
-ships `report` (`config.ts:1086`), D2 therefore forbids HELD, and D3 degrades
-filesystem and cwd — YOLO's *only* two planes — to DEFERRED. A deferred request
-has already received its 403, so *"the original request SHALL proceed"* had
-nothing to proceed. The feature was either dead on every default install or it
-was the one rung that produces an allow the fail-closed ladder refused.
+ships `report` (`config.ts:1086`), so under D2 nothing on YOLO's two planes can
+prompt at all, and *"the original request SHALL proceed"* had nothing to
+proceed. The feature was either dead on every default install or it was the one
+rung that produces an allow the fail-closed ladder refused.
 
 YOLO now answers **the prompt and only the prompt**, and inherits whatever the
-ladder decided about the request: where suspension was available the request is
-released; where it was not, the request stays denied and the automatic verdict
-applies to the next attempt — exactly as an operator's answer would have. It
-never resurrects a denied request. This makes YOLO work on default installs
-without giving it a privilege the operator's own click does not have.
+ladder decided about the request. An earlier spelling tried to rescue YOLO on a
+`report`-mode install by letting the automatic verdict *"apply to the next
+attempt"*. That was defeated: it contradicts the registry's `allow-once`
+requirement (*"SHALL permit only the suspended request that raised it"*), and it
+handed YOLO a privilege the operator's own click does not have, since D12 offers
+no allow-once on a deferred plane. A verdict that outlives its originating
+request is an unbound floating allow keyed on `(plane, subject)`.
+
+**Resolution.** YOLO is available exactly when `hostGate.mode === "enforce"` and
+the denial is HELD-eligible. There is **no degraded-plane YOLO**: on a
+`report`-mode install YOLO is unavailable, its controls render inert carrying the
+same reason string the Access tab shows, and an env-activated session does not
+start. This is a smaller feature than the original sketch, and it is the only
+version that does not smuggle an allow past the fail-closed ladder.
 
 The proof requirement follows the same rule: an auto-allow requires **exactly
 what the prompt would have required**, no more and no less. Degradation changes
@@ -469,20 +519,34 @@ Mockups: `mockups/index.html` (served locally; dark + light). Plan and token map
 The prompt is `client-utils`' `Dialog` at `size="md"`, non-flush — it therefore
 inherits the `bg-black/60` backdrop, `z-dialog`, focus trap, `aria-modal`, the
 shared escape-stack dismissal, and the built-in ✕ without new code. Verdicts are
-`Dialog.Action` (`neutral` for *Allow once*, `primary` for *Allow always*) and
-`Dialog.Cancel` for *Deny*. No new button or overlay primitive is introduced.
+`Dialog.Action` and `Dialog.Cancel` for *Deny*. No new button or overlay
+primitive is introduced.
 
-Two UX rules are load-bearing rather than cosmetic and are specified, not just
+**Verdict emphasis.** Both *Allow once* and *Allow always* take
+`intent="neutral"`. An earlier spelling gave *Allow always* `primary`, making the
+widest, persistent verdict the visually emphasised one — directly against the
+anti-habituation goal this change exists to serve. `intent` is purely visual in
+`client-utils/Dialog.tsx` (`INTENT_CLASS`; the shell sets no autofocus), so this
+is emphasis only, but emphasis is the mechanism under discussion.
+
+Three UX rules are load-bearing rather than cosmetic and are specified, not just
 drawn: the dialog names **the store an `Allow always` answer will write** before
-the buttons, and `Allow once` is **absent on deferred planes** rather than
-disabled — there is nothing in flight to allow once, and a disabled control would
-imply otherwise.
+the buttons; `Allow once` is **absent on deferred planes** rather than disabled
+(there is nothing in flight to allow once, and a disabled control would imply
+otherwise), so a deferred dialog offers **exactly two** answers — *Allow always*
+and *Deny*; and no verdict is pre-selected or focus-defaulted.
 
 ## Risks / Trade-offs
 
-- **Default `report` mode means no held prompts for most installs (D2)** → made
-  visible in the Access tab with the reason and the setting link; DEFERRED still
-  delivers the full ask-and-grant loop, just without suspending the request.
+- **Default `report` mode means no prompts at all for most installs (D2)** →
+  made visible in the Access tab with the reason and the setting link; the
+  Access surface still delivers the full review-and-grant loop, and prompting
+  arrives for free when `harden-server-request-surfaces` flips the default
+  (D2b). This is the largest product cost in the change, accepted deliberately:
+  prompting under unenforced Host admission is exploitable by a rebound page.
+- **A proof-less denial can still raise a deferred dialog in `enforce` mode
+  (D3-R1)** → accepted residual; bounded by Host admission, the flooding layers
+  (D9), and the anti-habituation rules (D12). It never suspends a request.
 - **The nonce is a bearer secret inside the browser** → memory-only, never
   persisted, rotated per connection, scoped to *raising a prompt* (it grants
   nothing on its own; the operator still has to click). Same-origin script that
@@ -503,8 +567,14 @@ imply otherwise.
 
 Additive and behind a default-off setting; the empty-registry, prompting-off
 state is byte-identical to the parent change's behaviour. Rollback is the
-setting or the env var — no persisted state belongs to this change (D5), so there
-is nothing to unwind. Ships after `add-access-grants-and-review`, which itself
+setting or the env var. One piece of persisted state **does** belong to this
+change: the **remembered-refusal ledger** that stops a later YOLO session from
+reversing an explicit `Deny` (`access-grant-yolo`). It is durable across restart
+and is listed and clearable on the Access surface like any other recorded
+decision. Rollback therefore also means: the ledger stops being consulted and
+may be cleared from that surface; it grants nothing on its own, so leaving it in
+place is fail-safe. Every other store a verdict writes belongs to the parent
+change (D5) and is unwound there. Ships after `add-access-grants-and-review`, which itself
 ships after `add-universal-network-guard`.
 
 ## Open Questions

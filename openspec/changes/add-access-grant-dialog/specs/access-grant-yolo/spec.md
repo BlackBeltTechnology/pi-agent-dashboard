@@ -14,15 +14,19 @@ While YOLO is active, a denial on the filesystem plane or the
 working-directory plane that would have raised a prompt SHALL instead be
 answered automatically with an allow-once verdict.
 
-YOLO SHALL answer **the prompt**, and only the prompt. It SHALL NOT change what
-the degrade ladder decided about the request itself:
+YOLO SHALL answer **the prompt**, and only the prompt. It SHALL therefore be
+available only where a held prompt is available: YOLO SHALL be active only while
+the Host-admission gate is in enforcing mode and the denial is prompt-eligible
+and suspendable.
 
-- Where the denial would have suspended the request, the automatic verdict
-  releases it and the request proceeds.
-- Where the denial would **not** have suspended the request — including every
-  case where the ladder degraded the plane because Host admission is not enforced
-  — the request stays denied and the automatic verdict applies to the requester's
-  next attempt, exactly as an operator's answer would have.
+There SHALL be no degraded-plane YOLO. While Host admission is in reporting
+mode, YOLO SHALL be unavailable: its controls SHALL render inert carrying the
+same reason the Access surface states, an environment-activated session SHALL
+NOT start, and no automatic verdict SHALL be produced on any plane.
+
+An automatic verdict SHALL NOT outlive the request that raised it. A verdict
+that applied to a later attempt would be an unbound allow keyed on plane and
+subject, which is precisely what the allow-once requirement forbids.
 
 YOLO SHALL NOT resurrect a request the ladder already denied, and SHALL NOT be a
 rung that produces an allow where the ladder produced none.
@@ -48,13 +52,19 @@ scope is meaningful only on the two planes whose subject **is** a path.
 - **THEN** it SHALL be allowed without displaying a dialog
 - **AND** the original request SHALL proceed
 
-#### Scenario: YOLO still works when the plane is degraded
+#### Scenario: YOLO is unavailable when Host admission is not enforced
 
-- **GIVEN** YOLO is active and Host admission is in its reporting mode, so no request may be suspended
+- **GIVEN** Host admission is in its reporting mode
+- **WHEN** the operator opens any YOLO control, or an environment-activated session is attempted at startup
+- **THEN** no YOLO session SHALL become active
+- **AND** the control SHALL state the reason rather than being hidden
+
+#### Scenario: A degraded denial is never auto-answered
+
+- **GIVEN** Host admission is in its reporting mode and YOLO was activated earlier under enforcing mode
 - **WHEN** a containment miss occurs
-- **THEN** no dialog SHALL be displayed
+- **THEN** no automatic verdict SHALL be produced
 - **AND** the denied request SHALL remain denied
-- **AND** the automatic verdict SHALL apply to the next attempt for that subject
 
 #### Scenario: YOLO does not resurrect a denied request
 
@@ -81,9 +91,8 @@ no more and no less. A denial that could not have raised a dialog SHALL NOT be
 auto-allowed.
 
 Since the YOLO-eligible planes declare the held settlement mode, this means the
-request itself SHALL carry a valid prompt capability, whether or not the ladder
-has degraded the plane. Degradation changes what happens to the request; it SHALL
-NOT lower the proof required to answer for it.
+request itself SHALL carry a valid prompt capability, and Host admission SHALL
+be enforcing. Nothing lowers the proof required to answer for a request.
 
 This keeps YOLO from becoming a remote hole: a drive-by request, a request from
 an unknown page, and a request carrying no prompt capability are each denied
@@ -248,11 +257,15 @@ A subject the operator has explicitly denied SHALL NOT be auto-allowed by a late
 YOLO session while that refusal is still remembered, even when the subject falls
 inside a root in scope.
 
-The lifetime of a remembered refusal SHALL be stated rather than left to the
-implementation, and the specification SHALL say whether it survives a server
-restart. Where a refusal is not durable, the system SHALL NOT describe it as
-protection against a later session; where it is durable, it SHALL be listed and
-clearable on the Access surface like any other recorded decision.
+A remembered refusal SHALL be **durable**: it SHALL survive a server restart,
+and it SHALL be listed and clearable on the Access surface like any other
+recorded decision. It is the one piece of persisted state this capability owns;
+it grants nothing on its own, so leaving it in place across a rollback is
+fail-safe.
+
+Clearing a refusal SHALL be an explicit operator action on that surface. A
+refusal SHALL NOT expire on its own, because an expiry the operator did not
+choose would silently restore the auto-allow their refusal existed to prevent.
 
 Such a denial SHALL continue to be refused without prompting, and SHALL be
 recorded as refused-by-prior-refusal rather than silently auto-allowed.
@@ -272,10 +285,16 @@ an answer the operator already gave.
 - **WHEN** an auto-allow is withheld because of a prior refusal
 - **THEN** it SHALL be recorded and distinguishable from an ordinary auto-allow
 
-#### Scenario: The refusal's lifetime is not silently shorter than it appears
+#### Scenario: The refusal survives a restart
 
-- **WHEN** a remembered refusal does not survive a restart
-- **THEN** it SHALL NOT be presented to the operator as protection spanning sessions
+- **GIVEN** the operator explicitly denied a subject
+- **WHEN** the server restarts and a YOLO session is activated scoped to a root containing it
+- **THEN** that subject SHALL still be refused rather than auto-allowed
+
+#### Scenario: The refusal is clearable
+
+- **WHEN** the operator clears a remembered refusal on the Access surface
+- **THEN** the subject SHALL be prompted for again on its next denial
 
 #### Scenario: Roots are offered, not invented
 

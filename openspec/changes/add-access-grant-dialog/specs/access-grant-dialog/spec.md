@@ -6,15 +6,34 @@ names the exact subject and the store a persistent answer would write.
 
 ## ADDED Requirements
 
-### Requirement: The dialog asks for one of three verdicts
+### Requirement: The dialog asks for a verdict, and which verdicts exist depends on the settlement mode
 
 When a pending access request raises a prompt, the dashboard SHALL display a
-dialog offering exactly three answers: allow this request only, allow always, and
-deny. The dialog SHALL name the plane, the exact subject, and — for the
-allow-always answer — the grant store that answer will write.
+dialog offering:
 
-The dialog SHALL NOT pre-select the allow-always answer, and dismissing the
+- on a **held** denial, exactly three answers — allow this request only, allow
+  always, and deny;
+- on a **deferred** denial, exactly two — allow always and deny. The allow-once
+  answer SHALL be absent rather than disabled, because no request is suspended
+  for it to release.
+
+The dialog SHALL name the plane, the exact subject, and — for the allow-always
+answer — the grant store that answer will write.
+
+The dialog SHALL NOT pre-select or focus-default any answer, and in particular
+SHALL NOT emphasise the allow-always answer over the others. Dismissing the
 dialog without choosing SHALL be equivalent to deny.
+
+#### Scenario: A deferred dialog offers two answers
+
+- **WHEN** a dialog is raised for a deferred-plane denial
+- **THEN** it SHALL offer exactly allow-always and deny
+- **AND** no allow-once control SHALL be present in the rendered output
+
+#### Scenario: No answer is emphasised
+
+- **WHEN** any dialog is raised
+- **THEN** no answer SHALL be pre-selected, focus-defaulted, or visually emphasised over the others
 
 #### Scenario: The subject and its consequence are shown
 

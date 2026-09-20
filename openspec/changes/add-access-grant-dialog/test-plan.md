@@ -2,7 +2,7 @@
 
 Stage: apply   Generated: 2026-09-18
 
-## ⚠ Clarifications needed (6)
+## ⚠ Clarifications needed (5)
 
 - [ ] **C1** — Prompt-volume constants (design D9 open question) block every
   threshold scenario (E20–E23, P2). Needed as numbers, not adjectives: the
@@ -18,9 +18,9 @@ Stage: apply   Generated: 2026-09-18
 - [ ] **C3** — YOLO session durations. The mockup shows 15 min / 30 min / 1 hour /
   until-stopped; the spec names none. E30–E32 need the shipped set and whether
   "until I stop it" is unbounded or capped.
-- [ ] **C4** — Remembered-`deny` lifetime. `access-grant-yolo` now *requires* the
-  lifetime be stated but does not state it. E36/E37 need: process-lifetime, a TTL
-  (which?), or durable-until-cleared.
+- [x] **C4** — ~~Remembered-`deny` lifetime.~~ **RESOLVED:** durable across
+  restart, never self-expiring, cleared only by an explicit operator action on
+  the Access surface (`access-grant-yolo`; `design.md` Migration Plan).
 - [ ] **C5** — `Sec-Fetch-Site` accepted value set for capability issuance.
   `same-origin` only, or also `same-site` / `none` (a top-level navigation sends
   `none`)? E2/E3 partition on this, and getting it wrong either blocks the real
@@ -75,7 +75,8 @@ Stage: apply   Generated: 2026-09-18
 | E34 | YOLO · scope containment on real path | EP | L1 | automated | session scoped to `/repo`; path inside `/repo` only before symlink resolution | denial evaluated | not auto-allowed |
 | E35 | YOLO · adding a root does not extend expiry | BVA | L1 | automated | active session, 3 min remaining | root added | still ends at the original time |
 | E36 | YOLO · never reverses an explicit refusal | state-transition | L1 | automated | operator denied `/repo/.env`; YOLO later activated scoped to `/repo` | `/repo/.env` denied again | not auto-allowed; recorded as refused-by-prior-refusal |
-| E37 | YOLO · remembered refusal lifetime | state-transition | L1 | automated | refusal recorded, server restarted | same subject denied under an active YOLO session | [NEEDS CLARIFICATION: expected observable — C4 lifetime] |
+| E37 | YOLO · remembered refusal is durable | state-transition | L1 | automated | refusal recorded, server restarted | same subject denied under an active YOLO session | not auto-allowed; refusal survived the restart |
+| E37b | YOLO · remembered refusal is clearable | state-transition | L1 | automated | durable refusal, operator clears it on the Access surface | same subject denied again | prompts again rather than staying refused |
 | E38 | YOLO · default scope passes the forbidden rule | decision-table | L1 | automated | session whose `cwd` is `$HOME` | activation offered | `$HOME` neither offered nor selected; falls back to narrowest legal rung |
 | E39 | YOLO · many roots never become unscoped | state-transition | L1 | automated | session with 10 roots added | denial outside all of them | still prompted or refused |
 | E40 | YOLO · env activation fails whole | decision-table | L1 | automated | env names 2 valid roots and 1 unresolvable | server starts | YOLO inactive; not unscoped; not activated on the valid subset |
@@ -89,6 +90,12 @@ Stage: apply   Generated: 2026-09-18
 | E48 | registry · verdict accepted for an offered ancestor | decision-table | L1 | automated | verdict naming an offered rung | verdict submitted | grant written, recording the subject it was widened from |
 | E49 | settings · prompting opt-in default off | decision-table | L1 | automated | fresh install, no config | denial occurs | no dialog; denial recorded and answerable from the Access surface |
 | E50 | sidebar-header · pill is conditional | decision-table | L3 | automated | no active YOLO session | sidebar header renders | row 1 contains exactly today's controls; no YOLO pill |
+| E51 | eligibility · reporting mode is record-only on every plane | decision-table | L1 | automated | `hostGate.mode = report`, live operator channel, prompt-eligible filesystem denial | denial evaluated | no dialog on any channel; existing denial returned; recorded reason names the Host-admission mode |
+| E52 | eligibility · reporting mode gates deferred planes too | decision-table | L1 | automated | `hostGate.mode = report`, live operator channel, network denial | denial evaluated | no dialog; denial still recorded and answerable on the Access surface |
+| E53 | eligibility · enforcing mode restores prompting | decision-table | L1 | automated | `hostGate.mode = enforce`, capability-bearing filesystem denial | denial evaluated | dialog raised; request suspended |
+| E54 | settings · unavailability is surfaced, not silent | decision-table | L3 | automated | `hostGate.mode = report` | Access page opened | states no dialog will be raised and why; denials still listed and answerable; prompting toggle rendered inert, not hidden |
+| E55 | settings · no-capability browser is surfaced | decision-table | L3 | automated | browser issued no prompt capability (e.g. `Sec-Fetch-Site` absent) | Access page opened | states this browser will not receive dialogs, and why |
+| E56 | dialog · no verdict is emphasised | decision-table | L3 | automated | held prompt rendered | dialog opens | no answer pre-selected, focus-defaulted, or visually emphasised over the others |
 
 ### Performance
 
@@ -128,7 +135,7 @@ Stage: apply   Generated: 2026-09-18
 | X7 | YOLO · unresolvable scope root at activation | fault-injection (abort) | L1 | automated | chosen root deleted between offer and activation | activation submitted | activation refused; no session created |
 | X8 | ladder · unresolvable subject | fault-injection (abort) | L1 | automated | subject cannot be realpath-resolved | ladder computed | refused rather than compared on its unresolved form |
 | X9 | plane registration · deferred plane declaring YOLO eligibility | fault-injection (invalid config) | L1 | automated | a deferred-mode plane declares `yoloEligible` | registration | rejected, not honoured |
-| X10 | YOLO · degraded plane | fault-injection (config) | L1 | automated | Host admission in reporting mode, YOLO active | containment miss | no dialog; request stays denied; verdict applies to the next attempt; request never resumed |
+| X10 | YOLO · unavailable without enforce | fault-injection (config) | L1 | automated | Host admission in reporting mode | operator opens a YOLO control; env-activated session attempted at startup | no session becomes active; control states the reason rather than hiding; no automatic verdict on any plane |
 | X11 | env activation · headless | fault-injection (no browser) | L2 | automated | env-activated YOLO, no browser connected | non-browser client's request denied by containment | remains denied |
 | X12 | prompting kill switch | decision-table | L2 | automated | `PI_DASHBOARD_DISABLE_GRANT_PROMPT=1` | denial occurs | no prompt; existing grants unaffected; toggle rendered inert, not hidden |
 
@@ -137,10 +144,10 @@ Stage: apply   Generated: 2026-09-18
 ## Coverage summary
 
 - Requirements covered: 38/38 testable requirements across the 12 spec deltas
-- Scenarios by class: edge 50 · perf 4 · frontend 11 · error 12
-- Scenarios by level: L1 48 · L2 6 · L3 21 · manual-only 2
-- Scenarios by disposition: automated 75 · manual-only 2
-- Blocked on clarification: 8 rows (E3, E11, E20, E32, E37, P1, P2, X2)
+- Scenarios by class: edge 57 · perf 4 · frontend 11 · error 12
+- Scenarios by level: L1 52 · L2 6 · L3 24 · manual-only 2
+- Scenarios by disposition: automated 82 · manual-only 2
+- Blocked on clarification: 6 rows (E3, E11, E20, E32, P1, P2, X2 minus E37/X10, now resolved by C4 and the enforce-precondition decision)
 
 ## New infra needed
 

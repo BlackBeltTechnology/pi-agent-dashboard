@@ -24,17 +24,25 @@ this page, so the operator has a prompt-free path to the same outcome.
 - **WHEN** denials are recorded
 - **THEN** they SHALL still be listed and answerable on the Access page
 
-### Requirement: The Access surface states when held prompts are unavailable
+### Requirement: The Access surface states when prompting is unavailable
 
-When configuration prevents a denied request from being suspended, the Access
-page SHALL state that held prompts are unavailable and name the reason, rather
-than silently offering only the deferred behaviour.
+When configuration prevents a denial from raising a dialog, the Access page
+SHALL state that prompting is unavailable and name the reason, rather than
+silently behaving as though no denial occurred.
 
 #### Scenario: Reporting-mode Host admission is surfaced
 
 - **GIVEN** the Host-admission gate is in reporting mode
 - **WHEN** the Access page is opened
-- **THEN** it SHALL state that requests cannot be held pending a verdict, and why
+- **THEN** it SHALL state that no dialog will be raised on any plane, and why
+- **AND** it SHALL state that recorded denials remain reviewable and answerable there
+- **AND** the prompting toggle SHALL render inert rather than hidden
+
+#### Scenario: A browser issued no prompt capability is surfaced
+
+- **GIVEN** the current browser was issued no prompt capability
+- **WHEN** the Access page is opened
+- **THEN** it SHALL state that this browser will not receive dialogs, and why
 
 #### Scenario: Prompting disabled is surfaced
 

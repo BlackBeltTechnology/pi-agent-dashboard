@@ -113,7 +113,8 @@ require different proofs:
   that channel. The authority to prompt comes from the operator's own connection,
   never from the requester's request.
 
-A deferred prompt SHALL give its requester nothing: the request stays denied, no
+A deferred prompt SHALL give its requester no inbound surface and no
+information beyond what a retry would have told it: the request stays denied, no
 inbound surface is created, and the requester learns only what a later retry
 would have told it anyway.
 
@@ -148,30 +149,43 @@ prompts at all.
 - **WHEN** the prompt-volume controls are applied
 - **THEN** prompting SHALL be suppressed while the denials continue to be recorded
 
-### Requirement: Suspending a request additionally requires enforced Host admission
+### Requirement: Prompting at all requires enforced Host admission
 
-A denied request SHALL be suspended pending a verdict only when, in addition to
-being prompt-eligible, the server's Host-admission gate is in enforcing mode.
-When Host admission is in reporting mode, an otherwise-suspendable denial SHALL
-be answered immediately with its existing denial and MAY still raise a dialog
-whose verdict applies to a later retry.
+A denial SHALL raise a dialog only when the server's Host-admission gate is in
+enforcing mode. When Host admission is in reporting mode, every plane — held and
+deferred alike — SHALL be record-only: the denial is recorded and answerable from
+the Access surface, and no dialog is raised on any operator channel.
 
 This requirement exists because Host admission is the only control that
 distinguishes a genuine local origin from a rebound attacker domain; a rebound
-page can obtain a prompt capability by the same means as a legitimate one.
+page can obtain a prompt capability by the same means as a legitimate one. The
+prize for such a page is not the suspension but the persisted grant an
+allow-always verdict writes, together with the same-origin read of the retry that
+grant enables — so the precondition SHALL gate prompting, not merely suspension.
 
-#### Scenario: Reporting mode never suspends
+Suspension requires enforcing mode as well, as a consequence: a request that
+cannot be prompted for cannot be held.
+
+#### Scenario: Reporting mode never prompts
 
 - **GIVEN** the Host-admission gate is in reporting mode
-- **WHEN** a prompt-eligible denial occurs on a plane that would otherwise suspend
-- **THEN** the request SHALL be answered immediately with its existing denial
+- **WHEN** a denial occurs on any plane, whether or not it is otherwise prompt-eligible
+- **THEN** no dialog SHALL be raised on any operator channel
+- **AND** the request SHALL be answered immediately with its existing denial
 - **AND** the recorded reason SHALL name the Host-admission mode
 
-#### Scenario: Enforcing mode permits suspension
+#### Scenario: Enforcing mode permits prompting and suspension
 
 - **GIVEN** the Host-admission gate is in enforcing mode
 - **WHEN** a prompt-eligible denial occurs on a plane declared suspendable
 - **THEN** the request MAY be suspended pending the operator's verdict
+
+#### Scenario: A deferred plane is equally gated
+
+- **GIVEN** the Host-admission gate is in reporting mode and a live operator channel
+- **WHEN** a denial occurs on a deferred plane
+- **THEN** no dialog SHALL be raised
+- **AND** the denial SHALL still be recorded and reviewable on the Access surface
 
 #### Scenario: Host-admission mode is never changed by this capability
 

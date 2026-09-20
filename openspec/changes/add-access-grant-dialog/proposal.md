@@ -29,9 +29,22 @@ adversarial review against source, not in the abstract.
 | # | Proposed rule | Defeated by |
 |---|---|---|
 | 1 | "The caller is always a human — every `/api/file*` caller is in `packages/client/`" | True but irrelevant. Nothing *binds* an inbound HTTP request to the dashboard app; any page can emit one. |
-| 2 | Require a dashboard-issued auth credential | `device-auth.ts:72-80` attaches `Authorization` **only** when a paired-device bearer exists; `auth-plugin.ts:296` bypasses auth entirely for loopback; and the OAuth session is a **`SameSite=Lax` cookie**, which a cross-site GET *does* carry. So it denies the prompt to the primary audience (local browser, auth off) *and* fails to exclude a drive-by. |
-| 3 | Require a custom `X-Pi-Dashboard` header, relying on CORS preflight to gate it | Delegates the decision to `isCorsOriginAllowed`, which admits far more than the configured origins — `cors-origin.ts:84` allows **any** `*.share.zrok.io` / `*.shares.zrok.io` host. An attacker hosting a free zrok share passes preflight and sets the header. |
-| 4 | `Sec-Fetch-Site: same-origin` + `Origin` matching the request's own `Host` + genuinely-local source | **DNS rebinding.** Deriving the expected origin from the request's own `Host` is self-referential: an attacker domain rebound to `127.0.0.1` produces `Sec-Fetch-Site: same-origin`, a matching `Origin`, and a loopback peer. There is **no `Host` validation anywhere** in the server. Also: `Sec-Fetch-*` is absent on Safari < 16.4, so a legacy-browser `<img>` drive-by lands in the both-headers-absent branch and is indistinguishable from a local curl. Also: the cross-origin `pi-dashboard.dev` shell is `cross-site` **by construction**, so it would never get a dialog at all. |
+| 2 | Require a dashboard-issued auth credential | `client/src/lib/pairing/device-auth.ts:72-79` attaches `Authorization` **only** when a paired-device bearer exists; `auth-plugin.ts:296` bypasses auth entirely for loopback; and the OAuth session is a **`SameSite=Lax` cookie**, which a cross-site GET *does* carry. So it denies the prompt to the primary audience (local browser, auth off) *and* fails to exclude a drive-by. |
+| 3 | Require a custom `X-Pi-Dashboard` header, relying on CORS preflight to gate it | Delegates the decision to `isCorsOriginAllowed`, which admits far more than the configured origins — `cors-origin.ts:112-117` allows **any** `*.share.zrok.io` / `*.shares.zrok.io` host. An attacker hosting a free zrok share passes preflight and sets the header. [†3] |
+| 4 | `Sec-Fetch-Site: same-origin` + `Origin` matching the request's own `Host` + genuinely-local source | **DNS rebinding.** Deriving the expected origin from the request's own `Host` is self-referential: an attacker domain rebound to `127.0.0.1` produces `Sec-Fetch-Site: same-origin`, a matching `Origin`, and a loopback peer. There was **no `Host` validation anywhere** in the server. [†4] Also: `Sec-Fetch-*` is absent on Safari < 16.4, so a legacy-browser `<img>` drive-by lands in the both-headers-absent branch and is indistinguishable from a local curl. Also: the cross-origin `pi-dashboard.dev` shell is `cross-site` **by construction**, so it would never get a dialog at all. |
+
+**[†3]** The wildcard is now **conditional** on `allowZrokWildcard`
+(`fix-ws-origin-cswsh` D1 rule 2): `true` by default for CORS *readability*,
+`false` for *admission* (WS upgrade, mutating REST). The defeat stands unchanged
+— a preflight-gated custom header rides the readability path, where the wildcard
+is still on.
+
+**[†4]** No longer true as a present-tense fact: `add-host-allowlist-admission`
+landed `auth/host-admission.ts` + `auth/host-gate.ts`. The defeat stands as
+recorded, because the shipped default is `report` (observe-and-log,
+`shared/src/config.ts:1086`), not `refuse`. `design.md` Context and **D2** carry
+the current reconciliation: HELD eligibility requires
+`hostGate.mode === "enforce"`; `report` degrades every plane to DEFERRED.
 
 Two lessons the next attempt should carry:
 
@@ -49,9 +62,9 @@ Two lessons the next attempt should carry:
 Generalizing past the filesystem forces one structural distinction. A local
 filesystem request can be **held open** while the operator decides. A denial from
 an untrusted remote peer cannot: the parent change already established that the
-denied party is untrusted by definition, and once
-`add-universal-network-guard` lands a new device is denied at the ws-ticket mint
-endpoint and never opens a WebSocket at all. Asking *it* to wait is neither safe
+denied party is untrusted by definition, and since
+`add-universal-network-guard` landed (`auth/localhost-guard.ts`,
+`createNetworkGuardHook`) a new device is denied at the ws-ticket mint endpoint and never opens a WebSocket at all. Asking *it* to wait is neither safe
 nor possible.
 
 The dialog is raised on the **operator**, never on the requester, so it serves
@@ -59,8 +72,8 @@ both — with different settlement:
 
 | Mode | Denied request | Verdict applies | Planes |
 |---|---|---|---|
-| **HELD** | suspended pending the verdict; on `Allow` the original request proceeds and returns its real result | to *this* request, plus persisted on `Allow always` | filesystem containment, unknown-`cwd` — and only when the request is **eligible** |
-| **DEFERRED** | denied immediately with today's 403 | to the requester's **next retry**; nothing is held | network / trusted-networks, CORS origin, auth / pairing, and any plane whose requester is untrusted or unreachable |
+| **HELD** | suspended pending the verdict; on `Allow` the original request proceeds and returns its real result | to *this* request, plus persisted on `Allow always` | filesystem containment, unknown-`cwd` — and only when the request is **eligible** and Host admission is **enforced** |
+| **DEFERRED** | denied immediately with today's 403 | to the requester's **next retry**, and only via `Allow always` (no allow-once exists without a suspended request); nothing is held | network / trusted-networks, CORS origin, auth / pairing, and any plane whose requester is untrusted or unreachable |
 
 DEFERRED is the existing request→accept flow from the parent change with a
 **prompt** attached instead of only a passive pending-list entry. It adds no
@@ -90,9 +103,13 @@ prompt, but the request is never suspended. Fail-closed on every path.
   grants, pinned directories, trusted networks, CORS origins, auth bypass hosts,
   worktree-init trust, KB source trust, project trust.
 
-- **An eligibility policy** answering the question above. **Undecided — this is
-  the substance of the change and must be designed and adversarially reviewed
-  before anything else here is built.** Generalizing widens it in two ways that
+- **An eligibility policy** answering the question above. **Decided in
+  `design.md` D1 / D1a / D2 / D2a**, pinned by `specs/access-grant-eligibility`:
+  a socket-bound, per-connection capability issued over `BrowserGateway` to
+  browser-shaped connections and echoed by the request on held planes, with
+  `hostGate.mode === "enforce"` as a precondition for prompting at all. The
+  acceptance bar is unchanged: it must survive the four defeats above plus
+  prompt-flooding. Generalizing widens it in two ways that
   the design must address explicitly: (a) the **proof differs per plane because
   the question differs** — a HELD plane asks "may this request be suspended and
   resumed?", which only the request can answer, so it must carry a
@@ -119,9 +136,9 @@ prompt, but the request is never suspended. Fail-closed on every path.
   environments, because Playwright E2E runs with a browser connected.
 
 - **Held-request transport.** Fastify is configured with
-  `connectionTimeout: 10_000` (`server.ts:1119`), so a HELD request must clear
-  its socket timeout and restore it on `finish` — the pattern `git-routes.ts:401`
-  already uses, including its `!socket.destroyed` guard. DEFERRED denials need
+  `connectionTimeout: 10_000` (`server.ts:1314`), so a HELD request must clear
+  its socket timeout and restore it on `finish` — the pattern
+  `git-routes.ts:470-478` already uses, including its `!socket.destroyed` guard. DEFERRED denials need
   none of this, which is the main reason the two modes are kept distinct rather
   than forcing every plane through a hold.
 
@@ -130,7 +147,9 @@ prompt, but the request is never suspended. Fail-closed on every path.
   *clicking `Allow always` until the prompt stops meaning anything*. YOLO is the
   pressure valve: while active, a prompt-eligible containment or unknown-`cwd`
   denial is auto-allowed **once**, persisting nothing, under a countdown that
-  activity cannot extend. It is structurally incapable of reaching the network,
+  activity cannot extend. It is available only where a held prompt is, i.e.
+  `hostGate.mode === "enforce"`; there is no degraded-plane YOLO (`design.md`
+  D13a). It is structurally incapable of reaching the network,
   CORS, auth or pairing planes — auto-answering for an untrusted requester would
   not skip a prompt, it would remove the guard. It requires prompt-eligibility,
   so a drive-by is still denied while it is on, and the forbidden-subject rule
@@ -150,9 +169,18 @@ prompt, but the request is never suspended. Fail-closed on every path.
 **Depends on `add-access-grants-and-review`**, which supplies the grant stores,
 the subtree predicate, the Access tab, the generalized pending-access-request
 queue, and the denial bodies. Without it a verdict would have nothing to persist
-into and no way to be revoked. That change in turn depends on
-`add-universal-network-guard`, which collapses ~20 per-route denials into one
-`onRequest` hook — the single instrumentation point this registry hangs off.
+into and no way to be revoked. It is the **only** open prerequisite:
+`add-universal-network-guard` has **landed** (archived `2026-09-19`), collapsing
+~20 per-route denials into one universal `onRequest` hook
+(`auth/localhost-guard.ts:477`, `createNetworkGuardHook`). Its shared denial
+path `sendNetworkDenied`, not the hook itself, is the single instrumentation
+point this registry hangs off; the per-route `preHandler: networkGuard`
+registrations remain as defence in depth.
+
+**Prompting additionally requires `hostGate.mode === "enforce"`** (`design.md`
+D2). On the shipped `report` default every plane is record-only, and prompting
+turns on by itself when `harden-server-request-surfaces` flips that default.
+Neither change blocks the other.
 
 ## Capabilities
 
@@ -188,6 +216,9 @@ into and no way to be revoked. That change in turn depends on
 - `access-settings-tab`: shows pending prompts and recent verdicts alongside the
   grants they produced, and is the place a prompt-suppressed environment still
   reviews denials.
+- `sidebar-header`: row 1 gains a conditional, undismissable active-YOLO
+  indicator showing the remaining time and leading to where the session can be
+  ended; absent when no YOLO session is active.
 
 ## Related changes
 
@@ -208,7 +239,7 @@ into and no way to be revoked. That change in turn depends on
   `packages/server/src/access/`,
   `packages/server/src/pairing/browser-gateway.ts` (prompt push, response
   routing, and a new **global** connected-browser count — only a per-session
-  `getSubscriberCount` exists at `:111`),
+  `getSubscriberCount` exists — declared at `:278`, implemented at `:2060`),
   `packages/shared/src/browser-protocol.ts`, the containment and cwd denial
   sites, the universal network guard's denial path, the CORS origin check, plus a
   new overlay component in `packages/client/`.
