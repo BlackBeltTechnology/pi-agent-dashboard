@@ -31,6 +31,30 @@ import { create as sao } from "./sao.js";
 import saoCard from "./sao.meta.json";
 import { create as sobel } from "./sobel.js";
 import sobelCard from "./sobel.meta.json";
+import { create as billboards } from "./billboards.js";
+import billboardsCard from "./billboards.meta.json";
+import { create as clipped_solids } from "./clipped-solids.js";
+import clipped_solidsCard from "./clipped-solids.meta.json";
+import { create as curve_flow } from "./curve-flow.js";
+import curve_flowCard from "./curve-flow.meta.json";
+import { create as dynamic_instances } from "./dynamic-instances.js";
+import dynamic_instancesCard from "./dynamic-instances.meta.json";
+import { create as extruded_shapes } from "./extruded-shapes.js";
+import extruded_shapesCard from "./extruded-shapes.meta.json";
+import { create as points_on_geometry } from "./points-on-geometry.js";
+import points_on_geometryCard from "./points-on-geometry.meta.json";
+import { create as scatter } from "./scatter.js";
+import scatterCard from "./scatter.meta.json";
+import { create as shader_particles } from "./shader-particles.js";
+import shader_particlesCard from "./shader-particles.meta.json";
+import { create as sprites } from "./sprites.js";
+import spritesCard from "./sprites.meta.json";
+import { create as tessellate } from "./tessellate.js";
+import tessellateCard from "./tessellate.meta.json";
+import { create as volume_cloud } from "./volume-cloud.js";
+import volume_cloudCard from "./volume-cloud.meta.json";
+import { create as volume_perlin } from "./volume-perlin.js";
+import volume_perlinCard from "./volume-perlin.meta.json";
 import { create as accent_cycle } from "./accent-cycle.js";
 import accent_cycleCard from "./accent-cycle.meta.json";
 import { create as aurora } from "./aurora.js";
@@ -196,6 +220,18 @@ export const REGISTRY: Record<string, FxEntry> = {
   "paper-stack": { card: paper_stackCard as FxCard, create: paper_stack },
   "server-racks": { card: server_racksCard as FxCard, create: server_racks },
   "vault-glyphs": { card: vault_glyphsCard as FxCard, create: vault_glyphs },
+  "billboards": { card: billboardsCard as FxCard, create: billboards },
+  "clipped-solids": { card: clipped_solidsCard as FxCard, create: clipped_solids },
+  "curve-flow": { card: curve_flowCard as FxCard, create: curve_flow },
+  "dynamic-instances": { card: dynamic_instancesCard as FxCard, create: dynamic_instances },
+  "extruded-shapes": { card: extruded_shapesCard as FxCard, create: extruded_shapes },
+  "points-on-geometry": { card: points_on_geometryCard as FxCard, create: points_on_geometry },
+  "scatter": { card: scatterCard as FxCard, create: scatter },
+  "shader-particles": { card: shader_particlesCard as FxCard, create: shader_particles },
+  "sprites": { card: spritesCard as FxCard, create: sprites },
+  "tessellate": { card: tessellateCard as FxCard, create: tessellate },
+  "volume-cloud": { card: volume_cloudCard as FxCard, create: volume_cloud },
+  "volume-perlin": { card: volume_perlinCard as FxCard, create: volume_perlin },
   "ascii": { card: asciiCard as FxCard, create: ascii },
   "dot-screen": { card: dot_screenCard as FxCard, create: dot_screen },
   "outline": { card: outlineCard as FxCard, create: outline },

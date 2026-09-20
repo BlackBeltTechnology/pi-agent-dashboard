@@ -215,6 +215,8 @@ export function createSceneRig(profile: QualityProfile): SceneRig {
 function createParts(profile: QualityProfile): RigParts {
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance", preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  // Clip planes are per-material (`clipped-solids`); enabling costs nothing elsewhere.
+  renderer.localClippingEnabled = true;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
   renderer.shadowMap.enabled = profile.bloom || profile.mirror;

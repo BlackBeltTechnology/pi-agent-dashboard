@@ -1,8 +1,8 @@
 # deck3d effect catalogue
 
-GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards hash: `6fe0c561c8b4424845f7cd198cbff46622e2a8338e2a63c864c232273c77fa7b`.
+GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards hash: `7e5ffb1f8610b0fcdc0fabd1225f4f43c7d581030a71350db60ef874a86a7f90`.
 
-68 effects.
+80 effects.
 
 ## accent-cycle
 
@@ -62,6 +62,21 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | Param | Type | Range | Default |
 |---|---|---|---|
 | speed | number | 0..2 | 0.5 |
+
+## billboards
+
+- kind: `background`
+- cost: 1
+- modes: `both`
+- tags: mood=[soft, dense] content=[bokeh, lights, particles]
+- source: https://threejs.org/examples/#webgl_buffergeometry_instancing_billboards
+- licence: MIT
+- preview: `fx/previews/billboards.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| size | number | 0.3..3 | 1 |
 
 ## bloom
 
@@ -135,6 +150,23 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | density | number | 0.2..3 | 1 |
 | speed | number | 0..3 | 1 |
 
+## clipped-solids
+
+- kind: `background`
+- cost: 3
+- modes: `both`
+- tags: mood=[technical, sculptural] content=[cut, section, reveal]
+- source: https://threejs.org/examples/#webgl_clipping_stencil
+- licence: MIT
+- preview: `fx/previews/clipped-solids.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| mode | string | — | caps |
+| size | number | 0.4..2.5 | 1 |
+| x | number | -12..12 | 5 |
+| speed | number | 0..3 | 1 |
+
 ## cohort-grid
 
 - kind: `background`
@@ -158,13 +190,32 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 - cost: 2
 - modes: `both`
 - tags: mood=[calm, network] content=[network, agents]
-- source: https://github.com/pmndrs/drei
+- source: https://threejs.org/examples/#webgl_buffergeometry_drawrange
 - licence: MIT
 - preview: `fx/previews/constellation.png`
 
 | Param | Type | Range | Default |
 |---|---|---|---|
-| density | number | 0..1 | 0.5 |
+| density | number | 0.1..1.5 | 0.5 |
+| speed | number | 0..3 | 1 |
+| linkDistance | number | 1..8 | 3.2 |
+| nodeShape | string | — | point |
+
+## curve-flow
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[kinetic, elegant] content=[flow, orbit, stream]
+- source: https://threejs.org/examples/#webgl_modifier_curve_instanced
+- licence: MIT
+- preview: `fx/previews/curve-flow.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| lanes | number | 1..6 | 3 |
+| speed | number | 0..3 | 1 |
 
 ## dashed-flow
 
@@ -239,6 +290,22 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | scale | number | 0.2..4 | 1.2 |
 | angle | number | 0..3.1416 | 1.57 |
 
+## dynamic-instances
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[technical, kinetic] content=[grid, cubes, matrix]
+- source: https://threejs.org/examples/#webgl_instancing_dynamic
+- licence: MIT
+- preview: `fx/previews/dynamic-instances.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| spin | number | 0..3 | 1 |
+| gap | number | 0.6..2.5 | 1.3 |
+
 ## emissive
 
 - kind: `material`
@@ -252,6 +319,25 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | Param | Type | Range | Default |
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
+
+## extruded-shapes
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[playful, bold] content=[shapes, brand, icons]
+- source: https://threejs.org/examples/#webgl_geometry_extrude_shapes
+- licence: MIT
+- preview: `fx/previews/extruded-shapes.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| shape | string | — | star |
+| lobes | number | 3..12 | 5 |
+| svgPath | string | — |  |
+| depth | number | 0.05..1.5 | 0.35 |
+| spin | number | 0..3 | 1 |
 
 ## fab-wafer
 
@@ -708,6 +794,25 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | size | number | 1..32 | 6 |
 
+## points-on-geometry
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[technical, glow] content=[wireframe, points, hologram]
+- source: https://threejs.org/examples/#webgl_custom_attributes_points2
+- licence: MIT
+- preview: `fx/previews/points-on-geometry.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| geometry | string | — | sphere |
+| size | number | 0.3..3 | 1 |
+| pulse | number | 0..3 | 1 |
+| x | number | -12..12 | 4 |
+| spin | number | 0..3 | 1 |
+
 ## proof-gate
 
 - kind: `background`
@@ -765,6 +870,23 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | intensity | number | 0..4 | 1 |
 | radius | number | 0.2..3 | 1 |
 
+## scatter
+
+- kind: `background`
+- cost: 3
+- modes: `both`
+- tags: mood=[organic, dense] content=[growth, surface, field]
+- source: https://threejs.org/examples/#webgl_instancing_scatter
+- licence: MIT
+- preview: `fx/previews/scatter.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| surface | string | — | knot |
+| size | number | 0.3..3 | 1 |
+| spin | number | 0..3 | 1 |
+
 ## selective-bloom
 
 - kind: `post`
@@ -794,6 +916,23 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | density | number | 0.2..3 | 1 |
 | speed | number | 0..3 | 1 |
+
+## shader-particles
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[glow, dense] content=[particles, stars, dust]
+- source: https://threejs.org/examples/#webgl_buffergeometry_custom_attributes_particles
+- licence: MIT
+- preview: `fx/previews/shader-particles.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| size | number | 0.3..3 | 1 |
+| radius | number | 4..30 | 12 |
+| spin | number | 0..3 | 1 |
 
 ## signal-pulse
 
@@ -847,6 +986,22 @@ No parameters.
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
 
+## sprites
+
+- kind: `background`
+- cost: 1
+- modes: `both`
+- tags: mood=[soft, calm] content=[snow, dust, drift]
+- source: https://threejs.org/examples/#webgl_points_sprites
+- licence: MIT
+- preview: `fx/previews/sprites.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| size | number | 0.3..3 | 1 |
+| fall | number | 0..3 | 1 |
+
 ## stagger-reveal
 
 - kind: `motion`
@@ -889,6 +1044,22 @@ No parameters.
 | Param | Type | Range | Default |
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
+
+## tessellate
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[bold, kinetic] content=[fracture, facets]
+- source: https://threejs.org/examples/#webgl_modifier_tessellation
+- licence: MIT
+- preview: `fx/previews/tessellate.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| amplitude | number | 0..3 | 1 |
+| detail | number | 1..4 | 2 |
 
 ## tokens
 
@@ -961,6 +1132,42 @@ No parameters.
 |---|---|---|---|
 | darkness | number | 0..2 | 1 |
 | offset | number | 0..2 | 1 |
+
+## volume-cloud
+
+- kind: `background`
+- cost: 4
+- modes: `both`
+- tags: mood=[atmospheric, soft] content=[cloud, fog, nebula]
+- source: https://threejs.org/examples/#webgl_volume_cloud
+- licence: MIT
+- preview: `fx/previews/volume-cloud.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| threshold | number | 0..1 | 0.25 |
+| opacity | number | 0.02..1 | 0.12 |
+| range | number | 0.01..0.5 | 0.1 |
+| scale | number | 4..30 | 14 |
+| drift | number | 0..3 | 1 |
+| x | number | -12..12 | -4 |
+
+## volume-perlin
+
+- kind: `background`
+- cost: 4
+- modes: `both`
+- tags: mood=[sculptural, atmospheric] content=[rock, asteroid, noise]
+- source: https://threejs.org/examples/#webgl_volume_perlin
+- licence: MIT
+- preview: `fx/previews/volume-perlin.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| threshold | number | 0.2..0.9 | 0.45 |
+| scale | number | 3..20 | 9 |
+| x | number | -12..12 | 5 |
+| spin | number | 0..3 | 1 |
 
 ## volumetric-spot
 

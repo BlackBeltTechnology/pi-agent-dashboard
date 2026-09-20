@@ -1,0 +1,40 @@
+{
+  "id": "dynamic-instances",
+  "kind": "background",
+  "tags": {
+    "mood": [
+      "technical",
+      "kinetic"
+    ],
+    "content": [
+      "grid",
+      "cubes",
+      "matrix"
+    ]
+  },
+  "cost": 2,
+  "modes": "both",
+  "params": {
+    "density": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0.2,
+      "maximum": 3
+    },
+    "spin": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 3
+    },
+    "gap": {
+      "type": "number",
+      "default": 1.3,
+      "minimum": 0.6,
+      "maximum": 2.5
+    }
+  },
+  "conflicts": [],
+  "source": "https://threejs.org/examples/#webgl_instancing_dynamic",
+  "licence": "MIT"
+}

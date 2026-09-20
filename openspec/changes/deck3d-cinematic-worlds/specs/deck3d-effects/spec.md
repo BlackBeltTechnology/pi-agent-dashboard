@@ -136,3 +136,21 @@ The corpus SHALL provide working `post` cards for: `bloom`, `selective-bloom` (p
 - **GIVEN** each `post` card in turn on a fixture slide
 - **WHEN** rendered in two separate page loads at the same `setTime`
 - **THEN** the frames are pixel-identical within GPU tolerance (no channel differs by more than 4 levels, on fewer than 0.01% of pixels — multi-pass half-float blurs are not bit-exact across runs) and no console error is raised
+
+### Requirement: Stylistic background corpus (three.js example ports)
+The corpus SHALL provide `background` cards ported from the three.js WebGL examples, each deterministic (`ctx.rng` only, pure function of `t`), palette-driven (`ctx.palette` colours only), quality-scaled (`low` instance counts at most half of `high`), and carrying NO `tags.topic` — they are explicit presets and MUST NOT change auto-routing: `clipped-solids` (`mode`: `planes` | `intersection` | `caps`), `extruded-shapes` (`shape`: built-in parametric paths, or `svgPath` = an SVG `<path d>` string), `scatter`, `tessellate`, `curve-flow`, `sprites`, `volume-cloud`, `volume-perlin`, `billboards`, `points-on-geometry` (`geometry`), `shader-particles`, `dynamic-instances`. `constellation` SHALL accept `nodeShape`: `point` | `sphere` | `cube`.
+
+#### Scenario: Each stylistic background is deterministic, scaled and palette-bound
+- **GIVEN** each listed card in turn
+- **WHEN** constructed twice with the same seed and ticked to the same `t`
+- **THEN** its transform digest is identical, `userData.count` at `low` ≤ ½ of `high`, and it renders a non-empty preview using only palette colours
+
+#### Scenario: Stylistic backgrounds do not enter topic routing
+- **GIVEN** the corpus after this section
+- **WHEN** `backgroundForTopic` is evaluated for every topic
+- **THEN** no listed card is returned
+
+#### Scenario: SVG path shape
+- **GIVEN** `extruded-shapes` with `svgPath: "M0 0 L10 0 L5 8 Z"`
+- **WHEN** constructed
+- **THEN** the extruded geometry has a non-zero triangle count and no console error is raised

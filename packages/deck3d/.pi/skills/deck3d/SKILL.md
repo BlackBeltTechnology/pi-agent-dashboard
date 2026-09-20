@@ -43,7 +43,9 @@ Manual headless / agent / CI path:
 4. **Style** — mandatory, and the step that decides whether the deck looks
    designed. `deck3d check talk.html --style` warns `style-defaults` for every
    slide still running only what `parse` chose. For each one:
-   - pick a corpus effect (`deck3d fx list --topic geo`, `--kind background`)
+   - pick a corpus effect (`deck3d fx list --topic geo`, `--kind background`;
+     the stylistic set — `clipped-solids`, `extruded-shapes`, `volume-cloud`,
+     `curve-flow`, … — is never auto-picked, so it is always an explicit choice)
      *or* write a per-deck one with `deck3d fx scaffold <name> --for <slideId>`;
    - give a content slide without a mermaid block a built topology
      (`overrides.slides["<id>"].diagram.kind` + `data`);

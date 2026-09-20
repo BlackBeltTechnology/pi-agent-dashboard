@@ -282,7 +282,10 @@ export function createPostStack(
   draw: (renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) => void,
   baselineBloom: boolean,
 ): PostStack {
-  const composer = new EffectComposer(renderer);
+  // Own target WITH a stencil buffer: three's default composer target has none,
+  // which would silently break `clipped-solids` caps whenever a pass is on.
+  const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, stencilBuffer: true });
+  const composer = new EffectComposer(renderer, target);
   composer.addPass(renderPass);
   const output = new OutputPass();
   composer.addPass(output);

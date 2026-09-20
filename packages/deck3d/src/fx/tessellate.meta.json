@@ -1,0 +1,39 @@
+{
+  "id": "tessellate",
+  "kind": "background",
+  "tags": {
+    "mood": [
+      "bold",
+      "kinetic"
+    ],
+    "content": [
+      "fracture",
+      "facets"
+    ]
+  },
+  "cost": 2,
+  "modes": "both",
+  "params": {
+    "density": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0.2,
+      "maximum": 3
+    },
+    "amplitude": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 3
+    },
+    "detail": {
+      "type": "number",
+      "default": 2,
+      "minimum": 1,
+      "maximum": 4
+    }
+  },
+  "conflicts": [],
+  "source": "https://threejs.org/examples/#webgl_modifier_tessellation",
+  "licence": "MIT"
+}

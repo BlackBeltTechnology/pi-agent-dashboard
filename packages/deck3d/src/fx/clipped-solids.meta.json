@@ -1,0 +1,49 @@
+{
+  "id": "clipped-solids",
+  "kind": "background",
+  "tags": {
+    "mood": [
+      "technical",
+      "sculptural"
+    ],
+    "content": [
+      "cut",
+      "section",
+      "reveal"
+    ]
+  },
+  "cost": 3,
+  "modes": "both",
+  "params": {
+    "mode": {
+      "type": "string",
+      "default": "caps",
+      "enum": [
+        "planes",
+        "intersection",
+        "caps"
+      ]
+    },
+    "size": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0.4,
+      "maximum": 2.5
+    },
+    "x": {
+      "type": "number",
+      "default": 5,
+      "minimum": -12,
+      "maximum": 12
+    },
+    "speed": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 3
+    }
+  },
+  "conflicts": [],
+  "source": "https://threejs.org/examples/#webgl_clipping_stencil",
+  "licence": "MIT"
+}

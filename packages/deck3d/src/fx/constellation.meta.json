@@ -20,11 +20,32 @@
     "density": {
       "type": "number",
       "default": 0.5,
+      "minimum": 0.1,
+      "maximum": 1.5
+    },
+    "speed": {
+      "type": "number",
+      "default": 1,
       "minimum": 0,
-      "maximum": 1
+      "maximum": 3
+    },
+    "linkDistance": {
+      "type": "number",
+      "default": 3.2,
+      "minimum": 1,
+      "maximum": 8
+    },
+    "nodeShape": {
+      "type": "string",
+      "default": "point",
+      "enum": [
+        "point",
+        "sphere",
+        "cube"
+      ]
     }
   },
   "conflicts": [],
-  "source": "https://github.com/pmndrs/drei",
+  "source": "https://threejs.org/examples/#webgl_buffergeometry_drawrange",
   "licence": "MIT"
 }

@@ -219,3 +219,18 @@
 - [x] 17.6 New cards; corpus gate; catalogue regen; determinism test per post card (#E51 — GPU tolerance 4 levels / 0.01 % of pixels: bloom's half-float blur is not bit-exact across runs, pre-existing)
 - [x] 17.7 Configurator: post cards' params surface through the existing generated-params block (no new UI)
 - [x] 17.8 Docs: `src/runtime/AGENTS.md`, `src/fx/AGENTS.md`, README post section, SKILL.md; note that `material`/`light`/`motion`/`edge`/`transition` corpus kinds remain config-driven, not `effects[]`-driven (out of scope here)
+
+## 18. Stylistic backgrounds — three.js example ports (13 cards)
+
+- [x] 18.1 `renderer.localClippingEnabled = true` in `scene.ts` (clip planes are per-material; harmless elsewhere)
+- [x] 18.2 `clipped-solids` (clipping_advanced / _intersection / _stencil → one card, `mode` param; caps via stencil groups; composer target given `stencilBuffer: true`) (#E52)
+- [x] 18.3 `extruded-shapes` (geometry_shapes + extrude_shapes; built-in parametric paths star/gear/rose/heart/superformula; `svgPath` = SVG `d` string via `SVGLoader`) (#E52, #E53)
+- [x] 18.4 `scatter` (instancing_scatter; `MeshSurfaceSampler` on knot/sphere/plane) (#E52)
+- [x] 18.5 `tessellate` (modifier_tessellation; `TessellateModifier` + displacement shader) (#E52)
+- [x] 18.6 `curve-flow` (modifier_curve_instanced; `InstancedFlow` on seeded splines) (#E52)
+- [x] 18.7 `sprites` (points_sprites; procedural sprite textures, layered fall) (#E52)
+- [x] 18.8 `volume-cloud` + `volume-perlin` (Data3DTexture raymarch; steps scale with quality) (#E52)
+- [x] 18.9 `billboards`, `points-on-geometry`, `shader-particles`, `dynamic-instances` (#E52)
+- [x] 18.10 `constellation.nodeShape` (buffergeometry_drawrange — the existing card IS that example; nodes as point/sphere/cube) (#E52)
+- [x] 18.11 No `tags.topic` on any new card; routing table unchanged (#E54)
+- [x] 18.12 Catalogue regen; `src/fx/AGENTS.md`; README + SKILL list the stylistic set

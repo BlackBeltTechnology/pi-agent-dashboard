@@ -1,0 +1,34 @@
+{
+  "id": "billboards",
+  "kind": "background",
+  "tags": {
+    "mood": [
+      "soft",
+      "dense"
+    ],
+    "content": [
+      "bokeh",
+      "lights",
+      "particles"
+    ]
+  },
+  "cost": 1,
+  "modes": "both",
+  "params": {
+    "density": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0.2,
+      "maximum": 3
+    },
+    "size": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0.3,
+      "maximum": 3
+    }
+  },
+  "conflicts": [],
+  "source": "https://threejs.org/examples/#webgl_buffergeometry_instancing_billboards",
+  "licence": "MIT"
+}

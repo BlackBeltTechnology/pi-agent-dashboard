@@ -1,0 +1,46 @@
+{
+  "id": "shader-particles",
+  "kind": "background",
+  "tags": {
+    "mood": [
+      "glow",
+      "dense"
+    ],
+    "content": [
+      "particles",
+      "stars",
+      "dust"
+    ]
+  },
+  "cost": 2,
+  "modes": "both",
+  "params": {
+    "density": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0.2,
+      "maximum": 3
+    },
+    "size": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0.3,
+      "maximum": 3
+    },
+    "radius": {
+      "type": "number",
+      "default": 12,
+      "minimum": 4,
+      "maximum": 30
+    },
+    "spin": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 3
+    }
+  },
+  "conflicts": [],
+  "source": "https://threejs.org/examples/#webgl_buffergeometry_custom_attributes_particles",
+  "licence": "MIT"
+}
