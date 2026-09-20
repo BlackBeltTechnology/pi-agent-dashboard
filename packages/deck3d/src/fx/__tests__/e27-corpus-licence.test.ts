@@ -50,7 +50,7 @@ const PORTED_IDS = [
   "chromatic-aberration",
   "depth-of-field",
   "god-rays",
-  "n8ao",
+  "sao",
   "selective-bloom",
   "smaa",
   "holo-fresnel",

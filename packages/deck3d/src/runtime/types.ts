@@ -54,6 +54,8 @@ export interface Deck3dApi {
     localFxAt: (index: number) => number;
     sceneNodes: () => number;
     anchors: () => Array<{ pos: [number, number, number]; rotY: number }>;
+    /** Every registered post pass: enabled for the current slide, and the params it was last applied with. */
+    post: () => Array<{ id: string; enabled: boolean; params: Record<string, number | string | boolean> }>;
   };
   current: () => number;
 }

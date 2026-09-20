@@ -1,23 +1,30 @@
 {
-  "id": "selective-bloom",
+  "id": "outline",
   "kind": "post",
   "tags": {
     "mood": [
-      "dramatic",
-      "premium"
+      "technical",
+      "bold"
     ],
     "content": [
-      "highlight"
+      "diagram",
+      "emphasis"
     ]
   },
-  "cost": 3,
+  "cost": 2,
   "modes": "both",
   "params": {
-    "intensity": {
+    "strength": {
       "type": "number",
       "default": 1,
       "minimum": 0,
-      "maximum": 2
+      "maximum": 3
+    },
+    "thickness": {
+      "type": "number",
+      "default": 1.5,
+      "minimum": 0.5,
+      "maximum": 4
     },
     "parts": {
       "type": "string",
@@ -31,6 +38,6 @@
     }
   },
   "conflicts": [],
-  "source": "https://github.com/pmndrs/postprocessing",
-  "licence": "Zlib"
+  "source": "https://github.com/mrdoob/three.js",
+  "licence": "MIT"
 }

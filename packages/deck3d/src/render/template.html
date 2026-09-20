@@ -24,6 +24,11 @@
     opacity: .35; transition: opacity .15s;
   }
   #deck3d-hud-toggle:hover, #deck3d-hud-toggle:focus { opacity: 1; }
+  /* `ascii` post mode: the canvas is hidden and this grid is drawn from its pixels each frame. */
+  .deck3d-ascii {
+    position: fixed; inset: 0; margin: 0; z-index: 5; overflow: hidden; pointer-events: none;
+    font-family: ui-monospace, Menlo, Consolas, monospace; white-space: pre; letter-spacing: 0;
+  }
   #deck3d-hud {
     display: none; position: fixed; right: 12px; bottom: 56px; z-index: 11;
     width: 286px; max-height: 78vh; overflow: auto;

@@ -1,8 +1,8 @@
 # deck3d effect catalogue
 
-GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards hash: `0758a80db1d0131d538fe0924f1ee2e7ae6348c127274fc640b9f814bbc2ac50`.
+GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards hash: `6fe0c561c8b4424845f7cd198cbff46622e2a8338e2a63c864c232273c77fa7b`.
 
-63 effects.
+68 effects.
 
 ## accent-cycle
 
@@ -33,6 +33,21 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | density | number | 0.2..3 | 1 |
 | wave | number | 0..1.5 | 0.55 |
 | waveSpeed | number | 0..3 | 0.9 |
+
+## ascii
+
+- kind: `post`
+- cost: 2
+- modes: `both`
+- tags: mood=[retro, playful] content=[stylised, terminal]
+- source: https://github.com/mrdoob/three.js
+- licence: MIT
+- preview: `fx/previews/ascii.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| size | number | 4..24 | 9 |
+| invert | boolean | — | false |
 
 ## aurora
 
@@ -102,7 +117,8 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 
 | Param | Type | Range | Default |
 |---|---|---|---|
-| offset | number | 0..0.01 | 0.001 |
+| offset | number | 0..0.02 | 0.003 |
+| angle | number | 0..6.2832 | 0 |
 
 ## city-grid
 
@@ -190,7 +206,9 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 
 | Param | Type | Range | Default |
 |---|---|---|---|
-| focus | number | 0..1 | 0.5 |
+| focus | number | 0..60 | 0 |
+| aperture | number | 0..4 | 1 |
+| blur | number | 0..3 | 1 |
 
 ## dolly
 
@@ -205,6 +223,21 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | Param | Type | Range | Default |
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
+
+## dot-screen
+
+- kind: `post`
+- cost: 1
+- modes: `both`
+- tags: mood=[retro, print] content=[stylised, halftone]
+- source: https://github.com/mrdoob/three.js
+- licence: MIT
+- preview: `fx/previews/dot-screen.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| scale | number | 0.2..4 | 1.2 |
+| angle | number | 0..3.1416 | 1.57 |
 
 ## emissive
 
@@ -262,7 +295,7 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 
 | Param | Type | Range | Default |
 |---|---|---|---|
-| intensity | number | 0..2 | 1 |
+| intensity | number | 0..1 | 0.5 |
 
 ## float
 
@@ -393,6 +426,8 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | Param | Type | Range | Default |
 |---|---|---|---|
 | intensity | number | 0..3 | 1 |
+| density | number | 0.1..1.5 | 0.6 |
+| threshold | number | 0..1 | 0.55 |
 
 ## grid-horizon
 
@@ -553,20 +588,6 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
 
-## n8ao
-
-- kind: `post`
-- cost: 2
-- modes: `both`
-- tags: mood=[premium, technical] content=[staging]
-- source: https://github.com/N8python/n8ao
-- licence: CC0-1.0
-- preview: `fx/previews/n8ao.png`
-
-| Param | Type | Range | Default |
-|---|---|---|---|
-| radius | number | 0..4 | 1 |
-
 ## neural-mesh
 
 - kind: `background`
@@ -614,6 +635,22 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | density | number | 0.2..3 | 1 |
 | speed | number | 0..3 | 1 |
 
+## outline
+
+- kind: `post`
+- cost: 2
+- modes: `both`
+- tags: mood=[technical, bold] content=[diagram, emphasis]
+- source: https://github.com/mrdoob/three.js
+- licence: MIT
+- preview: `fx/previews/outline.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| strength | number | 0..3 | 1 |
+| thickness | number | 0.5..4 | 1.5 |
+| parts | string | — | diagram |
+
 ## paper-stack
 
 - kind: `background`
@@ -657,6 +694,20 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
 
+## pixelate
+
+- kind: `post`
+- cost: 1
+- modes: `both`
+- tags: mood=[playful, retro] content=[stylised]
+- source: https://github.com/mrdoob/three.js
+- licence: MIT
+- preview: `fx/previews/pixelate.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| size | number | 1..32 | 6 |
+
 ## proof-gate
 
 - kind: `background`
@@ -699,6 +750,21 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
 
+## sao
+
+- kind: `post`
+- cost: 2
+- modes: `both`
+- tags: mood=[premium, technical] content=[staging]
+- source: https://github.com/mrdoob/three.js
+- licence: MIT
+- preview: `fx/previews/sao.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| intensity | number | 0..4 | 1 |
+| radius | number | 0.2..3 | 1 |
+
 ## selective-bloom
 
 - kind: `post`
@@ -712,6 +778,7 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | Param | Type | Range | Default |
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
+| parts | string | — | diagram |
 
 ## server-racks
 
@@ -752,9 +819,19 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 - licence: Zlib
 - preview: `fx/previews/smaa.png`
 
-| Param | Type | Range | Default |
-|---|---|---|---|
-| intensity | number | 0..2 | 1 |
+No parameters.
+
+## sobel
+
+- kind: `post`
+- cost: 1
+- modes: `both`
+- tags: mood=[technical, stark] content=[stylised, blueprint]
+- source: https://github.com/mrdoob/three.js
+- licence: MIT
+- preview: `fx/previews/sobel.png`
+
+No parameters.
 
 ## soft-shadows
 
@@ -882,7 +959,8 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 
 | Param | Type | Range | Default |
 |---|---|---|---|
-| darkness | number | 0..1 | 0.5 |
+| darkness | number | 0..2 | 1 |
+| offset | number | 0..2 | 1 |
 
 ## volumetric-spot
 

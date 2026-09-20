@@ -49,7 +49,12 @@ Manual headless / agent / CI path:
      (`overrides.slides["<id>"].diagram.kind` + `data`);
    - illustrate the section: `deck3d props search <kw> --role hero`,
      `--role illustration`, and `props search --role ambient` for
-     low-triangle background instances.
+     low-triangle background instances;
+   - grade the frame with a `post` card (`deck3d fx list --kind post`): add
+     `{ "id": "outline", "params": { "parts": "diagram" } }` (or
+     `selective-bloom`, `god-rays`, `depth-of-field`, `pixelate`, `ascii`, …)
+     to the slide's `effects[]`. One or two per slide; they stack in a fixed
+     order, and `check` flags declared `conflicts`.
 5. Read the `check` findings. **Fix only the suggested key** (e.g.
    `overrides.slides["arch"].diagram.scale`), then re-run step 3.
 6. `deck3d snapshot talk.html --slide 5 -o s5.png` to eyeball one slide.

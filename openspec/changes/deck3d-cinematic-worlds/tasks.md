@@ -207,3 +207,15 @@
 - [x] 16.5 Rewire the deck's 11 effect refs from `{id:"local:<n>", sha256}` to corpus presets `{id:"<n>"}`; delete the now-empty `fx/`
 - [x] 16.6 Accept the re-ranked topic defaults (cheapest-wins, ties by id): `geo`→`geo-fragments`, `agents`→`agent-depth`, `trust`→`trust-ledger`, `compute`→`fab-wafer`, `money`→`capital-flows`; update #E32
 - [x] 16.7 Regenerate `reference/effects.md`; docs: `src/fx/AGENTS.md`, `presentations/AGENTS.md`
+
+## 17. Post-processing pipeline (resurrects the 8 inert `post` cards; adds 6)
+
+- [x] 17.0 Ground: only `bloom` is honoured (`index.ts:322`); `film`/`vignette`/`smaa`/`n8ao`/`depth-of-field`/`chromatic-aberration`/`selective-bloom`/`god-rays` are stubs the runtime never instantiates
+- [x] 17.1 `src/runtime/post.ts`: pass registry keyed by card id; lazy pass creation; canonical order; per-slide enable/disable; `params` → uniforms; `passNames()` reflects enabled passes; `debug.post()` probe (#F27, #F28)
+- [x] 17.2 Wire into `scene.ts` composer + `index.ts` slide apply (goTo landing, `applySlide`, `applyDeck`, HUD param edits via `applyEffectParams`)
+- [x] 17.3 Implement passes: film, vignette, smaa, sao (rename `n8ao`→`sao`), depth-of-field (BokehPass), chromatic-aberration (RGBShift), god-rays (GodRays shaders, sun = rim light), pixelate (UV-quantise ShaderPass, NOT `RenderPixelatedPass` — that replaces the render pass), outline (OutlinePass on diagram parts), sobel (Luminosity+Sobel), dot-screen, selective-bloom (layer-mask two-render; `parts` param) (#F29, #F30)
+- [x] 17.4 `ascii` as a post-composer DOM mode (`AsciiEffect` reads the final framebuffer); canvas hidden, `.deck3d-ascii` shown; `measure()` unaffected (#F31)
+- [x] 17.5 Quality gating: baseline bloom stays quality-driven (unchanged look for existing decks); every other pass is opt-in per slide and honoured at any quality (replaces the `wantsBloom` boot hack)
+- [x] 17.6 New cards; corpus gate; catalogue regen; determinism test per post card (#E51 — GPU tolerance 4 levels / 0.01 % of pixels: bloom's half-float blur is not bit-exact across runs, pre-existing)
+- [x] 17.7 Configurator: post cards' params surface through the existing generated-params block (no new UI)
+- [x] 17.8 Docs: `src/runtime/AGENTS.md`, `src/fx/AGENTS.md`, README post section, SKILL.md; note that `material`/`light`/`motion`/`edge`/`transition` corpus kinds remain config-driven, not `effects[]`-driven (out of scope here)

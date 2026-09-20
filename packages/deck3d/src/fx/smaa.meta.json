@@ -12,14 +12,7 @@
   },
   "cost": 1,
   "modes": "both",
-  "params": {
-    "intensity": {
-      "type": "number",
-      "default": 1,
-      "minimum": 0,
-      "maximum": 2
-    }
-  },
+  "params": {},
   "conflicts": [],
   "source": "https://github.com/pmndrs/postprocessing",
   "licence": "Zlib"

@@ -6,11 +6,9 @@
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { Reflector } from "three/examples/jsm/objects/Reflector.js";
-import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
-import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { Pass } from "three/examples/jsm/postprocessing/Pass.js";
-import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import type { PaletteColors } from "./palette.js";
+import { createPostStack, type PostLook, type PostRef, type PostStack } from "./post.js";
 import type { QualityProfile } from "./quality.js";
 import type { SlideConfig } from "./types.js";
 
@@ -19,14 +17,19 @@ export interface SceneRig {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   world: THREE.Group;
-  composer: EffectComposer;
-  bloom: UnrealBloomPass | null;
   passNames: () => string[];
+  /** Enable exactly the listed post cards for the current slide (plus baseline bloom). */
+  setPost: (refs: PostRef[], look: PostLook) => void;
+  /** Post stack probe for `debug.post()`. */
+  postProbe: PostStack["probe"];
+  /** World position of the rim light — what `god-rays` streams from. */
+  sunPosition: () => THREE.Vector3;
   applyLook: (P: PaletteColors, cfg: SlideConfig, profile: QualityProfile) => void;
   /** Live rim-light colour, for the configurator's debug surface. */
   rimColor: () => THREE.Color;
   resize: (w: number, h: number) => void;
-  render: () => void;
+  /** Draw one frame; `t` is the deck clock for time-dependent post passes. */
+  render: (t?: number) => void;
   updateFloor: (target: THREE.Vector3) => void;
 }
 
@@ -55,8 +58,7 @@ interface RigParts {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
-  composer: EffectComposer;
-  bloom: UnrealBloomPass | null;
+  post: PostStack;
   key: THREE.DirectionalLight;
   fill: THREE.HemisphereLight;
   rimLight: THREE.SpotLight;
@@ -129,6 +131,7 @@ class BackdropRenderPass extends Pass {
 
 export function createSceneRig(profile: QualityProfile): SceneRig {
   const r = createParts(profile);
+  let lastT = 0;
   const world = new THREE.Group();
   r.scene.add(world);
   const veilOp = (cfg: SlideConfig, q: QualityProfile): number => (cfg.mirrorFloor !== false && q.mirror ? (cfg.mode === "dark" ? 0.55 : 0.35) : 1);
@@ -163,11 +166,9 @@ export function createSceneRig(profile: QualityProfile): SceneRig {
     r.fill.intensity = cfg.mode === "dark" ? 0.6 : 0.35;
   }
 
+  // Bloom threshold/strength now live in the post stack's `bloom` slot
+  // (`post.ts`), applied with the slide's post list.
   function applyPost(cfg: SlideConfig): void {
-    if (r.bloom) {
-      r.bloom.threshold = cfg.mode === "dark" ? 0.95 : 1.1;
-      r.bloom.strength = cfg.mode === "dark" ? 0.35 : 0.12;
-    }
     r.renderer.toneMappingExposure = cfg.mode === "dark" ? 1.0 : 0.85;
   }
 
@@ -183,25 +184,26 @@ export function createSceneRig(profile: QualityProfile): SceneRig {
     scene: r.scene,
     camera: r.camera,
     world,
-    composer: r.composer,
-    bloom: r.bloom,
-    passNames: () => {
-      const names = ["RenderPass"];
-      if (r.bloom) names.push("UnrealBloomPass");
-      names.push("OutputPass");
-      return names;
-    },
+    passNames: () => r.post.passNames(),
+    setPost: (refs, look) => r.post.setActive(refs, look),
+    postProbe: () => r.post.probe(),
+    sunPosition: () => r.rimLight.getWorldPosition(new THREE.Vector3()),
     applyLook,
     rimColor: () => r.rimLight.color,
     resize: (w, h) => {
       r.renderer.setSize(w, h);
-      r.composer.setSize(w, h);
+      r.post.resize(w, h);
       r.camera.aspect = w / h;
       r.camera.updateProjectionMatrix();
     },
-    render: () => {
-      if (r.bloom) r.composer.render();
+    render: (t) => {
+      if (t !== undefined) lastT = t;
+      r.post.tick(lastT, r.camera);
+      // The composer costs a full-screen copy per pass; with nothing enabled
+      // the direct layered draw is byte-identical and cheaper.
+      if (r.post.any()) r.post.composer.render();
       else renderLayered(r.renderer, r.scene, r.camera);
+      if (r.post.ascii()) r.post.drawAscii(r.renderer.domElement);
     },
     updateFloor: (target) => {
       r.floor.position.x = target.x;
@@ -221,11 +223,7 @@ function createParts(profile: QualityProfile): RigParts {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(42, 1, 0.5, 300);
 
-  const composer = new EffectComposer(renderer);
-  composer.addPass(new BackdropRenderPass(scene, camera));
-  const bloom = profile.bloom ? new UnrealBloomPass(new THREE.Vector2(1, 1), 0.5, 0.5, 0.9) : null;
-  if (bloom) composer.addPass(bloom);
-  composer.addPass(new OutputPass());
+  const post = createPostStack(renderer, scene, camera, new BackdropRenderPass(scene, camera), renderLayered, profile.bloom);
 
   const pmrem = new THREE.PMREMGenerator(renderer);
   const envMap = pmrem.fromScene(new RoomEnvironment(renderer), 0.04).texture;
@@ -255,7 +253,7 @@ function createParts(profile: QualityProfile): RigParts {
   markBackdrop(floor);
   scene.add(floor);
 
-  return { renderer, scene, camera, composer, bloom, key, fill, rimLight, floor, veil, mirror, envMap };
+  return { renderer, scene, camera, post, key, fill, rimLight, floor, veil, mirror, envMap };
 }
 
 function createFloor(profile: QualityProfile): { floor: THREE.Group; veil: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>; mirror: Reflector | null } {

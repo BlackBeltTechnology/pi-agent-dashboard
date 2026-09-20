@@ -21,6 +21,7 @@ import { createHud, type SlidePatch } from "./hud.js";
 import { createLocalEffect, localCards, type LocalFxError, type LocalHandle, localFxRegistry } from "./local-fx.js";
 import { type QualityProfile, qualityProfile } from "./quality.js";
 import { makeRng } from "./rng.js";
+import type { PartName } from "./post.js";
 import { createSceneRig, markBackdrop } from "./scene.js";
 import { buildTitle, bulletTexture, loadFont } from "./text.js";
 import "./types.js";
@@ -97,6 +98,7 @@ function addTitle(g: THREE.Group, slide: DeckSlide, isTitle: boolean, font: Font
   );
   g.add(title.group);
   title.group.userData.ownerId = `${slide.id}/title`;
+  title.group.userData.part = "title";
   labels.push({ kind: "title", id: `${slide.id}/title`, text: slide.title, object: title.group, height: (isTitle ? 0.62 : 0.5) * 1.4 });
 }
 
@@ -147,6 +149,7 @@ function addBody(g: THREE.Group, slide: DeckSlide, isTitle: boolean, P: PaletteC
 function addDiagram(g: THREE.Group, slide: DeckSlide, font: Font, P: PaletteColors, cfg: SlideConfig, labels: LabelRef[]): DiagramBuild | null {
   if (slide.diagram.kind === "none") return null;
   const holder = new THREE.Group();
+  holder.userData.part = "diagram";
   holder.position.set(...layoutFor(cfg).diagram);
   const diagram = buildDiagram(slide, P, cfg, font);
   holder.add(diagram.g);
@@ -282,6 +285,7 @@ function buildSlideGroup(
   addBody(g, slide, isTitle, P, cfg);
   const diagram = addDiagram(g, slide, font, P, cfg, labels);
   const props = applyProps(deck, slide.id, g, diagram, models, propMaterials);
+  if (props) props.group.userData.part = "props";
   const nodes = diagram?.nodes ? Object.entries(diagram.nodes).map(([id, object]) => ({ id, object })) : [];
   const profile = qualityProfile(cfg.quality ?? deck.defaults.quality);
   const mode = (cfg.mode ?? "dark") as "dark" | "light";
@@ -315,12 +319,9 @@ async function boot(): Promise<void> {
     // Canvas labels fall back to a system font; titles still use the TTF.
   }
 
-  const deckProfile = qualityProfile(deck.defaults.quality);
-  // `overrides.effects` (folded into each slide's list by `applyOverrides`) may
-  // request the `bloom` post effect even at `quality: low`; honour it so the
-  // composer pass and `effects().active` agree with the composed effect list.
-  const wantsBloom = deck.slides.some((slide) => (slide.effects ?? []).some((e) => e.id === "bloom"));
-  const rig = createSceneRig(wantsBloom ? { ...deckProfile, bloom: true } : deckProfile);
+  // Baseline bloom follows the quality tier; a slide listing the `bloom` card
+  // (even at `quality: low`) is honoured per slide by the post stack.
+  const rig = createSceneRig(qualityProfile(deck.defaults.quality));
   document.body.appendChild(rig.renderer.domElement);
 
   const propModels = await loadPropModels(deck);
@@ -349,6 +350,37 @@ async function boot(): Promise<void> {
   /** Slide whose local fx are reclaimed once the in-flight transition lands. */
   let pendingDispose: number | null = null;
 
+  /** Root objects of a named part on slide `i` (selective post passes). */
+  function partsOf(i: number, name: PartName): THREE.Object3D[] {
+    const g = builds[i].group;
+    if (name === "all") return g.children.filter((c) => !c.userData.backdrop);
+    const out: THREE.Object3D[] = [];
+    g.traverse((o) => {
+      if (o.userData.part === name) out.push(o);
+    });
+    return out;
+  }
+
+  /**
+   * Hand the current slide's `post` cards to the rig. Called wherever the
+   * slide or its params change; idempotent, so landing after a fly may call
+   * it again without cost.
+   */
+  function syncPost(): void {
+    const slide = deck.slides[cur];
+    const build = builds[cur];
+    const refs = (slide.effects ?? [])
+      .filter((e) => REGISTRY[e.id]?.card.kind === "post")
+      .map((e) => ({ id: e.id, params: paramsFor(slide.id, e) }));
+    rig.setPost(refs, {
+      mode: (build.cfg.mode ?? "dark") as "dark" | "light",
+      palette: build.palette,
+      parts: (name) => partsOf(cur, name),
+      sun: () => rig.sunPosition(),
+      focusDistance: () => build.anchor.cam.distanceTo(build.anchor.target),
+    });
+  }
+
   function snapTo(i: number): void {
     cur = i;
     const a = builds[i].anchor;
@@ -358,6 +390,7 @@ async function boot(): Promise<void> {
     rig.camera.position.copy(camState.pos);
     rig.camera.lookAt(camState.target);
     rig.applyLook(builds[i].palette, builds[i].cfg, qualityProfile(builds[i].cfg.quality));
+    syncPost();
   }
 
   const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
@@ -487,6 +520,7 @@ async function boot(): Promise<void> {
     };
     cur = target;
     if (!morph) rig.applyLook(toPalette, builds[target].cfg, qualityProfile(builds[target].cfg.quality));
+    syncPost();
   }
 
   // Live rail state: the configurator may move every anchor, and `window.__DECK`
@@ -538,7 +572,7 @@ async function boot(): Promise<void> {
     rig.updateFloor(camState.target);
     cullNeighbours();
     billboardLabels();
-    rig.render();
+    rig.render(t);
   }
 
   /**
@@ -589,7 +623,7 @@ async function boot(): Promise<void> {
       builds[pendingDispose]?.background?.tick(t * 0.7);
     }
     billboardLabels();
-    rig.render();
+    rig.render(t);
     if (document.hidden) setTimeout(frame, 66);
     else requestAnimationFrame(frame);
   }
@@ -727,6 +761,7 @@ async function boot(): Promise<void> {
 
     if (follow) rig.applyLook(rebuilt.palette, cfg, qualityProfile(cfg.quality));
     rebuilt.diagram?.tick(0);
+    if (i === cur) syncPost();
     rig.render();
   }
 
@@ -798,6 +833,7 @@ async function boot(): Promise<void> {
           build.group.add(next.g);
         }
       }
+      syncPost();
       rig.render();
     },
     applyEffects: (ids) => {
@@ -985,6 +1021,7 @@ async function boot(): Promise<void> {
         builds[cur].group.traverse(() => n++);
         return n;
       },
+      post: () => rig.postProbe(),
       anchors: () =>
         builds.map((b) => ({ pos: [b.group.position.x, b.group.position.y, b.group.position.z] as [number, number, number], rotY: b.group.rotation.y })),
       /**

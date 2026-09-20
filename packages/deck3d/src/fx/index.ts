@@ -19,6 +19,18 @@ import { create as proof_gate } from "./proof-gate.js";
 import proof_gateCard from "./proof-gate.meta.json";
 import { create as trust_ledger } from "./trust-ledger.js";
 import trust_ledgerCard from "./trust-ledger.meta.json";
+import { create as ascii } from "./ascii.js";
+import asciiCard from "./ascii.meta.json";
+import { create as dot_screen } from "./dot-screen.js";
+import dot_screenCard from "./dot-screen.meta.json";
+import { create as outline } from "./outline.js";
+import outlineCard from "./outline.meta.json";
+import { create as pixelate } from "./pixelate.js";
+import pixelateCard from "./pixelate.meta.json";
+import { create as sao } from "./sao.js";
+import saoCard from "./sao.meta.json";
+import { create as sobel } from "./sobel.js";
+import sobelCard from "./sobel.meta.json";
 import { create as accent_cycle } from "./accent-cycle.js";
 import accent_cycleCard from "./accent-cycle.meta.json";
 import { create as aurora } from "./aurora.js";
@@ -93,8 +105,6 @@ import { create as metal } from "./metal.js";
 import metalCard from "./metal.meta.json";
 import { create as mirror_floor } from "./mirror-floor.js";
 import mirror_floorCard from "./mirror-floor.meta.json";
-import { create as n8ao } from "./n8ao.js";
-import n8aoCard from "./n8ao.meta.json";
 import { create as orbit } from "./orbit.js";
 import orbitCard from "./orbit.meta.json";
 import { create as particle_stream } from "./particle-stream.js";
@@ -158,7 +168,6 @@ export const REGISTRY: Record<string, FxEntry> = {
   "chromatic-aberration": { card: chromatic_aberrationCard as FxCard, create: chromatic_aberration },
   "depth-of-field": { card: depth_of_fieldCard as FxCard, create: depth_of_field },
   "god-rays": { card: god_raysCard as FxCard, create: god_rays },
-  "n8ao": { card: n8aoCard as FxCard, create: n8ao },
   "selective-bloom": { card: selective_bloomCard as FxCard, create: selective_bloom },
   "smaa": { card: smaaCard as FxCard, create: smaa },
   "holo-fresnel": { card: holo_fresnelCard as FxCard, create: holo_fresnel },
@@ -187,6 +196,12 @@ export const REGISTRY: Record<string, FxEntry> = {
   "paper-stack": { card: paper_stackCard as FxCard, create: paper_stack },
   "server-racks": { card: server_racksCard as FxCard, create: server_racks },
   "vault-glyphs": { card: vault_glyphsCard as FxCard, create: vault_glyphs },
+  "ascii": { card: asciiCard as FxCard, create: ascii },
+  "dot-screen": { card: dot_screenCard as FxCard, create: dot_screen },
+  "outline": { card: outlineCard as FxCard, create: outline },
+  "pixelate": { card: pixelateCard as FxCard, create: pixelate },
+  "sao": { card: saoCard as FxCard, create: sao },
+  "sobel": { card: sobelCard as FxCard, create: sobel },
   "agent-depth": { card: agent_depthCard as FxCard, create: agent_depth },
   "capital-flows": { card: capital_flowsCard as FxCard, create: capital_flows },
   "cohort-grid": { card: cohort_gridCard as FxCard, create: cohort_grid },

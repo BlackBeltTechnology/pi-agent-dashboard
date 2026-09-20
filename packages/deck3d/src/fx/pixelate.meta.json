@@ -1,0 +1,28 @@
+{
+  "id": "pixelate",
+  "kind": "post",
+  "tags": {
+    "mood": [
+      "playful",
+      "retro"
+    ],
+    "content": [
+      "stylised"
+    ]
+  },
+  "cost": 1,
+  "modes": "both",
+  "params": {
+    "size": {
+      "type": "number",
+      "default": 6,
+      "minimum": 1,
+      "maximum": 32
+    }
+  },
+  "conflicts": [
+    "smaa"
+  ],
+  "source": "https://github.com/mrdoob/three.js",
+  "licence": "MIT"
+}

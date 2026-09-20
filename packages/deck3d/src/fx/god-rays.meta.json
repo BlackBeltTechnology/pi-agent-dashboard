@@ -18,6 +18,18 @@
       "default": 1,
       "minimum": 0,
       "maximum": 3
+    },
+    "density": {
+      "type": "number",
+      "default": 0.6,
+      "minimum": 0.1,
+      "maximum": 1.5
+    },
+    "threshold": {
+      "type": "number",
+      "default": 0.55,
+      "minimum": 0,
+      "maximum": 1
     }
   },
   "conflicts": [

@@ -14,7 +14,7 @@ const REQUIRED = [
   "tokens", "rings", "swarm", "particles", "bloom", "film", "glass", "metal", "emissive",
   "mirror-floor", "fog", "soft-shadows", "room-ibl", "signal-pulse", "dolly",
   "starfield", "aurora", "grid-horizon", "hex-grid", "data-columns", "glyph-rain", "constellation",
-  "vignette", "chromatic-aberration", "depth-of-field", "god-rays", "n8ao", "selective-bloom", "smaa",
+  "vignette", "chromatic-aberration", "depth-of-field", "god-rays", "sao", "selective-bloom", "smaa",
   "holo-fresnel", "wireframe-overlay", "iridescent", "matcap",
   "lightformers", "accent-cycle", "volumetric-spot",
   "float", "orbit", "stagger-reveal", "trail", "camera-drift",

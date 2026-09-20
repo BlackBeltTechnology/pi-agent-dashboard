@@ -101,3 +101,38 @@ The skill SHALL document how to add an effect: search sources → verify licence
 #### Scenario: Promote a local effect
 - **WHEN** `fx promote neural-mesh --source https://github.com/... --licence MIT` runs beside a deck with a valid `fx/neural-mesh.*`
 - **THEN** `src/fx/neural-mesh.ts` and `neural-mesh.meta.json` exist with the given source and licence, `fx/neural-mesh.*` are removed, and the corpus test passes
+
+## ADDED Requirements
+
+### Requirement: Post-processing cards drive real composer passes
+Every corpus card of `kind: "post"` SHALL correspond to a runtime composer pass. Listing a `post` card in a slide's `effects[]` SHALL enable that pass while the slide is current and disable it when the slide is left; a `post` card's declared `params` SHALL reach the pass's uniforms. Pass order SHALL be a fixed canonical order independent of `effects[]` order, so two lists with the same members render identically. `window.__deck3d.effects().active` SHALL name every enabled pass. The runtime SHALL expose `window.__deck3d.debug.post()` returning `{ id, enabled, params }` per registered pass.
+
+#### Scenario: Listed post card is enabled for its slide only
+- **GIVEN** slide 1 lists `{id:"film", params:{intensity:0.8}}` and slide 2 lists no post effects
+- **WHEN** the deck boots on slide 1
+- **THEN** `effects().active` contains `FilmPass` and `debug.post()` reports `film` enabled with `intensity: 0.8`
+- **WHEN** `gotoSlide(2)` lands
+- **THEN** `film` reports `enabled: false` and `effects().active` omits `FilmPass`
+
+#### Scenario: Canonical pass order
+- **GIVEN** slide A lists `[pixelate, vignette]` and slide B lists `[vignette, pixelate]`
+- **WHEN** both are rendered at the same `setTime`
+- **THEN** their frames are pixel-identical within the same GPU tolerance
+
+#### Scenario: Selective bloom by part
+- **GIVEN** a slide with a built diagram lists `{id:"selective-bloom", params:{parts:"diagram"}}`
+- **WHEN** rendered
+- **THEN** `debug.post()` reports `selective-bloom` with `parts: "diagram"` and the diagram-node pixels are brighter than the same render without the card, while title-card pixels are unchanged within tolerance
+
+#### Scenario: ASCII mode replaces the canvas
+- **GIVEN** a slide lists `{id:"ascii"}`
+- **WHEN** rendered
+- **THEN** the document contains a `.deck3d-ascii` element with non-empty text and `measure()` still returns every labelled object
+
+### Requirement: Post corpus content
+The corpus SHALL provide working `post` cards for: `bloom`, `selective-bloom` (param `parts`: `diagram` | `title` | `props` | `all`), `film`, `vignette`, `smaa`, `sao` (three `SAOPass`; replaces the former `n8ao` id), `depth-of-field`, `chromatic-aberration`, `god-rays`, `pixelate`, `outline` (outlines diagram parts), `sobel`, `dot-screen`, `ascii`. Each SHALL pass the corpus gate and declare bounded params.
+
+#### Scenario: Every post card renders deterministically
+- **GIVEN** each `post` card in turn on a fixture slide
+- **WHEN** rendered in two separate page loads at the same `setTime`
+- **THEN** the frames are pixel-identical within GPU tolerance (no channel differs by more than 4 levels, on fewer than 0.01% of pixels — multi-pass half-float blurs are not bit-exact across runs) and no console error is raised

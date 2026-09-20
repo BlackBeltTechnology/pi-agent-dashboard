@@ -15,9 +15,15 @@
   "params": {
     "darkness": {
       "type": "number",
-      "default": 0.5,
+      "default": 1.0,
       "minimum": 0,
-      "maximum": 1
+      "maximum": 2
+    },
+    "offset": {
+      "type": "number",
+      "default": 1.0,
+      "minimum": 0,
+      "maximum": 2
     }
   },
   "conflicts": [],
