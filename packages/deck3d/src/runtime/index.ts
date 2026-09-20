@@ -191,11 +191,22 @@ function fxContextFor(slide: DeckSlide, P: PaletteColors, profile: QualityProfil
   };
 }
 
+/**
+ * Live per-effect parameter edits from the configurator, keyed
+ * `<slideId>|<effectId>`. The authored `ref.params` stay untouched so an
+ * export still diffs against the deck as written.
+ */
+const fxParamEdits: Record<string, FxParams> = {};
+
+function paramsFor(slideId: string, ref: { id: string; params?: unknown }): FxParams {
+  return { ...((ref.params ?? {}) as FxParams), ...(fxParamEdits[`${slideId}|${ref.id}`] ?? {}) };
+}
+
 function backgroundFromEffects(slide: DeckSlide, P: PaletteColors, profile: QualityProfile, mode: "dark" | "light"): Animator | null {
   for (const ref of slide.effects ?? []) {
     const entry = REGISTRY[ref.id];
     if (entry?.card.kind !== "background") continue;
-    const handle = entry.create(fxContextFor(slide, P, profile, mode), (ref.params ?? {}) as FxParams);
+    const handle = entry.create(fxContextFor(slide, P, profile, mode), paramsFor(slide.id, ref));
     if (!handle.object) continue;
     return { g: handle.object as THREE.Group, tick: handle.tick ?? (() => {}) };
   }
@@ -226,7 +237,7 @@ function localEffectsFor(
       ref.id,
       module,
       fxContextFor(slide, P, profile, mode),
-      (ref.params ?? {}) as FxParams,
+      paramsFor(slide.id, ref),
       localFxErrors,
     );
     if (!handle) continue;
@@ -378,7 +389,14 @@ async function boot(): Promise<void> {
    * A throwing `dispose` is recorded and swallowed — navigation must complete.
    */
   function disposeLocalFx(index: number): void {
-    for (const handle of builds[index]?.localFx ?? []) handle.dispose();
+    for (const handle of builds[index]?.localFx ?? []) {
+      handle.dispose();
+      // `dispose` frees GPU buffers but leaves the node attached. Detach it
+      // too, or reviving the slide stacks a second, frozen copy of the effect
+      // on top of the live one (the background renders doubled).
+      const object = handle.object as THREE.Object3D | undefined;
+      object?.parent?.remove(object);
+    }
     if (builds[index]) builds[index].localFx = [];
   }
 
@@ -392,6 +410,17 @@ async function boot(): Promise<void> {
    * geometry and material BY REFERENCE. Disposing them here would blank the
    * same prop on every other slide using it.
    */
+  /** Free every mesh under a discarded subtree (three.js never frees on GC). */
+  function disposeTree(root: THREE.Object3D): void {
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.geometry?.dispose();
+      const mat = mesh.material;
+      for (const m of Array.isArray(mat) ? mat : [mat]) m?.dispose();
+    });
+  }
+
   function disposeBuild(build: SlideBuild): void {
     const propsRoot = build.props?.group;
     build.group.traverse((o) => {
@@ -695,6 +724,51 @@ async function boot(): Promise<void> {
       // the rest of the deck visibly stale.
       for (let i = 0; i < builds.length; i++) rebuildSlide(i, patchFor(deck.slides[i].id), i === cur);
     },
+    /**
+     * Declared knobs of the current slide's effects, with the value in force.
+     * The panel renders itself from this, so a new effect (corpus OR local)
+     * gets controls by declaring params in its card — no panel code.
+     */
+    effectParams: () => {
+      const slide = deck.slides[cur];
+      const local = localCards();
+      const out: Array<{ id: string; schema: Record<string, unknown>; values: FxParams }> = [];
+      for (const ref of slide.effects ?? []) {
+        const card = ref.id.startsWith("local:") ? local[ref.id.slice("local:".length)] : REGISTRY[ref.id]?.card;
+        const schema = (card?.params ?? {}) as Record<string, unknown>;
+        if (Object.keys(schema).length === 0) continue;
+        out.push({ id: ref.id, schema, values: paramsFor(slide.id, ref) });
+      }
+      return out;
+    },
+    /** Re-instantiate ONE effect of the current slide under edited params. */
+    applyEffectParams: (id, patch) => {
+      const slide = deck.slides[cur];
+      const key = `${slide.id}|${id}`;
+      fxParamEdits[key] = { ...(fxParamEdits[key] ?? {}), ...(patch as FxParams) };
+      const build = builds[cur];
+      const profile = qualityProfile(build.cfg.quality ?? deck.defaults.quality);
+      const mode = (build.cfg.mode ?? "dark") as "dark" | "light";
+      if (id.startsWith("local:")) {
+        // Dispose and rebuild every local handle: they share one array and the
+        // factory is the only place params are read.
+        disposeLocalFx(cur);
+        build.localFx = localEffectsFor(slide, build.palette, profile, mode, build.group, cur);
+      } else {
+        if (build.background) {
+          build.group.remove(build.background.g);
+          disposeTree(build.background.g);
+        }
+        const next = backgroundFromEffects(slide, build.palette, profile, mode);
+        build.background = next;
+        if (next) {
+          next.g.position.z = -2;
+          markBackdrop(next.g);
+          build.group.add(next.g);
+        }
+      }
+      rig.render();
+    },
     applyEffects: (ids) => {
       const slide = deck.slides[cur];
       const keep = new Set(ids);
@@ -868,6 +942,16 @@ async function boot(): Promise<void> {
           });
           return { id: localFxIds[cur]?.[i] ?? `local[${i}]`, digest: parts.map((n) => Math.round(n * 1e4) / 1e4).join(",") };
         }),
+      /**
+       * Descendant count of the current slide group. Catches orphans that
+       * `motion()`/`localFx()` structurally cannot see: both walk LIVE
+       * handles, while a leaked node is one nothing references any more.
+       */
+      sceneNodes: () => {
+        let n = 0;
+        builds[cur].group.traverse(() => n++);
+        return n;
+      },
       anchors: () =>
         builds.map((b) => ({ pos: [b.group.position.x, b.group.position.y, b.group.position.z] as [number, number, number], rotY: b.group.rotation.y })),
       /**

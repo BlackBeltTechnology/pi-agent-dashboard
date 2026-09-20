@@ -51,6 +51,7 @@ export interface Deck3dApi {
     motion: () => string;
     /** Every slide's live anchor, for rail/spacing assertions. */
     localFx: () => Array<{ id: string; digest: string }>;
+    sceneNodes: () => number;
     anchors: () => Array<{ pos: [number, number, number]; rotY: number }>;
   };
   current: () => number;

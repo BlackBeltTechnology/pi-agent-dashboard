@@ -2582,7 +2582,7 @@
         "effects": [
           {
             "id": "local:agent-depth",
-            "sha256": "f18db1c8bff0de4dea991fc48754b108915923e344086b5edb4593583bcbce3e"
+            "sha256": "797f1d5c493a6502e50bf1ac7719e548f014a0153b8993b13c6ada92320ff491"
           }
         ],
         "diagram": {
@@ -2694,7 +2694,7 @@
         "effects": [
           {
             "id": "local:workforce-100",
-            "sha256": "7b3c305012c2d0c1ab95a3f535ffa67cbd3b7d3d17f6f7f7548996077e18ba27"
+            "sha256": "6e37df6c204c00cdaf24eaad5abb1dfa7a963d814ae55f4a939bfee95b589883"
           }
         ],
         "diagram": {
@@ -2753,7 +2753,7 @@
         "effects": [
           {
             "id": "local:workforce-100",
-            "sha256": "7b3c305012c2d0c1ab95a3f535ffa67cbd3b7d3d17f6f7f7548996077e18ba27"
+            "sha256": "6e37df6c204c00cdaf24eaad5abb1dfa7a963d814ae55f4a939bfee95b589883"
           }
         ],
         "diagram": {
@@ -2816,7 +2816,7 @@
         "effects": [
           {
             "id": "local:geo-fragments",
-            "sha256": "1e4f167e2a6ab42477d72f2ea88098315dda13e45692a3f29220aa1e9051f9aa"
+            "sha256": "a804bd05e2b071c70ce8ef67da56ecc4bfae643174bafaf602185250472341ff"
           }
         ],
         "diagram": {
@@ -2843,7 +2843,7 @@
         "effects": [
           {
             "id": "local:fab-wafer",
-            "sha256": "2fecaf5bc25c7274dc3052e391debc536dec634645d3290f26774617f7f96b23"
+            "sha256": "9842d6ffd874eb1f316685d2bdb4d159d10f2233b1aa1782f05a4986c28e402b"
           }
         ],
         "diagram": {

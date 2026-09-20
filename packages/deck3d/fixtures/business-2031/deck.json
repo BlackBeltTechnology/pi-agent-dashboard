@@ -963,7 +963,7 @@
       "bullets": [
         "Agent deployment: single digits everywhere",
         "Adoption is broad and shallow",
-        "The 2026–2031 money is in depth, not first contact",
+        "The 2026\u20132031 money is in depth, not first contact",
         "Ask: what is actually in production"
       ],
       "scene": "orbit-agents",
@@ -973,7 +973,7 @@
           "labels": [
             "Agent deployment: single digits everywhere",
             "Adoption is broad and shallow",
-            "The 2026–2031 money is in depth, not first contact",
+            "The 2026\u20132031 money is in depth, not first contact",
             "Ask: what is actually in production"
           ]
         }
@@ -1150,7 +1150,7 @@
           "id": "neural-mesh"
         }
       ],
-      "subtitle": "WEF Global Risks Report 2026 — an age of competition"
+      "subtitle": "WEF Global Risks Report 2026 \u2014 an age of competition"
     },
     {
       "index": 8,
@@ -1219,7 +1219,7 @@
       "bullets": [
         "WEF Future of Jobs 2025 (1,000+ employers)",
         "Stanford HAI AI Index 2026",
-        "WEF Global Risks Report 2026 — 1,300+ experts",
+        "WEF Global Risks Report 2026 \u2014 1,300+ experts",
         "WEF + PwC, Entry-Level Work, Jun 2026",
         "Forrester Predictions 2026"
       ],
@@ -1230,7 +1230,7 @@
           "labels": [
             "WEF Future of Jobs 2025 (1,000+ employers)",
             "Stanford HAI AI Index 2026",
-            "WEF Global Risks Report 2026 — 1,300+ experts",
+            "WEF Global Risks Report 2026 \u2014 1,300+ experts",
             "WEF + PwC, Entry-Level Work, Jun 2026",
             "Forrester Predictions 2026"
           ]
@@ -1339,7 +1339,7 @@
         "effects": [
           {
             "id": "local:agent-depth",
-            "sha256": "f18db1c8bff0de4dea991fc48754b108915923e344086b5edb4593583bcbce3e"
+            "sha256": "797f1d5c493a6502e50bf1ac7719e548f014a0153b8993b13c6ada92320ff491"
           }
         ],
         "diagram": {
@@ -1418,7 +1418,7 @@
         "effects": [
           {
             "id": "local:geo-fragments",
-            "sha256": "1e4f167e2a6ab42477d72f2ea88098315dda13e45692a3f29220aa1e9051f9aa"
+            "sha256": "a804bd05e2b071c70ce8ef67da56ecc4bfae643174bafaf602185250472341ff"
           }
         ],
         "diagram": {
@@ -1445,7 +1445,7 @@
         "effects": [
           {
             "id": "local:fab-wafer",
-            "sha256": "2fecaf5bc25c7274dc3052e391debc536dec634645d3290f26774617f7f96b23"
+            "sha256": "9842d6ffd874eb1f316685d2bdb4d159d10f2233b1aa1782f05a4986c28e402b"
           }
         ],
         "diagram": {

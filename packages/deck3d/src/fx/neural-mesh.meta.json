@@ -28,6 +28,24 @@
       "default": 1,
       "minimum": 0,
       "maximum": 3
+    },
+    "drift": {
+      "type": "number",
+      "default": 0.5,
+      "minimum": 0,
+      "maximum": 2
+    },
+    "metalness": {
+      "type": "number",
+      "default": 0.9,
+      "minimum": 0,
+      "maximum": 1
+    },
+    "glow": {
+      "type": "number",
+      "default": 0.8,
+      "minimum": 0,
+      "maximum": 3
     }
   },
   "conflicts": [],

@@ -52,6 +52,12 @@
   .deck3d-hud-block[open] > summary::before { transform: rotate(90deg); }
   .deck3d-hud-effects { margin: 6px 0; }
   .deck3d-hud-effect { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+  /* Per-effect knobs, indented under the effect they belong to. */
+  .deck3d-hud-fxparams { margin: 0 0 7px 18px; padding-left: 7px; border-left: 1px solid rgba(255,255,255,.14); }
+  .deck3d-hud-fxparam { display: grid; grid-template-columns: 62px 1fr 30px; align-items: center; gap: 5px; margin: 2px 0; font-size: 11px; opacity: .85; }
+  .deck3d-hud-fxparam span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .deck3d-hud-fxparam input[type=range] { width: 100%; }
+  .deck3d-hud-fxparam em { font-style: normal; text-align: right; opacity: .65; font-variant-numeric: tabular-nums; }
   .deck3d-hud-note { margin: 8px 0; opacity: .7; font-size: 11px; }
   #deck3d-hud-export { width: 100%; padding: 6px; border-radius: 6px; cursor: pointer;
     border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.1); color: inherit; font: inherit; }

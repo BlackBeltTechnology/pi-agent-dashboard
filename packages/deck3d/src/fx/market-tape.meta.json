@@ -26,9 +26,25 @@
     },
     "speed": {
       "type": "number",
-      "default": 1,
+      "default": 0.4,
       "minimum": 0,
       "maximum": 3
+    },
+    "barWidth": {
+      "type": "number",
+      "default": 0.06,
+      "minimum": 0.02,
+      "maximum": 0.4
+    },
+    "volatility": {
+      "type": "number",
+      "default": 0.45,
+      "minimum": 0,
+      "maximum": 1
+    },
+    "trace": {
+      "type": "boolean",
+      "default": true
     }
   },
   "conflicts": [],

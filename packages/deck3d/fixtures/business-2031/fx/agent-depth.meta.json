@@ -22,6 +22,18 @@
       "default": 1,
       "minimum": 0.2,
       "maximum": 3
+    },
+    "wave": {
+      "type": "number",
+      "default": 0.55,
+      "minimum": 0,
+      "maximum": 1.5
+    },
+    "waveSpeed": {
+      "type": "number",
+      "default": 0.9,
+      "minimum": 0,
+      "maximum": 3
     }
   },
   "conflicts": [],

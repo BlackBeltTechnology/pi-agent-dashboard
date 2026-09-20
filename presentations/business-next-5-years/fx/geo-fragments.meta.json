@@ -22,6 +22,24 @@
       "default": 1,
       "minimum": 0.2,
       "maximum": 3
+    },
+    "activity": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 3
+    },
+    "spin": {
+      "type": "number",
+      "default": 0.35,
+      "minimum": 0,
+      "maximum": 2
+    },
+    "breathe": {
+      "type": "number",
+      "default": 0.18,
+      "minimum": 0,
+      "maximum": 1
     }
   },
   "conflicts": [],

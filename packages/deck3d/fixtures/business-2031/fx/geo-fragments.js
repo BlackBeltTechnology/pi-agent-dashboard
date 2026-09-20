@@ -2,6 +2,9 @@
 export default function (ctx, params) {
   const { THREE, palette, quality, rng } = ctx;
   const density = typeof params.density === "number" ? params.density : 1;
+  const activity = typeof params.activity === "number" ? params.activity : 1;
+  const spin = typeof params.spin === "number" ? params.spin : 0.35;
+  const breathe = typeof params.breathe === "number" ? params.breathe : 0.18;
   const count = Math.max(10, Math.round((quality.particles / 36) * density));
 
   const geo = new THREE.CircleGeometry(1, 6);
@@ -15,7 +18,7 @@ export default function (ctx, params) {
   for (let i = 0; i < count; i++) {
     const a = rng() * Math.PI * 2;
     const r = 3 + rng() * 9;
-    seeds.push({ a: a, r: r, s: 0.6 + rng() * 2.2, drift: 0.2 + rng() * 0.5 });
+    seeds.push({ a: a, r: r, s: 0.6 + rng() * 2.2, drift: 0.2 + rng() * 0.5, ph: rng() * 6.283, sp: (rng() < 0.5 ? -1 : 1) * (0.3 + rng() * 0.8) });
   }
 
   const group = new THREE.Group();
@@ -26,6 +29,7 @@ export default function (ctx, params) {
   holder.userData.count = count;
 
   const m = new THREE.Matrix4();
+  const AXIS_Z = new THREE.Vector3(0, 0, 1);
   const q = new THREE.Quaternion();
   const v = new THREE.Vector3();
   const scale = new THREE.Vector3();
@@ -33,12 +37,16 @@ export default function (ctx, params) {
     for (let i = 0; i < count; i++) {
       const s = seeds[i];
       // The drift is the point: the map keeps coming apart, never back together.
-      const r = s.r + Math.sin(t * 0.15 * s.drift) * 1.6 + t * 0.02 * s.drift;
+      const r = s.r + Math.sin(t * 0.15 * s.drift * activity) * 1.6 + t * 0.02 * s.drift;
+      // Each plate also creeps around the ring and turns on its own axis, so
+      // the map keeps rearranging instead of only breathing in and out.
+      const a2 = s.a + Math.sin(t * 0.08 * s.sp * activity) * 0.25 * activity;
+      const puff = 1 + Math.sin(t * 0.6 * activity + s.ph) * breathe;
       // Every plate used to sit at exactly z=0, so overlapping pairs z-fought
       // and the hexagons shimmered as they drifted. Stratify them in depth.
-      v.set(Math.cos(s.a) * r, Math.sin(s.a) * r, i * 0.004);
-      q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), s.a);
-      scale.set(s.s, s.s, s.s);
+      v.set(Math.cos(a2) * r, Math.sin(a2) * r, i * 0.004);
+      q.setFromAxisAngle(AXIS_Z, a2 + t * spin * s.sp * 0.35);
+      scale.set(s.s * puff, s.s * puff, s.s * puff);
       plates.setMatrixAt(i, m.compose(v, q, scale));
     }
     plates.instanceMatrix.needsUpdate = true;

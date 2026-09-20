@@ -49,6 +49,56 @@ async function openAllBlocks(page: Page): Promise<void> {
   });
 }
 
+describe.skipIf(!hasChromium)("configurator exposes per-effect params (#F21)", () => {
+  it("generates controls from the effect's card and applies them live", async () => {
+    // `lift` is declared in the card and read by the factory: the panel must
+    // grow a control for it WITHOUT any panel code naming this effect.
+    const src = [
+      "export default function (ctx, params) {",
+      "  const { THREE, palette } = ctx;",
+      "  const lift = typeof params.lift === 'number' ? params.lift : 0;",
+      "  const geo = new THREE.BoxGeometry(1, 1, 1);",
+      "  const mat = new THREE.MeshBasicMaterial({ color: palette.accent });",
+      "  const mesh = new THREE.Mesh(geo, mat);",
+      "  mesh.position.y = lift;",
+      "  const group = new THREE.Group();",
+      "  group.add(mesh);",
+      "  return { object: group, tick: function () {}, dispose: function () { geo.dispose(); mat.dispose(); } };",
+      "}",
+      "",
+    ].join("\n");
+    const { dir } = makeLocalDeck({
+      effects: [{ name: "lifter", src, card: { params: { lift: { type: "number", default: 0, minimum: 0, maximum: 4 } } } }],
+    });
+    expect(runCli(["render", "deck.json", "-o", "deck.html"], dir).status).toBe(0);
+
+    const browser = await chromium.launch({ channel: "chromium" });
+    const page = await browser.newPage({ viewport: { width: 900, height: 560 } });
+    try {
+      await page.goto(pathToFileURL(join(dir, "deck.html")).href);
+      await page.waitForFunction(() => window.__deck3d !== undefined, undefined, { timeout: 30_000 });
+      await page.keyboard.press("c");
+      await openAllBlocks(page);
+
+      const control = 'input[data-fxparam="local:lifter.lift"]';
+      expect(await page.locator(control).count()).toBe(1);
+      // Range bounds come from the card, not from panel code.
+      expect(await page.getAttribute(control, "max")).toBe("4");
+
+      const before = await page.evaluate(() => window.__deck3d!.debug.localFx()[0].digest);
+      await page.locator(control).fill("3");
+      await page.locator(control).dispatchEvent("input");
+      await page.waitForTimeout(200);
+      const after = await page.evaluate(() => window.__deck3d!.debug.localFx()[0].digest);
+      expect(after).not.toBe(before);
+      // The edit must not rewrite the authored deck.
+      expect(await page.evaluate(() => JSON.stringify(window.__DECK.overrides ?? {}))).not.toContain('"lift"');
+    } finally {
+      await browser.close();
+    }
+  }, 120_000);
+});
+
 describe.skipIf(!hasChromium)("local fx survive revisiting a slide (#F20)", () => {
   it("still animates after navigating away and back", async () => {
     // The module animates on `tick`, so a dead handle shows up as a frozen
@@ -69,18 +119,23 @@ describe.skipIf(!hasChromium)("local fx survive revisiting a slide (#F20)", () =
       // Scoped to the local handle: `motion()` also walks the diagram and the
       // corpus background, which keep moving and mask a dead local effect.
       const probe = async (): Promise<{ live: number; moved: boolean }> => {
-        const before = await page.evaluate(() => window.__deck3d.debug.localFx());
+        const before = await page.evaluate(() => window.__deck3d!.debug.localFx());
         await page.waitForTimeout(700);
-        const after = await page.evaluate(() => window.__deck3d.debug.localFx());
+        const after = await page.evaluate(() => window.__deck3d!.debug.localFx());
         return { live: after.length, moved: JSON.stringify(before) !== JSON.stringify(after) };
       };
       expect(await probe()).toEqual({ live: 1, moved: true });
+      // Nodes drawn by the effect, counted before leaving: reviving must not
+      // stack a second copy on top of the disposed one.
+      const nodes = async (): Promise<number> => page.evaluate(() => window.__deck3d!.debug.sceneNodes());
+      const nodesBefore = await nodes();
 
-      await page.evaluate(() => window.__deck3d.gotoSlide(2));
+      await page.evaluate(() => window.__deck3d!.gotoSlide(2));
       await page.waitForTimeout(2000);
-      await page.evaluate(() => window.__deck3d.gotoSlide(1));
+      await page.evaluate(() => window.__deck3d!.gotoSlide(1));
       await page.waitForTimeout(2000);
       expect(await probe()).toEqual({ live: 1, moved: true });
+      expect(await nodes()).toBe(nodesBefore);
     } finally {
       await browser.close();
     }

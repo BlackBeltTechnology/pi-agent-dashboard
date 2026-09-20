@@ -29,6 +29,10 @@ export interface HudHost {
   applyDeck: (patchFor: (slideId: string) => SlidePatch) => void;
   /** Recompose the current slide's effects from this list. */
   applyEffects: (ids: string[]) => void;
+  /** Declared knobs of the current slide's effects, with values in force. */
+  effectParams: () => Array<{ id: string; schema: Record<string, unknown>; values: Record<string, unknown> }>;
+  /** Rebuild one effect of the current slide under edited params. */
+  applyEffectParams: (id: string, patch: Record<string, unknown>) => void;
 }
 
 export interface SlidePatch {
@@ -398,8 +402,77 @@ export function createHud(host: HudHost): Hud {
       name.textContent = ref.id;
       row.append(box, name);
       list.appendChild(row);
+      const knobs = paramRows(slideId, ref.id);
+      if (knobs) list.appendChild(knobs);
     }
     return list;
+  }
+
+  /**
+   * Controls for ONE effect, generated from the params it declares in its
+   * card. Every effect — corpus or `local:` — gets a panel by declaring
+   * params, so a new effect never needs panel code here.
+   */
+  function paramRows(slideId: string, effectId: string): HTMLElement | null {
+    const decl = host.effectParams().find((e) => e.id === effectId);
+    if (!decl) return null;
+    const box = el("div", { class: "deck3d-hud-fxparams" });
+    for (const [key, rawSpec] of Object.entries(decl.schema)) {
+      const spec = rawSpec as { type?: string; minimum?: number; maximum?: number; default?: unknown; enum?: string[] };
+      const current = decl.values[key] ?? spec.default;
+      const line = el("label", { class: "deck3d-hud-fxparam" });
+      const tag = el("span");
+      tag.textContent = key;
+      let input: HTMLInputElement | HTMLSelectElement;
+      if (spec.enum) {
+        input = el("select", { "data-fxparam": `${effectId}.${key}` });
+        for (const option of spec.enum) {
+          const opt = el("option", { value: option });
+          opt.textContent = option;
+          input.appendChild(opt);
+        }
+        input.value = String(current ?? spec.enum[0]);
+        input.addEventListener("change", () => commitParam(slideId, effectId, key, (input as HTMLSelectElement).value));
+      } else if (spec.type === "boolean") {
+        input = el("input", { type: "checkbox", "data-fxparam": `${effectId}.${key}` });
+        (input as HTMLInputElement).checked = current === true;
+        input.addEventListener("change", () => commitParam(slideId, effectId, key, (input as HTMLInputElement).checked));
+      } else {
+        // A declared range gets a slider; an open-ended number gets a field.
+        const ranged = typeof spec.minimum === "number" && typeof spec.maximum === "number";
+        input = el("input", {
+          type: ranged ? "range" : "number",
+          step: "0.05",
+          "data-fxparam": `${effectId}.${key}`,
+          ...(ranged ? { min: String(spec.minimum), max: String(spec.maximum) } : {}),
+        });
+        (input as HTMLInputElement).value = String(current ?? 1);
+        const readout = el("em");
+        readout.textContent = String(current ?? 1);
+        input.addEventListener("input", () => {
+          const n = Number((input as HTMLInputElement).value);
+          if (!Number.isFinite(n)) return;
+          readout.textContent = String(n);
+          commitParam(slideId, effectId, key, n);
+        });
+        line.append(tag, input, readout);
+        box.appendChild(line);
+        continue;
+      }
+      line.append(tag, input);
+      box.appendChild(line);
+    }
+    return box.childElementCount > 0 ? box : null;
+  }
+
+  /** Stage a param edit for export AND apply it live. */
+  function commitParam(slideId: string, effectId: string, key: string, value: unknown): void {
+    const bucket = scope === "deck" ? (state.deck as Record<string, unknown>) : ((state.slides[slideId] = state.slides[slideId] ?? {}) as Record<string, unknown>);
+    const params = (bucket.effectParams ?? {}) as Record<string, Record<string, unknown>>;
+    params[effectId] = { ...(params[effectId] ?? {}), [key]: value };
+    bucket.effectParams = params;
+    persist();
+    host.applyEffectParams(effectId, { [key]: value });
   }
 
   function autoplayField(): HTMLInputElement {
@@ -429,20 +502,40 @@ export function createHud(host: HudHost): Hud {
     }, state.autoplaySec * 1000);
   }
 
+  /**
+   * Effect refs for an export. A tuned effect must carry its `params`, and
+   * params alone (no checklist edit) still pin the composed list — the
+   * runtime keys edits by effect id, so the ids have to be written out.
+   */
+  function effectRefs(
+    ids: string[] | undefined,
+    params: Record<string, Record<string, unknown>> | undefined,
+  ): Array<Record<string, unknown>> | null {
+    const list = ids ?? (params ? Object.keys(params) : undefined);
+    if (!list) return null;
+    return list.map((id) => (params?.[id] ? { id, params: params[id] } : { id }));
+  }
+
   function exportOverrides(): void {
     const payload: Record<string, unknown> = {};
     const deck = { ...state.deck };
     const deckEffects = deck.effects as string[] | undefined;
+    const deckParams = deck.effectParams as Record<string, Record<string, unknown>> | undefined;
     delete deck.effects;
+    delete deck.effectParams;
     if (Object.keys(deck).length) payload.deck = deck;
-    if (deckEffects) payload.effects = deckEffects.map((id) => ({ id }));
+    const deckRefs = effectRefs(deckEffects, deckParams);
+    if (deckRefs) payload.effects = deckRefs;
 
     const slides: Record<string, unknown> = {};
     for (const [id, staged] of Object.entries(state.slides)) {
-      const entry = { ...staged };
+      const entry = { ...staged } as Record<string, unknown>;
       const effects = entry.effects as string[] | undefined;
+      const params = entry.effectParams as Record<string, Record<string, unknown>> | undefined;
       delete entry.effects;
-      if (effects) entry.effects = effects.map((eid) => ({ id: eid }));
+      delete entry.effectParams;
+      const refs = effectRefs(effects, params);
+      if (refs) entry.effects = refs;
       if (Object.keys(entry).length) slides[id] = entry;
     }
     if (Object.keys(slides).length) payload.slides = slides;

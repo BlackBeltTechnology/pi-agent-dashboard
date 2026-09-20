@@ -1,6 +1,6 @@
 # deck3d effect catalogue
 
-GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards hash: `ea7c3ecdb24acb89236237b7a6ba35d2ff7ca7945c85da3af1ef6955da4fbd4c`.
+GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards hash: `4ae7b47368910d9077ee5b96948ea6195e2ae158e65276f5c2a2353e58d1a977`.
 
 55 effects.
 
@@ -411,7 +411,10 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | Param | Type | Range | Default |
 |---|---|---|---|
 | density | number | 0.2..3 | 1 |
-| speed | number | 0..3 | 1 |
+| speed | number | 0..3 | 0.4 |
+| barWidth | number | 0.02..0.4 | 0.06 |
+| volatility | number | 0..1 | 0.45 |
+| trace | boolean | — | true |
 
 ## matcap
 
@@ -483,6 +486,9 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | density | number | 0.2..3 | 1 |
 | speed | number | 0..3 | 1 |
+| drift | number | 0..2 | 0.5 |
+| metalness | number | 0..1 | 0.9 |
+| glow | number | 0..3 | 0.8 |
 
 ## orbit
 

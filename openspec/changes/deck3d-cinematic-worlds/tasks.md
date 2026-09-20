@@ -172,3 +172,6 @@
 - [x] 14.15 Palette morphs across a transition instead of snapping at t=0 (`mixPalette`, driven from `stepAnim`) (#F19)
 - [x] 14.16 `horizon-2031` markers ride their gate ring (phase per ring + steady sweep + tumble) instead of sitting pinned at x=4
 - [x] 14.17 `local:` effects revive when a slide is revisited — leaving disposed them permanently, so they animated on the first visit only (#F20)
+- [x] 14.18 Disposing a slide's `local:` effects detaches their nodes — `dispose()` frees GPU buffers but leaves the `Object3D` attached, so reviving stacked a second frozen copy (duplicated background) (#F20)
+- [x] 14.19 Per-effect params are generated in the configurator from each effect's card, applied live and exported as `effects[].params` (#F21)
+- [x] 14.20 Effect pass: `neural-mesh` nodes drift + metallic/emissive balls; `market-tape` thin bars, joined by a value trace, slower default scroll; `agent-depth` sine height field; `workforce-100` slow palette cycling; `geo-fragments` livelier drift/spin/breathe; `fab-wafer` sine die height

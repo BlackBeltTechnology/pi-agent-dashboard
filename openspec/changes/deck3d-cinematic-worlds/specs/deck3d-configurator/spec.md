@@ -9,6 +9,12 @@ The rendered deck SHALL contain a configurator panel hidden by default, toggled 
 
 Controls SHALL be grouped into collapsible blocks, each independently openable and closed by default except the first: **Look** (`mode`, `palette`, `colors.card`/`colors.accent`/`colors.secondary`, `material`), **Lighting & FX** (`bloom`, `rimLight`, `fog`, `mirrorFloor`, `softShadows`, `envReflections`, `backgroundIntensity`), **Camera & labels** (`camera.distance`, `labels.size`, `depthRelief`, `extrudeDepth`), **Layout** (`layout`; `rail` and `spacing` deck scope only; `diagram.kind`, `diagram.scale`, `diagram.offset.x`, `diagram.offset.y`, `cardOffset.x`, `cardOffset.y` slide scope only), **Motion** (`transition`, `durationSec`, autoplay — integer seconds per slide, `1`–`600`; `0` = off, the default; other input rejected by the control), **Quality** (`quality`) and **Effects** (that scope's effects checklist). A block offering no control in the active scope SHALL be omitted. Each block's open/closed state SHALL persist in local storage beside the staged values and SHALL survive a scope switch, a slide change and a reload.
 
+Within the **Effects** block, each composed effect SHALL render a control per parameter DECLARED IN ITS CARD — generated from the declaration, never hand-written per effect, so corpus and `local:` effects alike gain controls by declaring params. A declared `minimum`/`maximum` SHALL render a slider bounded by them, a `boolean` a checkbox, and an `enum` a select. Editing a parameter SHALL re-instantiate that effect on the current slide immediately, SHALL NOT mutate the authored deck, and SHALL be written into an export as `effects[].params`.
+
+#### Scenario: Generated effect parameter control
+- **WHEN** slide `geo` composes an effect whose card declares `lift` with `minimum: 0` and `maximum: 4`
+- **THEN** the Effects block shows a slider for `lift` bounded `0`–`4`; moving it rebuilds the effect in place, `window.__DECK` is unchanged, and an export carries `effects: [{ id, params: { lift } }]`
+
 #### Scenario: Toggle
 - **WHEN** the presenter presses `C`
 - **THEN** the panel appears showing `3 / 23` on slide 3; pressing `Escape` hides it
