@@ -55543,6 +55543,7 @@
     let frozen = null;
     const clock = new Clock();
     let anim = null;
+    let pendingDispose = null;
     function snapTo(i) {
       cur = i;
       const a = builds[i].anchor;
@@ -55575,7 +55576,11 @@
         const l = anim.look;
         rig.applyLook(anim.t >= 1 ? l.to : mixPalette(l.from, l.to, k), l.cfg, qualityProfile(l.cfg.quality));
       }
-      if (anim.t >= 1) anim = null;
+      if (anim.t >= 1) {
+        anim = null;
+        if (pendingDispose !== null && pendingDispose !== cur) disposeLocalFx(pendingDispose);
+        pendingDispose = null;
+      }
     }
     function disposeLocalFx(index) {
       for (const handle of builds[index]?.localFx ?? []) {
@@ -55617,10 +55622,14 @@
     }
     function goTo(i) {
       const target = (i % builds.length + builds.length) % builds.length;
-      if (target !== cur) disposeLocalFx(cur);
       reviveLocalFx(target);
       const mode = builds[target].cfg.transition ?? "dolly";
-      if (target === cur || mode === "cut") return snapTo(target);
+      if (target === cur || mode === "cut") {
+        if (target !== cur) disposeLocalFx(cur);
+        return snapTo(target);
+      }
+      if (pendingDispose !== null && pendingDispose !== target) disposeLocalFx(pendingDispose);
+      pendingDispose = cur;
       const from = { pos: camState.pos.clone(), target: camState.target.clone() };
       const fromPalette = builds[cur].palette;
       const toPalette = builds[target].palette;
@@ -55701,6 +55710,10 @@
       builds[cur].background?.tick(t * 0.7);
       builds[cur].props?.tick(t);
       for (const handle of builds[cur].localFx) handle.tick(t);
+      if (pendingDispose !== null && pendingDispose !== cur) {
+        for (const handle of builds[pendingDispose]?.localFx ?? []) handle.tick(t);
+        builds[pendingDispose]?.background?.tick(t * 0.7);
+      }
       billboardLabels();
       rig.render();
       if (document.hidden) setTimeout(frame, 66);
@@ -56023,6 +56036,8 @@
          * `motion()`/`localFx()` structurally cannot see: both walk LIVE
          * handles, while a leaked node is one nothing references any more.
          */
+        /** Live local-fx handle count per slide index — `localFx()` only sees `cur`. */
+        localFxAt: (index) => builds[index]?.localFx.length ?? 0,
         sceneNodes: () => {
           let n = 0;
           builds[cur].group.traverse(() => n++);

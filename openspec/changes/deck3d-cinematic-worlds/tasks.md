@@ -179,3 +179,4 @@
 - [x] 14.22 Built topologies draw each caption ONCE — `buildLoop` emitted an extruded `buildTitle` beside the measurable canvas label (#F23)
 - [x] 14.23 Wrapping particles fade in/out (`capital-flows`, `proof-gate`, `globe-arcs` travellers) instead of blinking out at the wrap
 - [x] 14.24 `agent-depth` shafts are base-anchored so the wave reads upright; `capital-flows` motes fill the cone via per-mote angle+radius
+- [x] 14.25 Outgoing slide keeps its local fx for the whole fly — disposal deferred to transition landing, and the outgoing backdrop keeps ticking while still in frame (#F24)

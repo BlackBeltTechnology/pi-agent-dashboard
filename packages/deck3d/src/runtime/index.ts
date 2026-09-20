@@ -346,6 +346,8 @@ async function boot(): Promise<void> {
     look?: { from: PaletteColors; to: PaletteColors; cfg: SlideConfig };
   };
   let anim: Anim | null = null;
+  /** Slide whose local fx are reclaimed once the in-flight transition lands. */
+  let pendingDispose: number | null = null;
 
   function snapTo(i: number): void {
     cur = i;
@@ -381,7 +383,11 @@ async function boot(): Promise<void> {
       const l = anim.look;
       rig.applyLook(anim.t >= 1 ? l.to : mixPalette(l.from, l.to, k), l.cfg, qualityProfile(l.cfg.quality));
     }
-    if (anim.t >= 1) anim = null;
+    if (anim.t >= 1) {
+      anim = null;
+      if (pendingDispose !== null && pendingDispose !== cur) disposeLocalFx(pendingDispose);
+      pendingDispose = null;
+    }
   }
 
   /**
@@ -453,10 +459,18 @@ async function boot(): Promise<void> {
 
   function goTo(i: number): void {
     const target = ((i % builds.length) + builds.length) % builds.length;
-    if (target !== cur) disposeLocalFx(cur);
     reviveLocalFx(target);
     const mode = builds[target].cfg.transition ?? "dolly";
-    if (target === cur || mode === "cut") return snapTo(target);
+    // A cut leaves the old slide instantly, so its fx can go now. A fly does
+    // NOT: the outgoing slide stays in frame for the whole move, and disposing
+    // here stripped its backdrop the moment the camera started rolling while
+    // its content remained. Deferred to `stepAnim` completion instead.
+    if (target === cur || mode === "cut") {
+      if (target !== cur) disposeLocalFx(cur);
+      return snapTo(target);
+    }
+    if (pendingDispose !== null && pendingDispose !== target) disposeLocalFx(pendingDispose);
+    pendingDispose = cur;
     const from = { pos: camState.pos.clone(), target: camState.target.clone() };
     const fromPalette = builds[cur].palette;
     const toPalette = builds[target].palette;
@@ -568,6 +582,12 @@ async function boot(): Promise<void> {
     builds[cur].background?.tick(t * 0.7);
     builds[cur].props?.tick(t);
     for (const handle of builds[cur].localFx) handle.tick(t);
+    // The outgoing slide is still in frame during a fly: tick it too, or its
+    // backdrop freezes into a still the moment the camera moves.
+    if (pendingDispose !== null && pendingDispose !== cur) {
+      for (const handle of builds[pendingDispose]?.localFx ?? []) handle.tick(t);
+      builds[pendingDispose]?.background?.tick(t * 0.7);
+    }
     billboardLabels();
     rig.render();
     if (document.hidden) setTimeout(frame, 66);
@@ -951,6 +971,8 @@ async function boot(): Promise<void> {
        * `motion()`/`localFx()` structurally cannot see: both walk LIVE
        * handles, while a leaked node is one nothing references any more.
        */
+      /** Live local-fx handle count per slide index — `localFx()` only sees `cur`. */
+      localFxAt: (index: number) => builds[index]?.localFx.length ?? 0,
       sceneNodes: () => {
         let n = 0;
         builds[cur].group.traverse(() => n++);

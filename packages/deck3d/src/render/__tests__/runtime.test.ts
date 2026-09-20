@@ -337,6 +337,9 @@ describe.skipIf(!hasChromium)("local effect sandbox (chromium)", () => {
       await page.evaluate(() => window.__deck3d?.gotoSlide(1));
       await page.evaluate(() => window.__deck3d?.gotoSlide(2));
       expect(await page.evaluate(() => window.__deck3d?.current())).toBe(2);
+      // The outgoing slide is disposed when the fly LANDS, not when it starts
+      // (#F24), so the dispose error surfaces once the transition completes.
+      await page.waitForFunction(() => window.__deck3d!.debug.look().anim === null, undefined, { timeout: 15_000 });
       const errors = await page.evaluate(() => window.__deck3d?.effects().errors ?? []);
       expect(errors).toContainEqual({ slide: "geo", effectId: "local:x", phase: "dispose" });
     } finally {
@@ -825,6 +828,44 @@ describe.skipIf(!hasChromium)("F23 built topologies draw each caption once (chro
       // extra glyph group drawing the same words.
       expect(counts.nodes).toBeLessThan(32);
       await page.close();
+    } finally {
+      await browser.close();
+    }
+  }, 120_000);
+});
+
+// #F24 — `goTo` disposed the outgoing slide's local fx on its FIRST line, so
+// the backdrop vanished the instant the camera started moving while the slide's
+// content stayed in frame for the whole fly.
+describe.skipIf(!hasChromium)("F24 the outgoing backdrop survives the fly (chromium)", () => {
+  it("keeps the previous slide's local fx alive until the transition ends", async () => {
+    const { dir } = makeLocalDeck({
+      markdown: "# Geo\n\n- one\n\n# Second\n\n- two\n\n# Third\n\n- three\n",
+      slide: "geo",
+      effects: [{ name: "spinner" }],
+    });
+    expect(runCli(["render", "deck.json", "-o", "deck.html"], dir).status).toBe(0);
+
+    const browser = await chromium.launch({ channel: "chromium" });
+    const page = await browser.newPage({ viewport: { width: 800, height: 500 } });
+    try {
+      await page.goto(pathToFileURL(join(dir, "deck.html")).href);
+      await page.waitForFunction(() => window.__deck3d !== undefined, undefined, { timeout: 30_000 });
+      expect(await page.evaluate(() => window.__deck3d!.debug.localFxAt(0))).toBeGreaterThan(0);
+
+      await page.evaluate(() => window.__deck3d?.gotoSlide(2));
+      await page.waitForTimeout(250); // mid-fly
+      const midFly = await page.evaluate(() => ({
+        anim: window.__deck3d!.debug.look().anim !== null,
+        prev: window.__deck3d!.debug.localFxAt(0),
+      }));
+      expect(midFly.anim).toBe(true);
+      expect(midFly.prev).toBeGreaterThan(0);
+
+      // ...and is reclaimed once the move completes.
+      await page.waitForFunction(() => window.__deck3d!.debug.look().anim === null, undefined, { timeout: 15_000 });
+      await page.waitForTimeout(200);
+      expect(await page.evaluate(() => window.__deck3d!.debug.localFxAt(0))).toBe(0);
     } finally {
       await browser.close();
     }
