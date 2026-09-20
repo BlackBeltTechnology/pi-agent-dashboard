@@ -70,11 +70,12 @@ export function AccessSection() {
 
   const handleRevoke = useCallback(
     async (entry: AccessEntry) => {
-      if (!snapshot) return;
       setRevokeError(null);
       setRevoking((prev) => new Set(prev).add(entry.id));
       try {
-        const result = await revokeAccessEntry(entry, snapshot);
+        // No snapshot argument: each store revokes per entry, so concurrent
+        // revokes cannot resurrect each other (task 4.5 #5).
+        const result = await revokeAccessEntry(entry);
         if (!result.ok) {
           setRevokeError(result.error ?? `HTTP ${result.status}`);
           return;
@@ -90,7 +91,7 @@ export function AccessSection() {
         });
       }
     },
-    [snapshot, load],
+    [load],
   );
 
   const entries = snapshot ? aggregateAccessEntries(snapshot) : [];

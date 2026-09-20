@@ -67,14 +67,14 @@ interface RevokeResult {
 }
 
 /**
- * Revoke one entry against its own store's write path. `snapshot` is the
- * currently-displayed aggregate: config/preferences stores are field-level
- * writes, so the remaining list is computed as displayed-list-minus-entry.
+ * Revoke one entry against its own store's write path. Every store now takes a
+ * PER-ENTRY request, so no client snapshot is needed: an array-valued store is
+ * read-modify-written server-side. That is what makes two concurrent revokes
+ * safe (previously the remaining list was computed client-side as
+ * displayed-list-minus-entry, so both revokes derived from the same stale array
+ * and the second resurrected the first's entry — task 4.5 #5).
  */
-export async function revokeAccessEntry(
-  entry: AccessEntry,
-  snapshot: AccessGrantSnapshot,
-): Promise<RevokeResult> {
+export async function revokeAccessEntry(entry: AccessEntry): Promise<RevokeResult> {
   switch (entry.store) {
     case "pathGrants":
       return send("DELETE", "/api/access/grants", { subject: entry.subject, scope: entry.scope });
@@ -92,15 +92,11 @@ export async function revokeAccessEntry(
       // option id, so it cannot express a revoke.
       return send("DELETE", "/api/access/project-trust", { subject: entry.subject });
     case "trustedNetworks":
-      return send("PUT", "/api/config", {
-        trustedNetworks: snapshot.trustedNetworks.filter((v) => v !== entry.subject),
-      });
+      return send("DELETE", "/api/access/trusted-network", { network: entry.subject });
     case "bypassHosts":
       return send("DELETE", "/api/access/bypass-hosts", { host: entry.subject });
     case "corsOrigins":
-      return send("PUT", "/api/config", {
-        cors: { allowedOrigins: snapshot.corsOrigins.filter((v) => v !== entry.subject) },
-      });
+      return send("DELETE", "/api/access/cors-origin", { origin: entry.subject });
     case "pinnedDirectories":
       return send("DELETE", "/api/access/pinned-directory", { subject: entry.subject });
   }

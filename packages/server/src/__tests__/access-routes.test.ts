@@ -403,6 +403,57 @@ describe("revoke endpoints", () => {
   });
 });
 
+/**
+ * Task 4.5 #5: `trustedNetworks` and `corsOrigins` are ARRAY-valued config
+ * fields. They used to be revoked by a whole-array `PUT /api/config` whose
+ * remaining list the CLIENT computed from a rendered snapshot, so two revokes
+ * issued before the first refetch both derived from the same stale array and the
+ * later write resurrected the earlier one's entry. These endpoints read-modify-
+ * write server-side instead, like `bypass-hosts`, making removal atomic per
+ * entry and independent of any client snapshot (including a second tab's).
+ *
+ * Scope of these tests: validation, the failure path, and the success path.
+ * Sibling PRESERVATION against a seeded config is asserted client-side in
+ * `access-grants-api.test.ts` against a server double, not here.
+ */
+describe("4.5 #5 — per-entry config revokes", () => {
+  const routes = [
+    {
+      url: "/api/access/trusted-network",
+      payload: { network: "10.0.0.0/8" },
+      missing: "network is required",
+    },
+    {
+      url: "/api/access/cors-origin",
+      payload: { origin: "https://a.example.com" },
+      missing: "origin is required",
+    },
+  ];
+
+  for (const { url, payload, missing } of routes) {
+    it(`${url} rejects a missing field`, async () => {
+      const res = await app.inject({ method: "DELETE", url, payload: {} });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe(missing);
+    });
+
+    it(`${url} reports a config write failure rather than claiming success`, async () => {
+      const failing = makeApp({ writeFails: true });
+      await failing.ready();
+      const res = await failing.inject({ method: "DELETE", url, payload });
+      expect(res.statusCode).toBe(500);
+      expect(res.json().error).toMatch(/config write failed/);
+      await failing.close();
+    });
+
+    it(`${url} succeeds, and is a no-op for an entry that is not present`, async () => {
+      const res = await app.inject({ method: "DELETE", url, payload });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().success).toBe(true);
+    });
+  }
+});
+
 describe("7b.0a grant-endpoint write failure is reported, never silent", () => {
   it("returns a 500 naming the failure when the store write throws (design D11)", async () => {
     const named = mkdir("wfail");

@@ -347,6 +347,22 @@ stronger check.
 POSIX. The check degrades there to the same window layer 2 already has — never
 worse than today.
 
+*Residual risk, accepted (POSIX too):* the identity check binds the **final
+component only**, so the window is *narrowed*, not *closed*. If an INTERMEDIATE
+directory is replaced by a symlink between containment and the `lstat`, then
+`lstat` and `open` both follow the escape and arrive at the same inode — they
+agree, and the substituted file is served. Steps 1–3 catch substitution of the
+last component; they cannot catch substitution of a parent, because both syscalls
+resolve the same pathname.
+
+The real close is a descriptor-relative component walk (`openat` with
+`O_NOFOLLOW` per component, from a trusted root). It is deliberately not taken:
+it is not portable to Windows, which this repo ships QA for, and layers ①/② carry
+the identical window today, so the ordering is a narrowing of an existing gap
+rather than a new one. Stated here because "verifies an open handle" reads as
+*closed*, and a reader who believes the window is closed will not re-examine it.
+See `verified-read.ts`, whose header states the same limit.
+
 ### D18 — Corrected census of the cwd-allowlist denial sites
 
 *The original census was wrong on three counts; verified against source during

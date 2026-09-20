@@ -57,6 +57,23 @@ function makeServer(state: { grants: AccessGrantSnapshot }) {
       state.grants.bypassHosts = state.grants.bypassHosts.filter((h) => h !== body.host);
       return json(state.grants);
     }
+    if (method === "DELETE" && url === "/api/access/trusted-network") {
+      // Per-entry: the SERVER reads-modifies-writes, so the client does not send
+      // the remaining list and sibling entries survive (task 4.5 #5).
+      state.grants.trustedNetworks = state.grants.trustedNetworks.filter(
+        (n) => n !== body.network,
+      );
+      return json(state.grants);
+    }
+    if (method === "DELETE" && url === "/api/access/cors-origin") {
+      state.grants.corsOrigins = state.grants.corsOrigins.filter((o) => o !== body.origin);
+      return json(state.grants);
+    }
+    // Kept because the endpoint is real and `/api/config` is still how these
+    // fields are written wholesale. Nothing in the client uses it any more; it
+    // is here so a run against the PRE-FIX client fails on genuine resurrection
+    // rather than a 404, which is what makes the concurrency test below a real
+    // regression guard.
     if (method === "PUT" && url === "/api/config") {
       if (Array.isArray(body.trustedNetworks)) state.grants.trustedNetworks = body.trustedNetworks as string[];
       if (body.cors && typeof body.cors === "object") {
@@ -108,6 +125,30 @@ function seededState(): { grants: AccessGrantSnapshot } {
   };
 }
 
+describe("4.5 #5 — concurrent revokes cannot resurrect each other", () => {
+  it("two revokes issued before either refetch BOTH stick (array-valued stores)", async () => {
+    // `trustedNetworks`/`corsOrigins` are ARRAY-valued config fields. While the
+    // client computed the remaining list from a rendered snapshot, two revokes
+    // fired before the first refetch both derived from the SAME array, and the
+    // later write resurrected the entry the earlier one had just removed. This
+    // is the race the fix closes: per-entry deletes compose, stale arrays do not.
+    const state = seededState();
+    const server = makeServer(state);
+    server.install();
+
+    const a = await entryFor("trustedNetworks", "192.168.1.0/24", state);
+    const b = await entryFor("trustedNetworks", "10.0.0.0/8", state);
+    // Fire both WITHOUT awaiting the first — the exact interleaving that failed.
+    await Promise.all([revokeAccessEntry(a.entry), revokeAccessEntry(b.entry)]);
+    expect(state.grants.trustedNetworks).toEqual([]);
+
+    const c = await entryFor("corsOrigins", "https://a.example.com", state);
+    const d = await entryFor("corsOrigins", "https://b.example.com", state);
+    await Promise.all([revokeAccessEntry(c.entry), revokeAccessEntry(d.entry)]);
+    expect(state.grants.corsOrigins).toEqual([]);
+  });
+});
+
 async function entryFor(store: string, subject: string, state: { grants: AccessGrantSnapshot }) {
   const { ok, snapshot } = await fetchAccessSnapshot();
   expect(ok).toBe(true);
@@ -149,10 +190,12 @@ describe("revoke routes each store to its own write path (7.5)", () => {
       store: "trustedNetworks",
       subject: "10.0.0.0/8",
       assert: (c) => {
-        // The existing config write path, sibling entries preserved.
-        expect(c.method).toBe("PUT");
-        expect(c.url).toBe("/api/config");
-        expect(c.body).toEqual({ trustedNetworks: ["192.168.1.0/24"] });
+        // Per-entry DELETE. Previously a whole-array PUT whose remaining list the
+        // client computed from a rendered snapshot — two concurrent revokes then
+        // resurrected each other's entry.
+        expect(c.method).toBe("DELETE");
+        expect(c.url).toBe("/api/access/trusted-network");
+        expect(c.body).toEqual({ network: "10.0.0.0/8" });
       },
     },
     {
@@ -169,9 +212,9 @@ describe("revoke routes each store to its own write path (7.5)", () => {
       store: "corsOrigins",
       subject: "https://b.example.com",
       assert: (c) => {
-        expect(c.method).toBe("PUT");
-        expect(c.url).toBe("/api/config");
-        expect(c.body).toEqual({ cors: { allowedOrigins: ["https://a.example.com"] } });
+        expect(c.method).toBe("DELETE");
+        expect(c.url).toBe("/api/access/cors-origin");
+        expect(c.body).toEqual({ origin: "https://b.example.com" });
       },
     },
     {
@@ -194,7 +237,7 @@ describe("revoke routes each store to its own write path (7.5)", () => {
       const server = makeServer(state);
       server.install();
       const { entry, snapshot } = await entryFor(tc.store, tc.subject, state);
-      const result = await revokeAccessEntry(entry, snapshot);
+      const result = await revokeAccessEntry(entry);
       expect(result.ok).toBe(true);
       expect(server.calls).toHaveLength(2); // GET snapshot + the revoke
       tc.assert(server.calls[1]);
@@ -208,7 +251,7 @@ describe("project-trust revoke wraps persistTrustDecision server-side (7.12, D13
     const server = makeServer(state);
     server.install();
     const { entry, snapshot } = await entryFor("projectTrust", "/home/dev/project", state);
-    await revokeAccessEntry(entry, snapshot);
+    await revokeAccessEntry(entry);
 
     const call = server.calls[1];
     expect(call.method).toBe("DELETE");
@@ -227,7 +270,7 @@ describe("project-trust revoke wraps persistTrustDecision server-side (7.12, D13
     const server = makeServer(state);
     server.install();
     const { entry, snapshot } = await entryFor("projectTrust", "/home/dev/project", state);
-    await revokeAccessEntry(entry, snapshot);
+    await revokeAccessEntry(entry);
 
     const after = await fetchAccessSnapshot();
     expect(after.snapshot!.projectTrust).not.toContain("/home/dev/project");
@@ -290,7 +333,7 @@ describe("revocation takes effect on the next request without a restart (7.8)", 
 
     // Revoke through the Access-tab transport.
     const { entry, snapshot } = await entryFor("pathGrants", "/repo/sub", harness.state);
-    const result = await revokeAccessEntry(entry, snapshot);
+    const result = await revokeAccessEntry(entry);
     expect(result.ok).toBe(true);
 
     // NEXT request — same process, no restart — is refused again.

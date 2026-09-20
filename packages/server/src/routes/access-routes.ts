@@ -229,6 +229,56 @@ export function registerAccessRoutes(
     },
   );
 
+  // ── REVOKE: trusted networks and CORS origins, per entry (task 4.5 #5) ──
+  // Both are ARRAY-valued config fields. The client used to send the WHOLE array
+  // computed from a snapshot it had already rendered, so two revokes issued
+  // before the first refetch landed both derived from that same stale array and
+  // the second write resurrected the entry the first had just revoked. These
+  // read-modify-write server-side instead — the same shape as `bypass-hosts`
+  // above — so the removal is atomic per entry and independent of any client
+  // snapshot, including one held by a second browser tab.
+  fastify.delete<{ Body: { network?: string } }>(
+    "/api/access/trusted-network",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const { network } = request.body ?? {};
+      if (!network || typeof network !== "string") {
+        reply.code(400);
+        return { success: false, error: "network is required" } satisfies ApiResponse;
+      }
+      const config = loadConfig();
+      const remaining = (config.trustedNetworks ?? []).filter((n) => n !== network);
+      const result = writeConfigPartial({ trustedNetworks: remaining });
+      if (!result.success) {
+        reply.code(500);
+        return { success: false, error: result.error ?? "config write failed" } satisfies ApiResponse;
+      }
+      return { success: true } satisfies ApiResponse;
+    },
+  );
+
+  fastify.delete<{ Body: { origin?: string } }>(
+    "/api/access/cors-origin",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const { origin } = request.body ?? {};
+      if (!origin || typeof origin !== "string") {
+        reply.code(400);
+        return { success: false, error: "origin is required" } satisfies ApiResponse;
+      }
+      const config = loadConfig();
+      const remaining = (config.cors?.allowedOrigins ?? []).filter((o) => o !== origin);
+      // `writeConfigPartial` replaces whole top-level keys, so pass the complete
+      // `cors` object rather than a partial one.
+      const result = writeConfigPartial({ cors: { ...config.cors, allowedOrigins: remaining } });
+      if (!result.success) {
+        reply.code(500);
+        return { success: false, error: result.error ?? "config write failed" } satisfies ApiResponse;
+      }
+      return { success: true } satisfies ApiResponse;
+    },
+  );
+
   // ── REVOKE: project trust, routed through pi's own API (design D13) ──
   // `decision: null` DELETES the entry in pi's store (`setMany` does
   // `delete data[key]`); it never records a standing refusal. The dashboard
