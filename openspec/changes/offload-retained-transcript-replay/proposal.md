@@ -36,12 +36,14 @@ the deferral defensible and the work worth doing.
 
 ## What Changes
 
-- Teach the session-load worker pool to accept **entries** as well as a file
-  path, so the retained read reuses the same worker, the same
+- Teach the session-load worker pool to accept the **raw transcript text** as
+  well as a file path, so the retained read reuses the same worker, the same
   `replayEntriesAsEvents`, and the same event-parity contract rather than a
   second projection.
-- Route both retained callers through it: the cold-hydration branch and the
-  read route.
+- Route the cold-hydration branch through it. The read route is NOT routed
+  through the worker: it never replays, so its only main-thread cost is the
+  read, and a worker would add a clone of the entries back across the boundary
+  for output the worker did not improve.
 - Keep the store read itself off the main thread too (`fs.promises`), so the
   synchronous `readFileSync` of a 44 MB file stops being a main-thread stall in
   its own right.
