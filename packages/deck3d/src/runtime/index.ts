@@ -213,12 +213,14 @@ function localEffectsFor(
   mode: "dark" | "light",
   g: THREE.Group,
   index: number,
+  skip?: (id: string) => boolean,
 ): LocalHandle[] {
   const registry = localFxRegistry();
   const out: LocalHandle[] = [];
   const ids: string[] = [];
   for (const ref of slide.effects ?? []) {
     if (!ref.id.startsWith("local:")) continue;
+    if (skip?.(ref.id)) continue;
     const module = registry[ref.id.slice("local:".length)];
     const handle = createLocalEffect(
       ref.id,
@@ -402,9 +404,28 @@ async function boot(): Promise<void> {
     });
   }
 
+  /**
+   * Re-create the local effects of a slide whose handles were disposed on the
+   * way out. Without this a `local:` effect animates on the FIRST visit only —
+   * every later visit shows a slide frozen at whatever pose it was disposed in.
+   */
+  function reviveLocalFx(index: number): void {
+    const build = builds[index];
+    if (!build || build.localFx.length > 0) return;
+    const slide = deck.slides[index];
+    if (!(slide.effects ?? []).some((ref) => ref.id.startsWith("local:"))) return;
+    const profile = qualityProfile(build.cfg.quality ?? deck.defaults.quality);
+    const mode = (build.cfg.mode ?? "dark") as "dark" | "light";
+    // A module that threw on create throws again: re-running it would only
+    // duplicate its entry in `effects().errors`.
+    const failed = new Set(localFxErrors.filter((e) => e.slide === slide.id).map((e) => e.effectId));
+    build.localFx = localEffectsFor(slide, build.palette, profile, mode, build.group, index, (id) => failed.has(id));
+  }
+
   function goTo(i: number): void {
     const target = ((i % builds.length) + builds.length) % builds.length;
     if (target !== cur) disposeLocalFx(cur);
+    reviveLocalFx(target);
     const mode = builds[target].cfg.transition ?? "dolly";
     if (target === cur || mode === "cut") return snapTo(target);
     const from = { pos: camState.pos.clone(), target: camState.target.clone() };
@@ -818,13 +839,35 @@ async function boot(): Promise<void> {
         const parts: number[] = [];
         const walk = (o: THREE.Object3D | undefined): void => {
           if (!o) return;
-          o.traverse((n) => parts.push(n.position.x, n.position.y, n.position.z, n.rotation.y));
+          o.traverse((n) => {
+            parts.push(n.position.x, n.position.y, n.position.z, n.rotation.y);
+            // Most fx animate by rewriting instance matrices, not node
+            // transforms; without this the probe reports a busy InstancedMesh
+            // background as motionless.
+            const inst = (n as THREE.InstancedMesh).instanceMatrix;
+            if (inst) parts.push(inst.version, inst.array[12] ?? 0, inst.array[13] ?? 0, inst.array[14] ?? 0);
+          });
         };
         walk(builds[cur].diagram?.g);
         walk(builds[cur].background?.g);
         for (const h of builds[cur].localFx) walk(h.object as THREE.Object3D | undefined);
         return parts.map((n) => Math.round(n * 1e4) / 1e4).join(",");
       },
+      /**
+       * Local-effect liveness, scoped: `motion()` mixes in the diagram and the
+       * corpus background, so a dead local handle hides behind them. Reports
+       * one entry per live handle with a transform digest.
+       */
+      localFx: () =>
+        builds[cur].localFx.map((h, i) => {
+          const parts: number[] = [];
+          (h.object as THREE.Object3D | undefined)?.traverse((n) => {
+            parts.push(n.position.x, n.position.y, n.position.z, n.rotation.x, n.rotation.y, n.rotation.z);
+            const inst = (n as THREE.InstancedMesh).instanceMatrix;
+            if (inst) parts.push(inst.version, inst.array[12] ?? 0, inst.array[13] ?? 0, inst.array[14] ?? 0);
+          });
+          return { id: localFxIds[cur]?.[i] ?? `local[${i}]`, digest: parts.map((n) => Math.round(n * 1e4) / 1e4).join(",") };
+        }),
       anchors: () =>
         builds.map((b) => ({ pos: [b.group.position.x, b.group.position.y, b.group.position.z] as [number, number, number], rotY: b.group.rotation.y })),
       /**

@@ -49,6 +49,44 @@ async function openAllBlocks(page: Page): Promise<void> {
   });
 }
 
+describe.skipIf(!hasChromium)("local fx survive revisiting a slide (#F20)", () => {
+  it("still animates after navigating away and back", async () => {
+    // The module animates on `tick`, so a dead handle shows up as a frozen
+    // transform — the symptom is "works the first time, not later".
+    const { dir } = makeLocalDeck({
+      markdown: "# Geo\n\n- one\n\n# Second\n\n- two\n",
+      slide: "geo",
+      effects: [{ name: "spinner" }],
+    });
+    const built = runCli(["render", "deck.json", "-o", "deck.html"], dir);
+    expect(built.status).toBe(0);
+
+    const browser = await chromium.launch({ channel: "chromium" });
+    const page = await browser.newPage({ viewport: { width: 800, height: 500 } });
+    try {
+      await page.goto(pathToFileURL(join(dir, "deck.html")).href);
+      await page.waitForFunction(() => window.__deck3d !== undefined, undefined, { timeout: 30_000 });
+      // Scoped to the local handle: `motion()` also walks the diagram and the
+      // corpus background, which keep moving and mask a dead local effect.
+      const probe = async (): Promise<{ live: number; moved: boolean }> => {
+        const before = await page.evaluate(() => window.__deck3d.debug.localFx());
+        await page.waitForTimeout(700);
+        const after = await page.evaluate(() => window.__deck3d.debug.localFx());
+        return { live: after.length, moved: JSON.stringify(before) !== JSON.stringify(after) };
+      };
+      expect(await probe()).toEqual({ live: 1, moved: true });
+
+      await page.evaluate(() => window.__deck3d.gotoSlide(2));
+      await page.waitForTimeout(2000);
+      await page.evaluate(() => window.__deck3d.gotoSlide(1));
+      await page.waitForTimeout(2000);
+      expect(await probe()).toEqual({ live: 1, moved: true });
+    } finally {
+      await browser.close();
+    }
+  }, 120_000);
+});
+
 describe.skipIf(!hasChromium)("runtime (chromium)", () => {
   it("boots, measures deterministically, and logs no console error", async () => {
     const browser = await chromium.launch({ channel: "chromium" });

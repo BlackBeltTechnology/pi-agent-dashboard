@@ -171,3 +171,4 @@
 - [x] 14.14 Deck-scope configurator values reach EVERY slide (`applyDeck`), not only the visible one — neighbours share the rail and stayed stale (#F18)
 - [x] 14.15 Palette morphs across a transition instead of snapping at t=0 (`mixPalette`, driven from `stepAnim`) (#F19)
 - [x] 14.16 `horizon-2031` markers ride their gate ring (phase per ring + steady sweep + tumble) instead of sitting pinned at x=4
+- [x] 14.17 `local:` effects revive when a slide is revisited — leaving disposed them permanently, so they animated on the first visit only (#F20)

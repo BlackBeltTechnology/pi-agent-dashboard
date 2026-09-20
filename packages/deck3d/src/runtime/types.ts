@@ -50,6 +50,7 @@ export interface Deck3dApi {
     /** Fingerprint of the current slide's animated transforms. */
     motion: () => string;
     /** Every slide's live anchor, for rail/spacing assertions. */
+    localFx: () => Array<{ id: string; digest: string }>;
     anchors: () => Array<{ pos: [number, number, number]; rotY: number }>;
   };
   current: () => number;
