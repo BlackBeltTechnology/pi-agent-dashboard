@@ -10,12 +10,16 @@
  * - path grants            → DELETE /api/access/grants
  * - worktree-init trust    → DELETE /api/access/worktree-trust (also clears
  *                            in-memory session trust server-side)
- * - KB source trust        → DELETE /api/access/kb-trust
- * - project trust          → POST /api/resources/trust with `decision: null` —
- *                            the existing `persistTrustDecision` wrapper's
- *                            route (design D13). Revoke means DELETE the
+ * - KB source trust        → DELETE /api/kb/source-trust — owned by the
+ *                            kb-plugin, which calls kb's own trust module.
+ * - project trust          → DELETE /api/access/project-trust — routed through
+ *                            the existing `persistTrustDecision` wrapper
+ *                            server-side (design D13). Revoke means DELETE the
  *                            entry; a standing negative decision is never
- *                            recorded in its place.
+ *                            recorded in its place. Deliberately NOT
+ *                            `POST /api/resources/trust`: that route is gated on
+ *                            an outstanding trust challenge and takes an option
+ *                            id, so it cannot express a revoke.
  * - trusted networks       → PUT /api/config `trustedNetworks` — the existing
  *                            config write path (spec: revoking a trusted
  *                            network).

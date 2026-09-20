@@ -1206,6 +1206,11 @@ export function registerFileRoutes(
         return { success: false, error: "file too large" } satisfies ApiResponse;
       }
       try {
+        // D14 names the office/EML gates in scope. `stat` above is a PATH check and
+        // the read below is a separate syscall, so assert regular-file here too:
+        // a FIFO inside a granted tree would otherwise block the request open.
+        // (Task 8.7 review — the office gates had this, EML did not.)
+        await assertRegularFile(gate.resolved);
         const parsed = await loadParsedEml(gate.resolved, stat);
         const data = await toParseResult(parsed, { allowRemote: request.query.allowRemote === "1" });
         return { success: true, data } satisfies ApiResponse;
@@ -1256,6 +1261,8 @@ export function registerFileRoutes(
       }
       let parsed;
       try {
+        // Same D14 guard as the EML parse site above (task 8.7 review).
+        await assertRegularFile(gate.resolved);
         parsed = await loadParsedEml(gate.resolved, stat);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "failed to parse EML";

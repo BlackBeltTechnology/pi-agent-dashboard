@@ -60,8 +60,19 @@ export async function offeredAncestorLadder(
   try {
     const roots = await checkoutRootsAsync({ cwd: real, timeout: PROBE_TIMEOUT_MS });
     const candidate = roots?.thisCheckout;
-    if (candidate && !samePath(candidate, real) && !samePath(candidate, start)) {
-      checkoutRoot = realpathNearestAncestor(candidate);
+    if (candidate) {
+      const boundary = realpathNearestAncestor(candidate);
+      // The boundary IS the subject: the ladder starts at the subject's PARENT,
+      // which already sits above the boundary, so nothing may be offered. Both
+      // of the old exclusions here (`boundary !== real` AND `boundary !== start`)
+      // instead nulled the boundary, so the climb ran past the checkout and
+      // offered the directory holding EVERY sibling repository — the one-click
+      // widening this module exists to prevent (found by the task 8.7 review).
+      if (samePath(boundary, real)) return [];
+      // `boundary === start` (subject is a direct child of the repo root) is NOT
+      // excluded: `start` is the first rung and the loop's boundary check
+      // terminates on it, offering exactly the repo root and nothing above it.
+      checkoutRoot = boundary;
     }
   } catch {
     /* degraded git → no-repo boundary rules, never a wider ladder */

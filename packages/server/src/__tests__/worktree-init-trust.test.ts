@@ -141,6 +141,38 @@ describe("worktree-init-trust — revoke", () => {
     expect(existsSync(storeFile())).toBe(false);
     expect(isTrusted("/repo/r4", "hash-r4")).toBe(false);
   });
+
+  it("R6 an omitted hash revokes EVERY fingerprint for the repo", () => {
+    // The Access tab's contract: the aggregate drops hashes, so it lists one row
+    // per REPO and can only revoke repo-wide. Deleting just the literal
+    // `repoRoot\0` key matched nothing, so the tab's button reported success and
+    // revoked nothing (task 8.7 review).
+    recordTrust("/repo/r6", "hash-r6a");
+    recordTrust("/repo/r6", "hash-r6b");
+    recordTrust("/repo/r6-other", "hash-r6a");
+    expect(diskHasHash("hash-r6a")).toBe(true);
+
+    revokeTrust("/repo/r6");
+
+    expect(isTrusted("/repo/r6", "hash-r6a")).toBe(false);
+    expect(isTrusted("/repo/r6", "hash-r6b")).toBe(false);
+    // Repo-scoped: a DIFFERENT repo holding the same hash is untouched.
+    expect(isTrusted("/repo/r6-other", "hash-r6a")).toBe(true);
+  });
+
+  it("R7 an empty hash is repo-wide too, and an explicit hash stays narrow", () => {
+    recordTrust("/repo/r7", "hash-r7a", "session");
+    recordTrust("/repo/r7", "hash-r7b", "session");
+    revokeTrust("/repo/r7", "");
+    expect(isTrusted("/repo/r7", "hash-r7a")).toBe(false);
+    expect(isTrusted("/repo/r7", "hash-r7b")).toBe(false);
+
+    recordTrust("/repo/r7", "hash-r7c");
+    recordTrust("/repo/r7", "hash-r7d");
+    revokeTrust("/repo/r7", "hash-r7c");
+    expect(isTrusted("/repo/r7", "hash-r7c")).toBe(false);
+    expect(isTrusted("/repo/r7", "hash-r7d")).toBe(true);
+  });
 });
 
 // ── Read-only guarantee (change: add-access-grants-and-review, task 6.4) ──

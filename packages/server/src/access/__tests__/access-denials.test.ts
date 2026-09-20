@@ -203,6 +203,35 @@ describe("7b.1a / 9a.20–9a.21 offered-ancestor ladder", () => {
     fs.rmSync(home, { recursive: true, force: true });
   });
 
+  it("stops at the checkout root when the subject IS the repo root", async () => {
+    // The most common denial shape is a file directly under the repo root, so
+    // the subject IS the boundary and the first rung would already sit above it.
+    // The old boundary guards nulled themselves in exactly this case and offered
+    // `work` — every sibling repo in one click (task 8.7 review).
+    const home = path.join(os.homedir(), "fake-home-ladder7");
+    const repo = path.join(home, "work", "repo");
+    fs.mkdirSync(repo, { recursive: true });
+    execFileSync("git", ["init", "-q"], { cwd: repo });
+
+    expect(await offeredAncestorLadder(repo, { homedir: home })).toEqual([]);
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  it("stops at the checkout root when the subject is its direct child", async () => {
+    const home = path.join(os.homedir(), "fake-home-ladder8");
+    const repo = path.join(home, "work", "repo");
+    fs.mkdirSync(repo, { recursive: true });
+    execFileSync("git", ["init", "-q"], { cwd: repo });
+    const child = path.join(repo, "src");
+    fs.mkdirSync(child, { recursive: true });
+
+    // Exactly the repo root — the boundary — and nothing above it. This is the
+    // legitimate rung, so the fix must keep it while refusing `work`.
+    const ladder = await offeredAncestorLadder(child, { homedir: home });
+    expect(ladder).toEqual([fs.realpathSync(repo)]);
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
   it("never offers a symlink's lexical parent", async () => {
     const home = path.join(os.homedir(), "fake-home-ladder6");
     const realDir = path.join(home, "work", "real");
