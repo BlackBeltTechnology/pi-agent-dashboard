@@ -7,7 +7,8 @@ export default function (ctx, params) {
   const geo = new THREE.CircleGeometry(1, 6);
   const mat = new THREE.MeshStandardMaterial({
     color: palette.second, metalness: 0.3, roughness: 0.7,
-    transparent: true, opacity: 0.5, side: THREE.DoubleSide,
+    // depthWrite off: translucent plates that overlap must blend, not fight.
+    transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false,
   });
   const plates = new THREE.InstancedMesh(geo, mat, count);
   const seeds = [];
@@ -33,7 +34,9 @@ export default function (ctx, params) {
       const s = seeds[i];
       // The drift is the point: the map keeps coming apart, never back together.
       const r = s.r + Math.sin(t * 0.15 * s.drift) * 1.6 + t * 0.02 * s.drift;
-      v.set(Math.cos(s.a) * r, Math.sin(s.a) * r, 0);
+      // Every plate used to sit at exactly z=0, so overlapping pairs z-fought
+      // and the hexagons shimmered as they drifted. Stratify them in depth.
+      v.set(Math.cos(s.a) * r, Math.sin(s.a) * r, i * 0.004);
       q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), s.a);
       scale.set(s.s, s.s, s.s);
       plates.setMatrixAt(i, m.compose(v, q, scale));

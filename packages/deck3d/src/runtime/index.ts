@@ -152,7 +152,14 @@ function addDiagram(g: THREE.Group, slide: DeckSlide, font: Font, P: PaletteColo
   holder.add(diagram.g);
   const disc = new THREE.Mesh(
     new THREE.CylinderGeometry(1.7, 1.75, 0.08, 64),
-    new THREE.MeshStandardMaterial({ color: P.card, metalness: 0.4, roughness: 0.35, envMapIntensity: cfg.envReflections !== false ? 1 : 0 }),
+    // Polished, not matte: low roughness + full metalness is what makes the
+    // key and rim lights read as highlights sliding across the plate.
+    new THREE.MeshStandardMaterial({
+      color: P.card,
+      metalness: 0.95,
+      roughness: 0.12,
+      envMapIntensity: cfg.envReflections !== false ? 1.6 : 0,
+    }),
   );
   disc.position.y = -1.7;
   disc.receiveShadow = true;
