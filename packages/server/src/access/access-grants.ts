@@ -32,6 +32,12 @@
  * produced it (D17): one grant widens the grant layer for every session and
  * every connected client. `origin` records which session's denial produced it.
  *
+ * SINGLE WRITER (accepted trade-off). The store is loaded once and every write
+ * rewrites the whole file, so two server processes sharing one path (an explicit
+ * `PI_ACCESS_GRANTS_STORE`, or dev + docker pointed at one `$HOME`) silently drop
+ * each other's grants. The dashboard is one server per machine and the override
+ * exists for tests, so no lock is taken; see design.md D-format-1.
+ *
  * See change: add-access-grants-and-review.
  */
 import * as fs from "node:fs";
@@ -104,22 +110,69 @@ function emptyStore(): AccessGrant[] {
 /** Absent, unreadable or malformed → empty (never throws). */
 function loadFromDisk(): AccessGrant[] {
   loadCount += 1;
+
+  let raw: string;
   try {
-    const raw = fs.readFileSync(accessGrantsStorePath(), "utf8");
-    const parsed = JSON.parse(raw) as StoreFile;
-    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.grants)) return emptyStore();
-    return parsed.grants.filter(
+    raw = fs.readFileSync(accessGrantsStorePath(), "utf8");
+  } catch (err) {
+    // A MISSING store is the ordinary first-run case and stays quiet. Any other
+    // read failure is reported: an unreadable store empties the granted set, and
+    // doing that silently would revoke every project grant with no trace.
+    if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") {
+      console.warn(`[access-grants] store unreadable: ${(err as Error)?.message}`);
+    }
+    return emptyStore();
+  }
+
+  let parsed: StoreFile;
+  try {
+    parsed = JSON.parse(raw) as StoreFile;
+  } catch {
+    console.warn("[access-grants] store is not valid JSON — treating as empty");
+    return emptyStore();
+  }
+
+  if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.grants)) return emptyStore();
+
+  // Refuse an unknown version outright. Reading a future file as if it were v1
+  // would misinterpret it silently; refusing empties the granted set, which
+  // fails CLOSED (narrower, never wider) and is logged.
+  if (parsed.version !== 1) {
+    console.warn(`[access-grants] unknown store version ${String(parsed.version)} — refusing to read`);
+    return emptyStore();
+  }
+
+  const valid = parsed.grants
+    .filter(
       (g): g is AccessGrant =>
         !!g &&
         typeof g === "object" &&
         typeof g.subject === "string" &&
         g.subject.length > 0 &&
-        (g.scope === "session" || g.scope === "project") &&
-        typeof g.grantedAt === "number",
-    );
-  } catch {
-    return emptyStore();
-  }
+        // Only `project` scope is persisted. Accepting a `session` entry here
+        // would resurrect it across restarts (contradicting "session = until
+        // server restart") and leave it unrevocable through the scoped API,
+        // which only touches the in-memory list.
+        g.scope === "project" &&
+        // `NaN`/`Infinity` pass a bare `typeof` check and would poison the
+        // eviction sort, so require a finite number.
+        typeof g.grantedAt === "number" &&
+        Number.isFinite(g.grantedAt),
+    )
+    .map((g) => ({ ...g, origin: typeof g.origin === "string" ? g.origin : "unknown" }))
+    // The forbidden filter must hold for values ALREADY ON DISK, not only for
+    // ones arriving through `recordGrant`. The forbidden list grew during
+    // planning, so a store legitimately written by an older build can contain a
+    // subject this build must refuse; a store copied between machines can too
+    // (a different `$HOME` yields a different `sensitive` set). Without this, a
+    // single on-disk `"/"` admits every path on the machine.
+    .filter((g) => !isUngrantableSubject(g.subject));
+
+  // The cap is a property of the STORE, not of the write path: a hand-edited or
+  // hostile file with 100k grants would otherwise be admitted in full, growing
+  // the hot path's Set per request and memory without bound.
+  enforceCap(valid, "project");
+  return valid;
 }
 
 /** Cached persisted grants. Never reads on a warm cache — this is the containment path. */
@@ -179,12 +232,19 @@ export function grantedSubjects(): string[] {
  * Evict oldest-by-`grantedAt` down to `GRANT_CAP_PER_SCOPE` for `scope` only.
  * Ties on `grantedAt` break by insertion order (array order), so eviction is
  * deterministic (D10).
+ *
+ * `protect` — the grant being recorded right now — is never evicted. It is the
+ * most recent by construction, but a rolled-back clock or a future-dated entry
+ * already in the file could make it sort oldest, and evicting it would let
+ * `recordGrant` return `ok: true` for a grant that was never persisted: the UI
+ * would claim a grant that does not exist, the exact failure D11 forbids.
  */
-function enforceCap(grants: AccessGrant[], scope: GrantScope): void {
+function enforceCap(grants: AccessGrant[], scope: GrantScope, protect?: AccessGrant): void {
   const inScope = grants.filter((g) => g.scope === scope);
   if (inScope.length <= GRANT_CAP_PER_SCOPE) return;
   const excess = inScope.length - GRANT_CAP_PER_SCOPE;
   const evictOrder = inScope
+    .filter((g) => g !== protect)
     .map((g, i) => ({ g, i }))
     .sort((a, b) => a.g.grantedAt - b.g.grantedAt || a.i - b.i)
     .slice(0, excess)
@@ -264,7 +324,7 @@ export function recordGrant(input: RecordGrantInput): RecordGrantResult {
     const grant: AccessGrant = { subject, scope, grantedAt, origin };
     if (widen) grant.widenedFrom = widen;
     sessionGrants.push(grant);
-    enforceCap(sessionGrants, "session");
+    enforceCap(sessionGrants, "session", grant);
     return { ok: true, grant };
   }
 
@@ -274,7 +334,7 @@ export function recordGrant(input: RecordGrantInput): RecordGrantResult {
   const grant: AccessGrant = { subject, scope, grantedAt, origin };
   if (widen) grant.widenedFrom = widen;
   grants.push(grant);
-  enforceCap(grants, "project");
+  enforceCap(grants, "project", grant);
 
   const file: StoreFile = { version: 1, grants };
   try {

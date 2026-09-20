@@ -553,3 +553,71 @@ incompatibly.
 *Resolved during planning:* the grant-write failure question → D11; proactive
 grant creation from the tab → D12; store bounds → D10; project-trust revoke →
 D13; the check→open TOCTOU window → D14.
+
+*Resolved after planning:* the store's load-path hardening and its accepted
+trade-offs → D21.
+
+---
+
+### D21 — The store's LOAD path re-validates; the write path alone was not enough
+
+**Provenance.** Task 8.8 doubt-driven review of the persisted format, run before
+ship because an on-disk grant format is effectively irreversible. Cross-model on
+`@propose-review-2` (ZAI GLM); `@propose-review-1` was SKIPPED as same-family —
+the author runs on `deepseek-flash`, so a reviewer on that family would share its
+blind spots. 12 findings; the load-path ones were the highest severity, and all
+were verified against source before classification rather than rubber-stamped.
+
+**The defect class.** The write path enforced five invariants; the read path
+enforced only *shape*. A store that was hand-edited, hostile, copied between
+machines, or written by an **older build** — both the forbidden list and the
+format changed during planning — therefore loaded the process into a state the
+write path could never have produced. `loadFromDisk` now re-applies, each with a
+regression test that fails on the pre-fix code:
+
+- **Forbidden subject.** `isUngrantableSubject` ran only in `recordGrant`. A
+  single on-disk `"/"` admits **every path on the machine**. The list GREW during
+  planning, so an older build's store can legitimately hold a subject this build
+  must refuse; a store copied to a machine with a different `$HOME` is re-checked
+  against the new `sensitive` set.
+- **`version === 1`.** The field was written and never read, so a future file was
+  silently interpreted as v1. An unknown version is now refused **and logged** —
+  failing closed (narrower, never wider) and loudly, not silently.
+- **Cap 200/scope.** `enforceCap` ran only in `recordGrant`, so a 100k-grant file
+  loaded in full: every one admitted, the hot path's `Set` rebuilt per request,
+  memory unbounded. The cap is a property of the STORE, not of the write path.
+- **`scope === "project"` only.** Loading a disk-resident `session` grant
+  resurrected it across restarts (contradicting "session = until server restart")
+  and left it unrevocable through the scoped API, which touches memory only.
+- **Finite `grantedAt`.** `NaN`/`Infinity` pass a bare `typeof` check and poison
+  the eviction sort. (`JSON.stringify(NaN)` emits `null`, so the regression test
+  writes a raw `1e999` literal — otherwise it would exercise nothing.)
+- **`origin` is a string**, coerced to `"unknown"` rather than rendering undefined.
+
+**Plus one write-path fix.** `enforceCap` now never evicts the grant being
+recorded (`protect`). A rolled-back clock — or a future-dated entry already in the
+file — made the NEW grant sort oldest, so it was evicted *before* persisting while
+`recordGrant` still returned `ok: true`: a UI claiming a grant that does not
+exist, the exact failure D11 forbids. A malformed → empty store also logs now, so
+an operator's vanishing grants are never *silent*.
+
+**Accepted trade-offs** (reviewed and consciously kept, not overlooked):
+
+- **Single writer.** Loaded once, whole-file rewrite, no lock: two processes
+  sharing one path silently drop each other's grants. The dashboard is one server
+  per machine and `PI_ACCESS_GRANTS_STORE` is a test seam.
+- **No `fsync` before `rename`.** A power loss can leave a short file, which then
+  hits malformed → empty. That path fails **closed** (narrower, never wider), so a
+  sync per grant was not worth it.
+- **Case-sensitive subject compare.** `realpath` does not canonicalise case on
+  macOS, so a case-variant subject could duplicate a grant or miss a revoke.
+  Unreachable through the UI — subjects come from denials, which use real paths —
+  and the repo's `samePath` helper is not importable here (module cycle).
+- **First load is a sync read** on the first containment evaluation. This is D16's
+  documented lazy load; the "zero syscalls" claim is about the warm path.
+- **`revokeGrant` partial failure** with an undefined scope: session grants are
+  spliced before the persisted write, so a failed write returns `false` while the
+  session removal stands. Fails closed; the route passes an explicit scope.
+- **Relative/empty subject in `recordGrant`** resolves against the server's cwd.
+  The route's denial binding makes it unreachable, so no second guard was added
+  beyond the forbidden filter that D15 already requires.

@@ -380,3 +380,117 @@ describe("revoke semantics", () => {
     expect(listGrants()[0].widenedFrom).toBeUndefined();
   });
 });
+
+/**
+ * Load-time hardening. The write path already enforced these; the READ path did
+ * not, so a store that was hand-edited, hostile, copied between machines, or
+ * written by an OLDER build (whose forbidden list and format differed) could put
+ * the process into a state the write path would never have allowed.
+ *
+ * Found by the task 8.8 doubt-driven review (findings 1, 2, 3, 5, 12); each case
+ * below FAILS on the pre-fix `loadFromDisk`, which filtered on shape alone.
+ */
+describe("D15/D11 load-time hardening", () => {
+  function seedStore(grants: unknown[], version = 1): void {
+    fs.mkdirSync(path.dirname(storePath), { recursive: true });
+    fs.writeFileSync(storePath, JSON.stringify({ version, grants }), "utf8");
+    __resetAccessGrants();
+  }
+
+  it("finding 1: a forbidden subject ALREADY ON DISK is never admitted", () => {
+    // `recordGrant` refuses these, but nothing re-checked the file. One on-disk
+    // "/" admits every path on the machine.
+    seedStore([{ subject: "/", scope: "project", grantedAt: 1, origin: "hostile" }]);
+    expect(grantedSubjects()).toEqual([]);
+
+    seedStore([{ subject: "/etc", scope: "project", grantedAt: 1, origin: "hostile" }]);
+    expect(grantedSubjects()).toEqual([]);
+  });
+
+  it("finding 1: a forbidden subject is refused while its siblings still load", () => {
+    const ok = mkdir("legit");
+    seedStore([
+      { subject: fs.realpathSync(ok), scope: "project", grantedAt: 2, origin: "s" },
+      { subject: "/", scope: "project", grantedAt: 1, origin: "hostile" },
+    ]);
+    expect(grantedSubjects()).toEqual([fs.realpathSync(ok)]);
+  });
+
+  it("finding 2: an unknown store version is refused rather than misread as v1", () => {
+    const dir = mkdir("v2");
+    seedStore([{ subject: fs.realpathSync(dir), scope: "project", grantedAt: 1, origin: "s" }], 2);
+    expect(grantedSubjects()).toEqual([]);
+  });
+
+  it("finding 3: the cap is enforced at load, not only on write", () => {
+    const base = fs.realpathSync(mkdir("flood"));
+    seedStore(
+      Array.from({ length: GRANT_CAP_PER_SCOPE * 3 }, (_, i) => ({
+        subject: path.join(base, `d${i}`),
+        scope: "project",
+        grantedAt: 1000 + i,
+        origin: "hostile",
+      })),
+    );
+    // Newest survive; the flood cannot grow the hot path's Set without bound.
+    expect(grantedSubjects()).toHaveLength(GRANT_CAP_PER_SCOPE);
+    expect(grantedSubjects()).toContain(path.join(base, `d${GRANT_CAP_PER_SCOPE * 3 - 1}`));
+    expect(grantedSubjects()).not.toContain(path.join(base, "d0"));
+  });
+
+  it("finding 5: a disk-resident session grant is not resurrected", () => {
+    // Session scope means "until server restart". Loading one from disk would
+    // both survive the restart and be unrevocable through the scoped API.
+    const dir = mkdir("ghost");
+    seedStore([{ subject: fs.realpathSync(dir), scope: "session", grantedAt: 1, origin: "s" }]);
+    expect(grantedSubjects()).toEqual([]);
+  });
+
+  it("finding 12: a missing origin is coerced, not left undefined", () => {
+    const dir = mkdir("noorigin");
+    seedStore([{ subject: fs.realpathSync(dir), scope: "project", grantedAt: 1 }]);
+    expect(listGrants()[0].origin).toBe("unknown");
+  });
+
+  it("a non-finite grantedAt is dropped rather than poisoning the eviction sort", () => {
+    // JSON has no NaN literal and `JSON.stringify(NaN)` emits `null` (which the
+    // shape filter already rejects, so it would test nothing). `1e999` DOES parse
+    // to Infinity, which passes a bare `typeof === "number"` check while breaking
+    // the eviction sort — so the raw text is written deliberately.
+    const dir = mkdir("nan");
+    fs.mkdirSync(path.dirname(storePath), { recursive: true });
+    fs.writeFileSync(
+      storePath,
+      `{"version":1,"grants":[{"subject":${JSON.stringify(fs.realpathSync(dir))},` +
+        `"scope":"project","grantedAt":1e999,"origin":"s"}]}`,
+      "utf8",
+    );
+    __resetAccessGrants();
+    expect(grantedSubjects()).toEqual([]);
+  });
+
+  it("finding 4: a grant that would sort oldest is never the one evicted", () => {
+    // D11 promises the caller is told when a grant did not stick. A rolled-back
+    // clock (or a future-dated entry already in the file) made the NEW grant
+    // sort oldest, so it was evicted before persisting while `recordGrant` still
+    // returned ok:true — a UI claiming a grant that does not exist.
+    const base = fs.realpathSync(mkdir("full"));
+    seedStore(
+      Array.from({ length: GRANT_CAP_PER_SCOPE }, (_, i) => ({
+        subject: path.join(base, `e${i}`),
+        scope: "project",
+        grantedAt: 1000 + i,
+        origin: "seed",
+      })),
+    );
+
+    const fresh = mkdir("full", "fresh");
+    const res = recordGrant({ subject: fresh, origin: "s", now: 1 });
+    expect(res.ok).toBe(true);
+    expect(grantedSubjects()).toContain(fs.realpathSync(fresh));
+    expect(grantedSubjects()).toHaveLength(GRANT_CAP_PER_SCOPE);
+
+    __resetAccessGrants();
+    expect(grantedSubjects()).toContain(fs.realpathSync(fresh));
+  });
+});
