@@ -39,31 +39,26 @@
  */
 
 import { execFileSync } from "node:child_process";
-import fs from "node:fs";
-import path from "node:path";
 import { BusClient } from "@blackbelt-technology/pi-dashboard-bus-client";
 import { expect, test } from "./fixtures.js";
 import { gatewayUrlWithTicket, pairDeviceBearer } from "./helpers/bridge-credential.js";
 import { FIXTURE_GIT, gotoDashboard } from "./helpers/index.js";
-import { BASE_URL, DASHBOARD_PORT, REPO_ROOT } from "./lifecycle.js";
+import { BASE_URL, DASHBOARD_PORT, harnessProject } from "./lifecycle.js";
 
 // ── harness plumbing (same shape as gateway-origin-surfaces.spec.ts) ────────
 
 let containerId: string | undefined;
 function harnessContainer(): string {
   if (containerId) return containerId;
-  const state = JSON.parse(
-    fs.readFileSync(path.join(REPO_ROOT, ".pi-test-harness.json"), "utf8"),
-  ) as { project?: string };
-  if (!state.project) throw new Error(".pi-test-harness.json carries no compose project");
+  const project = harnessProject();
   const id = execFileSync(
     "docker",
-    ["ps", "-q", "--filter", `label=com.docker.compose.project=${state.project}`],
+    ["ps", "-q", "--filter", `label=com.docker.compose.project=${project}`],
     { encoding: "utf8", timeout: 30_000 },
   )
     .trim()
     .split("\n")[0];
-  if (!id) throw new Error(`no running container for compose project ${state.project}`);
+  if (!id) throw new Error(`no running container for compose project ${project}`);
   containerId = id;
   return id;
 }
@@ -389,4 +384,119 @@ test.describe("retained remote transcripts are served (L3)", () => {
     expect(res.status, "a local session's files were reachable through the remote read").toBe(403);
   });
 
+  /**
+   * F2 — two real clients on one remote-origin session, subscribed inside the
+   * same hydration window.
+   *
+   * The failure this guards is not a crash: `insertEvent` is NOT idempotent (it
+   * mints a fresh `seq` per call), so two hydrations for one session insert the
+   * transcript TWICE and both subscribers render every message twice. Duplicate
+   * rendered rows are therefore the observable, and `/api/health`'s `hydration`
+   * ring gives the count of hydrations that actually ran.
+   *
+   * The precise interleaving (follower arrives while the leader is in flight) is
+   * pinned deterministically at L1 in
+   * `packages/server/src/__tests__/subscription-handler.test.ts` — at L3 the
+   * window cannot be held open without a ~44 MB fixture. This arm proves the
+   * path is wired end to end over the real socket.
+   *
+   * See change: offload-retained-transcript-replay (D4, test-plan #F2).
+   */
+  test("F2 two clients cold-subscribing together hydrate once, with no duplicated messages", async ({
+    page,
+    browser,
+  }) => {
+    await ensureFixturePinned();
+    const sessionId = `e2e-coalesce-${Date.now()}`;
+    const marker = `COALESCE${Date.now()}`;
+    // Enough entries to widen the hydration window past two navigations.
+    const lines = [
+      { type: "session", id: sessionId, timestamp: "2025-01-01T00:00:00Z", cwd: FIXTURE_GIT },
+      ...Array.from({ length: 1_200 }, (_, i) => ({
+        type: "message",
+        id: `c${i}`,
+        parentId: i === 0 ? null : `c${i - 1}`,
+        timestamp: new Date(Date.parse("2025-01-01T00:00:01Z") + i * 1_000).toISOString(),
+        message: {
+          role: i % 2 === 0 ? "user" : "assistant",
+          content: [{ type: "text", text: `${marker}-${i}` }],
+        },
+      })),
+    ].map((e) => JSON.stringify(e));
+
+    const ws = await openRemoteBridge(sessionId);
+    sendTranscript(ws, sessionId, lines, true);
+    await waitForRetention(sessionId, "complete");
+
+    const ctx2 = await browser.newContext({ baseURL: BASE_URL });
+    try {
+      const page2 = await ctx2.newPage();
+      await gotoDashboard(page);
+      // Seed display prefs in BOTH contexts: a profile with no `displayPrefs`
+      // opens `FirstLaunchDisplayModal`, whose overlay stops the app short of
+      // subscribing. Same seeding the sibling `large-session-replay.spec.ts`
+      // performs. See change: configurable-chat-display.
+      const seedDisplay = (target: typeof page) =>
+        target.request.patch("/api/preferences/display", { data: { reasoning: false } });
+      await seedDisplay(page);
+      await seedDisplay(page2);
+      // Two REAL clients cold-subscribe inside the same hydration window.
+      await Promise.all([page.goto(`/session/${sessionId}`), page2.goto(`/session/${sessionId}`)]);
+
+      // Asserted against the SERVER's hydration ring, which IS the coalescing
+      // contract: one sample means one hydration. A second hydration would leave
+      // a second sample AND insert the transcript twice (`insertEvent` mints a
+      // fresh `seq` per call, so a double insert is duplicated messages, not an
+      // idempotent overwrite).
+      //
+      // Deliberately NOT a DOM-count assertion. The client's observation of
+      // frames needs a settled render pipeline, which two concurrent cold
+      // subscribes do not guarantee; a rendered-row assertion here fails for
+      // reasons that have nothing to do with coalescing (measured: the server
+      // reported exactly one hydration carrying all 1200 entries on every run
+      // while the pages rendered nothing). Rendering of this very path is
+      // covered by the single-client arms above.
+      const hydrationSamples = async () => {
+        const health = (await (await fetch(`${BASE_URL}/api/health`)).json()) as {
+          hydration?: Array<{ sessionId?: string; entryCount?: number }>;
+        };
+        return (health.hydration ?? []).filter((h) => h.sessionId === sessionId);
+      };
+      await expect
+        .poll(async () => (await hydrationSamples()).length, { timeout: 60_000, intervals: [500] })
+        .toBe(1);
+      // …and that single hydration carried the WHOLE transcript: a partial
+      // count would mean the second client's subscribe raced the first's insert.
+      expect((await hydrationSamples())[0]?.entryCount).toBe(lines.length - 1);
+    } finally {
+      await ctx2.close();
+    }
+  });
+
+  /**
+   * F5 — the HTTP read must be byte-identical across the offload.
+   *
+   * The offload replaced a `readFileSync` + main-thread split with an async
+   * read whose `entries` projection is deliberately NOT the shared
+   * `splitTranscriptLines` (that would turn `""` into `[""]`, resurrect
+   * interior blanks, and strip a leading BOM). This arm pins the whole body at
+   * the byte level, so a reordered key or an added field fails too.
+   *
+   * See change: offload-retained-transcript-replay (D1/D5, test-plan #F5).
+   */
+  test("F5 the retained-transcript HTTP body is unchanged", async () => {
+    const sessionId = `e2e-httpbody-${Date.now()}`;
+    const lines = transcriptLines(`HTTPBODY${Date.now()}`);
+    const ws = await openRemoteBridge(sessionId);
+    sendTranscript(ws, sessionId, lines, true);
+    await waitForRetention(sessionId, "complete");
+
+    const res = await retainedFetch(sessionId);
+    expect(res.ok).toBeTruthy();
+    expect(res.headers.get("content-type")).toContain("application/json");
+    // Byte-for-byte the serialization of the documented shape.
+    expect(await res.text()).toBe(
+      JSON.stringify({ success: true, data: { entries: lines, state: "complete" } }),
+    );
+  });
 });

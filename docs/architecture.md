@@ -156,6 +156,75 @@ TypeScript type definitions shared across all components:
 - **Folder status capsule** (change: unify-folder-status-capsule). `FolderStatusCapsule` = folder header's ONLY liveness surface. Renders in BOTH collapse states. Replaces `FolderNeedsYouPill` + collapsed-only `FolderStatusRollup` + raw `(N)` count — all DELETED, incl. `countStatusRollup`. Segments by `countStatusCapsule(sessions, flags)` (`packages/client/src/lib/session/session-status-visuals.ts`). Fixed severity order `CAPSULE_SEGMENT_ORDER` = needs-you > error > working > idle; magnitude never reorders. Zero-count segments absent; no countable sessions → no capsule at all (all-ended folder shows none; its `N ended` disclosure row still reports size). Excludes `ended` + `hidden` before shape derivation. `flags.widgetBar` tri-state `(id) => boolean | undefined`; `true` or `undefined` excludes that ask_user session from EVERY bucket. Still per-session `WidgetBarProbe` + `useHasWidgetBarPrompt`, now capsule-owned. needs-you uses explicit predicate, not `deriveStatusShape`; re-adds `!hasError` guard — errored ask_user counts once, as error. `notice` shape folds into `idle` bucket; retrying counts as `working`. Counts cap at `999+`. Non-idle segments = `<button>`s → first session of that state via `firstIds[bucket]`; idle = inert `<span>` + aria-label. Activation `stopPropagation()` → SessionList reveal path (`onSeekToCard` / `revealRequest`): inherits guarded expand, layout-settled scroll, hidden/filtered degrade toasts. Colors from `--status-*` family only, never `--severity-*`; no new CSS custom property. Capsule `flex-none` + `whitespace-nowrap`; sheds nothing; folder name absorbs width pressure. Test ids: `folder-status-capsule-<cwd>`, `folder-capsule-seg-{needs-you,error,working,idle}-<cwd>`.
 - **Opt-in urgency sort.** `useFolderUrgencySort` per-folder pref, default off, localStorage `dashboard:folder-urgency-sort`. When on, `SessionList` floats ask_user sessions first within active tier via `floatAskUserFirst`. Toggle = folder actions menu item `urgency-sort` (`mdiSortVariant`), `aria-pressed` bound to `urgencySort.isOn(cwd)`. Per-folder persisted preference unchanged.
 
+### Bridge Streaming Coalescing (change: coalesce-bridge-message-update-snapshots)
+
+**Problem.**
+- pi `message_update` carries FULL accumulated text snapshot, not delta.
+- Bridge forwarded every update synchronously on pi single-threaded loop.
+- Paid `JSON.stringify` + `ws.send` per source token.
+- Strings grow O(N) over N tokens → O(N²) bytes per turn; stalled host event loop.
+
+**Mechanism & state machine.**
+- File: `packages/extension/src/message-update-coalescer.ts`.
+- Transport-agnostic single-slot state machine (`MessageUpdateCoalescer`).
+- Bridge injects callbacks: `send`, `setTimer`, `clearTimer`, `isActive`.
+- `COALESCE_WINDOW_MS = 50`.
+- FIXED window anchored at FIRST pending update arrival.
+- NOT debounce: continuous stream never gaps; debounce starves stream until `message_end`.
+- Fixed window caps added latency at ≤ 50 ms non-cumulative.
+- Last-wins single slot; stores live event reference; client takes cumulative latest snapshot.
+
+**Family split (sub-event routing).**
+- Text-carrying sub-events park: `text_start`, `text_delta`, `text_end`.
+- Non-text sub-events bypass park: `thinking_start`, `thinking_delta`, `thinking_end`, `toolcall_start`, `toolcall_delta`, `toolcall_end`, `start`, and unknown types.
+- Non-text handler flushes parked text snapshot first, then forwards immediately and unmodified.
+- Preserves thinking deltas: thinking deltas ADDITIVE, not snapshots; coalescing drops tokens.
+- Unknown sub-events fail-safe: pass through immediately to prevent swallowing additive extensions.
+
+**Identity barrier.**
+- Per-message generation counter `assistantMessageGen` in `bridge.ts`.
+- Increments on EVERY `message_start` (user + assistant) across turns and retries.
+- Key format: `${gen}:${role}:${timestamp}` via `messageKeyOf`.
+- `message.id` unusable: pi assigns id post-handler during session persistence.
+- `timestamp` required on `AssistantMessage`/`UserMessage`; fallback uses WeakMap object counter.
+
+**Drop rule & fail-open lifecycle.**
+- ONLY updates whose identity closed via `messageEnd` drop.
+- Updates with unknown identity or no open message open new slot instead (fail-open).
+- Guard: `npm run reload` re-initializes bridge mid-turn; dropping unknown identity silences active turn.
+- Bounded FIFO (`CLOSED_KEY_MEMORY = 64`) retains closed keys.
+
+**Flush choke points.**
+- Entry choke point: enriched + pass-through loops call `if (flushesParkedText(eventType)) coalescer.flush()` at handler entry.
+- Runs before ANY early return; prevents latent ordering bugs from new branches.
+- Out-of-loop chat sinks flush explicitly: `wrapCustomPersistenceForCtx` (`appendCustomMessageEntry`, `appendCustomEntry`) and `sendSyntheticRetryEvent`.
+- `message_end` flushes text before scheduling deferred id-stamping `setTimeout(0)`.
+
+**Lifecycle & transport boundaries.**
+- `onReconnect`: flushes pending text BEFORE `sendStateSync()` + replay. Reconnect = transport boundary; preserves in-flight turn tail, forbids post-replay delivery.
+- Session change / `session_shutdown`: call `coalescer.clear()`. Session transition = state invalidation; discards parked snapshot, cancels window.
+- Window timer registered in bridge registry (`prev.timers`); released on fire/clear to prevent leak across reload.
+- Timer callback re-checks `isActive()` at fire time; prevents writing to closed socket after bridge teardown.
+- Image inliner: `maybeInlineAssistantImages` runs inside `coalescer.send` callback; executes once per flushed window instead of once per token. Authoritative `message_end` inliner retained.
+
+**Architectural boundary (scope).**
+- Cuts BRIDGE forwarding cost only (`JSON.stringify` + wire transmission).
+- Does NOT replace server fold (`live-event-frame-coalescing-fold`) or client batching (`chat-event-render-batching`).
+- Downstream layers cut RENDER cost; bridge coalescer cuts WIRE/SERIALIZATION cost.
+- Wire protocol format unchanged (`event_forward` message carrying `message_update`).
+
+**Measured baseline & scaling.**
+- Baseline (harness uncoalesced): 169 `message_update` frames, 616,534 bytes over 13.4 s stream = 12.6 deltas/s, 1:1 forward.
+- Reduction factor: `max(1, sourceDeltasPerSecond ÷ 20)`.
+- Win activates when provider emits > 20 deltas/s (< 50 ms delta interval). Real providers stream 1–4-token deltas at 20–150 tok/s (2.5×–7.5× reduction).
+- `FAUX_TPS=50` chunks 3–5 tokens (~12.5 deltas/s); harness measures ~1× by design.
+
+**References.**
+- Spec: `openspec/specs/bridge-message-update-coalescing/spec.md`.
+- Design decisions: `openspec/changes/archive/2026-09-19-coalesce-bridge-message-update-snapshots/design.md` (D1–D9).
+- Unit tests: `packages/extension/src/__tests__/message-update-coalescer.test.ts`, `packages/extension/src/__tests__/bridge-coalesced-chat-order.test.ts`.
+- E2E test: `tests/e2e/coalesced-streaming.spec.ts`.
+
 ### EventBus Forwarding Mechanism (subscription-based, change: fix-automation-run-lifecycle)
 
 **Host topology.**
@@ -858,15 +927,100 @@ Escape hatch: env `PI_DASHBOARD_DISABLE_PLUGIN_BRIDGE_PACKAGES_WRITE=1` skips `p
 
 Classification helper `classifyBridgeSource(settings, id)` returns `"packages[]"` / `"dashboardPluginBridges"` / `"both"` / `"none"`. `/api/health.plugins[].bridgeLoadedFrom` surfaces it. `"both"` = healthy post-0.5.4. `"dashboardPluginBridges"` only = stale install pre-reconcile.
 
-#### Plugin Staleness Detection
+#### Plugin Staleness Detection and Served-Build Coherence
 
-Detects when client bundle predates installed plugin set. No new REST route. No new WS message.
+Detects when client bundle predates installed plugin set, or served static directory diverges from runtime plugin set.
 
-Build time: vite-plugin emits `export const PLUGIN_REGISTRY_HASH = "<sha256>"` into `packages/client/src/generated/plugin-registry.tsx`. Hash computed by `pluginRegistryHash(discoverPlugins())` over `deterministicSerializePlugins` output (sorted manifest fields, stable JSON).
+**Root cause of historical divergence:** build-time and runtime hashes previously computed over structurally different plugin sets. Build dropped client-less plugins (`Boolean(p.clientEntryPath)`); runtime counted every discovered plugin. Client-less plugins (e.g. `mcp-server`) made runtime `bundleHash` and build `PLUGIN_REGISTRY_HASH` permanently disagree, locking `PluginStalenessBanner` in refresh loops. Runtime discovery also inspected runtime-only roots (`~/.pi/dashboard/plugins`), while builds only bundle repository packages (`<repoRoot>/packages`).
 
-Runtime: `/api/health` returns `bundleHash` field. Server computes via same `pluginRegistryHash(discoverPlugins())`. Hash mismatch ⇒ disk has plugins client bundle does not know about (or vice versa).
+**Single plugin-set selector (`selectClientRegistryPlugins`):**
+Single selector in `packages/dashboard-plugin-runtime/src/server/client-registry-set.ts::selectClientRegistryPlugins(discovered, { isProd, bundleRoots })` feeds every producer:
+- Requires `p.clientEntryPath` (drops client-less plugins from both hashes).
+- Drops `p.manifest.fixture === true` when `isProd` is true (`demo-plugin` excluded from production build and production runtime hash).
+- Restricts discovery to bundle-eligible roots (`bundleRootsFor(repoRoot)`). Plugins in runtime-only roots (`~/.pi/dashboard/plugins`) excluded from both hashes (cannot enter client bundle; user-installed plugins contribute no client UI).
 
-Client: `PluginStalenessBanner` fetches `/api/health` on mount. Compares `bundleHash` against imported `PLUGIN_REGISTRY_HASH`. Mismatch ⇒ render banner with Refresh + Dismiss buttons. Refresh calls `location.reload()`. Dismiss persists in `sessionStorage` key `pi-plugin-staleness-dismissed` (tab-scoped, clears on browser close). Dismissed banner stays hidden until next session.
+All producers select through this selector:
+- Build time: Vite plugin (`packages/dashboard-plugin-runtime/src/vite-plugin/index.ts`)
+- Dev time: Vite `configureServer` HMR regeneration
+- Script: `scripts/generate-plugin-registry.mjs`
+- Server runtime: `packages/server/src/routes/system-routes.ts` (`/api/health.bundleHash`)
+
+All producers hash deterministic manifest serialization via `pluginRegistryHash(...)`.
+
+**Served-artifact build declaration (`pi-dashboard-build.json`):**
+Production Vite build writes `packages/client/dist/pi-dashboard-build.json`:
+- Schema: `{ schemaVersion: 1, pluginRegistryHash: "<sha256>", fixturePolicy: "excluded" | "included" }`.
+- Byte-reproducible: no timestamps, no host paths. Dev/HMR emits nothing.
+- SDK: `build-declaration-sdk.ts` + `build-metadata.ts` in `dashboard-plugin-runtime`.
+
+**Static client resolution and `/api/health.clientBuild`:**
+Server resolves static root once at startup (`packages/server/src/lib/client-dist.ts::resolveStaticClientDir`):
+- Package-first: installed `@blackbelt-technology/pi-dashboard-web/dist` wins if resolvable and contains `index.html`.
+- Resolvable package missing `dist/index.html` → API-only mode (`null`, NO workspace fallback).
+- Workspace fallback: `packages/client/dist` used only when `require.resolve` throws.
+
+Server captures startup coherence snapshot (`clientBuildSnapshotFor`):
+- Compares artifact's declared `pluginRegistryHash` against runtime plugin set evaluated under artifact's declared `fixturePolicy` (avoids false mismatch between dev server and production artifact).
+- `/api/health` exposes additive field:
+  `clientBuild: { pluginRegistryHash: string | null, status: "matched" | "mismatched" | "metadata-missing" | "not-served" }`.
+- Path-free startup diagnostic logged (`[dashboard] Served client build: <status>`).
+- Existing `bundleHash` field and `PluginStalenessBanner` contract unchanged.
+
+**Rebuild sync gate (`scripts/sync-served-client.mjs`):**
+Wired into `scripts/rebuild-restart.sh` and `scripts/rebuild-and-restart.sh` between build and restart:
+- Resolves served destination using server's `resolveStaticClientDir`.
+- No-op when destination equals `packages/client/dist`.
+- Mirrors workspace `dist` to destination if different; prunes superseded hashed assets after copy.
+- Verifies matching declarations before exit; adopts declaration-less destinations.
+- Refuses (exit 1) on missing source declaration, non-client destination, EACCES, or post-copy mismatch, aborting before server restart or bridge reload.
+
+```mermaid
+flowchart TD
+    subgraph Discovery ["Plugin Discovery"]
+        DP["discoverPlugins()"]
+    end
+
+    subgraph Selection ["Single Source of Truth"]
+        SCRP["selectClientRegistryPlugins(discovered, {isProd, bundleRoots})<br/>1. requires clientEntryPath<br/>2. drops fixture if isProd<br/>3. restricts to bundleRoots"]
+    end
+
+    subgraph Build ["Build Pipeline (Vite)"]
+        VITE["Vite Build / generate-plugin-registry"]
+        REG["plugin-registry.tsx<br/>export const PLUGIN_REGISTRY_HASH"]
+        DECL["dist/pi-dashboard-build.json<br/>{schemaVersion, pluginRegistryHash, fixturePolicy}"]
+    end
+
+    subgraph Runtime ["Server Runtime (:8000)"]
+        RESOLVE["resolveStaticClientDir()<br/>1. Installed package dist<br/>2. Workspace fallback (if unresolvable)"]
+        SNAP["readClientBuildSnapshot()<br/>Compare declared vs runtime hash"]
+        HEALTH["/api/health<br/>- bundleHash<br/>- clientBuild: {pluginRegistryHash, status}"]
+    end
+
+    subgraph Client ["Browser UI"]
+        BANNER["PluginStalenessBanner<br/>Compare /api/health.bundleHash vs PLUGIN_REGISTRY_HASH"]
+    end
+
+    subgraph Rebuild ["Rebuild Gate"]
+        SYNC["scripts/sync-served-client.mjs<br/>Mirror workspace -> served dir<br/>Abort before restart if mismatch"]
+    end
+
+    DP --> SCRP
+    SCRP --> VITE
+    VITE --> REG
+    VITE --> DECL
+    SCRP --> HEALTH
+    DECL -.-> SYNC
+    SYNC -.-> RESOLVE
+    DECL -.-> RESOLVE
+    RESOLVE --> SNAP
+    SNAP --> HEALTH
+    HEALTH --> BANNER
+    REG --> BANNER
+```
+
+Client banner flow: `PluginStalenessBanner` fetches `/api/health` on mount. Compares `bundleHash` against imported `PLUGIN_REGISTRY_HASH`. Mismatch ⇒ render banner with Refresh + Dismiss buttons. Refresh calls `location.reload()`. Dismiss persists in `sessionStorage` key `pi-plugin-staleness-dismissed` (tab-scoped, clears on browser close). Dismissed banner stays hidden until next session.
+
+See change: `add-served-build-coherence-and-hash-parity`.
 
 #### Plugin Activation UI
 
@@ -2415,22 +2569,61 @@ Plugin content-view claims (flows-plugin) still predicate-driven via SlotRegistr
 
 ### Network Access Control
 
-The server has a two-layer access model:
+One universal network guard plus the auth plugin. Universal guard runs whether or not auth is configured.
 
-**Layer 1: Network Guard (`createNetworkGuard`)** — Fastify `preHandler` on all sensitive routes. Allows requests via three paths:
-1. **Loopback** — `127.0.0.1`, `::1`, `::ffff:127.0.0.1` (always allowed)
-2. **Trusted networks** — IPs matching `resolvedTrustedNetworks` (CIDR, wildcard, exact). `resolvedTrustedNetworks` computed at load time by merging two config sources: Settings UI writes new entries to `auth.bypassHosts` (canonical path on Security tab, surfaced as "Trusted Networks" section); legacy top-level `trustedNetworks` field remains readable for back-compat with hand-edited `config.json`. Both honor same matching logic; UI does not modify legacy field. **Both fields work independently of whether `auth.providers` is configured** — config with `auth: { providers: {}, bypassHosts: [...] }` honored as-is; auth plugin no-ops when provider registry empty + network guard serves bypass path directly. See `openspec/changes/archive/` for `fix-trusted-networks-no-oauth` which restored this after regression in `consolidate-trusted-networks`.
-3. **Authenticated** — `request.isAuthenticated === true` (set by auth `onRequest` hook via `decorateRequest`)
+**Layer 1: Network Guard (`createNetworkGuardHook`)** — `packages/server/src/auth/localhost-guard.ts`. Registered ONCE at root in `packages/server/src/server.ts` as the LAST `onRequest` hook, unconditionally. Not anchored on the model-proxy gate above it: that gate does not exist when `modelProxy` is disabled. Fastify binds root hooks to routes at `preReady`, including encapsulated plugin child scopes, so registering after the routes still covers them. Does NOT cover a route registered after `ready()` (plugin activation is restart-effective today; a future hot-load reopens this).
 
-Otherwise → 403. The guard strips `::ffff:` IPv4-mapped prefixes before matching.
+Replaces the old per-route-only model. `createNetworkGuard` was a `preHandler` on ~20 core route registrars. Three surfaces never got it and were unguarded when auth was off: plugin routes (`/api/plugins/automation/*`, kb, flows) and `/api/provider-auth/*`. Existing per-route `preHandler: networkGuard` calls stay as redundant defense-in-depth.
+
+**Jurisdiction** — 4 namespaces, trailing-slash anchored: `/api/`, `/v1/`, `/editor/`, `/live/`. `/apiv2` is a near-miss, not `/api`.
+- INSIDE jurisdiction: deny by default.
+- OUTSIDE jurisdiction: no-op.
+
+Outside is deliberate and load-bearing. Static assets, SPA shell (`/`), SPA deep-link fallback (`setNotFoundHandler`), `/manifest.json`, `/auth/*`, favicon, PWA icons, `/sw.js` keep loading. Auth-off tunnel deployment still reaches its own app shell.
+
+**In-namespace public exceptions** (reachable unauthenticated inside `/api`): `GET`/`HEAD /api/health` (exact pathname; `HEAD` admitted because Fastify auto-exposes HEAD for a GET route); device-pairing bootstrap (`/api/pair/challenge`, `/api/pair/redeem`, `/api/pair/poll`); configured `auth.bypassUrls` prefixes.
+
+An exception must hold on **both** views of the target (see **Matching**). Note the scope of `auth.bypassUrls`: it is an exception from the **universal hook only**. A route that also carries a retained per-route `preHandler: networkGuard` is still refused by that `preHandler`, so a `bypassUrls` match is public only for routes WITHOUT a per-route guard. This is unchanged from before this guard existed — `auth.bypassUrls` has only ever skipped the auth plugin, never a per-route guard.
+
+**Pass conditions** (unchanged from the old per-route guard):
+1. **Genuine-local** — loopback AND no proxy-forwarding header (`x-forwarded-for`, `x-forwarded-host`, `x-forwarded-proto`, `x-real-ip`, `forwarded`). Tunnel presenting as `127.0.0.1` injects a forwarding header and fails here.
+2. **Local-IPC token** — `X-Pi-Local-Token` allowlist.
+3. **Trusted network** — source IP matches `resolvedTrustedNetworks` (CIDR, wildcard, exact). Read live via thunk, so a CIDR added at runtime admits without restart.
+4. **Authenticated** — `request.isAuthenticated === true`.
+
+Otherwise → 403.
+
+**Matching** runs on TWO views of the target, and jurisdiction is the UNION of them:
+- the **raw** view — percent-decoded, query string and fragment stripped, dot-segments UNRESOLVED;
+- the **resolved** view — the same pathname with `.` / `..` resolved per RFC 3986.
+
+A request is in jurisdiction when **either** view is in jurisdiction. Unparseable target → fail closed (denied, treated as in-jurisdiction). `::ffff:` IPv4-mapped prefixes stripped before IP match. In-namespace exceptions must hold on **both** views.
+
+Both views are load-bearing because the router and the guard disagree about dot-segments: Fastify passes `onRequest` the RAW target, and find-my-way does not resolve dot-segments — it matches them into a `:param` / `*` slot as a literal value. Deciding on the resolved view alone would let `/api/provider-auth/..` reach `/api/provider-auth/:provider` with `provider = ".."`; deciding on the raw view alone would miss `/foo/../api/x`; judging an exception on one view would let `/live/<id>/../../api/pair/challenge` through as the pairing exception while `/live/:id/*` runs. A dotted target that is outside jurisdiction under BOTH views (e.g. `/foo/../settings`) stays a no-op.
+
+**`/v1/*` model proxy.** `createModelProxyAuthGate` (`packages/server/src/model-proxy/auth-gate.ts`) sets `request.isAuthenticated = true` on a valid `pi-proxy-*` key. Universal guard admits it via pass condition 4. Deliberately NO public `/v1` allowlist entry — such an entry would be a hole when the proxy is disabled.
+
+**`/mcp` deliberately OUT of jurisdiction.** `/mcp` authenticates in-handler from the paired-device bearer token and does not trust `isAuthenticated`; guarding it would 403 every legitimate remote MCP client. Classified as an ENUMERATED independently-authenticated namespace, not silently skipped.
+
+**Denial contract.** `403` with body `{ success: false, error: "network_not_allowed", reason, hint }` — clients branch on `error`. Recorded in the buffer behind `GET /api/tunnel/block-events`, which powers the "Trust this network?" prompt. Logged as `[network-guard] denied reason=… path=… ip=…` — path + socket-peer IP + reason only; no body, no token.
+
+**Second port.** Optional model-proxy second-port Fastify instance runs ONLY the proxy gate, no universal guard. Safe solely because it binds `127.0.0.1` (asserted by `packages/server/src/__tests__/model-proxy-second-port.test.ts`). If that bind ever becomes configurable, install the universal guard there too.
+
+**Namespace-coverage test.** `packages/server/src/__tests__/network-guard-namespace-coverage.test.ts` enumerates the real route table with plugin routes loaded. Fails if any non-static/non-`/auth`/non-public route sits outside the guarded namespaces or the enumerated independently-authenticated set (`/mcp`).
+
+**Trusted-network config sources.** `resolvedTrustedNetworks` merges two sources:
+- `auth.bypassHosts` — canonical. Settings UI writes here (Security tab "Trusted Networks" section; also surfaced on Settings ▸ Servers).
+- legacy top-level `trustedNetworks` — readable for back-compat with hand-edited `config.json`. UI does not modify it.
+
+Both honor same matching logic. Both work independently of whether `auth.providers` is configured: `auth: { providers: {}, bypassHosts: [...] }` honored as-is; auth plugin no-ops when provider registry empty and the universal guard serves the bypass path directly. See `openspec/changes/archive/` for `fix-trusted-networks-no-oauth` (restored this after a `consolidate-trusted-networks` regression).
 
 **Layer 2: Auth Plugin (`onRequest` hook)** — Only registered when `auth` is configured. Skips loopback, trusted networks, `/auth/*`, `/api/health`, and `bypassUrls`. Validates JWT cookie for all other requests. Tags valid requests with `request.isAuthenticated = true`.
 
-**Execution order**: `onRequest` (auth) → `preHandler` (guard) → handler. This means the auth hook tags the request before the guard checks it.
+**Execution order** (root `onRequest` hooks run in registration order): auth plugin (when configured) → model-proxy auth gate (when proxy enabled) → universal network guard LAST → route `preHandler` (per-route guards, defense-in-depth) → handler. Auth and proxy gates tag the request before the universal guard reads the pass conditions.
 
-**WebSocket upgrades** follow the same logic: loopback → trusted network → JWT cookie validation.
+**WebSocket upgrades** follow the same admission logic: loopback/genuine-local → trusted network → local-IPC token → JWT cookie validation.
 
-**Zrok tunnel** connections appear as `127.0.0.1` (zrok proxies to localhost), so both layers pass automatically.
+**Zrok tunnel** connections appear as `127.0.0.1` (zrok proxies to localhost) but carry proxy-forwarding headers, so they are NOT genuine-local. A zrok peer passes only when in `trustedNetworks` or authenticated.
 
 **`GET /api/network-interfaces`** returns detected non-internal IPv4 interfaces with computed CIDRs. Used by the Settings UI "Add Local Network" button. This endpoint uses the legacy `localhostGuard` (localhost-only, not network-guard-aware) since it exposes machine network topology.
 
@@ -5199,3 +5392,16 @@ sequenceDiagram
 - `settings-section` → `BrowserSettings`: profile rows keyed by `profileDirectory` (label, email, `installed`, `hasToken`, instances/tab count), write-only token input, `Zero-dialog` toggle, `allowedDomains` editor, Connect/Disconnect per `instanceId`, kill switch, Web Store link, capability notice; `AuditList` per profile.
 - `session-card-badge` → `BrowserRelayBadge`: always-mounted `browser_relay_status` subscriber. The relay is GLOBAL (no pi-session linkage), so this module-store feed is what lets the hook-less `content-view` predicate `isLiveViewActive` see it.
 - `content-view` → `LiveViewTile`: one tile per `{instanceId, tabId}`; subscribe/unsubscribe lifecycle, JPEG frames, pointer/key/wheel → normalized `browser_relay_input`, no-frames + DevTools overlays.
+
+## Bundled Package: deck3d
+
+`packages/deck3d` (`@blackbelt-technology/pi-dashboard-deck3d`) — deterministic Markdown → one self-contained offline 3D `deck.html`. Independent CLI + pi skill; not part of dashboard runtime.
+
+- Pipeline: markdown → schema-validated Deck IR (`deck.json`) → `deck.html` (three.js runtime + IR + subset Poppins inlined).
+- Harvest: `flowchart`/`sequenceDiagram` parsed in headless chromium at parse time (`mermaid@11.17.2` exact pin); output carries no diagram engine.
+- Tune region: `deck.json` `overrides` only; `slides[]` regenerated every parse; `validate` warns on edits outside `overrides`.
+- Check: `check <deck.html>` measures fit/legibility/overlap/occlusion/contrast headless at dpr 1; each finding carries an `overrides` suggestion.
+- Effects: `src/fx/` card-per-effect corpus + deterministic per-slide defaults (`fx list`).
+- Props: `src/props/` vendored CC0 search + Poly Pizza + sha256-pinned fetch into `.deck3d/props/`.
+- CLI `deck3d`: `parse | validate | render | build | check | snapshot | fx | props`. Skill: `.pi/skills/deck3d/SKILL.md`.
+- See `packages/deck3d/README.md`; change: add-deck3d-presentation-package.

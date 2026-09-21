@@ -58,6 +58,9 @@ const CENSUS: Record<string, string[]> = {
   ],
   "components/__tests__/PluginStalenessBanner.test.tsx": [
     "renders nothing when /api/health.bundleHash matches the embedded hash",
+    // Added by this change — test-plan F1: a client-less plugin no longer
+    // fabricates a hash delta, so the banner stays hidden on a parity host.
+    "F1 stays hidden on a parity host whose plugin set includes a client-less plugin",
     "renders the banner when hashes differ",
     "Refresh button calls window.location.reload",
     "Dismiss button hides the banner and records sessionStorage",
@@ -130,20 +133,6 @@ const CENSUS: Record<string, string[]> = {
       "F3 — Space toggles the self-row and inserts no literal space",
       "renders no emoji glyphs and gives every row an SVG path",
       "keeps git / pi as text badges",
-  ],
-  "components/__tests__/LlmProviderCard.test.tsx": [
-    "renders a Test button",
-    "Test button is disabled when baseUrl is empty",
-    "Test button is disabled when apiKey is empty",
-    "Test button is enabled when both baseUrl and apiKey have values",
-    "click sends POST with correct payload for a new provider (no name)",
-    "saved (non-new) provider includes name in payload",
-    "shows success pill with model count on ok",
-    "shows 'Connected' without count when modelCount is 0",
-    "shows yellow error pill with HTTP status + verbatim error line",
-    "shows red unreachable pill when there is no status",
-    "falls back to the not-tested register when edited with no cached health",
-    "does not call testProvider when disabled",
   ],
   "components/__tests__/ServerSelector.test.tsx": [
     "does NOT probe on mount—only when dropdown opens",

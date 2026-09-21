@@ -1,0 +1,26 @@
+{
+  "id": "holo-fresnel",
+  "kind": "material",
+  "tags": {
+    "mood": [
+      "neon",
+      "technical"
+    ],
+    "content": [
+      "surface"
+    ]
+  },
+  "cost": 3,
+  "modes": "dark",
+  "params": {
+    "power": {
+      "type": "number",
+      "default": 2,
+      "minimum": 0.5,
+      "maximum": 6
+    }
+  },
+  "conflicts": [],
+  "source": "https://threejs.org/examples/",
+  "licence": "MIT"
+}

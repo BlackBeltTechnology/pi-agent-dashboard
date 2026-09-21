@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { expect, type Locator, type Page, test } from "./fixtures.js";
-import { ensureGitSession, expandFolder, FIXTURE_GIT, folderCard, folderHeaderBranch, gotoDashboard, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import { dismissToasts, ensureGitSession, expandFolder, FIXTURE_GIT, folderCard, folderHeaderBranch, gotoDashboard, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 import { DASHBOARD_PORT } from "./lifecycle.js";
 
 /**
@@ -74,7 +74,14 @@ async function segmentCounts(page: Page): Promise<Record<string, string>> {
 /** Park a fresh session on an unanswered `ask_user` prompt (needs-you). */
 async function seedNeedsYou(page: Page): Promise<Locator> {
   const card = await spawnFreshGitSession(page);
-  await card.click();
+  // The seeded harness raises spawn toasts over the card; a bare click can be
+  // intercepted, leaving the PREVIOUS session selected and its composer
+  // disabled. Dismiss, then click with a bounded retry.
+  await dismissToasts(page);
+  await card.click({ timeout: 10_000 }).catch(async () => {
+    await dismissToasts(page);
+    await card.click();
+  });
   await sendPrompt(page, "[[faux:ask-select]] go");
   await expect(page.getByRole("button", { name: /alpha/i }).first()).toBeVisible({
     timeout: 30_000,
@@ -92,11 +99,19 @@ async function seedNeedsYou(page: Page): Promise<Locator> {
  * error segment is legitimately absent. Seeding once in an earlier test and
  * expecting it to persist across pages is the trap here.
  */
-async function seedError(page: Page): Promise<void> {
+async function seedError(page: Page): Promise<Locator> {
   const card = await spawnFreshGitSession(page);
-  await card.click();
+  // Same toast interception as seedNeedsYou: a bare click can leave the
+  // needs-you session selected, so the composer is in ask_user mode and the
+  // send button is DISABLED (the "send.click timeout" red).
+  await dismissToasts(page);
+  await card.click({ timeout: 10_000 }).catch(async () => {
+    await dismissToasts(page);
+    await card.click();
+  });
   await sendPrompt(page, "[[faux:model-error]] go");
   await expect(page.getByTestId("error-banner")).toBeVisible({ timeout: 30_000 });
+  return card;
 }
 
 test.describe.configure({ mode: "serial" });
@@ -127,6 +142,14 @@ test.describe("folder status capsule", () => {
 
   test("segments render in fixed severity order (test-plan #F1)", async ({ page }) => {
     await gotoDashboard(page);
+    // Seed BOTH buckets on THIS page: the per-test `reapSessions` fixture
+    // (change: per-test session reaping) removes any session an earlier test
+    // left behind, so relying on the previous test's needs-you/error sessions
+    // yields an absent capsule — and `[]` trivially equals the filtered
+    // severity list, so the assertion below could never fail. Seeding keeps
+    // the order assertion non-trivial (needs-you before error).
+    await seedNeedsYou(page);
+    await seedError(page);
     // Without these two guards an absent capsule yields [], and [] trivially
     // equals the filtered severity list — the assertion could never fail.
     await expect(capsule(page)).toBeVisible({ timeout: 15_000 });
@@ -198,6 +221,9 @@ test.describe("folder status capsule", () => {
     // actually carries. The invariant — one row, no shed segments, name
     // truncates — is unchanged. See the note in test-plan.md.
     await gotoDashboard(page);
+    // Seed a segment on THIS page: per-test `reapSessions` removes any session
+    // an earlier serial test left behind, so an unseeded capsule is absent.
+    await seedNeedsYou(page);
     await expect(capsule(page)).toBeVisible({ timeout: 15_000 });
     const wideSegments = await renderedSegments(page);
     expect(wideSegments.length).toBeGreaterThan(0);
@@ -312,7 +338,7 @@ test.describe("folder status capsule", () => {
     await page.getByTestId("workspace-filter-input").first().fill("");
   });
 
-  test("hiding the only errored session drops its segment, never a dead target (test-plan #X2)", async ({
+  test("removing the only errored session drops its segment, never a dead target (test-plan #X2)", async ({
     page,
   }) => {
     await gotoDashboard(page);
@@ -320,21 +346,25 @@ test.describe("folder status capsule", () => {
 
     // Seed an errored session in THIS page (errorSessionIds is client-side
     // reducer state — see seedError) and confirm the segment appears, so the
-    // disappearance below is attributable to hiding rather than to it never
-    // having rendered.
-    await seedError(page);
+    // disappearance below is attributable to the removal rather than to it
+    // never having rendered.
+    const erroredCard = await seedError(page);
     const errorSeg = segment(page, "error");
     await expect(errorSeg).toBeVisible({ timeout: 15_000 });
 
-    // Hide the errored session. `showHidden` is off by default, so the card
-    // leaves the list.
-    const card = page.locator("[data-session-id]").filter({ has: page.getByTestId("error-banner") });
-    const target = (await card.count()) > 0 ? card.first() : page.locator("[data-session-id]").first();
-    await target.getByRole("button", { name: /hide session/i }).first().click();
+    // Archive the errored session — the manual "Hide session" control was
+    // removed by change archive-sessions-lazy-load (archiving is the way a
+    // live session leaves the live set now). The errored session is still
+    // running, so archiving confirms first (testId session-archive-confirm).
+    await erroredCard.getByTestId("session-archive-btn").first().click();
+    const confirm = page.getByTestId("session-archive-confirm");
+    if (await confirm.isVisible().catch(() => false)) {
+      await confirm.getByRole("button", { name: /archive session/i }).click();
+    }
 
-    // #E7: hidden sessions are excluded BEFORE bucketing, so the capsule must
-    // stop counting that state entirely rather than keep a segment whose only
-    // target is unreachable.
+    // #E7: sessions that leave the live set are excluded BEFORE bucketing, so
+    // the capsule must stop counting that state entirely rather than keep a
+    // segment whose only target is unreachable.
     await expect(errorSeg).toHaveCount(0, { timeout: 15_000 });
   });
 });

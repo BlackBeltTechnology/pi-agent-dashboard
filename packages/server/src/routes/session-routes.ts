@@ -14,7 +14,7 @@ import { decodeCursor, type SessionArchive } from "../session/session-archive.js
 import { buildSessionDiffCached, type SessionDiffResult } from "../session/session-diff.js";
 import { SessionDiffCache } from "../session/session-diff-cache.js";
 import { resolveDiffSource } from "../session/session-diff-source.js";
-import { findSessionToolCallPayload } from "../session/session-file-reader.js";
+import { findSessionCustomEntry, findSessionToolCallPayload } from "../session/session-file-reader.js";
 import type { SessionLoadWorkerPool } from "../session/session-load-worker-pool.js";
 import { originOf } from "../session/session-origin.js";
 import type { NetworkGuard } from "./route-deps.js";
@@ -151,7 +151,7 @@ export function registerSessionRoutes(
       // See change: serve-retained-remote-transcripts (task 2.2).
       const enriched =
         remoteTranscriptStore && !originOf(item).local
-          ? { ...item, retainedTranscript: readRetainedState(remoteTranscriptStore, item.id).state }
+          ? { ...item, retainedTranscript: await remoteTranscriptStore.completenessOf(item.id) }
           : item;
       return { success: true, data: { item: enriched } } satisfies ApiResponse;
     },
@@ -239,6 +239,50 @@ export function registerSessionRoutes(
         return { success: false, error: "tool call not found" } satisfies ApiResponse;
       }
       return { success: true, data: payload } satisfies ApiResponse;
+    },
+  );
+
+  // Full custom-entry payload from the on-disk JSONL, addressed by
+  // (sessionId, entryId) — NEVER by filesystem path. Mirrors
+  // `/api/session-change`: the in-memory store truncates strings and collapses
+  // arrays at INGEST, so an untruncated payload must come from the durable
+  // transcript. The sessionFile is resolved via sessionManager, never built
+  // from `sessionId`. A not-yet-flushed entry (or one outside the active
+  // leaf→root branch) is a NORMAL 404 miss, not an error — a later request
+  // succeeds once the flush occurs.
+  // See change: add-custom-entry-renderer-slot (design D5).
+  fastify.get<{ Params: { sessionId: string; entryId: string } }>(
+    "/api/sessions/:sessionId/entry/:entryId",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const { sessionId, entryId } = request.params;
+      const session = sessionManager.get(sessionId);
+      if (!session?.sessionFile) {
+        reply.code(404);
+        return { success: false, error: "session not found" } satisfies ApiResponse;
+      }
+      // Reject traversal-shaped ids up front (defense-in-depth, spec X8): the
+      // lookup is equality-only, but the contract forbids separators/parent
+      // segments outright, so no persisted id can lease a traversal-shaped
+      // request — and no file is read for one.
+      if (entryId.includes("/") || entryId.includes("\\") || entryId.includes("..")) {
+        reply.code(404);
+        return { success: false, error: "entry not found" } satisfies ApiResponse;
+      }
+      const entry = findSessionCustomEntry(session.sessionFile, entryId);
+      if (!entry) {
+        // Debug, never error: an unflushed/evicted/off-branch entry is expected.
+        request.log.debug(
+          { sessionId, entryId },
+          "custom entry not found (unflushed, evicted, or off-branch)",
+        );
+        reply.code(404);
+        return { success: false, error: "entry not found" } satisfies ApiResponse;
+      }
+      return {
+        success: true,
+        data: { customType: entry.customType, payload: entry.data },
+      } satisfies ApiResponse;
     },
   );
 
@@ -353,7 +397,7 @@ export function registerSessionRoutes(
       // verbatim entries, so synthesizing dashboard events here would parse a
       // transcript (up to a 44.1 MB observed maximum) to produce output that is
       // then discarded. See CodeRabbit #663, thread 5.
-      const retained = readRetainedState(remoteTranscriptStore, sessionId);
+      const retained = await readRetainedState(remoteTranscriptStore, sessionId);
       // `state` rides alongside the entries rather than being inferred from
       // their emptiness: an empty COMPLETE transfer and a never-started one are
       // both zero entries and are not the same fact (task 1.2).

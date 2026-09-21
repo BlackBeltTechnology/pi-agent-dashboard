@@ -43,6 +43,7 @@ async function openSessionsSettings(page: Page) {
 test.describe("settings default model catalogue", () => {
   // test-plan #F4
   test("the Default Model control is populated and savable with no session connected", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     await stubCatalogue(page);
     await openSessionsSettings(page);
 

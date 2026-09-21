@@ -2,7 +2,6 @@
  * Dashboard HTTP + WebSocket server.
  */
 
-import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -29,14 +28,13 @@ import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/to
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import compress from "@fastify/compress";
 import cors from "@fastify/cors";
-import fastifyStatic from "@fastify/static";
 import rateLimit from "@fastify/rate-limit";
+import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
 import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
 import { resolveRedirectBase } from "./auth/auth.js";
 import { authorizeWsUpgrade, registerAuthPlugin } from "./auth/auth-plugin.js";
 import { registerBearerAuth } from "./auth/bearer-auth.js";
-import { createRouteTierGate } from "./auth/route-tier-gate.js";
 import {
   computeBindReachability,
   formatBindReachabilityWarning,
@@ -61,9 +59,16 @@ import {
 } from "./auth/host-gate.js";
 import { ensureServerIdentity } from "./auth/identity.js";
 import { ensureLocalToken, verifyLocalToken } from "./auth/local-token.js";
-import { createNetworkGuard, isPluginScopePeerLocal } from "./auth/localhost-guard.js";
+import {
+  createNetworkGuard,
+  createNetworkGuardHook,
+  isBypassedHost,
+  isGenuinelyLocal,
+  isPluginScopePeerLocal,
+} from "./auth/localhost-guard.js";
 import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
 import { readAuthJson } from "./auth/provider-auth-storage.js";
+import { createRouteTierGate } from "./auth/route-tier-gate.js";
 import { mintSpawnToken } from "./auth/spawn-token.js";
 import {
   type CoreWsRouteScope,
@@ -104,10 +109,14 @@ import { bootParentPid, isBootParentProvablyDead } from "./lifecycle/boot-parent
 import { runBoundedStartup } from "./lifecycle/bounded-startup.js";
 import { startEphemeralParentWatch } from "./lifecycle/ephemeral-parent-watch.js";
 import { ensureInstanceId } from "./lifecycle/instance-id.js";
+import {
+  clientBuildDiagnostic,
+  clientBuildSnapshotFor,
+  resolveStaticClientDir,
+} from "./lib/client-dist.js";
 import { createLiveServerManager } from "./live-server/live-server-manager.js";
 import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
 import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
-import { startServerHeapTelemetry } from "./server-heap-telemetry.js";
 import { createEventLoopSpikeMetrics } from "./metrics/eventloop-spike-metrics.js";
 import { createHydrationMetrics } from "./metrics/hydration-metrics.js";
 import { createModelProxyAuthGate } from "./model-proxy/auth-gate.js";
@@ -158,7 +167,7 @@ import { registerNodeRuntimeRoutes } from "./routes/node-runtime-routes.js";
 import { registerOpenSpecGroupRoutes } from "./routes/openspec-group-routes.js";
 import { registerOpenSpecRoutes } from "./routes/openspec-routes.js";
 import { registerPackageRoutes } from "./routes/package-routes.js";
-import { registerPairingRoutes } from "./routes/pairing-routes.js";
+import { PUBLIC_PAIRING_PREFIXES, registerPairingRoutes } from "./routes/pairing-routes.js";
 import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
 import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
 import { registerPiRetryRoutes } from "./routes/pi-retry-routes.js";
@@ -179,6 +188,7 @@ import {
   dispatchReload as dispatchReloadRaw,
   reloadTargetSessionIds,
 } from "./rpc-keeper/dispatch-reload.js";
+import { startServerHeapTelemetry } from "./server-heap-telemetry.js";
 import { createArchiveSweeper } from "./session/archive-sweeper.js";
 import { CustomEventGroupMatcher } from "./session/custom-event-group-matcher.js";
 import { CustomEventGroupResolver } from "./session/custom-event-group-resolver.js";
@@ -1727,7 +1737,29 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       piGateway.sendToSession(id, { type: "stop_after_turn", sessionId: id }),
   });
 
-  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() } });
+  // Serve static files / SPA fallback — resolve the client directory ONCE here,
+  // before every route that consumes it, so a single snapshot feeds
+  // `fastifyStatic`, the PWA manifest route, the SPA fallback branches, and
+  // `/api/health.clientBuild`. See change:
+  // add-served-build-coherence-and-hash-parity (design D3).
+  //
+  // Precedence: the installed web package wins; the workspace sibling is a
+  // fallback only when the package is *unresolvable*. `require.resolve` by name
+  // is the canonical identity across install layouts; the workspace sibling
+  // covers a checkout whose web package is not yet linked. See change:
+  // eliminate-electron-runtime-install.
+  const clientDirResolved = resolveStaticClientDir();
+  const clientDir = clientDirResolved ?? "";
+  const hasProductionBuild = clientDirResolved !== null;
+  // ONE snapshot feeds the startup diagnostic, `fastifyStatic`, and
+  // `/api/health.clientBuild` (passed to `registerSystemRoutes` below).
+  const clientBuild = clientBuildSnapshotFor(clientDirResolved);
+  console.log(clientBuildDiagnostic(clientBuild));
+  if (!hasProductionBuild) {
+    console.log("[dashboard] No client build found — running in API-only mode");
+  }
+
+  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, clientDir, clientBuild, keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() } });
   registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   registerDoctorRoutes(fastify);
@@ -2057,20 +2089,38 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     }
   }
 
-  // Serve static files / SPA fallback.
+  // ── Universal network guard (change: add-universal-network-guard) ────────
+  // Registered LAST and UNCONDITIONALLY, so `request.isAuthenticated` reflects
+  // every auth source when the guard evaluates. The full root `onRequest` chain
+  // this sits behind:
+  //   createHostGate (1429) → @fastify/cors (1430) → createMutationOriginGate
+  //   (1456) → registerBearerAuth (1471) → registerAuthPlugin (conditional,
+  //   1473) → createRouteTierGate (1488) → proxyAuthGate (conditional, above)
+  //   → THIS HOOK.
+  // "Last" is deliberately NOT anchored on the model-proxy gate above: with
+  // `modelProxy` disabled that hook does not exist, so anchoring there would
+  // silently drop the guard to second-to-last. (CSP is an `onSend` hook, so it
+  // is not part of the `onRequest` ordering.)
   //
-  // Resolution strategies, in order:
-  //  1. Node module resolver — works in ANY install layout
-  //     (flat `node_modules/`, scoped, nested, pnpm, whatever).
-  //  2. Sibling-to-server in the installed @scope layout.
-  //  3. Monorepo workspace sibling.
-  //  4. Legacy dist/client.
-  //
-  // Same class of bug as commits 40a1319 (bridge auto-registration)
-  // and e11f5eb (server-launcher.ts resolve): sibling-path arithmetic
-  // that works in the dev repo silently returns wrong paths in the
-  // installed node_modules layout. require.resolve identifies packages
-  // by name, which is the only canonical identity across layouts.
+  // Being registered after the routes still covers them: Fastify binds root
+  // hooks to routes at `preReady` (verified against fastify@5.12.1 — `addHook`
+  // defers through `this.after` and then recurses `_addHook` over `kChildren`),
+  // including the encapsulated child scopes plugin routes register into. It does
+  // NOT cover a route registered after `ready()`; plugin activation is
+  // restart-effective today, so a future hot-load feature would reopen this.
+  fastify.addHook(
+    "onRequest",
+    createNetworkGuardHook({
+      // Live thunk, never a boot snapshot: a CIDR added at runtime admits
+      // without a restart (D15). Mirrors the per-route guard at 1499.
+      trustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
+      localToken,
+      getBypassUrls: () => config.authConfig?.bypassUrls ?? [],
+      getPairingPrefixes: () => PUBLIC_PAIRING_PREFIXES,
+    }),
+  );
+
+  // serve static files / SPA fallback.
   // Client-dir resolution — single strategy under change:
   // eliminate-electron-runtime-install. The legacy 5-strategy chain
   // (sibling/hoisted/monorepo/legacy paths) defended against runtime
@@ -2081,23 +2131,6 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Dev / monorepo fallbacks are still allowed when require.resolve
   // misses (e.g. running from a checked-out workspace where the web
   // package hasn't been linked yet).
-  const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  let clientDir = "";
-  try {
-    const webPkgJson = createRequire(import.meta.url).resolve(
-      "@blackbelt-technology/pi-dashboard-web/package.json",
-    );
-    const candidate = path.join(path.dirname(webPkgJson), "dist");
-    if (existsSync(path.join(candidate, "index.html"))) clientDir = candidate;
-  } catch {
-    // Web package not resolvable — try dev-monorepo sibling.
-    const devCandidate = path.join(__dirname, "../../client/dist");
-    if (existsSync(path.join(devCandidate, "index.html"))) clientDir = devCandidate;
-  }
-  const hasProductionBuild = !!clientDir;
-  if (!hasProductionBuild) {
-    console.log("[dashboard] No client build found — running in API-only mode");
-  }
 
   // Dynamic PWA manifest — MUST be registered before fastify-static so
   // explicit route matching wins over the static asset. See change:
@@ -2410,6 +2443,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 }
                 browserGateway.broadcast(msg as any);
               },
+              subscribeSession: (sessionId, handler) => {
+                // Trusted gate — same priority rule as the other control-plane
+                // seams (sendExtensionMessage / emitEventToSession). Untrusted
+                // plugins receive nothing.
+                // See change: add-chat-gateway.
+                if ((plugin.manifest.priority ?? 1000) > 100) return () => {};
+                const unsub = browserGateway.addInProcessSubscriber(sessionId, handler as any);
+                // Replay any ALREADY-pending PromptBus request so a gateway
+                // that (re)subscribes renders an open ask_user instead of a
+                // dead card.
+                browserGateway.replayPendingPromptsTo(sessionId, handler as any);
+                return unsub;
+              },
               registerPiHandler: (type, handler) => {
                 const arr = pluginPiHandlers.get(type) ?? [];
                 arr.push(handler);
@@ -2670,6 +2716,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   pluginShutdownSubs.delete(fn);
                 };
               },
+              // Workspace seam (add-chat-gateway-team-controls): read-only,
+              // store-anchored, over-fire tolerant. Not trust-gated. The
+              // accessor maps to `{id,name,folders}` and re-clones so the
+              // plugin can never mutate host state.
+              listWorkspaces: () =>
+                preferencesStore.getWorkspaces().map((w) => ({
+                  id: w.id,
+                  name: w.name,
+                  folders: [...w.folders],
+                })),
+              onWorkspacesChanged: (handler) => preferencesStore.onWorkspacesChanged(handler),
               // The host's network guard — the SAME instance core mounts on
               // its own route groups. Attaching a guard only tightens, so
               // this is NOT trust-gated. See change:
@@ -3043,6 +3100,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       console.log(`Pi gateway listening on port ${config.piPort}`);
 
       // ── Optional second port for model proxy (/v1/*) ──────────────
+      // INVARIANT (change: add-universal-network-guard): this instance runs ONLY
+      // `proxyAuthGate` — no universal guard, no `isAuthenticated` decoration,
+      // no network check. It is safe SOLELY because it binds hardcoded
+      // `127.0.0.1` below (safe-by-design, asserted by
+      // `__tests__/model-proxy-second-port.test.ts`). If that host is ever made
+      // configurable beyond loopback, the universal guard MUST be installed on
+      // this instance too (with the `isAuthenticated` decorator), or the /v1
+      // surface is exposed with no network policy at all.
       {
         const proxyCfg = loadConfig().modelProxy;
         if (proxyCfg.enabled && proxyCfg.secondPort) {

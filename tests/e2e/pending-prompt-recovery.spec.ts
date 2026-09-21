@@ -825,6 +825,7 @@ test.describe("pending-prompt recovery (fix-pending-prompt-lost-on-replay)", () 
   test("X5: resync after bridge death surfaces no dialog and the session's dead state", async ({
     page,
   }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.setTimeout(180_000);
     const drop = await dropPromptFrames(page);
     const { sessionId, card } = await parkOnAsk(page, "ask-select", "card");

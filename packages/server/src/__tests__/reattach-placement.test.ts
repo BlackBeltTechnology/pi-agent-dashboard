@@ -44,6 +44,7 @@ function makePrefs(): PreferencesStore {
     moveFolderToWorkspace: () => false,
     reorderWorkspaceFolders: () => false,
     reorderWorkspaces: () => false,
+    onWorkspacesChanged: () => () => {},
     flush: () => {},
     getDisplayPrefs: () => undefined,
     getOpenSpecUpdateSignature: () => undefined,

@@ -13,6 +13,18 @@ import { BASE_URL } from "./tests/e2e/lifecycle.js";
 // `playwright install chromium` needed (the pretest:e2e download self-skips).
 // CI leaves PW_CHANNEL unset so the hermetic bundled Chromium is used.
 const PW_CHANNEL = process.env.PW_CHANNEL;
+
+// CI runs the suite SHARDED (see .github/workflows/ci-e2e-browser.yml): each
+// shard emits a Playwright `blob` report which a final `merge-report` job joins
+// into one HTML artifact. Locally `list` + `html` are the point, so blob stays
+// out of a local run. Reporters are read at config load, like every env here.
+const IS_CI = !!process.env.CI;
+const REPORTERS = [
+  ["list"],
+  ...(IS_CI ? [["blob"]] : []),
+  ["html", { outputFolder: "playwright-report", open: "never" }],
+];
+
 export default defineConfig({
   testDir: "tests/e2e",
   // tests/e2e/helpers/__tests__/ is a VITEST project (vitest.config.ts |e2e|).
@@ -22,13 +34,18 @@ export default defineConfig({
   testIgnore: ["**/helpers/__tests__/**"],
   // Container boot is slow; first run may build the image. Keep generous.
   timeout: 60_000,
-  globalTimeout: 15 * 60_000,
+  // NO `globalTimeout`. A committed wall-clock budget cannot cover 168 specs and
+  // made a full run report a timeout instead of a verdict (#450). Termination of
+  // a pathological run is already guaranteed by the per-test `timeout` above,
+  // `expect.timeout`, and the harness-down short-circuit (3 consecutive probe
+  // failures → remaining specs skipped). A whole-run budget is a CI concern and
+  // lives in the shard job's `timeout-minutes`; locally pass `--global-timeout`.
   expect: { timeout: 10_000 },
   fullyParallel: false,
-  forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  forbidOnly: IS_CI,
+  retries: IS_CI ? 1 : 0,
   workers: 1,
-  reporter: [["list"], ["html", { outputFolder: "playwright-report", open: "never" }]],
+  reporter: REPORTERS,
   globalSetup: "./tests/e2e/global-setup.ts",
   globalTeardown: "./tests/e2e/global-teardown.ts",
   use: {

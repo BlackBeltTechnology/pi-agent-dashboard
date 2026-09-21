@@ -12,6 +12,7 @@ import { useMobile } from "../../hooks/useMobile.js";
 import type { ToolCallGroup } from "../../lib/chat/group-tool-calls.js";
 import { getSummary } from "../../lib/chat/tool-summary.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
+import { CustomEntryRow } from "./CustomEntryRow.js";
 import { ToolCallStep } from "./ToolCallStep.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 
@@ -31,7 +32,20 @@ export function CollapsedToolGroup({ group, toolContext }: Props) {
     const key = toolCallPrefKey(m.toolName ?? "");
     return key === null || prefs.toolCalls[key];
   });
-  if (visibleMessages.length === 0) return null;
+  // Third vanish path (design D8): when the per-tool gate empties the group, a
+  // visible absorbed custom row must still render. CustomEntryRow applies its
+  // own custom-event-group gate, so a hidden row renders nothing.
+  if (visibleMessages.length === 0) {
+    const customRows = group.rendered.filter((r) => r.role === "custom");
+    if (customRows.length === 0) return null;
+    return (
+      <>
+        {customRows.map((row) => (
+          <CustomEntryRow key={row.id} msg={row} sessionId={toolContext.sessionId} />
+        ))}
+      </>
+    );
+  }
   const lastMsg = group.messages[group.messages.length - 1];
   const firstArgs = group.messages[0]?.args;
 
@@ -78,6 +92,11 @@ export function CollapsedToolGroup({ group, toolContext }: Props) {
                   showResultBody={prefs.toolResults || row.toolName === "ask_user"}
                 />
               );
+            }
+            // An absorbed custom row renders through the SAME container as the
+            // top-level and burst sites (D8). Its group gate lives inside it.
+            if (row.role === "custom") {
+              return <CustomEntryRow key={row.id} msg={row} sessionId={toolContext.sessionId} />;
             }
             if ((row.role === "thinking" || row.role === "assistant") && row.content.trim() !== "") {
               return (

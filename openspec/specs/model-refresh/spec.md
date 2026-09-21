@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines how the dashboard's per-session model selector dropdown stays in sync with each pi process's `ModelRegistry` after credential or provider changes. The contract is "self-healing per-session updates" — every bridge pushes a fresh `models_list` for its own session whenever its registry changes (initial connect, `credentials_updated`, `onProvidersChanged`), and browsers update `modelsMap[sessionId]` incrementally. There is no global wipe and no cross-session broadcast — this prevents previously-visited sessions from losing their dropdown contents when an unrelated session's bridge re-pushes its catalogue.
+
 ## Requirements
+
 ### Requirement: Per-session models_list is the dropdown's source of truth
 
 The bridge SHALL push a `models_list` message for its own `sessionId` whenever its `ModelRegistry.getAvailable()` may have changed: at session_start, after handling `credentials_updated`, on `onProvidersChanged` callback (custom-provider discovery completion), and in response to `request_models`. The server SHALL forward each push verbatim to every connected browser via `broadcastToAll`. Browsers SHALL replace `modelsMap[sessionId]` with the received models without disturbing other sessions' entries.
@@ -25,12 +27,18 @@ The bridge SHALL push a `models_list` message for its own `sessionId` whenever i
 - **THEN** the server emits `credentials_updated` and the bridge cycle delivers fresh per-session `models_list` updates
 - **AND** the dropdown reflects the removal without any global wipe
 
-#### Scenario: Custom provider added via Settings → LLM Providers
-- **WHEN** a user saves a custom provider entry in `~/.pi/agent/providers.json` via `PUT /api/providers`
+#### Scenario: Custom provider added via Settings → Providers
+- **WHEN** a user adds a custom provider entry to `~/.pi/agent/providers.json` through a single-provider write (or the retained whole-map write)
 - **THEN** the server emits `credentials_updated` to every bridge
 - **AND** each bridge runs `reloadProviders` (registers the new provider via `pi.registerProvider(...)`, including async `discoverModels` for its `/v1/models` endpoint)
 - **AND** each bridge pushes `models_list` containing the new provider's models for its own `sessionId`
 - **AND** every browser's dropdown for every active session updates with the new entries
+
+#### Scenario: Custom provider removed through a single-provider delete
+- **WHEN** a user removes a custom provider through a single-provider delete
+- **THEN** the server emits `credentials_updated` to every bridge
+- **AND** each bridge reloads providers and pushes `models_list` for its own `sessionId`
+- **AND** the removed provider's models leave every browser's dropdown without a global wipe
 
 #### Scenario: New session spawn does NOT wipe other sessions' models
 - **WHEN** a user spawns a new session and the new pi process's bridge sends its first `providers_list` and `models_list`
@@ -129,4 +137,3 @@ The server SHALL forward the field verbatim to every connected browser along wit
 - **WHEN** the browser receives a `models_list` from a bridge that never sets the refresh-failure field
 - **THEN** the browser SHALL process the message without error
 - **AND** SHALL render no refresh notice
-

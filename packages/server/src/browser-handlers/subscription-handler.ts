@@ -161,6 +161,39 @@ interface GapState {
  */
 const gapStates = new WeakMap<WebSocket, Map<string, GapState>>();
 
+/**
+ * Per-session in-flight RETAINED hydration, so two concurrent cold subscribes
+ * coalesce onto ONE load + ingest + replay.
+ *
+ * Making the retained read `await` opened an interleaving the synchronous read
+ * could not produce: previously its insert microtask drained before the next
+ * WebSocket macrotask, so a second subscribe always saw
+ * `eventStore.hasEvents(...) === true` and never hydrated. With an `await`, both
+ * arms run — and `insertEvent` is NOT idempotent (fresh `seq` per call), so the
+ * transcript would be inserted twice and both subscribers would render every
+ * message twice.
+ *
+ * The value is the leader's hydration record: the settler callbacks a FOLLOWER
+ * registered (each stops that follower's heartbeat, and may re-drive the
+ * subscribe if the leader never replayed to it), plus the set of sockets the
+ * leader's fan-out actually reached.
+ *
+ * Membership is recorded rather than inferred because the fan-out AWAITS per
+ * subscriber, so a socket that subscribes mid-fan-out is neither in a snapshot
+ * taken before it, nor a new leader — and a cancelled leader replays to nobody
+ * at all. Either way the follower would otherwise wait on a settle that already
+ * happened and then sit forever with a stopped heartbeat and no history.
+ *
+ * Only the retained path needs this: the local path's `loadingSet` already
+ * answers a second subscribe with `already_loading`. The entry is deleted in a
+ * `finally` — a leaked entry would wedge every later subscribe to that session.
+ * See change: offload-retained-transcript-replay (D4).
+ */
+const retainedHydrations = new Map<
+  string,
+  { onSettled: Set<() => void>; replayed: WeakSet<WebSocket> }
+>();
+
 function gapMapFor(ws: WebSocket): Map<string, GapState> {
   let map = gapStates.get(ws);
   if (!map) {
@@ -909,34 +942,69 @@ export function handleSubscribe(
           heartbeat = null;
         }
       };
-      // The retained read is synchronous, so it is lifted into the same promise
-      // the disk path returns rather than forking the ~60 lines of
-      // ingest/broadcast below. Wrapped, because an escaping throw here would
-      // run BEFORE `stopHeartbeat` and strand the subscriber: a live 10 s
-      // interval and no terminal frame.
+      // Leader/follower coalescing (D4). A subscribe arriving while a retained
+      // hydration is in flight starts NO hydration of its own: it keeps its
+      // heartbeat and emits nothing. The leader's completion loop replays to
+      // `getSubscribers(sessionId)`, and this socket joined that set at the top
+      // of this handler — so it receives the full replay (or the leader's
+      // `dataUnavailable` broadcast) without a terminal empty frame of its own,
+      // which is exactly the false empty state the spec forbids.
+      if (hydrationSource === "retained") {
+        const leader = retainedHydrations.get(msg.sessionId);
+        if (leader) {
+          leader.onSettled.add(() => {
+            stopHeartbeat();
+            // The leader may never have replayed to this socket: its fan-out
+            // drains the live subscriber set, so a socket arriving DURING the
+            // drain can be missed, and a CANCELLED leader ingests nothing and
+            // replays to nobody. Both would leave this subscriber with a
+            // stopped heartbeat, no history, and no terminal frame.
+            if (leader.replayed.has(ws)) return;
+            if (!subs.has(msg.sessionId)) return; // unsubscribed while waiting
+            // Re-drive the subscribe. The leader deletes the entry BEFORE
+            // running these callbacks, so this becomes the new leader: the warm
+            // path when the transcript is now in the store, a real hydration
+            // otherwise. Bounded — a later cancel finds this socket gone from
+            // `subs`, and a plain failure takes the terminal-frame branch.
+            handleSubscribe(msg, subs, ctx);
+          });
+          return;
+        }
+      }
+
+      // Registered BEFORE the load promise is created, so a subscribe landing
+      // in the same macrotask window already sees a leader.
+      const followerSettlers = new Set<() => void>();
+      // Sockets this hydration's fan-out has replayed to. Recorded so a
+      // follower can tell "the leader covered me" from "I still need a replay".
+      const replayedSockets = new WeakSet<WebSocket>();
+      if (hydrationSource === "retained") {
+        retainedHydrations.set(msg.sessionId, {
+          onSettled: followerSettlers,
+          replayed: replayedSockets,
+        });
+      }
+      // The retained read is async now, so it is handed to the same promise
+      // chain the disk path uses rather than forking the ~60 lines of
+      // ingest/broadcast below.
       const loaded: Promise<LoadResultLike> =
         hydrationSource === "retained"
-          ? Promise.resolve(
-              (() => {
-                try {
-                  const read = readRetainedTranscript(
-                    // Non-null by construction: `chooseHydrationSource` only
-                    // answers "retained" when the store is present.
-                    ctx.remoteTranscriptStore as NonNullable<typeof ctx.remoteTranscriptStore>,
-                    msg.sessionId,
-                    session?.contextWindow,
-                  );
-                  retainedState = read.state;
-                  return { success: true, events: read.events };
-                } catch (err) {
-                  return {
-                    success: false,
-                    events: [],
-                    error: err instanceof Error ? err.message : "retained_read_failed",
-                  };
-                }
-              })(),
-            )
+          ? readRetainedTranscript(
+              // Non-null by construction: `chooseHydrationSource` only answers
+              // "retained" when the store is present.
+              ctx.remoteTranscriptStore as NonNullable<typeof ctx.remoteTranscriptStore>,
+              directoryService,
+              msg.sessionId,
+              session?.contextWindow,
+            ).then((read) => {
+              // A cancel takes the silent exit the local path takes — the
+              // `error === "cancelled"` branch below — rather than being folded
+              // into a successful empty hydration, which would stamp
+              // `retainedTranscript` after the last subscriber left.
+              if (read.cancelled) return { success: false, events: [], error: "cancelled" };
+              retainedState = read.state;
+              return { success: true, events: read.events };
+            })
           : directoryService.loadSessionEvents(msg.sessionId, sessionFile as string, session?.contextWindow);
       loaded.then(async (result) => {
         stopHeartbeat();
@@ -973,6 +1041,9 @@ export function handleSubscribe(
           const stored = eventStore.getEvents(msg.sessionId, 1);
           const subscribers = getSubscribers(msg.sessionId);
           for (const sub of subscribers) {
+            // Recorded BEFORE the send so a follower arriving while this fan-out
+            // awaits knows it was covered and must not replay again.
+            replayedSockets.add(sub);
             // Asset registry first — see change: chat-markdown-local-images-and-math.
             replaySessionAssets(sub, msg.sessionId, ctx);
             // Cold hydration is ALWAYS a full stream — window it (D1). The
@@ -1030,6 +1101,17 @@ export function handleSubscribe(
         sendTo(ws, { type: "event_replay", sessionId: msg.sessionId, events: [], isLast: true });
         sessionManager.update(msg.sessionId, { dataUnavailable: true });
         broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: { dataUnavailable: true } });
+      }).finally(() => {
+        // The `finally`, not the success path: a leaked entry would wedge every
+        // later subscribe to this session, and a failed hydration must still
+        // release its followers. Delete BEFORE settling them, so a follower
+        // that re-drives its subscribe becomes the new leader rather than
+        // joining a hydration that is already over. See change:
+        // offload-retained-transcript-replay (D4, X5).
+        if (hydrationSource === "retained") {
+          retainedHydrations.delete(msg.sessionId);
+          for (const onSettled of followerSettlers) onSettled();
+        }
       });
     } else {
       sendTo(ws, { type: "event_replay", sessionId: msg.sessionId, events: [], isLast: true });

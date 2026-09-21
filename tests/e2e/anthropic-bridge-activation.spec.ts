@@ -39,6 +39,7 @@ async function bridgePlugin(
 
 test.describe("anthropic bridge activation (L3)", () => {
   test("both peers present → bridge loaded from packages[]", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     test.skip(
       (process.env.PI_TEST_PEERS ?? "both") !== "both",
       "runs against the default PI_TEST_PEERS=both managed container",

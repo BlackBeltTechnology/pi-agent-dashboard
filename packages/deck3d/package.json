@@ -1,0 +1,82 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-deck3d",
+  "version": "0.8.0",
+  "description": "Deterministic Markdown → self-contained 3D presentation engine: Deck IR, mermaid harvest in headless chromium, three.js runtime, effects corpus and props. Exposed as the deck3d CLI and the deck3d pi skill.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/deck3d"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-skill",
+    "deck3d",
+    "presentation",
+    "three.js",
+    "mermaid",
+    "slides"
+  ],
+  "pi": {
+    "skills": [
+      ".pi/skills/deck3d"
+    ]
+  },
+  "exports": {
+    "./*.js": "./src/*.ts",
+    "./*": "./src/*"
+  },
+  "bin": {
+    "deck3d": "bin/deck3d"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "!**/__tests__",
+    "dist/",
+    "scripts/",
+    "assets/",
+    "fixtures/",
+    ".pi/skills/",
+    "README.md",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "build:harvest": "tsx scripts/build-harvest.ts",
+    "build:runtime": "node scripts/build-runtime.mjs",
+    "build:cli": "node scripts/build-cli.mjs",
+    "gen:ir-fields": "tsx scripts/gen-ir-fields.ts",
+    "gen:effects": "tsx scripts/gen-effects.ts",
+    "build": "npm run build:harvest && npm run build:runtime && npm run build:cli && npm run gen:ir-fields && npm run gen:effects",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "esbuild": "^0.28.2",
+    "mermaid": "11.17.2",
+    "opentype.js": "^1.3.4",
+    "playwright": "^1.62.1",
+    "three": "0.160.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.80.10"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.80.10",
+    "@types/opentype.js": "^1.3.8",
+    "@types/three": "^0.160.0",
+    "tsx": "^4.21.0",
+    "vitest": "^4.0.0"
+  }
+}

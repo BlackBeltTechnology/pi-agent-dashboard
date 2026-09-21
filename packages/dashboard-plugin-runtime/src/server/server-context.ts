@@ -42,6 +42,22 @@ export interface PluginEventStore {
 export type BroadcastFn = (msg: unknown) => void;
 
 /**
+ * Subscribe IN-PROCESS to one session's live server→browser frames — the
+ * headless-client seam. Delivers the same frames a browser socket receives on
+ * `subscribe` (`event`, `prompt_request`, `prompt_dismiss`,
+ * `session_state_reset`), plus a replay of any already-pending PromptBus
+ * request for the session. Returns an idempotent unsubscribe fn.
+ *
+ * Trusted-gated (same gate as `sendExtensionMessage`): an untrusted plugin gets
+ * an inert unsubscribe and receives nothing.
+ * See change: add-chat-gateway.
+ */
+export type SubscribeSessionFn = (
+  sessionId: string,
+  handler: (msg: unknown) => void,
+) => () => void;
+
+/**
  * Register a handler for an extension WebSocket message type.
  *
  * The handler receives `(msg, sessionId)`. `sessionId` is supplied by the pi
@@ -619,12 +635,40 @@ export interface PluginModelRuntime {
   streamSimple: PluginStreamSimpleFn;
 }
 
+/**
+ * A dashboard workspace as exposed to plugins: identifier, display name, and
+ * member folder paths. Read-only view — the seam exposes no mutation.
+ * See change: add-chat-gateway-team-controls.
+ */
+export interface PluginWorkspace {
+  id: string;
+  name: string;
+  folders: string[];
+}
+
+/** Read the dashboard's current workspaces (defensive copy). */
+export type ListWorkspacesFn = () => PluginWorkspace[];
+
+/**
+ * Subscribe to workspace mutations; returns an unsubscribe fn. The handler is a
+ * coalescable hint to re-read `listWorkspaces()`, never a diff.
+ */
+export type OnWorkspacesChangedFn = (handler: () => void) => () => void;
+
 /** Full ServerPluginContext API exposed to plugin server entries. */
 export interface ServerPluginContext {
   fastify: FastifyInstance;
   sessionManager: PluginSessionManager;
   eventStore: PluginEventStore;
   broadcastToSubscribers: BroadcastFn;
+  /**
+   * Subscribe IN-PROCESS to a session's live browser-protocol frames — lets a
+   * plugin act as a headless browser-protocol client without a WebSocket.
+   * Trusted-gated, and OPTIONAL: absent on hosts that do not wire it (injected
+   * test contexts, older hosts), where the plugin owns the degradation.
+   * See change: add-chat-gateway.
+   */
+  subscribeSession?: SubscribeSessionFn;
   registerPiHandler: RegisterPiHandlerFn;
   registerBrowserHandler: RegisterBrowserHandlerFn;
   /** Subscribe to all forwarded pi events. See change: add-goal-continuation-plugin. */
@@ -739,6 +783,13 @@ export interface ServerPluginContext {
    */
   onShutdown: OnShutdownFn;
   /**
+   * Read the dashboard's workspaces (defensive copy) and subscribe to their
+   * mutations. Read-only and store-anchored; never trust-gated.
+   * See change: add-chat-gateway-team-controls.
+   */
+  listWorkspaces: ListWorkspacesFn;
+  onWorkspacesChanged: OnWorkspacesChangedFn;
+  /**
    * Own a WebSocket route scope on the main HTTP listener. Only valid during
    * the plugin's server-entry activation (the loader opens/closes the
    * window); the core upgrade gates (host admission, origin policy,
@@ -788,6 +839,8 @@ export interface ServerContextDeps {
   sessionManager: PluginSessionManager;
   eventStore: PluginEventStore;
   broadcastToSubscribers: BroadcastFn;
+  /** In-process session-frame subscription seam. Optional; see the context field. */
+  subscribeSession?: SubscribeSessionFn;
   registerPiHandler: RegisterPiHandlerFn;
   registerBrowserHandler: RegisterBrowserHandlerFn;
   onEvent: OnEventFn;
@@ -836,6 +889,9 @@ export interface ServerContextDeps {
    * the identity plane.
    */
   registerHostAccessPolicy?: RegisterHostAccessPolicyFn;
+  /** Workspace seam (optional on test hosts; the context defaults it). See change: add-chat-gateway-team-controls. */
+  listWorkspaces?: ListWorkspacesFn;
+  onWorkspacesChanged?: OnWorkspacesChangedFn;
 }
 
 /**
@@ -852,6 +908,7 @@ export function createServerPluginContext(
     sessionManager: deps.sessionManager,
     eventStore: deps.eventStore,
     broadcastToSubscribers: deps.broadcastToSubscribers,
+    subscribeSession: deps.subscribeSession,
     registerPiHandler: deps.registerPiHandler,
     registerBrowserHandler: deps.registerBrowserHandler,
     onEvent: deps.onEvent,
@@ -885,6 +942,10 @@ export function createServerPluginContext(
     assignSessionRef: deps.assignSessionRef,
     networkGuard: deps.networkGuard,
     onShutdown: deps.onShutdown,
+    // Workspace seam (add-chat-gateway-team-controls): defaulted so a host that
+    // does not wire it still exposes a total accessor to plugins.
+    listWorkspaces: deps.listWorkspaces ?? (() => []),
+    onWorkspacesChanged: deps.onWorkspacesChanged ?? (() => () => {}),
     registerWsRoute: (scope, opts) => getWsRouteRegistry().register(pluginId, scope, opts),
     ...(deps.registerPrincipalResolver
       ? { registerPrincipalResolver: deps.registerPrincipalResolver }

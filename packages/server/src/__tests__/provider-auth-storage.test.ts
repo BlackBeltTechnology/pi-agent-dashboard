@@ -1,12 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import {
-  setCatalogueForSession,
-  _resetForTests as resetCatalogueCache,
-} from "../package/provider-catalogue-cache.js";
+import path from "node:path";
 import type { ProviderInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  _resetForTests as resetCatalogueCache,
+  setCatalogueForSession,
+} from "../package/provider-catalogue-cache.js";
 
 // API-key rows are derived from the bridge-pushed catalogue cache.
 // See change: replace-hardcoded-provider-lists.
@@ -48,17 +48,17 @@ describe("provider-auth-storage", () => {
   it("writeCredential and readAuthJson roundtrip", async () => {
     const { writeCredential, readAuthJson } = await import("../auth/provider-auth-storage.js");
     const cred = { type: "api_key" as const, key: "test-key-123" };
-    writeCredential("test-provider", cred);
+    await writeCredential("test-provider", cred);
     const data = readAuthJson();
     expect(data["test-provider"]).toEqual(cred);
     const { removeCredential } = await import("../auth/provider-auth-storage.js");
-    removeCredential("test-provider");
+    await removeCredential("test-provider");
   });
 
   it("removeCredential removes the entry", async () => {
     const { writeCredential, removeCredential, readAuthJson } = await import("../auth/provider-auth-storage.js");
-    writeCredential("test-remove", { type: "api_key" as const, key: "x" });
-    removeCredential("test-remove");
+    await writeCredential("test-remove", { type: "api_key" as const, key: "x" });
+    await removeCredential("test-remove");
     const data = readAuthJson();
     expect(data["test-remove"]).toBeUndefined();
   });
@@ -97,38 +97,38 @@ describe("provider-auth-storage", () => {
 
   it("masking shows first 5 + ... + last 3 for keys >= 12 chars", async () => {
     const { writeCredential, getAuthStatus, removeCredential } = await import("../auth/provider-auth-storage.js");
-    writeCredential("openai", { type: "api_key", key: "sk-abc123xyz789" });
+    await writeCredential("openai", { type: "api_key", key: "sk-abc123xyz789" });
     try {
       const statuses = getAuthStatus();
       const openai = statuses.find((s) => s.id === "openai");
       expect(openai!.maskedKey).toBe("sk-ab...789");
     } finally {
-      removeCredential("openai");
+      await removeCredential("openai");
     }
   });
 
   it("masking returns **** for keys < 12 chars", async () => {
     const { writeCredential, getAuthStatus, removeCredential } = await import("../auth/provider-auth-storage.js");
-    writeCredential("openai", { type: "api_key", key: "shortkey" });
+    await writeCredential("openai", { type: "api_key", key: "shortkey" });
     try {
       const statuses = getAuthStatus();
       const openai = statuses.find((s) => s.id === "openai");
       expect(openai!.maskedKey).toBe("****");
     } finally {
-      removeCredential("openai");
+      await removeCredential("openai");
     }
   });
 
   it("empty key string results in authenticated false with no maskedKey", async () => {
     const { writeCredential, getAuthStatus, removeCredential } = await import("../auth/provider-auth-storage.js");
-    writeCredential("openai", { type: "api_key", key: "" });
+    await writeCredential("openai", { type: "api_key", key: "" });
     try {
       const statuses = getAuthStatus();
       const openai = statuses.find((s) => s.id === "openai");
       expect(openai!.authenticated).toBe(false);
       expect(openai!.maskedKey).toBeUndefined();
     } finally {
-      removeCredential("openai");
+      await removeCredential("openai");
     }
   });
 

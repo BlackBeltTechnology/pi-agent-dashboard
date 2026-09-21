@@ -2,28 +2,29 @@
  * REST routes for browser-based pi provider authentication.
  */
 import type { FastifyInstance } from "fastify";
+import { startCallbackServer } from "../auth/oauth-callback-server.js";
 import {
-  getProviderHandler,
-  getAllHandlers,
-  generatePKCE,
-  generateState,
   type AuthCodeHandler,
   type DeviceCodeHandler,
+  generatePKCE,
+  generateState,
+  getAllHandlers,
+  getProviderHandler,
   type PKCEPair,
 } from "../auth/provider-auth-handlers.js";
 import {
-  writeCredential,
-  removeCredential,
+  type ApiKeyCredential,
+  CredentialTypeConflictError,
   getAuthStatus,
   getOAuthProvidersMeta,
+  removeCredential,
   resolveAuthJsonKey,
-  type ApiKeyCredential,
+  writeCredential,
 } from "../auth/provider-auth-storage.js";
-import { getLatestCatalogue } from "../package/provider-catalogue-cache.js";
-import { startCallbackServer } from "../auth/oauth-callback-server.js";
-import type { PiGateway } from "../pi/pi-gateway.js";
-import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import { refreshModelRegistry } from "../model-proxy/registry-singleton.js";
+import { getLatestCatalogue, isCatalogueReady } from "../package/provider-catalogue-cache.js";
+import type { BrowserGateway } from "../pairing/browser-gateway.js";
+import type { PiGateway } from "../pi/pi-gateway.js";
 
 // ── In-memory flow store (short-lived PKCE + device code state) ──────────────
 
@@ -126,6 +127,15 @@ export function registerProviderAuthRoutes(
     return getAuthStatus();
   });
 
+  // Catalogue availability (D5): lets the client distinguish "no api-key
+  // credentials" from "the api-key provider list is unavailable". A separate
+  // route on purpose — the /status body is a bare array clients pin, and a
+  // header is invisible to non-browser consumers. See change:
+  // redesign-providers-settings-page.
+  fastify.get("/api/provider-auth/catalogue-ready", async () => {
+    return { ready: isCatalogueReady() };
+  });
+
   // Start auth-code flow — opens system browser, starts temp callback server
   fastify.post<{ Body: { provider: string } }>("/api/provider-auth/authorize", async (request, reply) => {
     pruneFlows();
@@ -158,7 +168,7 @@ export function registerProviderAuthRoutes(
             if (f === flow) { authCodeFlows.delete(id); break; }
           }
           const credential = await h.exchangeCode(code, flow.redirectUri, flow.pkce, flow.state);
-          writeCredential(flow.providerId, credential);
+          await writeCredential(flow.providerId, credential);
           notifyBridges();
         },
       });
@@ -230,26 +240,50 @@ export function registerProviderAuthRoutes(
         // Resolve the authJsonKey for API key providers (e.g., "anthropic-api" → "anthropic")
         const authJsonKey = resolveAuthJsonKey(provider);
         const credential: ApiKeyCredential = { type: "api_key", key };
-        writeCredential(authJsonKey, credential);
+        await writeCredential(authJsonKey, credential);
         notifyBridges();
         return { ok: true };
       } catch (err: any) {
+        // D2 — a cross-type clobber is a CONFLICT, not a server fault: 409 with
+        // the stable machine code + the stored type, so the client renders a
+        // translated message. See change: redesign-providers-settings-page.
+        if (err instanceof CredentialTypeConflictError) {
+          return reply.code(409).send({
+            error: err.message,
+            code: err.code,
+            vars: { storedType: err.storedType },
+          });
+        }
         request.log.error(err, "Failed to save API key");
         return reply.code(500).send({ error: err.message || "Failed to save API key" });
       }
     },
   );
 
-  // Remove credential. A refusal (corrupt auth.json whose bytes could not be
-  // backed up) maps to the SAME { error } shape PUT returns, so the Settings UI
-  // can show why. See change: fix-corrupt-auth-json-500.
+  // Remove credential. A refusal (cross-type removal per D2/X2, or corrupt
+  // auth.json whose bytes could not be backed up) maps to the SAME { error,
+  // code, vars } shape PUT returns, so the Settings UI can show why. See
+  // changes: fix-corrupt-auth-json-500, redesign-providers-settings-page.
   fastify.delete<{ Params: { provider: string } }>(
     "/api/provider-auth/:provider",
     async (request, reply) => {
       try {
-        const authJsonKey = resolveAuthJsonKey(request.params.provider);
-        removeCredential(authJsonKey);
+        const rawId = request.params.provider;
+        // The kind of the row the removal was addressed to: "oauth" for a
+        // handler id (the Subscription row), "api_key" otherwise — including
+        // an `<id>-api` twin, which resolves to the bare id. A stored OAuth
+        // credential must not be revocable through the api-key row (X2).
+        const isOAuthRow = getAllHandlers().some((h) => h.providerId === rawId);
+        const authJsonKey = resolveAuthJsonKey(rawId);
+        await removeCredential(authJsonKey, isOAuthRow ? "oauth" : "api_key");
       } catch (err: any) {
+        if (err instanceof CredentialTypeConflictError) {
+          return reply.code(409).send({
+            error: err.message,
+            code: err.code,
+            vars: { storedType: err.storedType },
+          });
+        }
         request.log.error(err, "Failed to remove credential");
         return reply.code(500).send({ error: err.message || "Failed to remove credential" });
       }
@@ -267,7 +301,9 @@ export function registerProviderAuthRoutes(
       const credential = await handler.pollForToken(
         flow.deviceCode, flow.interval, flow.expiresIn, flow.extra,
       );
-      writeCredential(flow.providerId, credential);
+      // Awaited: `complete` must not be reported before the credential is on
+      // disk. See change: fix-provider-auth-lock-contention.
+      await writeCredential(flow.providerId, credential);
       notifyBridges();
       flow.status = "complete";
     } catch (err: any) {

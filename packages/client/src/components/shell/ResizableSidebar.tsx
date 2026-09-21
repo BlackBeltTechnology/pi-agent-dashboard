@@ -13,6 +13,7 @@
 import { mdiChevronLeft } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { type ReactNode, useCallback, useEffect, useRef } from "react";
+import { useBodyDragStyle } from "../../hooks/useBodyDragStyle.js";
 import type { SidebarState } from "../../hooks/useSidebarState.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { RestoreTab } from "../split/RestoreTab.js";
@@ -31,6 +32,7 @@ export function ResizableSidebar({ sidebar, children }: Props) {
   const { width, collapsed, setWidth, toggleCollapse } = sidebar;
   const dragging = useRef(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
+  const { beginBodyDrag, endBodyDrag } = useBodyDragStyle();
 
   // Drag-to-resize handler (collapse knob handles toggle separately, and
   // stops propagation so a knob click never starts a drag).
@@ -39,10 +41,9 @@ export function ResizableSidebar({ sidebar, children }: Props) {
       if (collapsed) return;
       e.preventDefault();
       dragging.current = true;
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
+      beginBodyDrag("col-resize");
     },
-    [collapsed],
+    [collapsed, beginBodyDrag],
   );
 
   useEffect(() => {
@@ -56,8 +57,7 @@ export function ResizableSidebar({ sidebar, children }: Props) {
     const handleMouseUp = (e: MouseEvent) => {
       if (!dragging.current) return;
       dragging.current = false;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
+      endBodyDrag();
       setWidth(clampWidth(e.clientX));
     };
 
@@ -67,7 +67,7 @@ export function ResizableSidebar({ sidebar, children }: Props) {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [setWidth]);
+  }, [setWidth, endBodyDrag]);
 
   // Collapsed → vertical SESSIONS restore tab (same idiom as the pane peeks).
   if (collapsed) {

@@ -1,5 +1,5 @@
-import { test, expect } from "./fixtures.js";
-import { spawnFreshGitSession, sendPrompt } from "./helpers/index.js";
+import { expect, test } from "./fixtures.js";
+import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
 /**
  * Error-lifecycle surface — single-card settled error + deferred clear
@@ -8,10 +8,13 @@ import { spawnFreshGitSession, sendPrompt } from "./helpers/index.js";
  * SessionBanner), no LLM credential:
  *
  *  1. A terminal model error surfaces ONE settled error card (`error-banner`):
- *     the raw error string + a clear-only ✕ (`error-banner-dismiss`), with NO
- *     manual "Try again" (`error-banner-retry` removed), NO Stop control
- *     (`error-banner-stop` — Stop shows only while pi is actively retrying), and
- *     NO retry sub-line (`retry-banner`) on a settled error.
+ *     the raw error string + a one-shot Retry (`error-banner-retry`) + a
+ *     clear-only ✕ (`error-banner-dismiss`), with NO Stop control
+ *     (`error-banner-stop` — Stop shows only while pi is actively retrying) and
+ *     NO retry sub-line (`retry-banner`) on a settled error. The Retry control
+ *     was re-added by change `fix-retry-error-lifecycle` (a settled provider
+ *     error SHALL offer a one-shot Retry); this spec tracked the earlier
+ *     `simplify-error-retry-single-card` surface that removed it.
  *  2. The error card PERSISTS across the start of a NEW turn that has not yet
  *     produced a confirmed-good response — it is NOT cleared optimistically on
  *     `agent_start`. Driven deterministically with an `ask_user` turn: it pauses
@@ -32,7 +35,7 @@ const ERROR_MESSAGE = "faux model error";
 const PLAIN_TEXT_MARKER = "The quick brown faux jumps over the lazy dog.";
 
 test.describe("error-lifecycle surface", () => {
-  test("terminal error shows ONE settled card: message + clear-only ✕, no retry/Stop", async ({
+  test("terminal error shows ONE settled card: message + Retry + ✕, no Stop", async ({
     page,
   }) => {
     const card = await spawnFreshGitSession(page);
@@ -46,9 +49,9 @@ test.describe("error-lifecycle surface", () => {
 
     // Exactly one card — never two surfaces for the same failure.
     await expect(page.getByTestId("error-banner")).toHaveCount(1);
-    // Clear-only ✕ is present; there is no manual "Try again" anymore.
+    // A settled provider error offers a one-shot Retry plus the ✕ dismiss.
+    await expect(page.getByTestId("error-banner-retry")).toBeVisible();
     await expect(page.getByTestId("error-banner-dismiss")).toBeVisible();
-    await expect(page.getByTestId("error-banner-retry")).toHaveCount(0);
     // Settled (not retrying) → no Stop control and no retry sub-line.
     await expect(page.getByTestId("error-banner-stop")).toHaveCount(0);
     await expect(page.getByTestId("retry-banner")).toHaveCount(0);

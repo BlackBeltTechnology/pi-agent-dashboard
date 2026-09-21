@@ -52,7 +52,7 @@ export function StatusBar({ status, currentTool, streamingText }: Props) {
           path={statusIcon}
           size={0.5}
           spin={statusIcon === mdiLoading}
-          className={toolHighlight ? "text-yellow-400" : ""}
+          className={toolHighlight ? "text-yellow-400 fx-progress" : "fx-progress"}
         />
         <span>{statusLabel}</span>
       </div>

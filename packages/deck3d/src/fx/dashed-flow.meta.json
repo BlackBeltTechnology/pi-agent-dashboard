@@ -1,0 +1,27 @@
+{
+  "id": "dashed-flow",
+  "kind": "edge",
+  "tags": {
+    "mood": [
+      "technical",
+      "active"
+    ],
+    "content": [
+      "flow",
+      "sequence"
+    ]
+  },
+  "cost": 1,
+  "modes": "both",
+  "params": {
+    "dash": {
+      "type": "number",
+      "default": 0.5,
+      "minimum": 0,
+      "maximum": 2
+    }
+  },
+  "conflicts": [],
+  "source": "https://threejs.org/examples/",
+  "licence": "MIT"
+}

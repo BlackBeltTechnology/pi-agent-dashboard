@@ -1,7 +1,7 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { expect, type Page, test } from "./fixtures.js";
-import { byTestId, spawnFreshGitSession } from "./helpers/index.js";
+import { byTestId, dismissToasts, spawnFreshGitSession } from "./helpers/index.js";
 
 // Browser E2E — Diagram preview (.puml and adoc hydration) in the editor pane.
 //
@@ -13,12 +13,6 @@ import { byTestId, spawnFreshGitSession } from "./helpers/index.js";
 // - X3: dead upstream falls back to source
 //
 // Exemplar: tests/e2e/eml-preview.spec.ts
-
-async function dismissToasts(page: Page): Promise<void> {
-  for (const btn of await page.getByRole("button", { name: "Dismiss" }).all()) {
-    await btn.click().catch(() => {});
-  }
-}
 
 async function openFile(page: Page, file: string) {
   const composer = page.getByPlaceholder(/message/i).first();

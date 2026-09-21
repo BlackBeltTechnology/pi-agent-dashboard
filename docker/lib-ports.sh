@@ -1,8 +1,9 @@
 # shellcheck shell=bash
 # ---------------------------------------------------------------------------
-# Pure port/project helpers for the parallel-worktree test harness.
-# Sourced by test-up.sh and test-down.sh. No side effects on source.
+# Pure port/project + harness-memory helpers for the parallel-worktree test
+# harness. Sourced by test-up.sh and test-down.sh. No side effects on source.
 # See change: parallelize-test-harness, docker/TESTING.md.
+# See change: stabilize-browser-e2e (list_running_harness_projects, memory parse).
 # ---------------------------------------------------------------------------
 
 # Disjoint port windows (1000 ports each). Dashboard scan never bleeds into the
@@ -37,4 +38,55 @@ find_free_in_window() {
   done
   echo "parallelize-test-harness: no free port in [$lo..$hi] (window of $span exhausted)" >&2
   return 1
+}
+
+# Echo the OTHER running `pi-dash-test-*` compose projects on this daemon, one
+# per line, excluding $1 (the caller's own project). Empty + exit 0 when none
+# (or when docker is unavailable) so a caller can test `[ -n ... ]` safely.
+# Always exits 0 — a failed probe is "no information", never an error.
+# See change: stabilize-browser-e2e (#451 part 2).
+list_running_harness_projects() {
+  local self="${1:-}"
+  docker ps \
+    --filter "label=com.docker.compose.project" \
+    --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null \
+    | grep '^pi-dash-test-' \
+    | { if [ -n "$self" ]; then grep -v "^${self}\$"; else cat; fi; } \
+    | sort -u \
+    || true
+}
+
+# Parse a docker compose memory limit ("4g", "512m", "1gb", "2097152") into
+# bytes. Echo nothing + return 1 when unparseable, so the caller can warn and
+# proceed rather than refuse on a value it does not understand.
+# See change: stabilize-browser-e2e (#451 part 2).
+parse_memory_bytes() {
+  local raw="${1:-}"
+  [ -n "$raw" ] || return 1
+  local num unit
+  num="$(printf '%s' "$raw" | tr -cd '0-9')"
+  unit="$(printf '%s' "$raw" | tr -d '0-9' | tr '[:upper:]' '[:lower:]')"
+  [ -n "$num" ] || return 1
+  case "$unit" in
+    ""|b)  printf '%s' "$num" ;;
+    k|kb)  printf '%s' $(( num * 1024 )) ;;
+    m|mb)  printf '%s' $(( num * 1024 * 1024 )) ;;
+    g|gb)  printf '%s' $(( num * 1024 * 1024 * 1024 )) ;;
+    *)     return 1 ;;
+  esac
+}
+
+# Human-readable byte count for a guard message: exact GiB -> "8 GiB", exact
+# MiB -> "512 MiB", else raw bytes. Integer-exact only; guards never print a
+# rounded number that would make the arithmetic look wrong.
+# See change: stabilize-browser-e2e (#451 part 2).
+human_bytes() {
+  local b="${1:-0}"
+  if [ $(( b % 1073741824 )) -eq 0 ]; then
+    printf '%s GiB' $(( b / 1073741824 ))
+  elif [ $(( b % 1048576 )) -eq 0 ]; then
+    printf '%s MiB' $(( b / 1048576 ))
+  else
+    printf '%s B' "$b"
+  fi
 }

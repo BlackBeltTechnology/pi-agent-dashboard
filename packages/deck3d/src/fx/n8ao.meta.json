@@ -1,0 +1,26 @@
+{
+  "id": "n8ao",
+  "kind": "post",
+  "tags": {
+    "mood": [
+      "premium",
+      "technical"
+    ],
+    "content": [
+      "staging"
+    ]
+  },
+  "cost": 2,
+  "modes": "both",
+  "params": {
+    "radius": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 4
+    }
+  },
+  "conflicts": [],
+  "source": "https://github.com/N8python/n8ao",
+  "licence": "CC0-1.0"
+}

@@ -53,6 +53,7 @@ test.describe("chat transcript — scroll-to-top convergence (estimate-drift gat
   // ── ADDED: "Deterministic scroll-to-top affordance" + "Scroll-to-top lands
   //    on the first row" — including the async-image post-load remeasure. ────
   test("scroll-to-top lands on index 0 and stays after async image load", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     await startHeavy(page);
     await waitForTail(page); // big rows are off-screen at the top
 

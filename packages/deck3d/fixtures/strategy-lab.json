@@ -1,0 +1,891 @@
+{
+  "meta": {
+    "engine": "0.1.0",
+    "mermaid": "11.17.2",
+    "source": "fixtures/strategy-lab.md",
+    "derivedHash": "a0b53624f10788f7bbe8cc63ff777f4ccec9cf3a37ccc19f7d3424266828bee9"
+  },
+  "defaults": {
+    "mode": "dark",
+    "palette": "blackbelt",
+    "material": "glass",
+    "envReflections": true,
+    "mirrorFloor": true,
+    "softShadows": true,
+    "bloom": true,
+    "rimLight": true,
+    "fog": true,
+    "backgroundIntensity": 0.7,
+    "transition": "dolly",
+    "durationSec": 1.4,
+    "depthRelief": 0.7,
+    "quality": "high",
+    "extrudeDepth": 0.18,
+    "camera": {
+      "distance": 9
+    },
+    "labels": {
+      "size": 0.28
+    },
+    "check": {
+      "ignore": []
+    }
+  },
+  "slides": [
+    {
+      "index": 1,
+      "id": "az-llm-tol-az-agensrajokig",
+      "title": "Az LLM-től az Ágensrajokig",
+      "bullets": [],
+      "scene": "particles",
+      "diagram": {
+        "kind": "none"
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "particles"
+        }
+      ],
+      "subtitle": "Az autonóm szoftverfejlesztés új korszaka"
+    },
+    {
+      "index": 2,
+      "id": "mi-az-llm",
+      "title": "Mi az LLM?",
+      "bullets": [
+        "Olvasott kolléga",
+        "Nyelvi minták",
+        "Gondolkodik, de nem cselekszik"
+      ],
+      "scene": "particles",
+      "diagram": {
+        "kind": "none"
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "particles"
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "id": "agent-loop",
+      "title": "Agent Loop",
+      "bullets": [
+        "Plan → Act → Observe",
+        "Önkorrekció",
+        "Ciklikus működés"
+      ],
+      "scene": "particles",
+      "diagram": {
+        "kind": "none"
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "particles"
+        }
+      ]
+    },
+    {
+      "index": 4,
+      "id": "agent-swarm-2025",
+      "title": "Agent Swarm (2025)",
+      "bullets": [
+        "Szakosodott ágensek",
+        "Együttműködés",
+        "1445% növekedés"
+      ],
+      "scene": "particles",
+      "diagram": {
+        "kind": "none"
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "particles"
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "id": "agens-munkafolyamat",
+      "title": "Ágens munkafolyamat",
+      "bullets": [
+        "Mermaid flowchart → 3D",
+        "Layout: mermaid/dagre",
+        "Szemantika: diagram.db"
+      ],
+      "scene": "tokens",
+      "diagram": {
+        "kind": "flowchart",
+        "dir": "LR",
+        "nodes": [
+          {
+            "id": "U",
+            "label": "Fejlesztő",
+            "shape": "stadium",
+            "x": 52.38,
+            "y": 143.59,
+            "w": 88.76,
+            "h": 39
+          },
+          {
+            "id": "P",
+            "label": "Prompt",
+            "shape": "rect",
+            "x": 202.55,
+            "y": 143.59,
+            "w": 111.58,
+            "h": 54
+          },
+          {
+            "id": "L",
+            "label": "LLM",
+            "shape": "hexagon",
+            "x": 366.15,
+            "y": 143.59,
+            "w": 65.63,
+            "h": 39,
+            "group": "Ágensrendszer"
+          },
+          {
+            "id": "T",
+            "label": "Eszközhívás",
+            "shape": "rect",
+            "x": 560.78,
+            "y": 81.59,
+            "w": 149.81,
+            "h": 54,
+            "group": "Ágensrendszer"
+          },
+          {
+            "id": "O",
+            "label": "Megfigyelés",
+            "shape": "circle",
+            "x": 735.87,
+            "y": 112.44,
+            "w": 100.38,
+            "h": 100.38,
+            "group": "Ágensrendszer"
+          },
+          {
+            "id": "K",
+            "label": "Kód + PR",
+            "shape": "rect",
+            "x": 560.78,
+            "y": 279.19,
+            "w": 128.94,
+            "h": 54
+          }
+        ],
+        "edges": [
+          {
+            "id": "U->P#0",
+            "from": "U",
+            "to": "P",
+            "kind": "normal",
+            "path": [
+              [
+                97.26,
+                144.09
+              ],
+              [
+                100.1,
+                144.04
+              ],
+              [
+                102.95,
+                143.98
+              ],
+              [
+                105.79,
+                143.92
+              ],
+              [
+                108.63,
+                143.87
+              ],
+              [
+                111.48,
+                143.82
+              ],
+              [
+                114.32,
+                143.77
+              ],
+              [
+                117.17,
+                143.73
+              ],
+              [
+                120.01,
+                143.69
+              ],
+              [
+                122.85,
+                143.66
+              ],
+              [
+                125.7,
+                143.64
+              ],
+              [
+                128.54,
+                143.62
+              ],
+              [
+                131.39,
+                143.61
+              ],
+              [
+                134.23,
+                143.6
+              ],
+              [
+                137.07,
+                143.59
+              ],
+              [
+                139.92,
+                143.59
+              ],
+              [
+                142.76,
+                143.59
+              ]
+            ]
+          },
+          {
+            "id": "P->L#0",
+            "from": "P",
+            "to": "L",
+            "kind": "normal",
+            "path": [
+              [
+                258.34,
+                143.59
+              ],
+              [
+                262.81,
+                143.59
+              ],
+              [
+                267.28,
+                143.59
+              ],
+              [
+                271.75,
+                143.59
+              ],
+              [
+                276.22,
+                143.59
+              ],
+              [
+                280.68,
+                143.59
+              ],
+              [
+                285.15,
+                143.59
+              ],
+              [
+                289.62,
+                143.6
+              ],
+              [
+                294.09,
+                143.6
+              ],
+              [
+                298.56,
+                143.61
+              ],
+              [
+                303.03,
+                143.63
+              ],
+              [
+                307.5,
+                143.66
+              ],
+              [
+                311.97,
+                143.71
+              ],
+              [
+                316.44,
+                143.77
+              ],
+              [
+                320.9,
+                143.84
+              ],
+              [
+                325.37,
+                143.93
+              ],
+              [
+                329.84,
+                144.01
+              ]
+            ]
+          },
+          {
+            "id": "L->T#0",
+            "from": "L",
+            "to": "T",
+            "kind": "normal",
+            "path": [
+              [
+                389.98,
+                125.13
+              ],
+              [
+                395.02,
+                120.94
+              ],
+              [
+                400.06,
+                116.76
+              ],
+              [
+                405.13,
+                112.6
+              ],
+              [
+                410.25,
+                108.51
+              ],
+              [
+                415.45,
+                104.53
+              ],
+              [
+                420.75,
+                100.67
+              ],
+              [
+                426.15,
+                96.97
+              ],
+              [
+                431.69,
+                93.47
+              ],
+              [
+                437.41,
+                90.27
+              ],
+              [
+                443.33,
+                87.47
+              ],
+              [
+                449.48,
+                85.2
+              ],
+              [
+                455.8,
+                83.48
+              ],
+              [
+                462.25,
+                82.33
+              ],
+              [
+                468.77,
+                81.73
+              ],
+              [
+                475.32,
+                81.59
+              ],
+              [
+                481.87,
+                81.59
+              ]
+            ]
+          },
+          {
+            "id": "T->O#0",
+            "from": "T",
+            "to": "O",
+            "kind": "dotted",
+            "path": [
+              [
+                635.68,
+                81.59
+              ],
+              [
+                638.91,
+                81.59
+              ],
+              [
+                642.14,
+                81.6
+              ],
+              [
+                645.36,
+                81.66
+              ],
+              [
+                648.59,
+                81.8
+              ],
+              [
+                651.8,
+                82.04
+              ],
+              [
+                655.01,
+                82.38
+              ],
+              [
+                658.21,
+                82.84
+              ],
+              [
+                661.37,
+                83.45
+              ],
+              [
+                664.51,
+                84.2
+              ],
+              [
+                667.62,
+                85.08
+              ],
+              [
+                670.69,
+                86.05
+              ],
+              [
+                673.74,
+                87.11
+              ],
+              [
+                676.76,
+                88.24
+              ],
+              [
+                679.77,
+                89.43
+              ],
+              [
+                682.75,
+                90.65
+              ],
+              [
+                685.74,
+                91.87
+              ]
+            ]
+          },
+          {
+            "id": "O->L#0",
+            "from": "O",
+            "to": "L",
+            "kind": "normal",
+            "path": [
+              [
+                689.51,
+                131.65
+              ],
+              [
+                672.62,
+                137.73
+              ],
+              [
+                654.95,
+                140.95
+              ],
+              [
+                637.05,
+                142.45
+              ],
+              [
+                619.09,
+                143.13
+              ],
+              [
+                601.13,
+                143.45
+              ],
+              [
+                583.16,
+                143.57
+              ],
+              [
+                565.19,
+                143.59
+              ],
+              [
+                547.22,
+                143.6
+              ],
+              [
+                529.25,
+                143.6
+              ],
+              [
+                511.28,
+                143.6
+              ],
+              [
+                493.31,
+                143.61
+              ],
+              [
+                475.34,
+                143.63
+              ],
+              [
+                457.37,
+                143.66
+              ],
+              [
+                439.4,
+                143.73
+              ],
+              [
+                421.43,
+                143.85
+              ],
+              [
+                403.46,
+                144.05
+              ]
+            ]
+          },
+          {
+            "id": "L->K#0",
+            "from": "L",
+            "to": "K",
+            "kind": "thick",
+            "label": "kész",
+            "path": [
+              [
+                393.92,
+                155.18
+              ],
+              [
+                403.46,
+                159
+              ],
+              [
+                412.91,
+                163.04
+              ],
+              [
+                422.13,
+                167.58
+              ],
+              [
+                431.1,
+                172.58
+              ],
+              [
+                439.84,
+                177.99
+              ],
+              [
+                448.34,
+                183.76
+              ],
+              [
+                456.63,
+                189.83
+              ],
+              [
+                464.77,
+                196.1
+              ],
+              [
+                472.79,
+                202.53
+              ],
+              [
+                480.72,
+                209.07
+              ],
+              [
+                488.57,
+                215.69
+              ],
+              [
+                496.37,
+                222.39
+              ],
+              [
+                504.11,
+                229.14
+              ],
+              [
+                511.83,
+                235.93
+              ],
+              [
+                519.53,
+                242.73
+              ],
+              [
+                527.23,
+                249.54
+              ]
+            ]
+          }
+        ],
+        "groups": [
+          {
+            "id": "AG",
+            "title": "Ágensrendszer",
+            "nodes": [
+              "T",
+              "L",
+              "O"
+            ]
+          }
+        ]
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "tokens"
+        },
+        {
+          "id": "signal-pulse"
+        }
+      ]
+    },
+    {
+      "index": 6,
+      "id": "javitasi-ciklus",
+      "title": "Javítási ciklus",
+      "bullets": [
+        "Mermaid sequence → 3D",
+        "Idő = mélység",
+        "Üzenetek sorban világítanak"
+      ],
+      "scene": "rings",
+      "diagram": {
+        "kind": "sequence",
+        "actors": [
+          {
+            "id": "F",
+            "label": "Fejlesztő"
+          },
+          {
+            "id": "A",
+            "label": "Ágens"
+          },
+          {
+            "id": "E",
+            "label": "Eszközök"
+          }
+        ],
+        "messages": [
+          {
+            "id": "m0",
+            "from": "F",
+            "to": "A",
+            "text": "Feladat",
+            "kind": "solid"
+          },
+          {
+            "id": "m1",
+            "from": "A",
+            "to": "E",
+            "text": "Tesztek",
+            "kind": "solid"
+          },
+          {
+            "id": "m2",
+            "from": "E",
+            "to": "A",
+            "text": "3 hiba",
+            "kind": "dotted"
+          },
+          {
+            "id": "m3",
+            "from": "A",
+            "to": "E",
+            "text": "Javítás",
+            "kind": "solid"
+          },
+          {
+            "id": "m4",
+            "from": "E",
+            "to": "A",
+            "text": "Green",
+            "kind": "dotted"
+          },
+          {
+            "id": "m5",
+            "from": "A",
+            "to": "F",
+            "text": "PR kész",
+            "kind": "dotted"
+          }
+        ]
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "rings"
+        },
+        {
+          "id": "signal-pulse"
+        }
+      ]
+    },
+    {
+      "index": 7,
+      "id": "koszonom-a-figyelmet",
+      "title": "Köszönöm a figyelmet!",
+      "bullets": [
+        "AI = operációs rendszer",
+        "Ember + gép együttműködés",
+        "A jövő már itt van"
+      ],
+      "scene": "particles",
+      "diagram": {
+        "kind": "none"
+      },
+      "camera": {
+        "distance": 9
+      },
+      "labels": {
+        "size": 0.28
+      },
+      "check": {
+        "ignore": []
+      },
+      "effects": [
+        {
+          "id": "particles"
+        }
+      ]
+    }
+  ],
+  "overrides": {
+    "slides": {
+      "az-llm-tol-az-agensrajokig": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        }
+      },
+      "mi-az-llm": {
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        }
+      },
+      "agent-loop": {
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        }
+      },
+      "agent-swarm-2025": {
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        }
+      },
+      "agens-munkafolyamat": {
+        "camera": {
+          "distance": 12
+        },
+        "labels": {
+          "size": 0.24
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        }
+      },
+      "javitasi-ciklus": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        }
+      },
+      "koszonom-a-figyelmet": {
+        "camera": {
+          "distance": 12
+        },
+        "check": {
+          "ignore": [
+            "contrast"
+          ]
+        }
+      }
+    }
+  }
+}

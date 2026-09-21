@@ -123,6 +123,32 @@ export function byTestId(scope: Page | Locator, key: keyof typeof TESTIDS): Loca
   return scope.getByTestId(TESTIDS[key]);
 }
 
+/**
+ * Dismiss the harness's recurring spawn toasts.
+ *
+ * A spawn raises a dismissible toast pinned over the editor/tab strip, so a
+ * `locator.click()` on a control underneath never becomes "stable" and the
+ * action times out with no useful cause. ~8 specs grew their own copy of this
+ * workaround; it lives here now. See change: stabilize-browser-e2e (4.2).
+ */
+export async function dismissToasts(page: Page): Promise<void> {
+  for (const btn of await page.getByRole("button", { name: "Dismiss" }).all()) {
+    await btn.click().catch(() => {});
+  }
+}
+
+/**
+ * Click a testid, dismissing overlapping toasts and retrying until it lands.
+ * Prefer this over a bare `click()` for any control that can sit under a toast.
+ */
+export async function robustClick(page: Page, testid: string): Promise<void> {
+  const target = page.getByTestId(testid);
+  await expect(async () => {
+    await dismissToasts(page);
+    await target.click({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+}
+
 /** Navigate to the dashboard root and wait for the shell to mount. */
 // Track pages that already have the first-launch auto-dismiss handler wired, so
 // repeated gotoDashboard calls don't stack duplicate handlers.
@@ -213,6 +239,42 @@ export async function pinDirectory(page: Page, absPath: string): Promise<void> {
 }
 
 /**
+ * The sidebar folder-GROUP body (Create tray + session cards) for an absolute
+ * cwd. Its testid is dynamic, so it cannot live in TESTIDS.
+ *
+ * Scoping to the group is load-bearing: the sidebar renders a Create tray for
+ * EVERY folder group, and PI_E2E_SEED seeds 125 ended sessions in
+ * `/fixtures/seed-win-*` (scripts/seed-sessions-window.mjs), so a global
+ * `.first()` picks an arbitrary seed dir. Those cwds do not exist on disk, so
+ * the spawn 500s ("Directory does not exist") and no card ever appears.
+ * See change: stabilize-browser-e2e (baseline triage 4.2).
+ */
+function folderGroupBody(page: Page, cwd: string): Locator {
+  return page.getByTestId(`folder-body-${cwd}`);
+}
+
+/**
+ * Ensure the baked git fixture is in the sidebar and return its group body.
+ *
+ * Pins it only when absent: re-opening the add-folders dialog for an
+ * already-pinned folder is not a supported flow (the dialog lists unpinned
+ * paths). Waits for the sidebar to render SOME group first so a still-hydrating
+ * snapshot is not misread as "not pinned".
+ */
+async function ensureFixtureGitGroup(page: Page): Promise<Locator> {
+  const body = folderGroupBody(page, FIXTURE_GIT);
+  await page
+    .locator('[data-testid^="folder-body-"]')
+    .first()
+    .waitFor({ state: "visible", timeout: 10_000 })
+    .catch(() => {});
+  if (await visible(body)) return body;
+  await pinDirectory(page, FIXTURE_GIT);
+  await body.waitFor({ state: "visible", timeout: 30_000 });
+  return body;
+}
+
+/**
  * Idempotently guarantee a session spawned in the baked git fixture, returning
  * its card locator. Reuses an existing card if one is already present (specs
  * share one container), otherwise pins FIXTURE_GIT and spawns. The spawned
@@ -231,13 +293,13 @@ export async function ensureGitSession(page: Page): Promise<Locator> {
     .catch(() => false);
   if (reused) return card;
 
-  await pinDirectory(page, FIXTURE_GIT);
+  const fixGitBody = await ensureFixtureGitGroup(page);
 
   const spawnCta = byTestId(page, "onboardingStep3Cta");
   if (await visible(spawnCta)) {
     await spawnCta.click();
   } else {
-    await byTestId(page, "folderSpawnSessionBtn").first().click();
+    await fixGitBody.getByTestId(TESTIDS.folderSpawnSessionBtn).click();
   }
   await card.waitFor({ state: "visible", timeout: 60_000 });
   return card;
@@ -257,17 +319,6 @@ export async function spawnFreshGitSession(page: Page): Promise<Locator> {
   await gotoDashboard(page);
   const cardsSel = '[data-testid="session-card-desktop"]';
 
-  // Settle WS hydration before branching: a fresh load briefly shows the
-  // onboarding (empty) view, then flips to the dashboard view once sessions
-  // arrive over /ws. Clicking the onboarding CTA mid-flip detaches it. If any
-  // card is present after the settle we are in dashboard mode (folder pinned).
-  const hasSessions = await page
-    .locator(cardsSel)
-    .first()
-    .waitFor({ state: "visible", timeout: 6_000 })
-    .then(() => true)
-    .catch(() => false);
-
   const existing = new Set(
     (
       (await page
@@ -278,18 +329,12 @@ export async function spawnFreshGitSession(page: Page): Promise<Locator> {
     ).filter((id): id is string => Boolean(id)),
   );
 
-  const spawnBtn = byTestId(page, "folderSpawnSessionBtn").first();
-  if (hasSessions || (await visible(spawnBtn))) {
-    // Dashboard mode (a folder is already pinned): spawn via the sidebar.
-    await spawnBtn.waitFor({ state: "visible", timeout: 15_000 });
-    await spawnBtn.click();
-  } else {
-    // Truly empty container: the onboarding flow pins the fixture and spawns.
-    await pinDirectory(page, FIXTURE_GIT);
-    const step3 = byTestId(page, "onboardingStep3Cta");
-    if (await visible(step3)) await step3.click();
-    else await byTestId(page, "folderSpawnSessionBtn").first().click();
-  }
+  // Spawn from the FIXTURE_GIT group and ONLY that group (see
+  // folderGroupBody). This replaces the old `hasSessions || spawnBtn visible`
+  // branch, which read a seed dir's Create tray as "a folder is pinned" and
+  // clicked it — a 500 with no card, so the spec died at the poll below.
+  const fixGitBody = await ensureFixtureGitGroup(page);
+  await fixGitBody.getByTestId(TESTIDS.folderSpawnSessionBtn).click();
 
   let card!: Locator;
   await expect
@@ -795,3 +840,121 @@ export async function assertHitAreas(page: Page, selector: string, min = 44): Pr
   );
   expect(undersized, `controls below the ${min}×${min} hit-area floor in ${selector}`).toEqual([]);
 }
+
+// ── Providers settings fixtures (change: redesign-providers-settings-page) ──
+
+/**
+ * Structural stand-in for a `GET /api/provider-auth/status` row — the fields
+ * the redesigned section and its Add-provider dialog read. Only the fields a
+ * scenario needs need to be set; the rest default to an unconfigured OAuth
+ * row (the harness-fresh state for every registry provider).
+ */
+export interface ProviderStatusFixture {
+  id: string;
+  name: string;
+  flowType: "auth_code" | "device_code" | "api_key";
+  authenticated: boolean;
+  configured?: boolean;
+  maskedKey?: string;
+  envVar?: string;
+  ambient?: boolean;
+  expires?: number;
+}
+
+export function providerStatusRow(patch: Partial<ProviderStatusFixture> & { id: string }): ProviderStatusFixture {
+  return {
+    name: patch.id,
+    flowType: "auth_code",
+    authenticated: false,
+    ...patch,
+  };
+}
+
+/** A custom-endpoint entry as `GET /api/providers` carries it (redacted read). */
+export interface CustomEndpointFixture {
+  baseUrl?: string;
+  apiKey?: string;
+  api?: string;
+  apiKeyResolved?: boolean;
+}
+
+export interface RoutedProviderData {
+  /** Replace the array subsequent `GET /api/provider-auth/status` calls serve. */
+  serveStatuses(rows: ProviderStatusFixture[]): void;
+  /** Replace the `{ providers, health }` map subsequent `GET /api/providers` calls serve. */
+  serveProviders(map: Record<string, CustomEndpointFixture>, health?: Record<string, unknown>): void;
+}
+
+/**
+ * Fixture the redesigned providers section's three reads. The rows are what
+ * the REAL server would emit for the scenario's state (auth rows from the
+ * handler registry, api-key rows from a bridge-pushed catalogue); the section,
+ * the Add-provider dialog and the Settings shell all run for real on top.
+ * Armed routes serve the CURRENT payload on every call, so a scenario can
+ * flip server state mid-test with `serveStatuses` / `serveProviders` — the
+ * same trick the real server exhibits when a credential lands in auth.json.
+ */
+export function routeProviderData(
+  page: Page,
+  opts: {
+    statuses?: ProviderStatusFixture[];
+    providers?: Record<string, CustomEndpointFixture>;
+    health?: Record<string, unknown>;
+    /** `GET /api/provider-auth/catalogue-ready` → `{ ready }`. Default true. */
+    catalogueReady?: boolean;
+  },
+): RoutedProviderData {
+  let statuses = opts.statuses ?? [];
+  let providers = opts.providers ?? {};
+  let health = opts.health ?? {};
+  void page.route("**/api/provider-auth/status", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(statuses) }),
+  );
+  void page.route("**/api/providers", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ success: true, providers, health }),
+    }),
+  );
+  void page.route("**/api/provider-auth/catalogue-ready", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ready: opts.catalogueReady ?? true }) }),
+  );
+  return {
+    serveStatuses(rows) {
+      statuses = rows;
+    },
+    serveProviders(map, nextHealth) {
+      providers = map;
+      if (nextHealth) health = nextHealth;
+    },
+  };
+}
+
+/** Open Settings ▸ Providers and wait until the redesigned section is mounted. */
+export async function openProvidersSettings(page: Page): Promise<void> {
+  await gotoDashboard(page);
+  await page.goto("/settings/providers");
+  await page.getByTestId("settings-nav-rail").waitFor({ state: "visible", timeout: 20_000 });
+  await page
+    .getByTestId("add-provider-button")
+    .waitFor({ state: "visible", timeout: 20_000 });
+}
+
+/**
+ * Open the Add-provider picker and return its dialog panel.
+ *
+ * The picker renders through `DialogPortal`, so the `provider-add-dialog`
+ * wrapper is an EMPTY node — content must be scoped to the portal panel
+ * (`role=dialog`) instead, filtered by the picker's unique search placeholder
+ * to distinguish it from the Settings overlay's own dialog.
+ */
+export async function openAddPicker(page: Page): Promise<Locator> {
+  await page.getByTestId("add-provider-button").click();
+  const root = page
+    .getByRole("dialog")
+    .filter({ has: page.getByPlaceholder("Search providers…") });
+  await root.waitFor({ state: "visible", timeout: 15_000 });
+  return root;
+}
+

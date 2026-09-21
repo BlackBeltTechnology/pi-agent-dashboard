@@ -1,0 +1,27 @@
+{
+  "id": "rings",
+  "kind": "background",
+  "tags": {
+    "mood": [
+      "calm",
+      "loop"
+    ],
+    "content": [
+      "loop",
+      "timeline"
+    ]
+  },
+  "cost": 1,
+  "modes": "both",
+  "params": {
+    "intensity": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 2
+    }
+  },
+  "conflicts": [],
+  "source": "https://threejs.org/examples/",
+  "licence": "MIT"
+}

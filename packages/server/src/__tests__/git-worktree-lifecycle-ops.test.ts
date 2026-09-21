@@ -185,6 +185,12 @@ describe("resolveRemoteBase", () => {
     repo = makeRepo();
     bare = realpathSync(mkdtempSync(join(tmpdir(), "bare-remote-")));
     git("init --bare", bare);
+    // Pushing the first branch into an empty bare repo repoints its HEAD at
+    // that branch, and git >= 2.45 refuses to delete the current branch even
+    // in a bare repo ("deletion of the current branch prohibited"). Older git
+    // allowed it, so the delete below passed on CI and failed on newer local
+    // toolchains. Opt out explicitly rather than depend on the git version.
+    git("config receive.denyDeleteCurrent ignore", bare);
     git(`remote add origin ${bare}`, repo);
     git(`push origin main`, repo);
   });

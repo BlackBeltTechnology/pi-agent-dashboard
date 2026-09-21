@@ -106,6 +106,11 @@
   --accent-purple: #a855f7;
   --accent-orange: #f97316;
   --accent-primary: #3b82f6;
+  /* Stronger primary for white-text fills: white on #3b82f6 is 3.68:1 (under
+     the 4.5:1 text floor); white on #2563eb is 5.17:1. Component code
+     previously hardcoded bg-blue-600 to get this; the token names it.
+     See change: redesign-providers-settings-page. */
+  --accent-primary-strong: #2563eb;
   --link: #60a5fa;
   --link-hover: #93bbfd;
 
@@ -229,6 +234,7 @@
 
   /* Accents stay the same */
   --accent-primary: #2563eb;
+  --accent-primary-strong: #2563eb; /* same value in light — already clears 5.17:1 under white */
   --link: #2563eb;
   --link-hover: #1d4ed8;
 
@@ -657,6 +663,36 @@ mark.markdown-search-highlight-active {
 .fx-offscreen::after,
 .fx-offscreen *::before,
 .fx-offscreen *::after { animation-play-state: paused !important; }
+
+/* ── Pause all animations while the dashboard is VISIBLE but idle ──
+   App.tsx (useIdleFx) toggles `fx-idle` on the document root after
+   IDLE_FX_DELAY_MS with no deliberate input; an unattended-on-screen window
+   stops driving continuous compositor frames. Frozen elements keep their
+   static state colours, so running/unread/selected state stays legible —
+   only the motion stops. See change: fix-long-session-ux-degradation
+   (§7, design D8). */
+:root.fx-idle *,
+:root.fx-idle *::before,
+:root.fx-idle *::after { animation-play-state: paused !important; }
+
+/* Idle-only exemption: unlike a hidden window the user IS looking, where a
+   frozen spinner reads as a hang. Exempt indeterminate ROTATION only, keyed
+   on shared indicator classes — `animate-spin` (Tailwind) plus `fx-progress`
+   (the `@mdi/react` `spin` prop applies `animation` as an INLINE style with no
+   class any selector could match, so those four sites opt in explicitly).
+   Decorative liveness that restates a static state (`animate-pulse`,
+   `.tool-group-spin-pulse`) is deliberately NOT exempt. */
+:root.fx-idle .animate-spin,
+:root.fx-idle .fx-progress { animation-play-state: running !important; }
+
+/* …but the two stronger pauses still win: nobody is looking at a hidden window
+   or an off-screen card, so the exemption's rationale does not hold there.
+   `:root.app-hidden .animate-spin` is (0,3,0) — equal to the exemption above
+   but LATER in source; the `.fx-offscreen` re-pauses are (0,4,0). */
+:root.app-hidden .animate-spin,
+:root.app-hidden .fx-progress,
+:root.fx-idle .fx-offscreen .animate-spin,
+:root.fx-idle .fx-offscreen .fx-progress { animation-play-state: paused !important; }
 
 /* ── Selected-card iridescent ring ────────────────────────────
    See change: redesign-session-card-and-composer (1.1–1.5).

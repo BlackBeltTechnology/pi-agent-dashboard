@@ -56,6 +56,7 @@ import { WorktreeSpawnDialog } from "./components/worktree/WorktreeSpawnDialog.j
 import { useAppHidden } from "./hooks/useAppHidden.js";
 import { useContentViews } from "./hooks/useContentViews.js";
 import { useDocumentTitle } from "./hooks/useDocumentTitle.js";
+import { useIdleFx } from "./hooks/useIdleFx.js";
 import { selectInflightBashTools } from "./hooks/useInflightBashTools.js";
 import { useInstallPrompt } from "./hooks/useInstallPrompt.js";
 import { useLaunchSource } from "./hooks/useLaunchSource.js";
@@ -380,6 +381,10 @@ export default function App() {
   // backgrounded, so the renderer + GPU stop continuous compositing.
   // See change: throttle-idle-ui-animations.
   useAppHidden();
+  // Pause ALL animations 5s after the last input, so a visible-but-untouched
+  // dashboard stops driving compositor frames. See change:
+  // fix-long-session-ux-degradation (§7, design D8).
+  useIdleFx();
   const [wsUrl, setWsUrl] = useState(getInitialWsUrl);
   const { send, onMessage, status, ws, onOutboxExpiry } = useWebSocket(wsUrl);
   // Stable identity: the plugin runtime's `usePluginSend` memoizes on this prop,
@@ -1582,12 +1587,19 @@ export default function App() {
   // Built via `makeToolContext` so the `fileLink` renderer is attached — a
   // hand-built literal here silently loses file-mention linkification with no
   // type error. See change: cleanup-import-cycles (D4b).
+  // Depend on the SELECTED session's `subagents` map, not the whole
+  // `sessionStates` map: any other session's update minted a new context and
+  // re-rendered every consumer, replacing the foreground transcript's markdown
+  // DOM. `ToolContext.session` is narrowed to the `subagents`-bearing subset so
+  // the type matches what is actually kept fresh. See change:
+  // fix-long-session-ux-degradation (D7).
+  const selectedSubagents = selectedId ? sessionStates.get(selectedId)?.subagents : undefined;
   const toolContext: ToolContext = useMemo(() => makeToolContext({
     cwd: selectedCwd,
     sessionId: selectedId,
-    session: selectedId ? sessionStates.get(selectedId) : undefined,
+    session: selectedSubagents ? { subagents: selectedSubagents } : undefined,
     send,
-  }), [selectedCwd, selectedId, sessionStates, send]);
+  }), [selectedCwd, selectedId, selectedSubagents, send]);
 
   const contextUsageMap = useMemo(
     () => buildContextUsageMap(sessionStates, sessions),
@@ -2789,7 +2801,13 @@ export default function App() {
       hasPiResourceRoute: hasPiResourceRouteFlag,
     });
     return apiProvider(
-      <div className="bg-[var(--bg-primary)] text-[var(--text-primary)]">
+      /* Viewport-bounded root: the in-flow banners below stack ABOVE the shell,
+         so this root owns the `100dvh` + `overflow-hidden` bound and the shell
+         flexes into the remainder. Claiming `100dvh` on the shell too made the
+         document itself scrollable by the banner height, dragging the whole
+         shell (header included) off-screen. See change:
+         fix-long-session-ux-degradation (D4). */
+      <div className="flex flex-col h-[100dvh] overflow-hidden bg-[var(--bg-primary)] text-[var(--text-primary)]">
         <PluginStalenessBanner />
         <ConnectionStatusBanner
           status={status}
@@ -3161,7 +3179,7 @@ function StatusBarRefreshButton({ cwd, onRefresh }: { cwd: string; onRefresh: (c
       data-testid="statusbar-refresh-btn"
       className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] p-0.5"
     >
-      <Icon path={mdiRefresh} size={0.55} spin={spinning} />
+      <Icon path={mdiRefresh} size={0.55} spin={spinning} className="fx-progress" />
     </button>
   );
 }

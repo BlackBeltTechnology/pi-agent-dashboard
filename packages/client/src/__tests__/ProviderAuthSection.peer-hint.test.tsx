@@ -32,6 +32,9 @@ interface Ctl {
   healthMode: "ok" | "reject" | "500" | "pending";
   healthCalls: number;
   installPosts: Array<any>;
+  /** `lock` makes a credential DELETE fail the way lock contention does. */
+  deleteMode: "ok" | "lock";
+  deleteCalls: number;
 }
 let ctl: Ctl;
 
@@ -39,8 +42,15 @@ function stubFetch(statuses: any[] = [ANTHROPIC_CONNECTED]) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: any) => {
-      if (url.includes("/api/provider-auth/handlers")) return { ok: true, json: async () => ({ ids: ["anthropic", "openai-codex", "github-copilot"] }) } as any;
       if (url.includes("/api/provider-auth/status")) return { ok: true, json: async () => statuses } as any;
+      if (url.includes("/api/providers")) return { ok: true, json: async () => ({ success: true, providers: {}, health: {} }) } as any;
+      if (url.includes("/api/provider-auth/catalogue-ready")) return { ok: true, json: async () => ({ ready: true }) } as any;
+      if (init?.method === "DELETE") {
+        ctl.deleteCalls++;
+        return ctl.deleteMode === "lock"
+          ? ({ ok: false, status: 500, json: async () => ({ error: "Lock file is already being held" }) } as any)
+          : ({ ok: true, json: async () => ({ ok: true }) } as any);
+      }
       if (url.includes("/api/packages/install")) {
         ctl.installPosts.push(JSON.parse(init.body));
         return { ok: true, json: async () => ({ success: true, data: { operationId: `op-${ctl.installPosts.length}` } }) } as any;
@@ -62,7 +72,7 @@ function hint(c: { queryByTestId: (id: string) => HTMLElement | null }) {
 }
 
 beforeEach(() => {
-  ctl = { healthBody: health({ ok: false }), healthMode: "ok", healthCalls: 0, installPosts: [] };
+  ctl = { healthBody: health({ ok: false }), healthMode: "ok", healthCalls: 0, installPosts: [], deleteMode: "ok", deleteCalls: 0 };
   packageQueue.__resetForTests();
 });
 
@@ -93,10 +103,12 @@ describe("anthropic peer hint — detection", () => {
     expect(hint(c)).toBeNull();
   });
 
-  it("E3 renders no hint on a signed-out anthropic row", async () => {
-    stubFetch([{ ...ANTHROPIC_CONNECTED, authenticated: false }]);
+  it("E3 renders no hint on a signed-out anthropic — the row itself is no longer rendered", async () => {
+    stubFetch([{ ...ANTHROPIC_CONNECTED, authenticated: false, configured: false }]);
     const c = render(<ProviderAuthSection />);
-    await waitFor(() => expect(c.getAllByText("Sign In").length).toBe(1));
+    // The redesigned section lists only providers holding a credential, so a
+    // signed-out anthropic produces no row at all — and therefore no hint.
+    await waitFor(() => expect(c.container.querySelector('[data-testid="provider-row"]')).toBeNull());
     await waitFor(() => expect(ctl.healthCalls).toBeGreaterThan(0));
     expect(hint(c)).toBeNull();
   });
@@ -113,9 +125,9 @@ describe("anthropic peer hint — detection", () => {
   });
 
   it("E5 renders no hint on the anthropic-api key row", async () => {
-    stubFetch([{ id: "anthropic-api", name: "Anthropic API", flowType: "api_key", authenticated: true, maskedKey: "sk-…xyz" }]);
+    stubFetch([{ id: "anthropic-api", name: "Anthropic API", flowType: "api_key", authenticated: true, maskedKey: "sk-…xyz", configured: true, source: "stored" }]);
     const c = render(<ProviderAuthSection />);
-    await waitFor(() => expect(c.getAllByText("Configured").length).toBe(1));
+    await waitFor(() => expect(c.getByTestId("provider-badge").textContent).toBe("API key"));
     await waitFor(() => expect(ctl.healthCalls).toBeGreaterThan(0));
     expect(hint(c)).toBeNull();
   });
@@ -364,5 +376,26 @@ describe("anthropic peer hint — fail-open", () => {
     });
     await waitFor(() => expect(hint(c)!.textContent).toContain("npm ERR! 403 Forbidden"));
     expect(c.getByText("Install peer").closest("button")!.disabled).toBe(false);
+  });
+});
+
+// ── Sign Out under lock contention (change: fix-provider-auth-lock-contention) ─
+
+describe("sign out refusal — the backend's lock reason reaches the user", () => {
+  it("F1 renders the lock message, keeps the row signed in and shows no generic fallback", async () => {
+    ctl.deleteMode = "lock";
+    stubFetch();
+    const c = render(<ProviderAuthSection />);
+    await waitFor(() => expect(c.getAllByText("Sign Out").length).toBe(1));
+
+    fireEvent.click(c.getByText("Sign Out"));
+
+    // The reason the server gave, not a generic phrase.
+    await waitFor(() => expect(c.getByText("Lock file is already being held")).toBeTruthy());
+    expect(ctl.deleteCalls).toBe(1);
+    expect(c.queryByText("Failed to sign out")).toBeNull();
+    // The row is untouched: no successful sign-out, so it stays signed in.
+    expect(c.getByText("Sign Out")).toBeTruthy();
+    expect(c.getByText("Connected")).toBeTruthy();
   });
 });

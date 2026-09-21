@@ -1,0 +1,27 @@
+{
+  "id": "grid-horizon",
+  "kind": "background",
+  "tags": {
+    "mood": [
+      "technical",
+      "retro"
+    ],
+    "content": [
+      "infrastructure",
+      "network"
+    ]
+  },
+  "cost": 2,
+  "modes": "both",
+  "params": {
+    "spacing": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0.2,
+      "maximum": 4
+    }
+  },
+  "conflicts": [],
+  "source": "https://threejs.org/examples/",
+  "licence": "MIT"
+}

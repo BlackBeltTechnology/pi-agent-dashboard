@@ -33,6 +33,43 @@ COMPOSE_PROJECT_NAME="$(derive_project "$HOST_CWD")"
 # See change fix-parallel-e2e-docker-collisions D3.
 export TEST_IMAGE_TAG="$COMPOSE_PROJECT_NAME"
 
+# ---------------------------------------------------------------- co-resident guard
+# #451 part 2. Two 4 GiB harnesses saturate an 8 GB VM, and a red run under that
+# contention cannot be attributed (one worktree's container was even observed
+# destroyed mid-run). Compare THIS start plus every other running harness
+# against the daemon's MemTotal. Refuse when the limits do not fit, WARN when
+# they fit but a peer is up (attribution is degraded). Runs BEFORE the image
+# build and before the state file is written, so a refusal costs nothing and
+# leaves no half-started state. `>=` is deliberate: the host must also keep
+# running, so limits that exactly equal MemTotal are already oversubscribed.
+# One code path in and out of CI — a CI runner has one harness, so this is a
+# no-op there. See change: stabilize-browser-e2e, docker/TESTING.md.
+MEM_LIMIT_RAW="${MEM_LIMIT:-4g}"
+PEER_HARNESSES="$(list_running_harness_projects "$COMPOSE_PROJECT_NAME")"
+if [ -n "$PEER_HARNESSES" ]; then
+  PEER_NAMES="$(printf '%s' "$PEER_HARNESSES" | tr '\n' ',' | sed 's/,$//')"
+  PEER_COUNT="$(printf '%s\n' "$PEER_HARNESSES" | grep -c .)"
+  INSTANCES=$(( PEER_COUNT + 1 ))
+  LIMIT_BYTES="$(parse_memory_bytes "$MEM_LIMIT_RAW" || true)"
+  MEM_TOTAL="$(docker info --format '{{.MemTotal}}' 2>/dev/null || true)"
+  if [ -z "$LIMIT_BYTES" ] || ! [[ "$MEM_TOTAL" =~ ^[0-9]+$ ]]; then
+    echo "stabilize-browser-e2e: cannot read memory limits (MEM_LIMIT=${MEM_LIMIT_RAW:-unset}, MemTotal=${MEM_TOTAL:-unavailable}) — another harness is up (${PEER_NAMES}); proceeding without the oversubscription check" >&2
+  else
+    REQUIRED_BYTES=$(( INSTANCES * LIMIT_BYTES ))
+    if [ "$REQUIRED_BYTES" -lt "$MEM_TOTAL" ]; then
+      echo "stabilize-browser-e2e: another test harness is up (${PEER_NAMES}); ${INSTANCES} × $(human_bytes "$LIMIT_BYTES") fits in $(human_bytes "$MEM_TOTAL") but a red run cannot be attributed under contention" >&2
+    elif [ "${PI_HARNESS_ALLOW_OVERSUBSCRIBE:-}" = "1" ]; then
+      echo "stabilize-browser-e2e: oversubscribed — ${INSTANCES} × $(human_bytes "$LIMIT_BYTES") = $(human_bytes "$REQUIRED_BYTES") >= $(human_bytes "$MEM_TOTAL") MemTotal; proceeding because PI_HARNESS_ALLOW_OVERSUBSCRIBE=1" >&2
+    else
+      echo "stabilize-browser-e2e: refusing to start — co-resident harness oversubscription" >&2
+      echo "  other harness project(s): ${PEER_NAMES}" >&2
+      echo "  memory: ${INSTANCES} × $(human_bytes "$LIMIT_BYTES") = $(human_bytes "$REQUIRED_BYTES")  >=  $(human_bytes "$MEM_TOTAL") MemTotal (MEM_LIMIT=${MEM_LIMIT_RAW})" >&2
+      echo "  set PI_HARNESS_ALLOW_OVERSUBSCRIBE=1 to start anyway" >&2
+      exit 1
+    fi
+  fi
+fi
+
 # Whether WE own the chosen ports (derived/reused) and may re-derive them on a
 # bind-race retry, vs. pinned verbatim by an external caller (contract: honour
 # exactly, never re-derive). Set to 1 only in the verbatim branch below.
@@ -88,6 +125,19 @@ export PI_TEST_PEERS="${PI_TEST_PEERS:-}"
 # drive the settings/tile surfaces without real Chrome. Requires PI_E2E_SEED=1.
 #   PI_E2E_SEED=1 PI_BROWSER_RELAY_FAKE=1 docker/test-up.sh -d --build
 export PI_BROWSER_RELAY_FAKE="${PI_BROWSER_RELAY_FAKE:-}"
+
+# Chat-gateway team-controls e2e faucet (change:
+# add-chat-gateway-team-controls, task 10g). Passed through to the container
+# (compose.test.yml -> test-entrypoint.sh) which seeds `plugins["chat-gateway"]`
+# and selects the socket-less platform fixture, so the L3 specs have a surface
+# to render. Requires PI_E2E_SEED=1.
+#   1 | nolist   (unset => harness unchanged)
+#   PI_E2E_SEED=1 PI_CHAT_GATEWAY_FAKE=1 docker/test-up.sh -d --build
+# Exported here deliberately: compose substitutes ${PI_CHAT_GATEWAY_FAKE} from
+# the SHELL environment, so without this the faucet resolves to empty and
+# silently does nothing even when the caller sets it.
+export PI_CHAT_GATEWAY_FAKE="${PI_CHAT_GATEWAY_FAKE:-}"
+export PI_CHAT_GATEWAY_FAKE_DIR="${PI_CHAT_GATEWAY_FAKE_DIR:-}"
 
 # Record the resolved ports + project for teardown + the Playwright lifecycle.
 # Gitignored; harmless inside the container (read-only overlay lower).

@@ -32,7 +32,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { type APIRequestContext, expect, type Page, test } from "./fixtures.js";
 import { gotoDashboard } from "./helpers/index.js";
-import { DASHBOARD_PORT, REPO_ROOT } from "./lifecycle.js";
+import { DASHBOARD_PORT, harnessProject, REPO_ROOT } from "./lifecycle.js";
 
 /** The name F9 admits. Not a real host — it only has to be non-admissible. */
 const ALLOW_HOST = "proxy-int.corp";
@@ -58,18 +58,15 @@ async function readConfig(request: APIRequestContext): Promise<ConfigSlice> {
 let containerId: string | undefined;
 function harnessContainer(): string {
   if (containerId) return containerId;
-  const state = JSON.parse(
-    fs.readFileSync(path.join(REPO_ROOT, ".pi-test-harness.json"), "utf8"),
-  ) as { project?: string };
-  if (!state.project) throw new Error(".pi-test-harness.json carries no compose project");
+  const project = harnessProject();
   const id = execFileSync(
     "docker",
-    ["ps", "-q", "--filter", `label=com.docker.compose.project=${state.project}`],
+    ["ps", "-q", "--filter", `label=com.docker.compose.project=${project}`],
     { encoding: "utf8", timeout: 30_000 },
   )
     .trim()
     .split("\n")[0];
-  if (!id) throw new Error(`no running container for compose project ${state.project}`);
+  if (!id) throw new Error(`no running container for compose project ${project}`);
   containerId = id;
   return id;
 }

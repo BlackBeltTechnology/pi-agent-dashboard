@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import cors from "@fastify/cors";
 import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -10,7 +11,7 @@ import {
   isWsOriginTrusted,
   sanitizeHeaderForLog,
 } from "../auth/cors-origin.js";
-import { createNetworkGuard } from "../auth/localhost-guard.js";
+import { createNetworkGuard, createNetworkGuardHook } from "../auth/localhost-guard.js";
 import {
   configSnapshotParseCount,
   liveCorsAllowedOrigins,
@@ -499,5 +500,74 @@ describe("sanitizeHeaderForLog (#X1)", () => {
 
   it("renders an absent value as a placeholder, never as `undefined`", () => {
     expect(sanitizeHeaderForLog(undefined)).toBe("-");
+  });
+});
+
+// ─── Preflight is answered by CORS, never denied by the guard (S15) ──────────
+// `@fastify/cors` is registered BEFORE the universal guard and answers preflight
+// in its own path, so a guarded route must still be reachable cross-origin. The
+// ordering is what makes this true, so the test mirrors server.ts's order.
+//
+// See change: add-universal-network-guard.
+describe("universal guard does not break cross-origin preflight (S15)", () => {
+  let testDir: string;
+  let configFile: string;
+  let origHome: string;
+  const ORIGIN = "https://dashboard.example.com";
+
+  function writeConfig(value: unknown) {
+    fs.writeFileSync(configFile, JSON.stringify(value));
+    resetConfigSnapshot();
+  }
+
+  beforeEach(() => {
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-cors-preflight-"));
+    fs.mkdirSync(path.join(testDir, ".pi", "dashboard"), { recursive: true });
+    configFile = path.join(testDir, ".pi", "dashboard", "config.json");
+    origHome = process.env.HOME!;
+    process.env.HOME = testDir;
+    resetConfigSnapshot();
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    fs.rmSync(testDir, { recursive: true, force: true });
+    resetConfigSnapshot();
+  });
+
+  it("answers OPTIONS /api/sessions from an allowed origin, not a policy 403", async () => {
+    writeConfig({ cors: { allowedOrigins: [ORIGIN] }, trustedNetworks: [] });
+
+    const app = Fastify({ logger: false });
+    app.decorateRequest("isAuthenticated", false);
+    await app.register(cors, {
+      origin: (origin, cb) =>
+        cb(null, isCorsOriginAllowed(origin ?? undefined, {
+          configuredOrigins: liveCorsAllowedOrigins(),
+          trustedNetworks: liveTrustedNetworks(),
+          getTunnelUrl: () => null,
+        })),
+      credentials: true,
+    });
+    // Registered after CORS, exactly as in server.ts.
+    app.addHook("onRequest", createNetworkGuardHook({
+      trustedNetworks: [],
+      getBypassUrls: () => [],
+      getPairingPrefixes: () => [],
+    }));
+    app.post("/api/sessions", async () => ({ ok: true }));
+    await app.ready();
+
+    const res = await app.inject({
+      method: "OPTIONS",
+      url: "/api/sessions",
+      remoteAddress: "203.0.113.5",
+      headers: { origin: ORIGIN, "access-control-request-method": "POST" },
+    });
+    await app.close();
+
+    expect([200, 204]).toContain(res.statusCode);
+    expect(res.headers["access-control-allow-origin"]).toBe(ORIGIN);
+    expect(res.body).not.toContain("network_not_allowed");
   });
 });

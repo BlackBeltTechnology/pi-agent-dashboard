@@ -22,12 +22,28 @@
 import { isMainThread, parentPort } from "node:worker_threads";
 import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
 import { projectDiffEvents } from "./session-diff-source.js";
-import { loadSessionEntries } from "./session-file-reader.js";
+import { loadSessionEntries, parseSessionEntries, splitTranscriptLines } from "./session-file-reader.js";
 
 export interface SessionLoadRequest {
   jobId: number;
   sessionId: string;
-  sessionFile: string;
+  /**
+   * File arm: a path to a local `.jsonl`. EXACTLY ONE of `sessionFile` and
+   * `raw` must be set; neither or both is `invalid_request`.
+   */
+  sessionFile?: string;
+  /**
+   * Raw-text arm: the transcript's `.jsonl` content, split and parsed IN THE
+   * WORKER.
+   *
+   * Raw text rather than a pre-split `entries` array, because the split is
+   * itself main-thread work on up to 256 MB, and one 44 MB string is a
+   * memcpy-class clone where 10⁵ separate strings is not. It is also the grain
+   * at which parity is free: the raw arm is the file arm's body minus the `fs`
+   * read, so identical bytes cannot produce different events.
+   * See change: offload-retained-transcript-replay (D1).
+   */
+  raw?: string;
   /** Persisted `session.contextWindow`; passed through to replay so
    *  `stats_update` events use the real window, not the model heuristic. */
   knownContextWindow?: number;
@@ -68,9 +84,20 @@ export interface SessionLoadResult {
  * body in `directory-service.ts::loadSessionEvents()`.
  */
 export function loadAndReplay(req: SessionLoadRequest): SessionLoadResult {
-  const { jobId, sessionId, sessionFile, knownContextWindow, mode, maxStringSize } = req;
+  const { jobId, sessionId, sessionFile, raw, knownContextWindow, mode, maxStringSize } = req;
+  const hasFile = typeof sessionFile === "string";
+  const hasRaw = typeof raw === "string";
+  // Two arms, exactly one set. A request naming neither (or both) cannot be
+  // resolved to a transcript, and picking one would silently hydrate the wrong
+  // one — so it is a refusal, not a guess. See change:
+  // offload-retained-transcript-replay (D1).
+  if (hasFile === hasRaw) {
+    return { jobId, success: false, events: [], error: "invalid_request" };
+  }
   try {
-    const entries = loadSessionEntries(sessionFile);
+    const entries = hasRaw
+      ? parseSessionEntries(splitTranscriptLines(raw as string))
+      : loadSessionEntries(sessionFile as string);
     if (mode === "diff-events") {
       const { events, lastEntryTs } = projectDiffEvents(sessionId, entries, { maxStringSize });
       return { jobId, success: true, events, entryCount: entries.length, lastEntryTs };

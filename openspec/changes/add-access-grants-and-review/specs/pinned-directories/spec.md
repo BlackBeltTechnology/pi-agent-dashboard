@@ -4,7 +4,7 @@
 
 HTTP routes that refuse an unknown `cwd` SHALL carry the refusal reason and the remedy alongside their existing error string. Because the known-cwd set already includes the user's pinned directories, pinning the refused directory SHALL be the offered `allow-always` remedy.
 
-The covered HTTP routes are the goal routes, the OpenSpec group routes, the KB plugin HTTP routes, and `GET /api/file/exists` (whose refusal string is `"unknown cwd"`, distinct from the others' `"cwd not allowed"`). Each route's existing `error` string SHALL be preserved unchanged; the reason and hint SHALL be additional fields.
+The covered HTTP routes are the goal-plugin routes (`rejectInvalidCwd`, six call sites), the OpenSpec group routes, the KB plugin HTTP routes (`rejectCwd`, four call sites), the MCP-client plugin routes (whose body shape is `{ error, message }`), and `GET /api/file/exists` (whose refusal string is `"unknown cwd"`, distinct from the others' `"cwd not allowed"`). Each route's existing `error` string SHALL be preserved unchanged; the reason and hint SHALL be additional fields.
 
 The additional fields SHALL be additive: each route's pre-existing `error` string is unchanged, so a client reading only `error` observes no difference.
 
@@ -18,7 +18,7 @@ Denial sites that are NOT HTTP routes are excluded: the two `plugin_action` brow
 
 #### Scenario: Every cwd-refusing HTTP route is covered
 
-- **WHEN** each of the goal, OpenSpec group, KB plugin HTTP, and `/api/file/exists` routes refuses an unknown `cwd`
+- **WHEN** each of the goal-plugin, OpenSpec group, KB plugin HTTP, MCP-client plugin, and `/api/file/exists` routes refuses an unknown `cwd`
 - **THEN** each SHALL carry the additional fields
 
 #### Scenario: Non-HTTP denial sites are unchanged

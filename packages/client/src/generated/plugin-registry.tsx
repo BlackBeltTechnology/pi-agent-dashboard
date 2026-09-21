@@ -2,6 +2,7 @@
 
 import { AppleToolsSettings } from "@blackbelt-technology/pi-dashboard-apple-tools";
 import { FolderAutomationSection, AutomationBoard, AutomationRunMonitor, AutomationBadge, isAutomationRun, AutomationSettings, catalog as automation_catalog } from "@blackbelt-technology/pi-dashboard-automation-plugin";
+import { ChatGatewaySettings } from "@blackbelt-technology/pi-dashboard-chat-gateway-plugin";
 import { CostView, CostSettings } from "@blackbelt-technology/pi-dashboard-cost-estimator";
 import { SessionFlowActionsClaim, shouldRenderFlowsSubcard, FlowDashboardClaim, FlowYamlPreviewClaim, isFlowYamlPreviewActive, FlowWriteToolRenderer, FlowAgentsToolRenderer, FlowsSettings, FlowInputWiringClaim, catalog as flows_catalog } from "@blackbelt-technology/pi-dashboard-flows-plugin";
 import { GoalChip, hasGoal, GoalControl, FolderGoalsSection, GoalsBoardClaim, GoalDetailClaim, GoalPluginSettings, catalog as goal_catalog } from "@blackbelt-technology/pi-dashboard-goal-plugin";
@@ -11,7 +12,7 @@ import { FolderKbSection, KbSettingsClaim, catalog as kb_catalog } from "@blackb
 import { McpSettingsClaim, FolderMcpSection, FolderMcpPage } from "@blackbelt-technology/pi-dashboard-mcp-client-plugin";
 import { BuiltInRolesSettings, catalog as roles_catalog } from "@blackbelt-technology/pi-dashboard-roles-plugin";
 import { SubagentsSettings, SubagentPopoutClaim, catalog as subagents_catalog } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
-import { BlackholeSettings, MemorySubcard, shouldRenderMemorySubcard, PipelineDetailView, isPipelineDetailActive, catalog as blackhole_catalog } from "@blackbelt-technology/pi-dashboard-blackhole-plugin";
+import { BlackholeSettings, MemorySubcard, shouldRenderMemorySubcard, PipelineDetailView, isPipelineDetailActive, OmEntryCard, catalog as blackhole_catalog } from "@blackbelt-technology/pi-dashboard-blackhole-plugin";
 import { BrowserSettings, BrowserRelayBadge, LiveViewTile, isLiveViewActive, catalog as browser_catalog } from "@blackbelt-technology/pi-dashboard-browser-plugin";
 import { FlowsAnthropicBridgeSettings, catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
 import { QuotaWidget, QuotaSettings, catalog as quota_catalog } from "@blackbelt-technology/pi-dashboard-quota-plugin";
@@ -104,6 +105,28 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
       { pluginId: "automation", priority: 100, slot: "settings-section", tab: "general", Component: AutomationSettings },
     ],
     catalog: automation_catalog,
+  },
+  {
+    manifest: {
+        "id": "chat-gateway",
+        "displayName": "Chat Gateway",
+        "priority": 100,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "ChatGatewaySettings",
+                "config": {
+                    "tab": "general"
+                }
+            }
+        ],
+        "client": "./src/client/index.tsx",
+        "server": "./src/server/index.ts",
+        "configSchema": "./src/configSchema.json"
+    },
+    claims: [
+      { pluginId: "chat-gateway", priority: 100, slot: "settings-section", config: {"tab":"general"}, Component: ChatGatewaySettings },
+    ],
   },
   {
     manifest: {
@@ -460,6 +483,21 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
                 "slot": "content-view",
                 "component": "PipelineDetailView",
                 "predicate": "isPipelineDetailActive"
+            },
+            {
+                "slot": "custom-entry-renderer",
+                "component": "OmEntryCard",
+                "customType": "om.observations.recorded"
+            },
+            {
+                "slot": "custom-entry-renderer",
+                "component": "OmEntryCard",
+                "customType": "om.reflections.recorded"
+            },
+            {
+                "slot": "custom-entry-renderer",
+                "component": "OmEntryCard",
+                "customType": "om.observations.dropped"
             }
         ],
         "client": "./src/client/index.tsx",
@@ -476,6 +514,9 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
       { pluginId: "blackhole", priority: 200, slot: "settings-section", tab: "general", Component: BlackholeSettings },
       { pluginId: "blackhole", priority: 200, slot: "session-card-memory", Component: MemorySubcard, shouldRender: shouldRenderMemorySubcard },
       { pluginId: "blackhole", priority: 200, slot: "content-view", Component: PipelineDetailView, predicate: isPipelineDetailActive },
+      { pluginId: "blackhole", priority: 200, slot: "custom-entry-renderer", customType: "om.observations.recorded", Component: OmEntryCard },
+      { pluginId: "blackhole", priority: 200, slot: "custom-entry-renderer", customType: "om.reflections.recorded", Component: OmEntryCard },
+      { pluginId: "blackhole", priority: 200, slot: "custom-entry-renderer", customType: "om.observations.dropped", Component: OmEntryCard },
     ],
     catalog: blackhole_catalog,
   },
@@ -564,4 +605,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "4e1f10fbdbfd764dc7f026c43aabf87f0b79ab5a5b0aa4148cb68918a4ef080c";
+export const PLUGIN_REGISTRY_HASH = "9903cd6ad9080451f9398d9d6d0cbff1554691f62c8cbdb59fe292c480e92eda";

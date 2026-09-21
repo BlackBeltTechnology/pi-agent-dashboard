@@ -24,4 +24,13 @@ describe("AutomationBadge", () => {
     );
     expect(getByTestId("automation-badge").textContent).toContain("nightly");
   });
+
+  it("#E6 renders the fallback label for a legacy run with no run identity", () => {
+    // A sidecar whose `kind` survived but whose `automationRun` was permanently
+    // lost (pre-fix wipe) must still render an automation badge, not nothing.
+    const { getByTestId } = render(<AutomationBadge session={base({ kind: "automation" })} />);
+    const label = getByTestId("automation-badge").textContent ?? "";
+    expect(label).toContain("automation");
+    expect(label).not.toContain("nightly");
+  });
 });

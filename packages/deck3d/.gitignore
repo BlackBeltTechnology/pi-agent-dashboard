@@ -1,0 +1,4 @@
+node_modules/
+dist/
+.deck3d/
+*.deck3d.html

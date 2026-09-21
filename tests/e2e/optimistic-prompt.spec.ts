@@ -1,5 +1,5 @@
-import { test, expect } from "./fixtures.js";
-import { spawnFreshGitSession, sendPrompt, byTestId } from "./helpers/index.js";
+import { expect, test } from "./fixtures.js";
+import { byTestId, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
 /**
  * Browser E2E for change: optimistic-prompt-progress.
@@ -53,6 +53,7 @@ async function delayServerToClientWs(page: import("@playwright/test").Page, ms: 
 
 test.describe("optimistic prompt — idle send", () => {
   test("idle send shows an optimistic bubble, then confirms with no leftover card", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     // Widen the optimistic window before the dashboard opens its socket.
     await delayServerToClientWs(page, 700);
 

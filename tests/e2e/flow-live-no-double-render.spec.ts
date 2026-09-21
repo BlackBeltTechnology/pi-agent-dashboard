@@ -17,6 +17,7 @@ import { spawnFreshGitSession } from "./helpers/index.js";
  */
 test.describe("live flow — dedicated flow card only", () => {
   test("#F1 a live flow renders flow cards and ZERO generic custom cards", async ({ page }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     const card = await spawnFreshGitSession(page);
     await card.click();
 

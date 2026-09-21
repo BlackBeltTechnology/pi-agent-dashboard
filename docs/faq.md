@@ -403,6 +403,20 @@ Before flipping to `enforce`, check what would break: Settings ▸ Security ▸ 
 
 See change: add-host-allowlist-admission.
 
+## Plugin pages 403 `network_not_allowed` after upgrade?
+
+Auth-off tunnel deployment. Old per-route guard never covered plugin routes (`/api/plugins/automation/*`, kb, flows) or `/api/provider-auth/*`. New universal `onRequest` guard covers every `/api/`, `/v1/`, `/editor/`, `/live/` route — auth configured or not.
+
+Symptom: plugin UI loads (app shell + static assets unaffected) but its API calls return `403 { error: "network_not_allowed" }`.
+
+Two remedies:
+- Enable auth — OAuth provider, or pair the device. Paired device sends the bearer token → `isAuthenticated` → guard admits.
+- Add the caller's network to Trusted Networks — Settings ▸ Servers, or Settings ▸ Security. Writes `auth.bypassHosts`. Applies live, no restart.
+
+Same-host browser (`localhost`) unaffected — genuine-local passes.
+
+See change: add-universal-network-guard.
+
 ## My Tailscale device is not trusted after Add Local Network?
 
 Old offer was `<self>/32`. Tailscale gives each node its own `/32` from `100.64.0.0/10`, so netmask-only offer trusted nobody new — host already loopback-exempt.
@@ -2985,6 +2999,26 @@ Cross-refs:
 - scripts/check-fixed-tick-waits.mjs
 - vitest.workers.ts
 - packages/client/src/__tests__/fixed-tick-conversion-equivalence.test.ts
+
+## Why does docker/test-up.sh refuse to start with "co-resident harness oversubscription"?
+
+Cause: `docker/test-up.sh` compares `(n+1) × MEM_LIMIT` against daemon `MemTotal`, where n = count of running peer `pi-dash-test-*` compose projects. Default `MEM_LIMIT` = `4g` (`docker/compose.yml`).
+
+Refuses when `(n+1) × MEM_LIMIT >= MemTotal`. Equality refuses: host must keep running. Error names other running project(s) plus arithmetic.
+
+Fix A: free peer harness — run `docker/test-down.sh` from other worktree.
+
+Fix B: override — `PI_HARNESS_ALLOW_OVERSUBSCRIBE=1 docker/test-up.sh -d --build`.
+
+Softer case: limits fit but peer running → one warning only (attribution degraded under contention).
+
+Missing data case: unparseable `MEM_LIMIT` or unavailable `docker info` → warning + proceed; never refuse.
+
+Issue: #451 part 2. Change: stabilize-browser-e2e.
+
+Cross-refs:
+- docker/TESTING.md
+- tests/e2e/README.md
 
 ## Doctrine not injected / first-contact nudge keeps firing?
 

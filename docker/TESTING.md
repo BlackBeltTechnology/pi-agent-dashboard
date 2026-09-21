@@ -64,6 +64,48 @@ hash of `HOST_CWD` (`$PWD`). See change: parallelize-test-harness.
   `PW_E2E_PORT` (default 18000) when attaching with `PW_E2E_USE_RUNNING=1`, and
   keeps `use.baseURL` in sync with the container.
 
+## Co-resident harness guard (#451 part 2)
+
+Two 4 GiB harnesses on 8 GB VM saturate daemon. Red run under contention cannot be attributed.
+
+`docker/test-up.sh` lists other running `pi-dash-test-*` compose projects via `list_running_harness_projects` in `docker/lib-ports.sh`.
+
+Refuses when `(n+1) × MEM_LIMIT >= MemTotal`. Default `MEM_LIMIT` = `4g` (`docker/compose.yml`). `>=` intentional: host must keep running; limits equal to MemTotal already oversubscribed.
+
+Refusal runs before image build and before `.pi-test-harness.json` write. Refused start costs nothing, leaves no state.
+
+Refusal message names other project(s) and arithmetic. Override: `PI_HARNESS_ALLOW_OVERSUBSCRIBE=1`.
+
+Limits fit but peer up → one warning (attribution degraded). No peer → silent.
+
+Unparseable `MEM_LIMIT` or failed `docker info` → warning + proceed; never refuse on missing data.
+
+One code path in and out of CI (CI runner has one harness → no-op).
+
+Tests: `scripts/__tests__/test-up-oversubscribe-guard.test.mjs`.
+
+## Harness audit (#451 part 1)
+
+Worktree harness container destroyed mid-run by outside action.
+
+Grep audit of every `docker … down|rm|prune|stop|kill` in-tree: all `-p`-scoped or own-container-named. Nothing in-repo reaches foreign `pi-dash-test-*` project. Destroy came from outside repo (manual action, Docker Desktop restart, out-of-tree prune).
+
+Not fix. Part 1 of #451 stays open.
+
+Helper: `docker/harness-audit.sh <outfile>` runs `docker events` for `create`/`start`/`die`/`destroy`/`kill`, filtered to `project=pi-dash-test-*`. Appends. Start before `test-up.sh`; Ctrl-C stops.
+
+Usage:
+```bash
+# shell 1
+docker/harness-audit.sh /tmp/harness-events.log
+# shell 2
+cd <worktree> && docker/test-up.sh -d --build
+PW_E2E_USE_RUNNING=1 npm run test:e2e
+docker/test-down.sh
+```
+
+`destroy` line not matching own `test-down.sh` = occurrence to attach to #451.
+
 ## Path-parity mount
 
 The directory you launch `test-up.sh` from (`$PWD`) is mounted into the
@@ -73,11 +115,15 @@ CWDs, and VCS roots read exactly as they do on the host.
 Writes never reach the host. The host directory is the read-only *lower* layer
 of an in-container overlayfs; the *upper* layer is a throwaway tmpfs:
 
-```
-host ${HOST_CWD}  ──(bind, ro)──▶  /mnt/test-lower          (lowerdir)
-tmpfs (size=2g)                    /mnt/test-overlay/upper  (upperdir)
-  └─ same fs (overlay rule)        /mnt/test-overlay/work   (workdir)
-   mount -t overlay overlay -o lower,upper,work  ${HOST_CWD}
+```mermaid
+flowchart LR
+  HOST["host cwd (HOST_CWD)<br/>bind, read-only"] --> LOWER["/mnt/test-lower<br/>lowerdir"]
+  TMPFS["tmpfs (size=2g)<br/>upperdir + workdir on one fs"] --> UPPER["/mnt/test-overlay/upper"]
+  TMPFS --> WORK["/mnt/test-overlay/work"]
+  LOWER --> MOUNT["mount -t overlay overlay<br/>-o lowerdir,upperdir,workdir"]
+  UPPER --> MOUNT
+  WORK --> MOUNT
+  MOUNT --> SEEN["container sees HOST_CWD writable<br/>writes land in the tmpfs upper"]
 ```
 
 Container sees `${HOST_CWD}` writable; reads fall through to the host (ro);
@@ -135,7 +181,8 @@ and a single `/ws` WebSocket connect. A broken image/build exits non-zero
 | File | Role |
 |---|---|
 | `compose.test.yml` | overlay: isolation env, SYS_ADMIN, tmpfs state, mounts, entrypoint; container `DASHBOARD_PORT`/`PI_GATEWAY_PORT` interpolate `${…:-default}` |
-| `lib-ports.sh` | sourced pure helpers: `derive_hash`, `derive_project`, `is_free`, `find_free_in_window` |
+| `lib-ports.sh` | sourced pure helpers: `derive_hash`, `derive_project`, `is_free`, `find_free_in_window`, `list_running_harness_projects` (peer `pi-dash-test-*` projects), `parse_memory_bytes`, `human_bytes` |
+| `harness-audit.sh` | `docker events` capture for the `pi-dash-test-*` namespace (`create`/`start`/`die`/`destroy`/`kill`) -> file; evidence for a foreign destroy (#451 part 1). Start before `test-up.sh` |
 | `test-entrypoint.sh` | builds overlay, inits fixtures, smoke check, execs base entrypoint |
 | `test-up.sh` | derives port pair + project from `HOST_CWD`, writes state file, `compose -p … up`, prints chosen URL |
 | `test-down.sh` | re-derives project from `$PWD`, `compose -p … down -v`, removes state file |

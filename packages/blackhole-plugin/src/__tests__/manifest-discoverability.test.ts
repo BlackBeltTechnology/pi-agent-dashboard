@@ -62,6 +62,22 @@ describe("blackhole session-surface manifest discoverability", () => {
       expect(claim, JSON.stringify(claim)).not.toHaveProperty("priority");
     }
   });
+
+  it("E13: custom-entry-renderer claims are exactly the three om.* types; om.folded absent", () => {
+    const claims = manifest.claims.filter((c) => c.slot === "custom-entry-renderer");
+    expect(claims.map((c) => c.customType).sort()).toEqual([
+      "om.observations.dropped",
+      "om.observations.recorded",
+      "om.reflections.recorded",
+    ]);
+    // `om.folded` rides as a FIELD inside compaction entries, never as a
+    // custom entry, so it must NOT be claimed.
+    expect(claims.some((c) => c.customType === "om.folded")).toBe(false);
+    // Every claim's component resolves to a real export of the client entry.
+    for (const claim of claims) {
+      expect(typeof (clientEntry as Record<string, unknown>)[claim.component as string]).toBe("function");
+    }
+  });
 });
 
 describe("shared slot definitions stay additive (E13)", () => {

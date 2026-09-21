@@ -21,7 +21,7 @@ import { captureLifecycleTimestamp } from "./embed-lifecycle/lifecycle-event-cap
 import { composeWorktreePayload } from "./git-worktree/git-worktree-compose.js";
 import { decideDashboardSource } from "./lifecycle/dashboard-source-decision.js";
 import { attachRenameTarget, isNameAutoSetFromAttachment } from "./openspec/proposal-attach-naming.js";
-import { setCatalogueForSession } from "./package/provider-catalogue-cache.js";
+import { invalidateCatalogue, setCatalogueForSession } from "./package/provider-catalogue-cache.js";
 import type { BrowserGateway } from "./pairing/browser-gateway.js";
 import { fromLegacyPromptRequest } from "./pairing/notify-log.js";
 import type { PendingForkRegistry } from "./pending/pending-fork-registry.js";
@@ -367,6 +367,20 @@ export function wireEvents(deps: EventWiringDeps): void {
   // WorktreeSpawnDialog after a successful POST /api/git/worktree) and
   // persist it to the session's .meta.json. See change:
   // add-worktree-spawn-dialog.
+  // D5 — when the LAST bridge disconnects, the held catalogue snapshot is no
+  // longer backed by a connected session and is invalidated, so the
+  // catalogue-ready signal (GET /api/provider-auth/catalogue-ready) stays
+  // truthful: `latest` used to be assigned-only and reported ready forever
+  // after the first push. `getConnectedSessionIds` filters on OPEN readyState,
+  // so a closed socket stops counting even while its reconnect-grace session
+  // is still registered. One session remaining keeps the snapshot.
+  // See change: redesign-providers-settings-page.
+  piGateway.onDisconnect = () => {
+    if (piGateway.getConnectedSessionIds().length === 0) {
+      invalidateCatalogue();
+    }
+  };
+
   piGateway.onSessionRegistered = (sessionId, cwd) => {
     // Registration wins over the archive: a bridge reattaching an archived id
     // drops its index row + broadcasts the decremented count before the live

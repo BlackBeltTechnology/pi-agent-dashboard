@@ -10,7 +10,7 @@
  * See change: add-plugin-activation-ui.
  */
 import { useEffect, useState } from "react";
-import type { SlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { bumpSlotClaimsVersion, type SlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { logRejection } from "../lib/report-error.js";
 
 export interface PluginEnabledSetState {
@@ -58,6 +58,12 @@ export function usePluginEnabledSet(registry: SlotRegistry): PluginEnabledSetSta
           if (p.enabled !== false) enabled.add(p.id);
         }
         registry.setEnabledSet(enabled);
+        // `setEnabledSet` mutates the EXISTING registry — `getClaims` now
+        // filters disabled plugins without the registry reference changing.
+        // Memos keyed on that reference (claim lookups, the burst-transparency
+        // predicate) would otherwise stay stale, so publish the invalidation
+        // signal to force one re-read. See change: add-custom-entry-renderer-slot.
+        bumpSlotClaimsVersion();
         if (typeof body.startedAt === "string") setStartedAt(body.startedAt);
       } catch {
         /* network failure — keep current state */

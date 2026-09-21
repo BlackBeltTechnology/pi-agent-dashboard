@@ -11,6 +11,14 @@
  */
 import type { ChatMessage } from "./event-reducer.js";
 
+/**
+ * Predicate deciding whether a `custom` row whose `customType` is CLAIMED by a
+ * `custom-entry-renderer` contribution is transparent for grouping. Injected so
+ * this module stays pure (imports no registry, reads no display prefs).
+ * See change: add-custom-entry-renderer-slot (design D7).
+ */
+export type IsTransparentCustomType = (customType: string) => boolean;
+
 /** Roles that are skipped when looking for the next groupable toolResult. */
 const TRANSPARENT_ROLES: ReadonlySet<ChatMessage["role"]> = new Set([
   "assistant",
@@ -59,7 +67,10 @@ function argsSimilar(a?: Record<string, unknown>, b?: Record<string, unknown>): 
  * collapsed timeline. If no group forms, every consumed row — toolResults
  * and intermediate transparents — is emitted verbatim.
  */
-export function groupConsecutiveToolCalls(messages: ChatMessage[]): ChatItem[] {
+export function groupConsecutiveToolCalls(
+  messages: ChatMessage[],
+  isTransparentCustomType?: IsTransparentCustomType,
+): ChatItem[] {
   const result: ChatItem[] = [];
   let i = 0;
 
@@ -98,6 +109,15 @@ export function groupConsecutiveToolCalls(messages: ChatMessage[]): ChatItem[] {
       if (TRANSPARENT_ROLES.has(next.role)) {
         j++;
         continue;
+      }
+      // A CLAIMED custom row is transparent; an unclaimed one ends the run.
+      // See change: add-custom-entry-renderer-slot (D7).
+      if (next.role === "custom") {
+        if (isTransparentCustomType?.(next.customType ?? "")) {
+          j++;
+          continue;
+        }
+        break;
       }
       if (next.role !== "toolResult") break;
       if (next.toolName !== msg.toolName) break;

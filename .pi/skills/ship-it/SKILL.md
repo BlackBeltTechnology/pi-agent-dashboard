@@ -111,8 +111,14 @@ PW_E2E_USE_RUNNING=1 npm run test:e2e   # L3; or the L1/L2 suite for other level
 ```
 
 `test-down.sh` is safe against a partially-created compose project (`compose down
--v` + best-effort `rm`). Per-worktree compose-project isolation keeps one
-worktree's leak from blocking another.
+-v` + best-effort `rm`). Isolation is no longer silent, though: a second
+worktree's harness saturates the daemon (two 4 GiB limits on an 8 GB VM), so
+`test-up.sh` refuses when `(n+1) × MEM_LIMIT >= MemTotal` — `n` = other running
+`pi-dash-test-*` projects, `MEM_LIMIT` default `4g` — naming them and the
+arithmetic, and warns (once) when the limits fit but a peer is up, because a red
+run is then not attributable. Free the peer with its own `test-down.sh`, or set
+`PI_HARNESS_ALLOW_OVERSUBSCRIBE=1`. The harness emits no committed whole-run
+timeout (#450): bound a local run with `--global-timeout`, never a config edit.
 
 ### 4. Red-test fix loop — OWNED by ship-it (apply cannot fix a checked task)
 

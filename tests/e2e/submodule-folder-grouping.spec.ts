@@ -21,11 +21,10 @@
  * See change: add-git-checkout-root-resolver.
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { BusClient } from "@blackbelt-technology/pi-dashboard-bus-client";
 import { connectBus, expect, type Page, shutdownSession, test } from "./fixtures.js";
 import { FIXTURE_GIT, gotoDashboard, pinDirectory } from "./helpers/index.js";
+import { DASHBOARD_PORT } from "./lifecycle.js";
 
 const SUBMODULE = "/fixtures/super/models/sub";
 const SUB_WORKTREE = "/fixtures/sub-worktree";
@@ -41,18 +40,19 @@ interface SessionRow {
 
 /** The harness container, resolved by its published dashboard port. */
 function containerName(): string {
-  const harness = JSON.parse(
-    readFileSync(join(process.cwd(), ".pi-test-harness.json"), "utf8"),
-  ) as { dashboardPort: number };
+  // DASHBOARD_PORT, NOT a state-file read: globalSetup boots the managed harness
+  // from a throwaway workspace, so `.pi-test-harness.json` is NOT at the worker
+  // cwd in CI (change: stabilize-browser-e2e). Lifecycle exports the resolved port
+  // to workers, which is what the `publish=` filter needs anyway.
   const name = execFileSync(
     "docker",
-    ["ps", "--filter", `publish=${harness.dashboardPort}`, "--format", "{{.Names}}"],
+    ["ps", "--filter", `publish=${DASHBOARD_PORT}`, "--format", "{{.Names}}"],
     { encoding: "utf8" },
   )
     .split("\n")
     .map((s) => s.trim())
     .find(Boolean);
-  if (!name) throw new Error(`no container publishing port ${harness.dashboardPort}`);
+  if (!name) throw new Error(`no container publishing port ${DASHBOARD_PORT}`);
   return name;
 }
 

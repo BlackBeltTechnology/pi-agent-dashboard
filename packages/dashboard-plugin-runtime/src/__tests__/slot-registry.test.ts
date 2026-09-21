@@ -4,6 +4,7 @@ import {
   type ClaimEntry,
   createSlotRegistry,
   forCommand,
+  forCustomType,
   forSession,
   forSessionRendered,
   forToolName,
@@ -177,6 +178,28 @@ describe("forToolName filter", () => {
     const matches = forToolName(claims, "Agent");
     expect(matches).toHaveLength(1);
     expect(matches[0].pluginId).toBe("a");
+  });
+});
+
+describe("forCustomType filter (change: add-custom-entry-renderer-slot)", () => {
+  it("matches by EXACT customType only", () => {
+    // E1: exact match — a prefix or superset value must NOT match.
+    const claims: ClaimEntry[] = [
+      { ...makeClaim("a", 100, "custom-entry-renderer"), customType: "om.reflections.recorded" },
+    ];
+    expect(forCustomType(claims, "om.reflections.recorded")).toHaveLength(1);
+    expect(forCustomType(claims, "om.reflections")).toHaveLength(0);
+    expect(forCustomType(claims, "om.reflections.recorded.v2")).toHaveLength(0);
+    expect(forCustomType(claims, "")).toHaveLength(0);
+  });
+
+  it("returns claims from multiple plugins in registry order", () => {
+    const claims: ClaimEntry[] = [
+      { ...makeClaim("a", 100, "custom-entry-renderer"), customType: "x" },
+      { ...makeClaim("b", 100, "custom-entry-renderer"), customType: "y" },
+      { ...makeClaim("c", 100, "custom-entry-renderer"), customType: "x" },
+    ];
+    expect(forCustomType(claims, "x").map((c) => c.pluginId)).toEqual(["a", "c"]);
   });
 });
 
