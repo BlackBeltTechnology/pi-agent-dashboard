@@ -170,6 +170,16 @@ export interface SlotPropsMap {
     onBack: () => void;
     pluginContext: AnyPluginContext;
   };
+  "login-provider": {
+    /** Which half of the OIDC flow core is asking the component to run (D16). */
+    phase: "start" | "callback";
+    /** Same-origin relative path to return to after login (already validated by core). */
+    returnTo: string;
+    /** Callback-phase only: the component calls this after it writes the token,
+     * handing core the recovered return-to; core owns the navigation. */
+    onComplete: (returnTo: string) => void;
+    pluginContext: AnyPluginContext;
+  };
   "settings-section": {
     pluginContext: AnyPluginContext;
   };

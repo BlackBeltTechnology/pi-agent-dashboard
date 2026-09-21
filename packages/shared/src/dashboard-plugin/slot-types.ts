@@ -19,6 +19,7 @@ export type SlotId =
   | "composer-context-group"
   | "composer-panel"
   | "shell-overlay-route"
+  | "login-provider"
   // (session-card-memory and session-card-flows are also react-only; declared below for ordering)
   | "content-inline-footer"
   | "anchored-popover"
@@ -70,6 +71,12 @@ export const SLOT_DEFINITIONS: Record<SlotId, SlotDefinition> = {
     multiplicity: "many",
     payloadTier: "react-only",
     description: "Plugin-owned full-screen route mounted at top of the shell (desktop + mobile). Each claim ships a wouter path pattern via `config.path` and a React component receiving { params, onBack, session? }.",
+  },
+  "login-provider": {
+    multiplicity: "one-active",
+    payloadTier: "react-only",
+    description:
+      "Identity plane (D16): a TRUSTED resolver plugin supplies the browser login mechanics (OIDC discovery, PKCE, callback code exchange). Component-only — core renders it pre-shell with { phase: 'start'|'callback', returnTo, onComplete }. Honored ONLY from a plugin in identity.trustedResolverPlugins; manifest priority never selects it. Pre-token /callback route is core-owned; return-to routing is core's.",
   },
   "session-card-badge": {
     multiplicity: "many",

@@ -44,6 +44,19 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
   }
   const slotId = c.slot as SlotId;
 
+  // login-provider (identity plane, D16): component-only contract — the browser
+  // login mechanics are a single React component core renders with a phase prop.
+  // No function is carried through the manifest; only a non-empty component.
+  if (slotId === "login-provider") {
+    if (typeof c.component !== "string" || !c.component.trim()) {
+      throw new ManifestValidationError(
+        pluginId,
+        `claims[${index}] slot "login-provider" requires a non-empty "component"`,
+      );
+    }
+    return { slot: slotId, component: c.component } as PluginClaim;
+  }
+
   // shell-overlay-route: require component + top-level path; default sessionParam.
   // Accepts legacy `config.path` / `config.sessionParam` (warns) for backward
   // compat. See change: fix-flows-plugin-polish (path-as-first-class-claim-field).
