@@ -53,6 +53,8 @@ async function remedySubject(resolved: string, kind: SubjectKind): Promise<strin
   // naming the PARENT of a directory is the widening bug this exists to avoid.
   // The invariant is "never wider than the refused resource".
   try {
+    // codeql[js/path-injection] The gate has ALREADY refused this path; the lstat only decides
+    // which directory the REMEDY names. Nothing is read, opened or served from it here.
     return (await lstat(resolved)).isDirectory() ? resolved : grantableSubjectOf(resolved);
   } catch {
     return resolved;

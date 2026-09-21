@@ -204,6 +204,10 @@ function realpathNearestAncestor(p: string): string {
 export function normalizeGrantSubject(input: string): string {
   const real = realpathNearestAncestor(path.resolve(input));
   try {
+    // codeql[js/path-injection] `real` is a realpath-resolved grant subject and is only STATed to
+    // learn `isDirectory` — it is never read or served. The subject is bound to a recorded denial
+    // (D15) and re-validated by `isUngrantableSubject` on both the write and the load path (D21),
+    // which is where this value's path safety is actually enforced.
     if (!fs.statSync(real).isDirectory()) return path.dirname(real);
   } catch {
     /* missing → keep the directory-shaped path */

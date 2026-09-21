@@ -179,7 +179,12 @@ describe("4.3 — a refused origin is captured without changing the dedupe key",
       origin: "https://evil.example\r\n[fake] line",
     });
     expect(b.list()[0].origin).not.toMatch(/[\r\n]/);
-    expect(b.list()[0].origin?.startsWith("https://evil.example")).toBe(true);
+    // Exact value, not a `startsWith` URL prefix check: CodeQL flags prefix/substring URL
+    // comparisons as incomplete sanitization (js/incomplete-url-substring-sanitization), because
+    // `https://evil.example` also prefixes `https://evil.example.evil.com`. `sanitizeOrigin`
+    // strips C0/DEL control characters (incl. the injected CRLF) and trims, so the exact result
+    // is stronger than the prefix check it replaces.
+    expect(b.list()[0].origin).toBe("https://evil.example[fake] line");
 
     const long = new BlockEventBuffer();
     long.record("203.0.113.31", { proxied: false, origin: `https://${"a".repeat(600)}` });
