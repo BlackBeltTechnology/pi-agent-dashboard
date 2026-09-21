@@ -102,10 +102,6 @@ const SYMLINK_ERRNOS = new Set(["ELOOP", "EMLINK"]);
  * still applies.
  */
 export async function openVerifiedRegularFile(resolved: string): Promise<FileHandle> {
-  // codeql[js/path-injection] This lstat IS the verification (design D14), not a missing guard:
-  // it must inspect the caller's path to refuse a non-regular file BEFORE any open (opening a
-  // FIFO would block a request open). The bytes then come from the verified HANDLE, whose
-  // dev+ino are matched against this lstat, so the path is not re-resolved afterwards.
   const linkStat = await fs.lstat(resolved);
   if (!linkStat.isFile()) throw new VerifiedReadRefused("not-regular", resolved);
 
