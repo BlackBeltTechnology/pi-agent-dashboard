@@ -98,7 +98,14 @@ describe("visitor session registry acquire", () => {
   it("rejects an out-of-allowlist cwd without spawning", async () => {
     const spawn = vi.fn();
     const reg = createVisitorSessionRegistry(makeDeps({ spawn, isCwdAllowed: () => false }));
-    await expect(reg.acquire(REQ)).rejects.toThrow(/cwd not allowed/);
+    // Task 3.3 (design D18): this is an internal promise rejection, NOT an HTTP
+    // response body — it gains no `reason`/`hint` and its behavior is
+    // byte-identical (same Error, same message, no spawn).
+    const err = await reg.acquire(REQ).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe("cwd not allowed: /srv/e/proj");
+    expect(err).not.toHaveProperty("reason");
+    expect(err).not.toHaveProperty("hint");
     expect(spawn).not.toHaveBeenCalled();
   });
 

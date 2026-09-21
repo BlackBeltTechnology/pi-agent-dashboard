@@ -68,10 +68,16 @@ describe("kb plugin_action handler", () => {
   it("rejects a cwd outside the allow-list — no core call", async () => {
     isAllowedCwd.mockReturnValue(false);
     const { handler, ctx } = await setup();
-    handler({ pluginId: "kb", action: "reindex", payload: { cwd: "/etc" } });
+    const result = handler({ pluginId: "kb", action: "reindex", payload: { cwd: "/etc" } });
     await tick();
     expect(reindexAll).not.toHaveBeenCalled();
-    expect((ctx.logger.warn as ReturnType<typeof vi.fn>)).toHaveBeenCalled();
+    // Task 3.3 (design D18): this denial site is NOT an HTTP route — it has no
+    // response body to enrich, so it gains no `reason`/`hint` and its behavior
+    // is byte-identical (same warn line, void return, no crash).
+    expect(result).toBeUndefined();
+    expect(ctx.logger.warn as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(
+      "kb reindex: cwd not allowed (/etc)",
+    );
   });
 
   it("ignores a mismatched pluginId (defense-in-depth)", async () => {

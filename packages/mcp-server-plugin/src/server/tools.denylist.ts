@@ -25,6 +25,13 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/preferences/", reason: "UI preferences" },
   { pattern: "/api/grammar/", reason: "UI-only" },
   { pattern: "/api/kb/", reason: "kb engine admin" },
+  // Access-grant review + creation (change: add-access-grants-and-review). The
+  // tab is a local operator surface, and `POST /api/access/grants` is a
+  // TRUST-WIDENING action bound to a denial the operator saw (design D12/D15).
+  // Exposing it over MCP would hand an LLM client the ability to satisfy that
+  // binding from the denial body it can already read, which is precisely the
+  // limit D15 states rather than widens.
+  { pattern: "/api/access/", reason: "operator-only grant review; trust-widening action" },
   { pattern: "/api/cost-estimator/", reason: "billing telemetry UI" },
   { pattern: "/api/flows-anthropic-bridge/", reason: "bridge diagnostics" },
   { pattern: "/api/plugins/blackhole/", reason: "plugin-internal" },
