@@ -44,6 +44,15 @@ There is **no `identity.mode`**. The identity plane activates purely on the bund
 - **Conditional DPoP:** when the realm issues sender-constrained tokens (`cnf.jkt`), the client generates a non-extractable key, binds it at the token endpoint, and sends a fresh proof per REST call and per ticket mint; when tokens are not bound, it omits proofs (zero-config downgrade).
 - All of this engages only when the resolver is active; against an inert dashboard the client behaves exactly as today.
 
+### Browser login gate (detachable; core routes, trusted plugin owns OIDC)
+
+- **Core triggers, never speaks OIDC.** When the resolver is active and the client holds no live token (socket refused / `auth_required`), core stashes a same-origin-validated return-to and mounts the trusted resolver plugin's login component. Core imports no OIDC/Keycloak code.
+- **Only a *trusted* resolver plugin supplies the login provider.** Core honors a `login-provider` claim only from a plugin in `identity.trustedResolverPlugins` (the redirect-to-IdP + code-harvest path is a trust boundary); manifest priority never selects it. The contribution is a component-only slot claim (no function is carried through the manifest); core renders it in a start phase (discovery → PKCE → redirect) and, on `/callback`, in a callback phase (verify state → exchange → write token to the existing in-memory store).
+- **Core owns the pre-auth callback mount and the return-to routing.** A pre-token `/callback` route (mirroring the existing `/pair` `PairLanding` route), enable/trust-filtered before the shell mounts, renders the plugin component; after the plugin writes the token and signals success, core client-side-navigates to the stashed return-to. The plugin does the token exchange; the navigation is core's.
+- **Server exposes a pre-auth login config, sourced from the plugin.** `GET /api/identity/login-config` returns `{ active, issuer?, clientId? }`, relayed from a generic descriptor the resolver's server plugin registers (`registerBrowserLoginConfig`) — core never reads Keycloak config keys. Reachable pre-auth via BOTH the auth bypass and the network-guard public-path set. `active` requires a dedicated `browserClientId`; `issuer` is a browser-reachable discovery base (`browserIssuer`, falling back to the validation `issuer`). Otherwise `{ active: false }` — no login UI, inert path unchanged.
+- **Loop-safe + non-goal.** The gate is single-flight (one automatic redirect per load; a refused fresh token surfaces an error rather than re-triggering). DPoP-bound browser login is a non-goal here (a full-page redirect destroys the in-memory non-extractable key); the gate ships plain-bearer.
+- **Detachability is enforced by construction:** remove the resolver plugin ⇒ `login-config` reports `active:false`, no trusted `login-provider` claim exists, and core shows no login gate. Core stays OIDC-free.
+
 ### Session ownership and browser WebSockets
 
 - Persist `principalOwner?: { iss, sub }` in session metadata and expose it on summaries. Compare field-by-field with exact string equality.
@@ -74,12 +83,14 @@ Tasks in this change trigger these `eng-disciplines` skills:
 
 - `principal-resolution`: trusted, ordered, bounded principal resolution integrated into the actual auth gate, with immutable validated results and expiry metadata; inert until a resolver is active.
 - `keycloak-principal-resolver`: bundled, config-seeded Keycloak resource-server validation (discovery/JWKS caching, conditional DPoP) with safe JWT/device/other-issuer disambiguation, shipped as a replaceable plugin.
-- `browser-principal-client`: the web client acts as a public OIDC client — PKCE token acquisition, bearer on REST, identity-bearing ws-ticket mint, heartbeat reply, conditional DPoP proofs.
+- `browser-principal-client`: the web client acts as a public OIDC client — PKCE token acquisition, bearer on REST, identity-bearing ws-ticket mint, heartbeat reply, conditional DPoP proofs, **plus the browser login gate: core-triggered login on active+no-token, a pre-auth `/callback` mount rendering the plugin's callback component, return-to restore, and the pre-auth `GET /api/identity/login-config` config source.**
 - `websocket-principal-binding`: mandatory identity-bearing browser tickets when the resolver is active, principal+expiry attachment, expiry closure, and transport heartbeat.
 - `session-ownership-scoping`: persisted owner assignment and exact owner enforcement across all HTTP and WS session read/write roads.
 - `host-access-policy`: an optional, deny-by-default, plugin-supplied authorization gate for non-session host roads (fan-out, workspace/terminal/system, bootstrap disclosure); ungated when absent.
 
 ### Modified Capabilities
+
+- `dashboard-shell-slots`: add one slot id `login-provider` to the frozen taxonomy — a plugin claims it to supply the browser login mechanics (a `startLogin` entry and a pre-auth callback component). The slot is inert when no plugin claims it; core mounts at most one login provider.
 
 <!-- Existing wire formats remain backward compatible while the resolver is inert. An active resolver adds identity/ownership requirements rather than changing bridge-plane delivery classes or bridge ping/pong. -->
 

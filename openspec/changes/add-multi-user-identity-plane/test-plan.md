@@ -110,8 +110,33 @@ Levels: **L1** unit (`packages/*/src/**/__tests__/*.test.ts`, vitest) · **L2** 
 | E2E-3 | edge | state | L3 | automated | Inert default (resolver unconfigured) → current dashboard behavior identical (regression guard). |
 | E2E-4 | perf | soak | L2 | manual-only | JWKS hot-path under sustained active-resolver load — measure resolver p95; threshold TBD by deployment. Disposition manual until a perf harness exists. |
 
+## Browser login gate (D16 — detachable; core routes, trusted plugin owns OIDC)
+
+| # | Class | Technique | Level | Disp. | INPUT → TRIGGER → OBSERVABLE |
+|---|---|---|---|---|---|
+| LG-1 | edge | decision-table | L1 | automated | Resolver active + trusted + server plugin registered `browserClientId` → `GET /api/identity/login-config` (no auth) → `{active:true, issuer(browser-reachable), clientId}`. |
+| LG-2 | edge | decision-table | L1 | automated | Resolver inert, OR active but no `browserClientId` registered → `GET /api/identity/login-config` → `{active:false}`, no `issuer`/`clientId` field disclosed. |
+| LG-3 | error | state | L1 | automated | Unauthenticated browser on a NON-trusted network → `GET /api/identity/login-config` → admitted by the network guard (path in `PUBLIC_IN_NAMESPACE_PATHS`), route runs, NOT `403 network_not_allowed`. |
+| LG-4 | edge | state | L1 | automated | Resolver server plugin calls `registerBrowserLoginConfig({issuer,clientId})` → endpoint relays that descriptor → core module contains no read of `plugins["keycloak-resolver"].*` / no OIDC import (I1 grep-guard). |
+| LG-5 | edge | decision-table | L1 | automated | Untrusted plugin (not in `trustedResolverPlugins`) claims `login-provider` at HIGHER manifest priority than the trusted resolver → selection → core mounts only the trusted resolver's provider, ignores the untrusted higher-priority claim. |
+| LG-6 | edge | boundary | L1 | automated | Manifest `login-provider` claim with non-empty `component` → validator accepts; same claim with missing/empty `component` → `ManifestValidationError` naming plugin id + slot. |
+| LG-7 | edge | state | L1 | automated | Sole `login-provider` plugin disabled in config → pre-App mount applies the enabled filter → `/callback` and start-gate render nothing, no gate (I2/I8 pre-shell). |
+| LG-8 | frontend-quirk | state-transition | L1 | automated | Resolver active, no live token, trusted provider → start phase → fetches login-config, builds PKCE-S256 authorize URL, persists {verifier,state,returnTo} to `sessionStorage`, `location.assign`s the authorize URL. |
+| LG-9 | frontend-quirk | state-transition | L3 | automated | `/callback?code&state` with matching state, stashed `returnTo="/session/abc"` → callback phase → `exchangeCode`→`setAccessToken`(memory)→ core client-side `navigate("/session/abc",{replace:true})`. |
+| LG-10 | error | state-transition | L1 | automated | `/callback` `state` ≠ stashed state → no `exchangeCode` call, no token stored. |
+| LG-11 | error | state-transition | L1 | automated | Gate completes + mints a token, host still refuses (aud/`azp`/skew) → core calls `clearAccessToken()`, shows error + manual sign-in affordance, NO automatic re-redirect (no loop). |
+| LG-12 | edge | EP+boundary | L1 | automated | Stashed `returnTo` ∈ {`https://evil.com/x`, `//evil.com`, `/\evil.com`, `/callback`, `/auth/login`} → each resolves against origin → core navigates to `/` (open-redirect + recursion rejected). |
+| LG-13 | error | state | L1 | automated | `/callback` runs but persisted {verifier,state,returnTo} absent (private mode / cross-origin landing) → no exchange, manual affordance on `/`, no error, no auto-redirect. |
+| LG-14 | error | state | L1 | automated | `/callback?error=access_denied` (IdP-declined, RFC 6749 §4.1.2.1) → no exchange → message + link to `/`. |
+| LG-15 | error | state | L3 | automated | `/callback` arrives after the plugin was disabled / trust list edited mid-flight (no trusted+active provider mounted) → core renders a safe fallback (message + link to `/`), never blank route or crash. |
+| LG-16 | edge | state | L1 | automated | Resolver active + no token, single page load → at most ONE automatic redirect to the issuer; a manual sign-in affordance is always present. |
+| LG-17 | edge | decision-table | L1 | automated | Two trusted resolvers A,B active; login-config carries owning `pluginId=A` → core renders A's `login-provider` component (matched by pluginId), never B's component against A's issuer/clientId. |
+| LG-18 | frontend-quirk | state-transition | L3 | automated | Resolver active + trusted `login-provider` present, socket → `auth_required` → the reconciled control invokes the new gate; the legacy `/auth/login?return=` link is NOT rendered. |
+| LG-19 | edge | state | L1 | automated | Realm issues a `cnf.jkt`-bound token through the gate → gate stores a plain bearer and persists NO DPoP key across the full-page redirect (DPoP-bound browser login is the documented non-goal, B4). |
+| LG-20 | integration | scenario | L3 | automated | Real Keycloak (seeded anna) + real browser → open deep link `/session/x` → gate → Keycloak login → `/callback` → token → lands authenticated back on `/session/x` (full PKCE round-trip, opt-in real-Keycloak harness). |
+
 ---
 
 **New infra needed (tasks §11.2, built in THIS repo):** the L3 rows require a docker E2E harness with a seeded Keycloak container (realm with Anna/Béla, roles identity-only), a fixture trusted policy plugin (for AP/FO/E2E-2 fan-out rows), and a token-minting test helper. The invoice-bot realm JSON exists in the other repo but no container runs here and it needs reseeding to drop group-based routing; that harness addition is a prerequisite for the L3 rows.
 
-**Fold target:** these rows fold into tasks §4–§12 (unit/L1 into their feature groups; L3 into §11.2; BC-* into §12; AP-5 session-road meta-test into §8; AP/FO policy rows into §7/§10).
+**Fold target:** these rows fold into tasks §4–§12 (unit/L1 into their feature groups; L3 into §11.2; BC-* into §12; AP-5 session-road meta-test into §8; AP/FO policy rows into §7/§10). The browser login gate rows (LG-1..LG-20) fold into the new §13.
