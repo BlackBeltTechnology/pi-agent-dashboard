@@ -40,8 +40,8 @@
 
 ## 5. Close out
 
-- [ ] 5.1 Invoke `review-code` on the diff and resolve findings at or above the project's fix threshold. Verify: review loop reaches no actionable findings.
-- [ ] 5.2 Invoke `security-hardening` scoped to the streaming + OAuth paths. Verify: no credential reaches a log, an error message, or the runtime's own credential store.
+- [x] 5.1 Invoke `review-code` on the diff and resolve findings at or above the project's fix threshold. Verify: review loop reaches no actionable findings.
+- [x] 5.2 Invoke `security-hardening` scoped to the streaming + OAuth paths. Verify: no credential reaches a log, an error message, or the runtime's own credential store.
 - [x] 5.3 Update DOX rows: `packages/shared/src/piai-compat/AGENTS.md` (new), amended purposes for `registry-singleton.ts`, `internal-auth-storage.ts`, `bridge.ts`. Verify: each touched file has a row naming its purpose and `See change: adopt-piai-factory-api-registry`.
 
 
