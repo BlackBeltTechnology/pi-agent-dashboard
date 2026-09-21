@@ -16,6 +16,10 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **Retained remote-transcript hydration no longer blocks the server.** Reading, splitting, parsing and replaying a retained `.jsonl` ran synchronously on the main event loop, so a cold subscribe to a session whose retained transcript is at the observed maximum (44.1 MB) stalled every session's HTTP and WebSocket traffic — including the hydration heartbeat that exists to cover exactly that window. The read now uses `fs.promises`, and the split + parse + replay go through the same `worker_threads` pool the local path uses, with the same cancellation, metrics and in-process fallback. Measured on 46 MB: longest main-thread block **2838 ms → 201 ms** with identical events. Concurrent cold subscribes to one retained session now coalesce onto a single hydration. `RemoteTranscriptStore.read()` is async and gains `readRaw()` / `completenessOf()`. See change: offload-retained-transcript-replay.
+
+### Changed
+
 - **dashboard-plugin-runtime**: `ServerContextDeps` gains five REQUIRED members (`mintSpawnToken`, `renameSession`, `assignSessionRef`, `networkGuard`, `onShutdown`) and `PluginSpawnOptions` gains `spawnToken`/`resume`/`initialPrompt` — implementors of `createServerPluginContext` (custom hosts, injected test contexts) must add them. See change: relocate-goal-product-to-plugin.
 
 ### Security

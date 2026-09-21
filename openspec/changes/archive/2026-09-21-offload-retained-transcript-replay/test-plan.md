@@ -44,10 +44,10 @@ event-loop block ceiling of **250 ms** measured off the existing
 
 | id | requirement | technique | level | disposition | input | trigger | expected observable (invariant) |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------------------|
-| F1 | Heartbeat keeps firing | state-convergence | L3 | automated | remote-origin session whose retained hydration exceeds 10 s | cold subscribe, hold the socket | ≥2 non-terminal `event_replay{events:[],isLast:false}` frames arrive ~10 s apart before the terminal frame; the view never converges to the empty state |
-| F2 | Leader/follower coalescing | state-transition | L3 | automated | two clients, same remote-origin session, second subscribes mid-hydration | both cold-subscribe within the hydration window | exactly one hydration runs; each message appears exactly once in both clients' transcripts; the follower receives the full replay |
-| F3 | Follower gets no false empty | state-transition (illegal edge) | L3 | automated | as F2 | the follower's subscribe lands while the leader is in flight | the follower receives no terminal empty `event_replay`, and the session is never marked `dataUnavailable` |
-| F4 | Warm path after settle | state-transition | L3 | automated | as F2 but the third client subscribes after the leader settles | third subscribe | it takes the warm `hasEvents` path; no second hydration is started |
+| F1 | Heartbeat keeps firing | state-convergence | L1 | automated | a retained hydration held open past the heartbeat interval (fake clock) | cold subscribe, advance 25 s | ≥2 non-terminal `event_replay{events:[],isLast:false}` frames arrive before the terminal frame; no frame arrives after settle |
+| F2 | Leader/follower coalescing | state-transition | L3 | automated | two clients, same remote-origin session, second subscribes mid-hydration | both cold-subscribe within the hydration window | exactly one hydration runs, observable as exactly ONE `hydration` sample for the session in `/api/health`, carrying the fixture's full entry count — one insert, so neither subscriber can see duplicated messages |
+| F3 | Follower gets no false empty | state-transition (illegal edge) | L1 | automated | a follower whose subscribe lands while the leader is in flight (load promise held open by hand) | the leader settles | the follower receives no terminal empty `event_replay`, and the session is never marked `dataUnavailable` |
+| F4 | Warm path after settle | state-transition | L1 | automated | as F2 but the third client subscribes after the leader settles | third subscribe | it takes the warm `hasEvents` path; no second hydration is started |
 | F5 | HTTP read body unchanged | regression | L3 | automated | a retained transcript fixture | `GET /api/sessions/:id/retained-transcript` before and after the change | byte-identical response body |
 
 ### Error-handling
@@ -57,8 +57,8 @@ event-loop block ceiling of **250 ms** measured off the existing
 | X1 | Worker unavailable falls back | fault-injection (spawn abort) | L1 | automated | `workerUrlOverride` pointing at a bogus entry | retained hydration | resolves with the correct, complete event array computed in-process |
 | X2 | `useLoadWorker: false` | fault-injection (config) | L1 | automated | `sessions.useLoadWorker = false` | retained hydration | no worker is spawned; events identical to the worker path |
 | X3 | Replay failure keeps state | fault-injection (malformed) | L1 | automated | retained bytes that make replay throw | cold hydration | `{events: [], state: "incomplete"\|"complete"}`; session NOT marked `dataUnavailable`; `retainedTranscript` still stamped |
-| X4 | Cancel takes the silent exit | fault-injection (abort) | L3 | automated | last subscriber leaves mid-hydration | unsubscribe before the hydration resolves | the job is cancelled; no events inserted; no `session_updated` broadcast; no `retainedTranscript` re-stamp |
-| X5 | Failed hydration releases followers | fault-injection (abort) | L3 | automated | leader's hydration fails | a follower is waiting on it | the follower's heartbeat stops; a later cold subscribe starts a fresh hydration (the in-flight entry was cleared) |
+| X4 | Cancel takes the silent exit | fault-injection (abort) | L1 | automated | a retained hydration whose loader resolves `cancelled` (the last subscriber left) | hydration settles | no events inserted; no `session_updated` broadcast; no `retainedTranscript` re-stamp |
+| X5 | Failed hydration releases followers | fault-injection (abort) | L1 | automated | the leader's hydration fails while a follower waits on it | hydration settles | a later cold subscribe starts a fresh hydration (the in-flight entry was cleared) |
 | X6 | Pool disposed | fault-injection (lifecycle) | L1 | automated | `stopPolling()` has disposed the pool | retained hydration | resolves `{events: [], state}` with state intact; does not throw on a `null` pool |
 | X7 | Completion race | fault-injection (concurrent write) | L1 | automated | `append(complete)` interleaved between the read's two marker samples | concurrent read | never reports `complete` over pre-completion content; `incomplete` is acceptable |
 | X8 | Restart race — stale marker | fault-injection (concurrent write) | L1 | automated | restart rewrites a shorter body while a stale `complete` marker still exists | concurrent read | reports `complete: false` (the marker conjunction rejects it) |
@@ -67,21 +67,56 @@ event-loop block ceiling of **250 ms** measured off the existing
 | X11 | Content unreadable = absent | fault-injection (EACCES) | L1 | automated | content file `chmod 000` | `readRetainedState(id)` | `absent`; does not throw |
 | X12 | Slow retained hydration warns | threshold | L1 | automated | a retained hydration whose wall time exceeds 5000 ms (faked clock) | completion | a slow-load warning is emitted carrying the session id and byte size |
 | X13 | Metrics never break the caller | fault-injection (recorder throws) | L1 | automated | a `hydrationMetrics.record` that throws | retained hydration | the hydration result is unaffected; the throw does not propagate |
+| X14 | Read/write race — partially written body | fault-injection (concurrent write) | L1 | automated | a read that observes a truncated PREFIX while a pre-existing `complete` marker is still present (the restart path's `writeFileSync`, which a threadpool `readFile` can enter mid-write) | `store.read(id)` | `complete: false` with `retained: true`; never `complete` over a partial body |
 
 ---
 
 ## Coverage summary
 
 - Requirements covered: 3/3 (16/16 spec scenarios have at least one row)
-- Scenarios by class: edge 11 · perf 3 · frontend 5 · error 13
-- Scenarios by level: L1 21 · L2 2 · L3 9
-- Scenarios by disposition: automated 32 · manual-only 0
+- Scenarios by class: edge 11 · perf 3 · frontend 5 · error 14
+- Scenarios by level: L1 27 · L2 2 · L3 4
+- Scenarios by disposition: automated 33 · manual-only 0
+
+## Re-route (implementation time)
+
+`F1`, `F3`, `F4`, `X4` and `X5` moved from **L3 → L1** after the harness's
+limits were measured against them.
+
+Each is a state transition gated on a hydration WINDOW — a subscribe landing
+while a load is in flight. At L3 that window is held open only by a large
+retained transcript, which makes the arms slow and probabilistic. Worse, `F1`
+named a hydration *exceeding 10 s*, and a 44 MB transcript (the observed
+maximum) parses in low single-digit seconds, so the premise is unreachable at
+any fixture size the harness can host.
+
+At L1 the load promise is held open by hand, so every interleaving is exact and
+injectable: `F1` advances a fake clock past `HYDRATE_HEARTBEAT_MS`, `F3`/`F4`
+suspend and release the loader explicitly, and `X4`/`X5` return the `cancelled`
+and failure results directly. All five live in
+`packages/server/src/__tests__/subscription-handler.test.ts`.
+
+`F2` KEEPS its L3 arm (two real clients over the real socket, two Playwright
+contexts cold-subscribing together) and also gains deterministic L1 arms. The
+L3 arm asserts the SERVER's `hydration` ring rather than rendered rows: one
+sample for the session, carrying the fixture's full entry count. The ring IS the
+coalescing contract — a second hydration would leave a second sample AND insert
+the transcript twice (`insertEvent` mints a fresh `seq` per call, so a double
+insert is duplicated messages, not an idempotent overwrite). A rendered-row
+assertion was tried first and REJECTED: it failed on every run while the server
+was reporting exactly one complete hydration, because a concurrent two-page cold
+subscribe does not guarantee the settled render pipeline a DOM count needs — a
+false negative that would have blocked every future ship. Rendering on this path
+is covered by the single-client arms in the same file.
+
+`F5` stays at L3: it is a pure HTTP-surface regression with no timing
+component.
 
 ## New infra needed
 
 - A **44 MB retained-transcript fixture** generated at test time (not committed)
-  for P1/P2 and F1. Generation is a loop over a small entry template; the
-  existing qa/ harness can host it.
+  for P1/P2. Generation is a loop over a small entry template; the existing
+  qa/ harness can host it.
 - An **event-loop block probe** for P1/P2. The `monitorEventLoopDelay` feed and
   `eventLoopSpikes` ring already exist (`eventloop-spike-monitoring`); P1 reads
   them rather than adding a harness.

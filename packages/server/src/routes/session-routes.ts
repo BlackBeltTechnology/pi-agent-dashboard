@@ -119,7 +119,7 @@ export function registerSessionRoutes(
       // See change: serve-retained-remote-transcripts (task 2.2).
       const enriched =
         remoteTranscriptStore && !originOf(item).local
-          ? { ...item, retainedTranscript: readRetainedState(remoteTranscriptStore, item.id).state }
+          ? { ...item, retainedTranscript: await remoteTranscriptStore.completenessOf(item.id) }
           : item;
       return { success: true, data: { item: enriched } } satisfies ApiResponse;
     },
@@ -345,7 +345,7 @@ export function registerSessionRoutes(
       // verbatim entries, so synthesizing dashboard events here would parse a
       // transcript (up to a 44.1 MB observed maximum) to produce output that is
       // then discarded. See CodeRabbit #663, thread 5.
-      const retained = readRetainedState(remoteTranscriptStore, sessionId);
+      const retained = await readRetainedState(remoteTranscriptStore, sessionId);
       // `state` rides alongside the entries rather than being inferred from
       // their emptiness: an empty COMPLETE transfer and a never-started one are
       // both zero entries and are not the same fact (task 1.2).

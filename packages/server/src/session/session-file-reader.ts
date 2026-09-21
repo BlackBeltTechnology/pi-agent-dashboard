@@ -18,13 +18,30 @@ export interface SessionEntry {
 }
 
 /**
+ * The ONE line splitter both session-load arms share — the file arm and the
+ * worker's raw-transcript arm — so text-fed and file-fed produce identical
+ * entries, and therefore identical events, by CONSTRUCTION rather than by
+ * assertion.
+ *
+ * `String.prototype.trim` also strips a leading U+FEFF. That is why the two
+ * arms diverged before this was shared: the file arm silently dropped a BOM,
+ * while the retained path's store splitter (`split("\n").filter(len > 0)`)
+ * kept it, and `JSON.parse` then threw on entry 0 — failing the header check
+ * and yielding ZERO events for the whole transcript.
+ * See change: offload-retained-transcript-replay (D1).
+ */
+export function splitTranscriptLines(raw: string): string[] {
+  return raw.trim().split("\n");
+}
+
+/**
  * Load entries from a JSONL session file.
  * Returns entries in branch order (leaf→root reversed) if tree structure is present,
  * otherwise returns linear order (excluding the session header).
  */
 export function loadSessionEntries(filePath: string): SessionEntry[] {
   if (!existsSync(filePath)) return [];
-  return parseSessionEntries(readFileSync(filePath, "utf-8").trim().split("\n"));
+  return parseSessionEntries(splitTranscriptLines(readFileSync(filePath, "utf-8")));
 }
 
 /**

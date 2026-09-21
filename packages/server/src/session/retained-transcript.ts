@@ -26,10 +26,9 @@
  * See change: serve-retained-remote-transcripts (tasks 1.1, 1.2, 1.3).
  */
 
-import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
 import { decideTranscriptRequest } from "@blackbelt-technology/pi-dashboard-shared/transcript-request-guard.js";
+import type { DirectoryService } from "../directory-service.js";
 import type { RemoteTranscriptStore } from "./remote-transcript-store.js";
-import { parseSessionEntries } from "./session-file-reader.js";
 import type { SessionOrigin } from "./session-origin.js";
 
 type RetainedReadRefusal = "path-on-the-wire" | "local-origin";
@@ -79,13 +78,43 @@ export function chooseHydrationSource(input: {
   return input.sessionFile ? "local-file" : "none";
 }
 
-export interface RetainedTranscriptRead {
+export interface RetainedStateRead {
   /** Verbatim `.jsonl` lines, in the order the origin held them. */
   entries: string[];
-  /** The same lines replayed into dashboard events, oldest first. */
-  events: Array<{ eventType: string; timestamp: number; data: Record<string, unknown> }>;
   state: RetainedTranscriptState;
 }
+
+/** The event shape both hydration sources produce (`LoadResult.events`). */
+type RetainedTranscriptEvents = Array<{
+  eventType: string;
+  timestamp: number;
+  data: Record<string, unknown>;
+}>;
+
+/**
+ * Cold-hydration result.
+ *
+ * `entries` is deliberately ABSENT: no caller reads it, and shipping the split
+ * array back across the worker boundary would put on the main thread exactly
+ * the work the offload moved off it. `readRetainedState` keeps entries for its
+ * two HTTP call sites, which do need them.
+ *
+ * `cancelled` is surfaced DISTINCTLY rather than folded into
+ * `{events: [], state}`. The local path skips every side effect on cancel, so
+ * folding it would stamp `retainedTranscript` and broadcast `session_updated`
+ * after the last subscriber left.
+ * See change: offload-retained-transcript-replay (D3, tasks 4.4, 4.6).
+ */
+export type RetainedTranscriptHydration =
+  | { cancelled: true }
+  | { cancelled: false; events: RetainedTranscriptEvents; state: RetainedTranscriptState };
+
+/**
+ * The one `DirectoryService` method the hydration read needs. Narrowed to a
+ * `Pick` so a unit test can supply the load contract alone, and so the module
+ * cannot grow a second dependency on the poller by accident.
+ */
+export type RetainedEventLoader = Pick<DirectoryService, "loadRetainedEvents">;
 
 /** May this dashboard serve `sessionId`'s retained transcript to this caller? */
 export function decideRetainedRead(input: {
@@ -133,13 +162,18 @@ export function decideRetainedRead(input: {
  * it, and that refusal has to read as "no transcript", not as an exception.
  * See CodeRabbit #663, thread 5.
  */
-export function readRetainedState(
+export async function readRetainedState(
   store: RemoteTranscriptStore,
   sessionId: string,
-): { entries: string[]; state: RetainedTranscriptState } {
-  let retained: ReturnType<RemoteTranscriptStore["read"]>;
+): Promise<RetainedStateRead> {
+  let retained: Awaited<ReturnType<RemoteTranscriptStore["read"]>>;
   try {
-    retained = store.read(sessionId);
+    // `await` INSIDE the `try` is load-bearing: `fileFor`'s refusal for a
+    // hostile session id is a REJECTION once the read is async, and a
+    // `try/catch` around a non-awaited promise catches nothing — the
+    // never-throws guarantee would break silently.
+    // See change: offload-retained-transcript-replay (D5, task 4.9).
+    retained = await store.read(sessionId);
   } catch {
     return { entries: [], state: "absent" };
   }
@@ -154,35 +188,64 @@ export function readRetainedState(
  * caller wanting just entries or completeness should use `readRetainedState`
  * and skip the parse entirely.
  *
- * Parses through `parseSessionEntries` — the same branch-order resolution the
- * local path uses — so a remote session renders the conversation the origin
- * machine would render, not a simpler linear approximation of it.
+ * The read, the line split, the parse and the replay all happen off the main
+ * thread: the raw text goes to the load worker, which runs the SAME
+ * `parseSessionEntries` + `replayEntriesAsEvents` projection the local path
+ * uses — one projection, so a remote session renders the conversation the
+ * origin machine would render, not a simpler linear approximation of it.
  *
  * Never throws — and the PARSE is inside that guarantee, not just the store
  * read. The replay walks attacker-shaped JSON (a single `message.content:
- * [null]` line reaches a property access on `null`), which has to read as "no
- * usable transcript" rather than take a subscribe down.
+ * [null]` line reaches a property access on `null`); the worker reports it as
+ * a failed load and the STATE still stands.
  */
-export function readRetainedTranscript(
+export async function readRetainedTranscript(
   store: RemoteTranscriptStore,
+  loader: RetainedEventLoader,
   sessionId: string,
   knownContextWindow?: number,
-): RetainedTranscriptRead {
-  const { entries: rawEntries, state } = readRetainedState(store, sessionId);
-  if (state === "absent") return { entries: [], events: [], state: "absent" };
-
-  let events: RetainedTranscriptRead["events"] = [];
+): Promise<RetainedTranscriptHydration> {
+  let raw: string;
+  let state: RetainedTranscriptState;
   try {
-    events = replayEntriesAsEvents(
-      sessionId,
-      parseSessionEntries(rawEntries),
-      knownContextWindow,
-    ).map((m) => m.event);
+    const read = await store.readRaw(sessionId);
+    // The absent short-circuit: no pool round-trip for a session that never
+    // transferred, and no hydration sample (see `loadRetainedEvents`).
+    if (!read.retained) return { cancelled: false, events: [], state: "absent" };
+    raw = read.raw;
+    state = read.complete ? "complete" : "incomplete";
+  } catch {
+    // A refused id, or any store failure: “no transcript”, never an exception.
+    return { cancelled: false, events: [], state: "absent" };
+  }
+
+  // `await` INSIDE a `try`: the loader is expected to resolve a failure rather
+  // than reject, but the READ's contract is never-throws, and an unexpected
+  // rejection (a pool or worker fault outside the handled paths) must degrade
+  // to `{events: [], state}` rather than escape to the caller and lose the
+  // state we already know.
+  let out: Awaited<ReturnType<RetainedEventLoader["loadRetainedEvents"]>>;
+  try {
+    out = await loader.loadRetainedEvents(sessionId, raw, knownContextWindow);
   } catch (err) {
-    // The bytes are real and were really transferred, so the STATE still
+    console.error(`[transcript] retained load rejected for ${sessionId}: ${String(err)}`);
+    return { cancelled: false, events: [], state };
+  }
+  if (out.error === "cancelled") {
+    // The last subscriber left before this resolved. Take the same silent exit
+    // the local path takes: no insert, no broadcast, no `retainedTranscript`
+    // stamp after the session has nobody watching it.
+    return { cancelled: true };
+  }
+  if (!out.success) {
+    // Disposed pool, an invalid request, or the worker's replay-throw message.
+    // The bytes ARE real and were really transferred, so the STATE still
     // stands; only the render of them failed. Reporting `absent` here would
     // claim nothing was captured, which is the one thing we know is false.
-    console.error(`[transcript] retained replay failed for ${sessionId}: ${String(err)}`);
+    console.error(
+      `[transcript] retained replay failed for ${sessionId}: ${out.error ?? "replay_error"}`,
+    );
+    return { cancelled: false, events: [], state };
   }
-  return { entries: rawEntries, events, state };
+  return { cancelled: false, events: out.events, state };
 }
