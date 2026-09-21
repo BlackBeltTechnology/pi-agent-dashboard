@@ -54867,9 +54867,16 @@ vec3 transformedNormal = normalMatrix * (basis * objectNormal);
     return new MeshStandardMaterial({ color: col, metalness: 0.1, roughness: 0.75 });
   }
   function luminance(hex) {
-    const c = new Color(hex);
+    const n = new Color(hex).getHex(SRGBColorSpace);
     const ch = (v) => v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-    return 0.2126 * ch(c.r) + 0.7152 * ch(c.g) + 0.0722 * ch(c.b);
+    return 0.2126 * ch((n >> 16 & 255) / 255) + 0.7152 * ch((n >> 8 & 255) / 255) + 0.0722 * ch((n & 255) / 255);
+  }
+  var BLOOM_CEILING = 0.8;
+  function dimBelowBloom(hex) {
+    const c = new Color(hex);
+    const lin = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+    if (lin <= BLOOM_CEILING) return hex;
+    return `#${c.multiplyScalar(BLOOM_CEILING / lin).getHexString()}`;
   }
   function contrast(a, b) {
     const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
@@ -54877,6 +54884,9 @@ vec3 transformedNormal = normalMatrix * (basis * objectNormal);
   }
   var EDGE_CONTRAST_FLOOR = 2.2;
   function titleEdgeColour(P) {
+    return dimBelowBloom(rawEdgeColour(P));
+  }
+  function rawEdgeColour(P) {
     const base = new Color(P.text);
     if (contrast(P.text, P.accent) >= EDGE_CONTRAST_FLOOR) return P.text;
     const up = luminance(P.accent) < 0.35;
@@ -54890,7 +54900,7 @@ vec3 transformedNormal = normalMatrix * (basis * objectNormal);
     return P.text;
   }
   function titleEdgeMaterial(P) {
-    return new MeshBasicMaterial({ color: titleEdgeColour(P), toneMapped: false });
+    return new MeshBasicMaterial({ color: titleEdgeColour(P) });
   }
   function titleMaterial(P, cfg) {
     return new MeshPhysicalMaterial({
