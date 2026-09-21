@@ -61,6 +61,7 @@
     "isomorphic-dompurify": "3.18.0",
     "jimp": "^1.6.1",
     "jiti": "^2.7.0",
+    "jose": "^6.0.0",
     "jsonwebtoken": "^9.0.3",
     "mailparser": "3.9.14",
     "mammoth": "^1.12.0",
