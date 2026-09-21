@@ -29,9 +29,11 @@ export interface RouteTierEntry {
  */
 export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "DELETE", path: "/api/access/bypass-hosts", tier: "operate" },
+  { method: "DELETE", path: "/api/access/cors-origin", tier: "operate" },
   { method: "DELETE", path: "/api/access/grants", tier: "operate" },
   { method: "DELETE", path: "/api/access/pinned-directory", tier: "operate" },
   { method: "DELETE", path: "/api/access/project-trust", tier: "operate" },
+  { method: "DELETE", path: "/api/access/trusted-network", tier: "operate" },
   { method: "DELETE", path: "/api/access/worktree-trust", tier: "operate" },
   { method: "GET", path: "/api/access/grants", tier: "observe" },
   { method: "GET", path: "/api/access/store-stats", tier: "observe" },
