@@ -105,10 +105,6 @@ import { assertIdentityReadiness } from "./identity/activation.js";
 import { PolicyRegistry } from "./identity/policy-registry.js";
 import { registerResolverHook } from "./identity/resolver-hook.js";
 import { ResolverRegistry } from "./identity/resolver-registry.js";
-import { bootParentPid, isBootParentProvablyDead } from "./lifecycle/boot-parent-liveness.js";
-import { runBoundedStartup } from "./lifecycle/bounded-startup.js";
-import { startEphemeralParentWatch } from "./lifecycle/ephemeral-parent-watch.js";
-import { ensureInstanceId } from "./lifecycle/instance-id.js";
 import {
   clientBuildDiagnostic,
   clientBuildSnapshotFor,
