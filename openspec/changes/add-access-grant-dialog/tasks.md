@@ -38,7 +38,7 @@
 
 - [ ] 6.1 Thread a `DenialContext` from the universal network guard's single `onRequest` denial point into the registry — verify an injected-request test records a denial with the correct plane and subject
 - [ ] 6.2 Thread `DenialContext` from the filesystem containment sites and the unknown-`cwd` denial sites — verify every site's existing denial body (including its unchanged `error` string) is returned when the outcome is deny
-- [ ] 6.3 Implement request suspension with the `git-routes.ts:473-480` timeout clear/restore pattern plus `request.raw.once("close")` release — verify a test holds a request past the 10 s `connectionTimeout`, restores the prior socket timeout on finish, and releases the entry on client abort
+- [ ] 6.3 Implement request suspension with the `git-routes.ts:470-478` timeout clear/restore pattern plus `request.raw.once("close")` release — verify a test holds a request past the 10 s `connectionTimeout`, restores the prior socket timeout on finish, and releases the entry on client abort
 - [ ] 6.4 Re-run the full containment check on resume rather than trusting the verdict — verify tests assert a sibling path outside the granted subject is still denied and symlink resolution still runs
 - [ ] 6.5 Assert containment layer order is unchanged — verify the existing `file-read-containment` tests pass untouched with the feature disabled and with it enabled but unprompted
 
@@ -104,9 +104,8 @@
 ## 10. Test scenarios folded from `test-plan.md`
 
 The manifest (`test-plan.md`), not this file, is the source of truth for
-automated-vs-manual. Rows `F10` and `F11` are `manual-only` and are deliberately
-absent here. Eight rows carry a `[NEEDS CLARIFICATION]` marker — resolve `C1`–`C6`
-in the manifest before authoring those.
+automated-vs-manual. Rows `F10` and `F11` are `manual-only`: they are folded as manual
+tasks in 10h, not as tests. `C1`–`C6` are all resolved in the manifest; no row is blocked.
 
 ### 10a. L1 unit (vitest) — eligibility and capability issuance
 
@@ -114,24 +113,27 @@ Harness exemplar for every row in this group: `packages/server/src/auth/__tests_
 
 - [ ] 10.1 Absent `Origin` on the WS upgrade · connection established · no capability issued, `grant_channel` never sent (test-plan #E1)
 - [ ] 10.2 Non-absent admitted `Origin` + `Sec-Fetch-Site: same-origin` + valid credential tier · connection established · capability issued exactly once (test-plan #E2)
-- [ ] 10.3 Admitted `Origin` with `Sec-Fetch-Site: cross-site` · connection established · outcome per the C5 accepted-value set (test-plan #E3 — blocked on C5)
+- [ ] 10.3 Admitted `Origin` with `Sec-Fetch-Site: cross-site` · connection established · capability issued when the Origin is admitted by the admission rule (the pi-dashboard.dev shell); refused for same-site and none (test-plan #E3)
 - [ ] 10.4 `Origin: ""` empty not absent · connection established · refused by the existing origin rule, no capability (test-plan #E4)
 - [ ] 10.5 Filesystem denial with no capability header · denial evaluated · not suspended, 403, recorded `degraded:ineligible` (test-plan #E5)
 - [ ] 10.6 Capability value off by one byte · denial evaluated · treated exactly as absent, no prompt (test-plan #E6)
 - [ ] 10.7 Capability issued then socket closed, value echoed later · denial evaluated · resolves to no socket, ineligible (test-plan #E7)
 - [ ] 10.8 Network denial with zero operator channels · denial evaluated · no prompt, denial still recorded (test-plan #E8)
 - [ ] 10.9 Network denial with one operator channel · denial evaluated · prompt on that channel, request stays denied and is never suspended (test-plan #E9)
+- [ ] 10.9a `hostGate.mode = report` with a live channel and a prompt-eligible filesystem denial · denial evaluated · no dialog on any channel, existing denial returned, recorded reason names the Host-admission mode (test-plan #E51)
+- [ ] 10.9b `hostGate.mode = report` with a live channel and a network denial · denial evaluated · no dialog, denial still recorded and answerable on the Access surface (test-plan #E52)
+- [ ] 10.9c `hostGate.mode = enforce` with a capability-bearing filesystem denial · denial evaluated · dialog raised and request suspended (test-plan #E53)
 
 ### 10b. L1 unit (vitest) — registry lifecycle and volume control
 
 Harness exemplar: `packages/server/src/__tests__/cors.test.ts` for plain in-process module tests; follow `ResyncRequesterRegistry`'s existing test for TTL/capacity shape.
 
-- [ ] 10.10 Registry at capacity−1 · one more pending entry · accepted (test-plan #E10)
-- [ ] 10.11 Registry at capacity · one more denial · recorded without prompting, no live entry evicted (test-plan #E11 — blocked on C2)
+- [ ] 10.10 Registry at 63 entries (capacity−1) · one more pending entry · accepted (test-plan #E10)
+- [ ] 10.11 Registry at capacity (64) · one more denial · recorded without prompting, no live entry evicted (test-plan #E11)
 - [ ] 10.12 One pending entry, two `grant_response` frames 10ms apart · second arrives · no-op, verdict unchanged, no second store write (test-plan #E12)
 - [ ] 10.13 Denials naming `/a/b` and `/a/b/` on one plane · both recorded · a single entry (test-plan #E13)
 - [ ] 10.14 Filesystem `/a/b` and cwd `/a/b` · both recorded · two entries, settling one leaves the other pending (test-plan #E14)
-- [ ] 10.15 Same subject denied repeatedly · per-subject backoff boundary · suppression per C1 constants (test-plan #E20 — blocked on C1)
+- [ ] 10.15 Same subject denied repeatedly · denial at 119 s then 121 s after a settled verdict · suppressed inside the 120 s backoff, prompts again after it (test-plan #E20)
 - [ ] 10.16 One capability emitting denials to its per-channel share · share boundary crossed · further denials recorded without prompting (test-plan #E21)
 - [ ] 10.17 Requester A at its bound, B idle · B's denial arrives · B prompts, A stays suppressed (test-plan #E22)
 - [ ] 10.18 Suppression by per-channel bound vs global cap · each occurs · log/metric distinguishes the reason (test-plan #E23)
@@ -163,7 +165,8 @@ Harness exemplar: `packages/server/src/auth/__tests__/cwd-policy-funnel.test.ts`
 - [ ] 10.34 Scope `/repo`, path inside only before symlink resolution · denial evaluated · not auto-allowed (test-plan #E34)
 - [ ] 10.35 Active session 3 min remaining · root added · still ends at the original time (test-plan #E35)
 - [ ] 10.36 Operator denied `/repo/.env`, YOLO later scoped to `/repo` · `/repo/.env` denied again · not auto-allowed, recorded refused-by-prior-refusal (test-plan #E36)
-- [ ] 10.37 Refusal recorded then server restarted · subject denied under active YOLO · outcome per the C4 lifetime (test-plan #E37 — blocked on C4)
+- [ ] 10.37 Refusal recorded then server restarted · subject denied under active YOLO · not auto-allowed, refusal survived the restart (test-plan #E37)
+- [ ] 10.37b Durable refusal cleared on the Access surface · same subject denied again · prompts again rather than staying refused (test-plan #E37b)
 - [ ] 10.38 Session whose `cwd` is `$HOME` · activation offered · `$HOME` neither offered nor default, falls back to narrowest legal rung (test-plan #E38)
 - [ ] 10.39 Session with 10 roots · denial outside all · still prompted or refused (test-plan #E39)
 - [ ] 10.40 Env names 2 valid roots and 1 unresolvable · server starts · inactive, not unscoped, not activated on the valid subset (test-plan #E40)
@@ -173,11 +176,11 @@ Harness exemplar: `packages/server/src/auth/__tests__/cwd-policy-funnel.test.ts`
 
 Harness exemplar: `packages/server/src/routes/__tests__/` git-routes socket-timeout tests for the hold path; plain vitest timing for the rest.
 
-- [ ] 10.42 One held request across the 10s Fastify `connectionTimeout` · not terminated at 10s, socket timeout restored on finish (test-plan #P1 — window blocked on C6)
+- [ ] 10.42 One held request across the 10s Fastify `connectionTimeout` · not terminated at 10s, socket timeout restored on finish within the 120 s max hold (test-plan #P1)
 - [ ] 10.43 Denial 12 levels deep, 1000 iterations · p95 ladder computation < 5ms (test-plan #P3)
 - [ ] 10.44 10k prompt→settle cycles · RSS delta < 10MB, registry size returns to baseline (test-plan #P4)
 - [ ] 10.45 Client aborts a suspended request mid-hold · entry released, socket timeout restored, no orphaned handle, nothing persisted (test-plan #X1)
-- [ ] 10.46 Operator never answers, hold exceeds its maximum · outcome per C6 (test-plan #X2 — blocked on C6)
+- [ ] 10.46 Operator never answers, hold exceeds its maximum · outcome per C6 (test-plan #X2)
 - [ ] 10.47 Subject replaced by a link to another location after the verdict · request released · guard re-runs and denies (test-plan #X3)
 - [ ] 10.48 Grant revoked between verdict and release · request released · re-run guard reflects the revocation (test-plan #X4)
 - [ ] 10.49 Browser gateway unavailable when a prompt would be pushed · denial evaluated · denial stands, no allow, recorded as degraded (test-plan #X5)
@@ -185,7 +188,7 @@ Harness exemplar: `packages/server/src/routes/__tests__/` git-routes socket-time
 - [ ] 10.51 Chosen root deleted between offer and activation · activation submitted · refused, no session created (test-plan #X7)
 - [ ] 10.52 Subject cannot be realpath-resolved · ladder computed · refused rather than compared unresolved (test-plan #X8)
 - [ ] 10.53 A deferred-mode plane declares `yoloEligible` · registration · rejected, not honoured (test-plan #X9)
-- [ ] 10.54 Host admission reporting, YOLO active · containment miss · no dialog, request stays denied, verdict applies to next attempt, never resumed (test-plan #X10)
+- [ ] 10.54 Host admission reporting · YOLO control opened and env-activated session attempted at startup · no session becomes active, control states the reason rather than hiding, no automatic verdict on any plane (test-plan #X10)
 
 ### 10f. L2 smoke (`qa/tests/*.sh` / `*.ps1`) — process and multi-OS
 
@@ -193,7 +196,7 @@ Harness exemplar: `qa/tests/03-websocket.sh` (per-OS process-level assertions, n
 
 - [ ] 10.55 Candidate `~/.SSH` on a case-insensitive volume · forbidden rule applied · refused (test-plan #E18)
 - [ ] 10.56 Case-sensitive volume on a case-insensitive host, candidates differing only in case · containment evaluated · treated as distinct, sensitivity read from the volume (test-plan #E19)
-- [ ] 10.57 500 denials across 50 subjects from one capability · p95 denial-path added latency within the C1 threshold (test-plan #P2 — blocked on C1)
+- [ ] 10.57 500 denials across 50 subjects from one capability · p95 denial-path added latency < 5 ms, never more than 2 concurrent dialogs, channel suppressed past 12 entries (test-plan #P2)
 - [ ] 10.58 Env-activated YOLO, no browser connected · non-browser client's request denied by containment · remains denied (test-plan #X11)
 - [ ] 10.59 `PI_DASHBOARD_DISABLE_GRANT_PROMPT=1` · denial occurs · no prompt, grants unaffected, toggle inert not hidden (test-plan #X12)
 
@@ -201,9 +204,12 @@ Harness exemplar: `qa/tests/03-websocket.sh` (per-OS process-level assertions, n
 
 Harness exemplar: `tests/e2e/openspec-artifact-dialog.spec.ts` (modal lifecycle) and `tests/e2e/blackhole-settings.spec.ts` (settings surfaces). Read the dashboard port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
 
-- [ ] 10.60 Activation UI opened · shipped duration set rendered (test-plan #E32 — blocked on C3)
+- [ ] 10.60 Activation UI opened · shipped duration set rendered (test-plan #E32)
 - [ ] 10.61 Filesystem prompt rendered · dialog opens · no verdict pre-selected or focus-defaulted to allow-always (test-plan #E42)
 - [ ] 10.62 Network prompt rendered · dialog opens · allow-once absent from the DOM, not disabled (test-plan #E43)
+- [ ] 10.62a Held prompt rendered · dialog opens · no answer pre-selected, focus-defaulted, or visually emphasised over the others (test-plan #E56)
+- [ ] 10.62b `hostGate.mode = report` · Access page opened · states no dialog will be raised and why, denials still listed and answerable, prompting toggle inert not hidden (test-plan #E54)
+- [ ] 10.62c Browser issued no prompt capability · Access page opened · states this browser will not receive dialogs, and why (test-plan #E55)
 - [ ] 10.63 Filesystem prompt offering 3 rungs · dialog opens · exactly 3 selectable rungs, narrowest pre-selected, no free-text input (test-plan #E44)
 - [ ] 10.64 Cwd prompt with no ancestors offered · dialog opens · no ladder control rendered (test-plan #E45)
 - [ ] 10.65 CORS origin `https://<img src=x onerror=alert(1)>.example.com` · dialog opens · rendered as text, no element created, no script executes (test-plan #E46)
@@ -217,3 +223,8 @@ Harness exemplar: `tests/e2e/openspec-artifact-dialog.spec.ts` (modal lifecycle)
 - [ ] 10.73 Activated from the directory settings page · Access page opened · same session shown, not a second one (test-plan #F7)
 - [ ] 10.74 Filesystem prompt · YOLO activated from inside the dialog · the pending denial still requires an explicit verdict (test-plan #F8)
 - [ ] 10.75 Prompt open, WS drops and reconnects · reconnection completes · converges to one consistent state — re-rendered if pending, removed if settled meanwhile (test-plan #F9)
+
+### 10h. Manual verification (deferred post-merge)
+
+- [ ] 10.76 Compare `mockups/index.html` against the shipped dialog · human judgement on spacing and typography parity (test-plan: manual-only, #F10)
+- [ ] 10.77 View the prompt in all 4 themes, dark + light · human judgement that severity tokens read correctly in every theme (test-plan: manual-only, #F11)

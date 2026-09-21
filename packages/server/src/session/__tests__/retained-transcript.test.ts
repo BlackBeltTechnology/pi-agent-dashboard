@@ -19,18 +19,26 @@
  *
  * Tasks 1.1, 1.2, 1.3.
  * See change: serve-retained-remote-transcripts.
+ *
+ * Since the offload both reads are ASYNC and the hydration read takes the load
+ * worker through `RetainedEventLoader`; the tests below wire the REAL
+ * `loadAndReplay` projection in-process, so they exercise the production parse
+ * and replay minus the thread hop.
+ * See change: offload-retained-transcript-replay (D1, D3, D5).
  */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRemoteTranscriptStore } from "../remote-transcript-store.js";
 import {
   chooseHydrationSource,
   decideRetainedRead,
+  type RetainedEventLoader,
   readRetainedState,
   readRetainedTranscript,
 } from "../retained-transcript.js";
+import { loadAndReplay } from "../session-load-worker.js";
 
 let home: string;
 const store = () => createRemoteTranscriptStore({ homedir: home });
@@ -57,10 +65,37 @@ const TRANSCRIPT = [
   },
 ].map((e) => JSON.stringify(e));
 
+/**
+ * The production projection, run in-process: the worker's `raw` arm IS
+ * `parseSessionEntries(splitTranscriptLines(raw))` + `replayEntriesAsEvents`.
+ * A unit test that faked the replay would be asserting its own fake.
+ */
+const loader: RetainedEventLoader = {
+  loadRetainedEvents: async (sessionId, raw, knownContextWindow) => {
+    const out = loadAndReplay({ jobId: 0, sessionId, raw, knownContextWindow });
+    return { success: out.success, events: out.events, error: out.error };
+  },
+};
+
+/** Hydrate and unwrap the non-cancelled arm, so a cancel is a loud test bug. */
+async function hydrate(s: ReturnType<typeof store>, id: string, kcw?: number) {
+  const out = await readRetainedTranscript(s, loader, id, kcw);
+  if (out.cancelled) throw new Error(`unexpected cancel for ${id}`);
+  return out;
+}
+
+const markerPath = (id: string) =>
+  path.join(home, ".pi", "dashboard", "remote-transcripts", `${id}.jsonl.complete`);
+const contentPath = (id: string) =>
+  path.join(home, ".pi", "dashboard", "remote-transcripts", `${id}.jsonl`);
+
 beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-rtr-"));
 });
-afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
+afterEach(() => {
+  vi.restoreAllMocks();
+  fs.rmSync(home, { recursive: true, force: true });
+});
 
 describe("decideRetainedRead", () => {
   it("serves a remote-origin session addressed by id alone", () => {
@@ -180,26 +215,54 @@ describe("chooseHydrationSource", () => {
  * See CodeRabbit #663, thread 5.
  */
 describe("readRetainedState", () => {
-  it("returns entries and state without replaying", () => {
+  it("returns entries and state without replaying", async () => {
     const s = store();
     s.append("sess-remote", TRANSCRIPT, { restarted: true, complete: true });
-    expect(readRetainedState(s, "sess-remote")).toEqual({
+    expect(await readRetainedState(s, "sess-remote")).toEqual({
       entries: TRANSCRIPT,
       state: "complete",
     });
   });
 
-  it("agrees with the replaying read on every state, so the two cannot drift", () => {
+  it("E8 maps the three states off {content, marker} independently", async () => {
+    const s = store();
+    s.append("complete", TRANSCRIPT, { restarted: true, complete: true });
+    s.append("incomplete", TRANSCRIPT, { restarted: true, complete: false });
+
+    expect((await readRetainedState(s, "complete")).state).toBe("complete");
+    expect((await readRetainedState(s, "incomplete")).state).toBe("incomplete");
+    // Content present but no marker does NOT collapse into absent — the
+    // distinction the whole three-state contract exists for.
+    expect((await readRetainedState(s, "never-seen")).state).toBe("absent");
+  });
+
+  it("agrees with the replaying read on every state, so the two cannot drift", async () => {
     const s = store();
     s.append("complete", TRANSCRIPT, { restarted: true, complete: true });
     s.append("partial", TRANSCRIPT.slice(0, 2), { restarted: true, complete: false });
     for (const id of ["complete", "partial", "never-seen"]) {
-      expect(readRetainedState(s, id).state, id).toBe(readRetainedTranscript(s, id).state);
-      expect(readRetainedState(s, id).entries, id).toEqual(readRetainedTranscript(s, id).entries);
+      expect((await readRetainedState(s, id)).state, id).toBe((await hydrate(s, id)).state);
     }
   });
 
-  it("does NOT throw on a transcript whose replay would crash", () => {
+  it("agrees with the store on the HTTP entries, so the surface cannot drift", async () => {
+    const s = store();
+    s.append("sess-remote", TRANSCRIPT, { restarted: false, complete: true });
+    expect((await readRetainedState(s, "sess-remote")).entries).toEqual(
+      (await s.read("sess-remote")).entries,
+    );
+  });
+
+  it("E9 resolves ABSENT for a refused session id, without rejecting", async () => {
+    // The store refuses rather than sanitises; the read must surface that as an
+    // absent transcript, not as a crash that takes a subscribe down.
+    await expect(readRetainedState(store(), "../../../../etc/passwd")).resolves.toEqual({
+      entries: [],
+      state: "absent",
+    });
+  });
+
+  it("does NOT throw on a transcript whose replay would crash", async () => {
     // It never reaches the replay at all — that is the point of the split.
     const s = store();
     s.append(
@@ -215,51 +278,63 @@ describe("readRetainedState", () => {
       ],
       { restarted: true, complete: true },
     );
-    expect(readRetainedState(s, "poison").state).toBe("complete");
+    expect((await readRetainedState(s, "poison")).state).toBe("complete");
   });
 });
 
 describe("readRetainedTranscript", () => {
-  it("returns the retained entries in their original order", () => {
+  it("replays the retained entries into dashboard events, oldest first", async () => {
     const s = store();
     s.append("sess-remote", TRANSCRIPT, { restarted: false, complete: true });
 
-    const got = readRetainedTranscript(s, "sess-remote");
-    expect(got.entries).toEqual(TRANSCRIPT);
-    expect(got.state).toBe("complete");
-  });
-
-  it("replays the retained entries into dashboard events, oldest first", () => {
-    const s = store();
-    s.append("sess-remote", TRANSCRIPT, { restarted: false, complete: true });
-
-    const text = JSON.stringify(readRetainedTranscript(s, "sess-remote").events);
+    const text = JSON.stringify((await hydrate(s, "sess-remote")).events);
     expect(text).toContain("first thing said");
     expect(text).toContain("second thing said");
     expect(text.indexOf("first thing said")).toBeLessThan(text.indexOf("second thing said"));
   });
 
-  it("reports a transfer that never completed as INCOMPLETE, with what it has", () => {
+  it("carries the state alongside the events, and no `entries`", async () => {
+    // Shipping the split array back across the worker boundary would put on the
+    // main thread exactly the work the offload moved off it, and no caller
+    // reads it. See change: offload-retained-transcript-replay (task 4.6).
+    const s = store();
+    s.append("sess-remote", TRANSCRIPT, { restarted: false, complete: true });
+    expect(Object.keys(await hydrate(s, "sess-remote")).sort()).toEqual(["cancelled", "events", "state"]);
+  });
+
+  it("reports a transfer that never completed as INCOMPLETE, with what it has", async () => {
     const s = store();
     s.append("sess-remote", TRANSCRIPT.slice(0, 2), { restarted: false, complete: false });
 
-    const got = readRetainedTranscript(s, "sess-remote");
+    const got = await hydrate(s, "sess-remote");
     expect(got.state).toBe("incomplete");
     // Not withheld — a partial conversation still beats a blank screen, as
     // long as it is not presented as the whole one.
     expect(got.events.length).toBeGreaterThan(0);
   });
 
-  it("reports a session that was never transferred as ABSENT, not as incomplete", () => {
-    const got = readRetainedTranscript(store(), "never-transferred");
+  it("reports a session that was never transferred as ABSENT, not as incomplete", async () => {
+    const s = store();
+    const got = await hydrate(store(), "never-transferred");
     expect(got.state).toBe("absent");
     expect(got.events).toEqual([]);
+
+    // E11: the absent short-circuit happens BEFORE the pool, so a no-op read
+    // cannot inflate the shared in-flight counter or evict a real hydration
+    // sample from the ring.
+    const pool = { loadRetainedEvents: vi.fn() };
+    expect(await readRetainedTranscript(s, pool as unknown as RetainedEventLoader, "never-transferred")).toEqual({
+      cancelled: false,
+      events: [],
+      state: "absent",
+    });
+    expect(pool.loadRetainedEvents).not.toHaveBeenCalled();
   });
 
-  it("never builds a path out of a hostile session id", () => {
+  it("never builds a path out of a hostile session id", async () => {
     // The store refuses rather than sanitises; the read must surface that as
     // an absent transcript, not as a crash that takes a subscribe down.
-    expect(readRetainedTranscript(store(), "../../../../etc/passwd").state).toBe("absent");
+    expect((await hydrate(store(), "../../../../etc/passwd")).state).toBe("absent");
   });
 
   /**
@@ -275,7 +350,7 @@ describe("readRetainedTranscript", () => {
    * hangs the run, so the assertion is "it returned at all".
    * See change: serve-retained-remote-transcripts (review finding 1).
    */
-  it("terminates on a parentId CYCLE instead of hanging the event loop", () => {
+  it("terminates on a parentId CYCLE instead of hanging the event loop", async () => {
     const s = store();
     s.append(
       "cyclic",
@@ -297,7 +372,7 @@ describe("readRetainedTranscript", () => {
       { restarted: true, complete: true },
     );
 
-    const got = readRetainedTranscript(s, "cyclic");
+    const got = await hydrate(s, "cyclic");
     expect(got.state).toBe("complete");
     // Degrades to an order it can defend, rather than looping forever — and
     // specifically to the LINEAR fallback, not to an arbitrary prefix of the
@@ -318,9 +393,10 @@ describe("readRetainedTranscript", () => {
    *
    * The STATE must survive: the bytes really were transferred, and reporting
    * `absent` would claim the one thing known to be false.
-   * See change: serve-retained-remote-transcripts (review finding D).
+   * See change: serve-retained-remote-transcripts (review finding D);
+   * test-plan #X3 / #E10.
    */
-  it("survives a transcript line that crashes the replay, keeping the state honest", () => {
+  it("X3 survives a transcript line that crashes the replay, keeping the state honest", async () => {
     const s = store();
     s.append(
       "poison",
@@ -337,12 +413,32 @@ describe("readRetainedTranscript", () => {
       { restarted: true, complete: true },
     );
 
-    const got = readRetainedTranscript(s, "poison");
+    const got = await hydrate(s, "poison");
     expect(got.state).toBe("complete");
-    expect(got.entries).toHaveLength(2);
+    expect(got.events).toEqual([]);
   });
 
-  it("terminates on a parentId SELF-loop", () => {
+  it("R5 a loader that REJECTS still resolves, with the state intact", async () => {
+    // `loadRetainedEvents` is expected to resolve a failure rather than reject,
+    // but this read's contract is never-throws: an unexpected rejection (a pool
+    // or worker fault outside the handled paths) must degrade the render, not
+    // escape the caller and lose the state we already know is true.
+    const s = store();
+    s.append("sess-remote", TRANSCRIPT, { restarted: true, complete: true });
+    const rejecting = {
+      loadRetainedEvents: async () => {
+        throw new Error("pool exploded");
+      },
+    } as unknown as RetainedEventLoader;
+
+    await expect(readRetainedTranscript(s, rejecting, "sess-remote")).resolves.toEqual({
+      cancelled: false,
+      events: [],
+      state: "complete",
+    });
+  });
+
+  it("terminates on a parentId SELF-loop", async () => {
     const s = store();
     s.append(
       "selfloop",
@@ -357,6 +453,36 @@ describe("readRetainedTranscript", () => {
       ],
       { restarted: true, complete: true },
     );
-    expect(readRetainedTranscript(s, "selfloop").state).toBe("complete");
+    expect((await hydrate(s, "selfloop")).state).toBe("complete");
+  });
+});
+
+/**
+ * EACCES on the two files must map to two DIFFERENT states. Getting this wrong
+ * in the obvious direction — one shared catch — collapses every `incomplete`
+ * into `absent`, i.e. "history may be missing" becomes "there is nothing to
+ * miss" (or the reverse) for the failure mode an operator can actually fix.
+ * See change: offload-retained-transcript-replay (D5, tasks 3.5, 6.29, 6.30).
+ */
+describe("unreadable marker vs unreadable content", () => {
+  it("X10 an unreadable MARKER reads INCOMPLETE, never absent", async () => {
+    if (process.platform === "win32") return; // chmod is a documented no-op
+    const s = store();
+    s.append("sess-remote", TRANSCRIPT, { restarted: true, complete: true });
+    fs.chmodSync(markerPath("sess-remote"), 0o000);
+
+    expect((await readRetainedState(s, "sess-remote")).state).toBe("incomplete");
+  });
+
+  it("X11 unreadable CONTENT reads ABSENT, and does not throw", async () => {
+    if (process.platform === "win32") return;
+    const s = store();
+    s.append("sess-remote", TRANSCRIPT, { restarted: true, complete: true });
+    fs.chmodSync(contentPath("sess-remote"), 0o000);
+
+    await expect(readRetainedState(s, "sess-remote")).resolves.toEqual({
+      entries: [],
+      state: "absent",
+    });
   });
 });
