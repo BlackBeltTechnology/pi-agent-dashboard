@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Provider sign-in pane — prompt-driven states</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="tokens.css" />
+<script src="theme-init.js"></script>
+<style>
+  body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  /* Dialog frame as shipped by ProviderAddDialog PaneShell */
+  .dialog { background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 0.75rem; box-shadow: 0 10px 30px var(--shadow-card); width: 100%; max-width: 28rem; }
+  .btn-primary { padding: 0.375rem 0.75rem; font-size: 0.75rem; border-radius: 0.25rem; background: #2563eb; color: #fff; font-weight: 500; }
+  .btn-primary:hover { background: #3b82f6; }
+  .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-secondary { padding: 0.375rem 0.75rem; font-size: 0.75rem; border-radius: 0.25rem; background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-secondary); }
+  .btn-secondary:hover { background: var(--bg-surface); }
+  .btn-option { text-align: left; width: 100%; padding: 0.5rem 0.75rem; border-radius: 0.375rem; background: var(--bg-tertiary); border: 1px solid var(--border-secondary); color: var(--text-primary); }
+  .btn-option:hover { border-color: var(--accent-primary); }
+  .input { width: 100%; padding: 0.375rem 0.5rem; font-size: 0.75rem; border-radius: 0.25rem; background: var(--bg-secondary); border: 1px solid var(--border-secondary); color: var(--text-primary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .input::placeholder { color: var(--text-muted); }
+  .input:focus, button:focus-visible, a:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+  .label { display: block; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.25rem; }
+  .err { font-size: 0.75rem; color: #f87171; }
+  /* helper text carries instructions → --text-tertiary (AA on both themes), not --text-muted (3.0:1 dark) */
+  .muted { font-size: 11px; color: var(--text-tertiary); }
+  .body { font-size: 0.75rem; color: var(--text-secondary); }
+  .spin { display:inline-block; width: .75rem; height: .75rem; border: 2px solid var(--text-muted); border-top-color: var(--text-primary); border-radius: 999px; animation: s 1s linear infinite; }
+  @keyframes s { to { transform: rotate(360deg);} }
+  @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+  .state-label { font-size: 0.6875rem; font-weight: 600; letter-spacing: .02em; color: var(--text-tertiary); }
+  .grid-states { display: grid; gap: 1.5rem; grid-template-columns: 1fr; }
+  @media (min-width: 900px) { .grid-states { grid-template-columns: 1fr 1fr; } }
+</style>
+</head>
+<body class="min-h-screen" style="background:var(--bg-primary)">
+<div class="max-w-5xl mx-auto p-4 sm:p-8">
+
+  <header class="flex items-start justify-between mb-6 gap-4 flex-wrap">
+    <div>
+      <h1 class="text-lg font-semibold" style="color:var(--text-primary)">Provider sign-in pane · prompt-driven states</h1>
+      <p class="text-sm mt-1" style="color:var(--text-tertiary)">
+        <code>ProviderAddDialog</code> after <code>delegate-provider-oauth-to-pi-ai</code>. One pane, driven by <code>GET /flow/:id</code> →
+        <code>pending.kind</code>. Headline fix: state 2 lets a remote browser finish.
+      </p>
+    </div>
+    <div class="flex gap-2 shrink-0">
+      <a href="?" class="btn-secondary">Dark</a>
+      <a href="?theme=light" class="btn-secondary">Light</a>
+    </div>
+  </header>
+
+  <div class="grid-states">
+
+  <!-- ─────────────────────────── STATE 1: idle ─────────────────────────── -->
+  <section>
+    <div class="state-label mb-2">1 · BEFORE START (unchanged)</div>
+    <div class="dialog p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold" style="color:var(--text-primary)">Sign in to Anthropic</h2>
+        <button class="muted" aria-label="Close">✕</button>
+      </div>
+      <p class="body">A browser window will open to complete the sign-in. This dialog can be closed — the sign-in finishes in the background.</p>
+      <button class="btn-primary mt-3">Sign In</button>
+      <div class="flex justify-end gap-2 pt-3">
+        <button class="btn-secondary">← Back</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────── STATE 2: auth_url + manual_code (THE FIX) ───────────────── -->
+  <section>
+    <div class="state-label mb-2" style="color:var(--accent-primary)">2 · WAITING — link + paste field shown together (remote browser fix)</div>
+    <div class="dialog p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold" style="color:var(--text-primary)">Sign in to Anthropic</h2>
+        <button class="muted" aria-label="Close">✕</button>
+      </div>
+
+      <div class="flex items-center gap-1.5 body" aria-live="polite">
+        <span class="spin" aria-hidden="true"></span> Waiting for authorization…
+      </div>
+
+      <div class="muted mt-2 break-all">
+        If the browser did not open, use this link:
+        <a href="#" class="underline break-all" style="color:var(--text-secondary)">https://claude.ai/oauth/authorize?code=true&amp;client_id=9d1c25…&amp;redirect_uri=http%3A%2F%2Flocalhost%3A53692%2Fcallback&amp;state=Kx9…</a>
+      </div>
+
+      <!-- the second door -->
+      <div class="mt-3 pt-3" style="border-top:1px solid var(--border-subtle)">
+        <label class="label" for="paste-1">
+          If the browser ends on a page that will not load, copy its address and paste it here
+        </label>
+        <div class="flex gap-2">
+          <input id="paste-1" class="input" placeholder="http://localhost:53692/callback?code=…  or just the code" />
+          <button class="btn-primary shrink-0">Submit</button>
+        </div>
+        <p class="muted mt-1">Happens when the dashboard is opened from another machine. On this machine the sign-in finishes on its own.</p>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-3">
+        <button class="btn-secondary">Cancel</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────── STATE 2b: paste submitted ───────────────── -->
+  <section>
+    <div class="state-label mb-2">2b · PASTE SUBMITTED — field cleared and locked until the next poll</div>
+    <div class="dialog p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold" style="color:var(--text-primary)">Sign in to Anthropic</h2>
+        <button class="muted" aria-label="Close">✕</button>
+      </div>
+      <div class="flex items-center gap-1.5 body" aria-live="polite">
+        <span class="spin" aria-hidden="true"></span> Exchanging code…
+      </div>
+      <div class="mt-3 pt-3" style="border-top:1px solid var(--border-subtle)">
+        <label class="label" for="paste-2">If the browser ends on a page that will not load, copy its address and paste it here</label>
+        <div class="flex gap-2">
+          <input id="paste-2" class="input" placeholder="http://localhost:53692/callback?code=…  or just the code" disabled style="opacity:.5" />
+          <button class="btn-primary shrink-0" disabled>Submit</button>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 pt-3">
+        <button class="btn-secondary">Cancel</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────── STATE 3: select (Codex) ───────────────── -->
+  <section>
+    <div class="state-label mb-2">3 · SELECT PROMPT — OpenAI Codex asks how to sign in</div>
+    <div class="dialog p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold" style="color:var(--text-primary)">Sign in to ChatGPT (Codex)</h2>
+        <button class="muted" aria-label="Close">✕</button>
+      </div>
+      <p class="body mb-2">How do you want to sign in?</p>
+      <div class="flex flex-col gap-2" role="group" aria-label="Sign-in method">
+        <button class="btn-option">
+          <div class="text-xs font-medium">Browser login</div>
+          <div class="muted">Opens ChatGPT in a browser on this machine. Recommended when the dashboard runs locally.</div>
+        </button>
+        <button class="btn-option">
+          <div class="text-xs font-medium">Device code login</div>
+          <div class="muted">Shows a code to enter on any device. Use this when the dashboard is opened remotely.</div>
+        </button>
+      </div>
+      <div class="flex justify-end gap-2 pt-3">
+        <button class="btn-secondary">Cancel</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────── STATE 4: text prompt (Copilot) ───────────────── -->
+  <section>
+    <div class="state-label mb-2">4 · TEXT PROMPT — GitHub Copilot enterprise domain (only when not pre-answered)</div>
+    <div class="dialog p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold" style="color:var(--text-primary)">Sign in to GitHub Copilot</h2>
+        <button class="muted" aria-label="Close">✕</button>
+      </div>
+      <label class="label" for="text-1">GitHub Enterprise URL/domain (blank for github.com)</label>
+      <div class="flex gap-2">
+        <input id="text-1" class="input" placeholder="github.example.com" style="font-family:inherit" />
+        <button class="btn-primary shrink-0">Continue →</button>
+      </div>
+      <p class="muted mt-1">The prompt text comes from the provider; the dashboard shows it as-is.</p>
+      <div class="flex justify-end gap-2 pt-3">
+        <button class="btn-secondary">Cancel</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────── STATE 5: device_code ───────────────── -->
+  <section>
+    <div class="state-label mb-2">5 · DEVICE CODE — Copilot, xAI, Kimi, Meta, Codex (device option)</div>
+    <div class="dialog p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold" style="color:var(--text-primary)">Sign in to xAI</h2>
+        <button class="muted" aria-label="Close">✕</button>
+      </div>
+      <div class="body">Enter this code at:</div>
+      <div class="flex items-center gap-2 mt-1">
+        <code class="text-lg font-bold tracking-wider" style="color:var(--text-primary)">WDJB-MJHT</code>
+        <button class="muted" aria-label="Copy code" title="Copy">⧉</button>
+      </div>
+      <a href="#" class="block mt-1 text-xs underline break-all" style="color:var(--text-secondary)">https://accounts.x.ai/device</a>
+      <button class="btn-primary mt-2">Open in browser</button>
+      <div class="flex items-center gap-1.5 mt-2 muted" aria-live="polite">
+        <span class="spin" aria-hidden="true"></span> Waiting for you to enter the code · expires in 14:32
+      </div>
+      <div class="flex justify-end gap-2 pt-3">
+        <button class="btn-secondary">Cancel</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────── STATE 6: complete ───────────────── -->
+  <section>
+    <div class="state-label mb-2">6 · COMPLETE</div>
+    <div class="dialog p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold" style="color:var(--text-primary)">Sign in to OpenRouter</h2>
+        <button class="muted" aria-label="Close">✕</button>
+      </div>
+      <div class="rounded p-3" style="background:var(--severity-success-bg); border:1px solid var(--severity-success-border)">
+        <div class="text-xs font-medium" style="color:var(--severity-success-fg)">✓ Connected</div>
+        <p class="body mt-1">Stored in <code>auth.json</code> on the server. Connected pi sessions were notified and will use it on their next request.</p>
+        <p class="muted mt-1">Expiry: <b>No expiry</b> (OpenRouter issues a permanent key). Anthropic would read <i>expires in 7 h</i>.</p>
+      </div>
+      <div class="flex justify-end gap-2 pt-3">
+        <button class="btn-primary">Done</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────── STATE 7: start failure ───────────────── -->
+  <section>
+    <div class="state-label mb-2">7 · START FAILED (HTTP 500 / 504) — no poll started</div>
+    <div class="dialog p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold" style="color:var(--text-primary)">Sign in to Anthropic</h2>
+        <button class="muted" aria-label="Close">✕</button>
+      </div>
+      <div class="rounded p-3" role="alert" style="background:var(--severity-error-bg); border:1px solid var(--severity-error-border)">
+        <div class="text-xs font-medium" style="color:var(--severity-error-fg)">Could not start sign-in</div>
+        <p class="body mt-1">Port 53692 is already in use by something the server does not own. A <code>pi /login</code> in a terminal on the server host is the usual cause — finish or cancel it, then try again.</p>
+      </div>
+      <div class="flex justify-end gap-2 pt-3">
+        <button class="btn-secondary">← Back</button>
+        <button class="btn-primary">Try again</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────── STATE 8: flow error / expired / cancelled ───────────────── -->
+  <section>
+    <div class="state-label mb-2">8 · FLOW ENDED WITHOUT A CREDENTIAL — error · expired · cancelled share one shape</div>
+    <div class="dialog p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold" style="color:var(--text-primary)">Sign in to Kimi</h2>
+        <button class="muted" aria-label="Close">✕</button>
+      </div>
+      <div class="rounded p-3" role="alert" style="background:var(--severity-warning-bg); border:1px solid var(--severity-warning-border)">
+        <div class="text-xs font-medium" style="color:var(--severity-warning-fg)">The code expired before it was entered</div>
+        <p class="body mt-1">Nothing was stored. Your existing sign-ins are unchanged.</p>
+      </div>
+      <p class="muted mt-2">Variants: <i>Sign-in cancelled</i> · <i>State mismatch — the pasted address belongs to a different sign-in</i> · <i>Sign-in stored an OAuth token but an API key for this provider already exists</i> (write conflict).</p>
+      <div class="flex justify-end gap-2 pt-3">
+        <button class="btn-secondary">← Back</button>
+        <button class="btn-primary">Try again</button>
+      </div>
+    </div>
+  </section>
+
+  </div>
+
+  <footer class="mt-8 muted">
+    Pending kinds → widgets: <code>manual_code</code> / <code>text</code> → one labelled field + Submit · <code>select</code> → one button per option ·
+    <code>device_code</code> → code + explicit Open · none (auth_url only) → spinner + link. The pane never branches on provider id.
+    Cancel = <code>DELETE /flow/:id</code>; Submit = <code>POST /flow/:id/input</code>.
+  </footer>
+</div>
+</body>
+</html>
