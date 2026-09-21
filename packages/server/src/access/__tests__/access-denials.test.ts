@@ -360,6 +360,29 @@ describe("4.5 review #4 — the remedy names the resource, not its parent", () =
     expect(asFile.allowed).toBe(false);
     expect(asFile.remedy?.subject).toBe(outside);
   });
+
+  it("allowGrant:false originates NO remedy and records nothing (environment-free)", async () => {
+    // The route-level test in granted-read-verification.test.ts can only observe
+    // this on a host that CAN spawn: on a headless CI runner the route
+    // short-circuits at its capability check first, before the gate, so it would
+    // pass there even without the fix. This asserts the gate itself, so the
+    // contract is proven everywhere.
+    //
+    // A site that cannot be ADMITTED by a grant must not ORIGINATE one: no remedy
+    // fields means no `denialId`, so the operator has nothing to accept and the
+    // site cannot mint a grant that could not remedy the refused operation.
+    const session = mkdir("sess");
+    const outside = mkdir("outside", "project");
+
+    const d = await evaluateContainment(outside, [session], {
+      site: "test:nogrant",
+      allowGrant: false,
+    });
+    expect(d.allowed).toBe(false);
+    expect(d.viaGrant).toBe(false);
+    expect(d.remedy).toBeUndefined();
+    expect(listPathDenials()).toEqual([]);
+  });
 });
 
 describe("9a.31 / 9c.6 no inbound write path to the registry", () => {

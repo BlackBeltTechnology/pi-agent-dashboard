@@ -27,6 +27,7 @@ import { __resetPathDenials, listPathDenials } from "../access/access-denials.js
 import { __resetAccessGrants, grantedSubjects, recordGrant } from "../access/access-grants.js";
 import { isAllowed, isGrantAdmitted } from "../lib/path-containment.js";
 import { registerFileRoutes } from "../routes/file-routes.js";
+import { systemOpenCapability } from "../system-open-capability.js";
 
 /** `mkfifo` is POSIX-only; the Windows VM smoke layer does not run this suite. */
 const posix = process.platform !== "win32";
@@ -208,7 +209,13 @@ describe("grant-admitted byte serving is verified against the open handle (task 
         subject?: string;
         ancestors?: unknown;
       };
-      expect(body.error, url).toBe("path outside working directory");
+      // The containment MESSAGE is only reachable where the host can actually
+      // spawn: on a headless CI runner the route short-circuits at its capability
+      // check first, so asserting the string unconditionally would fail for a
+      // reason that has nothing to do with this fix (observed in CI).
+      if (systemOpenCapability()) {
+        expect(body.error, url).toBe("path outside working directory");
+      }
       // A grant-ineligible site must not ORIGINATE a grant. These routes cannot
       // be admitted by one, so offering a remedy would invite the operator to
       // accept a grant that cannot remedy the refused operation — a remedy loop

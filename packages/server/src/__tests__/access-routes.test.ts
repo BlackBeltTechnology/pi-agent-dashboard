@@ -24,7 +24,7 @@ import {
   recordGrant,
   grantedSubjects as subjects,
 } from "../access/access-grants.js";
-import { isForbiddenGrantSubject } from "../access/forbidden-subjects.js";
+import { forbiddenGrantSubjects, isForbiddenGrantSubject } from "../access/forbidden-subjects.js";
 import { createMutationOriginGate } from "../auth/mutation-origin-gate.js";
 import { writeConfigPartial as realWriteConfigPartial } from "../config-api.js";
 import { registerAccessRoutes } from "../routes/access-routes.js";
@@ -283,14 +283,21 @@ describe("7b.2 / 9a.20 forbidden grant subjects", () => {
   });
 
   it("refuses a rung that would SUBSUME a forbidden subject", async () => {
-    // `/private` is not itself forbidden, but granting it admits `/private/etc`
-    // on macOS. A ladder rung must never be a gateway to a forbidden subject.
-    const privateDir = "/private";
-    const entry = recordPathDenial({ subject: privateDir, site: "s" });
+    // Granting a forbidden subject's PARENT admits the forbidden subject, so such
+    // a rung must never be accepted. Derived from the REAL forbidden list rather
+    // than a hardcoded path: this test previously used `/private`, whose
+    // `/private/etc` child is forbidden ON MACOS — which silently became a 200 on
+    // the Linux CI runner, where /private is a gateway to nothing.
+    const parent = forbiddenGrantSubjects()
+      .whole.map((f) => path.dirname(f))
+      .find((p) => p !== "/" && !isForbiddenGrantSubject(p));
+    expect(parent, "every platform home has a non-forbidden parent of a forbidden subject").toBeTruthy();
+
+    const entry = recordPathDenial({ subject: parent as string, site: "s" });
     const res = await app.inject({
       method: "POST",
       url: "/api/access/grants",
-      payload: { denialId: entry.denialId, subject: privateDir },
+      payload: { denialId: entry.denialId, subject: parent },
     });
     expect(res.statusCode).toBe(403);
     expect(grantedSubjects()).toEqual([]);
