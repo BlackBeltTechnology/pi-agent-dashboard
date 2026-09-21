@@ -13,10 +13,11 @@
  *   3. on a miss at a body-emitting site, record the denial so the remedy can be
  *      bound to it (design D15/D20) and return the additive fields.
  *
- * A site with no response body (`grep-routes`, `resolve-file-mention`) calls
- * `isContainedWithGrant` and discards the denial: it CONSUMES grants but can
- * never originate one, since a grant must trace to a denial the operator saw
- * (design D12).
+ * A site with no response body (`grep-routes`, `resolve-file-mention`) composes
+ * `isAllowed` + `isGrantAdmitted` itself and discards the answer: it CONSUMES
+ * grants but can never originate one, since a grant must trace to a denial the
+ * operator saw (design D12). (This comment previously named an
+ * `isContainedWithGrant` helper that does not exist — task 4.5 fresh cycle.)
  *
  * See change: add-access-grants-and-review.
  */
