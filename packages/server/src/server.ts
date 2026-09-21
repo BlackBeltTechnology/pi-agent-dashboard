@@ -99,15 +99,15 @@ import { createEmbedLifecycleController } from "./embed-lifecycle/embed-lifecycl
 import { wireEvents } from "./event-wiring.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
 import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
-import { bootParentPid, isBootParentProvablyDead } from "./lifecycle/boot-parent-liveness.js";
-import { runBoundedStartup } from "./lifecycle/bounded-startup.js";
-import { startEphemeralParentWatch } from "./lifecycle/ephemeral-parent-watch.js";
-import { ensureInstanceId } from "./lifecycle/instance-id.js";
 import {
   clientBuildDiagnostic,
   clientBuildSnapshotFor,
   resolveStaticClientDir,
 } from "./lib/client-dist.js";
+import { bootParentPid, isBootParentProvablyDead } from "./lifecycle/boot-parent-liveness.js";
+import { runBoundedStartup } from "./lifecycle/bounded-startup.js";
+import { startEphemeralParentWatch } from "./lifecycle/ephemeral-parent-watch.js";
+import { ensureInstanceId } from "./lifecycle/instance-id.js";
 import { createLiveServerManager } from "./live-server/live-server-manager.js";
 import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
 import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
@@ -140,6 +140,7 @@ import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
 import { createPiGateway } from "./pi/pi-gateway.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
+import { registerAccessRoutes } from "./routes/access-routes.js";
 import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
 import { registerCustomEventGroupsRoutes } from "./routes/custom-event-groups-routes.js";
@@ -1634,6 +1635,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
   registerFileRoutes(fastify, { sessionManager, preferencesStore, networkGuard });
   registerGrepRoutes(fastify, { sessionManager, networkGuard });
+  // Settings → Access review surface + the one endpoint that can create a
+  // filesystem grant. See change: add-access-grants-and-review.
+  registerAccessRoutes(fastify, { networkGuard, preferencesStore, writeConfigPartial });
   // Grammar routes moved into the grammar plugin's server entry
   // (packages/grammar-plugin/src/server), which registers
   // /api/grammar/* via ctx.fastify + ctx.modelRuntime. See change:

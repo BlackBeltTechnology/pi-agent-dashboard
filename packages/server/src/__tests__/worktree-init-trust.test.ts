@@ -2,12 +2,12 @@
  * Tests for the worktree-init TOFU trust store.
  * See change: generalize-worktree-init-hook.
  */
-import { existsSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { hookDefHash, type WorktreeInitHook } from "../git-worktree/worktree-init.js";
-import { __resetSessionTrust, isTrusted, recordTrust } from "../git-worktree/worktree-init-trust.js";
+import { __resetSessionTrust, isTrusted, recordTrust, revokeTrust } from "../git-worktree/worktree-init-trust.js";
 
 const storeFile = () => join(getDashboardConfigDir(), "worktree-init-trust.json");
 /** Raw persisted map, or `{}` when the store file is absent. */
@@ -101,5 +101,92 @@ describe("worktree-init-trust — scope", () => {
     expect(isTrusted("/repo/s7", hashB)).toBe(false);
     recordTrust("/repo/s7", hashB, "session");
     expect(isTrusted("/repo/s7", hashB)).toBe(true);
+  });
+});
+
+// ── Revoke (change: add-access-grants-and-review, task 6.1) ───────────────
+describe("worktree-init-trust — revoke", () => {
+  beforeEach(() => { __resetSessionTrust(); rmSync(storeFile(), { force: true }); });
+  afterEach(() => { __resetSessionTrust(); rmSync(storeFile(), { force: true }); });
+
+  it("R1 session grant revoke clears memory without a restart", () => {
+    recordTrust("/repo/r1", "hash-r1", "session");
+    expect(isTrusted("/repo/r1", "hash-r1")).toBe(true);
+    revokeTrust("/repo/r1", "hash-r1");
+    // No __resetSessionTrust(): the in-memory session grant must be gone now.
+    expect(isTrusted("/repo/r1", "hash-r1")).toBe(false);
+  });
+
+  it("R2 project grant revoke clears the persisted entry", () => {
+    recordTrust("/repo/r2", "hash-r2", "project");
+    expect(diskHasHash("hash-r2")).toBe(true);
+    revokeTrust("/repo/r2", "hash-r2");
+    expect(diskHasHash("hash-r2")).toBe(false);
+    expect(isTrusted("/repo/r2", "hash-r2")).toBe(false);
+  });
+
+  it("R3 revoke clears BOTH scopes at once", () => {
+    recordTrust("/repo/r3", "hash-r3", "session");
+    recordTrust("/repo/r3", "hash-r3", "project");
+    expect(isTrusted("/repo/r3", "hash-r3")).toBe(true);
+    revokeTrust("/repo/r3", "hash-r3");
+    expect(isTrusted("/repo/r3", "hash-r3")).toBe(false);
+    expect(diskHasHash("hash-r3")).toBe(false);
+    __resetSessionTrust(); // simulate restart: still untrusted
+    expect(isTrusted("/repo/r3", "hash-r3")).toBe(false);
+  });
+
+  it("R4 revoke is idempotent — a no-op revoke does not create the store", () => {
+    revokeTrust("/repo/r4", "hash-r4");
+    expect(existsSync(storeFile())).toBe(false);
+    expect(isTrusted("/repo/r4", "hash-r4")).toBe(false);
+  });
+
+  it("R6 an omitted hash revokes EVERY fingerprint for the repo", () => {
+    // The Access tab's contract: the aggregate drops hashes, so it lists one row
+    // per REPO and can only revoke repo-wide. Deleting just the literal
+    // `repoRoot\0` key matched nothing, so the tab's button reported success and
+    // revoked nothing (task 8.7 review).
+    recordTrust("/repo/r6", "hash-r6a");
+    recordTrust("/repo/r6", "hash-r6b");
+    recordTrust("/repo/r6-other", "hash-r6a");
+    expect(diskHasHash("hash-r6a")).toBe(true);
+
+    revokeTrust("/repo/r6");
+
+    expect(isTrusted("/repo/r6", "hash-r6a")).toBe(false);
+    expect(isTrusted("/repo/r6", "hash-r6b")).toBe(false);
+    // Repo-scoped: a DIFFERENT repo holding the same hash is untouched.
+    expect(isTrusted("/repo/r6-other", "hash-r6a")).toBe(true);
+  });
+
+  it("R7 an empty hash is repo-wide too, and an explicit hash stays narrow", () => {
+    recordTrust("/repo/r7", "hash-r7a", "session");
+    recordTrust("/repo/r7", "hash-r7b", "session");
+    revokeTrust("/repo/r7", "");
+    expect(isTrusted("/repo/r7", "hash-r7a")).toBe(false);
+    expect(isTrusted("/repo/r7", "hash-r7b")).toBe(false);
+
+    recordTrust("/repo/r7", "hash-r7c");
+    recordTrust("/repo/r7", "hash-r7d");
+    revokeTrust("/repo/r7", "hash-r7c");
+    expect(isTrusted("/repo/r7", "hash-r7c")).toBe(false);
+    expect(isTrusted("/repo/r7", "hash-r7d")).toBe(true);
+  });
+});
+
+// ── Read-only guarantee (change: add-access-grants-and-review, task 6.4) ──
+describe("worktree-init-trust — reads do not rewrite the store", () => {
+  beforeEach(() => { __resetSessionTrust(); rmSync(storeFile(), { force: true }); });
+  afterEach(() => { __resetSessionTrust(); rmSync(storeFile(), { force: true }); });
+
+  it("R5 a legacy entry is byte-identical after a read", () => {
+    const p = storeFile();
+    mkdirSync(dirname(p), { recursive: true });
+    const legacy = JSON.stringify({ [`${resolve("/repo/r5")}\u0000hash-r5`]: true }, null, 2);
+    writeFileSync(p, legacy, "utf8");
+
+    expect(isTrusted("/repo/r5", "hash-r5")).toBe(true);
+    expect(readFileSync(p, "utf8")).toBe(legacy);
   });
 });

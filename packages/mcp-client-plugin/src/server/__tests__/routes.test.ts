@@ -95,6 +95,13 @@ describe("mcp-client routes", () => {
     const res = await h.app.inject({ method: "GET", url: "/api/mcp-client/effective?cwd=%2Fnope" });
     expect(res.statusCode).toBe(403);
     expect(h.io.reads.some((p) => p.startsWith("/nope"))).toBe(false);
+    // Task 3.1 (design D7/D18): `{ error, message }` shape preserved, `message`
+    // byte-identical, `reason`/`hint` additive.
+    const body = res.json();
+    expect(body.error).toBe("not-allowed");
+    expect(body.message).toBe("cwd not allowed: /nope");
+    expect(typeof body.reason).toBe("string");
+    expect(typeof body.hint).toBe("string");
   });
 
   it("GET /schema returns the published schema", async () => {
@@ -189,12 +196,35 @@ describe("mcp-client routes", () => {
     expect(res.statusCode).toBe(403);
     expect(h.io.writes).toHaveLength(0);
     expect(h.io.reads.some((p) => p.startsWith("/nope"))).toBe(false);
+    // Task 3.1 (design D7/D18): pre-existing fields byte-identical.
+    const body = res.json();
+    expect(body.error).toBe("not-allowed");
+    expect(body.message).toBe("cwd not allowed: /nope");
+    expect(typeof body.reason).toBe("string");
+    expect(typeof body.hint).toBe("string");
   });
 
   it("DELETE returns the removed raw entry", async () => {
     const res = await h.app.inject({ method: "DELETE", url: "/api/mcp-client/servers/a?scope=global" });
     expect(res.statusCode).toBe(200);
     expect(res.json().removed).toEqual({ command: "a" });
+  });
+
+  it("DELETE project scope with an unknown cwd is 403 with the additive remedy", async () => {
+    // Source-verified third mcp-client cwd site: DELETE/disabled have no inline
+    // `isAllowedCwd` pre-check, so the refusal is emitted by the config writer
+    // through `refusalParts` — same `{ error, message }` shape. See change:
+    // add-access-grants-and-review (design D18).
+    const res = await h.app.inject({
+      method: "DELETE",
+      url: "/api/mcp-client/servers/b?scope=project&cwd=%2Fnope",
+    });
+    expect(res.statusCode).toBe(403);
+    const body = res.json();
+    expect(body.error).toBe("not-allowed");
+    expect(body.message).toBe("cwd not allowed: /nope");
+    expect(typeof body.reason).toBe("string");
+    expect(typeof body.hint).toBe("string");
   });
 
   it("PUT /settings patches the global settings object", async () => {

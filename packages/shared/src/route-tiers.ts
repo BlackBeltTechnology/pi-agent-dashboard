@@ -28,6 +28,17 @@ export interface RouteTierEntry {
  * Every `/api/*` route and its required tier.
  */
 export const ROUTE_TIERS: readonly RouteTierEntry[] = [
+  { method: "DELETE", path: "/api/access/bypass-hosts", tier: "operate" },
+  { method: "DELETE", path: "/api/access/cors-origin", tier: "operate" },
+  { method: "DELETE", path: "/api/access/grants", tier: "operate" },
+  { method: "DELETE", path: "/api/access/pinned-directory", tier: "operate" },
+  { method: "DELETE", path: "/api/access/project-trust", tier: "operate" },
+  { method: "DELETE", path: "/api/access/trusted-network", tier: "operate" },
+  { method: "DELETE", path: "/api/access/worktree-trust", tier: "operate" },
+  { method: "GET", path: "/api/access/grants", tier: "observe" },
+  { method: "GET", path: "/api/access/store-stats", tier: "observe" },
+  { method: "POST", path: "/api/access/grants", tier: "operate" },
+  { method: "DELETE", path: "/api/kb/source-trust", tier: "operate" },
   { method: "DELETE", path: "/api/config/auth/providers/:id", tier: "control" },
   { method: "DELETE", path: "/api/folders/goals/:id", tier: "control" },
   { method: "DELETE", path: "/api/folders/goals/:id/sessions/:sid", tier: "control" },
@@ -245,6 +256,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/tunnel-connect", tier: "operate" },
   { method: "POST", path: "/api/tunnel-disconnect", tier: "operate" },
   { method: "POST", path: "/api/tunnel-reserved-name", tier: "operate" },
+  { method: "POST", path: "/api/tunnel/block-events", tier: "operate" },
   { method: "POST", path: "/api/tunnel/enroll", tier: "operate" },
   { method: "POST", path: "/api/ws-ticket", tier: "operate" },
   { method: "PUT", path: "/api/config", tier: "operate" },
