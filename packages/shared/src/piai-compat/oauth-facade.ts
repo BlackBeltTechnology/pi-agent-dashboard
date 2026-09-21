@@ -50,6 +50,7 @@ interface PiAiOAuthCredential {
   access?: string;
   refresh?: string;
   expires?: number;
+  /** Opaque provider fields (e.g. `enterpriseUrl`) must survive. */
   [key: string]: unknown;
 }
 
@@ -65,7 +66,15 @@ function isUsableLegacyOAuth(mod: unknown): boolean {
 
 /**
  * Wrap a pi-ai `OAuthAuth` in the storage's `refreshToken` contract.
- * Field names differ in BOTH directions, so the translation is symmetric.
+ *
+ * Field names differ in BOTH directions, so the translation is symmetric — and
+ * it must preserve OPAQUE fields while renaming the canonical three. pi's
+ * `OAuthCredentials` carries an index signature, and one built-in consumer
+ * depends on it: `github-copilot` reads `credential.enterpriseUrl` back at
+ * refresh time (`copilotEnterpriseDomain(credential)`). Rebuilding a
+ * three-field object would send an enterprise user's refresh to github.com
+ * instead of their enterprise domain, and the persisted credential would lose
+ * the metadata permanently.
  */
 function toStorageProvider(auth: PiAiOAuthAuth) {
   return {
@@ -73,19 +82,31 @@ function toStorageProvider(auth: PiAiOAuthAuth) {
       creds: OAuthRefreshCredentials,
       signal: AbortSignal,
     ): Promise<OAuthRefreshCredentials> => {
+      // Rename the canonical trio, carry every other field through untouched.
+      const { accessToken, refreshToken, expiresAt, ...extras } = creds;
       const refreshed = await auth.refresh(
         {
-          access: creds.accessToken as string | undefined,
-          refresh: creds.refreshToken as string | undefined,
-          expires: creds.expiresAt as number | undefined,
+          ...extras,
+          access: accessToken as string | undefined,
+          refresh: refreshToken as string | undefined,
+          expires: expiresAt as number | undefined,
         },
         signal,
       );
-      return {
-        accessToken: refreshed.access,
-        refreshToken: refreshed.refresh,
-        expiresAt: refreshed.expires,
-      };
+
+      // A refresh that yields no access token is a FAILURE, not a no-op. The
+      // storage's `?? cred.access` fallback would otherwise reuse the expired
+      // token while stamping a fresh expiry on it — persisting a silently
+      // broken credential that will not be retried for an hour. The message
+      // carries no credential material.
+      if (typeof refreshed?.access !== "string" || !refreshed.access) {
+        throw new Error(
+          "OAuth provider returned no access token; refusing to persist an unrefreshed credential",
+        );
+      }
+
+      const { access, refresh, expires, ...refreshedExtras } = refreshed;
+      return { ...refreshedExtras, accessToken: access, refreshToken: refresh, expiresAt: expires };
     },
   };
 }

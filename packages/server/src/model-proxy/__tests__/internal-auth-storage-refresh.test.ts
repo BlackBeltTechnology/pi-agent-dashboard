@@ -260,3 +260,49 @@ describe("InternalAuthStorage — OAuth capability gate", () => {
     expect(isAvailable).not.toHaveBeenCalled();
   });
 });
+
+// ── adopt-piai-factory-api-registry: opaque credential fields must persist ───
+
+describe("InternalAuthStorage — opaque OAuth fields survive the refresh write", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // Finding 3 (persist half): rebuilding a four-field credential drops
+  // provider-specific metadata. `github-copilot` stores `enterpriseUrl` and
+  // reads it back on the NEXT refresh (`copilotEnterpriseDomain(credential)`),
+  // so losing it here permanently redirects that user's refresh to github.com.
+  it("writes enterpriseUrl back alongside the refreshed token", async () => {
+    readAuthJson.mockReturnValue({
+      "github-copilot": {
+        type: "oauth" as const,
+        access: "old",
+        refresh: "r",
+        expires: Date.now() - 1,
+        enterpriseUrl: "ghe.corp.example",
+      },
+    });
+    const storage = new InternalAuthStorage({
+      isAvailable: () => true,
+      getOAuthProvider: () => ({
+        refreshToken: async () => ({ accessToken: "new-access", refreshToken: "r2", expiresAt: 4_102_444_800_000 }),
+      }),
+      refreshOAuthToken: async () => ({}),
+    } as unknown as PiAiOAuthModule);
+
+    const out = await storage.getApiKeyAndHeaders({
+      provider: "github-copilot",
+      id: "gpt",
+      headers: {},
+    });
+    expect(out.apiKey).toBe("new-access");
+
+    expect(writeCredential).toHaveBeenCalledWith(
+      "github-copilot",
+      expect.objectContaining({
+        access: "new-access",
+        enterpriseUrl: "ghe.corp.example",
+      }),
+    );
+  });
+});

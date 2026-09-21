@@ -118,3 +118,106 @@ describe("OAuth facade — relocated async loaders", () => {
     expect(oauth.unavailableReason?.("anthropic")).toContain("load.js");
   });
 });
+
+// ── adopt-piai-factory-api-registry: review round 1 fixes ───────────────────
+
+describe("OAuth facade — opaque credential fields survive the translation", () => {
+  // Finding 3: pi's `OAuthCredentials` carries an index signature, and
+  // `github-copilot` reads `credential.enterpriseUrl` back at refresh time
+  // (`copilotEnterpriseDomain(credential)`). A three-field rebuild would send
+  // an enterprise user's refresh to github.com and lose the metadata forever.
+  it("forwards enterpriseUrl INTO the runtime refresh call", async () => {
+    const seen: any[] = [];
+    const fx = makeFactoryFixture({
+      oauthLoaders: {
+        loadGitHubCopilotOAuth: async () => ({
+          refresh: async (credential: any) => {
+            seen.push(credential);
+            return { access: "a2", refresh: "r2", expires: 1 };
+          },
+        }),
+      },
+    });
+    const { oauth } = await adaptPiAi(fx.module, FIXTURE_PATH, fx.deps);
+
+    await oauth.getOAuthProvider("github-copilot")!.refreshToken(
+      { accessToken: "a1", refreshToken: "r1", expiresAt: 1, enterpriseUrl: "ghe.corp.example" },
+      signal(),
+    );
+
+    expect(seen[0].enterpriseUrl).toBe("ghe.corp.example");
+    // Canonical names are translated, not duplicated.
+    expect(seen[0].access).toBe("a1");
+    expect(seen[0].refresh).toBe("r1");
+    expect(seen[0].expires).toBe(1);
+  });
+
+  it("carries provider-returned opaque fields BACK out of the refresh", async () => {
+    const fx = makeFactoryFixture({
+      oauthLoaders: {
+        loadGitHubCopilotOAuth: async () => ({
+          refresh: async () => ({
+            access: "a2",
+            refresh: "r2",
+            expires: 99,
+            enterpriseUrl: "ghe.corp.example",
+          }),
+        }),
+      },
+    });
+    const { oauth } = await adaptPiAi(fx.module, FIXTURE_PATH, fx.deps);
+
+    const out = await oauth.getOAuthProvider("github-copilot")!.refreshToken(
+      { accessToken: "a1", refreshToken: "r1", expiresAt: 1 },
+      signal(),
+    );
+    expect(out).toMatchObject({
+      accessToken: "a2",
+      refreshToken: "r2",
+      expiresAt: 99,
+      enterpriseUrl: "ghe.corp.example",
+    });
+  });
+});
+
+describe("OAuth facade — a malformed refresh is a failure, not a success", () => {
+  // Finding 4: `{}` would flow into the storage's `?? cred.access` fallback,
+  // which reuses the EXPIRED token while stamping a fresh expiry — persisting a
+  // silently broken credential that will not be retried for an hour.
+  it("rejects an empty refresh result", async () => {
+    const fx = makeFactoryFixture({
+      oauthLoaders: { loadAnthropicOAuth: async () => ({ refresh: async () => ({}) }) },
+    });
+    const { oauth } = await adaptPiAi(fx.module, FIXTURE_PATH, fx.deps);
+
+    await expect(
+      oauth.getOAuthProvider("anthropic")!.refreshToken({ accessToken: "a1", refreshToken: "r1" }, signal()),
+    ).rejects.toThrow(/no access token/);
+  });
+
+  it("rejects a refresh result whose access token is missing or blank", async () => {
+    for (const bad of [{ access: undefined }, { access: "" }, {}]) {
+      const fx = makeFactoryFixture({
+        oauthLoaders: { loadAnthropicOAuth: async () => ({ refresh: async () => bad }) },
+      });
+      const { oauth } = await adaptPiAi(fx.module, FIXTURE_PATH, fx.deps);
+      await expect(
+        oauth.getOAuthProvider("anthropic")!.refreshToken({ accessToken: "a1", refreshToken: "r1" }, signal()),
+      ).rejects.toThrow(/no access token/);
+    }
+  });
+
+  it("does not leak credential material in the malformed-refresh error", async () => {
+    const fx = makeFactoryFixture({
+      oauthLoaders: { loadAnthropicOAuth: async () => ({ refresh: async () => ({ access: "" }) }) },
+    });
+    const { oauth } = await adaptPiAi(fx.module, FIXTURE_PATH, fx.deps);
+
+    const err = await oauth
+      .getOAuthProvider("anthropic")!
+      .refreshToken({ accessToken: "SECRET", refreshToken: "REFRESH_SECRET" }, signal())
+      .catch((e: Error) => e);
+    expect((err as Error).message).not.toContain("SECRET");
+    expect((err as Error).message).not.toContain("REFRESH_SECRET");
+  });
+});
