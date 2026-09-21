@@ -339,3 +339,53 @@ describe("factory adaptation — construction failures are diagnosable", () => {
     await expect(adaptPiAi(fx.module, FIXTURE_PATH, fx.deps)).rejects.toThrow(/normalizeContext/);
   });
 });
+
+describe("factory streamSimple — substituted values cannot escape their URL position", () => {
+  it("percent-encodes a substituted value", async () => {
+    const fx = makeFactoryFixture();
+    const { module } = await adaptPiAi(fx.module, FIXTURE_PATH, fx.deps);
+
+    const model = {
+      provider: "cloudflare-ai-gateway",
+      id: "gw",
+      api: "openai-completions",
+      baseUrl: "https://gw.example/v1/{CLOUDFLARE_ACCOUNT_ID}/compat",
+    };
+    await drain(
+      module.streamSimple(model, { messages: [] }, {
+        env: { CLOUDFLARE_ACCOUNT_ID: "acct/../evil?a=b#frag" },
+      }),
+    );
+
+    const dispatched = fx.dispatches[0].model.baseUrl;
+    // The value is inert: no injected path segment, query, or fragment.
+    expect(dispatched).toBe(
+      "https://gw.example/v1/acct%2F..%2Fevil%3Fa%3Db%23frag/compat",
+    );
+    expect(dispatched).not.toContain("?");
+    expect(dispatched).not.toContain("#");
+  });
+
+  it("leaves a real account/gateway id unchanged (encoding is inert for them)", async () => {
+    const fx = makeFactoryFixture();
+    const { module } = await adaptPiAi(fx.module, FIXTURE_PATH, fx.deps);
+    await drain(
+      module.streamSimple(
+        {
+          provider: "cloudflare-ai-gateway",
+          id: "gw",
+          api: "openai-completions",
+          baseUrl:
+            "https://gateway.ai.cloudflare.com/v1/{CLOUDFLARE_ACCOUNT_ID}/{CLOUDFLARE_GATEWAY_ID}/compat",
+        },
+        { messages: [] },
+        {
+          env: { CLOUDFLARE_ACCOUNT_ID: "023e105f4ecef8ad9ca31a8372d0c353", CLOUDFLARE_GATEWAY_ID: "mygw" },
+        },
+      ),
+    );
+    expect(fx.dispatches[0].model.baseUrl).toBe(
+      "https://gateway.ai.cloudflare.com/v1/023e105f4ecef8ad9ca31a8372d0c353/mygw/compat",
+    );
+  });
+});

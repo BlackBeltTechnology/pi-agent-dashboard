@@ -87,7 +87,12 @@ function resolveBaseUrlPlaceholders(model: any, env?: Record<string, string>): a
     // URL (`v1///compat`) that fails somewhere unrelated. Keep the placeholder
     // so the upstream error still names it.
     const value = env?.[name] ?? process.env[name];
-    return typeof value === "string" && value ? value : match;
+    if (typeof value !== "string" || !value) return match;
+    // Encoded, so the value cannot escape its URL position. Inert for the real
+    // account/gateway ids (hex/alphanumeric) but it makes a crafted `baseUrl`
+    // — from a user-authored or discovered provider entry — incapable of
+    // injecting a query string, fragment, or path segment.
+    return encodeURIComponent(value);
   });
   return resolved === baseUrl ? model : { ...model, baseUrl: resolved };
 }
