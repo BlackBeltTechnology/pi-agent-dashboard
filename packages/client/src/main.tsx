@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { Router } from "wouter";
+import { Router, useLocation } from "wouter";
 import App from "./App.js";
 import { ThemeProvider } from "./components/settings/ThemeProvider.js";
 import { MobileProvider } from "./hooks/useMobile.js";
@@ -41,14 +41,15 @@ import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/das
 import { ThinkingBlock } from "./components/chat/ThinkingBlock.js";
 import { ToolCallStep } from "./components/chat/ToolCallStep.js";
 import { PairLanding } from "./components/connectivity/PairLanding.js";
+import { LoginGate } from "./components/identity/LoginGate.js";
 import { MarkdownContent } from "./components/preview/MarkdownContent.js";
 import { LogBlock } from "./components/primitives/LogBlock.js";
 import { makeToolContext } from "./components/tool-renderers/make-tool-context.js";
+import { installDeviceAuthFetch } from "./lib/pairing/device-auth.js";
 import {
   ModelSelectorPrimitive,
   ThinkingLevelSelectorPrimitive,
 } from "./lib/plugins/shell-primitives.js";
-import { installDeviceAuthFetch } from "./lib/pairing/device-auth.js";
 import { installUnhandledRejectionReporter } from "./lib/report-error.js";
 
 // Global unhandled-rejection reporter — the regression guard for the promise
@@ -164,7 +165,17 @@ installDeviceAuthFetch();
 // `https://<tls-endpoint>/pair#<payload>`; this route decodes the fragment and
 // runs the challenge→redeem→confirm→poll handshake standalone (no dashboard WS
 // connection needed). Rendered instead of <App/> so it works pre-auth.
-const isPairRoute = window.location.pathname === "/pair";
+// Reactive pre-shell route switch. `/callback` must resolve reactively (not a
+// one-shot `window.location` read): the login gate completes the OIDC exchange
+// then navigates client-side to the return-to, at which point this must swap the
+// gate for <App/> WITHOUT a full-page reload (that would discard the in-memory
+// token). `/pair` keeps its standalone pre-auth landing (D16).
+function RootView(): React.JSX.Element {
+  const [location] = useLocation();
+  if (location === "/pair") return <PairLanding />;
+  if (location === "/callback") return <LoginGate phase="callback" />;
+  return <App />;
+}
 
 // Register service worker for PWA installability
 if ("serviceWorker" in navigator) {
@@ -178,7 +189,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <ThemeProvider>
           <I18nProvider>
             <MobileProvider>
-              {isPairRoute ? <PairLanding /> : <App />}
+              <RootView />
             </MobileProvider>
           </I18nProvider>
         </ThemeProvider>

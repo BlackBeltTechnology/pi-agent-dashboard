@@ -102,10 +102,11 @@ import { wireEvents } from "./event-wiring.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
 import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
 import { assertIdentityReadiness } from "./identity/activation.js";
+import { browserLoginAuthStatus } from "./identity/browser-login-auth-status.js";
+import { BrowserLoginConfigRegistry } from "./identity/browser-login-config-registry.js";
 import { PolicyRegistry } from "./identity/policy-registry.js";
 import { registerResolverHook } from "./identity/resolver-hook.js";
 import { ResolverRegistry } from "./identity/resolver-registry.js";
-import { BrowserLoginConfigRegistry } from "./identity/browser-login-config-registry.js";
 import {
   clientBuildDiagnostic,
   clientBuildSnapshotFor,
@@ -1524,8 +1525,20 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       localToken,
     });
   } else {
-    // Auth disabled — still expose /auth/status so clients can detect this
-    fastify.get("/auth/status", async () => ({ authenticated: true, authEnabled: false }));
+    // No legacy cookie auth. `/auth/status` is what the client's WS-refusal
+    // handler polls to tell `auth_required` (→ browser login gate, D16/H5) from
+    // a plain `offline`. Make it identity-aware: when a trusted resolver has
+    // published a browser login descriptor, an unauthenticated + non-genuinely-
+    // local caller is `authenticated:false, authEnabled:true` so the client
+    // escalates to the gate; a resolved bearer or a genuinely-local caller is
+    // authenticated. With no descriptor the plane is inert ⇒ unchanged.
+    fastify.get("/auth/status", async (request) =>
+      browserLoginAuthStatus({
+        descriptorActive: browserLoginConfigRegistry.get() !== null,
+        isAuthenticated: (request as { isAuthenticated?: boolean }).isAuthenticated === true,
+        isGenuinelyLocal: isGenuinelyLocal(request.ip, request.headers as Record<string, unknown>),
+      }),
+    );
   }
 
   // Identity plane (D16): pre-auth browser login descriptor. Relays whatever the
@@ -1536,7 +1549,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   fastify.get("/api/identity/login-config", async () => {
     const desc = browserLoginConfigRegistry.get();
     return desc
-      ? { active: true as const, issuer: desc.issuer, clientId: desc.clientId }
+      ? { active: true as const, pluginId: desc.pluginId, issuer: desc.issuer, clientId: desc.clientId }
       : { active: false as const };
   });
 

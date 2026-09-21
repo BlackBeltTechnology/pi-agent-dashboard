@@ -178,7 +178,6 @@ export interface SlotPropsMap {
     /** Callback-phase only: the component calls this after it writes the token,
      * handing core the recovered return-to; core owns the navigation. */
     onComplete: (returnTo: string) => void;
-    pluginContext: AnyPluginContext;
   };
   "settings-section": {
     pluginContext: AnyPluginContext;

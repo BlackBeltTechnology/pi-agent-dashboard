@@ -188,6 +188,7 @@ import {
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { claimsToRouteDescriptors } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/route-descriptor.js";
 import { PLUGIN_REGISTRY } from "./generated/plugin-registry.js";
+import { AuthRequired } from "./components/identity/AuthRequired.js";
 import { usePluginEnabledSet } from "./hooks/usePluginEnabledSet.js";
 import { registerPluginRouteDescriptors } from "./lib/nav/back-target.js";
 import { logRejection } from "./lib/report-error.js";
@@ -2034,14 +2035,7 @@ export default function App() {
           {t("connection.offline", undefined, "Server offline")}
         </div>
       )}
-      {status === "auth_required" && (
-        <div className="bg-amber-600/20 text-amber-400 text-xs px-3 py-1 text-center">
-          {t("connection.authRequired", undefined, "Session expired")}{" - "}
-          <a href={`${apiBase}/auth/login?return=${encodeURIComponent(window.location.pathname)}`} className="underline hover:text-amber-300">
-            {t("connection.signIn", undefined, "Sign in")}
-          </a>
-        </div>
-      )}
+      {status === "auth_required" && <AuthRequired apiBase={apiBase} />}
     </>
   );
 
