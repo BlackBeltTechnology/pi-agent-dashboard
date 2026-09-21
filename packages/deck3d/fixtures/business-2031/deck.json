@@ -3,7 +3,7 @@
     "engine": "0.1.0",
     "mermaid": "11.17.2",
     "source": "deck.md",
-    "derivedHash": "c9c7d4c6e1744178aee5b67d3614f31f6ed463761a23bbff8b30f62442369337"
+    "derivedHash": "362c52110e8221bdd0017b95f2803fc15b1f07414e307f56652e5bfc8c43429e"
   },
   "defaults": {
     "mode": "dark",
@@ -21,6 +21,7 @@
     "depthRelief": 0.7,
     "quality": "high",
     "extrudeDepth": 0.18,
+    "titleEdge": "none",
     "camera": {
       "distance": 9
     },
@@ -4208,7 +4209,8 @@
     "deck": {
       "palette": "blackbelt",
       "floor": "water",
-      "rail": "tunnel"
+      "rail": "tunnel",
+      "titleEdge": "contrast"
     },
     "effects": []
   }

@@ -32,6 +32,7 @@
 | `defaults.depthRelief` | number | `0.7` | Depth offset (world units) applied per diagram rank so a 2D layout reads as a 3D staircase. Higher = more relief. |
 | `defaults.quality` | low \| medium \| high | `"high"` | Quality tier: scales bloom, reflections, shadow resolution and particle count, and sets the effect cost budget (low 6 / medium 12 / high 20). |
 | `defaults.extrudeDepth` | number | `0.18` | Extrusion depth of 3D title glyphs. |
+| `defaults.titleEdge` | none \| contrast | `"none"` | Contour on extruded title glyphs. `contrast` paints the SIDE walls (ExtrudeGeometry material group 1) in the palette text colour, so each character keeps a readable outline against its own lit face; `none` uses one material throughout. |
 | `defaults.autoStyle` | boolean | `true` | Let parse pick a built diagram kind and a topic-matched background per slide. `false` restores the v1 fallback routing (no built kinds, `particles` background). |
 | `defaults.layout` | split \| split-reverse | `"split"` | Slide composition preset. `split` = title and card left, diagram right; `split-reverse` mirrors it. |
 | `defaults.rail` | line \| orbit \| tunnel \| helix \| grid | `"line"` | Topology the slides are strung along. `line` dollies along a straight rail; `orbit` rings them facing outward; `tunnel` recedes along -Z; `helix` is an ascending orbit; `grid` wraps into rows and columns. Deck-level only. |
@@ -140,6 +141,7 @@
 | `overrides.deck.depthRelief` | number | `0.7` | Depth offset (world units) applied per diagram rank so a 2D layout reads as a 3D staircase. Higher = more relief. |
 | `overrides.deck.quality` | low \| medium \| high | `"high"` | Quality tier: scales bloom, reflections, shadow resolution and particle count, and sets the effect cost budget (low 6 / medium 12 / high 20). |
 | `overrides.deck.extrudeDepth` | number | `0.18` | Extrusion depth of 3D title glyphs. |
+| `overrides.deck.titleEdge` | none \| contrast | `"none"` | Contour on extruded title glyphs. `contrast` paints the SIDE walls (ExtrudeGeometry material group 1) in the palette text colour, so each character keeps a readable outline against its own lit face; `none` uses one material throughout. |
 | `overrides.deck.autoStyle` | boolean | `true` | Let parse pick a built diagram kind and a topic-matched background per slide. `false` restores the v1 fallback routing (no built kinds, `particles` background). |
 | `overrides.deck.layout` | split \| split-reverse | `"split"` | Slide composition preset. `split` = title and card left, diagram right; `split-reverse` mirrors it. |
 | `overrides.deck.rail` | line \| orbit \| tunnel \| helix \| grid | `"line"` | Topology the slides are strung along. `line` dollies along a straight rail; `orbit` rings them facing outward; `tunnel` recedes along -Z; `helix` is an ascending orbit; `grid` wraps into rows and columns. Deck-level only. |
@@ -174,6 +176,7 @@
 | `overrides.slides["<key>"].mode` | dark \| light |  | Override the slide's palette mode. |
 | `overrides.slides["<key>"].palette` | blackbelt \| zenit \| dapp \| midnight \| ember \| arctic \| forest \| mono \| neon \| custom |  | Override the slide's palette. |
 | `overrides.slides["<key>"].material` | glass \| metal \| matte |  | Override the slide's material family. |
+| `overrides.slides["<key>"].titleEdge` | none \| contrast |  | Override the title contour for this slide. |
 | `overrides.slides["<key>"].transition` | string |  | Override the transition effect id for entering this slide. |
 | `overrides.slides["<key>"].quality` | low \| medium \| high |  | Override the quality tier for this slide. |
 | `overrides.slides["<key>"].scene` | string |  | Override the background scene id. |

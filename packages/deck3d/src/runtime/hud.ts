@@ -6,7 +6,7 @@
  * embedded IR stays the record of what was rendered, and the panel's state
  * lives in memory plus `localStorage["deck3d:" + derivedHash]`.
  */
-import type { BuiltDiagramKind, CardOffset, Defaults, EffectRef, Layout, Material, Mode, Palette, Quality, Rail } from "../ir/types.js";
+import type { BuiltDiagramKind, CardOffset, Defaults, EffectRef, Layout, Material, Mode, Palette, Quality, Rail, TitleEdge } from "../ir/types.js";
 
 export interface HudSlide {
   id: string;
@@ -54,6 +54,7 @@ export interface SlidePatch {
   envReflections?: boolean;
   depthRelief?: number;
   extrudeDepth?: number;
+  titleEdge?: TitleEdge;
   colors?: { card?: string; accent?: string; secondary?: string };
   layout?: Layout;
   /** Deck-level: moves EVERY anchor, so the runtime re-anchors the whole rail. */
@@ -126,7 +127,14 @@ const LIGHTING: ControlSpec[] = [
   boolC("envReflections"),
   numC("backgroundIntensity", "0.05"),
 ];
-const CAMERA: ControlSpec[] = [numC("camera.distance"), numC("labels.size", "0.02"), numC("depthRelief"), numC("extrudeDepth", "0.02")];
+const TITLE_EDGES: TitleEdge[] = ["none", "contrast"];
+const CAMERA: ControlSpec[] = [
+  numC("camera.distance"),
+  numC("labels.size", "0.02"),
+  numC("depthRelief"),
+  numC("extrudeDepth", "0.02"),
+  enumC("titleEdge", TITLE_EDGES),
+];
 
 /**
  * The panel's control plane. Order is the render order; a block whose list for

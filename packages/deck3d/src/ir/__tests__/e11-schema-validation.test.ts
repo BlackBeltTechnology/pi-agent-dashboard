@@ -344,3 +344,51 @@ describe("E47 placement knobs", () => {
     expect(zero.stderr).toContain("overrides.deck.spacing");
   });
 });
+
+/**
+ * E57 (Section 21) — ir: the extruded-title contour switch validates at both
+ * scopes. `titleEdge` paints the glyph SIDE walls in the palette's text colour
+ * so each character keeps a readable contour against its own face; it is a
+ * deck default that one slide may override, like the rest of the look knobs.
+ */
+describe("E57 titleEdge scope", () => {
+  function seedDeck(): { dir: string; deck: Record<string, unknown> } {
+    const dir = mkdtempSync(join(tmpdir(), "deck3d-e57-"));
+    writeFileSync(join(dir, "talk.md"), "# Intro\n\n- a\n");
+    const parsed = runCli(["parse", "talk.md", "-o", "deck.json"], dir);
+    expect(parsed.status, parsed.stderr).toBe(0);
+    return { dir, deck: JSON.parse(readFileSync(join(dir, "deck.json"), "utf8")) as Record<string, unknown> };
+  }
+
+  function validateWith(patch: (o: Record<string, unknown>) => void) {
+    const { dir, deck } = seedDeck();
+    const next = clone(deck);
+    patch(next.overrides as Record<string, unknown>);
+    writeFileSync(join(dir, "deck.json"), JSON.stringify(next, null, 2));
+    return runCli(["validate", "deck.json"], dir);
+  }
+
+  it("accepts both values at deck scope", () => {
+    for (const titleEdge of ["none", "contrast"]) {
+      const r = validateWith((o) => {
+        o.deck = { ...(o.deck as object), titleEdge };
+      });
+      expect(r.status, r.stderr).toBe(0);
+    }
+  });
+
+  it("accepts a per-slide override", () => {
+    const r = validateWith((o) => {
+      o.slides = { intro: { titleEdge: "contrast" } };
+    });
+    expect(r.status, r.stderr).toBe(0);
+  });
+
+  it("rejects an unknown value naming the path", () => {
+    const r = validateWith((o) => {
+      o.deck = { ...(o.deck as object), titleEdge: "complement" };
+    });
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain("overrides.deck.titleEdge");
+  });
+});

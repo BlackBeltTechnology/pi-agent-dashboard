@@ -55,13 +55,20 @@ export interface TitleResult {
   lines: number;
 }
 
-/** Extruded hero text (multi-line, wrapped). */
+/**
+ * Extruded hero text (multi-line, wrapped).
+ *
+ * `mat` may be a two-entry array: `ExtrudeGeometry` emits one group pair per
+ * glyph shape — material 0 = the front/back faces, material 1 = the extrusion
+ * walls plus the bevel — so `[face, edge]` draws a contour around every
+ * character (`defaults.titleEdge`).
+ */
 export function buildTitle(
   font: Font,
   text: string,
   size: number,
   depth: number,
-  mat: THREE.Material,
+  mat: THREE.Material | THREE.Material[],
 ): TitleResult {
   const group = new THREE.Group();
   const missing = new Set<string>();

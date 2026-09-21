@@ -253,3 +253,12 @@
 - [x] 20.5 Coverage test reading the BUILT IR, not the source overrides (#E56) — fails when a new card is added and not placed
 - [x] 20.6 Raise the build budgets: per-slide (`MS_PER_SLIDE`) rather than flat, since `build` is dominated by its in-build `check` (~3.4 s/slide at two viewports) (#E42, #P1)
 - [x] 20.7 Docs: `fixtures/business-2031/AGENTS.md`, `fixtures/AGENTS.md`
+
+## 21. Extruded-title contour switch
+
+- [x] 21.1 IR: `defaults.titleEdge` (`none` | `contrast`) + per-slide override; schema, types, `ir-fields.md` regen (#E57)
+- [x] 21.2 `materials.ts`: `titleEdgeColour`/`titleEdgeMaterial` — unlit (side walls face sideways, where a lit material goes black), palette `text`, lightness pushed away from the face when it misses `EDGE_CONTRAST_FLOOR` (#E58)
+- [x] 21.3 `text.ts`: `buildTitle` accepts `[face, edge]`; pins that `ExtrudeGeometry` emits a faces/sides group pair per glyph (#E58)
+- [x] 21.4 `debug.look().titleEdge` probe; configurator select in Camera & labels at both scopes (#F33)
+- [x] 21.5 Fixture `business-2031` turns it on — the switch exists because its titles read as a solid block
+- [x] 21.6 Docs: README, SKILL, `src/runtime/AGENTS.md`, `src/ir/AGENTS.md`

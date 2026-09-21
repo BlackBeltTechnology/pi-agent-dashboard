@@ -13,7 +13,7 @@ import type { FxContext, FxParams } from "../fx/types.js";
 import { type Animator, backgroundFor } from "./backgrounds.js";
 import { buildDiagram, type DiagramBuild } from "./builders.js";
 import { anchorFor, cullRadius } from "./camera.js";
-import { diagramMaterial, titleMaterial } from "./materials.js";
+import { diagramMaterial, titleEdgeMaterial, titleMaterial } from "./materials.js";
 import { projectRect } from "./measure.js";
 import { mixPalette, type PaletteColors, resolvePalette } from "./palette.js";
 import { applyProps, createPropMaterials, loadPropModels, type PropLayer, type PropMaterials } from "./props.js";
@@ -85,7 +85,11 @@ function layoutFor(cfg: SlideConfig): LayoutSpec {
 }
 
 function addTitle(g: THREE.Group, slide: DeckSlide, isTitle: boolean, font: Font, P: PaletteColors, cfg: SlideConfig, labels: LabelRef[]): void {
-  const title = buildTitle(font, slide.title, isTitle ? 0.62 : 0.5, cfg.extrudeDepth ?? 0.18, titleMaterial(P, cfg));
+  // `contrast` paints ExtrudeGeometry's SIDE group (walls + bevel) separately,
+  // which is what draws a contour around every character.
+  const face = titleMaterial(P, cfg);
+  const mat = cfg.titleEdge === "contrast" ? [face, titleEdgeMaterial(P)] : face;
+  const title = buildTitle(font, slide.title, isTitle ? 0.62 : 0.5, cfg.extrudeDepth ?? 0.18, mat);
   const bb = new THREE.Box3().setFromObject(title.group);
   const L = layoutFor(cfg);
   const width = bb.max.x - bb.min.x;
@@ -1034,15 +1038,23 @@ async function boot(): Promise<void> {
         const hex = (c: THREE.Color | undefined): string => (c ? `#${c.getHexString()}` : "");
         const title = builds[cur].labels.find((l) => l.kind === "title");
         let titleColor: THREE.Color | undefined;
+        let edgeColor: THREE.Color | undefined;
         title?.object.traverse((o) => {
-          const mat = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
-          if (!titleColor && mat?.color) titleColor = mat.color;
+          const material = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | THREE.Material[] | undefined;
+          // A contoured glyph carries [face, edge]; a plain one, one material.
+          const list = Array.isArray(material) ? material : material ? [material] : [];
+          const face = list[0] as THREE.MeshStandardMaterial | undefined;
+          const edge = list[1] as THREE.MeshStandardMaterial | undefined;
+          if (!titleColor && face?.color) titleColor = face.color;
+          if (!edgeColor && edge?.color) edgeColor = edge.color;
         });
         return {
           bg: hex(rig.scene.background as THREE.Color | undefined),
           fog: hex(rig.scene.fog instanceof THREE.Fog ? rig.scene.fog.color : undefined),
           rim: hex(rig.rimColor()),
           title: hex(titleColor),
+          /** Contour colour on the glyph side walls, `""` when the switch is off. */
+          titleEdge: hex(edgeColor),
           camZ: rig.camera.position.z,
           // Full camera + its target: the rail runs on X, so `camZ` alone
           // cannot tell a settled camera from one still travelling.

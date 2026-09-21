@@ -946,3 +946,56 @@ describe.skipIf(!hasChromium)("F26 export survives a download-blocked frame (chr
     }
   }, 120_000);
 });
+
+/**
+ * #F33 (Section 21) — the extruded-title contour switch, live.
+ *
+ * `titleEdge: "contrast"` must reach the glyph SIDE walls, must be switchable
+ * from the configurator at both scopes, and must never write into
+ * `window.__DECK` — the embedded IR stays the record of what was rendered.
+ */
+describe.skipIf(!hasChromium)("configurator switches the title contour (#F33)", () => {
+  it("paints glyph side walls on demand, live, without mutating __DECK", async () => {
+    const browser = await chromium.launch({ channel: "chromium" });
+    try {
+      const { page } = await open(browser, await writeDeck());
+      // Off by default: one material per glyph, so no contour colour.
+      expect((await page.evaluate(() => window.__deck3d!.debug.look())).titleEdge).toBe("");
+
+      await page.keyboard.press("c");
+      await openAllBlocks(page);
+      await page.selectOption('#deck3d-hud select[data-path="titleEdge"]', "contrast");
+      await page.waitForTimeout(300);
+
+      const lit = await page.evaluate(() => window.__deck3d!.debug.look());
+      // blackbelt/dark: face is the accent, contour is the palette text colour.
+      expect(lit.title).toBe("#ff5722");
+      expect(lit.titleEdge).toBe("#ffffff");
+
+      // Deck scope reaches slides that were never current while it was set.
+      await page.evaluate(() => window.__deck3d!.gotoSlide(2));
+      await page.waitForTimeout(1500);
+      expect((await page.evaluate(() => window.__deck3d!.debug.look())).titleEdge).toBe("#ffffff");
+
+      // The embedded IR is untouched.
+      expect(await page.evaluate(() => window.__DECK.defaults.titleEdge ?? "none")).toBe("none");
+
+      // And it switches back off.
+      await page.selectOption('#deck3d-hud select[data-path="titleEdge"]', "none");
+      await page.waitForTimeout(300);
+      expect((await page.evaluate(() => window.__deck3d!.debug.look())).titleEdge).toBe("");
+    } finally {
+      await browser.close();
+    }
+  }, 180_000);
+
+  it("honours a deck default baked by render", async () => {
+    const browser = await chromium.launch({ channel: "chromium" });
+    try {
+      const { page } = await open(browser, await writeDeck({ titleEdge: "contrast" }));
+      expect((await page.evaluate(() => window.__deck3d!.debug.look())).titleEdge).toBe("#ffffff");
+    } finally {
+      await browser.close();
+    }
+  }, 180_000);
+});

@@ -75,3 +75,21 @@ The panel SHALL offer **Export** which downloads `overrides.json` in the IR `ove
 #### Scenario: Panel never in the report
 - **WHEN** `check` runs on a deck whose local storage holds panel state from a previous session
 - **THEN** the report equals the report for a fresh profile and no finding names a panel element
+
+### Requirement: Extruded titles can carry a contour
+The IR SHALL provide `titleEdge` (`none` | `contrast`) as a deck default that a slide may override, and the configurator SHALL expose it at both scopes in the Camera & labels block. `contrast` paints the glyph SIDE walls — `ExtrudeGeometry`'s second material group, the extrusion walls plus the bevel — in a contour colour derived from the palette's `text`, so each character reads separately instead of merging into one lit silhouette. The contour SHALL be unlit, because the side walls sit near-perpendicular to the camera where a lit material goes black. The contour colour SHALL clear a contrast floor against BOTH the lit face and the background; where the palette's `text` colour misses it, only LIGHTNESS is adjusted, preserving hue and saturation.
+
+#### Scenario: The contour reaches the glyph side walls
+- **GIVEN** a deck with `titleEdge: "contrast"`
+- **WHEN** a title is built
+- **THEN** each glyph mesh carries two materials, the face keeps the lit title material, and the side group is an unlit material in the contour colour
+
+#### Scenario: Switching live at deck scope
+- **GIVEN** a rendered deck with the configurator open
+- **WHEN** `titleEdge` is set to `contrast` at deck scope and another slide is visited
+- **THEN** that slide's titles also show the contour, `debug.look().titleEdge` reports its colour, and `window.__DECK` is unchanged
+
+#### Scenario: A palette whose text colour is too close to the face
+- **GIVEN** a palette where the text colour contrasts under the floor against the accent
+- **WHEN** the contour colour is resolved
+- **THEN** its lightness is pushed away from the face until the floor is met, with hue and saturation preserved

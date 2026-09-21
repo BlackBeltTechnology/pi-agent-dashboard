@@ -2,7 +2,8 @@
   "deck": {
     "palette": "blackbelt",
     "floor": "water",
-    "rail": "tunnel"
+    "rail": "tunnel",
+    "titleEdge": "contrast"
   },
   "effects": [],
   "slides": {

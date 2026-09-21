@@ -37,6 +37,8 @@ export interface Deck3dApi {
       fog: string;
       rim: string;
       title: string;
+      /** Glyph side-wall contour colour; `""` when `titleEdge` is off. */
+      titleEdge: string;
       camZ: number;
       /** Full camera position + target: the rail runs on X, so `camZ` alone cannot tell a settled camera from a travelling one. */
       cam: [number, number, number];

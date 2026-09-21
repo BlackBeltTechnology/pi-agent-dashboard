@@ -151,6 +151,12 @@
           "default": 0.18,
           "description": "Extrusion depth of 3D title glyphs."
         },
+        "titleEdge": {
+          "type": "string",
+          "enum": ["none", "contrast"],
+          "default": "none",
+          "description": "Contour on extruded title glyphs. `contrast` paints the SIDE walls (ExtrudeGeometry material group 1) in the palette text colour, so each character keeps a readable outline against its own lit face; `none` uses one material throughout."
+        },
         "autoStyle": {
           "type": "boolean",
           "default": true,
@@ -607,6 +613,7 @@
               "mode": { "type": "string", "enum": ["dark", "light"], "description": "Override the slide's palette mode." },
               "palette": { "type": "string", "enum": ["blackbelt", "zenit", "dapp", "midnight", "ember", "arctic", "forest", "mono", "neon", "custom"], "description": "Override the slide's palette." },
               "material": { "type": "string", "enum": ["glass", "metal", "matte"], "description": "Override the slide's material family." },
+              "titleEdge": { "type": "string", "enum": ["none", "contrast"], "description": "Override the title contour for this slide." },
               "transition": { "type": "string", "description": "Override the transition effect id for entering this slide." },
               "quality": { "type": "string", "enum": ["low", "medium", "high"], "description": "Override the quality tier for this slide." },
               "scene": { "type": "string", "description": "Override the background scene id." },

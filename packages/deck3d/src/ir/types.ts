@@ -76,6 +76,9 @@ export type Layout = "split" | "split-reverse";
 /** Topology the slides are strung along (deck-level). `line` is the v1 rail. */
 export type Rail = "line" | "orbit" | "tunnel" | "helix" | "grid";
 
+/** Contour treatment for extruded title glyphs. */
+export type TitleEdge = "none" | "contrast";
+
 /** World-unit nudge on the text card, applied after the layout preset places it. */
 export interface CardOffset {
   x?: number;
@@ -113,6 +116,8 @@ export interface Defaults extends CameraKnobs, LabelKnobs, CheckKnobs {
   depthRelief?: number;
   quality?: Quality;
   extrudeDepth?: number;
+  /** Contour on extruded title glyphs: `contrast` paints the side walls in the palette text colour. */
+  titleEdge?: TitleEdge;
   autoStyle?: boolean;
   layout?: Layout;
   /** Slide topology. Deck-level only. */
@@ -206,6 +211,7 @@ export interface SlideOverride {
   mode?: Mode;
   palette?: Palette;
   material?: Material;
+  titleEdge?: TitleEdge;
   transition?: string;
   quality?: Quality;
   scene?: string;

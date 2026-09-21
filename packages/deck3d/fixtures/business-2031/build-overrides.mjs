@@ -149,6 +149,6 @@ for (const [slide, ids] of Object.entries(PLAN)) {
 
 writeFileSync(
   join(here, "overrides.json"),
-  `${JSON.stringify({ deck: { palette: "blackbelt", floor: "water", rail: "tunnel" }, effects: [], slides }, null, 2)}\n`,
+  `${JSON.stringify({ deck: { palette: "blackbelt", floor: "water", rail: "tunnel", titleEdge: "contrast" }, effects: [], slides }, null, 2)}\n`,
 );
 console.log(`overrides.json: ${Object.keys(PLAN).length} slides, ${planned.length} card placements, ${known.size} corpus cards covered`);
