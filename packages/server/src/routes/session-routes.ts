@@ -5,6 +5,8 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
+import { evaluateContainment } from "../access/containment-gate.js";
+import { readFileVerifiedUtf8, VerifiedReadRefused } from "../access/verified-read.js";
 import { canAccessSession, gateHttpSession } from "../identity/session-access.js";
 import type { EventStore } from "../persistence/memory-event-store.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
@@ -63,12 +65,6 @@ export function registerSessionRoutes(
   /** Read the request principal the resolver hook (§4) stamped, or null. */
   const principalOf = (request: unknown) =>
     (request as { principal?: { iss: string; sub: string } }).principal ?? null;
-  /** Resolve `filePath` within `cwd`, or null when it escapes the directory. */
-  const resolveInCwd = (cwd: string, filePath: string): string | null => {
-    const absPath = isAbsolute(filePath) ? filePath : resolve(cwd, filePath);
-    const rel = relative(cwd, absPath);
-    return rel.startsWith("..") || isAbsolute(rel) ? null : absPath;
-  };
   /** Per-item owner filter for a session-list road (§8.1/§8.2). */
   const filterOwned = <T extends { principalOwner?: { iss: string; sub: string } }>(
     request: unknown,
@@ -441,16 +437,37 @@ export function registerSessionRoutes(
           error: `session ${sessionId} was registered by remote device ${origin.deviceId ?? "unknown"}; its files are not on this host`,
         } satisfies ApiResponse;
       }
-      // Resolve and ensure path is within cwd.
-      const absPath = resolveInCwd(session.cwd, filePath);
-      if (!absPath) {
-        reply.code(403);
-        return { success: false, error: "path outside session directory" } satisfies ApiResponse;
+      // Resolve and ensure path is within cwd
+      const absPath = isAbsolute(filePath) ? filePath : resolve(session.cwd, filePath);
+      const rel = relative(session.cwd, absPath);
+      let viaGrant = false;
+      if (rel.startsWith("..") || isAbsolute(rel)) {
+        // The tenth containment site (design D19). A path grant admits here
+        // exactly as it does at the file-routes sites; the refusal string is
+        // unchanged when no grant covers it.
+        const sessionDecision = await evaluateContainment(absPath, [session.cwd], {
+          site: "session-routes:session-file",
+          session: sessionId,
+        });
+        if (!sessionDecision.allowed) {
+          reply.code(403);
+          return { success: false, error: "path outside session directory", ...sessionDecision.remedy } as ApiResponse;
+        }
+        viaGrant = sessionDecision.viaGrant;
       }
       try {
-        const content = await readFile(absPath, "utf-8");
+        // A grant-admitted read is verified against the open handle (design D14,
+        // task 2.8): without it a granted FIFO would block this read, and a path
+        // swapped after the containment check would be served.
+        const content = viaGrant
+          ? await readFileVerifiedUtf8(absPath)
+          : await readFile(absPath, "utf-8");
         return { success: true, data: { content } } satisfies ApiResponse;
-      } catch {
+      } catch (err) {
+        if (err instanceof VerifiedReadRefused) {
+          reply.code(403);
+          return { success: false, error: "path outside session directory" } as ApiResponse;
+        }
         reply.code(404);
         return { success: false, error: "file not found" } satisfies ApiResponse;
       }

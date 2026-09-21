@@ -330,12 +330,24 @@ check, not a path check:
 4. Serve from the verified `fd`, never by re-opening the path.
 
 **Scope: byte-serving read sites only** (`GET /api/file` read, `raw`, `render`,
-and the office/EML gates). The rule as first written would have broken the other
+and the EML parse/attachment gates, which this change routes through the verified
+handle). The rule as first written would have broken the other
 sites outright: `tree` admits a *directory* and calls `readdir` with no open at
 all, `exists` calls `fs.access`, the mention resolver calls `stat`, grep opens
 inside a `ripgrep` subprocess, and the office/PDF path hands a path to an
 external engine. Those sites keep path-based grant checking only, and carry the
 same pre-existing window as layer 2.
+
+The **office gate belongs to that second group even though it shares a route
+family with EML.** `file-routes.ts` runs `assertRegularFile(resolved)` on it — so
+a FIFO, or a symlink, is refused before anything is spawned — and then hands the
+**pathname** to an out-of-process renderer. It never performs
+`open → fstat → serve from fd`, so it has no handle binding and is not claimed to
+have one. Binding it would require the external renderer to consume a descriptor,
+which its interface does not accept. The first draft of this decision was
+ambiguous on exactly this point, listing the office gates both as in scope and as
+path-based-only; corrected in task 4.5 round 2 (B3), as was the matching claim in
+`verified-read.ts`.
 
 Note this is deliberately *stricter than layer 2*, which carries the identical
 window today. Closing it there is out of scope — a pre-existing gap, untouched
@@ -346,6 +358,22 @@ stronger check.
 *Residual risk, accepted:* `dev`/`ino` identity is weaker on Windows than on
 POSIX. The check degrades there to the same window layer 2 already has — never
 worse than today.
+
+*Residual risk, accepted (POSIX too):* the identity check binds the **final
+component only**, so the window is *narrowed*, not *closed*. If an INTERMEDIATE
+directory is replaced by a symlink between containment and the `lstat`, then
+`lstat` and `open` both follow the escape and arrive at the same inode — they
+agree, and the substituted file is served. Steps 1–3 catch substitution of the
+last component; they cannot catch substitution of a parent, because both syscalls
+resolve the same pathname.
+
+The real close is a descriptor-relative component walk (`openat` with
+`O_NOFOLLOW` per component, from a trusted root). It is deliberately not taken:
+it is not portable to Windows, which this repo ships QA for, and layers ①/② carry
+the identical window today, so the ordering is a narrowing of an existing gap
+rather than a new one. Stated here because "verifies an open handle" reads as
+*closed*, and a reader who believes the window is closed will not re-examine it.
+See `verified-read.ts`, whose header states the same limit.
 
 ### D18 — Corrected census of the cwd-allowlist denial sites
 
@@ -553,3 +581,98 @@ incompatibly.
 *Resolved during planning:* the grant-write failure question → D11; proactive
 grant creation from the tab → D12; store bounds → D10; project-trust revoke →
 D13; the check→open TOCTOU window → D14.
+
+*Resolved after planning:* the store's load-path hardening and its accepted
+trade-offs → D21.
+
+---
+
+### D21 — The store's LOAD path re-validates; the write path alone was not enough
+
+**Provenance.** Task 8.8 doubt-driven review of the persisted format, run before
+ship because an on-disk grant format is effectively irreversible. Cross-model on
+`@propose-review-2` (ZAI GLM); `@propose-review-1` was SKIPPED as same-family —
+the author runs on `deepseek-flash`, so a reviewer on that family would share its
+blind spots. 12 findings; the load-path ones were the highest severity, and all
+were verified against source before classification rather than rubber-stamped.
+
+**The defect class.** The write path enforced five invariants; the read path
+enforced only *shape*. A store that was hand-edited, hostile, copied between
+machines, or written by an **older build** — both the forbidden list and the
+format changed during planning — therefore loaded the process into a state the
+write path could never have produced. `loadFromDisk` now re-applies, each with a
+regression test that fails on the pre-fix code:
+
+- **Forbidden subject.** `isUngrantableSubject` ran only in `recordGrant`. A
+  single on-disk `"/"` admits **every path on the machine**. The list GREW during
+  planning, so an older build's store can legitimately hold a subject this build
+  must refuse; a store copied to a machine with a different `$HOME` is re-checked
+  against the new `sensitive` set.
+- **`version === 1`.** The field was written and never read, so a future file was
+  silently interpreted as v1. An unknown version is now refused **and logged** —
+  failing closed (narrower, never wider) and loudly, not silently.
+- **Cap 200/scope.** `enforceCap` ran only in `recordGrant`, so a 100k-grant file
+  loaded in full: every one admitted, the hot path's `Set` rebuilt per request,
+  memory unbounded. The cap is a property of the STORE, not of the write path.
+- **`scope === "project"` only.** Loading a disk-resident `session` grant
+  resurrected it across restarts (contradicting "session = until server restart")
+  and left it unrevocable through the scoped API, which touches memory only.
+- **Finite `grantedAt`.** `NaN`/`Infinity` pass a bare `typeof` check and poison
+  the eviction sort. (`JSON.stringify(NaN)` emits `null`, so the regression test
+  writes a raw `1e999` literal — otherwise it would exercise nothing.)
+- **`origin` is a string**, coerced to `"unknown"` rather than rendering undefined.
+
+**Plus one write-path fix.** `enforceCap` now never evicts the grant being
+recorded (`protect`). A rolled-back clock — or a future-dated entry already in the
+file — made the NEW grant sort oldest, so it was evicted *before* persisting while
+`recordGrant` still returned `ok: true`: a UI claiming a grant that does not
+exist, the exact failure D11 forbids. A malformed → empty store also logs now, so
+an operator's vanishing grants are never *silent*.
+
+**Accepted trade-offs** (reviewed and consciously kept, not overlooked):
+
+- **Single writer.** Loaded once, whole-file rewrite, no lock: two processes
+  sharing one path silently drop each other's grants. The dashboard is one server
+  per machine and `PI_ACCESS_GRANTS_STORE` is a test seam.
+- **No `fsync` before `rename`.** A power loss can leave a short file, which then
+  hits malformed → empty. That path fails **closed** (narrower, never wider), so a
+  sync per grant was not worth it.
+- **Case-sensitive subject compare.** `realpath` does not canonicalise case on
+  macOS, so a case-variant subject could duplicate a grant or miss a revoke.
+  Unreachable through the UI — subjects come from denials, which use real paths —
+  and the repo's `samePath` helper is not importable here (module cycle).
+- **First load is a sync read** on the first containment evaluation. This is D16's
+  documented lazy load; the "zero syscalls" claim is about the warm path.
+- **`revokeGrant` partial failure** with an undefined scope: session grants are
+  spliced before the persisted write, so a failed write returns `false` while the
+  session removal stands. Fails closed; the route passes an explicit scope.
+- **Relative/empty subject in `recordGrant`** resolves against the server's cwd.
+  The route's denial binding makes it unreachable, so no second guard was added
+  beyond the forbidden filter that D15 already requires.
+
+---
+
+### D22 — A read grant is not an app-launch capability (grant-eligibility policy)
+
+**Provenance.** Task 4.5 review gate, blocking #2. Verified in source, then by a
+regression test that fails on the pre-fix code.
+
+`gateFilePath` is shared, so making it grant-aware also made
+`/api/open-in-system` and `/api/reveal-in-file-manager` grant-eligible. Those
+routes do not read: they spawn a local application (or reveal in the file
+manager) on the path. A grant framed as *read-widening* therefore silently
+became an **app-launch** capability. The pre-fix test shows the real severity —
+both routes returned `200` and spawned.
+
+**Decision.** Grant eligibility is now declared per site, not inherited from the
+shared helper: `evaluateContainment` takes `allowGrant` (default `true`), and the
+two spawn routes pass `false`, keeping exactly the pre-change `isAllowed`-only
+decision. Reads opt in by default; a capability that is not reading opts out
+explicitly.
+
+This is a deliberate narrowing, not an oversight: opening a file in an external
+application is a different primitive from reading its bytes into the dashboard,
+and it is one the operator's remedy copy never described. If a future change
+wants a grant to authorize spawning, that is a separate decision with its own
+remedy text and tests — the flag makes it an explicit one-liner rather than a
+silent consequence of sharing a helper.

@@ -154,6 +154,21 @@ export function ipToNum(ip: string): number | null {
 }
 
 /**
+ * The denied request's `Origin` header, when it is a string.
+ *
+ * Recorded additively on the ledger entry so a CORS-refused origin becomes
+ * observable rather than surfacing only as an opaque browser failure. The
+ * `@fastify/cors` origin callback receives no request, so the guard — the one
+ * request-path module that sees both the socket peer and the header — supplies
+ * it. Attacker-controlled; `BlockEventBuffer.record` bounds and sanitizes it.
+ * See change: add-access-grants-and-review.
+ */
+function readRequestOrigin(headers: FastifyRequest["headers"]): string | undefined {
+  const origin = (headers as Record<string, unknown>).origin;
+  return typeof origin === "string" ? origin : undefined;
+}
+
+/**
  * Record a denial into the bounded, anti-poisoning block-event buffer that feeds
  * `GET /api/tunnel/block-events` (so the UI can offer "Trust this network?"), then
  * send the self-describing `network_not_allowed` body clients branch on.
@@ -171,6 +186,9 @@ function sendNetworkDenied(request: FastifyRequest, reply: FastifyReply): void {
   try {
     blockEvents.record(request.ip, {
       proxied: hasProxyForwardingHeaders(request.headers as Record<string, unknown>),
+      // Additive context: which origin the denied request named, if any. It is
+      // NOT a dedupe key. See change: add-access-grants-and-review.
+      origin: readRequestOrigin(request.headers),
     });
   } catch { /* recording is best-effort, never blocks the denial */ }
   // Self-describing denial so clients can branch on policy-denial vs

@@ -29,6 +29,7 @@ import {
   type KbConfig,
   loadConfig,
   readStaleness,
+  revokeTrustByHash,
   SqliteFtsStore,
   validateConfig,
 } from "@blackbelt-technology/pi-dashboard-kb";
@@ -61,7 +62,14 @@ function rejectCwd(reply: FastifyReply, cwd: string | undefined, known: () => st
     return true;
   }
   if (isAllowedCwd(cwd, known)) return false;
-  reply.code(403).send({ error: "cwd not allowed" });
+  // Bare `{ error }` shape preserved; `reason`/`hint` are additive (design
+  // D7/D18). Pin the refused directory to admit it on retry. See change:
+  // add-access-grants-and-review.
+  reply.code(403).send({
+    error: "cwd not allowed",
+    reason: "cwd is not a known session or pinned directory.",
+    hint: "Pin this directory to allow it, or open a session rooted in it.",
+  });
   return true;
 }
 
@@ -224,6 +232,26 @@ export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void
     if (rejectCwd(reply, cwd, knownCwds)) return;
     const cfg = loadConfig(cwd);
     return { config: cfg as KbConfig, origin: cfg.origin, projectPath: projectConfigPath(cwd) };
+  });
+
+  // ── DELETE /api/kb/source-trust ────────────────────────────────
+  // Revoke a remote KB source's TOFU trust. Lives in the kb-plugin, not the
+  // dashboard server, because this package owns the kb trust module and its
+  // store format — the Access surface revokes a store through its OWNER's write
+  // path rather than rewriting the file behind it (design D6).
+  // See change: add-access-grants-and-review (tasks 6.2, 7.5).
+  fastify.delete<{ Body: { hash?: string } }>("/api/kb/source-trust", async (req, reply) => {
+    const { hash } = (req.body ?? {}) as { hash?: string };
+    if (!hash || typeof hash !== "string") {
+      reply.code(400);
+      return { error: "hash is required" };
+    }
+    const removed = revokeTrustByHash(hash);
+    if (!removed) {
+      reply.code(404);
+      return { success: false, error: "no such source trust entry" };
+    }
+    return { success: true };
   });
 
   // ── PUT config ─────────────────────────────────────────────────

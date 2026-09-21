@@ -19,6 +19,26 @@ import type { DocxPdfEngine, OfficeCaps } from "../lib/office-preview.js";
 import { OFFICE_CAPS } from "../lib/office-preview.js";
 import { registerFileRoutes } from "../routes/file-routes.js";
 
+/**
+ * Task 3.0 / design D7: containment denials gained ADDITIVE remedy fields
+ * (`reason`, `hint`, `subject`, `denialId`, `ancestors`). The pre-existing
+ * fields are still pinned exactly — `error` is byte-identical and `success` is
+ * still `false` — while the additive ones are asserted by SHAPE, because
+ * `denialId` is an opaque per-denial UUID. This is strictly more assertion than
+ * the previous `toEqual({ success, error })`, never less: no status code and no
+ * error string is relaxed.
+ */
+function expectContainmentDenial(body: any, error: string): void {
+  expect(body).toMatchObject({ success: false, error });
+  expect(typeof body.reason).toBe("string");
+  expect(typeof body.hint).toBe("string");
+  expect(typeof body.subject).toBe("string");
+  expect(typeof body.denialId).toBe("string");
+  expect(body.denialId.length).toBeGreaterThan(0);
+  expect(Array.isArray(body.ancestors)).toBe(true);
+}
+
+
 const execFileAsync = promisify(execFile);
 async function git(cwd: string, ...args: string[]): Promise<void> {
   await execFileAsync("git", ["-C", cwd, ...args]);
@@ -160,7 +180,7 @@ describe("GET /api/file/raw", () => {
       url: `/api/file/raw?cwd=${encodeURIComponent(tmp)}&path=${encodeURIComponent("../etc/passwd")}`,
     });
     expect(res.statusCode).toBe(403);
-    expect(res.json()).toEqual({ success: false, error: "path outside working directory" });
+    expectContainmentDenial(res.json(), "path outside working directory");
   });
 
   it("400s when cwd or path is missing", async () => {
@@ -423,6 +443,20 @@ describe("GET /api/file/eml", () => {
     expect(body.data.attachments[0].filename).toBe("doc.pdf");
     // No base64 bytes leaked into the payload.
     expect(JSON.stringify(body.data)).not.toContain(PDF_BYTES.toString("base64"));
+  });
+
+  it("serves an in-scope SYMLINKED .eml — the grant-only guard must not run here", async () => {
+    // `assertRegularFile` uses `lstat`, so applying it to EVERY admission rather
+    // than only a grant refuses an in-scope final-component symlink that
+    // `fs.stat` plus the read previously followed. That is a behaviour change at
+    // a layer-①/② site, which the gate integration must never introduce.
+    // Regression from the task 8.7 pass; found by the task 4.5 review gate.
+    await writeEml("real.eml", buildEml({ subject: "Linked" }));
+    await fsp.symlink(path.join(tmp, "real.eml"), path.join(tmp, "alias.eml"));
+
+    const res = await get(`cwd=${cwd()}&path=alias.eml`);
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as any).data.headers.subject).toBe("Linked");
   });
 
   it("sanitizes <script> + onclick out of the body (test-plan #6)", async () => {
@@ -1204,5 +1238,66 @@ describe("POST /api/diagram/render and Kroki resolution (test-plan #E1–#E7, #X
     } finally {
       if (origKrokiUrl !== undefined) process.env.KROKI_URL = origKrokiUrl;
     }
+  });
+});
+
+/**
+ * Task 9b.6 / test-plan E25 (design D7): `gateFilePath` and `gateOfficeFile`
+ * return an INTERNAL `{ code, error }` failure, which the route converts via
+ * `denialBody`. The wire must carry `{ success: false, error }` with the gate's
+ * status — the internal `code` key must never reach the client, or the two
+ * shapes would have merged into one and the pre-existing contract would have
+ * changed.
+ */
+describe("gate refusals never leak their internal `code` to the wire (test-plan #E25)", () => {
+  let app: FastifyInstance;
+  let tmp: string;
+
+  beforeEach(async () => {
+    tmp = await fsp.mkdtemp(path.join(os.tmpdir(), "gate-wire-"));
+    app = makeApp([tmp]);
+    await app.ready();
+  });
+
+  afterEach(async () => {
+    await app.close();
+    await fsp.rm(tmp, { recursive: true, force: true });
+  });
+
+  it("gateOfficeFile keeps { success, error } at both its 400 and its 403", async () => {
+    const badExt = await app.inject({
+      method: "GET",
+      url: `/api/file/sheet?cwd=${encodeURIComponent(tmp)}&path=${encodeURIComponent(
+        path.join(tmp, "x.txt"),
+      )}`,
+    });
+    expect(badExt.statusCode).toBe(400);
+    expect(badExt.json()).toMatchObject({
+      success: false,
+      error: "renderer not supported for extension",
+    });
+    expect(badExt.json()).not.toHaveProperty("code");
+
+    const unknownCwd = await app.inject({
+      method: "GET",
+      url: `/api/file/sheet?cwd=${encodeURIComponent("/nope")}&path=${encodeURIComponent(
+        "/nope/x.csv",
+      )}`,
+    });
+    expect(unknownCwd.statusCode).toBe(403);
+    expect(unknownCwd.json()).toMatchObject({ success: false, error: "unknown session path" });
+    expect(unknownCwd.json()).not.toHaveProperty("code");
+  });
+
+  it("gateFilePath keeps { success, error } on the EML route", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/eml?cwd=${encodeURIComponent("/nope")}&path=${encodeURIComponent(
+        "/nope/x.eml",
+      )}`,
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ success: false, error: "unknown session path" });
+    expect(res.json()).not.toHaveProperty("code");
   });
 });

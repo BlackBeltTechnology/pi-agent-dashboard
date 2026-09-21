@@ -93,6 +93,13 @@ describe("goal REST routes", () => {
     await setup();
     const res = await fastify.inject({ method: "GET", url: `/api/folders/goals?cwd=/not/known` });
     expect(res.statusCode).toBe(403);
+    // Task 3.1 (design D7/D18): `{ success, error }` shape preserved, `error`
+    // byte-identical, `reason`/`hint` additive.
+    const body = JSON.parse(res.payload);
+    expect(body.success).toBe(false);
+    expect(body.error).toBe("cwd not allowed");
+    expect(typeof body.reason).toBe("string");
+    expect(typeof body.hint).toBe("string");
   });
 
   it("POST → creates a goal (201)", async () => {
@@ -439,10 +446,13 @@ describe("goal routes on the plugin surface (relocate-goal-product-to-plugin)", 
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.payload).data).toEqual([]);
 
-    // neither: unknown cwd → today's rejectInvalidCwd 403 body.
+    // neither: unknown cwd → today's rejectInvalidCwd 403 body, now with additive fields.
     res = await fastify.inject({ method: "GET", url: "/api/folders/goals?cwd=/elsewhere" });
     expect(res.statusCode).toBe(403);
-    expect(JSON.parse(res.payload).error).toBe("cwd not allowed");
+    const denied = JSON.parse(res.payload);
+    expect(denied.error).toBe("cwd not allowed");
+    expect(typeof denied.reason).toBe("string");
+    expect(typeof denied.hint).toBe("string");
     await fs.rm(other, { recursive: true, force: true });
   });
 });

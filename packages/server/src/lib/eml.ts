@@ -73,20 +73,46 @@ export async function parseEmlBuffer(buf: Buffer): Promise<ParsedMail> {
  * Load + parse an `.eml`, memoized by path+mtime+size. On a key miss the file is
  * read and parsed; the LRU keeps at most `CACHE_MAX` entries. A changed mtime or
  * size produces a new key, so the stale entry is never returned (and ages out).
+ *
+ * `prefetched` OVERRIDES the cache: a caller that supplies bytes it read from its
+ * VERIFIED handle always gets a parse of THOSE bytes.
  */
-export async function loadParsedEml(absPath: string, stat: Stats): Promise<ParsedMail> {
+export async function loadParsedEml(
+  absPath: string,
+  stat: Stats,
+  prefetched?: Buffer,
+): Promise<ParsedMail> {
   const key = cacheKey(absPath, stat);
+
+  // A grant-admitted caller hands us the bytes it read from its VERIFIED handle
+  // (design D14), and those bytes are authoritative: parse THEM, never a cached
+  // parse keyed on path+mtime+size. Consulting the cache first would return a
+  // warm entry populated earlier from the PATHNAME while silently DISCARDING the
+  // verified bytes — exactly the guarantee this parameter exists to provide,
+  // and the opposite of it on any cache hit (task 4.5 round 2, B2).
+  if (prefetched) {
+    const parsed = await parseEmlBuffer(prefetched);
+    rememberParsed(key, parsed);
+    return parsed;
+  }
+
   const hitIdx = parseCache.findIndex((e) => e.key === key);
   if (hitIdx >= 0) {
     const [hit] = parseCache.splice(hitIdx, 1);
     parseCache.unshift(hit);
     return hit.parsed;
   }
-  const buf = await fs.readFile(absPath);
-  const parsed = await parseEmlBuffer(buf);
+  const parsed = await parseEmlBuffer(await fs.readFile(absPath));
+  rememberParsed(key, parsed);
+  return parsed;
+}
+
+/** Insert (or replace) `parsed` for `key`, keeping the LRU bounded and MRU-first. */
+function rememberParsed(key: string, parsed: ParsedMail): void {
+  const hitIdx = parseCache.findIndex((e) => e.key === key);
+  if (hitIdx >= 0) parseCache.splice(hitIdx, 1);
   parseCache.unshift({ key, parsed });
   if (parseCache.length > CACHE_MAX) parseCache.length = CACHE_MAX;
-  return parsed;
 }
 
 /** Test-only: drop all cached parses. */
