@@ -27,9 +27,18 @@ describe("piAiDistDir", () => {
   });
 
   // test-plan #E9 — the error half. MUST throw, never return something unusable.
+  // Asserts the message CONTAINS the resolved path via `toThrow(string)`. A
+  // dynamically built `new RegExp(path)` would be both unnecessary and unsafe:
+  // escaping only `/` leaves backslashes unescaped (js/incomplete-sanitization),
+  // and a Windows-style path in the message is exactly the case under test.
   it("throws with the resolved path when the entry basename does not match", () => {
     const bad = "/a/b/pi-ai/dist/entry.js";
-    expect(() => piAiDistDir(bad)).toThrowError(new RegExp(bad.replace(/\//g, "\\/")));
+    expect(() => piAiDistDir(bad)).toThrowError(bad);
+  });
+
+  it("throws with the resolved path for a Windows-style path too", () => {
+    const bad = "C:\\src\\pi-ai\\dist\\entry.js";
+    expect(() => piAiDistDir(bad)).toThrowError(bad);
   });
 
   it("throws when the entry is not inside a dist directory", () => {
