@@ -52,7 +52,7 @@ import { runDevBuild } from "./dev-build.js";
 import { EmptyActionableGuard, SURFACE_MESSAGE } from "./empty-actionable-guard.js";
 import { resolveGuardConfig } from "./empty-actionable-guard-config.js";
 import { decideRetarget, instanceIdFileForSocket, resolveEndpoint } from "./endpoint-resolution.js";
-import { mapEventToProtocol } from "./event-forwarder.js";
+import { mapEventToProtocol, redactCompactionEntry } from "./event-forwarder.js";
 import {
   FLOW_EVENT_MAP,
   registerEventBusForwarding,
@@ -450,10 +450,14 @@ function initBridge(pi: ExtensionAPI) {
   // Per-message generation for the coalescing barrier. Distinct from the
   // bridge-instance `generation` above, which only changes on `initBridge` and
   // so gives no intra-session ordering. Incremented on EVERY `message_start`
-  // (user and assistant): a retry chain or a new turn must reset the barrier
-  // too. Folded into the message key rather than compared standalone, because a
-  // `message_update` carries no generation of its own — an update can only be
-  // stamped with the counter's current value.
+  // (user, assistant and — for the barrier only — `system`): a retry chain or a
+  // new turn must reset the barrier too. A `system` message reaches the barrier
+  // and then returns, so it opens an identity no `message_update` can ever
+  // match (pi emits its start/end adjacently — see
+  // filter-system-role-message-forwarding design D2). Folded into the message
+  // key rather than compared standalone, because a `message_update` carries no
+  // generation of its own — an update can only be stamped with the counter's
+  // current value.
   // See change: coalesce-bridge-message-update-snapshots (D4).
   let assistantMessageGen = 0;
 
@@ -2410,6 +2414,17 @@ function initBridge(pi: ExtensionAPI) {
         // the agent-loop path would double-forward here). See change:
         // render-inline-reasoning-and-custom-entries (D2).
         if ((event as any).message?.role === "custom") return;
+        // pi >= 0.86.0 makes the system prompt/tool loadout transcript-backed:
+        // `agent-loop.js` emits the first request's `role:"system"` message with
+        // every prompt `section` and the full `toolsAdded` declaration list as a
+        // `message_start`/`message_end` pair (~150 KB per message, so both
+        // events cost ~2x that per session). The client has no `role:"system"`
+        // arm, so forwarding it is pure wire cost with no render. Return AFTER
+        // the barrier above (same placement as `custom`) so the barrier's
+        // contract — every `message_start` opens an identity — is unchanged.
+        // No version gate: pi < 0.86 never emits the role, so this is inert
+        // there. See change: filter-system-role-message-forwarding (D2).
+        if ((event as any).message?.role === "system") return;
         wrapAppendMessageForCtx(ctx);
         // Lazy retry (review round 1): if session_start ran before the
         // sessionManager exposed its persistence methods, the wrapper would
@@ -2517,6 +2532,10 @@ function initBridge(pi: ExtensionAPI) {
         // the message_start guard above. See change:
         // render-inline-reasoning-and-custom-entries (D2).
         if ((event as any).message?.role === "custom") return;
+        // Same pi >= 0.86.0 system-role drop as the `message_start` arm above,
+        // after the same barrier. See change:
+        // filter-system-role-message-forwarding (D2).
+        if ((event as any).message?.role === "system") return;
         wrapAppendMessageForCtx(ctx);
         const messageRef = (event as any).message;
         const nonce = messageRef && typeof messageRef === "object"
@@ -2634,7 +2653,25 @@ function initBridge(pi: ExtensionAPI) {
       // `snapshotDetails()` object feeds both — so stripping one carrier only
       // is a half-fix. `tool_execution_end` is terminal and stays fat.
       // See change: reduce-subagent-details-payload (D2, task 3.8).
-      const msg = mapEventToProtocol(sessionId, event);
+      //
+      // `session_compact` is forwarded WITHOUT its `compactionEntry`. pi >= 0.86
+      // fills that entry's `systemMessage` with the same prompt-sections +
+      // tool-declaration checkpoint the system-role arms above drop, and carries
+      // the compaction `summary` beside it. No dashboard consumer reads either:
+      // the client renders the divider from the event's presence and the badge
+      // from `reason`/`willRetry`/`estimatedPostCompactionTokens`; the server
+      // uses the event only to clear the `compacting` latch. Redact on a COPY —
+      // pi hands the SAME event object to every subscribed extension, so a
+      // `delete event.compactionEntry` would strip the field from unrelated
+      // extensions too. The redaction stays OUT of `mapEventToProtocol` (which
+      // is generic over every forwarded type). No version gate: the field is
+      // simply omitted wherever it is absent.
+      // See change: filter-system-role-message-forwarding (D6/D7).
+      const forwardEvent =
+        eventType === "session_compact"
+          ? redactCompactionEntry(event as Record<string, unknown>)
+          : event;
+      const msg = mapEventToProtocol(sessionId, forwardEvent);
       let heldByThrottle = false;
       if (eventType === "tool_execution_update") {
         msg.event.data = stripForForward(msg.event.data as Record<string, unknown>);

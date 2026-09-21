@@ -225,6 +225,50 @@ TypeScript type definitions shared across all components:
 - Unit tests: `packages/extension/src/__tests__/message-update-coalescer.test.ts`, `packages/extension/src/__tests__/bridge-coalesced-chat-order.test.ts`.
 - E2E test: `tests/e2e/coalesced-streaming.spec.ts`.
 
+### Bridge Event Forwarding Exclusions (change: filter-system-role-message-forwarding)
+
+**Why.**
+- pi `>= 0.86.0` makes system prompt + tool loadout transcript-backed.
+- First request of a session persists a `role:"system"` message carrying every prompt `section` + full `toolsAdded` declaration list.
+- Later prompt/tool changes persist further system messages.
+- `pi-agent-core` `agent-loop.js` emits that message as a BACK-TO-BACK `message_start` + `message_end` pair (same object); bridge forwarded both.
+- Measured ~150 KB per system message on a live 0.86.1 session.
+- `session_compact.compactionEntry` carries the SAME prompt-sections + tool-declaration blob in `compactionEntry.systemMessage`, plus the compaction `summary`.
+- `session_compact` had no dedicated bridge arm; it fell through to the shared forward tail and was serialized whole.
+
+**What changed.**
+- File: `packages/extension/src/bridge.ts`. Three sites.
+- `message_start` arm: early-return when `event.message?.role === "system"`, placed immediately AFTER the existing `role === "custom"` return.
+- `message_end` arm: same early-return, same placement.
+- New exported helper `redactCompactionEntry(event)` in `packages/extension/src/event-forwarder.ts`: returns a shallow COPY of the event with `compactionEntry` deleted.
+- Bridge applies it on the shared tail only for `session_compact`: `const forwardEvent = eventType === "session_compact" ? redactCompactionEntry(event as Record<string, unknown>) : event;` before `mapEventToProtocol`.
+- No version gate: pi `< 0.86` never emits the role; field omission is safe wherever the field is absent.
+- `assistantMessageGen` comment in `bridge.ts` widened from "(user and assistant)" to include the barrier-only `system` start.
+
+**Placement (why after the barrier).**
+- Both returns sit AFTER the coalescing barrier (`assistantMessageGen += 1;` + `coalescer.messageStart(...)` / `coalescer.messageEnd(...)`).
+- Barrier contract unchanged.
+- Entry-level flush choke point (`if (flushesParkedText(eventType)) coalescer.flush()` at handler entry) still runs first.
+- Placement is a consistency choice, not behavioural; the parked-snapshot ordering guarantee belongs to the entry choke point.
+
+**Redaction on a copy.**
+- Copy, never mutate: pi hands the SAME event object to every subscribed extension.
+- Generic `mapEventToProtocol` stays generic.
+
+**Why safe (no consumer).**
+- Client `session_compact` arm (`packages/client/src/lib/chat/event-reducer.ts`) reads only `reason`, `willRetry`, `estimatedPostCompactionTokens`; renders the compaction divider from the event's presence.
+- Server uses the event only to clear the `compacting` latch (`packages/server/src/session/event-status-extraction.ts`).
+- Replay path already synthesizes a metadata-free `session_compact` (`packages/shared/src/state-replay.ts`).
+- Live-vs-replay parity is defined on event type/position/timestamp only; this change does not alter that contract.
+
+**Accepted trade-offs.**
+- Sessions that already persisted system events are not evicted (forward-only); they replay until normal rotation removes them.
+
+**References.**
+- Design: `openspec/changes/filter-system-role-message-forwarding/` (D2/D6/D7).
+- Spec delta: `openspec/changes/filter-system-role-message-forwarding/specs/catch-all-event-forwarding/spec.md`.
+- Tests: `packages/extension/src/__tests__/bridge-coalesced-chat-order.test.ts`, `packages/extension/src/__tests__/event-forwarder.test.ts`.
+
 ### EventBus Forwarding Mechanism (subscription-based, change: fix-automation-run-lifecycle)
 
 **Host topology.**
