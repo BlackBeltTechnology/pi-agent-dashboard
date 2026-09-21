@@ -307,6 +307,11 @@ export async function registerAuthPlugin(
     // Skip health endpoint
     if (request.url === "/api/health") return;
 
+    // Skip the identity-plane pre-auth login descriptor (D16): an
+    // unauthenticated browser must read it BEFORE it holds a token. It
+    // discloses nothing when the resolver is inert.
+    if (request.url.startsWith("/api/identity/login-config")) return;
+
     // Skip /v1/* — proxy auth gate handles those
     if (request.url.startsWith("/v1/")) return;
 

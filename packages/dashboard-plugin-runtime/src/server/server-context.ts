@@ -5,7 +5,7 @@
  * with a namespaced logger and typed config accessors.
  */
 import type { SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import type { HostAccessPolicyFn, PrincipalResolverFn } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
+import type { BrowserLoginConfig, HostAccessPolicyFn, PrincipalResolverFn } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import type { SessionFlags } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { PluginLogger } from "../plugin-context.js";
@@ -814,6 +814,13 @@ export interface ServerPluginContext {
    * do not wire the identity plane. See openspec: add-multi-user-identity-plane.
    */
   registerHostAccessPolicy?: RegisterHostAccessPolicyFn;
+  /**
+   * Publish THIS plugin's browser login descriptor (identity plane, D16).
+   * Accepted only from a trusted resolver plugin; any other plugin receives a
+   * no-op registrar. Optional — absent when the host does not wire the identity
+   * plane. See openspec: add-multi-user-identity-plane.
+   */
+  registerBrowserLoginConfig?: RegisterBrowserLoginConfigFn;
   logger: PluginLogger;
 }
 
@@ -832,6 +839,17 @@ export type RegisterPrincipalResolverFn = (
  * registry. Returns an unregister handle.
  */
 export type RegisterHostAccessPolicyFn = (authorize: HostAccessPolicyFn) => () => void;
+
+/**
+ * Host capability for a TRUSTED resolver plugin to publish its browser login
+ * descriptor (identity plane, D16). The server binds the plugin id + trust
+ * decision and stamps `pluginId` on the descriptor; the plugin passes only
+ * `{ issuer, clientId }`. Relayed by `GET /api/identity/login-config`. Optional
+ * — absent when the host does not wire the identity plane.
+ */
+export type RegisterBrowserLoginConfigFn = (
+  config: Omit<BrowserLoginConfig, "pluginId">,
+) => () => void;
 
 /** Dependencies injected by the server to construct a ServerPluginContext. */
 export interface ServerContextDeps {
@@ -889,6 +907,13 @@ export interface ServerContextDeps {
    * the identity plane.
    */
   registerHostAccessPolicy?: RegisterHostAccessPolicyFn;
+  /**
+   * Publish THIS plugin's browser login descriptor (identity plane, D16). The
+   * server binds the plugin id + trust decision + stamps `pluginId`; the
+   * plugin-facing signature is `({ issuer, clientId }) => unregister`. Optional
+   * — absent when the host does not wire the identity plane.
+   */
+  registerBrowserLoginConfig?: RegisterBrowserLoginConfigFn;
   /** Workspace seam (optional on test hosts; the context defaults it). See change: add-chat-gateway-team-controls. */
   listWorkspaces?: ListWorkspacesFn;
   onWorkspacesChanged?: OnWorkspacesChangedFn;
@@ -952,6 +977,9 @@ export function createServerPluginContext(
       : {}),
     ...(deps.registerHostAccessPolicy
       ? { registerHostAccessPolicy: deps.registerHostAccessPolicy }
+      : {}),
+    ...(deps.registerBrowserLoginConfig
+      ? { registerBrowserLoginConfig: deps.registerBrowserLoginConfig }
       : {}),
     logger,
   };

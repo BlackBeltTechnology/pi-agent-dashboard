@@ -124,6 +124,24 @@ export type HostAccessPolicyFn = (input: {
  */
 export type PrincipalOwner = Readonly<{ iss: string; sub: string }>;
 
+/**
+ * Browser login descriptor a TRUSTED resolver plugin registers so the host can
+ * advertise a pre-auth login config to the browser (`GET /api/identity/login-config`)
+ * WITHOUT importing any provider-specific code (openspec add-multi-user-identity-plane,
+ * D16, invariant I1). Core relays this verbatim; it never reads a resolver plugin's
+ * own config keys.
+ */
+export interface BrowserLoginConfig {
+  /** Owning resolver plugin id — the browser mounts the matching `login-provider`
+   * client contribution by this id, never a different plugin's (D16, F6). */
+  pluginId: string;
+  /** Browser-reachable OIDC discovery/authorize base (the plugin's `browserIssuer`
+   * falling back to its validation `issuer`). */
+  issuer: string;
+  /** Public PKCE client id advertised to the browser (the plugin's `browserClientId`). */
+  clientId: string;
+}
+
 /** Exact `(iss, sub)` equality — no normalization, no email fallback. */
 export function principalEquals(
   a: Pick<Principal, "iss" | "sub"> | null | undefined,

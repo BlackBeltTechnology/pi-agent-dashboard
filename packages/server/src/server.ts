@@ -105,6 +105,7 @@ import { assertIdentityReadiness } from "./identity/activation.js";
 import { PolicyRegistry } from "./identity/policy-registry.js";
 import { registerResolverHook } from "./identity/resolver-hook.js";
 import { ResolverRegistry } from "./identity/resolver-registry.js";
+import { BrowserLoginConfigRegistry } from "./identity/browser-login-config-registry.js";
 import {
   clientBuildDiagnostic,
   clientBuildSnapshotFor,
@@ -444,6 +445,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // operator-controlled; the bundled `keycloak-resolver` is always trusted.
   // Empty + unconfigured ⇒ inert ⇒ behavior identical to pre-change.
   const resolverRegistry = new ResolverRegistry(loadConfig().identity.trustedResolverPlugins);
+  // Browser login descriptor seam (D16): a trusted resolver plugin publishes
+  // `{ issuer, clientId }` here; `GET /api/identity/login-config` relays it so
+  // core advertises login without importing anything provider-specific (I1).
+  const browserLoginConfigRegistry = new BrowserLoginConfigRegistry();
   // Host access policy registry (D9): one optional policy from the configured
   // `trustedPolicyPlugin`, bounded + fail-closed. Governs only non-session
   // roads. A deny emits a structured audit line (no token/secret material).
@@ -1522,6 +1527,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // Auth disabled — still expose /auth/status so clients can detect this
     fastify.get("/auth/status", async () => ({ authenticated: true, authEnabled: false }));
   }
+
+  // Identity plane (D16): pre-auth browser login descriptor. Relays whatever the
+  // active trusted resolver published via `registerBrowserLoginConfig` — core
+  // reads NO resolver plugin config keys (I1). `{active:false}` (nothing else)
+  // when no descriptor is registered, so an inert dashboard discloses nothing.
+  // Reachable pre-auth via the auth-plugin skip + the network-guard public path.
+  fastify.get("/api/identity/login-config", async () => {
+    const desc = browserLoginConfigRegistry.get();
+    return desc
+      ? { active: true as const, issuer: desc.issuer, clientId: desc.clientId }
+      : { active: false as const };
+  });
 
   // REST tier gate (change: expand-mcp-tiered-surface, D1b). Registered AFTER
   // both admission hooks above (bearer-auth, then the cookie auth plugin) so
@@ -2880,6 +2897,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   return () => {};
                 }
                 return policyRegistry.register(id, authorize);
+              },
+              // Identity plane (D16): a TRUSTED resolver plugin publishes its
+              // browser login descriptor; core stamps the owning pluginId (F6)
+              // and relays it pre-auth. Untrusted plugin ⇒ no-op registrar.
+              registerBrowserLoginConfig: (loginConfig) => {
+                const id = plugin.manifest.id;
+                if (!resolverRegistry.isTrusted(id)) {
+                  console.warn(`[identity] plugin '${id}' is not trusted to publish a browser login config; ignoring`);
+                  return () => {};
+                }
+                return browserLoginConfigRegistry.set({ pluginId: id, ...loginConfig });
               },
             },
             plugin.manifest.id,
