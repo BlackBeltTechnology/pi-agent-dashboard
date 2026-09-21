@@ -9,8 +9,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { flattenModelsJson } from "@blackbelt-technology/pi-dashboard-shared/models-json-reader.js";
+import {
+  adaptPiAi,
+  OAUTH_LOADER_EXPORTS,
+  type PiAiGeneration,
+} from "@blackbelt-technology/pi-dashboard-shared/piai-compat/index.js";
 import { getDefaultRegistry, ModuleResolutionError } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import { readAuthJson } from "../auth/provider-auth-storage.js";
 import { readProvidersFromDisk, resolveProbeApiKey } from "../package/provider-probe.js";
@@ -19,7 +23,15 @@ import { InternalAuthStorage, type PiAiOAuthModule } from "./internal-auth-stora
 import { type CustomModelEntry, type CustomProviderEntry, InternalRegistry, type PiAiModule } from "./internal-registry.js";
 
 let cachedRegistry: InternalRegistry | null = null;
+/**
+ * The ADAPTED surface, never the raw module. Caching the raw module leaves
+ * `getStreamSimpleFn()` undefined on a factory runtime, and the proxy then
+ * 503s with a perfectly healthy registry. See change:
+ * adopt-piai-factory-api-registry (design D1).
+ */
 let cachedPiAi: PiAiModule | null = null;
+let cachedGeneration: PiAiGeneration | null = null;
+let cachedOAuthAvailability: Record<string, boolean> | null = null;
 let lastError: string | null = null;
 
 // ── Disk readers ──────────────────────────────────────────────────────────────
@@ -82,21 +94,23 @@ export async function getModelRegistry(): Promise<InternalRegistry> {
   if (cachedRegistry) return cachedRegistry;
 
   try {
-    const { resolution, module: piAi } = await getDefaultRegistry().resolveModule<PiAiModule>("pi-ai");
+    const { resolution, module: rawPiAi } = await getDefaultRegistry().resolveModule<unknown>("pi-ai");
 
-    // Resolve oauth subpath
-    let oauthModule: PiAiOAuthModule | null = null;
-    if (resolution.path) {
-      const oauthPath = resolution.path.replace(/\/dist\/index\.js$/, "/dist/oauth.js");
-      try {
-        oauthModule = (await import(pathToFileURL(oauthPath).href)) as PiAiOAuthModule;
-      } catch {
-        // OAuth subpath may not exist; non-fatal
-      }
-    }
+    // ONE seam absorbs all three pi-ai boundary breaks: module shape,
+    // transcript normalization, and the relocated OAuth entry points. It also
+    // owns the oauth subpath load the singleton used to do inline with a
+    // POSIX-only regex. See change: adopt-piai-factory-api-registry (D1/D5/D7).
+    const adapted = await adaptPiAi(rawPiAi, resolution.path ?? undefined);
+    const piAi = adapted.module;
+    const oauthModule: PiAiOAuthModule = adapted.oauth;
 
     const authStorage = new InternalAuthStorage(oauthModule, readCustomProviderCreds);
+    // The ADAPTED surface, not the raw module.
     cachedPiAi = piAi;
+    cachedGeneration = adapted.generation;
+    cachedOAuthAvailability = Object.fromEntries(
+      Object.keys(OAUTH_LOADER_EXPORTS).map((id) => [id, oauthModule.isAvailable(id)]),
+    );
     cachedRegistry = new InternalRegistry(piAi, authStorage, {
       readProviders,
       readModels,
@@ -125,6 +139,8 @@ export async function refreshModelRegistry(): Promise<void> {
 export function disposeModelRegistry(): void {
   cachedRegistry = null;
   cachedPiAi = null;
+  cachedGeneration = null;
+  cachedOAuthAvailability = null;
   lastError = null;
 }
 
@@ -136,8 +152,28 @@ export function getStreamSimpleFn(): PiAiModule["streamSimple"] | null {
   return cachedPiAi?.streamSimple ?? null;
 }
 
-export function getModelProxyStatus(): { status: "ready" | "degraded"; reason?: string } {
-  if (cachedRegistry) return { status: "ready" };
+export interface ModelProxyStatus {
+  status: "ready" | "degraded";
+  reason?: string;
+  /** Which pi-ai generation the seam adapted. Null before initialization. */
+  piAiGeneration?: PiAiGeneration;
+  /**
+   * PER-PROVIDER OAuth capability (clarification C2). OAuth being unreachable
+   * does NOT flip `status` to `degraded` — that stays reserved for a dead
+   * registry — because api-key models keep routing. Null before init.
+   * See change: adopt-piai-factory-api-registry.
+   */
+  oauthProviders?: Record<string, boolean>;
+}
+
+export function getModelProxyStatus(): ModelProxyStatus {
+  if (cachedRegistry) {
+    return {
+      status: "ready",
+      ...(cachedGeneration ? { piAiGeneration: cachedGeneration } : {}),
+      ...(cachedOAuthAvailability ? { oauthProviders: cachedOAuthAvailability } : {}),
+    };
+  }
   if (lastError) return { status: "degraded", reason: lastError };
   return { status: "degraded", reason: "Model registry not yet initialized" };
 }
