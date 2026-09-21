@@ -209,8 +209,26 @@ function paramsFor(slideId: string, ref: { id: string; params?: unknown }): FxPa
   return { ...((ref.params ?? {}) as FxParams), ...(fxParamEdits[`${slideId}|${ref.id}`] ?? {}) };
 }
 
+/**
+ * Live effect-LIST edits from the configurator, keyed by slide id. Sits beside
+ * `fxParamEdits` for the same reason: the authored `slide.effects` stays the
+ * record of what was rendered, so every read goes through `effectsOf`.
+ */
+const fxSetEdits: Record<string, string[]> = {};
+
+/** The slide's effects as the configurator leaves them (authored, when untouched). */
+function effectsOf(slide: DeckSlide): NonNullable<DeckSlide["effects"]> {
+  const authored = slide.effects ?? [];
+  const ids = fxSetEdits[slide.id];
+  if (!ids) return authored;
+  const byId = new Map(authored.map((ref) => [ref.id, ref]));
+  // An id the deck never listed carries no authored params — the card
+  // defaults, plus whatever the panel tunes, apply.
+  return ids.map((id) => byId.get(id) ?? { id });
+}
+
 function backgroundFromEffects(slide: DeckSlide, P: PaletteColors, profile: QualityProfile, mode: "dark" | "light"): Animator | null {
-  for (const ref of slide.effects ?? []) {
+  for (const ref of effectsOf(slide)) {
     const entry = REGISTRY[ref.id];
     if (entry?.card.kind !== "background") continue;
     const handle = entry.create(fxContextFor(slide, P, profile, mode), paramsFor(slide.id, ref));
@@ -236,7 +254,7 @@ function localEffectsFor(
   const registry = localFxRegistry();
   const out: LocalHandle[] = [];
   const ids: string[] = [];
-  for (const ref of slide.effects ?? []) {
+  for (const ref of effectsOf(slide)) {
     if (!ref.id.startsWith("local:")) continue;
     if (skip?.(ref.id)) continue;
     const module = registry[ref.id.slice("local:".length)];
@@ -301,7 +319,7 @@ function buildSlideGroup(
   }
   const localFx = localEffectsFor(slide, P, profile, mode, g, index);
   const quality = cfg.quality ?? deck.defaults.quality ?? "high";
-  const comp = composeEffects(slide.effects, mode, quality, slide.id, localCards());
+  const comp = composeEffects(effectsOf(slide), mode, quality, slide.id, localCards());
   const skipped = comp.skipped.map((s) => `${s.id}: ${s.reason}`);
   // The budget warning text is `composeEffects`' own, so the runtime and the
   // render CLI agree byte-for-byte (`warn budget slide <id> <sum> > <limit>`).
@@ -373,7 +391,7 @@ async function boot(): Promise<void> {
   function syncPost(): void {
     const slide = deck.slides[cur];
     const build = builds[cur];
-    const refs = (slide.effects ?? [])
+    const refs = effectsOf(slide)
       .filter((e) => REGISTRY[e.id]?.card.kind === "post")
       .map((e) => ({ id: e.id, params: paramsFor(slide.id, e) }));
     rig.setPost(refs, {
@@ -485,7 +503,7 @@ async function boot(): Promise<void> {
     const build = builds[index];
     if (!build || build.localFx.length > 0) return;
     const slide = deck.slides[index];
-    if (!(slide.effects ?? []).some((ref) => ref.id.startsWith("local:"))) return;
+    if (!effectsOf(slide).some((ref) => ref.id.startsWith("local:"))) return;
     const profile = qualityProfile(build.cfg.quality ?? deck.defaults.quality);
     const mode = (build.cfg.mode ?? "dark") as "dark" | "light";
     // A module that threw on create throws again: re-running it would only
@@ -775,6 +793,12 @@ async function boot(): Promise<void> {
    */
   const hud = createHud({
     slides: deck.slides.map((s) => ({ id: s.id, title: s.title, effects: [...(s.effects ?? [])] })),
+    // Everything the deck can instantiate: the corpus, plus the `local:`
+    // modules embedded in THIS file. The panel offers exactly this.
+    catalogue: [
+      ...Object.values(REGISTRY).map((e) => ({ id: e.card.id, kind: e.card.kind as string })),
+      ...Object.values(localCards()).map((c) => ({ id: `local:${c.id}`, kind: c.kind as string })),
+    ],
     defaults: deck.defaults,
     overridden: overriddenKeys(),
     derivedHash: (window.__DECK as unknown as { derivedHash?: string }).derivedHash ?? "",
@@ -796,7 +820,7 @@ async function boot(): Promise<void> {
       const slide = deck.slides[cur];
       const local = localCards();
       const out: Array<{ id: string; schema: Record<string, unknown>; values: FxParams }> = [];
-      for (const ref of slide.effects ?? []) {
+      for (const ref of effectsOf(slide)) {
         const card = ref.id.startsWith("local:") ? local[ref.id.slice("local:".length)] : REGISTRY[ref.id]?.card;
         const schema = (card?.params ?? {}) as Record<string, unknown>;
         if (Object.keys(schema).length === 0) continue;
@@ -840,12 +864,14 @@ async function boot(): Promise<void> {
       syncPost();
       rig.render();
     },
+    /**
+     * Recompose the current slide. Flipping `background.visible` used to stand
+     * in for this, which reached neither the post stack nor the `local:`
+     * modules — a removed `post` card kept rendering until a reload.
+     */
     applyEffects: (ids) => {
-      const slide = deck.slides[cur];
-      const keep = new Set(ids);
-      const build = builds[cur];
-      if (build.background) build.background.g.visible = (slide.effects ?? []).some((e) => keep.has(e.id));
-      rig.render();
+      fxSetEdits[deck.slides[cur].id] = [...ids];
+      rebuildSlide(cur, {}, true);
     },
   });
 

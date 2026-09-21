@@ -16,6 +16,8 @@ export interface HudSlide {
 
 export interface HudHost {
   slides: HudSlide[];
+  /** Every effect the deck can instantiate (corpus + embedded `local:` cards). */
+  catalogue: Array<{ id: string; kind: string }>;
   /** Deck defaults as embedded (read-only). */
   defaults: Defaults;
   /** Keys already overridden, for the `●` markers. */
@@ -388,36 +390,80 @@ export function createHud(host: HudHost): Hud {
     return node;
   }
 
+  /** Commit an effect list for the active scope: staged, persisted, applied. */
+  function commitEffects(slideId: string, next: string[]): void {
+    if (scope === "deck") state.deck.effects = next;
+    else {
+      state.slides[slideId] = state.slides[slideId] ?? {};
+      state.slides[slideId].effects = next;
+    }
+    persist();
+    host.applyEffects(next);
+    // The list itself changed shape — rows and the picker's options with it.
+    render();
+  }
+
   function effectsChecklist(slideId: string): HTMLElement {
     const list = el("div", { class: "deck3d-hud-effects" });
     const composed = host.slides[host.current() - 1]?.effects ?? [];
     const staged = (scope === "deck" ? state.deck.effects : state.slides[slideId]?.effects) as string[] | undefined;
-    const enabled = new Set(staged ?? composed.map((e) => e.id));
-    for (const ref of composed) {
+    const active = staged ?? composed.map((e) => e.id);
+    const enabled = new Set(active);
+    // Rows cover what the deck composed AND what the panel added, so an
+    // unticked authored effect stays visible to be ticked back on.
+    const rows = [...active, ...composed.map((e) => e.id).filter((id) => !enabled.has(id))];
+    for (const id of rows) {
       const row = el("label", { class: "deck3d-hud-effect" });
-      const box = el("input", { type: "checkbox", "data-effect": ref.id });
-      box.checked = enabled.has(ref.id);
+      const box = el("input", { type: "checkbox", "data-effect": id });
+      box.checked = enabled.has(id);
       box.addEventListener("change", () => {
         // Order is preserved: the export pins the whole list for this scope.
-        const next = composed.map((e) => e.id).filter((id) => (id === ref.id ? box.checked : enabled.has(id)));
-        if (box.checked) enabled.add(ref.id);
-        else enabled.delete(ref.id);
-        if (scope === "deck") state.deck.effects = next;
-        else {
-          state.slides[slideId] = state.slides[slideId] ?? {};
-          state.slides[slideId].effects = next;
-        }
-        persist();
-        host.applyEffects(next);
+        commitEffects(slideId, rows.filter((other) => (other === id ? box.checked : enabled.has(other))));
       });
       const name = el("span");
-      name.textContent = ref.id;
+      name.textContent = id;
       row.append(box, name);
       list.appendChild(row);
-      const knobs = paramRows(slideId, ref.id);
+      const knobs = paramRows(slideId, id);
       if (knobs) list.appendChild(knobs);
     }
+    list.appendChild(addEffectPicker(slideId, active));
     return list;
+  }
+
+  /**
+   * The catalogue minus what the slide already lists, grouped by kind. An
+   * effect the deck never mentioned is one pick away — before this the
+   * checklist could only take effects AWAY.
+   */
+  function addEffectPicker(slideId: string, active: string[]): HTMLElement {
+    const node = el("select", { "data-add-effect": "" });
+    const placeholder = el("option", { value: "" });
+    placeholder.textContent = "add effect…";
+    node.appendChild(placeholder);
+    const taken = new Set(active);
+    const byKind = new Map<string, string[]>();
+    for (const card of host.catalogue) {
+      if (taken.has(card.id)) continue;
+      const bucket = byKind.get(card.kind) ?? [];
+      bucket.push(card.id);
+      byKind.set(card.kind, bucket);
+    }
+    for (const kind of [...byKind.keys()].sort()) {
+      const group = el("optgroup", { label: kind });
+      for (const id of (byKind.get(kind) ?? []).sort()) {
+        const option = el("option", { value: id });
+        option.textContent = id;
+        group.appendChild(option);
+      }
+      node.appendChild(group);
+    }
+    node.value = "";
+    node.addEventListener("change", () => {
+      if (!node.value) return;
+      commitEffects(slideId, [...active, node.value]);
+    });
+    return node;
   }
 
   /**

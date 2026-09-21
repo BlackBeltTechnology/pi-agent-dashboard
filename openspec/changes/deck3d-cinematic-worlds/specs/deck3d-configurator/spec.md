@@ -11,6 +11,16 @@ Controls SHALL be grouped into collapsible blocks, each independently openable a
 
 Within the **Effects** block, each composed effect SHALL render a control per parameter DECLARED IN ITS CARD — generated from the declaration, never hand-written per effect, so corpus and `local:` effects alike gain controls by declaring params. A declared `minimum`/`maximum` SHALL render a slider bounded by them, a `boolean` a checkbox, and an `enum` a select. Editing a parameter SHALL re-instantiate that effect on the current slide immediately, SHALL NOT mutate the authored deck, and SHALL be written into an export as `effects[].params`.
 
+The **Effects** block SHALL also offer an **add** control listing every effect the deck can instantiate — the whole corpus plus the deck's `local:` cards — grouped by `kind`, excluding the ids already on the slide. Picking one SHALL append it to that scope's list and rebuild the current slide so the addition is visible without a reload; the added effect SHALL gain its declared parameter controls like any composed effect. Adding and removing SHALL NOT mutate the embedded IR, and the resulting list SHALL be what an export pins for that scope.
+
+#### Scenario: Add an effect from the catalogue
+- **WHEN** the presenter picks `pixelate` from the add control on a slide that does not list it
+- **THEN** the pass is running on the current slide immediately, `pixelate` appears in the checklist with its declared params, `window.__DECK` is unchanged, and an export carries it in that scope's `effects`
+
+#### Scenario: Removing takes effect live
+- **WHEN** the presenter unchecks a composed `post` effect
+- **THEN** its pass stops running on the current slide immediately — not only at the next reload
+
 #### Scenario: Generated effect parameter control
 - **WHEN** slide `geo` composes an effect whose card declares `lift` with `minimum: 0` and `maximum: 4`
 - **THEN** the Effects block shows a slider for `lift` bounded `0`–`4`; moving it rebuilds the effect in place, `window.__DECK` is unchanged, and an export carries `effects: [{ id, params: { lift } }]`

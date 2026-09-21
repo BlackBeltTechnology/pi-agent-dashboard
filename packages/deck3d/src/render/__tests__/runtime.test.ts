@@ -1000,3 +1000,52 @@ describe.skipIf(!hasChromium)("configurator switches the title contour (#F33)", 
     }
   }, 180_000);
 });
+
+/**
+ * #F34 (Section 22) — the Effects block adds as well as removes.
+ *
+ * Before this the checklist could only untick what the slide already composed,
+ * and the untick reached nothing but `background.visible`: a `post` card kept
+ * rendering until the page was reloaded.
+ */
+describe.skipIf(!hasChromium)("configurator adds and removes effects (#F34)", () => {
+  it("adds a catalogue card live, removes it live, and leaves __DECK alone", async () => {
+    const browser = await chromium.launch({ channel: "chromium" });
+    try {
+      const { page } = await open(browser, await writeDeck());
+      const pixelateOn = () =>
+        page.evaluate(() => window.__deck3d!.debug.post().some((p) => p.id === "pixelate" && p.enabled));
+      expect(await pixelateOn()).toBe(false);
+
+      await page.keyboard.press("c");
+      await openAllBlocks(page);
+
+      // The picker offers the whole corpus minus what the slide already lists.
+      const add = "#deck3d-hud select[data-add-effect]";
+      expect(await page.locator(`${add} option[value="pixelate"]`).count()).toBe(1);
+
+      await page.selectOption(add, "pixelate");
+      await page.waitForTimeout(400);
+      expect(await pixelateOn()).toBe(true);
+      // The added card is a composed effect like any other: it gets its
+      // declared params and its own checklist row.
+      expect(await page.locator('#deck3d-hud input[data-effect="pixelate"]').count()).toBe(1);
+      expect(await page.locator('#deck3d-hud [data-fxparam="pixelate.size"]').count()).toBe(1);
+      // Already on the slide ⇒ no longer offered.
+      expect(await page.locator(`${add} option[value="pixelate"]`).count()).toBe(0);
+
+      // Removing has to stop the pass, not merely hide a background mesh.
+      // A click, not `uncheck()`: committing re-renders the block, so the
+      // node is detached before Playwright can re-read its checked state.
+      await page.locator('#deck3d-hud input[data-effect="pixelate"]').dispatchEvent("click");
+      await page.waitForTimeout(400);
+      expect(await pixelateOn()).toBe(false);
+
+      // The embedded IR is the record of what was RENDERED; the panel is not
+      // allowed to rewrite it.
+      expect(await page.evaluate(() => JSON.stringify(window.__DECK.slides))).not.toContain("pixelate");
+    } finally {
+      await browser.close();
+    }
+  }, 180_000);
+});

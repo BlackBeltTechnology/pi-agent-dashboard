@@ -83,6 +83,9 @@ Default check viewports: `1920x1080,1280x720`. Default `check` timeout 120 s/vie
 - Suggest keys spell the overrides grammar: `overrides.slides["arch"].diagram.scale`.
 - The deck's `⚙` configurator (`C` key) exports an `overrides.json` in this
   grammar; merge it with `deck3d overrides apply`.
+- Its **Effects** block adds as well as removes: the `add effect…` picker lists
+  the whole corpus plus the deck's `local:` cards, grouped by kind. Either way
+  the current slide is rebuilt live and `window.__DECK` is untouched.
 
 ## Tune loop
 

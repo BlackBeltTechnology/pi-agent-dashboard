@@ -60,6 +60,7 @@
   .deck3d-hud-block[open] > summary::before { transform: rotate(90deg); }
   .deck3d-hud-effects { margin: 6px 0; }
   .deck3d-hud-effect { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+  .deck3d-hud-effects select[data-add-effect] { width: 100%; margin-top: 5px; }
   /* Per-effect knobs, indented under the effect they belong to. */
   .deck3d-hud-fxparams { margin: 0 0 7px 18px; padding-left: 7px; border-left: 1px solid rgba(255,255,255,.14); }
   .deck3d-hud-fxparam { display: grid; grid-template-columns: 62px 1fr 30px; align-items: center; gap: 5px; margin: 2px 0; font-size: 11px; opacity: .85; }
@@ -58943,35 +58944,68 @@ vec3 transformedNormal = normalMatrix * (basis * objectNormal);
       });
       return node;
     }
+    function commitEffects(slideId, next) {
+      if (scope === "deck") state.deck.effects = next;
+      else {
+        state.slides[slideId] = state.slides[slideId] ?? {};
+        state.slides[slideId].effects = next;
+      }
+      persist();
+      host.applyEffects(next);
+      render();
+    }
     function effectsChecklist(slideId) {
       const list = el("div", { class: "deck3d-hud-effects" });
       const composed = host.slides[host.current() - 1]?.effects ?? [];
       const staged = scope === "deck" ? state.deck.effects : state.slides[slideId]?.effects;
-      const enabled = new Set(staged ?? composed.map((e) => e.id));
-      for (const ref of composed) {
+      const active = staged ?? composed.map((e) => e.id);
+      const enabled = new Set(active);
+      const rows = [...active, ...composed.map((e) => e.id).filter((id) => !enabled.has(id))];
+      for (const id of rows) {
         const row = el("label", { class: "deck3d-hud-effect" });
-        const box = el("input", { type: "checkbox", "data-effect": ref.id });
-        box.checked = enabled.has(ref.id);
+        const box = el("input", { type: "checkbox", "data-effect": id });
+        box.checked = enabled.has(id);
         box.addEventListener("change", () => {
-          const next = composed.map((e) => e.id).filter((id) => id === ref.id ? box.checked : enabled.has(id));
-          if (box.checked) enabled.add(ref.id);
-          else enabled.delete(ref.id);
-          if (scope === "deck") state.deck.effects = next;
-          else {
-            state.slides[slideId] = state.slides[slideId] ?? {};
-            state.slides[slideId].effects = next;
-          }
-          persist();
-          host.applyEffects(next);
+          commitEffects(slideId, rows.filter((other) => other === id ? box.checked : enabled.has(other)));
         });
         const name = el("span");
-        name.textContent = ref.id;
+        name.textContent = id;
         row.append(box, name);
         list.appendChild(row);
-        const knobs = paramRows(slideId, ref.id);
+        const knobs = paramRows(slideId, id);
         if (knobs) list.appendChild(knobs);
       }
+      list.appendChild(addEffectPicker(slideId, active));
       return list;
+    }
+    function addEffectPicker(slideId, active) {
+      const node = el("select", { "data-add-effect": "" });
+      const placeholder = el("option", { value: "" });
+      placeholder.textContent = "add effect\u2026";
+      node.appendChild(placeholder);
+      const taken = new Set(active);
+      const byKind = /* @__PURE__ */ new Map();
+      for (const card2 of host.catalogue) {
+        if (taken.has(card2.id)) continue;
+        const bucket = byKind.get(card2.kind) ?? [];
+        bucket.push(card2.id);
+        byKind.set(card2.kind, bucket);
+      }
+      for (const kind of [...byKind.keys()].sort()) {
+        const group = el("optgroup", { label: kind });
+        for (const id of (byKind.get(kind) ?? []).sort()) {
+          const option = el("option", { value: id });
+          option.textContent = id;
+          group.appendChild(option);
+        }
+        node.appendChild(group);
+      }
+      node.value = "";
+      node.addEventListener("change", () => {
+        if (!node.value) return;
+        commitEffects(slideId, [...active, node.value]);
+      });
+      return node;
     }
     function paramRows(slideId, effectId) {
       const decl = host.effectParams().find((e) => e.id === effectId);
@@ -63564,8 +63598,16 @@ vec3 transformedNormal = normalMatrix * (basis * objectNormal);
   function paramsFor(slideId, ref) {
     return { ...ref.params ?? {}, ...fxParamEdits[`${slideId}|${ref.id}`] ?? {} };
   }
+  var fxSetEdits = {};
+  function effectsOf(slide) {
+    const authored = slide.effects ?? [];
+    const ids = fxSetEdits[slide.id];
+    if (!ids) return authored;
+    const byId = new Map(authored.map((ref) => [ref.id, ref]));
+    return ids.map((id) => byId.get(id) ?? { id });
+  }
   function backgroundFromEffects(slide, P, profile, mode) {
-    for (const ref of slide.effects ?? []) {
+    for (const ref of effectsOf(slide)) {
       const entry = REGISTRY[ref.id];
       if (entry?.card.kind !== "background") continue;
       const handle = entry.create(fxContextFor(slide, P, profile, mode), paramsFor(slide.id, ref));
@@ -63579,7 +63621,7 @@ vec3 transformedNormal = normalMatrix * (basis * objectNormal);
     const registry = localFxRegistry();
     const out = [];
     const ids = [];
-    for (const ref of slide.effects ?? []) {
+    for (const ref of effectsOf(slide)) {
       if (!ref.id.startsWith("local:")) continue;
       if (skip?.(ref.id)) continue;
       const module = registry[ref.id.slice("local:".length)];
@@ -63628,7 +63670,7 @@ vec3 transformedNormal = normalMatrix * (basis * objectNormal);
     }
     const localFx = localEffectsFor(slide, P, profile, mode, g, index);
     const quality = cfg.quality ?? deck.defaults.quality ?? "high";
-    const comp = composeEffects(slide.effects, mode, quality, slide.id, localCards());
+    const comp = composeEffects(effectsOf(slide), mode, quality, slide.id, localCards());
     const skipped = comp.skipped.map((s) => `${s.id}: ${s.reason}`);
     const warning = comp.warnings.find((w) => w.startsWith("warn budget"));
     const budget = {
@@ -63672,7 +63714,7 @@ vec3 transformedNormal = normalMatrix * (basis * objectNormal);
     function syncPost() {
       const slide = deck.slides[cur];
       const build = builds[cur];
-      const refs = (slide.effects ?? []).filter((e) => REGISTRY[e.id]?.card.kind === "post").map((e) => ({ id: e.id, params: paramsFor(slide.id, e) }));
+      const refs = effectsOf(slide).filter((e) => REGISTRY[e.id]?.card.kind === "post").map((e) => ({ id: e.id, params: paramsFor(slide.id, e) }));
       rig.setPost(refs, {
         mode: build.cfg.mode ?? "dark",
         palette: build.palette,
@@ -63752,7 +63794,7 @@ vec3 transformedNormal = normalMatrix * (basis * objectNormal);
       const build = builds[index];
       if (!build || build.localFx.length > 0) return;
       const slide = deck.slides[index];
-      if (!(slide.effects ?? []).some((ref) => ref.id.startsWith("local:"))) return;
+      if (!effectsOf(slide).some((ref) => ref.id.startsWith("local:"))) return;
       const profile = qualityProfile(build.cfg.quality ?? deck.defaults.quality);
       const mode = build.cfg.mode ?? "dark";
       const failed = new Set(localFxErrors.filter((e) => e.slide === slide.id).map((e) => e.effectId));
@@ -63961,6 +64003,12 @@ vec3 transformedNormal = normalMatrix * (basis * objectNormal);
     }
     const hud = createHud({
       slides: deck.slides.map((s) => ({ id: s.id, title: s.title, effects: [...s.effects ?? []] })),
+      // Everything the deck can instantiate: the corpus, plus the `local:`
+      // modules embedded in THIS file. The panel offers exactly this.
+      catalogue: [
+        ...Object.values(REGISTRY).map((e) => ({ id: e.card.id, kind: e.card.kind })),
+        ...Object.values(localCards()).map((c) => ({ id: `local:${c.id}`, kind: c.kind }))
+      ],
       defaults: deck.defaults,
       overridden: overriddenKeys(),
       derivedHash: window.__DECK.derivedHash ?? "",
@@ -63979,7 +64027,7 @@ vec3 transformedNormal = normalMatrix * (basis * objectNormal);
         const slide = deck.slides[cur];
         const local = localCards();
         const out = [];
-        for (const ref of slide.effects ?? []) {
+        for (const ref of effectsOf(slide)) {
           const card2 = ref.id.startsWith("local:") ? local[ref.id.slice("local:".length)] : REGISTRY[ref.id]?.card;
           const schema = card2?.params ?? {};
           if (Object.keys(schema).length === 0) continue;
@@ -64021,12 +64069,14 @@ vec3 transformedNormal = normalMatrix * (basis * objectNormal);
         syncPost();
         rig.render();
       },
+      /**
+       * Recompose the current slide. Flipping `background.visible` used to stand
+       * in for this, which reached neither the post stack nor the `local:`
+       * modules — a removed `post` card kept rendering until a reload.
+       */
       applyEffects: (ids) => {
-        const slide = deck.slides[cur];
-        const keep = new Set(ids);
-        const build = builds[cur];
-        if (build.background) build.background.g.visible = (slide.effects ?? []).some((e) => keep.has(e.id));
-        rig.render();
+        fxSetEdits[deck.slides[cur].id] = [...ids];
+        rebuildSlide(cur, {}, true);
       }
     });
     function overriddenKeys() {

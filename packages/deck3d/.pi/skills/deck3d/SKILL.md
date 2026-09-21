@@ -87,7 +87,9 @@ Objects deep-merge; **arrays replace** (an `effects`/`props` list is the whole l
 `diagram.data` replaces as a whole object so labels and values never mix provenance.
 Full field list: [`reference/ir-fields.md`](reference/ir-fields.md).
 
-The deck's `⚙` configurator (`C` key, or the gear) tries knobs live. Under
+The deck's `⚙` configurator (`C` key, or the gear) tries knobs live. Its **Effects**
+block ticks composed effects off and adds any corpus or `local:` card from the
+`add effect…` picker; both rebuild the slide immediately. Under
 `deck3d serve`, **Apply to deck.json** merges straight into `talk.json` and rebuilds;
 **Save overrides.json** writes `overrides.json` beside the deck. In unserved decks
 or headless workflows, **Export** writes an `overrides.json` in exactly this grammar.

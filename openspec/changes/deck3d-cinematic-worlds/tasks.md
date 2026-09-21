@@ -263,3 +263,10 @@
 - [x] 21.5 Fixture `business-2031` turns it on — the switch exists because its titles read as a solid block
 - [x] 21.6 Docs: README, SKILL, `src/runtime/AGENTS.md`, `src/ir/AGENTS.md`
 - [x] 21.7 Contour held under `BLOOM_CEILING` (0.8 linear) and tone-mapped — post renders to a target, where three skips in-shader tone mapping, so a white contour halos (#E58)
+
+## 22. Effects are added and removed, not only unticked
+
+- [x] 22.1 Runtime: `fxSetEdits` (per-slide effect-id list) + `effectsOf(slide)` behind every read of `slide.effects`, so a configurator edit reaches the background, the `local:` modules, the post stack and the budget without touching `window.__DECK` (#F34)
+- [x] 22.2 `applyEffects` rebuilds the current slide instead of flipping `background.visible` — a removed `post` card kept running until reload (#F34)
+- [x] 22.3 Configurator: an **add** select over the whole corpus + the deck's `local:` cards, grouped by `kind`, minus what the slide already lists; rows render from the EFFECTIVE list (composed ∪ staged) (#F34)
+- [x] 22.4 Docs: `src/runtime/AGENTS.md`, README, SKILL
