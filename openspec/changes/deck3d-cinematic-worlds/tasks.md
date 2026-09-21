@@ -262,3 +262,4 @@
 - [x] 21.4 `debug.look().titleEdge` probe; configurator select in Camera & labels at both scopes (#F33)
 - [x] 21.5 Fixture `business-2031` turns it on — the switch exists because its titles read as a solid block
 - [x] 21.6 Docs: README, SKILL, `src/runtime/AGENTS.md`, `src/ir/AGENTS.md`
+- [x] 21.7 Contour held under `BLOOM_CEILING` (0.8 linear) and tone-mapped — post renders to a target, where three skips in-shader tone mapping, so a white contour halos (#E58)

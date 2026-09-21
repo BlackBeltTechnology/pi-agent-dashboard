@@ -77,7 +77,7 @@ The panel SHALL offer **Export** which downloads `overrides.json` in the IR `ove
 - **THEN** the report equals the report for a fresh profile and no finding names a panel element
 
 ### Requirement: Extruded titles can carry a contour
-The IR SHALL provide `titleEdge` (`none` | `contrast`) as a deck default that a slide may override, and the configurator SHALL expose it at both scopes in the Camera & labels block. `contrast` paints the glyph SIDE walls — `ExtrudeGeometry`'s second material group, the extrusion walls plus the bevel — in a contour colour derived from the palette's `text`, so each character reads separately instead of merging into one lit silhouette. The contour SHALL be unlit, because the side walls sit near-perpendicular to the camera where a lit material goes black. The contour colour SHALL clear a contrast floor against BOTH the lit face and the background; where the palette's `text` colour misses it, only LIGHTNESS is adjusted, preserving hue and saturation.
+The IR SHALL provide `titleEdge` (`none` | `contrast`) as a deck default that a slide may override, and the configurator SHALL expose it at both scopes in the Camera & labels block. `contrast` paints the glyph SIDE walls — `ExtrudeGeometry`'s second material group, the extrusion walls plus the bevel — in a contour colour derived from the palette's `text`, so each character reads separately instead of merging into one lit silhouette. The contour SHALL be unlit, because the side walls sit near-perpendicular to the camera where a lit material goes black. The contour colour SHALL clear a contrast floor against BOTH the lit face and the background; where the palette's `text` colour misses it, only LIGHTNESS is adjusted, preserving hue and saturation. The contour SHALL also stay under the baseline bloom threshold, because post-processing renders to a target where in-shader tone mapping is skipped — a full-luminance contour would reach the bloom pass unattenuated and halo. The contrast floor SHALL be evaluated on the dimmed colour.
 
 #### Scenario: The contour reaches the glyph side walls
 - **GIVEN** a deck with `titleEdge: "contrast"`
@@ -93,3 +93,8 @@ The IR SHALL provide `titleEdge` (`none` | `contrast`) as a deck default that a 
 - **GIVEN** a palette where the text colour contrasts under the floor against the accent
 - **WHEN** the contour colour is resolved
 - **THEN** its lightness is pushed away from the face until the floor is met, with hue and saturation preserved
+
+#### Scenario: The contour does not bloom
+- **GIVEN** any palette and mode
+- **WHEN** the contour colour is resolved
+- **THEN** its linear luminance sits under the bloom ceiling, and it still clears the contrast floor at that reduced luminance

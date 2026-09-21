@@ -968,14 +968,15 @@ describe.skipIf(!hasChromium)("configurator switches the title contour (#F33)", 
       await page.waitForTimeout(300);
 
       const lit = await page.evaluate(() => window.__deck3d!.debug.look());
-      // blackbelt/dark: face is the accent, contour is the palette text colour.
+      // blackbelt/dark: face is the accent; the contour is the palette text
+      // colour dimmed under the bloom ceiling (pure white halos).
       expect(lit.title).toBe("#ff5722");
-      expect(lit.titleEdge).toBe("#ffffff");
+      expect(lit.titleEdge).toBe("#e7e7e7");
 
       // Deck scope reaches slides that were never current while it was set.
       await page.evaluate(() => window.__deck3d!.gotoSlide(2));
       await page.waitForTimeout(1500);
-      expect((await page.evaluate(() => window.__deck3d!.debug.look())).titleEdge).toBe("#ffffff");
+      expect((await page.evaluate(() => window.__deck3d!.debug.look())).titleEdge).toBe("#e7e7e7");
 
       // The embedded IR is untouched.
       expect(await page.evaluate(() => window.__DECK.defaults.titleEdge ?? "none")).toBe("none");
@@ -993,7 +994,7 @@ describe.skipIf(!hasChromium)("configurator switches the title contour (#F33)", 
     const browser = await chromium.launch({ channel: "chromium" });
     try {
       const { page } = await open(browser, await writeDeck({ titleEdge: "contrast" }));
-      expect((await page.evaluate(() => window.__deck3d!.debug.look())).titleEdge).toBe("#ffffff");
+      expect((await page.evaluate(() => window.__deck3d!.debug.look())).titleEdge).toBe("#e7e7e7");
     } finally {
       await browser.close();
     }

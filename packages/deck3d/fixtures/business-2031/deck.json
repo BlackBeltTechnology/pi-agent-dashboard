@@ -2,7 +2,7 @@
   "meta": {
     "engine": "0.1.0",
     "mermaid": "11.17.2",
-    "source": "deck.md",
+    "source": "/Users/robson/Project/pi-agent-dashboard/.worktrees/os-deck3d-cinematic-worlds/packages/deck3d/fixtures/business-2031/deck.md",
     "derivedHash": "362c52110e8221bdd0017b95f2803fc15b1f07414e307f56652e5bfc8c43429e"
   },
   "defaults": {

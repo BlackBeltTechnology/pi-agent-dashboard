@@ -16,13 +16,29 @@ import { readFileSync } from "node:fs";
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import type { Palette } from "../../ir/types.js";
-import { EDGE_CONTRAST_FLOOR, titleEdgeColour, titleEdgeMaterial, titleMaterial } from "../materials.js";
+import { BLOOM_CEILING, EDGE_CONTRAST_FLOOR, titleEdgeColour, titleEdgeMaterial, titleMaterial } from "../materials.js";
 import { PALETTES, resolvePalette } from "../palette.js";
 import { buildTitle, loadFont } from "../text.js";
 
 const FONT = loadFont(readFileSync(new URL("../../../assets/Poppins-Bold.ttf", import.meta.url)).toString("base64"));
 const CFG = { mode: "dark" as const, palette: "blackbelt" as const };
 const P = resolvePalette(CFG);
+
+/**
+ * WCAG relative luminance, decoded from the sRGB BYTES. `THREE.Color` stores
+ * linear values under colour management, so decoding `.r/.g/.b` as if they
+ * were sRGB double-counts and quietly reports the wrong ratio.
+ */
+function lum(hex: string): number {
+  const n = new THREE.Color(hex).getHex(THREE.SRGBColorSpace);
+  const ch = (v: number) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * ch(((n >> 16) & 255) / 255) + 0.7152 * ch(((n >> 8) & 255) / 255) + 0.0722 * ch((n & 255) / 255);
+}
+
+function ratio(a: string, b: string): number {
+  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
 
 function meshes(group: THREE.Object3D): THREE.Mesh[] {
   const out: THREE.Mesh[] = [];
@@ -48,13 +64,30 @@ describe("E58 extruded title contour", () => {
     const mats = meshes(group)[0].material as THREE.Material[];
     expect(Array.isArray(mats)).toBe(true);
     expect((mats[0] as THREE.MeshPhysicalMaterial).color.getHexString()).toBe(new THREE.Color(P.accent).getHexString());
-    expect((mats[1] as THREE.MeshBasicMaterial).color.getHexString()).toBe(new THREE.Color(P.text).getHexString());
+    expect((mats[1] as THREE.MeshBasicMaterial).color.getHexString()).toBe(new THREE.Color(titleEdgeColour(P)).getHexString());
+    // blackbelt/dark: palette text is #FFFFFF, dimmed just under the bloom
+    // ceiling. Pinned literally — a regression here is a halo, not a crash.
+    expect(titleEdgeColour(P).toLowerCase()).toBe("#e7e7e7");
+  });
+
+  it("holds every palette's contour under the bloom ceiling", () => {
+    // Post-processing renders to a target, where three skips in-shader tone
+    // mapping — so a 1.0 contour reaches the bloom pass at 1.0 and halos.
+    for (const id of Object.keys(PALETTES) as Array<Exclude<Palette, "custom">>) {
+      for (const mode of ["dark", "light"] as const) {
+        const c = new THREE.Color(titleEdgeColour(resolvePalette({ mode, palette: id })));
+        const linear = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+        // +0.01: the dimmed colour round-trips through an 8-bit hex string.
+        expect(linear, `${id}/${mode} contour luminance`).toBeLessThanOrEqual(BLOOM_CEILING + 0.01);
+      }
+    }
   });
 
   it("pushes only lightness when the palette text colour is too close to the face", () => {
-    // forest/light: text #14532d against accent #22c55e is ratio 1.46 — not a
-    // contour. Hue and saturation must survive the correction.
-    const P = resolvePalette({ mode: "light", palette: "forest" });
+    // ember/dark: the palette text is near-white against a bright amber face,
+    // so the contour has to travel DOWN. Hue and saturation must survive.
+    const P = resolvePalette({ mode: "dark", palette: "ember" });
+    expect(ratio(P.text, P.accent)).toBeLessThan(EDGE_CONTRAST_FLOOR);
     const pushed = new THREE.Color(titleEdgeColour(P)).getHSL({ h: 0, s: 0, l: 0 });
     const text = new THREE.Color(P.text).getHSL({ h: 0, s: 0, l: 0 });
     // 2dp: the candidate round-trips through an 8-bit hex string.
@@ -68,7 +101,9 @@ describe("E58 extruded title contour", () => {
     // goes black exactly there, which is the case the switch exists to fix.
     const edge = titleEdgeMaterial(P) as THREE.MeshBasicMaterial;
     expect(edge.type).toBe("MeshBasicMaterial");
-    expect(edge.toneMapped).toBe(false);
+    // But tone-mapped like the rest of the scene, and held under the bloom
+    // ceiling: an unlit white wall halos worse than the merged silhouette.
+    expect(edge.toneMapped).toBe(true);
   });
 
   it("keeps one material when the switch is off", () => {
@@ -80,16 +115,7 @@ describe("E58 extruded title contour", () => {
     for (const id of Object.keys(PALETTES) as Array<Exclude<Palette, "custom">>) {
       for (const mode of ["dark", "light"] as const) {
         const colours = resolvePalette({ mode, palette: id });
-        const lum = (hex: string) => {
-          const c = new THREE.Color(hex);
-          const ch = (v: number) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
-          return 0.2126 * ch(c.r) + 0.7152 * ch(c.g) + 0.0722 * ch(c.b);
-        };
         const edge = `#${(titleEdgeMaterial(colours) as THREE.MeshBasicMaterial).color.getHexString()}`;
-        const ratio = (a: string, b: string) => {
-          const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
-          return (hi + 0.05) / (lo + 0.05);
-        };
         // Against the face, or the contour is invisible ON the glyph.
         expect(ratio(edge, colours.accent), `${id}/${mode} contour vs face`).toBeGreaterThanOrEqual(EDGE_CONTRAST_FLOOR);
         // Against the background, or the outer silhouette is invisible.
