@@ -16,7 +16,7 @@
  * See change: make-pairing-qr-camera-scannable.
  */
 import { getApiBase } from "../api/api-context.js";
-import { getAccessToken } from "../identity/token-store.js";
+import { getAccessToken } from "@blackbelt-technology/pi-dashboard-client-utils/identity/token-store";
 
 const BEARER_KEY = "pi-dashboard:device-bearer";
 

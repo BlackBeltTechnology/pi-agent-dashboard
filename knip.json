@@ -156,6 +156,10 @@
         "src/focusRing.ts",
         "src/statusPresentation.ts",
         "src/minimal-chat/index.ts",
+        "src/identity/pkce.ts",
+        "src/identity/token-store.ts",
+        "src/identity/oidc-flow.ts",
+        "src/identity/dpop.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],
@@ -472,6 +476,7 @@
     },
     "packages/keycloak-resolver-plugin": {
       "entry": [
+        "src/client/index.tsx",
         "src/server/index.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"

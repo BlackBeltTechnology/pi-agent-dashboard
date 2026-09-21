@@ -9,6 +9,7 @@ import { GoalChip, hasGoal, GoalControl, FolderGoalsSection, GoalsBoardClaim, Go
 import { GrammarSettings, GrammarComposerPanel, catalog as grammar_catalog } from "@blackbelt-technology/pi-dashboard-grammar-plugin";
 import { HermesMemorySettings, catalog as hermes_memory_catalog } from "@blackbelt-technology/pi-dashboard-hermes-memory-plugin";
 import { FolderKbSection, KbSettingsClaim, catalog as kb_catalog } from "@blackbelt-technology/pi-dashboard-kb-plugin";
+import { KeycloakLogin, catalog as keycloak_resolver_catalog } from "@blackbelt-technology/pi-dashboard-keycloak-resolver-plugin";
 import { McpSettingsClaim, FolderMcpSection, FolderMcpPage } from "@blackbelt-technology/pi-dashboard-mcp-client-plugin";
 import { BuiltInRolesSettings, catalog as roles_catalog } from "@blackbelt-technology/pi-dashboard-roles-plugin";
 import { SubagentsSettings, SubagentPopoutClaim, catalog as subagents_catalog } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
@@ -365,6 +366,27 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
+        "id": "keycloak-resolver",
+        "displayName": "Keycloak Resolver",
+        "priority": 100,
+        "claims": [
+            {
+                "slot": "login-provider",
+                "component": "KeycloakLogin"
+            }
+        ],
+        "client": "./src/client/index.tsx",
+        "server": "./src/server/index.ts",
+        "configSchema": "./src/configSchema.json",
+        "i18nCatalog": "catalog"
+    },
+    claims: [
+      { pluginId: "keycloak-resolver", priority: 100, slot: "login-provider", Component: KeycloakLogin },
+    ],
+    catalog: keycloak_resolver_catalog,
+  },
+  {
+    manifest: {
         "id": "mcp-client",
         "displayName": "MCP Client",
         "priority": 100,
@@ -605,4 +627,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "9903cd6ad9080451f9398d9d6d0cbff1554691f62c8cbdb59fe292c480e92eda";
+export const PLUGIN_REGISTRY_HASH = "7c0dd61e2fd11778f29e3b317b0e2a02eb4ddbfe39da588cae00563a80492d9f";

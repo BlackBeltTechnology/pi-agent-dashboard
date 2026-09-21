@@ -327,6 +327,9 @@ importers:
       '@blackbelt-technology/pi-dashboard-kb-plugin':
         specifier: ^0.8.0
         version: link:../kb-plugin
+      '@blackbelt-technology/pi-dashboard-keycloak-resolver-plugin':
+        specifier: ^0.8.0
+        version: link:../keycloak-resolver-plugin
       '@blackbelt-technology/pi-dashboard-mcp-client-plugin':
         specifier: ^0.8.0
         version: link:../mcp-client-plugin
@@ -995,12 +998,21 @@ importers:
       '@blackbelt-technology/dashboard-plugin-runtime':
         specifier: ^0.8.0
         version: link:../dashboard-plugin-runtime
+      '@blackbelt-technology/pi-dashboard-client-utils':
+        specifier: ^0.8.0
+        version: link:../client-utils
       '@blackbelt-technology/pi-dashboard-shared':
         specifier: ^0.8.0
         version: link:../shared
       jose:
         specifier: ^6.0.0
         version: 6.2.10
+      react:
+        specifier: '>=18.0.0'
+        version: 19.2.8
+      react-dom:
+        specifier: '>=18.0.0'
+        version: 19.2.8(react@19.2.8)
 
   packages/mcp-client-plugin:
     dependencies:

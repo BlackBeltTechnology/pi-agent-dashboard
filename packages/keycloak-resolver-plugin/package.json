@@ -13,6 +13,14 @@
     "directory": "packages/keycloak-resolver-plugin"
   },
   "exports": {
+    ".": {
+      "types": "./src/client/index.tsx",
+      "default": "./src/client/index.tsx"
+    },
+    "./client": {
+      "types": "./src/client/index.tsx",
+      "default": "./src/client/index.tsx"
+    },
     "./server": {
       "types": "./src/server/index.ts",
       "default": "./src/server/index.ts"
@@ -31,14 +39,26 @@
   "pi-dashboard-plugin": {
     "id": "keycloak-resolver",
     "displayName": "Keycloak Resolver",
-    "claims": [],
+    "i18nCatalog": "catalog",
+    "claims": [
+      {
+        "slot": "login-provider",
+        "component": "KeycloakLogin"
+      }
+    ],
     "priority": 100,
+    "client": "./src/client/index.tsx",
     "server": "./src/server/index.ts",
     "configSchema": "./src/configSchema.json"
   },
   "dependencies": {
     "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-client-utils": "^0.8.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
     "jose": "^6.0.0"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
   }
 }

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearAccessToken, setAccessToken } from "../../identity/token-store.js";
+import { clearAccessToken, setAccessToken } from "@blackbelt-technology/pi-dashboard-client-utils/identity/token-store";
 import { clearDeviceBearer, getApiBearer, installDeviceAuthFetch, storeDeviceBearer } from "../device-auth.js";
 
 /** Capture the Authorization header the wrapper produced for a given URL. */

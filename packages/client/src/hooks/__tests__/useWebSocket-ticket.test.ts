@@ -1,6 +1,6 @@
 import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearAccessToken, getAccessToken, setAccessToken } from "../../lib/identity/token-store.js";
+import { clearAccessToken, getAccessToken, setAccessToken } from "@blackbelt-technology/pi-dashboard-client-utils/identity/token-store";
 import { clearDeviceBearer } from "../../lib/pairing/device-auth.js";
 import { IDENTITY_EXPIRED_CLOSE_CODE, useWebSocket } from "../useWebSocket.js";
 

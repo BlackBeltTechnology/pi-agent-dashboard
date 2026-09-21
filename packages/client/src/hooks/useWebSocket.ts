@@ -2,7 +2,7 @@ import { setSender as setPluginActionSender } from "@blackbelt-technology/dashbo
 import type { BrowserToServerMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getApiBase } from "../lib/api/api-context.js";
-import { clearAccessToken } from "../lib/identity/token-store.js";
+import { clearAccessToken } from "@blackbelt-technology/pi-dashboard-client-utils/identity/token-store";
 import { appendWsTicket, getApiBearer, mintWsTicket } from "../lib/pairing/device-auth.js";
 
 export type ConnectionStatus = "connected" | "connecting" | "offline" | "auth_required";
