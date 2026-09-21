@@ -708,3 +708,23 @@ describe("single dispatch funnel (F9, restated for the dialog-era structure)", (
     stop();
   });
 });
+
+// ── E30 — permanent-key credentials show no expiry ───────────────────────────
+
+describe("permanent-key expiry (E30)", () => {
+  it("an authenticated openrouter row with expires:null renders connected with no expiry text and no expired badge", async () => {
+    const script: FetchScript = {
+      statusGets: 0,
+      providersGets: 0,
+      statuses: [{ id: "openrouter", name: "OpenRouter", flowType: "auth_code", authenticated: true, configured: true, source: "stored", expires: null }],
+    };
+    const { c } = await renderSection(script);
+    const row = c.container.querySelector('[data-testid="provider-row"][data-row-id="openrouter"]');
+    expect(row).toBeTruthy();
+    expect(row!.textContent).toContain("Connected");
+    // A null expiry is a PERMANENT credential: no countdown and no "expired"
+    // state — the explicit null guard never invokes relativeExpiry.
+    expect(row!.textContent).not.toMatch(/expired/i);
+    expect(row!.textContent).not.toMatch(/expires in/);
+  });
+});

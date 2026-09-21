@@ -12,7 +12,12 @@
  * (the stored credential is untouched, only unmanageable from the dashboard)
  * and returns once a catalogue is pushed again.
  *
- * See change: redesign-providers-settings-page (D5).
+ * NOTE: `openrouter` is now one of the runtime's OAuth providers, so its stored
+ * api key surfaces under the `<id>-api` twin id and the bare `openrouter` id
+ * carries the (unauthenticated) OAuth row. The ROW that comes and goes with the
+ * catalogue is therefore `openrouter-api`.
+ * See changes: redesign-providers-settings-page (D5),
+ * delegate-provider-oauth-to-pi-ai (D5 — the id set grew 3 → 7).
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -148,10 +153,14 @@ describe("catalogue availability across bridge disconnects", () => {
     await waitFor(() => getLatestCatalogue().length > 0);
 
     const before = await getJson(browserPort, "/api/provider-auth/status");
-    const rowBefore = before.body.find((r: { id: string }) => r.id === "openrouter");
+    const rowBefore = before.body.find((r: { id: string }) => r.id === "openrouter-api");
     expect(rowBefore).toBeDefined();
     expect(rowBefore.flowType).toBe("api_key");
     expect(rowBefore.configured).toBe(true);
+    // The bare id is the OAuth row now, and it is NOT the one the catalogue
+    // drives: it survives the disconnect.
+    expect(before.body.find((r: { id: string }) => r.id === "openrouter").flowType)
+      .not.toBe("api_key");
 
     piWs.close();
     await waitFor(async () =>
@@ -160,7 +169,7 @@ describe("catalogue availability across bridge disconnects", () => {
     // While unavailable: NO api-key row for openrouter — and the stored
     // credential is untouched on disk.
     const during = await getJson(browserPort, "/api/provider-auth/status");
-    expect(during.body.find((r: { id: string }) => r.id === "openrouter")).toBeUndefined();
+    expect(during.body.find((r: { id: string }) => r.id === "openrouter-api")).toBeUndefined();
     expect(readAuthJson().openrouter).toEqual({ type: "api_key", key: "sk-or-123" });
     // The response is still a bare array with no envelope (5.4).
     expect(Array.isArray(during.body)).toBe(true);
@@ -170,9 +179,9 @@ describe("catalogue availability across bridge disconnects", () => {
     ws2.send(JSON.stringify({ type: "providers_list", sessionId: "p2", providers: OPENROUTER_CATALOGUE }));
     await waitFor(async () => {
       const s = await getJson(browserPort, "/api/provider-auth/status");
-      return s.body.some((r: { id: string }) => r.id === "openrouter");
+      return s.body.some((r: { id: string }) => r.id === "openrouter-api");
     });
     const after = await getJson(browserPort, "/api/provider-auth/status");
-    expect(after.body.find((r: { id: string }) => r.id === "openrouter").configured).toBe(true);
+    expect(after.body.find((r: { id: string }) => r.id === "openrouter-api").configured).toBe(true);
   });
 });

@@ -1,5 +1,6 @@
 /**
- * The Add-provider dialog — picker + per-flowType panes.
+ * The Add-provider dialog — picker + per-provider panes; the sign-in pane is
+ * prompt-driven from `flow.status.pending` (never branched on provider id).
  *
  * PRESENTATION ONLY (design D4): the providers SECTION owns every flow's poll
  * timers and the outcome of every write. Closing this dialog unmounts
@@ -20,7 +21,7 @@
 import { mdiArrowRight, mdiContentCopy, mdiLoading } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useMemo, useState } from "react";
-import type { DeviceCodeResponse, ProviderAuthStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { OAuthFlowStatus, ProviderAuthStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import { SearchableSelectDialog, type SelectOption } from "../primitives/SearchableSelectDialog.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
@@ -42,10 +43,9 @@ export const API_TYPE_OPTIONS = [
 /** Section-owned flow state, mirrored into the pane for presentation. */
 export interface AddDialogFlowState {
   phase: "starting" | "waiting" | "error";
-  /** Authorization URL from POST /authorize — copyable fallback link. */
-  authUrl?: string;
-  /** Device-code payload from POST /device-code. */
-  device?: DeviceCodeResponse;
+  /** Latest OAuthFlowStatus snapshot from GET /flow/:flowId (waiting phase). */
+  status?: OAuthFlowStatus;
+  /** Local start failure (network / non-ok /start) — terminal, no poll. */
   error?: string;
 }
 
@@ -129,8 +129,12 @@ interface Props {
   flows: Record<string, AddDialogFlowState>;
   onClose: () => void;
   onSelectProvider: (id: string | null) => void;
-  onStartAuthCode: (id: string) => void;
-  onStartDeviceCode: (id: string, enterpriseDomain?: string) => void;
+  /** Starts POST /start for the provider (enterpriseDomain pre-answered when given). */
+  onStartFlow: (id: string, enterpriseDomain?: string) => void;
+  /** POSTs one prompt answer into a live flow (manual_code / text / select). */
+  onSendInput: (flowId: string, value: string) => Promise<void>;
+  /** Cancels a live flow: DELETE server-side, stop the poll, back to the picker. */
+  onCancelFlow: (id: string, flowId: string) => void;
   /** Returns the inline error message, or null on success. */
   onSaveApiKey: (id: string, key: string) => Promise<string | null>;
   onSaveCustomEndpoint: (input: CustomEndpointInput) => Promise<string | null>;
@@ -142,8 +146,9 @@ export function ProviderAddDialog({
   flows,
   onClose,
   onSelectProvider,
-  onStartAuthCode,
-  onStartDeviceCode,
+  onStartFlow,
+  onSendInput,
+  onCancelFlow,
   onSaveApiKey,
   onSaveCustomEndpoint,
 }: Props) {
@@ -159,8 +164,9 @@ export function ProviderAddDialog({
           flows={flows}
           onClose={onClose}
           onBack={() => onSelectProvider(null)}
-          onStartAuthCode={onStartAuthCode}
-          onStartDeviceCode={onStartDeviceCode}
+          onStartFlow={onStartFlow}
+          onSendInput={onSendInput}
+          onCancelFlow={onCancelFlow}
           onSaveApiKey={onSaveApiKey}
         />
       ) : (
@@ -240,36 +246,28 @@ function PaneShell({ title, onBack, onClose, children, footer }: {
 
 // ── Per-flowType dispatch ────────────────────────────────────────────────────
 
-function ProviderPane({ provider, flows, onClose, onBack, onStartAuthCode, onStartDeviceCode, onSaveApiKey }: {
+function ProviderPane({ provider, flows, onClose, onBack, onStartFlow, onSendInput, onCancelFlow, onSaveApiKey }: {
   provider: ProviderAuthStatus;
   flows: Record<string, AddDialogFlowState>;
   onClose: () => void;
   onBack: () => void;
-  onStartAuthCode: (id: string) => void;
-  onStartDeviceCode: (id: string, enterpriseDomain?: string) => void;
+  onStartFlow: (id: string, enterpriseDomain?: string) => void;
+  onSendInput: (flowId: string, value: string) => Promise<void>;
+  onCancelFlow: (id: string, flowId: string) => void;
   onSaveApiKey: (id: string, key: string) => Promise<string | null>;
 }) {
   if (provider.flowType === "api_key") {
     return <ApiKeyPane provider={provider} onClose={onClose} onBack={onBack} onSave={onSaveApiKey} />;
   }
-  if (provider.flowType === "device_code") {
-    return (
-      <DeviceCodePane
-        provider={provider}
-        flow={flows[provider.id]}
-        onBack={onBack}
-        onClose={onClose}
-        onStart={(domain) => onStartDeviceCode(provider.id, domain)}
-      />
-    );
-  }
   return (
-    <AuthCodePane
+    <SignInPane
       provider={provider}
       flow={flows[provider.id]}
       onBack={onBack}
       onClose={onClose}
-      onStart={() => onStartAuthCode(provider.id)}
+      onStart={(domain) => onStartFlow(provider.id, domain)}
+      onSendInput={onSendInput}
+      onCancelFlow={(flowId) => onCancelFlow(provider.id, flowId)}
     />
   );
 }
@@ -343,63 +341,32 @@ function ApiKeyPane({ provider, onClose, onBack, onSave }: {
   );
 }
 
-// ── Auth-code pane ───────────────────────────────────────────────────────────
+// ── Prompt-driven sign-in pane ──────────────────────────────────────────────
 
-function AuthCodePane({ provider, flow, onBack, onClose, onStart }: {
-  provider: ProviderAuthStatus;
-  flow?: AddDialogFlowState;
-  onBack: () => void;
-  onClose: () => void;
-  onStart: () => void;
-}) {
-  const waiting = flow?.phase === "starting" || flow?.phase === "waiting";
-  return (
-    <PaneShell title={i18nT("providers.signInPaneTitle", { name: provider.name }, `Sign in to ${provider.name}`)} onBack={onBack} onClose={onClose}>
-      {!flow && (
-        <>
-          <p className="text-xs text-[var(--text-secondary)]">
-            {i18nT("providers.authCodePaneBody", undefined, "A browser window will open to complete the sign-in. This dialog can be closed — the sign-in finishes in the background.")}
-          </p>
-          <button type="button" data-testid="dialog-sign-in" onClick={onStart}
-            className="mt-3 px-3 py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white font-medium">
-            {i18nT("common.signIn", undefined, "Sign In")}
-          </button>
-        </>
-      )}
-      {waiting && (
-        <div className="space-y-2" data-testid="dialog-flow-waiting">
-          <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
-            <Icon path={mdiLoading} size={0.5} className="animate-spin" />
-            {i18nT("status.waitingForAuthorization", undefined, "Waiting for authorization…")}
-          </div>
-          {flow?.authUrl && (
-            <div className="text-[11px] text-[var(--text-muted)] break-all">
-              {i18nT("providers.authUrlFallback", undefined, "If the browser did not open, use this link:")}{" "}
-              <a href={flow.authUrl} target="_blank" rel="noopener" className="underline break-all">{flow.authUrl}</a>
-            </div>
-          )}
-        </div>
-      )}
-      {flow?.phase === "error" && (
-        <div className="mt-2 text-xs text-red-400" data-testid="dialog-flow-error">{flow.error}</div>
-      )}
-    </PaneShell>
-  );
+/** mm:ss countdown for the device-code expiry (refreshed on each poll tick). */
+function formatCountdown(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-// ── Device-code pane ─────────────────────────────────────────────────────────
-
-function DeviceCodePane({ provider, flow, onBack, onClose, onStart }: {
+function SignInPane({ provider, flow, onBack, onClose, onStart, onSendInput, onCancelFlow }: {
   provider: ProviderAuthStatus;
   flow?: AddDialogFlowState;
   onBack: () => void;
   onClose: () => void;
-  onStart: (domain?: string) => void;
+  onStart: (enterpriseDomain?: string) => void;
+  onSendInput: (flowId: string, value: string) => Promise<void>;
+  onCancelFlow: (flowId: string) => void;
 }) {
-  // GitHub Copilot prompts for an Enterprise domain BEFORE the flow starts.
+  // GitHub Copilot prompts for an Enterprise domain BEFORE the flow starts;
+  // once a flow exists the pane is driven by flow.status.pending alone —
+  // never by the provider id.
   const [askingEnterprise, setAskingEnterprise] = useState(provider.id === "github-copilot");
   const [enterpriseDomain, setEnterpriseDomain] = useState("");
-  const device: DeviceCodeResponse | undefined = flow?.device;
+  // The paste field's value is local-only: cleared after submit and never
+  // repopulated from a later status read (pending.message is the LABEL).
+  const [inputValue, setInputValue] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   if (!flow && askingEnterprise) {
     return (
@@ -428,42 +395,131 @@ function DeviceCodePane({ provider, flow, onBack, onClose, onStart }: {
     );
   }
 
-  const waiting = flow?.phase === "starting" || (flow?.phase === "waiting" && !!device);
+  const status = flow?.status;
+  const pending = status?.pending;
+  const flowId = status?.flowId;
+  const waiting = flow?.phase === "starting" || flow?.phase === "waiting";
+
+  const submitInput = async () => {
+    const value = inputValue.trim();
+    if (!flowId || !value || submitting) return;
+    setSubmitting(true);
+    try {
+      await onSendInput(flowId, value);
+      // Cleared after submit; a later status read never repopulates it.
+      setInputValue("");
+    } catch {
+      // Silent — the poll is the source of truth and renders the flow's
+      // real state within one tick.
+    }
+    setSubmitting(false);
+  };
+
   return (
     <PaneShell title={i18nT("providers.signInPaneTitle", { name: provider.name }, `Sign in to ${provider.name}`)} onBack={onBack} onClose={onClose}>
-      {!flow && !askingEnterprise && (
-        <button type="button" data-testid="dialog-sign-in" onClick={() => onStart()}
-          className="px-3 py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white font-medium">
-          {i18nT("providers.startDeviceSignIn", undefined, "Sign in with a device code")}
-        </button>
-      )}
-      {device && waiting && (
-        <div data-testid="dialog-flow-waiting">
-          <div className="text-xs text-[var(--text-secondary)]">{i18nT("common.enterThisCodeAt", undefined, "Enter this code at:")}</div>
-          <div className="flex items-center gap-2 mt-1">
-            <code className="text-lg font-bold text-[var(--text-primary)] tracking-wider">{device.userCode}</code>
-            <button type="button" onClick={() => void navigator.clipboard?.writeText(device.userCode)}
-              className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
-              title={i18nT("common.copyCode", undefined, "Copy code")}>
-              <Icon path={mdiContentCopy} size={0.5} />
-            </button>
-          </div>
-          <a href={device.verificationUri} target="_blank" rel="noopener" className="block mt-1 text-xs underline break-all">{device.verificationUri}</a>
-          {/* The user must click — the verification URL is never opened automatically. */}
-          <button type="button" onClick={() => window.open(device.verificationUri, "_blank")}
-            className="mt-2 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium">
-            {i18nT("common.openRegistrationPage", undefined, "Open Registration Page")}
+      {!flow && (
+        <>
+          <p className="text-xs text-[var(--text-secondary)]">
+            {i18nT("providers.authCodePaneBody", undefined, "A browser window will open to complete the sign-in. This dialog can be closed — the sign-in finishes in the background.")}
+          </p>
+          <button type="button" data-testid="dialog-sign-in" onClick={() => onStart()}
+            className="mt-3 px-3 py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white font-medium">
+            {i18nT("common.signIn", undefined, "Sign In")}
           </button>
-          <div className="flex items-center gap-1.5 mt-2 text-xs text-[var(--text-muted)]">
-            <Icon path={mdiLoading} size={0.45} className="animate-spin" />
-            {i18nT("providers.deviceWaiting", undefined, "Waiting for authorization… you can close this dialog — the sign-in will finish in the background.")}
+        </>
+      )}
+      {waiting && (
+        <div className="space-y-2" data-testid="dialog-flow-waiting">
+          <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
+            <Icon path={mdiLoading} size={0.5} className="animate-spin" />
+            {i18nT("status.waitingForAuthorization", undefined, "Waiting for authorization…")}
           </div>
+          {/* The link renders in EVERY pending state whenever the server has
+              an authUrl — pop-up blockers and remote browsers need it. */}
+          {status?.authUrl && (
+            <div className="text-[11px] text-[var(--text-muted)] break-all">
+              {i18nT("providers.authUrlFallback", undefined, "If the browser did not open, use this link:")}{" "}
+              <a href={status.authUrl} target="_blank" rel="noopener" className="underline break-all">{status.authUrl}</a>
+            </div>
+          )}
+          {pending?.kind === "device_code" && (
+            <div>
+              <div className="text-xs text-[var(--text-secondary)]">{i18nT("common.enterThisCodeAt", undefined, "Enter this code at:")}</div>
+              <div className="flex items-center gap-2 mt-1">
+                <code className="text-lg font-bold text-[var(--text-primary)] tracking-wider">{pending.userCode}</code>
+                <button type="button" onClick={() => void navigator.clipboard?.writeText(pending.userCode)}
+                  className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+                  title={i18nT("common.copyCode", undefined, "Copy code")}>
+                  <Icon path={mdiContentCopy} size={0.5} />
+                </button>
+              </div>
+              <a href={pending.verificationUri} target="_blank" rel="noopener" className="block mt-1 text-xs underline break-all">{pending.verificationUri}</a>
+              {/* The user must click — the verification URL is never opened automatically. */}
+              <button type="button" onClick={() => window.open(pending.verificationUri, "_blank")}
+                className="mt-2 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium">
+                {i18nT("common.openRegistrationPage", undefined, "Open Registration Page")}
+              </button>
+              {typeof pending.expiresInSeconds === "number" && (
+                <div className="mt-1 text-[11px] text-[var(--text-muted)]" aria-live="polite">
+                  {i18nT("providers.deviceCodeExpiresIn", { time: formatCountdown(pending.expiresInSeconds) }, `Code expires in ${formatCountdown(pending.expiresInSeconds)}`)}
+                </div>
+              )}
+              <div className="flex items-center gap-1.5 mt-2 text-xs text-[var(--text-muted)]">
+                <Icon path={mdiLoading} size={0.45} className="animate-spin" />
+                {i18nT("providers.deviceWaiting", undefined, "Waiting for authorization… you can close this dialog — the sign-in will finish in the background.")}
+              </div>
+            </div>
+          )}
+          {(pending?.kind === "manual_code" || pending?.kind === "text") && (
+            <div>
+              <label htmlFor="provider-flow-input" className="block text-xs text-[var(--text-secondary)] mb-1">
+                {pending.message || i18nT("providers.flowInputLabel", undefined, "Paste the code or link")}
+              </label>
+              <input
+                id="provider-flow-input"
+                type="text"
+                data-testid="dialog-input-field"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") void submitInput(); }}
+                placeholder={pending.placeholder}
+                disabled={submitting}
+                autoComplete="off"
+                className="w-full px-2 py-1.5 text-xs rounded bg-[var(--bg-secondary)] border border-[var(--border-secondary)] font-mono disabled:opacity-50"
+              />
+              <button type="button" data-testid="dialog-input-submit" onClick={() => void submitInput()} disabled={submitting}
+                className="mt-2 px-3 py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white font-medium disabled:opacity-50">
+                {i18nT("providers.flowInputSubmit", undefined, "Submit")}
+              </button>
+            </div>
+          )}
+          {pending?.kind === "select" && (
+            <div>
+              <div className="text-xs text-[var(--text-secondary)]">{pending.message || i18nT("providers.flowSelectPrompt", undefined, "Choose an option")}</div>
+              <div className="flex flex-col gap-1.5 mt-2">
+                {pending.options.map((o) => (
+                  <button key={o.id} type="button" data-testid={`dialog-option-${o.id}`} onClick={() => { if (flowId) void onSendInput(flowId, o.id); }}
+                    className="px-3 py-1.5 text-xs rounded bg-[var(--bg-tertiary)] hover:bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-secondary)] text-left">
+                    <span className="block">{o.label}</span>
+                    {o.description && <span className="block text-[11px] text-[var(--text-muted)]">{o.description}</span>}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* Cancel is first-class in every pending state. */}
+          {flowId && (
+            <button type="button" data-testid="dialog-cancel" onClick={() => onCancelFlow(flowId)}
+              className="px-3 py-1.5 text-xs rounded bg-[var(--bg-tertiary)] hover:bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-secondary)]">
+              {i18nT("common.cancel", undefined, "Cancel")}
+            </button>
+          )}
         </div>
       )}
       {flow?.phase === "error" && (
         <div data-testid="dialog-flow-error">
           <div className="text-xs text-red-400">{flow.error}</div>
-          <button type="button" onClick={() => onStart()}
+          <button type="button" data-testid="dialog-try-again" onClick={() => onStart()}
             className="mt-2 px-3 py-1.5 text-xs rounded bg-[var(--bg-tertiary)] hover:bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-secondary)]">
             {i18nT("providers.tryAgain", undefined, "Try Again")}
           </button>

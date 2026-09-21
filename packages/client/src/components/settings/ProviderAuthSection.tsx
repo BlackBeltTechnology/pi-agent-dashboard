@@ -8,8 +8,8 @@
  * catalogue is never rendered: the Add-provider dialog is the single entry
  * point for anything unconfigured.
  *
- * The section OWNS every flow (design D4): auth-code and device-code polls,
- * their timers and failure budgets are keyed per provider here, NOT in the
+ * The section OWNS every flow (design D4): one GET /flow/:flowId poll per
+ * flow — its timer and failure budget keyed per provider here, NOT in the
  * dialog — closing the dialog unmounts presentation, never an in-flight flow,
  * and a flow completing (or being refused) after dismissal still lands on this
  * section's handleChanged.
@@ -18,8 +18,8 @@
  *   - `handleChanged` is the SINGLE dispatch funnel for PROVIDER_AUTH_EVENT —
  *     exactly one event per successful write, from any control; never
  *     dispatched from `refresh` (a mount must not look like a write).
- *   - the auth-code poll aborts after 3 consecutive malformed/non-ok
- *     responses; the device-code poll deliberately keeps NO failure budget.
+ *   - every flow's poll aborts after 3 consecutive failed responses — the
+ *     old device-code poll's "no budget" asymmetry is unified away.
  *   - a failed or malformed status renders an inline error + Retry and never
  *     reaches an ErrorBoundary.
  *   - the AnthropicPeerHint post-install latch.
@@ -28,7 +28,7 @@
  * dispatch-provider-auth-event, warn-missing-anthropic-messages-peer.
  */
 
-import type { DeviceCodeResponse, ProviderAuthStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { OAuthFlowStatus, ProviderAuthStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import {
   mdiAlert,
   mdiCheck,
@@ -347,13 +347,18 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
   }, []);
 
   // ── Flow completion / failure (section-owned, D4) ──────────────────────────
-  const finishFlow = useCallback((id: string) => {
+  /** Clear one flow's poll interval + timeout cap; the timers ref stays the single owner. */
+  const stopFlowTimers = useCallback((id: string) => {
     const entry = flowsTimersRef.current.get(id);
     if (entry) {
       if (entry.interval) clearInterval(entry.interval);
       if (entry.timeout) clearTimeout(entry.timeout);
       flowsTimersRef.current.delete(id);
     }
+  }, []);
+
+  const finishFlow = useCallback((id: string) => {
+    stopFlowTimers(id);
     setFlows((prev) => {
       if (!(id in prev)) return prev;
       const next = { ...prev };
@@ -364,17 +369,12 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
     // picker entry is gone) and lands the single dispatch.
     setDialogProvider(undefined);
     handleChanged();
-  }, [handleChanged]);
+  }, [handleChanged, stopFlowTimers]);
 
   const failFlow = useCallback((id: string, error: string) => {
-    const entry = flowsTimersRef.current.get(id);
-    if (entry) {
-      if (entry.interval) clearInterval(entry.interval);
-      if (entry.timeout) clearTimeout(entry.timeout);
-      flowsTimersRef.current.delete(id);
-    }
+    stopFlowTimers(id);
     setFlows((prev) => ({ ...prev, [id]: { phase: "error", error } }));
-  }, []);
+  }, [stopFlowTimers]);
 
   // Unmount (leaving the page) still ends every flow — the abandoned-dialog
   // guarantee is scoped to DIALOG dismissal, not navigation (D4).
@@ -387,98 +387,117 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
     for (const timer of reconcileTimersRef.current) clearTimeout(timer);
   }, []);
 
-  // ── Flow starters (called from the dialog's panes) ─────────────────────────
+  // ── Flow starter, poll, input, cancel (ONE of each — the server's
+  //    /start + /flow contract replaced the auth-code/device-code pair) ──────
 
-  const startAuthCodeFlow = useCallback(async (id: string) => {
+  /**
+   * Start a sign-in flow (POST /start) and poll it to a terminal state. A
+   * non-ok start (400 unknown provider / 500 failed before any step / 504
+   * provider did not respond) is a TERMINAL pane error — no poll begins.
+   */
+  const startFlow = useCallback(async (id: string, enterpriseDomain?: string) => {
     setFlows((prev) => ({ ...prev, [id]: { phase: "starting" } }));
+    let flowId: string;
     try {
-      const res = await fetch(`${getApiBase()}/api/provider-auth/authorize`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: id }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-
-      // The server opens the system browser and starts its callback server;
-      // the poll below OBSERVES the completion. It reads the RAW /status
-      // array — the rendered list is configured-only, so a provider *becoming*
-      // configured is observable only here (F2).
-      setFlows((prev) => ({ ...prev, [id]: { phase: "waiting", authUrl: data.authUrl } }));
-      const entry: { interval?: ReturnType<typeof setInterval>; timeout?: ReturnType<typeof setTimeout>; failures: number } = { failures: 0 };
-      flowsTimersRef.current.set(id, entry);
-      const stop = () => {
-        if (entry.interval) clearInterval(entry.interval);
-        if (entry.timeout) clearTimeout(entry.timeout);
-        flowsTimersRef.current.delete(id);
-      };
-
-      entry.interval = setInterval(async () => {
-        try {
-          const statusRes = await fetch(`${getApiBase()}/api/provider-auth/status`);
-          if (!statusRes.ok) throw new Error(`provider-auth status ${statusRes.status}`);
-          const pollStatuses: unknown = await statusRes.json();
-          if (!Array.isArray(pollStatuses)) throw new Error("provider-auth status body is not an array");
-          entry.failures = 0;
-          const updated = (pollStatuses as ProviderAuthStatus[]).find((s) => s.id === id);
-          if (updated && isConfiguredRow(updated)) {
-            stop();
-            finishFlow(id);
-          }
-        } catch {
-          // Transient failures keep polling (a mid-login /api/restart must not
-          // kill an in-flight OAuth login), but a PERSISTENT failure must end
-          // the flow instead of silently waiting for the 5-minute timeout.
-          entry.failures += 1;
-          if (entry.failures >= POLL_MAX_CONSECUTIVE_FAILURES) {
-            stop();
-            failFlow(id, i18nT("providers.pollLostContact", undefined, "Lost contact with the dashboard while signing in — please try again."));
-          }
-        }
-      }, 2000);
-
-      // Stop polling after 5 minutes (matches callback server timeout)
-      entry.timeout = setTimeout(() => {
-        stop();
-        failFlow(id, i18nT("providers.loginTimedOut", undefined, "Login timed out. Please try again."));
-      }, 5 * 60 * 1000);
-    } catch (err: any) {
-      failFlow(id, err?.message ?? i18nT("err.authCodeStartFailed", undefined, "Failed to start the sign-in."));
-    }
-  }, [finishFlow, failFlow]);
-
-  const startDeviceCodeFlow = useCallback(async (id: string, enterpriseDomain?: string) => {
-    setFlows((prev) => ({ ...prev, [id]: { phase: "starting" } }));
-    try {
-      const res = await fetch(`${getApiBase()}/api/provider-auth/device-code`, {
+      const res = await fetch(`${getApiBase()}/api/provider-auth/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provider: id, enterpriseDomain: enterpriseDomain || undefined }),
       });
-      const data: DeviceCodeResponse = await res.json();
-      if (!res.ok) throw new Error((data as any).error);
-      setFlows((prev) => ({ ...prev, [id]: { phase: "waiting", device: data } }));
-
-      const entry: { interval?: ReturnType<typeof setInterval>; timeout?: ReturnType<typeof setTimeout>; failures: number } = { failures: 0 };
-      flowsTimersRef.current.set(id, entry);
-      // The device-code poll deliberately has NO consecutive-failure budget —
-      // it retries until the code expires (D4 preserves the asymmetry with the
-      // auth-code poll rather than unifying them).
-      entry.interval = setInterval(async () => {
-        try {
-          const statusRes = await fetch(`${getApiBase()}/api/provider-auth/device-status/${data.flowId}`);
-          const statusData = await statusRes.json();
-          if (statusData.status === "complete") {
-            finishFlow(id);
-          } else if (statusData.status === "expired" || statusData.status === "error") {
-            failFlow(id, statusData.error || i18nT("providers.authExpired", undefined, "Authorization expired"));
-          }
-        } catch { /* retry — no failure budget by design */ }
-      }, 3000);
+      const data = (await res.json().catch(() => null)) as (OAuthFlowStatus & { error?: string }) | null;
+      if (!res.ok || !data?.flowId) {
+        throw new Error(data?.error || i18nT("err.authCodeStartFailed", undefined, "Failed to start the sign-in."));
+      }
+      flowId = data.flowId;
+      // The server opens the system browser on the first authUrl; the poll
+      // below OBSERVES the flow snapshot to a terminal state.
+      setFlows((prev) => ({ ...prev, [id]: { phase: "waiting", status: data } }));
     } catch (err: any) {
-      failFlow(id, err?.message ?? i18nT("err.deviceCodeStartFailed", undefined, "Failed to start the device-code sign-in."));
+      failFlow(id, err?.message ?? i18nT("err.authCodeStartFailed", undefined, "Failed to start the sign-in."));
+      return;
     }
-  }, [finishFlow, failFlow]);
+
+    const entry: { interval?: ReturnType<typeof setInterval>; timeout?: ReturnType<typeof setTimeout>; failures: number } = { failures: 0 };
+    flowsTimersRef.current.set(id, entry);
+    const stop = () => stopFlowTimers(id);
+
+    entry.interval = setInterval(async () => {
+      if (!flowsTimersRef.current.has(id)) return; // stopped — drop the in-flight tick
+      try {
+        const statusRes = await fetch(`${getApiBase()}/api/provider-auth/flow/${encodeURIComponent(flowId)}`);
+        if (statusRes.status === 404) {
+          // The flow is gone server-side (invalid/expired) — no budget recovers it.
+          const body = await statusRes.json().catch(() => null);
+          stop();
+          failFlow(id, body?.error || i18nT("providers.authExpired", undefined, "Authorization expired"));
+          return;
+        }
+        if (!statusRes.ok) throw new Error(`provider-auth flow ${statusRes.status}`);
+        const status: OAuthFlowStatus = await statusRes.json();
+        entry.failures = 0;
+        // Keep the pane's snapshot current — never resurrect a flow that
+        // already reached a terminal local state.
+        setFlows((prev) => (prev[id]?.phase === "waiting" ? { ...prev, [id]: { phase: "waiting", status } } : prev));
+        if (status.status === "complete") {
+          stop();
+          finishFlow(id);
+        } else if (status.status === "error") {
+          stop();
+          failFlow(id, status.error || i18nT("providers.authExpired", undefined, "Authorization expired"));
+        } else if (status.status === "expired") {
+          stop();
+          failFlow(id, i18nT("providers.authExpired", undefined, "Authorization expired"));
+        }
+      } catch {
+        // Transient failures keep polling (a mid-login /api/restart must not
+        // kill an in-flight login). Budget note: this is the UNIFIED budget —
+        // the old device-code poll deliberately had none; every flow now ends
+        // after POLL_MAX_CONSECUTIVE_FAILURES instead of silently waiting for
+        // the 5-minute cap.
+        entry.failures += 1;
+        if (entry.failures >= POLL_MAX_CONSECUTIVE_FAILURES) {
+          stop();
+          failFlow(id, i18nT("providers.pollLostContact", undefined, "Lost contact with the dashboard while signing in — please try again."));
+        }
+      }
+    }, 2000);
+
+    // Stop polling after 5 minutes (matches callback server timeout)
+    entry.timeout = setTimeout(() => {
+      stop();
+      failFlow(id, i18nT("providers.loginTimedOut", undefined, "Login timed out. Please try again."));
+    }, 5 * 60 * 1000);
+  }, [failFlow, finishFlow, stopFlowTimers]);
+
+  /** POST one prompt answer into a live flow (manual_code / text / select). */
+  const sendFlowInput = useCallback(async (flowId: string, value: string): Promise<void> => {
+    // Fire-and-forget: 409 (no input pending), 404 (gone) and network errors
+    // stay silent — the poll is the source of truth and renders the flow's
+    // real state within one 2 s tick.
+    await fetch(`${getApiBase()}/api/provider-auth/flow/${encodeURIComponent(flowId)}/input`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value }),
+    });
+  }, []);
+
+  /** Cancel a pending flow: DELETE it server-side, stop its poll, back to the picker. */
+  const cancelFlow = useCallback(async (id: string, flowId: string) => {
+    stopFlowTimers(id);
+    try {
+      // 204 or 404 both end the flow locally — best-effort against the server.
+      await fetch(`${getApiBase()}/api/provider-auth/flow/${encodeURIComponent(flowId)}`, { method: "DELETE" });
+    } catch {
+      // The flow expires server-side on its own; the local state is cleared regardless.
+    }
+    setFlows((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    setDialogProvider(null); // return to the picker
+  }, [stopFlowTimers]);
 
   // ── Write paths (every success funnels into handleChanged) ────────────────
 
@@ -698,8 +717,9 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
         flows={flows}
         onClose={() => setDialogProvider(undefined)}
         onSelectProvider={(id) => setDialogProvider(id)}
-        onStartAuthCode={(id) => void startAuthCodeFlow(id).catch(logRejection("ProviderAuthSection.startAuthCodeFlow"))}
-        onStartDeviceCode={(id, domain) => void startDeviceCodeFlow(id, domain).catch(logRejection("ProviderAuthSection.startDeviceCodeFlow"))}
+        onStartFlow={(id, domain) => void startFlow(id, domain).catch(logRejection("ProviderAuthSection.startFlow"))}
+        onSendInput={sendFlowInput}
+        onCancelFlow={(id, flowId) => void cancelFlow(id, flowId).catch(logRejection("ProviderAuthSection.cancelFlow"))}
         onSaveApiKey={saveApiKey}
         onSaveCustomEndpoint={saveCustomEndpoint}
       />
@@ -765,7 +785,10 @@ function AuthRow({ provider, kind, onChanged, showToast, peerMissing = false, pe
             </span>
           </div>
           <div className="flex items-center gap-1 text-xs text-[var(--text-muted)]">
-            {kind === "subscription" && provider.expires && (
+            {/* expires === null is a PERMANENT credential (e.g. OpenRouter): it
+                renders NO countdown and NO "expired" state, so the null
+                check is explicit rather than truthy. */}
+            {kind === "subscription" && provider.expires != null && (
               <>
                 <Icon path={mdiClockOutline} size={0.45} />
                 {relativeExpiry(provider.expires)}

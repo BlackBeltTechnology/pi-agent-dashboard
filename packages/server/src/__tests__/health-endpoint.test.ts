@@ -4,7 +4,23 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+/**
+ * Registry-failure seam (test-plan X10/X11). The OAuth registry is built lazily
+ * from the pi runtime; here it is replaced by a mutable stub so booting a server
+ * with "the runtime exposes no provider definitions" is a one-line toggle rather
+ * than a real SDK failure.
+ * See change: delegate-provider-oauth-to-pi-ai (D3).
+ */
+const registryState = vi.hoisted(() => ({ error: null as string | null }));
+
+vi.mock("../auth/provider-auth-registry.js", () => ({
+  oauthRegistryReady: async () => {},
+  getOAuthRegistry: () => [],
+  getRegistryError: () => registryState.error,
+  initOAuthRegistry: async () => {},
+}));
 import { createKeeperManager, EMPTY_KEEPER_LOG_STATS } from "../rpc-keeper/keeper-manager.js";
 import { setKeeperManager } from "../spawn-process/process-manager.js";
 import type { DashboardServer } from "../server.js";
@@ -54,6 +70,7 @@ describe("GET /api/health", () => {
       handle = undefined;
       server = undefined;
     }
+    registryState.error = null;
     restoreConfig();
   });
 
@@ -180,4 +197,84 @@ describe("GET /api/health — keeperLogs degraded case (X10)", () => {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   }, 15_000);
+
+  // ── test-plan X10: the runtime surface is missing ────────────────────────────
+  //
+  // "On first use the server SHALL verify the runtime exposes provider
+  // definitions … on failure it SHALL log the resolved package version, keep
+  // serving every other route, and report the failure in GET /api/health."
+  it("X10: a failed registry build degrades sign-in only", async () => {
+    registryState.error =
+      "the runtime exposes no provider with an OAuth login (pi-coding-agent 0.86.1)";
+
+    handle = await createTestServer();
+    server = handle.server;
+    const base = `http://localhost:${handle.httpPort}`;
+
+    const handlers = await fetch(`${base}/api/provider-auth/handlers`);
+    expect(handlers.status).toBe(200);
+    expect(await handlers.json()).toEqual({ ids: [] });
+
+    const health = await fetch(`${base}/api/health`);
+    expect(health.status).toBe(200);
+    const healthBody = (await health.json()) as {
+      providerAuth?: { error: string | null };
+    };
+    expect(healthBody.providerAuth?.error).toBeTruthy();
+    expect(healthBody.providerAuth?.error).toContain("0.86.1");
+
+    // Every other route keeps serving.
+    const status = await fetch(`${base}/api/provider-auth/status`);
+    expect(status.status).toBe(200);
+
+    // Unknown-provider start is still a clean 400, not a 500.
+    const start = await fetch(`${base}/api/provider-auth/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: "anthropic" }),
+    });
+    expect(start.status).toBe(400);
+  }, 20_000);
+
+  // ── test-plan X11: a stored credential survives a registry failure ───────────
+  //
+  // A credential pi wrote must stay VISIBLE and REMOVABLE even when the
+  // dashboard cannot offer a sign-in flow for it — otherwise a failed registry
+  // strands the credential with no way to sign out.
+  it("X11: a stored OAuth credential stays visible and removable", async () => {
+    registryState.error = "runtime surface missing (pi-coding-agent unknown)";
+
+    const authDir = path.join(os.homedir(), ".pi", "agent");
+    const authPath = path.join(authDir, "auth.json");
+    fs.mkdirSync(authDir, { recursive: true });
+    const prior = fs.existsSync(authPath) ? fs.readFileSync(authPath, "utf-8") : null;
+    fs.writeFileSync(
+      authPath,
+      JSON.stringify({ anthropic: { type: "oauth", access: "a", refresh: "r", expires: 1 } }),
+    );
+
+    try {
+      handle = await createTestServer();
+      server = handle.server;
+      const base = `http://localhost:${handle.httpPort}`;
+
+      const status = await fetch(`${base}/api/provider-auth/status`);
+      const rows = (await status.json()) as Array<{
+        id: string;
+        flowType: string;
+        authenticated: boolean;
+      }>;
+      const row = rows.find((r) => r.id === "anthropic");
+      expect(row).toBeDefined();
+      expect(row?.flowType).not.toBe("api_key");
+      expect(row?.authenticated).toBe(true);
+
+      const del = await fetch(`${base}/api/provider-auth/anthropic`, { method: "DELETE" });
+      expect(del.status).toBe(200);
+      expect(JSON.parse(fs.readFileSync(authPath, "utf-8")).anthropic).toBeUndefined();
+    } finally {
+      if (prior === null) fs.rmSync(authPath, { force: true });
+      else fs.writeFileSync(authPath, prior);
+    }
+  }, 20_000);
 });

@@ -7,6 +7,23 @@ import {
   _resetForTests as resetCatalogueCache,
   setCatalogueForSession,
 } from "../package/provider-catalogue-cache.js";
+import { oauthRegistryReady } from "../auth/provider-auth-registry.js";
+
+/**
+ * The OAuth rows now come from the pi runtime's provider registry, so the
+ * expectations are the RUNTIME's seven bundled OAuth providers (minus the
+ * excluded `radius`) — not a dashboard-maintained list.
+ * See change: delegate-provider-oauth-to-pi-ai (D1).
+ */
+const REGISTRY_OAUTH_IDS = [
+  "anthropic",
+  "github-copilot",
+  "kimi-coding",
+  "meta",
+  "openai-codex",
+  "openrouter",
+  "xai",
+];
 
 // API-key rows are derived from the bridge-pushed catalogue cache.
 // See change: replace-hardcoded-provider-lists.
@@ -23,7 +40,8 @@ describe("provider-auth-storage", () => {
   const authPath = path.join(authDir, "auth.json");
   let originalContent: string | null = null;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await oauthRegistryReady();
     try {
       originalContent = fs.readFileSync(authPath, "utf-8");
     } catch {
@@ -63,20 +81,17 @@ describe("provider-auth-storage", () => {
     expect(data["test-remove"]).toBeUndefined();
   });
 
-  // pi 0.71 removed google-gemini-cli + google-antigravity as built-in
-  // providers; the dashboard dropped their handlers. See change:
-  // adopt-pi-071-072-073-features.
-  it("getAuthStatus includes the 3 OAuth handlers", async () => {
+  // pi removed google-gemini-cli + google-antigravity as built-in providers.
+  // See change: adopt-pi-071-072-073-features. The SET is now whatever the
+  // resolved pi runtime bundles (change: delegate-provider-oauth-to-pi-ai).
+  it("getAuthStatus includes every OAuth provider the runtime bundles", async () => {
     const { getAuthStatus } = await import("../auth/provider-auth-storage.js");
     const statuses = getAuthStatus();
     const oauthIds = statuses.filter((s) => s.flowType !== "api_key").map((s) => s.id);
-    expect(oauthIds).toContain("anthropic");
-    expect(oauthIds).toContain("openai-codex");
-    expect(oauthIds).toContain("github-copilot");
+    expect([...oauthIds].sort()).toEqual([...REGISTRY_OAUTH_IDS]);
+    expect(oauthIds).not.toContain("radius");
     expect(oauthIds).not.toContain("google-gemini-cli");
     expect(oauthIds).not.toContain("google-antigravity");
-    // Exact set (registry order): no extra/dropped handlers.
-    expect(oauthIds).toEqual(["anthropic", "openai-codex", "github-copilot"]);
   });
 
   it("getAuthStatus includes zai from the bridge-pushed catalogue with flowType api_key", async () => {
@@ -137,7 +152,9 @@ describe("provider-auth-storage", () => {
     const { getAuthStatus } = await import("../auth/provider-auth-storage.js");
     const statuses = getAuthStatus();
     expect(statuses.filter((s) => s.flowType === "api_key")).toHaveLength(0);
-    expect(statuses.filter((s) => s.flowType !== "api_key")).toHaveLength(3);
+    expect(statuses.filter((s) => s.flowType !== "api_key")).toHaveLength(
+      REGISTRY_OAUTH_IDS.length,
+    );
   });
 
   it("resolveAuthJsonKey strips '-api' suffix for OAuth-collision ids", async () => {
