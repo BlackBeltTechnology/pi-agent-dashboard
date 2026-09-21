@@ -23,6 +23,7 @@
   },
   "files": [
     "src/",
+    "!**/test-support",
     "bin/",
     "!**/AGENTS.md",
     "!**/*.AGENTS.md",
