@@ -416,7 +416,8 @@ Soniox's published benchmark WER and Qwen's **AliMeeting cpWER 17.18** come from
 
 ## 7. Related artifacts
 
-- **OpenSpec change `add-srt-translation-pass`** (commit `cd90af210`, 2026-09-21) — the planned **`pi-translate-srt`** binary exists specifically because of the finding in §4: it translates an existing SRT **cue-for-cue**, so timings come from the ASR and **only text** reaches a model. The change's proposal cites the same 210 s-of-300 s truncation and the same 15% word loss recorded here.
+- **OpenSpec change `add-srt-translation-pass`** (2026-09-21) — the planned **`pi-translate-srt`** binary exists specifically because of the finding in §4: it translates an existing SRT **cue-for-cue**, so timings come from the ASR and **only text** reaches a model. The change's proposal cites the same 210 s-of-300 s truncation and the same 15% word loss recorded here.
+- **Commit hashes deliberately not recorded** for the change: `develop` is shared with concurrent sessions and a `pull --rebase` already rewrote this change's hash once (content unchanged), so the change is referenced by name instead. Resolve current commit with `git log --oneline -- openspec/changes/add-srt-translation-pass/`.
 - **Package affected:** `packages/video-transcription/` (adds `src/translate.ts`, `src/bin/translate.ts`, `src/__tests__/translate.test.ts`; default translate model `qwen3.8-flash` on the DashScope endpoint, verified reachable by live probe).
 - **Companion research:** `docs/research/sub1b-stt-diarization-benchmark.md` (local sub-1B STT + diarization vs Soniox, CPU-only).
 
