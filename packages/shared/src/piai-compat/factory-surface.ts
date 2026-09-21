@@ -8,9 +8,13 @@
  *   returns ZERO models with no error — a 200 with an empty catalogue, which
  *   is the exact failure mode that produced the original bug.
  * - `streamSimple` normalizes the transcript with the RESOLVED runtime's own
- *   `normalizeContext`, then dispatches API-FIRST (`model.api` → lazy api
- *   implementation) with the owning built-in provider as fallback. It never
- *   goes through `Models.streamSimple`, which resolves auth and throws
+ *   `normalizeContext`, then dispatches API-FIRST: `model.api` → lazy api
+ *   implementation, and api-ONLY when the model names one (an unmapped or
+ *   unloadable api THROWS). The owning built-in provider is consulted only when
+ *   the model carries no `api` at all — a provider fallback for an unmapped api
+ *   would silently stream through the WRONG protocol, because `createProvider`'s
+ *   single-api form ignores `model.api` entirely. It never goes through
+ *   `Models.streamSimple`, which resolves auth and throws
  *   `Provider is not configured` for OAuth-only providers handed a caller key.
  *
  * Nothing is registered into the built-in collection: registering custom

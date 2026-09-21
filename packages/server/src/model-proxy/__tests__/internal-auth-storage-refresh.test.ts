@@ -306,3 +306,166 @@ describe("InternalAuthStorage — opaque OAuth fields survive the refresh write"
     );
   });
 });
+
+// ── adopt-piai-factory-api-registry: review round 2 — END-TO-END, not fragments ─
+// Round 2 found the F3/F4 tests were fragmented: one asserted the facade in
+// isolation, one asserted storage persistence, and NEITHER drove
+// storage → facade → runtime. These two do.
+
+describe("InternalAuthStorage — opaque fields reach the RUNTIME, not just disk", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // The round-2 probe failure: the storage built a three-field `credentials`
+  // object BEFORE the facade ran, so `enterpriseUrl` never reached
+  // pi-ai's `refresh()` — `copilotEnterpriseDomain(credential)` saw undefined
+  // and the refresh went to github.com instead of the enterprise domain.
+  it("F3 e2e: enterpriseUrl reaches the provider's refresh() call", async () => {
+    readAuthJson.mockReturnValue({
+      "github-copilot": {
+        type: "oauth" as const,
+        access: "old",
+        refresh: "r",
+        expires: Date.now() - 1,
+        enterpriseUrl: "ghe.corp.example",
+      },
+    });
+
+    const seen: any[] = [];
+    const storage = new InternalAuthStorage({
+      isAvailable: () => true,
+      getOAuthProvider: () => ({
+        refreshToken: async (creds: any) => {
+          seen.push(creds);
+          return { accessToken: "new-access", refreshToken: "r2", expiresAt: 4_102_444_800_000 };
+        },
+      }),
+      refreshOAuthToken: async () => ({}),
+    } as unknown as PiAiOAuthModule);
+
+    await storage.getApiKeyAndHeaders({ provider: "github-copilot", id: "gpt", headers: {} });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0].enterpriseUrl).toBe("ghe.corp.example");
+    // Canonical names are still translated, not left as the storage's aliases.
+    expect(seen[0].accessToken).toBe("old");
+    expect(seen[0].refreshToken).toBe("r");
+    expect(seen[0].expiresAt).toBeLessThan(Date.now());
+  });
+
+  it("F3 e2e: an updated enterpriseUrl returned by the refresh is persisted", async () => {
+    readAuthJson.mockReturnValue({
+      "github-copilot": {
+        type: "oauth" as const,
+        access: "old",
+        refresh: "r",
+        expires: Date.now() - 1,
+        enterpriseUrl: "old.corp.example",
+      },
+    });
+    const storage = new InternalAuthStorage({
+      isAvailable: () => true,
+      getOAuthProvider: () => ({
+        refreshToken: async () => ({
+          accessToken: "new-access",
+          refreshToken: "r2",
+          expiresAt: 4_102_444_800_000,
+          enterpriseUrl: "new.corp.example",
+        }),
+      }),
+      refreshOAuthToken: async () => ({}),
+    } as unknown as PiAiOAuthModule);
+
+    await storage.getApiKeyAndHeaders({ provider: "github-copilot", id: "gpt", headers: {} });
+
+    const written = writeCredential.mock.calls.at(-1)?.[1];
+    expect(written.enterpriseUrl).toBe("new.corp.example");
+    // No stale alias keys leak into auth.json.
+    expect(written).not.toHaveProperty("accessToken");
+    expect(written).not.toHaveProperty("refreshToken");
+    expect(written).not.toHaveProperty("expiresAt");
+  });
+
+  it("F3 e2e: a credential with no opaque fields is unaffected", async () => {
+    readAuthJson.mockReturnValue({
+      anthropic: { type: "oauth" as const, access: "old", refresh: "r", expires: Date.now() - 1 },
+    });
+    const storage = new InternalAuthStorage({
+      isAvailable: () => true,
+      getOAuthProvider: () => ({
+        refreshToken: async () => ({ accessToken: "new-access", refreshToken: "r2", expiresAt: 4_102_444_800_000 }),
+      }),
+      refreshOAuthToken: async () => ({}),
+    } as unknown as PiAiOAuthModule);
+
+    await expect(storage.getApiKeyAndHeaders(model)).resolves.toEqual({
+      apiKey: "new-access",
+      headers: {},
+    });
+  });
+});
+
+describe("InternalAuthStorage — malformed refresh cannot be persisted (F4, both facades)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // Validated at the SINGLE persist site, so the legacy facade path is covered
+  // too — a facade-level check alone left this open.
+  it("F4 e2e: an empty refresh result never reuses the expired access token", async () => {
+    readAuthJson.mockReturnValue({ anthropic: expiredCred() });
+    const storage = new InternalAuthStorage({
+      isAvailable: () => true,
+      getOAuthProvider: () => ({ refreshToken: async () => ({}) }),
+      refreshOAuthToken: async () => ({}),
+    } as unknown as PiAiOAuthModule);
+
+    await expect(storage.getApiKeyAndHeaders(model)).rejects.toThrow(/no access token/);
+    expect(writeCredential).not.toHaveBeenCalled();
+  });
+
+  it("F4 e2e: a blank access token never reuses the expired one", async () => {
+    readAuthJson.mockReturnValue({ anthropic: expiredCred() });
+    const storage = new InternalAuthStorage({
+      isAvailable: () => true,
+      getOAuthProvider: () => ({ refreshToken: async () => ({ accessToken: "" }) }),
+      refreshOAuthToken: async () => ({}),
+    } as unknown as PiAiOAuthModule);
+
+    await expect(storage.getApiKeyAndHeaders(model)).rejects.toThrow(/no access token/);
+    expect(writeCredential).not.toHaveBeenCalled();
+  });
+
+  it("F4 e2e: the malformed-refresh error leaks no credential material", async () => {
+    readAuthJson.mockReturnValue({
+      anthropic: { type: "oauth" as const, access: "SECRET_ACCESS", refresh: "SECRET_REFRESH", expires: Date.now() - 1 },
+    });
+    const storage = new InternalAuthStorage({
+      isAvailable: () => true,
+      getOAuthProvider: () => ({ refreshToken: async () => ({}) }),
+      refreshOAuthToken: async () => ({}),
+    } as unknown as PiAiOAuthModule);
+
+    const err = await storage.getApiKeyAndHeaders(model).catch((e: Error) => e);
+    expect((err as Error).message).not.toContain("SECRET_ACCESS");
+    expect((err as Error).message).not.toContain("SECRET_REFRESH");
+  });
+
+  it("a genuinely rotated token still persists with provider expiry fallbacks", async () => {
+    readAuthJson.mockReturnValue({ anthropic: expiredCred() });
+    const storage = new InternalAuthStorage({
+      isAvailable: () => true,
+      // No expiresAt returned: the 1-hour default is acceptable ONCE a new
+      // access token exists (that is the distinction F4 draws).
+      getOAuthProvider: () => ({ refreshToken: async () => ({ accessToken: "fresh" }) }),
+      refreshOAuthToken: async () => ({}),
+    } as unknown as PiAiOAuthModule);
+
+    await expect(storage.getApiKeyAndHeaders(model)).resolves.toEqual({ apiKey: "fresh", headers: {} });
+    expect(writeCredential).toHaveBeenCalledWith(
+      "anthropic",
+      expect.objectContaining({ access: "fresh", refresh: "refresh-tok" }),
+    );
+  });
+});

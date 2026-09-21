@@ -26,6 +26,36 @@ import {
  */
 export type { PiAiOAuthModule } from "@blackbelt-technology/pi-dashboard-shared/piai-compat/types.js";
 
+/**
+ * Provider-specific credential fields, i.e. everything that is NOT part of
+ * either canonical naming trio.
+ *
+ * pi's `OAuthCredentials` carries an index signature, and one built-in consumer
+ * depends on it: `github-copilot` stores and returns `enterpriseUrl`, then reads
+ * it back on the NEXT refresh (`copilotEnterpriseDomain(credential)`) to pick
+ * the enterprise endpoint. Rebuilding a fixed-shape credential object silently
+ * drops it, redirecting an enterprise user's refresh to github.com.
+ */
+function opaqueCredentialFields(cred: Record<string, unknown>): Record<string, unknown> {
+  const opaque: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(cred)) {
+    if (!STORAGE_CREDENTIAL_KEYS.has(key) && !RUNTIME_CREDENTIAL_KEYS.has(key)) {
+      opaque[key] = value;
+    }
+  }
+  return opaque;
+}
+
+/** auth.json field names. */
+const STORAGE_CREDENTIAL_KEYS: ReadonlySet<string> = new Set([
+  "type",
+  "accessToken",
+  "refreshToken",
+  "expiresAt",
+]);
+/** pi-ai's own `OAuthCredential` field names. */
+const RUNTIME_CREDENTIAL_KEYS: ReadonlySet<string> = new Set(["access", "refresh", "expires"]);
+
 /** OAuth provider ID mapping — pi uses these internal IDs for auth.json keys. */
 const OAUTH_PROVIDER_MAP: Record<string, string> = {
   anthropic: "anthropic",
@@ -153,7 +183,14 @@ export class InternalAuthStorage {
     // the signal. See change: update-pi-core-0-84-adopt-apis.
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.refreshTimeoutMs);
+    // `...cred` so provider-specific fields reach the runtime. Constructing a
+    // fixed three-field object here dropped them BEFORE the compatibility facade
+    // could preserve them — `github-copilot` reads `credential.enterpriseUrl`
+    // inside `refresh()`. The two canonical trios are then set explicitly, so a
+    // stale alias can never win over the real values.
+    // See change: adopt-piai-factory-api-registry.
     const credentials = {
+      ...cred,
       accessToken: cred.access,
       refreshToken: cred.refresh,
       expiresAt: cred.expires,
@@ -193,17 +230,32 @@ export class InternalAuthStorage {
       throw new Error(`OAuth refresh for "${provider}" aborted before completing`);
     }
 
+    // A refresh that produced no access token is a FAILURE. The fallbacks below
+    // exist to keep an unrotated refresh token / a provider-supplied expiry, NOT
+    // to substitute the EXPIRED access token: doing so stamped a fresh expiry on
+    // a credential that was never refreshed, so it was never retried for an hour.
+    // Validated HERE, at the single persist site, so both the factory facade and
+    // the legacy facade are covered. The message names no credential material.
+    // See change: adopt-piai-factory-api-registry.
+    const refreshedAccess = refreshed?.accessToken ?? refreshed?.access;
+    if (typeof refreshedAccess !== "string" || !refreshedAccess) {
+      throw new Error(
+        `OAuth refresh for "${provider}" returned no access token; ` +
+          "refusing to persist an unrefreshed credential",
+      );
+    }
+
     // Map refreshed credentials back to storage format.
-    // `...cred` FIRST so opaque provider fields survive the write. Rebuilding a
-    // four-field object would silently drop them — `github-copilot` stores
-    // `enterpriseUrl` and reads it back on the NEXT refresh, so losing it
-    // permanently redirects that user's refresh to github.com.
+    // `...cred` FIRST so opaque provider fields survive the write, then any
+    // opaque field the refresh itself returned (an updated `enterpriseUrl`),
+    // then the canonical fields last so nothing can override them.
     // See change: adopt-piai-factory-api-registry.
     const newCred: OAuthCredential = {
       ...cred,
+      ...opaqueCredentialFields(refreshed),
       type: "oauth",
       refresh: refreshed.refreshToken ?? cred.refresh,
-      access: refreshed.accessToken ?? refreshed.access ?? cred.access,
+      access: refreshedAccess,
       expires: refreshed.expiresAt ?? refreshed.expires ?? Date.now() + 3600_000,
     };
 
