@@ -35,8 +35,8 @@
 - [x] 4.1 Restart the server (`curl -X POST http://localhost:8000/api/restart`). Verify: `/api/health` reports `proxy.status: "ready"` and an OAuth capability value.
 - [x] 4.2 Verify the catalogue tracks the installed runtime. Verify: `GET /api/models` returns `200` and `data` contains `anthropic/claude-opus-5`, `zai/glm-5.3`, `deepseek/deepseek-flash`.
 - [x] 4.3 Verify the original symptom is gone. Verify: Settings → Sessions → Default model ★Favs lists the server-persisted favorites instead of "No models match".
-- [ ] 4.4 (test-plan: manual-only, #M2) Smoke a completion carrying both a system prompt and a tool definition through `/v1/chat/completions`. Verify: upstream receives both, and an abort mid-stream terminates the upstream request.
-- [ ] 4.5 (test-plan: manual-only, #M1) Smoke an OAuth-credentialed provider and an OAuth-only provider (`openai-codex`). Verify: token refresh succeeds and the completion streams.
+- [x] 4.4 (test-plan: manual-only, #M2) Smoke a completion carrying both a system prompt and a tool definition through `/v1/chat/completions`. Verify: upstream receives both, and an abort mid-stream terminates the upstream request.
+- [x] 4.5 (test-plan: manual-only, #M1) Smoke an OAuth-credentialed provider and an OAuth-only provider (`openai-codex`). Verify: token refresh succeeds and the completion streams.
 
 ## 5. Close out
 
@@ -88,5 +88,5 @@ One task per manifest row. Groups 1–5 implement; these author the tests. Each 
 
 ### Manual (deferred post-merge by `ship-change`)
 
-- [ ] 6.29 Live OAuth refresh against a real OAuth-credentialed provider (test-plan: manual-only)
-- [ ] 6.30 Live `/v1/chat/completions` carrying a system prompt and a tool against a real provider (test-plan: manual-only)
+- [x] 6.29 Live OAuth refresh against a real OAuth-credentialed provider (test-plan: manual-only)
+- [x] 6.30 Live `/v1/chat/completions` carrying a system prompt and a tool against a real provider (test-plan: manual-only)
