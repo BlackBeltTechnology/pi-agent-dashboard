@@ -6,9 +6,10 @@ import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/t
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
 import { handleSubscribe, replaySessionAssets, sendEventBatches } from "../browser-handlers/subscription-handler.js";
-import { createDirectoryService } from "../directory-service.js";
+import { createDirectoryService, type DirectoryService, type LoadResult } from "../directory-service.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
+import type { RemoteTranscriptStore } from "../session/remote-transcript-store.js";
 
 function makeEvent(type: string = "test"): DashboardEvent {
   return { eventType: type, timestamp: Date.now(), data: {} };
@@ -694,5 +695,306 @@ describe("handleSubscribe — archived id with a deleted transcript (X5)", () =>
     expect(ctx.sessionManager.get("resident")).toMatchObject({ dataUnavailable: false });
 
     directoryService.stopPolling();
+  });
+});
+/**
+ * Retained-hydration coalescing (design D4).
+ *
+ * Making the retained read `await` opened an interleaving the old synchronous
+ * read could not produce: previously its insert microtask drained before the
+ * next WebSocket macrotask, so a second concurrent subscribe always found
+ * `eventStore.hasEvents(...) === true` and never hydrated. Now both arms run —
+ * and `insertEvent` is NOT idempotent (fresh `seq` per call), so without
+ * coalescing the transcript would be inserted twice and both subscribers would
+ * render every message twice.
+ *
+ * These are the deterministic arms of test-plan #F1–#F4 and #X3–#X5: the load
+ * promise is held open by hand, so every interleaving is exact. The L3 arms in
+ * `tests/e2e/remote-transcript-read.spec.ts` exercise the same behaviour end to
+ * end, but cannot hold the hydration window open without a ~44 MB fixture.
+ * See change: offload-retained-transcript-replay.
+ */
+describe("handleSubscribe — retained hydration coalescing (D4)", () => {
+  // A UNIQUE session id per harness. The coalescing map is module-scope, so a
+  // hydration one test leaves in flight would otherwise make the next test's
+  // first subscribe a FOLLOWER of a stranger's leader — a test-order coupling
+  // that reads as a coalescing bug.
+  let seq = 0;
+  let SID = "remote-0";
+  let RAW = "";
+
+  function evt(eventType: string): DashboardEvent {
+    return { eventType, timestamp: Date.now(), data: {} };
+  }
+
+  function harness() {
+    SID = `remote-${++seq}`;
+    RAW = JSON.stringify({ type: "session", id: SID, timestamp: "2025-01-01T00:00:00Z" });
+    const socket = (name: string) => ({ readyState: 1, OPEN: 1, bufferedAmount: 0, name }) as any;
+    const socketA = socket("A");
+    const socketB = socket("B");
+    const sockets: any[] = [socketA, socketB];
+
+    // One deferred PER CALL, queued: `readRetainedTranscript` only reaches the
+    // loader after an `await`, so a test releases a hydration after a tick — and
+    // a self-healing follower can start a SECOND hydration, which must be
+    // releasable independently of the first.
+    const pendingHydrations: Array<(out: LoadResult) => void> = [];
+    const loadRetainedEvents = vi.fn(
+      () => new Promise<LoadResult>((resolve) => pendingHydrations.push(resolve)),
+    );
+    const loadSessionEvents = vi.fn(async (): Promise<LoadResult> => ({ success: true, events: [] }));
+    const store = {
+      readRaw: vi.fn(async () => ({ raw: RAW, complete: true, retained: true })),
+    } as unknown as RemoteTranscriptStore;
+
+    const sessionManager = createMemorySessionManager();
+    sessionManager.register({ id: SID, cwd: "/elsewhere", source: "tui", originDeviceId: "dev-1" } as any);
+
+    const sent: Array<{ ws: any; msg: any }> = [];
+    const broadcast = vi.fn();
+    const base = createMockContext({
+      sessionManager,
+      directoryService: { loadSessionEvents, loadRetainedEvents } as unknown as DirectoryService,
+      remoteTranscriptStore: store,
+      sendTo: ((ws: any, msg: any) => {
+        sent.push({ ws, msg });
+      }) as any,
+      broadcast: broadcast as any,
+      getSubscribers: () => sockets,
+    });
+
+    const tick = () => new Promise<void>((r) => setTimeout(r, 0));
+
+    return {
+      socketA,
+      socketB,
+      sockets,
+      loadRetainedEvents,
+      loadSessionEvents,
+      sessionManager,
+      store,
+      sent,
+      broadcast,
+      eventStore: base.eventStore,
+      tick,
+      ctxFor: (ws: any) => ({ ...base, ws }),
+      subscribe: (ws: any) =>
+        handleSubscribe({ type: "subscribe", sessionId: SID }, new Set(), { ...base, ws }),
+      replaysFor: (ws: any) =>
+        sent
+          .filter((s) => s.ws === ws && s.msg.type === "event_replay")
+          .map((s) => s.msg) as any[],
+      resolveHydration: (out: LoadResult) => {
+        const resolve = pendingHydrations.shift();
+        if (!resolve) throw new Error("no hydration is pending to release");
+        resolve(out);
+      },
+    };
+  }
+
+  it("F2/F3 two concurrent cold subscribes coalesce onto ONE hydration, and the follower gets the full replay", async () => {
+    const h = harness();
+    h.subscribe(h.socketA);
+    h.subscribe(h.socketB);
+    // The follower registered before the leader's load even dispatched, and
+    // started no hydration of its own.
+    await h.tick();
+    expect(h.loadRetainedEvents).toHaveBeenCalledTimes(1);
+
+    h.resolveHydration({ success: true, events: [evt("message_start"), evt("message_end")] });
+    await h.tick();
+    await h.tick();
+
+    // Inserted exactly once — `insertEvent` mints a fresh seq per call, so a
+    // double hydration is duplicated messages, not an idempotent overwrite.
+    expect(h.eventStore.getEvents(SID, 1)).toHaveLength(2);
+
+    // Both subscribers received the whole transcript, once each.
+    expect(h.replaysFor(h.socketA).flatMap((m) => m.events).map((e: any) => e.seq)).toEqual([1, 2]);
+    expect(h.replaysFor(h.socketB).flatMap((m) => m.events).map((e: any) => e.seq)).toEqual([1, 2]);
+
+    // …and the follower was never told the session is empty.
+    expect(
+      h.replaysFor(h.socketB).some((m) => m.isLast === true && m.events.length === 0),
+      "the follower received a terminal empty replay",
+    ).toBe(false);
+    expect((h.sessionManager.get(SID) as any)?.dataUnavailable).not.toBe(true);
+    expect((h.sessionManager.get(SID) as any)?.retainedTranscript).toBe("complete");
+  });
+
+  it("F4 a subscribe landing AFTER the leader settles takes the warm path, not a second hydration", async () => {
+    const h = harness();
+    h.subscribe(h.socketA);
+    await h.tick();
+    h.resolveHydration({ success: true, events: [evt("message_start")] });
+    await h.tick();
+    await h.tick();
+
+    const socketC = { readyState: 1, OPEN: 1, bufferedAmount: 0, name: "C" } as any;
+    h.sockets.push(socketC);
+    h.subscribe(socketC);
+    await h.tick();
+
+    expect(h.loadRetainedEvents).toHaveBeenCalledTimes(1);
+    // The late subscriber replays from the store, so it still sees the history.
+    expect(h.replaysFor(socketC).flatMap((m) => m.events).length).toBeGreaterThan(0);
+  });
+
+  it("X4 a cancelled leader takes the silent exit: no insert, no broadcast, no re-stamp", async () => {
+    const h = harness();
+    h.subscribe(h.socketA);
+    await h.tick();
+    h.resolveHydration({ success: false, events: [], error: "cancelled" });
+    await h.tick();
+    await h.tick();
+
+    // Cancellation is surfaced DISTINCTLY by `readRetainedTranscript`; folding
+    // it into `{events: [], state}` would stamp `retainedTranscript` and
+    // broadcast `session_updated` after the last subscriber had already left.
+    expect(h.eventStore.getEvents(SID, 1)).toHaveLength(0);
+    expect(h.broadcast).not.toHaveBeenCalled();
+    expect((h.sessionManager.get(SID) as any)?.retainedTranscript).toBeUndefined();
+    expect((h.sessionManager.get(SID) as any)?.dataUnavailable).not.toBe(true);
+  });
+
+  it("X5 a failed leader releases its followers and clears the in-flight entry", async () => {
+    const h = harness();
+    h.subscribe(h.socketA);
+    h.subscribe(h.socketB);
+    await h.tick();
+    expect(h.loadRetainedEvents).toHaveBeenCalledTimes(1);
+
+    h.resolveHydration({ success: false, events: [], error: "replay boom" });
+    await h.tick();
+    await h.tick();
+
+    // A failed hydration still releases the leaf in the map…
+    h.subscribe(h.sockets[0]);
+    await h.tick();
+    // …so the next cold subscribe starts a FRESH hydration rather than joining
+    // a promise that already settled.
+    expect(h.loadRetainedEvents).toHaveBeenCalledTimes(2);
+    // Settle it (silently) so neither its heartbeat nor its in-flight entry
+    // outlives the test.
+    h.resolveHydration({ success: false, events: [], error: "cancelled" });
+    await h.tick();
+    await h.tick();
+  });
+
+  it("X3 a replay failure keeps the state and does NOT mark the session unavailable", async () => {
+    const h = harness();
+    h.subscribe(h.socketA);
+    await h.tick();
+    // `readRetainedTranscript` maps every non-cancel failure to `{events: [],
+    // state}` — the bytes really were transferred, so the state stands.
+    h.resolveHydration({ success: false, events: [], error: "parse boom" });
+    await h.tick();
+    await h.tick();
+
+    expect((h.sessionManager.get(SID) as any)?.dataUnavailable).not.toBe(true);
+    expect((h.sessionManager.get(SID) as any)?.retainedTranscript).toBe("complete");
+  });
+
+  /**
+   * R3 — the leader's fan-out drains the subscriber set, but it AWAITS per
+   * subscriber, and the coalescing entry stays registered until that drain
+   * finishes. A socket subscribing mid-drain is therefore a follower (it starts
+   * no hydration) that a pre-taken snapshot would miss entirely: no terminal
+   * frame, and a heartbeat stopped when the leader settles.
+   */
+  it("R3 a follower the leader's fan-out never reached still gets a replay", async () => {
+    const h = harness();
+    h.subscribe(h.socketA);
+    h.subscribe(h.socketB);
+    await h.tick();
+    expect(h.loadRetainedEvents).toHaveBeenCalledTimes(1);
+
+    // Simulate the miss: B is not in the live subscriber set when the leader
+    // replays, exactly as it would be if it had subscribed while an earlier
+    // batch was in flight.
+    h.sockets.length = 0;
+    h.sockets.push(h.socketA);
+    h.resolveHydration({ success: true, events: [evt("message_start"), evt("message_end")] });
+    await h.tick();
+    await h.tick();
+
+    // B self-heals from the store, so it ends up with the history exactly once.
+    expect(h.replaysFor(h.socketB).flatMap((m) => m.events).map((e: any) => e.seq)).toEqual([1, 2]);
+  });
+
+  /**
+   * R4 — a follower that joins after the last subscriber left has CANCELLED the
+   * leader, but before that leader's promise settles, would otherwise wait on a
+   * hydration that ingests nothing and replays to nobody: a stopped heartbeat
+   * and an empty screen, permanently.
+   */
+  it("R4 a follower of a cancelled leader starts its own hydration", async () => {
+    const h = harness();
+    h.subscribe(h.socketA);
+    h.subscribe(h.socketB);
+    await h.tick();
+    expect(h.loadRetainedEvents).toHaveBeenCalledTimes(1);
+
+    h.resolveHydration({ success: false, events: [], error: "cancelled" });
+    await h.tick();
+    await h.tick();
+
+    // A cancelled leader silently ingests nothing, so the waiting follower must
+    // not be left empty: it re-drives the subscribe and becomes the new leader.
+    expect(h.loadRetainedEvents).toHaveBeenCalledTimes(2);
+
+    h.resolveHydration({ success: true, events: [evt("message_start")] });
+    await h.tick();
+    await h.tick();
+    expect(h.replaysFor(h.socketB).flatMap((m) => m.events).length).toBeGreaterThan(0);
+  });
+
+  it("R4b a follower that unsubscribed while waiting does NOT resurrect itself", async () => {
+    const h = harness();
+    h.subscribe(h.socketA);
+    // B subscribes on its OWN `subs` set, then leaves before the leader settles.
+    const subsB = new Set<string>();
+    handleSubscribe({ type: "subscribe", sessionId: SID }, subsB, h.ctxFor(h.socketB));
+    await h.tick();
+    expect(h.loadRetainedEvents).toHaveBeenCalledTimes(1);
+    subsB.delete(SID);
+
+    h.resolveHydration({ success: false, events: [], error: "cancelled" });
+    await h.tick();
+    await h.tick();
+
+    // The self-heal must not re-add a subscription the client already dropped.
+    expect(h.loadRetainedEvents).toHaveBeenCalledTimes(1);
+  });
+
+  it("F1 the heartbeat keeps firing while the hydration is in flight and stops on settle", async () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness();
+      h.subscribe(h.socketA);
+      await vi.advanceTimersByTimeAsync(0);
+
+      const heartbeats = () =>
+        h.replaysFor(h.socketA).filter((m) => m.isLast === false && m.events.length === 0).length;
+      const priming = heartbeats();
+      expect(priming).toBeGreaterThanOrEqual(1);
+
+      // Beyond the client's hydration ceiling: the empty non-terminal marker
+      // must keep arriving or the view flashes "No messages yet".
+      await vi.advanceTimersByTimeAsync(25_000);
+      expect(heartbeats()).toBeGreaterThan(priming);
+
+      h.resolveHydration({ success: true, events: [evt("message_start")] });
+      await vi.advanceTimersByTimeAsync(0);
+      const atSettle = h.replaysFor(h.socketA).length;
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      // `stopHeartbeat` on the success path: a stranded 10 s interval would leak
+      // into the rest of the process's life.
+      expect(h.replaysFor(h.socketA).length).toBe(atSettle);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

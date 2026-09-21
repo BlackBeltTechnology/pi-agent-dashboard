@@ -143,6 +143,29 @@ export interface DirectoryService {
   discoverSessions(cwd: string): DiscoveredSession[];
   loadSessionEvents(sessionId: string, sessionFile: string, knownContextWindow?: number): Promise<LoadResult>;
   /**
+   * The RETAINED-transcript sibling of `loadSessionEvents`: the same pool, the
+   * same `inFlightLoadJobs` registration (so `cancelLoad` reaches a retained
+   * job) and the same metrics `finally` — but it dispatches the transcript's
+   * RAW TEXT and applies NO `customEventGroupResolver` (retained events do not
+   * carry that annotation today, and adding it is a payload change this
+   * refactor must not make).
+   *
+   * Deliberately NOT routed through `loadSessionEvents`: its `{success,events}`
+   * shape loses the retained state (so a replay failure would land in the
+   * handler's `dataUnavailable` branch), `already_loading` would hand a
+   * concurrent second subscriber a terminal empty frame, and the group
+   * annotation would be added silently.
+   *
+   * Takes no `loadingSet` dedup — coalescing happens one layer up, in the
+   * subscription handler.
+   * See change: offload-retained-transcript-replay (D2, D6).
+   */
+  loadRetainedEvents(
+    sessionId: string,
+    raw: string,
+    knownContextWindow?: number,
+  ): Promise<LoadResult>;
+  /**
    * Cancel an in-flight hydration for `sessionId` (e.g. on unsubscribe before
    * it resolves). No-op when no load is in flight. The cancelled load's
    * `loadSessionEvents` promise resolves `{success:false, error:"cancelled"}`
@@ -710,6 +733,60 @@ export function createDirectoryService(
   function cancelLoad(sessionId: string): void {
     const jobId = inFlightLoadJobs.get(sessionId);
     if (jobId !== undefined) loadWorkerPool?.cancel(jobId);
+  }
+
+  /**
+   * Hydrate a retained REMOTE transcript off the main thread.
+   *
+   * The read (`RemoteTranscriptStore.readRaw`) has already happened by the time
+   * this is called; what is left is the CPU-bound split + parse + replay, which
+   * runs in the same worker as the local path.
+   * See change: offload-retained-transcript-replay (D2, D6).
+   */
+  async function loadRetainedEvents(
+    sessionId: string,
+    raw: string,
+    knownContextWindow?: number,
+  ): Promise<LoadResult> {
+    // Instrumentation only — never alters the returned LoadResult.
+    // `Buffer.byteLength(raw)` is the decoded text's true size, comparable with
+    // the local path's `statSync().size` for the UTF-8 JSONL a transcript is;
+    // summing a split entries array instead would undercount by every newline.
+    // See change: offload-retained-transcript-replay (D6).
+    const start = performance.now();
+    const fileBytes = Buffer.byteLength(raw);
+    let entryCount = 0;
+    let eventCount = 0;
+    const pool = ensureLoadWorkerPool();
+    if (!pool) {
+      // Post-dispose: no pool to dispatch to. No sample is recorded — this read
+      // never reached the parse-and-replay stage, and the ring holds 20 slots.
+      return { success: false, events: [], error: "disposed" };
+    }
+    const { jobId, result } = pool.load({ sessionId, raw, knownContextWindow });
+    // Registered like a local job so `cancelLoad(sessionId)` — called by
+    // `browser-gateway` on last-unsubscribe — reaches it.
+    inFlightLoadJobs.set(sessionId, jobId);
+    try {
+      const out = await result;
+      entryCount = out.entryCount ?? 0;
+      eventCount = out.events.length;
+      if (out.success) return { success: true, events: out.events };
+      return { success: false, events: [], error: out.error };
+    } finally {
+      inFlightLoadJobs.delete(sessionId);
+      // Instrumentation must never change the load outcome — isolate any
+      // recorder/logging throw so it cannot reject a successful load.
+      try {
+        const wallMs = performance.now() - start;
+        hydrationMetrics?.record({ sessionId, wallMs, fileBytes, entryCount, eventCount, at: Date.now() });
+        if (wallMs > HYDRATION_SLOW_WARN_MS) {
+          console.warn(`[hydration] slow load: ${Math.round(wallMs)}ms (session=${sessionId} bytes=${fileBytes})`);
+        }
+      } catch {
+        // swallow — measurement-only path
+      }
+    }
   }
 
   // ── Core gated poll ──────────────────────────────────────────────
@@ -1437,6 +1514,7 @@ export function createDirectoryService(
     knownDirectories: computeKnownDirectories,
     discoverSessions,
     loadSessionEvents,
+    loadRetainedEvents,
     cancelLoad,
     ensureLoadWorkerPool,
 
