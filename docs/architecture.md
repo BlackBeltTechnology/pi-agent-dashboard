@@ -1330,7 +1330,17 @@ pi/openspec/tsx are regular npm dependencies of `@blackbelt-technology/pi-dashbo
 
 `launchSource` (returned by `/api/health`) is `"electron" | "standalone" | "bridge"`, derived from `DASHBOARD_STARTER`. Client uses it via `useLaunchSource()` to hide pi-core update UI on Electron (immutable bundle has no writable target).
 
-Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `readCurrentPiVersion`, `computeCompatibility`) survive as pure helpers. The pinned range is `minimum: "0.85.1"`, `recommended: "0.85.1"`, `maximum: null` (lockstep — one supported pi means no conditional code paths in the bridge).
+Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `readCurrentPiVersion`, `computeCompatibility`) survive as pure helpers. The pinned range is `minimum: "0.85.1"`, `recommended: "0.85.1"`, `maximum: null` (lockstep — one supported pi means no conditional code paths on that artifact). `piCompatibility` unchanged: a `@earendil-works/pi-coding-agent` range, a DIFFERENT artifact from the pi-ai pin below.
+
+**pi-ai generation window.** Separately, the dashboard supports a two-generation **pi-ai** window through ONE declared seam: `packages/shared/src/piai-compat/` (`adaptPiAi(module, resolvedPath)`). Supported range `>=0.75.5 <0.87.0` (root `package.json` + `packages/extension/package.json` peerDependencies). Root devDependency pin moved `^0.75.5` → `^0.86.1`. Seam absorbs THREE boundary breaks, all in sibling entry points:
+
+- **Module shape.** Global-registry API (`registerBuiltInApiProviders`, `getModels`, `getProviders`, `getModel`, `streamSimple`, `registerApiProvider`, `unregisterApiProviders`) → factory API (`createModels`, `createProvider`).
+- **Transcript normalization.** Factory-path api implementations read only `context.messages`; seam calls the resolved runtime's own `normalizeContext` before dispatch, else systemPrompt + tools drop silently.
+- **OAuth relocation.** `dist/oauth.js` is `export {};` on >=0.85; real loaders at `dist/auth/oauth/*.js`, a path NOT in the package `exports` map.
+
+Conditional code CONFINED to that seam. `InternalRegistry`, `InternalAuthStorage` and every route handler stay generation-agnostic. `packages/extension/src/bridge.ts` streams through pi's own `ctx.modelRegistry.streamSimple` — removes a compat surface rather than adding one.
+
+See change: adopt-piai-factory-api-registry.
 
 #### Legacy `~/.pi-dashboard/` advisory
 
