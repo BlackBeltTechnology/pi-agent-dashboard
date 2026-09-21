@@ -7,6 +7,7 @@
  *
  * See change: add-dashboard-model-proxy, design §1.
  */
+import type { PiAiOAuthModule } from "@blackbelt-technology/pi-dashboard-shared/piai-compat/types.js";
 import {
   type AuthCredential,
   type AuthData,
@@ -16,17 +17,44 @@ import {
 } from "../auth/provider-auth-storage.js";
 
 /**
- * Minimal pi-ai OAuth module surface (runtime-resolved from pi-ai/oauth).
- *
- * pi 0.84.0 BREAKING: `refreshToken(credentials, signal)` must accept and
- * honor a concrete abort signal. See change: update-pi-core-0-84-adopt-apis.
+ * pi-ai OAuth dependency. Declared in the compatibility seam
+ * (`packages/shared/src/piai-compat/types.ts`) and re-exported here for
+ * existing importers. It is now a per-provider CAPABILITY FACADE, not a raw
+ * module: >=0.85's `dist/oauth.js` is a type-only stub whose truthy `{}`
+ * passed the old guard and then threw `TypeError`.
+ * See change: adopt-piai-factory-api-registry (D7).
  */
-export interface PiAiOAuthModule {
-  getOAuthProvider: (
-    id: string,
-  ) => { refreshToken: (creds: any, signal: AbortSignal) => Promise<any> } | undefined;
-  refreshOAuthToken: (providerId: string, credentials: any, signal: AbortSignal) => Promise<any>;
+export type { PiAiOAuthModule } from "@blackbelt-technology/pi-dashboard-shared/piai-compat/types.js";
+
+/**
+ * Provider-specific credential fields, i.e. everything that is NOT part of
+ * either canonical naming trio.
+ *
+ * pi's `OAuthCredentials` carries an index signature, and one built-in consumer
+ * depends on it: `github-copilot` stores and returns `enterpriseUrl`, then reads
+ * it back on the NEXT refresh (`copilotEnterpriseDomain(credential)`) to pick
+ * the enterprise endpoint. Rebuilding a fixed-shape credential object silently
+ * drops it, redirecting an enterprise user's refresh to github.com.
+ */
+function opaqueCredentialFields(cred: Record<string, unknown>): Record<string, unknown> {
+  const opaque: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(cred)) {
+    if (!STORAGE_CREDENTIAL_KEYS.has(key) && !RUNTIME_CREDENTIAL_KEYS.has(key)) {
+      opaque[key] = value;
+    }
+  }
+  return opaque;
 }
+
+/** auth.json field names. */
+const STORAGE_CREDENTIAL_KEYS: ReadonlySet<string> = new Set([
+  "type",
+  "accessToken",
+  "refreshToken",
+  "expiresAt",
+]);
+/** pi-ai's own `OAuthCredential` field names. */
+const RUNTIME_CREDENTIAL_KEYS: ReadonlySet<string> = new Set(["access", "refresh", "expires"]);
 
 /** OAuth provider ID mapping — pi uses these internal IDs for auth.json keys. */
 const OAUTH_PROVIDER_MAP: Record<string, string> = {
@@ -134,11 +162,20 @@ export class InternalAuthStorage {
     provider: string,
     cred: OAuthCredential,
   ): Promise<OAuthCredential> {
-    if (!this.oauthModule) {
-      throw new Error(`OAuth refresh needed for "${provider}" but pi-ai oauth module unavailable`);
+    const oauthId = OAUTH_PROVIDER_MAP[provider] ?? provider;
+
+    // Gate on the facade's PER-PROVIDER capability, not on truthiness. The
+    // old `if (!this.oauthModule)` check passed for >=0.85's `export {}` stub
+    // and then threw `TypeError` on the first refresh. Degradation is partial
+    // and diagnosable: api-key models keep routing, and this error names the
+    // provider AND why its OAuth path is unreachable.
+    // See change: adopt-piai-factory-api-registry (D7).
+    if (!this.oauthModule?.isAvailable(oauthId)) {
+      const reason =
+        this.oauthModule?.unavailableReason?.(oauthId) ?? "pi-ai oauth module unavailable";
+      throw new Error(`OAuth refresh needed for "${provider}" but it is unavailable: ${reason}`);
     }
 
-    const oauthId = OAUTH_PROVIDER_MAP[provider] ?? provider;
     let refreshed: any;
 
     // pi 0.84.0 requires a concrete AbortSignal on every OAuth refresh. Own the
@@ -146,7 +183,14 @@ export class InternalAuthStorage {
     // the signal. See change: update-pi-core-0-84-adopt-apis.
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.refreshTimeoutMs);
+    // `...cred` so provider-specific fields reach the runtime. Constructing a
+    // fixed three-field object here dropped them BEFORE the compatibility facade
+    // could preserve them — `github-copilot` reads `credential.enterpriseUrl`
+    // inside `refresh()`. The two canonical trios are then set explicitly, so a
+    // stale alias can never win over the real values.
+    // See change: adopt-piai-factory-api-registry.
     const credentials = {
+      ...cred,
       accessToken: cred.access,
       refreshToken: cred.refresh,
       expiresAt: cred.expires,
@@ -186,11 +230,32 @@ export class InternalAuthStorage {
       throw new Error(`OAuth refresh for "${provider}" aborted before completing`);
     }
 
-    // Map refreshed credentials back to storage format
+    // A refresh that produced no access token is a FAILURE. The fallbacks below
+    // exist to keep an unrotated refresh token / a provider-supplied expiry, NOT
+    // to substitute the EXPIRED access token: doing so stamped a fresh expiry on
+    // a credential that was never refreshed, so it was never retried for an hour.
+    // Validated HERE, at the single persist site, so both the factory facade and
+    // the legacy facade are covered. The message names no credential material.
+    // See change: adopt-piai-factory-api-registry.
+    const refreshedAccess = refreshed?.accessToken ?? refreshed?.access;
+    if (typeof refreshedAccess !== "string" || !refreshedAccess) {
+      throw new Error(
+        `OAuth refresh for "${provider}" returned no access token; ` +
+          "refusing to persist an unrefreshed credential",
+      );
+    }
+
+    // Map refreshed credentials back to storage format.
+    // `...cred` FIRST so opaque provider fields survive the write, then any
+    // opaque field the refresh itself returned (an updated `enterpriseUrl`),
+    // then the canonical fields last so nothing can override them.
+    // See change: adopt-piai-factory-api-registry.
     const newCred: OAuthCredential = {
+      ...cred,
+      ...opaqueCredentialFields(refreshed),
       type: "oauth",
       refresh: refreshed.refreshToken ?? cred.refresh,
-      access: refreshed.accessToken ?? refreshed.access ?? cred.access,
+      access: refreshedAccess,
       expires: refreshed.expiresAt ?? refreshed.expires ?? Date.now() + 3600_000,
     };
 

@@ -1,15 +1,22 @@
 /**
  * pi extension fixture: scriptable faux model provider.
  *
- * Registers pi-ai's built-in `registerFauxProvider()` so a session can be driven
- * deterministically with NO API key and NO real model. Used by the faux-model
+ * Builds a scriptable faux model provider from pi-ai's built-in
+ * `fauxProvider()` so a session can be driven deterministically with NO API key
+ * and NO real model. Used by the faux-model
  * integration tests (server + client + VM smoke).
  *
- * Recipe (validated): `registerFauxProvider({ api: "faux" })` only registers the
- * stream implementation in pi-ai's api-registry — it does NOT put the model in
- * pi's CLI catalog. Pairing it with `pi.registerProvider("faux", { api: "faux" })`
- * makes `faux/faux-1` appear in `--list-models` and selectable via
- * `--model faux/faux-1`, routing prompts to the faux stream.
+ * Recipe (validated): `fauxProvider({ api: "faux" })` returns a Provider
+ * carrying its own `streamSimple` — since pi-ai 0.85 there is NO global
+ * api-registry to register into, so it does NOT by itself put the model in
+ * pi's CLI catalog. Passing that `streamSimple` to
+ * `pi.registerProvider("faux", { … })` makes `faux/faux-1` appear in
+ * `--list-models` and selectable via `--model faux/faux-1`, routing prompts to
+ * the faux stream.
+ *
+ * pi-ai 0.85 BREAKING: `registerFauxProvider()` + `getApiProvider()` were
+ * replaced by the factory-shaped `fauxProvider()`, which RETURNS the provider
+ * instead of registering it. See change: adopt-piai-factory-api-registry.
  *
  * Imports `@earendil-works/pi-ai` with NO version pin of its own so it resolves
  * against whatever pi-ai the running pi bundles.
@@ -44,13 +51,14 @@ import { type FauxContext, SCENARIOS } from "./faux-scenarios.js";
 export interface FauxRegistration {
   setResponses: (responses: unknown[]) => void;
   appendResponses: (responses: unknown[]) => void;
+  /** The faux `Provider`; carries the `streamSimple` handed to pi. */
+  provider: { streamSimple?: unknown };
 }
 
-const { fauxAssistantMessage, getApiProvider, registerFauxProvider } =
+const { fauxAssistantMessage, fauxProvider } =
   piAi as unknown as {
     fauxAssistantMessage: (content: unknown, options?: unknown) => unknown;
-    getApiProvider: (api: string) => { streamSimple?: unknown } | undefined;
-    registerFauxProvider: (options: Record<string, unknown>) => FauxRegistration;
+    fauxProvider: (options: Record<string, unknown>) => FauxRegistration;
   };
 
 /** Sentinel a prompt embeds to select its scenario, e.g. `[[faux:tool-read]]`. */
@@ -99,7 +107,7 @@ export function resolveActiveStep(context: FauxContext): {
 }
 
 export default function fauxProviderExtension(pi: ExtensionAPI): void {
-  const registration = registerFauxProvider({
+  const registration = fauxProvider({
     api: "faux",
     provider: "faux",
     models: [
@@ -113,12 +121,14 @@ export default function fauxProviderExtension(pi: ExtensionAPI): void {
     tokensPerSecond: Number(process.env.FAUX_TPS ?? 50),
   });
 
-  // Grab the faux stream implementation and pass it to `pi.registerProvider`
-  // as `streamSimple` directly. This embeds the stream in pi's provider config
-  // so it survives RPC-mode `rebindSession()` (which clears pi-ai's module-level
-  // api-registry) — relying on `api: "faux"` registry lookup alone fails in
-  // headless rpc sessions with "No API provider registered for api: faux".
-  const fauxStream = getApiProvider("faux")?.streamSimple;
+  // Grab the faux stream implementation off the returned Provider and pass it
+  // to `pi.registerProvider` as `streamSimple` directly. This embeds the stream
+  // in pi's provider config so it survives RPC-mode `rebindSession()` (which
+  // clears pi-ai's module-level api-registry) — relying on an `api: "faux"`
+  // registry lookup alone fails in headless rpc sessions with "No API provider
+  // registered for api: faux". On pi-ai >= 0.85 that lookup does not exist at
+  // all, so this `streamSimple` is the ONLY delivery path for the stream.
+  const fauxStream = registration.provider.streamSimple;
 
   // Surface the faux model in pi's CLI catalog so `--model faux/faux-1` resolves
   // and routes to the faux stream.
