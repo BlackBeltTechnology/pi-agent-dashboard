@@ -114,7 +114,10 @@ describe("reconnect on identity expiry (§12.4)", () => {
     await vi.waitFor(() => expect(MockWebSocket.instances.length).toBe(1));
 
     MockWebSocket.instances[0]!.fireClose(1006); // abnormal transport close
-    await new Promise((r) => setTimeout(r, 20));
+    // Deterministic (no timer): a non-4001 close never enters the re-acquire
+    // branch, so a single microtask flush settles any handler continuation and
+    // the negative assertion holds without a fixed-tick barrier.
+    await Promise.resolve();
     expect(reacquire).not.toHaveBeenCalled();
   });
 });

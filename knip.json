@@ -443,6 +443,26 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
+    "packages/fixture-policy-plugin": {
+      "entry": [
+        "src/server/index.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/keycloak-resolver-plugin": {
+      "entry": [
+        "src/server/index.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
     "packages/quota-plugin": {
       "entry": [
         "src/client.tsx",
