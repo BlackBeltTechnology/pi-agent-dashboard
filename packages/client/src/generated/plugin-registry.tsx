@@ -9,7 +9,6 @@ import { GoalChip, hasGoal, GoalControl, FolderGoalsSection, GoalsBoardClaim, Go
 import { GrammarSettings, GrammarComposerPanel, catalog as grammar_catalog } from "@blackbelt-technology/pi-dashboard-grammar-plugin";
 import { HermesMemorySettings, catalog as hermes_memory_catalog } from "@blackbelt-technology/pi-dashboard-hermes-memory-plugin";
 import { FolderKbSection, KbSettingsClaim, catalog as kb_catalog } from "@blackbelt-technology/pi-dashboard-kb-plugin";
-import { KeycloakLogin, catalog as keycloak_resolver_catalog } from "@blackbelt-technology/pi-dashboard-keycloak-resolver-plugin";
 import { McpSettingsClaim, FolderMcpSection, FolderMcpPage } from "@blackbelt-technology/pi-dashboard-mcp-client-plugin";
 import { BuiltInRolesSettings, catalog as roles_catalog } from "@blackbelt-technology/pi-dashboard-roles-plugin";
 import { SubagentsSettings, SubagentPopoutClaim, catalog as subagents_catalog } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
@@ -17,6 +16,7 @@ import { BlackholeSettings, MemorySubcard, shouldRenderMemorySubcard, PipelineDe
 import { BrowserSettings, BrowserRelayBadge, LiveViewTile, isLiveViewActive, catalog as browser_catalog } from "@blackbelt-technology/pi-dashboard-browser-plugin";
 import { FlowsAnthropicBridgeSettings, catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
 import { QuotaWidget, QuotaSettings, catalog as quota_catalog } from "@blackbelt-technology/pi-dashboard-quota-plugin";
+import { DemoSettings, DemoToolRenderer } from "@blackbelt-technology/demo-plugin";
 
 import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import type { ClaimEntry } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -366,27 +366,6 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
-        "id": "keycloak-resolver",
-        "displayName": "Keycloak Resolver",
-        "priority": 100,
-        "claims": [
-            {
-                "slot": "login-provider",
-                "component": "KeycloakLogin"
-            }
-        ],
-        "client": "./src/client/index.tsx",
-        "server": "./src/server/index.ts",
-        "configSchema": "./src/configSchema.json",
-        "i18nCatalog": "catalog"
-    },
-    claims: [
-      { pluginId: "keycloak-resolver", priority: 100, slot: "login-provider", Component: KeycloakLogin },
-    ],
-    catalog: keycloak_resolver_catalog,
-  },
-  {
-    manifest: {
         "id": "mcp-client",
         "displayName": "MCP Client",
         "priority": 100,
@@ -625,6 +604,31 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     ],
     catalog: quota_catalog,
   },
+  {
+    manifest: {
+        "id": "demo",
+        "displayName": "Demo Plugin (fixture)",
+        "priority": 1000,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "DemoSettings",
+                "tab": "general"
+            },
+            {
+                "slot": "tool-renderer",
+                "component": "DemoToolRenderer",
+                "toolName": "DashboardDemo"
+            }
+        ],
+        "client": "./src/client.tsx",
+        "fixture": true
+    },
+    claims: [
+      { pluginId: "demo", priority: 1000, slot: "settings-section", tab: "general", Component: DemoSettings },
+      { pluginId: "demo", priority: 1000, slot: "tool-renderer", toolName: "DashboardDemo", Component: DemoToolRenderer },
+    ],
+  },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "7c0dd61e2fd11778f29e3b317b0e2a02eb4ddbfe39da588cae00563a80492d9f";
+export const PLUGIN_REGISTRY_HASH = "72a3e4a464dfc787fd5419861cea7b4485af4acc096d6c084fc07308d15bce70";

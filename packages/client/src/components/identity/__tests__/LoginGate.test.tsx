@@ -35,6 +35,15 @@ afterEach(() => {
   fetchLoginConfig.mockReset();
 });
 
+describe("LoginGate logout phase (D18)", () => {
+  it("mounts the vouched provider with phase=logout", async () => {
+    fetchLoginConfig.mockResolvedValue({ active: true, pluginId: "keycloak-resolver" });
+    render(<LoginGate phase="logout" />);
+    const el = await screen.findByTestId("fake-provider");
+    expect(el.getAttribute("data-phase")).toBe("logout");
+  });
+});
+
 describe("LoginGate (core-owned mount + nav, D16 / LG-9 / LG-15)", () => {
   it("callback: mounts the vouched provider and navigates to the validated return-to", async () => {
     fetchLoginConfig.mockResolvedValue({ active: true, pluginId: "keycloak-resolver" });

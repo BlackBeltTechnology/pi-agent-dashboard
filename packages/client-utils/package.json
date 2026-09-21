@@ -45,6 +45,10 @@
       "types": "./src/identity/oidc-flow.ts",
       "default": "./src/identity/oidc-flow.ts"
     },
+    "./identity/login-flow": {
+      "types": "./src/identity/login-flow.ts",
+      "default": "./src/identity/login-flow.ts"
+    },
     "./identity/dpop": {
       "types": "./src/identity/dpop.ts",
       "default": "./src/identity/dpop.ts"

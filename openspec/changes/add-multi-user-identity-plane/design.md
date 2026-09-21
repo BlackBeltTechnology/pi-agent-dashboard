@@ -297,27 +297,42 @@ An active resolver rejects a non-empty `auth.providers` (step 6), so a deploymen
 
 None blocking. Product policy semantics, ownerless-session adoption, the product store key (items 28/29), and the legacy `auth.providers` cut-over are intentionally separate concerns; the host contracts, owner equality, the client plane, and fail-closed behavior are defined here.
 
-### D18 — Core is a login/logout seam only; the plugin owns all sign-in/out UI
+### D18 — Three-way split: core seam, token-resolver plugin, and a separate authorization (login-UI) plugin
 
-Core ships NO sign-in UI of its own. The legacy server-rendered `/auth/login`
-page is no longer linked from the client: when `login-config` is inactive, the
-`auth_required` banner states that no sign-in method is installed — it does not
-route anywhere. All login AND logout UX belongs to the plugin claiming the
-`login-provider` slot; core only (a) mounts it trust-bound (D16), (b) validates
-return-to, (c) exposes the affordances (banner Sign-in, Settings Sign-out, the
-`/callback` and `/logout` routes).
+Neither core NOR the keycloak-resolver plugin ships any login/logout UI. The
+responsibility is split three ways:
 
-- Slot phase union grows `"logout"`: `phase: "start" | "callback" | "logout"`.
-  Same trust-bound selection; no separate slot.
-- Keycloak plugin implements RP-initiated logout (OIDC RP-Initiated Logout 1.0):
-  clear the in-memory tokens, then redirect to `end_session_endpoint` with
-  `client_id`, `post_logout_redirect_uri` (same-origin `/`), and
-  `id_token_hint` when held. The token exchange therefore retains `id_token`
-  in the same in-memory store (never web storage — RFC 9700 posture unchanged).
-  KC client must list the origin under "Valid post logout redirect URIs".
-- Failure posture mirrors D17: logout failures carry typed reasons; the local
-  tokens are cleared FIRST, so a broken IdP can never keep a browser signed in
-  locally.
+1. **Core** — a seam only: the `login-provider` slot (phases
+   `"start" | "callback" | "logout"`), the `/callback` + `/logout` routes, the
+   `GET /api/identity/login-config` descriptor endpoint, trust-bound provider
+   selection (D16), return-to validation, and the sign-in trigger on the
+   `auth_required` banner. When no provider is active the banner states that no
+   sign-in method is installed and routes nowhere. Core ships zero UI and never
+   links the legacy server-rendered `/auth/login` page.
+2. **keycloak-resolver-plugin** — a token RESOLVER only: validates incoming
+   bearer tokens (RFC 9068 + conditional DPoP) and resolves them to a principal.
+   It does NOTHING else by itself — it does not claim `login-provider`, ships no
+   client bundle, and no longer publishes a browser-login descriptor
+   (`registerBrowserLoginConfig`). Its config drops `browserClientId` /
+   `browserIssuer` (browser OIDC config is the authz plugin's concern).
+3. **A separate authorization plugin** (currently undefined, built by
+   integrators) — claims `login-provider` and defines the actual login UI +
+   logout UI. It drives the reusable OIDC mechanics that now live in
+   `client-utils` (`identity/login-flow.ts`: `beginLogin` / `completeLogin` /
+   `beginLogout`, plus `pkce` / `oidc-flow` / `token-store`).
+
+Reusable mechanics (moved from the plugin to `client-utils`, seam-only delivery):
+- `login-provider` slot phase union grows `"logout"`; core mounts
+  `LoginGate phase="logout"` on `/logout`.
+- `beginLogout()` implements RP-initiated logout (OIDC RP-Initiated Logout 1.0):
+  clear the in-memory tokens FIRST, then redirect to `end_session_endpoint` with
+  `client_id`, `post_logout_redirect_uri` (same-origin `/`), and `id_token_hint`
+  when held. `completeLogin` retains `id_token` in the same in-memory store
+  (never web storage — RFC 9700 posture unchanged) for that hint.
+- Failure posture mirrors D17: typed reasons; local tokens cleared first, so a
+  broken IdP can never keep a browser signed in locally.
+- No login UI ships in-tree, so this change delivers the seam + mechanics +
+  unit tests, not a live end-to-end login demo.
 - The legacy `/auth/login` HTML page + cookie flow stay server-side for existing
   non-identity deployments (dead-ended from this client, not deleted — surgical
   scope; retirement is a separate change).

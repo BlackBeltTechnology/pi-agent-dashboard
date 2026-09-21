@@ -19,7 +19,7 @@ import { useI18n } from "../../lib/i18n/i18n.js";
 import { safeReturnTo, selectLoginProvider } from "../../lib/identity/gate.js";
 import { fetchLoginConfig, type LoginConfig } from "../../lib/identity/login-config.js";
 
-type Phase = "start" | "callback";
+type Phase = "start" | "callback" | "logout";
 type LoginProviderComponent = React.ComponentType<SlotPropsMap["login-provider"]>;
 
 function GateShell({ children }: { children: React.ReactNode }): React.JSX.Element {

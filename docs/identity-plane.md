@@ -73,6 +73,31 @@ Hidden from humans when active.
 - `identity.resolverTimeoutMs` — resolver call bound.
 - `identity.policyTimeoutMs` — policy call bound.
 
+## Remote plain-HTTP deployment (tailnet/tunnel)
+
+Browser login works on plain-HTTP non-loopback origins (`http://<tailnet-ip>:<port>`).
+`crypto.subtle` absent (secure-context-only API).
+`deriveCodeChallenge` (`packages/client-utils/src/identity/pkce.ts`) falls back to vendored pure-JS SHA-256 (`sha256Bytes`, FIPS 180-4, test-vectored vs WebCrypto).
+Method stays `S256`. `plain` never sent (RFC 9700). `crypto.getRandomValues` never polyfilled.
+
+Tailscale topology: bind server `0.0.0.0` (`--host` / `PI_DASHBOARD_HOST` / `bindHost`).
+Set `issuer` + `browserIssuer` to browser-reachable base (`http://<tailnet-ip>:8080/realms/<realm>`).
+`iss` matches for browser and validator.
+`allowInsecureHttp: true` required for http issuer.
+Transport rides WireGuard-encrypted tailnet.
+`tailscale serve` HTTPS stays recommended hardening (Keycloak on HTTPS too — mixed content risk).
+
+Keycloak public client: `redirectUris` must list `http://<tailnet-ip>:<port>/callback` + `/*`.
+`webOrigins` must list dashboard origin (token endpoint is browser CORS fetch).
+
+Failure UX: gate failures carry typed reasons (`insecure-context` | `discovery-failed` | `exchange-failed` | `state-mismatch` | `idp-error`).
+Rendered with retry + return-home (`packages/keycloak-resolver-plugin/src/client/login-flow.ts`).
+`/auth/status` probe rejection no longer flips client to "Server offline".
+`authenticated:false` always wins as `auth_required` (sign-in affordance stays).
+Offline only after 3 consecutive probe rejections (`packages/client/src/hooks/useWebSocket.ts`).
+
+Lockout floor: loopback operator always admitted (`isGenuinelyLocal`). Broken resolver config fails open to single-machine behavior.
+
 ## RFC references
 
 - RFC 9068 — JWT access-token profile.

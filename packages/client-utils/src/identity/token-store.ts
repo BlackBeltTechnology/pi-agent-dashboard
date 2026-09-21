@@ -19,6 +19,9 @@ interface TokenState {
 
 let state: TokenState | null = null;
 
+/** ID token retained solely as a future `id_token_hint` for RP-initiated logout (D18). */
+let idToken: string | null = null;
+
 /**
  * Store an access token with its `expires_in` (seconds). A non-positive or
  * missing lifetime stores the token with an already-past expiry, so a caller
@@ -46,7 +49,18 @@ export function hasLiveToken(now: number = Date.now()): boolean {
   return getAccessToken(now) !== null;
 }
 
-/** Forget the in-memory token (logout / expiry / reconnect-on-401). */
+/** Retain the id_token (in-memory only) for logout's `id_token_hint` (D18). */
+export function setIdToken(token: string): void {
+  idToken = token;
+}
+
+/** The retained id_token, or null. Not lifetime-checked — hint use only. */
+export function getIdToken(): string | null {
+  return idToken;
+}
+
+/** Forget the in-memory tokens (logout / expiry / reconnect-on-401). */
 export function clearAccessToken(): void {
   state = null;
+  idToken = null;
 }

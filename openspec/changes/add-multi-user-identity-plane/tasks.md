@@ -162,10 +162,11 @@ Detachable browser login: core triggers + routes + owns return-to; the trusted r
 - [x] 14.3 Typed gate failure reasons (R3): `login-flow.ts` returns reason codes (`insecure-context`|`discovery-failed`|`exchange-failed`|`state-mismatch`); `KeycloakLogin` renders reason + retry + return-home. Tests per reason arm.
 - [ ] 14.4 Docs (R4, DocScribe): Tailscale/plain-HTTP deployment note — supported after R1; `tailscale serve` HTTPS as recommended hardening; KC redirect-URI/web-origins checklist.
 
-## 15. Core seam only — no core login UI; plugin-owned logout (D18)
+## 15. Three-way split — no login UI in core or the resolver plugin (D18)
 
-- [ ] 15.1 Core: drop the legacy `/auth/login` link from `AuthRequired` (inactive → static "no sign-in method installed" text); tests first
-- [ ] 15.2 Shared: `login-provider` slot phase union gains `"logout"`; core `/logout` route mounts `LoginGate phase="logout"`
-- [ ] 15.3 Plugin: retain `id_token` in-memory; `beginLogout()` → clear tokens then `end_session_endpoint` redirect (`client_id`, `post_logout_redirect_uri`, `id_token_hint`); typed failure reasons; tests first
-- [ ] 15.4 Core affordance: Sign out entry in SettingsPanel when login-config active + authenticated → navigates `/logout`
-- [ ] 15.5 Docs: identity-plane.md logout section + KC "Valid post logout redirect URIs" checklist row (DocScribe)
+- [x] 15.1 Core: drop the legacy `/auth/login` link from `AuthRequired` (inactive → static "no sign-in method installed" text); tests first
+- [x] 15.2 Shared: `login-provider` slot phase union gains `"logout"`; core `/logout` route mounts `LoginGate phase="logout"`
+- [x] 15.3 Move reusable OIDC mechanics (`beginLogin`/`completeLogin`/`beginLogout`, typed reasons, `id_token` retention for `id_token_hint`) into `client-utils/identity/login-flow.ts`; relocate its unit tests
+- [x] 15.4 keycloak-resolver-plugin → resolver-only: delete client bundle (`KeycloakLogin`, `login-flow`, `index`, `i18n`), remove `login-provider` claim + client manifest fields, stop publishing the browser-login descriptor, drop dead `browserClientId`/`browserIssuer` config
+- [x] 15.5 Regenerate `plugin-registry.tsx` (no keycloak login-provider); seam-only — no in-tree login UI ships
+- [ ] 15.6 Docs: identity-plane.md — document the three-way split + how an authz plugin claims `login-provider` and drives the client-utils mechanics (DocScribe)

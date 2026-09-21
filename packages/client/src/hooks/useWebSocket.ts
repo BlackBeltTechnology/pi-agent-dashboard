@@ -1,13 +1,21 @@
 import { setSender as setPluginActionSender } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { clearAccessToken } from "@blackbelt-technology/pi-dashboard-client-utils/identity/token-store";
 import type { BrowserToServerMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getApiBase } from "../lib/api/api-context.js";
-import { clearAccessToken } from "@blackbelt-technology/pi-dashboard-client-utils/identity/token-store";
 import { appendWsTicket, getApiBearer, mintWsTicket } from "../lib/pairing/device-auth.js";
 
 export type ConnectionStatus = "connected" | "connecting" | "offline" | "auth_required";
 
 const OFFLINE_THRESHOLD = 3;
+
+/**
+ * How many CONSECUTIVE `/auth/status` probe rejections it takes to conclude
+ * `offline` (D17/R2). A single transient probe failure must never flip the UI
+ * to the outage surface — that replaces the sign-in affordance with a dead
+ * end while auth may be the actual problem.
+ */
+const PROBE_OFFLINE_THRESHOLD = 3;
 
 /**
  * Close code the server fires when a socket's identity token lapses (§9.4,
@@ -66,6 +74,9 @@ export function useWebSocket(url: string, onIdentityExpired?: () => void | Promi
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const backoffRef = useRef(1000);
   const failCountRef = useRef(0);
+  // Consecutive `/auth/status` probe rejections (D17/R2). Reset on any probe
+  // verdict and on a successful connect.
+  const probeFailRef = useRef(0);
   // Holds the latest `connect` so the onclose reconnect timer always re-runs
   // the current ticket-minting path (avoids capturing a stale closure).
   const connectRef = useRef<() => void>(() => {});
@@ -164,6 +175,7 @@ export function useWebSocket(url: string, onIdentityExpired?: () => void | Promi
         setStatus("connected");
         backoffRef.current = 1000;
         failCountRef.current = 0;
+        probeFailRef.current = 0;
         flushOutbox(ws);
       };
 
@@ -196,17 +208,25 @@ export function useWebSocket(url: string, onIdentityExpired?: () => void | Promi
         }
         failCountRef.current++;
         if (failCountRef.current >= OFFLINE_THRESHOLD) {
-          // Check if it's an auth issue before marking as offline
+          // Check if it's an auth issue before marking as offline. A probe
+          // REJECTION is not an outage verdict (D17/R2): keep "connecting"
+          // and re-probe on the existing backoff; only PROBE_OFFLINE_THRESHOLD
+          // consecutive rejections conclude offline. `authenticated:false`
+          // always wins — the sign-in affordance must stay reachable.
           fetch(`${getApiBase()}/auth/status`)
             .then((res) => res.json())
             .then((data) => {
+              probeFailRef.current = 0;
               if (data.authenticated === false) {
                 setStatus("auth_required");
               } else {
                 setStatus("offline");
               }
             })
-            .catch(() => setStatus("offline"));
+            .catch(() => {
+              probeFailRef.current++;
+              setStatus(probeFailRef.current >= PROBE_OFFLINE_THRESHOLD ? "offline" : "connecting");
+            });
         } else {
           setStatus("connecting");
         }

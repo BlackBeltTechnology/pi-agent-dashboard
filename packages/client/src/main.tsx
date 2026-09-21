@@ -174,6 +174,7 @@ function RootView(): React.JSX.Element {
   const [location] = useLocation();
   if (location === "/pair") return <PairLanding />;
   if (location === "/callback") return <LoginGate phase="callback" />;
+  if (location === "/logout") return <LoginGate phase="logout" />;
   return <App />;
 }
 

@@ -30,6 +30,8 @@ export interface TokenResponse {
   expiresIn: number;
   /** Present when the IdP issued a `cnf.jkt`-bound (DPoP) token (§12.5). */
   tokenType: string;
+  /** ID token, when issued — retained only as logout's `id_token_hint` (D18). */
+  idToken?: string;
 }
 
 /**
@@ -82,11 +84,13 @@ export async function exchangeCode(
     access_token?: string;
     expires_in?: number;
     token_type?: string;
+    id_token?: string;
   };
   if (!json.access_token) throw new Error("token exchange returned no access_token");
   return {
     accessToken: json.access_token,
     expiresIn: json.expires_in ?? 0,
     tokenType: json.token_type ?? "Bearer",
+    idToken: json.id_token,
   };
 }

@@ -22,14 +22,6 @@
       "type": "string",
       "description": "Optional required `azp` (the public client id). When set, tokens whose `azp` differs are rejected."
     },
-    "browserClientId": {
-      "type": "string",
-      "description": "Public PKCE client id for the DETACHABLE browser login gate (D16). When set (and the plugin is trusted in identity.trustedResolverPlugins), the dashboard offers browser sign-in via this Keycloak. Absent ⇒ no browser login offered (the host returns {active:false}); token validation is unaffected."
-    },
-    "browserIssuer": {
-      "type": "string",
-      "description": "Optional browser-reachable OIDC issuer base for the login gate, when it differs from the server-side `issuer` (e.g. a public URL vs an in-cluster one). Falls back to `issuer` when absent. Must pass the same http(s) guard as `issuer`."
-    },
     "jwksUri": {
       "type": "string",
       "description": "Optional explicit JWKS URL. When absent it is taken from OIDC discovery of `issuer`."

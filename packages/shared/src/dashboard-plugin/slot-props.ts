@@ -172,7 +172,7 @@ export interface SlotPropsMap {
   };
   "login-provider": {
     /** Which half of the OIDC flow core is asking the component to run (D16). */
-    phase: "start" | "callback";
+    phase: "start" | "callback" | "logout";
     /** Same-origin relative path to return to after login (already validated by core). */
     returnTo: string;
     /** Callback-phase only: the component calls this after it writes the token,

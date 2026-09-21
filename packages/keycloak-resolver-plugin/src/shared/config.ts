@@ -15,14 +15,6 @@ export interface KeycloakResolverConfig {
   audience?: string;
   authorizedParty?: string;
   jwksUri?: string;
-  /** Public PKCE client id advertised to the BROWSER login gate (D16). Distinct
-   * from `authorizedParty` (which only pins `azp` in token validation). The
-   * browser login gate is offered only when this is set. */
-  browserClientId?: string;
-  /** Browser-reachable OIDC discovery/authorize base for the login gate (D16).
-   * For tunneled/dockerized topologies where `issuer` (the JWT `iss` pin) is an
-   * internal URL. Falls back to `issuer` when unset. */
-  browserIssuer?: string;
   clockSkewSeconds: number;
   networkTimeoutMs: number;
   allowInsecureHttp: boolean;
@@ -60,8 +52,6 @@ export function parseKeycloakResolverConfig(
     ...(str(r.audience) ? { audience: str(r.audience) } : {}),
     ...(str(r.authorizedParty) ? { authorizedParty: str(r.authorizedParty) } : {}),
     ...(str(r.jwksUri) ? { jwksUri: str(r.jwksUri) } : {}),
-    ...(str(r.browserClientId) ? { browserClientId: str(r.browserClientId) } : {}),
-    ...(str(r.browserIssuer) ? { browserIssuer: str(r.browserIssuer) } : {}),
     clockSkewSeconds: boundedNumber(r.clockSkewSeconds, DEFAULT_CLOCK_SKEW_SECONDS, 0, 300),
     networkTimeoutMs: boundedNumber(r.networkTimeoutMs, DEFAULT_NETWORK_TIMEOUT_MS, 100, 5000),
     allowInsecureHttp: r.allowInsecureHttp === true,
