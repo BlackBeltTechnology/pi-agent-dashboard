@@ -143,6 +143,11 @@ export function legacyOAuthFacade(mod: Record<string, any>): PiAiOAuthModule {
  * loaders → unavailable. Every step PROBES; nothing is assumed reachable,
  * because `dist/auth/oauth/*` is outside the package `exports` map and may
  * move on any minor release.
+ *
+ * An UNRECOGNIZED resolved layout is the one failure that is NOT degraded:
+ * it propagates out of here (see the derivation comment below), because a
+ * wrong layout means every derived path is meaningless and reporting "no OAuth"
+ * would hide it.
  */
 export async function buildOAuthFacade(
   resolvedPath: string,
@@ -150,19 +155,28 @@ export async function buildOAuthFacade(
 ): Promise<PiAiOAuthModule> {
   // 1. Legacy oauth.js — only when it ACTUALLY exports the expected functions.
   //    A ≥0.85 `export {}` stub is truthy but unusable; that is the bug.
-  const legacyPath = safeDerive(resolvedPath, "oauth.js");
-  if (legacyPath && deps.exists(legacyPath)) {
+  //
+  //    Derivation THROWS on an unrecognized layout (it does not return a bogus
+  //    path), and that error is deliberately NOT caught here: swallowing it
+  //    would turn "the resolved layout is wrong" into "no provider has OAuth",
+  //    which is the silent-downgrade the spec forbids. The error names the
+  //    resolved path and surfaces through the registry's `lastError`.
+  //    See change: adopt-piai-factory-api-registry (spec: "Unexpected resolved
+  //    layout is reported").
+  const legacyPath = derivePiAiSubpath(resolvedPath, "oauth.js");
+  if (deps.exists(legacyPath)) {
     try {
       const mod = await deps.importPath(legacyPath);
       if (isUsableLegacyOAuth(mod)) return legacyOAuthFacade(mod as Record<string, any>);
     } catch {
-      // fall through to the relocated loaders
+      // The MODULE failed to load/parse (not the derivation) — fall through to
+      // the relocated loaders, which is a real optional-capability case.
     }
   }
 
   // 2. Relocated async loaders under dist/auth/oauth/load.js.
-  const loadPath = safeDerive(resolvedPath, "auth/oauth/load.js");
-  if (!loadPath || !deps.exists(loadPath)) {
+  const loadPath = derivePiAiSubpath(resolvedPath, "auth/oauth/load.js");
+  if (!deps.exists(loadPath)) {
     return unavailableOAuthFacade(
       `no usable OAuth implementation found for the pi-ai resolved at "${resolvedPath}" ` +
         `(dist/oauth.js exports no refresh functions and dist/auth/oauth/load.js is absent)`,
@@ -173,9 +187,7 @@ export async function buildOAuthFacade(
   try {
     loaders = (await deps.importPath(loadPath)) as Record<string, unknown>;
   } catch (err) {
-    return unavailableOAuthFacade(
-      `failed to load "${loadPath}": ${(err as Error).message}`,
-    );
+    return unavailableOAuthFacade(`failed to load "${loadPath}": ${(err as Error).message}`);
   }
 
   // Pre-load every provider's OAuthAuth so the storage keeps a SYNCHRONOUS
@@ -221,13 +233,4 @@ export async function buildOAuthFacade(
       return provider.refreshToken(credentials, signal);
     },
   };
-}
-
-/** Derivation must never turn a bad path into a throw here — report unavailable instead. */
-function safeDerive(resolvedPath: string, relative: string): string | null {
-  try {
-    return derivePiAiSubpath(resolvedPath, relative);
-  } catch {
-    return null;
-  }
 }

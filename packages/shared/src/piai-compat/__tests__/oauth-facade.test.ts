@@ -221,3 +221,40 @@ describe("OAuth facade — a malformed refresh is a failure, not a success", () 
     expect((err as Error).message).not.toContain("REFRESH_SECRET");
   });
 });
+
+// ── spec: "Derived runtime subpaths SHALL be validated, never assumed" ──────
+// Scenario: "Unexpected resolved layout is reported" — derivation SHALL fail
+// with an error containing the resolved path, and the failure SHALL NOT be
+// silently treated as a missing optional capability.
+
+describe("OAuth facade — an unrecognized layout is REPORTED, not silently degraded", () => {
+  it("propagates the derivation error on a legacy-shaped module", async () => {
+    const bad = "/opt/bundled/pi-ai/app.js";
+    await expect(
+      adaptPiAi(legacyFake(), bad, { importPath: async () => ({}), exists: () => false }),
+    ).rejects.toThrowError(bad);
+  });
+
+  it("does not report the bad layout as 'no OAuth provider available'", async () => {
+    const bad = "C:\\weird\\layout\\main.js";
+    const err = await adaptPiAi(legacyFake(), bad, {
+      importPath: async () => ({}),
+      exists: () => false,
+    }).catch((e: Error) => e);
+
+    expect(err).toBeInstanceOf(Error);
+    // The distinguishing assertion: NOT a capability report.
+    expect((err as Error).message).toMatch(/expected the resolved module to end in/);
+    expect((err as Error).message).not.toMatch(/no usable OAuth implementation/);
+    // And it names the path that was actually resolved.
+    expect((err as Error).message).toContain(bad);
+  });
+
+  it("still degrades to unavailable when the layout is fine but oauth.js is absent", async () => {
+    // The genuine optional-capability case must keep working.
+    const fx = makeFactoryFixture({ oauthModule: null, oauthLoaders: null });
+    const { oauth } = await adaptPiAi(fx.module, FIXTURE_PATH, fx.deps);
+    expect(oauth.isAvailable("anthropic")).toBe(false);
+    expect(oauth.unavailableReason?.("anthropic")).toMatch(/no usable OAuth implementation/);
+  });
+});
