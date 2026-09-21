@@ -2077,8 +2077,23 @@ function initBridge(pi: ExtensionAPI) {
   function sendSessionNameIfChanged() { const bc = syncBc(); _sendSessionNameIfChanged(bc); applyBc(bc); }
 
   // ── add-auto-session-naming ──────────────────────────────────────────────
-  // Lazily acquire pi-ai's streamSimple the way the server's model-proxy does.
+  // Stream through pi's OWN `ctx.modelRegistry`, not a bare-imported pi-ai
+  // module (design D6). `ModelRuntime.streamSimple` already performs the full
+  // normalize → prepare → `provider.streamSimple` sequence with credentials pi
+  // has already resolved, so this is shorter than adapting a module AND it
+  // removes a compat surface instead of adding one.
+  //
+  // pi >= 0.85 exports no global `streamSimple` at all, so the old bare import
+  // silently yielded `undefined` and auto-naming never ran. The module import
+  // is kept only as a fallback for a pi older than `piCompatibility.minimum`.
+  // NOT cached across calls when it resolves from the registry: the registry
+  // is captured lazily, so caching a miss would pin auto-naming off for the
+  // whole session. See change: adopt-piai-factory-api-registry.
   async function loadStreamSimple(): Promise<StreamSimpleFn | undefined> {
+    const registry: any = cachedModelRegistry;
+    if (typeof registry?.streamSimple === "function") {
+      return registry.streamSimple.bind(registry) as StreamSimpleFn;
+    }
     if (piAiStreamSimple !== undefined) return piAiStreamSimple ?? undefined;
     try {
       const mod: any = await import("@earendil-works/pi-ai");

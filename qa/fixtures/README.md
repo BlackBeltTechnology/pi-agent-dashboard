@@ -23,17 +23,22 @@ Used by three layers, all sharing the one scenario catalog:
 
 ## How the fixture works
 
-`registerFauxProvider()` (from `@earendil-works/pi-ai`) registers only a stream
-implementation in pi-ai's api-registry — it does **not** put the model in pi's
-CLI catalog. The fixture pairs it with `pi.registerProvider("faux", { ... })`
-to surface `faux/faux-1` in `--list-models` and make it selectable via
-`--model faux/faux-1`.
+`fauxProvider()` (from `@earendil-works/pi-ai`) returns a faux `Provider`
+carrying its own `streamSimple` — since pi-ai 0.85 there is **no** global
+api-registry to register into, so it does **not** put the model in pi's CLI
+catalog by itself. The fixture passes that `streamSimple` to
+`pi.registerProvider("faux", { ... })` to surface `faux/faux-1` in
+`--list-models` and make it selectable via `--model faux/faux-1`.
 
-The faux stream is passed to `pi.registerProvider` as `streamSimple` directly
-(grabbed via `getApiProvider("faux")`). This embeds the stream in pi's provider
-config so it **survives RPC-mode `rebindSession()`**, which clears pi-ai's
-module-level api-registry. Relying on `api: "faux"` registry lookup alone fails
-in headless `--mode rpc` sessions with `No API provider registered for api: faux`.
+Passing the stream to `pi.registerProvider` as `streamSimple` directly (read
+off the returned `provider`) embeds it in pi's provider config so it
+**survives RPC-mode `rebindSession()`**. Relying on an `api: "faux"` registry
+lookup alone fails in headless `--mode rpc` sessions with `No API provider
+registered for api: faux`.
+
+pi-ai **0.85 BREAKING**: `registerFauxProvider()` + `getApiProvider()` were
+replaced by the factory-shaped `fauxProvider()`, which *returns* the provider
+instead of registering it. See change: adopt-piai-factory-api-registry.
 
 The fixture imports `@earendil-works/pi-ai` with **no version pin of its own**,
 resolving against whatever pi-ai the running pi bundles.
