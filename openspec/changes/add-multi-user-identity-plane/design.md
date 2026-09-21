@@ -250,6 +250,15 @@ D15 built the client *primitives* (PKCE, token store, bearer/ticket wiring, DPoP
 
 **Why a new slot, not an imperative registry.** The slot taxonomy is a frozen, spec-governed contract (`dashboard-shell-slots`); a declarative `login-provider` claim is discoverable pre-auth from the build-time `PLUGIN_REGISTRY` (so `main.tsx` finds the component before the shell mounts) and is enable/trust-filtered as above. This adds one slot id and one validator branch; `shell-overlay-route` is unsuitable because it renders *inside* the authed shell, whereas `/callback` must render pre-token.
 
+### D17 — Remote insecure-context resilience (plain-HTTP tailnet/tunnel deployments)
+
+Live Tailscale verification of D16 surfaced three client-side defects, all rooted in assumptions that hold only on `localhost`/HTTPS. Server layering needed no change (guard exemptions, login-config, CORS all verified correct).
+
+- **PKCE must not hard-depend on a secure context (R1).** `crypto.subtle` is undefined on plain-HTTP non-loopback origins (the exact topology-B remote case: `http://<tailnet-ip>:<port>`), so `deriveCodeChallenge` threw and every remote plain-HTTP login died as an opaque "Sign-in failed". `pkce.ts` gains a vendored pure-JS SHA-256 (FIPS 180-4, test-vectored against WebCrypto) used ONLY when `crypto.subtle` is absent. Method stays `S256` — RFC 9700 still forbids `plain`; the digest input (verifier) is non-secret and the transport in this topology is already WireGuard-encrypted. `crypto.getRandomValues` is NOT polyfilled — it exists in insecure contexts and entropy must never be emulated.
+- **Probe failure is not an outage verdict (R2).** `useWebSocket.onclose` probed `/auth/status` once past the failure threshold and mapped ANY probe rejection to hard `offline` — replacing the `AuthRequired` affordance with a dead-end "Server offline" strip while auth was the actual problem (observed live from a remote Mac racing a server restart). Classification becomes: probe success + `authenticated:false` → `auth_required` (always wins); probe rejection → stay `connecting` and re-probe on the existing backoff; only N consecutive probe rejections conclude `offline`. An auth problem must never present as an outage, because the outage surface hides the sign-in affordance.
+- **Gate failures carry a typed reason (R3).** `beginLogin`/`completeLogin` map failures to `insecure-context` | `discovery-failed` | `exchange-failed` | `state-mismatch` | `idp-error`; `KeycloakLogin` renders the reason with retry + return-home. With R1 the `insecure-context` arm is normally unreachable — kept as belt-and-braces diagnostics (H-series: opaque errors are their own lockout).
+- **Non-goals.** No HTTPS requirement (punishes the legitimate encrypted-tailnet deployment; `tailscale serve` HTTPS stays the documented hardening, R4). No PKCE `plain`. No auto-redirect-loop change (single-flight + banner default stand, D16/F4).
+
 ## Standards alignment
 
 - RFC 9068: JWT access-token validation (`iss`, `aud`, `exp`, signature; `sub`).
@@ -287,3 +296,28 @@ An active resolver rejects a non-empty `auth.providers` (step 6), so a deploymen
 ## Open Questions
 
 None blocking. Product policy semantics, ownerless-session adoption, the product store key (items 28/29), and the legacy `auth.providers` cut-over are intentionally separate concerns; the host contracts, owner equality, the client plane, and fail-closed behavior are defined here.
+
+### D18 — Core is a login/logout seam only; the plugin owns all sign-in/out UI
+
+Core ships NO sign-in UI of its own. The legacy server-rendered `/auth/login`
+page is no longer linked from the client: when `login-config` is inactive, the
+`auth_required` banner states that no sign-in method is installed — it does not
+route anywhere. All login AND logout UX belongs to the plugin claiming the
+`login-provider` slot; core only (a) mounts it trust-bound (D16), (b) validates
+return-to, (c) exposes the affordances (banner Sign-in, Settings Sign-out, the
+`/callback` and `/logout` routes).
+
+- Slot phase union grows `"logout"`: `phase: "start" | "callback" | "logout"`.
+  Same trust-bound selection; no separate slot.
+- Keycloak plugin implements RP-initiated logout (OIDC RP-Initiated Logout 1.0):
+  clear the in-memory tokens, then redirect to `end_session_endpoint` with
+  `client_id`, `post_logout_redirect_uri` (same-origin `/`), and
+  `id_token_hint` when held. The token exchange therefore retains `id_token`
+  in the same in-memory store (never web storage — RFC 9700 posture unchanged).
+  KC client must list the origin under "Valid post logout redirect URIs".
+- Failure posture mirrors D17: logout failures carry typed reasons; the local
+  tokens are cleared FIRST, so a broken IdP can never keep a browser signed in
+  locally.
+- The legacy `/auth/login` HTML page + cookie flow stay server-side for existing
+  non-identity deployments (dead-ended from this client, not deleted — surgical
+  scope; retirement is a separate change).

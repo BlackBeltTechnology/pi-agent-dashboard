@@ -154,3 +154,18 @@ Detachable browser login: core triggers + routes + owns return-to; the trusted r
 - [ ] 13.23 Legacy banner reconciled. see new browser spec + `App.tsx` auth_required unit · input: active+trusted provider, auth_required · trigger: render · observable: gate invoked, legacy /auth/login link not rendered. (test-plan #LG-18)
 - [ ] 13.24 DPoP-bound non-goal. see `packages/client/src/lib/identity/__tests__/dpop.test.ts` sibling · input: cnf.jkt-bound token via gate · trigger: callback store · observable: plain bearer stored, no DPoP key persisted across redirect. (test-plan #LG-19)
 - [ ] 13.25 Real-Keycloak full round-trip. see `docker/fixtures/keycloak/live-resolver-check.ts` + `docker/compose.test.identity.yml` · input: real Keycloak (anna) + browser, deep link /session/x · trigger: gate→KC login→/callback · observable: lands authenticated on /session/x. (test-plan #LG-20)
+
+## 14. Remote insecure-context resilience (D17; R1–R4)
+
+- [x] 14.1 PKCE secure-context fallback (R1): vendor pure-JS SHA-256 in `packages/client-utils/src/identity/pkce.ts`, used only when `crypto.subtle` is absent; `deriveCodeChallenge` async path unchanged. Tests: FIPS 180-4 vectors (`abc`, empty, 448-bit chunk), parity with `crypto.subtle.digest` for random verifiers, fallback selected when `subtle` deleted. `crypto.getRandomValues` never polyfilled.
+- [x] 14.2 Honest offline/auth classification (R2): `useWebSocket` — `/auth/status` probe rejection keeps `connecting` + re-probes on the existing backoff; `authenticated:false` → `auth_required` always wins; `offline` only after N consecutive probe rejections. Tests: probe-reject ≠ offline (first N-1), auth-false wins over prior offline, N rejections → offline.
+- [x] 14.3 Typed gate failure reasons (R3): `login-flow.ts` returns reason codes (`insecure-context`|`discovery-failed`|`exchange-failed`|`state-mismatch`); `KeycloakLogin` renders reason + retry + return-home. Tests per reason arm.
+- [ ] 14.4 Docs (R4, DocScribe): Tailscale/plain-HTTP deployment note — supported after R1; `tailscale serve` HTTPS as recommended hardening; KC redirect-URI/web-origins checklist.
+
+## 15. Core seam only — no core login UI; plugin-owned logout (D18)
+
+- [ ] 15.1 Core: drop the legacy `/auth/login` link from `AuthRequired` (inactive → static "no sign-in method installed" text); tests first
+- [ ] 15.2 Shared: `login-provider` slot phase union gains `"logout"`; core `/logout` route mounts `LoginGate phase="logout"`
+- [ ] 15.3 Plugin: retain `id_token` in-memory; `beginLogout()` → clear tokens then `end_session_endpoint` redirect (`client_id`, `post_logout_redirect_uri`, `id_token_hint`); typed failure reasons; tests first
+- [ ] 15.4 Core affordance: Sign out entry in SettingsPanel when login-config active + authenticated → navigates `/logout`
+- [ ] 15.5 Docs: identity-plane.md logout section + KC "Valid post logout redirect URIs" checklist row (DocScribe)
