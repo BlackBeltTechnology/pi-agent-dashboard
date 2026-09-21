@@ -28,6 +28,10 @@ function storageWith(oauth: Partial<PiAiOAuthModule>, refreshTimeoutMs?: number)
   readAuthJson.mockReturnValue({ anthropic: expiredCred() });
   return new InternalAuthStorage(
     {
+      // `isAvailable` is the per-provider capability gate the seam added; the
+      // storage now gates on it instead of on truthiness.
+      // See change: adopt-piai-factory-api-registry (D7).
+      isAvailable: () => true,
       getOAuthProvider: () => undefined,
       refreshOAuthToken: async () => ({}),
       ...oauth,
@@ -178,5 +182,81 @@ describe("InternalAuthStorage — refreshed token is persisted before headers ar
     } finally {
       writeCredential.mockReset();
     }
+  });
+});
+
+// ── adopt-piai-factory-api-registry: per-provider OAuth capability (D7) ──────
+
+describe("InternalAuthStorage — OAuth capability gate", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // test-plan #X2 — the >=0.85 `dist/oauth.js` is `export {};`. Held as a
+  // truthy `{}`, the OLD `if (!this.oauthModule)` guard passed and the next
+  // line threw `TypeError: this.oauthModule.getOAuthProvider is not a
+  // function`. The gate must report unavailable instead.
+  it("X2: an unavailable provider yields a diagnosable error, never a TypeError", async () => {
+    const storage = storageWith({
+      isAvailable: () => false,
+      unavailableReason: () => "dist/oauth.js exports no refresh functions",
+      // Present but never reachable — calling either would be the bug.
+      getOAuthProvider: () => {
+        throw new Error("must not be consulted for an unavailable provider");
+      },
+    });
+
+    const err = await storage.getApiKeyAndHeaders(model).catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).name).not.toBe("TypeError");
+    expect((err as Error).message).toContain("anthropic");
+    expect((err as Error).message).toContain("dist/oauth.js exports no refresh functions");
+    expect(writeCredential).not.toHaveBeenCalled();
+  });
+
+  it("X2: a null oauth facade still reports diagnosably rather than crashing", async () => {
+    readAuthJson.mockReturnValue({ anthropic: expiredCred() });
+    const storage = new InternalAuthStorage(null);
+    await expect(storage.getApiKeyAndHeaders(model)).rejects.toThrow(/unavailable/);
+  });
+
+  // test-plan #X4 — degradation is PARTIAL. An api-key provider must keep
+  // routing while an OAuth provider with no implementation fails.
+  it("X4: api-key models keep routing while an OAuth provider is unavailable", async () => {
+    readAuthJson.mockReturnValue({
+      anthropic: expiredCred(),
+      openai: { type: "api_key" as const, key: "sk-live" },
+    });
+    const storage = new InternalAuthStorage({
+      isAvailable: () => false,
+      unavailableReason: () => "no reachable OAuth implementation",
+      getOAuthProvider: () => undefined,
+      refreshOAuthToken: async () => ({}),
+    } as PiAiOAuthModule);
+
+    await expect(
+      storage.getApiKeyAndHeaders({ provider: "openai", id: "gpt", headers: {} }),
+    ).resolves.toEqual({ apiKey: "sk-live", headers: {} });
+    await expect(storage.getApiKeyAndHeaders(model)).rejects.toThrow(/unavailable/);
+  });
+
+  // test-plan #X3 — a still-valid credential must not consult the facade at
+  // all, so an unavailable provider whose token is fresh keeps working.
+  it("X3: a credential inside the refresh buffer never reaches the gate", async () => {
+    readAuthJson.mockReturnValue({
+      anthropic: { type: "oauth" as const, access: "fresh", refresh: "r", expires: Date.now() + 3600_000 },
+    });
+    const isAvailable = vi.fn(() => false);
+    const storage = new InternalAuthStorage({
+      isAvailable,
+      getOAuthProvider: () => undefined,
+      refreshOAuthToken: async () => ({}),
+    } as unknown as PiAiOAuthModule);
+
+    await expect(storage.getApiKeyAndHeaders(model)).resolves.toEqual({
+      apiKey: "fresh",
+      headers: {},
+    });
+    expect(isAvailable).not.toHaveBeenCalled();
   });
 });

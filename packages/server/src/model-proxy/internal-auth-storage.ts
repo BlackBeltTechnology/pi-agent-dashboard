@@ -7,6 +7,7 @@
  *
  * See change: add-dashboard-model-proxy, design §1.
  */
+import type { PiAiOAuthModule } from "@blackbelt-technology/pi-dashboard-shared/piai-compat/types.js";
 import {
   type AuthCredential,
   type AuthData,
@@ -16,17 +17,14 @@ import {
 } from "../auth/provider-auth-storage.js";
 
 /**
- * Minimal pi-ai OAuth module surface (runtime-resolved from pi-ai/oauth).
- *
- * pi 0.84.0 BREAKING: `refreshToken(credentials, signal)` must accept and
- * honor a concrete abort signal. See change: update-pi-core-0-84-adopt-apis.
+ * pi-ai OAuth dependency. Declared in the compatibility seam
+ * (`packages/shared/src/piai-compat/types.ts`) and re-exported here for
+ * existing importers. It is now a per-provider CAPABILITY FACADE, not a raw
+ * module: >=0.85's `dist/oauth.js` is a type-only stub whose truthy `{}`
+ * passed the old guard and then threw `TypeError`.
+ * See change: adopt-piai-factory-api-registry (D7).
  */
-export interface PiAiOAuthModule {
-  getOAuthProvider: (
-    id: string,
-  ) => { refreshToken: (creds: any, signal: AbortSignal) => Promise<any> } | undefined;
-  refreshOAuthToken: (providerId: string, credentials: any, signal: AbortSignal) => Promise<any>;
-}
+export type { PiAiOAuthModule } from "@blackbelt-technology/pi-dashboard-shared/piai-compat/types.js";
 
 /** OAuth provider ID mapping — pi uses these internal IDs for auth.json keys. */
 const OAUTH_PROVIDER_MAP: Record<string, string> = {
@@ -134,11 +132,20 @@ export class InternalAuthStorage {
     provider: string,
     cred: OAuthCredential,
   ): Promise<OAuthCredential> {
-    if (!this.oauthModule) {
-      throw new Error(`OAuth refresh needed for "${provider}" but pi-ai oauth module unavailable`);
+    const oauthId = OAUTH_PROVIDER_MAP[provider] ?? provider;
+
+    // Gate on the facade's PER-PROVIDER capability, not on truthiness. The
+    // old `if (!this.oauthModule)` check passed for >=0.85's `export {}` stub
+    // and then threw `TypeError` on the first refresh. Degradation is partial
+    // and diagnosable: api-key models keep routing, and this error names the
+    // provider AND why its OAuth path is unreachable.
+    // See change: adopt-piai-factory-api-registry (D7).
+    if (!this.oauthModule?.isAvailable(oauthId)) {
+      const reason =
+        this.oauthModule?.unavailableReason?.(oauthId) ?? "pi-ai oauth module unavailable";
+      throw new Error(`OAuth refresh needed for "${provider}" but it is unavailable: ${reason}`);
     }
 
-    const oauthId = OAUTH_PROVIDER_MAP[provider] ?? provider;
     let refreshed: any;
 
     // pi 0.84.0 requires a concrete AbortSignal on every OAuth refresh. Own the
