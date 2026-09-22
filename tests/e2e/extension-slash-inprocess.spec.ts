@@ -36,21 +36,36 @@ interface SessionShape {
 /**
  * Flip the server's spawn strategy and report the previous value.
  *
- * The harness defaults to `tmux`. Headless is the shape this change targets in
- * the harness (the retired Path C was headless-only); the tmux/terminal shape
- * the change also fixes is covered by the manual F4 row.
+ * The harness defaults to `tmux`; F1/F2 exercise the headless shape. `fetch`
+ * RESOLVES for HTTP error responses, so both the status AND a read-back are
+ * asserted — a silently-ignored PUT would otherwise leave `tmux` in place while
+ * the spec still claimed to test headless. Same PUT-then-read-back contract as
+ * `setSubagentTickThrottle` in `helpers/index.ts`.
  */
 async function setSpawnStrategy(page: Page, strategy: string): Promise<string> {
-  return page.evaluate(async (next: string) => {
+  const result = await page.evaluate(async (next: string) => {
     const cur = await fetch("/api/config").then((r) => r.json());
     const prev = cur?.data?.spawnStrategy ?? "tmux";
-    await fetch("/api/config", {
+    const res = await fetch("/api/config", {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ spawnStrategy: next }),
     });
-    return prev as string;
+    const after = await fetch("/api/config").then((r) => r.json());
+    return {
+      prev,
+      ok: res.ok,
+      status: res.status,
+      applied: after?.data?.spawnStrategy as string | undefined,
+    };
   }, strategy);
+
+  expect(
+    result.ok,
+    `PUT /api/config spawnStrategy=${strategy} failed: HTTP ${result.status}`,
+  ).toBe(true);
+  expect(result.applied, "config did not retain spawnStrategy").toBe(strategy);
+  return result.prev;
 }
 
 /** Read the server's session record via the dashboard's own same-origin REST. */

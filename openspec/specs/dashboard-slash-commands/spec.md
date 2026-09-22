@@ -90,9 +90,9 @@ The exec-mode dispatch (template with `executable: bash`) SHALL run AFTER pi-ext
 
 #### Scenario: Extension command takes precedence over exec template with same name
 
-- **GIVEN** a pi extension registers a command `foo` via `pi.registerCommand` AND a file `dashboard-foo.md` exists with `executable: bash` frontmatter
-- **WHEN** a user types `/foo`
-- **THEN** the bridge SHALL dispatch via `pi.sendUserMessage("/foo", { expandPromptTemplates: true, deliverAs })` (extension dispatch wins)
+- **GIVEN** a pi extension registers a command `dashboard-foo` via `pi.registerCommand` AND a file `dashboard-foo.md` exists with `executable: bash` frontmatter
+- **WHEN** a user types `/dashboard-foo`
+- **THEN** the bridge SHALL dispatch via `pi.sendUserMessage("/dashboard-foo", { expandPromptTemplates: true, deliverAs })` (extension dispatch wins)
 - **AND** SHALL NOT execute the template body as bash.
 
 #### Scenario: Exec template takes precedence over LLM fallback
