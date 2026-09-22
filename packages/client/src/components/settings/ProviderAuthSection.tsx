@@ -78,6 +78,26 @@ const POLL_MAX_CONSECUTIVE_FAILURES = 3;
 const FLOW_DEFAULT_LIFETIME_MS = 10 * 60 * 1000;
 const DEVICE_CODE_SLACK_MS = 60 * 1000;
 
+/**
+ * The next client-side deadline for a flow: the later of what is already armed
+ * and an ABSOLUTE candidate instant.
+ *
+ * Mirrors the server's D7 rule exactly (`expiresAt = max(expiresAt, deadline + 60 s)`,
+ * evaluated once at the device_code EVENT). Both halves matter:
+ *   - the candidate is an absolute WALL-CLOCK instant, anchored once per flow.
+ *     A `now + expiresInSeconds` candidate recomputed on every 2 s poll drifts
+ *     forward by 2 s each tick, so the cap would never fire while the flow was
+ *     pending — the flow would then only end when the server pruned it and the
+ *     poll 404'd.
+ *   - the `max` keeps a SHORTER device code from shortening the flow's 10-minute
+ *     floor.
+ *
+ * Exported for its regression test.
+ */
+export function nextFlowDeadline(current: number | undefined, candidateAt: number): number {
+  return current !== undefined && candidateAt <= current ? current : candidateAt;
+}
+
 /** Delay before the single post-write health reconcile read (F10). */
 const HEALTH_RECONCILE_DELAY_MS = 2000;
 
@@ -267,7 +287,7 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
   // D4 — section-owned flow state, keyed per provider. Two concurrent flows
   // never share a timer or a failure counter (F3).
   const [flows, setFlows] = useState<Record<string, AddDialogFlowState>>({});
-  const flowsTimersRef = useRef(new Map<string, { interval?: ReturnType<typeof setInterval>; timeout?: ReturnType<typeof setTimeout>; failures: number }>());
+  const flowsTimersRef = useRef(new Map<string, { interval?: ReturnType<typeof setInterval>; timeout?: ReturnType<typeof setTimeout>; failures: number; deadlineAt?: number; deviceCodeAt?: number }>());
   // F10 — names with a write in flight whose detached probe has not landed.
   // The ref mirrors the state so the reconcile timer's failure path can name
   // the entries whose cached health must drop without a stale closure.
@@ -431,18 +451,22 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
       return;
     }
 
-    const entry: { interval?: ReturnType<typeof setInterval>; timeout?: ReturnType<typeof setTimeout>; failures: number } = { failures: 0 };
+    const entry: { interval?: ReturnType<typeof setInterval>; timeout?: ReturnType<typeof setTimeout>; failures: number; deadlineAt?: number; deviceCodeAt?: number } = { failures: 0 };
     flowsTimersRef.current.set(id, entry);
     const stop = () => stopFlowTimers(id);
 
-    const armDeadline = (ms: number) => {
+    /** Arm (or re-arm) the client cap at an absolute instant. Idempotent. */
+    const armDeadline = (candidateAt: number) => {
+      const at = nextFlowDeadline(entry.deadlineAt, candidateAt);
+      if (at === entry.deadlineAt) return; // already armed at least this far out
+      entry.deadlineAt = at;
       if (entry.timeout) clearTimeout(entry.timeout);
       entry.timeout = setTimeout(() => {
         stop();
         failFlow(id, i18nT("providers.loginTimedOut", undefined, "Login timed out. Please try again."));
-      }, ms);
+      }, Math.max(0, at - Date.now()));
     };
-    armDeadline(FLOW_DEFAULT_LIFETIME_MS);
+    armDeadline(Date.now() + FLOW_DEFAULT_LIFETIME_MS);
 
     entry.interval = setInterval(async () => {
       if (!flowsTimersRef.current.has(id)) return; // stopped — drop the in-flight tick
@@ -451,21 +475,31 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
         if (statusRes.status === 404) {
           // The flow is gone server-side (invalid/expired) — no budget recovers it.
           const body = await statusRes.json().catch(() => null);
+          // Cancelled while this read was in flight: the entry is gone, so
+          // failing the flow here would resurrect a dead one on the section.
+          if (!flowsTimersRef.current.has(id)) return;
           stop();
           failFlow(id, body?.error || i18nT("providers.authExpired", undefined, "Authorization expired"));
           return;
         }
         if (!statusRes.ok) throw new Error(`provider-auth flow ${statusRes.status}`);
         const status: OAuthFlowStatus = await statusRes.json();
+        // Same guard after EVERY await: a cancel mid-read leaves `entry`
+        // orphaned, and arming its timer / writing its state would bring the
+        // cancelled flow back.
+        if (!flowsTimersRef.current.has(id)) return;
         entry.failures = 0;
         // A device code extends the flow's life on the SERVER; the client's own
-        // deadline must follow it, or the pane gives up mid-sign-in.
-        if (
-          status.pending?.kind === "device_code" &&
-          typeof status.pending.expiresInSeconds === "number" &&
-          status.pending.expiresInSeconds > 0
-        ) {
-          armDeadline(status.pending.expiresInSeconds * 1000 + DEVICE_CODE_SLACK_MS);
+        // deadline must follow it, or the pane gives up mid-sign-in. The instant
+        // is anchored ONCE per flow — `expiresInSeconds` is the code's TOTAL
+        // life, echoed unchanged by every poll, so re-deriving it each tick
+        // would push expiry forward forever.
+        const expiresInSeconds = status.pending?.kind === "device_code" ? status.pending.expiresInSeconds : undefined;
+        if (typeof expiresInSeconds === "number" && expiresInSeconds > 0 && entry.deviceCodeAt === undefined) {
+          entry.deviceCodeAt = Date.now() + expiresInSeconds * 1000;
+        }
+        if (entry.deviceCodeAt !== undefined) {
+          armDeadline(entry.deviceCodeAt + DEVICE_CODE_SLACK_MS);
         }
         // Keep the pane's snapshot current — never resurrect a flow that
         // already reached a terminal local state.

@@ -10,7 +10,7 @@
  */
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ProviderAuthSection } from "../components/settings/ProviderAuthSection.js";
+import { nextFlowDeadline, ProviderAuthSection } from "../components/settings/ProviderAuthSection.js";
 import { PROVIDER_AUTH_EVENT } from "../hooks/useProvidersReady.js";
 
 afterEach(() => {
@@ -716,6 +716,80 @@ describe("prompt-driven pane — review-gate regressions", () => {
     expect(pane.textContent).toMatch(/14:57/);
   });
 
+  it("AUTH-007: the client flow deadline is only ever EXTENDED, never re-pushed", () => {
+    // The pure decision the poll's `armDeadline` drives. A device code's
+    // `expiresInSeconds` is the code's TOTAL life, echoed unchanged by every
+    // poll — so re-arming it per tick must be a no-op, or the cap never fires.
+    const t0 = 1_000_000;
+    const floor = nextFlowDeadline(undefined, t0 + 600_000);
+    expect(floor).toBe(t0 + 600_000);
+
+    // A SHORTER device deadline cannot shorten a flow below the 10-minute floor.
+    expect(nextFlowDeadline(floor, t0 + 65_000)).toBe(floor);
+
+    // A LONGER one extends it …
+    const anchor = t0 + 2_000 + 900_000;
+    const extended = nextFlowDeadline(floor, anchor);
+    expect(extended).toBe(anchor);
+
+    // … and re-evaluating the SAME anchor (what every subsequent poll does)
+    // changes nothing. The anchor itself must be a fixed wall-clock instant:
+    // a `Date.now() + expiresInSeconds` candidate would drift +2 s per tick and
+    // this assertion is what forbids it.
+    expect(nextFlowDeadline(extended, anchor)).toBe(extended);
+    expect(nextFlowDeadline(extended, anchor)).toBe(extended);
+  });
+
+  it("AUTH-008: a cancel during an in-flight status read does not resurrect the flow", async () => {
+    let release!: (v: any) => void;
+    const gate = new Promise<any>((resolve) => {
+      release = resolve;
+    });
+    const deviceStep = {
+      flowId: "flow-cancel",
+      provider: "xai",
+      status: "pending",
+      pending: { kind: "device_code", userCode: "XAI-8888", verificationUri: "https://auth.x.ai/activate", expiresInSeconds: 900 },
+    };
+    const script: Script = {
+      statuses: [{ id: "xai", name: "xAI", flowType: "device_code", authenticated: false, configured: false }],
+      // The NEXT status read hangs until the test releases it.
+      flowGet: () => gate,
+      calls: { put: 0, patch: 0, start: 0, status: 0 },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: any) => {
+      if (url.includes("/api/provider-auth/start")) {
+        script.calls.start++;
+        return { ok: true, json: async () => deviceStep } as any;
+      }
+      if (url.includes("/api/provider-auth/flow/") && init?.method === "DELETE") {
+        return { ok: true, status: 204, json: async () => ({}) } as any;
+      }
+      return stubFetch(script)(url, init);
+    }) as any);
+    render(<ProviderAuthSection />);
+    await waitFor(() => expect(script.calls.status).toBeGreaterThanOrEqual(1));
+    await openPicker();
+    fireEvent.click(dialog().getByText("xAI"));
+    fireEvent.click(dialog().getByTestId("dialog-sign-in"));
+    await dialog().findByTestId("dialog-flow-waiting");
+
+    // Let the poll issue its read, then cancel WHILE it is in flight.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    fireEvent.click(dialog().getByTestId("dialog-cancel"));
+
+    // The read now lands on a cancelled flow; it must not write any state.
+    release({ ok: true, json: async () => ({ ...deviceStep, status: "error", error: "SHOULD_NOT_SURFACE", pending: undefined }) });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+
+    expect(screen.queryByTestId("provider-flow-error")).toBeNull();
+    expect(screen.queryByTestId("dialog-flow-error")).toBeNull();
+  });
+
   it("AUTH-004/AUTH-005: a `select` step disables its options after the first click", async () => {
     const inputs: string[] = [];
     const script: Script = {
@@ -755,7 +829,7 @@ describe("prompt-driven pane — review-gate regressions", () => {
 
     const option = await dialog().findByTestId("dialog-option-browser");
     fireEvent.click(option);
-    expect(option.disabled).toBe(true);
+    expect((option as HTMLButtonElement).disabled).toBe(true);
     // A second click must not post the SAME option again.
     fireEvent.click(option);
     expect(inputs).toEqual(["browser"]);

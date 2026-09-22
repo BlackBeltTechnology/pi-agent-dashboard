@@ -402,6 +402,15 @@ function SignInPane({ provider, flow, onBack, onClose, onStart, onSendInput, onC
   const pending = status?.pending;
   const flowId = status?.flowId;
   const waiting = flow?.phase === "starting" || flow?.phase === "waiting";
+  /** Identity of the step on screen: a change means the answer was consumed. */
+  const promptKey =
+    pending === undefined
+      ? "none"
+      : `${flowId}|${pending.kind}|${pending.kind === "device_code" ? pending.userCode : pending.message}`;
+  // Un-latch the answer guard when the step advances (or the flow ends).
+  useEffect(() => {
+    setSubmitting(false);
+  }, [promptKey]);
   const deviceRemaining = useDeviceCodeRemaining(
     pending?.kind === "device_code" ? pending.expiresInSeconds : undefined,
     flowId,
@@ -438,6 +447,14 @@ function SignInPane({ provider, flow, onBack, onClose, onStart, onSendInput, onC
    * A `select` answer, guarded like the text field: a double-click must not
    * answer the NEXT prompt with the previous option's id.
    */
+  /**
+   * One answer per prompt STEP. A successful POST deliberately leaves the guard
+   * LATCHED: the next poll has not necessarily replaced the step yet, and
+   * re-enabling here would let a second click answer the FOLLOWING prompt with
+   * the previous answer. The latch clears when the step itself changes
+   * (`promptKey`) or when the POST is refused (nothing was answered, so
+   * retrying is correct).
+   */
   const chooseOption = async (optionId: string) => {
     if (!flowId || submitting) return;
     setSubmitting(true);
@@ -445,8 +462,8 @@ function SignInPane({ provider, flow, onBack, onClose, onStart, onSendInput, onC
       await onSendInput(flowId, optionId);
     } catch {
       // Silent — the poll renders the flow's real state within one tick.
+      setSubmitting(false);
     }
-    setSubmitting(false);
   };
 
   const submitInput = async () => {
@@ -458,10 +475,8 @@ function SignInPane({ provider, flow, onBack, onClose, onStart, onSendInput, onC
       // Cleared after submit; a later status read never repopulates it.
       setInputValue("");
     } catch {
-      // Silent — the poll is the source of truth and renders the flow's
-      // real state within one tick.
+      setSubmitting(false);
     }
-    setSubmitting(false);
   };
 
   return (
