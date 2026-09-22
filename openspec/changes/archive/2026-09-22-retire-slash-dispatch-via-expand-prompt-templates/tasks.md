@@ -56,7 +56,7 @@ Scenario ids reference `test-plan.md` (the manifest; disposition per row lives t
 - [x] 8.1 `docs/slash-command.md`: rewrite step 9 + surface map (single dispatch, gate, tombstone); mark Paths B/C/D retired with this change id
 - [x] 8.2 `docs/architecture.md` § RPC keeper sidecar: purpose sentence → durable stdin owner; slash dispatch retired by this change
 - [x] 8.3 Source-tree rows: `packages/extension/src/AGENTS.md` (`slash-dispatch.ts`, `bridge-context.ts`, `model-tracker.ts`) + `slash-dispatch.ts.AGENTS.md`; `packages/server/src/rpc-keeper/AGENTS.md` (drop `dispatch-router.ts`, note tombstone location); `packages/server/src/spawn-process/headless-pid-registry.AGENTS.md` (`writeRpc` gone); `packages/shared/src/AGENTS.md` (`protocol.ts` deprecated type); `tests/e2e/AGENTS.md` new spec row
-- [ ] 8.4 `openspec/specs/extension-rpc-dispatch/spec.md` `## Purpose` — rewrite by hand at archive time (Purpose is outside delta sync) to the DEPRECATED pointer (test-plan: manual-only; archive-time step run by ship-change)
+- [x] 8.4 `openspec/specs/extension-rpc-dispatch/spec.md` `## Purpose` — rewrite by hand at archive time (Purpose is outside delta sync) to the DEPRECATED pointer (test-plan: manual-only; archive-time step run by ship-change)
 - [x] 8.5 `CHANGELOG.md` `## [Unreleased]`: "Extension slash commands sent from the dashboard now dispatch in-process and work in tmux/terminal sessions; `dispatch_extension_command` is a deprecated tombstone; pi < 0.84.2 gets an explicit error"
 
 ## 9. Simplify + review + rebuild
