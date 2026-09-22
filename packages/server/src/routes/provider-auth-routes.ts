@@ -140,6 +140,28 @@ export function registerProviderAuthRoutes(
   // the first request rarely waits for the ~330 ms runtime import); tests inject
   // a settled promise and never touch the SDK.
   const registryReady: Promise<void> = deps.oauthReady ?? oauthRegistryReady();
+  /**
+   * Per-provider `/start` chain. A provider's callback port is fixed, so
+   * `supersede → start → bind` MUST be atomic per provider: without this,
+   * two overlapping starts both observe "no pending flow" and race to bind
+   * 53692 / 1455, turning a legitimate supersede into an EADDRINUSE 500.
+   * One entry per provider (the tail of its chain), so the map stays bounded.
+   */
+  const startTails = new Map<string, Promise<void>>();
+
+  function queueStart<T>(provider: string, run: () => Promise<T>): Promise<T> {
+    const tail = startTails.get(provider) ?? Promise.resolve();
+    // `run` on BOTH outcomes: a failed predecessor must not wedge the provider.
+    const next = tail.then(run, run);
+    startTails.set(
+      provider,
+      next.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+    return next;
+  }
 
   function notifyBridges() {
     // Tell every bridge to reload auth.json + refresh its model registry.
@@ -218,21 +240,29 @@ export function registerProviderAuthRoutes(
         return reply.code(400).send({ error: `Unknown OAuth provider: ${provider}` });
       }
 
-      await supersedePendingFlows(provider);
+      // Serialized per provider: see `queueStart`.
+      let started: StartedFlow | undefined;
+      let outcome: StartOutcome = "timeout";
+      await queueStart(provider, async () => {
+        await supersedePendingFlows(provider);
 
-      const started = startFlow({
-        provider,
-        loginFlow: entry.auth,
-        // A blank string is meaningful ("github.com"); null / 42 / absent are
-        // not pre-answers at all.
-        preAnswers:
-          typeof body.enterpriseDomain === "string" ? [body.enterpriseDomain] : [],
-        writeCredential,
-        notifyBridges,
-        openInBrowser,
+        started = startFlow({
+          provider,
+          loginFlow: entry.auth,
+          // A blank string is meaningful ("github.com"); null / 42 / absent are
+          // not pre-answers at all.
+          preAnswers:
+            typeof body.enterpriseDomain === "string" ? [body.enterpriseDomain] : [],
+          writeCredential,
+          notifyBridges,
+          openInBrowser,
+        });
+        outcome = await awaitStartOutcome(started);
       });
+      // `queueStart` always assigned `started` (it cannot reject without doing
+      // so, and `run` never throws past this point).
+      if (!started) return reply.code(500).send({ error: "Provider login failed" });
 
-      const outcome = await awaitStartOutcome(started);
       if (outcome === "timeout") {
         forgetFlow(started.flow);
         return reply.code(504).send({ error: "Provider did not respond" });

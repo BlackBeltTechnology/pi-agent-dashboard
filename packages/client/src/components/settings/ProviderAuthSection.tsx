@@ -70,6 +70,13 @@ import { derivePillView, type LiveTestResult, ProviderHealthPill } from "./Provi
 
 /** Consecutive malformed/non-ok poll responses tolerated before an auth-code login aborts. */
 const POLL_MAX_CONSECUTIVE_FAILURES = 3;
+/**
+ * Mirrors the server's flow lifetime (D7): a flow lives at least 10 minutes, and
+ * a device code extends it to `expiresInSeconds + 60 s`. A FLAT client cap would
+ * abandon a still-valid 900 s device code while the server kept the flow alive.
+ */
+const FLOW_DEFAULT_LIFETIME_MS = 10 * 60 * 1000;
+const DEVICE_CODE_SLACK_MS = 60 * 1000;
 
 /** Delay before the single post-write health reconcile read (F10). */
 const HEALTH_RECONCILE_DELAY_MS = 2000;
@@ -402,7 +409,14 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
       const res = await fetch(`${getApiBase()}/api/provider-auth/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: id, enterpriseDomain: enterpriseDomain || undefined }),
+        // An EMPTY string is a real pre-answer ("github.com"); only an absent
+        // value means "no pre-answer" and must let the flow ask. Collapsing ""
+        // to undefined is what made the Copilot pane ask for the domain twice.
+        body: JSON.stringify(
+          enterpriseDomain === undefined
+            ? { provider: id }
+            : { provider: id, enterpriseDomain },
+        ),
       });
       const data = (await res.json().catch(() => null)) as (OAuthFlowStatus & { error?: string }) | null;
       if (!res.ok || !data?.flowId) {
@@ -421,6 +435,15 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
     flowsTimersRef.current.set(id, entry);
     const stop = () => stopFlowTimers(id);
 
+    const armDeadline = (ms: number) => {
+      if (entry.timeout) clearTimeout(entry.timeout);
+      entry.timeout = setTimeout(() => {
+        stop();
+        failFlow(id, i18nT("providers.loginTimedOut", undefined, "Login timed out. Please try again."));
+      }, ms);
+    };
+    armDeadline(FLOW_DEFAULT_LIFETIME_MS);
+
     entry.interval = setInterval(async () => {
       if (!flowsTimersRef.current.has(id)) return; // stopped — drop the in-flight tick
       try {
@@ -435,6 +458,15 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
         if (!statusRes.ok) throw new Error(`provider-auth flow ${statusRes.status}`);
         const status: OAuthFlowStatus = await statusRes.json();
         entry.failures = 0;
+        // A device code extends the flow's life on the SERVER; the client's own
+        // deadline must follow it, or the pane gives up mid-sign-in.
+        if (
+          status.pending?.kind === "device_code" &&
+          typeof status.pending.expiresInSeconds === "number" &&
+          status.pending.expiresInSeconds > 0
+        ) {
+          armDeadline(status.pending.expiresInSeconds * 1000 + DEVICE_CODE_SLACK_MS);
+        }
         // Keep the pane's snapshot current — never resurrect a flow that
         // already reached a terminal local state.
         setFlows((prev) => (prev[id]?.phase === "waiting" ? { ...prev, [id]: { phase: "waiting", status } } : prev));
@@ -462,11 +494,6 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
       }
     }, 2000);
 
-    // Stop polling after 5 minutes (matches callback server timeout)
-    entry.timeout = setTimeout(() => {
-      stop();
-      failFlow(id, i18nT("providers.loginTimedOut", undefined, "Login timed out. Please try again."));
-    }, 5 * 60 * 1000);
   }, [failFlow, finishFlow, stopFlowTimers]);
 
   /** POST one prompt answer into a live flow (manual_code / text / select). */

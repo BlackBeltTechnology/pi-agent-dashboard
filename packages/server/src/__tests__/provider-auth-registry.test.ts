@@ -161,6 +161,56 @@ describe("P1: registry build latency", () => {
   }, 30_000);
 });
 
+describe("real-runtime first-interaction drift (design D1 table)", () => {
+  /**
+   * Four of the seven bundled flows reach their FIRST step with no network call,
+   * so their prompt/event shape is pinned here against the REAL runtime: a pi-ai
+   * release that renames a prompt kind, reorders a `notify`, or drops one fails
+   * THIS test instead of surfacing as a stuck sign-in pane in production.
+   *
+   * The device-code trio (kimi-coding, meta, xai) is deliberately absent: their
+   * first step is `notify device_code`, which the flow can only emit AFTER it
+   * has POSTed for a device authorization — a unit test cannot observe it
+   * without hitting the network. Their shape is pinned by the scripted fakes in
+   * `provider-auth-adapter.test.ts` and by the L3 e2e spec.
+   *
+   * Each probe stops the flow at its first prompt (reject, never resolve) and
+   * aborts the controller at the first renderable event, so nothing waits, polls
+   * or reconnects.
+   */
+  const OFFLINE_FIRST_STEPS: Array<[string, string[]]> = [
+    ["anthropic", ["auth_url", "manual_code"]],
+    ["openrouter", ["progress", "auth_url", "manual_code"]],
+    ["openai-codex", ["select"]],
+    ["github-copilot", ["text"]],
+  ];
+
+  it.each(OFFLINE_FIRST_STEPS)("%s emits its documented first step", async (id, expected) => {
+    const entry = getOAuthRegistry().find((e) => e.id === id);
+    if (!entry) throw new Error(`no registry entry for ${id}`);
+
+    const observed: string[] = [];
+    const controller = new AbortController();
+    const login = entry.auth.login({
+      signal: controller.signal,
+      notify: (event) => {
+        observed.push(event.type);
+        if (event.type === "auth_url" || event.type === "device_code") {
+          controller.abort();
+        }
+      },
+      prompt: (prompt) => {
+        observed.push(prompt.type);
+        controller.abort();
+        return Promise.reject(new Error("drift probe: stop at the first prompt"));
+      },
+    });
+
+    await expect(login).rejects.toBeTruthy();
+    expect(observed).toEqual(expected);
+  }, 20_000);
+});
+
 describe("failure degradation (X10 support)", () => {
   it("absorbs a throwing import() into an empty registry with a versioned error", async () => {
     const logs: string[] = [];

@@ -24,7 +24,7 @@ import type { OAuthFlowStatus, ProviderAuthStatus } from "@blackbelt-technology/
 import { mdiArrowRight, mdiContentCopy, mdiLoading } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { testProvider } from "../../lib/api/providers-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { SearchableSelectDialog, type SelectOption } from "../primitives/SearchableSelectDialog.js";
@@ -345,10 +345,36 @@ function ApiKeyPane({ provider, onClose, onBack, onSave }: {
 
 // ── Prompt-driven sign-in pane ──────────────────────────────────────────────
 
-/** mm:ss countdown for the device-code expiry (refreshed on each poll tick). */
+/** mm:ss rendering of a remaining duration. */
 function formatCountdown(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/**
+ * Remaining life of the current device code, ticking every second.
+ *
+ * Anchored ONCE per flow (`expiresInSeconds` is the code's TOTAL life, echoed
+ * unchanged by every poll), so re-reads do not reset the clock to full — which
+ * is what a per-render `formatCountdown(expiresInSeconds)` did.
+ */
+function useDeviceCodeRemaining(totalSeconds: number | undefined, flowId: string | undefined): number | undefined {
+  const [remaining, setRemaining] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    if (typeof totalSeconds !== "number" || totalSeconds <= 0 || !flowId) {
+      setRemaining(undefined);
+      return;
+    }
+    const deadline = Date.now() + totalSeconds * 1000;
+    setRemaining(totalSeconds);
+    const timer = setInterval(() => {
+      setRemaining(Math.max(0, Math.round((deadline - Date.now()) / 1000)));
+    }, 1000);
+    return () => clearInterval(timer);
+    // `flowId` restarts the clock for a NEW flow; `totalSeconds` only ever
+    // appears once per flow, so it cannot re-anchor the same one.
+  }, [totalSeconds, flowId]);
+  return remaining;
 }
 
 function SignInPane({ provider, flow, onBack, onClose, onStart, onSendInput, onCancelFlow }: {
@@ -370,6 +396,17 @@ function SignInPane({ provider, flow, onBack, onClose, onStart, onSendInput, onC
   const [inputValue, setInputValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // Read before the Copilot early-return below: a hook must not sit behind a
+  // conditional return, and the pre-prompt render has no flow to read anyway.
+  const status = flow?.status;
+  const pending = status?.pending;
+  const flowId = status?.flowId;
+  const waiting = flow?.phase === "starting" || flow?.phase === "waiting";
+  const deviceRemaining = useDeviceCodeRemaining(
+    pending?.kind === "device_code" ? pending.expiresInSeconds : undefined,
+    flowId,
+  );
+
   if (!flow && askingEnterprise) {
     return (
       <PaneShell title={i18nT("providers.signInPaneTitle", { name: provider.name }, `Sign in to ${provider.name}`)} onBack={onBack} onClose={onClose}>
@@ -381,13 +418,13 @@ function SignInPane({ provider, flow, onBack, onClose, onStart, onSendInput, onC
           type="text"
           value={enterpriseDomain}
           onChange={(e) => setEnterpriseDomain(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") { setAskingEnterprise(false); onStart(enterpriseDomain || undefined); } }}
+          onKeyDown={(e) => { if (e.key === "Enter") { setAskingEnterprise(false); onStart(enterpriseDomain); } }}
           placeholder={i18nT("git.enterpriseDomainBlankForGithubCom", undefined, "Enterprise domain (blank for github.com)")}
           autoFocus
           className="w-full px-2 py-1.5 text-xs rounded bg-[var(--bg-secondary)] border border-[var(--border-secondary)] text-[var(--text-primary)] placeholder-[var(--text-muted)]"
         />
         <div className="flex justify-end gap-2 pt-3">
-          <button type="button" onClick={() => { setAskingEnterprise(false); onStart(enterpriseDomain || undefined); }}
+          <button type="button" onClick={() => { setAskingEnterprise(false); onStart(enterpriseDomain); }}
             className="px-3 py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white font-medium">
             <Icon path={mdiArrowRight} size={0.5} className="inline mr-0.5" />
             {i18nT("common.continue", undefined, "Continue")}
@@ -397,10 +434,20 @@ function SignInPane({ provider, flow, onBack, onClose, onStart, onSendInput, onC
     );
   }
 
-  const status = flow?.status;
-  const pending = status?.pending;
-  const flowId = status?.flowId;
-  const waiting = flow?.phase === "starting" || flow?.phase === "waiting";
+  /**
+   * A `select` answer, guarded like the text field: a double-click must not
+   * answer the NEXT prompt with the previous option's id.
+   */
+  const chooseOption = async (optionId: string) => {
+    if (!flowId || submitting) return;
+    setSubmitting(true);
+    try {
+      await onSendInput(flowId, optionId);
+    } catch {
+      // Silent — the poll renders the flow's real state within one tick.
+    }
+    setSubmitting(false);
+  };
 
   const submitInput = async () => {
     const value = inputValue.trim();
@@ -461,9 +508,9 @@ function SignInPane({ provider, flow, onBack, onClose, onStart, onSendInput, onC
                 className="mt-2 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium">
                 {i18nT("common.openRegistrationPage", undefined, "Open Registration Page")}
               </button>
-              {typeof pending.expiresInSeconds === "number" && (
+              {typeof deviceRemaining === "number" && (
                 <div className="mt-1 text-[11px] text-[var(--text-muted)]" aria-live="polite">
-                  {i18nT("providers.deviceCodeExpiresIn", { time: formatCountdown(pending.expiresInSeconds) }, `Code expires in ${formatCountdown(pending.expiresInSeconds)}`)}
+                  {i18nT("providers.deviceCodeExpiresIn", { time: formatCountdown(deviceRemaining) }, `Code expires in ${formatCountdown(deviceRemaining)}`)}
                 </div>
               )}
               <div className="flex items-center gap-1.5 mt-2 text-xs text-[var(--text-muted)]">
@@ -500,8 +547,8 @@ function SignInPane({ provider, flow, onBack, onClose, onStart, onSendInput, onC
               <div className="text-xs text-[var(--text-secondary)]">{pending.message || i18nT("providers.flowSelectPrompt", undefined, "Choose an option")}</div>
               <div className="flex flex-col gap-1.5 mt-2">
                 {pending.options.map((o) => (
-                  <button key={o.id} type="button" data-testid={`dialog-option-${o.id}`} onClick={() => { if (flowId) void onSendInput(flowId, o.id); }}
-                    className="px-3 py-1.5 text-xs rounded bg-[var(--bg-tertiary)] hover:bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-secondary)] text-left">
+                  <button key={o.id} type="button" data-testid={`dialog-option-${o.id}`} onClick={() => void chooseOption(o.id)} disabled={submitting}
+                    className="px-3 py-1.5 text-xs rounded bg-[var(--bg-tertiary)] hover:bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-secondary)] text-left disabled:opacity-50">
                     <span className="block">{o.label}</span>
                     {o.description && <span className="block text-[11px] text-[var(--text-muted)]">{o.description}</span>}
                   </button>

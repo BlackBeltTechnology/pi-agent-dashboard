@@ -426,6 +426,13 @@ export function startFlow(params: StartFlowParams): StartedFlow {
     .then(async (credential) => {
       // A cancel that raced a late resolve: the credential must be DISCARDED,
       // never written. See test-plan X6.
+      //
+      // Deliberately checked BEFORE the write, and NOT again after it: a cancel
+      // that lands while the locked, atomic `writeCredential` is already in
+      // flight cannot un-write anything. Reporting `Cancelled` at that point
+      // would tell the operator the credential was not stored while `auth.json`
+      // holds it, and the pane would offer a re-login for a provider that is
+      // already connected. The honest terminal state is `complete` — it IS.
       if (flow.cancelled) {
         finish("error", "Cancelled");
         return;

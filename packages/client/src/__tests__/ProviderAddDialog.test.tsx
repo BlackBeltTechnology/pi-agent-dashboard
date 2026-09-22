@@ -626,3 +626,138 @@ describe("custom-endpoint pane Test action (moved from LlmProviderCard)", () => 
     expect(probe.calls).toHaveLength(0);
   });
 });
+
+/**
+ * Prompt-driven pane regressions found by the local review gate
+ * (change: delegate-provider-oauth-to-pi-ai).
+ *
+ * Each of these pins a behaviour whose ABSENCE is invisible in the happy-path
+ * tests above: a blank domain pre-answer, a `select` double-click, and a
+ * device-code countdown that must actually count down.
+ */
+describe("prompt-driven pane — review-gate regressions", () => {
+  /** Render the section with only Copilot selectable + a scripted /start. */
+  async function renderCopilot(starts: any[]) {
+    const script: Script = {
+      statuses: [{ id: "github-copilot", name: "GitHub Copilot", flowType: "device_code", authenticated: false, configured: false }],
+      calls: { put: 0, patch: 0, start: 0, status: 0 },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: any) => {
+      if (url.includes("/api/provider-auth/start")) {
+        script.calls.start++;
+        starts.push(JSON.parse(init.body));
+        return { ok: true, json: async () => ({ flowId: "flow-1", provider: "github-copilot", status: "pending" }) } as any;
+      }
+      return stubFetch(script)(url, init);
+    }) as any);
+    render(<ProviderAuthSection />);
+    await waitFor(() => expect(script.calls.status).toBeGreaterThanOrEqual(1));
+    await openPicker();
+    fireEvent.click(dialog().getByText("GitHub Copilot"));
+  }
+
+  it("AUTH-003: a BLANK enterprise domain still sends `enterpriseDomain: \"\"`", async () => {
+    const starts: any[] = [];
+    await renderCopilot(starts);
+    const d = dialog();
+    // Leave the field blank — "blank for github.com" is a MEANINGFUL answer, not
+    // an absent one. Collapsing it to `undefined` made the server ask again.
+    fireEvent.click(d.getByText(/continue/i));
+
+    await waitFor(() => expect(starts).toHaveLength(1));
+    // The key must be PRESENT and empty — `{ provider }` alone is the bug.
+    expect(starts[0]).toEqual({ provider: "github-copilot", enterpriseDomain: "" });
+    expect("enterpriseDomain" in starts[0]).toBe(true);
+  });
+
+  it("AUTH-006: the device-code expiry is a COUNTDOWN, not a frozen total", async () => {
+    const deviceStep = {
+      flowId: "flow-dev",
+      provider: "xai",
+      status: "pending",
+      pending: {
+        kind: "device_code",
+        userCode: "XAI-0001",
+        verificationUri: "https://auth.x.ai/activate",
+        expiresInSeconds: 900,
+      },
+    };
+    const script: Script = {
+      statuses: [{ id: "xai", name: "xAI", flowType: "device_code", authenticated: false, configured: false }],
+      // The poll must keep reporting the SAME device step: it is the source of
+      // the pane's snapshot, and a bare `pending` would unmount the pane.
+      flowGet: () => Promise.resolve({ ok: true, json: async () => deviceStep } as any),
+      calls: { put: 0, patch: 0, start: 0, status: 0 },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: any) => {
+      if (url.includes("/api/provider-auth/start")) {
+        script.calls.start++;
+        return { ok: true, json: async () => deviceStep } as any;
+      }
+      return stubFetch(script)(url, init);
+    }) as any);
+    render(<ProviderAuthSection />);
+    await waitFor(() => expect(script.calls.status).toBeGreaterThanOrEqual(1));
+    await openPicker();
+    fireEvent.click(dialog().getByText("xAI"));
+    fireEvent.click(dialog().getByTestId("dialog-sign-in"));
+
+    const pane = await dialog().findByTestId("dialog-flow-waiting");
+    // `expiresInSeconds` is the code's TOTAL life, echoed on every poll — a
+    // per-render format() of it would read 15:00 forever.
+    expect(pane.textContent).toMatch(/15:00/);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(pane.textContent).toMatch(/14:59/);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(pane.textContent).toMatch(/14:57/);
+  });
+
+  it("AUTH-004/AUTH-005: a `select` step disables its options after the first click", async () => {
+    const inputs: string[] = [];
+    const script: Script = {
+      statuses: [{ id: "openai-codex", name: "OpenAI Codex", flowType: "auth_code", authenticated: false, configured: false }],
+      calls: { put: 0, patch: 0, start: 0, status: 0 },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: any) => {
+      if (url.includes("/api/provider-auth/start")) {
+        script.calls.start++;
+        return {
+          ok: true,
+          json: async () => ({
+            flowId: "flow-9",
+            provider: "openai-codex",
+            status: "pending",
+            pending: {
+              kind: "select",
+              message: "How do you want to sign in?",
+              options: [{ id: "browser", label: "Sign in with browser" }, { id: "device_code", label: "Device code login" }],
+            },
+          }),
+        } as any;
+      }
+      if (url.includes("/input")) {
+        inputs.push(JSON.parse(init.body).value);
+        // Never settles within the assertion window: keeps `submitting` true so
+        // a second click has a window to double-fire.
+        return new Promise(() => {}) as any;
+      }
+      return stubFetch(script)(url, init);
+    }) as any);
+    render(<ProviderAuthSection />);
+    await waitFor(() => expect(script.calls.status).toBeGreaterThanOrEqual(1));
+    await openPicker();
+    fireEvent.click(dialog().getByText("OpenAI Codex"));
+    fireEvent.click(dialog().getByTestId("dialog-sign-in"));
+
+    const option = await dialog().findByTestId("dialog-option-browser");
+    fireEvent.click(option);
+    expect(option.disabled).toBe(true);
+    // A second click must not post the SAME option again.
+    fireEvent.click(option);
+    expect(inputs).toEqual(["browser"]);
+  });
+});
