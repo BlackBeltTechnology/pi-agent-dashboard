@@ -57,7 +57,7 @@ for the bridge-side redaction site.
 
 ## 7. Manual verification (deferred post-merge)
 
-- [ ] 7.1 (test-plan: manual-only) Verify on the real pi 0.86.1 runtime: after `npm run reload`, start a fresh dashboard-spawned session, let it run one turn, then trigger a `/compact`. Confirm no stored event carries a system prompt section or `toolsAdded` list, no stored `session_compact` carries `compactionEntry`, the first assistant message renders normally, and the compaction divider still appears. Cannot be automated — the repo's resolved pi dependency is 0.85.1 and never emits the role.
+- [x] 7.1 (test-plan: manual-only) Verify on the real pi 0.86.1 runtime: after `npm run reload`, start a fresh dashboard-spawned session, let it run one turn, then trigger a `/compact`. Confirm no stored event carries a system prompt section or `toolsAdded` list, no stored `session_compact` carries `compactionEntry`, the first assistant message renders normally, and the compaction divider still appears. Cannot be automated — the repo's resolved pi dependency is 0.85.1 and never emits the role.
 
 ## 8. Docs
 
