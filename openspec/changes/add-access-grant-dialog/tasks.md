@@ -7,9 +7,9 @@
 
 ## 2. Protocol and shared types
 
-- [ ] 2.1 Add `grant_channel`, `grant_request`, `grant_response`, `grant_dismiss` frames to `packages/shared/src/browser-protocol.ts`, each carrying `plane` and a normalised `subject` — verify `npm test` typechecks and existing protocol tests still pass
-- [ ] 2.2 Add the `GrantVerdict` (`allow-once | allow-always | deny`) and `GrantPromptCopy` types, with `allow-once` representable as unavailable per plane (trusted-networks and CORS offer only allow-always/deny) — verify a unit test asserts a deferred-plane prompt cannot carry `allow-once`
-- [ ] 2.3 Add the prompting setting (default **off**) to `packages/shared/src/config.ts` with its default asserted — verify a config test shows an absent key parses to disabled
+- [x] 2.1 Add `grant_channel`, `grant_request`, `grant_response`, `grant_dismiss` frames to `packages/shared/src/browser-protocol.ts`, each carrying `plane` and a normalised `subject` — verify `npm test` typechecks and existing protocol tests still pass (landed: `grant_channel` carries **only** `capability` — it is per-connection, so it has no plane or subject; `grant_request`, `grant_response` and `grant_dismiss` carry both. `AccessPlaneId` added as a closed union so a typo'd plane is a type error)
+- [x] 2.2 Add the `GrantVerdict` (`allow-once | allow-always | deny`) and `GrantPromptCopy` types, with `allow-once` representable as unavailable per plane (trusted-networks and CORS offer only allow-always/deny) — verify a unit test asserts a deferred-plane prompt cannot carry `allow-once`
+- [x] 2.3 Add the prompting setting (default **off**) to `packages/shared/src/config.ts` with its default asserted — verify a config test shows an absent key parses to disabled
 
 ## 3. Eligibility
 

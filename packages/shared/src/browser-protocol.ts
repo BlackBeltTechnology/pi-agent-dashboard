@@ -1210,7 +1210,10 @@ export type ServerToBrowserMessage =
   | CanvasServerChipMessage
   | FileChangedMessage
   | BrowserRelayFrameMessage
-  | BrowserRelayStatusMessage;
+  | BrowserRelayStatusMessage
+  | GrantChannelMessage
+  | GrantRequestMessage
+  | GrantDismissMessage;
 
 /**
  * Server push: drive the per-session auto-canvas surface (change: auto-canvas).
@@ -2054,6 +2057,7 @@ export type BrowserToServerMessage =
   | BrowserRelaySubscribeMessage
   | BrowserRelayUnsubscribeMessage
   | BrowserRelayInputMessage
+  | GrantResponseBrowserMessage
   | WatchFilesBrowserMessage;
 
 /**
@@ -2278,4 +2282,122 @@ export interface BrowserRelayStatusMessage {
   type: "browser_relay_status";
   instances: BrowserRelayInstanceStatus[];
   auditSeq: number;
+}
+
+// ---------------------------------------------------------------------------
+// Access-grant prompt protocol (change: add-access-grant-dialog)
+// ---------------------------------------------------------------------------
+
+/**
+ * The access planes a denial can originate from. Closed on purpose: the wire
+ * carries the plane id, the plane registry (server) keys on it, and a typo'd
+ * plane must be a type error rather than a silently-unmatched string.
+ * `cwd` is the unknown-working-directory plane.
+ */
+export type AccessPlaneId = "filesystem" | "cwd" | "network" | "cors";
+
+/**
+ * The three answers an operator may give. `allow-once` releases only the request
+ * that raised the prompt; `allow-always` additionally persists a grant in the
+ * raising plane's store; `deny` persists nothing.
+ */
+export type GrantVerdict = "allow-once" | "allow-always" | "deny";
+
+/**
+ * How a denial settles. `held` — the denied request is suspended while the
+ * operator decides. `deferred` — the request already received its denial and
+ * the verdict applies to a later retry.
+ */
+export type GrantSettlementMode = "held" | "deferred";
+
+/** Verdicts a HELD prompt offers. */
+export type HeldGrantVerdict = "allow-once" | "allow-always" | "deny";
+
+/**
+ * Verdicts a DEFERRED prompt offers — deliberately WITHOUT `allow-once`. No
+ * request is suspended for it to release, so it is unrepresentable at the type
+ * level rather than merely hidden by the UI.
+ * See change: add-access-grant-dialog.
+ */
+export type DeferredGrantVerdict = "allow-always" | "deny";
+
+/** One rung of the ancestor ladder a filesystem denial offers. */
+export interface GrantLadderRung {
+  /** The canonical subject this rung would grant. */
+  subject: string;
+  /** Boundary note under the last rung, e.g. "stops below your home directory". */
+  boundary?: string;
+}
+
+/** Prompt copy for a HELD denial — a request is suspended awaiting a verdict. */
+export interface HeldGrantPromptCopy {
+  mode: "held";
+  verdicts: readonly HeldGrantVerdict[];
+  /** The grant store an `allow-always` answer writes. */
+  store: string;
+  ladder?: readonly GrantLadderRung[];
+}
+
+/** Prompt copy for a DEFERRED denial — the verdict applies to a later attempt. */
+export interface DeferredGrantPromptCopy {
+  mode: "deferred";
+  verdicts: readonly DeferredGrantVerdict[];
+  store: string;
+  ladder?: readonly GrantLadderRung[];
+}
+
+/** Discriminated on `mode`, so a deferred prompt cannot carry `allow-once`. */
+export type GrantPromptCopy = HeldGrantPromptCopy | DeferredGrantPromptCopy;
+
+/**
+ * Server → browser: the socket-bound prompt capability. Issued once per browser
+ * socket at connect, held in memory only, never persisted, and invalidated when
+ * the socket closes. A request proves prompt-eligibility by echoing it. It is
+ * per-connection, so it carries no plane or subject.
+ * See change: add-access-grant-dialog.
+ */
+export interface GrantChannelMessage {
+  type: "grant_channel";
+  capability: string;
+}
+
+/**
+ * Server → browser: a denial raised a prompt. Broadcast to every connected
+ * operator socket; the first well-formed `grant_response` settles it (D8).
+ * `expiresAt` is epoch ms, used to render the held countdown.
+ */
+export interface GrantRequestMessage {
+  type: "grant_request";
+  promptId: string;
+  plane: AccessPlaneId;
+  /** Normalised subject — the canonical form the plane's store also uses. */
+  subject: string;
+  /** Epoch ms after which the entry expires and the request gets its denial. */
+  expiresAt: number;
+  copy: GrantPromptCopy;
+}
+
+/**
+ * Browser → server: the operator's answer. `subject` echoes the answered
+ * subject, which for an `allow-always` may be an offered ancestor rather than
+ * the denied subject (the verdict never widens beyond an offered rung).
+ */
+export interface GrantResponseBrowserMessage {
+  type: "grant_response";
+  promptId: string;
+  plane: AccessPlaneId;
+  subject: string;
+  verdict: GrantVerdict;
+}
+
+/**
+ * Server → browser: this prompt is settled (or expired) elsewhere — remove the
+ * dialog without interaction. Sent to every client that did not answer.
+ */
+export interface GrantDismissMessage {
+  type: "grant_dismiss";
+  promptId: string;
+  plane: AccessPlaneId;
+  subject: string;
+  reason: "settled" | "expired";
 }
