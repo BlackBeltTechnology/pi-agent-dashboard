@@ -3376,8 +3376,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       for (const t of terminalManager.list()) {
         try { terminalManager.kill(t.id); } catch {}
       }
-      // Close any pending OAuth callback servers
-      try { const { closeAllCallbackServers } = await import("./auth/oauth-callback-server.js"); await closeAllCallbackServers(); } catch {}
+      // Abort every in-flight provider OAuth flow (releases callback ports,
+      // stops device-code polls).
+      try { const { abortAllFlows } = await import("./auth/provider-auth-adapter.js"); abortAllFlows(); } catch {}
       // Close second port before main server
       if (secondFastify) {
         try { await secondFastify.close(); } catch { /* ignore */ }

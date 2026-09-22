@@ -1,26 +1,36 @@
 /**
  * Tests for `_buildAuthStatus` — server-side pure derivation that merges
- * the bridge-pushed catalogue, auth.json data, and the local OAuth handler set.
- * See change: replace-hardcoded-provider-lists.
+ * the bridge-pushed catalogue, auth.json data, and the OAuth registry.
+ * See changes: replace-hardcoded-provider-lists,
+ * delegate-provider-oauth-to-pi-ai (D1, D4).
  */
-import { describe, it, expect } from "vitest";
-import { _buildAuthStatus, type AuthData } from "../auth/provider-auth-storage.js";
-import type { ProviderHandler } from "../auth/provider-auth-handlers.js";
-import type { ProviderInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
-function makeOAuthHandler(providerId: string, displayName: string, flowType: "auth_code" | "device_code" = "auth_code"): ProviderHandler {
+import type { ProviderInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it } from "vitest";
+import type { OAuthRegistryEntry } from "../auth/pi-oauth-types.js";
+import {
+  _buildAuthStatus,
+  type AuthData,
+  oauthIdsFrom,
+} from "../auth/provider-auth-storage.js";
+
+function makeOAuthEntry(
+  id: string,
+  name: string,
+  flowType: "auth_code" | "device_code" = "auth_code",
+): OAuthRegistryEntry {
   return {
+    id,
+    name,
     flowType,
-    providerId,
-    displayName,
-    callbackPort: 0,
-    callbackPath: "/cb",
-    buildAuthUrl: () => "",
-    exchangeCode: async () => ({ type: "oauth", refresh: "", access: "", expires: 0 }),
-  } as ProviderHandler;
+    auth: {
+      name,
+      login: async () => ({ type: "oauth", refresh: "", access: "", expires: 0 }),
+    },
+  };
 }
 
-const ANTHROPIC_HANDLER = makeOAuthHandler("anthropic", "Anthropic (Claude Pro/Max)");
+const ANTHROPIC_HANDLER = makeOAuthEntry("anthropic", "Anthropic (Claude Pro/Max)");
 
 describe("_buildAuthStatus", () => {
   it("returns OAuth handler rows with authenticated:false when no catalogue or auth", () => {
@@ -169,7 +179,7 @@ describe("_buildAuthStatus", () => {
     // A custom provider whose id matches a registered OAuth handler
     // should still surface its OAuth row — only the API-key row is
     // suppressed for custom providers.
-    const corporateHandler = makeOAuthHandler("corporate-sso", "Corporate SSO");
+    const corporateHandler = makeOAuthEntry("corporate-sso", "Corporate SSO");
     const catalogue: ProviderInfo[] = [
       { id: "corporate-sso", displayName: "Corporate SSO", hasOAuth: true, configured: false, custom: true },
     ];
@@ -368,5 +378,95 @@ describe("_buildAuthStatus — D1 kind-aware `configured`", () => {
     const row = _buildAuthStatus(catalogue, auth, [])[0];
     expect(row.maskedKey).toBe("sk-ab...789");
     expect(row.configured).toBe(true);
+  });
+});
+
+/**
+ * Registry-driven rows — test-plan E23–E27 (change:
+ * delegate-provider-oauth-to-pi-ai).
+ *
+ * D4: a permanent key obtained through an OAuth handshake (OpenRouter issues
+ * one, stored as `{type:"oauth", refresh:""}`) has no meaningful expiry, so the
+ * row emits `expires: null` and clients apply ONE null-check instead of
+ * provider-specific knowledge.
+ *
+ * D1: an id is an OAuth id when the registry lists it OR auth.json already
+ * holds an `{type:"oauth"}` credential under it — so a credential pi wrote for
+ * a provider the dashboard has no flow for stays visible and removable, and the
+ * `<id>-api` twin rule covers the newly registered ids.
+ */
+describe("_buildAuthStatus — registry-driven rows (E23–E27)", () => {
+  const openrouter = makeOAuthEntry("openrouter", "OpenRouter OAuth");
+
+  it("E23: a permanent-key credential reports `expires: null`, a refreshable one its number", () => {
+    const auth: AuthData = {
+      openrouter: { type: "oauth", access: "k", refresh: "", expires: 9007199254740991 },
+      anthropic: { type: "oauth", access: "a", refresh: "r", expires: 1234 },
+    };
+    const result = _buildAuthStatus([], auth, [
+      openrouter,
+      makeOAuthEntry("anthropic", "Anthropic (Claude Pro/Max)"),
+    ]);
+
+    const or = result.find((r) => r.id === "openrouter");
+    const an = result.find((r) => r.id === "anthropic");
+    expect(or?.authenticated).toBe(true);
+    expect(or?.expires).toBeNull();
+    expect(an?.expires).toBe(1234);
+  });
+
+  it("E24: an absent `refresh` key also reports no expiry", () => {
+    const auth = {
+      openrouter: { type: "oauth", access: "k", expires: 999 } as AuthData[string],
+    };
+    const result = _buildAuthStatus([], auth, [openrouter]);
+    expect(result.find((r) => r.id === "openrouter")?.expires).toBeNull();
+  });
+
+  it("E25: a stored api key on an OAuth id surfaces as the `<id>-api` twin", () => {
+    for (const id of ["openrouter", "kimi-coding", "meta", "xai"]) {
+      const auth: AuthData = { [id]: { type: "api_key", key: "sk" } };
+      const catalogue: ProviderInfo[] = [
+        { id, displayName: id, hasOAuth: true, configured: false },
+      ];
+      const result = _buildAuthStatus(catalogue, auth, [makeOAuthEntry(id, id)]);
+
+      const oauthRow = result.find((r) => r.id === id);
+      const apiRow = result.find((r) => r.id === `${id}-api`);
+      expect(oauthRow?.flowType, id).not.toBe("api_key");
+      expect(oauthRow?.authenticated, id).toBe(false);
+      expect(apiRow?.authenticated, id).toBe(true);
+      expect(apiRow?.name, id).toContain("(API Key)");
+    }
+  });
+
+  it("E26: a stored OAuth credential with NO registry entry is still an OAuth row", () => {
+    const auth: AuthData = {
+      "some-future-provider": { type: "oauth", access: "a", refresh: "r", expires: 42 },
+    };
+    const result = _buildAuthStatus([], auth, []);
+
+    const row = result.find((r) => r.id === "some-future-provider");
+    expect(row).toBeDefined();
+    expect(row?.authenticated).toBe(true);
+    expect(row?.expires).toBe(42);
+    // …and the DELETE route's row-kind union sees it too.
+    expect(oauthIdsFrom([], auth).has("some-future-provider")).toBe(true);
+  });
+
+  it("E27: a catalogue-only custom OAuth provider gets no OAuth row", () => {
+    const catalogue: ProviderInfo[] = [
+      { id: "custom-llm", displayName: "Custom LLM", hasOAuth: true, configured: false, custom: true },
+    ];
+    const result = _buildAuthStatus(catalogue, {}, []);
+    expect(result.map((r) => r.id)).not.toContain("custom-llm");
+  });
+
+  it("does not double-emit a stored OAuth id that IS in the registry", () => {
+    const auth: AuthData = {
+      openrouter: { type: "oauth", access: "a", refresh: "", expires: 1 },
+    };
+    const result = _buildAuthStatus([], auth, [openrouter]);
+    expect(result.filter((r) => r.id === "openrouter")).toHaveLength(1);
   });
 });

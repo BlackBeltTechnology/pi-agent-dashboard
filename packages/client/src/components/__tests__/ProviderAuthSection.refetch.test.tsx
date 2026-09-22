@@ -31,9 +31,12 @@ describe("ProviderAuthSection credential-change notification", () => {
       if (url.includes("/api/provider-auth/catalogue-ready")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ ready: true }) });
       }
-      if (url.includes("/api/provider-auth/authorize")) {
+      if (url.includes("/api/provider-auth/start")) {
         authenticated = true; // the server-side flow completes
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ authUrl: "https://example.test/oauth" }) });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ flowId: "flow-1", provider: "anthropic", status: "pending", authUrl: "https://example.test/oauth" }) });
+      }
+      if (url.includes("/api/provider-auth/flow/")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ flowId: "flow-1", provider: "anthropic", status: authenticated ? "complete" : "pending" }) });
       }
       return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
     });

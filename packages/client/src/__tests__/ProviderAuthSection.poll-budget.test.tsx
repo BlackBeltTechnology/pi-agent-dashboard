@@ -5,12 +5,12 @@
  *
  *  - a transient failure keeps polling (F4) — an in-flight login survives a
  *    single 500 or a mid-login server restart;
- *  - the THIRD consecutive malformed/non-ok response ends the flow with a
- *    message instead of silently waiting for the 5-minute timeout (F4);
- *  - a non-array body never reaches an array method;
- *  - the poll reads the RAW /status array — the rendered list is
- *    configured-only, so a provider *becoming* configured is observable only
- *    there (F2);
+ *  - the THIRD consecutive failed response ends the flow with a message
+ *    instead of silently waiting for the 5-minute timeout (F4);
+ *  - a malformed snapshot body is tolerated (no crash, no abort);
+ *  - the poll observes GET /flow/:flowId to a terminal state — the rendered
+ *    list is configured-only and converges through the completion refresh
+ *    (F2);
  *  - two concurrent flows keep separate timers and counters — one flow's
  *    bound or completion never touches the other (F3).
  *
@@ -36,13 +36,15 @@ describe("ProviderAuthSection auth-code poll (section-owned flows)", () => {
   });
 
   /**
-   * Fetch mock: mount returns the unconfigured rows; each /status poll after
-   * its authorize consumes one step of `script`. Steps are consumed PER FETCH,
-   * and concurrent flows poll the same endpoint — exactly the production
-   * shape, where per-provider isolation comes from per-provider state.
+   * Fetch mock: mount returns the unconfigured rows; each GET /flow poll
+   * after its /start consumes one step of `script`. Steps are consumed PER
+   * FETCH, and concurrent flows poll the same endpoint — exactly the
+   * production shape, where per-provider isolation comes from per-provider
+   * state. A healthy step completes the flow AND marks that provider
+   * configured for the subsequent /status refresh.
    */
   function mockPollFetch(script: Step[], counters: { statusCalls: number }) {
-    let flowStarted = false;
+    const configured = { A: false, B: false };
     return vi.fn().mockImplementation((url: string) => {
       if (url.includes("/api/provider-auth/catalogue-ready")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ ready: true }) });
@@ -52,9 +54,15 @@ describe("ProviderAuthSection auth-code poll (section-owned flows)", () => {
       }
       if (url.includes("/api/provider-auth/status")) {
         counters.statusCalls += 1;
-        if (!flowStarted) {
-          return Promise.resolve({ ok: true, json: () => Promise.resolve([A, B]) });
-        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([
+          { ...A, authenticated: configured.A, configured: configured.A },
+          { ...B, authenticated: configured.B, configured: configured.B },
+        ]) });
+      }
+      if (url.includes("/api/provider-auth/start")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ flowId: "flow-1", provider: "anthropic", status: "pending", authUrl: "https://example.test/oauth" }) });
+      }
+      if (url.includes("/api/provider-auth/flow/")) {
         const step = script.shift();
         if (step === "fail") {
           return Promise.resolve({
@@ -64,18 +72,14 @@ describe("ProviderAuthSection auth-code poll (section-owned flows)", () => {
           });
         }
         if (step === "nonarray") {
+          // A malformed snapshot body — parses, but is not an OAuthFlowStatus.
           return Promise.resolve({ ok: true, json: () => Promise.resolve({ ids: [] }) });
         }
-        const rows: Record<string, any[]> = {
-          healthyA: [{ ...A, authenticated: true, configured: true, source: "stored" }, B],
-          healthyB: [A, { ...B, authenticated: true, configured: true, source: "stored" }],
-          healthyBoth: [{ ...A, authenticated: true, configured: true }, { ...B, authenticated: true, configured: true }],
-        };
-        return Promise.resolve({ ok: true, json: () => Promise.resolve(rows[step as string] ?? [A, B]) });
-      }
-      if (url.includes("/api/provider-auth/authorize")) {
-        flowStarted = true;
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ authUrl: "https://example.test/oauth" }) });
+        if (step === "healthyA") configured.A = true;
+        if (step === "healthyB") configured.B = true;
+        if (step === "healthyBoth") { configured.A = true; configured.B = true; }
+        const complete = step === "healthyA" || step === "healthyB" || step === "healthyBoth";
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ flowId: "flow-1", provider: "anthropic", status: complete ? "complete" : "pending" }) });
       }
       return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
     });
@@ -88,10 +92,10 @@ describe("ProviderAuthSection auth-code poll (section-owned flows)", () => {
     fireEvent.click(await screen.findByTestId("dialog-sign-in"));
   }
 
-  // A malformed (non-array) poll body is a counted transient failure: the
-  // login recovers when a later poll is healthy, and no TypeError reaches the
-  // render (the poll never calls an array method on the body).
-  it("a malformed non-array poll body does not abort the login or crash the render", async () => {
+  // A malformed snapshot body (not an OAuthFlowStatus) does not abort the
+  // login or crash the render: the poll tolerates it and recovers when a
+  // later poll is healthy.
+  it("a malformed poll body does not abort the login or crash the render", async () => {
     const counters = { statusCalls: 0 };
     global.fetch = mockPollFetch(["nonarray", "healthyA"], counters) as typeof fetch;
     const onCredentialsChanged = vi.fn();
@@ -106,14 +110,14 @@ describe("ProviderAuthSection auth-code poll (section-owned flows)", () => {
     expect(screen.queryByText(/Render error:/i)).toBeNull();
   });
 
-  // F2 — the poll reads the RAW status array: the rendered list excludes the
-  // unconfigured provider the whole time, yet the flow completes when the raw
-  // array shows it configured.
-  it("the poll observes the provider become configured in the raw status array (F2)", async () => {
+  // F2 — the poll observes the flow complete via GET /flow: the rendered list
+  // excludes the unconfigured provider the whole time, and only the refresh
+  // triggered by the completion converges the list.
+  it("the flow poll observes completion and the list converges (F2)", async () => {
     const counters = { statusCalls: 0 };
-    // Two healthy steps: one completes the poll, one feeds the refresh that
-    // handleChanged triggers on completion.
-    global.fetch = mockPollFetch(["healthyA", "healthyA"], counters) as typeof fetch;
+    // One healthy step completes the poll and marks A configured; the refresh
+    // that handleChanged triggers then reads /status with A configured.
+    global.fetch = mockPollFetch(["healthyA"], counters) as typeof fetch;
     const onCredentialsChanged = vi.fn();
     const c = render(<ProviderAuthSection onCredentialsChanged={onCredentialsChanged} />);
 
@@ -173,11 +177,10 @@ describe("ProviderAuthSection auth-code poll (section-owned flows)", () => {
   it("one flow's completion and failure bound do not touch the other (F3)", async () => {
     const counters = { statusCalls: 0 };
     // Fetch order per 2 s tick: A's poll first, then B's (started in that
-    // order). B completes on the first healthy response; A keeps polling and
-    // hits its own 3-consecutive-failure bound afterwards. The third
-    // "healthyB" feeds the refresh that B's completion triggers, and shows
-    // only B configured — A stays unlisted.
-    global.fetch = mockPollFetch(["fail", "fail", "healthyB", "healthyB", "healthyB", "fail", "fail", "fail"], counters) as typeof fetch;
+    // order). A burns two failures; B completes on the first healthy response
+    // (which also marks B configured for the refresh its completion triggers);
+    // A then hits its own 3-consecutive-failure bound.
+    global.fetch = mockPollFetch(["fail", "fail", "fail", "healthyB", "fail"], counters) as typeof fetch;
     const onCredentialsChanged = vi.fn();
     const c = render(<ProviderAuthSection onCredentialsChanged={onCredentialsChanged} />);
 

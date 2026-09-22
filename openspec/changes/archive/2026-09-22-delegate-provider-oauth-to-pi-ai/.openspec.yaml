@@ -1,0 +1,6 @@
+schema: spec-driven
+# This change removes the LAST requirement of the `oauth-callback-server`
+# capability (pi-ai owns the callback listener now), so archiving retires the
+# capability and deletes its spec. Required by `openspec archive`.
+retire_capabilities: true
+created: 2026-09-21

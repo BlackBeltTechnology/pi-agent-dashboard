@@ -12,9 +12,10 @@
  * change redesign-providers-settings-page. See change:
  * redesign-providers-settings-page.
  */
-import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
-import { ProviderAuthSection, customEndpointConfigured } from "../components/settings/ProviderAuthSection.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { customEndpointConfigured, ProviderAuthSection } from "../components/settings/ProviderAuthSection.js";
 import { PROVIDER_AUTH_EVENT, useProvidersReady } from "../hooks/useProvidersReady.js";
 
 afterEach(() => {
@@ -706,5 +707,25 @@ describe("single dispatch funnel (F9, restated for the dialog-era structure)", (
     await waitFor(() => expect(probe().ready).toBe(false));
     expect(events).toHaveLength(1);
     stop();
+  });
+});
+
+// ── E30 — permanent-key credentials show no expiry ───────────────────────────
+
+describe("permanent-key expiry (E30)", () => {
+  it("an authenticated openrouter row with expires:null renders connected with no expiry text and no expired badge", async () => {
+    const script: FetchScript = {
+      statusGets: 0,
+      providersGets: 0,
+      statuses: [{ id: "openrouter", name: "OpenRouter", flowType: "auth_code", authenticated: true, configured: true, source: "stored", expires: null }],
+    };
+    const { c } = await renderSection(script);
+    const row = c.container.querySelector('[data-testid="provider-row"][data-row-id="openrouter"]');
+    expect(row).toBeTruthy();
+    expect(row!.textContent).toContain("Connected");
+    // A null expiry is a PERMANENT credential: no countdown and no "expired"
+    // state — the explicit null guard never invokes relativeExpiry.
+    expect(row!.textContent).not.toMatch(/expired/i);
+    expect(row!.textContent).not.toMatch(/expires in/);
   });
 });
