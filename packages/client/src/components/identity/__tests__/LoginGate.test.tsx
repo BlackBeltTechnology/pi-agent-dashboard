@@ -1,6 +1,6 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const navigate = vi.fn();
 vi.mock("wouter", () => ({ useLocation: () => ["/callback", navigate] }));
@@ -29,10 +29,53 @@ vi.mock("../../../generated/plugin-registry.js", () => ({
 
 import { LoginGate } from "../LoginGate.js";
 
+// jsdom's location.assign throws "Not implemented" — replace it with a spy so
+// the D19 separate-view redirect is observable.
+let assignSpy: ReturnType<typeof vi.fn>;
+const realLocation = window.location;
+
+beforeEach(() => {
+  assignSpy = vi.fn();
+  Object.defineProperty(window, "location", {
+    value: { origin: "https://dash.example", assign: assignSpy, pathname: "/", search: "" },
+    writable: true,
+    configurable: true,
+  });
+});
+
 afterEach(() => {
   cleanup();
   navigate.mockReset();
   fetchLoginConfig.mockReset();
+  Object.defineProperty(window, "location", { value: realLocation, writable: true, configurable: true });
+});
+
+describe("LoginGate separate-view provider (D19)", () => {
+  it("start: a loginUrl redirects the browser there instead of mounting a component", async () => {
+    fetchLoginConfig.mockResolvedValue({ active: true, pluginId: "identity-smoke", loginUrl: "/identity-smoke/login" });
+    render(<LoginGate phase="start" />);
+    await waitFor(() => expect(assignSpy).toHaveBeenCalledWith("/identity-smoke/login"));
+    expect(screen.queryByTestId("fake-provider")).toBeNull();
+  });
+
+  it("logout: a logoutUrl redirects (sign-out never mounts the login component)", async () => {
+    fetchLoginConfig.mockResolvedValue({
+      active: true,
+      pluginId: "identity-smoke",
+      loginUrl: "/identity-smoke/login",
+      logoutUrl: "/identity-smoke/logout",
+    });
+    render(<LoginGate phase="logout" />);
+    await waitFor(() => expect(assignSpy).toHaveBeenCalledWith("/identity-smoke/logout"));
+    expect(screen.queryByTestId("fake-provider")).toBeNull();
+  });
+
+  it("an OFF-ORIGIN loginUrl is refused (open redirect) and falls through to the component", async () => {
+    fetchLoginConfig.mockResolvedValue({ active: true, pluginId: "keycloak-resolver", loginUrl: "https://evil.example/x" });
+    render(<LoginGate phase="start" />);
+    await waitFor(() => expect(screen.getByTestId("fake-provider")).toBeTruthy());
+    expect(assignSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe("LoginGate logout phase (D18)", () => {

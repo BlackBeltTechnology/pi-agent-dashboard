@@ -336,3 +336,47 @@ Reusable mechanics (moved from the plugin to `client-utils`, seam-only delivery)
 - The legacy `/auth/login` HTML page + cookie flow stay server-side for existing
   non-identity deployments (dead-ended from this client, not deleted — surgical
   scope; retirement is a separate change).
+
+### D19 — Two provider kinds on the login seam: bundled component, or a separate view
+
+Core's browser-login seam accepts TWO provider kinds, discriminated by which
+fields the trusted plugin publishes:
+
+- **COMPONENT provider (D16)** — `{ issuer, clientId }`: core mounts the
+  plugin's bundled `login-provider` React contribution from the build-time
+  `PLUGIN_REGISTRY`.
+- **SEPARATE-VIEW provider (D19)** — `{ loginUrl, logoutUrl }`: core
+  **redirects** the browser to the plugin's OWN page. The plugin serves that
+  page itself (typically a route on the shared `ctx.fastify` instance, outside
+  the guard jurisdiction `/api/ /v1/ /editor/ /live/` so it is reachable
+  pre-auth). It ships nothing into the client bundle and claims no slot.
+
+**Why this kind exists.** `selectClientRegistryPlugins` bundles only plugins
+under `<repo>/packages` (`client-registry-set.ts:86`), so a DROP-IN plugin in
+`<state-dir>/plugins/` can never contribute React. The separate-view kind is
+what makes a third-party authorization plugin possible with NO dashboard
+rebuild: its server entry is loaded at runtime (`loader.ts:335`
+`loadServerEntries` scans `~/.pi/dashboard/plugins/`), it registers its views,
+and it publishes the URLs core redirects to.
+
+**Trust + validation.** Both kinds pass the same `registerBrowserLoginConfig`
+gate (`resolverRegistry.isTrusted(pluginId)` — the bundled id or
+`identity.trustedResolverPlugins`). The host SANITIZES the descriptor
+(`sanitizeBrowserLoginConfig`): same-origin paths only, core's own gate routes
+refused, unknown fields dropped, and at least one usable kind required.
+
+**Open-redirect boundary.** `loginUrl`/`logoutUrl` are attacker-influenceable
+redirect targets, so they are validated on BOTH sides — `providerRedirect`
+(client) and `sanitizeBrowserLoginConfig` (server) enforce a same-origin path —
+and `resolveGateRedirect` never falls back from `logoutUrl` to `loginUrl`
+(signing out must not sign straight back in).
+
+**Dispatch.** `/logout` → `logoutUrl`; the `auth_required` banner → a plain
+LINK to `loginUrl` (works with no client JS at all); gate `start` → `loginUrl`;
+a stray `/callback` recovers to `loginUrl` (a separate-view plugin owns its own
+callback route).
+
+**Non-goal — token handoff.** A separate-view provider performing a real OIDC
+exchange must still get the resulting bearer into the SPA's in-memory store
+(`client-utils/identity/token-store.ts`), which a server-rendered page cannot
+write. Not solved here; the smoke plugin stubs it.

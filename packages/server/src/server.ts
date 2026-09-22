@@ -103,7 +103,7 @@ import { createFileWatchManager } from "./file-watch-manager.js";
 import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
 import { assertIdentityReadiness } from "./identity/activation.js";
 import { browserLoginAuthStatus } from "./identity/browser-login-auth-status.js";
-import { BrowserLoginConfigRegistry } from "./identity/browser-login-config-registry.js";
+import { BrowserLoginConfigRegistry, sanitizeBrowserLoginConfig } from "./identity/browser-login-config-registry.js";
 import { PolicyRegistry } from "./identity/policy-registry.js";
 import { registerResolverHook } from "./identity/resolver-hook.js";
 import { ResolverRegistry } from "./identity/resolver-registry.js";
@@ -1549,7 +1549,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   fastify.get("/api/identity/login-config", async () => {
     const desc = browserLoginConfigRegistry.get();
     return desc
-      ? { active: true as const, pluginId: desc.pluginId, issuer: desc.issuer, clientId: desc.clientId }
+      ? {
+          active: true as const,
+          pluginId: desc.pluginId,
+          ...(desc.issuer ? { issuer: desc.issuer } : {}),
+          ...(desc.clientId ? { clientId: desc.clientId } : {}),
+          ...(desc.loginUrl ? { loginUrl: desc.loginUrl } : {}),
+          ...(desc.logoutUrl ? { logoutUrl: desc.logoutUrl } : {}),
+        }
       : { active: false as const };
   });
 
@@ -2920,7 +2927,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   console.warn(`[identity] plugin '${id}' is not trusted to publish a browser login config; ignoring`);
                   return () => {};
                 }
-                return browserLoginConfigRegistry.set({ pluginId: id, ...loginConfig });
+                // D19: the host never forwards an unvetted redirect target —
+                // sanitize at the trust boundary, before stamping the owner.
+                const safe = sanitizeBrowserLoginConfig(loginConfig);
+                if (!safe) {
+                  console.warn(
+                    `[identity] plugin '${id}' published an unusable browser login config (needs issuer+clientId or a same-origin loginUrl); ignoring`,
+                  );
+                  return () => {};
+                }
+                return browserLoginConfigRegistry.set({ pluginId: id, ...safe });
               },
             },
             plugin.manifest.id,

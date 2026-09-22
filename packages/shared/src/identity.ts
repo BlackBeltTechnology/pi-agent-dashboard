@@ -132,14 +132,24 @@ export type PrincipalOwner = Readonly<{ iss: string; sub: string }>;
  * own config keys.
  */
 export interface BrowserLoginConfig {
-  /** Owning resolver plugin id — the browser mounts the matching `login-provider`
+  /** Owning plugin id — the browser mounts the matching `login-provider`
    * client contribution by this id, never a different plugin's (D16, F6). */
   pluginId: string;
   /** Browser-reachable OIDC discovery/authorize base (the plugin's `browserIssuer`
-   * falling back to its validation `issuer`). */
-  issuer: string;
-  /** Public PKCE client id advertised to the browser (the plugin's `browserClientId`). */
-  clientId: string;
+   * falling back to its validation `issuer`). COMPONENT providers only (D19). */
+  issuer?: string;
+  /** Public PKCE client id advertised to the browser (the plugin's `browserClientId`).
+   * COMPONENT providers only (D19). */
+  clientId?: string;
+  /** SEPARATE-VIEW provider (D19): same-origin path core REDIRECTS the browser to
+   * for sign-in instead of mounting a bundled `login-provider` component. The
+   * view is a full page served by the plugin (usually over its own
+   * `ctx.fastify` route); the plugin owns the whole flow, so it needs no
+   * `issuer`/`clientId`. Must be same-origin (open-redirect defence). */
+  loginUrl?: string;
+  /** SEPARATE-VIEW provider (D19): same-origin path core REDIRECTS to for
+   * sign-out. Same-origin requirement as `loginUrl`. */
+  logoutUrl?: string;
 }
 
 /** Exact `(iss, sub)` equality — no normalization, no email fallback. */

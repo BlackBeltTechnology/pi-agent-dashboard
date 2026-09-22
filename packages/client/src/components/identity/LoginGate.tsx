@@ -16,7 +16,7 @@ import React from "react";
 import { useLocation } from "wouter";
 import { PLUGIN_REGISTRY } from "../../generated/plugin-registry.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
-import { safeReturnTo, selectLoginProvider } from "../../lib/identity/gate.js";
+import { resolveGateRedirect, safeReturnTo, selectLoginProvider } from "../../lib/identity/gate.js";
 import { fetchLoginConfig, type LoginConfig } from "../../lib/identity/login-config.js";
 
 type Phase = "start" | "callback" | "logout";
@@ -45,7 +45,34 @@ export function LoginGate({ phase, fallback }: { phase: Phase; fallback?: React.
     };
   }, []);
 
+  const origin = window.location.origin;
+
+  // SEPARATE-VIEW provider (D19): the plugin serves its own page, so core's job
+  // is a redirect, not a mount. Validated same-origin (open-redirect defence);
+  // an absent or unsafe URL falls through to the component path below. `null`
+  // until the descriptor resolves — and the hook below must stay unconditional
+  // (a hook after an early return breaks the render-order contract).
+  const redirectTo =
+    config?.active === true
+      ? resolveGateRedirect(phase, { loginUrl: config.loginUrl, logoutUrl: config.logoutUrl }, origin)
+      : null;
+
+  // Redirect once, after the descriptor resolves. `assign` is a full-page nav —
+  // the plugin's view is a separate site on the same origin, so there is nothing
+  // in this document to preserve.
+  React.useEffect(() => {
+    if (redirectTo) window.location.assign(redirectTo);
+  }, [redirectTo]);
+
   if (config === undefined) {
+    return (
+      <GateShell>
+        <p className="text-sm text-neutral-400">{t("login.loading", undefined, "Loading…")}</p>
+      </GateShell>
+    );
+  }
+
+  if (redirectTo) {
     return (
       <GateShell>
         <p className="text-sm text-neutral-400">{t("login.loading", undefined, "Loading…")}</p>
@@ -77,10 +104,6 @@ export function LoginGate({ phase, fallback }: { phase: Phase; fallback?: React.
     );
   }
 
-  const origin = window.location.origin;
-  // Start: stash the validated current location so the IdP round-trip returns
-  // the user where they were. Callback: the plugin recovers the stash and hands
-  // it back through onComplete; the `returnTo` prop is unused there.
   const returnTo =
     phase === "start" ? safeReturnTo(`${window.location.pathname}${window.location.search}`, origin) : "/";
 

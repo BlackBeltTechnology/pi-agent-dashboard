@@ -5,7 +5,6 @@
  * plugin-owned gate (start phase).
  */
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const navigate = vi.fn();
@@ -53,6 +52,23 @@ describe("AuthRequired (D18 — no core login UI)", () => {
     fireEvent.click(btn);
     const provider = await screen.findByTestId("fake-provider");
     expect(provider.getAttribute("data-phase")).toBe("start");
+  });
+
+  it("separate-view provider (D19): renders a plain link to loginUrl, no component mount", async () => {
+    fetchLoginConfig.mockResolvedValue({ active: true, pluginId: "identity-smoke", loginUrl: "/identity-smoke/login" });
+    const { container } = render(<AuthRequired apiBase="" />);
+    const link = await screen.findByRole("link", { name: /sign in/i });
+    expect(link.getAttribute("href")).toBe("/identity-smoke/login");
+    expect(container.querySelector("button")).toBeNull();
+    expect(screen.queryByTestId("fake-provider")).toBeNull();
+  });
+
+  it("separate-view provider with an OFF-ORIGIN loginUrl is refused → no link, no button", async () => {
+    fetchLoginConfig.mockResolvedValue({ active: true, pluginId: "identity-smoke", loginUrl: "https://evil.example/x" });
+    const { container } = render(<AuthRequired apiBase="" />);
+    await waitFor(() => expect(screen.getByText(/no sign-in method/i)).toBeTruthy());
+    expect(container.querySelector("a")).toBeNull();
+    expect(container.querySelector("button")).toBeNull();
   });
 
   it("descriptor vanished between banner and click: gate falls back without any /auth/login link", async () => {

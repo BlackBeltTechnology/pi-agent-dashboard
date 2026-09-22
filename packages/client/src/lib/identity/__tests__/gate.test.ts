@@ -79,3 +79,53 @@ describe("selectLoginProvider (trust-bound, by pluginId, B3/F6, LG-5/LG-7/LG-17)
     ).toBeNull();
   });
 });
+
+// ── D19: separate-view (URL) provider dispatch ───────────────────────────────
+import { providerRedirect, resolveGateRedirect } from "../gate.js";
+
+describe("providerRedirect (separate-view provider safety, D19)", () => {
+  it("accepts a same-origin path, preserving query + hash", () => {
+    expect(providerRedirect("/identity-smoke/login", ORIGIN)).toBe("/identity-smoke/login");
+    expect(providerRedirect("/sso?next=/x#f", ORIGIN)).toBe("/sso?next=/x#f");
+  });
+
+  it("rejects absolute, scheme-relative, and backslash hosts (open redirect)", () => {
+    expect(providerRedirect("https://evil.example/x", ORIGIN)).toBeNull();
+    expect(providerRedirect("//evil.com", ORIGIN)).toBeNull();
+    expect(providerRedirect("/\\evil.com", ORIGIN)).toBeNull();
+    expect(providerRedirect("http://evil", ORIGIN)).toBeNull();
+  });
+
+  it("rejects core's own gate routes so a redirect cannot loop", () => {
+    expect(providerRedirect("/callback", ORIGIN)).toBeNull();
+    expect(providerRedirect("/logout", ORIGIN)).toBeNull();
+  });
+
+  it("empty / absent → null (caller falls back to the component path)", () => {
+    expect(providerRedirect(undefined, ORIGIN)).toBeNull();
+    expect(providerRedirect("", ORIGIN)).toBeNull();
+  });
+});
+
+describe("resolveGateRedirect (per-phase dispatch, D19)", () => {
+  it("start phase uses loginUrl", () => {
+    expect(resolveGateRedirect("start", { loginUrl: "/sso/login" }, ORIGIN)).toBe("/sso/login");
+  });
+
+  it("logout phase uses logoutUrl", () => {
+    expect(resolveGateRedirect("logout", { logoutUrl: "/sso/logout" }, ORIGIN)).toBe("/sso/logout");
+  });
+
+  it("callback phase recovers to loginUrl (core owns no callback for a URL provider)", () => {
+    expect(resolveGateRedirect("callback", { loginUrl: "/sso/login" }, ORIGIN)).toBe("/sso/login");
+  });
+
+  it("logout does NOT fall back to loginUrl (sign-out must not sign back in)", () => {
+    expect(resolveGateRedirect("logout", { loginUrl: "/sso/login" }, ORIGIN)).toBeNull();
+  });
+
+  it("no URLs configured → null (component provider path)", () => {
+    expect(resolveGateRedirect("start", {}, ORIGIN)).toBeNull();
+    expect(resolveGateRedirect("logout", {}, ORIGIN)).toBeNull();
+  });
+});

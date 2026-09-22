@@ -68,3 +68,44 @@ export function selectLoginProvider(opts: {
   const claim = entry.claims.find((c) => c.slot === "login-provider");
   return claim?.Component ?? null;
 }
+
+/**
+ * Validate a SEPARATE-VIEW provider URL (D19) — same-origin path only.
+ *
+ * A plugin advertises `loginUrl`/`logoutUrl` and core redirects the browser
+ * there, so this is an open-redirect boundary: only a same-origin path
+ * survives. Absolute URLs, scheme-relative `//host`, and backslash `/\host`
+ * (which the URL parser normalises to `//host`) all collapse to `null`, as do
+ * core's own gate routes (`/callback`, `/logout`) — pointing a redirect at
+ * them would loop.
+ */
+export function providerRedirect(raw: string | null | undefined, origin: string): string | null {
+  if (!raw) return null;
+  if (!raw.startsWith("/") || raw.startsWith("//")) return null;
+  let url: URL;
+  try {
+    url = new URL(raw, origin);
+  } catch {
+    return null;
+  }
+  if (url.origin !== origin) return null;
+  if (url.pathname === "/callback" || url.pathname === "/logout") return null;
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+/**
+ * Resolve the redirect core issues for a gate phase, or `null` to mount the
+ * bundled `login-provider` component instead (D19).
+ *
+ * `start` → `loginUrl`; `logout` → `logoutUrl` ONLY (never falling back to
+ * `loginUrl` — signing out must not sign straight back in); `callback` → the
+ * plugin owns its own callback, so a stray hit recovers to `loginUrl`.
+ */
+export function resolveGateRedirect(
+  phase: "start" | "callback" | "logout",
+  urls: { loginUrl?: string; logoutUrl?: string },
+  origin: string,
+): string | null {
+  if (phase === "logout") return providerRedirect(urls.logoutUrl, origin);
+  return providerRedirect(urls.loginUrl, origin);
+}

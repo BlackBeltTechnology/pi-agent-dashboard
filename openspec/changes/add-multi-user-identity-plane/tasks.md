@@ -170,3 +170,12 @@ Detachable browser login: core triggers + routes + owns return-to; the trusted r
 - [x] 15.4 keycloak-resolver-plugin → resolver-only: delete client bundle (`KeycloakLogin`, `login-flow`, `index`, `i18n`), remove `login-provider` claim + client manifest fields, stop publishing the browser-login descriptor, drop dead `browserClientId`/`browserIssuer` config
 - [x] 15.5 Regenerate `plugin-registry.tsx` (no keycloak login-provider); seam-only — no in-tree login UI ships
 - [ ] 15.6 Docs: identity-plane.md — document the three-way split + how an authz plugin claims `login-provider` and drives the client-utils mechanics (DocScribe)
+
+## 16. Separate-view (URL) login provider (D19)
+
+- [x] 16.1 Shared: `BrowserLoginConfig` gains optional `loginUrl`/`logoutUrl`; `issuer`/`clientId` become optional (component kind)
+- [x] 16.2 Client: pure `providerRedirect` + `resolveGateRedirect` units (same-origin, loop-refusal, no logout→login fallback); tests first
+- [x] 16.3 Client: `LoginGate` redirects on a URL provider; `AuthRequired` renders a plain link to `loginUrl`; tests first
+- [x] 16.4 Server: `sanitizeBrowserLoginConfig` at the trust boundary + relay the new fields on `GET /api/identity/login-config`; tests first
+- [x] 16.5 Smoke: drop-in server-only plugin (`spike/identity-smoke-plugin/`) serving `/identity-smoke/login` + `/logout` views and publishing the descriptor
+- [ ] 16.6 Token handoff for a real separate-view provider (fragment/postMessage bootstrap) — explicitly out of scope for the smoke
