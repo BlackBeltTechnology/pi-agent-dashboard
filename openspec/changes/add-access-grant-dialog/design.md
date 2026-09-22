@@ -26,7 +26,7 @@ Other constraints that shape the approach:
   configured or the caller is off-host — a cookie session, a local-IPC token, a
   trusted CIDR, **or** a single-use scope-bound `ws-ticket`
   (`auth/ws-ticket.ts`, ~15 s TTL, `consume` deletes on first attempt). These
-  are **disjuncts, not a chain**: with no auth secret, `server.ts:2934-2946`
+  are **disjuncts, not a chain**: with no auth secret, `server.ts:2938-2950`
   admits any genuinely-local peer with no ticket at all, and
   `device-auth.ts:85-88` says an unpaired browser deliberately connects
   ticketless. So for the primary audience the channel is gated by origin
@@ -80,7 +80,10 @@ to an **already-authenticated operator channel**. Concretely: on connect,
 (`grant_channel` frame carrying a high-entropy nonce, rotated per connection,
 held only in memory and never persisted). A request becomes **prompt-eligible**
 by echoing that nonce in `X-Pi-Grant-Channel`. The server resolves the nonce to
-the issuing socket and raises the dialog **on that socket's operator**.
+the issuing socket and raises the dialog **on the browser gateway** — broadcast
+to every connected browser socket and settled first-response-wins (D8), so the
+issuing socket is deliberately *not* privileged. **R-A** (D1b) records the
+consequence of that choice honestly.
 
 **Why this survives the four defeats.**
 
@@ -110,7 +113,7 @@ for the primary loopback-auth-off audience).
 An adversarial review defeated D1 as originally written, and the defeat was
 confirmed against source rather than accepted on assertion:
 
-- `cors-origin.ts:192` — `isOriginAdmitted` returns `true` when `Origin` is
+- `cors-origin.ts:239,244` — `isOriginAdmitted` returns `true` when `Origin` is
   **absent**, deliberately, so that non-browser local clients keep working. The
   comment says so explicitly.
 - `auth-plugin.ts:296` — `if (isGenuinelyLocal(request.ip, ...)) return;` skips
@@ -146,6 +149,52 @@ This is why the earlier "defeated" list still stands: `Sec-Fetch` shape *alone*
 was defeated, and it is not being used alone — it gates issuance of a
 per-connection secret, it does not replace it.
 
+### D1b — Adversarial review of D1: per-attack verdicts (gate task 1.1)
+
+D1/D1a/D2 were re-reviewed against source: the four recorded defeats plus five
+further attacks. Verdicts recorded here so the review is reproducible rather than
+asserted.
+
+| Attack | Verdict | Why |
+|---|---|---|
+| Capability replay after socket close | Survives | Resolution is a live-socket lookup; the value is rotated per connection, memory-only, never persisted and never re-issued, so a stale value resolves to no socket. The hooks exist (`browser-gateway.ts:1301` `connection`, `:1394` `onConnect`, `:1878` `close`); the machinery itself is tasks 3.1/3.2. |
+| Malicious / compromised browser extension | Survives **by explicit exclusion** | The nonce is delivered over the page's own socket and held in page memory, so any same-origin JS — SPA XSS included — can read it. This is **not** a defeat: such code can already call the API with the operator's ambient trust, so the dialog is not the weakest link (Non-Goals; Risks). Stated plainly: a nonce reachable by same-origin JS is **not a secret from an extension**, and D1 does not claim otherwise. |
+| Cross-origin `fetch(…, {credentials:'include'})` | Survives for capability + HELD; **R-D** for DEFERRED | The capability header is non-safelisted, so a preflight applies and an unadmitted origin never sends it ⇒ no HELD, no suspension. Such a page also cannot open the browser socket (`isWsOriginTrusted`), so it is never issued a capability. A safe-method cross-origin `GET` can still reach a guard and raise a **DEFERRED** modal under `enforce` — denial-of-attention, not access, named as **D3-R1** and bounded by D9. |
+| Rebound domain that legitimately opens the socket | Survives — the D2 precondition is correct | Under `report` mode `isSameOriginByHost` returns `true` without consulting `isHostAdmitted` (`cors-origin.ts:228-229`) and the no-auth upgrade admits any genuinely-local peer (`server.ts:2938-2950`), so a rebound page is issued a capability and raises a real dialog. That is exactly why prompting requires `enforce`, where `isHostAdmitted("attacker.com")` is false and the upgrade is refused before any ticket is consumed. |
+| Prompt capability issued to a non-browser local process | **Residual — R-A, R-C** | Reachable; see below. |
+
+**Accepted residual R-A — the answering channel is authorised by a socket, not by
+the capability.** D1 requires a capability to *raise* a held dialog, but the dialog
+is broadcast to every connected browser socket and settled first-response-wins
+(D8), and nothing binds a `grant_response` to the socket whose capability made the
+denial eligible. A local process that can open `/ws` can therefore **answer** the
+operator's prompts, including `allow-always`, which writes a persisted grant. This
+is a privilege-escalation path that **`enforce` mode does not close**, because
+`isHostAdmitted` admits any IP literal (`host-admission.ts:83`). Accepted rather
+than fixed: binding settlement to the issuing socket would make every other
+operator's dialog cosmetic and break the shipped "any operator may answer" model
+(F1 / task 7.3). The honest statement is therefore: **on a no-auth loopback
+install, only real credentials — not the host-gate mode — bound who may answer.**
+
+**Accepted residual R-B — a held entry outlives its issuing socket.** A pending
+HELD entry whose issuing socket closes is not released at close; it remains held to
+the registry TTL (120 s) and, per R-A, may be settled by another socket. Stated so
+it is not discovered later. It is fail-closed: no rung can produce an allow without
+a settlement.
+
+**R-C (sharpening D1a).** D1a scopes the loopback-forgery residual to *issuance*.
+The same forgery also yields an *answering* channel (R-A), and `isHostAdmitted`
+admits any IP literal, so `enforce` mode does not close it either — only real
+credentials do.
+
+**Corrections made by this review.** D1's claim that the dialog is raised "on that
+socket's operator" was false against D8's broadcast-and-settle and is corrected
+above. Four citations were stale and are fixed: `cors-origin.ts:192` →
+**`:239,244`** (`:192` is `sanitizeHeaderForLog`), `cors-origin.ts:181` →
+**`:228-229`**, `server.ts:2934-2946` → **`:2938-2950`** (the cited range is the
+auth-configured 401 branch; the no-credential branch is `:2938-2950`).
+`auth-plugin.ts:296` was correct as cited.
+
 ### D2 — DNS rebinding is out of D1's reach, so **prompting at all** requires `hostGate.mode === "enforce"`
 
 **Decision.** D1 alone does **not** beat rebinding: an `attacker.com` rebound to
@@ -158,9 +207,9 @@ be issued a nonce. Only Host validation stops that. Therefore
 spelling gated only *suspension* on `enforce`, leaving `report`-mode denials to
 prompt as DEFERRED. That was defeated against source: in `report` mode
 `isSameOriginByHost` short-circuits to `true` without consulting
-`isHostAdmitted` (`cors-origin.ts:181`), and with no auth secret the browser WS
+`isHostAdmitted` (`cors-origin.ts:228-229`), and with no auth secret the browser WS
 upgrade admits any genuinely-local peer with no ticket and no credential
-(`server.ts:2934-2946`). A rebound page therefore satisfies every D1a issuance
+(`server.ts:2938-2950`). A rebound page therefore satisfies every D1a issuance
 signal, is issued a capability, and raises a real dialog. The hold is not the
 prize — the **persisted grant** is, and because the page is same-origin by
 rebinding it can read the retry that grant enables. The proposal's DEFERRED
@@ -387,7 +436,11 @@ Three properties make it defensible rather than a hole:
    asked. A drive-by page holds no prompt capability, so it is denied while YOLO
    is on exactly as when it is off. The honest cost: a local `curl` or CLI client
    holds no capability either and gains nothing — stated in the spec rather than
-   discovered later.
+   discovered later. Note the limit of this property: it bounds the *requesting*
+   side only. Per **R-A** (D1b) the *answering* side is authorised by holding a
+   browser-gateway socket, so on a no-auth loopback install a local process can
+   still settle prompts. YOLO's guarantee here is about who may *ask*, not about
+   who may answer.
 3. **Allow-once, never allow-always.** YOLO persists nothing, so there is no
    residue to forget to revoke and the admitted set snaps back on expiry. This is
    the whole point: the failure mode YOLO exists to prevent is a habituated

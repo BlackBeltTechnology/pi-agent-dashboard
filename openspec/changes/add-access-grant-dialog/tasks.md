@@ -1,9 +1,9 @@
 ## 1. Adversarial review of the eligibility decision (gate — nothing below starts until this closes)
 
-- [ ] 1.1 Run `doubt-driven-review` on design D1 (WS-issued socket-bound prompt capability) against the four recorded defeats plus at least: cross-origin `fetch` with credentials, a rebound domain that legitimately opens the WebSocket, a malicious browser extension, and capability replay after socket close — verify the review produces a written verdict per attack in `design.md` or a superseding decision
-- [ ] 1.2 Run `doubt-driven-review` on D2 (HELD requires `hostGate.mode === "enforce"`) specifically for the "is this defeat #2/#3 again" objection — verify the outcome is either a recorded rebuttal or a replacement precondition, not an unaddressed note
-- [ ] 1.3 Run `security-hardening` on the degrade ladder (D3) enumerating every path to "no dialog" and every path to "allow" — verify no enumerated condition reaches an allow without an explicit operator answer
-- [ ] 1.4 Run `scenario-design` over the fail-closed matrix (timeout, no audience, disabled, ineligible, `report` mode, disconnect, client abort, over-capacity, revoke-while-pending, cross-plane subject collision, prompt flooding, duplicate + malformed responses) and fold the automated scenarios back into this file — verify every scenario is either a listed task below or explicitly marked manual
+- [x] 1.1 Run `doubt-driven-review` on design D1 (WS-issued socket-bound prompt capability) against the four recorded defeats plus at least: cross-origin `fetch` with credentials, a rebound domain that legitimately opens the WebSocket, a malicious browser extension, and capability replay after socket close — verify the review produces a written verdict per attack in `design.md` or a superseding decision
+- [x] 1.2 Run `doubt-driven-review` on D2 (HELD requires `hostGate.mode === "enforce"`) specifically for the "is this defeat #2/#3 again" objection — verify the outcome is either a recorded rebuttal or a replacement precondition, not an unaddressed note
+- [x] 1.3 Run `security-hardening` on the degrade ladder (D3) enumerating every path to "no dialog" and every path to "allow" — verify no enumerated condition reaches an allow without an explicit operator answer
+- [x] 1.4 Run `scenario-design` over the fail-closed matrix (timeout, no audience, disabled, ineligible, `report` mode, disconnect, client abort, over-capacity, revoke-while-pending, cross-plane subject collision, prompt flooding, duplicate + malformed responses) and fold the automated scenarios back into this file — verify every scenario is either a listed task below or explicitly marked manual
 
 ## 2. Protocol and shared types
 
@@ -58,7 +58,7 @@
 
 ## 2b. Corrections from adversarial review (gate: land before dependent work)
 
-- [ ] 2b.1 Gate prompt-capability **issuance** on browser-shaped provenance: non-absent admitted `Origin`, `Sec-Fetch-Site` consistent with a page this server served, and the UI's own credential tier — verify a test asserts a WebSocket opened **without** an `Origin` header (the `cors-origin.ts:192` admitted path) is issued no capability and yields ineligible denials
+- [ ] 2b.1 Gate prompt-capability **issuance** on browser-shaped provenance: non-absent admitted `Origin`, `Sec-Fetch-Site` consistent with a page this server served, and the UI's own credential tier — verify a test asserts a WebSocket opened **without** an `Origin` header (the `cors-origin.ts:239,244` admitted path) is issued no capability and yields ineligible denials
 - [ ] 2b.2 Implement the per-settlement-mode proof split: held planes require the **request** to carry a valid capability; deferred planes require a **live operator channel** and never require anything of the request — verify tests assert a network denial prompts with an operator channel present, does not prompt with none, and never suspends
 - [ ] 2b.3 Make the forbidden-subject rule a **real-path subtree relation in both directions** (is / inside / contains) replacing any equality test — verify tests assert `~/.ssh/keys` is refused as a descendant and a candidate containing `~/.ssh` is refused as an ancestor
 - [ ] 2b.4 Define the ladder boundary for every case per `path-anchor-grants`: nearest (not outermost) checkout root, worktree marker as file or directory, root detected on the **real** path, more-restrictive boundary wins when device and home rules disagree, no-`$HOME` still bounded, subject-is-the-boundary — verify one test per case
