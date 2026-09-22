@@ -22,7 +22,7 @@ import {
 } from "../pi/pi-version-skew.js";
 
 const REPO_ROOT = path.resolve(__dirname, "../../../..");
-const PINNED_PI = "0.85.1";
+const PINNED_PI = "0.86.1";
 const BELOW_FLOOR_PI = "0.84.4";
 
 /**
@@ -33,7 +33,7 @@ const BELOW_FLOOR_PI = "0.84.4";
  * coherence, so deriving them would make it a tautology.
  * See change: update-pi-core-0-85-adopt-apis (test-plan #E1, #E2, #E3, #E4, #E5, #E6, #E11, #X13).
  */
-describe("pi pin block \u2014 0.85.1", () => {
+describe("pi pin block \u2014 0.86.1", () => {
   const serverPkg = JSON.parse(
     fs.readFileSync(path.join(REPO_ROOT, "packages/server/package.json"), "utf-8"),
   );
@@ -68,7 +68,7 @@ describe("pi pin block \u2014 0.85.1", () => {
   const runCheck = (f: PinFixture) =>
     checkPiPinCoherence(f.serverPkg, f.dockerfile, f.workspaceYaml, f.checkerMinVersion);
 
-  it("E1: piCompatibility declares recommended AND minimum 0.85.1 (lockstep)", () => {
+  it("E1: piCompatibility declares recommended AND minimum 0.86.1 (lockstep)", () => {
     expect(serverPkg.piCompatibility).toEqual({
       minimum: PINNED_PI,
       recommended: PINNED_PI,
@@ -76,7 +76,7 @@ describe("pi pin block \u2014 0.85.1", () => {
     });
   });
 
-  it("E1: the server dependency is pinned to ^0.85.1", () => {
+  it("E1: the server dependency is pinned to ^0.86.1", () => {
     expect(serverPkg.dependencies["@earendil-works/pi-coding-agent"]).toBe(`^${PINNED_PI}`);
   });
 
@@ -149,7 +149,7 @@ describe("pi pin block \u2014 0.85.1", () => {
     expect(String(drift)).toContain("0.78.0");
   });
 
-  it("E3: all six governed pin surfaces report 0.85.1 and the gate passes", () => {
+  it("E3: all six governed pin surfaces report 0.86.1 and the gate passes", () => {
     expect(serverPkg.dependencies["@earendil-works/pi-coding-agent"]).toContain(PINNED_PI);
     expect(serverPkg.piCompatibility.recommended).toBe(PINNED_PI);
     expect(serverPkg.piCompatibility.minimum).toBe(PINNED_PI);
@@ -178,7 +178,7 @@ describe("pi pin block \u2014 0.85.1", () => {
   });
 
   it("E4: a stale dependency is caught against the gate rule, not as a missing pin", () => {
-    // Fixture tree: server dep left at 0.84.4 while the gate rule floors at 0.85.1.
+    // Fixture tree: server dep left at 0.84.4 while the gate rule floors at 0.86.1.
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-pin-divergence-"));
     fs.mkdirSync(path.join(tmp, "packages/server"), { recursive: true });
     fs.mkdirSync(path.join(tmp, "docker"), { recursive: true });
@@ -209,13 +209,15 @@ describe("pi pin block \u2014 0.85.1", () => {
 
   it("E5: below-floor versions are hard-blocked, naming running + required", () => {
     const range = { minimum: PINNED_PI, recommended: PINNED_PI, maximum: null };
-    for (const v of ["0.78.0", BELOW_FLOOR_PI, "0.85.0"]) {
+    for (const v of ["0.78.0", BELOW_FLOOR_PI, "0.86.0"]) {
       const out = computeCompatibility(range, v);
       expect(out.error, `${v} must be blocked`).toBeTruthy();
       expect(out.error).toContain(v);
       expect(out.error).toContain(PINNED_PI);
     }
-    for (const v of [PINNED_PI, "0.86.0"]) {
+    // `0.87.0` is ABOVE the pinned floor, so it must be allowed; the previous
+    // value here tracked "one release ahead of the then-current pin".
+    for (const v of [PINNED_PI, "0.87.0"]) {
       const out = computeCompatibility(range, v);
       expect(out.error, `${v} must not be blocked`).toBeUndefined();
       expect(out.upgradeRecommended).toBeFalsy();
@@ -224,7 +226,7 @@ describe("pi pin block \u2014 0.85.1", () => {
 
   it("E6: the hint band is empty under lockstep while the branch stays reachable", () => {
     const range = { minimum: PINNED_PI, recommended: PINNED_PI, maximum: null };
-    for (let minor = 78; minor <= 86; minor++) {
+    for (let minor = 78; minor <= 87; minor++) {
       const out = computeCompatibility(range, `0.${minor}.0`);
       expect(out.upgradeRecommended === true && out.error === undefined).toBe(false);
     }

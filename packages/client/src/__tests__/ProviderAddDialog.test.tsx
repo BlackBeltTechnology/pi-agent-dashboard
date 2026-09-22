@@ -10,7 +10,7 @@
  */
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ProviderAuthSection } from "../components/settings/ProviderAuthSection.js";
+import { nextFlowDeadline, ProviderAuthSection } from "../components/settings/ProviderAuthSection.js";
 import { PROVIDER_AUTH_EVENT } from "../hooks/useProvidersReady.js";
 
 afterEach(() => {
@@ -24,13 +24,15 @@ interface Script {
   statuses?: any[];
   providers?: Record<string, any>;
   health?: Record<string, any>;
-  authorizePost?: () => Promise<any>;
-  deviceCodePost?: () => Promise<any>;
-  deviceStatusGet?: () => Promise<any>;
+  startPost?: () => Promise<any>;
+  flowGet?: () => Promise<any>;
   apiKeyPut?: () => Promise<any>;
   providerPatch?: () => Promise<any>;
-  calls: { put: number; patch: number; deviceCode: number; status: number };
+  calls: { put: number; patch: number; start: number; status: number };
 }
+
+/** The default POST /start snapshot — authUrl present, no pending widget yet. */
+const DEFAULT_START = { flowId: "flow-1", provider: "anthropic", status: "pending", authUrl: "https://example.test/oauth" };
 
 function stubFetch(script: Script) {
   return vi.fn(async (url: string, init?: any) => {
@@ -52,15 +54,19 @@ function stubFetch(script: Script) {
       script.calls.put++;
       return script.apiKeyPut ? await script.apiKeyPut() : { ok: true, json: async () => ({ ok: true }) } as any;
     }
-    if (url.includes("/api/provider-auth/authorize")) {
-      return script.authorizePost ? await script.authorizePost() : { ok: true, json: async () => ({ authUrl: "https://example.test/oauth" }) } as any;
+    if (url.includes("/api/provider-auth/start")) {
+      script.calls.start++;
+      return script.startPost ? await script.startPost() : { ok: true, json: async () => DEFAULT_START } as any;
     }
-    if (url.includes("/api/provider-auth/device-code")) {
-      script.calls.deviceCode++;
-      return script.deviceCodePost ? await script.deviceCodePost() : { ok: true, json: async () => ({ flowId: "flow-1", userCode: "WDJB-MJHT", verificationUri: "https://github.com/login/device", expiresIn: 900, interval: 5 }) } as any;
-    }
-    if (url.includes("/api/provider-auth/device-status/")) {
-      return script.deviceStatusGet ? await script.deviceStatusGet() : { ok: true, json: async () => ({ status: "pending" }) } as any;
+    if (url.includes("/api/provider-auth/flow/")) {
+      if (init?.method === "POST") {
+        // POST /flow/:flowId/input — the prompt answer.
+        return { ok: true, status: 202, json: async () => ({ ok: true }) } as any;
+      }
+      if (init?.method === "DELETE") {
+        return { ok: true, status: 204 } as any;
+      }
+      return script.flowGet ? await script.flowGet() : { ok: true, json: async () => ({ ...DEFAULT_START, status: "pending" }) } as any;
     }
     return { ok: true, status: 200, json: async () => ({}) } as any;
   });
@@ -97,7 +103,7 @@ describe("picker membership and the selectable count (E10)", () => {
       { id: "anthropic-api", name: "Anthropic (API Key)", flowType: "api_key", authenticated: false, configured: false },
       ...Array.from({ length: 34 }, (_, i) => ({ id: `open-${i}`, name: `Open ${i}`, flowType: i % 2 ? "auth_code" : "api_key", authenticated: false, configured: false })),
     ];
-    const c = await renderSection({ statuses, calls: { put: 0, patch: 0, deviceCode: 0, status: 0 } });
+    const c = await renderSection({ statuses, calls: { put: 0, patch: 0, start: 0, status: 0 } });
 
     expect(c.getByTestId("add-provider-count").textContent).toContain("34");
     expect(c.getByTestId("add-provider-count").textContent).not.toContain("35");
@@ -121,7 +127,7 @@ describe("picker membership and the selectable count (E10)", () => {
       { id: "anthropic", name: "Anthropic", flowType: "auth_code", authenticated: false, configured: false },
       { id: "anthropic-api", name: "Anthropic (API Key)", flowType: "api_key", authenticated: true, configured: true, maskedKey: "sk-…xyz", source: "stored" },
     ];
-    await renderSection({ statuses, calls: { put: 0, patch: 0, deviceCode: 0, status: 0 } });
+    await renderSection({ statuses, calls: { put: 0, patch: 0, start: 0, status: 0 } });
 
     await openPicker();
     const d = dialog();
@@ -136,7 +142,7 @@ describe("picker membership and the selectable count (E10)", () => {
       { id: "beta", name: "Beta", flowType: "api_key", authenticated: false, configured: false },
       { id: "gamma", name: "Gamma", flowType: "api_key", authenticated: false, configured: false },
     ];
-    await renderSection({ statuses, calls: { put: 0, patch: 0, deviceCode: 0, status: 0 } });
+    await renderSection({ statuses, calls: { put: 0, patch: 0, start: 0, status: 0 } });
 
     await openPicker();
     const d = dialog();
@@ -151,7 +157,7 @@ describe("picker membership and the selectable count (E10)", () => {
   });
 
   it("offers the pinned Custom endpoint entry with or without a catalogue, under any search", async () => {
-    await renderSection({ statuses: [], calls: { put: 0, patch: 0, deviceCode: 0, status: 0 } });
+    await renderSection({ statuses: [], calls: { put: 0, patch: 0, start: 0, status: 0 } });
 
     await openPicker();
     const d = dialog();
@@ -167,7 +173,7 @@ describe("picker membership and the selectable count (E10)", () => {
 describe("panes branch on flowType (7.3)", () => {
   it("an auth_code pane offers the browser sign-in and NO key field", async () => {
     const statuses = [{ id: "anthropic", name: "Anthropic", flowType: "auth_code", authenticated: false, configured: false }];
-    await renderSection({ statuses, calls: { put: 0, patch: 0, deviceCode: 0, status: 0 } });
+    await renderSection({ statuses, calls: { put: 0, patch: 0, start: 0, status: 0 } });
 
     await openPicker();
     fireEvent.click(dialog().getByText("Anthropic"));
@@ -178,7 +184,7 @@ describe("panes branch on flowType (7.3)", () => {
 
   it("an api_key pane shows the envVar hint", async () => {
     const statuses = [{ id: "mistral", name: "Mistral", flowType: "api_key", authenticated: false, configured: false, envVar: "MISTRAL_API_KEY" }];
-    await renderSection({ statuses, calls: { put: 0, patch: 0, deviceCode: 0, status: 0 } });
+    await renderSection({ statuses, calls: { put: 0, patch: 0, start: 0, status: 0 } });
 
     await openPicker();
     fireEvent.click(dialog().getByText("Mistral"));
@@ -188,7 +194,12 @@ describe("panes branch on flowType (7.3)", () => {
   it("a device_code pane requires an explicit Open Registration Page action — never auto-opens", async () => {
     const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
     const statuses = [{ id: "device-prov", name: "Device Prov", flowType: "device_code", authenticated: false, configured: false }];
-    await renderSection({ statuses, calls: { put: 0, patch: 0, deviceCode: 0, status: 0 } });
+    const script: Script = {
+      statuses,
+      startPost: () => Promise.resolve({ ok: true, json: async () => ({ flowId: "flow-1", provider: "device-prov", status: "pending", pending: { kind: "device_code", userCode: "WDJB-MJHT", verificationUri: "https://github.com/login/device", expiresInSeconds: 900 } }) } as any),
+      calls: { put: 0, patch: 0, start: 0, status: 0 },
+    };
+    await renderSection(script);
 
     await openPicker();
     fireEvent.click(dialog().getByText("Device Prov"));
@@ -203,9 +214,18 @@ describe("panes branch on flowType (7.3)", () => {
     expect(openSpy).toHaveBeenCalledWith("https://github.com/login/device", "_blank");
   });
 
-  it("GitHub Copilot prompts for the Enterprise domain BEFORE starting the flow", async () => {
-    const script: Script = { statuses: [{ id: "github-copilot", name: "GitHub Copilot", flowType: "device_code", authenticated: false, configured: false }], calls: { put: 0, patch: 0, deviceCode: 0, status: 0 } };
-    await renderSection(script);
+  it("GitHub Copilot prompts for the Enterprise domain BEFORE starting the flow and sends it as enterpriseDomain", async () => {
+    const starts: any[] = [];
+    const script: Script = { statuses: [{ id: "github-copilot", name: "GitHub Copilot", flowType: "device_code", authenticated: false, configured: false }], calls: { put: 0, patch: 0, start: 0, status: 0 } };
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: any) => {
+      if (url.includes("/api/provider-auth/start")) {
+        starts.push(JSON.parse(init.body));
+        return { ok: true, json: async () => ({ flowId: "flow-1", provider: "github-copilot", status: "pending" }) } as any;
+      }
+      const handler = stubFetch(script);
+      return handler(url, init);
+    }) as any);
+    render(<ProviderAuthSection />);
 
     await openPicker();
     fireEvent.click(dialog().getByText("GitHub Copilot"));
@@ -213,11 +233,14 @@ describe("panes branch on flowType (7.3)", () => {
     // The prompt comes first, with the blank-for-github.com placeholder.
     const input = d.getByLabelText(/GitHub Enterprise domain/i);
     expect(input.getAttribute("placeholder")).toMatch(/blank for github\.com/i);
-    expect(script.calls.deviceCode).toBe(0);
+    expect(starts).toHaveLength(0);
     fireEvent.change(input, { target: { value: "ghe.example.com" } });
     fireEvent.click(d.getByText(/continue/i));
-    // The flow starts only after the prompt, carrying the domain.
-    await waitFor(() => expect(script.calls.deviceCode).toBe(1));
+    // The flow starts only after the prompt, carrying the domain — and the
+    // enterprise text field is gone once the flow exists.
+    await waitFor(() => expect(starts).toHaveLength(1));
+    expect(starts[0]).toEqual({ provider: "github-copilot", enterpriseDomain: "ghe.example.com" });
+    expect(d.queryByLabelText(/GitHub Enterprise domain/i)).toBeNull();
   });
 });
 
@@ -225,7 +248,7 @@ describe("panes branch on flowType (7.3)", () => {
 
 describe("validation before write (7.4)", () => {
   it("an empty api key is refused at the dialog with a visible message and no request", async () => {
-    const script: Script = { statuses: [{ id: "deepseek", name: "DeepSeek", flowType: "api_key", authenticated: false, configured: false }], calls: { put: 0, patch: 0, deviceCode: 0, status: 0 } };
+    const script: Script = { statuses: [{ id: "deepseek", name: "DeepSeek", flowType: "api_key", authenticated: false, configured: false }], calls: { put: 0, patch: 0, start: 0, status: 0 } };
     await renderSection(script);
 
     await openPicker();
@@ -239,7 +262,7 @@ describe("validation before write (7.4)", () => {
   });
 
   it("a blank or whitespace-only custom-endpoint name is refused at the dialog with no request", async () => {
-    const script: Script = { statuses: [], calls: { put: 0, patch: 0, deviceCode: 0, status: 0 } };
+    const script: Script = { statuses: [], calls: { put: 0, patch: 0, start: 0, status: 0 } };
     await renderSection(script);
 
     await openPicker();
@@ -259,20 +282,21 @@ describe("validation before write (7.4)", () => {
 
 describe("abandoned-dialog contract (F1, X6)", () => {
   it("an auth-code flow keeps polling after the dialog is dismissed and completes (F1)", async () => {
-    let authenticated = false;
+    let completed = false;
     const script: Script = {
       statuses: [{ id: "anthropic", name: "Anthropic", flowType: "auth_code", authenticated: false, configured: false }],
-      authorizePost: async () => {
-        authenticated = true;
-        return { ok: true, json: async () => ({ authUrl: "https://example.test/oauth" }) } as any;
+      startPost: async () => {
+        completed = true;
+        return { ok: true, json: async () => DEFAULT_START } as any;
       },
-      calls: { put: 0, patch: 0, deviceCode: 0, status: 0 },
+      flowGet: () => Promise.resolve({ ok: true, json: async () => ({ ...DEFAULT_START, status: "complete" }) } as any),
+      calls: { put: 0, patch: 0, start: 0, status: 0 },
     };
     // After the flow starts, /status shows the provider configured.
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
       if (url.includes("/api/provider-auth/status")) {
         script.calls.status++;
-        return { ok: true, json: async () => [script.statuses![0], { id: "x" }] .slice(0, 1).map((r) => ({ ...r, authenticated, configured: authenticated })) } as any;
+        return { ok: true, json: async () => [script.statuses![0], { id: "x" }] .slice(0, 1).map((r) => ({ ...r, authenticated: completed, configured: completed })) } as any;
       }
       const handler = stubFetch(script);
       return handler(url, undefined);
@@ -301,8 +325,9 @@ describe("abandoned-dialog contract (F1, X6)", () => {
   it("a device flow refused after the dialog closed renders the refusal inline on the section (X6)", async () => {
     const script: Script = {
       statuses: [{ id: "device-prov", name: "Device Prov", flowType: "device_code", authenticated: false, configured: false }],
-      deviceStatusGet: () => Promise.resolve({ ok: true, json: async () => ({ status: "error", error: "An API key is already stored for this provider — remove the key first." }) } as any),
-      calls: { put: 0, patch: 0, deviceCode: 0, status: 0 },
+      startPost: () => Promise.resolve({ ok: true, json: async () => ({ flowId: "flow-1", provider: "device-prov", status: "pending", pending: { kind: "device_code", userCode: "WDJB-MJHT", verificationUri: "https://github.com/login/device" } }) } as any),
+      flowGet: () => Promise.resolve({ ok: true, json: async () => ({ flowId: "flow-1", provider: "device-prov", status: "error", error: "An API key is already stored for this provider — remove the key first." }) } as any),
+      calls: { put: 0, patch: 0, start: 0, status: 0 },
     };
     const c = await renderSection(script);
 
@@ -323,6 +348,166 @@ describe("abandoned-dialog contract (F1, X6)", () => {
   });
 });
 
+// ── E29 — one prompt-driven pane branches on flow.status.pending ───────────
+
+describe("the sign-in pane branches on flow.status.pending (E29)", () => {
+  const authUrl = "https://example.test/oauth";
+
+  async function startWithPending(pending: any) {
+    const script: Script = {
+      statuses: [{ id: "anthropic", name: "Anthropic", flowType: "auth_code", authenticated: false, configured: false }],
+      startPost: () => Promise.resolve({ ok: true, json: async () => ({ flowId: "flow-1", provider: "anthropic", status: "pending", authUrl, pending }) } as any),
+      calls: { put: 0, patch: 0, start: 0, status: 0 },
+    };
+    await renderSection(script);
+    await openPicker();
+    fireEvent.click(dialog().getByText("Anthropic"));
+    fireEvent.click(dialog().getByTestId("dialog-sign-in"));
+  }
+
+  // The auth link is asserted in EVERY case: it renders whenever authUrl is
+  // present, beside whatever pending widget the flow is showing.
+  it("manual_code renders the paste field labelled by pending.message beside the auth link", async () => {
+    await startWithPending({ kind: "manual_code", message: "Paste the callback URL", placeholder: "http://localhost:53692/callback?code=…" });
+    const d = dialog();
+    expect(await d.findByTestId("dialog-input-field")).toBeTruthy();
+    expect(d.getByText("Paste the callback URL")).toBeTruthy();
+    expect(d.getByTestId("dialog-input-submit")).toBeTruthy();
+    expect(screen.getByRole("dialog").querySelector(`a[href="${authUrl}"]`)).toBeTruthy();
+  });
+
+  it("text renders the text field labelled by pending.message beside the auth link", async () => {
+    await startWithPending({ kind: "text", message: "Enter your workspace name", placeholder: "my-workspace" });
+    const d = dialog();
+    expect(await d.findByTestId("dialog-input-field")).toBeTruthy();
+    expect(d.getByText("Enter your workspace name")).toBeTruthy();
+    expect((d.getByTestId("dialog-input-field") as HTMLInputElement).getAttribute("placeholder")).toBe("my-workspace");
+    expect(screen.getByRole("dialog").querySelector(`a[href="${authUrl}"]`)).toBeTruthy();
+  });
+
+  it("select renders one button per option beside the auth link", async () => {
+    await startWithPending({
+      kind: "select",
+      message: "How do you want to sign in?",
+      options: [
+        { id: "browser", label: "Browser login" },
+        { id: "device", label: "Device code login", description: "Use a code on another machine" },
+      ],
+    });
+    const d = dialog();
+    expect(await d.findByTestId("dialog-option-browser")).toBeTruthy();
+    expect(d.getByTestId("dialog-option-device")).toBeTruthy();
+    expect(d.getByText("Browser login")).toBeTruthy();
+    expect(d.getByText("Use a code on another machine")).toBeTruthy();
+    expect(screen.getByRole("dialog").querySelector(`a[href="${authUrl}"]`)).toBeTruthy();
+  });
+
+  it("device_code keeps the code pane and renders the auth link too", async () => {
+    await startWithPending({ kind: "device_code", userCode: "WDJB-MJHT", verificationUri: "https://github.com/login/device", expiresInSeconds: 900 });
+    const d = dialog();
+    expect(await d.findByText("WDJB-MJHT")).toBeTruthy();
+    expect(d.getByText(/open registration page/i)).toBeTruthy();
+    expect(d.getByText(/Code expires in 15:00/)).toBeTruthy();
+    expect(screen.getByRole("dialog").querySelector(`a[href="${authUrl}"]`)).toBeTruthy();
+  });
+
+  it("submitting the paste field POSTs the answer to the input endpoint and clears the field", async () => {
+    const inputPosts: any[] = [];
+    const script: Script = {
+      statuses: [{ id: "anthropic", name: "Anthropic", flowType: "auth_code", authenticated: false, configured: false }],
+      startPost: () => Promise.resolve({ ok: true, json: async () => ({ flowId: "flow-1", provider: "anthropic", status: "pending", pending: { kind: "manual_code", message: "Paste the callback URL" } }) } as any),
+      calls: { put: 0, patch: 0, start: 0, status: 0 },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: any) => {
+      if (url.includes("/api/provider-auth/flow/") && init?.method === "POST") {
+        inputPosts.push({ url, body: JSON.parse(init.body) });
+      }
+      const handler = stubFetch(script);
+      return handler(url, init);
+    }) as any);
+    // Manual mount — renderSection would re-stub fetch over the recorder.
+    render(<ProviderAuthSection />);
+    await waitFor(() => expect(script.calls.status).toBeGreaterThanOrEqual(1));
+    await openPicker();
+    fireEvent.click(dialog().getByText("Anthropic"));
+    fireEvent.click(dialog().getByTestId("dialog-sign-in"));
+
+    const field = (await dialog().findByTestId("dialog-input-field")) as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "http://localhost:53692/callback?code=abc" } });
+    fireEvent.click(dialog().getByTestId("dialog-input-submit"));
+    await waitFor(() => expect(inputPosts).toHaveLength(1));
+    expect(inputPosts[0].url).toContain("/api/provider-auth/flow/flow-1/input");
+    expect(inputPosts[0].body).toEqual({ value: "http://localhost:53692/callback?code=abc" });
+    // Cleared after submit — a later status read never repopulates it.
+    expect((dialog().getByTestId("dialog-input-field") as HTMLInputElement).value).toBe("");
+  });
+
+  it("Cancel DELETEs the flow, stops the poll, and returns to the picker", async () => {
+    let deletes = 0;
+    let flowGets = 0;
+    const script: Script = {
+      statuses: [{ id: "anthropic", name: "Anthropic", flowType: "auth_code", authenticated: false, configured: false }],
+      startPost: () => Promise.resolve({ ok: true, json: async () => ({ flowId: "flow-1", provider: "anthropic", status: "pending", pending: { kind: "text", message: "Enter your workspace name" } }) } as any),
+      calls: { put: 0, patch: 0, start: 0, status: 0 },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: any) => {
+      if (url.includes("/api/provider-auth/flow/") && init?.method === "DELETE") {
+        deletes++;
+      }
+      if (url.includes("/api/provider-auth/flow/")) {
+        flowGets++;
+      }
+      const handler = stubFetch(script);
+      return handler(url, init);
+    }) as any);
+    // Manual mount — renderSection would re-stub fetch over the recorder.
+    render(<ProviderAuthSection />);
+    await waitFor(() => expect(script.calls.status).toBeGreaterThanOrEqual(1));
+    await openPicker();
+    fireEvent.click(dialog().getByText("Anthropic"));
+    fireEvent.click(dialog().getByTestId("dialog-sign-in"));
+    expect(await dialog().findByTestId("dialog-cancel")).toBeTruthy();
+
+    fireEvent.click(dialog().getByTestId("dialog-cancel"));
+    await waitFor(() => expect(deletes).toBe(1));
+    // Back to the picker: the sign-in pane is gone.
+    expect(dialog().getByPlaceholderText(/search providers/i)).toBeTruthy();
+    // The poll stopped: no further /flow traffic.
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    const after = flowGets;
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(flowGets).toBe(after);
+  });
+
+  it("a start failure (500) is a terminal pane error with Try Again — no poll begins", async () => {
+    const flowGets = vi.fn();
+    const script: Script = {
+      statuses: [{ id: "anthropic", name: "Anthropic", flowType: "auth_code", authenticated: false, configured: false }],
+      startPost: () => Promise.resolve({ ok: false, status: 500, json: async () => ({ error: "Callback port 53692 is already in use." }) } as any),
+      calls: { put: 0, patch: 0, start: 0, status: 0 },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: any) => {
+      if (url.includes("/api/provider-auth/flow/")) {
+        flowGets();
+      }
+      const handler = stubFetch(script);
+      return handler(url, init);
+    }) as any);
+    // Manual mount — renderSection would re-stub fetch over the recorder.
+    render(<ProviderAuthSection />);
+    await waitFor(() => expect(script.calls.status).toBeGreaterThanOrEqual(1));
+    await openPicker();
+    fireEvent.click(dialog().getByText("Anthropic"));
+    fireEvent.click(dialog().getByTestId("dialog-sign-in"));
+
+    const err = await dialog().findByTestId("dialog-flow-error");
+    expect(err.textContent).toMatch(/port 53692 is already in use/);
+    expect(dialog().getByTestId("dialog-try-again")).toBeTruthy();
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(flowGets).not.toHaveBeenCalled();
+  });
+});
+
 // ── 7.7 — the custom-endpoint Edit surface never renames ────────────────────
 
 describe("custom-endpoint Edit surface (7.7)", () => {
@@ -332,7 +517,7 @@ describe("custom-endpoint Edit surface (7.7)", () => {
       statuses: [],
       providers: { "local-vllm": { baseUrl: "http://10.0.0.4:8000/v1", apiKey: "***", api: "openai-completions" } },
       providerPatch: () => Promise.resolve({ ok: true, json: async () => ({ success: true }) } as any),
-      calls: { put: 0, patch: 0, deviceCode: 0, status: 0 },
+      calls: { put: 0, patch: 0, start: 0, status: 0 },
     };
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: any) => {
       if (url.includes("/api/providers") && init?.method === "PATCH") {
@@ -367,7 +552,7 @@ describe("custom-endpoint Edit surface (7.7)", () => {
 
 describe("custom-endpoint pane Test action (moved from LlmProviderCard)", () => {
   async function openPaneWithProbe(probe: { calls: any[]; respond?: () => any }) {
-    const script: Script = { statuses: [], calls: { put: 0, patch: 0, deviceCode: 0, status: 0 } };
+    const script: Script = { statuses: [], calls: { put: 0, patch: 0, start: 0, status: 0 } };
     const base = stubFetch(script);
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: any) => {
       if (url.includes("/api/providers/test")) {
@@ -439,5 +624,214 @@ describe("custom-endpoint pane Test action (moved from LlmProviderCard)", () => 
     // Flush microtasks so a (buggy) async call path would have surfaced.
     await act(async () => {});
     expect(probe.calls).toHaveLength(0);
+  });
+});
+
+/**
+ * Prompt-driven pane regressions found by the local review gate
+ * (change: delegate-provider-oauth-to-pi-ai).
+ *
+ * Each of these pins a behaviour whose ABSENCE is invisible in the happy-path
+ * tests above: a blank domain pre-answer, a `select` double-click, and a
+ * device-code countdown that must actually count down.
+ */
+describe("prompt-driven pane — review-gate regressions", () => {
+  /** Render the section with only Copilot selectable + a scripted /start. */
+  async function renderCopilot(starts: any[]) {
+    const script: Script = {
+      statuses: [{ id: "github-copilot", name: "GitHub Copilot", flowType: "device_code", authenticated: false, configured: false }],
+      calls: { put: 0, patch: 0, start: 0, status: 0 },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: any) => {
+      if (url.includes("/api/provider-auth/start")) {
+        script.calls.start++;
+        starts.push(JSON.parse(init.body));
+        return { ok: true, json: async () => ({ flowId: "flow-1", provider: "github-copilot", status: "pending" }) } as any;
+      }
+      return stubFetch(script)(url, init);
+    }) as any);
+    render(<ProviderAuthSection />);
+    await waitFor(() => expect(script.calls.status).toBeGreaterThanOrEqual(1));
+    await openPicker();
+    fireEvent.click(dialog().getByText("GitHub Copilot"));
+  }
+
+  it("AUTH-003: a BLANK enterprise domain still sends `enterpriseDomain: \"\"`", async () => {
+    const starts: any[] = [];
+    await renderCopilot(starts);
+    const d = dialog();
+    // Leave the field blank — "blank for github.com" is a MEANINGFUL answer, not
+    // an absent one. Collapsing it to `undefined` made the server ask again.
+    fireEvent.click(d.getByText(/continue/i));
+
+    await waitFor(() => expect(starts).toHaveLength(1));
+    // The key must be PRESENT and empty — `{ provider }` alone is the bug.
+    expect(starts[0]).toEqual({ provider: "github-copilot", enterpriseDomain: "" });
+    expect("enterpriseDomain" in starts[0]).toBe(true);
+  });
+
+  it("AUTH-006: the device-code expiry is a COUNTDOWN, not a frozen total", async () => {
+    const deviceStep = {
+      flowId: "flow-dev",
+      provider: "xai",
+      status: "pending",
+      pending: {
+        kind: "device_code",
+        userCode: "XAI-0001",
+        verificationUri: "https://auth.x.ai/activate",
+        expiresInSeconds: 900,
+      },
+    };
+    const script: Script = {
+      statuses: [{ id: "xai", name: "xAI", flowType: "device_code", authenticated: false, configured: false }],
+      // The poll must keep reporting the SAME device step: it is the source of
+      // the pane's snapshot, and a bare `pending` would unmount the pane.
+      flowGet: () => Promise.resolve({ ok: true, json: async () => deviceStep } as any),
+      calls: { put: 0, patch: 0, start: 0, status: 0 },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: any) => {
+      if (url.includes("/api/provider-auth/start")) {
+        script.calls.start++;
+        return { ok: true, json: async () => deviceStep } as any;
+      }
+      return stubFetch(script)(url, init);
+    }) as any);
+    render(<ProviderAuthSection />);
+    await waitFor(() => expect(script.calls.status).toBeGreaterThanOrEqual(1));
+    await openPicker();
+    fireEvent.click(dialog().getByText("xAI"));
+    fireEvent.click(dialog().getByTestId("dialog-sign-in"));
+
+    const pane = await dialog().findByTestId("dialog-flow-waiting");
+    // `expiresInSeconds` is the code's TOTAL life, echoed on every poll — a
+    // per-render format() of it would read 15:00 forever.
+    expect(pane.textContent).toMatch(/15:00/);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(pane.textContent).toMatch(/14:59/);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(pane.textContent).toMatch(/14:57/);
+  });
+
+  it("AUTH-007: the client flow deadline is only ever EXTENDED, never re-pushed", () => {
+    // The pure decision the poll's `armDeadline` drives. A device code's
+    // `expiresInSeconds` is the code's TOTAL life, echoed unchanged by every
+    // poll — so re-arming it per tick must be a no-op, or the cap never fires.
+    const t0 = 1_000_000;
+    const floor = nextFlowDeadline(undefined, t0 + 600_000);
+    expect(floor).toBe(t0 + 600_000);
+
+    // A SHORTER device deadline cannot shorten a flow below the 10-minute floor.
+    expect(nextFlowDeadline(floor, t0 + 65_000)).toBe(floor);
+
+    // A LONGER one extends it …
+    const anchor = t0 + 2_000 + 900_000;
+    const extended = nextFlowDeadline(floor, anchor);
+    expect(extended).toBe(anchor);
+
+    // … and re-evaluating the SAME anchor (what every subsequent poll does)
+    // changes nothing. The anchor itself must be a fixed wall-clock instant:
+    // a `Date.now() + expiresInSeconds` candidate would drift +2 s per tick and
+    // this assertion is what forbids it.
+    expect(nextFlowDeadline(extended, anchor)).toBe(extended);
+    expect(nextFlowDeadline(extended, anchor)).toBe(extended);
+  });
+
+  it("AUTH-008: a cancel during an in-flight status read does not resurrect the flow", async () => {
+    let release!: (v: any) => void;
+    const gate = new Promise<any>((resolve) => {
+      release = resolve;
+    });
+    const deviceStep = {
+      flowId: "flow-cancel",
+      provider: "xai",
+      status: "pending",
+      pending: { kind: "device_code", userCode: "XAI-8888", verificationUri: "https://auth.x.ai/activate", expiresInSeconds: 900 },
+    };
+    const script: Script = {
+      statuses: [{ id: "xai", name: "xAI", flowType: "device_code", authenticated: false, configured: false }],
+      // The NEXT status read hangs until the test releases it.
+      flowGet: () => gate,
+      calls: { put: 0, patch: 0, start: 0, status: 0 },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: any) => {
+      if (url.includes("/api/provider-auth/start")) {
+        script.calls.start++;
+        return { ok: true, json: async () => deviceStep } as any;
+      }
+      if (url.includes("/api/provider-auth/flow/") && init?.method === "DELETE") {
+        return { ok: true, status: 204, json: async () => ({}) } as any;
+      }
+      return stubFetch(script)(url, init);
+    }) as any);
+    render(<ProviderAuthSection />);
+    await waitFor(() => expect(script.calls.status).toBeGreaterThanOrEqual(1));
+    await openPicker();
+    fireEvent.click(dialog().getByText("xAI"));
+    fireEvent.click(dialog().getByTestId("dialog-sign-in"));
+    await dialog().findByTestId("dialog-flow-waiting");
+
+    // Let the poll issue its read, then cancel WHILE it is in flight.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    fireEvent.click(dialog().getByTestId("dialog-cancel"));
+
+    // The read now lands on a cancelled flow; it must not write any state.
+    release({ ok: true, json: async () => ({ ...deviceStep, status: "error", error: "SHOULD_NOT_SURFACE", pending: undefined }) });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+
+    expect(screen.queryByTestId("provider-flow-error")).toBeNull();
+    expect(screen.queryByTestId("dialog-flow-error")).toBeNull();
+  });
+
+  it("AUTH-004/AUTH-005: a `select` step disables its options after the first click", async () => {
+    const inputs: string[] = [];
+    const script: Script = {
+      statuses: [{ id: "openai-codex", name: "OpenAI Codex", flowType: "auth_code", authenticated: false, configured: false }],
+      calls: { put: 0, patch: 0, start: 0, status: 0 },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: any) => {
+      if (url.includes("/api/provider-auth/start")) {
+        script.calls.start++;
+        return {
+          ok: true,
+          json: async () => ({
+            flowId: "flow-9",
+            provider: "openai-codex",
+            status: "pending",
+            pending: {
+              kind: "select",
+              message: "How do you want to sign in?",
+              options: [{ id: "browser", label: "Sign in with browser" }, { id: "device_code", label: "Device code login" }],
+            },
+          }),
+        } as any;
+      }
+      if (url.includes("/input")) {
+        inputs.push(JSON.parse(init.body).value);
+        // Never settles within the assertion window: keeps `submitting` true so
+        // a second click has a window to double-fire.
+        return new Promise(() => {}) as any;
+      }
+      return stubFetch(script)(url, init);
+    }) as any);
+    render(<ProviderAuthSection />);
+    await waitFor(() => expect(script.calls.status).toBeGreaterThanOrEqual(1));
+    await openPicker();
+    fireEvent.click(dialog().getByText("OpenAI Codex"));
+    fireEvent.click(dialog().getByTestId("dialog-sign-in"));
+
+    const option = await dialog().findByTestId("dialog-option-browser");
+    fireEvent.click(option);
+    expect((option as HTMLButtonElement).disabled).toBe(true);
+    // A second click must not post the SAME option again.
+    fireEvent.click(option);
+    expect(inputs).toEqual(["browser"]);
   });
 });

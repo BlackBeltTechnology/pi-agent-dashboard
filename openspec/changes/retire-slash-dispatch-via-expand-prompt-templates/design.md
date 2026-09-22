@@ -22,14 +22,14 @@ pi ≥ 0.84.2 `agent-session.js` (verified on 0.86.1):
 
 ```
 ExtensionAPI.sendUserMessage(content, opts)        loader.js:284
-  ├─ assertActive()                                 ← ONLY synchronous throw (stale ctx)
-  └─ runtime.sendUserMessage → this.sendUserMessage(...).catch(err => runner.emitError(...))   L2122
-       └─ prompt(text, {expandPromptTemplates, streamingBehavior: deliverAs, source:"extension"})  L1296
-            ├─ if expand && text.startsWith("/"): _tryExecuteExtensionCommand(text) → handled? return   L944  ← FIRST
-            ├─ compaction-in-progress guard (rejects)                                              L951
-            ├─ _runInputHandlers(text, images, source, streamingBehavior)                          L956
-            ├─ if expand: _expandSkillCommand → expandPromptTemplate                               L964
-            └─ streaming? queueSteer/queueFollowUp : normal turn
+  - assertActive()                                 ← ONLY synchronous throw (stale ctx)
+  - runtime.sendUserMessage → this.sendUserMessage(...).catch(err => runner.emitError(...))   L2122
+      - prompt(text, {expandPromptTemplates, streamingBehavior: deliverAs, source:"extension"})  L1296, these in order:
+          - if expand && text.startsWith("/"): _tryExecuteExtensionCommand(text) → handled? return   L944  ← FIRST
+          - compaction-in-progress guard (rejects)                                              L951
+          - _runInputHandlers(text, images, source, streamingBehavior)                          L956
+          - if expand: _expandSkillCommand → expandPromptTemplate                               L964
+          - streaming? queueSteer/queueFollowUp : normal turn
 ```
 
 Consequences the design must respect:

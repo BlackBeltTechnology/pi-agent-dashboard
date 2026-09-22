@@ -15,12 +15,11 @@ export type { ApiResponse } from "./types.js";
 import type { EnrichedRecommendedExtension } from "./recommended-extensions.js";
 
 export type { EnrichedRecommendedExtension } from "./recommended-extensions.js";
-
+export type { Tier } from "./tiers.js";
 // Tier primitives are shared with the MCP plugin and the route→tier map; the
 // API surface re-exports them so consumers have one import path for the REST
 // types they carry (see change: expand-mcp-tiered-surface, D1).
-export { isTier, minTier, rank, TIERS, defaultTierForSource } from "./tiers.js";
-export type { Tier } from "./tiers.js";
+export { defaultTierForSource, isTier, minTier, rank, TIERS } from "./tiers.js";
 
 /**
  * MCP tool input types (change: expand-mcp-tiered-surface, D5). A manifest row
@@ -644,7 +643,13 @@ export interface ProviderAuthStatus {
   name: string;
   flowType: "auth_code" | "device_code" | "api_key";
   authenticated: boolean;
-  expires?: number;
+  /**
+   * Credential expiry (epoch ms), or `null` for a credential whose provider
+   * never rotates it — e.g. OpenRouter's permanent API key stored as
+   * `{ type: "oauth", refresh: "" }`. The client renders no expiry for either
+   * `null` or `undefined`. See change: delegate-provider-oauth-to-pi-ai (D4).
+   */
+  expires?: number | null;
   maskedKey?: string;
   /** Name of the env var pi-ai consults for this provider (api-key rows only). */
   envVar?: string;
@@ -666,22 +671,52 @@ export interface ProviderAuthStatus {
   source?: ProviderSource;
 }
 
-export interface AuthorizeResponse {
-  flowId: string;
-  authUrl: string;
-}
-
-/** Provider ids the dashboard's hand-written OAuth handler registry can drive. */
+/** Provider ids the dashboard's OAuth registry can drive. */
 export interface ProviderAuthHandlerIdsResponse {
   ids: string[];
 }
 
-export interface DeviceCodeResponse {
+/**
+ * What a live provider sign-in flow is currently waiting on before it can
+ * proceed, in the vocabulary of pi-ai's `AuthPrompt` kinds. `device_code` is
+ * render-only (the flow polls); the other three are answerable through
+ * `POST /api/provider-auth/flow/:flowId/input`.
+ *
+ * Deliberately a tagged union rather than the old two-slot shape: an
+ * `auth_url` event and a `manual_code` prompt arrive back-to-back, so the pane
+ * must be able to show the link AND the paste field at once.
+ * See change: delegate-provider-oauth-to-pi-ai (D2).
+ */
+export type OAuthFlowPending =
+  | {
+      kind: "device_code";
+      userCode: string;
+      verificationUri: string;
+      intervalSeconds?: number;
+      expiresInSeconds?: number;
+    }
+  | { kind: "manual_code"; message: string; placeholder?: string }
+  | { kind: "text"; message: string; placeholder?: string }
+  | {
+      kind: "select";
+      message: string;
+      options: { id: string; label: string; description?: string }[];
+    };
+
+/**
+ * Serializable snapshot of one in-flight OAuth login. Exactly the fields the
+ * UI needs — the server-side flow record additionally holds resolvers, the
+ * abort controller and `preAnswers`, none of which cross this boundary.
+ * See change: delegate-provider-oauth-to-pi-ai (D2, E12).
+ */
+export interface OAuthFlowStatus {
   flowId: string;
-  userCode: string;
-  verificationUri: string;
-  expiresIn: number;
-  interval: number;
+  provider: string;
+  status: "pending" | "complete" | "error" | "expired";
+  authUrl?: string;
+  message?: string;
+  pending?: OAuthFlowPending;
+  error?: string;
 }
 
 // ── Package Management ──────────────────────────────────────────────
