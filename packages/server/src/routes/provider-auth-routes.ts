@@ -9,6 +9,13 @@
  *
  * See change: delegate-provider-oauth-to-pi-ai (D2, D6, D7).
  */
+
+
+// Delegate to the shared platform primitive. The cross-OS dispatch
+// (open/start/xdg-open) and URL escaping live in
+// `packages/shared/src/platform/commands.ts`.
+// See change: consolidate-platform-handlers.
+import { openBrowser as platformOpenBrowser } from "@blackbelt-technology/pi-dashboard-shared/platform/commands.js";
 import type { FastifyInstance } from "fastify";
 import {
   abortAllFlows,
@@ -16,13 +23,14 @@ import {
   deleteFlow,
   FLOW_START_TIMEOUT_MS,
   getFlow,
+  type OAuthFlow,
   pendingFlowsFor,
   pruneFlows,
+  SUPERSEDE_SETTLE_TIMEOUT_MS,
   startFlow,
   startFlowPruneTimer,
-  SUPERSEDE_SETTLE_TIMEOUT_MS,
+  type StartedFlow,
   toFlowStatus,
-  type OAuthFlow,
 } from "../auth/provider-auth-adapter.js";
 import {
   getOAuthRegistry,
@@ -43,12 +51,6 @@ import { refreshModelRegistry } from "../model-proxy/registry-singleton.js";
 import { getLatestCatalogue, isCatalogueReady } from "../package/provider-catalogue-cache.js";
 import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import type { PiGateway } from "../pi/pi-gateway.js";
-
-// Delegate to the shared platform primitive. The cross-OS dispatch
-// (open/start/xdg-open) and URL escaping live in
-// `packages/shared/src/platform/commands.ts`.
-// See change: consolidate-platform-handlers.
-import { openBrowser as platformOpenBrowser } from "@blackbelt-technology/pi-dashboard-shared/platform/commands.js";
 
 /** Open a URL in the system's default browser */
 function openInBrowser(url: string): void {
@@ -88,13 +90,51 @@ async function waitForSettle(flow: OAuthFlow): Promise<void> {
   }
 }
 
+/**
+ * Cancel any pending flow for `provider` and WAIT for its listener to close.
+ *
+ * A provider's callback port is fixed (53692 / 1455) and registered with the
+ * provider, so a second start cannot bind it until the first flow's `finally`
+ * ran — which happens only once its pending prompt is rejected, i.e. once
+ * `login()` settled. Skipping the wait trades a clean 200 for an EADDRINUSE.
+ */
+async function supersedePendingFlows(provider: string): Promise<void> {
+  for (const existing of pendingFlowsFor(provider)) {
+    cancelFlow(existing);
+    await waitForSettle(existing);
+  }
+}
+
+/** Which branch of the start handshake won. */
+type StartOutcome = "step" | "settled" | "timeout";
+
+/**
+ * Answer `POST /start` once the flow produced its first user-facing step, or
+ * settled, or went quiet for {@link FLOW_START_TIMEOUT_MS}. The timer is
+ * cleared whichever branch wins.
+ */
+async function awaitStartOutcome(started: StartedFlow): Promise<StartOutcome> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      started.firstEvent.then((): StartOutcome => "step"),
+      started.settled.then((): StartOutcome => "settled"),
+      new Promise<StartOutcome>((resolve) => {
+        timer = setTimeout(() => resolve("timeout"), FLOW_START_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 // ── Route registration ───────────────────────────────────────────────────────
 
 export function registerProviderAuthRoutes(
   fastify: FastifyInstance,
   deps: ProviderAuthRouteDeps,
 ) {
-  const { piGateway, browserGateway } = deps;
+  const { piGateway } = deps;
   const registry = (): OAuthRegistryEntry[] => deps.oauthRegistry ?? getOAuthRegistry();
   // Resolved ONCE, at registration: production kicks the build off at boot (so
   // the first request rarely waits for the ~330 ms runtime import); tests inject
@@ -178,13 +218,7 @@ export function registerProviderAuthRoutes(
         return reply.code(400).send({ error: `Unknown OAuth provider: ${provider}` });
       }
 
-      // Supersede: a pending flow for the same provider holds the provider's
-      // fixed callback port. Cancel it and let its listener close BEFORE
-      // binding again, or the new start fails with EADDRINUSE.
-      for (const existing of pendingFlowsFor(provider)) {
-        cancelFlow(existing);
-        await waitForSettle(existing);
-      }
+      await supersedePendingFlows(provider);
 
       const started = startFlow({
         provider,
@@ -198,31 +232,19 @@ export function registerProviderAuthRoutes(
         openInBrowser,
       });
 
-      let timer: NodeJS.Timeout | undefined;
-      try {
-        const outcome = await Promise.race([
-          started.firstEvent.then(() => "step" as const),
-          started.settled.then(() => "settled" as const),
-          new Promise<"timeout">((resolve) => {
-            timer = setTimeout(() => resolve("timeout"), FLOW_START_TIMEOUT_MS);
-          }),
-        ]);
-
-        if (outcome === "timeout") {
-          forgetFlow(started.flow);
-          return reply.code(504).send({ error: "Provider did not respond" });
-        }
-        if (outcome === "settled" && started.flow.status !== "complete") {
-          // Failed before producing anything to render: there is no id worth
-          // polling, so the message travels in this response.
-          const message = started.flow.error ?? "Provider login failed";
-          forgetFlow(started.flow);
-          return reply.code(500).send({ error: message });
-        }
-        return toFlowStatus(started.flow);
-      } finally {
-        if (timer) clearTimeout(timer);
+      const outcome = await awaitStartOutcome(started);
+      if (outcome === "timeout") {
+        forgetFlow(started.flow);
+        return reply.code(504).send({ error: "Provider did not respond" });
       }
+      if (outcome === "settled" && started.flow.status !== "complete") {
+        // Failed before producing anything to render: there is no id worth
+        // polling, so the message travels in this response.
+        const message = started.flow.error ?? "Provider login failed";
+        forgetFlow(started.flow);
+        return reply.code(500).send({ error: message });
+      }
+      return toFlowStatus(started.flow);
     },
   );
 

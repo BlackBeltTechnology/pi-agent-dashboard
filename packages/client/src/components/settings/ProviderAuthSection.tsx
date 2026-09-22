@@ -41,7 +41,7 @@ import {
   mdiPencil,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ANTHROPIC_PEER_SOURCE,
   IMPORT_FAILURE_PREFIX,
@@ -57,14 +57,14 @@ import { logRejection } from "../../lib/report-error.js";
 import { InlineMessage } from "../primitives/InlineMessage.js";
 import { Toast, type ToastVariant, useToast } from "../primitives/Toast.js";
 import {
-  API_TYPE_OPTIONS,
-  ProviderAddDialog,
   type AddDialogFlowState,
+  API_TYPE_OPTIONS,
   type CustomEndpointInput,
   countSelectable,
   isConfiguredRow,
+  ProviderAddDialog,
 } from "./ProviderAddDialog.js";
-import { derivePillView, ProviderHealthPill, type LiveTestResult } from "./ProviderHealthPill.js";
+import { derivePillView, type LiveTestResult, ProviderHealthPill } from "./ProviderHealthPill.js";
 
 // ── Fetch helpers ────────────────────────────────────────────────────────────
 

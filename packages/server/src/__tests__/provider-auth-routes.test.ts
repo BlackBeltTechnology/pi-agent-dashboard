@@ -31,18 +31,18 @@ vi.mock("../model-proxy/registry-singleton.js", () => ({
   refreshModelRegistry: () => Promise.resolve(),
 }));
 
-import { registerProviderAuthRoutes } from "../routes/provider-auth-routes.js";
 import type { OAuthRegistryEntry } from "../auth/pi-oauth-types.js";
 import { abortAllFlows, flowStoreSize } from "../auth/provider-auth-adapter.js";
+import { registerProviderAuthRoutes } from "../routes/provider-auth-routes.js";
 import {
   anthropicFlow,
   codexFlow,
   createFakeOAuthFlow,
   deviceCodeFlow,
+  type FakeOAuthFlow,
   githubCopilotFlow,
   openrouterFlow,
   resetFakeFlows,
-  type FakeOAuthFlow,
 } from "./helpers/fake-oauth-flow.js";
 
 const FLOW_TYPE_HINT: Record<string, "auth_code" | "device_code"> = {

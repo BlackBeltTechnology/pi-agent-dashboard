@@ -21,9 +21,10 @@ vi.mock("../auth/provider-auth-registry.js", () => ({
   getRegistryError: () => registryState.error,
   initOAuthRegistry: async () => {},
 }));
+
 import { createKeeperManager, EMPTY_KEEPER_LOG_STATS } from "../rpc-keeper/keeper-manager.js";
-import { setKeeperManager } from "../spawn-process/process-manager.js";
 import type { DashboardServer } from "../server.js";
+import { setKeeperManager } from "../spawn-process/process-manager.js";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
 
 let handle: TestServerHandle | undefined;

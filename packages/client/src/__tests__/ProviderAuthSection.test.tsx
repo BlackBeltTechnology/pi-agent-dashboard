@@ -12,9 +12,10 @@
  * change redesign-providers-settings-page. See change:
  * redesign-providers-settings-page.
  */
-import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
-import { ProviderAuthSection, customEndpointConfigured } from "../components/settings/ProviderAuthSection.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { customEndpointConfigured, ProviderAuthSection } from "../components/settings/ProviderAuthSection.js";
 import { PROVIDER_AUTH_EVENT, useProvidersReady } from "../hooks/useProvidersReady.js";
 
 afterEach(() => {

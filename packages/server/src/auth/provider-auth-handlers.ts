@@ -14,5 +14,5 @@
  * See change: delegate-provider-oauth-to-pi-ai (D1, D5).
  */
 
-export { getOAuthRegistry } from "./provider-auth-registry.js";
 export type { OAuthRegistryEntry } from "./pi-oauth-types.js";
+export { getOAuthRegistry } from "./provider-auth-registry.js";

@@ -15,12 +15,11 @@ export type { ApiResponse } from "./types.js";
 import type { EnrichedRecommendedExtension } from "./recommended-extensions.js";
 
 export type { EnrichedRecommendedExtension } from "./recommended-extensions.js";
-
+export type { Tier } from "./tiers.js";
 // Tier primitives are shared with the MCP plugin and the route→tier map; the
 // API surface re-exports them so consumers have one import path for the REST
 // types they carry (see change: expand-mcp-tiered-surface, D1).
-export { isTier, minTier, rank, TIERS, defaultTierForSource } from "./tiers.js";
-export type { Tier } from "./tiers.js";
+export { defaultTierForSource, isTier, minTier, rank, TIERS } from "./tiers.js";
 
 /**
  * MCP tool input types (change: expand-mcp-tiered-surface, D5). A manifest row

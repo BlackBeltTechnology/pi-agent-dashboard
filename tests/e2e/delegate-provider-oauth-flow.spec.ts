@@ -2,8 +2,8 @@ import { expect, type Page, test } from "./fixtures.js";
 import {
   openAddPicker,
   openProvidersSettings,
-  providerStatusRow,
   type ProviderStatusFixture,
+  providerStatusRow,
   routeProviderData,
 } from "./helpers/index.js";
 
@@ -289,7 +289,15 @@ test.describe("delegate-provider-oauth-to-pi-ai — delegated provider OAuth flo
       { option: /^Kimi/, step: deviceByProvider["kimi-coding"] },
       { option: /^Meta AI/, step: deviceByProvider["meta"] },
     ]) {
-      await page.getByRole("button", { name: "Back" }).click();
+      // Scoped to the SIGN-IN PANE's own dialog. Two traps here: the Settings
+      // header also renders a `Back` button, and the pane's dialog is PORTALED
+      // out of the `provider-add-dialog` wrapper (so that testid cannot scope
+      // this query).
+      await page
+        .getByRole("dialog")
+        .filter({ has: page.getByTestId("dialog-flow-waiting") })
+        .getByRole("button", { name: "Back" })
+        .click();
       await expect(pickerDialog(page)).toBeVisible();
       await pickerDialog(page).getByRole("option", { name: entry.option }).click();
       await page.getByTestId("dialog-sign-in").click();

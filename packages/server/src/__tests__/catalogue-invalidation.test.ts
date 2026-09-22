@@ -22,11 +22,11 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
-import { createServer, type DashboardServer } from "../server.js";
-import { _resetForTests, getLatestCatalogue } from "../package/provider-catalogue-cache.js";
 import { readAuthJson } from "../auth/provider-auth-storage.js";
+import { _resetForTests, getLatestCatalogue } from "../package/provider-catalogue-cache.js";
+import { createServer, type DashboardServer } from "../server.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

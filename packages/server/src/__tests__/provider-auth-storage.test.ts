@@ -3,11 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import type { ProviderInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { oauthRegistryReady } from "../auth/provider-auth-registry.js";
 import {
   _resetForTests as resetCatalogueCache,
   setCatalogueForSession,
 } from "../package/provider-catalogue-cache.js";
-import { oauthRegistryReady } from "../auth/provider-auth-registry.js";
 
 /**
  * The OAuth rows now come from the pi runtime's provider registry, so the

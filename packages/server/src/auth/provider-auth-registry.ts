@@ -198,7 +198,7 @@ export async function initOAuthRegistry(deps: OAuthRegistryInitDeps = {}): Promi
 
     const ModelRuntime = mod?.ModelRuntime;
     if (typeof ModelRuntime?.create !== "function") {
-      throw new Error("ModelRuntime.create is not exported by " + PI_PACKAGE);
+      throw new Error(`ModelRuntime.create is not exported by ${PI_PACKAGE}`);
     }
     const runtime = await ModelRuntime.create({
       modelsPath: null,

@@ -2,8 +2,8 @@ import { expect, type Page, test } from "./fixtures.js";
 import {
   openAddPicker,
   openProvidersSettings,
-  providerStatusRow,
   type ProviderStatusFixture,
+  providerStatusRow,
   routeProviderData,
 } from "./helpers/index.js";
 

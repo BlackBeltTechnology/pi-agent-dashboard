@@ -18,7 +18,6 @@ import os from "node:os";
 import path from "node:path";
 import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { registerProviderAuthRoutes } from "../routes/provider-auth-routes.js";
 import { abortAllFlows } from "../auth/provider-auth-adapter.js";
 import {
   type OAuthCredential,
@@ -26,6 +25,7 @@ import {
   removeCredential,
   writeCredential,
 } from "../auth/provider-auth-storage.js";
+import { registerProviderAuthRoutes } from "../routes/provider-auth-routes.js";
 
 const authDir = path.join(os.homedir(), ".pi", "agent");
 const authPath = path.join(authDir, "auth.json");
@@ -46,7 +46,7 @@ afterEach(async () => {
 });
 
 function seedAuth(data: Record<string, unknown>): string {
-  const bytes = JSON.stringify(data, null, 2) + "\n";
+  const bytes = `${JSON.stringify(data, null, 2)}\n`;
   fs.writeFileSync(authPath, bytes);
   return bytes;
 }

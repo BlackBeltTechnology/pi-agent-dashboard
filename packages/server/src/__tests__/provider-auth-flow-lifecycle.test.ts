@@ -18,7 +18,6 @@ vi.mock("../model-proxy/registry-singleton.js", () => ({
   refreshModelRegistry: () => Promise.resolve(),
 }));
 
-import { registerProviderAuthRoutes } from "../routes/provider-auth-routes.js";
 import type { OAuthRegistryEntry } from "../auth/pi-oauth-types.js";
 import {
   abortAllFlows,
@@ -27,13 +26,14 @@ import {
   pendingFlowsFor,
   pruneFlows,
 } from "../auth/provider-auth-adapter.js";
+import { registerProviderAuthRoutes } from "../routes/provider-auth-routes.js";
 import {
   anthropicFlow,
   createFakeOAuthFlow,
   deviceCodeFlow,
+  type FakeOAuthFlow,
   resetFakeFlows,
   totalOpenListenerCount,
-  type FakeOAuthFlow,
 } from "./helpers/fake-oauth-flow.js";
 
 const authDir = path.join(os.homedir(), ".pi", "agent");
@@ -42,7 +42,6 @@ const authPath = path.join(authDir, "auth.json");
 let originalAuth: string | null = null;
 
 let fakes: FakeOAuthFlow[] = [];
-let logLines: string[] = [];
 
 const piGateway = {
   broadcast: vi.fn(),
@@ -91,7 +90,6 @@ beforeEach(async () => {
     originalAuth = null;
   }
   fakes = [];
-  logLines = [];
   resetFakeFlows();
   abortAllFlows();
   app = await buildApp(registryFrom({}));
@@ -265,7 +263,7 @@ describe("X4: cancel releases the callback listener", () => {
 
 describe("X7: a refused credential write", () => {
   it("reports the conflict and leaves auth.json byte-identical", async () => {
-    const before = JSON.stringify({ openrouter: { type: "api_key", key: "sk-stored" } }, null, 2) + "\n";
+    const before = `${JSON.stringify({ openrouter: { type: "api_key", key: "sk-stored" } }, null, 2)}\n`;
     fs.writeFileSync(authPath, before);
 
     app = await buildApp(

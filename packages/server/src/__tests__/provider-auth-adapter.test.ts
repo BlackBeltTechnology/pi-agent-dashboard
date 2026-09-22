@@ -10,24 +10,24 @@
  * See change: delegate-provider-oauth-to-pi-ai (D1, D7).
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import {
   abortAllFlows,
   cancelFlow,
   flowStoreSize,
   getFlow,
+  type StartedFlow,
+  type StartFlowParams,
   startFlow,
   toFlowStatus,
-  type StartFlowParams,
-  type StartedFlow,
 } from "../auth/provider-auth-adapter.js";
 import {
   anthropicFlow,
   createFakeOAuthFlow,
   deviceCodeFlow,
-  resetFakeFlows,
   type FakeOAuthFlow,
   type FakeStep,
+  resetFakeFlows,
 } from "./helpers/fake-oauth-flow.js";
 
 /** Let the fake's `await` chain advance one turn under real timers. */
@@ -317,8 +317,17 @@ describe("device-code lifetime (D7)", () => {
     const fake = deviceCodeFlow({ expiresInSeconds: 900 });
     const { started } = start(fake, { provider: "xai" });
 
-    expect(started.flow.deviceCodeDeadline).toBe(started.flow.createdAt + 900_000);
-    expect(started.flow.expiresAt).toBe(started.flow.createdAt + 960_000);
+    // Deliberately not `createdAt + 900_000`: `createdAt` is read at flow
+    // construction and the deadline at the device_code notify, so a tick
+    // between them makes exact equality a 1-in-2 flake. The INVARIANTS are the
+    // lower bound (never shorter than the code's own life) and the +60 s slack.
+    const deadline = started.flow.deviceCodeDeadline as number;
+    expect(deadline).toBeGreaterThanOrEqual(started.flow.createdAt + 900_000);
+    expect(deadline).toBeLessThan(started.flow.createdAt + 901_000);
+    expect(started.flow.expiresAt).toBe(deadline + 60_000);
+    expect(started.flow.expiresAt - started.flow.createdAt).toBeGreaterThanOrEqual(
+      16 * 60 * 1000,
+    );
   });
 
   it("E21: a rejection AT/after the deadline reports `expired`", async () => {

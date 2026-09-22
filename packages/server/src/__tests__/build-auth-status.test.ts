@@ -4,14 +4,15 @@
  * See changes: replace-hardcoded-provider-lists,
  * delegate-provider-oauth-to-pi-ai (D1, D4).
  */
-import { describe, it, expect } from "vitest";
+
+import type { ProviderInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it } from "vitest";
+import type { OAuthRegistryEntry } from "../auth/pi-oauth-types.js";
 import {
   _buildAuthStatus,
-  oauthIdsFrom,
   type AuthData,
+  oauthIdsFrom,
 } from "../auth/provider-auth-storage.js";
-import type { OAuthRegistryEntry } from "../auth/pi-oauth-types.js";
-import type { ProviderInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function makeOAuthEntry(
   id: string,

@@ -18,14 +18,16 @@
  *
  * See change: redesign-providers-settings-page.
  */
+
+import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
+import type { OAuthFlowStatus, ProviderAuthStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { mdiArrowRight, mdiContentCopy, mdiLoading } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useMemo, useState } from "react";
-import type { OAuthFlowStatus, ProviderAuthStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
-import { SearchableSelectDialog, type SelectOption } from "../primitives/SearchableSelectDialog.js";
-import { t as i18nT } from "../../lib/i18n/i18n.js";
+import type React from "react";
+import { useMemo, useState } from "react";
 import { testProvider } from "../../lib/api/providers-api.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { SearchableSelectDialog, type SelectOption } from "../primitives/SearchableSelectDialog.js";
 import { derivePillView, ProviderHealthPill } from "./ProviderHealthPill.js";
 
 /** API types a custom endpoint can speak (moved from the deleted LlmProviderCard). */
@@ -97,7 +99,7 @@ export function buildPickerEntries(statuses: ProviderAuthStatus[]): PickerEntry[
         }
       } else {
         const twin = byId.get(`${row.id}-api`);
-        if (twin && twin.maskedKey) {
+        if (twin?.maskedKey) {
           return {
             row,
             suppressed: true,

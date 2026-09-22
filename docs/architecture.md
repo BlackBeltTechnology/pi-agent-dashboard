@@ -4161,12 +4161,41 @@ The dashboard supports browser-based authentication with pi's LLM providers, ena
 
 ### Flow
 
-1. **Settings UI** shows OAuth providers (Anthropic, Codex, GitHub Copilot, Gemini CLI, Antigravity) and API key providers
-2. **Auth-code flow** (Anthropic, Codex, Gemini, Antigravity): browser opens popup → provider consent → callback HTML relays code via `postMessage`/`BroadcastChannel`/`localStorage` → server exchanges code for tokens using PKCE
-3. **Device-code flow** (GitHub Copilot): server requests device code → UI shows user code + verification URL → server polls until authorized
-4. **API key flow**: user pastes key in Settings → saved directly
-5. All credentials written to `~/.pi/agent/auth.json` with lockfile + atomic write (`0600` permissions)
-6. Server broadcasts `credentials_updated` to all connected bridges → bridges call `reloadProviders(pi)` (to hot-register any newly-added custom providers from `~/.pi/agent/providers.json`) then `authStorage.reload()` and `modelRegistry.refresh()` so running pi sessions pick up new tokens and new providers immediately without a session restart
+1. **Settings UI** shows every sign-in-able provider the runtime registry exposes (see the delegated subsection below) plus API key providers
+2. **OAuth sign-in is delegated to pi-ai**: one adapter drives each provider's own `login()`; the pane renders whichever step the flow emits — an authorization URL, a device code, or an answerable prompt — and posts the answer back. No per-provider flow code
+3. **API key flow**: user pastes key in Settings → saved directly
+4. All credentials written to `~/.pi/agent/auth.json` with lockfile + atomic write (`0600` permissions)
+5. Server broadcasts `credentials_updated` to all connected bridges → bridges call `reloadProviders(pi)` (to hot-register any newly-added custom providers from `~/.pi/agent/providers.json`) then `authStorage.reload()` and `modelRegistry.refresh()` so running pi sessions pick up new tokens and new providers immediately without a session restart
+
+#### Provider OAuth sign-in (delegated to pi-ai)
+
+The dashboard supplies an `AuthInteraction` — not a flow. pi-ai's `login()` owns PKCE, the loopback callback listener, device-code polling, and the code-for-token exchange; the dashboard persists the returned credential through its existing locked, backed-up `writeCredential()`. No per-provider flow code remains. See change: delegate-provider-oauth-to-pi-ai.
+
+**Registry.** Built once, lazily, off the request path (`oauthRegistryReady()`), from `ModelRuntime.create({ modelsPath: null, credentials: EMPTY_READONLY_STORE })` — the empty read-only store keeps pi away from the dashboard's `auth.json`. `mapProviders()` filters `auth?.oauth` and excludes `radius` by id, yielding one `OAuthRegistryEntry { id, name, flowType, auth }` per sign-in-able provider. On pi-coding-agent `0.86.1` that set is the seven ids `anthropic`, `openai-codex`, `github-copilot`, `openrouter`, `kimi-coding`, `meta`, `xai`. `FLOW_TYPE_HINT` (`anthropic` / `openai-codex` / `openrouter` → `auth_code`, else `device_code`) is a UI hint only: it picks the Add-provider dialog's opening pane. The pane follows whatever the flow emits, so a wrong hint is cosmetic — `flowType` is never a gate.
+
+**Dependency pin.** The server imports only `@earendil-works/pi-coding-agent` (`await import(...)`, public index `ModelRuntime`), never `@earendil-works/pi-ai` and never either package's `dist/` (both unreachable — export maps / hoisted `0.75.5`). Binding to the pi-ai copy pi-coding-agent was built against gives version parity by construction. Six governed pins move together: `packages/server/package.json` dep `^0.86.1`, `piCompatibility.minimum`, `piCompatibility.recommended`, the `pnpm-workspace.yaml` override, `docker/Dockerfile`, and `scripts/verify-release-deps.mjs` `minVersion` (`checkPiPinCoherence`).
+
+**Routes** (`packages/server/src/routes/provider-auth-routes.ts`):
+
+| Route | Behaviour |
+|---|---|
+| `POST /api/provider-auth/start { provider, enterpriseDomain? }` | Supersedes any pending flow for the same provider (fixed callback port), starts `login()`, answers 200 `OAuthFlowStatus` on the first user-facing step; 400 unknown provider; 500 on a pre-event rejection; 504 `Provider did not respond` |
+| `GET /api/provider-auth/flow/:flowId` | `OAuthFlowStatus`; 404 `Invalid or expired flow` |
+| `POST /api/provider-auth/flow/:flowId/input { value }` | Resolves the pending prompt → 202 `{ ok: true }`; 409 `No input pending for this flow`; 404 as above |
+| `DELETE /api/provider-auth/flow/:flowId` | `cancelled = true; abort.abort()` → 204; 404 as above |
+
+`POST /api/provider-auth/authorize`, `POST /api/provider-auth/device-code`, and `GET /api/provider-auth/device-status/:flowId` are removed.
+
+**Flow record** (`packages/server/src/auth/provider-auth-adapter.ts`). Holds a STICKY `authUrl` plus a tagged `pending` union, never a single slot — an `auth_url` notify and a `manual_code` prompt arrive back-to-back, so the pane renders the link and the paste field together. `pending` kinds: `device_code` (render-only), `manual_code`, `text`, `select`; `secret` is rejected (`unsupported prompt: secret`) — no bundled provider issues it.
+
+- **Abort rule.** The flow controller REJECTS the pending prompt (`Cancelled`), not merely stops waiting. pi-ai's auth-code flows `await` a `manualPromise` whose `finally` closes the callback server; rejecting settles it, so the listener closes and the port frees. Waiting on the prompt-level signal alone would deadlock and leak the port.
+- **`preAnswers`.** `enterpriseDomain` pre-answers the flow's FIRST free-text prompt (blank = `github.com`) so it never becomes pending; discarded after the first prompt of any kind.
+- **Start handshake.** `POST /start` races the first renderable step, `login()` settling, and a 15 s `FLOW_START_TIMEOUT_MS` timer. `progress` / `info` are deliberately not first steps.
+- **Lifetime.** 10 min default; a numeric device-code `expiresInSeconds` raises `expiresAt` to `max(expiresAt, deadline + 60 s)`. Pruned on every provider-auth request and by a 60 s timer; a pruned pending flow is cancelled first. `expired` is derived from the device-code deadline, never from pi-ai's message text.
+
+**Input is a secret.** The `value` posted to `/flow/:flowId/input` may be an authorization code or a redirect URL carrying one. It is handed to the flow unchanged and never logged, persisted, or echoed. Flow ids are `crypto.randomUUID()` (UUID v4), so the capability is unguessable.
+
+**Degradation.** Any registry failure (`import()` throws, empty provider list, unknown shape) absorbs into an EMPTY registry, never a dead route: `/api/provider-auth/handlers` answers `{ ids: [] }`, `/api/health` carries `providerAuth.error` naming the resolved pi-coding-agent version (a skew, not a bare symptom), every other route keeps serving, and a stored OAuth credential stays visible and removable — `oauthIdSet()` unions the registry with any id holding a stored `{ type: "oauth" }` credential.
 
 ### Model metadata enrichment for custom providers
 
@@ -4202,10 +4231,12 @@ The endpoint resolves `$ENV_VAR` references and the `***` REDACTED sentinel (for
 
 | File | Purpose |
 |------|--------|
-| `src/server/provider-auth-handlers.ts` | Per-provider OAuth logic (PKCE, token exchange, project discovery) |
-| `src/server/provider-auth-storage.ts` | auth.json read/write with file locking |
-| `src/server/routes/provider-auth-routes.ts` | REST API for authorize, exchange, callback, device-code, API keys |
-| `src/client/components/ProviderAuthSection.tsx` | Settings UI component |
+| `src/server/auth/pi-oauth-types.ts` | Local structural types for pi-ai's OAuth surface (server never imports pi-ai) |
+| `src/server/auth/provider-auth-registry.ts` | Builds the OAuth registry once from `ModelRuntime` providers; empty registry + health error on failure |
+| `src/server/auth/provider-auth-adapter.ts` | `AuthInteraction` adapter + flow store (`startFlow`, `pruneFlows`, `abortAllFlows`) |
+| `src/server/auth/provider-auth-storage.ts` | auth.json read/write with file locking |
+| `src/server/routes/provider-auth-routes.ts` | REST: start / flow status / flow input / cancel, plus API keys |
+| `src/client/components/settings/ProviderAuthSection.tsx` | Settings UI component |
 
 ## Terminal Emulator
 

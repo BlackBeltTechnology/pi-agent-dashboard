@@ -9,9 +9,8 @@
  */
 
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { describe, expect, it, beforeAll } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import {
   FLOW_TYPE_HINT,
   getOAuthRegistry,

@@ -188,7 +188,8 @@ export function checkPiPinCoherence(
   if (!checkerPin) missing.push("verify-release-deps.mjs minVersion");
   if (missing.length > 0) {
     return (
-      "pi pin coherence: missing a governed pi pin " + `(${missing.join(", ")} absent)`
+      "pi pin coherence: missing a governed pi pin " +
+      `(${missing.join(", ")} absent)`
     );
   }
 
