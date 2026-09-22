@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1616,5 +1616,189 @@ describe("CommandHandler — ack handle and dropped-message reporting", () => {
       text: "hello",
     } as ServerToExtensionMessage);
     expect(drops).toHaveLength(0);
+  });
+});
+
+/**
+ * Extension-slash-command dispatch precedence + the two call sites' delivery
+ * plumbing. Added by `retire-slash-dispatch-via-expand-prompt-templates`
+ * (test-plan E15–E20).
+ *
+ * Level note: E15 (flow fast-path wins over extension dispatch) and E20
+ * (bridge prompt/skill expansion fallback unchanged) live in `bridge.ts`'s
+ * inline `sessionPrompt` closure, which has no runtime test seam and which this
+ * change deliberately does NOT restructure (design D6 — routing order
+ * unchanged). They are pinned here as SOURCE-ORDER guards over that closure —
+ * the same technique `command-path-mapping.test.ts` and
+ * `pi-version-tracker.test.ts` already use for untestable bridge internals.
+ * E16, E17 and E19's command-handler half run against production code.
+ */
+describe("extension slash dispatch precedence (test-plan E15–E20)", () => {
+  function mockPi(commands: Array<{ name: string; source: string }> = []) {
+    return {
+      sendMessage: vi.fn(),
+      sendUserMessage: vi.fn(),
+      getCommands: vi.fn(() => commands),
+      setSessionName: vi.fn(),
+      getSessionName: vi.fn(),
+      on: vi.fn(),
+      exec: vi.fn(),
+      events: { emit: vi.fn() },
+    };
+  }
+
+  function feedback(sink: ReturnType<typeof vi.fn>, eventType: string) {
+    return sink.mock.calls
+      .map((c) => c[0] as any)
+      .filter((m) => m?.type === "event_forward" && m?.event?.eventType === eventType)
+      .map((m) => m.event.data);
+  }
+
+  /** The `sessionPrompt` arrow-function body from bridge.ts (step 8/9/10 order). */
+  function bridgeSessionPromptBlock(): string {
+    const src = readFileSync(join(import.meta.dirname ?? __dirname, "../bridge.ts"), "utf-8");
+    const start = src.indexOf("sessionPrompt: async (text, delivery, promptId) => {");
+    expect(start, "sessionPrompt closure not found in bridge.ts").toBeGreaterThan(-1);
+    const end = src.indexOf("onSteerSent: recordSteerSent,", start);
+    expect(end, "sessionPrompt closure end not found").toBeGreaterThan(start);
+    return src.slice(start, end);
+  }
+
+  it("E15: the user-defined-flow fast-path (step 8) precedes extension dispatch (step 9) and returns", () => {
+    const block = bridgeSessionPromptBlock();
+
+    const flowIdx = block.indexOf('pi.events.emit("flow:run"');
+    const dispatchIdx = block.indexOf("tryDispatchExtensionCommand(");
+
+    expect(flowIdx, "flow:run emission missing from sessionPrompt").toBeGreaterThan(-1);
+    expect(dispatchIdx, "extension dispatch missing from sessionPrompt").toBeGreaterThan(-1);
+    expect(flowIdx, "step 8 must come before step 9").toBeLessThan(dispatchIdx);
+
+    // Step 8 must RETURN, so a colliding name never reaches the dispatch.
+    const returnIdx = block.indexOf("return;", flowIdx);
+    expect(returnIdx, "flow fast-path must return before dispatch").toBeGreaterThan(flowIdx);
+    expect(returnIdx).toBeLessThan(dispatchIdx);
+
+    // The flow-name match is evaluated against getFlowsList(), not pi.getCommands().
+    expect(block.slice(flowIdx - 400, flowIdx)).toContain("getFlowsList()");
+
+    // Order alone is not enough: a neutered predicate would keep the order while
+    // never firing. Pin the predicate AND the emitted payload so the guard fails
+    // when the branch stops matching or stops naming the flow it matched.
+    expect(block).toMatch(/flowsList\.some\(f => f\.name === cmdName\)/);
+    expect(block).toMatch(/pi\.events\.emit\("flow:run", \{ flowName: cmdName/);
+  });
+
+  it("E16: typed /flows:new rides extension dispatch, not the fall-through", async () => {
+    const pi = mockPi([{ name: "flows:new", source: "extension" }]);
+    const eventSink = vi.fn();
+    const handler = createCommandHandler(pi as any, "s1", { eventSink });
+
+    await handler.handle({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "/flows:new",
+    } as ServerToExtensionMessage);
+
+    // The dispatch signature: raw text + expandPromptTemplates. The step-10
+    // fall-through would send `{deliverAs}` with an expanded (or raw) body and
+    // no flag — asserting the flag pins that step 10 did NOT execute.
+    expect(pi.sendUserMessage).toHaveBeenCalledTimes(1);
+    expect(pi.sendUserMessage).toHaveBeenCalledWith("/flows:new", {
+      expandPromptTemplates: true,
+      deliverAs: "followUp",
+    });
+    expect(pi.events.emit).not.toHaveBeenCalled();
+    expect(feedback(eventSink, "command_feedback").map((d) => d.status)).toEqual([
+      "started",
+      "completed",
+    ]);
+  });
+
+  it("E17: extension dispatch beats an exec-mode (executable: bash) template of the same name", async () => {
+    const tmpDir = join(import.meta.dirname ?? __dirname, "__tmp_slash_dispatch__");
+    const promptsDir = join(tmpDir, ".pi", "prompts");
+    const prevCwd = process.cwd();
+    mkdirSync(promptsDir, { recursive: true });
+    writeFileSync(
+      join(promptsDir, "dashboard-foo.md"),
+      "---\nexecutable: bash\n---\nprintf 'BASH_RAN'\n",
+    );
+
+    try {
+      process.chdir(tmpDir);
+      const pi = mockPi([{ name: "dashboard-foo", source: "extension" }]);
+      const eventSink = vi.fn();
+      const handler = createCommandHandler(pi as any, "s1", { eventSink });
+
+      await handler.handle({
+        type: "send_prompt",
+        sessionId: "s1",
+        text: "/dashboard-foo",
+      } as ServerToExtensionMessage);
+
+      expect(pi.sendUserMessage).toHaveBeenCalledWith("/dashboard-foo", {
+        expandPromptTemplates: true,
+        deliverAs: "followUp",
+      });
+      // The exec template never ran: no bash_output, and no emitted body.
+      expect(feedback(eventSink, "bash_output")).toEqual([]);
+      expect(JSON.stringify(eventSink.mock.calls)).not.toContain("BASH_RAN");
+    } finally {
+      process.chdir(prevCwd);
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("E19a: the command-handler call site forwards `delivery`", async () => {
+    const pi = mockPi([{ name: "ctx-stats", source: "extension" }]);
+    const handler = createCommandHandler(pi as any, "s1", { eventSink: vi.fn() });
+
+    await handler.handle({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "/ctx-stats",
+      delivery: "steer",
+    } as ServerToExtensionMessage);
+
+    expect(pi.sendUserMessage).toHaveBeenCalledWith("/ctx-stats", {
+      expandPromptTemplates: true,
+      deliverAs: "steer",
+    });
+  });
+
+  it("E19b: the bridge call site forwards `delivery` and the helper takes no `connection`", () => {
+    const block = bridgeSessionPromptBlock();
+    const callIdx = block.indexOf("tryDispatchExtensionCommand(");
+    const call = block.slice(callIdx, block.indexOf(");", callIdx)).replace(/\s+/g, " ").trim();
+    // Exact argument list: `connection` is gone from the parameter list, and the
+    // only remaining mention is the FeedbackSink closure that publishes the
+    // command_feedback events.
+    expect(call).toBe(
+      "tryDispatchExtensionCommand( pi, text, sessionId, (msg) => connection.send(msg), delivery,",
+    );
+
+    const helperSrc = readFileSync(
+      join(import.meta.dirname ?? __dirname, "../slash-dispatch.ts"),
+      "utf-8",
+    );
+    const sigStart = helperSrc.indexOf("export async function tryDispatchExtensionCommand(");
+    const sig = helperSrc.slice(sigStart, helperSrc.indexOf("): Promise<boolean>", sigStart));
+    expect(sig).toContain("delivery?:");
+    expect(sig).not.toContain("connection");
+  });
+
+  it("E20: the bridge's prompt/skill expansion fallback is unchanged and carries no expandPromptTemplates flag", () => {
+    const block = bridgeSessionPromptBlock();
+
+    // Step 10/11: expand from disk, then send the EXPANDED text to pi with only
+    // deliverAs. Adding `expandPromptTemplates` here would let pi expand an
+    // `executable: bash` template's body into the model (design D2).
+    const expandIdx = block.indexOf("expandPromptTemplateFromDisk(text, process.cwd(), pi)");
+    expect(expandIdx, "step 10 disk expansion missing from the fallback").toBeGreaterThan(-1);
+
+    const fallback = block.slice(expandIdx);
+    expect(fallback).toMatch(/\(pi\.sendUserMessage as any\)\(expanded, \{ deliverAs \}\)/);
+    expect(fallback).not.toMatch(/expandPromptTemplates\s*:/);
   });
 });

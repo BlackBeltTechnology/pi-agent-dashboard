@@ -1613,7 +1613,7 @@ flowchart TD
 
 **Predicate gate** — `isBareReloadCommand` in `browser-handlers/session-action-helpers.ts`. `text === "/reload"` exactly, zero images, says nothing about session shape. Replaced old `shouldInterceptReload`, which also required a headless PID and thereby made kill-and-respawn the default.
 
-**Why no in-process path.** Earlier revision wrote `/__dashboard_reload` to the session's RPC keeper, on the claim that pi RPC mode runs the line through `session.prompt()` WITH command handling. Measured in the docker harness with `keeperLog.capturePiOutput = true`: it does not. pi's RPC `{type:"prompt"}` performs NO slash-command dispatch. Dispatched `/__dashboard_reload` arrived at the model as an ordinary user prompt and produced a full agent turn (`agent_start` → user message → assistant reply → `agent_end`). Control: pi built-in `/help` written to the same socket behaved identically — so not the `__` prefix, not our registration. Consequence: kill-and-respawn is the ONLY mechanism that reloads a headless session. Note: `rpc-keeper/dispatch-router.ts` `dispatch_extension_command` uses the same `writeRpc` + `{type:"prompt"}` mechanism and therefore has the same defect — separate live bug, own change.
+**Why no in-process path.** Earlier revision wrote `/__dashboard_reload` to the session's RPC keeper, on the claim that pi RPC mode runs the line through `session.prompt()` WITH command handling. Measured in the docker harness with `keeperLog.capturePiOutput = true` on pi < 0.84.2: it does not — pi's RPC `{type:"prompt"}` performed NO slash-command dispatch. Dispatched `/__dashboard_reload` arrived at the model as an ordinary user prompt and produced a full agent turn (`agent_start` → user message → assistant reply → `agent_end`). Control: pi built-in `/help` written to the same socket behaved identically — so not the `__` prefix, not our registration. (Pi >= 0.84.2 RPC `prompt()` defaults `expandPromptTemplates` ON; the original measurement predates that. Decision unaffected — `/__dashboard_reload` is STILL never written to the keeper.) Consequence: kill-and-respawn is the ONLY mechanism that reloads a headless session. The extension-slash `dispatch_extension_command` route used the same keeper `writeRpc` + `{type:"prompt"}` mechanism; it was retired by change `retire-slash-dispatch-via-expand-prompt-templates` (bridge dispatches in-process via `sendUserMessage({expandPromptTemplates: true})`).
 
 **Ladder step 1 — busy check.** `isReloadBusy` runs FIRST. Refuse if `session.compacting === true`. Refuse if `status === "streaming"` AND `piGateway.isSessionConnected(sessionId)`. Stale `streaming` on a bridge-dead session does NOT refuse — pinned there forever, and exactly what respawn rescues.
 
@@ -3892,9 +3892,9 @@ On Windows, `spawnDetached` uses `detached: true` which (via libuv's `src/win/pr
 
 ### RPC keeper sidecar
 
-Introduced by change `add-rpc-stdin-dispatch-with-keeper-sidecar`. Default and only headless spawn path as of change `enable-rpc-keeper-by-default`. Resolves typed extension slash commands (`/ctx-stats`, `/curator`, `/agents`, `/flows:*`) in headless dashboard sessions despite pi 0.74 `ExtensionAPI` exposing no `dispatchCommand`.
+Introduced by change `add-rpc-stdin-dispatch-with-keeper-sidecar`. Default and only headless spawn path as of change `enable-rpc-keeper-by-default`. Durable owner of pi's stdin across dashboard restarts. Extension slash-command dispatch was retired by change `retire-slash-dispatch-via-expand-prompt-templates` — the bridge dispatches in-process now; the keeper's JSON-line forward protocol is intact.
 
-Per-session keeper process owns pi's stdin pipe. Server writes RPC lines to keeper via UDS (Unix) or named pipe (Windows). Keeper forwards verbatim to pi's stdin. Pi's `--mode rpc` reader runs `session.prompt(text, {expandPromptTemplates: true})` which dispatches slash commands.
+Per-session keeper process owns pi's stdin pipe. Keeper forwards verbatim to pi's stdin. Server no longer writes extension-slash RPC lines to the keeper (`keeperManager.writeRpc`, `keeperManager.writeRpcToSockPath`, `headlessPidRegistry.writeRpc` removed; `dispatch-router.ts` deleted).
 
 Keeper outlives dashboard server restarts. Replaced Unix `tail -f /dev/null | pi` wrapper and Windows direct-stdin pipe. Uniform durability across Unix and Windows.
 
@@ -3907,7 +3907,7 @@ flowchart LR
   P["pi --mode rpc"]
   B["bridge.ts<br/>(loaded inside pi)"]
 
-  S -->|"UDS /<sessionId>.rpc.sock<br/>(slash dispatch only)"| K
+  S -.->|"UDS /<sessionId>.rpc.sock<br/>(no writer — slash dispatch retired)"| K
   K -->|"pi.stdin pipe<br/>(forward JSON lines)"| P
   P --- B
   B -->|"bridge WS<br/>(events, send_prompt non-slash, abort, model, etc.)"| S
@@ -3915,16 +3915,16 @@ flowchart LR
 
 UDS path: `~/.pi/dashboard/sessions/<sessionId>.rpc.sock`. Windows pipe: `\\.\pipe\pi-rpc-<sessionId>`. Keeper PID sidecar: `<sockPath>.pid`. Server scans on startup for orphan-cleanup + reattach.
 
-Protocol: line-framed JSON, fire-and-forget. Server writes `{"type":"prompt","message":"/cmd","id":"<requestId>"}\n`. Keeper forwards raw line; no parsing, no response. Acknowledgement implicit (UDS write success).
+Protocol: line-framed JSON, fire-and-forget. Keeper forwards the raw line to pi's stdin; no parsing, no response. The server-side writer (`{"type":"prompt","message":"/cmd","id":"<requestId>"}\n` via UDS write) had no remaining caller and was removed by change `retire-slash-dispatch-via-expand-prompt-templates`.
 
 Dual-channel boundary explicit:
 - **Bridge WS** owns: send_prompt non-slash, abort, model switch, thinking-level, compaction, rename, events, flow control.
-- **Server → keeper UDS** owns: extension slash dispatch only.
+- **Server → keeper UDS** owned: extension slash dispatch only — RETIRED. No writer remains; keeper still owns pi's stdin.
 - **headlessPidRegistry kill** owns: kill-by-pid for shutdown / force-kill / reload. `killBySessionId` escalates pi via shared `killProcess(pid, { timeoutMs: 2000 })` ladder (SIGTERM → 2 s → SIGKILL) — uniform with `handleForceKill`. See change: `fix-keeper-kill-escalation`.
 
-Bridge cannot reach `session.prompt` from inside pi 0.74. Server can (owns spawn + keeper). Routing slash dispatch through the channel that has the capability is correct given the constraint.
+Former constraint: bridge cannot reach `session.prompt` from inside pi. Pi >= 0.84.2 exposes the dispatch through `sendUserMessage({expandPromptTemplates: true})`; the handler runs inside pi, so the RPC route is no longer needed.
 
-Lifecycle: pi exits → keeper exits 0, unlinks socket + pid sidecar. Keeper crashes → pi reads EOF on stdin → exits. Force-kill → server kills pi PID first, schedules 200 ms keeper-fallback SIGTERM. Keeper `shutdown()` SIGKILLs `piChild` before `process.exit` (defence in depth) — closes orphan-pi gap when pi event loop hung (CPU loop / non-cancellable native call) and stdin EOF never observed. See change: `fix-keeper-kill-escalation`. Tmux / Windows-Terminal sessions retain the existing `command_feedback {error}` stopgap (terminal owns pi's stdin, no UDS route).
+Lifecycle: pi exits → keeper exits 0, unlinks socket + pid sidecar. Keeper crashes → pi reads EOF on stdin → exits. Force-kill → server kills pi PID first, schedules 200 ms keeper-fallback SIGTERM. Keeper `shutdown()` SIGKILLs `piChild` before `process.exit` (defence in depth) — closes orphan-pi gap when pi event loop hung (CPU loop / non-cancellable native call) and stdin EOF never observed. See change: `fix-keeper-kill-escalation`. Tmux / Windows-Terminal sessions dispatch extension slash commands in-process now (change `retire-slash-dispatch-via-expand-prompt-templates`); the old `command_feedback {error}` stopgap is gone.
 
 ### Server Log Hygiene
 

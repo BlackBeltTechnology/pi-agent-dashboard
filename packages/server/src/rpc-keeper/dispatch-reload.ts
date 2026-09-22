@@ -29,7 +29,12 @@
  * `session.prompt()` WITH command handling. Measured in the docker harness
  * with `keeperLog.capturePiOutput = true`: it does not. pi delivered the
  * literal text to the MODEL as an ordinary user prompt and produced a full
- * agent turn. A pi BUILT-IN (`/help`) written to the same socket behaved
+ * agent turn. (Measured on pi < 0.84.2. Since 0.84.2 the RPC-mode `prompt()`
+ * path DOES honor `expandPromptTemplates` — which is what change
+ * `retire-slash-dispatch-via-expand-prompt-templates` relies on for extension
+ * slash commands via `pi.sendUserMessage`; this is about the `/__dashboard_reload`
+ * sentinel, which is still never written to the keeper.) A pi BUILT-IN (`/help`)
+ * written to the same socket behaved
  * identically, so this is not the `__` prefix and not our registration.
  *
  * Dispatching a reload that way would inject a junk user message into the
