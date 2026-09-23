@@ -416,7 +416,13 @@ describe("the sign-in pane branches on flow.status.pending (E29)", () => {
     // 15-minute life instead of a specific tick: 900 s is the anchored value, 899 s
     // the one-tick floor. Deterministic, and still fails on a wrong
     // `expiresInSeconds` or a broken countdown.
-    const countdown = d.getByText(/Code expires in \d+:\d{2}/).textContent ?? "";
+    // `findByText`, not `getByText`: `useDeviceCodeRemaining` populates its
+    // remaining-time state on the first interval tick, so the countdown is NOT in
+    // the first committed paint. A synchronous query therefore depends on a tick
+    // landing between the await above and this line — which is why this assertion
+    // failed on loaded CI runners (4 consecutive red ci runs on develop) while
+    // passing locally. The async query waits for the element instead of racing it.
+    const countdown = (await d.findByText(/Code expires in \d+:\d{2}/)).textContent ?? "";
     const mmss = /^Code expires in (\d+):(\d{2})$/.exec(countdown);
     expect(mmss, `unexpected countdown label: ${countdown}`).toBeTruthy();
     const seconds = Number(mmss![1]) * 60 + Number(mmss![2]);
