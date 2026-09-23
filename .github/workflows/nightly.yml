@@ -139,6 +139,34 @@ jobs:
       - name: Baseline was not raised
         run: node scripts/knip-ratchet.mjs --check-baseline-diff HEAD~1
 
+  # ── install-load: every plugin loads from a published install ─────────────
+  # The static publish-correctness check lives in ci.yml; this is the dynamic
+  # half. Every plugin workspace with a `server` entry is packed with its
+  # first-party workspace deps from the working tree and imported OUTSIDE the
+  # repo under node+jiti with JITI_TSCONFIG_PATHS unset and no repo tsconfig
+  # reachable — the mode where the old alias layers did not exist, which is why
+  # the browser plugin failed to load for npm / managed / Electron users.
+  # Budget: whole leg < 12 min (test-plan P1).
+  # See change: fix-browser-plugin-vendor-specifier-resolution.
+  install-load:
+    name: plugin install-load (all workspaces)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Every shipped plugin loads from a published install
+        run: node scripts/verify-plugin-install-load.mjs
+
   # ── electron: full matrix against a per-leg Verdaccio ──────────────────────
   # Delegates to the shared build. registry_url triggers the Verdaccio
   # round-trip inside _electron-build.yml. NO publish/github-release/tag jobs
@@ -156,7 +184,7 @@ jobs:
 
   # ── report: open/update a single tracking issue on failure ─────────────────
   report:
-    needs: [resolve, verify-publish, electron]
+    needs: [resolve, verify-publish, electron, install-load]
     if: failure()
     runs-on: ubuntu-latest
     permissions:

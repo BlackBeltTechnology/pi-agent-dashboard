@@ -31,6 +31,7 @@ TESTS=(
   "31-roles-read-api.sh"        # GET /api/roles answerable with ZERO sessions (#X8). See change: add-roles-read-api.
   "32-origin-gate.sh"           # header-less mutation allowed, cross-site mutation 403 (#X5). See change: fix-ws-origin-cswsh.
   "34-session-heap-ceiling.sh"  # the configured ceiling binds the spawned pi and nothing below it (#X3, #X6–#X8, #X10, #X12). See change: bound-session-heap-and-gc-telemetry.
+  "35-plugin-install-load.sh"   # clean prefix: discovery non-empty + browser enabled + no load error + no path outside the prefix (#X7–#X11). See change: fix-browser-plugin-vendor-specifier-resolution.
   # 25-gateway-remote-join-perf.sh and 26-gateway-promotion-soak.sh are OPT-IN:
   # one moves ~1 GB through a socket, the other soaks for ten minutes.
 )
