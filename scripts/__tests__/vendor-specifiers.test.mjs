@@ -59,6 +59,27 @@ describe('vendored specifier guard', () => {
     ]);
   });
 
+  it('rejects a RE-EXPORTed internal specifier, not just an imported one (E2b)', () => {
+    // `export … from` reaches the same resolution edge as `import … from`, and it
+    // used to slip past both the patch step and this guard. A vendored forwarder
+    // that re-exports an internal specifier would then ship unresolvable and die
+    // with the very `Cannot find module` this change exists to fix.
+    const root = fixture({
+      'playwright-core/src/tools/mcp/reexport.ts': [
+        "export * from '@protocol/bar';",
+        "export { thing } from '@isomorphic/time';",
+        "export type { T } from '@utils/wsServer';",
+      ].join('\n'),
+    });
+    const { ok, violations } = checkVendorSpecifiers(root);
+    expect(ok).toBe(false);
+    expect(violations.map((v) => v.specifier).sort()).toEqual([
+      '@isomorphic/time',
+      '@protocol/bar',
+      '@utils/wsServer',
+    ]);
+  });
+
   it('rejects a shim that acquires an internal specifier (scope is all of relay/vendor) (E2)', () => {
     const root = fixture({ 'shims/whatever.ts': "import y from '@injected/thing';\n" });
     const { ok, violations } = checkVendorSpecifiers(root);

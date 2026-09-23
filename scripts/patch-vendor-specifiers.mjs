@@ -75,8 +75,17 @@ const HEADER_OPEN = "/**";
 /** Every `import ... from '<spec>'` / `import '<spec>'` specifier, in file order. */
 export function importSpecifiers(text) {
   const found = [];
-  const re = /\bimport\s+(?:[^'"]*?\bfrom\s+)?['"]([^'"]+)['"]/g;
-  for (const match of text.matchAll(re)) found.push(match[1]);
+  const patterns = [
+    // import x from "y"  /  import "y"  /  import type { x } from "y"
+    /\bimport\s+(?:[^'"]*?\bfrom\s+)?['"]([^'"]+)['"]/g,
+    // export { x } from "y"  /  export * from "y"  /  export type { x } from "y"
+    // Re-exports matter and used to be missed: a vendored file may FORWARD a
+    // playwright-internal specifier without importing it, so `export … from`
+    // slipped past both this patch step and the specifier guard, and the plugin
+    // then died with the same `Cannot find module` this change exists to fix.
+    /\bexport\s+(?:type\s+)?(?:\*(?:\s+as\s+\w+)?|\{[^}]*\})\s*from\s+['"]([^'"]+)['"]/g,
+  ];
+  for (const re of patterns) for (const match of text.matchAll(re)) found.push(match[1]);
   return found;
 }
 

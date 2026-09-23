@@ -58,8 +58,22 @@ esac
 exit 0
 `;
 
-/** A plugin row as GET /api/plugins reports it. */
-const row = (id, status) => ({ id, enabled: true, loaded: !status?.error, ...(status ? { status } : {}) });
+/**
+ * A plugin row as GET /api/plugins reports it.
+ *
+ * `packageDir` defaults to the sentinel "auto", which `scenario()` resolves to a
+ * path inside the generated prefix; pass `null` to omit the field entirely (the
+ * pre-`packageDir` server shape) and an absolute path to simulate a plugin that
+ * came from somewhere else. `status` is always present, because the API reports
+ * load state there and the X11 assertion filters on `status.loaded`.
+ */
+const row = (id, status, packageDir = "auto") => ({
+  id,
+  enabled: true,
+  loaded: !status?.error,
+  packageDir,
+  status: { loaded: !status?.error, ...(status ?? {}) },
+});
 
 function scenario({ discovered, log, healthCode = "200", npmExit = 0 }) {
   const scratch = mkdtempSync(join(tmpdir(), "qa-smoke-guard-"));
@@ -93,7 +107,19 @@ function scenario({ discovered, log, healthCode = "200", npmExit = 0 }) {
     FAKE_LOG_CONTENT: log,
     FAKE_HEALTH_CODE: healthCode,
     FAKE_NPM_EXIT: String(npmExit),
-    FAKE_PLUGINS_JSON: JSON.stringify({ plugins: discovered }),
+    FAKE_PLUGINS_JSON: JSON.stringify({
+      // "auto" resolves to a path inside the prefix; `null` drops the field, which
+      // is how the X11 assertion catches a server that does not report it at all.
+      plugins: discovered.map((p) => ({
+        ...p,
+        packageDir:
+          p.packageDir === null
+            ? undefined
+            : p.packageDir === "auto"
+              ? join(prefix, ".pi/dashboard/plugins", p.id)
+              : p.packageDir,
+      })),
+    }),
   };
 
   let stdout = "";
@@ -165,7 +191,10 @@ describe("clean-prefix smoke guards (X8–X11)", () => {
     // The loader legitimately reports loaded:false for a missing/disabled dep or
     // an unmet requirement. Only `status.error` means the load actually failed.
     const r = scenario({
-      discovered: [row("browser"), { id: "gated", enabled: false, loaded: false, status: { loaded: false, enabled: false } }],
+      discovered: [
+        row("browser"),
+        { id: "gated", enabled: false, loaded: false, packageDir: null, status: { loaded: false, enabled: false } },
+      ],
       log: `${DISCOVERY_18}\n${LOADED}\n[plugin-loader] Skipped plugin "gated": unsatisfied requirement r`,
     });
     try {
@@ -185,6 +214,36 @@ describe("clean-prefix smoke guards (X8–X11)", () => {
       expect(r.code).toBe(1);
       expect(r.stdout).toContain("plugin(s) reported a load error");
       expect(r.stdout).toContain("@isomorphic/manualPromise");
+    } finally {
+      r.cleanup();
+    }
+  });
+
+  it("X11: a LOADED plugin whose packageDir is outside the prefix FAILS", () => {
+    // The hole this assertion closes: a checkout-sourced plugin that wins
+    // discovery by id loads cleanly and names no path in the log, so the log
+    // scan alone reports a clean run over the wrong tree.
+    const r = scenario({
+      discovered: [row("browser", undefined, "/opt/other/checkout/packages/browser-plugin")],
+      log: `${DISCOVERY_18}\n${LOADED}`,
+    });
+    try {
+      expect(r.code).toBe(1);
+      expect(r.stdout).toContain("outside the install prefix (wrong-tree contamination)");
+      expect(r.stdout).toContain("/opt/other/checkout/packages/browser-plugin");
+    } finally {
+      r.cleanup();
+    }
+  });
+
+  it("X11: a LOADED plugin with NO packageDir FAILS (never silently passes)", () => {
+    const r = scenario({
+      discovered: [{ id: "browser", enabled: true, loaded: true, packageDir: null, status: { loaded: true } }],
+      log: `${DISCOVERY_18}\n${LOADED}`,
+    });
+    try {
+      expect(r.code).toBe(1);
+      expect(r.stdout).toContain("<missing packageDir>");
     } finally {
       r.cleanup();
     }

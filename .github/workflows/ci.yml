@@ -175,6 +175,8 @@ jobs:
   docker-plugin-load:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 

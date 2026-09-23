@@ -63,16 +63,28 @@ FAILED=0
 
 fail() { echo "FAIL: $*"; FAILED=1; }
 
+# Temp space for the manifest program and any packed tarball. Created up front so
+# the trap can clean it even when a step exits early.
+SCRATCH_DIR=$(mktemp -d)
+
 # Point a package.json at the given spec and force every first-party workspace in
 # QA_EXTRA_TARBALLS to resolve locally. Without the overrides npm serves the
 # REGISTRY copies of packages under test — the stale-copy hazard this change is
 # about. An existing package.json (an unpacked tarball) is updated in place, so
 # its manifest and dependencies survive.
+#
+# The program goes in a temp .cjs FILE rather than `node -e`: an inline program is
+# at the mercy of the caller's quoting. A single apostrophe inside it silently
+# truncated the script while this test was being written, and Windows PowerShell's
+# legacy native-argument handling strips embedded double quotes. A file has no
+# quoting surface, and the exit code is checked here instead of being ignored.
 write_manifest() {
-  node -e '
+  local js="$SCRATCH_DIR/manifest.cjs"
+  cat > "$js" <<'JS'
 const fs = require("node:fs");
 const tar = require("node:child_process");
-const [out, spec, ...extras] = process.argv.slice(1);
+// invoked as: node <this file> <out> <spec|-> [extraTarball...]
+const [out, spec, ...extras] = process.argv.slice(2);
 const nameOf = (t) => JSON.parse(tar.execFileSync("tar", ["-xzOf", t, "package/package.json"], { encoding: "utf-8" })).name;
 const local = (t) => (t.endsWith(".tgz") || t.endsWith(".tar.gz") ? "file:" + t : t);
 const byName = Object.fromEntries(extras.map((t) => [nameOf(t), t]));
@@ -93,7 +105,8 @@ for (const field of ["dependencies", "peerDependencies", "optionalDependencies"]
 }
 if (Object.keys(overrides).length) pkg.overrides = { ...(pkg.overrides || {}), ...overrides };
 fs.writeFileSync(out, JSON.stringify(pkg, null, 2));
-' "$1" "${2:-}" ${QA_EXTRA_TARBALLS:-}
+JS
+  node "$js" "$1" "${2:--}" ${QA_EXTRA_TARBALLS:-} || { fail "could not write the manifest for $1"; exit 1; }
 }
 
 cleanup() {
@@ -101,6 +114,7 @@ cleanup() {
     HOME="$PREFIX" PATH="$BIN_DIR:$PATH" pi-dashboard stop >/dev/null 2>&1 || true
   fi
   if [ -z "${QA_PREFIX:-}" ]; then rm -rf "$PREFIX"; fi
+  rm -rf "$SCRATCH_DIR"
 }
 trap cleanup EXIT
 
@@ -143,7 +157,8 @@ fi
 # no package.json and is never discovered. User-installed plugins consequently
 # live as top-level directories under `~/.pi/dashboard/plugins/`, each carrying
 # its own node_modules. That directory is what the X11 prefix assertion covers.
-SCRATCH_TARBALLS=$(mktemp -d)
+SCRATCH_TARBALLS="$SCRATCH_DIR/tarballs"
+mkdir -p "$SCRATCH_TARBALLS"
 PLUGIN_TARBALL="${QA_PLUGIN_TARBALL:-}"
 if [ -z "$PLUGIN_TARBALL" ]; then
   PLUGIN_TARBALL=$(npm pack --pack-destination "$SCRATCH_TARBALLS" "$PLUGIN_SRC" 2>/dev/null | tail -1) || PLUGIN_TARBALL=""
@@ -250,6 +265,21 @@ if [ -n "$ERRORS" ]; then
   exit 1
 fi
 echo "no plugin reported a load error"
+
+# X11 — every LOADED plugin must come from the install prefix.
+#
+# This is the assertion that actually holds the line; the log scan below is only
+# a secondary signal. `discoverPlugins()` searches a monorepo checkout as well as
+# the install, and a checkout-sourced plugin that wins discovery BY ID loads
+# cleanly, satisfies X7 and X10, and never names a path in the log — so a log
+# scan alone reports a clean run over the wrong tree. `packageDir` is the only
+# surface that distinguishes them.
+OUTSIDE=$(plugins_json | PREFIX="$PREFIX" node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);const root=process.env.PREFIX+"/";process.stdout.write((j.plugins||[]).filter(p=>p.status&&p.status.loaded&&(!p.packageDir||!p.packageDir.startsWith(root))).map(p=>p.id+": "+(p.packageDir||"<missing packageDir>")).join("\n"))})')
+if [ -n "$OUTSIDE" ]; then
+  fail "loaded plugin(s) outside the install prefix (wrong-tree contamination):"
+  printf '%s\n' "$OUTSIDE"
+  exit 1
+fi
 
 # X11 — no plugin path outside the prefix. The log's absolute paths come from
 # loader Require stacks; on a healthy boot there are none, which is why the X8/X9

@@ -1,6 +1,6 @@
 # Vendored Relay Refresh
 
-How the browser plugin's vendored playwright-core CDL relay is refreshed, and
+How the browser plugin's vendored playwright-core CDP relay is refreshed, and
 why its import specifiers are patched.
 
 Scope: `packages/browser-plugin/src/server/relay/vendor/`. Operator page.

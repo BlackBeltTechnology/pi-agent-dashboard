@@ -134,9 +134,20 @@ async function bootAndReadVerdict({ root, layout, home, port }) {
 
   const argv = ["--import", pathToFileURL(layout.jiti).href, layout.cli, "start", "--port", String(port), "--pi-port", String(port + 1), "--no-tunnel"];
   console.log(`booting the bundled server on :${port}`);
-  spawnSync(layout.nodeBin, argv, { cwd: root, env, stdio: ["ignore", "inherit", "inherit"] });
+  const boot = spawnSync(layout.nodeBin, argv, { cwd: root, env, stdio: ["ignore", "inherit", "inherit"] });
+  // A launch that never ran would otherwise surface only as a health timeout
+  // minutes later, hiding the cause. The motivating case is real: on a
+  // win32-arm64 leg whose x64-Node swap has not happened yet, the bundled ARM
+  // Node cannot execute on the x64 runner.
+  if (boot.error) throw new Error(`could not execute the bundled node at ${layout.nodeBin}: ${boot.error.message}`);
 
-  await waitForHealth(port, globalThis.fetch);
+  try {
+    await waitForHealth(port, globalThis.fetch);
+  } catch (err) {
+    // The launcher DETACHES the daemon, so a non-zero status is not a failure by
+    // itself — but it is the first thing worth knowing when health never answers.
+    throw new Error(`${err.message} (bundled launcher exit status ${boot.status}${boot.signal ? `, signal ${boot.signal}` : ""})`);
+  }
   console.log("health 200");
 
   const log = join(home, ".pi", "dashboard", "server.log");

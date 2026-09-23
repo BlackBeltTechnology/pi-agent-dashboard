@@ -25,6 +25,8 @@ export interface PluginRowStatus {
 
 export interface PluginRow {
   id: string;
+  /** Absolute directory the plugin was discovered from ("" when unknown). */
+  packageDir?: string;
   displayName: string;
   priority: number;
   hasServer: boolean;

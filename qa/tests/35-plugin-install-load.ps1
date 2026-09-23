@@ -77,7 +77,7 @@ function Write-Manifest {
     $js = @'
 const fs = require("node:fs");
 const tar = require("node:child_process");
-const [out, spec, ...extras] = process.argv.slice(1);
+const [out, spec, ...extras] = process.argv.slice(2);
 const nameOf = (t) => JSON.parse(tar.execFileSync("tar", ["-xzOf", t, "package/package.json"], { encoding: "utf-8" })).name;
 const local = (t) => (t.endsWith(".tgz") || t.endsWith(".tar.gz") ? "file:" + t : t);
 const byName = Object.fromEntries(extras.map((t) => [nameOf(t), t]));
@@ -99,7 +99,22 @@ for (const field of ["dependencies", "peerDependencies", "optionalDependencies"]
 if (Object.keys(overrides).length) pkg.overrides = { ...(pkg.overrides || {}), ...overrides };
 fs.writeFileSync(out, JSON.stringify(pkg, null, 2));
 '@
-    & node -e $js $Path $Spec @extras
+    # The program goes in a temp .cjs FILE rather than `node -e`: Windows
+    # PowerShell's legacy native-argument handling strips embedded double quotes
+    # from an inline program, so it can arrive mangled and fail to parse —
+    # silently, because the exit code was not checked. A file has no quoting
+    # surface, and the exit code is checked here.
+    $jsFile = Join-Path ([System.IO.Path]::GetTempPath()) ("qa-manifest-" + [guid]::NewGuid().ToString("N") + ".cjs")
+    Set-Content -Path $jsFile -Value $js -Encoding utf8
+    try {
+        & node $jsFile $Path $Spec @extras
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "FAIL: could not write the manifest for $Path"
+            exit 1
+        }
+    } finally {
+        Remove-Item -Force $jsFile -ErrorAction SilentlyContinue
+    }
 }
 
 try {
@@ -239,6 +254,23 @@ try {
         exit 1
     }
     Write-Host "no plugin reported a load error"
+
+    # --- X11: every LOADED plugin must come from the install prefix ----------
+    # This is the assertion that actually holds the line; the log scan below is
+    # only a secondary signal. `discoverPlugins()` searches a monorepo checkout as
+    # well as the install, and a checkout-sourced plugin that wins discovery BY ID
+    # loads cleanly, satisfies X7 and X10, and never names a path in the log — so
+    # a log scan alone reports a clean run over the wrong tree. `packageDir` is
+    # the only surface that distinguishes them.
+    $outside = @((Get-Plugins).plugins | Where-Object {
+        $_.status -and $_.status.loaded -and
+        (-not $_.packageDir -or -not $_.packageDir.StartsWith($prefix + "\", [System.StringComparison]::OrdinalIgnoreCase))
+    } | ForEach-Object { "$($_.id): $(if ($_.packageDir) { $_.packageDir } else { '<missing packageDir>' })" })
+    if ($outside.Count -gt 0) {
+        Write-Host "FAIL: loaded plugin(s) outside the install prefix (wrong-tree contamination):"
+        $outside | ForEach-Object { Write-Host "  $_" }
+        exit 1
+    }
 
     # --- X11: no plugin path outside the prefix ------------------------------
     # Any `/plugins/` path named in the log must be inside the prefix. On a
