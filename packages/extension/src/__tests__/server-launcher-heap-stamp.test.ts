@@ -71,3 +71,21 @@ describe("launchServer heap stamp (D5a)", () => {
     expect(opts.env.NODE_OPTIONS).toContain("--max-old-space-size=1536");
   });
 });
+
+describe("launchServer env overrides (#720)", () => {
+  it("E21: passes narrow overrides — no PATH/HOME, markers cleared", async () => {
+    vi.stubEnv("PI_DASHBOARD_ELECTRON", "1");
+    try {
+      await launchServer(config({ serverHeap: { maxOldSpaceMb: 4096 } } as never));
+      const env = launchDashboardServer.mock.calls[0][0].env;
+      expect("PATH" in env).toBe(false);
+      expect("HOME" in env).toBe(false);
+      expect(env.DASHBOARD_STARTER).toBe("Bridge");
+      expect(env.NODE_OPTIONS).toContain("--max-old-space-size=4096");
+      expect("PI_DASHBOARD_ELECTRON" in env).toBe(true);
+      expect(env.PI_DASHBOARD_ELECTRON).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});

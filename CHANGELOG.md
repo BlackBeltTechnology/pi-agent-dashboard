@@ -243,6 +243,16 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **Windows: tools on the system PATH no longer resolve as missing; the
+  bridge-launched server keeps the dashboard PATH prepends (#720).** Windows
+  stores the variable as `Path`; a copied env kept that literal key, the spawn
+  env builder wrote a second prepend-only `PATH`, and Node's win32 spawn kept
+  `PATH` over `Path`, dropping the inherited PATH (so `git`, `gh`, `npx`,
+  `tailscale` read as not found). A new `normalizeEnvPathKey` collapses every
+  PATH-key variant into one `PATH` at each raw-env boundary, and the bridge now
+  passes only narrow env overrides to the shared launcher. The
+  Electron-launched server needs the next Electron build. See change:
+  fix-windows-path-env-key-casing.
 - **OpenSpec data no longer comes up empty on a fresh `HOME`.** `openspec`
   prints a one-off telemetry notice ahead of its JSON on the first run under a
   given `HOME`; the recipes' strict `JSON.parse(stdout)` threw on it and the

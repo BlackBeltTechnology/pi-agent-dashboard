@@ -90,6 +90,20 @@ describe("TerminalManager", () => {
   });
 
   describe("spawn", () => {
+    it("E24: passes the host PATH and TERM through to pty.spawn (POSIX, #720)", async () => {
+      vi.stubEnv("TERM", "xterm-256color");
+      try {
+        const pty = await import("node-pty");
+        manager.spawn("/tmp");
+        const env = vi.mocked(pty.spawn).mock.calls.at(-1)![2]!.env as Record<string, string>;
+        expect(env.PATH).toBe(process.env.PATH);
+        expect(env.TERM).toBe("xterm-256color");
+        expect(Object.keys(env).filter((k) => k.toUpperCase() === "PATH")).toEqual(["PATH"]);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
     it("creates a terminal with term- prefix ID", () => {
       const session = manager.spawn("/tmp");
       expect(session.id).toMatch(/^term-/);

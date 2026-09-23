@@ -15,7 +15,7 @@
  * emitted (the actual ERR_UNSUPPORTED_ESM_URL_SCHEME trigger).
  */
 import { describe, it, expect } from "vitest";
-import { buildServerLaunchTestCmd } from "../doctor.js";
+import { buildServerLaunchTestCmd, buildServerLaunchTestEnv } from "../doctor.js";
 
 describe("buildServerLaunchTestCmd", () => {
   const nodeBin = "/bundled/node";
@@ -49,5 +49,20 @@ describe("buildServerLaunchTestCmd", () => {
     expect(cmd).toBe(
       `"${nodeBin}" --import "${jitiUrl}" -e "import \\"file:///Users/test/cli.ts\\"; setTimeout(() => process.exit(0), 100)"`,
     );
+  });
+});
+
+describe("buildServerLaunchTestEnv (#720)", () => {
+  const pathKeys = (env: NodeJS.ProcessEnv) => Object.keys(env).filter((k) => k.toUpperCase() === "PATH");
+
+  it("E26a: prepends the bundled node dir with ':' on darwin", () => {
+    const env = buildServerLaunchTestEnv("/b/node", { PATH: "/usr/bin" }, "darwin");
+    expect(env.PATH).toBe("/b:/usr/bin");
+  });
+
+  it("E26b: on win32 a Path-keyed env yields a single ';'-joined PATH", () => {
+    const env = buildServerLaunchTestEnv("C:\\b\\node.exe", { Path: "C:\\Git\\cmd" }, "win32");
+    expect(pathKeys(env)).toEqual(["PATH"]);
+    expect(env.PATH).toBe("C:\\b;C:\\Git\\cmd");
   });
 });

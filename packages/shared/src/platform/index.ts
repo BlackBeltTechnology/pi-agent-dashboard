@@ -1,6 +1,7 @@
 export * from "./binary-lookup.js";
 export * from "./commands.js";
 export * from "./detached-spawn.js";
+export * from "./env-path-key.js";
 export * from "./exec.js";
 export * as git from "./git.js";
 export * from "./node-spawn.js";
