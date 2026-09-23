@@ -30,6 +30,7 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
+import { shouldIssuePromptCapability } from "./access/capability-issuance.js";
 import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
 import { registerAuthPlugin, validateWsUpgrade } from "./auth/auth-plugin.js";
 import { registerBearerAuth } from "./auth/bearer-auth.js";
@@ -1424,6 +1425,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // behaviour in step with the hook, else the escape hatch only half-engages.
     hostGateMode: resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode,
   });
+  // Prompt-capability issuance (design D1a): only browser-shaped connections,
+  // judged against the LIVE CORS options on every connect. Installed here, not
+  // at gateway construction, because it needs `corsOpts`.
+  // See change: add-access-grant-dialog (tasks 2b.1, 3.2).
+  browserGateway.setPromptCapabilityPolicy((headers) => shouldIssuePromptCapability(headers, corsOpts()));
   // Registered BEFORE @fastify/cors so an enforced refusal carries no ACAO
   // (and before every Origin gate — a rebinding page's plain GETs carry no
   // Origin at all). Report-only default; `PI_DASHBOARD_HOST_GATE=enforce`
