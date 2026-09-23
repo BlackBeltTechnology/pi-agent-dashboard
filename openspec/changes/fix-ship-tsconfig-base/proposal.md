@@ -12,7 +12,8 @@ CI did not catch it for two reasons:
 
 - Add `tsconfig.base.json` to the root `package.json` `files`.
 - Extend `verify-published-imports.mjs`:
-  - Include the root package (when it is not `private`) in the checked package set.
+  - Check the root package (when it is not `private`) for the tsconfig-extends rule only. Its full import check is a follow-up (~250+ pre-existing meta-package findings).
+  - Read the keyed-object `npm pack --json` payload npm emits at a workspace root. It was previously read as 0 files, a vacuous pass.
   - For every shipped `tsconfig*.json`, resolve a relative `extends` (string or array) against the packed file set. Report a missing target as `dangling-tsconfig-extends` (error).
 - Add fixture coverage: a known-bad fixture (shipped tsconfig whose `extends` target is absent) must fail; a known-good one must pass.
 - Add a CHANGELOG `## [Unreleased]` → Fixed entry. Cut a 0.8.1 patch release through the `release-cut` skill, which is outside this change's tasks.
@@ -25,7 +26,7 @@ _None._
 
 ### Modified Capabilities
 
-- `publish-correctness-verification`: the check covers the root package and resolves shipped tsconfig `extends` references.
+- `publish-correctness-verification`: the check resolves shipped tsconfig `extends` references (packages/* and the root package) and reads the root's keyed pack payload.
 
 ## Discipline Skills
 
@@ -36,5 +37,5 @@ _None._
 
 - `package.json` (`files`), `scripts/verify-published-imports.mjs`, `scripts/__tests__/verify-published-imports.test.mjs`, `CHANGELOG.md`.
 - Tarball grows by one small JSON file.
-- Compatibility: this is additive. The root package now goes through the CI check, which may surface pre-existing root findings. Those are fixed or allowlisted with a reason in this change.
+- Compatibility: this is additive. The root package enters the CI check for tsconfig `extends` only.
 - Rollback: revert the commit. There are no runtime or data changes.

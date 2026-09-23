@@ -1,26 +1,26 @@
 ## 1. Tests first (red)
 
-- [ ] 1.1 In `scripts/__tests__/verify-published-imports.test.mjs`, add unit tests for the tsconfig-extends resolver covering: string, array, extension-less, package-name (ignored), and JSONC (comments plus trailing commas).
-- [ ] 1.2 Add a known-bad fixture: a package that ships a `tsconfig.json` whose `extends` target is not packed. Expect `dangling-tsconfig-extends` and a non-zero exit. Add the matching known-good fixture that passes. Neither fixture may leave repository artifacts.
-- [ ] 1.3 Add a test that `listWorkspaces` includes a non-private root (`rel: "."`) and skips a private one.
-- [ ] 1.4 Run the tests and confirm they fail.
+- [x] 1.1 In `scripts/__tests__/verify-published-imports.test.mjs`, add unit tests for `tsconfigExtendsFindings` covering: dangling, shipped, array (per-entry), extension-less, package-name (ignored), JSONC (comments plus trailing commas), and unparseable (warning).
+- [x] 1.2 Add unit tests for `packEntryFiles` covering the array, single-object, and keyed-object forms, plus the no-files case (null).
+- [x] 1.3 Add unit tests for `rootPackage`: non-private root → `rel: "."`, private root → null.
+- [x] 1.4 Run the tests and confirm they fail.
 
 ## 2. Implementation
 
-- [ ] 2.1 `verify-published-imports.mjs`: add the root package to `listWorkspaces` when it is not private.
-- [ ] 2.2 `verify-published-imports.mjs`: add a tsconfig-extends pass over the packed `tsconfig*.json` files, with minimal JSONC stripping and a `.json` fallback. Emit `dangling-tsconfig-extends` as an error. An unparseable tsconfig produces a warn finding.
-- [ ] 2.3 Run `node scripts/verify-published-imports.mjs` and confirm it now fails on the current tree with `dangling-tsconfig-extends` for the three root-shipped package tsconfigs. This proves the bug is caught.
-- [ ] 2.4 Add `tsconfig.base.json` to the root `package.json` `files`.
-- [ ] 2.5 Triage any other root-package findings the check now surfaces. Fix each one, or allowlist it with a reason.
-- [ ] 2.6 Re-run the check and the tests until both are green.
+- [x] 2.1 `verify-published-imports.mjs`: add `packEntryFiles`. `packWorkspace` uses it, and a missing files list → error (`pack-failed`).
+- [x] 2.2 `verify-published-imports.mjs`: add `tsconfigExtendsFindings`, wire it into `analyzeWorkspace` (packages/*), and parse through `ts.parseConfigFileTextToJson`.
+- [x] 2.3 `verify-published-imports.mjs`: add `rootPackage`. `analyzeRepository` packs the root and applies only `tsconfigExtendsFindings`.
+- [x] 2.4 Run `node scripts/verify-published-imports.mjs` on the unfixed tree and confirm it reports `dangling-tsconfig-extends` for the three root-shipped package tsconfigs.
+- [x] 2.5 Add `tsconfig.base.json` to the root `package.json` `files`. Re-run the check and the tests until both are green.
 
 ## 3. Verify the real artifact
 
-- [ ] 3.1 Run `npm pack` on the root and install the tarball into a temp prefix. Confirm `tsconfig.base.json` is present and that `pi-dashboard start` (or a jiti import of `packages/server/src`) no longer throws the `tsconfig.base.json not found` error.
+- [x] 3.1 Run `npm pack` on the root and extract the tarball into a temp directory. Confirm `tsconfig.base.json` is present and that the tsconfig `extends` chain of `packages/server/tsconfig.json` resolves (`ts.getParsedCommandLineOfConfigFile` reports no errors).
 
 ## 4. Closeout
 
-- [ ] 4.1 `CHANGELOG.md` `## [Unreleased]` → Fixed: "Published package now ships `tsconfig.base.json`; `pi-dashboard start/restart` crashed on 0.8.0 installs." Also note the extended publish check.
-- [ ] 4.2 Update the `verify-published-imports.mjs` row in `scripts/AGENTS.md` (the root package is now included; new `dangling-tsconfig-extends` finding). Add `See change: fix-ship-tsconfig-base`.
+- [x] 4.1 `CHANGELOG.md` `## [Unreleased]` → Fixed: "Published package now ships `tsconfig.base.json`; `pi-dashboard start/restart` crashed on 0.8.0 installs." Also note the extended publish check.
+- [x] 4.2 Update the `verify-published-imports.mjs` row, its sidecar in `scripts/`, and the test sidecar. Add `See change: fix-ship-tsconfig-base`.
 - [ ] 4.3 Run `review-code` on the diff.
-- [ ] 4.4 After merge, cut 0.8.1 through the `release-cut` skill. That release is outside this change's gate.
+- [ ] 4.4 Follow-up (not in this change): full import-correctness for the root meta-package. Track it as a new OpenSpec change.
+- [ ] 4.5 After merge, cut 0.8.1 through the `release-cut` skill. That release is outside this change's gate.

@@ -28,10 +28,13 @@ import {
   isBuiltin,
   listWorkspaces,
   packageNameOf,
+  packEntryFiles,
   packWorkspace,
   parsePackOutput,
   REPO_ROOT,
+  rootPackage,
   RUNTIME_FIELDS,
+  tsconfigExtendsFindings,
   validateAllowlist,
   verifyDeclaredRanges,
 } from '../verify-published-imports.mjs';
@@ -229,6 +232,112 @@ describe('relative specifiers (E10)', () => {
 /* ------------------------------------------------------------------ *
  * Workspace selection + allowlist
  * ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ *
+ * tsconfig `extends` — see change: fix-ship-tsconfig-base
+ * (0.8.0 shipped packages/server/tsconfig.json extending an unshipped
+ * ../../tsconfig.base.json; jiti crashed `pi-dashboard start`.)
+ * ------------------------------------------------------------------ */
+
+describe('tsconfig extends must resolve inside the tarball', () => {
+  const tsc = (ext) => JSON.stringify({ extends: ext, compilerOptions: {} });
+
+  it('a dangling relative extends is an error naming file and target', () => {
+    const ws = fixture({}, { 'packages/server/tsconfig.json': tsc('../../tsconfig.base.json') });
+    const findings = tsconfigExtendsFindings(ws, ['packages/server/tsconfig.json']);
+
+    expect(rulesOf(findings)).toEqual(['dangling-tsconfig-extends']);
+    expect(findings[0].severity).toBe('error');
+    expect(findings[0].file).toBe('packages/server/tsconfig.json');
+    expect(findings[0].specifier).toBe('../../tsconfig.base.json');
+  });
+
+  it('passes when the extends target is packed', () => {
+    const ws = fixture({}, { 'packages/server/tsconfig.json': tsc('../../tsconfig.base.json'), 'tsconfig.base.json': '{}' });
+    expect(tsconfigExtendsFindings(ws, ['packages/server/tsconfig.json', 'tsconfig.base.json'])).toEqual([]);
+  });
+
+  it('checks array-form extends per entry', () => {
+    const ws = fixture({}, { 'tsconfig.json': tsc(['./a.json', './b.json']), 'a.json': '{}' });
+    const findings = tsconfigExtendsFindings(ws, ['tsconfig.json', 'a.json']);
+
+    expect(rulesOf(findings)).toEqual(['dangling-tsconfig-extends']);
+    expect(findings[0].specifier).toBe('./b.json');
+  });
+
+  it('resolves an extension-less extends via .json', () => {
+    const ws = fixture({}, { 'sub/tsconfig.json': tsc('../base'), 'base.json': '{}' });
+    expect(tsconfigExtendsFindings(ws, ['sub/tsconfig.json', 'base.json'])).toEqual([]);
+  });
+
+  it('ignores a package-name extends', () => {
+    const ws = fixture({}, { 'tsconfig.json': tsc('@tsconfig/node20/tsconfig.json') });
+    expect(tsconfigExtendsFindings(ws, ['tsconfig.json'])).toEqual([]);
+  });
+
+  it('parses JSONC (comments + trailing commas) and still evaluates extends', () => {
+    const body = '{\n  // base config\n  "extends": "./missing.json", /* block */\n  "compilerOptions": { "strict": true, },\n}\n';
+    const ws = fixture({}, { 'tsconfig.build.json': body });
+    expect(rulesOf(tsconfigExtendsFindings(ws, ['tsconfig.build.json']))).toEqual(['dangling-tsconfig-extends']);
+  });
+
+  it('an unparseable shipped tsconfig is a warning, not a crash', () => {
+    const ws = fixture({}, { 'tsconfig.json': '{ "extends": ' });
+    const findings = tsconfigExtendsFindings(ws, ['tsconfig.json']);
+
+    expect(rulesOf(findings)).toEqual(['unparseable-tsconfig']);
+    expect(findings[0].severity).toBe('warning');
+  });
+
+  it('only tsconfig*.json files are inspected', () => {
+    const ws = fixture({}, { 'other.json': tsc('./missing.json') });
+    expect(tsconfigExtendsFindings(ws, ['other.json'])).toEqual([]);
+  });
+
+  it('analyzeWorkspace applies the rule to packages/* workspaces', () => {
+    const ws = fixture({}, { 'tsconfig.json': tsc('../../tsconfig.base.json') });
+    expect(rulesOf(run(ws, ['tsconfig.json']))).toEqual(['dangling-tsconfig-extends']);
+  });
+});
+
+describe('pack payload shapes — never a vacuous empty file set', () => {
+  const files = [{ path: 'a.js' }];
+
+  it.each([
+    ['array', [{ files }]],
+    ['single object', { files }],
+    ['object keyed by package name (npm at a workspace root)', { '@scope/root': { name: '@scope/root', files } }],
+  ])('reads the %s form', (_label, payload) => {
+    expect(packEntryFiles(payload)).toEqual(['a.js']);
+  });
+
+  it.each([
+    ['empty array', []],
+    ['object without files', { '@scope/root': { name: 'x' } }],
+    ['null', null],
+  ])('returns null for %s, so the caller reports pack-failed', (_label, payload) => {
+    expect(packEntryFiles(payload)).toBeNull();
+  });
+});
+
+describe('root package discovery', () => {
+  it('a non-private root is returned with rel "."', () => {
+    const ws = fixture({ name: '@scope/root' });
+    const root = rootPackage(ws.dir);
+    expect(root?.rel).toBe('.');
+    expect(root?.dir).toBe(ws.dir);
+    expect(root?.name).toBe('@scope/root');
+  });
+
+  it('a private root is skipped', () => {
+    const ws = fixture({ private: true });
+    expect(rootPackage(ws.dir)).toBeNull();
+  });
+
+  it('the real repository root is published, so it is checked', () => {
+    expect(rootPackage(REPO_ROOT)?.name).toBe('@blackbelt-technology/pi-agent-dashboard');
+  });
+});
 
 describe('private workspaces (E11)', () => {
   it('are skipped by discovery, so their undeclared imports never fail the run', () => {

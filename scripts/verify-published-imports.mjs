@@ -284,6 +284,25 @@ export function extractSpecifiers(text, fileName) {
  * Workspace discovery + packing
  * ------------------------------------------------------------------ */
 
+/**
+ * The repository-root package when it is published (not `private`), else null.
+ *
+ * Checked for tsconfig `extends` ONLY: it is a meta-package shipping
+ * `packages/server/src/` etc. whose deps resolve transitively, so the import
+ * rules report ~250 pre-existing findings there - a follow-up change.
+ * See change: fix-ship-tsconfig-base.
+ */
+export function rootPackage(root = REPO_ROOT) {
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  } catch {
+    return null;
+  }
+  if (manifest.private === true) return null;
+  return { dir: root, rel: ".", name: manifest.name ?? ".", manifest, tsconfigOnly: true };
+}
+
 /** Every workspace under `packages/` that does not declare `"private": true`. */
 export function listWorkspaces(root = REPO_ROOT) {
   const base = join(root, "packages");
@@ -329,6 +348,21 @@ export function parsePackOutput(stdout) {
 }
 
 /**
+ * The packed paths from an `npm pack --json` payload, or null when none is readable.
+ *
+ * npm emits an array for a leaf workspace but an object keyed by package name at a
+ * workspace root. Reading only the array form turned the root into `[]` - a vacuous
+ * pass - so a payload with no `files` list is null (reported `pack-failed`), never
+ * an empty set. See change: fix-ship-tsconfig-base.
+ */
+export function packEntryFiles(parsed) {
+  if (parsed === null || typeof parsed !== "object") return null;
+  const candidates = Array.isArray(parsed) ? parsed.slice(0, 1) : [parsed, ...Object.values(parsed)];
+  const entry = candidates.find((c) => c && Array.isArray(c.files));
+  return entry ? entry.files.map((f) => f.path) : null;
+}
+
+/**
  * Derive the packed file list via `npm pack --dry-run --json`.
  *
  * A non-zero exit is reported as an error rather than an empty file set: a
@@ -347,8 +381,9 @@ export async function packWorkspace(dir) {
     });
     const parsed = parsePackOutput(stdout);
     if (parsed === null) return { files: [], error: "could not locate JSON payload in `npm pack --json` output" };
-    const entry = Array.isArray(parsed) ? parsed[0] : parsed;
-    return { files: (entry?.files ?? []).map((f) => f.path), error: null };
+    const files = packEntryFiles(parsed);
+    if (files === null) return { files: [], error: "`npm pack --json` payload carries no `files` list" };
+    return { files, error: null };
   } catch (err) {
     return { files: [], error: (err.stderr || err.message || String(err)).trim().split("\n").slice(-4).join(" ") };
   }
@@ -419,6 +454,44 @@ function specifierFinding({ wsRel, rel, value, line, allowed, declared, devOnly,
         `"${pkg}" is imported by a shipped file but declared in none of ${RUNTIME_FIELDS.join(", ")}`);
 }
 
+const TSCONFIG_FILE = /(?:^|\/)tsconfig[^/]*\.json$/;
+
+/** Normalised in-package path for a relative `extends`; escapes the package as `../...`. */
+function tsconfigExtendsResolves(entry, fromFile, packedSet) {
+  const target = join(dirname(fromFile), entry).split("\\").join("/");
+  return packedSet.has(target) || packedSet.has(`${target}.json`);
+}
+
+/**
+ * Every shipped `tsconfig*.json` whose relative `extends` has no target in the
+ * tarball. A consumer's jiti/tsc follows the chain and dies on the missing file
+ * (0.8.0: `packages/server/tsconfig.json` -> unshipped `../../tsconfig.base.json`).
+ * Package-name `extends` are out of scope. See change: fix-ship-tsconfig-base.
+ */
+export function tsconfigExtendsFindings(ws, packedFiles) {
+  const findings = [];
+  const packedSet = new Set(packedFiles);
+  for (const rel of packedFiles) {
+    if (!TSCONFIG_FILE.test(rel)) continue;
+    const abs = join(ws.dir, rel);
+    if (!existsSync(abs)) continue;
+    const { config, error } = ts.parseConfigFileTextToJson(abs, readFileSync(abs, "utf8"));
+    if (error || config === null || typeof config !== "object") {
+      const why = error ? ts.flattenDiagnosticMessageText(error.messageText, " ") : "not a JSON object";
+      findings.push(finding("warning", "unparseable-tsconfig", ws.rel, rel, null,
+        `shipped tsconfig could not be parsed, so its extends chain is unknown: ${why}`));
+      continue;
+    }
+    const entries = [config.extends ?? []].flat().filter((e) => typeof e === "string" && isRelative(e));
+    for (const e of entries) {
+      if (tsconfigExtendsResolves(e, rel, packedSet)) continue;
+      findings.push(finding("error", "dangling-tsconfig-extends", ws.rel, rel, e,
+        `tsconfig extends "${e}" has no target in the packed file set; jiti/tsc will fail for a consumer`));
+    }
+  }
+  return findings;
+}
+
 /** Analyse one already-packed workspace. Pure: no I/O beyond reading shipped files. */
 export function analyzeWorkspace(ws, packedFiles, { allowlist = ALLOWLIST } = {}) {
   const findings = [];
@@ -449,6 +522,7 @@ export function analyzeWorkspace(ws, packedFiles, { allowlist = ALLOWLIST } = {}
       if (f) findings.push(f);
     }
   }
+  findings.push(...tsconfigExtendsFindings(ws, packedFiles));
   return findings;
 }
 
@@ -483,7 +557,8 @@ export async function analyzeRepository(root = REPO_ROOT, { allowlist = ALLOWLIS
   if (!Number.isInteger(concurrency) || concurrency < 1) {
     throw new TypeError(`concurrency must be a positive integer, received ${concurrency}`);
   }
-  const workspaces = listWorkspaces(root);
+  const rootPkg = rootPackage(root);
+  const workspaces = [...listWorkspaces(root), ...(rootPkg ? [rootPkg] : [])];
   const findings = [...validateAllowlist(allowlist)];
 
   const queue = [...workspaces];
@@ -495,6 +570,10 @@ export async function analyzeRepository(root = REPO_ROOT, { allowlist = ALLOWLIS
           finding("error", "pack-failed", ws.rel, "package.json", null,
             `npm pack --dry-run failed, so this workspace could not be verified: ${error}`),
         );
+        continue;
+      }
+      if (ws.tsconfigOnly) {
+        findings.push(...tsconfigExtendsFindings(ws, files));
         continue;
       }
       findings.push(...analyzeWorkspace(ws, files, { allowlist }));
