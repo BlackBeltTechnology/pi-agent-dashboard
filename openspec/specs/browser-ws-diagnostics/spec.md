@@ -21,7 +21,7 @@ When a browser WebSocket closes, the server SHALL log exactly one line containin
 - **THEN** the disconnect line is a single line, with the reason JSON-escaped
 
 ### Requirement: Browser sockets have a protocol-level keepalive
-The server SHALL send a WebSocket-level ping to every connected browser socket on a fixed interval (default 30 seconds). Any pong SHALL reset the socket's missed-ping count. A socket that leaves two consecutive pings unanswered SHALL be terminated on the next interval, so a dead peer is detected within two to three intervals, and its close line SHALL carry `cause=keepalive`. The keepalive timer SHALL NOT keep the process alive on its own, and SHALL be cleared when the browser WebSocket server closes.
+The server SHALL send a WebSocket-level ping to every connected browser socket on a fixed interval (default 30 seconds). Any pong SHALL reset the socket's missed-ping count. Because a ping is queued behind buffered data, any decrease of the socket's pending-send byte count since the previous interval, including a decrease to zero, SHALL also reset the missed-ping count. A socket that leaves two consecutive pings unanswered without such drain progress SHALL be terminated on the next interval, so a dead peer is detected within two to three intervals, and its close line SHALL carry `cause=keepalive`. The keepalive timer SHALL NOT keep the process alive on its own, and SHALL be cleared when the browser WebSocket server closes.
 
 #### Scenario: Responsive client stays connected
 - **WHEN** a browser socket answers every ping with a pong
@@ -30,6 +30,10 @@ The server SHALL send a WebSocket-level ping to every connected browser socket o
 #### Scenario: One missed ping is tolerated
 - **WHEN** a browser socket leaves one ping unanswered and then answers the next
 - **THEN** the socket stays connected
+
+#### Scenario: Draining send buffer counts as liveness
+- **WHEN** a browser socket answers no ping but its pending-send byte count decreases between intervals, including to zero
+- **THEN** the server does not terminate it for keepalive reasons
 
 #### Scenario: Unresponsive client is terminated with cause keepalive
 - **WHEN** a browser socket leaves two consecutive pings unanswered
