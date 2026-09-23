@@ -99,7 +99,7 @@
 - [ ] 9.2 Confirm the E2E suite is unaffected with the env var set — verify `npm run test:e2e` passes against the docker harness
 - [x] 9.3 Run `observability-instrumentation` over the transition log and add whatever `/api/health` counters it identifies — verify the counters appear and are asserted in a test (additive `accessGrants` field: prompting inputs, every transition counter with degrade/flood reasons counted separately, YOLO state with cumulative auto-answer counts, the refusal count; failure-isolated)
 - [x] 9.4 Delegate `docs/` prose (the eligibility rule, the two modes, the degrade ladder, the ancestor ladder, YOLO's scope and its limits, both env vars) to `DocScribe` and apply the returned tree rows — verify `docs/architecture.md` and the nearest `AGENTS.md` rows describe the new `packages/server/src/access/` files
-- [ ] 9.5 Run `review-code` on the full diff, then `npm run quality:changed` — verify both are clean before commit
+- [x] 9.5 Run `review-code` on the full diff, then `npm run quality:changed` — verify both are clean before commit — done: `review-code` pass-with-suggestions (no blocking); fixed ttlMs clock-skew re-base, stale YOLO root on base change, cors-denial type, config invariant note. `quality:changed` parts: biome delta vs merge-base 0 after `buildGrant` refactor, tsc clean (minimatch baseline), lint:e2e, z-layer, knip, i18n, conventions green; `npm test` found 2 real (E16 ROUTE_TIERS for the new routes, E3 bare `void`), fixed; every other failure reproduces on a throwaway `origin/develop` worktree (pi runtime / tsx / typescript absent in worktree node_modules) or passes once the worktree client is built
 
 ## 10. Test scenarios folded from `test-plan.md`
 

@@ -1490,7 +1490,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
   installGrantCoordinator(grantCoordinator);
   browserGateway.registerHandler("grant_response", (msg) => {
-    void grantCoordinator.onResponse(msg);
+    grantCoordinator.onResponse(msg).catch((err: unknown) => {
+      console.error(`[access-grant] grant_response failed: ${(err as Error)?.message ?? err}`);
+    });
   });
   setNetworkDenialObserver((request) => {
     grantCoordinator.onDenial(
