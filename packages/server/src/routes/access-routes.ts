@@ -153,6 +153,10 @@ export function registerAccessRoutes(
           scope: g.scope,
           grantedAt: new Date(g.grantedAt).toISOString(),
           origin: g.origin,
+          // add-access-grant-dialog 8.2: which prompt verdict wrote it, and the
+          // subject it widened from when a ladder rung was chosen.
+          ...(g.via ? { via: g.via } : {}),
+          ...(g.widenedFrom ? { widenedFrom: g.widenedFrom } : {}),
         })),
         worktreeTrust: readWorktreeTrustSubjects(),
         kbTrust: readKbTrustEntries(),
@@ -419,7 +423,7 @@ export function registerAccessRoutes(
  * exactly why the grant endpoint's auth requirement cannot establish operator
  * presence (design D15).
  */
-function isLocalRequest(request: { ip?: string }): boolean {
+export function isLocalRequest(request: { ip?: string }): boolean {
   const ip = request.ip ?? "";
   return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
 }

@@ -102,6 +102,10 @@ describe("2b.9 the remembered-refusal ledger is durable and clearable", () => {
     fs.symlinkSync(real, alias);
     recordRefusal("cwd", real);
     expect(isRefused("cwd", alias)).toBe(true);
+    // Listed in its real spelling, and clearable through an alias.
+    expect(listRefusals().map((r) => r.subject)).toEqual([real]);
+    expect(clearRefusal("cwd", alias)).toBe(true);
+    expect(isRefused("cwd", real)).toBe(false);
   });
 
   it("a refusal that fails to reach disk is still honoured in-process", () => {

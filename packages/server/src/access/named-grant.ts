@@ -25,6 +25,8 @@ export interface NamedGrantInput {
   origin: string;
   /** Explicit widened-from value; defaults to the denied subject when widened. */
   widenedFrom?: string;
+  /** `"prompt"` when an access-prompt verdict is writing it (task 8.2). */
+  via?: "prompt";
 }
 
 export type NamedGrantResult =
@@ -62,6 +64,7 @@ export function grantNamedPathSubject(input: NamedGrantInput): NamedGrantResult 
     scope: input.scope,
     origin: input.origin,
     widenedFrom: widened ? (input.widenedFrom ?? input.deniedSubject) : undefined,
+    via: input.via,
   });
   // A write failure is reported to the caller so the surface that asked can say
   // the grant did not stick (design D11); the admitted set never widens.

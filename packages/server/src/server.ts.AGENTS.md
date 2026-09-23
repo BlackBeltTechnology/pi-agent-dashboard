@@ -23,3 +23,5 @@ Wires the access-grant coordinator right after the capability policy: `AccessPla
 Constructs a `YoloController` (live host-gate mode, `isRefused` from the refusal ledger), attempts `activateFromEnv(process.env.PI_DASHBOARD_GRANT_YOLO)` ONCE at boot and warns either way (active: roots or UNSCOPED; ignored: the reason), and passes `yolo` + a `recordRefusal` writer to the coordinator. See change: add-access-grant-dialog (tasks 8b.6, 2b.9).
 
 Passes `readAccessGrants` to `registerSystemRoutes`: `snapshotAccessGrantHealth` over the coordinator, the YOLO controller, the refusal ledger count and the same live inputs the coordinator reads. See change: add-access-grant-dialog (task 9.3).
+
+`registerAccessPromptRoutes` wired after `registerAccessRoutes` with `grantCoordinator`, `grantPlanes`, `yolo`, live prompting status (`accessGrants.promptEnabled`, `isGrantPromptKilled()`, `resolveHostGateMode`), `listRefusals`/`clearRefusal`. See change: add-access-grant-dialog (8.1).

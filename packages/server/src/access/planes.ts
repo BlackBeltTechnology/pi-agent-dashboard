@@ -75,6 +75,7 @@ export function createFilesystemPlane(): HeldAccessPlane {
         subject: req.subject,
         scope: "project",
         origin: req.origin,
+        via: "prompt",
       });
       if (!out.ok) return { ok: false, reason: out.reason, error: out.reason === "write-failed" ? out.error : undefined };
       return { ok: true, store, widenedFrom: out.grant.widenedFrom };

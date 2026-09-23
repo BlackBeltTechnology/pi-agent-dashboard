@@ -107,6 +107,15 @@ export function listRefusals(): Refusal[] {
  * NFC, case folded iff the volume folds), so a deny on `/repo/a` also refuses
  * `/repo/lnk -> a` and a case variant. An unresolvable subject keys as given.
  */
+function realOrSelf(subject: string): string {
+  if (!path.isAbsolute(subject)) return subject;
+  try {
+    return fs.realpathSync(subject);
+  } catch {
+    return subject;
+  }
+}
+
 function refusalKey(subject: string): string {
   if (!path.isAbsolute(subject)) return subject;
   return canonicalSubject(subject)?.canonical ?? subject;
@@ -124,7 +133,9 @@ export function recordRefusal(
   now: number = Date.now(),
 ): { ok: true } | { ok: false; error: string } {
   if (isRefused(plane, subject)) return { ok: true };
-  const next = [...load(), { plane, subject: refusalKey(subject), refusedAt: now }];
+  // Stored as the real path in its own spelling (listable, readable); matched
+  // through `refusalKey` on both sides, so case folding never shows to the operator.
+  const next = [...load(), { plane, subject: realOrSelf(subject), refusedAt: now }];
   const saved = save(next);
   // A refusal that failed to reach disk is still honoured for this process's
   // lifetime: forgetting it would let YOLO auto-allow what the operator denied.
@@ -135,7 +146,8 @@ export function recordRefusal(
 /** The operator's explicit clear, from the Access surface. */
 export function clearRefusal(plane: AccessPlaneId, subject: string): boolean {
   const current = load();
-  const remaining = current.filter((r) => !(r.plane === plane && r.subject === subject));
+  const key = refusalKey(subject);
+  const remaining = current.filter((r) => !(r.plane === plane && (r.subject === subject || refusalKey(r.subject) === key)));
   if (remaining.length === current.length) return false;
   return save(remaining).ok;
 }

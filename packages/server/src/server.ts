@@ -37,7 +37,7 @@ import { installGrantCoordinator } from "./access/denial-hold.js";
 import { GrantCoordinator } from "./access/grant-coordinator.js";
 import { createCorsPlane, createCwdPlane, createFilesystemPlane, createNetworkPlane } from "./access/planes.js";
 import { promptChannelCount } from "./access/prompt-channel.js";
-import { isRefused, listRefusals, recordRefusal } from "./access/refusal-ledger.js";
+import { clearRefusal, isRefused, listRefusals, recordRefusal } from "./access/refusal-ledger.js";
 import { sourceChannel } from "./access/source-channel.js";
 import { YOLO_ENV } from "./access/yolo-env.js";
 import { YoloController } from "./access/yolo-session.js";
@@ -152,6 +152,7 @@ import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
 import { createPiGateway } from "./pi/pi-gateway.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
+import { registerAccessPromptRoutes } from "./routes/access-prompt-routes.js";
 import { registerAccessRoutes } from "./routes/access-routes.js";
 import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
@@ -1716,6 +1717,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Settings → Access review surface + the one endpoint that can create a
   // filesystem grant. See change: add-access-grants-and-review.
   registerAccessRoutes(fastify, { networkGuard, preferencesStore, writeConfigPartial });
+  registerAccessPromptRoutes(fastify, {
+    networkGuard,
+    coordinator: grantCoordinator,
+    planes: grantPlanes,
+    yolo,
+    prompting: () => ({
+      enabled: loadConfig().accessGrants?.promptEnabled === true,
+      killSwitch: isGrantPromptKilled(),
+      hostGateMode: resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode,
+    }),
+    listRefusals,
+    clearRefusal,
+  });
   // Grammar routes moved into the grammar plugin's server entry
   // (packages/grammar-plugin/src/server), which registers
   // /api/grammar/* via ctx.fastify + ctx.modelRuntime. See change:

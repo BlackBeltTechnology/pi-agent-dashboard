@@ -94,6 +94,28 @@ const defaultSchedule = (fn: () => void, ms: number): { cancel(): void } => {
  */
 export const GRANT_MAX_WAITERS_PER_ENTRY = 8;
 
+/** How many recent outcomes the Access surface can list (bounded, in-memory). */
+export const GRANT_VERDICT_HISTORY = 200;
+
+/** What one answer attempt did. `ignored` = WS answer to an unprompted / non-enforce entry. */
+export type SettleResult =
+  | { ok: true; record: GrantVerdictRecord }
+  | { ok: false; reason: "malformed" | "duplicate" | "unknown" | "expired" | "unoffered-subject" | "ignored" };
+
+/** One prompt's outcome, as the Access surface lists it (tasks 8.1, 8.2). */
+export interface GrantVerdictRecord {
+  promptId: string;
+  plane: AccessPlaneId;
+  /** The subject the verdict named (a ladder rung when widened). */
+  subject: string;
+  outcome: "allow-once" | "allow-always" | "deny" | "expired" | "aborted" | "failed";
+  /** The store an allow-always actually wrote; absent otherwise. */
+  store?: string;
+  /** Set when the verdict chose an offered ancestor over the denied subject. */
+  widenedFrom?: string;
+  at: number;
+}
+
 const immediate = (reason: string): Hold => ({
   held: false,
   result: Promise.resolve({ kind: "deny", reason }),
@@ -107,6 +129,7 @@ export class GrantCoordinator {
   private readonly timers = new Map<string, { cancel(): void }>();
   /** promptId -> the session whose denial created the entry (grant audit trail). */
   private readonly origins = new Map<string, string>();
+  private readonly verdicts: GrantVerdictRecord[] = [];
   private readonly now: () => number;
   private readonly schedule: NonNullable<GrantCoordinatorDeps["schedule"]>;
 
@@ -115,7 +138,10 @@ export class GrantCoordinator {
     this.schedule = deps.schedule ?? defaultSchedule;
     this.registry = new PendingGrantRegistry({
       onTransition: deps.onTransition,
-      onExpire: (entry) => this.finish(entry, { kind: "deny", reason: "expired" }, "expired"),
+      onExpire: (entry) => {
+        this.remember(entry, "expired", entry.subject);
+        this.finish(entry, { kind: "deny", reason: "expired" }, "expired");
+      },
     });
   }
 
@@ -198,28 +224,34 @@ export class GrantCoordinator {
    * answering it is not answering a question anyone was asked. Such entries are
    * settled from the Access surface instead (`settle`).
    */
-  async onResponse(msg: unknown): Promise<void> {
+  async onResponse(msg: unknown): Promise<SettleResult> {
     const id = (msg as { promptId?: unknown } | null)?.promptId;
     const pending = typeof id === "string" ? this.registry.get(id) : undefined;
-    if (pending && (!pending.prompted || this.deps.hostGateMode() !== "enforce")) return;
-    await this.settle(msg);
+    if (pending && (!pending.prompted || this.deps.hostGateMode() !== "enforce")) return { ok: false, reason: "ignored" };
+    return this.settle(msg);
   }
 
   /** Settle an entry from any authorised surface; never throws, always releases. */
-  async settle(msg: unknown): Promise<void> {
+  async settle(msg: unknown): Promise<SettleResult> {
     const out = this.registry.settle(msg, this.now());
-    if (!out.ok) return;
+    if (!out.ok) return { ok: false, reason: out.reason };
     const entry = out.entry;
     let resolution: Resolution;
     try {
       resolution = await this.resolve(entry, out.verdict, out.subject);
+      const failed = resolution.kind === "deny" && out.verdict !== "deny";
+      this.remember(entry, failed ? "failed" : out.verdict, out.subject, {
+        store: out.verdict === "allow-always" && !failed ? this.deps.planes.get(entry.plane)?.store : undefined,
+      });
     } catch (err) {
       // A throwing store or refusal writer must never leave a held request
       // hanging with its socket timeout disabled: fail closed and release.
       console.error(`[access-grant] settle failed: ${String((err as Error)?.message ?? err)}`);
       resolution = { kind: "deny", reason: "settle-failed" };
+      this.remember(entry, "failed", out.subject);
     }
     this.finish(entry, resolution, "settled");
+    return { ok: true, record: this.verdicts[this.verdicts.length - 1] as GrantVerdictRecord };
   }
 
   private async resolve(
@@ -257,7 +289,25 @@ export class GrantCoordinator {
     return { kind: "allow", verdict, subject };
   }
 
+  /** Recent outcomes, newest first (the Access surface's verdict list). */
+  recentVerdicts(): GrantVerdictRecord[] {
+    return [...this.verdicts].reverse();
+  }
+
   // ---------------------------------------------------------------------------
+
+  private remember(
+    entry: PendingGrant,
+    outcome: GrantVerdictRecord["outcome"],
+    subject: string,
+    extra: { store?: string } = {},
+  ): void {
+    const rec: GrantVerdictRecord = { promptId: entry.promptId, plane: entry.plane, subject, outcome, at: this.now() };
+    if (extra.store) rec.store = extra.store;
+    if (subject !== entry.subject) rec.widenedFrom = entry.subject;
+    this.verdicts.push(rec);
+    if (this.verdicts.length > GRANT_VERDICT_HISTORY) this.verdicts.shift();
+  }
 
   private wait(promptId: string): Hold {
     let resolveFn!: (r: Resolution) => void;
@@ -280,6 +330,7 @@ export class GrantCoordinator {
         // The last waiter leaving releases the entry: nothing is left to resume.
         if (current.length === 0) {
           const entry = this.registry.forget(promptId);
+          if (entry) this.remember(entry, "aborted", entry.subject);
           if (entry) this.finish(entry, { kind: "deny", reason: "aborted" }, "expired");
         }
       },
