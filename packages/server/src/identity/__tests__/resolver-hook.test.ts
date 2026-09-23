@@ -13,7 +13,7 @@ afterEach(async () => {
 
 async function build(
   registry: ResolverRegistry,
-  opts: { deviceAuthed?: boolean } = {},
+  opts: { deviceAuthed?: boolean; isEnforced?: () => boolean } = {},
 ): Promise<FastifyInstance> {
   app = Fastify();
   app.decorateRequest("isAuthenticated", false);
@@ -26,6 +26,7 @@ async function build(
   }
   registerResolverHook(app, {
     registry,
+    isEnforced: opts.isEnforced ?? (() => registry.hasActiveResolver()),
     timeoutMs: 1000,
     getPublicBase: () => "https://ext.example.com",
   });
@@ -48,6 +49,17 @@ describe("registerResolverHook — inert (§4.3 / D1)", () => {
   it("makes no claim and leaves request unchanged when no resolver registered", async () => {
     const a = await build(new ResolverRegistry([]));
     const res = await a.inject({ method: "GET", url: "/probe" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ principal: null, principalExpiresAt: null, isAuthenticated: false, authVia: null });
+  });
+});
+
+describe("registerResolverHook — disarmed (D21)", () => {
+  it("makes no claim when a resolver is active but enforcement is disarmed", async () => {
+    const reg = new ResolverRegistry([]);
+    reg.register({ pluginId: BUNDLED_RESOLVER_PLUGIN_ID, priority: 100, resolve: claimResolver("u1") });
+    const a = await build(reg, { isEnforced: () => false });
+    const res = await a.inject({ method: "GET", url: "/probe", headers: { authorization: "Bearer x" } });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ principal: null, principalExpiresAt: null, isAuthenticated: false, authVia: null });
   });

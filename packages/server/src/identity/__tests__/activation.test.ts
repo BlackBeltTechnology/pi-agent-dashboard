@@ -1,53 +1,71 @@
 import { describe, expect, it } from "vitest";
-import { assertIdentityReadiness, IdentityStartupError } from "../activation.js";
+import { type IdentityEnforcementInput, identityDisarmedWarning, isIdentityEnforced } from "../activation.js";
 
-const base = {
-  resolverActive: false,
-  trustedPolicyPlugin: undefined as string | undefined,
+/** Fully configured: resolver active, login provider registered, no conflict, no policy named. */
+const armed: IdentityEnforcementInput = {
+  resolverActive: true,
+  loginProviderRegistered: true,
+  legacyConnectorsActive: false,
+  trustedPolicyPlugin: undefined,
   registeredPolicyCount: 0,
-  authProviderCount: 0,
 };
+const inert: IdentityEnforcementInput = { ...armed, resolverActive: false, loginProviderRegistered: false };
 
-describe("assertIdentityReadiness — policy plugin (§2.2 / D9)", () => {
-  it("inert happy path: no policy named, nothing registered → ok", () => {
-    expect(() => assertIdentityReadiness({ ...base })).not.toThrow();
+describe("isIdentityEnforced — self-lockout guard (D21)", () => {
+  it("enforces only when fully configured", () => {
+    expect(isIdentityEnforced(armed)).toBe(true);
   });
-
-  it("named-but-absent policy fails startup", () => {
-    expect(() =>
-      assertIdentityReadiness({ ...base, trustedPolicyPlugin: "invoicebot", registeredPolicyCount: 0 }),
-    ).toThrow(IdentityStartupError);
+  it("inert when no resolver is active", () => {
+    expect(isIdentityEnforced(inert)).toBe(false);
+    expect(isIdentityEnforced({ ...armed, resolverActive: false })).toBe(false);
   });
-
-  it("duplicate policy registration fails startup", () => {
-    expect(() =>
-      assertIdentityReadiness({ ...base, trustedPolicyPlugin: "invoicebot", registeredPolicyCount: 2 }),
-    ).toThrow(IdentityStartupError);
+  it("stays INERT when a resolver is active but no login provider is registered", () => {
+    expect(isIdentityEnforced({ ...armed, loginProviderRegistered: false })).toBe(false);
   });
-
-  it("exactly one registered policy for the named id is ok", () => {
-    expect(() =>
-      assertIdentityReadiness({ ...base, trustedPolicyPlugin: "invoicebot", registeredPolicyCount: 1 }),
-    ).not.toThrow();
+  it("D8: MOUNTED legacy cookie connectors disarm instead of failing startup", () => {
+    expect(isIdentityEnforced({ ...armed, legacyConnectorsActive: true })).toBe(false);
+  });
+  it("D9: a named-but-absent trusted policy disarms instead of failing startup", () => {
+    expect(isIdentityEnforced({ ...armed, trustedPolicyPlugin: "invoicebot", registeredPolicyCount: 0 })).toBe(false);
+  });
+  it("D9: a duplicate trusted policy disarms instead of choosing one", () => {
+    expect(isIdentityEnforced({ ...armed, trustedPolicyPlugin: "invoicebot", registeredPolicyCount: 2 })).toBe(false);
+  });
+  it("D9: exactly one registered policy for the named id stays armed", () => {
+    expect(isIdentityEnforced({ ...armed, trustedPolicyPlugin: "invoicebot", registeredPolicyCount: 1 })).toBe(true);
   });
 });
 
-describe("assertIdentityReadiness — connector exclusion (§2.3 / D8)", () => {
-  it("active resolver + confidential connectors fails startup", () => {
-    expect(() => assertIdentityReadiness({ ...base, resolverActive: true, authProviderCount: 1 })).toThrow(
-      IdentityStartupError,
-    );
+describe("identityDisarmedWarning (D21)", () => {
+  it("is silent when inert by choice or fully armed", () => {
+    expect(identityDisarmedWarning(inert)).toBeNull();
+    expect(identityDisarmedWarning(armed)).toBeNull();
   });
-
-  it("inert dashboard leaves connectors intact", () => {
-    expect(() =>
-      assertIdentityReadiness({ ...base, resolverActive: false, authProviderCount: 3 }),
-    ).not.toThrow();
+  it("names a missing login provider", () => {
+    const w = identityDisarmedWarning({ ...armed, loginProviderRegistered: false });
+    expect(w).toMatch(/NOT enforced/);
+    expect(w).toMatch(/no login provider/);
   });
-
-  it("active resolver with no connectors is ok", () => {
-    expect(() =>
-      assertIdentityReadiness({ ...base, resolverActive: true, authProviderCount: 0 }),
-    ).not.toThrow();
+  it("names a login provider without an active resolver", () => {
+    expect(identityDisarmedWarning({ ...armed, resolverActive: false })).toMatch(/no principal resolver is active/);
+  });
+  it("names the auth.providers conflict", () => {
+    expect(identityDisarmedWarning({ ...armed, legacyConnectorsActive: true })).toMatch(/auth\.providers/);
+  });
+  it("names a misregistered trusted policy even while otherwise inert", () => {
+    const w = identityDisarmedWarning({ ...inert, trustedPolicyPlugin: "invoicebot", registeredPolicyCount: 0 });
+    expect(w).toMatch(/trustedPolicyPlugin 'invoicebot'/);
+  });
+  it("lists every reason at once", () => {
+    const w = identityDisarmedWarning({
+      ...armed,
+      loginProviderRegistered: false,
+      legacyConnectorsActive: true,
+      trustedPolicyPlugin: "p",
+      registeredPolicyCount: 2,
+    });
+    expect(w).toMatch(/no login provider/);
+    expect(w).toMatch(/auth\.providers/);
+    expect(w).toMatch(/trustedPolicyPlugin 'p'/);
   });
 });

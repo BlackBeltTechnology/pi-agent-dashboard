@@ -63,7 +63,6 @@ import {
   createNetworkGuard,
   createNetworkGuardHook,
   isBypassedHost,
-  isGenuinelyLocal,
   isPluginScopePeerLocal,
 } from "./auth/localhost-guard.js";
 import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
@@ -101,9 +100,10 @@ import { createEmbedLifecycleController } from "./embed-lifecycle/embed-lifecycl
 import { wireEvents } from "./event-wiring.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
 import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
-import { assertIdentityReadiness } from "./identity/activation.js";
+import { identityDisarmedWarning, isIdentityEnforced } from "./identity/activation.js";
 import { browserLoginAuthStatus } from "./identity/browser-login-auth-status.js";
-import { BrowserLoginConfigRegistry, sanitizeBrowserLoginConfig } from "./identity/browser-login-config-registry.js";
+import { BrowserLoginConfigRegistry, publicLoginConfig, sanitizeBrowserLoginConfig } from "./identity/browser-login-config-registry.js";
+import { IdentityRegistrationTracker, releaseFailedIdentityRegistrations } from "./identity/identity-registration-tracker.js";
 import { PolicyRegistry } from "./identity/policy-registry.js";
 import { registerResolverHook } from "./identity/resolver-hook.js";
 import { ResolverRegistry } from "./identity/resolver-registry.js";
@@ -450,6 +450,26 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // `{ issuer, clientId }` here; `GET /api/identity/login-config` relays it so
   // core advertises login without importing anything provider-specific (I1).
   const browserLoginConfigRegistry = new BrowserLoginConfigRegistry();
+  // Self-lockout guard (D21): the plane enforces only when FULLY configured
+  // (resolver + login provider, no D8/D9 conflict); anything less ⇒ inert.
+  // Decided ONCE, pre-listen, after plugins load and failed registrations are
+  // released (see the readiness block), then latched: runtime plugin changes
+  // take effect on restart, so no road ever sees a mixed state.
+  let identityArmed = false;
+  const identityEnforced = () => identityArmed;
+  // A plugin whose activation fails must not leave identity registrations live;
+  // after arming, registrations are frozen (runtime changes apply on restart).
+  const identityRegistrations = new IdentityRegistrationTracker((id) =>
+    console.warn(`[identity] plugin '${id}' tried to unregister an identity registration after startup; ignored until restart`),
+  );
+  const refuseLateIdentityRegistration = (id: string, what: string): boolean => {
+    if (!identityRegistrations.frozen) return false;
+    console.warn(`[identity] plugin '${id}' registered a ${what} after startup; ignored until restart`);
+    return true;
+  };
+  // D8 keys on whether the legacy cookie plugin actually MOUNTED (≥1 provider
+  // resolved), not on config keys — set where the auth plugin is registered.
+  let legacyConnectorsActive = false;
   // Host access policy registry (D9): one optional policy from the configured
   // `trustedPolicyPlugin`, bounded + fail-closed. Governs only non-session
   // roads. A deny emits a structured audit line (no token/secret material).
@@ -1033,7 +1053,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Live-server-preview manager (loopback dev-server allowlist + proxy).
   const liveServerManager = createLiveServerManager(preferencesStore);
 
-  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents, remoteTranscriptStore, pendingPrincipalOwnerRegistry, () => resolverRegistry.hasActiveResolver());
+  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents, remoteTranscriptStore, pendingPrincipalOwnerRegistry, identityEnforced);
   // Wire the archive broadcaster now that the gateway exists. `session_archived`
   // carries the folder count for its own transition; restore/delete/re-key use
   // `archived_count_updated`. See change: archive-sessions-lazy-load.
@@ -1513,6 +1533,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const identityRedirectBaseOverride = config.authConfig?.redirectBaseUrl;
   registerResolverHook(fastify, {
     registry: resolverRegistry,
+    isEnforced: identityEnforced,
     timeoutMs: loadConfig().identity.resolverTimeoutMs,
     getPublicBase: () => resolveRedirectBase(config.port, identityRedirectBaseOverride).base,
     log: (msg) => console.warn(msg),
@@ -1524,19 +1545,22 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       resolvedTrustedNetworks: config.resolvedTrustedNetworks,
       localToken,
     });
-  } else {
-    // No legacy cookie auth. `/auth/status` is what the client's WS-refusal
-    // handler polls to tell `auth_required` (→ browser login gate, D16/H5) from
-    // a plain `offline`. Make it identity-aware: when a trusted resolver has
-    // published a browser login descriptor, an unauthenticated + non-genuinely-
-    // local caller is `authenticated:false, authEnabled:true` so the client
-    // escalates to the gate; a resolved bearer or a genuinely-local caller is
-    // authenticated. With no descriptor the plane is inert ⇒ unchanged.
+  }
+  // `/auth/status` is what the client's WS-refusal handler polls to tell
+  // `auth_required` (→ browser login gate, D16/H5) from a plain `offline`.
+  // Registered whenever the legacy cookie plugin did not register one — no
+  // `auth` block, OR an `auth` block whose providers resolved to none (the
+  // plugin returns early). When legacy providers DO resolve, D8 keeps identity
+  // inert, so the cookie route is the correct one. Enforced (D21) ⇒ only a
+  // resolved bearer PRINCIPAL is authenticated (a device bearer or loopback is
+  // not — §9.2 refuses their principal-less browser socket). Inert ⇒ unchanged.
+  // The legacy plugin registers its routes only when ≥1 provider resolved.
+  legacyConnectorsActive = fastify.hasRoute({ method: "GET", url: "/auth/status" });
+  if (!legacyConnectorsActive) {
     fastify.get("/auth/status", async (request) =>
       browserLoginAuthStatus({
-        descriptorActive: browserLoginConfigRegistry.get() !== null,
-        isAuthenticated: (request as { isAuthenticated?: boolean }).isAuthenticated === true,
-        isGenuinelyLocal: isGenuinelyLocal(request.ip, request.headers as Record<string, unknown>),
+        enforced: identityEnforced(),
+        isAuthenticated: (request as { principal?: unknown }).principal != null,
       }),
     );
   }
@@ -1546,19 +1570,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // reads NO resolver plugin config keys (I1). `{active:false}` (nothing else)
   // when no descriptor is registered, so an inert dashboard discloses nothing.
   // Reachable pre-auth via the auth-plugin skip + the network-guard public path.
-  fastify.get("/api/identity/login-config", async () => {
-    const desc = browserLoginConfigRegistry.get();
-    return desc
-      ? {
-          active: true as const,
-          pluginId: desc.pluginId,
-          ...(desc.issuer ? { issuer: desc.issuer } : {}),
-          ...(desc.clientId ? { clientId: desc.clientId } : {}),
-          ...(desc.loginUrl ? { loginUrl: desc.loginUrl } : {}),
-          ...(desc.logoutUrl ? { logoutUrl: desc.logoutUrl } : {}),
-        }
-      : { active: false as const };
-  });
+  fastify.get("/api/identity/login-config", async () =>
+    // D21: advertise login only while identity is enforced.
+    publicLoginConfig(identityEnforced() ? browserLoginConfigRegistry.get() : null),
+  );
 
   // REST tier gate (change: expand-mcp-tiered-surface, D1b). Registered AFTER
   // both admission hooks above (bearer-auth, then the cookie auth plugin) so
@@ -1648,7 +1663,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     networkGuard,
     sessionArchive,
     remoteTranscriptStore,
-    isResolverActive: () => resolverRegistry.hasActiveResolver(),
+    isResolverActive: identityEnforced,
     // Transcript-sourced session diffs dispatch through the same pool the
     // hydration path owns; `maxStringSize` is the store's cap so projected
     // tool payloads match store-sourced ones. See change:
@@ -2899,13 +2914,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   console.warn(`[identity] plugin '${id}' is not trusted to register a principal resolver; ignoring`);
                   return () => {};
                 }
-                return resolverRegistry.register({
+                if (refuseLateIdentityRegistration(id, "principal resolver")) return () => {};
+                return identityRegistrations.track(id, resolverRegistry.register({
                   pluginId: id,
                   priority: plugin.manifest.priority ?? 1000,
                   active: options?.active ?? true,
                   clockSkewSeconds: options?.clockSkewSeconds,
                   resolve,
-                });
+                }));
               },
               // Identity plane (D9): bind this plugin's host access policy to the
               // host registry. Only the configured `trustedPolicyPlugin` is
@@ -2916,7 +2932,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   console.warn(`[identity] plugin '${id}' is not trusted to register a host access policy; ignoring`);
                   return () => {};
                 }
-                return policyRegistry.register(id, authorize);
+                if (refuseLateIdentityRegistration(id, "host access policy")) return () => {};
+                return identityRegistrations.track(id, policyRegistry.register(id, authorize));
               },
               // Identity plane (D16): a TRUSTED resolver plugin publishes its
               // browser login descriptor; core stamps the owning pluginId (F6)
@@ -2927,6 +2944,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   console.warn(`[identity] plugin '${id}' is not trusted to publish a browser login config; ignoring`);
                   return () => {};
                 }
+                if (refuseLateIdentityRegistration(id, "browser login config")) return () => {};
                 // D19: the host never forwards an unvetted redirect target —
                 // sanitize at the trust boundary, before stamping the owner.
                 const safe = sanitizeBrowserLoginConfig(loginConfig);
@@ -2936,7 +2954,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   );
                   return () => {};
                 }
-                return browserLoginConfigRegistry.set({ pluginId: id, ...safe });
+                return identityRegistrations.track(id, browserLoginConfigRegistry.set({ pluginId: id, ...safe }));
               },
             },
             plugin.manifest.id,
@@ -3069,7 +3087,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // principal-bearing identity ticket — cookie / local-IPC token /
         // trusted-network / no-ticket browser upgrades are all refused. Other
         // scopes (terminal/live) and the inert era are unchanged.
-        const requireIdentityTicket = scope === "browser" && resolverRegistry.hasActiveResolver();
+        const requireIdentityTicket = scope === "browser" && identityEnforced();
         const upgradeAuth = authorizeWsUpgrade({
           cookieHeader: request.headers.cookie,
           remoteAddress,
@@ -3126,21 +3144,25 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         }
       });
 
-      // Identity-plane startup readiness (D1/D8/D9). Runs AFTER plugins have
-      // loaded (so trusted resolvers have registered) and BEFORE listen(), so
-      // an unsatisfiable identity config aborts boot instead of serving a
-      // half-open plane. Inert default (empty trust list, no policy, no
-      // resolver) passes untouched. `registeredPolicyCount` comes from the live
-      // `policyRegistry`, so a named `trustedPolicyPlugin` that registered no
-      // policy fails as "named-but-absent" and a duplicate fails too (D9).
+      // Identity-plane arming (D1/D8/D9/D21). Runs AFTER plugins have loaded
+      // (outside the loader try, so a loader throw cannot skip it) and BEFORE
+      // listen(). Releases every identity registration of a plugin that failed
+      // to load, then decides + latches enforcement. A conflicting or partial
+      // config never aborts boot: it stays inert and says why.
       {
+        releaseFailedIdentityRegistrations(identityRegistrations, (pid) => getPluginStatusStore().getStatus(pid)?.loaded === true);
         const idCfg = loadConfig();
-        assertIdentityReadiness({
+        const input = {
           resolverActive: resolverRegistry.hasActiveResolver(),
+          loginProviderRegistered: browserLoginConfigRegistry.get() !== null,
+          legacyConnectorsActive,
           trustedPolicyPlugin: idCfg.identity.trustedPolicyPlugin,
           registeredPolicyCount: policyRegistry.size,
-          authProviderCount: Object.keys(idCfg.auth?.providers ?? {}).length,
-        });
+        };
+        identityArmed = isIdentityEnforced(input);
+        identityRegistrations.freeze();
+        const disarmed = identityDisarmedWarning(input);
+        if (disarmed) console.warn(disarmed);
       }
 
       await fastify.listen({ port: config.port, host: config.host });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BrowserLoginConfigRegistry } from "../browser-login-config-registry.js";
+import { BrowserLoginConfigRegistry, publicLoginConfig } from "../browser-login-config-registry.js";
 
 describe("BrowserLoginConfigRegistry (D16 host login-config seam)", () => {
   const cfg = { pluginId: "keycloak-resolver", issuer: "https://kc.example/realms/pi", clientId: "dashboard-web" };
@@ -73,5 +73,19 @@ describe("sanitizeBrowserLoginConfig (D19 host boundary)", () => {
 
   it("ignores unknown fields (never forwards them to the browser)", () => {
     expect(sanitizeBrowserLoginConfig({ loginUrl: "/sso/login", evil: "x" } as never)).toEqual({ loginUrl: "/sso/login" });
+  });
+});
+
+describe("publicLoginConfig (D21)", () => {
+  it("discloses nothing when not enforced (null descriptor)", () => {
+    expect(publicLoginConfig(null)).toEqual({ active: false });
+  });
+  it("relays only the vetted descriptor fields", () => {
+    expect(publicLoginConfig({ pluginId: "p", loginUrl: "/in", logoutUrl: "/out" })).toEqual({
+      active: true,
+      pluginId: "p",
+      loginUrl: "/in",
+      logoutUrl: "/out",
+    });
   });
 });

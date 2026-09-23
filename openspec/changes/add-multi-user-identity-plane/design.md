@@ -74,6 +74,8 @@ flowchart TD
 
 ### D1 — Activation is by resolver state, not a mode flag
 
+> **Narrowed by D21:** "active" (enforced) additionally requires a registered login provider and no `auth.providers` conflict; half-configured ⇒ inert.
+
 There is no `identity.mode`. The plane has exactly two observable states, derived from the bundled resolver plugin:
 
 - **Inert** — the resolver plugin is disabled, or enabled but missing `issuer`/`audience`. The dispatch hook makes no claim, `request.principal` stays `null`, no ticket-identity requirement applies, owner equality is not consulted (no session has an owner), and fan-out is the legacy global broadcast. Behavior is byte-for-byte what it was before this change. This is "no auth otherwise."
@@ -149,6 +151,8 @@ Discovery/JWKS obey the network timeout; the cache coalesces concurrent refreshe
 
 ### D8 — An active resolver excludes confidential login connectors
 
+> **Amended by D21:** the exclusion now DISARMS identity (plane stays inert, warning logged) instead of aborting startup.
+
 The existing `auth.providers.*` path is a confidential login connector that exchanges a code and mints a dashboard cookie; it is not a resource-server bearer validator. When the resolver is active, a non-empty `auth.providers` is a startup configuration error — this avoids two principal sources, a principal-less cookie bypass, and issuer drift. While the resolver is inert the connector is unaffected.
 
 ### D9 — One OPTIONAL policy contract covers non-session host roads
@@ -216,6 +220,13 @@ The shipped web client is built for topology A (`redirectToLogin()` → `/auth/l
 All of this engages only when `/auth`/resolver signals the plane is active; against an inert dashboard the client behaves as today. This plane is a new capability `browser-principal-client`.
 
 ### D16 — Browser login gate: core triggers and routes, the trusted resolver plugin owns OIDC
+
+> **SUPERSEDED as the deployment model by D20 (see the end of this file).** D16 describes a frontend
+> where the *dashboard's own React client* is the browser and core mounts a trusted plugin's
+> `login-provider` component inside it. D20 fixes the current deployment as an **independent
+> frontend** (the user's own application) against a resource-server-only dashboard. D16 is kept as
+> history and stays valid only as the **optional bundled dashboard-client adapter** — the component
+> kind of the seam. Nothing in the D18/D19/D20 model depends on it. Read D20 first.
 
 D15 built the client *primitives* (PKCE, token store, bearer/ticket wiring, DPoP) but deliberately left the human login UX as an integration seam. D16 closes it while keeping the split the resolver architecture already mandates (D7: "core imports nothing Keycloak-specific"; D4: trust is a host-owned grant, never a self-declared manifest field). The flow is decomposed across three parties so that removing the resolver plugin removes all OIDC code. This decision was hardened by a cross-model doubt-review; the sub-points below record the defects it fixed.
 
@@ -299,6 +310,11 @@ None blocking. Product policy semantics, ownerless-session adoption, the product
 
 ### D18 — Three-way split: core seam, token-resolver plugin, and a separate authorization (login-UI) plugin
 
+> **Read with D20.** D18 describes the *seam*; D20 fixes which kind the current deployment uses. The
+> `login-provider` claim below belongs to a **separate authorization plugin or the optional bundled
+> dashboard-client adapter**, never to `keycloak-resolver`; the current deployment uses the D19
+> separate-view kind, which claims **no slot** and ships nothing into the client bundle.
+
 Neither core NOR the keycloak-resolver plugin ships any login/logout UI. The
 responsibility is split three ways:
 
@@ -339,6 +355,10 @@ Reusable mechanics (moved from the plugin to `client-utils`, seam-only delivery)
 
 ### D19 — Two provider kinds on the login seam: bundled component, or a separate view
 
+> **Read with D20.** The separate-view kind is what the **current deployment** uses (an independent
+> frontend served by a custom server plugin). The component kind is the **optional bundled
+> dashboard-client adapter** only.
+
 Core's browser-login seam accepts TWO provider kinds, discriminated by which
 fields the trusted plugin publishes:
 
@@ -377,6 +397,195 @@ a stray `/callback` recovers to `loginUrl` (a separate-view plugin owns its own
 callback route).
 
 **Non-goal — token handoff.** A separate-view provider performing a real OIDC
-exchange must still get the resulting bearer into the SPA's in-memory store
-(`client-utils/identity/token-store.ts`), which a server-rendered page cannot
-write. Not solved here; the smoke plugin stubs it.
+exchange must still get the resulting bearer into the frontend that consumes it. For the **current
+deployment (D20)** that frontend is the user's own application and it holds the token **in its own
+memory** — no handoff into the dashboard is required, and this change specifies none. The spike's
+`#access_token=` fragment redirect carries an informal in-spike "D20 handoff" label; it is **not
+established spec**, is not a dependency of D20, and core implements no fragment-adoption path.
+Conversely, a separate-view provider serving the *dashboard's own* React client cannot write the
+SPA's in-memory store (`client-utils/identity/token-store.ts`) from a server-rendered page; not
+solved here.
+
+### D20 — Current deployment: independent frontend; the dashboard is a resource server only
+
+**Decision (explicit; the deployment this change targets now).** The browser frontend is the
+**user's own application** — a custom frontend, not the dashboard's bundled React client. In this
+deployment:
+
+- **The dashboard is a backend OAuth resource server only.** It validates the bearer (the trusted
+  `keycloak-resolver` plugin), resolves the principal, and enforces owner equality on session roads
+  plus the optional non-session policy. It serves **no login UI** for this deployment and never
+  drives the browser through a login flow.
+- **A custom independent server plugin owns login, UI, callback, and logout.** The plugin is the
+  operator's own package; the disposable `spike/identity-login-plane/` is the smoke of exactly this
+  shape. It serves its own pages from its own `ctx.fastify` routes — **same-origin** with the
+  dashboard and outside the network-guard jurisdiction (`/api/ /v1/ /editor/ /live/`), so they are
+  reachable pre-auth — and performs the IdP authorize, code-exchange, and end-session calls itself
+  (server-side PKCE state, so it works on plain-http origins).
+- **The plugin publishes only redirect targets to the host** through the existing generic descriptor
+  seam: `ctx.registerBrowserLoginConfig({ pluginId, loginUrl, logoutUrl })` — the D19 separate-view
+  kind. Core's whole involvement is relaying that sanitized descriptor on the pre-auth
+  `GET /api/identity/login-config` and redirecting `/logout` to `logoutUrl`. Core reads no plugin
+  config key and holds no IdP state.
+- **The user's application holds its own access token in memory** and presents
+  `Authorization: Bearer` on dashboard `/api`/`/v1` calls and mints a browser-scope WS ticket. The
+  dashboard never serves, proxies, or drives that frontend; its only contract with it is the
+  bearer + ticket the resource server already requires.
+
+**Trust is the current allowlist, never the descriptor.** The host honors a descriptor only from the
+bundled resolver id or a plugin named in the **current** `identity.trustedResolverPlugins` allowlist,
+and only while that resolver is active. The descriptor carries its owning `pluginId`, so core never
+mixes one plugin's redirect target with another's config. `loginUrl`/`logoutUrl` are sanitized to
+same-origin paths on the server (D19, `sanitizeBrowserLoginConfig`), and a logout target never falls
+back to the login target.
+
+**What this supersedes.** D16 remains in this file as history, but its **deployment model** — core
+mounts a trusted resolver plugin's `login-provider` React component inside the dashboard client, owns
+`/callback`, restores return-to, and reconciles the legacy `auth_required` banner — is **superseded as
+the current deployment**. That component path is retained strictly as an **optional bundled
+dashboard-client adapter** for a deployment whose frontend *is* the dashboard client. It is not
+required, is not this deployment, and nothing in the independent-frontend model depends on it — in
+particular the dashboard `auth_required` banner is **not** the entry point for an independent
+frontend. D18 (three-way split: core = seam only, `keycloak-resolver` = token validation only) and
+D19 (two provider kinds) stand unchanged; the separate-view kind is what an independent frontend
+uses.
+
+**Seams retained (do not delete).** The reusable identity seam (principal types, resolution hook,
+owner equality), the optional host access-policy seam, the plugin browser-login-config descriptor
+seam + `GET /api/identity/login-config`, the in-memory token store + bearer/ticket client seams, and
+the WS ticket↔principal binding all stay as the host's public contract. The optional bundled adapter
+(the D16 component kind, `LoginGate`, and the `/callback` mount) stays in-tree, unrequired.
+
+**Non-goals (explicit).** No BFF, no reverse proxy, no global/session cookies, no new production
+IdP, no cross-origin trust. The dashboard does not adopt, exchange, refresh, or store the user's
+tokens, and holds no server-side session for a human principal.
+
+**Token handoff is not a dependency.** This model does **not** require core to adopt a token from a
+URL fragment at boot. The `#access_token=…` fragment convention in `spike/identity-login-plane/`
+carries an informal in-spike "D20 handoff" label; that label is **not established spec** — no design
+decision, task, or requirement depends on it, and no core fragment-handoff capability is specified.
+The smoke keeps the token in its own page's memory and never hands it to the dashboard client.
+
+**Smoke (disposable).** `spike/identity-login-plane/` is a same-origin, plugin-served page that signs
+in against **real Keycloak**, holds the resulting token in the smoke page's **own memory**, then calls
+the dashboard API with `Authorization: Bearer` and mints/uses a WS ticket + message. It **never
+navigates the dashboard React UI**. It is disposable; nothing ships.
+
+### D21 — Self-lockout guard: enforcement arms only with a resolver AND a login provider
+
+**Problem (observed live, 2026-09-23).** With `keycloak-resolver` enabled + configured and **no**
+login provider registered, the plane went active: §9.2 refused every principal-less browser upgrade —
+**localhost included** — and no human could obtain a token. The dashboard UI rendered "Server offline"
+on every host; the only escape was editing `config.json` from a shell. Enabling one plugin bricked
+the UI.
+
+**Rejected fix — re-admit loopback on the WS.** Loopback is not a trust signal. `isGenuinelyLocal`
+= loopback peer + no `X-Forwarded-*`/`Forwarded`/`X-Real-IP`; that holds only while every proxy in
+front adds those headers. A same-host sidecar (Envoy/Istio, nginx), an L4 LB / HAProxy `mode tcp`,
+`kubectl port-forward`, `ssh -L`, or `socat` all arrive as `127.0.0.1` with no forwarding header —
+every remote user would look local. Rejected for split / load-balanced topologies.
+
+**Decision.** Identity is **enforced** ⇔ a trusted resolver is active **AND** a trusted plugin has
+registered a browser login descriptor (`BrowserLoginConfigRegistry.get() !== null`). One predicate,
+`isIdentityEnforced({ resolverActive, loginProviderRegistered })` (`identity/activation.ts`), feeds
+every enforcement road through one server-side closure (`identityEnforced` in `server.ts`):
+
+- the resolver dispatch hook (`registerResolverHook` `isEnforced` dep);
+- the §9.2 browser-upgrade identity-ticket requirement;
+- the gateway `isResolverActive` (owner gating, §8.2 per-item list filter, §8.3 choke point, fan-out);
+- the handler-context `isResolverActive`;
+- the D8 connector conflict (`auth.providers`) — an input to the predicate, never a boot abort
+  (see amendments).
+
+**Half-configured ⇒ INERT, never locked.** Resolver active without a login provider ⇒ the plane is
+inert: byte-for-byte pre-change behavior (D1) — genuine localhost uses the UI, remote access follows
+the legacy network guard / trusted networks / pairing. Nothing new is admitted, so the LB concern
+above does not re-open. The server logs once, before `listen()`
+(`identityDisarmedWarning`):
+`[identity] a principal resolver is configured but NO login provider is registered — identity is NOT
+enforced …`.
+
+**Terminology.** Throughout these specs "the resolver is active" / "while the resolver is active"
+now reads as **"identity is enforced"** (resolver active AND login provider registered). "Inert" =
+not enforced. D1's derivation is narrowed, not replaced: no mode flag is added.
+
+**Amendments from doubt-review (cycle 1).**
+- **Failed activation releases identity registrations.** The plugin loader tears down only a failed
+  plugin's WS routes. `IdentityRegistrationTracker` (`identity/identity-registration-tracker.ts`)
+  records each resolver / descriptor unregister handle per plugin; after `loadServerEntries`,
+  `releaseFailedIdentityRegistrations` disposes those of every plugin whose status is not `loaded`
+  and logs it. A login plugin that registers its descriptor and then throws cannot arm enforcement.
+- **D8 disarms instead of aborting.** `auth.providers` non-empty + active resolver no longer throws
+  `IdentityStartupError`; it is a third input to `isIdentityEnforced` (`authProviderCount === 0`).
+  A boot abort is itself a lockout, and adding a login plugin later must never make a booting
+  config unbootable. The connectors keep their pre-change behavior; the warning names the conflict.
+- **Every road, including the pre-auth ones, reads the same predicate.** `/auth/status`
+  (`descriptorActive: identityEnforced()`) and `GET /api/identity/login-config`
+  (`publicLoginConfig(identityEnforced() ? desc : null)`) no longer read the descriptor alone. A
+  descriptor with no active resolver advertises nothing and warns.
+- **Loopback is not authentication on the enforced path.** `browserLoginAuthStatus` no longer
+  reports a genuinely-local caller as authenticated while enforced — §9.2 refuses its principal-less
+  socket, so reporting it authenticated made the client show "Server offline" instead of
+  `auth_required`.
+- **`isEnforced` is a required hook dependency** — no silent fallback to `hasActiveResolver()`.
+- The warning is emitted before the readiness check, so it is visible even if readiness throws
+  (named-but-absent `trustedPolicyPlugin`).
+
+**Amendments from doubt-review (cycle 2).**
+- **One predicate, all conditions.** `isIdentityEnforced(input)` now also takes D9 policy readiness
+  (`trustedPolicyPlugin` + `registeredPolicyCount`). `assertIdentityReadiness` /
+  `IdentityStartupError` are removed: **no identity misconfiguration aborts boot.** Named-but-absent
+  or duplicate policy ⇒ inert + warning, like D8. All inputs are required fields (no opt-in default).
+- **Decided once, latched.** `server.ts` computes enforcement in one pre-listen block — outside the
+  loader `try`, so a loader throw cannot skip it — after `releaseFailedIdentityRegistrations`, and
+  stores it in `identityArmed`; `identityEnforced()` returns the latch. A runtime descriptor/resolver
+  unregister or a plugin toggle (already `restartRequired`) takes effect on restart; it can never flip
+  owner gating off for connected sockets mid-process.
+- **Policy registrations are tracked too** — a failed policy plugin's policy is released with its
+  resolver/descriptor, so a dead plugin never governs non-session roads.
+- **`/auth/status` is identity-aware whenever the legacy plugin did not register one.** The legacy
+  cookie plugin registers `/auth/status` only when its providers resolve; then D8 keeps identity
+  inert, so the cookie route is correct. Otherwise (no `auth` block, or an `auth` block with no
+  resolved providers) core registers the identity-aware route. Enforced ⇒ only a resolved bearer
+  **principal** is authenticated (not a device bearer, not loopback).
+
+**Amendments from doubt-review (cycle 3 — final).**
+- **D8 keys on what mounted, not on config keys.** `legacyConnectorsActive` =
+  `fastify.hasRoute(GET /auth/status)` right after `registerAuthPlugin` (the legacy plugin registers
+  its routes only when ≥1 provider resolves). An unresolvable `auth.providers` entry mounts nothing
+  and no longer disarms a correctly configured plane (previously it would have left the dashboard
+  with neither identity nor cookie auth).
+- **Registrations freeze at arming.** `IdentityRegistrationTracker.freeze()` runs right after the
+  latch: every handle a plugin holds becomes a logged no-op, and a registration attempted after
+  startup is refused with a warning (`refuseLateIdentityRegistration`). The advertised descriptor,
+  resolvers and policy therefore stay exactly the set enforcement was decided on — a runtime
+  unregister can neither disarm nor strand an armed plane without a login target; a late async
+  registration is visible in the log instead of silently ignored.
+- **Known unwired road.** `identity/host-access.ts` (`gateHttpNonSession` / `deliverDomainEvent`)
+  consults `PolicyRegistry.hasPolicy()` directly and has no production call site yet. When wired it
+  MUST gate on `identityEnforced()` first (tasks §18), or a loaded policy on an inert plane would 403
+  every principal-less non-session road.
+- Warning text is `[identity] identity is NOT enforced — <reasons>. The dashboard stays in its
+  pre-identity mode to prevent self-lockout; complete the identity setup to arm it.`
+
+**Out of scope — verified pre-existing gap (not introduced by D21).** The §9.2 identity-ticket rule
+covers the `browser` WS scope only. `terminal` / `live` upgrades keep the legacy allowances
+(loopback, local token, trusted network, principal-less ticket), and terminal fan-out
+(`terminal_added`) is not owner-filtered. Tracked in tasks §18 as a blocking security gap before any
+multi-user isolation claim.
+
+**Trade-offs.**
+- **Posture when half-configured is the pre-identity posture, not a hardened one.** Relative to the
+  previous (resolver-alone-arms) behavior, a half-configured dashboard now admits what the legacy
+  guard admits — genuine localhost, trusted networks, paired devices, legacy cookie auth. That is
+  intended: the previous posture was a total lockout, and an operator who has not finished setup has
+  not asked for identity enforcement. The warning makes the state visible.
+- A pure bearer-only deployment (no browser login at all) must still register a descriptor to arm
+  enforcement. The descriptor seam is the operator's explicit "humans can sign in here" statement;
+  the sanitizer keeps `loginUrl` a same-origin path, so an off-origin frontend registers a same-origin
+  path that redirects onward.
+- Not covered: a registered login provider whose IdP is **down or misconfigured** still arms
+  enforcement; recovery is `config.json` / CLI from the host. A boot-time IdP reachability probe
+  before arming is a possible follow-up, not in this change.
+- The identity E2E harness (`PI_E2E_IDENTITY=1`) seeds only `keycloak-resolver`; it must also seed a
+  trusted descriptor or it silently runs inert (tasks §18).

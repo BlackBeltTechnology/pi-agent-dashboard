@@ -19,15 +19,15 @@ The system SHALL allow at most one host access policy, registered only by the pl
 
 ### Requirement: Policy readiness is validated before listen
 
-When `identity.trustedPolicyPlugin` is named, the system SHALL verify before `listen()` that exactly one policy from that plugin is registered. A named-but-absent policy or a duplicate registration SHALL fail startup. An unnamed policy (the default) SHALL be valid.
+When `identity.trustedPolicyPlugin` is named, the system SHALL verify before `listen()` that exactly one policy from that plugin is registered. A named-but-absent policy or a duplicate registration SHALL keep identity from being enforced — the plane stays inert — and SHALL NOT abort startup, because a server that refuses to start is itself a lockout (design D21). The server SHALL log, before listening, that identity is NOT enforced and name the policy-count mismatch. An unnamed policy (the default) SHALL be valid.
 
-#### Scenario: Named-but-absent policy fails startup
+#### Scenario: Named-but-absent policy disarms identity instead of failing startup
 - **WHEN** `identity.trustedPolicyPlugin` names a plugin that registers no policy
-- **THEN** startup fails before serving requests
+- **THEN** startup succeeds, identity is not enforced, and the server logs the named-but-absent policy before listening
 
-#### Scenario: Duplicate policy fails startup
-- **WHEN** two plugins attempt to register the access policy
-- **THEN** startup fails rather than choosing one nondeterministically
+#### Scenario: Duplicate policy disarms identity rather than choosing one
+- **WHEN** two registrations of the access policy are attempted
+- **THEN** no policy is chosen nondeterministically, identity is not enforced, and the server logs the mismatch; startup still succeeds
 
 ### Requirement: Single host access policy contract
 

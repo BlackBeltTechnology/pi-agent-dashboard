@@ -29,6 +29,11 @@ When the resolver is active, a browser-scope WebSocket upgrade SHALL require a v
 - **WHEN** a browser on a trusted network attempts an upgrade while the resolver is active without a ticket
 - **THEN** the upgrade is refused
 
+#### Scenario: Resolver active without a login provider does not refuse the local operator
+- **WHEN** a trusted resolver is active but no login provider is registered (identity not enforced, design D21) and a genuinely-local browser upgrades without an identity ticket
+- **THEN** the upgrade is authorized exactly as before this change, so enabling a resolver alone never locks the operator out of the dashboard UI
+- **AND** no loopback, trusted-network, or forwarding-header allowance is added to the enforced path
+
 #### Scenario: Inert dashboard upgrades unchanged
 - **WHEN** the resolver is inert and a browser upgrades as it does today
 - **THEN** the upgrade succeeds exactly as before this change

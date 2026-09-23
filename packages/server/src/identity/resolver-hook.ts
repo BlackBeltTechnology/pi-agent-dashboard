@@ -23,6 +23,8 @@ import type { ResolverRegistry } from "./resolver-registry.js";
 
 export interface ResolverHookDeps {
   registry: ResolverRegistry;
+  /** Identity enforced? (D21 — resolver active AND login provider registered). */
+  isEnforced: () => boolean;
   /** Per-resolver timeout (ms) — config `identity.resolverTimeoutMs`. */
   timeoutMs: number;
   /** Configured public base URL for canonical `htu` (D6a); null → Host header. */
@@ -46,8 +48,8 @@ export function registerResolverHook(fastify: FastifyInstance, deps: ResolverHoo
   }
 
   fastify.addHook("onRequest", async (request: FastifyRequest, reply: FastifyReply) => {
-    // Inert: no trusted+configured resolver registered ⇒ make no claim.
-    if (!deps.registry.hasActiveResolver()) return;
+    // Inert (D21): identity not enforced ⇒ make no claim.
+    if (!deps.isEnforced()) return;
     const authState = request as { principal?: unknown; isAuthenticated?: boolean; authVia?: string };
     // A paired-device bearer is a device, never a human principal (D2). Do not
     // let any resolver reinterpret an already-verified device credential.

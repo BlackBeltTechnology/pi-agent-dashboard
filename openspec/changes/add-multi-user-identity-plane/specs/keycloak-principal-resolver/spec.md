@@ -86,11 +86,16 @@ The resolver SHALL obtain keys by OIDC discovery from the configured issuer (or 
 
 ### Requirement: An active resolver excludes confidential login connectors
 
-When the resolver is active (enabled and configured), a non-empty `auth.providers` (the confidential code→cookie login connectors) SHALL be a startup configuration error, because that path is not a resource-server validator and would create a second principal source and a principal-less cookie bypass. While the resolver is inert the connectors are unaffected.
+When the resolver is active (enabled and configured), `auth.providers` confidential code→cookie login connectors that actually resolve and mount SHALL prevent identity from being enforced (a configured entry that resolves to no provider mounts nothing and SHALL NOT disarm identity), because that path is not a resource-server validator and would create a second principal source and a principal-less cookie bypass. The conflict SHALL NOT abort startup (a server that refuses to start is itself a lockout, design D21): the identity plane SHALL stay inert — the connectors keep working exactly as before this change — and the server SHALL log, before listening, that identity is NOT enforced because of the `auth.providers` conflict. While the resolver is inert the connectors are unaffected.
 
-#### Scenario: Active resolver plus connectors fails startup
-- **WHEN** the resolver is active and `auth.providers` is non-empty
-- **THEN** startup fails with a configuration error before `listen()`
+#### Scenario: Active resolver plus connectors disarms identity instead of failing startup
+- **WHEN** the resolver is active, a login provider is registered, and at least one `auth.providers` connector resolves and mounts
+- **THEN** startup succeeds, identity is not enforced, and the pre-change connector behavior is unchanged
+- **AND** the server logs that identity is NOT enforced, naming the `auth.providers` conflict
+
+#### Scenario: An unresolvable connector entry does not disarm identity
+- **WHEN** the resolver is active, a login provider is registered, and `auth.providers` holds only entries that resolve to no provider (so no legacy cookie auth mounts)
+- **THEN** identity is enforced exactly as if `auth.providers` were empty
 
 ### Requirement: Issuer is pinned and matched exactly
 

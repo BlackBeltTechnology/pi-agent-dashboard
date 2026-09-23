@@ -112,6 +112,16 @@ Levels: **L1** unit (`packages/*/src/**/__tests__/*.test.ts`, vitest) · **L2** 
 
 ## Browser login gate (D16 — detachable; core routes, trusted plugin owns OIDC)
 
+**Scope note (D18/D19/D20).** LG-1..LG-20 characterize the **optional bundled dashboard-client
+adapter** — the dashboard's own React client as the frontend, with core mounting a trusted
+`login-provider` **component** (component-only; no `startLogin` function rides the manifest). They are
+NOT the current deployment (design.md D20) and are not fresh evidence for it. The descriptor shape
+under D19 is `{ pluginId }` plus exactly one usable kind — `{ issuer, clientId }` (component) or
+`{ loginUrl, logoutUrl }` (separate view) — with trust sourced from the **current**
+`identity.trustedResolverPlugins` allowlist (bundled id included); read the LG-1/LG-2 `browserClientId`
+wording as "a usable registered descriptor kind" (the `browserClientId`/`browserIssuer` config fields
+were dropped by D18). 
+
 | # | Class | Technique | Level | Disp. | INPUT → TRIGGER → OBSERVABLE |
 |---|---|---|---|---|---|
 | LG-1 | edge | decision-table | L1 | automated | Resolver active + trusted + server plugin registered `browserClientId` → `GET /api/identity/login-config` (no auth) → `{active:true, issuer(browser-reachable), clientId}`. |
@@ -139,4 +149,82 @@ Levels: **L1** unit (`packages/*/src/**/__tests__/*.test.ts`, vitest) · **L2** 
 
 **New infra needed (tasks §11.2, built in THIS repo):** the L3 rows require a docker E2E harness with a seeded Keycloak container (realm with Anna/Béla, roles identity-only), a fixture trusted policy plugin (for AP/FO/E2E-2 fan-out rows), and a token-minting test helper. The invoice-bot realm JSON exists in the other repo but no container runs here and it needs reseeding to drop group-based routing; that harness addition is a prerequisite for the L3 rows.
 
+## Independent frontend (D20 — current deployment; disposable real-Keycloak smoke)
+
+The browser frontend is the USER's own application; the dashboard is a backend resource server only
+and serves no login UI. A custom independent **server** plugin owns login/callback/logout, serves its
+own same-origin pages, and publishes only `{ pluginId, loginUrl, logoutUrl }` via
+`registerBrowserLoginConfig`. The smoke (`spike/identity-login-plane/`) keeps the token in its own
+page memory and NEVER navigates the dashboard React UI. **Status: one live run exists** — the spike's
+LAN harness `lan-e2e.mjs` passed against real Keycloak on the LAN (`192.168.0.157 8010`; spike node
+route tests 20/20 green), covering SM-1/SM-3/SM-4/SM-7 at HTTP/protocol level ONLY; SM-2/SM-5/SM-6
+remain UNRUN, the browser-RENDERED clickthrough is UNRUN, and an empty owned list is NOT an ownership
+result. The §13 LG-* checkmarks record the superseded component-adapter model and are not results for
+this path. Level L3, opt-in real-Keycloak harness (disposable smoke).
+
+| # | Class | Technique | Level | Disp. | INPUT → TRIGGER → OBSERVABLE |
+|---|---|---|---|---|---|
+| SM-1 | integration | scenario | L3 | automated | Real Keycloak (anna) + browser on the plugin-served same-origin page → sign in → authorize→code→token completes in the plugin's own pages, the token stays in the smoke page's OWN memory, the dashboard React UI is never mounted/navigated, and no token is handed to the dashboard client. |
+| SM-2 | edge | decision-table | L3 | automated | Plugin registers `{pluginId, loginUrl, logoutUrl}` → unauth `GET /api/identity/login-config` → `{active:true, pluginId, loginUrl, logoutUrl}` relayed + sanitized same-origin; plugin disabled or not in the CURRENT `identity.trustedResolverPlugins` allowlist → `{active:false}` with no details. |
+| SM-3 | edge | state | L3 | automated | In-memory token from the smoke page → `GET /api/sessions` WITH `Authorization: Bearer` → accepted, owner-scoped; the same call with NO bearer → refused (401/403), discloses nothing. |
+| SM-4 | edge | state-transition | L3 | automated | Same bearer → mint a browser-scope ws-ticket, upgrade with `?ticket=` only, exchange a message → mint 200 + single-use ticket, owner-scoped upgrade accepted, bootstrap/message received; ticketless upgrade refused; wrong-`aud` bearer at mint refused (401). |
+| SM-5 | integration | scenario | L3 | automated | Real KC anna + béla (distinct `(iss,sub)`) → each drives list/detail/WS bootstrap with its own bearer → each sees ONLY its own sessions; non-owner detail ⇒ 404 (no oracle); principal-less caller sees nothing. |
+| SM-6 | frontend-quirk | state-transition | L3 | automated | Token past `exp`; socket at `principalExpiresAt` → API call refused (401); socket closed (code 4001), subscriptions released, no retained ownership. |
+| SM-7 | edge | state | L3 | automated | D20 path with no core URL-fragment token adoption and no BFF/reverse proxy/global cookie → full sign-in → API → WS succeeds with the token never leaving the smoke page's memory; grep-guard: no core adoption of a `#access_token=` fragment (spike's informal label is not wired into core). |
+
+**Live evidence + accurate scope (LAN smoke run, `node lan-e2e.mjs 192.168.0.157 8010`):**
+
+- **SM-1 PARTIAL** — full server-side HTTP chain observed (`/identity-login/start` → KC authorize with
+  PKCE S256 + `pi_login_bind` binding cookie → credential POST → `/identity-login/callback` →
+  `/identity-login/app#access_token=…`); handoff stayed on the dashboard origin and targeted the PLUGIN
+  app, never `/`; no `localhost` in the hop chain; node test asserts the app page holds the token in
+  memory only. **UNRUN:** the browser-RENDERED clickthrough.
+- **SM-2 UNRUN** — the run never called `GET /api/identity/login-config`; descriptor relay/sanitize and
+  the current-allowlist trust filter are unexercised (the spike only CALLS
+  `registerBrowserLoginConfig`).
+- **SM-3 PARTIAL** — bearer `GET /api/sessions` ⇒ 200 (0 sessions: acceptance only); no-bearer ⇒ 403,
+  which is the non-loopback network guard, not an identity verdict. **0 sessions proves NO ownership
+  scoping.** (A no-bearer-200 Audit finding was disproved by this live 403 — do not carry it.)
+- **SM-4 PARTIAL** — ws-ticket mint 200; authenticated `?ticket=` upgrade ⇒ `sessions_snapshot` +
+  `sessions_page_result`; ticketless upgrade refused (403). **UNRUN:** wrong-`aud` mint 401, ticket
+  single-use, owner-scoped content.
+- **SM-5 UNRUN** — no second user through the D20 path. Also BLOCKED by the verified gap below.
+- **SM-6 UNRUN** — neither stale-token 401 nor socket expiry (close 4001).
+- **SM-7 PARTIAL** — the live flow handed the bearer only to `/identity-login/app`, so no dashboard-root
+  handoff; but the grep-guard FAILS as written — core ships `consumeTokenHandoff`
+  (`packages/client/src/main.tsx` + `lib/identity/handoff.ts`).
+
+**Verified security gap blocking SM-5:** `session-meta-handler.handleSessionsPage` / `handleListSessions`
+return sessions with no owner filter (`sessionManager.get(id)` / `listAll()`), and the §8.3 choke point
+gates `session` scope only, never `session-list` (per `identity/ws-message-scope.ts`). Needs a per-item
+filter + regression test before any isolation claim.
+
+
+## Self-lockout guard (D21 — enforcement arms only when fully configured; decided once, latched)
+
+| # | Class | Technique | Level | Disp. | INPUT → TRIGGER → OBSERVABLE |
+|---|---|---|---|---|---|
+| LK-1 | edge | decision-table | L1 | automated | `{resolverActive, loginProviderRegistered, authProviderCount, trustedPolicyPlugin, registeredPolicyCount}` matrix → `isIdentityEnforced` → true ONLY for resolver + login provider + 0 connectors + (no policy named OR exactly 1 registered); every other row false. |
+| LK-2 | error | decision-table | L1 | automated | Each partial/conflicting combination → `identityDisarmedWarning` → names every reason (no login provider / no resolver / `auth.providers` D8 / policy-count D9); null when inert-by-choice or armed. |
+| LK-3 | error | fault-injection | L1 | automated | Trusted plugin registers resolver + descriptor + policy, then activation throws → post-load release → all three registrations disposed, logged; a loaded plugin's registrations untouched; second release is a no-op. |
+| LK-4 | error | fault-injection | L1 | automated | Server boot with a trusted drop-in that registers a descriptor then throws, `keycloak-resolver` active → `createTestServer` boot → server listens, log shows release + "NOT enforced", `GET /api/identity/login-config` = `{active:false}`, ticketless genuinely-local browser `/ws` upgrade admitted. |
+| LK-5 | error | state-transition | L1 | automated | Boot with `identity.trustedPolicyPlugin` named-but-absent (and separately: duplicate) → `createTestServer` boot → boot succeeds, log names the D9 mismatch, plane inert. Same for resolver active + `auth.providers` connectors that RESOLVE and mount (D8). |
+| LK-13 | edge | EP | L1 | automated | Resolver + login provider + `auth.providers` entry that resolves to NO provider (e.g. no `issuerUrl`) → boot → legacy cookie auth not mounted, identity ENFORCED (no D8 disarm), no-token `/auth/status` `{authenticated:false,authEnabled:true}`. |
+| LK-6 | edge | EP | L1 | automated | Enforced; caller with no bearer principal (loopback, device bearer, nothing) → `GET /auth/status` → `{authenticated:false, authEnabled:true}`; with a resolved principal → `{authenticated:true, authEnabled:true}`; not enforced → `{authenticated:true, authEnabled:false}`. |
+| LK-7 | edge | decision-table | L1 | automated | `auth` block present but no provider resolves (legacy plugin registers no route) + enforced → `GET /auth/status` → the identity-aware route answers (not 404, not the cookie route); `auth` block WITH resolved providers → the legacy cookie route answers and identity is inert (D8). |
+| LK-8 | edge | state-transition | L1 | automated | Armed server; after `listen()` the login plugin calls its descriptor unregister handle (and separately its resolver / policy handle), and another trusted plugin attempts a late registration → subsequent request/upgrade → handles are logged no-ops, late registration refused + logged; enforcement unchanged (identity ticket still required, owner gating on); `login-config` still advertises the latched descriptor; no mixed state. |
+| LK-9 | edge | state | L1 | automated | Login descriptor registered, NO resolver active → boot → inert, `login-config` `{active:false}`, warning names the missing resolver. |
+| LK-10 | edge | state | L3 | automated | Identity E2E harness (`PI_E2E_IDENTITY=1`) must seed a trusted login descriptor in addition to `keycloak-resolver`, else it silently runs inert → `npm run test:e2e:identity` → the existing §11.2 isolation spec is green AGAINST AN ENFORCED plane (assert `login-config` `active:true` in global-setup). |
+| LK-11 | error | state | L3 | automated | Harness variant: `keycloak-resolver` seeded, NO login descriptor → rendered dashboard at the harness URL (genuinely local to the container) → the dashboard connects (no "Server offline"); a ticketless browser `/ws` upgrade is admitted. |
+| LK-12 | — | — | — | manual-only | Operator reads `server.log` on a half-configured install → the single `[identity] identity is NOT enforced — …` line is understandable and names what to fix; armed-without-token browser shows an auth-required state, not "Server offline". |
+
+**Verified pre-existing gap (not a D21 scenario; blocks any multi-user isolation claim):** §9.2 gates the `browser` WS scope only. `/ws/terminal/<id>` (`terminal/terminal-gateway.ts` `handleUpgrade` → `manager.attach`) performs no principal check and keeps the legacy loopback / local-token / trusted-network / principal-less-ticket allowances; every browser socket receives `terminal_added` for ALL terminals on connect (`pairing/browser-gateway.ts`, "Send active terminals on connect"). `live` scope likewise ungated. Tracked in tasks §18.
+
+---
+
+**Fold target:** SM-* rows fold into tasks §17. They are the D20 (**current deployment**)
+verification; the §13/LG-* rows fold into the optional bundled adapter only.
+
 **Fold target:** these rows fold into tasks §4–§12 (unit/L1 into their feature groups; L3 into §11.2; BC-* into §12; AP-5 session-road meta-test into §8; AP/FO policy rows into §7/§10). The browser login gate rows (LG-1..LG-20) fold into the new §13.
+
+**Fold target:** LK-* rows fold into tasks §18 (D21). Doubt-review ran 3 cycles (single-model; the `@propose-review-1` cross-model role probed empty).

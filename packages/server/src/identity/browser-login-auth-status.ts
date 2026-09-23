@@ -7,10 +7,10 @@
  *
  *   - No browser-login descriptor ⇒ the identity plane is inert; report the
  *     historical `{authenticated:true, authEnabled:false}` so nothing changes.
- *   - A descriptor IS active ⇒ an unauthenticated, non-genuinely-local caller
- *     is `{authenticated:false, authEnabled:true}` so the client escalates to
- *     the gate; a resolved bearer (`isAuthenticated`) OR a genuinely-local
- *     caller is authenticated.
+ *   - Identity ENFORCED (D21) ⇒ an unauthenticated caller — genuinely-local
+ *     included — is `{authenticated:false, authEnabled:true}` so the client
+ *     escalates to the gate; only a resolved bearer (`isAuthenticated`) is
+ *     authenticated.
  *
  * Pure so the (security-relevant) escalation trigger is unit-testable without
  * booting the server.
@@ -21,13 +21,15 @@ export interface AuthStatusResponse {
 }
 
 export function browserLoginAuthStatus(opts: {
-  /** A trusted resolver published a browser-login descriptor. */
-  descriptorActive: boolean;
-  /** The resolver hook resolved a valid bearer principal for this request. */
+  /** Identity is enforced (D21 latch). */
+  enforced: boolean;
+  /** The resolver hook resolved a bearer PRINCIPAL for this request (not a device bearer). */
   isAuthenticated: boolean;
-  /** The request is a genuinely-local (loopback, no proxy hop) caller. */
-  isGenuinelyLocal: boolean;
 }): AuthStatusResponse {
-  if (!opts.descriptorActive) return { authenticated: true, authEnabled: false };
-  return { authenticated: opts.isAuthenticated || opts.isGenuinelyLocal, authEnabled: true };
+  if (!opts.enforced) return { authenticated: true, authEnabled: false };
+  // D21: while enforced a genuinely-local caller is NOT authenticated — the §9.2
+  // upgrade refuses its principal-less socket, and loopback is not a trust
+  // signal behind a same-host proxy/LB. Reporting it authenticated would make
+  // the client settle on "offline" instead of `auth_required`.
+  return { authenticated: opts.isAuthenticated, authEnabled: true };
 }

@@ -89,3 +89,21 @@ export class BrowserLoginConfigRegistry {
     return this.current;
   }
 }
+
+/**
+ * Pre-auth `GET /api/identity/login-config` body. `null` ⇒ `{active:false}` and
+ * nothing else, so an inert (not-enforced, D21) dashboard discloses nothing.
+ */
+export function publicLoginConfig(desc: BrowserLoginConfig | null):
+  | { active: false }
+  | ({ active: true } & BrowserLoginConfig) {
+  if (!desc) return { active: false };
+  return {
+    active: true,
+    pluginId: desc.pluginId,
+    ...(desc.issuer ? { issuer: desc.issuer } : {}),
+    ...(desc.clientId ? { clientId: desc.clientId } : {}),
+    ...(desc.loginUrl ? { loginUrl: desc.loginUrl } : {}),
+    ...(desc.logoutUrl ? { logoutUrl: desc.logoutUrl } : {}),
+  };
+}

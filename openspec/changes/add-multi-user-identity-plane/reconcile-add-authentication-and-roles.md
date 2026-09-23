@@ -3,6 +3,15 @@
 Status: **for ruling** (no task is checked off yet; nothing implemented).
 Read this before §1 of `tasks.md`.
 
+> **HISTORICAL BANNER — kept verbatim, not rewritten (design.md D20).** This file records the
+> round-1 reconcile against initiative `add-authentication-and-roles`. Its "current proposal" columns
+> (§2, §3, §5) describe the pre-D16/D18/D19 design and are **not** the current model. The authoritative
+> current model is `proposal.md` + `design.md`, whose **D20** fixes the deployment: the browser
+> frontend is the user's own independent application; the dashboard is a backend resource server only;
+> a custom independent server plugin owns login/UI/callback/logout (no BFF, no proxy, no global
+> cookies, no new production IdP, no cross-origin trust). Sections below are historical record and are
+> not updated to D20.
+
 ## RULED so far
 
 - **R-G3 (activation) — `identity.mode` is removed.** There is no `legacy | multi-user` enum and no
