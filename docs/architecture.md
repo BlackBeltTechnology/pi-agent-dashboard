@@ -225,6 +225,50 @@ TypeScript type definitions shared across all components:
 - Unit tests: `packages/extension/src/__tests__/message-update-coalescer.test.ts`, `packages/extension/src/__tests__/bridge-coalesced-chat-order.test.ts`.
 - E2E test: `tests/e2e/coalesced-streaming.spec.ts`.
 
+### Bridge Event Forwarding Exclusions (change: filter-system-role-message-forwarding)
+
+**Why.**
+- pi `>= 0.86.0` makes system prompt + tool loadout transcript-backed.
+- First request of a session persists a `role:"system"` message carrying every prompt `section` + full `toolsAdded` declaration list.
+- Later prompt/tool changes persist further system messages.
+- `pi-agent-core` `agent-loop.js` emits that message as a BACK-TO-BACK `message_start` + `message_end` pair (same object); bridge forwarded both.
+- Measured ~150 KB per system message on a live 0.86.1 session.
+- `session_compact.compactionEntry` carries the SAME prompt-sections + tool-declaration blob in `compactionEntry.systemMessage`, plus the compaction `summary`.
+- `session_compact` had no dedicated bridge arm; it fell through to the shared forward tail and was serialized whole.
+
+**What changed.**
+- File: `packages/extension/src/bridge.ts`. Three sites.
+- `message_start` arm: early-return when `event.message?.role === "system"`, placed immediately AFTER the existing `role === "custom"` return.
+- `message_end` arm: same early-return, same placement.
+- New exported helper `redactCompactionEntry(event)` in `packages/extension/src/event-forwarder.ts`: returns a shallow COPY of the event with `compactionEntry` deleted.
+- Bridge applies it on the shared tail only for `session_compact`: `const forwardEvent = eventType === "session_compact" ? redactCompactionEntry(event as Record<string, unknown>) : event;` before `mapEventToProtocol`.
+- No version gate: pi `< 0.86` never emits the role; field omission is safe wherever the field is absent.
+- `assistantMessageGen` comment in `bridge.ts` widened from "(user and assistant)" to include the barrier-only `system` start.
+
+**Placement (why after the barrier).**
+- Both returns sit AFTER the coalescing barrier (`assistantMessageGen += 1;` + `coalescer.messageStart(...)` / `coalescer.messageEnd(...)`).
+- Barrier contract unchanged.
+- Entry-level flush choke point (`if (flushesParkedText(eventType)) coalescer.flush()` at handler entry) still runs first.
+- Placement is a consistency choice, not behavioural; the parked-snapshot ordering guarantee belongs to the entry choke point.
+
+**Redaction on a copy.**
+- Copy, never mutate: pi hands the SAME event object to every subscribed extension.
+- Generic `mapEventToProtocol` stays generic.
+
+**Why safe (no consumer).**
+- Client `session_compact` arm (`packages/client/src/lib/chat/event-reducer.ts`) reads only `reason`, `willRetry`, `estimatedPostCompactionTokens`; renders the compaction divider from the event's presence.
+- Server uses the event only to clear the `compacting` latch (`packages/server/src/session/event-status-extraction.ts`).
+- Replay path already synthesizes a metadata-free `session_compact` (`packages/shared/src/state-replay.ts`).
+- Live-vs-replay parity is defined on event type/position/timestamp only; this change does not alter that contract.
+
+**Accepted trade-offs.**
+- Sessions that already persisted system events are not evicted (forward-only); they replay until normal rotation removes them.
+
+**References.**
+- Design: `openspec/changes/filter-system-role-message-forwarding/` (D2/D6/D7).
+- Spec delta: `openspec/changes/filter-system-role-message-forwarding/specs/catch-all-event-forwarding/spec.md`.
+- Tests: `packages/extension/src/__tests__/bridge-coalesced-chat-order.test.ts`, `packages/extension/src/__tests__/event-forwarder.test.ts`.
+
 ### EventBus Forwarding Mechanism (subscription-based, change: fix-automation-run-lifecycle)
 
 **Host topology.**
@@ -1330,7 +1374,17 @@ pi/openspec/tsx are regular npm dependencies of `@blackbelt-technology/pi-dashbo
 
 `launchSource` (returned by `/api/health`) is `"electron" | "standalone" | "bridge"`, derived from `DASHBOARD_STARTER`. Client uses it via `useLaunchSource()` to hide pi-core update UI on Electron (immutable bundle has no writable target).
 
-Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `readCurrentPiVersion`, `computeCompatibility`) survive as pure helpers. The pinned range is `minimum: "0.85.1"`, `recommended: "0.85.1"`, `maximum: null` (lockstep — one supported pi means no conditional code paths in the bridge).
+Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `readCurrentPiVersion`, `computeCompatibility`) survive as pure helpers. The pinned range is `minimum: "0.85.1"`, `recommended: "0.85.1"`, `maximum: null` (lockstep — one supported pi means no conditional code paths on that artifact). `piCompatibility` unchanged: a `@earendil-works/pi-coding-agent` range, a DIFFERENT artifact from the pi-ai pin below.
+
+**pi-ai generation window.** Separately, the dashboard supports a two-generation **pi-ai** window through ONE declared seam: `packages/shared/src/piai-compat/` (`adaptPiAi(module, resolvedPath)`). Supported range `>=0.75.5 <0.87.0` (root `package.json` + `packages/extension/package.json` peerDependencies). Root devDependency pin moved `^0.75.5` → `^0.86.1`. Seam absorbs THREE boundary breaks, all in sibling entry points:
+
+- **Module shape.** Global-registry API (`registerBuiltInApiProviders`, `getModels`, `getProviders`, `getModel`, `streamSimple`, `registerApiProvider`, `unregisterApiProviders`) → factory API (`createModels`, `createProvider`).
+- **Transcript normalization.** Factory-path api implementations read only `context.messages`; seam calls the resolved runtime's own `normalizeContext` before dispatch, else systemPrompt + tools drop silently.
+- **OAuth relocation.** `dist/oauth.js` is `export {};` on >=0.85; real loaders at `dist/auth/oauth/*.js`, a path NOT in the package `exports` map.
+
+Conditional code CONFINED to that seam. `InternalRegistry`, `InternalAuthStorage` and every route handler stay generation-agnostic. `packages/extension/src/bridge.ts` streams through pi's own `ctx.modelRegistry.streamSimple` — removes a compat surface rather than adding one.
+
+See change: adopt-piai-factory-api-registry.
 
 #### Legacy `~/.pi-dashboard/` advisory
 
@@ -1603,7 +1657,7 @@ flowchart TD
 
 **Predicate gate** — `isBareReloadCommand` in `browser-handlers/session-action-helpers.ts`. `text === "/reload"` exactly, zero images, says nothing about session shape. Replaced old `shouldInterceptReload`, which also required a headless PID and thereby made kill-and-respawn the default.
 
-**Why no in-process path.** Earlier revision wrote `/__dashboard_reload` to the session's RPC keeper, on the claim that pi RPC mode runs the line through `session.prompt()` WITH command handling. Measured in the docker harness with `keeperLog.capturePiOutput = true`: it does not. pi's RPC `{type:"prompt"}` performs NO slash-command dispatch. Dispatched `/__dashboard_reload` arrived at the model as an ordinary user prompt and produced a full agent turn (`agent_start` → user message → assistant reply → `agent_end`). Control: pi built-in `/help` written to the same socket behaved identically — so not the `__` prefix, not our registration. Consequence: kill-and-respawn is the ONLY mechanism that reloads a headless session. Note: `rpc-keeper/dispatch-router.ts` `dispatch_extension_command` uses the same `writeRpc` + `{type:"prompt"}` mechanism and therefore has the same defect — separate live bug, own change.
+**Why no in-process path.** Earlier revision wrote `/__dashboard_reload` to the session's RPC keeper, on the claim that pi RPC mode runs the line through `session.prompt()` WITH command handling. Measured in the docker harness with `keeperLog.capturePiOutput = true` on pi < 0.84.2: it does not — pi's RPC `{type:"prompt"}` performed NO slash-command dispatch. Dispatched `/__dashboard_reload` arrived at the model as an ordinary user prompt and produced a full agent turn (`agent_start` → user message → assistant reply → `agent_end`). Control: pi built-in `/help` written to the same socket behaved identically — so not the `__` prefix, not our registration. (Pi >= 0.84.2 RPC `prompt()` defaults `expandPromptTemplates` ON; the original measurement predates that. Decision unaffected — `/__dashboard_reload` is STILL never written to the keeper.) Consequence: kill-and-respawn is the ONLY mechanism that reloads a headless session. The extension-slash `dispatch_extension_command` route used the same keeper `writeRpc` + `{type:"prompt"}` mechanism; it was retired by change `retire-slash-dispatch-via-expand-prompt-templates` (bridge dispatches in-process via `sendUserMessage({expandPromptTemplates: true})`).
 
 **Ladder step 1 — busy check.** `isReloadBusy` runs FIRST. Refuse if `session.compacting === true`. Refuse if `status === "streaming"` AND `piGateway.isSessionConnected(sessionId)`. Stale `streaming` on a bridge-dead session does NOT refuse — pinned there forever, and exactly what respawn rescues.
 
@@ -3882,9 +3936,9 @@ On Windows, `spawnDetached` uses `detached: true` which (via libuv's `src/win/pr
 
 ### RPC keeper sidecar
 
-Introduced by change `add-rpc-stdin-dispatch-with-keeper-sidecar`. Default and only headless spawn path as of change `enable-rpc-keeper-by-default`. Resolves typed extension slash commands (`/ctx-stats`, `/curator`, `/agents`, `/flows:*`) in headless dashboard sessions despite pi 0.74 `ExtensionAPI` exposing no `dispatchCommand`.
+Introduced by change `add-rpc-stdin-dispatch-with-keeper-sidecar`. Default and only headless spawn path as of change `enable-rpc-keeper-by-default`. Durable owner of pi's stdin across dashboard restarts. Extension slash-command dispatch was retired by change `retire-slash-dispatch-via-expand-prompt-templates` — the bridge dispatches in-process now; the keeper's JSON-line forward protocol is intact.
 
-Per-session keeper process owns pi's stdin pipe. Server writes RPC lines to keeper via UDS (Unix) or named pipe (Windows). Keeper forwards verbatim to pi's stdin. Pi's `--mode rpc` reader runs `session.prompt(text, {expandPromptTemplates: true})` which dispatches slash commands.
+Per-session keeper process owns pi's stdin pipe. Keeper forwards verbatim to pi's stdin. Server no longer writes extension-slash RPC lines to the keeper (`keeperManager.writeRpc`, `keeperManager.writeRpcToSockPath`, `headlessPidRegistry.writeRpc` removed; `dispatch-router.ts` deleted).
 
 Keeper outlives dashboard server restarts. Replaced Unix `tail -f /dev/null | pi` wrapper and Windows direct-stdin pipe. Uniform durability across Unix and Windows.
 
@@ -3897,7 +3951,7 @@ flowchart LR
   P["pi --mode rpc"]
   B["bridge.ts<br/>(loaded inside pi)"]
 
-  S -->|"UDS /<sessionId>.rpc.sock<br/>(slash dispatch only)"| K
+  S -.->|"UDS /<sessionId>.rpc.sock<br/>(no writer — slash dispatch retired)"| K
   K -->|"pi.stdin pipe<br/>(forward JSON lines)"| P
   P --- B
   B -->|"bridge WS<br/>(events, send_prompt non-slash, abort, model, etc.)"| S
@@ -3905,16 +3959,16 @@ flowchart LR
 
 UDS path: `~/.pi/dashboard/sessions/<sessionId>.rpc.sock`. Windows pipe: `\\.\pipe\pi-rpc-<sessionId>`. Keeper PID sidecar: `<sockPath>.pid`. Server scans on startup for orphan-cleanup + reattach.
 
-Protocol: line-framed JSON, fire-and-forget. Server writes `{"type":"prompt","message":"/cmd","id":"<requestId>"}\n`. Keeper forwards raw line; no parsing, no response. Acknowledgement implicit (UDS write success).
+Protocol: line-framed JSON, fire-and-forget. Keeper forwards the raw line to pi's stdin; no parsing, no response. The server-side writer (`{"type":"prompt","message":"/cmd","id":"<requestId>"}\n` via UDS write) had no remaining caller and was removed by change `retire-slash-dispatch-via-expand-prompt-templates`.
 
 Dual-channel boundary explicit:
 - **Bridge WS** owns: send_prompt non-slash, abort, model switch, thinking-level, compaction, rename, events, flow control.
-- **Server → keeper UDS** owns: extension slash dispatch only.
+- **Server → keeper UDS** owned: extension slash dispatch only — RETIRED. No writer remains; keeper still owns pi's stdin.
 - **headlessPidRegistry kill** owns: kill-by-pid for shutdown / force-kill / reload. `killBySessionId` escalates pi via shared `killProcess(pid, { timeoutMs: 2000 })` ladder (SIGTERM → 2 s → SIGKILL) — uniform with `handleForceKill`. See change: `fix-keeper-kill-escalation`.
 
-Bridge cannot reach `session.prompt` from inside pi 0.74. Server can (owns spawn + keeper). Routing slash dispatch through the channel that has the capability is correct given the constraint.
+Former constraint: bridge cannot reach `session.prompt` from inside pi. Pi >= 0.84.2 exposes the dispatch through `sendUserMessage({expandPromptTemplates: true})`; the handler runs inside pi, so the RPC route is no longer needed.
 
-Lifecycle: pi exits → keeper exits 0, unlinks socket + pid sidecar. Keeper crashes → pi reads EOF on stdin → exits. Force-kill → server kills pi PID first, schedules 200 ms keeper-fallback SIGTERM. Keeper `shutdown()` SIGKILLs `piChild` before `process.exit` (defence in depth) — closes orphan-pi gap when pi event loop hung (CPU loop / non-cancellable native call) and stdin EOF never observed. See change: `fix-keeper-kill-escalation`. Tmux / Windows-Terminal sessions retain the existing `command_feedback {error}` stopgap (terminal owns pi's stdin, no UDS route).
+Lifecycle: pi exits → keeper exits 0, unlinks socket + pid sidecar. Keeper crashes → pi reads EOF on stdin → exits. Force-kill → server kills pi PID first, schedules 200 ms keeper-fallback SIGTERM. Keeper `shutdown()` SIGKILLs `piChild` before `process.exit` (defence in depth) — closes orphan-pi gap when pi event loop hung (CPU loop / non-cancellable native call) and stdin EOF never observed. See change: `fix-keeper-kill-escalation`. Tmux / Windows-Terminal sessions dispatch extension slash commands in-process now (change `retire-slash-dispatch-via-expand-prompt-templates`); the old `command_feedback {error}` stopgap is gone.
 
 ### Server Log Hygiene
 
@@ -4151,12 +4205,41 @@ The dashboard supports browser-based authentication with pi's LLM providers, ena
 
 ### Flow
 
-1. **Settings UI** shows OAuth providers (Anthropic, Codex, GitHub Copilot, Gemini CLI, Antigravity) and API key providers
-2. **Auth-code flow** (Anthropic, Codex, Gemini, Antigravity): browser opens popup → provider consent → callback HTML relays code via `postMessage`/`BroadcastChannel`/`localStorage` → server exchanges code for tokens using PKCE
-3. **Device-code flow** (GitHub Copilot): server requests device code → UI shows user code + verification URL → server polls until authorized
-4. **API key flow**: user pastes key in Settings → saved directly
-5. All credentials written to `~/.pi/agent/auth.json` with lockfile + atomic write (`0600` permissions)
-6. Server broadcasts `credentials_updated` to all connected bridges → bridges call `reloadProviders(pi)` (to hot-register any newly-added custom providers from `~/.pi/agent/providers.json`) then `authStorage.reload()` and `modelRegistry.refresh()` so running pi sessions pick up new tokens and new providers immediately without a session restart
+1. **Settings UI** shows every sign-in-able provider the runtime registry exposes (see the delegated subsection below) plus API key providers
+2. **OAuth sign-in is delegated to pi-ai**: one adapter drives each provider's own `login()`; the pane renders whichever step the flow emits — an authorization URL, a device code, or an answerable prompt — and posts the answer back. No per-provider flow code
+3. **API key flow**: user pastes key in Settings → saved directly
+4. All credentials written to `~/.pi/agent/auth.json` with lockfile + atomic write (`0600` permissions)
+5. Server broadcasts `credentials_updated` to all connected bridges → bridges call `reloadProviders(pi)` (to hot-register any newly-added custom providers from `~/.pi/agent/providers.json`) then `authStorage.reload()` and `modelRegistry.refresh()` so running pi sessions pick up new tokens and new providers immediately without a session restart
+
+#### Provider OAuth sign-in (delegated to pi-ai)
+
+The dashboard supplies an `AuthInteraction` — not a flow. pi-ai's `login()` owns PKCE, the loopback callback listener, device-code polling, and the code-for-token exchange; the dashboard persists the returned credential through its existing locked, backed-up `writeCredential()`. No per-provider flow code remains. See change: delegate-provider-oauth-to-pi-ai.
+
+**Registry.** Built once, lazily, off the request path (`oauthRegistryReady()`), from `ModelRuntime.create({ modelsPath: null, credentials: EMPTY_READONLY_STORE })` — the empty read-only store keeps pi away from the dashboard's `auth.json`. `mapProviders()` filters `auth?.oauth` and excludes `radius` by id, yielding one `OAuthRegistryEntry { id, name, flowType, auth }` per sign-in-able provider. On pi-coding-agent `0.86.1` that set is the seven ids `anthropic`, `openai-codex`, `github-copilot`, `openrouter`, `kimi-coding`, `meta`, `xai`. `FLOW_TYPE_HINT` (`anthropic` / `openai-codex` / `openrouter` → `auth_code`, else `device_code`) is a UI hint only: it picks the Add-provider dialog's opening pane. The pane follows whatever the flow emits, so a wrong hint is cosmetic — `flowType` is never a gate.
+
+**Dependency pin.** The server imports only `@earendil-works/pi-coding-agent` (`await import(...)`, public index `ModelRuntime`), never `@earendil-works/pi-ai` and never either package's `dist/` (both unreachable — export maps / hoisted `0.75.5`). Binding to the pi-ai copy pi-coding-agent was built against gives version parity by construction. Six governed pins move together: `packages/server/package.json` dep `^0.86.1`, `piCompatibility.minimum`, `piCompatibility.recommended`, the `pnpm-workspace.yaml` override, `docker/Dockerfile`, and `scripts/verify-release-deps.mjs` `minVersion` (`checkPiPinCoherence`).
+
+**Routes** (`packages/server/src/routes/provider-auth-routes.ts`):
+
+| Route | Behaviour |
+|---|---|
+| `POST /api/provider-auth/start { provider, enterpriseDomain? }` | Supersedes any pending flow for the same provider (fixed callback port), starts `login()`, answers 200 `OAuthFlowStatus` on the first user-facing step; 400 unknown provider; 500 on a pre-event rejection; 504 `Provider did not respond` |
+| `GET /api/provider-auth/flow/:flowId` | `OAuthFlowStatus`; 404 `Invalid or expired flow` |
+| `POST /api/provider-auth/flow/:flowId/input { value }` | Resolves the pending prompt → 202 `{ ok: true }`; 409 `No input pending for this flow`; 404 as above |
+| `DELETE /api/provider-auth/flow/:flowId` | `cancelled = true; abort.abort()` → 204; 404 as above |
+
+`POST /api/provider-auth/authorize`, `POST /api/provider-auth/device-code`, and `GET /api/provider-auth/device-status/:flowId` are removed.
+
+**Flow record** (`packages/server/src/auth/provider-auth-adapter.ts`). Holds a STICKY `authUrl` plus a tagged `pending` union, never a single slot — an `auth_url` notify and a `manual_code` prompt arrive back-to-back, so the pane renders the link and the paste field together. `pending` kinds: `device_code` (render-only), `manual_code`, `text`, `select`; `secret` is rejected (`unsupported prompt: secret`) — no bundled provider issues it.
+
+- **Abort rule.** The flow controller REJECTS the pending prompt (`Cancelled`), not merely stops waiting. pi-ai's auth-code flows `await` a `manualPromise` whose `finally` closes the callback server; rejecting settles it, so the listener closes and the port frees. Waiting on the prompt-level signal alone would deadlock and leak the port.
+- **`preAnswers`.** `enterpriseDomain` pre-answers the flow's FIRST free-text prompt (blank = `github.com`) so it never becomes pending; discarded after the first prompt of any kind.
+- **Start handshake.** `POST /start` races the first renderable step, `login()` settling, and a 15 s `FLOW_START_TIMEOUT_MS` timer. `progress` / `info` are deliberately not first steps.
+- **Lifetime.** 10 min default; a numeric device-code `expiresInSeconds` raises `expiresAt` to `max(expiresAt, deadline + 60 s)`. Pruned on every provider-auth request and by a 60 s timer; a pruned pending flow is cancelled first. `expired` is derived from the device-code deadline, never from pi-ai's message text.
+
+**Input is a secret.** The `value` posted to `/flow/:flowId/input` may be an authorization code or a redirect URL carrying one. It is handed to the flow unchanged and never logged, persisted, or echoed. Flow ids are `crypto.randomUUID()` (UUID v4), so the capability is unguessable.
+
+**Degradation.** Any registry failure (`import()` throws, empty provider list, unknown shape) absorbs into an EMPTY registry, never a dead route: `/api/provider-auth/handlers` answers `{ ids: [] }`, `/api/health` carries `providerAuth.error` naming the resolved pi-coding-agent version (a skew, not a bare symptom), every other route keeps serving, and a stored OAuth credential stays visible and removable — `oauthIdSet()` unions the registry with any id holding a stored `{ type: "oauth" }` credential.
 
 ### Model metadata enrichment for custom providers
 
@@ -4192,10 +4275,12 @@ The endpoint resolves `$ENV_VAR` references and the `***` REDACTED sentinel (for
 
 | File | Purpose |
 |------|--------|
-| `src/server/provider-auth-handlers.ts` | Per-provider OAuth logic (PKCE, token exchange, project discovery) |
-| `src/server/provider-auth-storage.ts` | auth.json read/write with file locking |
-| `src/server/routes/provider-auth-routes.ts` | REST API for authorize, exchange, callback, device-code, API keys |
-| `src/client/components/ProviderAuthSection.tsx` | Settings UI component |
+| `src/server/auth/pi-oauth-types.ts` | Local structural types for pi-ai's OAuth surface (server never imports pi-ai) |
+| `src/server/auth/provider-auth-registry.ts` | Builds the OAuth registry once from `ModelRuntime` providers; empty registry + health error on failure |
+| `src/server/auth/provider-auth-adapter.ts` | `AuthInteraction` adapter + flow store (`startFlow`, `pruneFlows`, `abortAllFlows`) |
+| `src/server/auth/provider-auth-storage.ts` | auth.json read/write with file locking |
+| `src/server/routes/provider-auth-routes.ts` | REST: start / flow status / flow input / cancel, plus API keys |
+| `src/client/components/settings/ProviderAuthSection.tsx` | Settings UI component |
 
 ## Terminal Emulator
 

@@ -2,10 +2,12 @@
  * Read/write ~/.pi/agent/auth.json for pi provider credentials.
  * Uses lockfile + atomic write to avoid race conditions with running pi sessions.
  *
- * The OAuth provider list derives from the local handler registry
- * (`getAllHandlers()` in provider-auth-handlers.ts). The API-key list
+ * The OAuth provider list derives from the pi runtime's provider registry
+ * (`getOAuthRegistry()`), unioned with any id that already holds a stored
+ * `{ type: "oauth" }` credential — so a credential pi wrote for a provider the
+ * dashboard has no flow for is still visible and removable. The API-key list
  * derives from the bridge-pushed catalogue (provider-catalogue-cache.ts).
- * See change: replace-hardcoded-provider-lists.
+ * See changes: replace-hardcoded-provider-lists, delegate-provider-oauth-to-pi-ai.
  */
 
 import { createHash } from "node:crypto";
@@ -20,7 +22,10 @@ const _lockfile = _require("proper-lockfile") as typeof import("proper-lockfile"
 import type { ProviderAuthStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { ProviderInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { getLatestCatalogue } from "../package/provider-catalogue-cache.js";
-import { getAllHandlers, type ProviderHandler } from "./provider-auth-handlers.js";
+import {
+  getOAuthRegistry,
+  type OAuthRegistryEntry,
+} from "./provider-auth-handlers.js";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -355,41 +360,93 @@ export async function removeCredential(provider: string, expectedKind?: AuthCred
 // ── Pure status builder (testable) ───────────────────────────────────────────
 
 /**
+ * Every id treated as an OAuth row: the runtime registry ∪ any id already
+ * holding a stored `{ type: "oauth" }` credential.
+ *
+ * `_buildAuthStatus`, `resolveAuthJsonKey` and the DELETE route's row-kind
+ * check all read THIS ONE union, so a row's kind cannot differ between "what
+ * the list shows" and "what a removal addresses". A credential pi wrote for a
+ * provider the dashboard has no flow for is therefore visible and removable,
+ * not invisible-and-stuck.
+ * See change: delegate-provider-oauth-to-pi-ai (D1).
+ */
+export function oauthIdSet(authData: AuthData = readAuthJson()): Set<string> {
+  return oauthIdsFrom(getOAuthRegistry(), authData);
+}
+
+/**
+ * The same union, from an EXPLICIT registry — keeps `_buildAuthStatus` pure and
+ * testable while the production call site ({@link oauthIdSet}) reads the live
+ * one. The two must agree: in production `oauthEntries` IS the live registry.
+ */
+export function oauthIdsFrom(
+  entries: readonly OAuthRegistryEntry[],
+  authData: AuthData,
+): Set<string> {
+  const ids = new Set(entries.map((e) => e.id));
+  for (const [id, cred] of Object.entries(authData)) {
+    if (cred?.type === "oauth") ids.add(id);
+  }
+  return ids;
+}
+
+/**
+ * A permanent key obtained through an OAuth handshake (what OpenRouter issues)
+ * stores `refresh: ""` and a meaningless `expires`. Emit `null` so clients
+ * apply ONE null-check instead of provider-specific knowledge.
+ * See change: delegate-provider-oauth-to-pi-ai (D4).
+ */
+function oauthRowExpires(cred: OAuthCredential): number | null {
+  return cred.refresh ? cred.expires : null;
+}
+
+/**
  * Pure derivation of `ProviderAuthStatus[]` from auth.json data, the
- * bridge-pushed provider catalogue, and the local OAuth handler set.
+ * bridge-pushed provider catalogue, and the OAuth registry.
  * No I/O. See change: replace-hardcoded-provider-lists.
  */
 export function _buildAuthStatus(
   catalogue: ProviderInfo[],
   authData: AuthData,
-  oauthHandlers: ProviderHandler[],
+  oauthEntries: OAuthRegistryEntry[],
 ): ProviderAuthStatus[] {
   const statuses: ProviderAuthStatus[] = [];
-  const oauthIds = new Set(oauthHandlers.map((h) => h.providerId));
+  const oauthIds = oauthIdsFrom(oauthEntries, authData);
 
-  // OAuth rows from local handler registry.
-  for (const h of oauthHandlers) {
-    const cred = authData[h.providerId];
-    const hasOAuthCredential = !!(cred && cred.type === "oauth");
-    if (hasOAuthCredential) {
+  const pushOAuthRow = (
+    id: string,
+    name: string,
+    flowType: "auth_code" | "device_code",
+  ): void => {
+    const cred = authData[id];
+    if (cred?.type === "oauth") {
       statuses.push({
-        id: h.providerId,
-        name: h.displayName,
-        flowType: h.flowType,
+        id,
+        name,
+        flowType,
         authenticated: true,
-        expires: (cred as OAuthCredential).expires,
+        expires: oauthRowExpires(cred),
         configured: true,
         source: "stored",
       });
     } else {
-      statuses.push({
-        id: h.providerId,
-        name: h.displayName,
-        flowType: h.flowType,
-        authenticated: false,
-        configured: false,
-      });
+      statuses.push({ id, name, flowType, authenticated: false, configured: false });
     }
+  };
+
+  // OAuth rows from the runtime registry.
+  const registryIds = new Set<string>();
+  for (const entry of oauthEntries) {
+    registryIds.add(entry.id);
+    pushOAuthRow(entry.id, entry.name, entry.flowType);
+  }
+
+  // Stored OAuth credentials the registry does not list: written by pi (or an
+  // older dashboard) for a provider with no dashboard flow. Still connected —
+  // and still removable — just not re-loginable from here.
+  for (const [id, cred] of Object.entries(authData)) {
+    if (cred?.type !== "oauth" || registryIds.has(id)) continue;
+    pushOAuthRow(id, id, "device_code");
   }
 
   // API-key rows from bridge-pushed catalogue.
@@ -460,14 +517,16 @@ export function _buildAuthStatus(
 // ── Public API: status / OAuth meta / id resolution ─────────────────────────
 
 export function getAuthStatus(): ProviderAuthStatus[] {
-  return _buildAuthStatus(getLatestCatalogue(), readAuthJson(), getAllHandlers());
+  return _buildAuthStatus(getLatestCatalogue(), readAuthJson(), getOAuthRegistry());
 }
 
-export function getOAuthProvidersMeta(): OAuthProviderMeta[] {
-  return getAllHandlers().map((h) => ({
-    id: h.providerId,
-    name: h.displayName,
-    flowType: h.flowType,
+export function getOAuthProvidersMeta(
+  entries: readonly OAuthRegistryEntry[] = getOAuthRegistry(),
+): OAuthProviderMeta[] {
+  return entries.map((e) => ({
+    id: e.id,
+    name: e.name,
+    flowType: e.flowType,
   }));
 }
 
@@ -481,11 +540,10 @@ export function getOAuthProvidersMeta(): OAuthProviderMeta[] {
  * matching the previous behavior.
  */
 export function resolveAuthJsonKey(providerId: string): string {
-  const oauthIds = new Set(getAllHandlers().map((h) => h.providerId));
-  // <id>-api suffix → strip suffix iff the bare id is an OAuth handler.
+  // <id>-api suffix → strip suffix iff the bare id is an OAuth id.
   if (providerId.endsWith("-api")) {
     const bare = providerId.slice(0, -"-api".length);
-    if (oauthIds.has(bare)) return bare;
+    if (oauthIdSet().has(bare)) return bare;
   }
   return providerId;
 }

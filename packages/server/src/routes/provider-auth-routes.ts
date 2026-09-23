@@ -1,22 +1,48 @@
 /**
- * REST routes for browser-based pi provider authentication.
+ * REST routes for pi provider authentication — OAuth sign-in plus API keys.
+ *
+ * OAuth is delegated: every flow (PKCE, the loopback callback listener,
+ * device-code polling, the code-for-token exchange) belongs to the pi runtime's
+ * own `login()`. This module is the host side — it starts a flow, reports what
+ * the flow is waiting on, forwards the operator's answer, and cancels. It never
+ * constructs an authorization URL.
+ *
+ * See change: delegate-provider-oauth-to-pi-ai (D2, D6, D7).
  */
+
+
+// Delegate to the shared platform primitive. The cross-OS dispatch
+// (open/start/xdg-open) and URL escaping live in
+// `packages/shared/src/platform/commands.ts`.
+// See change: consolidate-platform-handlers.
+import { openBrowser as platformOpenBrowser } from "@blackbelt-technology/pi-dashboard-shared/platform/commands.js";
 import type { FastifyInstance } from "fastify";
-import { startCallbackServer } from "../auth/oauth-callback-server.js";
 import {
-  type AuthCodeHandler,
-  type DeviceCodeHandler,
-  generatePKCE,
-  generateState,
-  getAllHandlers,
-  getProviderHandler,
-  type PKCEPair,
+  abortAllFlows,
+  cancelFlow,
+  deleteFlow,
+  FLOW_START_TIMEOUT_MS,
+  getFlow,
+  type OAuthFlow,
+  pendingFlowsFor,
+  pruneFlows,
+  SUPERSEDE_SETTLE_TIMEOUT_MS,
+  startFlow,
+  startFlowPruneTimer,
+  type StartedFlow,
+  toFlowStatus,
+} from "../auth/provider-auth-adapter.js";
+import {
+  getOAuthRegistry,
+  type OAuthRegistryEntry,
 } from "../auth/provider-auth-handlers.js";
+import { oauthRegistryReady } from "../auth/provider-auth-registry.js";
 import {
   type ApiKeyCredential,
   CredentialTypeConflictError,
   getAuthStatus,
   getOAuthProvidersMeta,
+  oauthIdSet,
   removeCredential,
   resolveAuthJsonKey,
   writeCredential,
@@ -26,69 +52,129 @@ import { getLatestCatalogue, isCatalogueReady } from "../package/provider-catalo
 import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import type { PiGateway } from "../pi/pi-gateway.js";
 
-// ── In-memory flow store (short-lived PKCE + device code state) ──────────────
-
-interface AuthCodeFlow {
-  providerId: string;
-  pkce: PKCEPair;
-  state: string;
-  redirectUri: string;
-  createdAt: number;
-}
-
-interface DeviceCodeFlow {
-  providerId: string;
-  deviceCode: string;
-  interval: number;
-  expiresIn: number;
-  extra?: Record<string, unknown>;
-  status: "pending" | "complete" | "error" | "expired";
-  error?: string;
-  createdAt: number;
-}
-
-const authCodeFlows = new Map<string, AuthCodeFlow>();
-const deviceCodeFlows = new Map<string, DeviceCodeFlow>();
-
-// Expire flows after 10 minutes
-const FLOW_TTL_MS = 10 * 60 * 1000;
-
-function pruneFlows() {
-  const now = Date.now();
-  for (const [id, f] of authCodeFlows) {
-    if (now - f.createdAt > FLOW_TTL_MS) authCodeFlows.delete(id);
-  }
-  for (const [id, f] of deviceCodeFlows) {
-    if (now - f.createdAt > FLOW_TTL_MS) deviceCodeFlows.delete(id);
-  }
-}
-
-function makeFlowId(): string {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-// Delegate to the shared platform primitive. The cross-OS dispatch
-// (open/start/xdg-open) and URL escaping live in
-// `packages/shared/src/platform/commands.ts`.
-// See change: consolidate-platform-handlers.
-import { openBrowser as platformOpenBrowser } from "@blackbelt-technology/pi-dashboard-shared/platform/commands.js";
-
-/** Open a URL in the system's default browser */
+/**
+ * Open a URL in the system's default browser.
+ *
+ * Suppressed under vitest: the route tests register these routes for real and
+ * drive a scripted fake flow whose `auth_url` events carry fixture URLs
+ * (`claude.ai/oauth/authorize?code=true&state=fake-state`, …). Without this
+ * guard every `npm test` run spawns real `open`/`xdg-open` calls and hijacks
+ * the developer's browser. Same defense-in-depth shape as
+ * `auth/test-env-guard.ts`.
+ */
 function openInBrowser(url: string): void {
+  if (process.env.VITEST === "true") {
+    console.warn("[provider-auth] browser open suppressed under vitest:", url);
+    return;
+  }
   platformOpenBrowser(url, {
     onError: (err) => console.error("[provider-auth] Failed to open browser:", err.message),
   });
+}
+
+export interface ProviderAuthRouteDeps {
+  piGateway: PiGateway;
+  browserGateway: BrowserGateway;
+  /**
+   * Registry override. Production reads the bootstrap-built registry; tests
+   * inject a scripted set so no real provider flow is ever started.
+   */
+  oauthRegistry?: OAuthRegistryEntry[];
+  /** Readiness-gate override paired with {@link oauthRegistry}. */
+  oauthReady?: Promise<void>;
+}
+
+/**
+ * Bound how long a supersede waits for the outgoing flow to release its
+ * callback port. The wait is the point — a fixed port cannot be bound twice —
+ * but it must never hang `/start`.
+ */
+async function waitForSettle(flow: OAuthFlow): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      flow.settled,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, SUPERSEDE_SETTLE_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
+ * Cancel any pending flow for `provider` and WAIT for its listener to close.
+ *
+ * A provider's callback port is fixed (53692 / 1455) and registered with the
+ * provider, so a second start cannot bind it until the first flow's `finally`
+ * ran — which happens only once its pending prompt is rejected, i.e. once
+ * `login()` settled. Skipping the wait trades a clean 200 for an EADDRINUSE.
+ */
+async function supersedePendingFlows(provider: string): Promise<void> {
+  for (const existing of pendingFlowsFor(provider)) {
+    cancelFlow(existing);
+    await waitForSettle(existing);
+  }
+}
+
+/** Which branch of the start handshake won. */
+type StartOutcome = "step" | "settled" | "timeout";
+
+/**
+ * Answer `POST /start` once the flow produced its first user-facing step, or
+ * settled, or went quiet for {@link FLOW_START_TIMEOUT_MS}. The timer is
+ * cleared whichever branch wins.
+ */
+async function awaitStartOutcome(started: StartedFlow): Promise<StartOutcome> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      started.firstEvent.then((): StartOutcome => "step"),
+      started.settled.then((): StartOutcome => "settled"),
+      new Promise<StartOutcome>((resolve) => {
+        timer = setTimeout(() => resolve("timeout"), FLOW_START_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 // ── Route registration ───────────────────────────────────────────────────────
 
 export function registerProviderAuthRoutes(
   fastify: FastifyInstance,
-  deps: { piGateway: PiGateway; browserGateway: BrowserGateway },
+  deps: ProviderAuthRouteDeps,
 ) {
-  const { piGateway, browserGateway } = deps;
+  const { piGateway } = deps;
+  const registry = (): OAuthRegistryEntry[] => deps.oauthRegistry ?? getOAuthRegistry();
+  // Resolved ONCE, at registration: production kicks the build off at boot (so
+  // the first request rarely waits for the ~330 ms runtime import); tests inject
+  // a settled promise and never touch the SDK.
+  const registryReady: Promise<void> = deps.oauthReady ?? oauthRegistryReady();
+  /**
+   * Per-provider `/start` chain. A provider's callback port is fixed, so
+   * `supersede → start → bind` MUST be atomic per provider: without this,
+   * two overlapping starts both observe "no pending flow" and race to bind
+   * 53692 / 1455, turning a legitimate supersede into an EADDRINUSE 500.
+   * One entry per provider (the tail of its chain), so the map stays bounded.
+   */
+  const startTails = new Map<string, Promise<void>>();
+
+  function queueStart<T>(provider: string, run: () => Promise<T>): Promise<T> {
+    const tail = startTails.get(provider) ?? Promise.resolve();
+    // `run` on BOTH outcomes: a failed predecessor must not wedge the provider.
+    const next = tail.then(run, run);
+    startTails.set(
+      provider,
+      next.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+    return next;
+  }
 
   function notifyBridges() {
     // Tell every bridge to reload auth.json + refresh its model registry.
@@ -101,21 +187,36 @@ export function registerProviderAuthRoutes(
     refreshModelRegistry().catch(() => {});
   }
 
-  // List OAuth providers
-  fastify.get("/api/provider-auth/providers", async () => {
-    return getOAuthProvidersMeta();
+  // A flow record whose start already failed must not linger: the caller got a
+  // non-2xx and has no id to poll.
+  function forgetFlow(flow: OAuthFlow): void {
+    cancelFlow(flow);
+    deleteFlow(flow.id);
+  }
+
+  const stopPruneTimer = startFlowPruneTimer();
+  fastify.addHook("onClose", async () => {
+    stopPruneTimer();
+    abortAllFlows();
   });
 
-  // List provider ids the dashboard's hand-written handler registry can
-  // drive. Catalogue ids absent here = OAuth providers the UI knows about
-  // but the dashboard cannot complete a login flow for. See change:
-  // adopt-pi-071-072-073-features.
+  // List OAuth providers (id, name, flowType) from the runtime registry.
+  fastify.get("/api/provider-auth/providers", async () => {
+    await registryReady;
+    return getOAuthProvidersMeta(registry());
+  });
+
+  // List provider ids the dashboard can drive a login flow for. Catalogue ids
+  // absent here = OAuth providers the UI knows about but cannot complete a
+  // login for. See change: adopt-pi-071-072-073-features.
   fastify.get("/api/provider-auth/handlers", async () => {
-    return { ids: getAllHandlers().map((h) => h.providerId) };
+    await registryReady;
+    return { ids: registry().map((e) => e.id) };
   });
 
   // Full status (OAuth + API key)
   fastify.get("/api/provider-auth/status", async () => {
+    await registryReady;
     // Cold-cache nudge: if no bridge has pushed a catalogue yet, ask
     // every connected pi to send one. Best-effort, doesn't block this
     // response. See change: replace-hardcoded-provider-lists.
@@ -136,97 +237,102 @@ export function registerProviderAuthRoutes(
     return { ready: isCatalogueReady() };
   });
 
-  // Start auth-code flow — opens system browser, starts temp callback server
-  fastify.post<{ Body: { provider: string } }>("/api/provider-auth/authorize", async (request, reply) => {
-    pruneFlows();
-    const { provider } = request.body ?? {};
-    const handler = getProviderHandler(provider);
-    if (!handler || handler.flowType !== "auth_code") {
-      return reply.code(400).send({ error: `Unknown auth-code provider: ${provider}` });
-    }
-    const h = handler as AuthCodeHandler;
-    const pkce = await generatePKCE();
-    const state = generateState();
-    const redirectUri = `http://localhost:${h.callbackPort}${h.callbackPath}`;
-    const authUrl = h.buildAuthUrl(redirectUri, state, pkce);
-    const flowId = makeFlowId();
-    authCodeFlows.set(flowId, { providerId: provider, pkce, state, redirectUri, createdAt: Date.now() });
-
-    // Start temp callback server to receive the OAuth redirect
-    try {
-      await startCallbackServer({
-        providerId: provider,
-        port: h.callbackPort,
-        path: h.callbackPath,
-        onCode: async (code, cbState) => {
-          const flow = Array.from(authCodeFlows.values()).find(
-            (f) => f.providerId === provider && f.state === (cbState || state),
-          );
-          if (!flow) throw new Error("Unknown or expired flow");
-          // Remove the flow
-          for (const [id, f] of authCodeFlows) {
-            if (f === flow) { authCodeFlows.delete(id); break; }
-          }
-          const credential = await h.exchangeCode(code, flow.redirectUri, flow.pkce, flow.state);
-          await writeCredential(flow.providerId, credential);
-          notifyBridges();
-        },
-      });
-    } catch (err: any) {
-      return reply.code(500).send({ error: err.message });
-    }
-
-    // Open the auth URL in the system browser
-    openInBrowser(authUrl);
-
-    return { flowId, authUrl };
-  });
-
-  // Start device-code flow
-  fastify.post<{ Body: { provider: string; enterpriseDomain?: string } }>(
-    "/api/provider-auth/device-code",
+  // Start a sign-in flow of any shape. Answers once the flow produced its
+  // first user-facing step (authorization URL, device code, or an answerable
+  // prompt), or failed, or went quiet for 15 s.
+  fastify.post<{ Body: { provider?: unknown; enterpriseDomain?: unknown } }>(
+    "/api/provider-auth/start",
     async (request, reply) => {
+      await registryReady;
       pruneFlows();
-      const { provider, enterpriseDomain } = request.body ?? {};
-      const handler = getProviderHandler(provider);
-      if (!handler || handler.flowType !== "device_code") {
-        return reply.code(400).send({ error: `Unknown device-code provider: ${provider}` });
+
+      const body = request.body ?? {};
+      const provider = typeof body.provider === "string" ? body.provider : "";
+      const entry = registry().find((e) => e.id === provider);
+      if (!entry) {
+        return reply.code(400).send({ error: `Unknown OAuth provider: ${provider}` });
       }
-      const h = handler as DeviceCodeHandler;
-      try {
-        const dc = await h.requestDeviceCode(enterpriseDomain);
-        const flowId = makeFlowId();
-        deviceCodeFlows.set(flowId, {
-          providerId: provider,
-          deviceCode: dc.deviceCode,
-          interval: dc.interval,
-          expiresIn: dc.expiresIn,
-          extra: dc.extra,
-          status: "pending",
-          createdAt: Date.now(),
+
+      // Serialized per provider: see `queueStart`.
+      let started: StartedFlow | undefined;
+      let outcome: StartOutcome = "timeout";
+      await queueStart(provider, async () => {
+        await supersedePendingFlows(provider);
+
+        started = startFlow({
+          provider,
+          loginFlow: entry.auth,
+          // A blank string is meaningful ("github.com"); null / 42 / absent are
+          // not pre-answers at all.
+          preAnswers:
+            typeof body.enterpriseDomain === "string" ? [body.enterpriseDomain] : [],
+          writeCredential,
+          notifyBridges,
+          openInBrowser,
         });
-        // Start polling in background
-        pollDeviceCode(flowId, h).catch(() => {});
-        return {
-          flowId,
-          userCode: dc.userCode,
-          verificationUri: dc.verificationUri,
-          expiresIn: dc.expiresIn,
-          interval: dc.interval,
-        };
-      } catch (err: any) {
-        return reply.code(400).send({ error: err.message });
+        outcome = await awaitStartOutcome(started);
+      });
+      // `queueStart` always assigned `started` (it cannot reject without doing
+      // so, and `run` never throws past this point).
+      if (!started) return reply.code(500).send({ error: "Provider login failed" });
+
+      if (outcome === "timeout") {
+        forgetFlow(started.flow);
+        return reply.code(504).send({ error: "Provider did not respond" });
       }
+      if (outcome === "settled" && started.flow.status !== "complete") {
+        // Failed before producing anything to render: there is no id worth
+        // polling, so the message travels in this response.
+        const message = started.flow.error ?? "Provider login failed";
+        forgetFlow(started.flow);
+        return reply.code(500).send({ error: message });
+      }
+      return toFlowStatus(started.flow);
     },
   );
 
-  // Poll device-code status
+  // Poll a flow's status.
   fastify.get<{ Params: { flowId: string } }>(
-    "/api/provider-auth/device-status/:flowId",
+    "/api/provider-auth/flow/:flowId",
     async (request, reply) => {
-      const flow = deviceCodeFlows.get(request.params.flowId);
-      if (!flow) return reply.code(404).send({ error: "Unknown flow" });
-      return { status: flow.status, error: flow.error };
+      await registryReady;
+      pruneFlows();
+      const flow = getFlow(request.params.flowId);
+      if (!flow) return reply.code(404).send({ error: "Invalid or expired flow" });
+      return toFlowStatus(flow);
+    },
+  );
+
+  // Answer the flow's currently pending prompt. The value may be a secret
+  // (authorization code / a redirect URL carrying one), so it is handed to the
+  // flow unchanged and NEVER logged, persisted, or echoed back.
+  fastify.post<{ Params: { flowId: string }; Body: { value?: unknown } }>(
+    "/api/provider-auth/flow/:flowId/input",
+    async (request, reply) => {
+      await registryReady;
+      pruneFlows();
+      const flow = getFlow(request.params.flowId);
+      if (!flow) return reply.code(404).send({ error: "Invalid or expired flow" });
+      const resolve = flow.resolveInput;
+      if (!resolve) {
+        return reply.code(409).send({ error: "No input pending for this flow" });
+      }
+      resolve(typeof request.body?.value === "string" ? request.body.value : "");
+      return reply.code(202).send({ ok: true });
+    },
+  );
+
+  // Cancel a flow. The record stays readable until pruned so the caller can
+  // observe `status: "error", error: "Cancelled"`.
+  fastify.delete<{ Params: { flowId: string } }>(
+    "/api/provider-auth/flow/:flowId",
+    async (request, reply) => {
+      await registryReady;
+      pruneFlows();
+      const flow = getFlow(request.params.flowId);
+      if (!flow) return reply.code(404).send({ error: "Invalid or expired flow" });
+      cancelFlow(flow);
+      return reply.code(204).send();
     },
   );
 
@@ -234,6 +340,7 @@ export function registerProviderAuthRoutes(
   fastify.put<{ Body: { provider: string; key: string } }>(
     "/api/provider-auth/api-key",
     async (request, reply) => {
+      await registryReady;
       const { provider, key } = request.body ?? {};
       if (!provider || !key) return reply.code(400).send({ error: "provider and key required" });
       try {
@@ -263,17 +370,21 @@ export function registerProviderAuthRoutes(
   // Remove credential. A refusal (cross-type removal per D2/X2, or corrupt
   // auth.json whose bytes could not be backed up) maps to the SAME { error,
   // code, vars } shape PUT returns, so the Settings UI can show why. See
-  // changes: fix-corrupt-auth-json-500, redesign-providers-settings-page.
+  // changes: fix-corrupt-auth-json-500, redesign-providers-settings-page,
+  // delegate-provider-oauth-to-pi-ai (the row-kind union now includes ids with
+  // a stored OAuth credential that the registry does not list).
   fastify.delete<{ Params: { provider: string } }>(
     "/api/provider-auth/:provider",
     async (request, reply) => {
+      await registryReady;
       try {
         const rawId = request.params.provider;
-        // The kind of the row the removal was addressed to: "oauth" for a
-        // handler id (the Subscription row), "api_key" otherwise — including
-        // an `<id>-api` twin, which resolves to the bare id. A stored OAuth
-        // credential must not be revocable through the api-key row (X2).
-        const isOAuthRow = getAllHandlers().some((h) => h.providerId === rawId);
+        // The kind of the row the removal was addressed to: "oauth" for an
+        // OAuth id (the Subscription row, registry-listed or stored), "api_key"
+        // otherwise — including an `<id>-api` twin, which resolves to the bare
+        // id. A stored OAuth credential must not be revocable through the
+        // api-key row (X2).
+        const isOAuthRow = oauthIdSet().has(rawId);
         const authJsonKey = resolveAuthJsonKey(rawId);
         await removeCredential(authJsonKey, isOAuthRow ? "oauth" : "api_key");
       } catch (err: any) {
@@ -291,24 +402,4 @@ export function registerProviderAuthRoutes(
       return { ok: true };
     },
   );
-
-  // ── Device-code background poller ──────────────────────────────────────────
-
-  async function pollDeviceCode(flowId: string, handler: DeviceCodeHandler) {
-    const flow = deviceCodeFlows.get(flowId);
-    if (!flow) return;
-    try {
-      const credential = await handler.pollForToken(
-        flow.deviceCode, flow.interval, flow.expiresIn, flow.extra,
-      );
-      // Awaited: `complete` must not be reported before the credential is on
-      // disk. See change: fix-provider-auth-lock-contention.
-      await writeCredential(flow.providerId, credential);
-      notifyBridges();
-      flow.status = "complete";
-    } catch (err: any) {
-      flow.status = err.message?.includes("expired") ? "expired" : "error";
-      flow.error = err.message;
-    }
-  }
 }

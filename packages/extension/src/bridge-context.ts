@@ -146,23 +146,6 @@ export function isExtensionSlashCommand(
 }
 
 /**
- * Feature-detect upstream `pi.dispatchCommand(text, opts)` (pi 0.71+).
- * Returns true iff `dispatchCommand` resolves to a function on the supplied
- * object. Fast path uses a direct `typeof` access; when that is false an
- * `in`-operator fallback with a guarded `typeof` detects getter-backed /
- * Proxy-hidden properties. Returns false for null/undefined and non-functions.
- * See change: resolve-global-prompt-templates-from-dashboard.
- */
-export function hasDispatchCommand(pi: unknown): boolean {
-  if (pi == null) return false;
-  if (typeof (pi as any).dispatchCommand === "function") return true;
-  if ("dispatchCommand" in (pi as object)) {
-    return typeof (pi as any).dispatchCommand === "function";
-  }
-  return false;
-}
-
-/**
  * Pure predicate: is this bridge running inside a dashboard-spawned
  * headless `pi --mode rpc` session?
  *

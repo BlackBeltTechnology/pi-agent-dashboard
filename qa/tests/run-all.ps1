@@ -13,6 +13,7 @@ $tests = @(
     "12-openspec-shim.ps1",   # extensionless openspec shim resolves via Git Bash, no node on PATH. See change: provision-openspec-cli-in-sessions.
     "22-worktree-separator.ps1",   # `.worktrees/` entries classify in-tree on `\` separators. See change: manage-worktrees-filter-cleanup.
     "32-origin-gate.ps1"   # header-less mutation allowed, cross-site mutation 403 (#X5). See change: fix-ws-origin-cswsh.
+    "35-plugin-install-load.ps1"   # clean prefix: discovery non-empty + browser enabled + no load error + no path outside the prefix (#X7–#X11). See change: fix-browser-plugin-vendor-specifier-resolution.
 )
 
 $passed = 0

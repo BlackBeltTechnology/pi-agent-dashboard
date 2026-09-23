@@ -43,8 +43,8 @@ The dialog SHALL open on a searchable picker listing every provider that is NOT 
 
 After selection the dialog SHALL present the pane the provider's `flowType` requires:
 
-- `auth_code` — a browser sign-in action.
-- `device_code` — the user code and verification URL, plus the explicit "Open Registration Page" action, and (for GitHub Copilot) the GitHub Enterprise domain prompt before the flow starts.
+- `auth_code` — a browser sign-in action. Once the flow reports a pending prompt, the pane SHALL additionally render that prompt (paste field, text field, or choice list) while keeping the sign-in link visible.
+- `device_code` — the user code and verification URL, plus the explicit "Open Registration Page" action, and (for GitHub Copilot) the GitHub Enterprise domain prompt before the flow starts. The same pane serves every device-code provider. `flowType` is a hint for which pane opens first; the pane SHALL follow whatever step the started flow actually reports.
 - `api_key` — a key field, plus the provider's `envVar` name as a hint when the status row carries one.
 - custom endpoint — name, base URL, api type, and key fields, plus a **Test** action.
 
@@ -55,6 +55,17 @@ The dialog SHALL validate before writing: an empty key SHALL NOT be submitted, a
 - **WHEN** the operator selects a provider whose `flowType` is `auth_code`
 - **THEN** the pane SHALL offer a browser sign-in action
 - **AND** SHALL NOT present a key field
+
+#### Scenario: Auth-code pane grows a paste field when the flow asks for one
+
+- **WHEN** the started flow reports `pending.kind: "manual_code"`
+- **THEN** the pane SHALL show a paste field beneath the still-visible sign-in link
+- **AND** SHALL NOT replace or hide the link
+
+#### Scenario: Auth-code pane offers a method choice when the flow asks for one
+
+- **WHEN** the started flow reports `pending.kind: "select"`
+- **THEN** the pane SHALL present one action per option and SHALL start no browser action until one is chosen
 
 #### Scenario: Empty key cannot be submitted
 

@@ -116,7 +116,7 @@
     "@biomejs/biome": "2.5.11",
     "@blackbelt-technology/pi-dashboard-bus-client": "^0.8.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
-    "@earendil-works/pi-ai": "^0.75.5",
+    "@earendil-works/pi-ai": "^0.86.1",
     "@playwright/test": "1.62.1",
     "acorn": "^8.17.0",
     "jiti": "^2.7.0",
@@ -131,7 +131,7 @@
     "yaml": "^2.9.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": ">=0.75.5",
+    "@earendil-works/pi-ai": ">=0.75.5 <0.87.0",
     "@earendil-works/pi-coding-agent": ">=0.80.10",
     "@earendil-works/pi-tui": ">=0.80.10",
     "@mariozechner/pi-ai": ">=0.73.1",
