@@ -8,6 +8,9 @@
  *
  * See change: update-pi-core-0-85-adopt-apis (test-plan #E1/#E2/#E3).
  */
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { checkPiPinCoherence } from "../verify-release-deps.mjs";
 
@@ -67,5 +70,78 @@ describe("checkPiPinCoherence — six governed pins", () => {
   it("missing a governed pin is reported", () => {
     expect(check(serverPkg(`^${V}`, V), "no pin here", workspace(V))).toContain("missing");
     expect(check(serverPkg(`^${V}`, V), dockerfile(V), "no override here")).toContain("missing");
+  });
+});
+
+/**
+ * test-plan E28 — the gate is what actually holds the repo's OWN six pins
+ * together at HEAD, not just synthetic fixtures.
+ *
+ * The floor asserted here is `0.86.1` (the version that bundles the `meta`
+ * OAuth provider) rather than an exact equality: the requirement is
+ * "`^0.86.1` or later, and every other pin agrees", so a later lockstep bump
+ * must NOT have to edit this test. What it forbids is a pin below the floor or
+ * any disagreement between the six surfaces.
+ * See change: delegate-provider-oauth-to-pi-ai (D3).
+ */
+describe("repo HEAD — six governed pins agree at or above the meta floor", () => {
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+  const read = (rel) => fs.readFileSync(path.join(repoRoot, rel), "utf8");
+  const FLOOR = "0.86.1";
+
+  const serverPkg = JSON.parse(read("packages/server/package.json"));
+  const dockerfileText = read("docker/Dockerfile");
+  const workspaceYamlText = read("pnpm-workspace.yaml");
+  const checkerText = read("scripts/verify-release-deps.mjs");
+
+  const checkerPin = checkerText.match(
+    /dep:\s*"@earendil-works\/pi-coding-agent"[\s\S]*?minVersion:\s*"([^"]+)"/,
+  )?.[1];
+
+  const floorOf = (value) => String(value ?? "").match(/(\d+\.\d+\.\d+)/)?.[1];
+
+  it("the six-pin coherence gate passes on the real tree", () => {
+    expect(
+      checkPiPinCoherence(serverPkg, dockerfileText, workspaceYamlText, checkerPin),
+    ).toBeNull();
+  });
+
+  it("every governed pin resolves at or above the floor", () => {
+    const dockerPin = dockerfileText.match(
+      /@earendil-works\/pi-coding-agent@(\S+)/,
+    )?.[1];
+    const overridePin = workspaceYamlText.match(
+      /^\s*"@earendil-works\/pi-coding-agent":\s*(\S+)/m,
+    )?.[1];
+
+    const pins = {
+      "server dep": serverPkg.dependencies["@earendil-works/pi-coding-agent"],
+      "piCompatibility.minimum": serverPkg.piCompatibility.minimum,
+      "piCompatibility.recommended": serverPkg.piCompatibility.recommended,
+      "docker/Dockerfile": dockerPin,
+      "pnpm-workspace.yaml override": overridePin,
+      "verify-release-deps.mjs minVersion": checkerPin,
+    };
+
+    for (const [name, value] of Object.entries(pins)) {
+      const floor = floorOf(value);
+      expect(floor, `${name} must declare a version`).toBeTruthy();
+      expect(
+        floor.localeCompare(FLOOR, undefined, { numeric: true }) >= 0,
+        `${name} = "${value}" is below the ${FLOOR} floor`,
+      ).toBe(true);
+    }
+  });
+
+  it("the checker reaches the coherence gate at all (not vacuous)", () => {
+    // A drifted fixture MUST fail, so a green run above cannot be vacuous.
+    const drifted = checkPiPinCoherence(
+      { ...serverPkg, piCompatibility: { ...serverPkg.piCompatibility, minimum: "0.78.0" } },
+      dockerfileText,
+      workspaceYamlText,
+      checkerPin,
+    );
+    expect(drifted).toBeTruthy();
+    expect(drifted).toContain("piCompatibility.minimum");
   });
 });

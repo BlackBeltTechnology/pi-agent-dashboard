@@ -29,6 +29,7 @@ import {
   sameReachability,
 } from "../auth/bind-reachability-service.js";
 import { localhostGuard } from "../auth/localhost-guard.js";
+import { getRegistryError } from "../auth/provider-auth-registry.js";
 import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
 import type { DirectoryService } from "../directory-service.js";
 import {
@@ -914,6 +915,14 @@ export function registerSystemRoutes(
     try { eventLoopSpikesSnap = eventLoopSpikes?.snapshot() ?? eventLoopSpikesSnap; } catch { /* keep empty */ }
     let notifyLogStats = { evictedEntries: 0, bySession: {} as Record<string, number> };
     try { notifyLogStats = browserGateway?.getNotifyLogStats?.() ?? notifyLogStats; } catch { /* keep zeros */ }
+    // Provider-OAuth readiness. Failure-isolated like the other telemetry reads:
+    // when the pi runtime exposes no provider definitions, sign-in is
+    // unavailable but EVERY other route keeps serving, and the message names
+    // the resolved pi-coding-agent version so the operator can see a version
+    // skew rather than a bare symptom.
+    // See change: delegate-provider-oauth-to-pi-ai (D3).
+    let providerAuthError: string | null = null;
+    try { providerAuthError = getRegistryError(); } catch { /* keep null */ }
     const activeSessions = sessionManager.listActive();
     const agentMetrics = activeSessions
       .filter(s => s.processMetrics)
@@ -953,6 +962,9 @@ export function registerSystemRoutes(
       // Count of pi WebSocket connections held by the pi-gateway. Feeds the
       // bridge-orphan promotion below and future Doctor advisories.
       activeBridgeCount: piGateway?.connectionCount() ?? 0,
+      /** `{ error: null }` when the OAuth registry built; otherwise the reason
+       * (naming the resolved pi-coding-agent version) sign-in is unavailable. */
+      providerAuth: { error: providerAuthError },
       // Bridge-contention observability: `bridgeContentionCount` is cumulative
       // for the process lifetime (a rule firing too often), while
       // `contendedSessionIds` is what an operator needs mid-incident and

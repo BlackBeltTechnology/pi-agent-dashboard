@@ -2228,10 +2228,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       await browserGateway.headlessPidRegistry.cleanupOrphans();
 
       // Wire the singleton KeeperManager into the headless-pid registry so
-      // `writeRpc` can forward `dispatch_extension_command` lines to the
-      // session's keeper UDS, and so `cleanupKeeperOrphans` can reattach
-      // surviving keepers after a server restart. Same instance the spawn
-      // path uses. See change: add-rpc-stdin-dispatch-with-keeper-sidecar.
+      // `cleanupKeeperOrphans` can reattach surviving keepers after a server
+      // restart. Same instance the spawn path uses. The registry no longer
+      // writes RPC lines: `dispatch_extension_command` is retired (the bridge
+      // dispatches in-process) as of change
+      // retire-slash-dispatch-via-expand-prompt-templates.
+      // See change: add-rpc-stdin-dispatch-with-keeper-sidecar.
       try {
         browserGateway.headlessPidRegistry.setKeeperWriter(getKeeperManager());
         const keeperAliveIds = await browserGateway.headlessPidRegistry.cleanupKeeperOrphans();
@@ -3376,8 +3378,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       for (const t of terminalManager.list()) {
         try { terminalManager.kill(t.id); } catch {}
       }
-      // Close any pending OAuth callback servers
-      try { const { closeAllCallbackServers } = await import("./auth/oauth-callback-server.js"); await closeAllCallbackServers(); } catch {}
+      // Abort every in-flight provider OAuth flow (releases callback ports,
+      // stops device-code polls).
+      try { const { abortAllFlows } = await import("./auth/provider-auth-adapter.js"); abortAllFlows(); } catch {}
       // Close second port before main server
       if (secondFastify) {
         try { await secondFastify.close(); } catch { /* ignore */ }

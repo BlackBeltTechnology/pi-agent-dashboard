@@ -9,44 +9,29 @@
  * clobber in `writeCredential` itself: a write whose credential `type` differs
  * from the stored one THROWS (all call sites ignore return values — a return
  * value would be silent), and each surface reports the refusal: 409 on the
- * api-key route, the callback error page for auth-code, `flow.status = "error"`
- * for device-code. See change: redesign-providers-settings-page (D2).
+ * api-key route and `flow.status = "error"` for a completed sign-in (see
+ * `provider-auth-flow-lifecycle.test.ts` X7).
+ * See change: redesign-providers-settings-page (D2).
  */
 import fs from "node:fs";
-import http from "node:http";
-import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { registerProviderAuthRoutes } from "../routes/provider-auth-routes.js";
+import { abortAllFlows } from "../auth/provider-auth-adapter.js";
 import {
   type OAuthCredential,
   readAuthJson,
   removeCredential,
   writeCredential,
 } from "../auth/provider-auth-storage.js";
-import { closeAllCallbackServers, startCallbackServer } from "../auth/oauth-callback-server.js";
+import { registerProviderAuthRoutes } from "../routes/provider-auth-routes.js";
 
 const authDir = path.join(os.homedir(), ".pi", "agent");
 const authPath = path.join(authDir, "auth.json");
 
 function oauthCred(expires = Date.now() + 3_600_000): OAuthCredential {
   return { type: "oauth", refresh: "r", access: "a", expires };
-}
-
-/**
- * The refusal `writeCredential` throws once D2 lands. Asserted DUCK-TYPED
- * (`code`/`storedType` properties) so the RED run fails on behavior — the
- * write silently succeeding — not on a missing class export.
- */
-function credentialTypeConflict(provider: string, storedType: string): Error {
-  return Object.assign(
-    new Error(
-      `"${provider}" already holds a ${storedType} credential. Remove it before writing a replacement.`,
-    ),
-    { code: "provider_auth.credential_type_conflict", storedType, provider },
-  );
 }
 
 let originalAuth: string | null = null;
@@ -57,11 +42,11 @@ beforeEach(() => {
 afterEach(async () => {
   if (originalAuth !== null) fs.writeFileSync(authPath, originalAuth);
   else fs.rmSync(authPath, { force: true });
-  await closeAllCallbackServers();
+  abortAllFlows();
 });
 
 function seedAuth(data: Record<string, unknown>): string {
-  const bytes = JSON.stringify(data, null, 2) + "\n";
+  const bytes = `${JSON.stringify(data, null, 2)}\n`;
   fs.writeFileSync(authPath, bytes);
   return bytes;
 }
@@ -112,40 +97,6 @@ describe("cross-type credential refusal (X1–X5)", () => {
     // The stored key must be untouched.
     expect(readStoredBytes()).toBe(before);
     expect(readAuthJson().anthropic).toEqual({ type: "api_key", key: "sk-stored" });
-  });
-
-  it("X3 (auth-code surface): the callback error page renders the refusal", async () => {
-    const srv = net.createServer();
-    srv.on("error", () => {});
-    const port = await new Promise<number>((resolve) => {
-      srv.listen(0, "127.0.0.1", () => {
-        const p = (srv.address() as net.AddressInfo).port;
-        srv.close(() => resolve(p));
-      });
-    });
-
-    // The wired onCode in provider-auth-routes calls `writeCredential`, which
-    // throws the typed refusal; the callback server renders whatever onCode
-    // throws on its error page. This pins that surface with the refusal shape.
-    await startCallbackServer({
-      providerId: "conflict-test-provider",
-      port,
-      path: "/callback",
-      timeoutMs: 5000,
-      onCode: async () => {
-        throw credentialTypeConflict("anthropic", "api_key");
-      },
-    });
-
-    const body = await new Promise<string>((resolve, reject) => {
-      http.get(`http://localhost:${port}/callback?code=abc&state=s`, (res) => {
-        let b = "";
-        res.on("data", (c) => (b += c));
-        res.on("end", () => resolve(b));
-      }).on("error", reject);
-    });
-    expect(body).toContain("api_key");
-    expect(body).toMatch(/remove it before/i);
   });
 
   it("X4: remove-first makes the refused write possible", async () => {

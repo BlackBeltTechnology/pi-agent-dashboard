@@ -65,9 +65,11 @@ const RULES = [
       "0.85.0/0.85.1 line carries ZERO upstream breaking changes. 0.85.1 (not " +
       "0.85.0) is the target because 0.85.0 unintentionally published internal " +
       "experimental code and deps (pi#9132), breaking SDK imports; 0.85.1 reverts " +
-      "that and restores the ./client compatibility entry point. " +
-      "See change: update-pi-core-0-85-adopt-apis.",
-    minVersion: "0.85.1",
+      "that and restores the ./client compatibility entry point. 0.86.1 adds the " +
+      "`meta` OAuth provider, and is the floor the server's OAuth registry " +
+      "(ModelRuntime-sourced, delegated to pi-ai) is verified against. " +
+      "See change: delegate-provider-oauth-to-pi-ai.",
+    minVersion: "0.86.1",
   },
   {
     pkgPath: "packages/server/package.json",
@@ -186,7 +188,8 @@ export function checkPiPinCoherence(
   if (!checkerPin) missing.push("verify-release-deps.mjs minVersion");
   if (missing.length > 0) {
     return (
-      "pi pin coherence: missing a governed pi pin " + `(${missing.join(", ")} absent)`
+      "pi pin coherence: missing a governed pi pin " +
+      `(${missing.join(", ")} absent)`
     );
   }
 

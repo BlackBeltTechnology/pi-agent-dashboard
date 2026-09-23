@@ -47,7 +47,7 @@ overrides:
   # untouched, so this override is permanently necessary).
   # Caught by the docker harness, not by any unit test.
   # See change: update-pi-core-0-85-adopt-apis.
-  "@earendil-works/pi-coding-agent": 0.85.1
+  "@earendil-works/pi-coding-agent": 0.86.1
 
 # pnpm 11 treats un-approved dependency build scripts as a FATAL error
 # (ERR_PNPM_IGNORED_BUILDS, non-zero exit) — which would red every CI

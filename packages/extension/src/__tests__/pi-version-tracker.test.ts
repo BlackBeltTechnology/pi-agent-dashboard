@@ -9,6 +9,7 @@ import {
   sendPiVersionIfChanged,
   _resetPiVersionCache,
   readPkgVersionByWalkUp,
+  readRunningPiVersion,
 } from "../model-tracker.js";
 import type { BridgeContext } from "../bridge-context.js";
 
@@ -106,6 +107,125 @@ describe("readPkgVersionByWalkUp", () => {
       () => { throw new Error("should not read"); },
       () => false,
     );
+    expect(v).toBeUndefined();
+  });
+});
+
+/**
+ * `readRunningPiVersion` — the argv-anchored reader that gates slash-command
+ * dispatch. See change: retire-slash-dispatch-via-expand-prompt-templates
+ * (design D3; test-plan E8, E9, E10-half).
+ */
+describe("readRunningPiVersion", () => {
+  /** A fake filesystem keyed by absolute path. */
+  function fsStub(files: Record<string, string>) {
+    return {
+      readFile: (p: string) => {
+        const f = files[p];
+        if (f === undefined) throw new Error(`ENOENT ${p}`);
+        return f;
+      },
+      fileExists: (p: string) => p in files,
+    };
+  }
+
+  it("E1 (symlinked install): a bin-symlink argv[1] is realpath-ed before the walk-up", () => {
+    // `node_modules/.bin/pi` and `/usr/local/bin/pi` are SYMLINKS to the package
+    // entry, and Node does NOT realpath `argv[1]`. Without resolution the walk-up
+    // starts in `.bin/`, finds no pi manifest within the depth bound, and answers
+    // `undefined` — so the gate would "assume new" and an OLD pi would receive
+    // the raw slash as a model turn.
+    const root = "/repo/node_modules/@earendil-works/pi-coding-agent";
+    const resolved: string[] = [];
+    const v = readRunningPiVersion("/repo/node_modules/.bin/pi", {
+      realpath: (p) => {
+        resolved.push(p);
+        return `${root}/dist/bundle/cli.js`;
+      },
+      ...fsStub({
+        [`${root}/package.json`]: JSON.stringify({
+          name: "@earendil-works/pi-coding-agent",
+          version: "0.84.1",
+        }),
+      }),
+    });
+    expect(resolved).toEqual(["/repo/node_modules/.bin/pi"]);
+    expect(v).toBe("0.84.1");
+  });
+
+  it("a failing realpath falls back to the literal argv[1] (no throw)", () => {
+    const root = "/x/node_modules/@mariozechner/pi-coding-agent";
+    const v = readRunningPiVersion(`${root}/dist/cli.js`, {
+      realpath: () => {
+        throw new Error("ENOENT");
+      },
+      ...fsStub({
+        [`${root}/package.json`]: JSON.stringify({
+          name: "@mariozechner/pi-coding-agent",
+          version: "0.73.1",
+        }),
+      }),
+    });
+    expect(v).toBe("0.73.1");
+  });
+
+  it("E8: reads the @mariozechner build the process actually runs inside", () => {
+    const root = "/x/node_modules/@mariozechner/pi-coding-agent";
+    const v = readRunningPiVersion(
+      `${root}/dist/cli.js`,
+      fsStub({
+        [`${root}/package.json`]: JSON.stringify({
+          name: "@mariozechner/pi-coding-agent",
+          version: "0.73.1",
+        }),
+      }),
+    );
+    expect(v).toBe("0.73.1");
+  });
+
+  it("E9: argv anchor wins over a hoisted newer by-name copy", () => {
+    // The hoisted earendil copy a by-name resolver would find is NEWER (0.85.1)
+    // than the copy the process runs inside (0.80.10). Reading the hoisted copy
+    // would wave the command through on a pi that cannot honor
+    // `expandPromptTemplates` — exactly the silent-regression this reader
+    // closes. Both manifests are on the fake fs; only the argv walk is read.
+    const running = "/user/local/node_modules/@earendil-works/pi-coding-agent";
+    const hoisted = "/repo/node_modules/@earendil-works/pi-coding-agent";
+    const v = readRunningPiVersion(
+      `${running}/dist/bundle/cli.js`,
+      fsStub({
+        [`${running}/package.json`]: JSON.stringify({
+          name: "@earendil-works/pi-coding-agent",
+          version: "0.80.10",
+        }),
+        [`${hoisted}/package.json`]: JSON.stringify({
+          name: "@earendil-works/pi-coding-agent",
+          version: "0.85.1",
+        }),
+      }),
+    );
+    expect(v).toBe("0.80.10");
+  });
+
+  it("E10 half: no matching manifest on the walk-up → undefined, no throw", () => {
+    const v = readRunningPiVersion(
+      "/nowhere/dist/cli.js",
+      fsStub({ "/nowhere/package.json": JSON.stringify({ name: "something-else", version: "1.0.0" }) }),
+    );
+    expect(v).toBeUndefined();
+  });
+
+  it("missing argv[1] → undefined, no throw", () => {
+    expect(readRunningPiVersion(undefined, fsStub({}))).toBeUndefined();
+  });
+
+  it("an unreadable manifest → undefined, no throw", () => {
+    const v = readRunningPiVersion("/x/dist/cli.js", {
+      readFile: () => {
+        throw new Error("EACCES");
+      },
+      fileExists: () => true,
+    });
     expect(v).toBeUndefined();
   });
 });

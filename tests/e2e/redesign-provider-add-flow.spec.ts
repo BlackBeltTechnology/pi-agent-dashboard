@@ -2,8 +2,8 @@ import { expect, type Page, test } from "./fixtures.js";
 import {
   openAddPicker,
   openProvidersSettings,
-  providerStatusRow,
   type ProviderStatusFixture,
+  providerStatusRow,
   routeProviderData,
 } from "./helpers/index.js";
 
@@ -16,7 +16,7 @@ import {
  * poll timers and outcome. These scenarios stage `GET /api/provider-auth/status`
  * with `page.route` (the repo's established fault-injection pattern) and drive
  * the REAL dialog, the REAL picker and the REAL section-owned flow loop above
- * it — including a deferred `POST /authorize` fulfillment to prove a refusal
+ * it — including a deferred `GET /flow/:flowId` fulfillment to prove an error
  * that lands after the dialog closed still surfaces on the section (X6).
  */
 
@@ -41,27 +41,56 @@ test.describe("redesign-providers-settings-page — Add-provider flow (L3)", () 
     const data = routeProviderData(page, {
       statuses: [unconfiguredAuthCode("anthropic", "Anthropic"), unconfiguredAuthCode("openai", "OpenAI")],
     });
-    await page.route("**/api/provider-auth/authorize", (route) =>
+    // The delegated contract (delegate-provider-oauth-to-pi-ai): the client
+    // starts ONE flow and observes it through GET /flow/:flowId — no
+    // /authorize route, no device-code pair.
+    const flowId = "flow-e2e-anthropic";
+    await page.route("**/api/provider-auth/start", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ authUrl: "https://example.com/oauth/authorize" }),
+        body: JSON.stringify({
+          flowId,
+          provider: "anthropic",
+          status: "pending",
+          authUrl: "https://example.com/oauth/authorize",
+          pending: { kind: "manual_code", message: "Paste the redirect URL" },
+        }),
+      }),
+    );
+    let complete = false;
+    await page.route("**/api/provider-auth/flow/*", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(
+          complete
+            ? { flowId, provider: "anthropic", status: "complete" }
+            : {
+                flowId,
+                provider: "anthropic",
+                status: "pending",
+                authUrl: "https://example.com/oauth/authorize",
+                pending: { kind: "manual_code", message: "Paste the redirect URL" },
+              },
+        ),
       }),
     );
     await openProvidersSettings(page);
 
-    // Start an auth-code sign-in from the dialog.
+    // Start a sign-in from the dialog.
     const picker = await openAddPicker(page);
     await picker.getByRole("option", { name: /^Anthropic/ }).click();
     await page.getByTestId("dialog-sign-in").click();
     await expect(page.getByTestId("dialog-flow-waiting")).toBeVisible();
 
-    // Dismiss the dialog WHILE the flow polls.
+    // Dismiss the dialog WHILE the section polls the flow.
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("provider-add-dialog")).toHaveCount(0);
 
-    // The provider becomes configured server-side AFTER the dismissal — only
-    // a still-running poll (reading the RAW status array) can observe it.
+    // The flow completes server-side AFTER the dismissal — only the
+    // section-owned poll can observe it (the dialog is gone).
+    complete = true;
     data.serveStatuses([
       providerStatusRow({
         id: "anthropic",
@@ -223,33 +252,47 @@ test.describe("redesign-providers-settings-page — Add-provider flow (L3)", () 
   });
 
   // ── X6 — a refusal that lands after the dialog closed surfaces inline ─────
-  test("X6: a write refused after the dialog closed renders the refusal on the section, provider not connected", async ({
+  test("X6: a flow error landing after the dialog closed renders on the section, provider not connected", async ({
     page,
   }) => {
     const pageErrors = collectPageErrors(page);
     routeProviderData(page, {
       statuses: [unconfiguredAuthCode("anthropic", "Anthropic"), unconfiguredAuthCode("openai", "OpenAI")],
     });
-    // Defer the authorize response until the dialog is already dismissed.
-    let release!: () => void;
-    const blocked = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    await page.route("**/api/provider-auth/authorize", async (route) => {
-      await blocked;
-      await route.fulfill({
-        status: 409,
+    const flowId = "flow-e2e-anthropic";
+    await page.route("**/api/provider-auth/start", (route) =>
+      route.fulfill({
+        status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          code: "provider_auth.credential_type_conflict",
-          // A SENTINEL, deliberately not the English translation. The server's
-          // raw `error` normally reads the same as `err.provider_auth.
-          // credential_type_conflict`, so asserting that phrase would pass
-          // even if the UI rendered `body.error` verbatim and never consulted
-          // the code — the assertion could not tell translation from
-          // pass-through. With the sentinel, only the translated path matches.
-          error: "RAW_SERVER_ERROR_MUST_NOT_RENDER",
-          vars: { storedType: "api_key" },
+          flowId,
+          provider: "anthropic",
+          status: "pending",
+          authUrl: "https://example.com/oauth/authorize",
+          pending: { kind: "manual_code", message: "Paste the redirect URL" },
+        }),
+      }),
+    );
+    // Defer the flow status read until the dialog is already dismissed. The
+    // refused-write translation path is GONE for OAuth flows (see the change's
+    // provider-auth-server spec, "Credential write refused after a successful
+    // exchange"): the outcome surfaces as `status: "error"` carrying the
+    // write path's RAW message, so the sentinel is asserted verbatim.
+    let release!: () => void;
+    const dismissed = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let released = false;
+    await page.route("**/api/provider-auth/flow/*", async (route) => {
+      if (!released) await dismissed;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          flowId,
+          provider: "anthropic",
+          status: "error",
+          error: "CREDENTIAL_TYPE_CONFLICT_SENTINEL",
         }),
       });
     });
@@ -260,19 +303,17 @@ test.describe("redesign-providers-settings-page — Add-provider flow (L3)", () 
     await page.getByTestId("dialog-sign-in").click();
     await expect(page.getByTestId("dialog-flow-waiting")).toBeVisible();
 
-    // Dismiss; the refusal then lands on a section with no dialog present.
+    // Dismiss; the error then lands on a section with no dialog present.
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("provider-add-dialog")).toHaveCount(0);
+    released = true;
     release();
 
     const refusal = page.getByTestId("provider-flow-error");
     await expect(refusal).toBeVisible({ timeout: 10_000 });
     await expect(refusal).toContainText("Anthropic");
-    // The TRANSLATED message, interpolated from `vars.storedType`.
-    await expect(refusal).toContainText("A credential of a different type (api_key)");
-    await expect(refusal).toContainText("remove it first");
-    // ...and the raw server string must never reach the surface.
-    await expect(refusal).not.toContainText("RAW_SERVER_ERROR_MUST_NOT_RENDER");
+    // The flow's own error message, passed through verbatim.
+    await expect(refusal).toContainText("CREDENTIAL_TYPE_CONFLICT_SENTINEL");
 
     // The provider was never written — it must not show connected.
     await expect(page.locator('[data-testid="provider-row"][data-row-id="anthropic"]')).toHaveCount(0);

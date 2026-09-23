@@ -12,6 +12,23 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Extension slash commands sent from the dashboard now dispatch in-process, so
+  they work in every session kind — including tmux and terminal-hosted pi.** The
+  bridge calls `pi.sendUserMessage(text, { expandPromptTemplates: true,
+  deliverAs })` (pi >= 0.84.2) and pi's own `prompt()` runs the extension handler
+  before its compaction guard, so `/ctx-stats`, `/dashboard-where` and every
+  other `source:"extension"` command that passes `isExtensionSlashCommand`
+  executes immediately instead of being refused outside dashboard-spawned
+  headless sessions. (`/roles` — in `DASHBOARD_NATIVE_COMMANDS` — and
+  `__`-prefixed bridge-native names stay excluded, unchanged.) Retires the
+  three-way
+  `pi.dispatchCommand` / `dispatch_extension_command`-via-keeper-UDS / tmux-error
+  decision, along with `hasDispatchCommand` and the keeper RPC write client.
+  Below pi 0.84.2 the bridge refuses with an explicit "Extension slash commands
+  from the dashboard require pi 0.84.2+" error rather than silently sending the
+  raw slash to the model. See change:
+  retire-slash-dispatch-via-expand-prompt-templates.
+
 - **`composer-context-group` plugin slot** (react-only, `many`) renders labelled context groups inside the chat composer's session-action strip, after the Git group and before the Status group. Contributions are read-only and stay fully visible while a session streams (unlike the gated Status group). The runtime exports a `ComposerContextGroup({ label, children, testId? })` primitive. The quota plugin is the first claimant: its meter moved out of the composer's `content-inline-footer` into the strip, showing one chip per enabled provider with every window inline and the session's model provider ringed. See change: move-quota-to-context-strip.
 
 ### Fixed
@@ -22,11 +39,46 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **Provider OAuth sign-in is delegated to pi-ai, so every provider pi bundles is
+  sign-in-able — and remote dashboards can finally complete a sign-in.** The
+  dashboard carried a hand-copied fork of pi-ai's OAuth flows
+  (`provider-auth-handlers.ts` + `oauth-callback-server.ts`), so it lagged by
+  construction: of pi 0.86.1's eight OAuth providers it offered three, and its
+  auth-code flows had **no way to submit a pasted code** — the provider's
+  registered `redirect_uri` is `http://localhost:<port>/…`, so a dashboard
+  reached through zrok/docker/LAN could never finish an Anthropic or Codex
+  sign-in at all. The three handlers and the bespoke callback server are gone;
+  the server now builds one registry from `ModelRuntime` (pi-coding-agent's
+  public surface) and drives `provider.auth.oauth.login()` through a single
+  `AuthInteraction` adapter. `openrouter` (permanent API key, `expires: null`),
+  `kimi-coding`, `meta` and `xai` join `anthropic` / `openai-codex` /
+  `github-copilot`; Codex gains its browser-vs-device choice and GitHub Copilot
+  its enterprise-domain prompt. New routes: `POST /api/provider-auth/start`,
+  `GET|DELETE /api/provider-auth/flow/:flowId`, `POST
+  /api/provider-auth/flow/:flowId/input` (the pasted redirect URL — never
+  logged, never echoed). The sign-in pane renders whatever step the flow
+  reports (`manual_code` / `text` / `select` / `device_code`), shows the
+  authorization link and the paste field **together**, and offers Cancel +
+  Try Again; `POST /authorize`, `POST /device-code` and `GET
+  /device-status/:id` are removed. The `@earendil-works/pi-coding-agent` pin
+  moves `^0.85.1` → `^0.86.1` across all six governed surfaces. On a registry
+  build failure sign-in is simply unavailable: `/handlers` answers `{ ids: [] }`,
+  `/api/health` carries `providerAuth.error` naming the resolved version, and
+  every other route keeps serving. See change: delegate-provider-oauth-to-pi-ai.
+
 - **Retained remote-transcript hydration no longer blocks the server.** Reading, splitting, parsing and replaying a retained `.jsonl` ran synchronously on the main event loop, so a cold subscribe to a session whose retained transcript is at the observed maximum (44.1 MB) stalled every session's HTTP and WebSocket traffic — including the hydration heartbeat that exists to cover exactly that window. The read now uses `fs.promises`, and the split + parse + replay go through the same `worker_threads` pool the local path uses, with the same cancellation, metrics and in-process fallback. Measured on 46 MB: longest main-thread block **2838 ms → 201 ms** with identical events. Concurrent cold subscribes to one retained session now coalesce onto a single hydration. `RemoteTranscriptStore.read()` is async and gains `readRaw()` / `completenessOf()`. See change: offload-retained-transcript-replay.
 
 ### Changed
 
 - **dashboard-plugin-runtime**: `ServerContextDeps` gains five REQUIRED members (`mintSpawnToken`, `renameSession`, `assignSessionRef`, `networkGuard`, `onShutdown`) and `PluginSpawnOptions` gains `spawnToken`/`resume`/`initialPrompt` — implementors of `createServerPluginContext` (custom hosts, injected test contexts) must add them. See change: relocate-goal-product-to-plugin.
+
+- **`dispatch_extension_command` is a deprecated tombstone.** No current bridge
+  sends it; a one-release server arm answers an un-reloaded bridge with a
+  persisted + broadcast `command_feedback { status: "error", message: "bridge
+  outdated — reload the session" }` so the chat pill converges instead of hanging
+  on "in progress". `DispatchExtensionCommandMessage` stays `@deprecated` until
+  the tombstone is removed. See change:
+  retire-slash-dispatch-via-expand-prompt-templates.
 
 ### Security
 
