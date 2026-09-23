@@ -16,6 +16,7 @@
 
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { ToolResolver } from "./binary-lookup.js";
 import { normalizeEnvPathKey } from "./env-path-key.js";
 import { buildSafeArgv, spawn, spawnSync } from "./exec.js";
@@ -41,6 +42,14 @@ export interface Recipe<Input, Output> {
    * commands like `git diff` that exit 1 when there's no diff.
    */
   tolerate?: readonly number[];
+  /**
+   * Opt-in stdout byte limit (raw bytes, counted before decoding; stdout ONLY —
+   * stderr stays unbounded). Honoured by
+   * `runAsync` ONLY — the sync `run()` path ignores it. On overflow the child is
+   * terminated and the call fails with `output-too-large` (no partial output).
+   * See change: fix-session-diff-heap-retention (D3).
+   */
+  maxBuffer?: number;
 }
 
 /** Context passed to `run()` alongside the input. */
@@ -58,7 +67,8 @@ export type ExecError =
   | { kind: "not-found"; binary: string }
   | { kind: "timeout"; timeoutMs: number; binary: string; stdout?: string; stderr?: string }
   | { kind: "exit"; code: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string }
-  | { kind: "spawn-failure"; message: string };
+  | { kind: "spawn-failure"; message: string }
+  | { kind: "output-too-large"; binary: string; limitBytes: number; message: string };
 
 /** Typed Result — no thrown exceptions for the 4 error kinds above. */
 export type Result<T> = { ok: true; value: T } | { ok: false; error: ExecError };
@@ -393,19 +403,24 @@ export function runAsync<Input, Output>(
       return;
     }
 
-    const timer = setTimeout(() => {
+    // SIGTERM → 3 s SIGKILL escalation, shared by the timeout and overflow
+    // paths: a child that ignores SIGTERM would keep writing (e.g. into the
+    // repo mid-init) after the caller moved on. The timer is captured so a
+    // clean exit between SIGTERM and escalation cancels it — killing an
+    // exited-and-recycled pid would signal an unrelated process. Settling is
+    // not delayed. See change: add-openspec-init-affordances (review round 2),
+    // fix-session-diff-heap-retention.
+    const terminate = () => {
       try { child.kill("SIGTERM"); } catch { /* ignore */ }
-      // SIGKILL escalation: a child that ignores SIGTERM would keep writing
-      // (e.g. into the repo mid-init) after the caller moved on. The timer is
-      // captured so a clean exit between SIGTERM and escalation cancels it —
-      // killing an exited-and-recycled pid would signal an unrelated process.
-      // The settle below is not delayed. See change:
-      // add-openspec-init-affordances (review round 2).
       const sigkillTimer = setTimeout(() => {
         if (child.exitCode !== null || child.signalCode !== null) return;
         try { child.kill("SIGKILL"); } catch { /* already gone */ }
       }, 3_000);
       child.once("close", () => clearTimeout(sigkillTimer));
+    };
+
+    const timer = setTimeout(() => {
+      terminate();
       // Partial stdout/stderr ride along so a killed long-running command can
       // still surface what it produced before the deadline (e.g. the init
       // endpoint's partial-stderr failure contract). See change:
@@ -413,8 +428,37 @@ export function runAsync<Input, Output>(
       settle({ ok: false, error: { kind: "timeout", timeoutMs: timeout, binary: rawCmd, stdout, stderr } });
     }, timeout);
 
-    child.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf-8"); });
-    child.stderr?.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf-8"); });
+    // Stateful decoders: a UTF-8 sequence split across two pipe chunks must
+    // not decode to U+FFFD halves (raw Buffer chunks are still needed for the
+    // exact `maxBuffer` byte count). See change: fix-session-diff-heap-retention.
+    const stdoutDecoder = new StringDecoder("utf8");
+    const stderrDecoder = new StringDecoder("utf8");
+    const maxBuffer = recipe.maxBuffer;
+    let stdoutBytes = 0;
+    child.stdout?.on("data", (chunk: Buffer) => {
+      if (settled) return;
+      if (maxBuffer !== undefined) {
+        // Raw byte count BEFORE decoding (exact bytes, O(1) per chunk).
+        stdoutBytes += chunk.length;
+        if (stdoutBytes > maxBuffer) {
+          clearTimeout(timer);
+          terminate();
+          stdout = ""; // drop the partial buffer — carrying it defeats the cap
+          settle({
+            ok: false,
+            error: {
+              kind: "output-too-large",
+              binary: rawCmd,
+              limitBytes: maxBuffer,
+              message: `${rawCmd} output exceeded ${maxBuffer} bytes`,
+            },
+          });
+          return;
+        }
+      }
+      stdout += stdoutDecoder.write(chunk);
+    });
+    child.stderr?.on("data", (chunk: Buffer) => { stderr += stderrDecoder.write(chunk); });
 
     child.on("error", (err: NodeJS.ErrnoException) => {
       clearTimeout(timer);
@@ -427,6 +471,10 @@ export function runAsync<Input, Output>(
 
     child.on("close", (code: number | null, signal: NodeJS.Signals | null) => {
       clearTimeout(timer);
+      // Already settled (timeout / overflow) → never parse truncated stdout.
+      if (settled) return;
+      stdout += stdoutDecoder.end();
+      stderr += stderrDecoder.end();
       const tolerated = code !== 0 && code !== null && recipe.tolerate?.includes(code);
       if (code === 0 || tolerated) {
         try {
