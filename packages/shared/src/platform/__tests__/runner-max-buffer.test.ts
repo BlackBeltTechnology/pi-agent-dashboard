@@ -111,17 +111,13 @@ describe("runAsync — Recipe.maxBuffer", () => {
     expect(await waitDead(readPid(pidFile), 4_000)).toBe(true);
   }, 20_000);
 
-  it("X3: parse never runs on truncated output and the promise settles once", async () => {
+  it("X3: parse never runs on truncated output (close after overflow is a no-op)", async () => {
     const parse = vi.fn((s: string) => s);
     const recipe = nodeRecipe(WRITE_FOREVER, { maxBuffer: MiB, parse });
-    const p = runAsync(recipe, undefined);
-    const then = vi.fn();
-    p.then(then);
-    const r = await p;
+    const r = await runAsync(recipe, undefined);
     expect(r.ok).toBe(false);
     // Let the child's close event fire after the overflow settle.
     await new Promise((res) => setTimeout(res, 500));
     expect(parse).not.toHaveBeenCalled();
-    expect(then).toHaveBeenCalledTimes(1);
   }, 20_000);
 });

@@ -41,7 +41,8 @@ export interface Recipe<Input, Output> {
    */
   tolerate?: readonly number[];
   /**
-   * Opt-in stdout byte limit (raw bytes, counted before decoding). Honoured by
+   * Opt-in stdout byte limit (raw bytes, counted before decoding; stdout ONLY —
+   * stderr stays unbounded). Honoured by
    * `runAsync` ONLY — the sync `run()` path ignores it. On overflow the child is
    * terminated and the call fails with `output-too-large` (no partial output).
    * See change: fix-session-diff-heap-retention (D3).
