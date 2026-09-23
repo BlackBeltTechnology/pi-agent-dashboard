@@ -456,10 +456,18 @@ function specifierFinding({ wsRel, rel, value, line, allowed, declared, devOnly,
 
 const TSCONFIG_FILE = /(?:^|\/)tsconfig[^/]*\.json$/;
 
-/** Normalised in-package path for a relative `extends`; escapes the package as `../...`. */
+/** Does a relative `extends` land on a packed file (verbatim or with `.json`)? */
 function tsconfigExtendsResolves(entry, fromFile, packedSet) {
   const target = join(dirname(fromFile), entry).split("\\").join("/");
   return packedSet.has(target) || packedSet.has(`${target}.json`);
+}
+
+/** Relative `extends` entries of a JSONC tsconfig, or `{ error }` when it will not parse. */
+function relativeExtendsOf(abs) {
+  const { config, error } = ts.parseConfigFileTextToJson(abs, readFileSync(abs, "utf8"));
+  if (error) return { error: ts.flattenDiagnosticMessageText(error.messageText, " ") };
+  if (config === null || typeof config !== "object") return { error: "not a JSON object" };
+  return { entries: [config.extends ?? []].flat().filter((e) => typeof e === "string" && isRelative(e)) };
 }
 
 /**
@@ -475,14 +483,12 @@ export function tsconfigExtendsFindings(ws, packedFiles) {
     if (!TSCONFIG_FILE.test(rel)) continue;
     const abs = join(ws.dir, rel);
     if (!existsSync(abs)) continue;
-    const { config, error } = ts.parseConfigFileTextToJson(abs, readFileSync(abs, "utf8"));
-    if (error || config === null || typeof config !== "object") {
-      const why = error ? ts.flattenDiagnosticMessageText(error.messageText, " ") : "not a JSON object";
+    const { entries, error } = relativeExtendsOf(abs);
+    if (error) {
       findings.push(finding("warning", "unparseable-tsconfig", ws.rel, rel, null,
-        `shipped tsconfig could not be parsed, so its extends chain is unknown: ${why}`));
+        `shipped tsconfig could not be parsed, so its extends chain is unknown: ${error}`));
       continue;
     }
-    const entries = [config.extends ?? []].flat().filter((e) => typeof e === "string" && isRelative(e));
     for (const e of entries) {
       if (tsconfigExtendsResolves(e, rel, packedSet)) continue;
       findings.push(finding("error", "dangling-tsconfig-extends", ws.rel, rel, e,
