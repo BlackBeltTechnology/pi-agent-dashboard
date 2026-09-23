@@ -19,6 +19,7 @@ import {
   recordRefusal,
 } from "../access/refusal-ledger.js";
 import { YoloController } from "../access/yolo-session.js";
+import { createNetworkGuard } from "../auth/localhost-guard.js";
 import { registerAccessPromptRoutes } from "../routes/access-prompt-routes.js";
 
 let tmp: string;
@@ -70,7 +71,8 @@ async function makeApp() {
   const app = Fastify({ logger: false });
   apps.push(app);
   registerAccessPromptRoutes(app, {
-    networkGuard: async () => {},
+    // The real guard: loopback, or the trusted 198.51.100.0/24 (user decision C).
+    networkGuard: createNetworkGuard(["198.51.100.0/24"]),
     coordinator,
     planes,
     yolo,
@@ -159,7 +161,21 @@ describe("8.1 pending requests are listed and answerable on the Access page", ()
     expect(listGrants()).toHaveLength(0);
   });
 
-  it("refuses a remote unauthenticated answer (401) and writes nothing", async () => {
+  it("a trusted-network caller without auth may answer (decision C: the network guard is the gate)", async () => {
+    const { app, coordinator } = await makeApp();
+    deny(coordinator, work);
+    const [p] = (await view(app)).pending;
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/access/prompts/${p.promptId}`,
+      remoteAddress: "198.51.100.7",
+      payload: { plane: "filesystem", subject: work, verdict: "allow-always" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(listGrants()).toHaveLength(1);
+  });
+
+  it("an untrusted remote caller is refused by the network guard and writes nothing", async () => {
     const { app, coordinator } = await makeApp();
     deny(coordinator, work);
     const [p] = (await view(app)).pending;
@@ -169,9 +185,46 @@ describe("8.1 pending requests are listed and answerable on the Access page", ()
       remoteAddress: "203.0.113.9",
       payload: { plane: "filesystem", subject: work, verdict: "allow-always" },
     });
-    expect(res.statusCode).toBe(401);
+    expect(res.statusCode).toBe(403);
     expect(listGrants()).toHaveLength(0);
     expect((await view(app)).pending).toHaveLength(1);
+  });
+
+  it("a loopback caller carrying a forwarding header (a tunnel) is not treated as local", async () => {
+    const { app, coordinator } = await makeApp();
+    deny(coordinator, work);
+    const [p] = (await view(app)).pending;
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/access/prompts/${p.promptId}`,
+      headers: { "x-forwarded-for": "203.0.113.9" },
+      payload: { plane: "filesystem", subject: work, verdict: "deny" },
+    });
+    expect(res.statusCode).toBe(403);
+    expect((await view(app)).pending).toHaveLength(1);
+  });
+
+});
+
+describe("decision C: YOLO and refusal mutations admit trusted-network callers", () => {
+  it("activates, then ends, YOLO from a trusted-network peer; an untrusted peer is refused", async () => {
+    const { app } = await makeApp();
+    const bad = await app.inject({
+      method: "POST",
+      url: "/api/access/yolo",
+      remoteAddress: "203.0.113.9",
+      payload: { durationMinutes: 15, base: work },
+    });
+    expect(bad.statusCode).toBe(403);
+    const on = await app.inject({
+      method: "POST",
+      url: "/api/access/yolo",
+      remoteAddress: "198.51.100.7",
+      payload: { durationMinutes: 15, base: work },
+    });
+    expect(on.statusCode).toBe(200);
+    const off = await app.inject({ method: "DELETE", url: "/api/access/yolo", remoteAddress: "198.51.100.7" });
+    expect(off.statusCode).toBe(200);
   });
 });
 

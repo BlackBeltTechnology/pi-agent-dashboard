@@ -264,6 +264,18 @@ built on a lexical tail.
   records `process.cwd()` (the physical path), so this is an accepted residual.
 - *YOLO status is polled every 15 s* while an indicator is mounted (the sidebar
   pill always is); `GET /api/access/prompts` is an in-memory read.
+- *Access-page mutations are gated by the network guard* (user decision C):
+  answering a pending prompt, YOLO activate/end and clearing a refusal admit
+  any caller `networkGuard` admits (genuinely local, local token, trusted
+  network, authenticated) plus the global mutation-origin gate. This is wider
+  than the prerequisite's `POST /api/access/grants` (auth or loopback, D15) on
+  purpose: a trusted-network browser can already answer through the dialog
+  (R-A), so an Access page that shows it prompts it cannot answer only hides
+  the same reach. A loopback caller behind a forwarding header (a tunnel) is
+  not local and needs trust or auth like any remote peer.
+- *CORS origin denials reach the `cors` plane* through an `onRequest` observer
+  (`access/cors-denial.ts`) after the host gate: never the opaque `null`
+  origin, never a same-origin-by-Host page, response unchanged, never held.
 
 ### D2 — DNS rebinding is out of D1's reach, so **prompting at all** requires `hostGate.mode === "enforce"`
 

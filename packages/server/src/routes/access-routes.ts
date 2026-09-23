@@ -423,7 +423,7 @@ export function registerAccessRoutes(
  * exactly why the grant endpoint's auth requirement cannot establish operator
  * presence (design D15).
  */
-export function isLocalRequest(request: { ip?: string }): boolean {
+function isLocalRequest(request: { ip?: string }): boolean {
   const ip = request.ip ?? "";
   return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
 }

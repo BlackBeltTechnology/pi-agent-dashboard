@@ -10,8 +10,11 @@
  * why its mutations sit behind the same gates as the grant endpoint:
  *
  *   (a) the global cross-site mutation-origin gate (every non-GET `/api/*`);
- *   (b) authenticated, or a genuinely-local peer (`isLocalRequest`) — the same
- *       rule `POST /api/access/grants` uses, so this cannot be a wider door.
+ *   (b) `networkGuard`: genuinely-local (tunnel-aware), local token, trusted
+ *       network, or authenticated. Deliberately WIDER than
+ *       `POST /api/access/grants` (auth-or-loopback): a trusted-network browser
+ *       can already answer through the dialog (WS), so the Access page gives it
+ *       the same reach, YOLO included (user decision C).
  *
  * Reads sit behind `networkGuard` only, like every Access read. `channel` (the
  * requester key: a socket id or a source prefix) is never serialised.
@@ -20,7 +23,7 @@ import type {
   AccessPlaneId,
   GrantPromptCopy,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyInstance } from "fastify";
 import type { AccessPlaneRegistry } from "../access/access-plane.js";
 import type { GrantCoordinator, GrantVerdictRecord } from "../access/grant-coordinator.js";
 import type { PendingGrant } from "../access/pending-grant-registry.js";
@@ -28,7 +31,6 @@ import type { HostGateMode } from "../access/prompt-channel.js";
 import type { Refusal } from "../access/refusal-ledger.js";
 import type { YoloController, YoloLogEntry, YoloSession } from "../access/yolo-session.js";
 import { YOLO_DURATIONS_MS } from "../access/yolo-session.js";
-import { isLocalRequest } from "./access-routes.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 /** Why the operator would get no dialog right now (S4 banners). */
@@ -155,13 +157,6 @@ export function registerAccessPromptRoutes(fastify: FastifyInstance, deps: Acces
   const { networkGuard, coordinator, planes, yolo } = deps;
   const now = deps.now ?? Date.now;
 
-  /** (b) — see the header. Returns false after sending the 401. */
-  const requireOperator = (request: FastifyRequest, reply: FastifyReply): boolean => {
-    if ((request as { isAuthenticated?: boolean }).isAuthenticated || isLocalRequest(request)) return true;
-    reply.code(401).send({ success: false, error: "authentication required" });
-    return false;
-  };
-
   fastify.get("/api/access/prompts", { preHandler: networkGuard }, async () => {
     const p = deps.prompting();
     const pending = coordinator.registry.list(now()).map((e) => toPendingView(e, planes));
@@ -185,7 +180,6 @@ export function registerAccessPromptRoutes(fastify: FastifyInstance, deps: Acces
     "/api/access/prompts/:promptId",
     { preHandler: networkGuard },
     async (request, reply) => {
-      if (!requireOperator(request, reply)) return reply;
       const body = request.body ?? {};
       const out = await coordinator.settle({
         type: "grant_response",
@@ -223,7 +217,6 @@ export function registerAccessPromptRoutes(fastify: FastifyInstance, deps: Acces
     "/api/access/yolo",
     { preHandler: networkGuard },
     async (request, reply) => {
-      if (!requireOperator(request, reply)) return reply;
       const req = parseYoloActivation(request.body);
       if (!req) {
         reply.code(400);
@@ -241,8 +234,7 @@ export function registerAccessPromptRoutes(fastify: FastifyInstance, deps: Acces
     },
   );
 
-  fastify.delete("/api/access/yolo", { preHandler: networkGuard }, async (request, reply) => {
-    if (!requireOperator(request, reply)) return reply;
+  fastify.delete("/api/access/yolo", { preHandler: networkGuard }, async () => {
     yolo.end();
     console.warn("[access-grant] YOLO ended by the operator");
     return { success: true };
@@ -253,7 +245,6 @@ export function registerAccessPromptRoutes(fastify: FastifyInstance, deps: Acces
     "/api/access/refusals",
     { preHandler: networkGuard },
     async (request, reply) => {
-      if (!requireOperator(request, reply)) return reply;
       const { plane, subject } = request.query;
       if (!plane || !subject || !planes.get(plane as AccessPlaneId)) {
         reply.code(400);
