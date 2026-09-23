@@ -12,6 +12,7 @@ import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import { type DenialRemedy, evaluateContainment } from "../access/containment-gate.js";
+import { type HoldTarget, holdDenial } from "../access/denial-hold.js";
 import {
   assertRegularFile,
   openVerifiedRegularFile,
@@ -407,6 +408,7 @@ export function registerFileRoutes(
       // mention (from `/api/file/resolve-mention`) previews without a 403 (D7).
       const readDecision = await evaluateContainment(resolved, [cwd, homePiAnchor()], {
         site: "file-routes:read",
+        hold: { request, reply },
         session: cwd,
         // Polymorphic: this route serves files AND directories, so the remedy
         // must name whichever the target is (task 4.5 round 2, B1).
@@ -571,6 +573,7 @@ export function registerFileRoutes(
       const resolved = path.resolve(cwd, relPath);
       const treeDecision = await evaluateContainment(resolved, [cwd], {
         site: "file-routes:tree",
+        hold: { request, reply },
         session: cwd,
         // Directory-only site: the remedy must name THIS directory, not its
         // parent (task 4.5 review).
@@ -731,7 +734,14 @@ export function registerFileRoutes(
       const allSessions = sessionManager.listAll();
       const knownCwds = new Set(allSessions.map((s) => s.cwd));
       for (const dir of preferencesStore.getPinnedDirectories()) knownCwds.add(dir);
-      if (!knownCwds.has(cwd)) {
+      // The unknown-cwd denial may ask the operator (add-access-grant-dialog,
+      // task 6.2). An allow verdict authorises a RE-RUN of this same guard, never
+      // a skip: `allow-always` pinned the directory, so the live pinned set must
+      // now contain it; `allow-once` admits exactly the named directory, for this
+      // request only. Every other outcome returns the unchanged denial below.
+      const cwdAdmitted =
+        knownCwds.has(cwd) || (await unknownCwdVerdictAdmits(cwd, { request, reply }, preferencesStore));
+      if (!cwdAdmitted) {
         reply.code(403);
         // Additive remedy fields beside the unchanged `"unknown cwd"` string
         // (design D7/D18); the known-cwd set already includes pinned
@@ -760,6 +770,7 @@ export function registerFileRoutes(
       const anchors = [cwd, ...preferencesStore.getPinnedDirectories()];
       const existsDecision = await evaluateContainment(resolved, anchors, {
         site: "file-routes:exists",
+        hold: { request, reply },
         session: cwd,
         // `fs.access` accepts files AND directories — polymorphic, see above.
         subjectKind: "auto",
@@ -858,6 +869,7 @@ export function registerFileRoutes(
         if (!(await isImageUnderArtifactRoot(resolved))) {
           const rawDecision = await evaluateContainment(resolved, [cwd, homePiAnchor()], {
             site: "file-routes:raw",
+            hold: { request, reply },
             session: cwd,
           });
           if (!rawDecision.allowed) {
@@ -1051,6 +1063,7 @@ export function registerFileRoutes(
       const resolved = path.resolve(cwd, relPath);
       const renderDecision = await evaluateContainment(resolved, [cwd, homePiAnchor()], {
         site: "file-routes:render",
+        hold: { request, reply },
         session: cwd,
       });
       if (!renderDecision.allowed) {
@@ -1351,4 +1364,21 @@ export function registerFileRoutes(
       } satisfies ApiResponse;
     },
   );
+}
+
+/**
+ * Ask about an unknown-cwd denial and re-run the known-cwd guard on an allow
+ * verdict (add-access-grant-dialog, task 6.2). Resolves `false` for anything but
+ * an explicit allow that the re-run confirms.
+ */
+async function unknownCwdVerdictAdmits(
+  cwd: string,
+  target: HoldTarget,
+  preferencesStore: { getPinnedDirectories(): string[] },
+): Promise<boolean> {
+  const resolution = await holdDenial({ plane: "cwd", rawSubject: cwd, origin: "file-routes:exists" }, target);
+  if (resolution.kind !== "allow") return false;
+  const pinned = new Set(preferencesStore.getPinnedDirectories());
+  if (pinned.has(cwd) || pinned.has(path.resolve(cwd))) return true;
+  return resolution.verdict === "allow-once" && resolution.subject === path.resolve(cwd);
 }

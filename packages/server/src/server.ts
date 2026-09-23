@@ -30,7 +30,12 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
+import { AccessPlaneRegistry } from "./access/access-plane.js";
 import { shouldIssuePromptCapability } from "./access/capability-issuance.js";
+import { installGrantCoordinator } from "./access/denial-hold.js";
+import { GrantCoordinator } from "./access/grant-coordinator.js";
+import { createCorsPlane, createCwdPlane, createFilesystemPlane, createNetworkPlane } from "./access/planes.js";
+import { promptChannelCount } from "./access/prompt-channel.js";
 import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
 import { registerAuthPlugin, validateWsUpgrade } from "./auth/auth-plugin.js";
 import { registerBearerAuth } from "./auth/bearer-auth.js";
@@ -64,6 +69,7 @@ import {
   isBypassedHost,
   isGenuinelyLocal,
   isPluginScopePeerLocal,
+  setNetworkDenialObserver,
 } from "./auth/localhost-guard.js";
 import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
 import { readAuthJson } from "./auth/provider-auth-storage.js";
@@ -86,7 +92,7 @@ import {
 } from "./browser-handlers/session-action-handler.js";
 import { runLifecycleAction } from "./browser-handlers/session-lifecycle.js";
 import { createCommitDraftRelay } from "./commit-draft-relay.js";
-import { writeConfigPartial } from "./config-api.js";
+import { readRawConfig, writeConfigPartial } from "./config-api.js";
 import {
   liveAllowedHosts,
   liveCorsAllowedOrigins,
@@ -1430,6 +1436,46 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // at gateway construction, because it needs `corsOpts`.
   // See change: add-access-grant-dialog (tasks 2b.1, 3.2).
   browserGateway.setPromptCapabilityPolicy((headers) => shouldIssuePromptCapability(headers, corsOpts()));
+
+  // Access-grant coordinator (design D3/D6/D8; tasks 6.1-6.3). Registers exactly
+  // the planes add-access-grants-and-review made grantable, each writing THAT
+  // change's store through the same writers the Access routes use. Every input
+  // is read LIVE per denial. Installed for the containment gate and the
+  // unknown-cwd site; observed from the network guard's one shared denial path.
+  // See change: add-access-grant-dialog.
+  const grantPlanes = new AccessPlaneRegistry();
+  grantPlanes.register(createFilesystemPlane());
+  grantPlanes.register(createCwdPlane({ pinDirectory: (dir) => preferencesStore.pinDirectory(dir) }));
+  grantPlanes.register(
+    createNetworkPlane({ readTrustedNetworks: () => loadConfig().trustedNetworks ?? [], writeConfigPartial }),
+  );
+  grantPlanes.register(
+    createCorsPlane({ readRawCors: () => (readRawConfig().cors ?? {}) as Record<string, unknown>, writeConfigPartial }),
+  );
+  const grantCoordinator = new GrantCoordinator({
+    planes: grantPlanes,
+    broadcast: (msg) => browserGateway.broadcastToAll(msg),
+    hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode,
+    promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true,
+    killSwitch: () => process.env.PI_DASHBOARD_DISABLE_GRANT_PROMPT === "1",
+    operatorChannels: () => promptChannelCount(),
+  });
+  installGrantCoordinator(grantCoordinator);
+  browserGateway.registerHandler("grant_response", (msg) => {
+    void grantCoordinator.onResponse(msg);
+  });
+  setNetworkDenialObserver((request) => {
+    grantCoordinator.onDenial(
+      {
+        plane: "network",
+        rawSubject: request.ip,
+        origin: "network-guard",
+        channel: `source:${request.ip}`,
+        requestHoldsCapability: false,
+      },
+      false,
+    );
+  });
   // Registered BEFORE @fastify/cors so an enforced refusal carries no ACAO
   // (and before every Origin gate — a rebinding page's plain GETs carry no
   // Origin at all). Report-only default; `PI_DASHBOARD_HOST_GATE=enforce`
@@ -3298,6 +3344,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // A clean stop must also disarm the ephemeral watch so a
       // create/stop cycle in one process leaves no ticking timer.
       ephemeralParentWatch.stop();
+      // Uninstall the module-level access-grant hooks so a create/stop cycle in
+      // one process never leaves a stale coordinator answering for a dead server.
+      // See change: add-access-grant-dialog.
+      installGrantCoordinator(null);
+      setNetworkDenialObserver(null);
       // Stop the event-loop-delay monitor so the libuv timer doesn't linger
       // after teardown. See change: instrument-session-hydration-timing.
       try { eventLoopDelayHistogram.disable(); } catch { /* ignore */ }

@@ -398,6 +398,7 @@ export function registerSessionRoutes(
         // unchanged when no grant covers it.
         const sessionDecision = await evaluateContainment(absPath, [session.cwd], {
           site: "session-routes:session-file",
+          hold: { request, reply },
           session: sessionId,
         });
         if (!sessionDecision.allowed) {

@@ -325,6 +325,14 @@ second independent timeout. The hold is additionally bounded by
 `request.raw.once("close")` → `forget` + deny, so a client abort never leaks an
 entry or a socket.
 
+**Correction (implementation, measured).** Client abort is detected on the
+*response*: `reply.raw` `close` while `!writableFinished`. On current Node an
+`IncomingMessage` emits `close` once its body has been consumed, which Fastify
+does before the handler runs. Measured on Node v24: on an ordinary request
+`request.raw` closed *before* the handler returned, so the listener named above
+would abort every held request immediately. `reply.raw` `close` fires with
+`writableFinished === true` on a normal finish and `false` on a client abort.
+
 ### D8 — First-response-wins, and the losers are told
 
 The dialog is broadcast to every connected browser socket (the operator may have

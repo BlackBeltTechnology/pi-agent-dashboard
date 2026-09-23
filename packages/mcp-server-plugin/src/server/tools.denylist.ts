@@ -86,6 +86,12 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "flow_control", reason: "duplicate-of:flow_control" },
   { pattern: "flow_management", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "force_kill", reason: "duplicate-of:force_kill" },
+  // An operator's answer to an access-grant prompt (change: add-access-grant-dialog).
+  // NEVER an MCP tool: an agent able to send it could approve its own denied
+  // access, including an allow-always that persists a grant. The answering side
+  // is already the accepted residual R-A (design D1b); exposing it to agents
+  // would turn that residual into a one-call self-escalation.
+  { pattern: "grant_response", reason: "operator-only answer to an access prompt; self-approval risk" },
   { pattern: "kill_process", reason: "duplicate-of:kill_process" },
   { pattern: "kill_terminal", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "list_files", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },

@@ -116,6 +116,13 @@ export function frameClassOf(
         cls: "state",
         key: `openspec_get_result:${msg.cwd}:${msg.requestId}:${msg.final ? "final" : "placeholder"}`,
       };
+    // A prompt and its dismissal share ONE key per prompt, so a dismiss
+    // supersedes a still-queued request instead of racing it, and neither is
+    // ever shed (a shed prompt is a dialog that silently never appears).
+    // See change: add-access-grant-dialog.
+    case "grant_request":
+    case "grant_dismiss":
+      return { cls: "state", key: `grant:${msg.promptId}` };
     case "terminal_added":
       return { cls: "state", key: `terminal:${msg.terminal.id}` };
     case "terminal_updated":

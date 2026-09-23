@@ -36,11 +36,11 @@
 
 ## 6. Denial-site wiring
 
-- [ ] 6.1 Thread a `DenialContext` from the universal network guard's single `onRequest` denial point into the registry — verify an injected-request test records a denial with the correct plane and subject
-- [ ] 6.2 Thread `DenialContext` from the filesystem containment sites and the unknown-`cwd` denial sites — verify every site's existing denial body (including its unchanged `error` string) is returned when the outcome is deny
-- [ ] 6.3 Implement request suspension with the `git-routes.ts:470-478` timeout clear/restore pattern plus `request.raw.once("close")` release — verify a test holds a request past the 10 s `connectionTimeout`, restores the prior socket timeout on finish, and releases the entry on client abort
-- [ ] 6.4 Re-run the full containment check on resume rather than trusting the verdict — verify tests assert a sibling path outside the granted subject is still denied and symlink resolution still runs
-- [ ] 6.5 Assert containment layer order is unchanged — verify the existing `file-read-containment` tests pass untouched with the feature disabled and with it enabled but unprompted
+- [x] 6.1 Thread a `DenialContext` from the universal network guard's single `onRequest` denial point into the registry — verify an injected-request test records a denial with the correct plane and subject (via `setNetworkDenialObserver` on the one shared `sendNetworkDenied` path; best-effort, a throwing observer never alters the denial)
+- [x] 6.2 Thread `DenialContext` from the filesystem containment sites and the unknown-`cwd` denial sites — verify every site's existing denial body (including its unchanged `error` string) is returned when the outcome is deny (the five handler-level `file-routes` sites and `session-routes` pass `hold`; the helper-level `gateFilePath`/`gateOfficeFile` have no request in scope, so they report every denial but never suspend. The unknown-cwd site is `GET /api/file/exists`)
+- [x] 6.3 Implement request suspension with the `git-routes.ts:470-478` timeout clear/restore pattern plus `request.raw.once("close")` release — verify a test holds a request past the 10 s `connectionTimeout`, restores the prior socket timeout on finish, and releases the entry on client abort (abort is detected on `reply.raw` `close` while `!writableFinished`, NOT `request.raw` `close`: measured on Node v24, `request.raw` closes once Fastify has consumed the body, before the handler returns, so the literal D7 listener would abort every held request. Recorded as a correction in design D7)
+- [x] 6.4 Re-run the full containment check on resume rather than trusting the verdict — verify tests assert a sibling path outside the granted subject is still denied and symlink resolution still runs
+- [x] 6.5 Assert containment layer order is unchanged — verify the existing `file-read-containment` tests pass untouched with the feature disabled and with it enabled but unprompted
 
 ## 7. Client dialog
 
@@ -62,7 +62,7 @@
 - [x] 2b.2 Implement the per-settlement-mode proof split: held planes require the **request** to carry a valid capability; deferred planes require a **live operator channel** and never require anything of the request — verify tests assert a network denial prompts with an operator channel present, does not prompt with none, and never suspends (`promptPrecondition` in `access/access-plane.ts`; `holdsRequest` makes a deferred denial unable to suspend)
 - [x] 2b.3 Make the forbidden-subject rule a **real-path subtree relation in both directions** (is / inside / contains) replacing any equality test — verify tests assert `~/.ssh/keys` is refused as a descendant and a candidate containing `~/.ssh` is refused as an ancestor (already implemented by the shipped `add-access-grants-and-review` — `forbidden-subjects.ts`: `realpathNearestAncestor` + the descendant rule + `subsumesForbiddenGrantSubject` for the ancestor direction. The descendant direction was tested; the **ancestor direction had no direct test** — one was added, test-plan #E16)
 - [x] 2b.4 Define the ladder boundary for every case per `path-anchor-grants`: nearest (not outermost) checkout root, worktree marker as file or directory, root detected on the **real** path, more-restrictive boundary wins when device and home rules disagree, no-`$HOME` still bounded, subject-is-the-boundary — verify one test per case (already implemented by the shipped `ancestor-ladder.ts`. 5 of the 6 cases have direct tests in `access-denials.test.ts`: nearest checkout root, real-path detection via the symlink lexical-parent case, the `$HOME` bound, the filesystem-root bound, and subject-is-the-boundary. The worktree marker is delegated to `git rev-parse` probes, which handle `.git` as a file or a directory natively)
-- [ ] 2b.5 Re-run the denying guard in full on release of a suspended request, including real-path/symlink resolution and the forbidden-subject rule — verify a test swaps the subject for a link to another location after the verdict and asserts the released request is denied
+- [x] 2b.5 Re-run the denying guard in full on release of a suspended request, including real-path/symlink resolution and the forbidden-subject rule — verify a test swaps the subject for a link to another location after the verdict and asserts the released request is denied
 - [x] 2b.6 Add a **per-channel** dimension to the prompt-volume controls so one requester cannot exhaust the shared budget — verify a test floods from one capability and asserts other planes and other requesters still prompt, and that the suppression reason is distinguishable from a global bound (per-channel budget split by trust, decided with the operator and recorded in design D9: every channel is limited to 12 entries and 1 open dialog; deferred sources additionally to 1 prompt per plane per minute; held planes keep 5 per minute. A channel past its entry share gets no entry at all, so it cannot fill capacity)
 - [x] 2b.3a Perform every path comparison on a filesystem-appropriate canonical form — case-insensitive where the volume is, Unicode-normalised where the volume normalises, component-wise never string-prefix, sensitivity probed from the volume not assumed from the platform — verify tests cover `~/.SSH` vs `~/.ssh` on a case-insensitive volume, `/repo-secrets` vs `/repo`, and an unresolvable path being refused rather than compared unresolved (landed as `packages/server/src/access/canonical-subject.ts` + `__tests__/canonical-subject.test.ts`. The codebase-wide `samePath` assumed sensitivity FROM THE PLATFORM and normalised nothing — it was deliberately left untouched, so shipped containment semantics do not change everywhere at once; a local canonicaliser is authoritative for access subjects)
 - [x] 2b.3b Decide containment on the identity of the object actually opened rather than re-deriving from the path string, and record the hard-link limitation in `docs/` — verify a test asserts the documented limitation matches behaviour and that no code path claims path containment proves unreachability (already implemented by the shipped `verified-read.ts`: `open` with `O_NOFOLLOW` → `fstat` the HANDLE requiring the same dev+ino the `lstat` described; tested at `verified-read.test.ts`; the hard-link limitation is recorded in the module header AND `docs/architecture.md:2697`)
@@ -118,11 +118,11 @@ Harness exemplar for every row in this group: `packages/server/src/auth/__tests_
 - [ ] 10.5 Filesystem denial with no capability header · denial evaluated · not suspended, 403, recorded `degraded:ineligible` (test-plan #E5)
 - [ ] 10.6 Capability value off by one byte · denial evaluated · treated exactly as absent, no prompt (test-plan #E6)
 - [ ] 10.7 Capability issued then socket closed, value echoed later · denial evaluated · resolves to no socket, ineligible (test-plan #E7)
-- [ ] 10.8 Network denial with zero operator channels · denial evaluated · no prompt, denial still recorded (test-plan #E8)
-- [ ] 10.9 Network denial with one operator channel · denial evaluated · prompt on that channel, request stays denied and is never suspended (test-plan #E9)
-- [ ] 10.9a `hostGate.mode = report` with a live channel and a prompt-eligible filesystem denial · denial evaluated · no dialog on any channel, existing denial returned, recorded reason names the Host-admission mode (test-plan #E51)
-- [ ] 10.9b `hostGate.mode = report` with a live channel and a network denial · denial evaluated · no dialog, denial still recorded and answerable on the Access surface (test-plan #E52)
-- [ ] 10.9c `hostGate.mode = enforce` with a capability-bearing filesystem denial · denial evaluated · dialog raised and request suspended (test-plan #E53)
+- [x] 10.8 Network denial with zero operator channels · denial evaluated · no prompt, denial still recorded (test-plan #E8)
+- [x] 10.9 Network denial with one operator channel · denial evaluated · prompt on that channel, request stays denied and is never suspended (test-plan #E9)
+- [x] 10.9a `hostGate.mode = report` with a live channel and a prompt-eligible filesystem denial · denial evaluated · no dialog on any channel, existing denial returned, recorded reason names the Host-admission mode (test-plan #E51)
+- [x] 10.9b `hostGate.mode = report` with a live channel and a network denial · denial evaluated · no dialog, denial still recorded and answerable on the Access surface (test-plan #E52)
+- [x] 10.9c `hostGate.mode = enforce` with a capability-bearing filesystem denial · denial evaluated · dialog raised and request suspended (test-plan #E53)
 
 ### 10b. L1 unit (vitest) — registry lifecycle and volume control
 
@@ -139,7 +139,7 @@ Harness exemplar: `packages/server/src/__tests__/cors.test.ts` for plain in-proc
 - [x] 10.18 Suppression by per-channel bound vs global cap · each occurs · log/metric distinguishes the reason (test-plan #E23)
 - [x] 10.19 Verdict naming an unoffered directory · verdict submitted · refused, no grant written (test-plan #E47)
 - [x] 10.20 Verdict naming an offered rung · verdict submitted · grant written recording the widened-from subject (test-plan #E48)
-- [ ] 10.21 Fresh install, no config · denial occurs · no dialog, denial recorded and answerable from the Access surface (test-plan #E49)
+- [x] 10.21 Fresh install, no config · denial occurs · no dialog, denial recorded and answerable from the Access surface (test-plan #E49)
 
 ### 10c. L1 unit (vitest) — path containment and the ancestor ladder
 
@@ -176,14 +176,14 @@ Harness exemplar: `packages/server/src/auth/__tests__/cwd-policy-funnel.test.ts`
 
 Harness exemplar: `packages/server/src/routes/__tests__/` git-routes socket-timeout tests for the hold path; plain vitest timing for the rest.
 
-- [ ] 10.42 One held request across the 10s Fastify `connectionTimeout` · not terminated at 10s, socket timeout restored on finish within the 120 s max hold (test-plan #P1)
+- [x] 10.42 One held request across the 10s Fastify `connectionTimeout` · not terminated at 10s, socket timeout restored on finish within the 120 s max hold (test-plan #P1) (proven against a real HTTP server with `connectionTimeout` shortened to 150 ms and a hold of 3x that; the mechanism, not the constant)
 - [ ] 10.43 Denial 12 levels deep, 1000 iterations · p95 ladder computation < 5ms (test-plan #P3)
 - [ ] 10.44 10k prompt→settle cycles · RSS delta < 10MB, registry size returns to baseline (test-plan #P4)
-- [ ] 10.45 Client aborts a suspended request mid-hold · entry released, socket timeout restored, no orphaned handle, nothing persisted (test-plan #X1)
-- [ ] 10.46 Operator never answers, hold exceeds its maximum · outcome per C6 (test-plan #X2)
-- [ ] 10.47 Subject replaced by a link to another location after the verdict · request released · guard re-runs and denies (test-plan #X3)
-- [ ] 10.48 Grant revoked between verdict and release · request released · re-run guard reflects the revocation (test-plan #X4)
-- [ ] 10.49 Browser gateway unavailable when a prompt would be pushed · denial evaluated · denial stands, no allow, recorded as degraded (test-plan #X5)
+- [x] 10.45 Client aborts a suspended request mid-hold · entry released, socket timeout restored, no orphaned handle, nothing persisted (test-plan #X1)
+- [x] 10.46 Operator never answers, hold exceeds its maximum · outcome per C6 (test-plan #X2)
+- [x] 10.47 Subject replaced by a link to another location after the verdict · request released · guard re-runs and denies (test-plan #X3)
+- [x] 10.48 Grant revoked between verdict and release · request released · re-run guard reflects the revocation (test-plan #X4)
+- [x] 10.49 Browser gateway unavailable when a prompt would be pushed · denial evaluated · denial stands, no allow, recorded as degraded (test-plan #X5) (a broadcast failure resolves `broadcast-failed`, unheld and recorded; waiters are resolved before any dismissal is sent, so a gateway failure can never hang a held request)
 - [ ] 10.50 Denials beyond capacity · overflow · recorded without prompting, no silent drop of a live entry, no allow (test-plan #X6)
 - [ ] 10.51 Chosen root deleted between offer and activation · activation submitted · refused, no session created (test-plan #X7)
 - [ ] 10.52 Subject cannot be realpath-resolved · ladder computed · refused rather than compared unresolved (test-plan #X8)
