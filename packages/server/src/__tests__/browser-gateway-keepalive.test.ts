@@ -87,6 +87,38 @@ describe("unresponsive client is terminated (test-plan #X2)", () => {
   });
 });
 
+describe("a draining send buffer counts as liveness", () => {
+  // The ping is queued behind buffered data, so a live client on a slow link
+  // cannot answer it until the buffer drains. See change:
+  // harden-ios-safari-memory-and-ws-diagnostics (CodeRabbit PR #723).
+  it("does not terminate a non-ponging socket whose buffer shrinks every tick", async () => {
+    harness = await startRealBrowserWs(INTERVAL);
+    const ws = await harness.connect({ autoPong: false });
+    const [serverSide] = [...harness.gateway.wss.clients];
+    let buffered = 1_000_000;
+    Object.defineProperty(serverSide, "bufferedAmount", {
+      configurable: true,
+      get: () => buffered,
+    });
+    for (let i = 0; i < 5; i++) {
+      buffered -= 100_000; // draining, slowly
+      await tick();
+    }
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+    expect(closeLines()).toEqual([]);
+  });
+
+  it("still terminates when the buffer is stuck (no drain progress)", async () => {
+    harness = await startRealBrowserWs(INTERVAL);
+    await harness.connect({ autoPong: false });
+    const [serverSide] = [...harness.gateway.wss.clients];
+    Object.defineProperty(serverSide, "bufferedAmount", { configurable: true, get: () => 500_000 });
+    for (let i = 0; i < 3; i++) await tick();
+    await until(() => closeLines().length > 0);
+    expect(closeLines()[0]).toMatch(/cause=keepalive$/);
+  });
+});
+
 describe("server close clears the keepalive timer (test-plan #X5)", () => {
   it("sends no pings after wss close and leaves no interval scheduled", async () => {
     harness = await startRealBrowserWs(INTERVAL);

@@ -469,6 +469,8 @@ interface SocketDiag {
   connectedAt: number;
   frames: number;
   missedPongs: number;
+  /** `bufferedAmount` at the previous keepalive tick (drain-progress check). */
+  lastBuffered: number;
   cause: "peer" | "keepalive" | "stalled";
 }
 
@@ -532,6 +534,11 @@ export function createBrowserGateway(
       if (client.readyState !== WebSocket.OPEN) continue;
       const diag = socketDiag.get(client);
       if (!diag) continue;
+      // The ping queues behind buffered data, so a live client on a slow link
+      // cannot answer until it drains: drain progress counts as liveness.
+      const buffered = client.bufferedAmount;
+      if (buffered > 0 && buffered < diag.lastBuffered) diag.missedPongs = 0;
+      diag.lastBuffered = buffered;
       if (diag.missedPongs >= 2) {
         diag.cause = "keepalive";
         client.terminate();
@@ -1363,7 +1370,7 @@ export function createBrowserGateway(
     console.error(`[browser-gw] browser client connected from ${remoteAddr} origin=${origin} ua=${ua.slice(0, 80)} (total: ${subscriptions.size + 1})`);
     const subs = new Set<string>();
     subscriptions.set(ws, subs);
-    const diag: SocketDiag = { connectedAt: Date.now(), frames: 0, missedPongs: 0, cause: "peer" };
+    const diag: SocketDiag = { connectedAt: Date.now(), frames: 0, missedPongs: 0, lastBuffered: 0, cause: "peer" };
     socketDiag.set(ws, diag);
     ws.on("pong", () => {
       diag.missedPongs = 0;
