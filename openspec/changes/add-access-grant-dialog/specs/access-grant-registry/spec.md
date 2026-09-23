@@ -203,6 +203,11 @@ prompts the operator would have wanted, without a single grant being created.
 Exhaustion caused by one requester SHALL NOT degrade prompting for unrelated
 planes or unrelated requesters.
 
+Concretely, a single channel SHALL hold at most 12 registry entries and at most
+1 open dialog; a channel on a deferred plane SHALL additionally be limited to 1
+prompt per plane per minute. A channel past its entry share SHALL NOT be given a
+registry entry, so it cannot consume capacity other requesters need.
+
 #### Scenario: One requester cannot exhaust the shared budget
 
 - **GIVEN** a single requester emitting denials against many distinct subjects

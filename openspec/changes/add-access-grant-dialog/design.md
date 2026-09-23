@@ -350,6 +350,26 @@ concurrent) is a usable flood. Exhausting any layer degrades to record-only (D3)
 to auto-allow. This reuses the ring buffer's existing dedupe and IP cap rather
 than adding a parallel mechanism.
 
+**Per-channel prompting budget (resolved during implementation).** The 20%
+share bounds a requester's *registry entries* (12 of 64), but the dialog limits
+above are global, so on its own the share does not stop one requester from
+holding both dialog slots or using up a plane's per-minute prompts. That would
+starve an unrelated requester (test-plan #E22). The budget is therefore split
+by trust:
+
+- **Every channel:** at most **1** open dialog, so no single requester can
+  hold both of the 2 global slots.
+- **Deferred planes only** (untrusted remote sources): at most **1** prompt per
+  plane per minute per source.
+- **Held planes** (the operator's own capability-holding browser) keep the full
+  **5** per plane per minute. Rate-limiting the operator's own client harder
+  would recreate the "multi-file operation feels broken" cost that ruled out
+  the aggressive constant set.
+
+A requester past its entry share gets **no registry entry at all**. If it still
+got unprompted entries it could fill capacity and starve everyone else. Its
+denial is still recorded by the existing denial ledgers.
+
 ### D10 — Off by default, with a kill switch, and prompt-free parity
 
 A setting (default **off**) plus `PI_DASHBOARD_DISABLE_GRANT_PROMPT=1`. Both
