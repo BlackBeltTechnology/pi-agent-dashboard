@@ -240,6 +240,19 @@ within the TTL may be missed; the ladder stays forbidden-filtered and is only
 offered. An unresolvable subject now yields an empty ladder (#X8) instead of rungs
 built on a lexical tail.
 
+**Issuance without `Sec-Fetch-Site` (resolved during implementation, E2E).**
+The browser E2E found that Chrome (153, headed and headless) sends
+`Sec-Fetch-Site` on `fetch` but never on the WebSocket upgrade, so D1a's
+condition 2 as first written issued no capability to any Chromium browser and
+the feature never prompted. User decision A: the site relation is derived from
+`Origin` vs `Host` (`capability-issuance.ts` `siteRelation`): same-origin by
+Host qualifies; the same hostname on another port/scheme, or loopback to
+loopback, is same-site and refused (a hostile dev server on `localhost:3000` is
+CORS-admitted, which is what the header used to catch); anything else is
+cross-site and qualifies only through the admission rule. A header that is
+present must still qualify. A same-registrable-domain subdomain is classed
+cross-site (no public-suffix list) and must then be admitted explicitly.
+
 **Client decisions (resolved during implementation, sections 7-8).**
 - *Allow always is styled like the other answers.* `mockups/ui-plan.md` bound it
   to the `primary` intent; the normative dialog spec forbids emphasising any

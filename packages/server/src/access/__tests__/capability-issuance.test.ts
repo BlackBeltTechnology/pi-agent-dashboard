@@ -8,7 +8,9 @@ import { __resetPromptChannels, GRANT_CHANNEL_HEADER, issuePromptChannel, maySus
  * test-plan #E1-#E4).
  *
  * Issuance is gated on browser-shaped provenance: a non-absent admitted Origin
- * AND a qualifying Sec-Fetch-Site. The 3.5 suite then replays each recorded
+ * AND a qualifying Origin-vs-Host site relation (Chrome sends no Sec-Fetch-Site
+ * on a WebSocket upgrade, so the relation is derived; a header that IS present
+ * can still refuse). The 3.5 suite then replays each recorded
  * defeat and asserts it is refused SUSPENSION, which is the property the defeats
  * were about.
  */
@@ -73,6 +75,33 @@ describe("issuance requires browser-shaped provenance (2b.1)", () => {
     expect(shouldIssuePromptCapability({}, opts())).toBe(false);
   });
 
+  it("Chrome's real upgrade shape (Origin, no Sec-Fetch-Site) from the dashboard's own page: issued", () => {
+    const { "sec-fetch-site": _omit, ...chrome } = upgrade({});
+    expect(shouldIssuePromptCapability(chrome, opts())).toBe(true);
+    const lan = { host: "mac.local:8000", origin: "http://mac.local:8000" };
+    expect(shouldIssuePromptCapability(lan, opts())).toBe(true);
+  });
+
+  it("the neutral shell with no Sec-Fetch-Site is cross-site by derivation: issued", () => {
+    expect(shouldIssuePromptCapability({ host: "127.0.0.1:8000", origin: "https://pi-dashboard.dev" }, opts())).toBe(true);
+  });
+
+  it("derived same-site is refused: another loopback port, or the same hostname on another port (Host has no scheme, so a scheme-only difference on one port is the same server)", () => {
+    // Loopback any port is CORS-admitted, so admission alone would issue it.
+    expect(shouldIssuePromptCapability({ host: "127.0.0.1:8000", origin: "http://localhost:3000" }, opts())).toBe(false);
+    expect(shouldIssuePromptCapability({ host: "localhost:8000", origin: "http://127.0.0.1:5173" }, opts())).toBe(false);
+    const configured = opts({ configuredOrigins: ["http://mac.local:3000"] });
+    expect(shouldIssuePromptCapability({ host: "mac.local:8000", origin: "http://mac.local:3000" }, configured)).toBe(false);
+  });
+
+  it("a present Sec-Fetch-Site that disagrees still refuses (defence in depth)", () => {
+    expect(shouldIssuePromptCapability(upgrade({ "sec-fetch-site": "same-site" }), opts())).toBe(false);
+  });
+
+  it("an unparseable Host is refused, never treated as cross-site", () => {
+    expect(shouldIssuePromptCapability({ host: "evil.com#", origin: "https://pi-dashboard.dev" }, opts())).toBe(false);
+  });
+
   it("a repeated (array) provenance header is refused", () => {
     expect(shouldIssuePromptCapability(upgrade({ origin: [DASH, DASH] }), opts())).toBe(false);
   });
@@ -90,9 +119,11 @@ describe("3.5 every recorded defeat is refused suspension", () => {
     expect(canSuspend(zrok, opts({ hostGateMode: "enforce", allowZrokWildcard: true }))).toBe(false);
   });
 
-  it("defeat #4: Sec-Fetch-less legacy request", () => {
-    const { "sec-fetch-site": _omit, ...legacy } = upgrade({});
-    expect(canSuspend(legacy, opts({ hostGateMode: "enforce" }))).toBe(false);
+  it("defeat #4: a Sec-Fetch-less request from a same-site page (another loopback port)", () => {
+    // The header is optional now (Chrome omits it on upgrades); the same-site
+    // refusal it carried is re-derived from Origin vs Host.
+    const sameSite = { host: "127.0.0.1:8000", origin: "http://localhost:3000" };
+    expect(canSuspend(sameSite, opts({ hostGateMode: "enforce" }))).toBe(false);
   });
 
   it("rebound host in REPORT mode: issuance succeeds (D2 says so) but suspension is refused", () => {

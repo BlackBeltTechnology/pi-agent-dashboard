@@ -75,13 +75,19 @@ all of:
 
 1. a **non-absent** `Origin` that is admitted (an absent `Origin` SHALL NOT
    qualify);
-2. a `Sec-Fetch-Site` of `same-origin`, **or** `cross-site` when the `Origin` is
+2. a site relation of `same-origin`, **or** `cross-site` when the `Origin` is
    admitted by the **admission** origin rule (the variant that disables the
    zrok wildcard, not the CORS-readability variant — defeat #3 turned on exactly
-   that difference). `same-site` and `none` SHALL NOT qualify. The `cross-site`
-   branch exists for the neutral `https://pi-dashboard.dev` shell, which is
-   cross-site by construction and would otherwise be permanently prompt-less;
-   and
+   that difference). Because browsers do not send `Sec-Fetch-Site` on a
+   WebSocket upgrade (Chrome verified), the relation SHALL be derived from the
+   `Origin` against the request `Host`: `same-origin` when the Origin is the
+   same origin by Host, `same-site` when it names the same hostname on another
+   port or scheme or both are loopback names, otherwise `cross-site`. A
+   `Host` or `Origin` that does not parse SHALL NOT qualify. `same-site` SHALL
+   NOT qualify; when a `Sec-Fetch-Site` header is present, `same-site` and
+   `none` SHALL NOT qualify either. The `cross-site` branch exists for the
+   neutral `https://pi-dashboard.dev` shell, which is cross-site by construction
+   and would otherwise be permanently prompt-less; and
 3. whatever credential tier the dashboard UI itself requires of that connection.
 
 A connection failing any of these SHALL still function normally for every other
@@ -98,6 +104,18 @@ same machine able to forge request headers can be excluded by them.
 - **WHEN** the connection is established
 - **THEN** it SHALL NOT be issued a prompt capability
 - **AND** any denial attributable to it SHALL NOT be prompt-eligible
+
+#### Scenario: A real browser's upgrade without Sec-Fetch-Site is issued a capability
+
+- **GIVEN** the dashboard's own page opening the browser WebSocket with an admitted same-origin `Origin` and no `Sec-Fetch-Site` header
+- **WHEN** the connection is established
+- **THEN** it SHALL be issued a prompt capability
+
+#### Scenario: A same-site page is issued no capability
+
+- **GIVEN** a page on another loopback port (admitted by the loopback CORS rule) opening the browser WebSocket
+- **WHEN** the connection is established
+- **THEN** it SHALL NOT be issued a prompt capability
 
 #### Scenario: Capability issuance is not widened by the admission decision alone
 
