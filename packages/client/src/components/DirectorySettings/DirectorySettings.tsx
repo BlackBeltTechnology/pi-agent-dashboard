@@ -21,6 +21,7 @@ import { usePiResources } from "../../hooks/usePiResources.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { buildFolderSettingsUrl } from "../../lib/nav/route-builders.js";
+import { DirectoryYoloAction } from "../access-grant/YoloActivation.js";
 import { countResources } from "../resource/ResourceCardGrid.js";
 import { RESOURCE_PAGE_TYPE, ScopedResourceGrid } from "../resource/ScopedResourceGrid.js";
 import { InstructionsPage } from "./InstructionsPage.js";
@@ -120,6 +121,12 @@ export function DirectorySettings({ cwd, page, onBack }: Props) {
         >
           {cwd}
         </span>
+      </div>
+
+      {/* Pre-scoped YOLO entry point: this folder pre-selected, one shared
+          session. See change: add-access-grant-dialog (8b.7a). */}
+      <div className="px-4 py-2 border-b border-[var(--border-primary)] shrink-0">
+        <DirectoryYoloAction cwd={cwd} />
       </div>
 
       {/* Body: left nav rail + page content */}

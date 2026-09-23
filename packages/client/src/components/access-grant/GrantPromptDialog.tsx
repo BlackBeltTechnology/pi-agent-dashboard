@@ -17,6 +17,9 @@
  *   - Ladder: the denied subject plus exactly the carried rungs, the denied
  *     subject preselected, the selection shown beside the answers, no free text.
  *   - Subjects render as React text children only (never raw HTML).
+ *   - Filesystem / cwd prompts carry the inline YOLO offer (task 8b.7a): a
+ *     dashed secondary affordance in the body, never a verdict button, so the
+ *     denial in hand still needs an explicit answer (10.74).
  */
 
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
@@ -28,6 +31,7 @@ import type {
 import { mdiShieldAlertOutline } from "@mdi/js";
 import { useId, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { GrantDialogYoloOffer } from "./YoloActivation.js";
 
 export interface GrantPromptDialogProps {
   prompt: GrantRequestMessage;
@@ -58,6 +62,9 @@ const REASON_EN: Record<AccessPlaneId, string> = {
   network: "A request from this network was refused.",
   cors: "A cross-origin request from this origin was refused.",
 };
+
+/** Planes YOLO can answer (design D13: only the two whose subject is a path). */
+const YOLO_PLANES: ReadonlySet<AccessPlaneId> = new Set(["filesystem", "cwd"]);
 
 /** Same un-accented style for every verdict: none is emphasised (E56). */
 const VERDICT_INTENT = "neutral" as const;
@@ -175,6 +182,8 @@ export function GrantPromptDialog({ prompt, now, queued, onAnswer }: GrantPrompt
           <span className="font-mono break-all text-[var(--text-primary)]">{selected}</span>
         </p>
       )}
+
+      {YOLO_PLANES.has(plane) && <GrantDialogYoloOffer subject={subject} />}
 
       <Dialog.Footer>
         <span data-testid="grant-dialog-dismiss-note" className="mr-auto text-xs text-[var(--text-tertiary)]">

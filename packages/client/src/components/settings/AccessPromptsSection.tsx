@@ -12,6 +12,9 @@
  *   with prompting disabled), and recent verdicts - operator answers vs YOLO
  *   auto-answers, the store an allow-always wrote, and `widenedFrom`.
  * - Remembered refusals, each clearable.
+ * - YOLO card (tasks 8b.7, 8b.7a): status + activation, scoped by default to
+ *   `selectedCwd`. Each fetched `yolo` block is published to the shared
+ *   `yoloStatus` store so every indicator agrees with this page.
  *
  * Rendered as a sibling of `AccessSection` (not inside it): that section's
  * contract pins "revoke controls only" for arbitrary stored grants, whereas
@@ -42,7 +45,9 @@ import type {
 } from "../../lib/access-grants/access-prompts-types.js";
 import { useHasGrantChannel } from "../../lib/access-grants/grant-channel.js";
 import { type GrantPromptStore, grantPromptStore } from "../../lib/access-grants/grant-prompt-store.js";
+import { yoloStatus } from "../../lib/access-grants/yolo-status.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { YoloAccessCard } from "../access-grant/YoloAccessCard.js";
 
 /** Background refresh while the page is open (unprompted denials send no frame). */
 const POLL_MS = 10_000;
@@ -77,7 +82,14 @@ const BTN =
 const WARN_BANNER =
   "px-3 py-2 rounded text-xs border border-[var(--severity-warning-border)] bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)]";
 
-export function AccessPromptsSection({ store = grantPromptStore }: { store?: GrantPromptStore }) {
+export function AccessPromptsSection({
+  store = grantPromptStore,
+  selectedCwd,
+}: {
+  store?: GrantPromptStore;
+  /** The selected session's working directory: the YOLO default scope. */
+  selectedCwd?: string;
+}) {
   const version = useSyncExternalStore(store.subscribe, store.getVersion);
   const hasChannel = useHasGrantChannel();
   const [, navigate] = useLocation();
@@ -90,6 +102,7 @@ export function AccessPromptsSection({ store = grantPromptStore }: { store?: Gra
       const res = await fetchAccessPrompts();
       if (res.ok && res.data) {
         setView(res.data);
+        yoloStatus.publish(res.data.yolo);
         setError(null);
       } else {
         setError(res.error ?? `HTTP ${res.status}`);
@@ -165,6 +178,8 @@ export function AccessPromptsSection({ store = grantPromptStore }: { store?: Gra
           onToggle={() => void mutate("toggle", () => setPromptEnabled(!view.prompting.enabled))}
         />
       )}
+
+      {view && <YoloAccessCard yolo={view.yolo} base={selectedCwd} onChanged={() => void load()} />}
 
       {view && (
         <PendingList pending={view.pending} busy={busy} onAnswer={answer} />
@@ -286,7 +301,17 @@ function VerdictList({ verdicts }: { verdicts: VerdictView[] }) {
             className={ROW}
           >
             <div className="min-w-0 flex-1">
-              <div className={SUBJECT}>{v.subject}</div>
+              <div className={SUBJECT}>
+                {v.answeredBy === "yolo" && (
+                  <span
+                    data-testid="access-verdict-yolo-badge"
+                    className="mr-1.5 px-1 rounded text-[10px] font-sans border border-[var(--severity-warning-border)] bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)]"
+                  >
+                    {i18nT("accessPrompts.yoloBadge", undefined, "YOLO")}
+                  </span>
+                )}
+                {v.subject}
+              </div>
               <div className={META}>
                 {i18nT(`accessPrompts.outcome.${v.outcome}`, undefined, OUTCOME_EN[v.outcome])} ·{" "}
                 {planeLabel(v.plane)} · {when(v.at)}

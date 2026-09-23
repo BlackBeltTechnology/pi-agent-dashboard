@@ -256,6 +256,14 @@ built on a lexical tail.
   on every connect, so a newly opened tab also shows prompts already pending.
 - *The prompting toggle saves immediately* (`PUT /api/config`), outside the
   settings Save bar, which never sends `accessGrants`.
+- *YOLO severity stays warning*, unscoped included (ui-plan S6); unscoped is
+  distinguished by weight, a heavier border and the "everywhere" label.
+- *In-scope indicator* compares the session `cwd` component-wise against the
+  roots (real paths). A session whose recorded `cwd` is a symlink alias of a
+  root may not show the indicator although the server would auto-allow; pi
+  records `process.cwd()` (the physical path), so this is an accepted residual.
+- *YOLO status is polled every 15 s* while an indicator is mounted (the sidebar
+  pill always is); `GET /api/access/prompts` is an in-memory read.
 
 ### D2 — DNS rebinding is out of D1's reach, so **prompting at all** requires `hostGate.mode === "enforce"`
 

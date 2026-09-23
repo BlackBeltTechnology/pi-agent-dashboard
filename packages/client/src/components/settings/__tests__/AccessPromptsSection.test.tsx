@@ -62,6 +62,7 @@ function makeView(blockers: PromptingBlocker[] = ["disabled"]): AccessPromptsVie
       },
       { answeredBy: "yolo", plane: "filesystem", subject: "/repo/other", outcome: "auto-allowed", at: 2 },
     ],
+    yolo: { available: !blockers.includes("report-mode"), durationsMinutes: [15, 30, 60], session: null },
     refusals: [{ plane: "filesystem", subject: "/home/u/.ssh", refusedAt: 1 }],
   };
 }

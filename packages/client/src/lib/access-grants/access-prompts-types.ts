@@ -58,6 +58,30 @@ export interface RefusalView {
   refusedAt: number;
 }
 
+/** One root of a YOLO session (server `YoloRoot`). */
+interface YoloRootView {
+  path: string;
+  addedAt: number;
+}
+
+/** The live YOLO session (server `YoloSession`, `access/yolo-session.ts`). */
+export interface YoloSessionView {
+  source: "operator" | "env";
+  activatedAt: number;
+  /** `null` = the environment session: lasts the process lifetime. */
+  expiresAt: number | null;
+  unscoped: boolean;
+  roots: YoloRootView[];
+}
+
+/** The `yolo` block of the view (tasks 8b.7, 8b.7a). */
+export interface YoloView {
+  /** False = report mode: no activation possible (D13a). */
+  available: boolean;
+  durationsMinutes: number[];
+  session: YoloSessionView | null;
+}
+
 export interface AccessPromptsView {
   prompting: {
     enabled: boolean;
@@ -69,5 +93,6 @@ export interface AccessPromptsView {
   pending: PendingPromptView[];
   /** Newest first. */
   verdicts: VerdictView[];
+  yolo: YoloView;
   refusals: RefusalView[];
 }

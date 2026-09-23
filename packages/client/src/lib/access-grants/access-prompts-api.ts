@@ -10,13 +10,17 @@
  * - `setPromptEnabled`    PUT    /api/config  { accessGrants: { promptEnabled } }
  *   (the same write path the Settings Save uses; `accessGrants` holds only
  *   this field, so the top-level replace loses nothing)
+ * - `fetchYoloRoots`      GET    /api/access/yolo/roots?base=  (base + its ladder)
+ * - `activateYolo`        POST   /api/access/yolo  (activate, or ADD a root to
+ *   the live session - timer unchanged; tasks 8b.7a, 8b.7b)
+ * - `endYolo`             DELETE /api/access/yolo
  */
 import type {
   AccessPlaneId,
   GrantVerdict,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { getApiBase } from "../api/api-context.js";
-import type { AccessPromptsView } from "./access-prompts-types.js";
+import type { AccessPromptsView, YoloSessionView } from "./access-prompts-types.js";
 
 interface ApiEnvelope<T> {
   success?: boolean;
@@ -58,4 +62,23 @@ export function clearRefusal(plane: AccessPlaneId, subject: string): Promise<Api
 
 export function setPromptEnabled(enabled: boolean): Promise<ApiResult> {
   return call("PUT", "/api/config", { accessGrants: { promptEnabled: enabled } });
+}
+
+export function fetchYoloRoots(base: string): Promise<ApiResult<{ roots: string[] }>> {
+  return call<{ roots: string[] }>("GET", `/api/access/yolo/roots?${new URLSearchParams({ base }).toString()}`);
+}
+
+/** Scoped (`base` + chosen `root`) or explicit `unscoped`. */
+export type YoloActivation =
+  | { durationMinutes: number; base: string; root: string }
+  | { durationMinutes: number; unscoped: true };
+
+export function activateYolo(
+  req: YoloActivation,
+): Promise<ApiResult<{ session: YoloSessionView; added: boolean }>> {
+  return call<{ session: YoloSessionView; added: boolean }>("POST", "/api/access/yolo", req);
+}
+
+export function endYolo(): Promise<ApiResult> {
+  return call("DELETE", "/api/access/yolo");
 }

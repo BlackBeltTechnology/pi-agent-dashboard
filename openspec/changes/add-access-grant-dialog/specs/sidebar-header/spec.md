@@ -29,3 +29,21 @@ surface where the session can be ended, and SHALL NOT be dismissible.
 - **GIVEN** an active YOLO session
 - **WHEN** the sidebar header is not visible
 - **THEN** the operator SHALL still be shown that YOLO is active by a session surface in scope
+
+## MODIFIED Requirements
+
+### Requirement: Two-row header layout
+The sidebar header SHALL render as two distinct rows within a single border-bottom container.
+
+#### Scenario: Row 1 contains app-level controls
+- **WHEN** the sidebar header renders
+- **THEN** the first row SHALL contain a left-aligned group of π logo, ThemePicker, and ThemeToggle; and a right-aligned group of InstallButton (conditional), TunnelButton, the YOLO indicator (conditional: only while a YOLO session is active, immediately after TunnelButton), ServerSelector (headerExtra, conditional), and Settings gear icon
+
+#### Scenario: Row 2 contains filter controls
+- **WHEN** the sidebar header renders
+- **THEN** the second row SHALL contain the folder-filter and session-search inputs and the "Active only" and "Show hidden" toggle buttons
+- **AND** the second row SHALL NOT contain a folder Pin+ button (relocated to the scroll list per `dashboard-add-buttons`)
+
+#### Scenario: Row spacing
+- **WHEN** both rows render
+- **THEN** row 1 SHALL use compact padding and row 2 SHALL use normal padding, with no visible divider between them

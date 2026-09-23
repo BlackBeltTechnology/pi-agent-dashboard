@@ -2070,7 +2070,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
 
             {activeTab === "access" && (
               <>
-                <AccessPromptsSection />
+                <AccessPromptsSection selectedCwd={selectedCwd} />
                 <AccessSection />
               </>
             )}

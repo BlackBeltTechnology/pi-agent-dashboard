@@ -42,6 +42,7 @@ import { selectedCardScrollFingerprint } from "../../lib/session/session-list-sc
 import { floatAskUserFirst } from "../../lib/session/session-status-visuals.js";
 import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
 import { truncatePathMiddle } from "../../lib/util/truncate-path.js";
+import { YoloPill } from "../access-grant/YoloIndicators.js";
 import { TunnelButton } from "../connectivity/TunnelButton.js";
 import { FolderActionBanner } from "../folder/FolderActionBanner.js";
 import { FolderActionsMenu, type FolderMenuItem } from "../folder/FolderActionsMenu.js";
@@ -2200,6 +2201,8 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
           <div className="flex gap-1 items-center">
             <InstallButton canInstall={installPrompt.canInstall} isInstalled={installPrompt.isInstalled} prompt={installPrompt.prompt} />
             <TunnelButton showToast={showToast} />
+            {/* Conditional active-YOLO pill (sidebar-header row 1). See change: add-access-grant-dialog (8b.7). */}
+            <YoloPill />
             {headerExtra}
             {/* Community entry point. MDI 7 dropped brand icons, so the Discord
                 glyph is an inline path constant. See change: add-discord-link. */}
