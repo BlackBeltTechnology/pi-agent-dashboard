@@ -220,6 +220,17 @@ surface); `/api/health.accessGrants` is served only to authenticated or
 genuinely-local callers; `isSubjectWithin` treats a child named `..foo` as inside;
 every persisted allow-always logs its origin session.
 
+8b.9 verdicts: plane scoping HOLDS; auto-allow outside eligibility/scope HOLDS on
+the filesystem plane and, after the fixes above, on the cwd plane; the tunnel case
+HOLDS as D13(c) intended (a tunnel peer carries forwarding headers, so it holds a
+capability only as an authenticated operator). Accepted low residuals: (1) the
+unknown-cwd allow-once is a check-then-use on a lexical anchor, so a racing
+symlink swap can yield one existence bit outside the named dir (needs a
+capability; same as today's known-cwd behaviour); (2) a refusal names exactly its
+subject, so a descendant of a refused directory is not itself refused (the spec's
+literal "subject"); (3) the refusal ledger is uncapped (growth bounded by operator
+denies, which D9 rate-limits); (4) YOLO audit lines are not rate-limited.
+
 ### D2 — DNS rebinding is out of D1's reach, so **prompting at all** requires `hostGate.mode === "enforce"`
 
 **Decision.** D1 alone does **not** beat rebinding: an `attacker.com` rebound to

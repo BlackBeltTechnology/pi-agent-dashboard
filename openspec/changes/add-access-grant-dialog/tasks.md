@@ -91,7 +91,7 @@
 - [ ] 8b.7a Add the three activation entry points writing one shared session: full card on the Access settings page; inline "stop asking for a while" in the grant dialog using **that denial's** ladder and **not** rendered as a fourth verdict; pre-scoped action on the directory settings page — verify tests assert the denial still requires an explicit verdict, the directory page pre-selects its own directory, and all three surfaces show one session
 - [ ] 8b.7b When a surface offers activation while a session is already active, it adds its root to that session instead of starting a second one, and says the timer is unchanged — verify a test asserts no second session is created and the expiry is untouched
 - [ ] 8b.8 List auto-allowed subjects in the Access surface, distinguished from operator-answered verdicts, and log each with "no human answered" — verify a test asserts the distinction survives after the session ends
-- [ ] 8b.9 **`eng-disciplines` → `security-hardening`** on YOLO specifically: whether the plane-scoping is genuinely unrepresentable, whether an auto-allow can be reached without prompt-eligibility or outside the session scope on any path, and whether the tunnel-reachable case needs the refusal that was deliberately not taken (design D13) — verify findings recorded and addressed
+- [x] 8b.9 **`eng-disciplines` → `security-hardening`** on YOLO specifically: whether the plane-scoping is genuinely unrepresentable, whether an auto-allow can be reached without prompt-eligibility or outside the session scope on any path, and whether the tunnel-reachable case needs the refusal that was deliberately not taken (design D13) — verify findings recorded and addressed
 
 ## 9. Kill switch, docs, and closeout
 
