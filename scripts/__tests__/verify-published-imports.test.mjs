@@ -334,6 +334,19 @@ describe('root package discovery', () => {
     expect(rootPackage(ws.dir)).toBeNull();
   });
 
+  it('analyzeRepository applies ONLY the tsconfig rule to the root (import rules deferred)', async () => {
+    // Public root with both a dangling extends AND an undeclared import: only the
+    // former may surface. Guards against silently widening (or dropping) the root.
+    const ws = fixture(
+      { name: 'root-fixture', files: ['index.js', 'tsconfig.json'] },
+      { 'index.js': 'import "left-pad";', 'tsconfig.json': JSON.stringify({ extends: './missing.json' }) },
+    );
+    const { workspaces, findings } = await analyzeRepository(ws.dir, { allowlist: [] });
+
+    expect(workspaces.map((w) => w.rel)).toEqual(['.']);
+    expect(rulesOf(findings)).toEqual(['dangling-tsconfig-extends']);
+  }, 60_000);
+
   it('the real repository root is published, so it is checked', () => {
     expect(rootPackage(REPO_ROOT)?.name).toBe('@blackbelt-technology/pi-agent-dashboard');
   });

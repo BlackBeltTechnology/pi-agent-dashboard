@@ -21,6 +21,6 @@
 
 - [x] 4.1 `CHANGELOG.md` `## [Unreleased]` → Fixed: "Published package now ships `tsconfig.base.json`; `pi-dashboard start/restart` crashed on 0.8.0 installs." Also note the extended publish check.
 - [x] 4.2 Update the `verify-published-imports.mjs` row, its sidecar in `scripts/`, and the test sidecar. Add `See change: fix-ship-tsconfig-base`.
-- [ ] 4.3 Run `review-code` on the diff.
+- [x] 4.3 Run `review-code` on the diff.
 - [ ] 4.4 Follow-up (not in this change): full import-correctness for the root meta-package. Track it as a new OpenSpec change.
 - [ ] 4.5 After merge, cut 0.8.1 through the `release-cut` skill. That release is outside this change's gate.
