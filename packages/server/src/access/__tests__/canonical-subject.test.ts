@@ -91,6 +91,12 @@ describe("containment is component-wise, never a string prefix", () => {
     expect(isSubjectWithin(secrets, repo)).toBe(false);
   });
 
+  it("treats a child NAMED ..foo as inside (not an escape)", () => {
+    const repo = mk("repo");
+    const dotted = mk("repo", "..foo");
+    expect(isSubjectWithin(dotted, repo)).toBe(true);
+  });
+
   it("treats a real descendant as inside", () => {
     const repo = mk("repo");
     const inner = mk("repo", "a", "b");

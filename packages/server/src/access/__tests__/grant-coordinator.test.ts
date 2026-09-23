@@ -1,7 +1,12 @@
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { AccessPlaneRegistry, type DeferredAccessPlane, type HeldAccessPlane } from "../access-plane.js";
-import { type DenialContext, GrantCoordinator, type GrantCoordinatorDeps } from "../grant-coordinator.js";
+import {
+  type DenialContext,
+  GRANT_MAX_WAITERS_PER_ENTRY,
+  GrantCoordinator,
+  type GrantCoordinatorDeps,
+} from "../grant-coordinator.js";
 import { GRANT_ENTRY_TTL_MS } from "../pending-grant-registry.js";
 
 /**
@@ -144,14 +149,77 @@ describe("held denial: suspended, then settled by the first answer", () => {
     expect(grant).not.toHaveBeenCalled();
   });
 
-  it("coalesced held requests are all released by one verdict", async () => {
+  it("allow-once releases ONLY the request that raised the prompt; coalesced ones are denied", async () => {
     const c = make();
     const a = c.onDenial(fsDenial(), true);
     const b = c.onDenial(fsDenial(), true);
     expect(b.held).toBe(true);
     await c.onResponse(answer("allow-once"));
     expect((await a.result).kind).toBe("allow");
+    expect(await b.result).toEqual({ kind: "deny", reason: "allow-once-not-shared" });
+  });
+
+  it("allow-always and deny release every coalesced request alike", async () => {
+    const c = make();
+    const a = c.onDenial(fsDenial(), true);
+    const b = c.onDenial(fsDenial(), true);
+    await c.onResponse(answer("allow-always"));
+    expect((await a.result).kind).toBe("allow");
     expect((await b.result).kind).toBe("allow");
+  });
+
+  it("caps the requests held on one entry; the rest are recorded, not held", () => {
+    const c = make();
+    const holds = Array.from({ length: GRANT_MAX_WAITERS_PER_ENTRY + 1 }, () => c.onDenial(fsDenial(), true));
+    expect(holds.filter((h) => h.held)).toHaveLength(GRANT_MAX_WAITERS_PER_ENTRY);
+    expect(holds.at(-1)?.held).toBe(false);
+  });
+
+  it("a throwing store still releases the held request, as a deny", async () => {
+    const c = make();
+    grant.mockImplementation(async () => {
+      throw new Error("disk on fire");
+    });
+    const hold = c.onDenial(fsDenial(), true);
+    await c.onResponse(answer("allow-always"));
+    expect(await hold.result).toEqual({ kind: "deny", reason: "settle-failed" });
+  });
+
+  it("a throwing refusal writer still releases the held request", async () => {
+    const c = make({
+      recordRefusal: () => {
+        throw new Error("ledger gone");
+      },
+    });
+    const hold = c.onDenial(fsDenial(), true);
+    await c.onResponse(answer("deny"));
+    expect((await hold.result).kind).toBe("deny");
+    expect(c.registry.size).toBe(0);
+  });
+});
+
+describe("the WebSocket answers only prompted entries under live enforce", () => {
+  it("ignores a socket answer to an entry recorded without a prompt", async () => {
+    const c = make({ promptEnabled: () => false });
+    c.onDenial(fsDenial(), true);
+    const [entry] = c.registry.list(clock);
+    expect(entry?.prompted).toBe(false);
+    await c.onResponse({ type: "grant_response", promptId: entry?.promptId, plane: "filesystem", subject: "/work/repo", verdict: "allow-always" });
+    expect(grant).not.toHaveBeenCalled();
+    expect(c.registry.size).toBe(1);
+    // The Access surface may still settle it.
+    await c.settle({ type: "grant_response", promptId: entry?.promptId, plane: "filesystem", subject: "/work/repo", verdict: "allow-always" });
+    expect(grant).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a socket answer once the host gate has left enforce", async () => {
+    let mode: "enforce" | "report" = "enforce";
+    const c = make({ hostGateMode: () => mode });
+    const hold = c.onDenial(fsDenial(), true);
+    mode = "report";
+    await c.onResponse(answer("allow-always"));
+    expect(grant).not.toHaveBeenCalled();
+    hold.abort();
   });
 });
 

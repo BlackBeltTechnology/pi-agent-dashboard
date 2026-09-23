@@ -158,5 +158,6 @@ export function isSubjectWithin(
   if (!cc || !ca) return false;
   if (cc.canonical === ca.canonical) return true;
   const rel = path.relative(ca.canonical, cc.canonical);
-  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+  // `..` or `../x` escapes; a child NAMED `..foo` does not.
+  return rel !== "" && rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
 }

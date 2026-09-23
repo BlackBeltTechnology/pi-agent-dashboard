@@ -126,4 +126,18 @@ describe("9.3 access-grant counters", () => {
     expect(body.accessGrants).toBeNull();
     expect(body.ok).toBe(true);
   });
+
+  it("hides accessGrants from a remote or tunnel-forwarded caller (unguarded endpoint)", async () => {
+    const app = await makeApp(() => ({ sentinel: true }) as unknown as AccessGrantHealth);
+    const remote = await app.inject({ method: "GET", url: "/api/health", remoteAddress: "203.0.113.9" });
+    expect(remote.json().accessGrants).toBeNull();
+    const tunnel = await app.inject({
+      method: "GET",
+      url: "/api/health",
+      headers: { "x-forwarded-for": "198.51.100.4" },
+    });
+    expect(tunnel.json().accessGrants).toBeNull();
+    const local = await health(app);
+    expect(local.accessGrants).not.toBeNull();
+  });
 });

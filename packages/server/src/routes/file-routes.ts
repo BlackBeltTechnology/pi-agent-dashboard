@@ -13,6 +13,7 @@ import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/type
 import type { FastifyInstance } from "fastify";
 import { type DenialRemedy, evaluateContainment } from "../access/containment-gate.js";
 import { type HoldTarget, holdDenial } from "../access/denial-hold.js";
+import { isUngrantableSubject } from "../access/forbidden-subjects.js";
 import {
   assertRegularFile,
   openVerifiedRegularFile,
@@ -1380,5 +1381,11 @@ async function unknownCwdVerdictAdmits(
   if (resolution.kind !== "allow") return false;
   const pinned = new Set(preferencesStore.getPinnedDirectories());
   if (pinned.has(cwd) || pinned.has(path.resolve(cwd))) return true;
-  return resolution.verdict === "allow-once" && resolution.subject === path.resolve(cwd);
+  // Allow-once re-checks the forbidden rule itself: a transient admission must
+  // never reach a directory no grant could name.
+  return (
+    resolution.verdict === "allow-once" &&
+    resolution.subject === path.resolve(cwd) &&
+    !isUngrantableSubject(resolution.subject)
+  );
 }

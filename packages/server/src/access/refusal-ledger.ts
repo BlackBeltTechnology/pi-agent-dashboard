@@ -25,6 +25,7 @@ import * as fs from "node:fs";
 import path from "node:path";
 import type { AccessPlaneId } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+import { canonicalSubject } from "./canonical-subject.js";
 
 export interface Refusal {
   plane: AccessPlaneId;
@@ -101,8 +102,19 @@ export function listRefusals(): Refusal[] {
   return [...load()];
 }
 
+/**
+ * The ledger's key for a subject: its canonical real path (symlinks resolved,
+ * NFC, case folded iff the volume folds), so a deny on `/repo/a` also refuses
+ * `/repo/lnk -> a` and a case variant. An unresolvable subject keys as given.
+ */
+function refusalKey(subject: string): string {
+  if (!path.isAbsolute(subject)) return subject;
+  return canonicalSubject(subject)?.canonical ?? subject;
+}
+
 export function isRefused(plane: AccessPlaneId, subject: string): boolean {
-  return load().some((r) => r.plane === plane && r.subject === subject);
+  const key = refusalKey(subject);
+  return load().some((r) => r.plane === plane && (r.subject === key || refusalKey(r.subject) === key));
 }
 
 /** Remember an explicit deny. Idempotent per (plane, subject). */
@@ -112,7 +124,12 @@ export function recordRefusal(
   now: number = Date.now(),
 ): { ok: true } | { ok: false; error: string } {
   if (isRefused(plane, subject)) return { ok: true };
-  return save([...load(), { plane, subject, refusedAt: now }]);
+  const next = [...load(), { plane, subject: refusalKey(subject), refusedAt: now }];
+  const saved = save(next);
+  // A refusal that failed to reach disk is still honoured for this process's
+  // lifetime: forgetting it would let YOLO auto-allow what the operator denied.
+  if (!saved.ok) cache = next;
+  return saved;
 }
 
 /** The operator's explicit clear, from the Access surface. */

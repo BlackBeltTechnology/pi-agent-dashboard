@@ -90,7 +90,13 @@ export function createCwdPlane(deps: Pick<PlaneDeps, "pinDirectory">): HeldAcces
     mode: "held",
     yoloEligible: true,
     store,
-    subjectOf: (raw) => (raw && path.isAbsolute(raw) ? path.resolve(raw) : null),
+    // A forbidden directory (`/`, `$HOME`, ...) is never promptable: no dialog
+    // may offer to pin it, exactly as the filesystem site never offers it.
+    subjectOf: (raw) => {
+      if (!raw || !path.isAbsolute(raw)) return null;
+      const dir = path.resolve(raw);
+      return isUngrantableSubject(dir) ? null : dir;
+    },
     keyOf: identity,
     describe: () => heldCopy(store, []),
     async grant(req) {

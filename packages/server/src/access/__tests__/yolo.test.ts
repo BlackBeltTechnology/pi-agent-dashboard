@@ -94,6 +94,24 @@ describe("2b.9 the remembered-refusal ledger is durable and clearable", () => {
     __resetRefusalLedger();
     expect(listRefusals()).toEqual([]);
   });
+
+  it("is keyed on the real path: a symlink alias of a refused dir is refused too", () => {
+    const real = path.join(fs.realpathSync(tmp), "a");
+    fs.mkdirSync(real);
+    const alias = path.join(tmp, "lnk");
+    fs.symlinkSync(real, alias);
+    recordRefusal("cwd", real);
+    expect(isRefused("cwd", alias)).toBe(true);
+  });
+
+  it("a refusal that fails to reach disk is still honoured in-process", () => {
+    const blocker = path.join(tmp, "not-a-dir");
+    fs.writeFileSync(blocker, "");
+    process.env.PI_ACCESS_REFUSALS_STORE = path.join(blocker, "access-refusals.json");
+    __resetRefusalLedger();
+    expect(recordRefusal("filesystem", "/x/y").ok).toBe(false);
+    expect(isRefused("filesystem", "/x/y")).toBe(true);
+  });
 });
 
 describe("8b.2 session lifetime: fixed at activation, never renewed", () => {

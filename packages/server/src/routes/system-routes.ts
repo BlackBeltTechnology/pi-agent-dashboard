@@ -29,7 +29,7 @@ import {
   safeComputeBindReachability,
   sameReachability,
 } from "../auth/bind-reachability-service.js";
-import { localhostGuard } from "../auth/localhost-guard.js";
+import { isGenuinelyLocal, localhostGuard } from "../auth/localhost-guard.js";
 import { getRegistryError } from "../auth/provider-auth-registry.js";
 import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
 import type { DirectoryService } from "../directory-service.js";
@@ -908,7 +908,7 @@ export function registerSystemRoutes(
   const healthInstanceFields = instanceIdHealthFields(ensureInstanceId(undefined, config.piPort));
 
   // Health endpoint — includes server + agent process metrics
-  fastify.get("/api/health", async () => {
+  fastify.get("/api/health", async (request) => {
     const mem = process.memoryUsage();
     // Telemetry reads are failure-isolated so a throwing provider can never
     // turn /api/health into a 500. See change: instrument-session-hydration-timing.
@@ -927,7 +927,15 @@ export function registerSystemRoutes(
     // skew rather than a bare symptom.
     // See change: delegate-provider-oauth-to-pi-ai (D3).
     let accessGrants: AccessGrantHealth | null = null;
-    try { accessGrants = readAccessGrants?.() ?? null; } catch { /* keep null */ }
+    // `/api/health` is unguarded (tunnel-reachable): `accessGrants` names the
+    // host-gate mode, YOLO state and whether an operator is online, so it is
+    // served only to an authenticated or genuinely-local caller.
+    const mayReadAccess =
+      (request as { isAuthenticated?: boolean }).isAuthenticated === true ||
+      isGenuinelyLocal(request.ip, request.headers as Record<string, unknown>);
+    if (mayReadAccess) {
+      try { accessGrants = readAccessGrants?.() ?? null; } catch { /* keep null */ }
+    }
     let providerAuthError: string | null = null;
     try { providerAuthError = getRegistryError(); } catch { /* keep null */ }
     const activeSessions = sessionManager.listActive();

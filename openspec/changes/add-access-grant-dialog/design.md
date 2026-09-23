@@ -195,6 +195,31 @@ above. Four citations were stale and are fixed: `cors-origin.ts:192` →
 auth-configured 401 branch; the no-credential branch is `:2938-2950`).
 `auth-plugin.ts:296` was correct as cited.
 
+**2b.7 decision — no issuance credential (security-hardening review).** A
+credential a non-owner cannot read (e.g. a `0600` token file) would stop a
+different-user or sandboxed loopback process from *obtaining a capability*, but
+buys nothing: that process already holds operator authority through the
+pre-existing loopback bypass (`auth-plugin.ts:296`, and the grant endpoint's
+`isLocalRequest` at `access-routes.ts:347`), so it can write grants directly and
+answer prompts (R-A) without any capability. Closing it belongs to the
+loopback-auth model as a whole (require credentials on loopback), not to this
+change. Recorded as residual; no code change.
+
+**Server-side review (tasks 2b.7, 8b.9) — findings fixed.** No blocking defect;
+YOLO scoping holds (deferred planes cannot be YOLO-eligible by type and at
+registration; auto-allow requires `enforce`, the request capability and a
+real-path subject inside a root). Fixed: the refusal ledger keys on the canonical
+real path (a symlink or case alias of a refused directory is refused) and keeps a
+refusal in memory when its disk write fails; the cwd plane never prompts for, and
+allow-once never admits, a forbidden directory; `onResponse` failures always
+release held requests (deny `settle-failed`); allow-once releases only the request
+that raised the prompt, coalesced requests are denied and capped at
+`GRANT_MAX_WAITERS_PER_ENTRY` (8); a WebSocket answer settles only a **prompted**
+entry under live `enforce` (unprompted entries are settled from the Access
+surface); `/api/health.accessGrants` is served only to authenticated or
+genuinely-local callers; `isSubjectWithin` treats a child named `..foo` as inside;
+every persisted allow-always logs its origin session.
+
 ### D2 — DNS rebinding is out of D1's reach, so **prompting at all** requires `hostGate.mode === "enforce"`
 
 **Decision.** D1 alone does **not** beat rebinding: an `attacker.com` rebound to

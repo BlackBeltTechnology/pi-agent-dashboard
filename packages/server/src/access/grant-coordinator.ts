@@ -88,6 +88,12 @@ const defaultSchedule = (fn: () => void, ms: number): { cancel(): void } => {
   return { cancel: () => clearTimeout(t) };
 };
 
+/**
+ * Most requests that may wait on one entry at once. Coalesced requests beyond
+ * this are recorded but not held, so a burst cannot pin unbounded connections.
+ */
+export const GRANT_MAX_WAITERS_PER_ENTRY = 8;
+
 const immediate = (reason: string): Hold => ({
   held: false,
   result: Promise.resolve({ kind: "deny", reason }),
@@ -96,7 +102,8 @@ const immediate = (reason: string): Hold => ({
 
 export class GrantCoordinator {
   readonly registry: PendingGrantRegistry;
-  private readonly waiters = new Map<string, Set<(r: Resolution) => void>>();
+  /** promptId -> held requests in arrival order; the first one raised the entry. */
+  private readonly waiters = new Map<string, Array<(r: Resolution) => void>>();
   private readonly timers = new Map<string, { cancel(): void }>();
   /** promptId -> the session whose denial created the entry (grant audit trail). */
   private readonly origins = new Map<string, string>();
@@ -183,23 +190,54 @@ export class GrantCoordinator {
     return this.wait(entry.promptId);
   }
 
-  /** A `grant_response` from any operator socket. First well-formed answer wins. */
+  /**
+   * A `grant_response` from any operator socket. First well-formed answer wins.
+   * The WebSocket answers only an entry that was actually PROMPTED, and only
+   * while the host gate is live `enforce`: an entry recorded in report mode (or
+   * suppressed by flood control) was never put in front of a dialog, so a socket
+   * answering it is not answering a question anyone was asked. Such entries are
+   * settled from the Access surface instead (`settle`).
+   */
   async onResponse(msg: unknown): Promise<void> {
+    const id = (msg as { promptId?: unknown } | null)?.promptId;
+    const pending = typeof id === "string" ? this.registry.get(id) : undefined;
+    if (pending && (!pending.prompted || this.deps.hostGateMode() !== "enforce")) return;
+    await this.settle(msg);
+  }
+
+  /** Settle an entry from any authorised surface; never throws, always releases. */
+  async settle(msg: unknown): Promise<void> {
     const out = this.registry.settle(msg, this.now());
     if (!out.ok) return;
     const entry = out.entry;
-    const plane = this.deps.planes.get(entry.plane);
     let resolution: Resolution;
-    if (out.verdict === "deny" || !plane) {
+    try {
+      resolution = await this.resolve(entry, out.verdict, out.subject);
+    } catch (err) {
+      // A throwing store or refusal writer must never leave a held request
+      // hanging with its socket timeout disabled: fail closed and release.
+      console.error(`[access-grant] settle failed: ${String((err as Error)?.message ?? err)}`);
+      resolution = { kind: "deny", reason: "settle-failed" };
+    }
+    this.finish(entry, resolution, "settled");
+  }
+
+  private async resolve(
+    entry: PendingGrant,
+    verdict: "allow-once" | "allow-always" | "deny",
+    subject: string,
+  ): Promise<Resolution> {
+    const plane = this.deps.planes.get(entry.plane);
+    if (verdict === "deny" || !plane) {
       // An explicit deny is remembered so a later YOLO session cannot reverse it.
-      if (out.verdict === "deny" && plane?.mode === "held" && plane.yoloEligible) {
+      if (verdict === "deny" && plane?.mode === "held" && plane.yoloEligible) {
         this.deps.recordRefusal?.(plane.id, entry.subject);
       }
-      resolution = { kind: "deny", reason: out.verdict === "deny" ? "denied" : "unknown-plane" };
-    } else {
-      const persisted = await persistVerdict(plane, {
-        verdict: out.verdict,
-        subject: out.subject,
+      return { kind: "deny", reason: verdict === "deny" ? "denied" : "unknown-plane" };
+    }
+    const persisted = await persistVerdict(plane, {
+        verdict,
+        subject,
         deniedSubject: entry.subject,
         ancestors: entry.ancestors,
         origin: this.origins.get(entry.promptId) ?? "unknown",
@@ -207,12 +245,16 @@ export class GrantCoordinator {
       // An allow-always whose store write failed did not stick: fail closed
       // rather than admit a request the operator's persistent answer never
       // actually recorded (design D11: the admitted set never widens on failure).
-      resolution =
-        persisted.persisted && !persisted.ok
-          ? { kind: "deny", reason: `persist-failed:${persisted.reason}` }
-          : { kind: "allow", verdict: out.verdict, subject: out.subject };
+    if (persisted.persisted && !persisted.ok) return { kind: "deny", reason: `persist-failed:${persisted.reason}` };
+    // Audit trail for every plane: only the filesystem store records an origin
+    // itself, so a pin / trusted network / CORS origin would otherwise not say
+    // whose denial it answered.
+    if (persisted.persisted) {
+      console.error(
+        `[access-grant] persisted plane=${plane.id} subject=${JSON.stringify(subject)} store=${plane.store} origin=${JSON.stringify(this.origins.get(entry.promptId) ?? "unknown")}`,
+      );
     }
-    this.finish(entry, resolution, "settled");
+    return { kind: "allow", verdict, subject };
   }
 
   // ---------------------------------------------------------------------------
@@ -222,18 +264,21 @@ export class GrantCoordinator {
     const result = new Promise<Resolution>((resolve) => {
       resolveFn = resolve;
     });
-    const set = this.waiters.get(promptId) ?? new Set();
-    set.add(resolveFn);
-    this.waiters.set(promptId, set);
+    const list = this.waiters.get(promptId) ?? [];
+    if (list.length >= GRANT_MAX_WAITERS_PER_ENTRY) return immediate("waiters-full");
+    list.push(resolveFn);
+    this.waiters.set(promptId, list);
     return {
       held: true,
       result,
       abort: () => {
         const current = this.waiters.get(promptId);
-        if (!current?.delete(resolveFn)) return;
+        const at = current?.indexOf(resolveFn) ?? -1;
+        if (!current || at < 0) return;
+        current.splice(at, 1);
         resolveFn({ kind: "deny", reason: "aborted" });
         // The last waiter leaving releases the entry: nothing is left to resume.
-        if (current.size === 0) {
+        if (current.length === 0) {
           const entry = this.registry.forget(promptId);
           if (entry) this.finish(entry, { kind: "deny", reason: "aborted" }, "expired");
         }
@@ -257,9 +302,17 @@ export class GrantCoordinator {
     this.origins.delete(entry.promptId);
     // Waiters are resolved FIRST: a dismissal that cannot be delivered must
     // never leave a held request waiting forever.
-    const set = this.waiters.get(entry.promptId);
+    const list = this.waiters.get(entry.promptId) ?? [];
     this.waiters.delete(entry.promptId);
-    for (const resolve of set ?? []) resolve(resolution);
+    // Allow-once permits ONLY the suspended request that raised the prompt
+    // (spec); requests that coalesced onto it are denied, not admitted.
+    list.forEach((resolve, i) =>
+      resolve(
+        i > 0 && resolution.kind === "allow" && resolution.verdict === "allow-once"
+          ? { kind: "deny", reason: "allow-once-not-shared" }
+          : resolution,
+      ),
+    );
     if (entry.prompted) {
       this.send({
         type: "grant_dismiss",

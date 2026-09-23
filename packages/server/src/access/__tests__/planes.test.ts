@@ -99,6 +99,12 @@ describe("5.3 cwd plane: pins exactly the named directory", () => {
     expect(pinDirectory).not.toHaveBeenCalled();
   });
 
+  it("a forbidden directory ($HOME, /) is never promptable", () => {
+    const plane = createCwdPlane({ pinDirectory: vi.fn() });
+    expect(plane.subjectOf(os.homedir())).toBeNull();
+    expect(plane.subjectOf("/")).toBeNull();
+  });
+
   it("a relative directory is not promptable", () => {
     expect(createCwdPlane({ pinDirectory: vi.fn() }).subjectOf("relative/dir")).toBeNull();
   });
