@@ -50,6 +50,7 @@ import { FolderStatusCapsule } from "../folder/FolderStatusCapsule.js";
 import { projectSetupLabel } from "../folder/folder-menu-labels.js";
 import { FolderOpenSpecSection } from "../openspec/FolderOpenSpecSection.js";
 import { InstallButton } from "../packages/InstallButton.js";
+import { SignedInUserBar } from "../identity/UserBar.js";
 import { PiLogo } from "../primitives/PiLogo.js";
 import { Toast, useToast } from "../primitives/Toast.js";
 import { ThemePicker } from "../settings/ThemePicker.js";
@@ -2608,6 +2609,9 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
       <Toast messages={messages} onDismiss={dismissToast} />
 
       </div>
+      {/* D22 user line, pinned to the bottom of the session stream. Renders
+          nothing unless identity is enforced and a principal resolved. */}
+      <SignedInUserBar connected={connected === true} />
     </div>
   );
 }

@@ -103,6 +103,7 @@ import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registr
 import { identityDisarmedWarning, isIdentityEnforced } from "./identity/activation.js";
 import { browserLoginAuthStatus } from "./identity/browser-login-auth-status.js";
 import { BrowserLoginConfigRegistry, publicLoginConfig, sanitizeBrowserLoginConfig } from "./identity/browser-login-config-registry.js";
+import { identityFloorAllows } from "./identity/identity-floor.js";
 import { IdentityRegistrationTracker, releaseFailedIdentityRegistrations } from "./identity/identity-registration-tracker.js";
 import { PolicyRegistry } from "./identity/policy-registry.js";
 import { registerResolverHook } from "./identity/resolver-hook.js";
@@ -1538,6 +1539,20 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     getPublicBase: () => resolveRedirectBase(config.port, identityRedirectBaseOverride).base,
     log: (msg) => console.warn(msg),
   });
+  // D24 signed-out floor: registered right AFTER the resolver hook so
+  // `request.principal` is settled. Enforced + no principal + no host-only local
+  // token ⇒ every browser road (`/api/`, `/editor/`, `/live/`) except the
+  // pre-auth set is 401, loopback included (D23). Inert ⇒ no-op.
+  fastify.addHook("onRequest", async (request, reply) => {
+    const allowed = identityFloorAllows({
+      enforced: identityEnforced(),
+      path: request.url,
+      method: request.method,
+      hasPrincipal: (request as { principal?: unknown }).principal != null,
+      hasLocalToken: verifyLocalToken(request.headers as Record<string, unknown>, localToken),
+    });
+    if (!allowed) return reply.code(401).send({ success: false, error: "sign_in_required" });
+  });
   if (config.authConfig) {
     await registerAuthPlugin(fastify, {
       authConfig: config.authConfig,
@@ -1560,7 +1575,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     fastify.get("/auth/status", async (request) =>
       browserLoginAuthStatus({
         enforced: identityEnforced(),
-        isAuthenticated: (request as { principal?: unknown }).principal != null,
+        principal: (request as { principal?: Principal | null }).principal ?? null,
       }),
     );
   }
@@ -1572,7 +1587,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Reachable pre-auth via the auth-plugin skip + the network-guard public path.
   fastify.get("/api/identity/login-config", async () =>
     // D21: advertise login only while identity is enforced.
-    publicLoginConfig(identityEnforced() ? browserLoginConfigRegistry.get() : null),
+    publicLoginConfig(identityEnforced() ? browserLoginConfigRegistry.list() : []),
   );
 
   // REST tier gate (change: expand-mcp-tiered-surface, D1b). Registered AFTER

@@ -107,10 +107,11 @@ async function validateOwnedToken(
   const email =
     typeof payload.email === "string" && payload.email_verified === true ? payload.email : undefined;
 
+  // Display only (D22 user line), never an identity key.
+  const name = [payload.name, payload.preferred_username].find((v): v is string => typeof v === "string" && v.length > 0);
+
   return {
-    principal: email
-      ? { iss: config.issuer, sub: payload.sub, email }
-      : { iss: config.issuer, sub: payload.sub },
+    principal: { iss: config.issuer, sub: payload.sub, ...(email ? { email } : {}), ...(name ? { name } : {}) },
     expiresAt: payload.exp * 1000,
   };
 }

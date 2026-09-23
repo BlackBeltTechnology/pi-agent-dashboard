@@ -129,6 +129,15 @@ describe("RFC 9068 validation (§5.4 / §5.6)", () => {
     });
   });
 
+  it("carries a display name from `name`, falling back to `preferred_username` (D22 user line)", async () => {
+    const named = await resolver()(context(await accessToken({ name: "Anna Kovacs", preferred_username: "anna" })));
+    expect(named).toMatchObject({ principal: { iss: ISSUER, sub: "user-1", name: "Anna Kovacs" } });
+    const userOnly = await resolver()(context(await accessToken({ preferred_username: "anna" })));
+    expect(userOnly).toMatchObject({ principal: { name: "anna" } });
+    const none = (await resolver()(context(await accessToken({})))) as { principal: Record<string, unknown> };
+    expect(none.principal.name).toBeUndefined();
+  });
+
   it("unverified email is omitted", async () => {
     const token = await accessToken({ email: "user@example.test", email_verified: false });
     const outcome = await resolver()(context(token));

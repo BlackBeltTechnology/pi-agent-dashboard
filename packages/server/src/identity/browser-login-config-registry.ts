@@ -6,14 +6,15 @@
  *
  * The trust decision is enforced by the server plugin-context wiring (the same
  * `resolverRegistry.isTrusted(id)` gate that guards `registerPrincipalResolver`);
- * this registry only stores the single active descriptor and hands it to the
+ * this registry only stores the descriptors and hands them to the
  * `GET /api/identity/login-config` route. The plugin registers a descriptor ONLY
  * when it is active AND a `browserClientId` is configured, so a stored descriptor
  * is exactly the "login available" signal.
  *
- * Last trusted registration wins; the descriptor carries its owning `pluginId`
- * so the browser mounts the matching `login-provider` contribution (D16, F6) —
- * or is redirected to the plugin's own view (D19).
+ * Every trusted plugin may publish ONE descriptor; all are kept, in load order,
+ * and the login page lists them (D25). Each carries its owning `pluginId` so the
+ * browser mounts the matching `login-provider` contribution (D16, F6) — or is
+ * redirected to the plugin's own view (D19).
  */
 import type { BrowserLoginConfig } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 
@@ -69,41 +70,82 @@ export function sanitizeBrowserLoginConfig(raw: PluginBrowserLoginConfig): Plugi
     ...(clientId ? { clientId } : {}),
     ...(loginUrl ? { loginUrl } : {}),
     ...(logoutUrl ? { logoutUrl } : {}),
+    ...dashboardUiFields(raw, str, safePath),
+  };
+}
+
+/** Longest provider label kept (button text + user line). */
+const LABEL_MAX = 40;
+
+/** D22 dashboard-UI fields: same-origin `tokenUrl`/`postLogoutUrl`, a capped
+ * plain-text `label`, a strict-boolean `endsProviderSession`. */
+function dashboardUiFields(
+  raw: PluginBrowserLoginConfig,
+  str: (v: unknown) => string | undefined,
+  safePath: (v: unknown) => string | undefined,
+): Partial<PluginBrowserLoginConfig> {
+  const tokenUrl = safePath(raw.tokenUrl);
+  const postLogoutUrl = safePath(raw.postLogoutUrl);
+  const label = str(raw.label)?.slice(0, LABEL_MAX);
+  return {
+    ...(tokenUrl ? { tokenUrl } : {}),
+    ...(postLogoutUrl ? { postLogoutUrl } : {}),
+    ...(label ? { label } : {}),
+    ...(typeof raw.endsProviderSession === "boolean" ? { endsProviderSession: raw.endsProviderSession } : {}),
+    ...(typeof raw.silentSignIn === "boolean" ? { silentSignIn: raw.silentSignIn } : {}),
   };
 }
 
 export class BrowserLoginConfigRegistry {
-  private current: BrowserLoginConfig | null = null;
+  /** One descriptor per trusted plugin, in registration (= plugin load) order (D25). */
+  private readonly providers = new Map<string, BrowserLoginConfig>();
 
-  /** Publish the active descriptor. Returns an unregister handle that clears it
-   * only if it is still the one this call set (unregister is idempotent). */
+  /** Publish (or replace) this plugin's descriptor. Returns an unregister
+   * handle that removes it only if it is still the one this call set. */
   set(config: BrowserLoginConfig): () => void {
-    this.current = config;
+    this.providers.set(config.pluginId, config);
     return () => {
-      if (this.current === config) this.current = null;
+      if (this.providers.get(config.pluginId) === config) this.providers.delete(config.pluginId);
     };
   }
 
-  /** The active descriptor, or `null` when no trusted resolver has published one. */
+  /** The first descriptor (component-provider mounts, back-compat), or `null`. */
   get(): BrowserLoginConfig | null {
-    return this.current;
+    return this.list()[0] ?? null;
+  }
+
+  /** Every registered provider — the login page lists them all (D25). */
+  list(): BrowserLoginConfig[] {
+    return [...this.providers.values()];
   }
 }
 
 /**
- * Pre-auth `GET /api/identity/login-config` body. `null` ⇒ `{active:false}` and
+ * Pre-auth `GET /api/identity/login-config` body. Empty ⇒ `{active:false}` and
  * nothing else, so an inert (not-enforced, D21) dashboard discloses nothing.
+ * `providers` lists every login provider (D25, the login page shows one button
+ * each); the top-level fields mirror the first for older clients.
  */
-export function publicLoginConfig(desc: BrowserLoginConfig | null):
+export function publicLoginConfig(list: readonly BrowserLoginConfig[]):
   | { active: false }
-  | ({ active: true } & BrowserLoginConfig) {
-  if (!desc) return { active: false };
+  | ({ active: true; providers: BrowserLoginConfig[] } & BrowserLoginConfig) {
+  if (list.length === 0) return { active: false };
+  const providers = list.map(publicProvider);
+  return { active: true, ...providers[0], providers };
+}
+
+/** Only vetted descriptor fields ever reach the browser. */
+function publicProvider(desc: BrowserLoginConfig): BrowserLoginConfig {
   return {
-    active: true,
     pluginId: desc.pluginId,
     ...(desc.issuer ? { issuer: desc.issuer } : {}),
     ...(desc.clientId ? { clientId: desc.clientId } : {}),
     ...(desc.loginUrl ? { loginUrl: desc.loginUrl } : {}),
     ...(desc.logoutUrl ? { logoutUrl: desc.logoutUrl } : {}),
+    ...(desc.tokenUrl ? { tokenUrl: desc.tokenUrl } : {}),
+    ...(desc.postLogoutUrl ? { postLogoutUrl: desc.postLogoutUrl } : {}),
+    ...(desc.label ? { label: desc.label } : {}),
+    ...(typeof desc.endsProviderSession === "boolean" ? { endsProviderSession: desc.endsProviderSession } : {}),
+    ...(typeof desc.silentSignIn === "boolean" ? { silentSignIn: desc.silentSignIn } : {}),
   };
 }

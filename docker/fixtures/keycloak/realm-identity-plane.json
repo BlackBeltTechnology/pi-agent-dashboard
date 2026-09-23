@@ -12,9 +12,9 @@
       "publicClient": true,
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": true,
-      "redirectUris": ["http://localhost:*/*", "http://127.0.0.1:*/*"],
+      "redirectUris": ["http://localhost:*", "http://127.0.0.1:*"],
       "webOrigins": ["+"],
-      "attributes": { "pkce.code.challenge.method": "S256" },
+      "attributes": { "pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "+" },
       "protocolMappers": [
         {
           "name": "pi-dashboard-aud",

@@ -328,7 +328,7 @@ function removeDotSegments(path: string): string {
  *   `/foo/../api/sessions`   → resolved in jurisdiction    → denied
  *   `/foo/../settings`       → neither in jurisdiction     → no-op (SPA served)
  */
-interface GuardTarget {
+export interface GuardTarget {
   raw: string;
   resolved: string;
 }
@@ -349,7 +349,7 @@ interface GuardTarget {
  * then resolvable.
  * See change: add-universal-network-guard (design: "Path matching").
  */
-function parseGuardTarget(url: string | undefined): GuardTarget | null {
+export function parseGuardTarget(url: string | undefined): GuardTarget | null {
   if (typeof url !== "string" || !url.startsWith("/") || url.startsWith("//")) return null;
   let end = url.length;
   for (const sep of ["?", "#"] as const) {

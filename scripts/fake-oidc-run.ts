@@ -19,7 +19,19 @@ const audience = process.env.PI_E2E_IDENTITY_AUDIENCE ?? "pi-dashboard";
 // a stable loopback issuer the in-container resolver + token `iss` agree on.
 const issuerUrl = process.env.PI_E2E_IDENTITY_ISSUER ?? `http://127.0.0.1:${port}`;
 
-const issuer = await startFakeOidcIssuer({ host: "0.0.0.0", port, audience, issuerUrl });
+// Opt-in interactive login (PI_E2E_IDENTITY_USERS="anna:anna-pw,bela:bela-pw"):
+// enables the auth-code + PKCE login form so a browser can sign in through a
+// login plugin. Unset → mint-only, exactly as before.
+const users = (process.env.PI_E2E_IDENTITY_USERS ?? "")
+  .split(",")
+  .filter(Boolean)
+  .map((pair) => {
+    const [username, password] = pair.split(":");
+    return { username, password, sub: `sub-${username}`, email: `${username}@example.test` };
+  });
+const interactive = users.length > 0 ? { users, redirectUriPrefixes: ["http://127.0.0.1:", "http://localhost:"] } : {};
+
+const issuer = await startFakeOidcIssuer({ host: "0.0.0.0", port, audience, issuerUrl, ...interactive });
 console.log(`[fake-oidc] issuer=${issuer.issuer} audience=${issuer.audience} bind=0.0.0.0:${port}`);
 
 const shutdown = () => {

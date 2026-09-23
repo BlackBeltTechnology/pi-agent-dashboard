@@ -131,4 +131,26 @@ describe("useWebSocket — offline vs auth_required classification (D17/R2)", ()
     await dropAndSettle();
     expect(result.current.status).not.toBe("offline");
   });
+
+  it("signed out is recognised on the FIRST refused connect — no multi-retry backoff wait (D24)", async () => {
+    probeBehavior = () => Promise.resolve({ authenticated: false });
+    const { result } = renderHook(() => useWebSocket("ws://test/ws"));
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+    await dropAndSettle();
+    expect(result.current.status).toBe("auth_required");
+  });
+
+  it("an early probe error or authenticated:true does not flip status before the threshold", async () => {
+    const { result } = renderHook(() => useWebSocket("ws://test/ws"));
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+    await dropAndSettle();
+    expect(result.current.status).toBe("connecting");
+    probeBehavior = () => Promise.resolve({ authenticated: true });
+    await dropAndSettle();
+    expect(result.current.status).toBe("connecting");
+  });
 });

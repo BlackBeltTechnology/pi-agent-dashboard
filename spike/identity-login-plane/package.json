@@ -1,0 +1,17 @@
+{
+  "name": "identity-login-plane",
+  "version": "0.0.0",
+  "private": true,
+  "description": "TEMPORARY smoke artifact (openspec add-multi-user-identity-plane D19/D20): an INDEPENDENT-FRONTEND login provider. Serves its own sign-in/out pages AND its own frontend (`/identity-login/app`) over the dashboard's Fastify instance, routes the browser to a real Keycloak, does the OIDC exchange server-side, and hands the bearer to the PLUGIN page's own memory (plugin-owned fragment, stripped immediately — never the dashboard root). Drop into <state-dir>/plugins/ to be discovered.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "pi-dashboard-plugin": {
+    "id": "identity-login-plane",
+    "displayName": "Identity Login Plane (Keycloak, separate view)",
+    "priority": 400,
+    "server": "./server.mjs",
+    "claims": []
+  }
+}

@@ -135,3 +135,13 @@ export function FirstLaunchDisplayModal({
     </DialogPortal>
   );
 }
+
+/**
+ * Open gate for the first-launch modal. `seedless && !prefsDefined` is the
+ * original rule (see change: fix-first-launch-display-modal-stuck-on-mobile);
+ * `authRequired` holds it back while the D22 sign-in dialog is showing, so a
+ * signed-out user sees ONE dialog. It opens after sign-in instead.
+ */
+export function shouldShowFirstLaunch(opts: { seedless: boolean; prefsDefined: boolean; authRequired: boolean }): boolean {
+  return opts.seedless && !opts.prefsDefined && !opts.authRequired;
+}

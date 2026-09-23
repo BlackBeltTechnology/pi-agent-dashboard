@@ -402,19 +402,40 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
   if [ "${PI_E2E_IDENTITY:-}" = "1" ]; then
     IDENTITY_PORT="${PI_E2E_IDENTITY_PORT:-18090}"
     IDENTITY_ISSUER="${PI_E2E_IDENTITY_ISSUER:-http://127.0.0.1:${IDENTITY_PORT}}"
+    # PI_E2E_IDENTITY_LOGIN=1 → interactive issuer login form (users anna/bela).
+    IDENTITY_USERS=""
+    if [ "${PI_E2E_IDENTITY_LOGIN:-}" = "1" ]; then IDENTITY_USERS="anna:anna-pw,bela:bela-pw"; fi
+    if [ -n "${PI_E2E_IDENTITY_KEYCLOAK:-}" ]; then
+      # REAL Keycloak on the host (e.g. http://localhost:18080/realms/pi-identity).
+      # Forward container localhost:<port> 
+o> host.docker.internal:<port> over
+      # raw TCP so the Host header, and therefore Keycloak's `iss`, is identical
+      # for the host browser and the in-container resolver/login plugin.
+      IDENTITY_ISSUER="${PI_E2E_IDENTITY_KEYCLOAK%/}"
+      IDP_KIND="real Keycloak via host.docker.internal"
+      KC_PORT="$(node -e 'console.log(new URL(process.argv[1]).port || 80)' "${IDENTITY_ISSUER}")"
+      node -e '
+        const net = require("node:net"); const port = Number(process.argv[1]);
+        net.createServer((c) => { const u = net.connect(port, "host.docker.internal"); c.pipe(u).pipe(c);
+          u.on("error", () => c.destroy()); c.on("error", () => u.destroy()); }).listen(port, "127.0.0.1");
+      ' "${KC_PORT}" >/tmp/kc-forward.log 2>&1 &
+    else
+    IDP_KIND="fake issuer, log /tmp/fake-oidc.log"
     # Boot the fake issuer in the background (tsx, from baked source).
+    PI_E2E_IDENTITY_USERS="${IDENTITY_USERS}" \
     PI_E2E_IDENTITY_PORT="${IDENTITY_PORT}" \
     PI_E2E_IDENTITY_ISSUER="${IDENTITY_ISSUER}" \
     PI_E2E_IDENTITY_AUDIENCE="${PI_E2E_IDENTITY_AUDIENCE:-pi-dashboard}" \
       /app/node_modules/.bin/tsx /app/scripts/fake-oidc-run.ts \
       >/tmp/fake-oidc.log 2>&1 &
+    fi
     # Wait for discovery to answer before seeding (resolver activates lazily,
     # but a fast spec could race the boot otherwise).
     for _i in $(seq 1 30); do
       if curl -fsS "${IDENTITY_ISSUER}/.well-known/openid-configuration" >/dev/null 2>&1; then break; fi
       sleep 0.5
     done
-    echo "[test-entrypoint] PI_E2E_IDENTITY: fake OIDC issuer up at ${IDENTITY_ISSUER} (log: /tmp/fake-oidc.log)"
+    echo "[test-entrypoint] PI_E2E_IDENTITY: OIDC issuer up at ${IDENTITY_ISSUER} (${IDP_KIND})"
     node -e '
       const fs = require("node:fs");
       const [out, issuer, audience] = process.argv.slice(1);
@@ -436,6 +457,26 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
     # assert the owner-split over the real server (list/bootstrap/detail gating)
     # without a slow live spawn. Owner `iss` MUST equal the resolver issuer.
     node /app/scripts/seed-identity-sessions.mjs "${PI_DIR}/agent/sessions" "${IDENTITY_ISSUER}"
+    # Login plugin (D19/D21): without a trusted login descriptor identity stays
+    # INERT, so the browser never shows "Sign in". Installs the spike login
+    # plane from the mounted checkout and trusts it. tasks §18.10.
+    if [ "${PI_E2E_IDENTITY_LOGIN:-}" = "1" ]; then
+      LOGIN_SRC="${HOST_CWD:-}/spike/identity-login-plane"
+      [ -f "${LOGIN_SRC}/package.json" ] || { echo "[test-entrypoint] FATAL: PI_E2E_IDENTITY_LOGIN=1 but ${LOGIN_SRC} missing" >&2; exit 1; }
+      mkdir -p "${PI_DIR}/dashboard/plugins"
+      cp -a "${LOGIN_SRC}" "${PI_DIR}/dashboard/plugins/identity-login-plane"
+      rm -rf "${PI_DIR}/dashboard/plugins/identity-login-plane/test"
+      node -e '
+        const fs = require("node:fs");
+        const out = process.argv[1];
+        const cfg = JSON.parse(fs.readFileSync(out, "utf8"));
+        const t = new Set([...(cfg.identity?.trustedResolverPlugins ?? []), "identity-login-plane"]);
+        cfg.identity = { ...(cfg.identity ?? {}), trustedResolverPlugins: [...t] };
+        fs.writeFileSync(out, JSON.stringify(cfg) + "\n");
+      ' "${PI_DIR}/dashboard/config.json"
+      export PI_LOGIN_ISSUER="${IDENTITY_ISSUER}" PI_LOGIN_BROWSER_ISSUER="${IDENTITY_ISSUER}" PI_LOGIN_CLIENT_ID="dashboard-web"
+      echo "[test-entrypoint] PI_E2E_IDENTITY_LOGIN: installed + trusted identity-login-plane (issuer=${IDENTITY_ISSUER})"
+    fi
   fi
 
   # --- Faux model: stage the fixture as a global auto-discovered extension ---

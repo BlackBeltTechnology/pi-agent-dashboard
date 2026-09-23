@@ -270,6 +270,59 @@ Live Tailscale verification of D16 surfaced three client-side defects, all roote
 - **Gate failures carry a typed reason (R3).** `beginLogin`/`completeLogin` map failures to `insecure-context` | `discovery-failed` | `exchange-failed` | `state-mismatch` | `idp-error`; `KeycloakLogin` renders the reason with retry + return-home. With R1 the `insecure-context` arm is normally unreachable — kept as belt-and-braces diagnostics (H-series: opaque errors are their own lockout).
 - **Non-goals.** No HTTPS requirement (punishes the legitimate encrypted-tailnet deployment; `tailscale serve` HTTPS stays the documented hardening, R4). No PKCE `plain`. No auto-redirect-loop change (single-flight + banner default stand, D16/F4).
 
+### D22 — Dashboard-UI login seam: one-time handoff code, in-memory bearer, NO cookies
+
+Decided by the user (2026-09-23). Resolves 18.15. Applies when the dashboard's own SPA is the frontend (topology B); topology A (plugin frontend primary, D20) is unchanged.
+
+- **No cookies in the identity plane.** Neither core nor the login plugin sets a cookie. The resolver reads `authorization` only. The IdP's own session cookie on its origin is outside scope. The legacy `auth.providers` cookie login (D8) is untouched and still disarms identity.
+- **Flow.** The SPA makes `verifier` (random) and `challenge = S256(verifier)`, keeps `verifier` in `sessionStorage` (it holds no credential), and navigates to `loginUrl?returnTo=<safeReturnTo>&challenge=<challenge>`. The plugin runs the IdP flow. OAuth `state`, PKCE and `returnTo` stay in plugin SERVER state keyed by `state`, not in a cookie. The plugin redirects to `returnTo#pi_handoff=<code>`. The code is single-use, short-lived (≤60 s) and bound to `challenge`. The SPA strips the fragment at once, `POST tokenUrl {code, verifier}`, and receives `{access_token, expires_at}`. The bearer lives in memory only, never in storage or a URL. It is sent as `Authorization: Bearer` on REST and on `POST /api/ws-ticket`.
+- **Reload / expiry.** Memory is lost → the SPA re-runs the flow. IdP SSO makes this a redirect bounce. The browser gets no refresh token.
+- **Logout.** The SPA drops the bearer and navigates to `logoutUrl?returnTo=`. The plugin revokes its token and ends the IdP session where one exists (OIDC `end_session`; GitHub has none), then redirects to the pre-registered `postLogoutUrl`.
+- **Descriptor v2 fields** (same-origin paths, `sanitizeBrowserLoginConfig`): `loginUrl`, `logoutUrl`, `tokenUrl`, `postLogoutUrl`.
+- **Choosing the provider.** `identity.loginProvider: "<pluginId>"` pins the one descriptor accepted. If it is unset and exactly one is registered, that one wins. If it is unset and several are registered, identity stays disarmed with a warning (D21 rule: never guess). Resolvers keep coexisting in dispatch order.
+- **Supersedes** the `#access_token` fragment experiment (RFC 9700: no access tokens in URLs).
+- **Enables** porting the built-in GitHub login to a `github-login` plugin. `sub` = the numeric GitHub id. The plugin mints its own short-lived signed token, and its resolver verifies it locally. The plugin needs the public base URL (the zrok URL) for `redirect_uri`, so expose a read-only `publicBaseUrl` on the plugin server context if it is absent.
+
+### D23 — Never locked out: Jupyter-style break-glass, localhost is NOT exempt
+
+Decided by the user (2026-09-23), after comparing judo-ng and common practice.
+
+**Standard.** Network position is not identity. judo-ng (`KeycloakLoginInterceptor`, fail closed, no localhost or dev bypass, recovery in Keycloak's master realm), Kubernetes, Grafana and Jupyter all agree. Lockout is prevented by (1) enforcing only a complete setup (D21) and (2) an out-of-band recovery credential that proves control of the HOST, not of the network path.
+
+**Decision.**
+- **Localhost is not exempt while enforced.** Every browser, localhost included, gets the empty dashboard with the sign-in dialog (D22 mockup). This holds behind a same-host sidecar, an L4 LB, `ssh -L` or `kubectl port-forward`.
+- **Break-glass.** `pi-dashboard login --local` reads the existing `local-token` secret (`~/.pi/dashboard/local/token`, dir 0700, file 0600, same OS user only). It asks the running server for a one-time code and prints `http://localhost:<port>/?pi_local=<code>`. Code: single-use, ≤60 s, bound to the server instance. The client exchanges it exactly like `#pi_handoff` and keeps the bearer in memory only (no cookies, D22).
+- **Local operator.** The break-glass principal is `local-operator`. It sees everything, as the pre-identity single-user dashboard did. The bottom user line reads "Local operator (break-glass)". Its bearer is short-lived, and it is logged at `warn` on issue and on use.
+- **Discoverable when needed.** The IdP-error dialog (mockup state 7) and the boot log name the command.
+- **Consequence for 18.17.** With break-glass in place, the REST loopback bypass can close while enforced (no principal → 401 on localhost too). An IdP outage no longer means lockout.
+
+**Rejected.** A localhost bypass switch (default on or off). It trusts the network path, which the LB topologies above forge, and it contradicts the D21 rejection.
+
+### D24 — Scoping: sessions per user, settings shared; NO default policy; plugins can scope anything
+
+Decided by the user (2026-09-23).
+
+- **Out of the box (no policy plugin):** every signed-in principal owns their sessions (core owner-gate, §8) and ALL principals share the same settings, providers/models, plugins, workspaces. No bundled default policy plugin; D9 stays optional and replaceable-by-absence.
+- **Signed out = nothing (floor).** While identity is enforced, every browser-facing road (`/api/`, `/editor/`, `/live/`) requires a principal, except the pre-auth set (`/api/health`, `/api/identity/login-config`). Loopback is not exempt (D23). The host-only `local-token` still admits same-user PROCESS callers (CLI, bridge). A device bearer is not a person (D2) and does not pass. Denial: `401 {error:"sign_in_required"}`. The client renders only the empty shell + the sign-in dialog; no route or overlay (Settings) opens. Closes 18.17.
+- **Plugins can scope everything (consumer seam).** Registering seams is not enough. A plugin must also CONSUME identity for its own routes, data and actions. `ServerPluginContext.identity` provides:
+  - `isEnforced()`.
+  - `principalOf(request)`: the frozen principal on a plugin HTTP route, else null.
+  - `authorize(principal, action, resource)`: asks the ONE trusted policy (D9). No policy ⇒ `true` for any principal (the D24 default). Plugin actions are namespaced `plugin:<pluginId>:<action>` by the host.
+  - `userDataDir(principal)`: per-user storage `~/.pi/dashboard/plugins/<id>/users/<sha256(iss,sub)>/`.
+
+  The plugin's WS routes receive the socket principal the same way.
+- **Everything core owns is classifiable.** Every non-session road (settings/config, providers, plugins, packages, gateway, restart, terminals, workspaces, OpenSpec) carries an `{action, resource}` and goes through `gateHttpNonSession`. With no policy it passes for any principal; with a policy, the policy decides (18.14). `GET /api/identity/me` returns `{principal, can}` for the UI, so a policy plugin can hide what it denies. The server still enforces.
+- **Rejected:** a bundled `default-access-policy` with an admin role. That is a product decision for a policy plugin, not a core default.
+
+### D25 — Core login page, several providers, silent sign-in
+
+Decided by the user (2026-09-23). Mockup: `mockups/login-logout.html` v3 (approved).
+
+- **Login page, not a dialog.** Signed out (enforced, no bearer) ⇒ the tab goes to the core page `/login?returnTo=<target>`. Full page: nothing of the dashboard renders. Buttons → the provider's `loginUrl`; sign-out → its `logoutUrl` → `postLogoutUrl` = `/login?pi_signed_out=1`. Supersedes the D22 scrim dialog. Boot decides before `<App/>` mounts (phase `checking`), so no shell flashes.
+- **Several login providers.** `BrowserLoginConfigRegistry` keeps one descriptor per trusted plugin, in load order (no last-write-wins). `login-config` returns `providers: [...]`; the top-level fields mirror the first. The page lists one button per provider. The provider that started a sign-in is kept next to the PKCE verifier (sessionStorage, not a credential); the handoff is redeemed at ITS `tokenUrl`; sign-out uses ITS `logoutUrl`; the user line shows ITS label. Supersedes the `identity.loginProvider` pin (18.19).
+- **Silent (no-click) sign-in.** Descriptor flag `silentSignIn`: `loginUrl` honours OIDC `prompt=none`, maps "no IdP session" (`login_required`, `interaction_required`, …) to `#pi_login_error=login_required`. The page tries it once per page load with the only provider, or the last-used one (`localStorage`, not a credential). Never after an explicit sign-out, an error, or a `login_required` miss ⇒ no loop.
+- **Login plugin needs configuration.** The Keycloak login plugin has no built-in issuer/client default; unconfigured ⇒ no routes, no descriptor ⇒ inert (matrix row K).
+
 ## Standards alignment
 
 - RFC 9068: JWT access-token validation (`iss`, `aud`, `exp`, signature; `sub`).

@@ -19,6 +19,8 @@ export type Principal = Readonly<{
   iss: string;
   sub: string;
   email?: string;
+  /** Display name for the dashboard user line (D22). Never an identity key. */
+  name?: string;
 }>;
 
 /**
@@ -150,6 +152,21 @@ export interface BrowserLoginConfig {
   /** SEPARATE-VIEW provider (D19): same-origin path core REDIRECTS to for
    * sign-out. Same-origin requirement as `loginUrl`. */
   logoutUrl?: string;
+  /** Dashboard-UI mode (D22): same-origin path the SPA POSTs `{code, verifier}`
+   * to, exchanging the one-time `#pi_handoff` code for an in-memory bearer. */
+  tokenUrl?: string;
+  /** Dashboard-UI mode (D22): same-origin path the plugin lands the browser on
+   * after sign-out. */
+  postLogoutUrl?: string;
+  /** Short provider name for the sign-in button and user line ("Keycloak"). */
+  label?: string;
+  /** Whether sign-out also ends the provider session (OIDC end_session);
+   * false for providers without one (GitHub). Drives the signed-out copy. */
+  endsProviderSession?: boolean;
+  /** The provider honours OIDC `prompt=none` at `loginUrl`: a live IdP
+   * session signs the dashboard in with no click; no session returns
+   * `#pi_login_error=login_required`. Absent ⇒ the login page waits for a click. */
+  silentSignIn?: boolean;
 }
 
 /** Exact `(iss, sub)` equality — no normalization, no email fallback. */

@@ -10,6 +10,7 @@
  * Rejection (returns `null`, caller logs + treats as no-claim) when:
  *   - `iss` or `sub` is not a non-empty string, or exceeds the length cap;
  *   - `email` is present but not a bounded non-blank string;
+ *   (`name` is display-only: a malformed one is DROPPED, not a rejection.)
  *   - `expiresAt` is not a finite number that is still in the future given the
  *     configured skew floor (a coarse sanity floor — the resolver already
  *     applied skew inside its OWN validity decision, D3).
@@ -22,6 +23,8 @@ import type {
 
 /** Upper bound on `iss`/`sub`/`email` length — a DoS/abuse guard, not a spec. */
 const MAX_FIELD_LENGTH = 4096;
+/** Display-only `name` (D22 user line): tighter cap; invalid ⇒ dropped, never a reject. */
+const MAX_NAME_LENGTH = 256;
 
 function validString(v: unknown): v is string {
   return typeof v === "string" && v.trim().length > 0 && v.length <= MAX_FIELD_LENGTH;
@@ -67,9 +70,14 @@ export function sanitizePrincipalResolution(
     // Coarse future-expiry floor, forgiving up to the resolver's own skew.
     if (expiresAt <= now - skewSeconds * 1000) return null;
 
-    const cleanPrincipal: Principal = Object.freeze(
-      email !== undefined ? { iss, sub, email } : { iss, sub },
-    );
+    const rawName = ownData(principal, "name");
+    const name = validString(rawName) && rawName.length <= MAX_NAME_LENGTH ? rawName : undefined;
+    const cleanPrincipal: Principal = Object.freeze({
+      iss,
+      sub,
+      ...(email !== undefined ? { email } : {}),
+      ...(name !== undefined ? { name } : {}),
+    });
     return Object.freeze({ principal: cleanPrincipal, expiresAt });
   } catch {
     // Proxies can throw from getPrototypeOf/getOwnPropertyDescriptor. Plugin

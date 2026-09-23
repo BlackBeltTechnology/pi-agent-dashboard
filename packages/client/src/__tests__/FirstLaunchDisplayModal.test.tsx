@@ -5,7 +5,7 @@
 import React from "react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
-import { FirstLaunchDisplayModal } from "../components/settings/FirstLaunchDisplayModal.js";
+import { FirstLaunchDisplayModal, shouldShowFirstLaunch } from "../components/settings/FirstLaunchDisplayModal.js";
 import { DISPLAY_PRESETS } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 
 describe("FirstLaunchDisplayModal", () => {
@@ -87,5 +87,18 @@ describe("FirstLaunchDisplayModal", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
     expect(body).toEqual(DISPLAY_PRESETS.everything);
+  });
+});
+
+describe("shouldShowFirstLaunch (D22: never over the sign-in dialog)", () => {
+  it("opens for a seedless first launch with no prefs", () => {
+    expect(shouldShowFirstLaunch({ seedless: true, prefsDefined: false, authRequired: false })).toBe(true);
+  });
+  it("stays closed while the user must sign in (it opens after sign-in)", () => {
+    expect(shouldShowFirstLaunch({ seedless: true, prefsDefined: false, authRequired: true })).toBe(false);
+  });
+  it("stays closed once prefs exist or the GET failed (not seedless)", () => {
+    expect(shouldShowFirstLaunch({ seedless: true, prefsDefined: true, authRequired: false })).toBe(false);
+    expect(shouldShowFirstLaunch({ seedless: false, prefsDefined: false, authRequired: false })).toBe(false);
   });
 });

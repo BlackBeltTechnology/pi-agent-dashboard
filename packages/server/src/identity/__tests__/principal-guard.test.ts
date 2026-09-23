@@ -37,6 +37,23 @@ describe("sanitizePrincipalResolution — validate/copy/freeze (§3.3 / D3)", ()
     expect(out).toBeNull();
   });
 
+  it("carries a bounded display name (D22 user line) as a frozen copy", () => {
+    const out = sanitizePrincipalResolution(
+      { principal: { iss: "i", sub: "s", email: "a@x.test", name: "Anna Test" }, expiresAt: future },
+      SKEW,
+      NOW,
+    );
+    expect(out?.principal).toEqual({ iss: "i", sub: "s", email: "a@x.test", name: "Anna Test" });
+    expect(Object.isFrozen(out?.principal)).toBe(true);
+  });
+
+  it("DROPS a malformed or oversized display name without rejecting the principal", () => {
+    for (const name of [42, "   ", "x".repeat(257)]) {
+      const out = sanitizePrincipalResolution({ principal: { iss: "i", sub: "s", name }, expiresAt: future }, SKEW, NOW);
+      expect(out?.principal).toEqual({ iss: "i", sub: "s" });
+    }
+  });
+
   it("rejects empty or whitespace-only iss/sub", () => {
     expect(sanitizePrincipalResolution({ principal: { iss: "", sub: "s" }, expiresAt: future }, SKEW, NOW)).toBeNull();
     expect(sanitizePrincipalResolution({ principal: { iss: "i", sub: "" }, expiresAt: future }, SKEW, NOW)).toBeNull();

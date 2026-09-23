@@ -229,6 +229,17 @@ export function useWebSocket(url: string, onIdentityExpired?: () => void | Promi
             });
         } else {
           setStatus("connecting");
+          // Signed out is not an outage (D24): ask on the FIRST refusal so the
+          // sign-in dialog shows at once instead of after N backoff retries.
+          // Only `authenticated:false` acts here; errors/true are left to the
+          // threshold path above (D17/R2). A socket that opened meanwhile
+          // (failCount reset) makes the answer stale ⇒ ignored.
+          fetch(`${getApiBase()}/auth/status`)
+            .then((res) => res.json())
+            .then((data) => {
+              if (data?.authenticated === false && failCountRef.current > 0) setStatus("auth_required");
+            })
+            .catch(() => {});
         }
         reconnectTimerRef.current = setTimeout(() => {
           backoffRef.current = Math.min(backoffRef.current * 2, 30000);
