@@ -2704,6 +2704,73 @@ The tab reads **eight** stores in place and revokes each against its **own** wri
 
 Since revocation invalidates the in-memory set, a revoke takes effect on the **next request with no restart**; the tab refetches after each revoke. This is also why revoke-through-the-tab, not deleting the file, is the supported rollback.
 
+### Access-Grant Prompts and YOLO (change: add-access-grant-dialog)
+
+Companion to **Access Grants and Denial Remedies** above. That section makes a denial *name* its remedy (`denialId`, subject, ancestors); this one makes it **ask** — an active dialog on the operator's screen at the moment of denial, with `Allow once` / `Allow always` / `Deny`. The hard part is not the dialog but the eligibility question: **which requests may raise a dialog on the operator's screen?** A dialog is an action performed *on* the operator, so an unanswerable eligibility rule is a confused-deputy weapon. Four prior rules (caller-is-human; auth credential; CORS-gated header; `Sec-Fetch` shape) were each defeated against source; `design.md` D1/D1a/D1b records the defeats and the surviving rule.
+
+**Eligibility — a per-connection capability** (D1/D1a). On connect, `BrowserGateway` issues each browser socket a socket-bound **prompt capability** — a `grant_channel` frame carrying a 256-bit nonce (`packages/server/src/access/prompt-channel.ts`, `issuePromptChannel` / `resolvePromptChannel` / `releasePromptChannel`). Memory only, never persisted, rotated per connection, released on socket close. A request becomes **prompt-eligible** by echoing the nonce in the `X-Pi-Grant-Channel` header (`GRANT_CHANNEL_HEADER`); the server resolves it back to the issuing socket. Absent, empty, wrong and non-string all resolve to the same `null`; comparison is `timingSafeEqual` with no early break, so lookup cost does not depend on where a match sits. Eligibility consults the capability and nothing else — not auth, not CORS, not `Sec-Fetch-*`, not an `Origin`/`Host` compare (the four recorded defeats).
+
+Issuance itself is gated on browser-shaped provenance (`packages/server/src/access/capability-issuance.ts`, `shouldIssuePromptCapability(headers, corsOpts)`): a non-absent admitted `Origin`, plus `Sec-Fetch-Site` of `same-origin`, or `cross-site` when the admission rule already admitted the Origin (this serves the neutral `pi-dashboard.dev` shell); `same-site`, `none` and absent refuse. These are **provenance signals, not an authentication boundary** — a same-machine process can forge them. Accepted residuals **R-A**/**R-C**: on a no-auth loopback install only real credentials, not the host-gate mode, bound who may *answer*.
+
+Client half: `packages/client/src/lib/access-grants/grant-channel.ts`. `setGrantChannel` on each `grant_channel` frame, `clearGrantChannel` on socket close. One idempotent `window.fetch` wrapper (`installGrantChannelFetch`) echoes the capability on same-origin `/api/*` only, never cross-origin.
+
+**Prompting requires `hostGate.mode === "enforce"`** (D2). D1 alone does not beat DNS rebinding: a rebound `attacker.com` is same-origin-by-Host and gets a capability anyway. Only Host validation stops it, so prompting — not merely suspension — is gated on the live resolved mode. On the shipped `report` default (`shared/src/config.ts`) every plane degrades to **record-only** and the Access surface is the whole product. This change re-decides no default; `harden-server-request-surfaces` owns the flip (D2b).
+
+**Two settlement modes, four planes** (D2a). The proof differs because the question differs: a HELD plane asks “may this request be suspended and resumed?”, which only the request can answer, so the request must carry the capability; a DEFERRED plane asks “may the operator be told?”, whose requester is untrusted by definition, so authority comes from the operator's own live channel.
+
+| Mode | Denied request | Verdict applies | Planes (`access/planes.ts`) |
+|---|---|---|---|
+| **HELD** | suspended pending the verdict; on `Allow` the original request proceeds | to this request, plus persisted on `Allow always` | filesystem containment (YOLO-eligible), unknown-`cwd` |
+| **DEFERRED** | denied immediately with today's 403 | requester's next retry, and only via `Allow always` | network / trusted-networks, CORS origin — and any plane whose requester is untrusted or unreachable |
+
+**Degrade ladder** (`access/access-plane.ts` `promptPrecondition`), one-way: **HELD → DEFERRED → record-only**. Evaluated in order: kill switch or `promptEnabled` off → `disabled`; `hostGateMode !== "enforce"` → `report-mode` (every plane, D2); then the per-mode proof — HELD requires `requestHoldsCapability` (else `ineligible`), DEFERRED requires `operatorChannels > 0` (else `no-audience`). `holdsRequest(plane, precondition)` is true only for a held plane whose precondition passed, so a deferred denial never suspends. Every rung returns today's denial; no rung produces an allow. `persistVerdict` writes only on `allow-always`, and only this plane's store.
+
+**Registry + flood controls** (`packages/server/src/access/pending-grant-registry.ts`, D4/D8/D9). `record` / `settle` / `forget` / `expire` / `list`, keyed `(plane, subject)`, take-once, first-response-wins. A HELD entry holds a continuation; a DEFERRED entry holds none. Constants: entry TTL `GRANT_ENTRY_TTL_MS` 120 s (the hold ceiling is the same 120 s, not a second knob), capacity `GRANT_REGISTRY_CAPACITY` 64, settled-subject backoff `GRANT_BACKOFF_MS` 120 s, `GRANT_PLANE_PROMPTS_PER_MINUTE` 5, `GRANT_MAX_CONCURRENT_DIALOGS` 2, per-channel share `GRANT_CHANNEL_MAX_ENTRIES` 12 of 64, one prompt/plane/min per deferred channel, and deferred planes together `GRANT_DEFERRED_MAX_ENTRIES` 16 (refusal `deferred-share`). Overflow **refuses** the new denial and never evicts a live entry; exhausting any layer degrades to record-only, never to auto-allow.
+
+A remote requester is keyed by its **allocation**, not its address (`access/source-channel.ts`: IPv4 `/24`, IPv6 `/64`, `::ffff:` mapped as IPv4), so rotation inside one allocation hits the 12-entry share. The *subject* stays the exact address.
+
+Coordinator and transport `packages/server/src/access/grant-coordinator.ts` joins a denial to the registry, the planes and the operator's browsers — broadcasts `grant_request`, settles the first well-formed `grant_response`, sends `grant_dismiss` to the losers, and consults `yolo.decide` at the prompt point before the registry. `access/denial-hold.ts` is the one call a denial site makes (`holdDenial`); no coordinator installed = today's denial. `access/hold-request.ts` `awaitHold` captures `socket.timeout`, calls `setTimeout(0)` for the hold, and restores it on `reply.raw` `finish` behind `!socket.destroyed` (D7); client abort is detected on the **response** (`reply.raw` `close` while `!writableFinished`), not `request.raw` `close`. On release, `containment-gate` **re-evaluates** the layers against the filesystem as it is now — an allow authorises re-evaluation, never a skip (`reEvaluate`).
+
+```mermaid
+flowchart TD
+    D["guard denial (filesystem / cwd / network / cors)"] --> C["denial site builds facts; reads capability from LIVE request (D6)"]
+    C --> P{"promptPrecondition"}
+    P -->|disabled / report-mode / ineligible / no-audience| RO["record-only: today's denial; still lands in pending list"]
+    P -->|held + capability| HOLD["suspend request (awaitHold, 120 s ceiling)"]
+    P -->|deferred + live operator| DEF["deny now with today's 403"]
+    HOLD --> REG[("pending-grant-registry keyed (plane, subject)")]
+    DEF --> REG
+    REG --> B["broadcast grant_request to operator browsers"]
+    B --> V{"first grant_response wins"}
+    V -->|allow-once| AO["release THIS request"]
+    V -->|allow-always| AA["persistVerdict -> plane's own store"]
+    V -->|deny / expire / abort| NO["denial stands"]
+    AO --> RE["reEvaluate: layers run again against the filesystem NOW"]
+    AA --> RE
+```
+
+**Ancestor ladder** (`access/ancestor-ladder.ts`). The rungs a remedy may also offer. Computed from the subject's **real** path, truncated at a git checkout root (inclusive) or, with no repository, stopping **below** `$HOME` (exclusive); the filesystem root is never a rung; every rung passes the forbidden filter, so a ladder can never climb into a secret store. An unresolvable subject yields an empty ladder, never a lexical tail. Checkout-root lookup is cached per real directory (`CHECKOUT_ROOT_CACHE_TTL_MS` 5000, `CHECKOUT_ROOT_CACHE_MAX` 256); forbidden sets derive once per ladder. Measured p95 ~1.3 ms at 12 levels (was ~26 ms — `git` spawned per denial).
+
+**YOLO — time-boxed auto-answer** (`packages/server/src/access/yolo-session.ts`, D13). The realistic failure of an ask-at-denial design is not a wrong click but *clicking `Allow always` until the prompt stops meaning anything*. YOLO is the pressure valve: at the exact point a dialog would be raised, a prompt-eligible containment or unknown-`cwd` denial is auto-allowed **once** — nothing persisted, under a fixed countdown that activity cannot extend. It is bounded on two axes:
+
+- **Plane** — `yoloEligible` is a field on the plane registration; a deferred plane cannot declare it (typed `?: false`, a cast `true` rejected at `register`). Network, CORS and pairing are unreachable *by type*, not by a check someone can invert.
+- **Place** — a session holds a set of roots (from `offerRoots`: real-path + ladder, forbidden-filtered, no free text). Default scope is the session `cwd`. Roots may be added, but an add never extends expiry and never promotes to unscoped.
+
+YOLO requires `hostGate.mode === "enforce"` and a HELD-eligible denial; there is **no degraded-plane YOLO** (D13a). On a `report`-mode install nothing activates and an env session does not start. `YOLO_DURATIONS_MS` is **15 / 30 / 60 minutes** only, fixed at activation. Environment activation (`yolo-env.ts`) lasts the process lifetime. Its limit is explicit: YOLO bounds who may *ask*, not who may *answer* — per **R-A**, any browser-gateway socket can settle a prompt on a no-auth loopback install.
+
+An operator's explicit `deny` on a YOLO-eligible plane is remembered in the **refusal ledger** (`access/refusal-ledger.ts`, `access-refusals.json`, `PI_ACCESS_REFUSALS_STORE` overrides the path) — durable, cleared only by the operator — so a later YOLO session refuses that subject (`refused-by-prior-refusal`) instead of auto-allowing it. Auto-answers are logged `(no human answered)` and kept in a bounded in-memory history. Store conventions mirror `access-grants.json`: atomic temp+rename, missing/malformed = empty, a failed write leaves the cache unchanged.
+
+**Opt-in and env vars** (D10). Prompting ships behind `accessGrants.promptEnabled` (**default `false`**). `PI_DASHBOARD_DISABLE_GRANT_PROMPT=1` is the kill switch — it engages only on the exact value `1` (`isGrantPromptKilled`). Both suppress *prompting only*: existing grants stay in force and denials still land in the pending list. The no-audience rule is necessary but not sufficient for automation — Playwright E2E runs with a browser connected, so CI relies on the env var. `PI_DASHBOARD_GRANT_YOLO` (`parseYoloEnv`) takes one plain absolute path, a JSON array of absolute paths for several, or the literal `unscoped`; anything else (`1`, `true`, relative, `[]`, malformed JSON, `UNSCOPED`) is `invalid` and leaves YOLO inactive.
+
+**REST** (`packages/server/src/routes/access-prompt-routes.ts`):
+
+- `GET /api/access/prompts` — `prompting{enabled, killSwitch, hostGateMode, blockers}` (blockers: `report-mode` / `kill-switch` / `disabled`), pending entries, verdicts, YOLO availability, refusals.
+- `POST /api/access/prompts/:promptId` — `coordinator.settle` (also answers unprompted entries).
+- `GET /api/access/yolo/roots?base=`, `POST /api/access/yolo` (activate or add a root), `DELETE /api/access/yolo`.
+- `DELETE /api/access/refusals?plane=&subject=`.
+
+Mutations run the global mutation-origin gate plus authenticated-or-`isLocalRequest`, like `POST /api/access/grants`. `GET /api/health.accessGrants` is additive and failure-isolated, served **only** to an authenticated or genuinely-local caller, because `/api/health` is unguarded and the field names the host-gate mode, YOLO state and whether an operator is online.
+
 ### OAuth Authentication Flow
 
 Optional OAuth2 authentication protects the dashboard when accessed remotely.
