@@ -27,6 +27,9 @@ import { isAllowed, isGrantAdmitted } from "../lib/path-containment.js";
 import { recordPathDenial } from "./access-denials.js";
 import { grantedSubjects } from "./access-grants.js";
 import { offeredAncestorLadder } from "./ancestor-ladder.js";
+import { type HoldTarget, holdDenial } from "./denial-hold.js";
+import { isUngrantableSubject } from "./forbidden-subjects.js";
+import type { Resolution } from "./grant-coordinator.js";
 
 /** The grantable subject of a refused path: its containing directory. */
 function grantableSubjectOf(resolved: string): string {
@@ -103,6 +106,12 @@ export async function evaluateContainment(
     session?: string;
     allowGrant?: boolean;
     subjectKind?: SubjectKind;
+    /**
+     * The live request/reply, when this site can SUSPEND the read while the
+     * operator is asked (design D7). Absent: the denial is recorded and answered
+     * at once, exactly as before. See change: add-access-grant-dialog.
+     */
+    hold?: HoldTarget;
   },
 ): Promise<ContainmentDecision & { remedy?: DenialRemedy }> {
   // Layers ①/② first — untouched and still authoritative (design D1) — then the
@@ -156,5 +165,39 @@ export async function evaluateContainment(
     denialId: entry.denialId,
     ancestors,
   };
+
+  // Ask the operator, if this denial may be asked about (add-access-grant-dialog).
+  // Any outcome other than an allow verdict leaves the denial exactly as above.
+  const resolution = await holdDenial(
+    { plane: "filesystem", rawSubject: entry.subject, ancestors, origin: opts.session ?? "unknown" },
+    opts.hold,
+  );
+  if (resolution.kind === "allow" && (await reEvaluate(resolved, anchors, resolution))) {
+    return { allowed: true, viaGrant: true };
+  }
   return { ...decision, remedy };
+}
+
+/**
+ * A verdict authorises a RE-EVALUATION, never a resumption that skips the check
+ * (spec: "A resumed request re-runs the guard it was denied by"; tasks 6.4, 2b.5).
+ * Every layer runs again against the filesystem as it is NOW, so a subject
+ * swapped for a symlink after the verdict, a grant revoked in the meantime, or a
+ * sibling outside the answered subject is still denied.
+ *
+ *   - `allow-always`: the grant was persisted, so the ordinary layers admit it.
+ *   - `allow-once`: nothing was persisted; the answered subject is applied as a
+ *     transient, real-path grant for THIS request only, and never for a subject
+ *     the forbidden rule refuses.
+ */
+async function reEvaluate(
+  resolved: string,
+  anchors: string[],
+  resolution: Extract<Resolution, { kind: "allow" }>,
+): Promise<boolean> {
+  if (await isAllowed(resolved, { anchors })) return true;
+  if (await isGrantAdmitted(resolved, grantedSubjects())) return true;
+  if (resolution.verdict !== "allow-once") return false;
+  if (isUngrantableSubject(resolution.subject)) return false;
+  return isGrantAdmitted(resolved, [resolution.subject]);
 }

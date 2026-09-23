@@ -31,3 +31,5 @@ idempotent for an id already at the front. D1a's guarantee (`restore()` emits no
 `packages/server/src/__tests__/ended-session-endedat.test.ts` → E12b.
 
 See change: fix-ended-session-missing-endedat.
+
+Row summary (formerly inline in `tests/e2e/AGENTS.md`): L3 for the evidence-based `endedAt` invariant (test-plan #F1, #F2); plants historical

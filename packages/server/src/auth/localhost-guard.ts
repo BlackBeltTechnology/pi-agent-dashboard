@@ -190,6 +190,20 @@ function readRequestOrigin(headers: FastifyRequest["headers"]): string | undefin
  * trust-this-network UI would go dark.
  * See change: add-universal-network-guard.
  */
+/**
+ * Observer told about every network-policy denial, after it is recorded and
+ * before the unchanged 403 is sent (design D6). The access-grant coordinator
+ * hangs off this ONE shared denial path rather than any individual hook.
+ * Best-effort: an observer that throws never blocks or alters the denial.
+ * See change: add-access-grant-dialog (task 6.1).
+ */
+let networkDenialObserver: ((request: FastifyRequest) => void) | null = null;
+
+/** Install (or clear, with `null`) the network-denial observer. */
+export function setNetworkDenialObserver(observer: ((request: FastifyRequest) => void) | null): void {
+  networkDenialObserver = observer;
+}
+
 function sendNetworkDenied(request: FastifyRequest, reply: FastifyReply): void {
   // The recorded IP is the SOCKET PEER (`request.ip`) only — never a forwarding
   // header; a proxy-terminated peer is flagged non-trustable. See change: add-tunnel-providers.
@@ -201,6 +215,9 @@ function sendNetworkDenied(request: FastifyRequest, reply: FastifyReply): void {
       origin: readRequestOrigin(request.headers),
     });
   } catch { /* recording is best-effort, never blocks the denial */ }
+  try {
+    networkDenialObserver?.(request);
+  } catch { /* observing is best-effort, never blocks the denial */ }
   // Self-describing denial so clients can branch on policy-denial vs
   // transport failure. `error` is the stable machine-readable literal;
   // `reason`/`hint` are human copy. See change:

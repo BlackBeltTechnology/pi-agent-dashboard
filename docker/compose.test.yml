@@ -96,6 +96,10 @@ services:
       # trust boundary; a VPN'd host can present a PUBLIC peer address, which
       # made the old RFC1918-only seed fail nondeterministically).
       PI_E2E_TRUSTED_NETWORKS: "${PI_E2E_TRUSTED_NETWORKS:-}"
+      # Access-grant prompt kill switch, passed through so the whole suite can
+      # be run with prompting force-disabled (task 9.2). Only the exact value
+      # "1" engages it; empty = unset. See change: add-access-grant-dialog.
+      PI_DASHBOARD_DISABLE_GRANT_PROMPT: "${PI_DASHBOARD_DISABLE_GRANT_PROMPT:-}"
       # Flow-plugin e2e peer selector (change: add-flow-plugin-e2e-tests):
       # both | no-am | legacy | bad-registration. Empty => test-entrypoint skips
       # all flow-peer wiring (non-flow specs unaffected). Requires PI_E2E_SEED=1.

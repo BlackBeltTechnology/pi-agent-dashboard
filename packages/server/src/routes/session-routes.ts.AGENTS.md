@@ -6,4 +6,5 @@ See change: fix-session-diff-durable-source — `/api/session-diff` resolves `{s
 
 See change: offload-retained-transcript-replay — the two retained reads are ASYNC now, so the `/api/sessions/:sessionId/retained-transcript` handler `await`s `readRetainedState`, and the archived-open stamp (`GET /api/sessions/archived/:id`) moves from `readRetainedState` onto `RemoteTranscriptStore.completenessOf(id)` — marker + `R_OK` content access, no body read, so the route stops reading up to 44 MB to answer a boolean. `completenessOf` never throws (a refused id reads `absent`).
 
+The session-file containment site passes `hold: { request, reply }` to `evaluateContainment`, so an out-of-session read may be suspended while the operator is asked and is re-evaluated on an allow; the refusal body is unchanged. See change: add-access-grant-dialog (task 6.2).
 See change: fix-session-diff-heap-retention — `sessionDiffCache = new SessionDiffCache<SessionDiffResult>(2000, 100, {maxBytes: 64 MiB, sizeOf: sessionDiffResultSize})` (byte-budgeted, estimated).

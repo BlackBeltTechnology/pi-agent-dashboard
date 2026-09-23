@@ -62,6 +62,12 @@ export interface AccessGrant {
    * than the denied subject itself, so the Access surface can show both.
    */
   widenedFrom?: string;
+  /**
+   * `"prompt"` when an operator's allow-always answer to an access prompt wrote
+   * this grant (change: add-access-grant-dialog, task 8.2). Absent = the Access
+   * page's grant route. Optional and additive: older builds spread it through.
+   */
+  via?: "prompt";
 }
 
 /** D10: fixed cap, per scope. */
@@ -284,6 +290,7 @@ export interface RecordGrantInput {
   origin?: string;
   /** Set when the subject came from the denial's offered-ancestor ladder. */
   widenedFrom?: string;
+  via?: "prompt";
   now?: number;
 }
 
@@ -295,6 +302,14 @@ export interface RecordGrantInput {
  * exactly as it would have, and the surface that asked can report that the grant
  * did not stick.
  */
+/** A grant with its optional provenance fields set only when present. */
+function buildGrant(base: AccessGrant, widenedFrom: string | undefined, via: "prompt" | undefined): AccessGrant {
+  const grant: AccessGrant = { ...base };
+  if (widenedFrom) grant.widenedFrom = widenedFrom;
+  if (via) grant.via = via;
+  return grant;
+}
+
 export function recordGrant(input: RecordGrantInput): RecordGrantResult {
   const scope: GrantScope = input.scope ?? "project";
   const origin = input.origin ?? "unknown";
@@ -321,8 +336,7 @@ export function recordGrant(input: RecordGrantInput): RecordGrantResult {
   if (scope === "session") {
     const existing = sessionGrants.find((g) => g.subject === subject);
     if (existing) return { ok: true, grant: existing };
-    const grant: AccessGrant = { subject, scope, grantedAt, origin };
-    if (widen) grant.widenedFrom = widen;
+    const grant = buildGrant({ subject, scope, grantedAt, origin }, widen, input.via);
     sessionGrants.push(grant);
     enforceCap(sessionGrants, "session", grant);
     return { ok: true, grant };
@@ -331,8 +345,7 @@ export function recordGrant(input: RecordGrantInput): RecordGrantResult {
   const grants = [...persisted()];
   const existing = grants.find((g) => g.subject === subject);
   if (existing) return { ok: true, grant: existing };
-  const grant: AccessGrant = { subject, scope, grantedAt, origin };
-  if (widen) grant.widenedFrom = widen;
+  const grant = buildGrant({ subject, scope, grantedAt, origin }, widen, input.via);
   grants.push(grant);
   enforceCap(grants, "project", grant);
 

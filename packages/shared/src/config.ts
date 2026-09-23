@@ -464,6 +464,25 @@ export interface SubagentSaturationThresholds {
   loadAvg1m?: number;
 }
 
+/**
+ * Access-grant prompting. Prompting is opt-in: a fresh install records denials
+ * and raises no dialog until an operator turns it on explicitly.
+ * See change: add-access-grant-dialog.
+ */
+export interface AccessGrantsConfig {
+  /**
+   * Master switch for raising access-grant dialogs. Default **false**. Absent
+   * parses to false, so an un-upgraded config never starts prompting. Not
+   * seeded by `ensureConfig()`: absent and explicit-false mean the same thing
+   * here, and seeding would churn every existing config file.
+   *
+   * Invariant: the Access-page toggle writes `PUT /api/config { accessGrants:
+   * { promptEnabled } }`, which REPLACES the whole group. Adding a second field
+   * here means that toggle must merge first, or it silently drops the field.
+   */
+  promptEnabled: boolean;
+}
+
 export interface DashboardConfig {
   port: number;
   piPort: number;
@@ -651,6 +670,11 @@ export interface DashboardConfig {
    * See change: add-host-allowlist-admission.
    */
   hostGate: HostGateConfig;
+  /**
+   * Access-grant prompting settings. Default `{ promptEnabled: false }`.
+   * See change: add-access-grant-dialog.
+   */
+  accessGrants: AccessGrantsConfig;
   /** Networks trusted for full access without authentication (CIDR, wildcard, exact IP) */
   trustedNetworks: string[];
   /** Merged trustedNetworks + auth.bypassHosts (deduplicated). Computed at load time. */
@@ -1072,6 +1096,7 @@ const DEFAULTS: DashboardConfig = {
     },
   },
   devBuildOnReload: false,
+  accessGrants: { promptEnabled: false },
   defaultModel: "",
   defaultThinkingLevel: "",
   memoryLimits: { ...DEFAULT_MEMORY_LIMITS },
@@ -1808,6 +1833,12 @@ export function loadConfig(): DashboardConfig {
         ? { dashboardName: parsed.dashboardName }
         : {}),
       electronMode: parsed.electronMode === true,
+      accessGrants: {
+        promptEnabled:
+          typeof parsed.accessGrants?.promptEnabled === "boolean"
+            ? parsed.accessGrants.promptEnabled
+            : defaults.accessGrants.promptEnabled,
+      },
       knownServers: parseKnownServers(parsed.knownServers),
       reattachPlacement: parseReattachPlacement(parsed.reattachPlacement),
       reopenSessionsAfterShutdown: parseReopenSessionsAfterShutdown(parsed.reopenSessionsAfterShutdown),

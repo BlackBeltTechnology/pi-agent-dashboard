@@ -64,6 +64,8 @@ function entriesForStore(store: AccessStoreId, snapshot: AccessGrantSnapshot): A
         scope: g.scope,
         grantedAt: g.grantedAt,
         origin: g.origin,
+        ...(g.via ? { via: g.via } : {}),
+        ...(g.widenedFrom ? { widenedFrom: g.widenedFrom } : {}),
       }));
     case "worktreeTrust":
       return snapshot.worktreeTrust.map((subject) => ({

@@ -97,6 +97,10 @@ export function frameClassOf(
     case "favorite_models_updated":
     case "display_prefs_updated":
     case "reachability_updated":
+    // The prompt capability is per-connection STATE: the latest value wins and
+    // it must never be shed: a shed one would leave this browser prompt-less
+    // for the rest of its connection. See change: add-access-grant-dialog.
+    case "grant_channel":
       return { cls: "state", key: msg.type };
     case "openspec_update":
     case "git_head_update":
@@ -112,6 +116,13 @@ export function frameClassOf(
         cls: "state",
         key: `openspec_get_result:${msg.cwd}:${msg.requestId}:${msg.final ? "final" : "placeholder"}`,
       };
+    // A prompt and its dismissal share ONE key per prompt, so a dismiss
+    // supersedes a still-queued request instead of racing it, and neither is
+    // ever shed (a shed prompt is a dialog that silently never appears).
+    // See change: add-access-grant-dialog.
+    case "grant_request":
+    case "grant_dismiss":
+      return { cls: "state", key: `grant:${msg.promptId}` };
     case "terminal_added":
       return { cls: "state", key: `terminal:${msg.terminal.id}` };
     case "terminal_updated":
@@ -122,6 +133,9 @@ export function frameClassOf(
   }
 }
 
+import { randomUUID } from "node:crypto";
+import type { UpgradeHeaders } from "../access/capability-issuance.js";
+import { issuePromptChannel, releasePromptChannel } from "../access/prompt-channel.js";
 import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleMoveFolderToWorkspace, handleOpenSpecBulkArchive, handleOpenSpecGet, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleSetFolderCollapsed, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
 import { handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handlePromptResyncRequest, handleRemoveFollowupEntry, handleResumeSession, handleRetrySession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest, shutdownSession as shutdownSessionImpl } from "../browser-handlers/session-action-handler.js";
@@ -338,6 +352,16 @@ export interface BrowserGateway {
    * See change: fix-backpressure-status-and-subagent-frames.
    */
   setTestForceShed(enabled: boolean): boolean;
+  /**
+   * Install the policy deciding whether a newly connected browser socket is
+   * issued a prompt capability (`grant_channel`). Unset (`null`, the default)
+   * means NO socket is ever issued one, fail-closed, so a gateway built without
+   * the policy (every existing test, any embedder) never becomes prompt-capable.
+   * Set after construction because the policy needs the live CORS options,
+   * which `server.ts` builds after the gateway.
+   * See change: add-access-grant-dialog (tasks 2b.1, 3.2).
+   */
+  setPromptCapabilityPolicy(policy: ((headers: UpgradeHeaders) => boolean) | null): void;
   /**
    * Requester-scoped delivery of a prompt-resync reply (fix B, server half).
    * `msg` is an ordinary bridge `prompt_request` that may carry the echoed
@@ -1364,7 +1388,13 @@ export function createBrowserGateway(
     fanout(serialized, `openspec_update:${cwd}`, undefined);
   }
 
+  // Decides prompt-capability issuance per connection; null = never issue.
+  // See change: add-access-grant-dialog.
+  let promptCapabilityPolicy: ((headers: UpgradeHeaders) => boolean) | null = null;
+
   wss.on("connection", (ws, req) => {
+    // Per-connection identity for the prompt capability; released on close.
+    const grantSocketId = randomUUID();
     const remoteAddr = req?.socket?.remoteAddress ?? 'unknown';
     const origin = req?.headers?.origin ?? 'no-origin';
     const ua = req?.headers?.['user-agent'] ?? 'no-ua';
@@ -1465,6 +1495,19 @@ export function createBrowserGateway(
     // Notify server of new connection (for mDNS peer list etc.)
     if (gateway.onConnect) {
       gateway.onConnect(ws);
+    }
+
+    // Issue a prompt capability only to a browser-shaped connection (D1a).
+    // A missing policy, missing headers, or a policy that throws all mean NO
+    // capability: the fail-closed direction. See change: add-access-grant-dialog.
+    let issueCapability = false;
+    try {
+      issueCapability = promptCapabilityPolicy?.((req?.headers ?? {}) as UpgradeHeaders) === true;
+    } catch {
+      issueCapability = false;
+    }
+    if (issueCapability) {
+      sendTo(ws, { type: "grant_channel", capability: issuePromptChannel(grantSocketId) });
     }
 
     // Atomic windowed snapshot of the session registry + per-group orders,
@@ -1954,6 +1997,8 @@ export function createBrowserGateway(
           ` code=${code ?? "none"} reason=${JSON.stringify(reason ? reason.toString("utf8") : "")}` +
           ` lifetime=${((Date.now() - diag.connectedAt) / 1000).toFixed(1)}s frames=${diag.frames} cause=${diag.cause}`,
       );
+      // The capability dies with its connection (spec: access-grant-eligibility).
+      releasePromptChannel(grantSocketId);
       if (wss.clients.size === 0) stopKeepalive();
       subscriptions.delete(ws);
       replayingSessions.delete(ws);
@@ -2187,6 +2232,10 @@ export function createBrowserGateway(
           ...(e.spawnRequestId !== undefined ? { spawnRequestId: e.spawnRequestId } : {}),
         })),
       };
+    },
+
+    setPromptCapabilityPolicy(policy: ((headers: UpgradeHeaders) => boolean) | null): void {
+      promptCapabilityPolicy = policy;
     },
 
     setTestForceShed(enabled: boolean): boolean {

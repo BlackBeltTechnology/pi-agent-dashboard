@@ -231,4 +231,33 @@ describe("settings access page", () => {
     expect(networks.textContent).toContain("192.168.1.0/24");
     expect(networks.textContent).toContain("config.trustedNetworks");
   });
+
+  // add-access-grant-dialog 8.2 — a prompt-created grant says so, and names
+  // the denied subject it was widened from. A route-created grant shows neither.
+  it("marks a prompt-originated path grant and its widening", async () => {
+    const fixture = grantsFixture();
+    fixture.pathGrants.push({
+      subject: "/repo/widened",
+      scope: "project",
+      grantedAt: "2026-01-03T00:00:00Z",
+      origin: "sess-c",
+      via: "prompt",
+      widenedFrom: "/repo/widened/pkg",
+    } as (typeof fixture.pathGrants)[number]);
+    accessFixture = fixture;
+    setPath("/settings/access");
+    render(<SettingsPanel />);
+
+    const rows = await waitFor(() => {
+      const r = screen.getAllByTestId("access-entry");
+      expect(r.some((x) => x.textContent?.includes("/repo/widened"))).toBe(true);
+      return r;
+    });
+    const prompted = rows.find((r) => r.textContent?.includes("/repo/widened"))!;
+    expect(within(prompted).getByTestId("access-entry-via-prompt").textContent).toMatch(/via prompt/);
+    expect(within(prompted).getByTestId("access-entry-widened").textContent).toContain("/repo/widened/pkg");
+    const plain = rows.find((r) => r.textContent?.includes("/repo/persisted"))!;
+    expect(within(plain).queryByTestId("access-entry-via-prompt")).toBeNull();
+    expect(within(plain).queryByTestId("access-entry-widened")).toBeNull();
+  });
 });

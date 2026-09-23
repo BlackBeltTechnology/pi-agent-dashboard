@@ -49,6 +49,7 @@ import {
   ThinkingLevelSelectorPrimitive,
 } from "./lib/plugins/shell-primitives.js";
 import { installDeviceAuthFetch } from "./lib/pairing/device-auth.js";
+import { installGrantChannelFetch } from "./lib/access-grants/grant-channel.js";
 import { installUnhandledRejectionReporter } from "./lib/report-error.js";
 
 // Global unhandled-rejection reporter — the regression guard for the promise
@@ -159,6 +160,9 @@ registerUiPrimitive(
 // same-origin `/api/*` request carries the bearer.
 // See change: make-pairing-qr-camera-scannable.
 installDeviceAuthFetch();
+// Echo the in-memory access-prompt capability on same-origin `/api/*` requests
+// so a denied read can be held for a verdict. See change: add-access-grant-dialog.
+installGrantChannelFetch();
 
 // `/pair` — the phone-camera pairing landing. A scanned pairing QR opens
 // `https://<tls-endpoint>/pair#<payload>`; this route decodes the fragment and

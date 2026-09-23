@@ -30,6 +30,18 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
+import { snapshotAccessGrantHealth } from "./access/access-health.js";
+import { AccessPlaneRegistry, isGrantPromptKilled } from "./access/access-plane.js";
+import { shouldIssuePromptCapability } from "./access/capability-issuance.js";
+import { createCorsDenialObserver } from "./access/cors-denial.js";
+import { installGrantCoordinator } from "./access/denial-hold.js";
+import { GrantCoordinator } from "./access/grant-coordinator.js";
+import { createCorsPlane, createCwdPlane, createFilesystemPlane, createNetworkPlane } from "./access/planes.js";
+import { promptChannelCount } from "./access/prompt-channel.js";
+import { clearRefusal, isRefused, listRefusals, recordRefusal } from "./access/refusal-ledger.js";
+import { sourceChannel } from "./access/source-channel.js";
+import { YOLO_ENV } from "./access/yolo-env.js";
+import { YoloController } from "./access/yolo-session.js";
 import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
 import { registerAuthPlugin, validateWsUpgrade } from "./auth/auth-plugin.js";
 import { registerBearerAuth } from "./auth/bearer-auth.js";
@@ -63,6 +75,7 @@ import {
   isBypassedHost,
   isGenuinelyLocal,
   isPluginScopePeerLocal,
+  setNetworkDenialObserver,
 } from "./auth/localhost-guard.js";
 import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
 import { readAuthJson } from "./auth/provider-auth-storage.js";
@@ -86,7 +99,7 @@ import {
 } from "./browser-handlers/session-action-handler.js";
 import { runLifecycleAction } from "./browser-handlers/session-lifecycle.js";
 import { createCommitDraftRelay } from "./commit-draft-relay.js";
-import { writeConfigPartial } from "./config-api.js";
+import { readRawConfig, writeConfigPartial } from "./config-api.js";
 import {
   liveAllowedHosts,
   liveCorsAllowedOrigins,
@@ -141,6 +154,7 @@ import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
 import { createPiGateway } from "./pi/pi-gateway.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
+import { registerAccessPromptRoutes } from "./routes/access-prompt-routes.js";
 import { registerAccessRoutes } from "./routes/access-routes.js";
 import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
@@ -1429,11 +1443,97 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // behaviour in step with the hook, else the escape hatch only half-engages.
     hostGateMode: resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode,
   });
+  // Prompt-capability issuance (design D1a): only browser-shaped connections,
+  // judged against the LIVE CORS options on every connect. Installed here, not
+  // at gateway construction, because it needs `corsOpts`.
+  // See change: add-access-grant-dialog (tasks 2b.1, 3.2).
+  browserGateway.setPromptCapabilityPolicy((headers) => shouldIssuePromptCapability(headers, corsOpts()));
+
+  // Access-grant coordinator (design D3/D6/D8; tasks 6.1-6.3). Registers exactly
+  // the planes add-access-grants-and-review made grantable, each writing THAT
+  // change's store through the same writers the Access routes use. Every input
+  // is read LIVE per denial. Installed for the containment gate and the
+  // unknown-cwd site; observed from the network guard's one shared denial path.
+  // See change: add-access-grant-dialog.
+  const grantPlanes = new AccessPlaneRegistry();
+  grantPlanes.register(createFilesystemPlane());
+  grantPlanes.register(createCwdPlane({ pinDirectory: (dir) => preferencesStore.pinDirectory(dir) }));
+  grantPlanes.register(
+    createNetworkPlane({ readTrustedNetworks: () => loadConfig().trustedNetworks ?? [], writeConfigPartial }),
+  );
+  grantPlanes.register(
+    createCorsPlane({ readRawCors: () => (readRawConfig().cors ?? {}) as Record<string, unknown>, writeConfigPartial }),
+  );
+  // YOLO (design D13): consulted at the prompt point; the refusal ledger stops it
+  // reversing an explicit deny. Environment activation is attempted once, at
+  // boot, and refused outright in report mode or on any unusable root.
+  const yolo = new YoloController({
+    hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode,
+    isRefused,
+  });
+  const yoloBoot = yolo.activateFromEnv(process.env[YOLO_ENV]);
+  if (yoloBoot.ok) {
+    const s = yoloBoot.session;
+    console.warn(
+      `[access-grant] YOLO active from ${YOLO_ENV}: ${s.unscoped ? "UNSCOPED" : s.roots.map((r) => r.path).join(", ")} (until the process ends)`,
+    );
+  } else if (yoloBoot.reason !== "unset") {
+    console.warn(`[access-grant] ${YOLO_ENV} ignored, YOLO stays inactive: ${yoloBoot.reason}`);
+  }
+  const grantCoordinator = new GrantCoordinator({
+    planes: grantPlanes,
+    yolo,
+    recordRefusal: (plane, subject) => {
+      const r = recordRefusal(plane, subject);
+      if (!r.ok) console.error(`[access-grant] refusal not recorded plane=${plane}: ${r.error}`);
+    },
+    broadcast: (msg) => browserGateway.broadcastToAll(msg),
+    hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode,
+    promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true,
+    killSwitch: () => isGrantPromptKilled(),
+    operatorChannels: () => promptChannelCount(),
+  });
+  installGrantCoordinator(grantCoordinator);
+  browserGateway.registerHandler("grant_response", (msg) => {
+    grantCoordinator.onResponse(msg).catch((err: unknown) => {
+      console.error(`[access-grant] grant_response failed: ${(err as Error)?.message ?? err}`);
+    });
+  });
+  setNetworkDenialObserver((request) => {
+    grantCoordinator.onDenial(
+      {
+        plane: "network",
+        rawSubject: request.ip,
+        origin: "network-guard",
+        channel: sourceChannel(request.ip),
+        requestHoldsCapability: false,
+      },
+      false,
+    );
+  });
   // Registered BEFORE @fastify/cors so an enforced refusal carries no ACAO
   // (and before every Origin gate — a rebinding page's plain GETs carry no
   // Origin at all). Report-only default; `PI_DASHBOARD_HOST_GATE=enforce`
   // or `hostGate.mode` flips it. See change: add-host-allowlist-admission (D1).
   fastify.addHook("onRequest", createHostGate(getHostGateCtx, hostGateState, () => config.port));
+  // A denied cross-origin Origin may raise a DEFERRED cors-plane prompt; after
+  // the host gate so a host-refused request never prompts. Never alters the
+  // response. See change: add-access-grant-dialog.
+  fastify.addHook(
+    "onRequest",
+    createCorsDenialObserver(corsOpts, (deniedOrigin, ip) => {
+      grantCoordinator.onDenial(
+        {
+          plane: "cors",
+          rawSubject: deniedOrigin,
+          origin: "cors-origin",
+          channel: sourceChannel(ip),
+          requestHoldsCapability: false,
+        },
+        false,
+      );
+    }),
+  );
   await fastify.register(cors, {
     // Decision extracted to a pure, unit-tested helper (cors-origin.ts) so the
     // security-critical allow/deny logic is tested against the REAL code, not a
@@ -1643,6 +1743,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Settings → Access review surface + the one endpoint that can create a
   // filesystem grant. See change: add-access-grants-and-review.
   registerAccessRoutes(fastify, { networkGuard, preferencesStore, writeConfigPartial });
+  registerAccessPromptRoutes(fastify, {
+    networkGuard,
+    coordinator: grantCoordinator,
+    planes: grantPlanes,
+    yolo,
+    prompting: () => ({
+      enabled: loadConfig().accessGrants?.promptEnabled === true,
+      killSwitch: isGrantPromptKilled(),
+      hostGateMode: resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode,
+    }),
+    listRefusals,
+    clearRefusal,
+  });
   // Grammar routes moved into the grammar plugin's server entry
   // (packages/grammar-plugin/src/server), which registers
   // /api/grammar/* via ctx.fastify + ctx.modelRuntime. See change:
@@ -1727,7 +1840,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     console.log("[dashboard] No client build found — running in API-only mode");
   }
 
-  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, clientDir, clientBuild, keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() } });
+  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, clientDir, clientBuild, readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() } });
   registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   registerDoctorRoutes(fastify);
@@ -3309,6 +3422,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // A clean stop must also disarm the ephemeral watch so a
       // create/stop cycle in one process leaves no ticking timer.
       ephemeralParentWatch.stop();
+      // Uninstall the module-level access-grant hooks so a create/stop cycle in
+      // one process never leaves a stale coordinator answering for a dead server.
+      // See change: add-access-grant-dialog.
+      installGrantCoordinator(null);
+      setNetworkDenialObserver(null);
       // Stop the event-loop-delay monitor so the libuv timer doesn't linger
       // after teardown. See change: instrument-session-hydration-timing.
       try { eventLoopDelayHistogram.disable(); } catch { /* ignore */ }
