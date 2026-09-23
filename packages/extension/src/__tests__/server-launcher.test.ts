@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { HEAP_FLAG_MARKER_ENV } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
 import {
   buildSpawnArgs,
-  buildSpawnEnv,
+  buildBridgeEnvOverrides,
   DEFAULT_SERVER_MAX_OLD_SPACE_MB,
   resolveServerCliPath,
 } from "../server-launcher.js";
@@ -65,26 +65,48 @@ describe("server-launcher", () => {
     });
   });
 
-  describe("buildSpawnEnv", () => {
+  // Narrow overrides only — the shared launcher's buildSpawnEnv owns the
+  // base env (PATH prepends, win32 key normalization). A full process.env
+  // copy here overlaid the raw PATH and dropped those prepends.
+  // See change: fix-windows-path-env-key-casing.
+  describe("buildBridgeEnvOverrides", () => {
     it("always includes DASHBOARD_STARTER=Bridge", () => {
-      const env = buildSpawnEnv({});
+      const env = buildBridgeEnvOverrides({});
       expect(env["DASHBOARD_STARTER"]).toBe("Bridge");
     });
 
     it("overrides any existing DASHBOARD_STARTER in baseEnv", () => {
-      const env = buildSpawnEnv({ DASHBOARD_STARTER: "Standalone" });
+      const env = buildBridgeEnvOverrides({ DASHBOARD_STARTER: "Standalone" });
       expect(env["DASHBOARD_STARTER"]).toBe("Bridge");
     });
 
-    it("preserves other env vars from baseEnv", () => {
-      const env = buildSpawnEnv({ MY_VAR: "hello" });
-      expect(env["MY_VAR"]).toBe("hello");
-      expect(env["DASHBOARD_STARTER"]).toBe("Bridge");
+    it("E19: returns only narrow overrides, never PATH/HOME", () => {
+      const env = buildBridgeEnvOverrides(
+        { PATH: "/usr/bin", HOME: "/h", NODE_OPTIONS: "--enable-source-maps", PI_DASHBOARD_ELECTRON: "1" },
+        2048,
+      );
+      // Exact key set: undefined-valued markers are PRESENT so the shared
+      // launcher's overlay deletes them; PATH/HOME are absent.
+      expect(Object.keys(env).sort()).toEqual(
+        ["DASHBOARD_STARTER", "NODE_OPTIONS", HEAP_FLAG_MARKER_ENV, "PI_DASHBOARD_ELECTRON", "PI_DASHBOARD_RESOURCES_PATH"].sort(),
+      );
+      expect(env).toEqual({
+        DASHBOARD_STARTER: "Bridge",
+        NODE_OPTIONS: "--enable-source-maps --max-old-space-size=2048",
+        [HEAP_FLAG_MARKER_ENV]: "--max-old-space-size=2048",
+        PI_DASHBOARD_ELECTRON: undefined,
+        PI_DASHBOARD_RESOURCES_PATH: undefined,
+      });
+      expect("PATH" in env).toBe(false);
+      expect("HOME" in env).toBe(false);
     });
 
-    it("filters out undefined values from baseEnv", () => {
-      const env = buildSpawnEnv({ DEFINED: "yes", UNDEF: undefined });
-      expect(Object.keys(env)).not.toContain("UNDEF");
+    it("E20: respects an operator pin and deletes the marker", () => {
+      const env = buildBridgeEnvOverrides({ NODE_OPTIONS: "--max-old-space-size=4096" }, 2048);
+      expect(env["NODE_OPTIONS"]).toBe("--max-old-space-size=4096");
+      expect(env["NODE_OPTIONS"]).not.toContain("2048");
+      expect(Object.keys(env)).toContain(HEAP_FLAG_MARKER_ENV);
+      expect(env[HEAP_FLAG_MARKER_ENV]).toBe(undefined);
     });
 
     // The three heap assertions below asserted the literal 8192. The ceiling is
@@ -92,7 +114,7 @@ describe("server-launcher", () => {
     // rather than pinning a number that no longer describes the behavior.
     // See change: bound-session-heap-and-gc-telemetry (task 4.5).
     it("stamps the default --max-old-space-size into NODE_OPTIONS", () => {
-      const env = buildSpawnEnv({});
+      const env = buildBridgeEnvOverrides({});
       expect(DEFAULT_SERVER_MAX_OLD_SPACE_MB).toBe(1536);
       expect(env["NODE_OPTIONS"]).toContain(
         `--max-old-space-size=${DEFAULT_SERVER_MAX_OLD_SPACE_MB}`,
@@ -100,19 +122,19 @@ describe("server-launcher", () => {
     });
 
     it("stamps the CONFIGURED ceiling when one is passed", () => {
-      const env = buildSpawnEnv({}, 4096);
+      const env = buildBridgeEnvOverrides({}, 4096);
       expect(env["NODE_OPTIONS"]).toBe("--max-old-space-size=4096");
     });
 
     it("appends the flag to an existing NODE_OPTIONS without a heap limit", () => {
-      const env = buildSpawnEnv({ NODE_OPTIONS: "--enable-source-maps" });
+      const env = buildBridgeEnvOverrides({ NODE_OPTIONS: "--enable-source-maps" });
       expect(env["NODE_OPTIONS"]).toBe(
         `--enable-source-maps --max-old-space-size=${DEFAULT_SERVER_MAX_OLD_SPACE_MB}`,
       );
     });
 
     it("never overrides a user-supplied --max-old-space-size", () => {
-      const env = buildSpawnEnv({ NODE_OPTIONS: "--max-old-space-size=2048" });
+      const env = buildBridgeEnvOverrides({ NODE_OPTIONS: "--max-old-space-size=2048" });
       expect(env["NODE_OPTIONS"]).toBe("--max-old-space-size=2048");
       // No provenance marker is left behind: the token is theirs, and a marker
       // naming it would let the spawn-side strip eat their pin.
@@ -120,7 +142,7 @@ describe("server-launcher", () => {
     });
 
     it("records the exact token it stamped in the provenance marker", () => {
-      const env = buildSpawnEnv({}, 2048);
+      const env = buildBridgeEnvOverrides({}, 2048);
       expect(env[HEAP_FLAG_MARKER_ENV]).toBe("--max-old-space-size=2048");
     });
 
@@ -129,7 +151,7 @@ describe("server-launcher", () => {
       // flag AND marker are both present. Without the marker comparison the
       // dashboard's own stamp would read as operator intent and the ceiling
       // could never change.
-      const env = buildSpawnEnv(
+      const env = buildBridgeEnvOverrides(
         {
           NODE_OPTIONS: "--enable-source-maps --max-old-space-size=1536",
           [HEAP_FLAG_MARKER_ENV]: "--max-old-space-size=1536",

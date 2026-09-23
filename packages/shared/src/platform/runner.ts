@@ -18,6 +18,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { ToolResolver } from "./binary-lookup.js";
+import { normalizeEnvPathKey } from "./env-path-key.js";
 import { buildSafeArgv, spawn, spawnSync } from "./exec.js";
 // The tool registry publishes itself on a well-known `globalThis` symbol
 // when `getDefaultRegistry()` is first called from any consumer. The
@@ -157,18 +158,26 @@ export function electronAsNodeRequired(
  * the `execpath-fallback` topology; when `registry.resolve("node")` yields
  * a real node it is never triggered.
  *
- * `deps` (execPath / electronVersion) are injected for deterministic
- * testing; production callers omit them and read the live process.
- * Exported for unit tests.
+ * Both sides of the overlay are PATH-key normalized (win32) first, so a
+ * caller PATH in any casing replaces the inherited one instead of leaving a
+ * `Path`/`PATH` pair. See change: fix-windows-path-env-key-casing.
+ *
+ * `deps` (execPath / electronVersion / platform) are injected for
+ * deterministic testing; production callers omit them and read the live
+ * process. Exported for unit tests.
  */
 export function buildSpawnEnvForArgv(
   execCmd: string,
   ctxEnv?: NodeJS.ProcessEnv,
-  deps?: { execPath?: string; electronVersion?: string },
+  deps?: { execPath?: string; electronVersion?: string; platform?: NodeJS.Platform },
 ): NodeJS.ProcessEnv | undefined {
   const electronAsNode = electronAsNodeRequired(execCmd, deps);
   if (!ctxEnv && !electronAsNode) return undefined;
-  const merged: NodeJS.ProcessEnv = ctxEnv ? { ...process.env, ...ctxEnv } : { ...process.env };
+  const p = deps?.platform ?? process.platform;
+  const inherited = normalizeEnvPathKey({ ...process.env }, p);
+  const merged: NodeJS.ProcessEnv = ctxEnv
+    ? { ...inherited, ...normalizeEnvPathKey(ctxEnv, p) }
+    : { ...inherited };
   if (electronAsNode) merged.ELECTRON_RUN_AS_NODE = "1";
   return merged;
 }

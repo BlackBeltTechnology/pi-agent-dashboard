@@ -11,6 +11,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { MANAGED_BIN, MANAGED_DIR } from "../managed-paths.js";
 import { ensureWindowsSystemPath } from "./ensure-windows-path.js";
+import { normalizeEnvPathKey } from "./env-path-key.js";
 import { buildSafeArgv, execSync, spawnSync } from "./exec.js";
 import { augmentEnvWithGitSource } from "./git-source.js";
 
@@ -466,7 +467,13 @@ export class ToolResolver {
     for (const [k, v] of Object.entries(base)) {
       if (!ELECTRON_VARS_TO_STRIP.has(k)) strippedBase[k] = v;
     }
-    base = strippedBase;
+    // Collapse a win32 `Path`/`PATH` pair into one `PATH` key so the read
+    // below sees the inherited value and the write yields no duplicate
+    // (Node's win32 spawn keeps `PATH` over `Path`). See change:
+    // fix-windows-path-env-key-casing.
+    const platform = opts.platform ?? process.platform;
+    base = normalizeEnvPathKey(strippedBase, platform);
+    const delimiter = platform === "win32" ? ";" : path.delimiter;
 
     const currentPath = base.PATH || "";
     const parts: string[] = [];
@@ -500,7 +507,7 @@ export class ToolResolver {
 
     const out = parts.length === 0
       ? base
-      : { ...base, PATH: `${parts.join(path.delimiter)}${path.delimiter}${currentPath}` };
+      : { ...base, PATH: `${parts.join(delimiter)}${delimiter}${currentPath}` };
     // System32 first, then bundled git/sh (lands before System32 in PATH
     // when active). Single chokepoint for server-launcher + process-manager
     // spawns. See change: embed-git-bash-on-windows.

@@ -395,6 +395,25 @@ jobs:
           Remove-Item -Recurse -Force temp-node-x64, node-x64.zip
           Write-Host "Bundled x64 Node.js for Windows ARM64 (runs via WoW64 emulation)"
 
+      - name: Boot the bundled server and assert the browser plugin loads
+        # Change: fix-browser-plugin-vendor-specifier-resolution (test-plan X13).
+        # The sibling asserts above prove the bundle CONTAINS everything; none
+        # BOOTS anything, so none can catch a plugin that is present-but-dead
+        # because the bundle ships no `tsconfig.base.json` (bundle-server.mjs
+        # copies workspace source, not the repo tsconfig) and `JITI_TSCONFIG_PATHS`
+        # is gone. That was exactly the browser plugin's state before this change.
+        # Boots the bundled node + jiti + cli.ts with the variable removed and
+        # reads the server's own `[plugin-loader]` verdict. Node-native
+        # (Windows-reachable invariant: no bash).
+        #
+        # ORDERING IS LOAD-BEARING: this must stay AFTER "Use x64 Node.js for
+        # Windows arm64 bundled server". On the win32-arm64 leg the runner is
+        # x64, so an arm64 bundled node cannot execute there — running the boot
+        # before that swap fails for a reason that has nothing to do with plugin
+        # resolution. (Linux arm64 needs no swap: its runner is arm64.)
+        if: ${{ inputs.source_only_bundle == false }}
+        run: node packages/electron/scripts/assert-bundled-server-plugin-load.mjs
+
       # (Removed: "Patch AppImage maker script" — the @pengx17 Forge AppImage
       # maker is replaced by electron-builder's native AppImage target, which
       # ships its own AppRun and needs no patch. See change:

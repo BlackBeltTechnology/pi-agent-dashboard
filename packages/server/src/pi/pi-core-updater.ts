@@ -18,6 +18,7 @@ import os from "node:os";
 import { existsSync } from "node:fs";
 import type { PiCorePackage, PiCoreUpdateResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import { normalizeEnvPathKey } from "@blackbelt-technology/pi-dashboard-shared/platform/env-path-key.js";
 import { prependManagedNodeToPath } from "@blackbelt-technology/pi-dashboard-shared/platform/managed-node-path.js";
 import type { PackageManagerWrapper } from "../package/package-manager-wrapper.js";
 
@@ -47,7 +48,10 @@ export interface PiCoreUpdaterOptions {
  *
  * `_resolveNpm` defaults to `getDefaultRegistry().resolveExecutor("npm")`.
  * `_spawn` defaults to `node:child_process` `spawn`.
- * `_envBuilder` defaults to `prependManagedNodeToPath(process.env)`.
+ * `_envBuilder` defaults to
+ * `prependManagedNodeToPath(normalizeEnvPathKey(process.env))` — the win32
+ * `Path` key is collapsed to `PATH` first so the prepend does not leave a
+ * `Path`/`PATH` pair. See change: fix-windows-path-env-key-casing.
  */
 export interface DefaultRunNpmUpdateSeams {
 	_resolveNpm?: () =>
@@ -120,7 +124,7 @@ export function defaultRunNpmUpdate(
 		// cmd.exe console flash); elsewhere it is `[npm]`.
 		const [cmd, ...argvPrefix] = npmRes.argv;
 		const spawnFn = seams._spawn ?? spawn;
-		const envFn = seams._envBuilder ?? (() => prependManagedNodeToPath(process.env));
+		const envFn = seams._envBuilder ?? (() => prependManagedNodeToPath(normalizeEnvPathKey(process.env)));
 		const child = spawnFn(cmd, [...argvPrefix, ...args], {
 			cwd,
 			stdio: ["ignore", "pipe", "pipe"],
