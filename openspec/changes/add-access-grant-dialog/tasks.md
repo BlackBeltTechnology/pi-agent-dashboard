@@ -44,17 +44,17 @@
 
 ## 7. Client dialog
 
-- [ ] 7.1 Add the overlay component in `packages/client/` built on `client-utils` `Dialog` (`size="md"`, non-flush, `Dialog.Action`/`Dialog.Cancel` — no new primitive), following `mockups/index.html` + `mockups/ui-plan.md`: plane-specific copy, the subject rendered monospace as the headline, and the store an allow-always answer writes, with allow-always never pre-selected — verify component tests cover each registered plane's copy
-- [ ] 7.2 Implement dismissal-equals-deny, the held "request waiting" pill vs the deferred "applies to the next attempt" pill, and omit (do not disable) `Allow once` on deferred planes — verify tests assert a deferred prompt states the verdict applies to a later attempt and renders no allow-once control
-- [ ] 7.3 Handle `grant_dismiss` so a losing client's modal disappears without interaction — verify a two-client test shows the second dialog removed and its late answer ignored
-- [ ] 7.4 Escape displayed subjects (notably CORS origins) — verify a test with a markup-bearing origin renders it inert
-- [ ] 7.5 Render the ancestor ladder on filesystem prompts: rungs exactly as carried by the denial, denied subject preselected, selected subject visible beside the answer controls, no free-text entry, and no ladder control when the denial carries none — verify tests cover preselection, subtree text tracking the selection, and the no-ancestors case
+- [x] 7.1 Add the overlay component in `packages/client/` built on `client-utils` `Dialog` (`size="md"`, non-flush, `Dialog.Action`/`Dialog.Cancel` — no new primitive), following `mockups/index.html` + `mockups/ui-plan.md`: plane-specific copy, the subject rendered monospace as the headline, and the store an allow-always answer writes, with allow-always never pre-selected — verify component tests cover each registered plane's copy
+- [x] 7.2 Implement dismissal-equals-deny, the held "request waiting" pill vs the deferred "applies to the next attempt" pill, and omit (do not disable) `Allow once` on deferred planes — verify tests assert a deferred prompt states the verdict applies to a later attempt and renders no allow-once control
+- [x] 7.3 Handle `grant_dismiss` so a losing client's modal disappears without interaction — verify a two-client test shows the second dialog removed and its late answer ignored
+- [x] 7.4 Escape displayed subjects (notably CORS origins) — verify a test with a markup-bearing origin renders it inert
+- [x] 7.5 Render the ancestor ladder on filesystem prompts: rungs exactly as carried by the denial, denied subject preselected, selected subject visible beside the answer controls, no free-text entry, and no ladder control when the denial carries none — verify tests cover preselection, subtree text tracking the selection, and the no-ancestors case
 
 ## 8. Access surface
 
-- [ ] 8.1 List pending requests and recent verdicts on the Access page, each answerable there — verify a test answers a pending request from the page with prompting disabled
-- [ ] 8.2 Show which store each allow-always verdict wrote, and mark verdict-created grants as prompt-originated — verify the path-grant row displays its origin
-- [ ] 8.3 Surface the S4 banners — "held prompts unavailable — host-gate mode is `report`" and "prompting force-disabled by `PI_DASHBOARD_DISABLE_GRANT_PROMPT`" (toggle rendered inert, not hidden) — with the setting link — verify tests cover both states and the both-at-once state
+- [x] 8.1 List pending requests and recent verdicts on the Access page, each answerable there — verify a test answers a pending request from the page with prompting disabled
+- [x] 8.2 Show which store each allow-always verdict wrote, and mark verdict-created grants as prompt-originated — verify the path-grant row displays its origin
+- [x] 8.3 Surface the S4 banners — "held prompts unavailable — host-gate mode is `report`" and "prompting force-disabled by `PI_DASHBOARD_DISABLE_GRANT_PROMPT`" (toggle rendered inert, not hidden) — with the setting link — verify tests cover both states and the both-at-once state
 
 ## 2b. Corrections from adversarial review (gate: land before dependent work)
 

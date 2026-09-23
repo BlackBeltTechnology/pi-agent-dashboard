@@ -22,7 +22,7 @@ import type { Precondition } from "./pending-grant-registry.js";
 import type { HostGateMode } from "./prompt-channel.js";
 
 /** What a verdict asks a plane to persist. */
-export interface PlaneGrantRequest {
+interface PlaneGrantRequest {
   /** The subject the operator chose: the denied one, or an offered rung. */
   subject: string;
   /** The subject the denial named. */
@@ -33,7 +33,7 @@ export interface PlaneGrantRequest {
   origin: string;
 }
 
-export type PlaneGrantResult =
+type PlaneGrantResult =
   | { ok: true; store: string; widenedFrom?: string }
   | { ok: false; reason: "unnamed" | "forbidden" | "invalid-subject" | "write-failed"; error?: string };
 

@@ -32,9 +32,9 @@ import { isLocalRequest } from "./access-routes.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 /** Why the operator would get no dialog right now (S4 banners). */
-export type PromptingBlocker = "report-mode" | "kill-switch" | "disabled";
+type PromptingBlocker = "report-mode" | "kill-switch" | "disabled";
 
-export interface PendingPromptView {
+interface PendingPromptView {
   promptId: string;
   plane: AccessPlaneId;
   subject: string;
@@ -50,11 +50,11 @@ export interface PendingPromptView {
 }
 
 /** One row of the verdict list: operator answers and YOLO auto-answers, told apart (8b.8). */
-export type VerdictView =
+type VerdictView =
   | (GrantVerdictRecord & { answeredBy: "operator" })
   | (YoloLogEntry & { answeredBy: "yolo" });
 
-export interface AccessPromptsView {
+interface AccessPromptsView {
   prompting: {
     enabled: boolean;
     killSwitch: boolean;
@@ -84,7 +84,7 @@ export interface AccessPromptRouteDeps {
   now?(): number;
 }
 
-export function promptingBlockers(p: {
+function promptingBlockers(p: {
   enabled: boolean;
   killSwitch: boolean;
   hostGateMode: HostGateMode;
@@ -97,7 +97,7 @@ export function promptingBlockers(p: {
 }
 
 /** Merge operator verdicts and YOLO auto-answers, newest first. */
-export function mergeVerdicts(operator: GrantVerdictRecord[], auto: YoloLogEntry[]): VerdictView[] {
+function mergeVerdicts(operator: GrantVerdictRecord[], auto: YoloLogEntry[]): VerdictView[] {
   const rows: VerdictView[] = [
     ...operator.map((r) => ({ ...r, answeredBy: "operator" as const })),
     ...auto.map((r) => ({ ...r, answeredBy: "yolo" as const })),
@@ -126,7 +126,7 @@ function toPendingView(e: PendingGrant, planes: AccessPlaneRegistry): PendingPro
 }
 
 /** Validate an activation body; `null` = a scoped request without a base. */
-export function parseYoloActivation(
+function parseYoloActivation(
   body: unknown,
 ): { durationMs: number; base: string; root?: string; unscoped: boolean } | null {
   const b = (body ?? {}) as { durationMinutes?: unknown; base?: unknown; root?: unknown; unscoped?: unknown };

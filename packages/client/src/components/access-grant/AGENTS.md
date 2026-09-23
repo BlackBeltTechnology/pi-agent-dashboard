@@ -1,0 +1,8 @@
+# DOX — packages/client/src/components/access-grant
+
+Files in this directory. One row per source file.
+
+| File | Purpose |
+|------|---------|
+| `GrantPromptDialog.tsx` | S1 held / S2 deferred access-grant dialog on client-utils `Dialog` (`size="md"`, non-flush, `testId="grant-dialog"`). Exports `GrantPromptDialog({prompt, now, queued, onAnswer})`. Subject = monospace headline (`grant-dialog-subject`, React text only); plane-specific title/reason; store named in `grant-dialog-consequence` before buttons. Footer order Deny (`Dialog.Cancel`), Allow once, Allow always — ALL `neutral` intent, none emphasised/focus-defaulted (initial focus = built-in close). Held: `grant-dialog-waiting` countdown from `expiresAt`. Deferred: `grant-dialog-deferred` pill, no countdown, allow-once OMITTED. Ladder (`grant-dialog-ladder`) only when `copy.ladder` non-empty: radios = denied subject + carried rungs, denied preselected, no free text, `grant-dialog-selected` beside answers. Allow once/always send selected rung; Deny + every dismissal send the denied subject. See change: add-access-grant-dialog (tasks 7.1, 7.2, 7.4, 7.5) |
+| `GrantPromptHost.tsx` | App-wide mount of the grant dialog (rendered in both App returns). Exports `GrantPromptHost({onMessage, send, ws, store?, loadPending?})`. `grant_channel` → `setGrantChannel`; `ws === null` → `clearGrantChannel`; `grant_request`/`grant_dismiss` → `GrantPromptStore.apply`. One dialog at a time (`queue[0]`, rest counted). Answer → `store.claim` gate → `grant_response` over WS (late answer after dismissal never sent). 1 s tick drives countdown + `store.expire`. Every (re)connect reconciles vs `GET /api/access/prompts` prompted entries. See change: add-access-grant-dialog (tasks 7.1-7.3) |

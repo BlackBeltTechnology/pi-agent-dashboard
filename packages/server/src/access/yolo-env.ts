@@ -24,7 +24,7 @@
 import path from "node:path";
 
 export const YOLO_ENV = "PI_DASHBOARD_GRANT_YOLO";
-export const YOLO_UNSCOPED = "unscoped";
+const YOLO_UNSCOPED = "unscoped";
 
 export type YoloEnvValue =
   | { kind: "unset" }

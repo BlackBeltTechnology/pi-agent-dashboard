@@ -40,7 +40,7 @@ interface StoreFile {
 
 const PLANES: ReadonlySet<string> = new Set(["filesystem", "cwd", "network", "cors"]);
 
-export function refusalLedgerPath(): string {
+function refusalLedgerPath(): string {
   const override = process.env.PI_ACCESS_REFUSALS_STORE;
   if (override?.trim()) return path.resolve(override);
   return path.join(getDashboardConfigDir(), "access-refusals.json");

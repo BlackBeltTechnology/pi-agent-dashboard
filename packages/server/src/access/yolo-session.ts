@@ -38,9 +38,9 @@ import { parseYoloEnv } from "./yolo-env.js";
 /** The only durations an operator may choose (resolved, clarification C3). */
 export const YOLO_DURATIONS_MS: readonly number[] = [15, 30, 60].map((m) => m * 60_000);
 /** How many auto-answers the Access surface keeps (a bounded, in-memory log). */
-export const YOLO_LOG_CAPACITY = 200;
+const YOLO_LOG_CAPACITY = 200;
 
-export interface YoloRoot {
+interface YoloRoot {
   path: string;
   addedAt: number;
 }

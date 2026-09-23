@@ -240,6 +240,23 @@ within the TTL may be missed; the ladder stays forbidden-filtered and is only
 offered. An unresolvable subject now yields an empty ladder (#X8) instead of rungs
 built on a lexical tail.
 
+**Client decisions (resolved during implementation, sections 7-8).**
+- *Allow always is styled like the other answers.* `mockups/ui-plan.md` bound it
+  to the `primary` intent; the normative dialog spec forbids emphasising any
+  answer (#E56), and a filled accent button is emphasis. The spec wins.
+- *Deny and dismissal name the denied subject*, never a selected ladder rung, so a
+  refusal is remembered for what was actually refused and never logs a widening.
+- *Media loads are not holdable.* `<img>`/`<video>`/`<audio>` and download links
+  cannot carry `X-Pi-Grant-Channel`; their denials are recorded and answered on
+  the Access page. Every `fetch` to same-origin `/api/*` carries the capability
+  (a wrapper installed once in `main.tsx`); a UI served from another origin (the
+  neutral shell) never sends it, so it degrades to the Access page (fail closed).
+- *Reconnect resync.* The server does not replay open prompts; the client
+  reconciles its queue against `GET /api/access/prompts` (prompted entries only)
+  on every connect, so a newly opened tab also shows prompts already pending.
+- *The prompting toggle saves immediately* (`PUT /api/config`), outside the
+  settings Save bar, which never sends `accessGrants`.
+
 ### D2 — DNS rebinding is out of D1's reach, so **prompting at all** requires `hostGate.mode === "enforce"`
 
 **Decision.** D1 alone does **not** beat rebinding: an `attacker.com` rebound to

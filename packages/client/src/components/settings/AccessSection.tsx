@@ -192,6 +192,16 @@ export function AccessSection() {
                           {i18nT("access.columnOrigin", undefined, "Origin")}: {entry.origin}
                         </span>
                       )}
+                      {entry.via === "prompt" && (
+                        <span data-testid="access-entry-via-prompt">
+                          {i18nT("access.viaPrompt", undefined, "via prompt")}
+                        </span>
+                      )}
+                      {entry.widenedFrom && (
+                        <span data-testid="access-entry-widened">
+                          {i18nT("access.widenedFrom", { subject: entry.widenedFrom }, "widened from {subject}")}
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>

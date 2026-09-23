@@ -30,7 +30,7 @@ import { type GrantTransition, type PendingGrant, PendingGrantRegistry } from ".
 import type { HostGateMode } from "./prompt-channel.js";
 
 /** What YOLO needs to decide, all from the live request (design D6). */
-export interface YoloDecisionInput {
+interface YoloDecisionInput {
   plane: AccessPlane;
   subject: string;
   requestHoldsCapability: boolean;
@@ -95,7 +95,7 @@ const defaultSchedule = (fn: () => void, ms: number): { cancel(): void } => {
 export const GRANT_MAX_WAITERS_PER_ENTRY = 8;
 
 /** How many recent outcomes the Access surface can list (bounded, in-memory). */
-export const GRANT_VERDICT_HISTORY = 200;
+const GRANT_VERDICT_HISTORY = 200;
 
 /** What one answer attempt did. `ignored` = WS answer to an unprompted / non-enforce entry. */
 export type SettleResult =

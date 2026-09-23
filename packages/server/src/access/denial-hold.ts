@@ -25,11 +25,6 @@ export function installGrantCoordinator(c: GrantCoordinator | null): void {
   coordinator = c;
 }
 
-/** The installed coordinator, if any. */
-export function grantCoordinator(): GrantCoordinator | null {
-  return coordinator;
-}
-
 /** The live request, as far as a denial site needs it. */
 export interface HoldTarget {
   request: Pick<FastifyRequest, "raw" | "headers" | "ip">;

@@ -41,8 +41,8 @@ export const GRANT_MAX_CONCURRENT_DIALOGS = 2;
 /** 20% of capacity (design D9). */
 export const GRANT_CHANNEL_MAX_ENTRIES = 12;
 /** Per-channel dialog budget, split by trust (design D9, resolved). */
-export const GRANT_CHANNEL_MAX_DIALOGS = 1;
-export const GRANT_DEFERRED_CHANNEL_PROMPTS_PER_MINUTE = 1;
+const GRANT_CHANNEL_MAX_DIALOGS = 1;
+const GRANT_DEFERRED_CHANNEL_PROMPTS_PER_MINUTE = 1;
 /**
  * Most entries all DEFERRED planes together may hold (25% of capacity). Remote
  * sources are untrusted and cheap to rotate; this keeps the rest of the
@@ -54,7 +54,7 @@ const RATE_WINDOW_MS = 60_000;
 const SETTLED_MEMORY = GRANT_REGISTRY_CAPACITY * 4;
 
 /** Ladder conditions the CALLER decides, from the live request (D3, D6). */
-export type PreconditionReason = "ineligible" | "report-mode" | "disabled" | "no-audience";
+type PreconditionReason = "ineligible" | "report-mode" | "disabled" | "no-audience";
 /** Why a denial got no entry at all. */
 export type RefusalReason = "capacity" | "channel-share" | "deferred-share";
 /** Why an entry was recorded but not prompted, by the registry's own controls. */
