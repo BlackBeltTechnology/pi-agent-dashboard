@@ -355,10 +355,13 @@ export function parsePackOutput(stdout) {
  * pass - so a payload with no `files` list is null (reported `pack-failed`), never
  * an empty set. See change: fix-ship-tsconfig-base.
  */
-export function packEntryFiles(parsed) {
+export function packEntryFiles(parsed, name) {
   if (parsed === null || typeof parsed !== "object") return null;
-  const candidates = Array.isArray(parsed) ? parsed.slice(0, 1) : [parsed, ...Object.values(parsed)];
-  const entry = candidates.find((c) => c && Array.isArray(c.files));
+  const candidates = Array.isArray(parsed) ? parsed : [parsed, ...Object.values(parsed)];
+  const withFiles = candidates.filter((c) => c && Array.isArray(c.files));
+  // With a name, only the entry for THAT package counts: a multi-workspace payload
+  // must never let one package's files stand in for another's.
+  const entry = name === undefined ? withFiles[0] : withFiles.find((c) => c.name === name);
   return entry ? entry.files.map((f) => f.path) : null;
 }
 
@@ -369,7 +372,7 @@ export function packEntryFiles(parsed) {
  * workspace whose pack fails must fail the run, not silently contribute zero
  * findings.
  */
-export async function packWorkspace(dir) {
+export async function packWorkspace(dir, name) {
   try {
     // Bounded: a workspace's `prepack`/`prepare` lifecycle script runs here, and
     // one that hangs would stall `analyzeRepository` forever and blow the CI
@@ -381,8 +384,8 @@ export async function packWorkspace(dir) {
     });
     const parsed = parsePackOutput(stdout);
     if (parsed === null) return { files: [], error: "could not locate JSON payload in `npm pack --json` output" };
-    const files = packEntryFiles(parsed);
-    if (files === null) return { files: [], error: "`npm pack --json` payload carries no `files` list" };
+    const files = packEntryFiles(parsed, name);
+    if (files === null) return { files: [], error: `\`npm pack --json\` payload carries no \`files\` list${name ? ` for ${name}` : ""}` };
     return { files, error: null };
   } catch (err) {
     return { files: [], error: (err.stderr || err.message || String(err)).trim().split("\n").slice(-4).join(" ") };
@@ -456,10 +459,10 @@ function specifierFinding({ wsRel, rel, value, line, allowed, declared, devOnly,
 
 const TSCONFIG_FILE = /(?:^|\/)tsconfig[^/]*\.json$/;
 
-/** Does a relative `extends` land on a packed file (verbatim or with `.json`)? */
+/** Does a relative `extends` land on a packed file? `.json` is appended only when absent, as TS does. */
 function tsconfigExtendsResolves(entry, fromFile, packedSet) {
   const target = join(dirname(fromFile), entry).split("\\").join("/");
-  return packedSet.has(target) || packedSet.has(`${target}.json`);
+  return packedSet.has(target) || (!target.endsWith(".json") && packedSet.has(`${target}.json`));
 }
 
 /** Relative `extends` entries of a JSONC tsconfig, or `{ error }` when it will not parse. */
@@ -467,7 +470,10 @@ function relativeExtendsOf(abs) {
   const { config, error } = ts.parseConfigFileTextToJson(abs, readFileSync(abs, "utf8"));
   if (error) return { error: ts.flattenDiagnosticMessageText(error.messageText, " ") };
   if (config === null || typeof config !== "object") return { error: "not a JSON object" };
-  return { entries: [config.extends ?? []].flat().filter((e) => typeof e === "string" && isRelative(e)) };
+  // TS normalises slashes before its `./` / `../` test, so `.\\base.json` is relative too.
+  return {
+    entries: [config.extends ?? []].flat().filter((e) => typeof e === "string" && isRelative(e.replaceAll("\\", "/"))),
+  };
 }
 
 /**
@@ -490,7 +496,7 @@ export function tsconfigExtendsFindings(ws, packedFiles) {
       continue;
     }
     for (const e of entries) {
-      if (tsconfigExtendsResolves(e, rel, packedSet)) continue;
+      if (tsconfigExtendsResolves(e.replaceAll("\\", "/"), rel, packedSet)) continue;
       findings.push(finding("error", "dangling-tsconfig-extends", ws.rel, rel, e,
         `tsconfig extends "${e}" has no target in the packed file set; jiti/tsc will fail for a consumer`));
     }
@@ -570,7 +576,7 @@ export async function analyzeRepository(root = REPO_ROOT, { allowlist = ALLOWLIS
   const queue = [...workspaces];
   const runner = async () => {
     for (let ws = queue.shift(); ws; ws = queue.shift()) {
-      const { files, error } = await packWorkspace(ws.dir);
+      const { files, error } = await packWorkspace(ws.dir, ws.manifest.name);
       if (error) {
         findings.push(
           finding("error", "pack-failed", ws.rel, "package.json", null,

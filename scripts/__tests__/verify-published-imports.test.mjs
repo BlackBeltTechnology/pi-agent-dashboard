@@ -270,6 +270,24 @@ describe('tsconfig extends must resolve inside the tarball', () => {
     expect(tsconfigExtendsFindings(ws, ['sub/tsconfig.json', 'base.json'])).toEqual([]);
   });
 
+  it('does not append .json to a target that already ends in .json (TS does not)', () => {
+    const ws = fixture({}, { 'tsconfig.json': tsc('./base.json'), 'base.json.json': '{}' });
+    expect(rulesOf(tsconfigExtendsFindings(ws, ['tsconfig.json', 'base.json.json']))).toEqual(['dangling-tsconfig-extends']);
+  });
+
+  it('treats a backslash-relative extends as relative, reporting the original value', () => {
+    const ws = fixture({}, { 'tsconfig.json': tsc('.\\missing.json') });
+    const findings = tsconfigExtendsFindings(ws, ['tsconfig.json']);
+
+    expect(rulesOf(findings)).toEqual(['dangling-tsconfig-extends']);
+    expect(findings[0].specifier).toBe('.\\missing.json');
+  });
+
+  it('resolves a backslash-relative extends that is packed', () => {
+    const ws = fixture({}, { 'sub/tsconfig.json': tsc('..\\base.json'), 'base.json': '{}' });
+    expect(tsconfigExtendsFindings(ws, ['sub/tsconfig.json', 'base.json'])).toEqual([]);
+  });
+
   it('ignores a package-name extends', () => {
     const ws = fixture({}, { 'tsconfig.json': tsc('@tsconfig/node20/tsconfig.json') });
     expect(tsconfigExtendsFindings(ws, ['tsconfig.json'])).toEqual([]);
@@ -309,6 +327,16 @@ describe('pack payload shapes — never a vacuous empty file set', () => {
     ['object keyed by package name (npm at a workspace root)', { '@scope/root': { name: '@scope/root', files } }],
   ])('reads the %s form', (_label, payload) => {
     expect(packEntryFiles(payload)).toEqual(['a.js']);
+  });
+
+  it('selects the entry naming the requested package, not the first one', () => {
+    const payload = { '@scope/ws': { name: '@scope/ws', files: [{ path: 'ws.js' }] }, '@scope/root': { name: '@scope/root', files } };
+    expect(packEntryFiles(payload, '@scope/root')).toEqual(['a.js']);
+    expect(packEntryFiles([{ name: '@scope/ws', files: [{ path: 'ws.js' }] }, { name: '@scope/root', files }], '@scope/root')).toEqual(['a.js']);
+  });
+
+  it('returns null when no entry names the requested package (loud pack-failed, not a wrong-package pass)', () => {
+    expect(packEntryFiles({ '@scope/ws': { name: '@scope/ws', files } }, '@scope/root')).toBeNull();
   });
 
   it.each([
