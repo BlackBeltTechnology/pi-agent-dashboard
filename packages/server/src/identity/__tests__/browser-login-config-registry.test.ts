@@ -144,8 +144,8 @@ describe("publicLoginConfig (D21)", () => {
   });
 
   it("silentSignIn (prompt=none support) is kept only as a strict boolean and relayed publicly", () => {
-    expect(sanitizeBrowserLoginConfig({ pluginId: "p", loginUrl: "/in", silentSignIn: true })).toMatchObject({ silentSignIn: true });
-    expect(sanitizeBrowserLoginConfig({ pluginId: "p", loginUrl: "/in", silentSignIn: "yes" as never })).not.toHaveProperty("silentSignIn");
+    expect(sanitizeBrowserLoginConfig({ loginUrl: "/in", silentSignIn: true })).toMatchObject({ silentSignIn: true });
+    expect(sanitizeBrowserLoginConfig({ loginUrl: "/in", silentSignIn: "yes" as never })).not.toHaveProperty("silentSignIn");
     expect(publicLoginConfig([{ pluginId: "p", loginUrl: "/in", silentSignIn: true }])).toMatchObject({ active: true, silentSignIn: true });
   });
 
