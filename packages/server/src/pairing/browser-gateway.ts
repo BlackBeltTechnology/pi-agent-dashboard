@@ -537,7 +537,8 @@ export function createBrowserGateway(
       // The ping queues behind buffered data, so a live client on a slow link
       // cannot answer until it drains: drain progress counts as liveness.
       const buffered = client.bufferedAmount;
-      if (buffered > 0 && buffered < diag.lastBuffered) diag.missedPongs = 0;
+      // Any decrease counts, including a drain to 0 (idle 0 → 0 does not).
+      if (buffered < diag.lastBuffered) diag.missedPongs = 0;
       diag.lastBuffered = buffered;
       if (diag.missedPongs >= 2) {
         diag.cause = "keepalive";

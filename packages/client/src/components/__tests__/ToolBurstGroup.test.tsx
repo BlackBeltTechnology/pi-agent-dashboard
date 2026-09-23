@@ -235,6 +235,7 @@ describe("ToolBurstGroup — collapsed on mobile (mobile-resilience)", () => {
       const { container } = renderViewportBurst(running);
       expect(body(container)).toBeNull();
       expect(header(container).textContent).toContain("Working");
+      expect(header(container).textContent).toContain("1 done"); // live tool count
     });
   });
 

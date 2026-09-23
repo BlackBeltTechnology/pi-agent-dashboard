@@ -108,6 +108,20 @@ describe("a draining send buffer counts as liveness", () => {
     expect(closeLines()).toEqual([]);
   });
 
+  it("counts a drain to zero as progress", async () => {
+    harness = await startRealBrowserWs(INTERVAL);
+    const ws = await harness.connect({ autoPong: false });
+    const [serverSide] = [...harness.gateway.wss.clients];
+    let buffered = 500_000;
+    Object.defineProperty(serverSide, "bufferedAmount", { configurable: true, get: () => buffered });
+    await tick(); // missed 1
+    await tick(); // missed 2, buffer stuck
+    buffered = 0; // fully drained into the kernel: the ping is on its way
+    await tick();
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+    expect(closeLines()).toEqual([]);
+  });
+
   it("still terminates when the buffer is stuck (no drain progress)", async () => {
     harness = await startRealBrowserWs(INTERVAL);
     await harness.connect({ autoPong: false });
