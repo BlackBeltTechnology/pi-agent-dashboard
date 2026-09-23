@@ -120,4 +120,12 @@ describe("runAsync — Recipe.maxBuffer", () => {
     await new Promise((res) => setTimeout(res, 500));
     expect(parse).not.toHaveBeenCalled();
   }, 20_000);
+
+  it("decodes a UTF-8 character split across two stdout chunks intact", async () => {
+    // "é" = C3 A9, written as two separate chunks with a gap between them.
+    const script = `process.stdout.write(Buffer.from([0x61,0xc3]));setTimeout(()=>process.stdout.write(Buffer.from([0xa9,0x62])),100)`;
+    const r = await runAsync(nodeRecipe(script, { maxBuffer: MiB }), undefined);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value).toBe("aéb");
+  });
 });

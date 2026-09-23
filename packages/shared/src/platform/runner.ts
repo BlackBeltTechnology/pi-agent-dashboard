@@ -16,6 +16,7 @@
 
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { ToolResolver } from "./binary-lookup.js";
 import { buildSafeArgv, spawn, spawnSync } from "./exec.js";
 // The tool registry publishes itself on a well-known `globalThis` symbol
@@ -418,6 +419,11 @@ export function runAsync<Input, Output>(
       settle({ ok: false, error: { kind: "timeout", timeoutMs: timeout, binary: rawCmd, stdout, stderr } });
     }, timeout);
 
+    // Stateful decoders: a UTF-8 sequence split across two pipe chunks must
+    // not decode to U+FFFD halves (raw Buffer chunks are still needed for the
+    // exact `maxBuffer` byte count). See change: fix-session-diff-heap-retention.
+    const stdoutDecoder = new StringDecoder("utf8");
+    const stderrDecoder = new StringDecoder("utf8");
     const maxBuffer = recipe.maxBuffer;
     let stdoutBytes = 0;
     child.stdout?.on("data", (chunk: Buffer) => {
@@ -441,9 +447,9 @@ export function runAsync<Input, Output>(
           return;
         }
       }
-      stdout += chunk.toString("utf-8");
+      stdout += stdoutDecoder.write(chunk);
     });
-    child.stderr?.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf-8"); });
+    child.stderr?.on("data", (chunk: Buffer) => { stderr += stderrDecoder.write(chunk); });
 
     child.on("error", (err: NodeJS.ErrnoException) => {
       clearTimeout(timer);
@@ -458,6 +464,8 @@ export function runAsync<Input, Output>(
       clearTimeout(timer);
       // Already settled (timeout / overflow) → never parse truncated stdout.
       if (settled) return;
+      stdout += stdoutDecoder.end();
+      stderr += stderrDecoder.end();
       const tolerated = code !== 0 && code !== null && recipe.tolerate?.includes(code);
       if (code === 0 || tolerated) {
         try {
