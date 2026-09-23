@@ -68,6 +68,7 @@ import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
 import { readAuthJson } from "./auth/provider-auth-storage.js";
 import { createRouteTierGate } from "./auth/route-tier-gate.js";
 import { mintSpawnToken } from "./auth/spawn-token.js";
+import { createWsUpgradeRejectLogger } from "./auth/ws-upgrade-reject-log.js";
 import {
   type CoreWsRouteScope,
   extractTicket,
@@ -1381,6 +1382,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // per-request context (mode resolved env-over-config, D4; every admission
   // input read LIVE through the snapshot, D6).
   const hostGateState = new HostGateState();
+  // Rate-limited, secret-free line for the upgrade rejections no other gate
+  // logs (bridge 400, auth 401, no-auth 403). One instance per server.
+  // See change: harden-ios-safari-memory-and-ws-diagnostics (design D4).
+  const wsUpgradeRejectLog = createWsUpgradeRejectLogger();
   const hostGateBootWarning = hostGateEnvWarning(process.env.PI_DASHBOARD_HOST_GATE);
   if (hostGateBootWarning) console.error(hostGateBootWarning);
   const getHostGateCtx = (): HostGateContext => ({
@@ -2924,6 +2929,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // the dashboard port would silently burn its ticket and see a bare TCP
         // close (@review Audit, minor).
         if (scope === "bridge") {
+          wsUpgradeRejectLog.log({
+            status: 400,
+            scope,
+            remoteAddress,
+            headers: request.headers as unknown as Record<string, unknown>,
+            // Presence only — read from the URL/protocol header, never consumed.
+            ticketPresent: extractTicket(request.url, secWsProtocol) !== null,
+          });
           socket.write("HTTP/1.1 400 Bad Request\r\n\r\n");
           socket.destroy();
           return;
@@ -2933,6 +2946,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         const wsHeaders = request.headers as unknown as Record<string, unknown>;
         if (config.authConfig?.secret) {
           if (!validateWsUpgrade(request.headers.cookie, remoteAddress, config.authConfig.secret, trusted, { ticket, scope, consumeTicket, headers: wsHeaders, localToken })) {
+            wsUpgradeRejectLog.log({ status: 401, scope: scope ?? "none", remoteAddress, headers: wsHeaders, ticketPresent: ticket !== null });
             socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
             socket.destroy();
             return;
@@ -2946,6 +2960,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           // No auth configured — allow genuine-local, local-IPC token, trusted
           // networks, or a valid single-use ticket. A tunnel presenting as
           // 127.0.0.1 (forwarding header) is NOT trusted (D10, narrowed).
+          wsUpgradeRejectLog.log({ status: 403, scope: scope ?? "none", remoteAddress, headers: wsHeaders, ticketPresent: ticket !== null });
           socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
           socket.destroy();
           return;

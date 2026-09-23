@@ -41,6 +41,16 @@ const PLUGIN_PROXY_FORWARDING_HEADERS = [
 type HeaderBag = Record<string, unknown> | undefined;
 
 /**
+ * NAMES of the proxy-forwarding headers present (extended list, a superset of
+ * the core list). Never reads values — for diagnostics lines only.
+ * See change: harden-ios-safari-memory-and-ws-diagnostics (design D4).
+ */
+export function forwardingHeaderNamesPresent(headers: HeaderBag): string[] {
+  if (!headers) return [];
+  return PLUGIN_PROXY_FORWARDING_HEADERS.filter((h) => headers[h] != null);
+}
+
+/**
  * True if the request carries any proxy/tunnel forwarding header. Pass
  * `{ extended: true }` for the plugin-scope 8-header list (see
  * {@link PLUGIN_PROXY_FORWARDING_HEADERS}); the default is the core list.

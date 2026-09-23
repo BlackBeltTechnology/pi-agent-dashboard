@@ -12,6 +12,16 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Browser WebSocket diagnostics.** Every browser socket close now logs one
+  line with its close code, JSON-quoted reason, lifetime, inbound frame count and
+  cause (`peer` / `keepalive` / `stalled`). The server pings browser sockets every
+  30 s and terminates one that leaves two consecutive pings unanswered
+  (`cause=keepalive`). WS upgrades rejected by the previously silent branches
+  (bridge-scope 400, auth 401, no-auth 403) log a rate-limited
+  `[ws-upgrade] rejected …` line naming forwarding-header *names* and ticket
+  presence — never header values, cookies or ticket strings. See change:
+  harden-ios-safari-memory-and-ws-diagnostics (#712).
+
 - **Extension slash commands sent from the dashboard now dispatch in-process, so
   they work in every session kind — including tmux and terminal-hosted pi.** The
   bridge calls `pi.sendUserMessage(text, { expandPromptTemplates: true,
@@ -236,6 +246,15 @@ see [`docs/release-process.md`](docs/release-process.md).
   callers. See change: remove-pi-model-proxy-upstream-references.
 
 ### Fixed
+
+- **Cold page load no longer ships the full MDI icon set.** The landing
+  document used to `modulepreload` the entire `@mdi/js` set (~2.78 MB raw);
+  icon-by-key lookup (extension-UI icons, `ActionList`, `StatusPill`) now loads
+  it on demand, the first time a key is resolved. Landing JS drops from 6.74 MB
+  to 4.02 MB raw, easing memory pressure on iOS Safari. On mobile viewports a
+  running tool group no longer auto-expands (tap to open), capping DOM growth
+  while a turn streams. See change: harden-ios-safari-memory-and-ws-diagnostics
+  (#712).
 
 - **OpenSpec data no longer comes up empty on a fresh `HOME`.** `openspec`
   prints a one-off telemetry notice ahead of its JSON on the first run under a

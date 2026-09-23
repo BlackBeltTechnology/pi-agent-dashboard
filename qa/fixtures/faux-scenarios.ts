@@ -421,6 +421,16 @@ export const CUSTOM_ENTRY_LONG_TYPE = "e2e:big";
  * through the View popover before asserting the row.
  */
 export const OM_ENTRY_TAIL = "om entry sent";
+
+/**
+ * Footer-segment decorator with an MDI icon KEY (change:
+ * harden-ios-safari-memory-and-ws-diagnostics, test-plan #F2). Drives the
+ * lazy full-icon-set load in a real browser via the `e2e_footer_segment`
+ * fixture tool.
+ */
+export const FOOTER_ICON_TAIL = "footer icon published";
+export const FOOTER_ICON_TEXT = "E2E-LAZY-ICON";
+export const FOOTER_ICON_KEY = "mdiCheckDecagram";
 export const OM_OBSERVATION_ALPHA = "e2e-observation-alpha";
 export const OM_OBSERVATION_BETA = "e2e-observation-beta";
 
@@ -1628,6 +1638,18 @@ export const SCENARIOS: Record<string, Scenario> = {
       fauxAssistantMessage([fauxText(OM_ENTRY_TAIL)]),
     ],
     expect: { toolName: "e2e_custom_entry" },
+  },
+
+  /** Footer-segment decorator with an MDI icon key (test-plan #F2). */
+  "footer-icon": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("e2e_footer_segment", { text: FOOTER_ICON_TEXT, icon: FOOTER_ICON_KEY })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(FOOTER_ICON_TAIL)]),
+    ],
+    expect: { toolName: "e2e_footer_segment" },
   },
 };
 
