@@ -263,6 +263,10 @@ export function extractSpecifiers(text, fileName) {
     }
   };
 
+  // Iterative (explicit stack), not recursive: a bundled CJS chunk (the
+  // client's lazy full-@mdi/js set) opens with a `e.a=e.b=…=void 0` chain deep
+  // enough to overflow a recursive walk on Node 22, though the parser accepts
+  // it. See change: harden-ios-safari-memory-and-ws-diagnostics.
   const visit = (node) => {
     // import x from "y"  /  export * from "y"
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) {
@@ -277,9 +281,19 @@ export function extractSpecifiers(text, fileName) {
       // require("y")
       else if (ts.isIdentifier(node.expression) && node.expression.text === "require") add(node.arguments[0]);
     }
-    ts.forEachChild(node, visit);
   };
-  visit(source);
+  const stack = [source];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    visit(node);
+    // Push children in reverse so they pop in source order (same order as the
+    // former recursive walk, so reported specifiers keep their sequence).
+    const children = [];
+    ts.forEachChild(node, (child) => {
+      children.push(child);
+    });
+    for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]);
+  }
 
   return { specifiers, parseError: null };
 }
