@@ -8,7 +8,25 @@ import { normalizeTags } from "@blackbelt-technology/pi-dashboard-shared/tags.js
 import { attachRenameTarget, detachShouldClearName } from "../openspec/proposal-attach-naming.js";
 import { shutdownSession } from "./session-action-handler.js";
 import { stripNotifyLog } from "../session/memory-session-manager.js";
+import { canAccessSession } from "../identity/session-access.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
+
+/**
+ * §8.2 per-ITEM owner gate for the SESSION-LIST roads. The gateway's §8.3 choke
+ * point covers the `session` scope only and deliberately falls through for
+ * `session-list` — these roads return a SET, so authorizing the container would
+ * disclose every principal's sessions. Inert era passes everything (unchanged).
+ * See change: add-multi-user-identity-plane (D11).
+ */
+function visibleToSocket(ctx: BrowserHandlerContext, owner: { iss: string; sub: string } | undefined): boolean {
+  const active = ctx.isResolverActive?.() ?? false;
+  if (!active) return true;
+  return canAccessSession({
+    active,
+    principal: (ctx.ws as { principal?: { iss: string; sub: string } }).principal ?? null,
+    owner,
+  });
+}
 
 export function handleRenameSession(
   msg: Extract<BrowserToServerMessage, { type: "rename_session" }>,
@@ -384,7 +402,12 @@ export function handleSessionsPage(
   const { ws, sessionManager, preferencesStore, sendTo } = ctx;
   const pinned = preferencesStore?.getPinnedDirectories() ?? [];
   const visible = sessionManager.snapshotVisibleIds(pinned);
-  const pageable = sessionManager.endedSequence(msg.cwd, pinned).filter((id) => !visible.has(id));
+  // Owner-filter BEFORE slicing: `hasMore` and the offset walk must run over
+  // the caller's OWN pageable, else a hidden row still leaks as a page count.
+  const pageable = sessionManager
+    .endedSequence(msg.cwd, pinned)
+    .filter((id) => !visible.has(id))
+    .filter((id) => visibleToSocket(ctx, sessionManager.get(id)?.principalOwner));
   const slice = pageable.slice(msg.offset, msg.offset + SESSIONS_PAGE_SIZE);
   const sessions = slice
     .map((id) => sessionManager.get(id))
@@ -412,6 +435,7 @@ export function handleListSessions(
     const allSessions = sessionManager.listAll();
     const filtered = allSessions
       .filter((s) => s.cwd === cwd || s.cwd.startsWith(cwd + "/") || cwd.startsWith(s.cwd + "/"))
+      .filter((s) => visibleToSocket(ctx, s.principalOwner))
       .map((s) => ({
         id: s.id,
         path: s.sessionFile || "",

@@ -1511,8 +1511,11 @@ export function createBrowserGateway(
         // new road cannot skip it). When the resolver is active, a command
         // targeting a session the socket's principal does not own is dropped
         // before dispatch — identical refusal on every road, no frames served.
-        // Inert era + non-session / session-list roads fall through unchanged
-        // (list roads are per-item filtered at their own handlers/snapshot).
+        // Inert era + non-session / session-list roads fall through unchanged.
+        // Session-list roads (`sessions_page`, `list_sessions`) cannot be gated
+        // here — they return a SET, not one `sessionId` — so they are per-ITEM
+        // filtered in `session-meta-handler.ts` (`visibleToSocket`), and the
+        // bootstrap snapshot above via `filterSnapshotForPrincipal`.
         if (isResolverActive?.() && isSessionOwnedMessage(msg.type)) {
           const sessionId = (msg as { sessionId?: unknown }).sessionId;
           const owner =
