@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Every git spawn on the session-diff path is async (no `spawnSync`). The mock
 // exposes only the async git API the code now uses; the sync `diffOr` /
@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/git.js", () => ({
   isGitRepoOrAsync: vi.fn(async () => true),
   numstatOrAsync: vi.fn(async () => ""),
-  diffAllOr: vi.fn(async () => ""),
+  diffAll: vi.fn(async () => ({ ok: true, value: "" })),
   statusPorcelainOrAsync: vi.fn(async () => ""),
   headShaOrAsync: vi.fn(async () => "headsha"),
 }));
@@ -31,9 +31,16 @@ import {
   gitNumstat,
   parsePorcelain,
   redactCommand,
+  type SessionDiffResult,
+  sessionDiffResultSize,
   splitBatchedDiff,
   TRACKED_DIFF_MAX_BYTES,
 } from "../session/session-diff.js";
+
+/** Resolved value of the migrated `git.diffAll` mock (`Result<string>` shape). */
+function okDiff(value: string): { ok: true; value: string } {
+  return { ok: true, value };
+}
 
 function makeEvent(eventType: string, timestamp: number, data: Record<string, unknown> = {}): DashboardEvent {
   return { eventType, timestamp, data: { type: eventType, ...data } };
@@ -219,7 +226,7 @@ describe("enrichWithGitDiff numstat counts", () => {
 
   beforeEach(() => {
     vi.mocked(git.isGitRepoOrAsync).mockReset().mockResolvedValue(true);
-    vi.mocked(git.diffAllOr).mockReset().mockResolvedValue("");
+    vi.mocked(git.diffAll).mockReset().mockResolvedValue(okDiff(""));
     vi.mocked(git.statusPorcelainOrAsync).mockReset().mockResolvedValue("");
     vi.mocked(git.numstatOrAsync).mockReset().mockResolvedValue("");
   });
@@ -349,7 +356,7 @@ describe("buildSessionDiff — detection (git)", () => {
   const cwd = "/project";
   beforeEach(() => {
     vi.mocked(git.isGitRepoOrAsync).mockReset().mockResolvedValue(true);
-    vi.mocked(git.diffAllOr).mockReset().mockResolvedValue("");
+    vi.mocked(git.diffAll).mockReset().mockResolvedValue(okDiff(""));
     vi.mocked(git.numstatOrAsync).mockReset().mockResolvedValue("");
     vi.mocked(git.statusPorcelainOrAsync).mockReset().mockResolvedValue("");
     vi.mocked(existsSync).mockReset().mockReturnValue(true);
@@ -426,7 +433,7 @@ describe("buildSessionDiff — attribution", () => {
   const cwd = "/project";
   beforeEach(() => {
     vi.mocked(git.isGitRepoOrAsync).mockReset().mockResolvedValue(true);
-    vi.mocked(git.diffAllOr).mockReset().mockResolvedValue("");
+    vi.mocked(git.diffAll).mockReset().mockResolvedValue(okDiff(""));
     vi.mocked(git.numstatOrAsync).mockReset().mockResolvedValue("");
     vi.mocked(git.statusPorcelainOrAsync).mockReset().mockResolvedValue("");
     vi.mocked(existsSync).mockReset().mockReturnValue(true);
@@ -514,7 +521,7 @@ describe("buildSessionDiff — binary / size / count safety", () => {
   const cwd = "/project";
   beforeEach(() => {
     vi.mocked(git.isGitRepoOrAsync).mockReset().mockResolvedValue(true);
-    vi.mocked(git.diffAllOr).mockReset().mockResolvedValue("");
+    vi.mocked(git.diffAll).mockReset().mockResolvedValue(okDiff(""));
     vi.mocked(git.numstatOrAsync).mockReset().mockResolvedValue("");
     vi.mocked(git.statusPorcelainOrAsync).mockReset().mockResolvedValue("");
     vi.mocked(existsSync).mockReset().mockReturnValue(true);
@@ -573,7 +580,7 @@ describe("buildSessionDiff — ownership gate", () => {
   const cwd = "/project";
   beforeEach(() => {
     vi.mocked(git.isGitRepoOrAsync).mockReset().mockResolvedValue(true);
-    vi.mocked(git.diffAllOr).mockReset().mockResolvedValue("");
+    vi.mocked(git.diffAll).mockReset().mockResolvedValue(okDiff(""));
     vi.mocked(git.numstatOrAsync).mockReset().mockResolvedValue("");
     vi.mocked(git.statusPorcelainOrAsync).mockReset().mockResolvedValue("");
     vi.mocked(existsSync).mockReset().mockReturnValue(true);
@@ -618,7 +625,7 @@ describe("buildSessionDiff — ended-session Bash window clamp (windowEnd)", () 
   const cwd = "/project";
   beforeEach(() => {
     vi.mocked(git.isGitRepoOrAsync).mockReset().mockResolvedValue(true);
-    vi.mocked(git.diffAllOr).mockReset().mockResolvedValue("");
+    vi.mocked(git.diffAll).mockReset().mockResolvedValue(okDiff(""));
     vi.mocked(git.numstatOrAsync).mockReset().mockResolvedValue("");
     vi.mocked(git.statusPorcelainOrAsync).mockReset().mockResolvedValue("?? f.txt\n");
     vi.mocked(existsSync).mockReset().mockReturnValue(true);
@@ -654,7 +661,7 @@ describe("buildSessionDiff — degradation", () => {
 describe("buildSessionDiff — out-of-cwd carry", () => {
   beforeEach(() => {
     vi.mocked(git.isGitRepoOrAsync).mockReset().mockResolvedValue(true);
-    vi.mocked(git.diffAllOr).mockReset().mockResolvedValue("");
+    vi.mocked(git.diffAll).mockReset().mockResolvedValue(okDiff(""));
     vi.mocked(git.numstatOrAsync).mockReset().mockResolvedValue("");
     vi.mocked(git.statusPorcelainOrAsync).mockReset().mockResolvedValue("");
     vi.mocked(existsSync).mockReset().mockReturnValue(true);
@@ -679,9 +686,9 @@ describe("buildSessionDiff — out-of-cwd carry", () => {
 
   it("E2 — in-cwd unchanged regression (relative key, enriched)", async () => {
     // Batched worktree diff; the splitter keys this chunk to `src/a.ts`.
-    vi.mocked(git.diffAllOr).mockResolvedValue(
+    vi.mocked(git.diffAll).mockResolvedValue(okDiff(
       "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-a\n+b",
-    );
+    ));
     const events = [
       makeToolStart("Write", { path: "src/a.ts", content: "b" }, 1000),
     ];
@@ -772,7 +779,7 @@ describe("splitBatchedDiff", () => {
 describe("enrichWithGitDiff — batched single-spawn (6.1)", () => {
   beforeEach(() => {
     vi.mocked(git.isGitRepoOrAsync).mockReset().mockResolvedValue(true);
-    vi.mocked(git.diffAllOr).mockReset().mockResolvedValue("");
+    vi.mocked(git.diffAll).mockReset().mockResolvedValue(okDiff(""));
     vi.mocked(git.numstatOrAsync).mockReset().mockResolvedValue("");
     vi.mocked(git.statusPorcelainOrAsync).mockReset().mockResolvedValue("");
   });
@@ -786,12 +793,12 @@ describe("enrichWithGitDiff — batched single-spawn (6.1)", () => {
     const batched = files
       .map((f) => `diff --git a/${f.path} b/${f.path}\n--- a/${f.path}\n+++ b/${f.path}\n@@ -1 +1 @@\n-x\n+y`)
       .join("\n");
-    vi.mocked(git.diffAllOr).mockResolvedValue(batched);
+    vi.mocked(git.diffAll).mockResolvedValue(okDiff(batched));
 
     const { enrichedFiles } = await enrichWithGitDiff("/project", files, { untracked: new Set() });
 
     // Exactly ONE batched content-diff spawn for all 50 files.
-    expect(vi.mocked(git.diffAllOr)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(git.diffAll)).toHaveBeenCalledTimes(1);
     // Every file got its content diff from that single spawn.
     expect(enrichedFiles.every((f) => f.gitDiff?.includes("+y"))).toBe(true);
   });
@@ -807,7 +814,7 @@ describe("enrichWithGitDiff — batched single-spawn (6.1)", () => {
     const { files, otherChanges } = await buildSessionDiff(events, "/project");
     expect(files.some((f) => f.path === "owned.ts")).toBe(true);
     expect(otherChanges.some((f) => f.path === "stray.ts")).toBe(true);
-    expect(vi.mocked(git.diffAllOr)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(git.diffAll)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(git.numstatOrAsync)).toHaveBeenCalledTimes(1);
   });
 });
@@ -815,7 +822,7 @@ describe("enrichWithGitDiff — batched single-spawn (6.1)", () => {
 describe("enrichWithGitDiff — tracked-file size + binary cap (6.2)", () => {
   beforeEach(() => {
     vi.mocked(git.isGitRepoOrAsync).mockReset().mockResolvedValue(true);
-    vi.mocked(git.diffAllOr).mockReset().mockResolvedValue("");
+    vi.mocked(git.diffAll).mockReset().mockResolvedValue(okDiff(""));
     vi.mocked(git.numstatOrAsync).mockReset().mockResolvedValue("");
     vi.mocked(git.statusPorcelainOrAsync).mockReset().mockResolvedValue("");
   });
@@ -824,9 +831,9 @@ describe("enrichWithGitDiff — tracked-file size + binary cap (6.2)", () => {
     const files: FileDiffEntry[] = [{ path: "big.txt", changes: [] }];
     vi.mocked(git.numstatOrAsync).mockResolvedValue("9\t1\tbig.txt\n");
     const huge = "+".repeat(TRACKED_DIFF_MAX_BYTES + 10);
-    vi.mocked(git.diffAllOr).mockResolvedValue(
+    vi.mocked(git.diffAll).mockResolvedValue(okDiff(
       `diff --git a/big.txt b/big.txt\n--- a/big.txt\n+++ b/big.txt\n@@ -1 +1 @@\n${huge}`,
-    );
+    ));
     const { enrichedFiles } = await enrichWithGitDiff("/project", files, { untracked: new Set() });
     expect(enrichedFiles[0].gitDiff).toBeUndefined();
     expect(enrichedFiles[0]).toMatchObject({ additions: 9, deletions: 1 });
@@ -834,9 +841,9 @@ describe("enrichWithGitDiff — tracked-file size + binary cap (6.2)", () => {
 
   it("omits gitDiff for a binary tracked file (Binary files … differ)", async () => {
     const files: FileDiffEntry[] = [{ path: "blob.tar", changes: [] }];
-    vi.mocked(git.diffAllOr).mockResolvedValue(
+    vi.mocked(git.diffAll).mockResolvedValue(okDiff(
       "diff --git a/blob.tar b/blob.tar\nindex 1..2 100644\nBinary files a/blob.tar and b/blob.tar differ",
-    );
+    ));
     const { enrichedFiles } = await enrichWithGitDiff("/project", files, { untracked: new Set() });
     expect(enrichedFiles[0].gitDiff).toBeUndefined();
   });
@@ -851,7 +858,7 @@ describe("session-diff path uses only async git (no spawnSync) (6.4)", () => {
     expect(() => (git as Record<string, unknown>).diffOr).toThrow();
     expect(() => (git as Record<string, unknown>).numstatOr).toThrow();
     expect(() => (git as Record<string, unknown>).statusPorcelainOr).toThrow();
-    expect(typeof git.diffAllOr).toBe("function");
+    expect(typeof git.diffAll).toBe("function");
     expect(typeof git.numstatOrAsync).toBe("function");
     expect(typeof git.statusPorcelainOrAsync).toBe("function");
     expect(typeof git.isGitRepoOrAsync).toBe("function");
@@ -870,12 +877,163 @@ describe("contract parity: batched split == per-file diff (6.6)", () => {
     vi.mocked(git.isGitRepoOrAsync).mockReset().mockResolvedValue(true);
     vi.mocked(git.numstatOrAsync).mockReset().mockResolvedValue("");
     vi.mocked(git.statusPorcelainOrAsync).mockReset().mockResolvedValue("");
-    vi.mocked(git.diffAllOr).mockReset().mockResolvedValue(golden);
+    vi.mocked(git.diffAll).mockReset().mockResolvedValue(okDiff(golden));
     const { enrichedFiles } = await enrichWithGitDiff(
       "/project",
       [{ path: "src/a.ts", changes: [] }],
       { untracked: new Set() },
     );
     expect(enrichedFiles[0].gitDiff).toBe(golden);
+  });
+});
+
+// ── fix-session-diff-heap-retention ─────────────────────────────────────────
+
+describe("heap retention — byte identity of flattened gitDiff (E4)", () => {
+  beforeEach(() => {
+    vi.mocked(git.isGitRepoOrAsync).mockReset().mockResolvedValue(true);
+    vi.mocked(git.numstatOrAsync).mockReset().mockResolvedValue("");
+    vi.mocked(git.statusPorcelainOrAsync).mockReset().mockResolvedValue("");
+  });
+
+  it("each gitDiff === chunk.trim() for plain, rename, CRLF, UTF-8 and trailing-blank chunks", async () => {
+    const chunks = [
+      "diff --git a/plain.ts b/plain.ts\n--- a/plain.ts\n+++ b/plain.ts\n@@ -1 +1 @@\n-a\n+b",
+      "diff --git a/old.ts b/new.ts\nsimilarity index 90%\nrename from old.ts\nrename to new.ts\n--- a/old.ts\n+++ b/new.ts\n@@ -1 +1 @@\n-x\n+y",
+      "diff --git a/crlf.txt b/crlf.txt\n--- a/crlf.txt\n+++ b/crlf.txt\n@@ -1,2 +1,2 @@\n-one\r\n+uno\r\n two\r",
+      "diff --git a/utf.md b/utf.md\n--- a/utf.md\n+++ b/utf.md\n@@ -1 +1 @@\n-cafe\n+café 🚀 ünïcødé",
+      "diff --git a/blank.txt b/blank.txt\n--- a/blank.txt\n+++ b/blank.txt\n@@ -1,2 +1,3 @@\n a\n+b\n+   \n\n\n",
+    ];
+    const raw = chunks.join("\n");
+    const expected = splitBatchedDiff(raw);
+    const paths = ["plain.ts", "new.ts", "crlf.txt", "utf.md", "blank.txt"];
+    vi.mocked(git.diffAll).mockReset().mockResolvedValue(okDiff(raw));
+    const { enrichedFiles } = await enrichWithGitDiff(
+      "/project",
+      paths.map((path) => ({ path, changes: [] })),
+      { untracked: new Set() },
+    );
+    for (const [i, path] of paths.entries()) {
+      const chunk = expected.get(path);
+      expect(chunk).toBeDefined();
+      expect(enrichedFiles[i].gitDiff).toBe(chunk!.trim());
+    }
+  });
+});
+
+describe("sessionDiffResultSize (E11)", () => {
+  it("counts every nested string at >= 2 bytes per char", () => {
+    const result: SessionDiffResult = {
+      files: [
+        {
+          path: "a.ts",
+          gitDiff: "d".repeat(1000),
+          changes: [
+            {
+              type: "write",
+              timestamp: 1,
+              content: "c".repeat(500),
+              edits: [{ oldText: "o".repeat(100), newText: "n".repeat(100) }],
+            } as never,
+          ],
+        },
+      ],
+      otherChanges: [{ path: "b.ts", changes: [], gitDiff: "g".repeat(300) }],
+      isGitRepo: true,
+    };
+    expect(sessionDiffResultSize(result)).toBeGreaterThanOrEqual(2 * (1000 + 500 + 100 + 100 + 300));
+  });
+});
+
+describe("batched diff output limit — counts-only degradation (X4–X7)", () => {
+  const LIMIT = 32 * 1024 * 1024;
+  const tooLarge = {
+    ok: false as const,
+    error: { kind: "output-too-large" as const, binary: "git", limitBytes: LIMIT, message: "too large" },
+  };
+  let warn: { mock: { calls: unknown[][] }; mockRestore: () => void };
+
+  beforeEach(() => {
+    vi.mocked(git.isGitRepoOrAsync).mockReset().mockResolvedValue(true);
+    vi.mocked(git.numstatOrAsync).mockReset().mockResolvedValue("3\t1\ta.ts\n");
+    vi.mocked(git.statusPorcelainOrAsync).mockReset().mockResolvedValue("");
+    vi.mocked(existsSync).mockReset().mockReturnValue(true);
+    vi.mocked(readFileSync).mockReset().mockImplementation((_p: any, enc: any) =>
+      enc === "utf-8" ? "hello\nworld" : Buffer.from("hello\nworld"),
+    );
+    vi.mocked(statSync).mockReset().mockReturnValue({ size: 10, mtimeMs: 0 } as any);
+    warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    warn.mockRestore();
+    vi.useRealTimers();
+  });
+
+  const sessionDiffWarns = () => warn.mock.calls.filter((c) => String(c[0]).includes("[session-diff]"));
+
+  it("X4: tracked files keep counts without gitDiff; untracked keep synthetic diffs; one warning", async () => {
+    vi.mocked(git.diffAll).mockReset().mockResolvedValue(tooLarge);
+    const cwd = "/big-repo-x4";
+    const { enrichedFiles } = await enrichWithGitDiff(
+      cwd,
+      [
+        { path: "a.ts", changes: [] },
+        { path: "new.ts", changes: [] },
+      ],
+      { untracked: new Set(["new.ts"]) },
+    );
+    expect(enrichedFiles[0]).toMatchObject({ additions: 3, deletions: 1 });
+    expect(enrichedFiles[0].gitDiff).toBeUndefined();
+    expect(enrichedFiles[1].gitDiff).toContain("+++ b/new.ts");
+    const warns = sessionDiffWarns();
+    expect(warns).toHaveLength(1);
+    expect(String(warns[0][0])).toContain(cwd);
+    expect(String(warns[0][0])).toContain("33554432");
+  });
+
+  it("X5: the warning is throttled per cwd within a 10-minute window", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    vi.mocked(git.diffAll).mockReset().mockResolvedValue(tooLarge);
+    const A = "/big-repo-x5-a";
+    const B = "/big-repo-x5-b";
+    const files = [{ path: "a.ts", changes: [] }];
+    const opts = { untracked: new Set<string>() };
+
+    await enrichWithGitDiff(A, files, opts);
+    vi.advanceTimersByTime(60_000);
+    await enrichWithGitDiff(A, files, opts);
+    expect(sessionDiffWarns()).toHaveLength(1);
+
+    vi.advanceTimersByTime(60_000); // t = 2 min
+    await enrichWithGitDiff(B, files, opts);
+    expect(sessionDiffWarns()).toHaveLength(2);
+
+    vi.advanceTimersByTime(8 * 60_000 + 1); // t = 10 min + 1 ms
+    await enrichWithGitDiff(A, files, opts);
+    expect(sessionDiffWarns()).toHaveLength(3);
+  });
+
+  it("X6: other git errors keep the silent empty-diff fallback", async () => {
+    vi.mocked(git.diffAll)
+      .mockReset()
+      .mockResolvedValue({ ok: false, error: { kind: "exit", code: 128, signal: null, stdout: "", stderr: "" } });
+    const { enrichedFiles } = await enrichWithGitDiff("/repo-x6", [{ path: "a.ts", changes: [] }], {
+      untracked: new Set(),
+    });
+    expect(enrichedFiles[0].gitDiff).toBeUndefined();
+    expect(sessionDiffWarns()).toHaveLength(0);
+  });
+
+  it("X7: migrated diffAll mock still yields a tracked gitDiff via buildSessionDiff", async () => {
+    const chunk = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b";
+    vi.mocked(git.diffAll).mockReset().mockResolvedValue(okDiff(chunk));
+    vi.mocked(git.statusPorcelainOrAsync).mockResolvedValue(" M a.ts\n");
+    const events = [makeToolStart("Write", { path: "a.ts", content: "b" }, 1000)];
+    const { files, otherChanges } = await buildSessionDiff(events, "/repo-x7");
+    const entry = [...files, ...otherChanges].find((f) => f.path === "a.ts");
+    expect(entry).toBeDefined();
+    expect(entry!.gitDiff).toBe(chunk);
   });
 });

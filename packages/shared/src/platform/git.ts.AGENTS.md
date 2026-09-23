@@ -12,7 +12,7 @@ Recipe-based git API. Thin wrappers over `run()` / `runAsync()` (runner.ts). No 
 
 ## Async (`runAsync`) variants — hot request paths, no `spawnSync`
 
-`diffAll` / `diffAllOr` (batched whole-worktree diff; callers split per file on `diff --git` header boundaries), `isGitRepoOrAsync`, `statusPorcelainOrAsync`, `numstatOrAsync`, `headShaOrAsync`. Used by `/api/session-diff` so no synchronous git blocks the event loop. See change: fix-session-diff-eventloop-block.
+`diffAll` (batched whole-worktree diff; callers split per file on `diff --git` header boundaries; `GIT_DIFF_ALL.maxBuffer` = 32 MiB → `output-too-large` past it; `diffAllOr` removed — sole caller needs the error kind. See change: fix-session-diff-heap-retention), `isGitRepoOrAsync`, `statusPorcelainOrAsync`, `numstatOrAsync`, `headShaOrAsync`. Used by `/api/session-diff` so no synchronous git blocks the event loop. See change: fix-session-diff-eventloop-block.
 
 ## Checkout-root resolution
 
