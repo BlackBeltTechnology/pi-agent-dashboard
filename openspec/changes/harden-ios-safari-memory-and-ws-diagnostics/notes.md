@@ -44,3 +44,10 @@ Landing graph = `index.html` entry script + `modulepreload` hrefs + transitive s
 - 6.2: the keepalive interval runs only while `wss.clients` is non-empty (started on the first upgraded connection, stopped when the last closes) and is ALSO cleared on `wss` close. Avoids an idle timer and keeps the existing fake-timer-count assertions in `browser-gateway-{critical-frames,handler-errors,host-pressure-reconcile}.test.ts` exact.
 - 4.2: no built-in surface emits a key-resolved icon, so F2 drives a new `e2e_footer_segment` tool in `qa/fixtures/e2e-custom.ext.ts` via the `footer-icon` faux scenario.
 - Close line prints `code=none` when `ws` emits `close` without a code (test fakes only; real `ws` always passes one).
+
+## 8.5 Review
+
+- `review-code` via isolated `@review` subagent (`anthropic/claude-opus-5-5` — same family as the author role; user-configured). Verdict APPROVE, 0 blocking. Security scope covered: no ticket/cookie/forwarding-header values in `[ws-upgrade]` lines, `extractTicket` read-only (E18 proves unconsumed), rate-limit state bounded (prune expired → evict oldest), `remoteAddress`/`scope` not header-derived (no log injection today).
+- Applied: skip icon-set fetch for keys without `mdi` prefix; generation-guard `__resetMdiIconSetForTests` (in-flight import could repopulate after reset); E6 asserts nothing-before-load + reset shares instance.
+- Accepted/noted: an icon already mounted when the import failed stays blank until remount (design X1 "retry on next mount"); `[ws-upgrade]` peer not passed through `sanitizeHeaderForLog` (kernel-sourced address).
+- 8.6 manual iPhone QA (test-plan #F3, manual-only) deferred to post-merge.
