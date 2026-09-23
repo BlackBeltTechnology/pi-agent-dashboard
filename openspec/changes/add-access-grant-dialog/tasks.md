@@ -13,10 +13,10 @@
 
 ## 3. Eligibility
 
-- [ ] 3.1 Implement per-connection prompt-capability issue/resolve in `packages/server/src/access/prompt-channel.ts`: high-entropy value, memory-only, never persisted, invalidated on socket close, constant-time compare — verify unit tests cover issue→resolve, resolve-after-close, wrong value, and absent value
+- [x] 3.1 Implement per-connection prompt-capability issue/resolve in `packages/server/src/access/prompt-channel.ts`: high-entropy value, memory-only, never persisted, invalidated on socket close, constant-time compare — verify unit tests cover issue→resolve, resolve-after-close, wrong value, and absent value
 - [ ] 3.2 Issue the capability on `BrowserGateway` connect and drop it on close — verify a gateway test asserts each socket gets a distinct value and that closing removes it
-- [ ] 3.3 Implement `isPromptEligible(request)` reading only the capability header (no auth, no CORS, no `Sec-Fetch-*`, no `Origin`/`Host` comparison) — verify unit tests assert a request with a correct value is eligible with auth disabled on loopback, and a header-present-but-wrong-value request is treated exactly as header-absent
-- [ ] 3.4 Implement `maySuspend(request)` = eligible AND host-gate mode is `enforce`, reading the live mode — verify tests cover `report`→deferred and `enforce`→suspendable, and that the mode is never mutated
+- [x] 3.3 Implement `isPromptEligible(request)` reading only the capability header (no auth, no CORS, no `Sec-Fetch-*`, no `Origin`/`Host` comparison) — verify unit tests assert a request with a correct value is eligible with auth disabled on loopback, and a header-present-but-wrong-value request is treated exactly as header-absent
+- [x] 3.4 Implement `maySuspend(request)` = eligible AND host-gate mode is `enforce`, reading the live mode — verify tests cover `report`→deferred and `enforce`→suspendable, and that the mode is never mutated (the mode is passed IN as an argument, so this function cannot mutate it; the caller resolves the live mode with `resolveHostGateMode(env, configMode).mode` at the denial site, per design D6 — that wiring lands with section 6)
 - [ ] 3.5 Add a regression test per recorded defeat (drive-by with cookies, zrok-origin caller setting the header, `Sec-Fetch`-less legacy request, rebound-host request in `report` mode) asserting each is refused suspension — verify all four fail closed
 
 ## 4. Registry
