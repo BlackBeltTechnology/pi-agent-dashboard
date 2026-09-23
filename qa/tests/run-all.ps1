@@ -11,6 +11,7 @@ $tests = @(
     "09-image-fit-extension.ps1",   # @blackbelt-technology/pi-image-fit install + dep-tree sanity. See change: pi-image-fit-extension.
     "10-bundled-git.ps1",   # bundled dugite-native git+sh present + runnable. See change: embed-git-bash-on-windows.
     "12-openspec-shim.ps1",   # extensionless openspec shim resolves via Git Bash, no node on PATH. See change: provision-openspec-cli-in-sessions.
+    "16-windows-path-casing.ps1",   # stub tool on inherited `Path` resolves via /api/tools (#720). See change: fix-windows-path-env-key-casing.
     "22-worktree-separator.ps1",   # `.worktrees/` entries classify in-tree on `\` separators. See change: manage-worktrees-filter-cleanup.
     "32-origin-gate.ps1"   # header-less mutation allowed, cross-site mutation 403 (#X5). See change: fix-ws-origin-cswsh.
 )

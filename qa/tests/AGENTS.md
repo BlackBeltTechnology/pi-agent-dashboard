@@ -29,6 +29,7 @@ Files in this directory. One row per file. Non-source area. See change: migrate-
 | `14-pi-resources-parity.sh` | P1/X10/X11: `GET /api/pi-resources` p95 across 10 refreshes within `PI_RESOURCES_P95_BUDGET_MS` (default… → see `14-pi-resources-parity.sh.AGENTS.md` |
 | `15-omit-dev-build.sh` | X1: a fresh checkout builds the client under `--omit=dev` (#357). → see `15-omit-dev-build.sh.AGENTS.md` |
 | `15-openspec-init.sh` | X8/X12: POST `/api/openspec/init` with a squatted `openspec` 0.0.0 stub earlier on PATH — stub never invoked… → see `15-openspec-init.sh.AGENTS.md` |
+| `16-windows-path-casing.ps1` | L2 #720 repro (test-plan #E27). Stub `tailscale.cmd` on temp dir prepended to `$env:Path`, `pi-dashboard start`, asserts `/api/tools/tailscale` `ok` + `path` under temp dir. → see `16-windows-path-casing.ps1.AGENTS.md` |
 | `16-e2e-memory-bound.sh` | L2 memory-bound smoke over an ALREADY-RUNNING harness (never boots/tears down; port from… → see `16-e2e-memory-bound.sh.AGENTS.md` |
 | `17-bridge-contention.ps1` | Windows twin of `17-bridge-contention.sh`. See change: fix-duplicate-bridge-registration. |
 | `17-bridge-contention.sh` | L2 (test-plan #X10). Two sockets claim one session id on the pi gateway; asserts the duplicate receives… → see `17-bridge-contention.sh.AGENTS.md` |

@@ -1,0 +1,3 @@
+# 16-windows-path-casing.ps1 — index
+
+L2 Windows VM smoke, #720 repro (test-plan #E27). Creates temp dir with stub `tailscale.cmd`, prepends it to `$env:Path` (win32 literal key `Path`), stops any running server, `pi-dashboard start`, polls `/api/health` (30s). Asserts `GET /api/tools/tailscale` HTTP 200, `data.ok == true`, `data.path` under the stub dir (case-insensitive). Pre-fix: `ToolResolver.buildSpawnEnv` wrote a prepend-only `PATH` beside `Path`; Node win32 spawn kept `PATH` → `where tailscale` not found. finally: `pi-dashboard stop`, force-kill, remove stub dir. Registered in `run-all.ps1`. See change: fix-windows-path-env-key-casing.

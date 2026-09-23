@@ -12,7 +12,7 @@ import {
   DEFAULT_SERVER_HEAP,
   HEALTH_CHECK_TIMEOUT_MS,
 } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { stampHeapFlag } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
+import { HEAP_FLAG_MARKER_ENV, stampHeapFlag } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
 import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import {
   EarlyExitError,
@@ -82,36 +82,42 @@ export function resolveServerCliPath(): string {
 export const DEFAULT_SERVER_MAX_OLD_SPACE_MB = DEFAULT_SERVER_HEAP.maxOldSpaceMb;
 
 /**
- * Build the environment object passed to the spawned server process.
- * Always stamps DASHBOARD_STARTER=Bridge so the server knows it was
- * launched by the pi bridge extension. Adds `--max-old-space-size` to
- * NODE_OPTIONS from `serverHeap.maxOldSpaceMb`, but never overrides a
- * user-supplied value — and records the exact token it wrote in the provenance
- * marker so the spawn-side strip can tell its own flag from an operator's.
+ * Build the NARROW env overrides the bridge passes to the shared launcher.
+ *
+ * The shared `launchDashboardServer` owns the base env
+ * (`ToolResolver.buildSpawnEnv` — PATH prepends + win32 PATH-key
+ * normalization); the `server-launch` spec forbids callers passing a full
+ * `process.env` copy, which overlaid the raw PATH and silently dropped those
+ * prepends (and on win32 left a `Path`/`PATH` pair). So this returns only:
+ *   - `DASHBOARD_STARTER=Bridge`
+ *   - `NODE_OPTIONS` + heap provenance marker, via `stampHeapFlag` over a
+ *     two-key seed of the inherited values (never overrides an operator
+ *     pin); an absent result is `undefined` so the overlay deletes it
+ *   - `PI_DASHBOARD_ELECTRON` / `PI_DASHBOARD_RESOURCES_PATH` = `undefined`
+ *     (Electron launcher-identity markers are parent-scoped — a
+ *     bridge-relaunched server is NOT an Electron child; see change:
+ *     unify-pi-runtime-identity)
+ *
+ * See change: fix-windows-path-env-key-casing,
+ *             bound-session-heap-and-gc-telemetry (D4).
  */
-export function buildSpawnEnv(
+export function buildBridgeEnvOverrides(
   baseEnv: NodeJS.ProcessEnv = process.env,
   maxOldSpaceMb: number = DEFAULT_SERVER_MAX_OLD_SPACE_MB,
-): Record<string, string> {
-  // Spread process.env (may contain undefined values); filter them out.
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(baseEnv)) {
-    if (v !== undefined) out[k] = v;
-  }
-  out["DASHBOARD_STARTER"] = "Bridge";
-  // Electron launcher-identity markers are parent-scoped (see
-  // process-manager.buildSpawnEnv) — a bridge-relaunched server is NOT an
-  // Electron child and must not inherit them. See change:
-  // unify-pi-runtime-identity (CodeRabbit review round 2 non-blocking
-  // finding — grandchild marker leak).
-  delete out.PI_DASHBOARD_ELECTRON;
-  delete out.PI_DASHBOARD_RESOURCES_PATH;
-  // Stamp the configured ceiling. The dash-or-underscore regex that used to
-  // guard this is gone: it could not tell the dashboard's own stamp from an
-  // operator's pin, and the two detectors (this one and the wrapper's substring
-  // test) had already drifted apart. `stampHeapFlag` owns the single rule and
-  // records provenance. See change: bound-session-heap-and-gc-telemetry (D4).
-  return stampHeapFlag(out, maxOldSpaceMb);
+): Record<string, string | undefined> {
+  const seed: Record<string, string> = {};
+  const inheritedOptions = baseEnv["NODE_OPTIONS"];
+  const inheritedMarker = baseEnv[HEAP_FLAG_MARKER_ENV];
+  if (inheritedOptions !== undefined) seed["NODE_OPTIONS"] = inheritedOptions;
+  if (inheritedMarker !== undefined) seed[HEAP_FLAG_MARKER_ENV] = inheritedMarker;
+  const stamped = stampHeapFlag(seed, maxOldSpaceMb);
+  return {
+    DASHBOARD_STARTER: "Bridge",
+    NODE_OPTIONS: stamped["NODE_OPTIONS"],
+    [HEAP_FLAG_MARKER_ENV]: stamped[HEAP_FLAG_MARKER_ENV],
+    PI_DASHBOARD_ELECTRON: undefined,
+    PI_DASHBOARD_RESOURCES_PATH: undefined,
+  };
 }
 
 /**
@@ -148,13 +154,12 @@ export async function launchServer(config: DashboardConfig): Promise<LaunchResul
     const result = await launchDashboardServer({
       cliPath,
       extraArgs: args,
-      // `buildSpawnEnv` was exported and tested but NEVER ran in production:
-      // this call passed no `env`, so only the standalone wrapper ever stamped
-      // a ceiling. That is not tidying — once the spawn-side strip lands, a
-      // bridge-auto-started server inherits a STRIPPED environment and would
-      // otherwise run at the bare V8 default on exactly the recovery path where
-      // the event store is hottest. See change: bound-session-heap-and-gc-telemetry (D5a).
-      env: buildSpawnEnv(process.env, config.serverHeap?.maxOldSpaceMb),
+      // Narrow overrides only (heap stamp + starter + marker strip). The
+      // heap stamp must still ride along: a bridge-auto-started server
+      // inherits a STRIPPED environment and would otherwise run at the bare
+      // V8 default. See change: bound-session-heap-and-gc-telemetry (D5a),
+      // fix-windows-path-env-key-casing (no full process.env copy).
+      env: buildBridgeEnvOverrides(process.env, config.serverHeap?.maxOldSpaceMb),
       stdio: { logFile: getDashboardServerLogPath() },
       healthTimeoutMs: config.readinessTimeoutMs ?? HEALTH_CHECK_TIMEOUT_MS,
       port: config.port,
