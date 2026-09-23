@@ -22,6 +22,8 @@ export interface PendingPromptView {
   suppressedBy?: string;
   recordedAt: number;
   expiresAt: number;
+  /** Milliseconds left at response time (clock-skew-free countdown base). */
+  ttlMs?: number;
   hits: number;
   store: string;
   copy: GrantPromptCopy;

@@ -202,6 +202,7 @@ export class GrantCoordinator {
         plane: entry.plane,
         subject: entry.subject,
         expiresAt: entry.expiresAt,
+        ttlMs: Math.max(0, entry.expiresAt - this.now()),
         copy: plane.describe(entry.subject, entry.ancestors),
       });
       if (!delivered) return immediate("broadcast-failed");

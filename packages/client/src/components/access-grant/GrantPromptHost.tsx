@@ -47,6 +47,7 @@ async function loadPromptedPending(): Promise<GrantRequestMessage[] | null> {
         plane: p.plane,
         subject: p.subject,
         expiresAt: p.expiresAt,
+        ttlMs: p.ttlMs,
         copy: p.copy,
       }));
   } catch {

@@ -107,6 +107,8 @@ describe("8.1 pending requests are listed and answerable on the Access page", ()
     const [p] = v.pending;
     expect(p).toMatchObject({ plane: "filesystem", subject: work, prompted: false, suppressedBy: "disabled" });
     expect(p).not.toHaveProperty("channel");
+    expect(p.ttlMs).toBeGreaterThan(0);
+    expect(p.ttlMs).toBeLessThanOrEqual(p.expiresAt - p.recordedAt);
     expect(p.copy.verdicts).toEqual(["allow-once", "allow-always", "deny"]);
 
     const res = await app.inject({

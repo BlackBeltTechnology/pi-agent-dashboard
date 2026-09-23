@@ -475,6 +475,10 @@ export interface AccessGrantsConfig {
    * parses to false, so an un-upgraded config never starts prompting. Not
    * seeded by `ensureConfig()`: absent and explicit-false mean the same thing
    * here, and seeding would churn every existing config file.
+   *
+   * Invariant: the Access-page toggle writes `PUT /api/config { accessGrants:
+   * { promptEnabled } }`, which REPLACES the whole group. Adding a second field
+   * here means that toggle must merge first, or it silently drops the field.
    */
   promptEnabled: boolean;
 }

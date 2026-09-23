@@ -46,6 +46,8 @@ interface PendingPromptView {
   suppressedBy?: string;
   recordedAt: number;
   expiresAt: number;
+  /** Milliseconds left at response time; clients re-base on their own clock. */
+  ttlMs: number;
   hits: number;
   store: string;
   copy: GrantPromptCopy;
@@ -107,7 +109,7 @@ function mergeVerdicts(operator: GrantVerdictRecord[], auto: YoloLogEntry[]): Ve
   return rows.sort((a, b) => b.at - a.at);
 }
 
-function toPendingView(e: PendingGrant, planes: AccessPlaneRegistry): PendingPromptView {
+function toPendingView(e: PendingGrant, planes: AccessPlaneRegistry, at: number): PendingPromptView {
   const plane = planes.get(e.plane);
   const view: PendingPromptView = {
     promptId: e.promptId,
@@ -117,6 +119,7 @@ function toPendingView(e: PendingGrant, planes: AccessPlaneRegistry): PendingPro
     prompted: e.prompted,
     recordedAt: e.recordedAt,
     expiresAt: e.expiresAt,
+    ttlMs: Math.max(0, e.expiresAt - at),
     hits: e.hits,
     store: e.store,
     copy: plane
@@ -159,7 +162,8 @@ export function registerAccessPromptRoutes(fastify: FastifyInstance, deps: Acces
 
   fastify.get("/api/access/prompts", { preHandler: networkGuard }, async () => {
     const p = deps.prompting();
-    const pending = coordinator.registry.list(now()).map((e) => toPendingView(e, planes));
+    const at = now();
+    const pending = coordinator.registry.list(at).map((e) => toPendingView(e, planes, at));
     const data: AccessPromptsView = {
       prompting: { ...p, blockers: promptingBlockers(p) },
       pending,

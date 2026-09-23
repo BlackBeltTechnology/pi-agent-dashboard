@@ -6,7 +6,7 @@
  *
  * See change: add-access-grant-dialog.
  */
-import type { FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyRequest } from "fastify";
 import { type CorsOriginOptions, classifyCorsOrigin, isSameOriginByHost } from "../auth/cors-origin.js";
 
 /**
@@ -33,7 +33,7 @@ export function deniedCorsOrigin(
 export function createCorsDenialObserver(
   opts: () => CorsOriginOptions,
   onDenied: (origin: string, ip: string) => void,
-): (request: FastifyRequest, reply: FastifyReply) => Promise<void> {
+): (request: FastifyRequest) => Promise<void> {
   return async (request) => {
     try {
       const denied = deniedCorsOrigin(request.headers.origin, request.headers.host, opts());

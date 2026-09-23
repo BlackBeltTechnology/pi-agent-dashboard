@@ -37,8 +37,10 @@ export class GrantPromptStore {
   /** Apply a `grant_request` / `grant_dismiss` frame. Other frames are ignored. */
   apply(msg: GrantRequestMessage | GrantDismissMessage | { type: string }): void {
     if (msg.type === "grant_request") {
-      const req = msg as GrantRequestMessage;
-      if (this.isClosed(req.promptId) || this.queue.some((p) => p.promptId === req.promptId)) return;
+      const raw = msg as GrantRequestMessage;
+      if (this.isClosed(raw.promptId) || this.queue.some((p) => p.promptId === raw.promptId)) return;
+      // Re-base onto the local clock: a skewed browser clock must not expire it early.
+      const req = typeof raw.ttlMs === "number" ? { ...raw, expiresAt: Date.now() + raw.ttlMs } : raw;
       this.set([...this.queue, req]);
     } else if (msg.type === "grant_dismiss") {
       this.close((msg as GrantDismissMessage).promptId);

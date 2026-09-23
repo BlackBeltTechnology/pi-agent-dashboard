@@ -217,6 +217,19 @@ describe("one shared session (8b.7a, 8b.7b, 10.73)", () => {
     ]);
   });
 
+  it("a new base resets the root choice (no stale root from the previous folder)", async () => {
+    const { rerender } = render(<DirectoryYoloAction cwd="/repo/app" />);
+    fireEvent.click(screen.getByTestId("directory-yolo-toggle"));
+    const first = await screen.findAllByTestId("yolo-root-option");
+    // Make the choice explicit (clicking the pre-checked radio fires no change).
+    fireEvent.click(radio(first[1]));
+    fireEvent.click(radio(first[0]));
+    expect(radio(first[0]).checked).toBe(true);
+    rerender(<DirectoryYoloAction cwd="/repo/lib" />);
+    await waitFor(() => expect(radio(screen.getAllByTestId("yolo-root-option")[0]).value).toBe("/repo/lib"));
+    expect(radio(screen.getAllByTestId("yolo-root-option")[0]).checked).toBe(true);
+  });
+
   it("a second surface ADDS its root, says the timer is unchanged, and never starts a second session", async () => {
     server.session = scopedSession(NOW, "/repo/app");
     const expiresAt = server.session.expiresAt;

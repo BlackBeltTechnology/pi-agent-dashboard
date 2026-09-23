@@ -2374,6 +2374,12 @@ export interface GrantRequestMessage {
   subject: string;
   /** Epoch ms after which the entry expires and the request gets its denial. */
   expiresAt: number;
+  /**
+   * Milliseconds left when the server sent this. Clients re-base `expiresAt`
+   * on their own clock (`Date.now() + ttlMs`) so browser clock skew cannot
+   * expire a prompt early. Optional for compatibility.
+   */
+  ttlMs?: number;
   copy: GrantPromptCopy;
 }
 

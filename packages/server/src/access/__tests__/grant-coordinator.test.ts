@@ -107,6 +107,8 @@ describe("held denial: suspended, then settled by the first answer", () => {
     const hold = c.onDenial(fsDenial(), true);
     expect(hold.held).toBe(true);
     expect(promptOf()).toMatchObject({ plane: "filesystem", subject: "/work/repo" });
+    // Remaining time rides along so a skewed browser clock cannot expire it early.
+    expect(promptOf().ttlMs).toBe(promptOf().expiresAt - clock);
 
     await c.onResponse(answer("allow-once"));
     expect(await hold.result).toEqual({ kind: "allow", verdict: "allow-once", subject: "/work/repo" });

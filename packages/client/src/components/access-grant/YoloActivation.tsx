@@ -244,6 +244,9 @@ function ActivationBody({
   const offered = useOfferedRoots(base);
   const [duration, setDuration] = useState<number | null>(null);
   const [choice, setChoice] = useState<string | null>(null);
+  // A new base (another folder or denial) offers a new ladder: drop the old pick.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset keyed on base only
+  useEffect(() => setChoice(null), [base]);
   const { busy, outcome, run } = useYoloSubmit(store, afterActivate, onChanged);
 
   // Shortest duration and the narrowest root are the defaults; unscoped never is.

@@ -55,6 +55,17 @@ describe("GrantPromptStore", () => {
     expect(s.claim("a")).toBe(false);
   });
 
+  it("re-bases expiresAt on the local clock from ttlMs, so a skewed browser clock cannot expire it early", () => {
+    const s = new GrantPromptStore();
+    const local = Date.now();
+    // Server clock 60 s behind the browser: its expiresAt already looks past.
+    s.apply(request("skew", { expiresAt: local - 1_000, ttlMs: 120_000 }));
+    s.expire(local + 1_000);
+    expect(s.snapshotIds().has("skew")).toBe(true);
+    s.expire(local + 121_000);
+    expect(s.snapshotIds().has("skew")).toBe(false);
+  });
+
   it("bumps the version on every queue change and notifies subscribers", () => {
     const s = new GrantPromptStore();
     let calls = 0;
