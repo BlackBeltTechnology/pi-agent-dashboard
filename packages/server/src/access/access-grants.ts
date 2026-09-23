@@ -302,6 +302,14 @@ export interface RecordGrantInput {
  * exactly as it would have, and the surface that asked can report that the grant
  * did not stick.
  */
+/** A grant with its optional provenance fields set only when present. */
+function buildGrant(base: AccessGrant, widenedFrom: string | undefined, via: "prompt" | undefined): AccessGrant {
+  const grant: AccessGrant = { ...base };
+  if (widenedFrom) grant.widenedFrom = widenedFrom;
+  if (via) grant.via = via;
+  return grant;
+}
+
 export function recordGrant(input: RecordGrantInput): RecordGrantResult {
   const scope: GrantScope = input.scope ?? "project";
   const origin = input.origin ?? "unknown";
@@ -328,9 +336,7 @@ export function recordGrant(input: RecordGrantInput): RecordGrantResult {
   if (scope === "session") {
     const existing = sessionGrants.find((g) => g.subject === subject);
     if (existing) return { ok: true, grant: existing };
-    const grant: AccessGrant = { subject, scope, grantedAt, origin };
-    if (widen) grant.widenedFrom = widen;
-    if (input.via) grant.via = input.via;
+    const grant = buildGrant({ subject, scope, grantedAt, origin }, widen, input.via);
     sessionGrants.push(grant);
     enforceCap(sessionGrants, "session", grant);
     return { ok: true, grant };
@@ -339,9 +345,7 @@ export function recordGrant(input: RecordGrantInput): RecordGrantResult {
   const grants = [...persisted()];
   const existing = grants.find((g) => g.subject === subject);
   if (existing) return { ok: true, grant: existing };
-  const grant: AccessGrant = { subject, scope, grantedAt, origin };
-  if (widen) grant.widenedFrom = widen;
-  if (input.via) grant.via = input.via;
+  const grant = buildGrant({ subject, scope, grantedAt, origin }, widen, input.via);
   grants.push(grant);
   enforceCap(grants, "project", grant);
 
