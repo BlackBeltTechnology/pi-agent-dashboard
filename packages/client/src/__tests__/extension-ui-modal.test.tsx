@@ -17,14 +17,18 @@
  * See change: add-extension-ui-modal.
  */
 import React, { useState } from "react";
-import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, fireEvent, cleanup, act, waitFor } from "@testing-library/react";
 import { mdiCheck } from "@mdi/js";
 import { GenericExtensionDialog } from "../components/extension-ui/GenericExtensionDialog.js";
 import { loadMdiIconSet, resolveMdiIcon } from "../lib/preview/mdi-icon-lookup.js";
+import { __resetMdiIconSetForTests } from "@blackbelt-technology/pi-dashboard-client-utils/mdi-by-key";
 import type { ExtensionUiModule } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  __resetMdiIconSetForTests();
+});
 
 const baseTableModule: ExtensionUiModule = {
   kind: "management-modal",
@@ -286,6 +290,8 @@ describe("GenericExtensionDialog — lazy key-resolved icons (test-plan #E6)", (
     const { getByText } = render(
       <GenericExtensionDialog module={module} rows={[]} onDispatch={vi.fn()} onClose={() => {}} />,
     );
+    // Nothing before the lazy set loads (no placeholder, no eager set).
+    expect(document.body.querySelector(`svg path[d="${mdiCheck}"]`)).toBeNull();
     await waitFor(() =>
       // The dialog renders through a portal, so query the document.
       expect(document.body.querySelector(`svg path[d="${mdiCheck}"]`)).toBeTruthy(),
@@ -298,8 +304,14 @@ describe("GenericExtensionDialog — lazy key-resolved icons (test-plan #E6)", (
 
 describe("resolveMdiIcon — fallback for unknown keys", () => {
   // resolveMdiIcon is synchronous over the lazily-loaded set: preload it.
-  beforeAll(async () => {
+  beforeEach(async () => {
     await loadMdiIconSet();
+  });
+
+  it("the test reset clears the SAME set the render sites read (no vacuous E6)", () => {
+    expect(resolveMdiIcon("mdiCheck")).not.toBeNull();
+    __resetMdiIconSetForTests();
+    expect(resolveMdiIcon("mdiCheck")).toBeNull();
   });
 
   it("returns null for unknown / mistyped / missing keys", () => {

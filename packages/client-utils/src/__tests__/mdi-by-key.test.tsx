@@ -62,6 +62,21 @@ describe("useMdiIconByKey — shared single load (test-plan #F1)", () => {
   });
 });
 
+describe("useMdiIconByKey — keys that cannot resolve", () => {
+  it("does not fetch the icon set for empty or non-mdi keys", async () => {
+    const spy = vi.fn(realImporter);
+    __setMdiIconSetImporterForTests(spy);
+    render(
+      <>
+        <Probe iconKey="refresh" />
+        <Probe iconKey="" />
+      </>,
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
 describe("useMdiIconByKey — import failure (test-plan #X1)", () => {
   it("renders nothing on a failed import, then retries on the next mount", async () => {
     const unhandled = vi.fn();

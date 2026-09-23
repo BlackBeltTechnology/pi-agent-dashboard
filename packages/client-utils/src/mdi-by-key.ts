@@ -27,20 +27,23 @@ const defaultImporter: Importer = () => import("@mdi/js/commonjs/mdi.js");
 let importer: Importer = defaultImporter;
 let loaded: IconSet | null = null;
 let pending: Promise<IconSet | null> | null = null;
+/** Bumped by the test reset so an in-flight import cannot repopulate the set. */
+let generation = 0;
 
 /** Load (once) and return the full icon set, or `null` if the import failed. */
 export function loadMdiIconSet(): Promise<IconSet | null> {
   if (loaded) return Promise.resolve(loaded);
   if (pending) return pending;
+  const gen = generation;
   pending = importer().then(
     (mod) => {
       const m = mod as { default?: unknown };
       const set = (m && typeof m.default === "object" && m.default !== null ? m.default : mod) as IconSet;
-      loaded = set;
+      if (gen === generation) loaded = set;
       return set;
     },
     () => {
-      pending = null; // retry on the next call
+      if (gen === generation) pending = null; // retry on the next call
       return null;
     },
   );
@@ -58,7 +61,8 @@ export function resolveMdiIconSync(key: string | undefined | null): string | nul
 export function useMdiIconByKey(key: string | undefined | null): string | null {
   const [, setTick] = useState(0);
   const path = resolveMdiIconSync(key);
-  const needsLoad = !loaded && !!key;
+  // Only keys that could resolve justify fetching the ~2.8 MB set.
+  const needsLoad = !loaded && typeof key === "string" && key.startsWith("mdi");
   useEffect(() => {
     if (!needsLoad) return;
     let alive = true;
@@ -82,4 +86,5 @@ export function __resetMdiIconSetForTests(): void {
   importer = defaultImporter;
   loaded = null;
   pending = null;
+  generation++;
 }
