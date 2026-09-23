@@ -72,6 +72,21 @@ jobs:
       # See change: cleanup-undeclared-dependencies.
       - name: Verify published imports are declared
         run: node scripts/verify-published-imports.mjs
+      # Dynamic install-load check (change: fix-browser-plugin-vendor-specifier-resolution).
+      # The static check above proves every shipped import is DECLARED; it cannot
+      # prove the import RESOLVES — tsconfig `paths`, a bundler alias and
+      # JITI_TSCONFIG_PATHS all satisfy a static check while failing a consumer.
+      # This packs the changed plugins (+ browser-plugin, the guard's own subject)
+      # with their first-party workspace deps from the working tree, installs them
+      # OUTSIDE the repo, and imports each server entry under node+jiti with the
+      # env var unset and no repo tsconfig reachable. Scoped to changed plugins so
+      # the leg stays inside the per-PR budget (test-plan P2); the nightly job runs
+      # every workspace. See change: fix-browser-plugin-vendor-specifier-resolution.
+      - name: Plugin install-load (changed plugins, + browser-plugin)
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          node scripts/verify-plugin-install-load.mjs --changed "origin/${{ github.base_ref }}"
       # kb engine freshness gate. dist/ is gitignored, so a CI build is fresh by
       # construction and can never observe lag; the COMMITTED engine-fingerprint
       # can. A commit that edits packages/kb src without rebuilding fails here
@@ -142,3 +157,45 @@ jobs:
             echo "::error::@mdi/js dynamic-import warning re-appeared (harden-ios-safari-memory-and-ws-diagnostics)"; fail=1
           fi
           exit $fail
+
+  # ── required Docker gate ───────────────────────────────────────────────────
+  # Change: fix-browser-plugin-vendor-specifier-resolution (test-plan X12).
+  #
+  # The image was the ONE install mode that worked before the change, and only
+  # through the two crutches the change deletes: `docker/entrypoint.sh` execs the
+  # wrapper, which stamped `JITI_TSCONFIG_PATHS`, and `Dockerfile` copies
+  # `tsconfig.base.json` into the image. With both gone the image has to resolve
+  # the vendored relay the way npm / managed / Electron now do — package-relative
+  # specifiers and nothing else. A build that succeeds proves nothing about
+  # resolution, so this boots the container and reads the server's own plugin log
+  # (the same `[plugin-loader]` lines the operator saw when this was broken).
+  #
+  # Runs on every PR and on every push to develop, so it is a required check:
+  # a regression here ships a browser plugin that is dead in three install modes.
+  docker-plugin-load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Boot the image and assert the browser plugin loads
+        env:
+          # GitHub-hosted runners refuse the entrypoint's `mount -t overlay`
+          # (see the browser-E2E shards), so copy mode is the sanctioned
+          # fallback. The Fake faucet is what ENABLES the plugin
+          # (`defaultEnabled: false` in its manifest) so the loader actually
+          # attempts it — a disabled plugin "loads nothing" successfully.
+          TEST_COPY_MODE: "1"
+          PI_BROWSER_RELAY_FAKE: "1"
+        run: node scripts/verify-docker-plugin-load.mjs

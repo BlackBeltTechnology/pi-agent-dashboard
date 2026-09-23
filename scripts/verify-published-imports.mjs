@@ -36,7 +36,7 @@
  * See change: cleanup-undeclared-dependencies.
  */
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { builtinModules } from "node:module";
 import { dirname, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -111,27 +111,6 @@ export const ALLOWLIST = [
     specifier,
     reason:
       "Declared in the nested .pi/skills/openforms-mui/tools/package.json (a self-contained Vite library) and installed at runtime by scripts/ensure-openforms-deps.mjs; the workspace-root manifest deliberately omits it.",
-  })),
-  // browser-plugin vendors playwright-core's CDP relay VERBATIM (Apache-2.0,
-  // per-file SHA-256 in relay/vendor/NOTICE, byte-integrity-gated by
-  // vendor-integrity.test.ts). Upstream addresses its own helpers through
-  // playwright's internal aliases, and `playwright-core/**` is under a
-  // never-edit rule precisely so a refresh stays a re-copy — so these cannot be
-  // rewritten to relative specifiers without breaking the integrity manifest.
-  // They are not third-party packages at all: tsconfig.base.json `paths` (plus
-  // the package's vitest resolve.alias) map each one INTO the vendored
-  // relay/vendor/shims/ that ship in the same package. Declaring them as
-  // dependencies would write four unresolvable names into a published manifest.
-  ...[
-    "@isomorphic/manualPromise",
-    "@isomorphic/time",
-    "@isomorphic/timeoutRunner",
-    "@utils/wsServer",
-  ].map((specifier) => ({
-    workspace: "packages/browser-plugin",
-    specifier,
-    reason:
-      "Playwright-internal alias resolved by tsconfig.base.json `paths` to the vendored relay/vendor/shims/ that ship in this same package; not a registry package. The importing files are verbatim upstream under a never-edit + SHA-256 integrity rule, so the specifier cannot be rewritten.",
   })),
 ];
 
@@ -263,31 +242,34 @@ export function extractSpecifiers(text, fileName) {
     }
   };
 
+  // Classification is split from the traversal: holding the whole if/else chain
+  // inside the recursive visitor pushed it past the complexity budget, and the
+  // AST shapes it recognises are independent of the walk itself.
+  const declSpecifier = (node) => {
+    // import x from "y"  /  export * from "y"
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) return node.moduleSpecifier;
+    // import x = require("y")
+    if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) return node.moduleReference.expression;
+    return undefined;
+  };
+  const callSpecifier = (node) => {
+    if (!ts.isCallExpression(node)) return undefined;
+    // import("y")
+    if (node.expression.kind === ts.SyntaxKind.ImportKeyword) return node.arguments[0];
+    // require("y")
+    if (ts.isIdentifier(node.expression) && node.expression.text === "require") return node.arguments[0];
+    return undefined;
+  };
   // Iterative (explicit stack), not recursive: a bundled CJS chunk (the
   // client's lazy full-@mdi/js set) opens with a `e.a=e.b=…=void 0` chain deep
   // enough to overflow a recursive walk on Node 22, though the parser accepts
-  // it. See change: harden-ios-safari-memory-and-ws-diagnostics.
-  const visit = (node) => {
-    // import x from "y"  /  export * from "y"
-    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) {
-      add(node.moduleSpecifier);
-    }
-    // import x = require("y")
-    else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
-      add(node.moduleReference.expression);
-    } else if (ts.isCallExpression(node)) {
-      // import("y")
-      if (node.expression.kind === ts.SyntaxKind.ImportKeyword) add(node.arguments[0]);
-      // require("y")
-      else if (ts.isIdentifier(node.expression) && node.expression.text === "require") add(node.arguments[0]);
-    }
-  };
+  // it. Children are pushed in reverse so they pop in source order.
+  // See change: harden-ios-safari-memory-and-ws-diagnostics.
   const stack = [source];
   while (stack.length > 0) {
     const node = stack.pop();
-    visit(node);
-    // Push children in reverse so they pop in source order (same order as the
-    // former recursive walk, so reported specifiers keep their sequence).
+    const spec = declSpecifier(node) ?? callSpecifier(node);
+    if (spec) add(spec);
     const children = [];
     ts.forEachChild(node, (child) => {
       children.push(child);
@@ -409,6 +391,34 @@ function relativeResolves(spec, fromFile, packedSet) {
   return false;
 }
 
+/**
+ * Classify ONE specifier found in a shipped file.
+ *
+ * Split out of `analyzeWorkspace` to keep that function's branch chain under the
+ * complexity budget: the rules here are a flat decision table, while the caller
+ * owns the traversal and the accumulation.
+ */
+function specifierFinding({ wsRel, rel, value, line, allowed, declared, devOnly, packedSet }) {
+  const where = `${rel}:${line}`;
+  if (allowed.has(value)) return null;
+
+  if (isRelative(value)) {
+    if (relativeResolves(value, rel, packedSet)) return null;
+    return finding("error", "dangling-relative-import", wsRel, where, value,
+      `relative import "${value}" has no target in the packed file set; it will fail for a consumer`);
+  }
+
+  const pkg = packageNameOf(value);
+  if (pkg === null || isBuiltin(pkg) || isBuiltin(value)) return null;
+  if (allowed.has(pkg) || declared.has(pkg)) return null;
+
+  return devOnly.has(pkg)
+    ? finding("error", "dev-only-import", wsRel, where, pkg,
+        `"${pkg}" is declared only in devDependencies, which npm does not install for a consumer; a shipped file may not import it`)
+    : finding("error", "undeclared-import", wsRel, where, pkg,
+        `"${pkg}" is imported by a shipped file but declared in none of ${RUNTIME_FIELDS.join(", ")}`);
+}
+
 /** Analyse one already-packed workspace. Pure: no I/O beyond reading shipped files. */
 export function analyzeWorkspace(ws, packedFiles, { allowlist = ALLOWLIST } = {}) {
   const findings = [];
@@ -435,35 +445,8 @@ export function analyzeWorkspace(ws, packedFiles, { allowlist = ALLOWLIST } = {}
     }
 
     for (const { value, line } of specifiers) {
-      const where = `${rel}:${line}`;
-      if (allowed.has(value)) continue;
-
-      if (isRelative(value)) {
-        if (!relativeResolves(value, rel, packedSet)) {
-          findings.push(
-            finding("error", "dangling-relative-import", ws.rel, where, value,
-              `relative import "${value}" has no target in the packed file set; it will fail for a consumer`),
-          );
-        }
-        continue;
-      }
-
-      const pkg = packageNameOf(value);
-      if (pkg === null || isBuiltin(pkg) || isBuiltin(value)) continue;
-      if (allowed.has(pkg)) continue;
-      if (declared.has(pkg)) continue;
-
-      if (devOnly.has(pkg)) {
-        findings.push(
-          finding("error", "dev-only-import", ws.rel, where, pkg,
-            `"${pkg}" is declared only in devDependencies, which npm does not install for a consumer; a shipped file may not import it`),
-        );
-      } else {
-        findings.push(
-          finding("error", "undeclared-import", ws.rel, where, pkg,
-            `"${pkg}" is imported by a shipped file but declared in none of ${RUNTIME_FIELDS.join(", ")}`),
-        );
-      }
+      const f = specifierFinding({ wsRel: ws.rel, rel, value, line, allowed, declared, devOnly, packedSet });
+      if (f) findings.push(f);
     }
   }
   return findings;

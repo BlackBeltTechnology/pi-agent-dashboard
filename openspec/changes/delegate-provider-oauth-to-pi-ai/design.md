@@ -172,16 +172,16 @@ Every consumer of the deleted surface (verified by grep):
 
 `POST /start` must answer synchronously with something the UI can render, and must surface a listener bind failure as 500 rather than a later `status: "error"` (anthropic binds inside `startCallbackServer` at `anthropic.js:190`, *before* the `auth_url` notify).
 
-```
-cancel any pending flow for the same provider (its fixed callback port would otherwise EADDRINUSE)
-create flow (randomUUID)
-preAnswers = typeof enterpriseDomain === "string" ? [enterpriseDomain] : []     // null / non-string → no pre-answer
-login(interaction) — not awaited
-await Promise.race([ firstEvent, loginSettled, timeout(15 s) ])      // timer cleared whichever branch wins
-  ├ first auth_url / device_code / answerable prompt → 200 OAuthFlowStatus   (progress/info are not first events)
-  ├ login rejected before any event                  → 500 { error: <message> }   (EADDRINUSE names the port); flow deleted
-  ├ login resolved before any event                  → normal resolve row (write + notify) → 200 status: "complete"
-  └ timeout                                          → 504 { error: "Provider did not respond" }; flow cancelled + deleted
+```mermaid
+flowchart TD
+  A["cancel any pending flow for the same provider<br/>its fixed callback port would otherwise EADDRINUSE"] --> B["create flow (randomUUID)"]
+  B --> C["preAnswers = typeof enterpriseDomain === 'string' ? [enterpriseDomain] : []<br/>null / non-string → no pre-answer"]
+  C --> D["login(interaction) — not awaited"]
+  D --> E{"await Promise.race([ firstEvent, loginSettled, timeout(15 s) ])<br/>timer cleared whichever branch wins"}
+  E -->|first auth_url / device_code / answerable prompt<br/>progress/info are not first events| F["200 OAuthFlowStatus"]
+  E -->|login rejected before any event| G["500 { error: message }<br/>EADDRINUSE names the port · flow deleted"]
+  E -->|login resolved before any event| H["normal resolve row (write + notify)<br/>200 status: 'complete'"]
+  E -->|timeout| I["504 { error: 'Provider did not respond' }<br/>flow cancelled + deleted"]
 ```
 
 `preAnswers` feed the adapter's `text` row: github-copilot's enterprise-domain prompt is answered from the request body (empty string = github.com) without ever becoming `pending`. A start with no `enterpriseDomain` leaves the prompt pending, so a future text-prompting provider degrades to "render the field" rather than failing.
