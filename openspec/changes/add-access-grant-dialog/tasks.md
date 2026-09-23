@@ -194,35 +194,35 @@ Harness exemplar: `packages/server/src/routes/__tests__/` git-routes socket-time
 
 Harness exemplar: `qa/tests/03-websocket.sh` (per-OS process-level assertions, no rendered-UI asserts) and `qa/tests/02-server-start.sh`. **New infra:** E18/E19 need a case-insensitive volume fixture — see `test-plan.md` "New infra needed".
 
-- [ ] 10.55 Candidate `~/.SSH` on a case-insensitive volume · forbidden rule applied · refused (test-plan #E18)
-- [ ] 10.56 Case-sensitive volume on a case-insensitive host, candidates differing only in case · containment evaluated · treated as distinct, sensitivity read from the volume (test-plan #E19)
-- [ ] 10.57 500 denials across 50 subjects from one capability · p95 denial-path added latency < 5 ms, never more than 2 concurrent dialogs, channel suppressed past 12 entries (test-plan #P2)
-- [ ] 10.58 Env-activated YOLO, no browser connected · non-browser client's request denied by containment · remains denied (test-plan #X11)
-- [ ] 10.59 `PI_DASHBOARD_DISABLE_GRANT_PROMPT=1` · denial occurs · no prompt, grants unaffected, toggle inert not hidden (test-plan #X12)
+- [x] 10.55 Candidate `~/.SSH` on a case-insensitive volume · forbidden rule applied · refused (test-plan #E18)
+- [x] 10.56 Case-sensitive volume on a case-insensitive host, candidates differing only in case · containment evaluated · treated as distinct, sensitivity read from the volume (test-plan #E19)
+- [x] 10.57 500 denials across 50 subjects from one capability · p95 denial-path added latency < 5 ms, never more than 2 concurrent dialogs, channel suppressed past 12 entries (test-plan #P2) — as run: in-process `ladder-perf.test.ts` (#P2), the ladder cost being #P3; the other 10f rows are `qa/tests/35-access-grant-dialog.sh`, verified locally against the worktree CLI
+- [x] 10.58 Env-activated YOLO, no browser connected · non-browser client's request denied by containment · remains denied (test-plan #X11)
+- [x] 10.59 `PI_DASHBOARD_DISABLE_GRANT_PROMPT=1` · denial occurs · no prompt, grants unaffected, toggle inert not hidden (test-plan #X12)
 
 ### 10g. L3 e2e (Playwright vs the docker harness) — rendered UI
 
 Harness exemplar: `tests/e2e/openspec-artifact-dialog.spec.ts` (modal lifecycle) and `tests/e2e/blackhole-settings.spec.ts` (settings surfaces). Read the dashboard port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
 
-- [ ] 10.60 Activation UI opened · shipped duration set rendered (test-plan #E32)
-- [ ] 10.61 Filesystem prompt rendered · dialog opens · no verdict pre-selected or focus-defaulted to allow-always (test-plan #E42)
-- [ ] 10.62 Network prompt rendered · dialog opens · allow-once absent from the DOM, not disabled (test-plan #E43)
-- [ ] 10.62a Held prompt rendered · dialog opens · no answer pre-selected, focus-defaulted, or visually emphasised over the others (test-plan #E56)
-- [ ] 10.62b `hostGate.mode = report` · Access page opened · states no dialog will be raised and why, denials still listed and answerable, prompting toggle inert not hidden (test-plan #E54)
-- [ ] 10.62c Browser issued no prompt capability · Access page opened · states this browser will not receive dialogs, and why (test-plan #E55)
-- [ ] 10.63 Filesystem prompt offering 3 rungs · dialog opens · exactly 3 selectable rungs, narrowest pre-selected, no free-text input (test-plan #E44)
-- [ ] 10.64 Cwd prompt with no ancestors offered · dialog opens · no ladder control rendered (test-plan #E45)
-- [ ] 10.65 CORS origin `https://<img src=x onerror=alert(1)>.example.com` · dialog opens · rendered as text, no element created, no script executes (test-plan #E46)
-- [ ] 10.66 No active YOLO session · sidebar header renders · row 1 holds exactly today's controls, no pill (test-plan #E50)
-- [ ] 10.67 Two browsers on one pending prompt · A answers · B's dialog unmounts, no residual backdrop, B cannot submit a second verdict (test-plan #F1)
-- [ ] 10.68 Open prompt · Escape pressed · converges to denied, nothing persisted (test-plan #F2)
-- [ ] 10.69 Held prompt · time elapses unanswered · converges to expired, dialog removed, ledger shows nothing written (test-plan #F3)
-- [ ] 10.70 Network prompt · dialog opens · states the verdict applies to a later attempt, no countdown affordance (test-plan #F4)
-- [ ] 10.71 YOLO active, sidebar header not rendered · session surface in scope displayed · still indicates active YOLO and remaining time (test-plan #F5)
-- [ ] 10.72 YOLO active · dismissal attempted on the indicator · remains rendered (test-plan #F6)
-- [ ] 10.73 Activated from the directory settings page · Access page opened · same session shown, not a second one (test-plan #F7)
-- [ ] 10.74 Filesystem prompt · YOLO activated from inside the dialog · the pending denial still requires an explicit verdict (test-plan #F8)
-- [ ] 10.75 Prompt open, WS drops and reconnects · reconnection completes · converges to one consistent state — re-rendered if pending, removed if settled meanwhile (test-plan #F9)
+- [x] 10.60 Activation UI opened · shipped duration set rendered (test-plan #E32)
+- [x] 10.61 Filesystem prompt rendered · dialog opens · no verdict pre-selected or focus-defaulted to allow-always (test-plan #E42)
+- [x] 10.62 Network prompt rendered · dialog opens · allow-once absent from the DOM, not disabled (test-plan #E43)
+- [x] 10.62a Held prompt rendered · dialog opens · no answer pre-selected, focus-defaulted, or visually emphasised over the others (test-plan #E56)
+- [x] 10.62b `hostGate.mode = report` · Access page opened · states no dialog will be raised and why, denials still listed and answerable, prompting toggle inert not hidden (test-plan #E54)
+- [x] 10.62c Browser issued no prompt capability · Access page opened · states this browser will not receive dialogs, and why (test-plan #E55)
+- [x] 10.63 Filesystem prompt offering 3 rungs · dialog opens · exactly 3 selectable rungs, narrowest pre-selected, no free-text input (test-plan #E44)
+- [x] 10.64 Cwd prompt with no ancestors offered · dialog opens · no ladder control rendered (test-plan #E45)
+- [x] 10.65 CORS origin `https://<img src=x onerror=alert(1)>.example.com` · dialog opens · rendered as text, no element created, no script executes (test-plan #E46) — as run: the literal markup-bearing Origin is not a URL origin, so the `cors` plane refuses it as a subject and NO dialog or element exists (asserted); a real denied origin renders as plain text; escaping itself is the 7.4 unit test. Needed the CORS denial observer (`access/cors-denial.ts`), which section 6 had not wired
+- [x] 10.66 No active YOLO session · sidebar header renders · row 1 holds exactly today's controls, no pill (test-plan #E50)
+- [x] 10.67 Two browsers on one pending prompt · A answers · B's dialog unmounts, no residual backdrop, B cannot submit a second verdict (test-plan #F1)
+- [x] 10.68 Open prompt · Escape pressed · converges to denied, nothing persisted (test-plan #F2)
+- [x] 10.69 Held prompt · time elapses unanswered · converges to expired, dialog removed, ledger shows nothing written (test-plan #F3)
+- [x] 10.70 Network prompt · dialog opens · states the verdict applies to a later attempt, no countdown affordance (test-plan #F4)
+- [x] 10.71 YOLO active, sidebar header not rendered · session surface in scope displayed · still indicates active YOLO and remaining time (test-plan #F5)
+- [x] 10.72 YOLO active · dismissal attempted on the indicator · remains rendered (test-plan #F6)
+- [x] 10.73 Activated from the directory settings page · Access page opened · same session shown, not a second one (test-plan #F7)
+- [x] 10.74 Filesystem prompt · YOLO activated from inside the dialog · the pending denial still requires an explicit verdict (test-plan #F8)
+- [x] 10.75 Prompt open, WS drops and reconnects · reconnection completes · converges to one consistent state — re-rendered if pending, removed if settled meanwhile (test-plan #F9)
 
 ### 10h. Manual verification (deferred post-merge)
 

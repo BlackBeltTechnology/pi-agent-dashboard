@@ -86,3 +86,58 @@ describe("#P4 registry does not leak across settled entries", () => {
     expect(process.memoryUsage().rss - rss0).toBeLessThan(10 * 1024 * 1024);
   });
 });
+
+describe("#P2 a denial flood from one capability (task 10.57)", () => {
+  it("500 denials across 50 subjects: p95 added latency < 5 ms, <= 2 dialogs open, channel capped at 12 entries", async () => {
+    const { AccessPlaneRegistry } = await import("../access-plane.js");
+    const { GrantCoordinator } = await import("../grant-coordinator.js");
+    const { createFilesystemPlane } = await import("../planes.js");
+    const { GRANT_CHANNEL_MAX_ENTRIES } = await import("../pending-grant-registry.js");
+    const planes = new AccessPlaneRegistry();
+    planes.register(createFilesystemPlane());
+    const open = new Set<string>();
+    let maxOpen = 0;
+    const coordinator = new GrantCoordinator({
+      planes,
+      broadcast: (m) => {
+        if (m.type === "grant_request") open.add(m.promptId);
+        if (m.type === "grant_dismiss") open.delete(m.promptId);
+        maxOpen = Math.max(maxOpen, open.size);
+      },
+      hostGateMode: () => "enforce",
+      promptEnabled: () => true,
+      killSwitch: () => false,
+      operatorChannels: () => 1,
+      onTransition: () => {},
+    });
+    const subjects = Array.from({ length: 50 }, (_, i) => {
+      const d = path.join(home, `s${i}`);
+      fs.mkdirSync(d);
+      return d;
+    });
+    const t: number[] = [];
+    const holds = [];
+    for (let i = 0; i < 500; i++) {
+      const t0 = performance.now();
+      holds.push(
+        coordinator.onDenial(
+          {
+            plane: "filesystem",
+            rawSubject: subjects[i % 50],
+            origin: "p2",
+            channel: "sock-1",
+            requestHoldsCapability: true,
+          },
+          true,
+        ),
+      );
+      t.push(performance.now() - t0);
+    }
+    const entries = coordinator.registry.list().filter((e) => e.channel === "sock-1");
+    expect(p95(t)).toBeLessThan(5);
+    expect(maxOpen).toBeLessThanOrEqual(2);
+    expect(entries.length).toBeLessThanOrEqual(GRANT_CHANNEL_MAX_ENTRIES);
+    expect(coordinator.registry.snapshotStats().flooded["channel-share"] ?? 0).toBeGreaterThan(0);
+    for (const h of holds) h.abort();
+  });
+});
