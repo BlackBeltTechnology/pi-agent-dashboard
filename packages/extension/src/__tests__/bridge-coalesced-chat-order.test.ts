@@ -61,6 +61,12 @@ interface WireRow {
  */
 class BridgeModel {
   readonly wire: WireRow[] = [];
+  /**
+   * The raw event each forwarding site would put on the wire. `wire` is the
+   * reduced ORDER model; this is the CONTENT model, so a leak assertion can
+   * search the serialized payload a forwarded event would carry.
+   */
+  readonly sentEvents: unknown[] = [];
   active = true;
   ready = true;
 
@@ -89,8 +95,13 @@ class BridgeModel {
     return this.wire.slice(this.markIndex);
   }
 
-  private keyOf(message: any): string {
-    return this.coalescer.keyOf(this.gen, message);
+  private keyOf(gen: number, message: any): string {
+    return this.coalescer.keyOf(gen, message);
+  }
+
+  /** Record the event a real forwarding site would hand to `connection.send`. */
+  private forward(event: unknown): void {
+    this.sentEvents.push(event);
   }
 
   /** Mirrors the enriched-event handler body. */
@@ -102,9 +113,15 @@ class BridgeModel {
 
     if (eventType === "message_start") {
       this.gen += 1;
-      this.coalescer.messageStart(this.gen, this.keyOf(event.message));
-      // Early-returning branch: a custom message is forwarded elsewhere.
+      // The real bridge passes the message so `bindGeneration` can bind it.
+      this.coalescer.messageStart(this.gen, this.keyOf(this.gen, event.message), event.message);
+      // Early-returning branches, both AFTER the barrier: `custom` is forwarded
+      // by `wrapCustomPersistenceForCtx`; `system` carries the pi >= 0.86
+      // prompt/tool loadout and has no dashboard consumer.
+      // See change: filter-system-role-message-forwarding (E4/E5).
       if (event.message?.role === "custom") return;
+      if (event.message?.role === "system") return;
+      this.forward(event);
       if (event.message?.role === "user") {
         setTimeout(() => this.wire.push({ eventType, role: "user" }), 0);
       } else {
@@ -114,18 +131,26 @@ class BridgeModel {
     }
 
     if (eventType === "message_end") {
-      this.coalescer.messageEnd(this.gen, this.keyOf(event.message));
+      // The identity this message was OPENED under, not the counter's current
+      // value (mirrors `coalescer.generationOf`).
+      const endGen = this.coalescer.generationOf(event.message, this.gen);
+      this.coalescer.messageEnd(endGen, this.keyOf(endGen, event.message));
+      // Same two early returns as the `message_start` arm above.
+      if (event.message?.role === "custom") return;
+      if (event.message?.role === "system") return;
+      this.forward(event);
       // Deferred send (entryId capture).
       setTimeout(() => this.wire.push({ eventType, role: event.message?.role }), 0);
       return;
     }
 
     if (eventType === "message_update") {
-      this.coalescer.offer(event, this.gen);
+      this.coalescer.offer(event, this.coalescer.generationOf(event.message, this.gen));
       return;
     }
 
     // The shared forward tail.
+    this.forward(event);
     this.wire.push({ eventType });
   }
 
@@ -176,6 +201,16 @@ function textOf(event: Record<string, unknown>): string | undefined {
 /** A `message_update` carrying `text` as the accumulated snapshot. */
 function textDelta(text: string, timestamp: number, role = "assistant"): Record<string, unknown> {
   const message: Record<string, unknown> = { role, timestamp, content: [{ type: "text", text }] };
+  return {
+    type: "message_update",
+    message,
+    assistantMessageEvent: { type: "text_delta", partial: message },
+  };
+}
+
+/** A `message_update` for an EXISTING message object (pi mutates `partial` in place). */
+function updateOn(message: Record<string, unknown>, text: string): Record<string, unknown> {
+  message.content = [{ type: "text", text }];
   return {
     type: "message_update",
     message,
@@ -335,6 +370,156 @@ describe("bridge coalescing — ordering model (E17–E20)", () => {
   });
 });
 
+describe("bridge coalescing — system-role exclusion + compaction redaction (E1–E4, F1, F2, X2)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("E1: role × event-type — only system and custom are never forwarded", async () => {
+    const roles = ["system", "assistant", "user", "custom", "toolResult"];
+    const forwarded = (role: string) => role !== "system" && role !== "custom";
+    for (const role of roles) {
+      for (const eventType of ["message_start", "message_end"]) {
+        const model = new BridgeModel();
+        model.mark();
+        model.dispatchEnriched(eventType, { type: eventType, message: { role, timestamp: 1000 } });
+        await model.drain();
+        const rows = model.sinceMark().filter((row) => row.eventType === eventType);
+        expect(rows.length, `${eventType}/${role}`).toBe(forwarded(role) ? 1 : 0);
+      }
+    }
+  });
+
+  it("E2: a system message leaks no prompt section and no tool name onto the wire", async () => {
+    const model = new BridgeModel();
+    const toolsAdded = Array.from({ length: 40 }, (_, i) => `leak-tool-${i}`);
+    const message = {
+      role: "system",
+      timestamp: 1000,
+      sections: { persona: `SYSPROMPT-MARKER ${"x".repeat(150 * 1024)}` },
+      toolsAdded,
+    };
+    model.dispatchEnriched("message_start", { type: "message_start", message });
+    model.dispatchEnriched("message_end", { type: "message_end", message });
+    await model.drain();
+
+    const wire = model.sentEvents.map((event) => JSON.stringify(event)).join("\n");
+    expect(wire).not.toContain("SYSPROMPT-MARKER");
+    for (const name of toolsAdded) expect(wire).not.toContain(name);
+    expect(
+      model.sinceMark().filter((row) => row.eventType !== "message_update"),
+    ).toHaveLength(0);
+  });
+
+  it("E3: an assistant pair after a dropped system pair forward in order, unchanged", async () => {
+    const model = new BridgeModel();
+    const system = { role: "system", timestamp: 1000 };
+    model.dispatchEnriched("message_start", { type: "message_start", message: system });
+    model.dispatchEnriched("message_end", { type: "message_end", message: system });
+    model.mark();
+
+    const assistant = { role: "assistant", timestamp: 2000 };
+    model.dispatchEnriched("message_start", { type: "message_start", message: assistant });
+    model.dispatchEnriched("message_end", { type: "message_end", message: assistant });
+    await model.drain();
+
+    expect(model.sinceMark()).toEqual([
+      { eventType: "message_start", role: "assistant" },
+      { eventType: "message_end", role: "assistant" },
+    ]);
+  });
+
+  it("E4: custom start/end still return after the barrier and forward nothing", async () => {
+    const model = new BridgeModel();
+    park(model, "snapshot before a custom message", 1000);
+    model.dispatchEnriched("message_start", {
+      type: "message_start",
+      message: { role: "custom", timestamp: 2000 },
+    });
+    model.dispatchEnriched("message_end", {
+      type: "message_end",
+      message: { role: "custom", timestamp: 2000 },
+    });
+    await model.drain();
+
+    // Only the flushed snapshot — the custom pair is forwarded elsewhere.
+    expect(model.sinceMark()).toEqual([
+      { eventType: "message_update", text: "snapshot before a custom message" },
+    ]);
+  });
+
+  it("F1: a parked snapshot is not stranded by a dropped system message", async () => {
+    const withSystem = new BridgeModel();
+    park(withSystem, "tail of identity A", 1000);
+    withSystem.dispatchEnriched("message_start", {
+      type: "message_start",
+      message: { role: "system", timestamp: 2000 },
+    });
+    withSystem.dispatchEnriched("message_start", {
+      type: "message_start",
+      message: { role: "assistant", timestamp: 3000 },
+    });
+    await withSystem.drain();
+
+    const withoutSystem = new BridgeModel();
+    park(withoutSystem, "tail of identity A", 1000);
+    withoutSystem.dispatchEnriched("message_start", {
+      type: "message_start",
+      message: { role: "assistant", timestamp: 3000 },
+    });
+    await withoutSystem.drain();
+
+    expect(withSystem.sinceMark()).toEqual([
+      { eventType: "message_update", text: "tail of identity A" },
+      { eventType: "message_start", role: "assistant" },
+    ]);
+    // Convergence: dropping the system message changes nothing downstream.
+    expect(withSystem.sinceMark()).toEqual(withoutSystem.sinceMark());
+  });
+
+  it("F2: an assistant update after a dropped system pair is not dropped as the system key", async () => {
+    const model = new BridgeModel();
+    const system = { role: "system", timestamp: 1000 };
+    model.dispatchEnriched("message_start", { type: "message_start", message: system });
+    model.dispatchEnriched("message_end", { type: "message_end", message: system });
+    model.mark();
+
+    // Identity correlation: the SAME object is bound at start and offered here.
+    const assistant: Record<string, unknown> = { role: "assistant", timestamp: 2000 };
+    model.dispatchEnriched("message_start", { type: "message_start", message: assistant });
+    model.dispatchEnriched("message_update", updateOn(assistant, "streamed text"));
+    model.dispatchEnriched("message_end", { type: "message_end", message: assistant });
+    await model.drain();
+
+    expect(model.sinceMark()).toEqual([
+      { eventType: "message_start", role: "assistant" },
+      { eventType: "message_update", text: "streamed text" },
+      { eventType: "message_end", role: "assistant" },
+    ]);
+  });
+
+  it("X2: a null message and a role-less message neither throw nor change the path", async () => {
+    const withNull = new BridgeModel();
+    withNull.mark();
+    expect(() =>
+      withNull.dispatchEnriched("message_start", { type: "message_start", message: null }),
+    ).not.toThrow();
+    await withNull.drain();
+    expect(withNull.sinceMark().filter((row) => row.eventType === "message_start")).toHaveLength(1);
+
+    const withNoRole = new BridgeModel();
+    withNoRole.mark();
+    expect(() =>
+      withNoRole.dispatchEnriched("message_start", { type: "message_start", message: {} }),
+    ).not.toThrow();
+    await withNoRole.drain();
+    expect(withNoRole.sinceMark()).toEqual([{ eventType: "message_start" }]);
+  });
+});
+
 describe("bridge coalescing — source contract (placement)", () => {
   const enrichedHandler = region(
     "for (const eventType of enrichedEventTypes) {",
@@ -394,6 +579,30 @@ describe("bridge coalescing — source contract (placement)", () => {
   it("both session boundaries clear the coalescer", () => {
     const clears = BRIDGE_SOURCE.match(/coalescer\.clear\(\);/g) ?? [];
     expect(clears).toHaveLength(2);
+  });
+
+  it("E5: the system return sits AFTER the barrier in both message arms", () => {
+    const bump = at(messageStartBranch, "assistantMessageGen += 1;");
+    const open = at(messageStartBranch, "coalescer.messageStart(");
+    const startSystemReturn = at(messageStartBranch, 'if ((event as any).message?.role === "system") return;');
+    expect(bump).toBeLessThan(open);
+    expect(open).toBeLessThan(startSystemReturn);
+
+    const close = at(messageEndBranch, "coalescer.messageEnd(");
+    const endSystemReturn = at(messageEndBranch, 'if ((event as any).message?.role === "system") return;');
+    expect(close).toBeLessThan(endSystemReturn);
+  });
+
+  it("E6: the entry-level flush runs once, ahead of the message_start branch", () => {
+    const flush = "if (flushesParkedText(eventType)) coalescer.flush();";
+    expect(enrichedHandler.split(flush)).toHaveLength(2);
+    expect(at(enrichedHandler, flush)).toBeLessThan(at(enrichedHandler, 'if (eventType === "message_start")'));
+  });
+
+  it("the session_compact path redacts compactionEntry before mapping", () => {
+    expect(enrichedHandler).toContain("redactCompactionEntry(");
+    // The redaction must not be applied inside the generic mapper (design D7).
+    expect(BRIDGE_SOURCE).toContain("redactCompactionEntry(event");
   });
 
   it("message_update is routed to the coalescer and returns (never the shared tail)", () => {

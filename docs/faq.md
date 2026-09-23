@@ -1261,18 +1261,15 @@ Cross-refs:
 
 ## Why does /ctx-stats work in some sessions but not others?
 
-Pi 0.74 `ExtensionAPI` exposes no `dispatchCommand`. Bridge cannot reach `session.prompt` from inside pi.
+Now works in every session kind. Extension commands dispatch in-process via `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})` (step 9), gated on running pi >= 0.84.2. No session-kind probe, no keeper UDS route.
 
-Dashboard spawns three session types:
+Pi runs `_tryExecuteExtensionCommand` FIRST — before its compaction guard, before `streamingBehavior` — so headless, tmux, terminal and user-launched sessions all dispatch the same way. `deliverAs` is inert for an extension command.
 
-- **Headless RPC (dashboard-spawned)**: works. Server writes JSON-line to per-session keeper UDS (`~/.pi/dashboard/sessions/<sid>.rpc.sock` Unix; `\\.\pipe\pi-rpc-<sid>` Windows). Keeper forwards to pi's stdin. pi `--mode rpc` runs `session.prompt()` → dispatch.
-- **Tmux / Windows Terminal**: cannot work via dashboard chat. User's terminal owns pi's stdin; no UDS route. Use pi TUI directly for slash commands.
+Below pi 0.84.2: no dispatch. Gate emits `command_feedback {status:"error", message:"Extension slash commands from the dashboard require pi 0.84.2+"}` and the raw slash never reaches the model.
 
-Three-way decision lives in `packages/extension/src/slash-dispatch.ts::tryDispatchExtensionCommand` (Path B → Path C → Path D).
+Retired by change `retire-slash-dispatch-via-expand-prompt-templates`: Path B (`pi.dispatchCommand`, never shipped upstream), Path C (headless RPC via keeper UDS), Path D (tmux / Windows Terminal error). Keeper sidecar UNCHANGED — still the durable owner of pi's stdin across dashboard restarts.
 
-Activates the full Path B behavior automatically once upstream `pi.dispatchCommand` ships in pi 0.75+.
-
-See change: `add-rpc-stdin-dispatch-with-keeper-sidecar`, `enable-rpc-keeper-by-default`. See also `docs/architecture.md` § "RPC keeper sidecar" and `docs/slash-command.md` § "Path C".
+See also `docs/architecture.md` § "RPC keeper sidecar" and `docs/slash-command.md`.
 
 ## Why does session resume fail with "RPC keeper exited within crash window (code 1)"?
 
