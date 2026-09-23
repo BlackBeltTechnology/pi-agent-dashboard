@@ -755,12 +755,15 @@ export interface CwdMissingMessage {
 // ── RPC keeper: bridge → server slash dispatch ──
 // See change: add-rpc-stdin-dispatch-with-keeper-sidecar.
 //
-// Emitted by `slash-dispatch.ts::tryDispatchExtensionCommand` when the
-// active pi build does NOT expose `pi.dispatchCommand` AND the bridge
-// detects a headless RPC pi (per `isHeadlessRpcSession()`). The server's
-// dispatch-router writes `{type:"prompt", message: command, id: requestId}`
-// to the session's keeper UDS / named pipe and emits the optimistic
-// `command_feedback {status:"completed"}` (or error) to browser subscribers.
+// @deprecated Retired by change
+// `retire-slash-dispatch-via-expand-prompt-templates`: the bridge dispatches
+// extension slash commands in-process via
+// `pi.sendUserMessage(text, { expandPromptTemplates: true })` (pi >= 0.84.2), so
+// no current bridge sends this message. The server keeps a one-release
+// tombstone arm that answers with `command_feedback {status:"error",
+// message:"bridge outdated — reload the session"}`. Successor requirement:
+// `command-routing` "Extension slash command dispatch via sendUserMessage".
+// A follow-up change removes both this type and the tombstone.
 export interface DispatchExtensionCommandMessage {
   type: "dispatch_extension_command";
   sessionId: string;

@@ -216,8 +216,10 @@ export interface SpawnResult {
    * RPC keeper UDS / named-pipe path. Set on every successful headless
    * spawn (the keeper is the only spawn mechanism for `--mode rpc`).
    * Callers pass this to `headlessPidRegistry.register(..., { keeperPid,
-   * keeperSockPath })` so later `writeRpc` / `killBySessionId` calls can
-   * locate the keeper. `pid` IS the keeper PID, so `keeperPid` is implicit.
+   * keeperSockPath })` so `killBySessionId` can find the keeper. `pid` IS the
+   * keeper PID, so `keeperPid` is implicit. The registry's `writeRpc` (the
+   * former consumer of this path) was removed by change
+   * retire-slash-dispatch-via-expand-prompt-templates.
    * See change: add-rpc-stdin-dispatch-with-keeper-sidecar,
    * enable-rpc-keeper-by-default.
    */

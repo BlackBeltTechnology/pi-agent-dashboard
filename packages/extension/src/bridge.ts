@@ -1764,15 +1764,15 @@ function initBridge(pi: ExtensionAPI) {
 
       // Extension-command dispatch (routing step 9). When matched, the helper
       // emits its own command_feedback events and we MUST NOT fall through.
-      // The `connection` arg enables Path C (headless RPC → server-routed
-      // dispatch via the keeper UDS); see change:
-      // add-rpc-stdin-dispatch-with-keeper-sidecar.
+      // One in-process `sendUserMessage({expandPromptTemplates:true})` works in
+      // every session shape; the old headless-only RPC path is retired.
+      // See change: retire-slash-dispatch-via-expand-prompt-templates.
       const handled = await tryDispatchExtensionCommand(
         pi,
         text,
         sessionId,
         (msg) => connection.send(msg),
-        connection,
+        delivery,
       );
       if (handled) {
         // Non-turn dispatch route: settle optimistic idle bubble (no message_start

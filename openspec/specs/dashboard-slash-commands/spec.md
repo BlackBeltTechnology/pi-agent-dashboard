@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-dashboard-slash-commands. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Namespace and naming grammar
 
 All dashboard slash commands SHALL be invoked under the `/dashboard:` namespace. Command names SHALL follow the grammar `<resource>-<verb>[-<modifier>]` where `<resource>` is a singular noun naming a resource family, `<verb>` is the action, and `<modifier>` is an optional qualifier such as `-all`, `-active`, or `-here`. The seven resource families are: `server`, `session`, `proposal`, `flow`, `git`, `peer`, `pin`.
@@ -84,13 +86,13 @@ Existing slash command templates without `executable` frontmatter SHALL continue
 
 ### Requirement: Routing precedence relative to extension dispatch
 
-The exec-mode dispatch (template with `executable: bash`) SHALL run AFTER pi-extension-command dispatch (`source: "extension"` in `pi.getCommands()`, dispatched via `pi.dispatchCommand` per `command-routing` spec) and BEFORE the fallback to `pi.sendUserMessage` for skills, prompt templates, and unrecognised slashes. Extension commands and exec-mode templates are disjoint by construction (extension commands are JS handlers; exec-mode templates are `.md` files with frontmatter), so this ordering is documentary; it pins the contract for future readers.
+The exec-mode dispatch (template with `executable: bash`) SHALL run AFTER pi-extension-command dispatch (`source: "extension"` in `pi.getCommands()`, dispatched in-process via `pi.sendUserMessage(text, { expandPromptTemplates: true, deliverAs })` per `command-routing` spec) and BEFORE the fallback to `pi.sendUserMessage` for skills, prompt templates, and unrecognised slashes. Extension commands and exec-mode templates are different mechanisms (JS handlers vs `.md` files with frontmatter) but their NAMES can collide; on a collision the extension command wins, and this ordering is the contract that decides it.
 
 #### Scenario: Extension command takes precedence over exec template with same name
 
-- **GIVEN** a pi extension registers a command `foo` via `pi.registerCommand` AND a file `dashboard-foo.md` exists with `executable: bash` frontmatter
-- **WHEN** a user types `/foo`
-- **THEN** the bridge SHALL dispatch via `pi.dispatchCommand("/foo", ...)` (extension dispatch wins)
+- **GIVEN** a pi extension registers a command `dashboard-foo` via `pi.registerCommand` AND a file `dashboard-foo.md` exists with `executable: bash` frontmatter
+- **WHEN** a user types `/dashboard-foo`
+- **THEN** the bridge SHALL dispatch via `pi.sendUserMessage("/dashboard-foo", { expandPromptTemplates: true, deliverAs })` (extension dispatch wins)
 - **AND** SHALL NOT execute the template body as bash.
 
 #### Scenario: Exec template takes precedence over LLM fallback
@@ -98,5 +100,3 @@ The exec-mode dispatch (template with `executable: bash`) SHALL run AFTER pi-ext
 - **GIVEN** a file `dashboard-server-health.md` exists with `executable: bash` frontmatter AND no extension command named `dashboard-server-health` is registered
 - **WHEN** a user types `/dashboard:server-health`
 - **THEN** the bridge SHALL execute the template body as bash and emit `bash_output`
-- **AND** SHALL NOT call `pi.sendUserMessage` for this input.
-
