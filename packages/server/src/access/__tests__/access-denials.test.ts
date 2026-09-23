@@ -22,7 +22,7 @@ import {
 } from "../../access/access-denials.js";
 import { offeredAncestorLadder } from "../../access/ancestor-ladder.js";
 import { evaluateContainment } from "../../access/containment-gate.js";
-import { forbiddenGrantSubjects, isForbiddenGrantSubject } from "../../access/forbidden-subjects.js";
+import { forbiddenGrantSubjects, isForbiddenGrantSubject, subsumesForbiddenGrantSubject } from "../../access/forbidden-subjects.js";
 
 let root: string;
 
@@ -123,6 +123,23 @@ describe("7b.2 / 9a.20 / 9a.30 forbidden subjects", () => {
     const home = mkdir("home");
     expect(isForbiddenGrantSubject(path.join(home, ".ssh", "keys"), { homedir: home })).toBe(true);
     expect(isForbiddenGrantSubject(path.join(home, ".pi", "dashboard"), { homedir: home })).toBe(true);
+  });
+
+  it("2b.3 / #E16 refuses a candidate that CONTAINS a forbidden subject (the ancestor direction)", () => {
+    // The direction an equality test cannot express, and the reason this rule is
+    // a real-path SUBTREE relation rather than a set membership: `outer` is not
+    // itself forbidden, yet granting it admits `outer/home` — the home
+    // directory — and every secret beneath it. `/Users` for a real home is the
+    // production shape of this case (task 10.23 / #E16).
+    const outer = mkdir("outer");
+    const home = mkdir("outer", "home");
+    mkdir("outer", "home", ".ssh");
+    expect(subsumesForbiddenGrantSubject(outer, { homedir: home })).toBe(true);
+    expect(subsumesForbiddenGrantSubject(home, { homedir: home })).toBe(true);
+    expect(subsumesForbiddenGrantSubject(path.join(home, ".ssh"), { homedir: home })).toBe(true);
+    // A candidate containing nothing forbidden must still be grantable, or the
+    // rule would refuse every directory on the filesystem.
+    expect(subsumesForbiddenGrantSubject(mkdir("proj"), { homedir: home })).toBe(false);
   });
 
   it("7b.2 a system directory is refused exactly; a data root beneath it is not", () => {
