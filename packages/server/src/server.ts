@@ -30,7 +30,7 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
-import { AccessPlaneRegistry } from "./access/access-plane.js";
+import { AccessPlaneRegistry, isGrantPromptKilled } from "./access/access-plane.js";
 import { shouldIssuePromptCapability } from "./access/capability-issuance.js";
 import { installGrantCoordinator } from "./access/denial-hold.js";
 import { GrantCoordinator } from "./access/grant-coordinator.js";
@@ -1457,7 +1457,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     broadcast: (msg) => browserGateway.broadcastToAll(msg),
     hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode,
     promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true,
-    killSwitch: () => process.env.PI_DASHBOARD_DISABLE_GRANT_PROMPT === "1",
+    killSwitch: () => isGrantPromptKilled(),
     operatorChannels: () => promptChannelCount(),
   });
   installGrantCoordinator(grantCoordinator);

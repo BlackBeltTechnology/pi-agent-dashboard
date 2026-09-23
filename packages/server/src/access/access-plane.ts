@@ -101,6 +101,18 @@ export class AccessPlaneRegistry {
   }
 }
 
+/**
+ * `PI_DASHBOARD_DISABLE_GRANT_PROMPT=1` suppresses every prompt regardless of
+ * configuration (design D10, task 9.1), for automated environments where a
+ * browser is connected but no human is present. Only the exact value `1` engages
+ * it. It suppresses the PROMPT only: grants stay in force and denials are still
+ * recorded, because the ladder maps it to the same record-only rung as
+ * `promptEnabled: false`.
+ */
+export function isGrantPromptKilled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.PI_DASHBOARD_DISABLE_GRANT_PROMPT === "1";
+}
+
 /** Everything the ladder reads, evaluated live at the denial site (design D6). */
 export interface PreconditionInput {
   plane: AccessPlane;

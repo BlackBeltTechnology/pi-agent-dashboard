@@ -95,7 +95,7 @@
 
 ## 9. Kill switch, docs, and closeout
 
-- [ ] 9.1 Implement `PI_DASHBOARD_DISABLE_GRANT_PROMPT=1` suppressing prompts regardless of configuration while leaving grants in force and denials recorded — verify a test asserts no dialog with a browser connected
+- [x] 9.1 Implement `PI_DASHBOARD_DISABLE_GRANT_PROMPT=1` suppressing prompts regardless of configuration while leaving grants in force and denials recorded — verify a test asserts no dialog with a browser connected (`isGrantPromptKilled` in `access/access-plane.ts`; only the exact value `1` engages it, and it maps to the same record-only rung as `promptEnabled: false`)
 - [ ] 9.2 Confirm the E2E suite is unaffected with the env var set — verify `npm run test:e2e` passes against the docker harness
 - [ ] 9.3 Run `observability-instrumentation` over the transition log and add whatever `/api/health` counters it identifies — verify the counters appear and are asserted in a test
 - [ ] 9.4 Delegate `docs/` prose (the eligibility rule, the two modes, the degrade ladder, the ancestor ladder, YOLO's scope and its limits, both env vars) to `DocScribe` and apply the returned tree rows — verify `docs/architecture.md` and the nearest `AGENTS.md` rows describe the new `packages/server/src/access/` files

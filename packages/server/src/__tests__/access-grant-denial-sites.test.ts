@@ -12,7 +12,7 @@ import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetAccessGrants } from "../access/access-grants.js";
-import { AccessPlaneRegistry } from "../access/access-plane.js";
+import { AccessPlaneRegistry, isGrantPromptKilled } from "../access/access-plane.js";
 import { installGrantCoordinator } from "../access/denial-hold.js";
 import { GrantCoordinator } from "../access/grant-coordinator.js";
 import { createCwdPlane, createFilesystemPlane, createNetworkPlane } from "../access/planes.js";
@@ -225,6 +225,50 @@ describe("6.5 containment is unchanged when the feature is off or unprompted", (
       subject: path.join(outside, "a"),
       suppressedBy: "ineligible",
     });
+  });
+});
+
+describe("9.1 the kill switch suppresses prompts, not grants or records", () => {
+  it("#X12 no dialog with a browser connected; the denial is still recorded", async () => {
+    const killed = new GrantCoordinator({
+      planes: (() => {
+        const planes = new AccessPlaneRegistry();
+        planes.register(createFilesystemPlane());
+        return planes;
+      })(),
+      broadcast: (m) => sent.push(m),
+      hostGateMode: () => "enforce",
+      promptEnabled: () => true,
+      killSwitch: () => isGrantPromptKilled({ PI_DASHBOARD_DISABLE_GRANT_PROMPT: "1" }),
+      operatorChannels: () => 1,
+      onTransition: () => {},
+    });
+    installGrantCoordinator(killed);
+    const res = await read(makeApp(), path.join(outside, "a", "f.txt"));
+    expect(res.statusCode).toBe(403);
+    expect(sent.filter((m) => m.type === "grant_request")).toEqual([]);
+    expect(killed.registry.list()[0]).toMatchObject({ plane: "filesystem", suppressedBy: "disabled" });
+  });
+
+  it("existing grants stay in force while prompting is killed", async () => {
+    const ok = await createFilesystemPlane().grant({
+      subject: path.join(outside, "a"),
+      deniedSubject: path.join(outside, "a"),
+      ancestors: [],
+      origin: "s",
+    });
+    expect(ok.ok).toBe(true);
+    installGrantCoordinator(null);
+    const res = await read(makeApp(), path.join(outside, "a", "f.txt"));
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("secret-a");
+  });
+
+  it("only the exact value 1 engages it", () => {
+    expect(isGrantPromptKilled({ PI_DASHBOARD_DISABLE_GRANT_PROMPT: "1" })).toBe(true);
+    for (const v of [undefined, "", "0", "true", "yes", " 1"]) {
+      expect(isGrantPromptKilled({ PI_DASHBOARD_DISABLE_GRANT_PROMPT: v })).toBe(false);
+    }
   });
 });
 
