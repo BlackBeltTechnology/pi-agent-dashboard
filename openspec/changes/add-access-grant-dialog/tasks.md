@@ -28,11 +28,11 @@
 
 ## 5. Plane registration seam
 
-- [ ] 5.1 Define the `AccessPlane` interface (`id`, `mode`, `subjectOf`, `keyOf`, `describe`, `grant`) and a registry of planes — verify a unit test registers a fake plane and drives a full record→prompt→settle cycle through it
-- [ ] 5.2 Register the filesystem plane, normalising the subject to the same canonical form the path-grant store uses, with `grant` delegating to that store and accepting the denied subject **or one of the denial's offered ancestors** (ladder computed by `add-access-grants-and-review` task 7b.1a — this change consumes it, never recomputes it) — verify tests assert the verdict subject and the created grant's subject are byte-identical, an offered ancestor is accepted, and an unoffered directory is refused
-- [ ] 5.3 Register the unknown-`cwd` plane with `grant` delegating to the pinned-directory store, and `allow-once` permitting only the raising request — verify tests cover allow-always pins exactly the named directory and allow-once pins nothing
-- [ ] 5.4 Register the network and CORS planes as deferred-only with `allow-once` unavailable, delegating to `trustedNetworks` and the configured allowed origins — verify a test asserts an admitted origin is added verbatim with no wildcard derived from it
-- [ ] 5.5 Assert `mode: "held"` never bypasses eligibility — verify a test declares a held plane and shows it still degrades under `report` mode and under ineligibility
+- [x] 5.1 Define the `AccessPlane` interface (`id`, `mode`, `subjectOf`, `keyOf`, `describe`, `grant`) and a registry of planes — verify a unit test registers a fake plane and drives a full record→prompt→settle cycle through it
+- [x] 5.2 Register the filesystem plane, normalising the subject to the same canonical form the path-grant store uses, with `grant` delegating to that store and accepting the denied subject **or one of the denial's offered ancestors** (ladder computed by `add-access-grants-and-review` task 7b.1a — this change consumes it, never recomputes it) — verify tests assert the verdict subject and the created grant's subject are byte-identical, an offered ancestor is accepted, and an unoffered directory is refused (the path-grant creation sequence was EXTRACTED from `POST /api/access/grants` into `access/named-grant.ts` and is now shared by the route and this plane, so the two cannot drift; the route's 34 existing tests pass unchanged)
+- [x] 5.3 Register the unknown-`cwd` plane with `grant` delegating to the pinned-directory store, and `allow-once` permitting only the raising request — verify tests cover allow-always pins exactly the named directory and allow-once pins nothing (forbidden subjects are refused here too: pinning `/` or `$HOME` would admit a session anywhere beneath it)
+- [x] 5.4 Register the network and CORS planes as deferred-only with `allow-once` unavailable, delegating to `trustedNetworks` and the configured allowed origins — verify a test asserts an admitted origin is added verbatim with no wildcard derived from it
+- [x] 5.5 Assert `mode: "held"` never bypasses eligibility — verify a test declares a held plane and shows it still degrades under `report` mode and under ineligibility
 
 ## 6. Denial-site wiring
 
@@ -59,7 +59,7 @@
 ## 2b. Corrections from adversarial review (gate: land before dependent work)
 
 - [x] 2b.1 Gate prompt-capability **issuance** on browser-shaped provenance: non-absent admitted `Origin`, `Sec-Fetch-Site` consistent with a page this server served, and the UI's own credential tier — verify a test asserts a WebSocket opened **without** an `Origin` header (the `cors-origin.ts:239,244` admitted path) is issued no capability and yields ineligible denials (landed as `packages/server/src/access/capability-issuance.ts`; the credential-tier condition is enforced by the upgrade gate before the socket exists, `server.ts:2938-2950`, so it is not re-derived)
-- [ ] 2b.2 Implement the per-settlement-mode proof split: held planes require the **request** to carry a valid capability; deferred planes require a **live operator channel** and never require anything of the request — verify tests assert a network denial prompts with an operator channel present, does not prompt with none, and never suspends
+- [x] 2b.2 Implement the per-settlement-mode proof split: held planes require the **request** to carry a valid capability; deferred planes require a **live operator channel** and never require anything of the request — verify tests assert a network denial prompts with an operator channel present, does not prompt with none, and never suspends (`promptPrecondition` in `access/access-plane.ts`; `holdsRequest` makes a deferred denial unable to suspend)
 - [x] 2b.3 Make the forbidden-subject rule a **real-path subtree relation in both directions** (is / inside / contains) replacing any equality test — verify tests assert `~/.ssh/keys` is refused as a descendant and a candidate containing `~/.ssh` is refused as an ancestor (already implemented by the shipped `add-access-grants-and-review` — `forbidden-subjects.ts`: `realpathNearestAncestor` + the descendant rule + `subsumesForbiddenGrantSubject` for the ancestor direction. The descendant direction was tested; the **ancestor direction had no direct test** — one was added, test-plan #E16)
 - [x] 2b.4 Define the ladder boundary for every case per `path-anchor-grants`: nearest (not outermost) checkout root, worktree marker as file or directory, root detected on the **real** path, more-restrictive boundary wins when device and home rules disagree, no-`$HOME` still bounded, subject-is-the-boundary — verify one test per case (already implemented by the shipped `ancestor-ladder.ts`. 5 of the 6 cases have direct tests in `access-denials.test.ts`: nearest checkout root, real-path detection via the symlink lexical-parent case, the `$HOME` bound, the filesystem-root bound, and subject-is-the-boundary. The worktree marker is delegated to `git rev-parse` probes, which handle `.git` as a file or a directory natively)
 - [ ] 2b.5 Re-run the denying guard in full on release of a suspended request, including real-path/symlink resolution and the forbidden-subject rule — verify a test swaps the subject for a link to another location after the verdict and asserts the released request is denied
@@ -72,7 +72,7 @@
 
 ## 8b. YOLO mode (filesystem + working-directory planes only)
 
-- [ ] 8b.1 Add a `yoloEligible` field to the `AccessPlane` registration (D5) and make it unrepresentable together with `mode: "deferred"` — verify a type-level test plus a runtime test assert a deferred plane declaring eligibility is rejected, not honoured
+- [x] 8b.1 Add a `yoloEligible` field to the `AccessPlane` registration (D5) and make it unrepresentable together with `mode: "deferred"` — verify a type-level test plus a runtime test assert a deferred plane declaring eligibility is rejected, not honoured
 - [ ] 8b.2 Implement the YOLO session: activation state, chosen expiry, chosen scope, no renewal on activity, immediate end — verify tests cover expiry-not-extended-by-use and end-takes-effect-on-the-next-denial
 - [ ] 8b.2a Implement scope containment over a **set** of roots: an auto-allow is issued only when the **real** path of the denied subject lies within at least one root — verify tests assert an in-scope path is auto-allowed, a path outside every root is prompted/refused as if YOLO were off, and a path inside a root only before symlink resolution is **not** auto-allowed
 - [ ] 8b.2b Offer scope roots from the existing ancestor ladder (`add-access-grants-and-review` task 7b.1a), consumed never recomputed — from the triggering denial when chosen at a prompt, from the session `cwd` when chosen in Settings; no free-text entry; unscoped offered but never pre-selected — verify tests assert the offered set equals the ladder
@@ -131,14 +131,14 @@ Harness exemplar: `packages/server/src/__tests__/cors.test.ts` for plain in-proc
 - [x] 10.10 Registry at 63 entries (capacity−1) · one more pending entry · accepted (test-plan #E10)
 - [x] 10.11 Registry at capacity (64) · one more denial · recorded without prompting, no live entry evicted (test-plan #E11)
 - [x] 10.12 One pending entry, two `grant_response` frames 10ms apart · second arrives · no-op, verdict unchanged, no second store write (test-plan #E12)
-- [ ] 10.13 Denials naming `/a/b` and `/a/b/` on one plane · both recorded · a single entry (test-plan #E13)
+- [x] 10.13 Denials naming `/a/b` and `/a/b/` on one plane · both recorded · a single entry (test-plan #E13)
 - [x] 10.14 Filesystem `/a/b` and cwd `/a/b` · both recorded · two entries, settling one leaves the other pending (test-plan #E14)
 - [x] 10.15 Same subject denied repeatedly · denial at 119 s then 121 s after a settled verdict · suppressed inside the 120 s backoff, prompts again after it (test-plan #E20)
 - [x] 10.16 One capability emitting denials to its per-channel share · share boundary crossed · further denials recorded without prompting (test-plan #E21)
 - [x] 10.17 Requester A at its bound, B idle · B's denial arrives · B prompts, A stays suppressed (test-plan #E22)
 - [x] 10.18 Suppression by per-channel bound vs global cap · each occurs · log/metric distinguishes the reason (test-plan #E23)
-- [ ] 10.19 Verdict naming an unoffered directory · verdict submitted · refused, no grant written (test-plan #E47)
-- [ ] 10.20 Verdict naming an offered rung · verdict submitted · grant written recording the widened-from subject (test-plan #E48)
+- [x] 10.19 Verdict naming an unoffered directory · verdict submitted · refused, no grant written (test-plan #E47)
+- [x] 10.20 Verdict naming an offered rung · verdict submitted · grant written recording the widened-from subject (test-plan #E48)
 - [ ] 10.21 Fresh install, no config · denial occurs · no dialog, denial recorded and answerable from the Access surface (test-plan #E49)
 
 ### 10c. L1 unit (vitest) — path containment and the ancestor ladder
@@ -187,7 +187,7 @@ Harness exemplar: `packages/server/src/routes/__tests__/` git-routes socket-time
 - [ ] 10.50 Denials beyond capacity · overflow · recorded without prompting, no silent drop of a live entry, no allow (test-plan #X6)
 - [ ] 10.51 Chosen root deleted between offer and activation · activation submitted · refused, no session created (test-plan #X7)
 - [ ] 10.52 Subject cannot be realpath-resolved · ladder computed · refused rather than compared unresolved (test-plan #X8)
-- [ ] 10.53 A deferred-mode plane declares `yoloEligible` · registration · rejected, not honoured (test-plan #X9)
+- [x] 10.53 A deferred-mode plane declares `yoloEligible` · registration · rejected, not honoured (test-plan #X9)
 - [ ] 10.54 Host admission reporting · YOLO control opened and env-activated session attempted at startup · no session becomes active, control states the reason rather than hiding, no automatic verdict on any plane (test-plan #X10)
 
 ### 10f. L2 smoke (`qa/tests/*.sh` / `*.ps1`) — process and multi-OS
