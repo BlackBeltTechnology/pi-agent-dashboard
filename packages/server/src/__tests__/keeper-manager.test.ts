@@ -1,18 +1,20 @@
 /**
  * KeeperManager unit tests (task 4.6).
  *
- * Mocks `spawnDetached` and `net.createConnection` to assert:
+ * Mocks `spawnDetached` to assert:
  *   - spawnKeeperFor argv / spawn options shape
- *   - writeRpc retry-then-succeed and retry-then-fail behavior
  *   - killKeeper sends SIGTERM to the tracked PID via killPidWithGroup
  *   - discoverExistingKeepers correctly classifies live / stale / orphan
+ *
+ * `writeRpc` / `writeRpcToSockPath` (and the fake `net.createConnection`
+ * scaffold they needed) were removed with the server-side dispatch path in
+ * change `retire-slash-dispatch-via-expand-prompt-templates`.
  *
  * Integration of the real keeper.cjs binary is exercised in
  * `rpc-keeper/__tests__/keeper.test.ts`; this file stays at unit-level.
  */
 import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import net from "node:net";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -55,42 +57,6 @@ function makeFakeSpawnDetached(opts: { pid?: number; ok?: boolean; error?: strin
     return { ok: true, pid: opts.pid, process: c as unknown as ChildProcess };
   };
   return { spawn, calls, lastChild };
-}
-
-// ── Fake net.createConnection ────────────────────────────────────────────────
-
-interface FakeConnectionConfig {
-  attempts: Array<"connect-ok" | "error" | "timeout">;
-}
-
-class FakeSocket extends EventEmitter {
-  destroyed = false;
-  end = vi.fn((_data: unknown, _enc: unknown, cb?: () => void) => {
-    if (cb) setImmediate(cb);
-  });
-  destroy = vi.fn(() => { this.destroyed = true; });
-}
-
-function makeFakeCreateConnection(cfg: FakeConnectionConfig): {
-  createConnection: typeof net.createConnection;
-  connectCount: () => number;
-  pathsCalled: string[];
-} {
-  let i = 0;
-  const pathsCalled: string[] = [];
-  const fn = ((arg: string | net.NetConnectOpts) => {
-    const p = typeof arg === "string" ? arg : (arg as net.IpcNetConnectOpts).path;
-    if (typeof p === "string") pathsCalled.push(p);
-    const sock = new FakeSocket();
-    const behavior = cfg.attempts[i++] ?? "error";
-    setImmediate(() => {
-      if (behavior === "connect-ok") sock.emit("connect");
-      else if (behavior === "error") sock.emit("error", new Error("ECONNREFUSED"));
-      // "timeout" → do nothing; KeeperManager's per-attempt timer fires.
-    });
-    return sock as unknown as net.Socket;
-  }) as typeof net.createConnection;
-  return { createConnection: fn, connectCount: () => i, pathsCalled };
 }
 
 // ── Common setup ─────────────────────────────────────────────────────────────
@@ -190,73 +156,6 @@ describe("KeeperManager.spawnKeeperFor", () => {
 
     await km.spawnKeeperFor("sess-b", "/cwd", {}, ["--mode", "rpc"], []);
     expect((calls[1].env as Record<string, string | undefined>).PI_KEEPER_PI_CMD).toBeUndefined();
-  });
-});
-
-describe("KeeperManager.writeRpc", () => {
-  it("writes line on first successful attempt and returns true", async () => {
-    const cfg: FakeConnectionConfig = { attempts: ["connect-ok"] };
-    const { createConnection, connectCount, pathsCalled } = makeFakeCreateConnection(cfg);
-    const km = createKeeperManager(baseOpts({ createConnection }));
-
-    const ok = await km.writeRpc("sess-1", '{"x":1}');
-    expect(ok).toBe(true);
-    expect(connectCount()).toBe(1);
-    expect(pathsCalled[0]).toBe(sockPathFor(sessionsDir, "sess-1"));
-  });
-
-  it("retries after error and succeeds on attempt 2", async () => {
-    const cfg: FakeConnectionConfig = { attempts: ["error", "connect-ok"] };
-    const { createConnection, connectCount } = makeFakeCreateConnection(cfg);
-    const km = createKeeperManager(baseOpts({ createConnection }));
-
-    const ok = await km.writeRpc("sess-1", '{"x":1}');
-    expect(ok).toBe(true);
-    expect(connectCount()).toBe(2);
-  });
-
-  it("returns false after 3 failed attempts", async () => {
-    const cfg: FakeConnectionConfig = { attempts: ["error", "error", "error"] };
-    const { createConnection, connectCount } = makeFakeCreateConnection(cfg);
-    const km = createKeeperManager(baseOpts({ createConnection }));
-
-    const ok = await km.writeRpc("sess-1", '{"x":1}');
-    expect(ok).toBe(false);
-    expect(connectCount()).toBe(3);
-  });
-
-  it("appends trailing newline if missing", async () => {
-    let captured = "";
-    const fn = ((arg: unknown) => {
-      const sock = new FakeSocket();
-      sock.end = vi.fn((data: unknown, _enc: unknown, cb?: () => void) => {
-        captured = String(data);
-        if (cb) setImmediate(cb);
-      }) as unknown as FakeSocket["end"];
-      setImmediate(() => sock.emit("connect"));
-      return sock as unknown as net.Socket;
-    }) as typeof net.createConnection;
-
-    const km = createKeeperManager(baseOpts({ createConnection: fn }));
-    await km.writeRpc("sess-1", '{"x":1}');
-    expect(captured).toBe('{"x":1}\n');
-  });
-
-  it("does NOT append a second newline if line already ends with \\n", async () => {
-    let captured = "";
-    const fn = ((arg: unknown) => {
-      const sock = new FakeSocket();
-      sock.end = vi.fn((data: unknown, _enc: unknown, cb?: () => void) => {
-        captured = String(data);
-        if (cb) setImmediate(cb);
-      }) as unknown as FakeSocket["end"];
-      setImmediate(() => sock.emit("connect"));
-      return sock as unknown as net.Socket;
-    }) as typeof net.createConnection;
-
-    const km = createKeeperManager(baseOpts({ createConnection: fn }));
-    await km.writeRpc("sess-1", '{"x":1}\n');
-    expect(captured).toBe('{"x":1}\n');
   });
 });
 
