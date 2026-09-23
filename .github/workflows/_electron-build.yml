@@ -365,6 +365,19 @@ jobs:
         if: ${{ inputs.source_only_bundle == false }}
         run: node packages/electron/scripts/assert-bundled-plugins-complete.mjs
 
+      - name: Boot the bundled server and assert the browser plugin loads
+        # Change: fix-browser-plugin-vendor-specifier-resolution (test-plan X13).
+        # The sibling asserts above prove the bundle CONTAINS everything; none
+        # BOOTS anything, so none can catch a plugin that is present-but-dead
+        # because the bundle ships no `tsconfig.base.json` (bundle-server.mjs
+        # copies workspace source, not the repo tsconfig) and `JITI_TSCONFIG_PATHS`
+        # is gone. That was exactly the browser plugin's state before this change.
+        # Boots the bundled node + jiti + cli.ts with the variable removed and
+        # reads the server's own `[plugin-loader]` verdict. Node-native
+        # (Windows-reachable invariant: no bash).
+        if: ${{ inputs.source_only_bundle == false }}
+        run: node packages/electron/scripts/assert-bundled-server-plugin-load.mjs
+
       - name: Assert no wmic in bundle (PowerShell-only Windows introspection)
         # Enforces spec scenario "No wmic shell-invocation anywhere in shipped
         # code" (change: replace-wmic-with-powershell). wmic removed by default

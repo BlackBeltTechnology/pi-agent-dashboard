@@ -30,18 +30,6 @@
       ],
       "@mariozechner/pi-tui": [
         "./node_modules/@mariozechner/pi-tui"
-      ],
-      "@isomorphic/manualPromise": [
-        "./packages/browser-plugin/src/server/relay/vendor/shims/manualPromise.ts"
-      ],
-      "@isomorphic/time": [
-        "./packages/browser-plugin/src/server/relay/vendor/shims/time.ts"
-      ],
-      "@isomorphic/timeoutRunner": [
-        "./packages/browser-plugin/src/server/relay/vendor/shims/timeoutRunner.ts"
-      ],
-      "@utils/wsServer": [
-        "./packages/browser-plugin/src/server/relay/vendor/shims/wsServer.ts"
       ]
     }
   }

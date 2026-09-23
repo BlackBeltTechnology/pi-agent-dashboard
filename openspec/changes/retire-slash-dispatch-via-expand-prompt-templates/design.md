@@ -20,16 +20,16 @@ flowchart TD
 
 pi ≥ 0.84.2 `agent-session.js` (verified on 0.86.1):
 
-```
-ExtensionAPI.sendUserMessage(content, opts)        loader.js:284
-  ├─ assertActive()                                 ← ONLY synchronous throw (stale ctx)
-  └─ runtime.sendUserMessage → this.sendUserMessage(...).catch(err => runner.emitError(...))   L2122
-       └─ prompt(text, {expandPromptTemplates, streamingBehavior: deliverAs, source:"extension"})  L1296
-            ├─ if expand && text.startsWith("/"): _tryExecuteExtensionCommand(text) → handled? return   L944  ← FIRST
-            ├─ compaction-in-progress guard (rejects)                                              L951
-            ├─ _runInputHandlers(text, images, source, streamingBehavior)                          L956
-            ├─ if expand: _expandSkillCommand → expandPromptTemplate                               L964
-            └─ streaming? queueSteer/queueFollowUp : normal turn
+```mermaid
+flowchart TD
+  A["ExtensionAPI.sendUserMessage(content, opts)<br/>loader.js:284"] --> B["assertActive()<br/>← ONLY synchronous throw (stale ctx)"]
+  A --> C["runtime.sendUserMessage → this.sendUserMessage(...).catch(err =&gt; runner.emitError(...))<br/>L2122"]
+  C --> D["prompt(text, {expandPromptTemplates, streamingBehavior: deliverAs, source: 'extension'})<br/>L1296"]
+  D --> E["if expand &amp;&amp; text.startsWith('/'): _tryExecuteExtensionCommand(text) → handled? return<br/>L944 ← FIRST"]
+  D --> F["compaction-in-progress guard (rejects)<br/>L951"]
+  D --> G["_runInputHandlers(text, images, source, streamingBehavior)<br/>L956"]
+  D --> H["if expand: _expandSkillCommand → expandPromptTemplate<br/>L964"]
+  D --> I["streaming? queueSteer/queueFollowUp : normal turn"]
 ```
 
 Consequences the design must respect:

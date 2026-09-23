@@ -1,18 +1,29 @@
 # Vendored from microsoft/playwright
 
-Parts of this directory are copied VERBATIM from
+Parts of this directory are copied from
 <https://github.com/microsoft/playwright> (Apache License 2.0):
 
 - Upstream commit: `d1ead3ecca23182f2d06d761c28e3d4edafb6595`
   (branch `main`, committed 2026-09-11T23:00:20Z)
 - Fetched: 2026-09-13 (UTC)
 
+The tree is not uniformly upstream. Each file is one of:
+
+- **upstream-verbatim** — byte-identical to upstream (7 files);
+- **modified** — an upstream copy whose import specifiers were rewritten to
+  package-relative paths (2 files, see Modifications below). Each carries an
+  in-file notice of modification (Apache-2.0 §4(b));
+- **authored** — replaces an upstream module and has no upstream counterpart
+  (2 files).
+
+`src/server/__tests__/vendor-hashes.json` records the provenance kind and
+SHA-256 hash of every file below, and the integrity test fails on any drift,
+added file, or removed file.
+
 ## Verbatim upstream files — `playwright-core/src/…`
 
 | Vendored path (under this dir) | Upstream path | SHA-256 |
 |---|---|---|
-| `playwright-core/src/tools/mcp/cdpRelay.ts` | `packages/playwright-core/src/tools/mcp/cdpRelay.ts` | `5f19dfb0034a2877029c36e5a4c665082ff27a1b0af22374f8f796f91d98078d` |
-| `playwright-core/src/tools/mcp/cdpRelayV2.ts` | `packages/playwright-core/src/tools/mcp/cdpRelayV2.ts` | `db32c68ffe422bfef9e477f23d062c79c79150ca9c5b3503618d26a7524e1556` |
 | `playwright-core/src/tools/mcp/browserModel.ts` | `packages/playwright-core/src/tools/mcp/browserModel.ts` | `e89261f77ef4d78935c051e42e50458e74066381cc6f071196a112e5fe96110b` |
 | `playwright-core/src/tools/mcp/protocol.ts` | `packages/playwright-core/src/tools/mcp/protocol.ts` | `041f648b328631e0cb54bd7de37f003d54b01d6701b98f3757f6e059eb1a7598` |
 | `playwright-core/src/tools/mcp/log.ts` | `packages/playwright-core/src/tools/mcp/log.ts` | `a770eaf6e1ce798d60a1ec741bc3629eafc6e912c0bd7ae2bbfe4859bab461ab` |
@@ -21,8 +32,7 @@ Parts of this directory are copied VERBATIM from
 ## Verbatim upstream isomorphic helpers — `shims/`
 
 Copied unmodified from `packages/isomorphic/` (self-contained, no further
-imports; vendored here so the bare specifiers `@isomorphic/*` used by
-`cdpRelay.ts` / `cdpRelayV2.ts` resolve without editing the vendored files):
+imports):
 
 | Vendored path | Upstream path | SHA-256 |
 |---|---|---|
@@ -32,6 +42,26 @@ imports; vendored here so the bare specifiers `@isomorphic/*` used by
 
 `shims/timeoutRunner.ts` imports `./time`, which resolves to the sibling
 `shims/time.ts` — exactly as upstream.
+
+## Modifications — upstream copies edited by `scripts/patch-vendor-specifiers.mjs`
+
+Apache-2.0 §4(b) requires modified files to carry a notice that they changed.
+Both files below carry such a notice in their header; the rewrite is generated
+by `scripts/patch-vendor-specifiers.mjs` and is idempotent.
+
+| Vendored path | Upstream path | SHA-256 (upstream) | Change |
+|---|---|---|---|
+| `playwright-core/src/tools/mcp/cdpRelay.ts` | `packages/playwright-core/src/tools/mcp/cdpRelay.ts` | `5f19dfb0034a2877029c36e5a4c665082ff27a1b0af22374f8f796f91d98078d` | 4 playwright-internal specifiers rewritten to package-relative paths |
+| `playwright-core/src/tools/mcp/cdpRelayV2.ts` | `packages/playwright-core/src/tools/mcp/cdpRelayV2.ts` | `db32c68ffe422bfef9e477f23d062c79c79150ca9c5b3503618d26a7524e1556` | 1 playwright-internal specifier rewritten to a package-relative path |
+
+The rewrite exists because upstream addresses its own helpers through
+playwright-internal specifiers (`@isomorphic/manualPromise`, `@isomorphic/time`,
+`@isomorphic/timeoutRunner`, `@utils/wsServer`) that are not registry packages
+and were previously resolved through tsconfig `paths` + a bundler alias +
+`JITI_TSCONFIG_PATHS`. None of those exists in an npm, managed, or Electron
+install, so the plugin failed to load there. Package-relative specifiers
+resolve in every install mode. **Relay behaviour is unchanged** — only the
+import paths changed.
 
 ## Authored shims — NOT upstream
 
@@ -57,8 +87,16 @@ upstream Apache-2.0 headers and this NOTICE travels with every distribution.
 
 ## Refresh policy
 
-NEVER edit files under `playwright-core/`. A refresh is a re-copy from a new
-upstream commit, followed by regenerating
-`src/server/__tests__/vendor-hashes.json` (the integrity test hashes the
-directory and fails on any drift). Adaptation happens in `relay-instance.ts`
-via subclass/wrapper only — see design add-browser-relay D2.
+NEVER hand-edit files under `relay/vendor/`. A refresh is:
+
+```bash
+node scripts/refresh-vendor.mjs
+```
+
+which, in order: fetches every `upstream-verbatim` file at the commit above and
+asserts its recorded `upstream` hash (aborting before any write on a mismatch),
+runs `scripts/patch-vendor-specifiers.mjs`, then regenerates the `patched`
+hashes in `src/server/__tests__/vendor-hashes.json`. `upstream` is never derived
+from disk — bumping `upstreamCommit` is a deliberate edit of the manifest.
+Adaptation beyond the import rewrite happens in `relay-instance.ts` via
+subclass/wrapper only.
