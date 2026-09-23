@@ -6,3 +6,5 @@ Thin serialized adapter around pi's `DefaultPackageManager`. Exports `PackageMan
 ## reset-override-to-npm
 
 Adds `reset(ResetRequest{source,publishedSource,scope,cwd?})` \u2192 `resetId`, and `InvalidResetRequestError`. `executeReset` mirrors `executeMove`: install `publishedSource` FIRST, then remove local `source` (same scope); install-fail leaves local intact + reports failure; remove-fail after install \u2192 `partialSuccess`. Emits one complete event `action:"reset"`, `moveId=resetId`. `PackageAction` union += `"reset"`. See change: reset-override-to-npm.
+
+`createSafePackageManagerClass` exported (test seam). `spawnCaptureCommand` env overlay normalizes both sides' PATH key → caller PATH in any casing wins. See change: fix-windows-path-env-key-casing.

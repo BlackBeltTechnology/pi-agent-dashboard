@@ -42,6 +42,7 @@ import {
 // resolveOfflinePackages + installManagedNode imports removed under change:
 // eliminate-electron-runtime-install (no offline cache; bundle is immutable).
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
+import { normalizeEnvPathKey } from "@blackbelt-technology/pi-dashboard-shared/platform/env-path-key.js";
 import { resolveSpawnRuntime } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js";
 import { getBundledNodeDir, getBundledNodePath, getBundledNpmPath } from "./bundled-node.js";
 import { MANAGED_DIR } from "./managed-paths.js";
@@ -399,6 +400,24 @@ export function buildServerLaunchTestCmd(args: { nodeBin: string; jitiUrl: strin
   return `"${nodeBin}" --import "${jitiUrl}" -e "import ${importSpec.replace(/"/g, '\\"')}; setTimeout(() => process.exit(0), 100)"`;
 }
 
+/**
+ * Build the Server launch test env: the bundled node dir prepended to PATH
+ * with the platform delimiter. The win32 `Path` key is normalized to `PATH`
+ * first — otherwise the literal `PATH` write sits beside the inherited
+ * `Path` and survives only by Node's win32 key-sort de-dup.
+ * See change: fix-windows-path-env-key-casing.
+ */
+export function buildServerLaunchTestEnv(
+  bundledNode: string | null,
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+): NodeJS.ProcessEnv {
+  const p = platform === "win32" ? path.win32 : path.posix;
+  const base = normalizeEnvPathKey(env, platform);
+  const extraPaths = [bundledNode ? p.dirname(bundledNode) : null].filter(Boolean) as string[];
+  return { ...base, PATH: `${extraPaths.join(p.delimiter)}${p.delimiter}${base.PATH ?? ""}` };
+}
+
 async function runServerLaunchTest(
   checks: DoctorCheck[],
   ctx: { hasBundledServer: boolean; bundledServerCli: string | null; bundledNode: string | null },
@@ -428,8 +447,7 @@ async function runServerLaunchTest(
     return;
   }
 
-  const extraPaths = [bundledNode ? path.dirname(bundledNode) : null].filter(Boolean) as string[];
-  const env = { ...process.env, PATH: `${extraPaths.join(path.delimiter)}${path.delimiter}${process.env.PATH ?? ""}` };
+  const env = buildServerLaunchTestEnv(bundledNode, process.env, process.platform);
   const cmd = buildServerLaunchTestCmd({ nodeBin, jitiUrl, testCli });
   const r = safeExec(cmd, { timeoutMs: 15000, env });
   if (r.ok) {
