@@ -52,8 +52,21 @@ import { getLatestCatalogue, isCatalogueReady } from "../package/provider-catalo
 import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import type { PiGateway } from "../pi/pi-gateway.js";
 
-/** Open a URL in the system's default browser */
+/**
+ * Open a URL in the system's default browser.
+ *
+ * Suppressed under vitest: the route tests register these routes for real and
+ * drive a scripted fake flow whose `auth_url` events carry fixture URLs
+ * (`claude.ai/oauth/authorize?code=true&state=fake-state`, …). Without this
+ * guard every `npm test` run spawns real `open`/`xdg-open` calls and hijacks
+ * the developer's browser. Same defense-in-depth shape as
+ * `auth/test-env-guard.ts`.
+ */
 function openInBrowser(url: string): void {
+  if (process.env.VITEST === "true") {
+    console.warn("[provider-auth] browser open suppressed under vitest:", url);
+    return;
+  }
   platformOpenBrowser(url, {
     onError: (err) => console.error("[provider-auth] Failed to open browser:", err.message),
   });
