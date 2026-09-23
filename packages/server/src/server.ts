@@ -33,6 +33,7 @@ import Fastify from "fastify";
 import { snapshotAccessGrantHealth } from "./access/access-health.js";
 import { AccessPlaneRegistry, isGrantPromptKilled } from "./access/access-plane.js";
 import { shouldIssuePromptCapability } from "./access/capability-issuance.js";
+import { createCorsDenialObserver } from "./access/cors-denial.js";
 import { installGrantCoordinator } from "./access/denial-hold.js";
 import { GrantCoordinator } from "./access/grant-coordinator.js";
 import { createCorsPlane, createCwdPlane, createFilesystemPlane, createNetworkPlane } from "./access/planes.js";
@@ -1508,6 +1509,24 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Origin at all). Report-only default; `PI_DASHBOARD_HOST_GATE=enforce`
   // or `hostGate.mode` flips it. See change: add-host-allowlist-admission (D1).
   fastify.addHook("onRequest", createHostGate(getHostGateCtx, hostGateState, () => config.port));
+  // A denied cross-origin Origin may raise a DEFERRED cors-plane prompt; after
+  // the host gate so a host-refused request never prompts. Never alters the
+  // response. See change: add-access-grant-dialog.
+  fastify.addHook(
+    "onRequest",
+    createCorsDenialObserver(corsOpts, (deniedOrigin, ip) => {
+      grantCoordinator.onDenial(
+        {
+          plane: "cors",
+          rawSubject: deniedOrigin,
+          origin: "cors-origin",
+          channel: sourceChannel(ip),
+          requestHoldsCapability: false,
+        },
+        false,
+      );
+    }),
+  );
   await fastify.register(cors, {
     // Decision extracted to a pure, unit-tested helper (cors-origin.ts) so the
     // security-critical allow/deny logic is tested against the REAL code, not a
