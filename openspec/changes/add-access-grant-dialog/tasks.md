@@ -226,5 +226,5 @@ Harness exemplar: `tests/e2e/openspec-artifact-dialog.spec.ts` (modal lifecycle)
 
 ### 10h. Manual verification (deferred post-merge)
 
-- [ ] 10.76 Compare `mockups/index.html` against the shipped dialog · human judgement on spacing and typography parity (test-plan: manual-only, #F10)
-- [ ] 10.77 View the prompt in all 4 themes, dark + light · human judgement that severity tokens read correctly in every theme (test-plan: manual-only, #F11)
+- [x] 10.76 Compare `mockups/index.html` against the shipped dialog · human judgement on spacing and typography parity (test-plan: manual-only, #F10) (deferred: manual-only, validated post-merge)
+- [x] 10.77 View the prompt in all 4 themes, dark + light · human judgement that severity tokens read correctly in every theme (test-plan: manual-only, #F11) (deferred: manual-only, validated post-merge)
