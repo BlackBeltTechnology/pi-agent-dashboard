@@ -1,9 +1,14 @@
+import { mdiCheck } from "@mdi/js";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import React from "react";
-import { describe, it, expect, afterEach } from "vitest";
-import { render, cleanup } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+import { __resetMdiIconSetForTests, loadMdiIconSet } from "../mdi-by-key.js";
 import { StatusPill } from "../StatusPill.js";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  __resetMdiIconSetForTests();
+});
 
 describe("StatusPill", () => {
   it("renders the text", () => {
@@ -42,21 +47,30 @@ describe("StatusPill", () => {
     expect(container.firstChild?.parentElement?.getAttribute("title") ?? container.querySelector("[title]")?.getAttribute("title")).toBe("Currently running");
   });
 
-  // Post static-conversion (change: shrink-client-index-chunk): mdi[key] is a
-  // synchronous lookup, so the icon path renders immediately with no useEffect.
-  it("renders the icon <path> synchronously for a valid mdi key (test-plan #S3)", () => {
+  // Lazy icon set (change: harden-ios-safari-memory-and-ws-diagnostics):
+  // the icon renders nothing until the full MDI set loads, then its path.
+  it("renders no icon and no placeholder before load, then the icon path (test-plan #E5)", async () => {
     const { container } = render(
-      <StatusPill state="running" text="Working" icon="mdiRefresh" />,
+      <StatusPill state="running" text="Working" icon="mdiCheck" />,
     );
-    const p = container.querySelector("svg path");
-    expect(p).toBeTruthy();
-    expect(p?.getAttribute("d") ?? "").not.toBe("");
+    expect(container.querySelector("svg")).toBeNull();
+    // No placeholder slot: only the label <span> is rendered.
+    expect(container.querySelector('[data-status-pill]')?.children).toHaveLength(1);
+    await waitFor(() => {
+      const p = container.querySelector("svg path");
+      expect(p).toBeTruthy();
+      expect(p?.getAttribute("d")).toBe(mdiCheck);
+    });
   });
 
-  it("renders no icon and does not throw for an unknown mdi key (test-plan #S3)", () => {
+  it("renders no icon and does not throw for an unknown mdi key (test-plan #S3)", async () => {
     const { container } = render(
       <StatusPill state="error" text="Failed" icon="mdiNotAReal" />,
     );
+    expect(container.querySelector("svg path")).toBeNull();
+    await act(async () => {
+      await loadMdiIconSet();
+    });
     expect(container.querySelector("svg path")).toBeNull();
     expect(container.querySelector("[data-status-pill]")?.textContent).toContain("Failed");
   });

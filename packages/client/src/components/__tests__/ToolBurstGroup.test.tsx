@@ -9,11 +9,12 @@ import {
   DISPLAY_PRESETS,
   type DisplayPrefs,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { ChatMessage } from "../../lib/chat/event-reducer.js";
 import type { ChatItem } from "../../lib/chat/group-tool-calls.js";
 import { DisplayPrefsProvider } from "../../lib/state/DisplayPrefsContext.js";
+import { MobileProvider } from "../../hooks/useMobile.js";
 import { ToolBurstGroup } from "../chat/ToolBurstGroup.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
 import type { ToolContext } from "../tool-renderers/index.js";
@@ -186,5 +187,76 @@ describe("ToolBurstGroup — an elided member (fix-lazy-history-backfill-ux)", (
     ]);
     expect(container.querySelector('[data-testid="tool-burst-elided-glyph"]')).toBeNull();
     expect(container.querySelector(".text-green-400")).not.toBeNull();
+  });
+});
+
+/**
+ * Mobile viewports: a running group does not auto-expand (caps DOM growth in
+ * the non-virtualized streaming tail); tap still expands; desktop unchanged.
+ * Test-plan #E20–#E22. See change: harden-ios-safari-memory-and-ws-diagnostics.
+ */
+describe("ToolBurstGroup — collapsed on mobile (mobile-resilience)", () => {
+  function withViewport(mobile: boolean, run: () => void) {
+    const prev = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: mobile,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })) as unknown as typeof window.matchMedia;
+    try {
+      run();
+    } finally {
+      window.matchMedia = prev;
+    }
+  }
+
+  function renderViewportBurst(items: ChatItem[]) {
+    const prefs = { ...DISPLAY_PRESETS.standard, toolGroupDefaultCollapsed: false };
+    const ui = (list: ChatItem[]) => (
+      <MobileProvider>
+        <ThemeProvider>
+          <DisplayPrefsProvider value={{ global: prefs, getSessionOverride: () => undefined }}>
+            <ToolBurstGroup burst={{ type: "burst", id: "b1", items: list }} toolContext={toolContext} />
+          </DisplayPrefsProvider>
+        </ThemeProvider>
+      </MobileProvider>
+    );
+    const r = render(ui(items));
+    return { ...r, rerenderItems: (list: ChatItem[]) => r.rerender(ui(list)) };
+  }
+
+  const body = (c: HTMLElement) => c.querySelector('[data-testid="tool-burst-body"]');
+  const header = (c: HTMLElement) => c.querySelector('[data-testid="tool-burst-header"]') as HTMLElement;
+
+  it("#E20 a running group stays collapsed on mobile, live header visible", () => {
+    withViewport(true, () => {
+      const running = [tool({ toolName: "grep" }), tool({ toolName: "read", toolStatus: "running", args: { path: "/a" } })];
+      const { container } = renderViewportBurst(running);
+      expect(body(container)).toBeNull();
+      expect(header(container).textContent).toContain("Working");
+      expect(header(container).textContent).toContain("1 done"); // live tool count
+    });
+  });
+
+  it("#E21 tap expands on mobile and the body stays mounted after running→done", () => {
+    withViewport(true, () => {
+      const done = tool({ toolName: "grep" });
+      const runningMember = tool({ toolName: "read", toolStatus: "running", args: { path: "/a" } });
+      const { container, rerenderItems } = renderViewportBurst([done, runningMember]);
+      expect(body(container)).toBeNull();
+      fireEvent.click(header(container));
+      expect(body(container)).not.toBeNull();
+      rerenderItems([done, { ...runningMember, toolStatus: "complete" }]);
+      expect(body(container)).not.toBeNull();
+    });
+  });
+
+  it("#E22 desktop: a running group still auto-expands", () => {
+    withViewport(false, () => {
+      const running = [tool({ toolName: "grep" }), tool({ toolName: "read", toolStatus: "running", args: { path: "/a" } })];
+      const { container } = renderViewportBurst(running);
+      expect(body(container)).not.toBeNull();
+    });
   });
 });

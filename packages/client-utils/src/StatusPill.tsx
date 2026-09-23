@@ -8,13 +8,14 @@
  * rendering get visual parity. See change:
  * adopt-server-driven-intent-rendering.
  */
-import React, { useEffect, useState } from "react";
-import Icon from "@mdi/react";
-import * as mdi from "@mdi/js";
+
 import type {
   UiStatusPillProps,
   UiStatusPillState,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import Icon from "@mdi/react";
+import React, { useEffect, useState } from "react";
+import { useMdiIconByKey } from "./mdi-by-key.js";
 
 const STATE_STYLE_DARK: Record<UiStatusPillState, { bg: string; fg: string }> = {
   running: { bg: "rgba(34, 197, 94, 0.15)", fg: "rgb(134, 239, 172)" },
@@ -64,12 +65,13 @@ export function StatusPill({ state, text, icon, tooltip }: UiStatusPillProps) {
   );
 }
 
+/**
+ * Render an MDI icon by its export-name key. Renders nothing while the full
+ * icon set loads and for unknown keys. See change:
+ * harden-ios-safari-memory-and-ws-diagnostics.
+ */
 function IconByKey({ iconKey }: { iconKey: string }) {
-  // @mdi/js is already eager (statically imported across the shell), so this
-  // is a synchronous flat property lookup — no dynamic import, no loading
-  // state. See change: shrink-client-index-chunk.
-  const candidate = (mdi as Record<string, unknown>)[iconKey];
-  const path = typeof candidate === "string" ? candidate : null;
+  const path = useMdiIconByKey(iconKey);
   if (!path) return null;
   return <Icon path={path} size={0.55} />;
 }

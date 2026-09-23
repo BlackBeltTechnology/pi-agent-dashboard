@@ -2,25 +2,17 @@
  * MDI icon lookup helper for the Extension UI System (Phase 1).
  *
  * Extensions declare icons by MDI key string (e.g. `"mdiCheckCircle"`); the
- * dashboard resolves the key against the `@mdi/js` module exports at
- * runtime. Unknown keys render no icon — never an error — to keep the
- * surface XSS-safe and predictable. See change: add-extension-ui-modal,
- * design.md \u00a78.
- */
-import * as mdi from "@mdi/js";
-
-const allowlist = mdi as unknown as Record<string, string>;
-
-/**
- * Resolve an MDI key string (e.g. `"mdiCheckCircle"`) to its SVG path,
- * or `null` if the key is missing, mistyped, or not present in the
- * installed `@mdi/js` version.
+ * dashboard resolves the key against the full `@mdi/js` icon set. Unknown
+ * keys render no icon — never an error — to keep the surface XSS-safe and
+ * predictable. See change: add-extension-ui-modal, design.md §8.
  *
- * Pure: no side effects, safe to call during render.
+ * The full set is loaded lazily (off the cold landing load), so render sites
+ * use the `useMdiIconByKey` hook, which re-renders once the set lands.
+ * `resolveMdiIcon` is the synchronous lookup: `null` until the set has loaded.
+ * See change: harden-ios-safari-memory-and-ws-diagnostics.
  */
-export function resolveMdiIcon(key: string | undefined | null): string | null {
-  if (!key || typeof key !== "string") return null;
-  if (!key.startsWith("mdi")) return null;
-  const path = allowlist[key];
-  return typeof path === "string" && path.length > 0 ? path : null;
-}
+export {
+  loadMdiIconSet,
+  resolveMdiIconSync as resolveMdiIcon,
+  useMdiIconByKey,
+} from "@blackbelt-technology/pi-dashboard-client-utils/mdi-by-key";
