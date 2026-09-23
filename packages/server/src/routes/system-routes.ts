@@ -22,6 +22,7 @@ import type { NetworkInterface, ReservedNameResult } from "@blackbelt-technology
 import { resolveTunnelPlan } from "@blackbelt-technology/pi-dashboard-shared/tunnel-concurrency.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
+import type { AccessGrantHealth } from "../access/access-health.js";
 import {
   computeBindReachability,
   getLastBindReachability,
@@ -173,6 +174,10 @@ export function registerSystemRoutes(
     // self-records); `/api/health` reads its snapshot additively.
     // See change: attribute-openspec-poll-eventloop-stalls.
     eventLoopSpikes?: EventLoopSpikeMetrics;
+    // Access-grant prompting counters; `/api/health` reads them additively into
+    // `accessGrants`, failure-isolated like every other telemetry read.
+    // See change: add-access-grant-dialog (task 9.3).
+    readAccessGrants?: () => AccessGrantHealth;
     // Store-shed telemetry source; `/api/health` reads getTrimStats() into the
     // additive `storeTrim` field. See change: instrument-event-store-trim.
     // DERIVED from the store's exported TrimStats, never restated inline: an
@@ -205,7 +210,7 @@ export function registerSystemRoutes(
     clientBuild?: ClientBuildSnapshot;
   },
 ) {
-  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, keeperLogStats, clientDir } = deps;
+  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, keeperLogStats, clientDir, readAccessGrants } = deps;
 
   // Served-artifact coherence snapshot (design D4): a startup snapshot, never a
   // per-request filesystem read (P1).
@@ -921,6 +926,8 @@ export function registerSystemRoutes(
     // the resolved pi-coding-agent version so the operator can see a version
     // skew rather than a bare symptom.
     // See change: delegate-provider-oauth-to-pi-ai (D3).
+    let accessGrants: AccessGrantHealth | null = null;
+    try { accessGrants = readAccessGrants?.() ?? null; } catch { /* keep null */ }
     let providerAuthError: string | null = null;
     try { providerAuthError = getRegistryError(); } catch { /* keep null */ }
     const activeSessions = sessionManager.listActive();
@@ -934,6 +941,9 @@ export function registerSystemRoutes(
     return {
       ok: true,
       pid: process.pid,
+      // Access-grant prompting counters (additive; null when unwired or on a
+      // throwing read). See change: add-access-grant-dialog (task 9.3).
+      accessGrants,
       // Rendezvous instance id (NOT the Ed25519 `identity`): names which
       // same-HOME instance answered, so a bridge can tell its own dashboard
       // from a foreign listener on a recycled port. An IDENTIFIER, never a

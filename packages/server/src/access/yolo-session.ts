@@ -84,6 +84,8 @@ function realpathOrNull(p: string): string | null {
 export class YoloController {
   private session: YoloSession | null = null;
   private readonly log: YoloLogEntry[] = [];
+  /** Cumulative, unlike the bounded `log`, so `/api/health` never under-counts. */
+  private readonly totals = { autoAllowed: 0, refusedByPriorRefusal: 0 };
   private readonly now: () => number;
   private readonly ladder: (base: string) => Promise<string[]>;
   private readonly emit: (line: string) => void;
@@ -99,6 +101,11 @@ export class YoloController {
     const s = this.session;
     if (s && s.expiresAt !== null && this.now() >= s.expiresAt) this.session = null;
     return this.session;
+  }
+
+  /** Cumulative auto-answer counts since the process started (task 9.3). */
+  counters(): { autoAllowed: number; refusedByPriorRefusal: number } {
+    return { ...this.totals };
   }
 
   /** Auto-answers, newest last; they survive the session ending (8b.8). */
@@ -240,6 +247,8 @@ export class YoloController {
 
   private record(plane: AccessPlaneId, subject: string, outcome: YoloLogEntry["outcome"]): void {
     this.log.push({ plane, subject, at: this.now(), outcome });
+    if (outcome === "auto-allowed") this.totals.autoAllowed += 1;
+    else this.totals.refusedByPriorRefusal += 1;
     if (this.log.length > YOLO_LOG_CAPACITY) this.log.shift();
     this.emit(
       `[access-grant] yolo:${outcome} plane=${plane} subject=${JSON.stringify(subject)} (no human answered)`,
