@@ -16,14 +16,15 @@
  *
  * See change: add-extension-ui-modal.
  */
-import React, { useState } from "react";
-import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, fireEvent, cleanup, act, waitFor } from "@testing-library/react";
-import { mdiCheck } from "@mdi/js";
-import { GenericExtensionDialog } from "../components/extension-ui/GenericExtensionDialog.js";
-import { loadMdiIconSet, resolveMdiIcon } from "../lib/preview/mdi-icon-lookup.js";
+
 import { __resetMdiIconSetForTests } from "@blackbelt-technology/pi-dashboard-client-utils/mdi-by-key";
 import type { ExtensionUiModule } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiCheck } from "@mdi/js";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import React, { useState } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { GenericExtensionDialog } from "../components/extension-ui/GenericExtensionDialog.js";
+import { loadMdiIconSet, resolveMdiIcon } from "../lib/preview/mdi-icon-lookup.js";
 
 afterEach(() => {
   cleanup();
