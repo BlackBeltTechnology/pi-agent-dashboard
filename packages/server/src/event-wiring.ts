@@ -29,7 +29,6 @@ import type { EventStore } from "./persistence/memory-event-store.js";
 import type { PreferencesStore } from "./persistence/preferences-store.js";
 import type { PiGateway } from "./pi/pi-gateway.js";
 import { sessionCommandRegistry } from "./pi/session-skill-registry.js";
-import { handleDispatchExtensionCommand } from "./rpc-keeper/dispatch-router.js";
 import {
   customEventTypeOfEvent,
   isGroupableCustomEvent,
@@ -2303,26 +2302,38 @@ export function wireEvents(deps: EventWiringDeps): void {
       });
     }
 
-    // RPC keeper dispatch: bridge → server slash command forward.
-    // Fire-and-forget; the handler itself emits browser-bound
-    // `command_feedback` events on success and on every failure path.
-    // The terminal event is persisted via eventStore.insertEvent so it
-    // survives browser reattach (otherwise the chat pill stays "in progress").
-    // See change: add-rpc-stdin-dispatch-with-keeper-sidecar (Phase 8).
+    // Tombstone for `dispatch_extension_command` (one release). The bridge
+    // dispatches extension slash commands in-process now
+    // (`sendUserMessage({expandPromptTemplates:true})`), so nothing sends this
+    // except a bridge that was NOT reloaded after this server restarted. It is
+    // answered with a TERMINAL `command_feedback` error so the chat pill
+    // converges instead of hanging on the bridge's persisted `started`.
+    // Both halves matter: `eventStore.insertEvent` persists AND
+    // `broadcastEvent` fans out — a broadcast-only terminal re-creates the
+    // stuck pill on browser reattach (the reason the now-deleted
+    // `dispatch-router.ts` stored first). No keeper socket is written.
+    // See change: retire-slash-dispatch-via-expand-prompt-templates (design D4).
     if (msg.type === "dispatch_extension_command") {
-      void handleDispatchExtensionCommand(msg, {
-        headlessPidRegistry: browserGateway.headlessPidRegistry,
-        emitCommandFeedback: (sid, command, status, message) => {
-          const event = {
-            eventType: "command_feedback",
-            timestamp: Date.now(),
-            data: message === undefined ? { command, status } : { command, status, message },
-          };
-          const seq = eventStore.insertEvent(sid, event);
-          const stored = eventStore.getEvent(sid, seq) ?? event;
-          browserGateway.broadcastEvent(sid, seq, stored);
-        },
-      });
+      const { sessionId: tombstoneSid, command } = msg;
+      console.warn(
+        `[event-wiring] tombstone: dispatch_extension_command sid=${tombstoneSid} ` +
+          `cmd=${command} — bridge outdated, reload the session`,
+      );
+      try {
+        const event = {
+          eventType: "command_feedback",
+          timestamp: Date.now(),
+          data: { command, status: "error", message: "bridge outdated — reload the session" },
+        };
+        const seq = eventStore.insertEvent(tombstoneSid, event);
+        const stored = eventStore.getEvent(tombstoneSid, seq) ?? event;
+        browserGateway.broadcastEvent(tombstoneSid, seq, stored);
+      } catch (err) {
+        // Best-effort: a store failure must not reject out of the WS handler
+        // (the retired router was invoked via `void` and would have produced an
+        // unhandled rejection). No seq ⇒ nothing safe to broadcast.
+        console.warn("[event-wiring] tombstone: failed to persist command_feedback", err);
+      }
     }
 
   };

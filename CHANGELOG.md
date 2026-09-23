@@ -12,6 +12,23 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Extension slash commands sent from the dashboard now dispatch in-process, so
+  they work in every session kind — including tmux and terminal-hosted pi.** The
+  bridge calls `pi.sendUserMessage(text, { expandPromptTemplates: true,
+  deliverAs })` (pi >= 0.84.2) and pi's own `prompt()` runs the extension handler
+  before its compaction guard, so `/ctx-stats`, `/dashboard-where` and every
+  other `source:"extension"` command that passes `isExtensionSlashCommand`
+  executes immediately instead of being refused outside dashboard-spawned
+  headless sessions. (`/roles` — in `DASHBOARD_NATIVE_COMMANDS` — and
+  `__`-prefixed bridge-native names stay excluded, unchanged.) Retires the
+  three-way
+  `pi.dispatchCommand` / `dispatch_extension_command`-via-keeper-UDS / tmux-error
+  decision, along with `hasDispatchCommand` and the keeper RPC write client.
+  Below pi 0.84.2 the bridge refuses with an explicit "Extension slash commands
+  from the dashboard require pi 0.84.2+" error rather than silently sending the
+  raw slash to the model. See change:
+  retire-slash-dispatch-via-expand-prompt-templates.
+
 - **`composer-context-group` plugin slot** (react-only, `many`) renders labelled context groups inside the chat composer's session-action strip, after the Git group and before the Status group. Contributions are read-only and stay fully visible while a session streams (unlike the gated Status group). The runtime exports a `ComposerContextGroup({ label, children, testId? })` primitive. The quota plugin is the first claimant: its meter moved out of the composer's `content-inline-footer` into the strip, showing one chip per enabled provider with every window inline and the session's model provider ringed. See change: move-quota-to-context-strip.
 
 ### Changed
@@ -48,6 +65,14 @@ see [`docs/release-process.md`](docs/release-process.md).
 ### Changed
 
 - **dashboard-plugin-runtime**: `ServerContextDeps` gains five REQUIRED members (`mintSpawnToken`, `renameSession`, `assignSessionRef`, `networkGuard`, `onShutdown`) and `PluginSpawnOptions` gains `spawnToken`/`resume`/`initialPrompt` — implementors of `createServerPluginContext` (custom hosts, injected test contexts) must add them. See change: relocate-goal-product-to-plugin.
+
+- **`dispatch_extension_command` is a deprecated tombstone.** No current bridge
+  sends it; a one-release server arm answers an un-reloaded bridge with a
+  persisted + broadcast `command_feedback { status: "error", message: "bridge
+  outdated — reload the session" }` so the chat pill converges instead of hanging
+  on "in progress". `DispatchExtensionCommandMessage` stays `@deprecated` until
+  the tombstone is removed. See change:
+  retire-slash-dispatch-via-expand-prompt-templates.
 
 ### Security
 
