@@ -89,4 +89,7 @@ async function main(): Promise<void> {
   console.log(JSON.stringify({ e1: r1.mb, e2: r2.mb, e3: r3, payloadMB: 30 }));
 }
 
-void main();
+main().catch((err: unknown) => {
+  console.log(JSON.stringify({ error: String(err) }));
+  process.exit(1);
+});
