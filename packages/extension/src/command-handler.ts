@@ -671,7 +671,6 @@ export function createCommandHandler(
                 parsed.text,
                 sessionId,
                 options?.eventSink,
-                undefined, // connection — absent in non-bridge path
                 msg.delivery,
               );
               // Exec-mode slash template (executable: bash): run as bash, no LLM.

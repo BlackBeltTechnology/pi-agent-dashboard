@@ -18,9 +18,12 @@
  * top-level reasoning block; only non-empty `assistant` prose renders as flat
  * narration.
  *
- * Default open state: `expanded = override ?? (toolGroupDefaultCollapsed ?
- * false : isRunning)`. The pref only changes the body's default open state; the
- * live header + animation key off `isRunning`, not `expanded`.
+ * Default open state: `expanded = override ?? ((toolGroupDefaultCollapsed ||
+ * isMobile) ? false : isRunning)`. The pref only changes the body's default
+ * open state; the live header + animation key off `isRunning`, not `expanded`.
+ * On mobile viewports a running group never auto-expands (caps DOM growth in
+ * the non-virtualized streaming tail); a tap still opens it.
+ * See change: harden-ios-safari-memory-and-ws-diagnostics.
  *
  * See change: enhance-tool-call-grouping (was: group-tool-call-bursts).
  */
@@ -149,6 +152,7 @@ function GroupFrame({
 
 export function ToolBurstGroup({ burst, toolContext }: Props) {
   const prefs = useDisplayPrefs();
+  const isMobile = useMobile();
 
   // Gate members by tool-kind toggle (mirrors CollapsedToolGroup). `ask_user`
   // is never gated (toolCallPrefKey → null). Count/render reflect VISIBLE only.
@@ -161,8 +165,9 @@ export function ToolBurstGroup({ burst, toolContext }: Props) {
   const [override, setOverride] = useState<boolean | null>(null); // null = follow auto
   const isRunning = visibleMembers.some((m) => m.toolStatus === "running");
   // Pref only changes the body's default open state; the live header keys off
-  // isRunning, not expanded. Manual override always wins.
-  const autoOpen = prefs.toolGroupDefaultCollapsed ? false : isRunning;
+  // isRunning, not expanded. Manual override always wins. Mobile never
+  // auto-expands a running group.
+  const autoOpen = prefs.toolGroupDefaultCollapsed || isMobile ? false : isRunning;
   const expanded = override ?? autoOpen;
 
   // One-shot completion flash on the running→done flip.

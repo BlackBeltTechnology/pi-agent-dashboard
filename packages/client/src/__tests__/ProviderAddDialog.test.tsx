@@ -407,7 +407,27 @@ describe("the sign-in pane branches on flow.status.pending (E29)", () => {
     const d = dialog();
     expect(await d.findByText("WDJB-MJHT")).toBeTruthy();
     expect(d.getByText(/open registration page/i)).toBeTruthy();
-    expect(d.getByText(/Code expires in 15:00/)).toBeTruthy();
+    // `useDeviceCodeRemaining` anchors `deadline = Date.now() + expiresInSeconds*1000`
+    // at mount and recomputes from `Date.now()` on every 1 s interval tick, and this
+    // suite runs with fake timers in `shouldAdvanceTime` mode — so the clock keeps
+    // ticking with real elapsed time. A first paint slower than ~500 ms (routine on a
+    // loaded CI runner: this assertion flaked 2/2 there while passing 3/3 locally)
+    // renders `14:59` via `Math.round`. Assert the mm:ss SHAPE and the code's full
+    // 15-minute life instead of a specific tick: 900 s is the anchored value, 899 s
+    // the one-tick floor. Deterministic, and still fails on a wrong
+    // `expiresInSeconds` or a broken countdown.
+    // `findByText`, not `getByText`: `useDeviceCodeRemaining` populates its
+    // remaining-time state on the first interval tick, so the countdown is NOT in
+    // the first committed paint. A synchronous query therefore depends on a tick
+    // landing between the await above and this line — which is why this assertion
+    // failed on loaded CI runners (4 consecutive red ci runs on develop) while
+    // passing locally. The async query waits for the element instead of racing it.
+    const countdown = (await d.findByText(/Code expires in \d+:\d{2}/)).textContent ?? "";
+    const mmss = /^Code expires in (\d+):(\d{2})$/.exec(countdown);
+    expect(mmss, `unexpected countdown label: ${countdown}`).toBeTruthy();
+    const seconds = Number(mmss![1]) * 60 + Number(mmss![2]);
+    expect(seconds).toBeGreaterThanOrEqual(899);
+    expect(seconds).toBeLessThanOrEqual(900);
     expect(screen.getByRole("dialog").querySelector(`a[href="${authUrl}"]`)).toBeTruthy();
   });
 

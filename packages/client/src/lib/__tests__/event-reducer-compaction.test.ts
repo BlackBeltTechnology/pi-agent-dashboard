@@ -137,3 +137,24 @@ describe("deriveCompactionBadge (pure)", () => {
     expect(badge).toEqual({ label: "overflow-retry", reductionText: "" });
   });
 });
+
+/**
+ * The payload the bridge actually forwards (its `compactionEntry` redacted)
+ * still drives the divider and the badge.
+ *
+ * See change: filter-system-role-message-forwarding (E10).
+ */
+describe("E10: a redacted session_compact payload still renders", () => {
+  it("appends the divider and captures reason/willRetry", () => {
+    const redacted = {
+      type: "session_compact",
+      reason: "threshold",
+      willRetry: false,
+      fromExtension: false,
+    };
+    const s = reduceEvent(createInitialState(), ev(redacted));
+
+    expect(s.messages.at(-1)?.content).toContain("compacted");
+    expect(s.compaction).toMatchObject({ reason: "threshold", willRetry: false });
+  });
+});

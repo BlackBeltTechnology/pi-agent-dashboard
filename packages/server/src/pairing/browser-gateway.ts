@@ -485,6 +485,19 @@ export interface BrowserGateway {
   registerDisconnectHandler(handler: (ws: WebSocket) => void): void;
 }
 
+/** Default browser keepalive ping interval. See change: harden-ios-safari-memory-and-ws-diagnostics. */
+export const DEFAULT_BROWSER_PING_INTERVAL_MS = 30_000;
+
+/** Per-socket close-diagnostics + keepalive state (design D2/D3). */
+interface SocketDiag {
+  connectedAt: number;
+  frames: number;
+  missedPongs: number;
+  /** `bufferedAmount` at the previous keepalive tick (drain-progress check). */
+  lastBuffered: number;
+  cause: "peer" | "keepalive" | "stalled";
+}
+
 export function createBrowserGateway(
   sessionManager: SessionManager,
   eventStore: EventStore,
@@ -522,8 +535,59 @@ export function createBrowserGateway(
    *  transcript is not on this filesystem, so this is where its history comes
    *  from. See change: serve-retained-remote-transcripts. */
   remoteTranscriptStore?: import("../session/remote-transcript-store.js").RemoteTranscriptStore,
+  /** Protocol-level keepalive ping interval for browser sockets (ms).
+   *  See change: harden-ios-safari-memory-and-ws-diagnostics (design D2). */
+  browserPingIntervalMs: number = DEFAULT_BROWSER_PING_INTERVAL_MS,
 ): BrowserGateway {
   const wss = new WebSocketServer({ noServer: true });
+
+  /**
+   * Per-socket close diagnostics + keepalive state (D2/D3). A WeakMap, so a
+   * closed socket needs no explicit cleanup.
+   * See change: harden-ios-safari-memory-and-ws-diagnostics.
+   */
+  const socketDiag = new WeakMap<WebSocket, SocketDiag>();
+
+  // Keepalive: ping every interval; a socket that left two consecutive pings
+  // unanswered is terminated on the next tick (60–90 s at the default). The
+  // timer runs only while tracked (upgraded) clients exist, never keeps the
+  // process alive, and is cleared when the wss closes.
+  let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+  function keepaliveTick(): void {
+    for (const client of wss.clients) {
+      if (client.readyState !== WebSocket.OPEN) continue;
+      const diag = socketDiag.get(client);
+      if (!diag) continue;
+      // The ping queues behind buffered data, so a live client on a slow link
+      // cannot answer until it drains: drain progress counts as liveness.
+      const buffered = client.bufferedAmount;
+      // Any decrease counts, including a drain to 0 (idle 0 → 0 does not).
+      if (buffered < diag.lastBuffered) diag.missedPongs = 0;
+      diag.lastBuffered = buffered;
+      if (diag.missedPongs >= 2) {
+        diag.cause = "keepalive";
+        client.terminate();
+        continue;
+      }
+      diag.missedPongs++;
+      try {
+        client.ping();
+      } catch {
+        // A socket racing to close — its close event settles it.
+      }
+    }
+  }
+  function startKeepalive(): void {
+    if (keepaliveTimer) return;
+    keepaliveTimer = setInterval(keepaliveTick, browserPingIntervalMs);
+    if (typeof keepaliveTimer.unref === "function") keepaliveTimer.unref();
+  }
+  function stopKeepalive(): void {
+    if (!keepaliveTimer) return;
+    clearInterval(keepaliveTimer);
+    keepaliveTimer = null;
+  }
+  wss.on("close", stopKeepalive);
 
   /**
    * Plugin-registered handlers for custom Browser→Server message types.
@@ -909,6 +973,8 @@ export function createBrowserGateway(
     }
     const len = Buffer.byteLength(serialized);
     if (pending.bytes + len > MAX_WS_BUFFER) {
+      const diag = socketDiag.get(ws);
+      if (diag) diag.cause = "stalled";
       ws.terminate();
       stalledSocketsTerminated++;
       dropPendingState(ws);
@@ -1335,6 +1401,12 @@ export function createBrowserGateway(
     console.error(`[browser-gw] browser client connected from ${remoteAddr} origin=${origin} ua=${ua.slice(0, 80)} (total: ${subscriptions.size + 1})`);
     const subs = new Set<string>();
     subscriptions.set(ws, subs);
+    const diag: SocketDiag = { connectedAt: Date.now(), frames: 0, missedPongs: 0, lastBuffered: 0, cause: "peer" };
+    socketDiag.set(ws, diag);
+    ws.on("pong", () => {
+      diag.missedPongs = 0;
+    });
+    if (wss.clients.has(ws)) startKeepalive();
 
     // Send pinned directories on connect
     if (preferencesStore) {
@@ -1464,6 +1536,7 @@ export function createBrowserGateway(
 
 
     ws.on("message", async (raw) => {
+      diag.frames++;
       // Malformed (non-JSON) frames are silently dropped. Only frame-parse
       // errors are swallowed here — handler exceptions are logged below so
       // real bugs (e.g. node-pty spawn failures) are not silently hidden.
@@ -1918,10 +1991,15 @@ export function createBrowserGateway(
       }
     });
 
-    ws.on("close", () => {
-      console.error(`[browser-gw] browser client disconnected (remaining: ${subscriptions.size - 1})`);
+    ws.on("close", (code?: number, reason?: Buffer) => {
+      console.error(
+        `[browser-gw] browser client disconnected (remaining: ${subscriptions.size - 1})` +
+          ` code=${code ?? "none"} reason=${JSON.stringify(reason ? reason.toString("utf8") : "")}` +
+          ` lifetime=${((Date.now() - diag.connectedAt) / 1000).toFixed(1)}s frames=${diag.frames} cause=${diag.cause}`,
+      );
       // The capability dies with its connection (spec: access-grant-eligibility).
       releasePromptChannel(grantSocketId);
+      if (wss.clients.size === 0) stopKeepalive();
       subscriptions.delete(ws);
       replayingSessions.delete(ws);
       // A closed socket can never flush; discard its pending state (D2).

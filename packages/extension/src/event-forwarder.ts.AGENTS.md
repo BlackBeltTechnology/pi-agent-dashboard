@@ -1,3 +1,3 @@
 # event-forwarder.ts — index
 
-Map pi event objects to `event_forward` protocol messages. Exports `mapEventToProtocol`. `extractSerializable` strips functions / AbortSignals / `{aborted}`-shaped objects so forwarding stays JSON-safe.
+Map pi event objects to `event_forward` protocol messages. Exports `mapEventToProtocol`. `extractSerializable` strips functions / AbortSignals / `{aborted}`-shaped objects so forwarding stays JSON-safe. Also exports `redactCompactionEntry(event)` — shallow COPY of a `session_compact` event with `compactionEntry` deleted (drops pi >= 0.86's `systemMessage` prompt/tool checkpoint + `summary`; no dashboard consumer). Bridge forwarding policy: applied at the bridge's `session_compact` site, NOT inside the generic `mapEventToProtocol`; copy never mutates pi's shared event object (pi hands ONE object to every subscribed extension). See change: filter-system-role-message-forwarding (D6/D7).

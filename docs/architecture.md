@@ -225,6 +225,50 @@ TypeScript type definitions shared across all components:
 - Unit tests: `packages/extension/src/__tests__/message-update-coalescer.test.ts`, `packages/extension/src/__tests__/bridge-coalesced-chat-order.test.ts`.
 - E2E test: `tests/e2e/coalesced-streaming.spec.ts`.
 
+### Bridge Event Forwarding Exclusions (change: filter-system-role-message-forwarding)
+
+**Why.**
+- pi `>= 0.86.0` makes system prompt + tool loadout transcript-backed.
+- First request of a session persists a `role:"system"` message carrying every prompt `section` + full `toolsAdded` declaration list.
+- Later prompt/tool changes persist further system messages.
+- `pi-agent-core` `agent-loop.js` emits that message as a BACK-TO-BACK `message_start` + `message_end` pair (same object); bridge forwarded both.
+- Measured ~150 KB per system message on a live 0.86.1 session.
+- `session_compact.compactionEntry` carries the SAME prompt-sections + tool-declaration blob in `compactionEntry.systemMessage`, plus the compaction `summary`.
+- `session_compact` had no dedicated bridge arm; it fell through to the shared forward tail and was serialized whole.
+
+**What changed.**
+- File: `packages/extension/src/bridge.ts`. Three sites.
+- `message_start` arm: early-return when `event.message?.role === "system"`, placed immediately AFTER the existing `role === "custom"` return.
+- `message_end` arm: same early-return, same placement.
+- New exported helper `redactCompactionEntry(event)` in `packages/extension/src/event-forwarder.ts`: returns a shallow COPY of the event with `compactionEntry` deleted.
+- Bridge applies it on the shared tail only for `session_compact`: `const forwardEvent = eventType === "session_compact" ? redactCompactionEntry(event as Record<string, unknown>) : event;` before `mapEventToProtocol`.
+- No version gate: pi `< 0.86` never emits the role; field omission is safe wherever the field is absent.
+- `assistantMessageGen` comment in `bridge.ts` widened from "(user and assistant)" to include the barrier-only `system` start.
+
+**Placement (why after the barrier).**
+- Both returns sit AFTER the coalescing barrier (`assistantMessageGen += 1;` + `coalescer.messageStart(...)` / `coalescer.messageEnd(...)`).
+- Barrier contract unchanged.
+- Entry-level flush choke point (`if (flushesParkedText(eventType)) coalescer.flush()` at handler entry) still runs first.
+- Placement is a consistency choice, not behavioural; the parked-snapshot ordering guarantee belongs to the entry choke point.
+
+**Redaction on a copy.**
+- Copy, never mutate: pi hands the SAME event object to every subscribed extension.
+- Generic `mapEventToProtocol` stays generic.
+
+**Why safe (no consumer).**
+- Client `session_compact` arm (`packages/client/src/lib/chat/event-reducer.ts`) reads only `reason`, `willRetry`, `estimatedPostCompactionTokens`; renders the compaction divider from the event's presence.
+- Server uses the event only to clear the `compacting` latch (`packages/server/src/session/event-status-extraction.ts`).
+- Replay path already synthesizes a metadata-free `session_compact` (`packages/shared/src/state-replay.ts`).
+- Live-vs-replay parity is defined on event type/position/timestamp only; this change does not alter that contract.
+
+**Accepted trade-offs.**
+- Sessions that already persisted system events are not evicted (forward-only); they replay until normal rotation removes them.
+
+**References.**
+- Design: `openspec/changes/filter-system-role-message-forwarding/` (D2/D6/D7).
+- Spec delta: `openspec/changes/filter-system-role-message-forwarding/specs/catch-all-event-forwarding/spec.md`.
+- Tests: `packages/extension/src/__tests__/bridge-coalesced-chat-order.test.ts`, `packages/extension/src/__tests__/event-forwarder.test.ts`.
+
 ### EventBus Forwarding Mechanism (subscription-based, change: fix-automation-run-lifecycle)
 
 **Host topology.**
@@ -1613,7 +1657,7 @@ flowchart TD
 
 **Predicate gate** — `isBareReloadCommand` in `browser-handlers/session-action-helpers.ts`. `text === "/reload"` exactly, zero images, says nothing about session shape. Replaced old `shouldInterceptReload`, which also required a headless PID and thereby made kill-and-respawn the default.
 
-**Why no in-process path.** Earlier revision wrote `/__dashboard_reload` to the session's RPC keeper, on the claim that pi RPC mode runs the line through `session.prompt()` WITH command handling. Measured in the docker harness with `keeperLog.capturePiOutput = true`: it does not. pi's RPC `{type:"prompt"}` performs NO slash-command dispatch. Dispatched `/__dashboard_reload` arrived at the model as an ordinary user prompt and produced a full agent turn (`agent_start` → user message → assistant reply → `agent_end`). Control: pi built-in `/help` written to the same socket behaved identically — so not the `__` prefix, not our registration. Consequence: kill-and-respawn is the ONLY mechanism that reloads a headless session. Note: `rpc-keeper/dispatch-router.ts` `dispatch_extension_command` uses the same `writeRpc` + `{type:"prompt"}` mechanism and therefore has the same defect — separate live bug, own change.
+**Why no in-process path.** Earlier revision wrote `/__dashboard_reload` to the session's RPC keeper, on the claim that pi RPC mode runs the line through `session.prompt()` WITH command handling. Measured in the docker harness with `keeperLog.capturePiOutput = true` on pi < 0.84.2: it does not — pi's RPC `{type:"prompt"}` performed NO slash-command dispatch. Dispatched `/__dashboard_reload` arrived at the model as an ordinary user prompt and produced a full agent turn (`agent_start` → user message → assistant reply → `agent_end`). Control: pi built-in `/help` written to the same socket behaved identically — so not the `__` prefix, not our registration. (Pi >= 0.84.2 RPC `prompt()` defaults `expandPromptTemplates` ON; the original measurement predates that. Decision unaffected — `/__dashboard_reload` is STILL never written to the keeper.) Consequence: kill-and-respawn is the ONLY mechanism that reloads a headless session. The extension-slash `dispatch_extension_command` route used the same keeper `writeRpc` + `{type:"prompt"}` mechanism; it was retired by change `retire-slash-dispatch-via-expand-prompt-templates` (bridge dispatches in-process via `sendUserMessage({expandPromptTemplates: true})`).
 
 **Ladder step 1 — busy check.** `isReloadBusy` runs FIRST. Refuse if `session.compacting === true`. Refuse if `status === "streaming"` AND `piGateway.isSessionConnected(sessionId)`. Stale `streaming` on a bridge-dead session does NOT refuse — pinned there forever, and exactly what respawn rescues.
 
@@ -2771,7 +2815,7 @@ An operator's explicit `deny` on a YOLO-eligible plane is remembered in the **re
 
 Access-page mutations (`POST /api/access/prompts/:promptId`, `POST`/`DELETE /api/access/yolo`, `DELETE /api/access/refusals`) run the global mutation-origin gate plus `networkGuard` only — genuinely local (tunnel-aware), local token, trusted network, or authenticated. Deliberately wider than `POST /api/access/grants` (auth or loopback, D15), because a trusted-network browser can already answer through the dialog WS (user decision C); a loopback caller behind a forwarding header (a tunnel) is not local. `GET /api/health.accessGrants` is additive and failure-isolated, served **only** to an authenticated or genuinely-local caller, because `/api/health` is unguarded and the field names the host-gate mode, YOLO state and whether an operator is online.
 
-**Coverage.** Browser E2E `tests/e2e/access-grant-dialog.spec.ts`; clean-install VM smoke `qa/tests/35-access-grant-dialog.sh`.
+**Coverage.** Browser E2E `tests/e2e/access-grant-dialog.spec.ts`; clean-install VM smoke `qa/tests/36-access-grant-dialog.sh`.
 
 ### OAuth Authentication Flow
 
@@ -3961,9 +4005,9 @@ On Windows, `spawnDetached` uses `detached: true` which (via libuv's `src/win/pr
 
 ### RPC keeper sidecar
 
-Introduced by change `add-rpc-stdin-dispatch-with-keeper-sidecar`. Default and only headless spawn path as of change `enable-rpc-keeper-by-default`. Resolves typed extension slash commands (`/ctx-stats`, `/curator`, `/agents`, `/flows:*`) in headless dashboard sessions despite pi 0.74 `ExtensionAPI` exposing no `dispatchCommand`.
+Introduced by change `add-rpc-stdin-dispatch-with-keeper-sidecar`. Default and only headless spawn path as of change `enable-rpc-keeper-by-default`. Durable owner of pi's stdin across dashboard restarts. Extension slash-command dispatch was retired by change `retire-slash-dispatch-via-expand-prompt-templates` — the bridge dispatches in-process now; the keeper's JSON-line forward protocol is intact.
 
-Per-session keeper process owns pi's stdin pipe. Server writes RPC lines to keeper via UDS (Unix) or named pipe (Windows). Keeper forwards verbatim to pi's stdin. Pi's `--mode rpc` reader runs `session.prompt(text, {expandPromptTemplates: true})` which dispatches slash commands.
+Per-session keeper process owns pi's stdin pipe. Keeper forwards verbatim to pi's stdin. Server no longer writes extension-slash RPC lines to the keeper (`keeperManager.writeRpc`, `keeperManager.writeRpcToSockPath`, `headlessPidRegistry.writeRpc` removed; `dispatch-router.ts` deleted).
 
 Keeper outlives dashboard server restarts. Replaced Unix `tail -f /dev/null | pi` wrapper and Windows direct-stdin pipe. Uniform durability across Unix and Windows.
 
@@ -3976,7 +4020,7 @@ flowchart LR
   P["pi --mode rpc"]
   B["bridge.ts<br/>(loaded inside pi)"]
 
-  S -->|"UDS /<sessionId>.rpc.sock<br/>(slash dispatch only)"| K
+  S -.->|"UDS /<sessionId>.rpc.sock<br/>(no writer — slash dispatch retired)"| K
   K -->|"pi.stdin pipe<br/>(forward JSON lines)"| P
   P --- B
   B -->|"bridge WS<br/>(events, send_prompt non-slash, abort, model, etc.)"| S
@@ -3984,16 +4028,16 @@ flowchart LR
 
 UDS path: `~/.pi/dashboard/sessions/<sessionId>.rpc.sock`. Windows pipe: `\\.\pipe\pi-rpc-<sessionId>`. Keeper PID sidecar: `<sockPath>.pid`. Server scans on startup for orphan-cleanup + reattach.
 
-Protocol: line-framed JSON, fire-and-forget. Server writes `{"type":"prompt","message":"/cmd","id":"<requestId>"}\n`. Keeper forwards raw line; no parsing, no response. Acknowledgement implicit (UDS write success).
+Protocol: line-framed JSON, fire-and-forget. Keeper forwards the raw line to pi's stdin; no parsing, no response. The server-side writer (`{"type":"prompt","message":"/cmd","id":"<requestId>"}\n` via UDS write) had no remaining caller and was removed by change `retire-slash-dispatch-via-expand-prompt-templates`.
 
 Dual-channel boundary explicit:
 - **Bridge WS** owns: send_prompt non-slash, abort, model switch, thinking-level, compaction, rename, events, flow control.
-- **Server → keeper UDS** owns: extension slash dispatch only.
+- **Server → keeper UDS** owned: extension slash dispatch only — RETIRED. No writer remains; keeper still owns pi's stdin.
 - **headlessPidRegistry kill** owns: kill-by-pid for shutdown / force-kill / reload. `killBySessionId` escalates pi via shared `killProcess(pid, { timeoutMs: 2000 })` ladder (SIGTERM → 2 s → SIGKILL) — uniform with `handleForceKill`. See change: `fix-keeper-kill-escalation`.
 
-Bridge cannot reach `session.prompt` from inside pi 0.74. Server can (owns spawn + keeper). Routing slash dispatch through the channel that has the capability is correct given the constraint.
+Former constraint: bridge cannot reach `session.prompt` from inside pi. Pi >= 0.84.2 exposes the dispatch through `sendUserMessage({expandPromptTemplates: true})`; the handler runs inside pi, so the RPC route is no longer needed.
 
-Lifecycle: pi exits → keeper exits 0, unlinks socket + pid sidecar. Keeper crashes → pi reads EOF on stdin → exits. Force-kill → server kills pi PID first, schedules 200 ms keeper-fallback SIGTERM. Keeper `shutdown()` SIGKILLs `piChild` before `process.exit` (defence in depth) — closes orphan-pi gap when pi event loop hung (CPU loop / non-cancellable native call) and stdin EOF never observed. See change: `fix-keeper-kill-escalation`. Tmux / Windows-Terminal sessions retain the existing `command_feedback {error}` stopgap (terminal owns pi's stdin, no UDS route).
+Lifecycle: pi exits → keeper exits 0, unlinks socket + pid sidecar. Keeper crashes → pi reads EOF on stdin → exits. Force-kill → server kills pi PID first, schedules 200 ms keeper-fallback SIGTERM. Keeper `shutdown()` SIGKILLs `piChild` before `process.exit` (defence in depth) — closes orphan-pi gap when pi event loop hung (CPU loop / non-cancellable native call) and stdin EOF never observed. See change: `fix-keeper-kill-escalation`. Tmux / Windows-Terminal sessions dispatch extension slash commands in-process now (change `retire-slash-dispatch-via-expand-prompt-templates`); the old `command_feedback {error}` stopgap is gone.
 
 ### Server Log Hygiene
 

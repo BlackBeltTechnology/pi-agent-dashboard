@@ -7,11 +7,12 @@
  *
  * See change: add-extension-ui-decorations, design.md §6.
  */
-import React from "react";
+
+import type { DashboardSession, DecoratorDescriptor } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { Icon } from "@mdi/react";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import React from "react";
+import { useMdiIconByKey } from "../../lib/preview/mdi-icon-lookup.js";
 import { decoratorsOfKind } from "./decorator-utils.js";
-import { resolveMdiIcon } from "../../lib/preview/mdi-icon-lookup.js";
 
 export function FooterSegmentSlot({ session }: { session: Pick<DashboardSession, "uiDecorators"> }) {
   const segments = decoratorsOfKind(session.uiDecorators, "footer-segment");
@@ -21,20 +22,29 @@ export function FooterSegmentSlot({ session }: { session: Pick<DashboardSession,
       className="inline-flex items-center gap-1 mr-1"
       data-testid="footer-segment-slot"
     >
-      {segments.map((d) => {
-        const iconPath = resolveMdiIcon(d.payload.icon);
-        return (
-          <span
-            key={`${d.namespace}:${d.id}`}
-            title={d.payload.tooltip}
-            className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text-secondary)] inline-flex items-center gap-0.5"
-            data-testid={`footer-segment:${d.namespace}:${d.id}`}
-          >
-            {iconPath && <Icon path={iconPath} size={0.4} />}
-            {d.payload.text}
-          </span>
-        );
-      })}
+      {segments.map((d) => (
+        <FooterSegment key={`${d.namespace}:${d.id}`} descriptor={d} />
+      ))}
+    </span>
+  );
+}
+
+type FooterSegmentDescriptor = Extract<DecoratorDescriptor, { kind: "footer-segment" }>;
+
+/**
+ * One segment. A component (not inline in `.map`) so the icon hook runs once
+ * per segment. See change: harden-ios-safari-memory-and-ws-diagnostics.
+ */
+function FooterSegment({ descriptor: d }: { descriptor: FooterSegmentDescriptor }) {
+  const iconPath = useMdiIconByKey(d.payload.icon);
+  return (
+    <span
+      title={d.payload.tooltip}
+      className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text-secondary)] inline-flex items-center gap-0.5"
+      data-testid={`footer-segment:${d.namespace}:${d.id}`}
+    >
+      {iconPath && <Icon path={iconPath} size={0.4} />}
+      {d.payload.text}
     </span>
   );
 }

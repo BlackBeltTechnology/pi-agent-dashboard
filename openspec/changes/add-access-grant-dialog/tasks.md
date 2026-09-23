@@ -196,7 +196,7 @@ Harness exemplar: `qa/tests/03-websocket.sh` (per-OS process-level assertions, n
 
 - [x] 10.55 Candidate `~/.SSH` on a case-insensitive volume · forbidden rule applied · refused (test-plan #E18)
 - [x] 10.56 Case-sensitive volume on a case-insensitive host, candidates differing only in case · containment evaluated · treated as distinct, sensitivity read from the volume (test-plan #E19)
-- [x] 10.57 500 denials across 50 subjects from one capability · p95 denial-path added latency < 5 ms, never more than 2 concurrent dialogs, channel suppressed past 12 entries (test-plan #P2) — as run: in-process `ladder-perf.test.ts` (#P2), the ladder cost being #P3; the other 10f rows are `qa/tests/35-access-grant-dialog.sh`, verified locally against the worktree CLI
+- [x] 10.57 500 denials across 50 subjects from one capability · p95 denial-path added latency < 5 ms, never more than 2 concurrent dialogs, channel suppressed past 12 entries (test-plan #P2) — as run: in-process `ladder-perf.test.ts` (#P2), the ladder cost being #P3; the other 10f rows are `qa/tests/36-access-grant-dialog.sh`, verified locally against the worktree CLI
 - [x] 10.58 Env-activated YOLO, no browser connected · non-browser client's request denied by containment · remains denied (test-plan #X11)
 - [x] 10.59 `PI_DASHBOARD_DISABLE_GRANT_PROMPT=1` · denial occurs · no prompt, grants unaffected, toggle inert not hidden (test-plan #X12)
 

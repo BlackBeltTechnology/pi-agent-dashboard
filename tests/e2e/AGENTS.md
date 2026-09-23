@@ -5,7 +5,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | File | Purpose |
 |------|---------|
 | `README.md` | Docs for browser E2E. Prerequisites: Docker, `npx playwright install chromium`. → see `README.md.AGENTS.md` |
-| `access-grants-revoke.spec.ts` | L3 for the access-grant remedy journey — denial → grant → admitted with NO restart → revoke → denied again… → see `access-grants-revoke.spec.ts.AGENTS.md` |
+| `access-grants-revoke.spec.ts` | L3 access-grant remedy journey: denial → grant → admitted → revoke → denied. → see `access-grants-revoke.spec.ts.AGENTS.md` |
 | `access-grant-dialog.spec.ts` | L3 for the access-grant prompt dialog + YOLO UI (change: add-access-grant-dialog, tasks 10.60-10.75;… → see `access-grant-dialog.spec.ts.AGENTS.md` |
 | `anthropic-bridge-activation.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). → see `anthropic-bridge-activation.spec.ts.AGENTS.md` |
 | `archive-fold.spec.ts` | L3 for the per-folder `Archive (N)` fold (test-plan #F4, #F8, #F9, #F10, #F14, #… → see `archive-fold.spec.ts.AGENTS.md` |
@@ -46,6 +46,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `keeper-log-health.spec.ts` | L3 (test-plan #F1, #F2): `/api/health` carries `keeperLogs` (7 numeric fields); a sparse 2×-cap… → see `keeper-log-health.spec.ts.AGENTS.md` |
 | `ended-session-endedat.spec.ts` | L3 for the evidence-based `endedAt` invariant (test-plan #F1, #F2); plants historical… → see `ended-session-endedat.spec.ts.AGENTS.md` |
 | `explicit-model-preserved.spec.ts` | L3 for `fix-default-model-clobbers-explicit-model` (test-plan #I1, #I2): launches a… → see `explicit-model-preserved.spec.ts.AGENTS.md` |
+| `extension-slash-inprocess.spec.ts` | L3 in-process extension slash dispatch (test-plan F1, F2). → see `extension-slash-inprocess.spec.ts.AGENTS.md` |
 | `enhance-tool-call-grouping.spec.ts` | Playwright spec for universal tool-call grouping (change… → see `enhance-tool-call-grouping.spec.ts.AGENTS.md` |
 | `error-lifecycle.spec.ts` | Playwright spec. Single-card error-lifecycle surface end-to-end via faux model (no LLM). 4 tests. → see `error-lifecycle.spec.ts.AGENTS.md` |
 | `faux-ask.spec.ts` | Faux-provider ask_user round trip. → see `faux-ask.spec.ts.AGENTS.md` |
@@ -89,6 +90,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `kb-folder-slot.spec.ts` | Playwright spec. KB folder slot end-to-end in Docker harness. → see `kb-folder-slot.spec.ts.AGENTS.md` |
 | `large-session-replay.spec.ts` | L3 wire-level gate for `compact-warm-replay-stream` (#399): P1 zero superseded… → see `large-session-replay.spec.ts.AGENTS.md` |
 | `lazy-feature-bootstrap.spec.ts` | L3 cold-landing gate (F1, P1). → see `lazy-feature-bootstrap.spec.ts.AGENTS.md` |
+| `lazy-mdi-icon-set.spec.ts` | L3 lazy MDI icon set (P1, F2). → see `lazy-mdi-icon-set.spec.ts.AGENTS.md` |
 | `lifecycle.ts` | Shared E2E lifecycle module. Port dynamic: probes free port in managed mode;… → see `lifecycle.ts.AGENTS.md` |
 | `list-models-registry-ready.spec.ts` | L3 `list_models` registry-readiness discriminator. → see `list-models-registry-ready.spec.ts.AGENTS.md` |
 | `manage-worktrees.spec.ts` | L3 for the manage-worktrees surface (test-plan F4, F3, F7, X5, X11, X12, X13): menu gate is… → see `manage-worktrees.spec.ts.AGENTS.md` |
@@ -106,7 +108,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `openspec-board-drop-contrast.spec.ts` | L3 fix-openspec-board-drop-targeting: contrast. → see `openspec-board-drop-contrast.spec.ts.AGENTS.md` |
 | `openspec-board-drop-indicator.spec.ts` | L3 fix-openspec-board-drop-targeting: indicator. → see `openspec-board-drop-indicator.spec.ts.AGENTS.md` |
 | `openspec-board-drop.spec.ts` | L3 spec (change: fix-openspec-board-drop-targeting). Drop resolution + commit:… → see `openspec-board-drop.spec.ts.AGENTS.md` |
-| `openspec-board-worktree-availability.spec.ts` | L3 spec (test-plan #F6, change: fix-openspec-board-worktree-button-gating). → see `openspec-board-worktree-availability.spec.ts.AGENTS.md` |
+| `openspec-board-worktree-availability.spec.ts` | L3 worktree availability on the OpenSpec board (test-plan #F6). → see `openspec-board-worktree-availability.spec.ts.AGENTS.md` |
 | `openspec-connect-coverage.spec.ts` | L3 connect coverage, fix-connect-snapshot-frame-loss (F1/F2). → see `openspec-connect-coverage.spec.ts.AGENTS.md` |
 | `openspec-init-affordances-folder.spec.ts` | L3 folder-section slice (add-openspec-init-affordances). → see `openspec-init-affordances-folder.spec.ts.AGENTS.md` |
 | `openspec-locality-gate.spec.ts` | L3 spec (change: scope-openspec-auto-attach-to-session-cwd). → see `openspec-locality-gate.spec.ts.AGENTS.md` |
@@ -184,7 +186,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `tool-created-files.spec.ts` | L3 spec (change: detect-tool-created-files, U1+U3). `spawnFreshGitSession` +… → see `tool-created-files.spec.ts.AGENTS.md` |
 | `tool-output-links.spec.ts` | Playwright E2E for tool-output file-link behaviour (change: selectable-tool-output-links). → see `tool-output-links.spec.ts.AGENTS.md` |
 | `tool-output-selection.spec.ts` | L3 selectable-tool-output-links (task 3.2). → see `tool-output-selection.spec.ts.AGENTS.md` |
-| `uncommitted-indicator-commit.spec.ts` | Playwright E2E for the uncommitted-indicator + commit-from-card feature (change:… → see `uncommitted-indicator-commit.spec.ts.AGENTS.md` |
+| `uncommitted-indicator-commit.spec.ts` | E2E uncommitted-indicator + commit-from-card. → see `uncommitted-indicator-commit.spec.ts.AGENTS.md` |
 | `worktree-grouping-survives-remove.spec.ts` | L3 fix-worktree-grouping-lost-on-remove. → see `worktree-grouping-survives-remove.spec.ts.AGENTS.md` |
 | `worktree-init-feedback.spec.ts` | Playwright E2E for friendly worktree-init feedback (Level 1, change:… → see `worktree-init-feedback.spec.ts.AGENTS.md` |
 | `zrok-v2-tunnel.spec.ts` | L3 (change: support-zrok-v2, F1/F2/F3). Stubs `/api/tunnel-status` (+`/api/tunnel-disconnect`) via… → see `zrok-v2-tunnel.spec.ts.AGENTS.md` |

@@ -7,11 +7,12 @@
  *
  * See change: adopt-server-driven-intent-rendering.
  */
-import Icon from "@mdi/react";
-import * as mdi from "@mdi/js";
-// We accept icon as a string key (MDI), look up via resolveMdiIcon at render time.
-import type { UiActionListProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+
 import { sendPluginAction } from "@blackbelt-technology/dashboard-plugin-runtime";
+// Icon is an MDI key string, resolved lazily via useMdiIconByKey.
+import type { UiActionListProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import Icon from "@mdi/react";
+import { useMdiIconByKey } from "./mdi-by-key.js";
 
 /**
  * Extended item shape: in addition to `onClick`, items may carry a
@@ -70,16 +71,12 @@ export function ActionList({ actions }: UiActionListProps) {
 }
 
 /**
- * Render an MDI icon by its export-name key. Best-effort — unknown keys
- * render nothing. The shell ships @mdi/js so this is a flat property
- * lookup.
+ * Render an MDI icon by its export-name key. Renders nothing while the full
+ * icon set loads and for unknown keys. See change:
+ * harden-ios-safari-memory-and-ws-diagnostics.
  */
 function IconByKey({ iconKey }: { iconKey: string }) {
-  // @mdi/js is already eager (statically imported across the shell), so this
-  // is a synchronous flat property lookup — no dynamic import, no loading
-  // state. See change: shrink-client-index-chunk.
-  const candidate = (mdi as Record<string, unknown>)[iconKey];
-  const path = typeof candidate === "string" ? candidate : null;
+  const path = useMdiIconByKey(iconKey);
   if (!path) return null;
   return <Icon path={path} size={0.6} />;
 }
