@@ -208,6 +208,21 @@ Concretely, a single channel SHALL hold at most 12 registry entries and at most
 prompt per plane per minute. A channel past its entry share SHALL NOT be given a
 registry entry, so it cannot consume capacity other requesters need.
 
+A remote requester (one identified by source address rather than an operator
+channel) SHALL be keyed by its allocation — an IPv4 /24 or an IPv6 /64, with
+IPv4-mapped IPv6 treated as IPv4 — so address rotation within one allocation is
+one requester. Entries on deferred planes, taken together, SHALL NOT exceed 16
+of the 64; a deferred denial past that share SHALL NOT be given a registry
+entry, and the refusal SHALL be recorded distinguishably from the per-channel
+share.
+
+#### Scenario: Rotating remote sources cannot starve held prompts
+
+- **GIVEN** a remote peer emitting network denials from many addresses
+- **WHEN** its addresses share one allocation, or span many allocations
+- **THEN** it SHALL be bounded by the per-channel share, or by the deferred share
+- **AND** a held denial from the operator's own browser SHALL still get an entry
+
 #### Scenario: One requester cannot exhaust the shared budget
 
 - **GIVEN** a single requester emitting denials against many distinct subjects

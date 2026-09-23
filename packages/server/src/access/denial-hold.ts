@@ -16,6 +16,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import type { GrantCoordinator, Resolution } from "./grant-coordinator.js";
 import { awaitHold } from "./hold-request.js";
 import { GRANT_CHANNEL_HEADER, type HeaderCarrier, resolvePromptChannel } from "./prompt-channel.js";
+import { sourceChannel } from "./source-channel.js";
 
 let coordinator: GrantCoordinator | null = null;
 
@@ -60,7 +61,7 @@ export async function holdDenial(facts: DenialFacts, target?: HoldTarget): Promi
   const socketId = target ? capabilitySocketOf(target.request as HeaderCarrier) : null;
   // A capability-holding request is keyed by its operator socket; anything else
   // by its source address, so one anonymous source cannot exhaust the budget.
-  const channel = socketId ?? `source:${target?.request.ip ?? "unknown"}`;
+  const channel = socketId ?? sourceChannel(target?.request.ip);
   const hold = c.onDenial(
     {
       plane: facts.plane,

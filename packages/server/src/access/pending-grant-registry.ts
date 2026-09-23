@@ -43,6 +43,12 @@ export const GRANT_CHANNEL_MAX_ENTRIES = 12;
 /** Per-channel dialog budget, split by trust (design D9, resolved). */
 export const GRANT_CHANNEL_MAX_DIALOGS = 1;
 export const GRANT_DEFERRED_CHANNEL_PROMPTS_PER_MINUTE = 1;
+/**
+ * Most entries all DEFERRED planes together may hold (25% of capacity). Remote
+ * sources are untrusted and cheap to rotate; this keeps the rest of the
+ * registry for held prompts the operator raised (design D9, resolved).
+ */
+export const GRANT_DEFERRED_MAX_ENTRIES = 16;
 const RATE_WINDOW_MS = 60_000;
 /** How many settled prompt ids are remembered to tell a duplicate from junk. */
 const SETTLED_MEMORY = GRANT_REGISTRY_CAPACITY * 4;
@@ -50,7 +56,7 @@ const SETTLED_MEMORY = GRANT_REGISTRY_CAPACITY * 4;
 /** Ladder conditions the CALLER decides, from the live request (D3, D6). */
 export type PreconditionReason = "ineligible" | "report-mode" | "disabled" | "no-audience";
 /** Why a denial got no entry at all. */
-export type RefusalReason = "capacity" | "channel-share";
+export type RefusalReason = "capacity" | "channel-share" | "deferred-share";
 /** Why an entry was recorded but not prompted, by the registry's own controls. */
 export type FloodReason =
   | "backoff"
@@ -146,7 +152,7 @@ export interface GrantRegistryStats {
   duplicates: number;
   malformed: number;
   degraded: Partial<Record<PreconditionReason | RefusalReason, number>>;
-  flooded: Partial<Record<FloodReason | "channel-share", number>>;
+  flooded: Partial<Record<FloodReason | "channel-share" | "deferred-share", number>>;
 }
 
 export interface PendingGrantRegistryOptions {
@@ -246,6 +252,9 @@ export class PendingGrantRegistry {
     if (this.byId.size >= GRANT_REGISTRY_CAPACITY) return this.refuse(input, "capacity");
     if (this.countChannelEntries(input.channel) >= GRANT_CHANNEL_MAX_ENTRIES) {
       return this.refuse(input, "channel-share");
+    }
+    if (input.mode === "deferred" && this.countDeferredEntries() >= GRANT_DEFERRED_MAX_ENTRIES) {
+      return this.refuse(input, "deferred-share");
     }
 
     const entry: PendingGrant = {
@@ -406,7 +415,7 @@ export class PendingGrantRegistry {
 
   private refuse(input: DenialInput, reason: RefusalReason): RecordOutcome {
     if (reason === "capacity") this.stats.degraded.capacity = (this.stats.degraded.capacity ?? 0) + 1;
-    else this.stats.flooded["channel-share"] = (this.stats.flooded["channel-share"] ?? 0) + 1;
+    else this.stats.flooded[reason] = (this.stats.flooded[reason] ?? 0) + 1;
     this.emit({ transition: "refused", plane: input.plane, subject: input.subject, mode: input.mode, reason });
     return { kind: "refused", reason };
   }
@@ -420,6 +429,12 @@ export class PendingGrantRegistry {
   private countChannelEntries(channel: string): number {
     let n = 0;
     for (const e of this.byId.values()) if (e.channel === channel) n += 1;
+    return n;
+  }
+
+  private countDeferredEntries(): number {
+    let n = 0;
+    for (const e of this.byId.values()) if (e.mode === "deferred") n += 1;
     return n;
   }
 

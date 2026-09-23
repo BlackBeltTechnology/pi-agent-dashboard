@@ -38,6 +38,7 @@ import { GrantCoordinator } from "./access/grant-coordinator.js";
 import { createCorsPlane, createCwdPlane, createFilesystemPlane, createNetworkPlane } from "./access/planes.js";
 import { promptChannelCount } from "./access/prompt-channel.js";
 import { isRefused, listRefusals, recordRefusal } from "./access/refusal-ledger.js";
+import { sourceChannel } from "./access/source-channel.js";
 import { YOLO_ENV } from "./access/yolo-env.js";
 import { YoloController } from "./access/yolo-session.js";
 import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
@@ -1495,7 +1496,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         plane: "network",
         rawSubject: request.ip,
         origin: "network-guard",
-        channel: `source:${request.ip}`,
+        channel: sourceChannel(request.ip),
         requestHoldsCapability: false,
       },
       false,

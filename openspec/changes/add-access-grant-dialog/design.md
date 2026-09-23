@@ -403,6 +403,21 @@ A requester past its entry share gets **no registry entry at all**. If it still
 got unprompted entries it could fill capacity and starve everyone else. Its
 denial is still recorded by the existing denial ledgers.
 
+**Rotating remote sources (resolved during implementation, 2b.7 review).** A
+remote peer rotating addresses (trivial within an IPv6 /64) is a new requester
+per address, so the channel share never engaged and it could fill all 64 entries,
+refusing the operator's own held prompts. Two bounds close it, together:
+
+- A **remote requester is keyed by its allocation**, not its address: IPv4 /24,
+  IPv6 /64, IPv4-mapped IPv6 as IPv4 (`access/source-channel.ts`). Rotation
+  inside one allocation hits the 12-entry channel share.
+- **All deferred planes together** hold at most **16** of the 64 entries
+  (`GRANT_DEFERRED_MAX_ENTRIES`, refusal reason `deferred-share`), so a peer
+  spanning many allocations still leaves ≥48 entries for held prompts.
+
+The *subject* (the address a trusted-network grant would admit) stays the exact
+address; only the requester key is widened.
+
 ### D10 — Off by default, with a kill switch, and prompt-free parity
 
 A setting (default **off**) plus `PI_DASHBOARD_DISABLE_GRANT_PROMPT=1`. Both

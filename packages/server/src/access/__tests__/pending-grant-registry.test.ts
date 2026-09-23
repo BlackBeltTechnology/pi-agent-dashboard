@@ -4,6 +4,7 @@ import {
   formatTransition,
   GRANT_BACKOFF_MS,
   GRANT_CHANNEL_MAX_ENTRIES,
+  GRANT_DEFERRED_MAX_ENTRIES,
   GRANT_ENTRY_TTL_MS,
   GRANT_MAX_CONCURRENT_DIALOGS,
   GRANT_PLANE_PROMPTS_PER_MINUTE,
@@ -12,6 +13,7 @@ import {
   type PendingGrant,
   PendingGrantRegistry,
 } from "../pending-grant-registry.js";
+import { sourceChannel } from "../source-channel.js";
 
 /**
  * Pending access-request registry (change: add-access-grant-dialog, tasks
@@ -200,6 +202,29 @@ describe("4.3 volume controls degrade to record-only", () => {
     reg.record(fs("/a"), { promptable: false, reason: "ineligible" }, T0);
     expect(reg.record(fs("/a"), OK, T0 + 1).kind).toBe("prompt");
     expect(reg.size).toBe(1);
+  });
+});
+
+describe("D9 resolved: rotating remote sources cannot starve held prompts", () => {
+  const net = (ip: string): DenialInput => ({
+    plane: "network",
+    subject: ip,
+    mode: "deferred",
+    channel: sourceChannel(ip),
+    store: "config.trustedNetworks",
+  });
+
+  it("an IPv6 peer rotating within its /64 is one requester, bounded by the channel share", () => {
+    const out = Array.from({ length: 40 }, (_, i) => reg.record(net(`2001:db8:1:2::${(i + 1).toString(16)}`), OK, T0));
+    expect(out.filter((o) => o.kind !== "refused")).toHaveLength(GRANT_CHANNEL_MAX_ENTRIES);
+  });
+
+  it("deferred entries from many allocations stop at the deferred share; held prompts still land", () => {
+    const out = Array.from({ length: 40 }, (_, i) => reg.record(net(`2001:db8:${i + 1}::1`), OK, T0));
+    expect(out.filter((o) => o.kind !== "refused")).toHaveLength(GRANT_DEFERRED_MAX_ENTRIES);
+    expect(out.at(-1)).toEqual({ kind: "refused", reason: "deferred-share" });
+    expect(reg.record(fs("/mine", { channel: "sock-op" }), OK, T0).kind).not.toBe("refused");
+    expect(reg.snapshotStats().flooded["deferred-share"]).toBe(40 - GRANT_DEFERRED_MAX_ENTRIES);
   });
 });
 
