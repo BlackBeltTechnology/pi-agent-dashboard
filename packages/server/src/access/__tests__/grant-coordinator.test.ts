@@ -235,6 +235,62 @@ describe("deferred denial: prompts on the operator channel, never suspends", () 
   });
 });
 
+describe("YOLO at the prompt point (8b.3, 8b.4a, 8b.6)", () => {
+  const yoloSays = (answer: "auto-allow" | "refused-by-prior-refusal" | null) => ({ decide: vi.fn(() => answer) });
+
+  it("an auto-allow answers allow-once with no dialog and no registry entry", async () => {
+    const yolo = yoloSays("auto-allow");
+    const c = make({ yolo });
+    const hold = c.onDenial(fsDenial(), true);
+    expect(await hold.result).toEqual({ kind: "allow", verdict: "allow-once", subject: "/work/repo" });
+    expect(sent).toEqual([]);
+    expect(c.registry.size).toBe(0);
+    expect(yolo.decide).toHaveBeenCalledWith(
+      expect.objectContaining({ subject: "/work/repo", requestHoldsCapability: true, hostGateMode: "enforce" }),
+    );
+  });
+
+  it("8b.6 prompt suppression does not stop YOLO: auto-allowed, no dialog", async () => {
+    const c = make({ yolo: yoloSays("auto-allow"), promptEnabled: () => false, killSwitch: () => true });
+    expect((await c.onDenial(fsDenial(), true).result).kind).toBe("allow");
+    expect(sent).toEqual([]);
+  });
+
+  it("a prior refusal is refused without prompting", async () => {
+    const c = make({ yolo: yoloSays("refused-by-prior-refusal") });
+    expect(await c.onDenial(fsDenial(), true).result).toEqual({ kind: "deny", reason: "refused-by-prior-refusal" });
+    expect(sent).toEqual([]);
+  });
+
+  it("YOLO not applying leaves the ordinary ladder untouched", async () => {
+    const c = make({ yolo: yoloSays(null) });
+    const hold = c.onDenial(fsDenial(), true);
+    expect(hold.held).toBe(true);
+    hold.abort();
+  });
+
+  it("8b.4a an explicit deny on a YOLO-eligible plane is remembered; a network deny is not", async () => {
+    const recordRefusal = vi.fn();
+    const c = make({ recordRefusal });
+    c.onDenial(fsDenial(), true);
+    await c.onResponse(answer("deny"));
+    expect(recordRefusal).toHaveBeenCalledWith("filesystem", "/work/repo");
+
+    sent = [];
+    c.onDenial({ ...net(), rawSubject: "203.0.113.7", channel: "203.0.113.7" }, false);
+    await c.onResponse(answer("deny"));
+    expect(recordRefusal).toHaveBeenCalledTimes(1);
+  });
+
+  it("an allow answer is never recorded as a refusal", async () => {
+    const recordRefusal = vi.fn();
+    const c = make({ recordRefusal });
+    c.onDenial(fsDenial(), true);
+    await c.onResponse(answer("allow-once"));
+    expect(recordRefusal).not.toHaveBeenCalled();
+  });
+});
+
 describe("robustness", () => {
   it("#X5 an undeliverable prompt leaves the denial standing, recorded, and unheld", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});

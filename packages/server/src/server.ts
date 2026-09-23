@@ -36,6 +36,9 @@ import { installGrantCoordinator } from "./access/denial-hold.js";
 import { GrantCoordinator } from "./access/grant-coordinator.js";
 import { createCorsPlane, createCwdPlane, createFilesystemPlane, createNetworkPlane } from "./access/planes.js";
 import { promptChannelCount } from "./access/prompt-channel.js";
+import { isRefused, recordRefusal } from "./access/refusal-ledger.js";
+import { YOLO_ENV } from "./access/yolo-env.js";
+import { YoloController } from "./access/yolo-session.js";
 import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
 import { registerAuthPlugin, validateWsUpgrade } from "./auth/auth-plugin.js";
 import { registerBearerAuth } from "./auth/bearer-auth.js";
@@ -1452,8 +1455,29 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   grantPlanes.register(
     createCorsPlane({ readRawCors: () => (readRawConfig().cors ?? {}) as Record<string, unknown>, writeConfigPartial }),
   );
+  // YOLO (design D13): consulted at the prompt point; the refusal ledger stops it
+  // reversing an explicit deny. Environment activation is attempted once, at
+  // boot, and refused outright in report mode or on any unusable root.
+  const yolo = new YoloController({
+    hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode,
+    isRefused,
+  });
+  const yoloBoot = yolo.activateFromEnv(process.env[YOLO_ENV]);
+  if (yoloBoot.ok) {
+    const s = yoloBoot.session;
+    console.warn(
+      `[access-grant] YOLO active from ${YOLO_ENV}: ${s.unscoped ? "UNSCOPED" : s.roots.map((r) => r.path).join(", ")} (until the process ends)`,
+    );
+  } else if (yoloBoot.reason !== "unset") {
+    console.warn(`[access-grant] ${YOLO_ENV} ignored, YOLO stays inactive: ${yoloBoot.reason}`);
+  }
   const grantCoordinator = new GrantCoordinator({
     planes: grantPlanes,
+    yolo,
+    recordRefusal: (plane, subject) => {
+      const r = recordRefusal(plane, subject);
+      if (!r.ok) console.error(`[access-grant] refusal not recorded plane=${plane}: ${r.error}`);
+    },
     broadcast: (msg) => browserGateway.broadcastToAll(msg),
     hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode,
     promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true,

@@ -610,6 +610,15 @@ prevent, reached through the front door. (b) Auto-persisting grants — see (3).
 (c) Refusing to enable YOLO when a tunnel is connected — considered and not
 taken; the indicator plus the auto-allow ledger carry that risk instead.
 
+**`PI_DASHBOARD_GRANT_YOLO` syntax (resolved during implementation, task 2b.8).**
+One root is a plain absolute path; several roots are a JSON array of absolute
+paths (`["/a","/b"]`); the literal `unscoped` is the explicit opt-out. A JSON
+array rather than a delimiter, because a path may contain `:` (POSIX) or `;`
+(Windows), so no single separator is safe; the common one-root case stays a
+plain path. Anything else is unparseable and leaves YOLO inactive. Chosen with
+the operator over a PATH-style list (inexpressible paths) and newline-separated
+values (awkward in env files).
+
 ### D12 — UI surfaces reuse the shipped dialog shell
 
 Mockups: `mockups/index.html` (served locally; dark + light). Plan and token map:

@@ -362,6 +362,12 @@ exist:
    the explicit unscoped value SHALL be specified, including how a value is
    separated on platforms where a path may itself contain the separator. An
    unparseable value SHALL leave YOLO inactive rather than partially applied.
+   Resolved: the variable is `PI_DASHBOARD_GRANT_YOLO`. One root is a plain
+   absolute path; several roots are a JSON array of absolute paths
+   (`["/a","/b"]`), because a path may itself contain any single separator; the
+   literal `unscoped` is the explicit opt-out. Every root SHALL be absolute.
+   Any other value, including `1`, `true`, a relative path, an empty array, or
+   malformed JSON, SHALL be treated as unparseable.
 
    This SHALL NOT be read as granting access to headless automation. Automation
    holds no prompt capability, so it raises no prompt and therefore has no prompt

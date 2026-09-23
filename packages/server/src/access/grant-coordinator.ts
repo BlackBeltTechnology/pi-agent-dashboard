@@ -19,9 +19,23 @@ import type {
   AccessPlaneId,
   ServerToBrowserMessage,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import { type AccessPlaneRegistry, holdsRequest, persistVerdict, promptPrecondition } from "./access-plane.js";
+import {
+  type AccessPlane,
+  type AccessPlaneRegistry,
+  holdsRequest,
+  persistVerdict,
+  promptPrecondition,
+} from "./access-plane.js";
 import { type GrantTransition, type PendingGrant, PendingGrantRegistry } from "./pending-grant-registry.js";
 import type { HostGateMode } from "./prompt-channel.js";
+
+/** What YOLO needs to decide, all from the live request (design D6). */
+export interface YoloDecisionInput {
+  plane: AccessPlane;
+  subject: string;
+  requestHoldsCapability: boolean;
+  hostGateMode: HostGateMode;
+}
 
 /** What a denial site knows about one denial, from the live request. */
 export interface DenialContext {
@@ -60,6 +74,10 @@ export interface GrantCoordinatorDeps {
   /** Live capability-holding operator sockets (deferred planes' audience). */
   operatorChannels(): number;
   onTransition?(t: GrantTransition): void;
+  /** YOLO, consulted at the prompt point (design D13). Absent = never auto-answers. */
+  yolo?: { decide(input: YoloDecisionInput): "auto-allow" | "refused-by-prior-refusal" | null };
+  /** Remember an operator's explicit deny on a YOLO-eligible plane (task 8b.4a). */
+  recordRefusal?(plane: AccessPlaneId, subject: string): void;
   now?(): number;
   schedule?(fn: () => void, ms: number): { cancel(): void };
 }
@@ -104,6 +122,23 @@ export class GrantCoordinator {
     if (!plane) return immediate("unknown-plane");
     const subject = plane.subjectOf(ctx.rawSubject);
     if (subject === null) return immediate("not-promptable");
+
+    // YOLO answers at the exact point a dialog would be raised, with exactly the
+    // proof the dialog would have required (it checks plane, mode, capability
+    // and scope itself). An auto-allow persists nothing and records no entry; the
+    // caller still RE-EVALUATES it like any allow. Prompt suppression (prompting
+    // disabled, the kill switch) does not stop it: YOLO is itself the explicit
+    // opt-in that removes the interruption (task 8b.6).
+    const auto = this.deps.yolo?.decide({
+      plane,
+      subject,
+      requestHoldsCapability: ctx.requestHoldsCapability,
+      hostGateMode: this.deps.hostGateMode(),
+    });
+    if (auto === "auto-allow") {
+      return { held: false, result: Promise.resolve({ kind: "allow", verdict: "allow-once", subject }), abort: () => {} };
+    }
+    if (auto === "refused-by-prior-refusal") return immediate("refused-by-prior-refusal");
 
     const precondition = promptPrecondition({
       plane,
@@ -156,6 +191,10 @@ export class GrantCoordinator {
     const plane = this.deps.planes.get(entry.plane);
     let resolution: Resolution;
     if (out.verdict === "deny" || !plane) {
+      // An explicit deny is remembered so a later YOLO session cannot reverse it.
+      if (out.verdict === "deny" && plane?.mode === "held" && plane.yoloEligible) {
+        this.deps.recordRefusal?.(plane.id, entry.subject);
+      }
       resolution = { kind: "deny", reason: out.verdict === "deny" ? "denied" : "unknown-plane" };
     } else {
       const persisted = await persistVerdict(plane, {
