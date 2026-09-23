@@ -111,13 +111,13 @@ tasks in 10h, not as tests. `C1`–`C6` are all resolved in the manifest; no row
 
 Harness exemplar for every row in this group: `packages/server/src/auth/__tests__/api-origin-gate.test.ts` (header-shaped admission decisions) and `packages/server/src/auth/__tests__/host-admission.test.ts` (mode-driven gating).
 
-- [ ] 10.1 Absent `Origin` on the WS upgrade · connection established · no capability issued, `grant_channel` never sent (test-plan #E1)
-- [ ] 10.2 Non-absent admitted `Origin` + `Sec-Fetch-Site: same-origin` + valid credential tier · connection established · capability issued exactly once (test-plan #E2)
-- [ ] 10.3 Admitted `Origin` with `Sec-Fetch-Site: cross-site` · connection established · capability issued when the Origin is admitted by the admission rule (the pi-dashboard.dev shell); refused for same-site and none (test-plan #E3)
-- [ ] 10.4 `Origin: ""` empty not absent · connection established · refused by the existing origin rule, no capability (test-plan #E4)
-- [ ] 10.5 Filesystem denial with no capability header · denial evaluated · not suspended, 403, recorded `degraded:ineligible` (test-plan #E5)
-- [ ] 10.6 Capability value off by one byte · denial evaluated · treated exactly as absent, no prompt (test-plan #E6)
-- [ ] 10.7 Capability issued then socket closed, value echoed later · denial evaluated · resolves to no socket, ineligible (test-plan #E7)
+- [x] 10.1 Absent `Origin` on the WS upgrade · connection established · no capability issued, `grant_channel` never sent (test-plan #E1)
+- [x] 10.2 Non-absent admitted `Origin` + `Sec-Fetch-Site: same-origin` + valid credential tier · connection established · capability issued exactly once (test-plan #E2)
+- [x] 10.3 Admitted `Origin` with `Sec-Fetch-Site: cross-site` · connection established · capability issued when the Origin is admitted by the admission rule (the pi-dashboard.dev shell); refused for same-site and none (test-plan #E3)
+- [x] 10.4 `Origin: ""` empty not absent · connection established · refused by the existing origin rule, no capability (test-plan #E4)
+- [x] 10.5 Filesystem denial with no capability header · denial evaluated · not suspended, 403, recorded `degraded:ineligible` (test-plan #E5)
+- [x] 10.6 Capability value off by one byte · denial evaluated · treated exactly as absent, no prompt (test-plan #E6)
+- [x] 10.7 Capability issued then socket closed, value echoed later · denial evaluated · resolves to no socket, ineligible (test-plan #E7)
 - [x] 10.8 Network denial with zero operator channels · denial evaluated · no prompt, denial still recorded (test-plan #E8)
 - [x] 10.9 Network denial with one operator channel · denial evaluated · prompt on that channel, request stays denied and is never suspended (test-plan #E9)
 - [x] 10.9a `hostGate.mode = report` with a live channel and a prompt-eligible filesystem denial · denial evaluated · no dialog on any channel, existing denial returned, recorded reason names the Host-admission mode (test-plan #E51)
@@ -145,15 +145,15 @@ Harness exemplar: `packages/server/src/__tests__/cors.test.ts` for plain in-proc
 
 Harness exemplar: `packages/server/src/auth/__tests__/file-absolute-containment.test.ts` (real-path containment with temp-dir fixtures) and `cwd-policy-funnel.test.ts` (boundary resolution).
 
-- [ ] 10.22 Candidate `~/.ssh/keys` · forbidden rule applied · refused as a descendant (test-plan #E15)
-- [ ] 10.23 Candidate `/Users` where home is `/Users/robson` · ladder computed · not offered, contains a forbidden directory (test-plan #E16)
-- [ ] 10.24 Granted `/repo`, candidate `/repo-secrets/x` · containment evaluated · not contained, string-prefix must not match (test-plan #E17)
-- [ ] 10.25 Subject in checkout `/a/b` nested in checkout `/a` · ladder computed · truncates at `/a/b` (test-plan #E24)
-- [ ] 10.26 Subject in a linked worktree whose `.git` is a file · ladder computed · checkout root recognised (test-plan #E25)
-- [ ] 10.27 Subject through a symlinked checkout directory · ladder computed · root detected on the real path, every rung an ancestor of it (test-plan #E26)
-- [ ] 10.28 `$HOME` unset, subject outside any checkout · ladder computed · still bounded at mount point, every rung passes the forbidden rule (test-plan #E27)
-- [ ] 10.29 Subject **is** the checkout root · ladder computed · ladder is exactly that subject (test-plan #E28)
-- [ ] 10.30 Subject is the home directory · ladder computed · ladder empty (test-plan #E29)
+- [x] 10.22 Candidate `~/.ssh/keys` · forbidden rule applied · refused as a descendant (test-plan #E15)
+- [x] 10.23 Candidate `/Users` where home is `/Users/robson` · ladder computed · not offered, contains a forbidden directory (test-plan #E16)
+- [x] 10.24 Granted `/repo`, candidate `/repo-secrets/x` · containment evaluated · not contained, string-prefix must not match (test-plan #E17)
+- [x] 10.25 Subject in checkout `/a/b` nested in checkout `/a` · ladder computed · truncates at `/a/b` (test-plan #E24)
+- [x] 10.26 Subject in a linked worktree whose `.git` is a file · ladder computed · checkout root recognised (test-plan #E25)
+- [x] 10.27 Subject through a symlinked checkout directory · ladder computed · root detected on the real path, every rung an ancestor of it (test-plan #E26)
+- [x] 10.28 `$HOME` unset, subject outside any checkout · ladder computed · still bounded at mount point, every rung passes the forbidden rule (test-plan #E27)
+- [x] 10.29 Subject **is** the checkout root · ladder computed · ladder is exactly that subject (test-plan #E28) — ladder of rungs above the subject is empty, so the subject alone is offered (access-denials.test.ts "subject IS the repo root")
+- [x] 10.30 Subject is the home directory · ladder computed · ladder empty (test-plan #E29)
 
 ### 10d. L1 unit (vitest) — YOLO session semantics
 
@@ -177,16 +177,16 @@ Harness exemplar: `packages/server/src/auth/__tests__/cwd-policy-funnel.test.ts`
 Harness exemplar: `packages/server/src/routes/__tests__/` git-routes socket-timeout tests for the hold path; plain vitest timing for the rest.
 
 - [x] 10.42 One held request across the 10s Fastify `connectionTimeout` · not terminated at 10s, socket timeout restored on finish within the 120 s max hold (test-plan #P1) (proven against a real HTTP server with `connectionTimeout` shortened to 150 ms and a hold of 3x that; the mechanism, not the constant)
-- [ ] 10.43 Denial 12 levels deep, 1000 iterations · p95 ladder computation < 5ms (test-plan #P3)
-- [ ] 10.44 10k prompt→settle cycles · RSS delta < 10MB, registry size returns to baseline (test-plan #P4)
+- [x] 10.43 Denial 12 levels deep, 1000 iterations · p95 ladder computation < 5ms (test-plan #P3)
+- [x] 10.44 10k prompt→settle cycles · RSS delta < 10MB, registry size returns to baseline (test-plan #P4)
 - [x] 10.45 Client aborts a suspended request mid-hold · entry released, socket timeout restored, no orphaned handle, nothing persisted (test-plan #X1)
 - [x] 10.46 Operator never answers, hold exceeds its maximum · outcome per C6 (test-plan #X2)
 - [x] 10.47 Subject replaced by a link to another location after the verdict · request released · guard re-runs and denies (test-plan #X3)
 - [x] 10.48 Grant revoked between verdict and release · request released · re-run guard reflects the revocation (test-plan #X4)
 - [x] 10.49 Browser gateway unavailable when a prompt would be pushed · denial evaluated · denial stands, no allow, recorded as degraded (test-plan #X5) (a broadcast failure resolves `broadcast-failed`, unheld and recorded; waiters are resolved before any dismissal is sent, so a gateway failure can never hang a held request)
-- [ ] 10.50 Denials beyond capacity · overflow · recorded without prompting, no silent drop of a live entry, no allow (test-plan #X6)
+- [x] 10.50 Denials beyond capacity · overflow · recorded without prompting, no silent drop of a live entry, no allow (test-plan #X6)
 - [x] 10.51 Chosen root deleted between offer and activation · activation submitted · refused, no session created (test-plan #X7)
-- [ ] 10.52 Subject cannot be realpath-resolved · ladder computed · refused rather than compared unresolved (test-plan #X8)
+- [x] 10.52 Subject cannot be realpath-resolved · ladder computed · refused rather than compared unresolved (test-plan #X8)
 - [x] 10.53 A deferred-mode plane declares `yoloEligible` · registration · rejected, not honoured (test-plan #X9)
 - [ ] 10.54 Host admission reporting · YOLO control opened and env-activated session attempted at startup · no session becomes active, control states the reason rather than hiding, no automatic verdict on any plane (test-plan #X10)
 

@@ -231,6 +231,15 @@ subject, so a descendant of a refused directory is not itself refused (the spec'
 literal "subject"); (3) the refusal ledger is uncapped (growth bounded by operator
 denies, which D9 rate-limits); (4) YOLO audit lines are not rate-limited.
 
+**Ladder cost (resolved during implementation, #P3/#X8).** Measured p95 ~26 ms per
+denial: the checkout-root probe spawned `git` every time, so a denial flood was a
+process flood. Checkout-root lookups are now cached per real directory for 5 s
+(bounded at 256), and the forbidden sets are derived once per ladder, not per rung:
+p95 ~1.3 ms at 12 levels. Accepted staleness: a repository created or removed
+within the TTL may be missed; the ladder stays forbidden-filtered and is only
+offered. An unresolvable subject now yields an empty ladder (#X8) instead of rungs
+built on a lexical tail.
+
 ### D2 — DNS rebinding is out of D1's reach, so **prompting at all** requires `hostGate.mode === "enforce"`
 
 **Decision.** D1 alone does **not** beat rebinding: an `attacker.com` rebound to

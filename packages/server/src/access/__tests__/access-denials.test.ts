@@ -258,6 +258,8 @@ describe("7b.1a / 9a.20–9a.21 offered-ancestor ladder", () => {
     fs.mkdirSync(linkDir, { recursive: true });
     const link = path.join(linkDir, "cur");
     fs.symlinkSync(realDir, link);
+    // The subject must exist: an unresolvable subject is refused outright (#X8).
+    fs.mkdirSync(path.join(realDir, "sub"));
 
     const ladder = await offeredAncestorLadder(path.join(link, "sub"), { homedir: home });
     // Derived from the real path: the first rung is the real directory, and no
