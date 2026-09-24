@@ -753,8 +753,27 @@ Verdict:
 - Error triggers most precise; proactive command/path triggers need the gate.
 - Human review stays for faithfulness (~10% invented claims).
 - `general` ~3.9 for both → task-specific detail creeps in; card prompt should forbid ticket names / one-off paths more strongly.
-- Design updated: D5 precision guard = per-trigger gate + evidence; D10 card writing default = cheap model + gate + mandatory review. `tasks.md` 0.2 ticked (LLM-judged + replay; hand spot-check open).
+- Design updated: D5 precision guard = per-trigger gate + evidence; D10 card writing default = cheap model + gate + mandatory review. `tasks.md` 0.2 ticked (LLM-judged + replay; hand spot-check done, see below).
 - Caveats: n=20 windows, single judge model, only 4 recurring signatures.
+
+#### Hand spot-check
+
+- Original 39 spike cards lost: `/tmp/card` deleted before spot-check; subagent outputs not persisted (only final reply recorded). Lesson: keep spike artifacts until every review step closes.
+- Regenerated with same scripts (recovered from session log), same prompt + models; split shifted by one session (past 303 / future 202); triage accepted 15/64 (fault 12, correction 3); 15 cards per writer.
+- Rerun replay reproduced gate pattern: dropped 8/22 (cheap) and 7/28 (strong) replayable triggers; recurring signatures 5 per writer, card fired on recurrence 1/5 (cheap) vs 3/5 (strong).
+- Sample: 10 cards from 10 windows (all 3 corrections + 7 faults favouring gate/recurrence cases), 5 per writer, writer blinded; sheet at git-ignored `test-results/card-spotcheck.md` (not committed).
+- Human verdicts: accept 4, edit 4, reject 2 → usable 8/10, as-is 40%.
+
+| writer | accept | edit | reject |
+|---|---|---|---|
+| cheap | 2 | 1 | 2 |
+| strong | 2 | 3 | 0 |
+
+- Both rejects: cheap-writer cards from user-correction windows (one generalised a UI placement preference; one turned a test-running instruction into "never run the full test suite"). n=2 → hint only.
+- 6 of 8 usable cards had ≥1 trigger dropped by gate → gate and review catch different faults.
+- Reviewer note: "seems ok".
+- Verdict: LLM judge (90–95% accept-as-is) far more lenient than human (40%) → judge cannot replace review; auto-accept OFF by default until human-vs-judge agreement measured on labelled dataset; correction windows may route to stronger writer via D11 per-step routing (not default, n small).
+- Design updated: D10 auto-accept off + evidence; `tasks.md` 0.2 wording updated (spot-check done).
 
 ---
 
@@ -763,7 +782,7 @@ Verdict:
 1. Jev evaluation — needs TypeSafe key.
 2. Fine-tune Laya/Von on miner labels — label count needed.
 3. Runtime relevance-gate latency budget.
-4. MAP card-writing spike recorded (§19, task 0.2) — hand spot-check pending (see 17).
+4. MAP card-writing spike recorded (§19, task 0.2) — hand spot-check done (§19).
 5. Prompt-trigger spike (BM25 cards vs real prompts) for `USER.md`-style preferences.
 6. Distiller placement (in-process vs child `pi`) — current choice: keep both pipelines.
 7. `followed` metric definition for path hints.
@@ -776,5 +795,5 @@ Verdict:
 14. Repo-map / symbol-ranking for the agents lane untested.
 15. Tier R v0 measured (§19); outcome replay (Tier O) + unified-stack Tier R pending.
 16. `kb:fixes` edge value untested (needs non-circular cases).
-17. Hand spot-check of the 39 spike cards (task 0.2 judged by LLM only).
+17. Human-vs-judge agreement on card acceptance (judge 90–95% vs human 40% as-is on different samples of same process) — measure on a shared sample before enabling auto-accept.
 18. `openai`/`google` subagent transports returned empty in this environment — cross-family judging limited to opencode-go families.

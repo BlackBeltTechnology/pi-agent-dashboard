@@ -346,6 +346,15 @@ showed is missing today (5 of 12 reference lessons were re-hits of that block).
     carried a trigger firing in over 3% of sessions. Only replay sees that.
   - Review stays mandatory for faithfulness: the judge flagged invented details
     (a fallback, a workflow, a misstated path) in about 1 card in 10.
+  - Auto-accept is off by default. In a hand spot-check of 10 regenerated
+    cards (writer blinded) the reviewer accepted 4 as-is, edited 4 and
+    rejected 2 (usable 8/10), against the LLM judge's 90–95% accept-as-is.
+    A judge-confidence threshold is enabled only after human-vs-judge
+    agreement is measured on the labelled dataset.
+  - Both rejects were cheap-writer cards from user-correction windows
+    (strong writer: 0 rejects, 3 edits of 5). Per-step routing (D11) lets
+    correction windows use a stronger writer; n is too small to make it the
+    default.
 - **Gates:**
   - the trigger replay gate;
   - semantic dedupe (BM25 candidate pairs → `same_as` decision);
