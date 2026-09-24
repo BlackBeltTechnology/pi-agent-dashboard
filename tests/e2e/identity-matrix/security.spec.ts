@@ -146,7 +146,8 @@ test.describe("A — signed-out floor on the live server", () => {
   });
 
   test("spoofed forwarding headers do not buy loopback trust", async () => {
-    for (const h of [{ "X-Forwarded-For": "127.0.0.1" }, { "X-Real-IP": "127.0.0.1" }, { Forwarded: "for=127.0.0.1" }, { "X-Forwarded-Host": "localhost" }]) {
+    const spoofs: Record<string, string>[] = [{ "X-Forwarded-For": "127.0.0.1" }, { "X-Real-IP": "127.0.0.1" }, { Forwarded: "for=127.0.0.1" }, { "X-Forwarded-Host": "localhost" }];
+    for (const h of spoofs) {
       expect((await get(A(), "/api/sessions", h)).status, JSON.stringify(h)).toBe(401);
     }
     const lan = lanIPv4();
