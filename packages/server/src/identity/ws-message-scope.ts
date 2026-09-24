@@ -81,6 +81,7 @@ export const NON_SESSION_MESSAGES: ReadonlySet<string> = new Set([
   "delete_workspace",
   "favorite_model",
   "flow_management",
+  "grant_response",
   "kill_terminal",
   "list_files",
   "move_folder_to_workspace",
