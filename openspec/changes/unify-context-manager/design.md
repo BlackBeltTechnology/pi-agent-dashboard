@@ -278,6 +278,19 @@ showed is missing today (5 of 12 reference lessons were re-hits of that block).
 - It is fed incrementally from pi JSONL and lives in the shared index DB.
 - It replaces hermes' better-sqlite3 `sessions.db`, which is left on disk,
   unread after cutover.
+- It indexes tool results (error text) as well as user/assistant text; hermes
+  indexes only user/assistant/system messages, so a failure's own error
+  output is unsearchable today.
+- Ranking is BM25 with recency as a tiebreak and a score floor (D5
+  abstention). Hermes returns the 10 newest FTS matches. Spike B (Tier R)
+  measured: newest-first helped user-flagged recurrences (48% vs 33%)
+  but hurt recurring faults (21% vs 27%), so neither pure order wins.
+- Tier R baseline to beat (56 valid cases, `claude-opus-5` judge, the tool
+  called with a derived query at the decision point): `session_search` 34%,
+  `kb_search` 27%, `memory_search` 7%, any of the three 54%; blackhole `recall`
+  is current-session only (0% by construction). On 30 negative cases every
+  retriever returned results (no abstention). Agents called these tools in
+  4% of sessions, so effective delivery today is a small fraction of the 54%.
 
 ### D10: The lesson miner
 - **Stage 1 (deterministic):** `packages/session-distiller` `run()` with

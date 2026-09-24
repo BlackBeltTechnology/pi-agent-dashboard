@@ -602,6 +602,47 @@ By stratum:
 - Tier O (outcome, before cutover): replay later task in `docker/` harness under memory off / old stack / unified; metrics steps, tokens, repeated failure, success; keep only cases where injecting gold evidence helps in a reference run (VibeMemBench verification rule).
 - Models: SWE-ContextBench arXiv 2602.08316; DreamBench-SWE arXiv 2608.20664; VibeMemBench.
 
+#### Tier R v0 — current-stack baseline (measured)
+
+Harness `/tmp/tierr` (deleted after recording):
+
+- `cases.py` over 502 session JSONLs (filename = ISO start). Error signature normalised as §18. Specific = in ≤5% sessions; generic patterns excluded.
+- Case types: recurring_fault 50 (later occurrence of signature an EARLIER session resolved with changed approach; gold = earlier sessions + fix); user_flagged 23 (human turns: again / other session / previous / remember / already fixed / múltkor / korábban / előző / megint; pasted logs + "test again" + duplicates dropped); explicit_ref 2 (user names another session holding the knowledge; most UUID mentions = debug targets, not memory refs → dropped); negative 30 (first-ever occurrence of a specific signature — no earlier evidence exists).
+- Query derived at decision point: failing command head + error-line words (faults); user turn text (others). As-of = decision timestamp.
+- Retrievers (current stack, faithful replicas):
+  - hermes `session_search` = hermes' own `fts-query.ts` builder (normalize → fallback → LIKE), project `pi-agent-dashboard`, `timestamp < t`, ORDER BY timestamp DESC as shipped (newest 10 FTS matches, NOT relevance); variant = same with bm25 order.
+  - hermes `memory_search` = `memory_fts` bm25, this project + global, `created ≤ date`.
+  - `kb_search` = `packages/kb` shipped defaults over VACUUM copy of live index (current docs → leaks future knowledge → upper bound).
+  - blackhole `recall` = scope lineage|all within CURRENT session only (project-recall corpus not wired to tool) → 0% cross-session by construction.
+- Structural finding: hermes `sessions.db` indexes only user/assistant/system messages (18,526 assistant + 3,594 user rows for this project) → tool results (error text) unsearchable. hermes covered 100/105 case sessions, 52/52 gold sessions; ids = pi session ids.
+- Latency: hermes-order `session_search` 3–440 ms; bm25 variant needed rank-in-FTS-first (join over 45k messages took 9–48 s per query).
+- Judge: `claude-opus-5`, 3 batches of 35; per case: valid? + per retriever "any of top-5 actually helps" (topical overlap ≠ help).
+
+Results:
+
+- Valid cases: recurring_fault 33/50, user_flagged 21/23, explicit_ref 2/2, negative 11/30 → signature pipeline ~34% noise.
+
+| retriever | recurring fault | user-flagged | explicit ref | all valid positives | negatives: non-empty | negatives: judged helpful |
+|---|---|---|---|---|---|---|
+| hermes session_search (newest-first, shipped) | 7/33 21% | 10/21 48% | 2/2 | 19/56 34% | 30/30 | 7/30 |
+| session_search bm25 order (variant) | 9/33 27% | 7/21 33% | 1/2 | 17/56 30% | 30/30 | 5/30 |
+| hermes memory_search | 3/33 9% | 1/21 5% | 0/2 | 4/56 7% | 9/30 | 3/30 |
+| kb_search (upper bound, leakage) | 8/33 24% | 5/21 24% | 2/2 | 15/56 27% | 30/30 | 6/30 |
+
+- Any shipped retriever (session_search ∨ memory_search ∨ kb) helpful: 30/56 = 54%.
+- Deterministic gold-session hit@10 on recurring faults: newest-first 4/50, bm25 6/50 → helpful evidence usually sits in OTHER sessions than the signature-matched gold → session-id gold too narrow; judge needed.
+- 26% of session_search results come from the CURRENT session (not cross-session memory).
+- No abstention: session_search + kb return results for 30/30 negatives.
+
+Verdict:
+
+- Capability ceiling today ~54% (if agent searches with right query at right moment); delivery today ≈ small fraction (memory/recall tools called in 4% of sessions; no automatic query-specific injection in current stack).
+- Distilled memory store weakest (7%) → consistent with raw-chunk retrieval ≥ extraction (LoCoMo arXiv 2603.02473).
+- Newest-first vs relevance: neither wins (recency helps user-flagged, relevance helps faults) → hybrid.
+- Unified-stack targets: index tool results; BM25 + recency tiebreak + score floor; beat 54% capability AND deliver automatically (cue tier) AND abstain on negatives.
+- Design updated: D9 (tool results indexed, hybrid ranking, Tier R baseline numbers).
+- Caveats: derived queries (not agent-written), top-5 only, single judge model, n=56 positives, kb leakage.
+
 ### Design impact (`unify-context-manager`)
 
 - D4: lifecycle frontmatter `anchors[]` / `supersedes` / `valid_from` / `valid_to` / `trust`; anchor staleness via kb verdicts (STALE stops firing → verify queue); supersede-on-write; delta-only consolidation; idle-time jobs; poisoning controls.
@@ -628,4 +669,4 @@ By stratum:
 12. Does a delivered card actually prevent recurrence? Needs online fired/followed data.
 13. LLM-written contextual chunks for kb (cost ~39k calls) untested.
 14. Repo-map / symbol-ranking for the agents lane untested.
-15. Tier R baseline for the old stack not yet measured.
+15. Tier R v0 measured (§19); outcome replay (Tier O) + unified-stack Tier R pending.
