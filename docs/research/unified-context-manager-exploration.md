@@ -651,6 +651,59 @@ Verdict:
 - Not adopted: deterministic contextual BM25.
 - Scratch `/tmp/ctx-spike` deleted after recording.
 
+### Ontology frontmatter (entities + relations) — analysis + ablation
+
+Question: extract entities / references / relations from messages into distilled-md frontmatter (an ontology)?
+
+Prior art: openspec change `add-kb-semantic-annotation-plane` (0/28 tasks) — LLM annotator writes machine-managed OKF-aligned `kb:` block; design §9.4 = top-level `type`, `kb.relations[]` `{predicate, object, status, source}`, CURIE predicates, open-world vocab via review queue; indexer builds typed edges, never calls LLM. Its §7 already recommends deterministic Tier-1a edges first (`add-kb-deterministic-provenance-edges`).
+
+Evidence against LLM open-ontology extraction from prose:
+
+- Tier R — distilled `memory_search` weakest retriever (7%) vs raw `session_search` 34%.
+- LoCoMo arXiv 2603.02473 — write strategy moves results 3–8 pts; raw chunks ≥ extraction.
+- Own LLM labelling noisy: `kind` 0.54, `knowledge_type` 0.53 agreement.
+- No consumer: memory tools called 4% of sessions; `kb_neighbors` ~unused.
+- Scale: 45k messages.
+
+Evidence for structured entities/relations:
+
+- Supersession needs `(subject, relation, value)` facts — Temporal Validity arXiv 2608.20685 RAG stale 36–38% → ~0.
+- Cue triggers already = entities (path / command / symbol / error / tool).
+- Prose-derived triggers 25–35% precise (spike 2) vs observed-event entities exact.
+- Coverage in old memory files: project entries 71% name path; global failures 40% path, 40% command, 18% error signature.
+
+Ablation (`/tmp/onto`, deleted after recording):
+
+- Corpus: 856 hermes memories (this project + global); deterministic regex entities (path, file, cmd, pkg, env, err, sym) → 760 (89%) with ≥1 entity, avg 5.1.
+- Cases: Tier R set rebuilt (50 recurring faults, 23 user-flagged, 2 explicit refs, 30 negatives); case entities from failing command / error / user text.
+- Variants: V0 body BM25 (OR query); V1 + entity FTS field (weight 3); V2 V1 + rerank by entity overlap; V3 V1 + rerank by RARE-entity overlap (df ≤2% of memories).
+- Conditions: as-of (memory `created ≤ case date`) and full store (leaks future memories; equal across variants → relative comparison valid).
+- Judge: `claude-opus-5`, pooled top-5 union (859 records), 4 batches; valid positives 56 (faults 31, user-flagged 23, explicit 2).
+- Structural finding: memory store starts 2026-06-05 → only 26/105 cases post-date it; as-of condition underpowered.
+- Structural finding: user-flagged cases carry entities 1/23 → entity matching cannot help user-reported problems.
+
+Results hit@5 on valid positives:
+
+| variant | as-of | full store |
+|---|---|---|
+| V0 body BM25 | 2/56 (4%) | 19/56 (34%) |
+| V1 + entity field | 3/56 | 17/56 (30%) |
+| V2 + overlap boost | 4/56 | 17/56 |
+| V3 + rare-entity boost | 4/56 (7%) | 17/56 |
+
+- Paired V0→V3: as-of gained 2 lost 0; full gained 1 lost 3.
+- Firing precision (fired AND top-5 helpful), positives / negatives, full store: text-match fires 56/56 & 29/30, precision 34% / 21%; entity-exact fires 31/56 & 28/30, 32% / 25%; rare-entity fires 30/56 & 28/30, 30% / 25%. As-of: entity-exact 4/5 (80%) vs text 2/9 (22%) — n too small.
+- Side finding: as-of 4% vs full 34% for same retriever → helpful memory for most cases written AFTER the incident (lesson learned too late to help that occurrence).
+
+Verdict:
+
+- Entities do NOT help ranking or firing precision; do not use as ranking signal.
+- Keep deterministic entities for structural jobs: anchors/staleness, triggers from observed events, dedupe blocking keys, supersession keys, graph joins.
+- Closed relation set with consumers: `kb:about`, `kb:fixes`, `kb:supersedes`, `kb:decidedIn`, `kb:replacedBy`; source deterministic; on lesson files only (hundreds), not per session message.
+- LLM open-ontology extraction: not now; only via `add-kb-semantic-annotation-plane` for docs, adopt for lessons only if Tier R ablation shows gain. `kb:fixes` edges untested (circular vs signature-defined fault cases).
+- Design updated: `unify-context-manager` D4 ontology block (reuses kb §9.4 shape: `type kb:Lesson`, `kb.relations[]`, `source deterministic`); `add-kb-semantic-annotation-plane` design §7 coordination note (lesson files = second producer; indexer must accept `source: deterministic` edges; measure annotation on Tier R before ranking use).
+- Caveats: regex entities from prose memories (not authored lesson files), single judge, n=56, full-store leakage.
+
 ---
 
 ## 20. Open Questions
@@ -670,3 +723,4 @@ Verdict:
 13. LLM-written contextual chunks for kb (cost ~39k calls) untested.
 14. Repo-map / symbol-ranking for the agents lane untested.
 15. Tier R v0 measured (§19); outcome replay (Tier O) + unified-stack Tier R pending.
+16. `kb:fixes` edge value untested (needs non-circular cases).

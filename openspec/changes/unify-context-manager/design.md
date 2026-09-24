@@ -142,6 +142,29 @@ Lesson files:
   - `supersedes: <id>`, `valid_from`, `valid_to`: a replaced lesson is closed,
     not deleted (bi-temporal, as in Zep/Graphiti);
   - `trust (reviewed|mined|web-derived)`.
+- Ontology block: lessons reuse the OKF-aligned `kb:` extension from
+  `add-kb-semantic-annotation-plane` (design §9.4): top-level
+  `type: kb:Lesson`, typed edges in `kb.relations[]` as
+  `{predicate, object, status, source}`, no separate entity array.
+  - Objects are deterministic entities taken from observed tool events,
+    never from prose: `path:`, `symbol:`, `cmd:`, `err:` (normalised
+    signature), `pkg:`, `env:`, `change:` (OpenSpec), `session:`.
+  - Closed predicate set, each with a consumer: `kb:about` (lesson →
+    path/symbol; the anchors used for staleness), `kb:fixes` (error →
+    command, from the fault→fix pair), `kb:supersedes` (lesson → lesson),
+    `kb:decidedIn` (rationale → OpenSpec change), `kb:replacedBy`
+    (command/package → successor).
+  - `source: deterministic`, so no annotator run and no review queue for
+    these edges. LLM-extracted open-ontology relations stay out of lessons
+    unless a Tier R ablation shows a gain.
+  - Measured (ontology ablation over 856 hermes memories, 56 valid Tier R
+    positives, `claude-opus-5` judge): an entity field plus an entity-overlap
+    boost did not improve retrieval (full store: body BM25 19/56 hit@5, with
+    entities 17/56; as-of store 2/56 → 4/56, n too small), and entity-exact
+    firing did not raise precision (32% vs 34%) and still fired on 28/30
+    negatives. Only 1 of 23 user-reported cases carried any entity. Entities
+    are therefore kept for structural jobs (anchors, triggers, dedupe
+    blocking keys, supersession keys, graph joins), not as a ranking signal.
 - Body: the full text.
 
 Staleness:
