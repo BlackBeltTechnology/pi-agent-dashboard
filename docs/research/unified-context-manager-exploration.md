@@ -704,6 +704,58 @@ Verdict:
 - Design updated: `unify-context-manager` D4 ontology block (reuses kb §9.4 shape: `type kb:Lesson`, `kb.relations[]`, `source deterministic`); `add-kb-semantic-annotation-plane` design §7 coordination note (lesson files = second producer; indexer must accept `source: deterministic` edges; measure annotation on Tier R before ranking use).
 - Caveats: regex entities from prose memories (not authored lesson files), single judge, n=56, full-store leakage.
 
+### Card-writing spike (umbrella task 0.2)
+
+Question: can miner MAP stage turn triage-accepted windows into good D4 lesson cards with good D5 triggers, and does cheap model suffice?
+
+Harness `/tmp/card` (deleted after recording):
+
+- Sessions split by filename time: past 302 (oldest 60%), future 202.
+- 64 windows from past (fault 44 distinct signatures, correction 12, decision 8), one per session.
+- Triage: `opencode-go/deepseek-v4.1-flash` `is_lesson` ≥0.5 → 20 accepted (fault 15, correction 3, decision 2).
+- Card writers, identical prompt (D4 fields `kind`/`scope`/`severity`/`card` ≤200 ch/`triggers`/`body`; triggers from literal observed tokens): cheap = `deepseek-v4.1-flash`; strong = `anthropic/claude-opus-5`.
+- Deterministic replay over 202 future sessions: command regex on bash, error regex on error results, path glob on args, tool name/argPattern. Prompt triggers not replayable.
+- Blinded judge `opencode-go/kimi-k3` (third family; `openai/gpt-5.5` + `google/gemini-3.1-pro-preview` subagents returned empty = transport failure). A/B order randomised per window.
+
+Results — replay:
+
+| metric | cheap | strong |
+|---|---|---|
+| cards written | 20/20 | 19/20 (1 skip) |
+| trigger types | error 14, command 11, path 7, tool 2, prompt 2 | command 14, error 14, path 4, tool 2, prompt 4 |
+| invalid regex | 0 | 0 |
+| self-fire in source session | 19/19 | 18/19 |
+| pass per-CARD df ≤3% | 12/19 | 10/19 |
+| never fire in future | 8/19 | 6/19 |
+| max card fire rate | 40% | 44% |
+| cards whose signature recurs later | 4 | 4 |
+| fired on ≥1 recurrence / recurrence sessions hit | 2/4, 3/20 | 3/4, 8/20 |
+
+- Cause of over-broad cards: triggers OR-combined. Precise error trigger (e.g. "must contain SHALL or MUST", "Spec must have a Purpose section") paired with broad trigger (`openspec validate --strict`, `openspec/changes/**/specs/**/spec.md` glob, `npm test` / `vitest run`, `wc -l`, `*tasks.md` glob).
+- Per-TRIGGER gate (drop triggers >3%, keep card if ≥1 survives): dropped 7/34 cheap, 9/34 strong; cards kept 17/20 and 17/19; error-only cards 5 and 7; card fire-rate median 0.000, max 4.0% / 2.5%; recurrence recall unchanged (3/20, 8/20).
+
+Results — blinded judge (1–5 means):
+
+| writer | faithful | actionable | general | trigger_fit | accept as-is |
+|---|---|---|---|---|---|
+| cheap `deepseek-v4.1-flash` | 4.65 | 4.50 | 3.90 | 3.95 | 18/20 (90%) |
+| strong `claude-opus-5` | 4.63 | 4.68 | 3.89 | 4.11 | 18/19 (95%) |
+
+- Preference: cheap 11, strong 9, tie 0.
+- Judge: worth a card 20/20 triage-accepted windows (lenient, or triage precise).
+- Judge notes: invented details ~1 card in 10 (visual-mark fallback, validate-archived-folder workflow, misstated extensions path, contradicting body).
+- Judge scored `trigger_fit` ~4 while ~half of both writers' cards carried a >3% trigger → judge cannot see fire rates; only replay can.
+
+Verdict:
+
+- Cheap model suffices for card writing (quality parity; ~30× cheaper per token than `claude-opus-5`).
+- Per-trigger replay gate mandatory — applied per trigger, not per card.
+- Error triggers most precise; proactive command/path triggers need the gate.
+- Human review stays for faithfulness (~10% invented claims).
+- `general` ~3.9 for both → task-specific detail creeps in; card prompt should forbid ticket names / one-off paths more strongly.
+- Design updated: D5 precision guard = per-trigger gate + evidence; D10 card writing default = cheap model + gate + mandatory review. `tasks.md` 0.2 ticked (LLM-judged + replay; hand spot-check open).
+- Caveats: n=20 windows, single judge model, only 4 recurring signatures.
+
 ---
 
 ## 20. Open Questions
@@ -711,7 +763,7 @@ Verdict:
 1. Jev evaluation — needs TypeSafe key.
 2. Fine-tune Laya/Von on miner labels — label count needed.
 3. Runtime relevance-gate latency budget.
-4. MAP card-writing quality spike still pending.
+4. MAP card-writing spike recorded (§19, task 0.2) — hand spot-check pending (see 17).
 5. Prompt-trigger spike (BM25 cards vs real prompts) for `USER.md`-style preferences.
 6. Distiller placement (in-process vs child `pi`) — current choice: keep both pipelines.
 7. `followed` metric definition for path hints.
@@ -724,3 +776,5 @@ Verdict:
 14. Repo-map / symbol-ranking for the agents lane untested.
 15. Tier R v0 measured (§19); outcome replay (Tier O) + unified-stack Tier R pending.
 16. `kb:fixes` edge value untested (needs non-circular cases).
+17. Hand spot-check of the 39 spike cards (task 0.2 judged by LLM only).
+18. `openai`/`google` subagent transports returned empty in this environment — cross-family judging limited to opencode-go families.

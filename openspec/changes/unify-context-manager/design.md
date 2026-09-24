@@ -242,6 +242,13 @@ Writes and indexing:
 - **Precision guard (from spike 2):** triggers are written explicitly by the
   agent through `lesson`, never derived from prose. A replay validator rejects
   any trigger that would have fired in more than 3% of recent sessions.
+  The gate is applied per trigger, not per card: a failing trigger is
+  dropped and the card survives if at least one trigger passes. Triggers are
+  OR-combined, so one broad trigger (e.g. `openspec validate --strict`, a
+  `spec.md` glob) next to a precise error trigger made whole cards fire in up
+  to 40–44% of sessions (card-writing spike). Per-trigger gating kept 17 of
+  ~19 cards per writer, capped card fire rates at 2.5–4%, and lost no
+  recurrence recall.
 - **Abstention:** `context_search` and the cue tier return nothing rather than
   weak matches below a score floor (LongMemEval's abstention ability). Silence
   is the default outcome.
@@ -329,6 +336,16 @@ showed is missing today (5 of 12 reference lessons were re-hits of that block).
 - **Card writing:** parallel subagents admitted by `maxConcurrentSubagents`,
   each handling a batch of about 20 windows. Card writing and verify each have
   their own model setting, separate from triage.
+  - Default card writer: the cheap triage model. In the card-writing spike (20
+    triage-accepted windows, blinded judge `opencode-go/kimi-k3`) the cheap
+    writer (`deepseek-v4.1-flash`) matched `claude-opus-5`: faithful 4.65 vs
+    4.63, actionable 4.50 vs 4.68, general 3.90 vs 3.89, trigger fit 3.95 vs
+    4.11, accepted as-is 90% vs 95%, preferred 11 vs 9.
+  - The per-trigger replay gate (D5) runs on every card before staging: the
+    judge scored trigger fit ~4/5 while about half the cards of both writers
+    carried a trigger firing in over 3% of sessions. Only replay sees that.
+  - Review stays mandatory for faithfulness: the judge flagged invented details
+    (a fallback, a workflow, a misstated path) in about 1 card in 10.
 - **Gates:**
   - the trigger replay gate;
   - semantic dedupe (BM25 candidate pairs → `same_as` decision);

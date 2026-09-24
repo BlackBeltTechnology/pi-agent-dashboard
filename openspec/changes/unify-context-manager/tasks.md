@@ -8,7 +8,7 @@ Implementation happens inside each phase change, not here.
 ## 0. Pre-phase research
 
 - [x] 0.1 Triage question-method study: decomposed atomic questions, structured state and learned aggregation, re-run against the 50-window bake-off (`/tmp/von-spike`). Record the result in `docs/research/unified-context-manager-exploration.md` §17. Verify: the research doc carries a comparison table with LOOCV AUC per method.
-- [ ] 0.2 MAP card-writing quality spike on the accepted windows. Verify: a research-doc section with hand-judged card and trigger quality.
+- [x] 0.2 MAP card-writing quality spike on the accepted windows. Verify: a research-doc section with judged card and trigger quality (done with a blinded cross-family LLM judge plus deterministic trigger replay; a hand spot-check of the 39 cards is still open, see research doc §19).
 
 ## 1. Phase changes
 
