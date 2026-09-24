@@ -28,9 +28,33 @@ export interface SessionAccessInput {
   owner: { iss: string; sub: string } | null | undefined;
 }
 
+/**
+ * D23 break-glass (local-token part): the host-only local token (CLI/bridge)
+ * with no signed-in principal acts as the LOCAL OPERATOR and sees every
+ * session. Matched by REFERENCE only, so no resolver/IdP can mint a principal
+ * that compares equal to it.
+ */
+export const LOCAL_OPERATOR: Readonly<{ iss: string; sub: string }> = Object.freeze({
+  iss: "urn:pi-dashboard:local-operator",
+  sub: "local-operator",
+});
+
+const localOperatorRequests = new WeakSet<object>();
+/** Mark a request whose local token the floor hook verified (no principal). */
+export function markLocalOperator(request: object): void {
+  localOperatorRequests.add(request);
+}
+/** The principal a session road should use: the resolver's, else LOCAL_OPERATOR for a marked request, else null. */
+export function sessionPrincipalOf(request: object): { iss: string; sub: string } | null {
+  const principal = (request as { principal?: { iss: string; sub: string } }).principal;
+  if (principal) return principal;
+  return localOperatorRequests.has(request) ? LOCAL_OPERATOR : null;
+}
+
 /** True when the requester may read or write this session. */
 export function canAccessSession(input: SessionAccessInput): boolean {
   if (!input.active) return true; // inert era — unchanged
+  if (input.principal === LOCAL_OPERATOR) return true; // D23 break-glass operator
   if (!input.owner) return false; // ownerless ⇒ invisible/immutable to humans
   if (!input.principal) return false; // principal-less requester ⇒ refused
   return principalEquals(input.owner, input.principal);

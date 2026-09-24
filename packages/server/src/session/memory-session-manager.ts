@@ -331,6 +331,11 @@ export function createMemorySessionManager(
           // them here would wipe them from disk too.
           // See change: split-notify-from-prompt-request.
           notifyLog: existing.notifyLog,
+          // Preserve the identity-plane owner across a bridge reattach
+          // (dashboard restart). Same full-overwrite hazard as `tags`: dropping
+          // it here wipes it from disk and the session turns ownerless.
+          // A re-register never CHANGES an owner (only the spawn token does).
+          principalOwner: existing.principalOwner,
           // Preserve context usage until bridge sends fresh data
           contextTokens: existing.contextTokens,
           contextWindow: existing.contextWindow,

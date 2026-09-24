@@ -7,7 +7,7 @@ import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/type
 import type { FastifyInstance } from "fastify";
 import { evaluateContainment } from "../access/containment-gate.js";
 import { readFileVerifiedUtf8, VerifiedReadRefused } from "../access/verified-read.js";
-import { canAccessSession, gateHttpSession } from "../identity/session-access.js";
+import { canAccessSession, gateHttpSession, sessionPrincipalOf } from "../identity/session-access.js";
 import type { EventStore } from "../persistence/memory-event-store.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import type { RemoteTranscriptStore } from "../session/remote-transcript-store.js";
@@ -62,9 +62,9 @@ export function registerSessionRoutes(
   /** Owner of a live-or-archived session, for the HTTP owner gate. */
   const ownerOf = (sessionId: string) =>
     sessionManager.get(sessionId)?.principalOwner ?? sessionArchive?.getById(sessionId)?.principalOwner;
-  /** Read the request principal the resolver hook (§4) stamped, or null. */
-  const principalOf = (request: unknown) =>
-    (request as { principal?: { iss: string; sub: string } }).principal ?? null;
+  /** Read the request principal the resolver hook (§4) stamped, the D23
+   *  local operator for a verified local-token request, or null. */
+  const principalOf = (request: unknown) => sessionPrincipalOf(request as object);
   /** Per-item owner filter for a session-list road (§8.1/§8.2). */
   const filterOwned = <T extends { principalOwner?: { iss: string; sub: string } }>(
     request: unknown,

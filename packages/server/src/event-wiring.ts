@@ -8,7 +8,7 @@ import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js"
 import { normalizeNotifyLevel } from "@blackbelt-technology/pi-dashboard-shared/notify.js";
 import { detectOpenSpecActivity, isValidOpenSpecChangeSlug } from "@blackbelt-technology/pi-dashboard-shared/openspec-activity-detector.js";
 import type { ExtensionToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
-import { mergeSessionMeta, type SessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import { mergeSessionMeta, readSessionMeta, type SessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { extractTurnStats } from "@blackbelt-technology/pi-dashboard-shared/stats-extractor.js";
 import type { DashboardSession, NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { type PendingAttachment, prepareEventForIngest } from "./attachments/attachment-ingest.js";
@@ -1491,14 +1491,25 @@ export function wireEvents(deps: EventWiringDeps): void {
       // ownership. Consumed once on first register; a reconnect / cold-start
       // restore reads the owner back from `.meta.json` via `sessionFromMeta`,
       // so no re-resolution is needed here.
+      // Re-register of a session the boot scan could not restore (no transcript
+      // yet): bring the persisted owner back into memory BEFORE any full
+      // `.meta.json` save can overwrite it. Never overrides an in-memory owner.
+      if (!sessionManager.get(sessionId)?.principalOwner && msg.sessionFile) {
+        const persisted = readSessionMeta(msg.sessionFile)?.principalOwner;
+        if (persisted) sessionManager.update(sessionId, { principalOwner: persisted });
+      }
       if (pendingPrincipalOwnerRegistry && msg.spawnToken) {
         const owner = pendingPrincipalOwnerRegistry.resolve(msg.spawnToken);
         if (owner) {
           sessionManager.update(sessionId, { principalOwner: owner });
-          const session = sessionManager.get(sessionId);
-          if (session?.sessionFile) {
+          // A fresh spawn registers before the in-memory session carries its
+          // file; the register message itself does (same source as the
+          // `source: "dashboard"` stamp below). Without the fallback the owner
+          // never reaches `.meta.json` and a restart makes the session ownerless.
+          const ownerFile = sessionManager.get(sessionId)?.sessionFile ?? msg.sessionFile;
+          if (ownerFile) {
             try {
-              mergeSessionMeta(session.sessionFile, { principalOwner: owner });
+              mergeSessionMeta(ownerFile, { principalOwner: owner });
             } catch (err) {
               console.warn(
                 `[event-wiring] failed to persist principalOwner to .meta.json for ${sessionId}:`,

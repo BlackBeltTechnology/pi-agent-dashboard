@@ -53,8 +53,8 @@ export default async function registerPlugin(ctx) {
 }
 `;
 
-function writeHome(s: Scenario, port: number, issuer: string): string {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), `pi-idmatrix-${s.id}-`));
+function writeHome(s: Scenario, port: number, issuer: string, baseDir = os.tmpdir()): string {
+  const home = fs.mkdtempSync(path.join(baseDir, `pi-idmatrix-${s.id}-`));
   const pluginsDir = path.join(home, ".pi", "dashboard", "plugins");
   fs.mkdirSync(pluginsDir, { recursive: true });
   fs.mkdirSync(path.join(home, ".pi", "agent"), { recursive: true });
@@ -105,6 +105,85 @@ async function waitHealthy(port: number, child: ChildProcess, log: string, timeo
   throw new Error(`dashboard on :${port} not healthy within ${timeoutMs / 1000}s; see ${log}`);
 }
 
+/**
+ * Child env for a matrix dashboard. The login plugin has NO built-in Keycloak
+ * default: it is configured via env here. "login-unconfigured" (row K) strips
+ * it to prove sign-in is then not offered at all. Every inherited `PI_*`
+ * variable is dropped: a run launched from inside a pi session would otherwise
+ * hand its children the DEVELOPER's `PI_DASHBOARD_SOCKET`/`_URL`, and a pi the
+ * spec starts would register with the real dashboard instead of the test one.
+ */
+function loginEnv(s: Scenario, home: string, issuer: string): NodeJS.ProcessEnv {
+  const base = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("PI_")));
+  if (s.extra === "login-unconfigured") return { ...base, HOME: home };
+  return { ...base, HOME: home, PI_LOGIN_ISSUER: issuer, PI_LOGIN_BROWSER_ISSUER: issuer, PI_LOGIN_CLIENT_ID: "dashboard-web" };
+}
+
+function startDashboard(s: Scenario, port: number, home: string, issuer: string, log: string): ChildProcess {
+  const fd = fs.openSync(log, "a");
+  return spawn(
+    process.execPath,
+    ["--import", "jiti/register", "packages/server/src/cli.ts", "--host", "0.0.0.0", "--port", String(port)],
+    { cwd: REPO_ROOT, env: loginEnv(s, home, issuer), stdio: ["ignore", fd, fd] },
+  );
+}
+
+export interface DedicatedInstance {
+  port: number;
+  home: string;
+  log: string;
+  /** Env for a pi process started "from a terminal" against this instance. */
+  terminalEnv: NodeJS.ProcessEnv;
+  restart(): Promise<void>;
+  /** Stops the dashboard AND every pi/keeper it spawned (keepers outlive a dashboard by design). */
+  stop(killPids?: number[]): Promise<void>;
+}
+
+/** One private dashboard for a spec that spawns sessions or restarts the server. */
+export async function bootDedicated(scenarioId: string, issuer: string): Promise<DedicatedInstance> {
+  const s = SCENARIOS.find((x) => x.id === scenarioId);
+  if (!s) throw new Error(`unknown scenario ${scenarioId}`);
+  const port = await freePort();
+  // Short base dir: spawned sessions put a keeper Unix socket under HOME, and
+  // macOS caps socket paths at ~104 bytes (os.tmpdir() is /var/folders/…/T/).
+  const home = writeHome(s, port, issuer, process.platform === "win32" ? os.tmpdir() : "/tmp");
+  // A dedicated gateway port, so sessions never reach another instance.
+  const cfgPath = path.join(home, ".pi", "dashboard", "config.json");
+  fs.writeFileSync(cfgPath, JSON.stringify({ ...JSON.parse(fs.readFileSync(cfgPath, "utf8")), piPort: await freePort() }, null, 2));
+  const log = path.join(path.dirname(STATE_PATH), `dedicated-${scenarioId}-${port}.log`);
+  fs.mkdirSync(path.dirname(log), { recursive: true });
+  let child = startDashboard(s, port, home, issuer, log);
+  await waitHealthy(port, child, log);
+  const kill = async (c: ChildProcess) => {
+    if (c.exitCode !== null) return;
+    c.kill("SIGTERM");
+    for (let i = 0; i < 20 && c.exitCode === null; i++) await new Promise((r) => setTimeout(r, 150));
+    if (c.exitCode === null) c.kill("SIGKILL");
+  };
+  return {
+    port,
+    home,
+    log,
+    terminalEnv: { ...loginEnv(s, home, issuer) },
+    async restart() {
+      await kill(child);
+      child = startDashboard(s, port, home, issuer, log);
+      await waitHealthy(port, child, log);
+    },
+    async stop(killPids = []) {
+      await kill(child);
+      for (const pid of killPids) {
+        try {
+          process.kill(pid, "SIGTERM");
+        } catch {
+          /* already gone */
+        }
+      }
+      fs.rmSync(home, { recursive: true, force: true });
+    },
+  };
+}
+
 export async function bootMatrix(): Promise<{ state: MatrixState; stop: () => Promise<void> }> {
   const lanHost = lanIPv4();
   const hosts = ["localhost", "127.0.0.1", ...(lanHost ? [lanHost] : [])];
@@ -118,14 +197,6 @@ export async function bootMatrix(): Promise<{ state: MatrixState; stop: () => Pr
   const logDir = path.dirname(STATE_PATH);
   fs.mkdirSync(logDir, { recursive: true });
 
-  // The login plugin has NO built-in Keycloak default: it is configured via
-  // env here. "login-unconfigured" (row K) strips it to prove sign-in is then
-  // not offered at all.
-  const loginEnv = (s: Scenario, home: string, issuer: string): NodeJS.ProcessEnv => {
-    const { PI_LOGIN_ISSUER: _a, PI_LOGIN_BROWSER_ISSUER: _b, PI_LOGIN_CLIENT_ID: _c, ...base } = process.env;
-    if (s.extra === "login-unconfigured") return { ...base, HOME: home };
-    return { ...base, HOME: home, PI_LOGIN_ISSUER: issuer, PI_LOGIN_BROWSER_ISSUER: issuer, PI_LOGIN_CLIENT_ID: "dashboard-web" };
-  };
   const children: ChildProcess[] = [];
   const instances: MatrixState["instances"] = {};
   for (const s of SCENARIOS) {
@@ -133,16 +204,8 @@ export async function bootMatrix(): Promise<{ state: MatrixState; stop: () => Pr
     const issuer = s.resolver === "dead" ? deadIssuer : issuerSrv.issuer;
     const home = writeHome(s, port, issuer);
     const log = path.join(logDir, `${s.id}.log`);
-    const fd = fs.openSync(log, "w");
-    const child = spawn(
-      process.execPath,
-      ["--import", "jiti/register", "packages/server/src/cli.ts", "--host", "0.0.0.0", "--port", String(port)],
-      {
-        cwd: REPO_ROOT,
-        env: loginEnv(s, home, issuer),
-        stdio: ["ignore", fd, fd],
-      },
-    );
+    fs.writeFileSync(log, "");
+    const child = startDashboard(s, port, home, issuer, log);
     children.push(child);
     instances[s.id] = { port, home, log };
   }

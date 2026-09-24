@@ -107,6 +107,13 @@ export function sessionToMeta(session: DashboardSession): SessionMeta {
     // notify log, making notifications the one transcript row type that
     // vanishes on restart. See change: split-notify-from-prompt-request.
     notifyLog: session.notifyLog,
+    // Persist the identity-plane owner. MUST be listed here because this save
+    // does a full .meta.json overwrite (not a merge) — omitting it wipes the
+    // owner on the next routine save, so a dashboard restart makes every
+    // session ownerless (= invisible to its owner while enforced). `undefined`
+    // (inert / ownerless) serializes to no key.
+    // See change: add-multi-user-identity-plane (§6.2).
+    principalOwner: session.principalOwner,
     cachedAt: Date.now(),
   };
 }

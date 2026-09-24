@@ -122,6 +122,7 @@ import { IdentityRegistrationTracker, releaseFailedIdentityRegistrations } from 
 import { PolicyRegistry } from "./identity/policy-registry.js";
 import { registerResolverHook } from "./identity/resolver-hook.js";
 import { ResolverRegistry } from "./identity/resolver-registry.js";
+import { markLocalOperator } from "./identity/session-access.js";
 import {
   clientBuildDiagnostic,
   clientBuildSnapshotFor,
@@ -1648,15 +1649,22 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // `request.principal` is settled. Enforced + no principal + no host-only local
   // token ⇒ every browser road (`/api/`, `/editor/`, `/live/`) except the
   // pre-auth set is 401, loopback included (D23). Inert ⇒ no-op.
+  let lastLocalOperatorWarnAt = 0;
   fastify.addHook("onRequest", async (request, reply) => {
-    const allowed = identityFloorAllows({
-      enforced: identityEnforced(),
-      path: request.url,
-      method: request.method,
-      hasPrincipal: (request as { principal?: unknown }).principal != null,
-      hasLocalToken: verifyLocalToken(request.headers as Record<string, unknown>, localToken),
-    });
+    const enforced = identityEnforced();
+    const hasPrincipal = (request as { principal?: unknown }).principal != null;
+    const hasLocalToken = verifyLocalToken(request.headers as Record<string, unknown>, localToken);
+    const allowed = identityFloorAllows({ enforced, path: request.url, method: request.method, hasPrincipal, hasLocalToken });
     if (!allowed) return reply.code(401).send({ success: false, error: "sign_in_required" });
+    // D23 break-glass (local-token part): the host-only token with no
+    // signed-in principal acts as the local operator on session roads.
+    if (enforced && !hasPrincipal && hasLocalToken) {
+      markLocalOperator(request);
+      if (Date.now() - lastLocalOperatorWarnAt > 10 * 60_000) {
+        lastLocalOperatorWarnAt = Date.now();
+        console.warn("[identity] local-operator (break-glass) access via the host-only local token — sees every session");
+      }
+    }
   });
   if (config.authConfig) {
     await registerAuthPlugin(fastify, {
