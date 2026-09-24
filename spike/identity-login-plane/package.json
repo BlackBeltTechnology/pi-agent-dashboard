@@ -7,6 +7,10 @@
   "scripts": {
     "test": "node --test test/"
   },
+  "devDependencies": {
+    "fastify": "^5.0.0",
+    "ws": "^8.18.0"
+  },
   "pi-dashboard-plugin": {
     "id": "identity-login-plane",
     "displayName": "Identity Login Plane (Keycloak, separate view)",
