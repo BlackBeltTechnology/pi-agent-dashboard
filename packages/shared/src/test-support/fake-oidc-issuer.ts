@@ -262,17 +262,25 @@ export async function startFakeOidcIssuer(opts: FakeOidcOptions = {}): Promise<F
     }
     sendHtml(res, 200, loginPage(q.toString()));
   }
-  const interactiveRoutes = new Map<string, (req: IncomingMessage, res: ServerResponse, q: URLSearchParams) => void>([
-    ["GET /auth", handleAuthorizeGet],
-    ["POST /auth", (req, res) => void handleAuthorizePost(req, res)],
-    ["POST /token", (req, res) => void handleToken(req, res)],
-    ["GET /logout", handleLogout],
-  ]);
+  /** Static dispatch (no lookup keyed by request data). */
   function handleInteractive(req: IncomingMessage, res: ServerResponse, path: string, q: URLSearchParams): boolean {
-    const route = users.length > 0 ? interactiveRoutes.get(`${req.method} ${path}`) : undefined;
-    if (!route) return false;
-    route(req, res, q);
-    return true;
+    if (users.length === 0) return false;
+    switch (`${req.method} ${path}`) {
+      case "GET /auth":
+        handleAuthorizeGet(req, res, q);
+        return true;
+      case "POST /auth":
+        void handleAuthorizePost(req, res);
+        return true;
+      case "POST /token":
+        void handleToken(req, res);
+        return true;
+      case "GET /logout":
+        handleLogout(req, res, q);
+        return true;
+      default:
+        return false;
+    }
   }
 
   function handleRequest(req: IncomingMessage, res: ServerResponse): void {
