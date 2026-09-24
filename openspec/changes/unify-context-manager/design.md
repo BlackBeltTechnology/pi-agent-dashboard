@@ -230,10 +230,16 @@ showed is missing today (5 of 12 reference lessons were re-hits of that block).
 - **Stage 1 (deterministic):** `packages/session-distiller` `run()` with
   `--n 2` default. Windows are rendered compactly (≤ ~1k tokens: the failing
   call, the error head, the fixing call, and the user's correction).
-- **Triage:** `SystemOne.predict` (D11) over `is_lesson`, `kind`, `scope`,
-  `cue` (a choice over deterministically extracted candidates) and `sensitive`.
+- **Triage:** `SystemOne.predict` (D11) over the steps `is_lesson`, `kind`,
+  `scope`, `cue` (a choice over deterministically extracted candidates),
+  `sensitive` and `same_as`. Each step is routed separately (D11 routing).
+- **Cascade:** `is_lesson` runs first. `kind`, `scope`, `cue` and `sensitive`
+  run only on windows that pass its threshold. `same_as` runs only on accepted
+  cards. Steps routed to the same backend are batched into one call per
+  window, so latency scales with the number of distinct backends, not steps.
 - **Card writing:** parallel subagents admitted by `maxConcurrentSubagents`,
-  each handling a batch of about 20 windows.
+  each handling a batch of about 20 windows. Card writing and verify each have
+  their own model setting, separate from triage.
 - **Gates:**
   - the trigger replay gate;
   - semantic dedupe (BM25 candidate pairs → `same_as` decision);
@@ -244,7 +250,11 @@ showed is missing today (5 of 12 reference lessons were re-hits of that block).
   - staged files;
   - auto-accept above a confidence threshold, review the rest in the plugin;
   - every triage decision and review outcome is appended to a labelled dataset
-    (`~/.pi/agent/context/triage-labels.jsonl`).
+    (`~/.pi/agent/context/triage-labels.jsonl`), one record per step, carrying
+    the step, the backend and pinned model version that answered it, the
+    answer distribution and confidence, and the later review outcome. This
+    allows per-step comparison of backends, so one step can move to System-1
+    once it measures well enough.
 
 `/lessons import-hermes` feeds the 812 existing entries through the same
 triage. Status-type entries are archived to the `sessions` scope instead of
@@ -259,7 +269,22 @@ becoming lessons.
   - in-process `laya-ts`;
   - `LlmSystemOne`, which asks the selected LLM for the same structured answers.
 - **Fallback rule:** no System-1 endpoint configured → `LlmSystemOne`. This is
-  a configuration switch, not a per-item one.
+  a configuration switch, not a per-item one. It applies per step (below).
+- **Per-step routing:** each triage step has its own route: an LLM model, a
+  System-1 endpoint + model, or a deterministic rule optionally followed by a
+  model (e.g. `sensitive`: PII regex first). Each step has its own threshold.
+  The bake-off supports this; no single backend won every step:
+  - `is_lesson`: LLM 0.95 AUC vs best System-1 0.71;
+  - `kind`: LLM 0.54 vs Laya 0.20;
+  - `scope` on real lessons: Laya 0.92 vs LLM 0.58 (only 12 lessons, weak);
+  - `cue` on real lessons: LLM 0.92 vs Laya 0.58;
+  - `sensitive` and `same_as`: unmeasured.
+- **Step-level fallback:** a step with no route uses the default triage LLM
+  (`LlmSystemOne`). Decided by configuration, never per item. With nothing
+  configured, every step runs on the default LLM.
+- **Settings UI:** one primary + fallback chain per step, reusing the
+  blackhole `ChainEditor` pattern (`blackhole-model-picker-chains`); defaults
+  keep everything on one LLM.
 - **Query shape:** System-1 backends are queried with decomposed, observable
   atomic `noul`s (with `true`/`false` descriptions) over a structured JSON
   state, never one abstract judgement. The method study measured this:
