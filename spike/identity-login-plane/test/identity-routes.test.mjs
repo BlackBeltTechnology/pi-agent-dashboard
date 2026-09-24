@@ -155,7 +155,7 @@ test("start routes the browser to Keycloak with PKCE S256 and a browser-binding 
   assert.match(cookie, new RegExp(`${BINDING_COOKIE}=\\S+`));
   assert.match(cookie, /HttpOnly/);
   assert.match(cookie, /SameSite=Lax/);
-  assert.match(cookie, new RegExp(`Path=${BASE_PATH.replace(/\//g, "\\/")}`));
+  assert.match(cookie, new RegExp(`Path=${BASE_PATH.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}`));
   assert.ok(binding && binding.length > 8, "binding value is opaque");
   assert.equal(stub.tokenCalls(), 0);
 });

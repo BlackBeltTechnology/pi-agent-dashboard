@@ -183,6 +183,9 @@ export async function startFakeOidcIssuer(opts: FakeOidcOptions = {}): Promise<F
     res.end(html);
   }
   function redirect(res: ServerResponse, location: string, headers: Record<string, string> = {}): void {
+    // Every redirect target is a registered client URI (checked at parse time);
+    // re-checked at the sink so no path can ever redirect off the allowlist.
+    if (!allowed(location)) return sendJson(res, 400, { error: "redirect target not registered" });
     res.writeHead(302, { location, ...headers });
     res.end();
   }
@@ -259,14 +262,14 @@ export async function startFakeOidcIssuer(opts: FakeOidcOptions = {}): Promise<F
     }
     sendHtml(res, 200, loginPage(q.toString()));
   }
-  const interactiveRoutes: Record<string, (req: IncomingMessage, res: ServerResponse, q: URLSearchParams) => void> = {
-    "GET /auth": handleAuthorizeGet,
-    "POST /auth": (req, res) => void handleAuthorizePost(req, res),
-    "POST /token": (req, res) => void handleToken(req, res),
-    "GET /logout": handleLogout,
-  };
+  const interactiveRoutes = new Map<string, (req: IncomingMessage, res: ServerResponse, q: URLSearchParams) => void>([
+    ["GET /auth", handleAuthorizeGet],
+    ["POST /auth", (req, res) => void handleAuthorizePost(req, res)],
+    ["POST /token", (req, res) => void handleToken(req, res)],
+    ["GET /logout", handleLogout],
+  ]);
   function handleInteractive(req: IncomingMessage, res: ServerResponse, path: string, q: URLSearchParams): boolean {
-    const route = users.length > 0 ? interactiveRoutes[`${req.method} ${path}`] : undefined;
+    const route = users.length > 0 ? interactiveRoutes.get(`${req.method} ${path}`) : undefined;
     if (!route) return false;
     route(req, res, q);
     return true;

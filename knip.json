@@ -34,6 +34,7 @@
         "qa/**/*.{ts,mjs}",
         ".pi/skills/**/scripts/*.ts",
         "public/sw.js",
+        "spike/*/server.mjs",
         "**/vitest.config.ts"
       ],
       "project": [

@@ -36,6 +36,7 @@
  * `app.inject()` with a stubbed issuer — no network, no Keycloak, no browser.
  */
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -194,7 +195,7 @@ export function registerIdentityLoginRoutes(fastify, opts) {
       browserDisc = browserDisc ?? (await discover(browserIssuer));
     } catch (err) {
       logger.error(`[identity-login-plane] browser-issuer discovery failed: ${err?.message ?? err}`);
-      if (spaChallenge) return reply.redirect(`${returnTo}#pi_login_error=idp_unreachable`);
+      if (spaChallenge) return reply.redirect(`${originOf(req)}${returnTo}#pi_login_error=idp_unreachable`);
       return sendView(reply, "error.html", { MESSAGE: "Could not reach the identity provider." });
     }
     const disc = browserDisc;
@@ -398,8 +399,10 @@ export function registerIdentityLoginRoutes(fastify, opts) {
   });
 
   // The plugin's own frontend document. Static; no token is present server-side.
+  // Read once at registration: the handler never touches the filesystem.
+  const appHtml = readFileSync(join(viewsDir, "app.html"), "utf-8");
   fastify.get(APP_PATH, async (_req, reply) => {
-    const html = await readFile(join(viewsDir, "app.html"), "utf-8");
+    const html = appHtml;
     return reply
       .type("text/html; charset=utf-8")
       .header("Cache-Control", "no-store")
