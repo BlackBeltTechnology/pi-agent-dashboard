@@ -276,8 +276,6 @@ export function createSessionArchive(deps: SessionArchiveDeps): SessionArchive {
         originDeviceId: session.originDeviceId,
         // Carry the owner so the archived session stays owner-gated (§8.1).
         principalOwner: session.principalOwner,
-        // Plugin-owned refs ride along (session/plugin-refs.ts).
-        pluginRefs: session.pluginRefs,
       };
       sessionManager.remove(id);
       insertRow(captured);
