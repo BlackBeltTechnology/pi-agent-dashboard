@@ -475,7 +475,91 @@ Verdict:
 
 ---
 
-## 18. Open Questions
+## 18. Labeling approaches beyond window judgement
+
+### Motivation
+
+Every earlier method = model reads ONE window, judges it (§17). Research question: which labelling sources, beyond window judgement, extract KB-worthy knowledge?
+
+### Eight approaches (source → idea → fit for us)
+
+| # | Approach | Source → idea | Fit for us |
+|---|---|---|---|
+| 1 | Hindsight utility labels | Hindsight Memory-PRM arXiv 2608.29605 — retrieval hits + citations = audit trail; one deletion-and-reanswer per probe | Label by future: situation recurs + costs. Time-split trigger replay. |
+| 2 | Contrastive labels | AutoGuide NeurIPS 2024 — divergence point → state-aware "when S do X" guideline; WebArena 43.7% vs ExpeL 21.8% vs ReAct 8.0%. CONTRAMEM arXiv 2608.22533 — same-task outcome variation as supervision; 26.2% → 55.3%. Experience Memory Graph arXiv 2607.13884 — deterministic graph edit path failed→successful trajectory, no LLM reflection. Trajectory-Informed Memory arXiv 2603.10600 — strategy / recovery / optimization tips; up to +14.3 pp AppWorld | fault→fix pairs = micro version; macro = same change/prompt, clean vs costly session → optimization tips |
+| 3 | Weak supervision | "Language Models in the Loop" (Snorkel, ACM 10.1145/3617130) — multiple prompts → votes/abstains → label model. Alfred arXiv 2305.18623. ScriptoriumWS arXiv 2502.12366. DataSculpt EDBT 2025 — many noisy abstaining labeling functions; label model learns LF accuracies without gold | tried + rejected, §18 spike 3 |
+| 4 | Query-side / click-through labels | doc2query arXiv 1904.08375. Doc2Query-- ECIR 2023 — generated queries hallucinate, filter them | `kb_search` → open = relevance label; grep fallback → gap. Spiked, §18 spike 4. |
+| 5 | Knowledge-type labels | ISPY ASE 2021 — issue–solution pairs from dev chats. F2Chat — nine-category taxonomy of dev-thread content. DRMiner arXiv 2405.19623 — design rationale from issue logs | Types: lesson / rationale / procedure / fact / episode, each with own destination (D10) |
+| 6 | Procedure labels by sequence mining | Agent Workflow Memory arXiv 2409.07429. Voyager arXiv 2305.16291. SkillWeaver arXiv 2504.07079 — recurring successful tool-call subsequences, values abstracted to slots → skill candidates | not yet spiked |
+| 7 | Proposition + graph units | Dense X Retrieval EMNLP 2024 — retrieval-unit choice changes retrieval + downstream; propositions. A-Mem, G-Memory graph memories | deterministic entities from tool calls (files, commands, packages, env vars, ports) + relations fixes/requires/replaced_by/fails_with → `kb_neighbors`. Not yet spiked. |
+| 8 | Implicit feedback from git/CI | revert/checkout of agent edit = negative; agent commit → CI fail → fix commit = gotcha; merged PR = positive | not yet spiked |
+
+### Spike #4 — click-through labels (`kb_search` behaviour)
+
+- Corpus: this repo session dir, 501 sessions. 123 `kb_search` calls in 51 sessions (2 empty results).
+- Outcome of next ≤6 calls: `grep_fallback` 54%, requery 16%, click 15%, none 8%, `open_other` 7%.
+- Click rank: rank 1 = 39% of clicks; rank ≤3 = 67%.
+- `doc_type=agents` (n=23): click 9%, grep fallback 83%. Unset (n=100): click 16%, grep 47%.
+- Grep follow-through: 68 fallbacks; 39 ended opening a file; 34 of 39 opened file NOT in kb hits (4 rank 1, 1 rank 5). Missed target types `.md` 16, `.ts` 10, `.tsx` 4, `.html` 3.
+- Yield: ~60 labelled pairs (18 clicks + 34 misses + 9 `open_other`; some noisy — e.g. unrelated `SKILL.md` reads).
+- Use: kb eval fixtures (`packages/kb/eval`), doc2query-style expansion of missed docs, gap report; 54% grep-fallback = baseline metric.
+
+### Spike #1 — hindsight utility labels
+
+- Harness `/tmp/label-spike/hs.py`: sessions sorted by mtime; oldest 60% past (300), newest 40% future (201). 140 windows from past (fault 90 distinct signatures, correction 20, decision 15, routine 15).
+- Error signature = `tool|first error line` normalised (paths `<p>`, hex `<h>`, strings `<s>`, digits `<n>`). Fix head = tool or bash first 2 tokens.
+- Labels on 90 faults: recur ≥1 future session 23; ≥2 16; same sig + same fix 11; changed approach (fix head ≠ fail head) recurring 13.
+- Most recurrent = generic agent-behaviour errors: `(no output)` grep (past 134 sessions), edit oldText mismatch, ENOENT, timeouts. Real lessons among recurring: openspec `unknown command`, aborted curl (context-mode guard).
+- Reference (`claude-opus-5`, same rubric) vs hindsight: P(ref lesson | recurs) 0.17 vs P(ref lesson | not) 0.16; kappa 0.01; specificity cap (past df ≤5%) 0.20 vs 0.16, kappa 0.05; changed-approach variants kappa ≈0.
+- Predicting hindsight "recur & specific": LLM AUC 0.472; opus AUC 0.521; past recurrence count 0.748; past recurrence specific-only 0.791.
+- Verdict: judged lesson-ness and recurrence = independent axes. Judges cannot estimate utility; past recurrence can. Recurring failures mostly agent-behaviour noise, not knowledge. Hindsight replay = right offline evaluation harness for utility; judgement still needed for content.
+- Caveats: crude signatures; only fault windows measurable; preferences/rationale not recurrence-testable; n=90 / 15 lessons.
+
+### Spike #3 — weak supervision label model
+
+- 28 LFs vote +1/−1/abstain: 20 System-1 atomic nouls (Von 1.2.2, Laya typed-decisions; vote when p ≥0.7 in intended direction) + 8 heuristics (block regex, quirk regex, generic error, past recurrence + changed approach, same-tool retry, routine stratum, decision stratum, rule words).
+- Label model: Dawid–Skene EM with abstain, no gold labels.
+- LF coverage: System-1 LFs almost never vote at 0.7 (Laya-td ≈0 coverage; Von `tool_quirk` 35% coverage, 0.20 accuracy). Heuristics accurate only as negatives: routine 1.00, `generic_error` 0.86, decision 0.80, `same_tool_retry` 0.78; no positive LF with useful coverage.
+- Results vs reference (140 windows, 26 lessons; AUC [95% CI] / precision @ recall ≥0.9 / kept): LLM `deepseek-v4.1-flash` 0.935 [0.89–0.97] / 0.57 / 42; Von atomic sum 0.550; Laya-td atomic sum 0.603; majority vote all LFs 0.588; label model all LFs 0.576; label model heuristics only 0.461; label model System-1 only 0.424; label model all LFs + LLM as one voter 0.676 (dilutes LLM).
+- vs hindsight (faults): label model 0.709 (driven by recurrence heuristic → partly circular), LLM 0.472, majority vote 0.466.
+- Negative prefilter check: drop generic errors → drops 10%, loses 2/26 lessons; drop same-tool retries → drops 19%, loses 6/26 (gotchas often fixed by same tool, different args); both → drops 24%, loses 8/26. Not safe.
+- Verdict: weak supervision fails here — no positive LFs. System-1 still not viable, even as voters.
+
+### Knowledge-type census (reference, 140 windows)
+
+| type | count | share |
+|---|---|---|
+| episode | 57 | 41% |
+| none | 45 | 32% |
+| lesson | 23 | 16% |
+| fact | 11 | 8% |
+| rationale | 4 | 3% |
+| procedure | 0 | 0 |
+
+By stratum:
+
+| stratum | types |
+|---|---|
+| fault | episode 34, none 33, lesson 14, fact 7, rationale 2 |
+| correction | episode 12, lesson 8 |
+| decision | episode 11, rationale 2, lesson 1, fact 1 |
+| routine | none 12, fact 3 |
+
+- LLM vs reference type agreement 0.53.
+- Windows cannot surface procedures → separate sequence-mining stage.
+
+### Design impact (`unify-context-manager`)
+
+- D10: `knowledge_type` decides destination (lesson → cue-fired file; fact → lesson file `kind: fact`, `delivery: pull`; rationale → link to OpenSpec change else staged; procedure → skill candidate via sequence mining; episode/none → session index only).
+- D10: utility = second axis; review ranking = judged lesson × specific past recurrence; time-split replay = miner offline eval harness; online fired/followed closes loop; no deterministic negative prefilter.
+- D6: click/miss labels from `context_search` behaviour → kb eval fixtures + gap report; baseline 15% click / 54% grep fallback.
+- Not adopted: weak-supervision label model; System-1 as LF voters.
+- Not yet spiked: #2 contrastive macro pairs, #6 sequence mining, #7 propositions/graph, #8 git/CI feedback.
+- Scratch `/tmp/label-spike` deleted after recording.
+
+---
+
+## 19. Open Questions
 
 1. Jev evaluation — needs TypeSafe key.
 2. Fine-tune Laya/Von on miner labels — label count needed.
@@ -484,3 +568,8 @@ Verdict:
 5. Prompt-trigger spike (BM25 cards vs real prompts) for `USER.md`-style preferences.
 6. Distiller placement (in-process vs child `pi`) — current choice: keep both pipelines.
 7. `followed` metric definition for path hints.
+8. Contrastive macro-pair mining (same change, clean vs costly session) untested.
+9. Sequence mining for procedures untested.
+10. Git/CI implicit feedback untested.
+11. Better error-signature normalisation for hindsight labels.
+12. Does a delivered card actually prevent recurrence? Needs online fired/followed data.

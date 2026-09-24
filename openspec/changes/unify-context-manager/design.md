@@ -197,6 +197,14 @@ Writes and indexing:
 - **Old names:** registered and then removed from the active set with
   `pi.setActiveTools`, so calls from stale prompts still resolve. They are
   removed after one release.
+- **Retrieval labels from behaviour:** a `context_search` followed by opening
+  a result is logged as a click (query → ref, rank). A search followed by
+  a grep fallback and then opening a file that was not in the results is
+  logged as a miss (query → the file actually used). These pairs feed the kb
+  eval fixtures (`packages/kb/eval`) and a gap report. The click-through spike
+  set the baseline: after `kb_search` the agent opened a result in 15% of
+  calls and fell back to grep in 54%; 34 of the 39 grep fallbacks that ended
+  in a file opened a file absent from the kb hits.
 
 ### D7: `exec`: a clean-room sandbox
 The contract is written from observed behaviour:
@@ -255,6 +263,32 @@ showed is missing today (5 of 12 reference lessons were re-hits of that block).
     answer distribution and confidence, and the later review outcome. This
     allows per-step comparison of backends, so one step can move to System-1
     once it measures well enough.
+
+- **Knowledge type decides the destination.** Triage assigns one
+  `knowledge_type`; only `lesson` and `fact` produce files:
+
+  | Type | Destination |
+  |---|---|
+  | `lesson` (gotcha, fix, rule, preference) | lesson file, cue-fired (D4, D5) |
+  | `fact` (port, path, command, config value) | lesson file with `kind: fact`, `delivery: pull` |
+  | `rationale` (decision + reason / rejected alternatives) | link to the OpenSpec change that holds it; else staged for review |
+  | `procedure` (multi-step how-to) | skill candidate, from a separate sequence-mining stage, not from windows |
+  | `episode`, `none` | session index only; nothing written |
+
+  Measured on 140 windows (`claude-opus-5` reference): episode 41%, none 32%,
+  lesson 16%, fact 8%, rationale 3%, procedure 0%. Windows cannot surface
+  procedures, hence the separate stage. The LLM agreed with the reference on
+  type 53% of the time, so type is a reviewed field.
+- **Utility is a second axis.** Judged lesson-ness and recurrence are
+  independent: in the hindsight spike (90 faults, time split 300 past / 201
+  future sessions) P(judged lesson | recurs later) was 0.17 vs a 0.16 base
+  rate (kappa ≈ 0), and neither the LLM nor the reference predicted recurrence
+  (AUC 0.47 / 0.52). Past recurrence of a specific error signature did (AUC
+  0.79). The miner therefore ranks review candidates by judged lesson ×
+  specific past recurrence, and the time-split replay is the miner's offline
+  evaluation harness. Online `fired`/`followed` stats close the loop.
+- **No deterministic negative prefilter.** Dropping generic errors and
+  same-tool retries removed 24% of windows but lost 8 of 26 lessons.
 
 `/lessons import-hermes` feeds the 812 existing entries through the same
 triage. Status-type entries are archived to the `sessions` scope instead of
