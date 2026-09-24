@@ -292,7 +292,20 @@ becoming lessons.
   - Laya: 0.62 → 0.71 with structure plus the `typed-decisions` checkpoint.
   - Aggregation weights stay in code. A logistic regression over the atomic
     answers is re-evaluated once the labelled dataset holds enough positives;
-    at n=50 it overfit.
+    at n=50 it overfit, and at n=78 it still did not win.
+- **Question type per step:** `noul` (default), `atomic nouls`, or `score`.
+  A `score` question must use anchored, observable levels (e.g. 1 routine step
+  ... 4 tool quirk / guard block / project rule, 5 standing user rule); an
+  unanchored "how reusable, 1–5" scale is rejected. The score-primitive study
+  (78 windows) measured:
+  - generic score: 0.41–0.44 AUC on every backend, worse than random;
+  - anchored score: Von 0.71 via P(level ≥ 3), tying 11 atomic nouls
+    (0.70) at ~50 ms instead of ~470 ms; Laya 0.51–0.55 and Laya
+    typed-decisions 0.57–0.64, both below their best `noul` (Laya
+    typed-decisions abstract `noul` 0.785);
+  - LLM: probability 0.945 vs anchored level 0.921.
+  Prefilter verdict unchanged: at recall ≥ 0.9 the best System-1 setup keeps
+  55–57 of 78 windows, the LLM 34.
 - **Bake-off (50 windows, reference `claude-opus-5`):** `is_lesson` AUC was
   Von 0.425, Laya 0.616 and LLM 0.951. At recall ≥ 0.9, Von and Laya keep 45–50
   of 50 windows, so they cannot pre-filter. The System-1 tier is therefore

@@ -430,6 +430,49 @@ Verdict:
 - Design refinement (unify-context-manager D11): System-1 backends queried with decomposed atomic nouls over structured state, never one abstract judgement; LR aggregation re-evaluated once labelled dataset exists.
 - Scratch (`/tmp/von-spike`, `/tmp/cue-spike`) deleted after recording; numbers above are the record.
 
+### Score-primitive study (score vs noul as prefilter)
+
+Question: does System-1 `score` (ordinal scale → probability-weighted expected value + per-level distribution) beat `noul` as the `is_lesson` prefilter?
+
+Harness (rebuilt; scratch had been deleted):
+- `windows.py` recovered from session log. Window set raised 50 → 78 (fault 32, correction 17 = pool exhausted, decision 14, routine 16) from 220 most recent session JSONLs; avg 800 chars. NEW window set → numbers NOT directly comparable with the 50-window tables above; all methods re-run on it.
+- Reference: `anthropic/claude-opus-5` subagent, identical rubric/prompt as before → 25/78 lessons (32%); by stratum fault 15, correction 7, decision 2, routine 1.
+- LLM baseline: `opencode-go/deepseek-v4.1-flash`, same prompt + extra anchored 1–5 `level`.
+- Score variants: S generic ("How reusable is this…"; levels Not…Highly reusable); S anchored 5 observable levels (1 routine step; 2 simple mistake/temporary state; 3 fix/decision for this task only; 4 tool/CLI/env quirk, policy/guard block, or project rule; 5 standing user rule/preference), on text blob and on structured JSON; rankers = expected value, P(level≥4), P(level≥3).
+- Metrics: AUC with 1000× bootstrap 95% CI; precision @ recall ≥0.9 + windows kept.
+
+Results (AUC [CI] / precision @ recall ≥0.9 / kept of 78):
+
+| method | Von 1.2.2 | Laya base | Laya typed-decisions |
+|---|---|---|---|
+| M0 abstract noul, blob | 0.448 [0.30–0.59] | 0.600 | 0.785 [0.67–0.88] / 0.41 / 56 |
+| M1 abstract noul, structured | 0.489 | 0.620 | 0.755 / 0.42 / 55 |
+| M2 11 atomic nouls, signed sum | 0.701 [0.58–0.82] / 0.36 / 66 | 0.655 | 0.722 |
+| S generic 1–5, E | 0.421 | 0.410 | 0.435 |
+| S anchored, blob, E | 0.629 | 0.490 | 0.638 |
+| S anchored, structured, E | 0.605 | 0.547 | 0.638 |
+| S anchored, structured, P(≥4) | 0.632 | 0.528 | 0.568 |
+| S anchored, structured, P(≥3) | 0.707 [0.59–0.82] / 0.40 / 57 | 0.509 | 0.611 |
+| LOOCV LR atomic | 0.601 | 0.518 | 0.652 |
+| LOOCV LR atomic + score distribution | 0.661 | 0.579 | 0.688 |
+| M2 sum + anchored E (z, equal weight) | 0.700 | 0.620 | 0.712 |
+
+LLM: probability 0.945 [0.86–1.00] / 0.68 / 34; anchored `level` 0.921 [0.85–0.98] / 0.60 / 40; `level≥4` hard cut 0.882 / 0.32 / 78.
+
+Latency (MPS, median): one score question 44–58 ms (≈ one noul); 11 atomic nouls Von 468 ms, Laya 191 ms, Laya-td 192 ms.
+
+Verdict:
+- Generic "how reusable" score = worse than random on every backend (0.41–0.44). Never use unanchored score.
+- Anchored levels rescue score (Von 0.42 → 0.71 via P(≥3)) but do not beat best noul method on any backend.
+- Von: one anchored score (≈50 ms) ties 11 atomic nouls (0.707 vs 0.701, ≈470 ms) → ~9× cheaper equal ranking.
+- Laya-td best System-1 overall: abstract noul 0.785 (CI 0.67–0.88); score weaker (0.57–0.64) — consistent with its model card (score 0.723 < noul 0.857).
+- LLM: probability ≥ anchored level (0.945 vs 0.921); hard level cut loses ranking.
+- Replication: Von decomposition lift reproduces on new set (M2 0.701 vs 0.706 before).
+- Learned aggregation still no win at n=78 / 25 positives.
+- Prefilter verdict unchanged: best System-1 keeps 55–57/78 at recall 0.9 (precision 0.41–0.42 vs base 0.32); LLM keeps 34/78 (0.68). CIs wide; System-1 upper bounds (~0.88) stay below LLM point estimate.
+- Design (unify-context-manager D11): `score` = selectable question type per step, anchored observable levels mandatory; `noul` stays default; score recommended only where it measures equal at lower cost (Von).
+- Scratch `/tmp/von-spike` deleted again after recording.
+
 ---
 
 ## 18. Open Questions
