@@ -214,6 +214,7 @@ import { CustomEventGroupMatcher } from "./session/custom-event-group-matcher.js
 import { CustomEventGroupResolver } from "./session/custom-event-group-resolver.js";
 import { deriveEndedAt } from "./session/derive-ended-at.js";
 import { createMemorySessionManager, type SessionManager } from "./session/memory-session-manager.js";
+import { applyPluginRef } from "./session/plugin-refs.js";
 import { applyReattachPolicy } from "./session/reattach-placement.js";
 import { reconcileSessionOrder } from "./session/reconcile-session-order.js";
 import { createRemoteTranscriptStore } from "./session/remote-transcript-store.js";
@@ -836,6 +837,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // headlessPidRegistry entry, and its owner notified.
   // See change: detach-automation-goal-from-core.
   const pendingPluginRefRegistry = createPendingPluginRefRegistry();
+  // Plugin key ownership survives a restart: rebuild it from the bags the boot
+  // scan restored, before any plugin writes. See session/plugin-refs.ts.
+  pendingPluginRefRegistry.claimPersisted(sessionManager.listAll());
   // §6.2 / D11: token-keyed correlation of a human owner to a spawn, filed by
   // a trusted spawn road before the await, consumed on session_register.
   const pendingPrincipalOwnerRegistry = createPendingPrincipalOwnerRegistry();
@@ -2884,13 +2888,22 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 const trusted = (plugin.manifest.priority ?? 1000) <= 100;
                 if (!trusted) return false;
                 if (typeof sessionId !== "string" || !sessionManager.get(sessionId)) return false;
-                const sanitized = pendingPluginRefRegistry.sanitize(ref, plugin.manifest.id);
-                sessionManager.update(sessionId, sanitized as Partial<DashboardSession>);
-                if (opts?.persist !== false) {
+                const persist = opts?.persist !== false;
+                // Durable: persisted refs go into the plugin's `pluginRefs` bag,
+                // which the routine full-overwrite save keeps (session/plugin-refs.ts).
+                const sanitized = applyPluginRef(
+                  { sessionManager, sanitize: pendingPluginRefRegistry.sanitize },
+                  sessionId, plugin.manifest.id, ref, { persist },
+                );
+                if (Object.keys(sanitized).length === 0) return true;
+                if (persist) {
                   const session = sessionManager.get(sessionId);
                   if (session?.sessionFile) {
                     try {
-                      mergeSessionMeta(session.sessionFile, sanitized as Partial<SessionMeta>);
+                      mergeSessionMeta(session.sessionFile, {
+                        ...sanitized,
+                        pluginRefs: session.pluginRefs,
+                      } as Partial<SessionMeta>);
                     } catch (err) {
                       console.warn(
                         `[plugin-assignSessionRef] failed to persist ref to .meta.json for ${sessionId}:`,

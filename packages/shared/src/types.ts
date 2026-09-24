@@ -516,6 +516,12 @@ export interface DashboardSession {
    */
   principalOwner?: { iss: string; sub: string };
   /**
+   * Plugin-owned session refs, namespaced by owning plugin id. Written and
+   * restored VERBATIM by core (it never parses the interior); every key is
+   * also projected onto the session top level. See session/plugin-refs.ts.
+   */
+  pluginRefs?: Record<string, Record<string, unknown>>;
+  /**
    * Core-owned cold-start recovery opt-out, mirror of `SessionMeta.recover`.
    * Absent ⇒ recoverable (`true`). Resolved from an owning plugin's lifecycle
    * declaration `{ recover }` through the generic session-ownership seam; core

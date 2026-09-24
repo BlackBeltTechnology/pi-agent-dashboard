@@ -13,6 +13,7 @@ import { mergeSessionMeta, metaPath, readSessionMeta, type SessionMeta, writeSes
 import { condenseForFirstMessage } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
 import type { DashboardSession, SessionSource } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { readJsonlMtime } from "./derive-ended-at.js";
+import { projectPluginRefs, sanitizePersistedBags } from "./plugin-refs.js";
 import { extractSessionStats } from "./session-stats-reader.js";
 
 function getSessionsDir(): string {
@@ -147,6 +148,10 @@ export function sessionFromMeta(
   const status = (meta.status as DashboardSession["status"]) ?? "ended";
   const resolvedStartedAt = meta.startedAt ?? startedAt;
   return {
+    // Plugin-owned refs projected FIRST so every core field below wins; the
+    // bag is validated (untrusted sidecar) — see session/plugin-refs.ts.
+    ...projectPluginRefs(meta.pluginRefs),
+    pluginRefs: sanitizePersistedBags(meta.pluginRefs),
     id: sessionId,
     cwd: meta.cwd ?? "",
     name: meta.name,

@@ -196,6 +196,12 @@ export interface SessionMeta {
    * See change: add-multi-user-identity-plane.
    */
   principalOwner?: { iss: string; sub: string };
+  /**
+   * Plugin-owned session refs, namespaced by owning plugin id. Written and
+   * restored VERBATIM by core (it never parses the interior); every key is
+   * also projected onto the session top level. See session/plugin-refs.ts.
+   */
+  pluginRefs?: Record<string, Record<string, unknown>>;
 
   /**
    * Liveness marker — stamped eagerly (atomic, NOT debounced) while a

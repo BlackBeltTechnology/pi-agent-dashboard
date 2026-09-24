@@ -477,6 +477,23 @@ export type RenameSessionFn = (sessionId: string, name: string) => boolean;
  * the old value so a restart rehydrates it). An `undefined` value clears the
  * key at each layer touched. Returns `false` for an untrusted caller or an
  * unknown session. See change: relocate-goal-product-to-plugin (D1-#5).
+ *
+ * Durability: persisted keys (spawn `pluginRef` and `persist !== false`) are
+ * kept in the core-owned bag `session.pluginRefs[<pluginId>]`, which survives
+ * the routine `.meta.json` rewrite, a dashboard restart and a bridge reattach,
+ * and is re-projected onto the session top level. Key ownership
+ * (first-writer-wins) is rebuilt from it on restart. Per plugin the bag must be
+ * JSON-plain (no functions, cycles or class instances) and ≤ 16 KB; a write
+ * breaking either is dropped for that plugin only (warn). `pluginRefs` itself
+ * is a reserved key. Out-of-process readers of `.meta.json` find a plugin's
+ * keys under `pluginRefs.<pluginId>`.
+ *
+ * Identity: `principalOwner` is deliberately NOT reserved. A trusted plugin
+ * may set it (e.g. to spawn on behalf of a signed-in user), with the same
+ * first-writer-wins rule across plugins; it persists and survives a restart.
+ * This can replace an owner stamped by the browser spawn road, so a plugin
+ * setting it takes responsibility for having authorized that user. Pinned by
+ * `plugin-ref-persistence.test.ts`. See change: add-multi-user-identity-plane.
  */
 export type AssignSessionRefFn = (
   sessionId: string,

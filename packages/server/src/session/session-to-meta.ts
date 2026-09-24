@@ -114,6 +114,10 @@ export function sessionToMeta(session: DashboardSession): SessionMeta {
     // (inert / ownerless) serializes to no key.
     // See change: add-multi-user-identity-plane (§6.2).
     principalOwner: session.principalOwner,
+    // Plugin-owned refs, verbatim, namespaced by plugin — so a plugin key is
+    // not wiped by this full overwrite without core naming it here.
+    // See session/plugin-refs.ts.
+    pluginRefs: session.pluginRefs,
     cachedAt: Date.now(),
   };
 }

@@ -37,6 +37,7 @@ import {
 import type { UnreadTriggerSnapshot } from "./session/event-status-extraction.js";
 import { extractSessionUpdates, isActivityEvent, isUnreadTrigger, reconcileAgentLiveness } from "./session/event-status-extraction.js";
 import type { SessionManager } from "./session/memory-session-manager.js";
+import { applyPluginRef } from "./session/plugin-refs.js";
 import {
   findOpenSubagents,
   findOpenToolCalls,
@@ -1445,12 +1446,29 @@ export function wireEvents(deps: EventWiringDeps): void {
           ref = reg.getPluginRef(sessionId);
         }
         if (ref && Object.keys(ref).length > 0) {
+          // First register (owner known): record the ref in the owner's durable
+          // `pluginRefs` bag. Reattach (owner not persisted on the entry): the
+          // bag already came back via the register carry-over / boot scan, so
+          // only re-apply the top-level keys (idempotent).
+          if (resolved && ownerId && pendingPluginRefRegistry) {
+            ref = applyPluginRef(
+              { sessionManager, sanitize: pendingPluginRefRegistry.sanitize },
+              sessionId, ownerId, ref, { persist: true },
+            );
+          } else {
+            sessionManager.update(sessionId, ref as Partial<DashboardSession>);
+          }
+        }
+        if (ref && Object.keys(ref).length > 0) {
           const refUpdate = ref as Partial<DashboardSession>;
-          sessionManager.update(sessionId, refUpdate);
           const session = sessionManager.get(sessionId);
-          if (session?.sessionFile) {
+          const sessionFile = session?.sessionFile ?? msg.sessionFile;
+          if (sessionFile) {
             try {
-              mergeSessionMeta(session.sessionFile, ref as Partial<SessionMeta>);
+              mergeSessionMeta(sessionFile, {
+                ...ref,
+                ...(session?.pluginRefs ? { pluginRefs: session.pluginRefs } : {}),
+              } as Partial<SessionMeta>);
             } catch (err) {
               console.warn(
                 `[event-wiring] failed to persist pluginRef to .meta.json for ${sessionId}:`,

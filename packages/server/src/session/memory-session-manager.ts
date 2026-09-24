@@ -6,6 +6,7 @@
 import { pathKey } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
 import type { ClosedReason, DashboardSession, SessionSource, SessionStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { deriveEndedAt, type EndedAtDeriver } from "./derive-ended-at.js";
+import { projectPluginRefs } from "./plugin-refs.js";
 import { resolveOrderKey } from "./resolve-order-key.js";
 
 /**
@@ -313,6 +314,8 @@ export function createMemorySessionManager(
       const priorStatus = existing?.status;
 
       const session: DashboardSession = {
+        // Plugin-owned refs survive a reattach (projection first: core wins).
+        ...(existing ? { ...projectPluginRefs(existing.pluginRefs), pluginRefs: existing.pluginRefs } : {}),
         // Carry over accumulated data from the existing session (e.g. restored after restart)
         ...(existing ? {
           tokensIn: existing.tokensIn,
