@@ -137,7 +137,43 @@ Lesson files:
 - Frontmatter: `id, kind (preference|convention|gotcha|failure-fix|guard),
   scope (global|project), card (≤200 ch), severity (hint|warn|block),
   delivery (cue|pinned|pull), triggers[], provenance{sessionId, created, source}`.
+- Lifecycle frontmatter (optional):
+  - `anchors[]`: `{path, symbol?, sha}` of the code the lesson is about;
+  - `supersedes: <id>`, `valid_from`, `valid_to`: a replaced lesson is closed,
+    not deleted (bi-temporal, as in Zep/Graphiti);
+  - `trust (reviewed|mined|web-derived)`.
 - Body: the full text.
+
+Staleness:
+- kb's existing FRESH/STALE verdict machinery (source-hash based, used today
+  for `AGENTS.md` rows) is applied to lesson `anchors`.
+- A STALE lesson stops firing and joins the miner's verify queue. A revert
+  that restores the hash makes it FRESH again.
+- Evidence: on real GitHub fixes, RAG served the superseded value 36–38% of
+  the time and an LLM reranker did not help; deterministic supersession drove
+  it to ~0 (arXiv 2608.20685). Only ~18% of real fixes are clean atomic value
+  changes, so anchors cover the rest.
+
+Update semantics:
+- `lesson(add)` first runs a `same_as` / `contradicts` check against its BM25
+  neighbours and turns the write into `update` or a superseding `add`. Nothing
+  is duplicated silently (Mem0 had to fix exact-hash dedupe letting
+  contradictions coexist).
+- Consolidation is delta-only: one lesson file per edit, never a rewrite of
+  many. ACE (arXiv 2510.04618) names whole-context rewriting as the cause of
+  "context collapse"; hermes' auto-consolidate is not ported.
+- Miner, verify, dedupe and staleness re-checks run as idle-time background
+  jobs ("sleep-time compute", Letta), under the same delta-only rule.
+
+Poisoning controls (team-shared `.pi/lessons/` is a supply-chain vector;
+OWASP Agentic ASI06, MINJA, AgentPoison):
+- the miner never auto-accepts `severity: block` or `delivery: pinned`;
+- lessons mined from sessions that ingested web content get
+  `trust: web-derived` and are never auto-accepted;
+- a write-time screen rejects instruction-override text (e.g. "always run X",
+  "ignore previous") unless the lesson is human-reviewed;
+- the `add-untrusted-content-guard` scanner runs on lesson bodies when
+  present.
 
 Locations and identity:
 - Project scope lives in `<repo>/.pi/lessons/` (team-shared, reviewed through
@@ -183,6 +219,15 @@ Writes and indexing:
 - **Precision guard (from spike 2):** triggers are written explicitly by the
   agent through `lesson`, never derived from prose. A replay validator rejects
   any trigger that would have fired in more than 3% of recent sessions.
+- **Abstention:** `context_search` and the cue tier return nothing rather than
+  weak matches below a score floor (LongMemEval's abstention ability). Silence
+  is the default outcome.
+- **Injection must be earned:** context files did not improve task success
+  and raised inference cost by over 20% (arXiv 2602.11988); repository
+  overviews did not help, while non-standard instructions were followed.
+  Self-generated skills gave no benefit on average (SkillsBench, arXiv
+  2602.12670). The pinned tier therefore holds only non-standard rules, and
+  every tier is A/B-tested before cutover (task 2.2).
 
 ### D6: Five tools + deactivated aliases
 - **`context_search(query, scope?)`:** runs kb retrieval per scope and fuses

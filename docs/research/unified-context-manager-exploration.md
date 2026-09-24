@@ -503,6 +503,7 @@ Every earlier method = model reads ONE window, judges it (§17). Research questi
 - Grep follow-through: 68 fallbacks; 39 ended opening a file; 34 of 39 opened file NOT in kb hits (4 rank 1, 1 rank 5). Missed target types `.md` 16, `.ts` 10, `.tsx` 4, `.html` 3.
 - Yield: ~60 labelled pairs (18 clicks + 34 misses + 9 `open_other`; some noisy — e.g. unrelated `SKILL.md` reads).
 - Use: kb eval fixtures (`packages/kb/eval`), doc2query-style expansion of missed docs, gap report; 54% grep-fallback = baseline metric.
+- Prior art in-repo: `packages/kb/eval/mine-golden-sets.mjs` already mines implicit-relevance golden sets from session transcripts (`golden.markdown-intent.json`, `golden.source-intent.json`); spike #4 re-derived it; new part = grep-fallback miss labels + gap report.
 
 ### Spike #1 — hindsight utility labels
 
@@ -559,7 +560,59 @@ By stratum:
 
 ---
 
-## 19. Open Questions
+## 19. Memory / KB improvements beyond storage and triage
+
+### Nine areas (source → finding → implication)
+
+| # | Area | Source → finding | Implication |
+|---|---|---|---|
+| 1 | Does memory help coding agents? | "Evaluating AGENTS.md" arXiv 2602.11988 (ICLR'26 MemAgents oral) — context files do not generally improve task success; inference cost +20%+; holds for LLM-generated and developer-written; instructions followed; repository overviews not helpful. SkillsBench arXiv 2602.12670 — curated skills +16.2 pp avg, software engineering only +4.5 pp, 16/84 tasks negative; self-generated skills no average benefit; focused 2–3-module skills beat comprehensive docs. VibeMemBench arXiv 2609.23570 — verified-useful experience injected directly +1.1–4.5 pp on 4/5 solvers, fewer steps on 5/5; 4 existing memory systems building their own memory → 11/12 pairings fail to beat memory-off | mined lessons = self-generated → review mandatory; pinned tier = non-standard rules only; every tier A/B-gated |
+| 2 | Code-anchored staleness | Temporal Validity arXiv 2608.20685 — RAG serves superseded value 36–38%, LLM reranker no help; deterministic supersession ~0; accuracy 0.91 vs 0.57–0.59; only ~18% of real fixes = clean atomic transitions. EA-Graph arXiv 2608.04278 (artifact-anchored verification memory). limpet (Rust, SQLite) — memory flips stale when anchored code changes, heals on revert. TMF (source fingerprints) | lesson `anchors[]` + reuse kb FRESH/STALE verdict machinery |
+| 3 | Update semantics | Zep/Graphiti arXiv 2501.13956 — bi-temporal edges (valid time + ingestion time), invalidate not delete. Mem0 ADD/UPDATE/DELETE/NONE; Mem0 PR #6017 — exact-MD5 dedupe let contradictory memories coexist | supersede-on-write, `supersedes` / `valid_from` / `valid_to` |
+| 4 | Evolving playbooks | ACE arXiv 2510.04618 (ICLR'26) — +10.6% agents, +8.6% finance; failure modes brevity bias + context collapse (iterative rewriting erodes detail); fix = structured incremental delta updates; learns from execution feedback without labels | one file per lesson + delta-only consolidation; hermes auto-consolidate (whole-file rewrite) not ported |
+| 5 | Retrieval quality | Anthropic Contextual Retrieval — chunk-specific context prepended before embedding + BM25 → failed retrievals −49%, −67% with rerank | see spike A |
+| 6 | Repo map | Aider — tree-sitter defs/refs graph + PageRank + token-budget fit | pull-only symbol map over kb code-symbol index (83% grep fallback on `doc_type=agents`); never injected (overviews do not help) |
+| 7 | Sleep-time compute | Letta, arXiv 2504.13171 — background memory reorganisation while idle; precompute for anticipated queries | miner / verify / dedupe / staleness as idle jobs, delta-only |
+| 8 | Memory poisoning | MINJA — query-only injection via auto-memory writes. AgentPoison NeurIPS'24 — trigger-optimised retrieval backdoor, benign queries <1% impact. OWASP Agentic ASI06 Memory and Context Poisoning | team-shared `.pi/lessons/` = supply-chain vector; `trust` field; no auto-accept of block/pinned or web-derived; instruction-override screen; untrusted-content-guard on lesson bodies |
+| 9 | Abstention + time | LongMemEval arXiv 2410.10813 (ICLR'25) — five abilities: extraction, multi-session, knowledge updates, temporal reasoning, abstention | score floor → return nothing; `valid_from` supports temporal queries |
+
+### Spike A — deterministic contextual BM25 in kb
+
+- Harness `/tmp/ctx-spike/run.mts`: fresh index of repo (38,851 chunks, 3,474 files) via `packages/kb` `indexSource`; shipped ranking defaults (`searchOptsFromConfig(DEFAULTS)`); scored with `packages/kb` eval on `golden.markdown-intent` (n=73 reachable) + `golden.source-intent` (n=104). Variants edit a `VACUUM` copy of the index; kb source untouched.
+- kb already weights `heading_path` ×10 (fieldWeights headingPath 10, heading 3, body 1) → heading context exists.
+- Table (P@1 / MRR / R@10 / nDCG@10):
+
+| variant | markdown-intent | source-intent |
+|---|---|---|
+| baseline | 0.151 / 0.257 / 0.575 / 0.331 | 0.048 / 0.184 / 0.433 / 0.244 |
+| C1 path tokens → heading_path | 0.164 / 0.267 / 0.575 / 0.339 | 0.038 / 0.181 / 0.452 / 0.246 |
+| C2 C1 + doc lead paragraph → body | 0.137 / 0.237 / 0.548 / 0.309 | 0.067 / 0.207 / 0.481 / 0.272 |
+
+- Latency ~72–83 ms, unchanged within noise.
+- Verdict: mixed, within noise (1–5 items). Deterministic doc context ≠ Anthropic method (LLM-written chunk-specific context + embeddings). LLM-contextual variant = one LLM call per chunk (~39k) → deferred. Not adopted.
+
+### Spike B — repo-specific memory eval (design + feasibility)
+
+- Feasibility over 501 sessions / 3,516 user turns (median 34 chars):
+  - user turns referencing earlier work (regex EN+HU: again, other session, previous, remember, already fixed, múltkor, korábban, előző, megint): 43 turns in 31 sessions (6%); "again" 34 (some noise e.g. pasted "try again later"); real cases: "dashboard server stucked again", "It died again", same `@rollup/rollup-*` optional-dependency error on consecutive days, "I have another session <id> which contains…".
+  - memory/recall tool calls: 41 in 20 sessions (4%): `memory_search` 14, `ctx_search` 11, `recall` 9, `session_search` 7.
+  - recurring faults (§18 spike #1): 11–16 of 90 sampled past faults recur in later sessions.
+- Case sources: (1) time-split recurring faults (gold = earlier fix); (2) user-flagged recurrences; (3) explicit cross-session references (gold link given by user); (4) negative cases with no relevant prior memory (measures false injection).
+- Tier R (offline, cheap, per-change): at the later session's decision point, does the manager deliver the gold evidence within the injection budget; metrics hit@budget, false-injection rate on negatives, injected tokens.
+- Tier O (outcome, before cutover): replay later task in `docker/` harness under memory off / old stack / unified; metrics steps, tokens, repeated failure, success; keep only cases where injecting gold evidence helps in a reference run (VibeMemBench verification rule).
+- Models: SWE-ContextBench arXiv 2602.08316; DreamBench-SWE arXiv 2608.20664; VibeMemBench.
+
+### Design impact (`unify-context-manager`)
+
+- D4: lifecycle frontmatter `anchors[]` / `supersedes` / `valid_from` / `valid_to` / `trust`; anchor staleness via kb verdicts (STALE stops firing → verify queue); supersede-on-write; delta-only consolidation; idle-time jobs; poisoning controls.
+- D5: abstention score floor; "injection must be earned" — pinned = non-standard rules only; every tier A/B-gated.
+- `tasks.md`: new §2 Evaluation gates blocking 1.6 cutover — 2.1 build memory eval (Tier R + Tier O), 2.2 A/B each injection tier via `scripts/ab-context` vs memory-off (non-inferior on success AND fewer steps/tokens else ships disabled); close-out renumbered §3.
+- Not adopted: deterministic contextual BM25.
+- Scratch `/tmp/ctx-spike` deleted after recording.
+
+---
+
+## 20. Open Questions
 
 1. Jev evaluation — needs TypeSafe key.
 2. Fine-tune Laya/Von on miner labels — label count needed.
@@ -573,3 +626,6 @@ By stratum:
 10. Git/CI implicit feedback untested.
 11. Better error-signature normalisation for hindsight labels.
 12. Does a delivered card actually prevent recurrence? Needs online fired/followed data.
+13. LLM-written contextual chunks for kb (cost ~39k calls) untested.
+14. Repo-map / symbol-ranking for the agents lane untested.
+15. Tier R baseline for the old stack not yet measured.

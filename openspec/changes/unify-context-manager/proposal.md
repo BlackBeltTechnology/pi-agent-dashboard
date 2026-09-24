@@ -1,7 +1,7 @@
 # unify-context-manager (umbrella)
 
 > Supersedes `openspec/changes/consolidate-retrieval-planes`. Evidence base:
-> `docs/research/unified-context-manager-exploration.md` (§1–§19). This is an
+> `docs/research/unified-context-manager-exploration.md` (§1–§20). This is an
 > **umbrella**: it fixes the target architecture and the phase split. Each
 > phase ships as its own change that carries the behavioural spec deltas.
 
