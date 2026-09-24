@@ -72,6 +72,7 @@ import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/Lay
 import { DialogPortal } from "../primitives/DialogPortal.js";
 import type { ResourceType } from "../resource/ResourceCardGrid.js";
 import { RESOURCE_PAGE_TYPE, type ResourcePageId, ScopedResourceGrid } from "../resource/ScopedResourceGrid.js";
+import { AccessPromptsSection } from "./AccessPromptsSection.js";
 import { AccessSection } from "./AccessSection.js";
 import { AllowedHostsSection } from "./AllowedHostsSection.js";
 import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
@@ -2069,7 +2070,12 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
               </>
             )}
 
-            {activeTab === "access" && <AccessSection />}
+            {activeTab === "access" && (
+              <>
+                <AccessPromptsSection selectedCwd={selectedCwd} />
+                <AccessSection />
+              </>
+            )}
 
             {activeTab === "security" && (
               <>

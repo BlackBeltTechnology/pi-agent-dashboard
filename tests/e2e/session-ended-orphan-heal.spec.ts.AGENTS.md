@@ -1,3 +1,5 @@
 # session-ended-orphan-heal.spec.ts — index
 
 L3 #F6/#F7 over a LONG-RUNNING BASH call (`faux:session-death-open-tool`), not a subagent: a faux subagent completes in ~400 ms in the harness, so there is no window to kill it in — the SUBAGENT half of the heal is asserted at L1 in `packages/server/src/__tests__/session-end-orphan-heal.test.ts` (#X1). #F6 kills via the `force_kill` control message (SIGTERM→SIGKILL on the recorded pid) and asserts the synthesized `tool_execution_end{healedBy:"session_ended"}` on the wire, the burst leaving `running`, and the session `ended`. #F7 uses a RAW `kill -9` — `force_kill` SIGTERMs first, which lets pi persist a `toolResult` and the transcript would no longer be orphaned — then `POST /api/restart` drops the store so reopening re-hydrates from the pi JSONL; the rebuilt card must still read `1 failed` / `parent session ended`. Neither path waits on heartbeat grace expiry (minutes). See change: heal-orphaned-tool-cards-on-session-end.
+
+Row summary (formerly inline in `tests/e2e/AGENTS.md`): L3 #F6/#F7: a session killed while holding a long-running bash call heals live and

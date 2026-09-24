@@ -13,7 +13,7 @@ import type { SessionManager } from "../session/memory-session-manager.js";
 import type { RemoteTranscriptStore } from "../session/remote-transcript-store.js";
 import { decideRetainedRead, readRetainedState } from "../session/retained-transcript.js";
 import { decodeCursor, type SessionArchive } from "../session/session-archive.js";
-import { buildSessionDiffCached, type SessionDiffResult } from "../session/session-diff.js";
+import { buildSessionDiffCached, type SessionDiffResult, sessionDiffResultSize } from "../session/session-diff.js";
 import { SessionDiffCache } from "../session/session-diff-cache.js";
 import { resolveDiffSource } from "../session/session-diff-source.js";
 import { findSessionCustomEntry, findSessionToolCallPayload } from "../session/session-file-reader.js";
@@ -79,7 +79,12 @@ export function registerSessionRoutes(
   // so repeated UI polls of an unchanged session skip recompute, and concurrent
   // identical requests coalesce onto one git computation. See change:
   // fix-session-diff-eventloop-block.
-  const sessionDiffCache = new SessionDiffCache<SessionDiffResult>();
+  // Byte-budgeted (64 MiB, estimated) so cached diffs cannot grow the heap
+  // unbounded. See change: fix-session-diff-heap-retention (D2).
+  const sessionDiffCache = new SessionDiffCache<SessionDiffResult>(2000, 100, {
+    maxBytes: 64 * 1024 * 1024,
+    sizeOf: sessionDiffResultSize,
+  });
 
   fastify.get("/api/sessions", async (request) => {
     // §8.1/§8.2: per-item owner filter — never disclose the full registry.
@@ -447,6 +452,7 @@ export function registerSessionRoutes(
         // unchanged when no grant covers it.
         const sessionDecision = await evaluateContainment(absPath, [session.cwd], {
           site: "session-routes:session-file",
+          hold: { request, reply },
           session: sessionId,
         });
         if (!sessionDecision.allowed) {

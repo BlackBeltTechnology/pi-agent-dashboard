@@ -11,3 +11,5 @@ Folder editor route reads the one-shot `?focus=terminal` param via `useSearchPar
 See change: add-lazy-terminal-diff-bootstrap — lazy boundary (D2: `React.lazy` + local `Suspense`); see the directory AGENTS.md row for the runtime detail.
 
 See change: fix-long-session-ux-degradation — three independent edits: mobile branch root gains `flex flex-col h-[100dvh] overflow-hidden` (the single viewport owner; the shell flexes below in-flow banners, D4); the `toolContext` memo is keyed on the SELECTED session's `subagents` map instead of the whole `sessionStates` map (D7); mounts `useIdleFx()` beside `useAppHidden()` (§7). Also adds `fx-progress` to `StatusBarRefreshButton`'s inline-spin glyph.
+
+See change: add-access-grant-dialog — `grantPromptHost` (`<GrantPromptHost onMessage send ws />`) mounted beside `firstLaunchModal` in BOTH mobile and desktop returns. Owns the prompt-capability lifecycle (`grant_channel` set, `ws === null` clear) and the one-at-a-time grant dialog (tasks 7.1-7.3).

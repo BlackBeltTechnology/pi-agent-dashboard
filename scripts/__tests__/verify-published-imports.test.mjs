@@ -14,9 +14,11 @@
  * (test-plan E1–E14, X1–X3).
  */
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   ALLOWLIST,
@@ -33,6 +35,8 @@ import {
   validateAllowlist,
   verifyDeclaredRanges,
 } from '../verify-published-imports.mjs';
+
+const SCRIPT_PATH = join(dirname(fileURLToPath(import.meta.url)), '..', 'verify-published-imports.mjs');
 
 /* ------------------------------------------------------------------ *
  * Fixture helpers
@@ -316,6 +320,32 @@ describe('unparseable source is an error, never zero specifiers (X2)', () => {
     const { specifiers, parseError } = extractSpecifiers('import { a from "x"', 'b.ts');
     expect(parseError).toBeTruthy();
     expect(specifiers).toEqual([]);
+  });
+
+  // The client's lazy full-@mdi/js chunk (a bundled CJS module) opens with a
+  // deep `e.a=e.b=…=void 0` assignment chain the TS parser accepts but a
+  // recursive AST walk overflowed on (CI, Node 22). Pinned on the REAL input in
+  // a child node at its DEFAULT stack — vitest workers run with a larger stack,
+  // so an in-process repro would pass vacuously. Build-conditional (the other
+  // chunk guards skip without `dist/` too; CI builds first).
+  // See change: harden-ios-safari-memory-and-ws-diagnostics.
+  it('extracts from the built lazy mdi chunk without overflowing the stack', () => {
+    const assets = join(dirname(SCRIPT_PATH), '..', 'packages', 'client', 'dist', 'assets');
+    const chunk = existsSync(assets) ? readdirSync(assets).find((f) => /^mdi-.*\.js$/.test(f)) : undefined;
+    if (!chunk) return; // no production build
+    const script = [
+      `import { readFileSync } from 'node:fs';`,
+      `import { extractSpecifiers } from ${JSON.stringify(pathToFileURL(SCRIPT_PATH).href)};`,
+      `const file = ${JSON.stringify(join(assets, chunk))};`,
+      `const r = extractSpecifiers(readFileSync(file, 'utf8'), file);`,
+      `process.stdout.write(JSON.stringify({ parseError: r.parseError, n: r.specifiers.length }));`,
+    ].join('\n');
+    const res = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' });
+    expect(res.stderr).not.toContain('Maximum call stack size exceeded');
+    expect(res.status).toBe(0);
+    const out = JSON.parse(res.stdout);
+    expect(out.parseError).toBeNull();
+    expect(out.n).toBeGreaterThan(0); // its static import of the vendor chunk
   });
 
   it('a clean file yields specifiers and no parseError', () => {

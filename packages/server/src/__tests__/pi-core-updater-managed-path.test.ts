@@ -234,3 +234,29 @@ describe("test plumbing", () => {
 		fs.rmSync(t, { recursive: true, force: true });
 	});
 });
+
+describe("defaultRunNpmUpdate — default env builder (#720)", () => {
+	it("E23: default _envBuilder prepends the managed node bin over the host PATH (POSIX)", async () => {
+		const binDir = path.join(os.homedir(), ".pi-dashboard", "node", "bin");
+		fs.mkdirSync(binDir, { recursive: true });
+		fs.writeFileSync(path.join(binDir, "node"), "");
+		try {
+			let capturedEnv: NodeJS.ProcessEnv | undefined;
+			const spawnFn = makeFakeSpawn({
+				exitCode: 0,
+				captureSpawn: (_c, _a, options) => {
+					capturedEnv = options.env;
+				},
+			});
+			await defaultRunNpmUpdate(makePkg({ installSource: "global" }), () => {}, {
+				_resolveNpm: () => ({ ok: true, argv: ["/usr/bin/npm"] }),
+				_spawn: spawnFn,
+			});
+			expect(capturedEnv?.PATH?.startsWith(`${binDir}${path.delimiter}`)).toBe(true);
+			expect(capturedEnv?.PATH).toContain(process.env.PATH ?? "");
+			expect(Object.keys(capturedEnv ?? {}).filter((k) => k.toUpperCase() === "PATH")).toEqual(["PATH"]);
+		} finally {
+			fs.rmSync(path.join(os.homedir(), ".pi-dashboard", "node"), { recursive: true, force: true });
+		}
+	});
+});

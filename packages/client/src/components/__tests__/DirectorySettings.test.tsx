@@ -69,6 +69,12 @@ describe("DirectorySettings", () => {
     expect(screen.getByText(CWD)).toBeTruthy();
   });
 
+  // See change: add-access-grant-dialog (8b.7a) - pre-scoped YOLO entry point.
+  it("carries the pre-scoped YOLO action on every page", () => {
+    renderAt("skills");
+    expect(screen.getByTestId("directory-yolo-toggle").textContent).toMatch(/this folder/);
+  });
+
   it("renders the nav with a RESOURCES group of five per-type items and no combined Resources item", () => {
     renderAt("instructions");
     const nav = screen.getByTestId("directory-settings-nav");

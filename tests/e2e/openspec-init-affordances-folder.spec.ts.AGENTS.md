@@ -31,3 +31,5 @@ route-aborted), and init-failure stderr surfacing.
      and the poll dedupes unchanged broadcasts → after a reload an ABSENT
      pinned dir loses its Initialize offer even with the switch on. F2
      controls against a BROKEN dir to avoid depending on that path.
+
+Row summary (formerly inline in `tests/e2e/AGENTS.md`): L3 folder-section slice (add-openspec-init-affordances).

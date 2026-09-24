@@ -154,7 +154,7 @@ jobs:
             echo "::error::PdfPreview / known-servers-api dynamic-import warning re-appeared"; fail=1
           fi
           if grep "dynamic import will not move module into another chunk" /tmp/build.log | grep -q "@mdi/js"; then
-            echo "::error::@mdi/js dynamic-import warning re-appeared (shrink-client-index-chunk)"; fail=1
+            echo "::error::@mdi/js dynamic-import warning re-appeared (harden-ios-safari-memory-and-ws-diagnostics)"; fail=1
           fi
           exit $fail
 

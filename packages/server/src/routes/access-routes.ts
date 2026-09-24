@@ -38,11 +38,9 @@ import {
   __accessGrantsLoadCount,
   type GrantScope,
   listGrants,
-  normalizeGrantSubject,
-  recordGrant,
   revokeGrant,
 } from "../access/access-grants.js";
-import { isUngrantableSubject } from "../access/forbidden-subjects.js";
+import { grantNamedPathSubject } from "../access/named-grant.js";
 import { readRawConfig } from "../config-api.js";
 import { revokeTrust as revokeWorktreeTrust } from "../git-worktree/worktree-init-trust.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
@@ -155,6 +153,10 @@ export function registerAccessRoutes(
           scope: g.scope,
           grantedAt: new Date(g.grantedAt).toISOString(),
           origin: g.origin,
+          // add-access-grant-dialog 8.2: which prompt verdict wrote it, and the
+          // subject it widened from when a ladder rung was chosen.
+          ...(g.via ? { via: g.via } : {}),
+          ...(g.widenedFrom ? { widenedFrom: g.widenedFrom } : {}),
         })),
         worktreeTrust: readWorktreeTrustSubjects(),
         kbTrust: readKbTrustEntries(),
@@ -370,56 +372,33 @@ export function registerAccessRoutes(
       return { success: false, error: "subject is required" } satisfies ApiResponse;
     }
 
-    // (d) The subject must be the one the denial named, or one of its offered
-    // ancestors. A sibling, an unrelated directory, or an arbitrary path cannot
-    // be grafted onto the grant path. Compared in CANONICAL form, because that
-    // is what the store persists — `recordGrant` normalizes a non-directory
-    // subject onto its containing directory, so a raw-string comparison would
-    // let that normalization move an approved grant off the named subject.
-    const named = new Set(
-      [denial.subject, ...(denial.ancestors ?? [])].map(normalizeGrantSubject),
-    );
-    const normalized = normalizeGrantSubject(subject);
-    if (!named.has(normalized)) {
+    // (d)+(e) Named-subject binding and the forbidden filter, run by the ONE
+    // helper every path-grant creator shares, so this route and a dialog verdict
+    // cannot drift apart (see `access/named-grant.ts` for the rules and why).
+    const outcome = grantNamedPathSubject({
+      deniedSubject: denial.subject,
+      ancestors: denial.ancestors,
+      subject,
+      scope: scope === "session" ? "session" : "project",
+      origin: denial.session,
+      widenedFrom,
+    });
+    if (!outcome.ok) {
+      // A write failure is reported IN THIS RESPONSE so the surface that asked
+      // can say the grant did not stick (design D11). The refused read still
+      // 403s exactly as it would have; the admitted set never widens.
+      if (outcome.reason === "write-failed") {
+        reply.code(500);
+        return { success: false, error: `grant not recorded: ${outcome.error}` } satisfies ApiResponse;
+      }
       reply.code(403);
       return {
         success: false,
-        error: "subject was not named by that denial",
+        error: outcome.reason === "unnamed" ? "subject was not named by that denial" : "subject may not be granted",
       } satisfies ApiResponse;
     }
-
-    // (e) Forbidden subjects, applied identically to a named subject and to a
-    // rung, and applied to the NORMALIZED subject — the value that gets
-    // persisted. `subsumes` also rejects a rung that would admit a forbidden
-    // subject (`/private` admitting `/private/etc` on macOS).
-    //
-    // Checking only the RAW subject left a one-click escalation: a denial
-    // subject is the LEXICAL dirname of the refused path (`grantableSubjectOf`),
-    // so it is a regular FILE whenever the refused path has one extra component.
-    // Refusing `$HOME/.CFUserTextEncoding/x` named the file
-    // `$HOME/.CFUserTextEncoding`, which is not itself forbidden and passed the
-    // filter, and it then normalized into a grant for the whole of `$HOME`;
-    // `/.file` normalized into a grant for `/`.
-    if (isUngrantableSubject(normalized)) {
-      reply.code(403);
-      return { success: false, error: "subject may not be granted" } satisfies ApiResponse;
-    }
-
-    const widened = normalized !== normalizeGrantSubject(denial.subject);
-    const result = recordGrant({
-      subject: normalized,
-      scope: scope === "session" ? "session" : "project",
-      origin: denial.session,
-      widenedFrom: widened ? (widenedFrom ?? denial.subject) : undefined,
-    });
-
-    // A write failure is reported IN THIS RESPONSE so the surface that asked can
-    // say the grant did not stick (design D11). The refused read still 403s
-    // exactly as it would have; the admitted set never widens on a failure.
-    if (!result.ok) {
-      reply.code(500);
-      return { success: false, error: `grant not recorded: ${result.error}` } satisfies ApiResponse;
-    }
+    const result = outcome;
+    const widened = outcome.widened;
 
     // Audited (STRIDE: Repudiation), mirroring the network-trust accept path
     // (`[network-trust] accepted pending request ip=…`). A grant is a PERSISTENT

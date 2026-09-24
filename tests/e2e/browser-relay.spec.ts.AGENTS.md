@@ -9,3 +9,5 @@ F1–F4 drive the settings surface: F1 cannot-open-Chrome notice + no `Connect` 
 F5/F10 mount the live-view tile: selecting a session makes the content view render, the tile subscribes over the CORE `/ws` (never `/ws/browser-ext/` or `/ws/browser-cdp/`), `browser_relay_frame` JPEGs render as an `<img>`, and clicking Close dismisses via the plugin store → the tile unmounts → `browser_relay_unsubscribe`.
 
 Two robustness rules learned from the harness: `gotoSettings` warms the shell first and retries the deep link (a cold container's client bootstrap otherwise bounces `/settings/plugins/<id>` to the dashboard), and timeouts are generous because the seeded >120 folders saturate Chrome's 6-connection-per-origin pool. `PW_CHANNEL=chrome` runs it against a system Chrome when the bundled chromium build has no headless shell.
+
+Row summary (formerly inline in `tests/e2e/AGENTS.md`): L3 for the browser relay (change: add-browser-relay, test-plan F1–F5 + F10). Needs the

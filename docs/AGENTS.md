@@ -6,7 +6,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 |------|---------|
 | `CONTRIBUTING.md` | (repo root) Human-facing contribution guide. Spec-first 5-phase pipeline (EXPLORE→PLAN→BUILD→SHIP→CI). 6 Mermaid diagrams + PNGs, cross-ref docs/pipeline-map/. |
 | `architecture-notes/worker-offload-roadmap.md` | Worker offload roadmap. Main-loop CPU + sync-fs work → worker_threads. → see `architecture-notes/worker-offload-roadmap.md.AGENTS.md` |
-| `architecture.md` | Full architecture reference. 3 components: bridge extension, Node server, React client. → see `architecture.md.AGENTS.md` |
+| `architecture.md` | Full architecture reference. 3 components: bridge extension, Node server, React client. Gains "Access-Grant Prompts and YOLO" — per-connection capability + `X-Pi-Grant-Channel`, host-gate `enforce` precondition, HELD/DEFERRED planes, registry flood controls, ancestor ladder, YOLO, env vars, REST. See change: add-access-grant-dialog. → see `architecture.md.AGENTS.md` |
 | `biome.json` | (repo root) Biome 2.5.1 config. formatter off. vcs defaultBranch develop. → see `biome.json.AGENTS.md` |
 | `chat-display-preferences.md` | `DisplayPrefs` gate chat chrome (thinking, tool cards, results, separators, stats bars). → see `chat-display-preferences.md.AGENTS.md` |
 | `chat-gateway.agent.md` | Pull-only condensed map/companion for `chat-gateway.md`. Setup, boundaries, team controls, config keys. → see `chat-gateway.md` |

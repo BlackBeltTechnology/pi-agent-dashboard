@@ -227,12 +227,18 @@ export const GIT_NUMSTAT: Recipe<WithCwd & { ref?: string }, string> = {
  * boundaries. Run via `runAsync` (non-blocking) — this is the batched
  * replacement for the O(files) per-file `GIT_DIFF` spawn loop. See change:
  * fix-session-diff-eventloop-block.
+ *
+ * `maxBuffer` caps stdout at `GIT_DIFF_ALL_MAX_BYTES` (async runner only):
+ * a whole-worktree diff past it fails `output-too-large` instead of being
+ * buffered unbounded. See change: fix-session-diff-heap-retention (D3).
  */
+const GIT_DIFF_ALL_MAX_BYTES = 32 * 1024 * 1024;
 export const GIT_DIFF_ALL: Recipe<WithCwd & { ref?: string }, string> = {
   argv: ({ ref }) => ["git", "diff", "--relative", ref ?? "HEAD"],
   parse: (out) => out,
   timeout: GIT_TIMEOUT,
   tolerate: [1],
+  maxBuffer: GIT_DIFF_ALL_MAX_BYTES,
 };
 
 export const GIT_STATUS_PORCELAIN: Recipe<WithCwd & { path?: string }, string> = {
@@ -853,11 +859,6 @@ export function prNumberOr(input: WithCwd, fallback?: number): number | undefine
 /** Batched whole-worktree `git diff --relative HEAD` (async, one spawn). */
 export function diffAll(input: WithCwd & { ref?: string }): Promise<Result<string>> {
   return runAsync(GIT_DIFF_ALL, input, { cwd: input.cwd });
-}
-
-/** Best-effort async batched diff — the raw patch or `fallback` on any error. */
-export async function diffAllOr(input: WithCwd & { ref?: string }, fallback = ""): Promise<string> {
-  return unwrap(await diffAll(input), fallback);
 }
 
 /** Async `git rev-parse --is-inside-work-tree` → boolean (fallback on error). */

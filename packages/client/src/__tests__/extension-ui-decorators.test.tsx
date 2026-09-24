@@ -12,7 +12,9 @@
  */
 import React from "react";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, cleanup, act } from "@testing-library/react";
+import { render, cleanup, act, waitFor } from "@testing-library/react";
+import { mdiCheck } from "@mdi/js";
+import { __resetMdiIconSetForTests } from "@blackbelt-technology/pi-dashboard-client-utils/mdi-by-key";
 import { FooterSegmentSlot } from "../components/extension-ui/FooterSegmentSlot.js";
 import { AgentMetricSlot } from "../components/extension-ui/AgentMetricSlot.js";
 import { BreadcrumbSlot } from "../components/extension-ui/BreadcrumbSlot.js";
@@ -20,7 +22,10 @@ import { GateSlot, aggregateGateState } from "../components/extension-ui/GateSlo
 import { ToastSlot } from "../components/extension-ui/ToastSlot.js";
 import type { DashboardSession, DecoratorDescriptor } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  __resetMdiIconSetForTests();
+});
 
 function dec<K extends DecoratorDescriptor["kind"]>(
   kind: K,
@@ -76,6 +81,33 @@ describe("FooterSegmentSlot", () => {
     rerender(<FooterSegmentSlot session={session2} />);
     expect(queryByText("AAA")).toBeNull();
     expect(queryByText("BBB")).toBeTruthy();
+  });
+
+  // Lazy icon set: one hook per segment (test-plan #E7).
+  // See change: harden-ios-safari-memory-and-ws-diagnostics.
+  it("renders key-resolved icons per segment once the icon set loads", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const session = sessionWithDecorators([
+        dec("footer-segment", "judo", "s1", { text: "ONE", icon: "mdiCheck" }),
+        dec("footer-segment", "judo", "s2", { text: "TWO", icon: "mdiTotallyMadeUpName" }),
+        dec("footer-segment", "judo", "s3", { text: "THREE" }),
+      ]);
+      const { getByTestId } = render(<FooterSegmentSlot session={session} />);
+      const seg = (id: string) => getByTestId(`footer-segment:judo:${id}`);
+      await waitFor(() =>
+        expect(seg("s1").querySelector("svg path")?.getAttribute("d")).toBe(mdiCheck),
+      );
+      expect(seg("s2").querySelector("svg")).toBeNull();
+      expect(seg("s3").querySelector("svg")).toBeNull();
+      expect(seg("s1").textContent).toContain("ONE");
+      expect(seg("s2").textContent).toContain("TWO");
+      expect(seg("s3").textContent).toContain("THREE");
+      const hookWarnings = errorSpy.mock.calls.filter((c) => /hook/i.test(String(c[0])));
+      expect(hookWarnings).toEqual([]);
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 });
 

@@ -109,6 +109,10 @@
       "types": "./src/ActionList.tsx",
       "default": "./src/ActionList.tsx"
     },
+    "./mdi-by-key": {
+      "types": "./src/mdi-by-key.ts",
+      "default": "./src/mdi-by-key.ts"
+    },
     "./StatusPill": {
       "types": "./src/StatusPill.tsx",
       "default": "./src/StatusPill.tsx"

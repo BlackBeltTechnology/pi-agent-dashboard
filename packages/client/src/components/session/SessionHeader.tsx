@@ -23,6 +23,7 @@ import { useOptionalSessionDiff } from "../diff/SessionDiffContext.js";
 import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
 import { TagChip } from "../tags/TagChip.js";
 import { TagEditor } from "../tags/TagEditor.js";
+import { YoloSessionIndicator } from "../access-grant/YoloIndicators.js";
 
 interface Props {
   session?: DashboardSession;
@@ -304,6 +305,9 @@ function MobileHeader({ session, showBack, onBack, isRenaming, onConfirmRename, 
     <div className="px-2 py-1 border-b border-[var(--border-primary)] flex flex-col text-sm">
       {row1}
       {chipRow}
+      {/* Active-YOLO peer indicator: the sidebar pill is not rendered here.
+          See change: add-access-grant-dialog (8b.7). */}
+      <YoloSessionIndicator cwd={session.cwd} />
     </div>
   );
 }
@@ -467,6 +471,8 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
       {/* Extension UI System (Phase 2): footer-segment decorator slot. */}
       {/* See change: add-extension-ui-decorations. */}
       <FooterSegmentSlot session={session} />
+      {/* Active-YOLO indicator when this session's cwd is in scope. See change: add-access-grant-dialog (8b.7). */}
+      <YoloSessionIndicator cwd={session.cwd} />
       {/* Editable user-tag strip + read-only phase chip (D5: detail-header
           primary). See change: add-session-tags. */}
       {onSetTags && (

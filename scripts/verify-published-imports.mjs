@@ -260,12 +260,22 @@ export function extractSpecifiers(text, fileName) {
     if (ts.isIdentifier(node.expression) && node.expression.text === "require") return node.arguments[0];
     return undefined;
   };
-  const visit = (node) => {
+  // Iterative (explicit stack), not recursive: a bundled CJS chunk (the
+  // client's lazy full-@mdi/js set) opens with a `e.a=e.b=…=void 0` chain deep
+  // enough to overflow a recursive walk on Node 22, though the parser accepts
+  // it. Children are pushed in reverse so they pop in source order.
+  // See change: harden-ios-safari-memory-and-ws-diagnostics.
+  const stack = [source];
+  while (stack.length > 0) {
+    const node = stack.pop();
     const spec = declSpecifier(node) ?? callSpecifier(node);
     if (spec) add(spec);
-    ts.forEachChild(node, visit);
-  };
-  visit(source);
+    const children = [];
+    ts.forEachChild(node, (child) => {
+      children.push(child);
+    });
+    for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]);
+  }
 
   return { specifiers, parseError: null };
 }

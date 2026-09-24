@@ -12,6 +12,7 @@ import { fixPtyPermissions } from "../fix-pty-permissions.js";
 const DEFAULT_BUFFER_SIZE = 256 * 1024; // 256KB
 
 import { whichSync } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
+import { normalizeEnvPathKey } from "@blackbelt-technology/pi-dashboard-shared/platform/env-path-key.js";
 import { augmentEnvWithGitSource } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import { killProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 // Delegate shell detection to the shared platform primitive. Back-compat
@@ -261,7 +262,10 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
     // PTY bypasses ToolResolver.buildSpawnEnv, so augment bundled git/sh
     // here too — otherwise `!`/`!!` bang-prefix commands run in the
     // terminal would miss bundled git/sh. See change: embed-git-bash-on-windows.
-    const baseEnv = { ...process.env, ...platformTerminalEnvHints() } as Record<string, string>;
+    // Normalize the win32 `Path` key to `PATH` first so a bundled-source
+    // PATH write does not leave a `Path`/`PATH` pair. See change:
+    // fix-windows-path-env-key-casing.
+    const baseEnv = normalizeEnvPathKey({ ...process.env, ...platformTerminalEnvHints() }) as Record<string, string>;
     const env = augmentEnvWithGitSource(baseEnv, whichSync) as Record<string, string>;
 
     const p = pty.spawn(shell, [], {

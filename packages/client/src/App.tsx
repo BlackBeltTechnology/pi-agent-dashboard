@@ -35,6 +35,7 @@ import { ComposerSessionActions } from "./components/session/ComposerSessionActi
 import { MissingRequiredBanner } from "./components/session/MissingRequiredBanner.js";
 import { QueuePanel } from "./components/session/QueuePanel.js";
 import { RecoveryOfferHost } from "./components/session/RecoveryOfferHost.js";
+import { GrantPromptHost } from "./components/access-grant/GrantPromptHost.js";
 import { SessionBanner } from "./components/session/SessionBanner.js";
 import { SessionHeader } from "./components/session/SessionHeader.js";
 import { SessionList } from "./components/session/SessionList.js";
@@ -2694,6 +2695,11 @@ export default function App() {
     />
   ) : null;
 
+  // Access-grant dialog (S1/S2): one instance, mounted in BOTH returns like
+  // `firstLaunchModal`. Also owns the prompt capability's lifecycle.
+  // See change: add-access-grant-dialog.
+  const grantPromptHost = <GrantPromptHost onMessage={onMessage} send={send} ws={ws} />;
+
   const apiProvider = (children: React.ReactNode) => (
     <ApiContext.Provider value={apiBase}>
       <DisplayPrefsProvider value={displayPrefsContextValue}>
@@ -2825,6 +2831,7 @@ export default function App() {
         <SpawnErrorToastHost />
         <RecoveryOfferHost onReopen={(ids) => { for (const id of ids) handleResumeSession(id, "continue"); }} onDismiss={(ids) => send({ type: "recovery_dismiss", sessionIds: ids })} />
         {firstLaunchModal}
+        {grantPromptHost}
         <MobileShell
           depth={mobileDepth}
           onBack={() => {
@@ -2870,6 +2877,7 @@ export default function App() {
   return apiProvider(
     <div className="flex h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
       {firstLaunchModal}
+      {grantPromptHost}
       {/* Concurrent worktree-init stack — fixed overlay, mounted in both shells
           (mobile branch above) so desktop also surfaces it. See change:
           friendlier-worktree-init. */}

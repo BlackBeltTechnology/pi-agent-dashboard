@@ -100,6 +100,10 @@ export function frameClassOf(
     case "favorite_models_updated":
     case "display_prefs_updated":
     case "reachability_updated":
+    // The prompt capability is per-connection STATE: the latest value wins and
+    // it must never be shed: a shed one would leave this browser prompt-less
+    // for the rest of its connection. See change: add-access-grant-dialog.
+    case "grant_channel":
       return { cls: "state", key: msg.type };
     case "openspec_update":
     case "git_head_update":
@@ -115,6 +119,13 @@ export function frameClassOf(
         cls: "state",
         key: `openspec_get_result:${msg.cwd}:${msg.requestId}:${msg.final ? "final" : "placeholder"}`,
       };
+    // A prompt and its dismissal share ONE key per prompt, so a dismiss
+    // supersedes a still-queued request instead of racing it, and neither is
+    // ever shed (a shed prompt is a dialog that silently never appears).
+    // See change: add-access-grant-dialog.
+    case "grant_request":
+    case "grant_dismiss":
+      return { cls: "state", key: `grant:${msg.promptId}` };
     case "terminal_added":
       return { cls: "state", key: `terminal:${msg.terminal.id}` };
     case "terminal_updated":
@@ -125,6 +136,9 @@ export function frameClassOf(
   }
 }
 
+import { randomUUID } from "node:crypto";
+import type { UpgradeHeaders } from "../access/capability-issuance.js";
+import { issuePromptChannel, releasePromptChannel } from "../access/prompt-channel.js";
 import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleMoveFolderToWorkspace, handleOpenSpecBulkArchive, handleOpenSpecGet, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleSetFolderCollapsed, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
 import { handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handlePromptResyncRequest, handleRemoveFollowupEntry, handleResumeSession, handleRetrySession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest, shutdownSession as shutdownSessionImpl } from "../browser-handlers/session-action-handler.js";
@@ -342,6 +356,16 @@ export interface BrowserGateway {
    */
   setTestForceShed(enabled: boolean): boolean;
   /**
+   * Install the policy deciding whether a newly connected browser socket is
+   * issued a prompt capability (`grant_channel`). Unset (`null`, the default)
+   * means NO socket is ever issued one, fail-closed, so a gateway built without
+   * the policy (every existing test, any embedder) never becomes prompt-capable.
+   * Set after construction because the policy needs the live CORS options,
+   * which `server.ts` builds after the gateway.
+   * See change: add-access-grant-dialog (tasks 2b.1, 3.2).
+   */
+  setPromptCapabilityPolicy(policy: ((headers: UpgradeHeaders) => boolean) | null): void;
+  /**
    * Requester-scoped delivery of a prompt-resync reply (fix B, server half).
    * `msg` is an ordinary bridge `prompt_request` that may carry the echoed
    * `__resyncRequestId` token of a `prompt_resync_request` this gateway
@@ -464,6 +488,19 @@ export interface BrowserGateway {
   registerDisconnectHandler(handler: (ws: WebSocket) => void): void;
 }
 
+/** Default browser keepalive ping interval. See change: harden-ios-safari-memory-and-ws-diagnostics. */
+export const DEFAULT_BROWSER_PING_INTERVAL_MS = 30_000;
+
+/** Per-socket close-diagnostics + keepalive state (design D2/D3). */
+interface SocketDiag {
+  connectedAt: number;
+  frames: number;
+  missedPongs: number;
+  /** `bufferedAmount` at the previous keepalive tick (drain-progress check). */
+  lastBuffered: number;
+  cause: "peer" | "keepalive" | "stalled";
+}
+
 export function createBrowserGateway(
   sessionManager: SessionManager,
   eventStore: EventStore,
@@ -505,8 +542,59 @@ export function createBrowserGateway(
   pendingPrincipalOwnerRegistry?: import("../pending/pending-principal-owner-registry.js").PendingPrincipalOwnerRegistry,
   /** §6.2/D11: is a trusted+configured principal resolver active? Gates owner stamping. */
   isResolverActive?: () => boolean,
+  /** Protocol-level keepalive ping interval for browser sockets (ms).
+   *  See change: harden-ios-safari-memory-and-ws-diagnostics (design D2). */
+  browserPingIntervalMs: number = DEFAULT_BROWSER_PING_INTERVAL_MS,
 ): BrowserGateway {
   const wss = new WebSocketServer({ noServer: true });
+
+  /**
+   * Per-socket close diagnostics + keepalive state (D2/D3). A WeakMap, so a
+   * closed socket needs no explicit cleanup.
+   * See change: harden-ios-safari-memory-and-ws-diagnostics.
+   */
+  const socketDiag = new WeakMap<WebSocket, SocketDiag>();
+
+  // Keepalive: ping every interval; a socket that left two consecutive pings
+  // unanswered is terminated on the next tick (60–90 s at the default). The
+  // timer runs only while tracked (upgraded) clients exist, never keeps the
+  // process alive, and is cleared when the wss closes.
+  let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+  function keepaliveTick(): void {
+    for (const client of wss.clients) {
+      if (client.readyState !== WebSocket.OPEN) continue;
+      const diag = socketDiag.get(client);
+      if (!diag) continue;
+      // The ping queues behind buffered data, so a live client on a slow link
+      // cannot answer until it drains: drain progress counts as liveness.
+      const buffered = client.bufferedAmount;
+      // Any decrease counts, including a drain to 0 (idle 0 → 0 does not).
+      if (buffered < diag.lastBuffered) diag.missedPongs = 0;
+      diag.lastBuffered = buffered;
+      if (diag.missedPongs >= 2) {
+        diag.cause = "keepalive";
+        client.terminate();
+        continue;
+      }
+      diag.missedPongs++;
+      try {
+        client.ping();
+      } catch {
+        // A socket racing to close — its close event settles it.
+      }
+    }
+  }
+  function startKeepalive(): void {
+    if (keepaliveTimer) return;
+    keepaliveTimer = setInterval(keepaliveTick, browserPingIntervalMs);
+    if (typeof keepaliveTimer.unref === "function") keepaliveTimer.unref();
+  }
+  function stopKeepalive(): void {
+    if (!keepaliveTimer) return;
+    clearInterval(keepaliveTimer);
+    keepaliveTimer = null;
+  }
+  wss.on("close", stopKeepalive);
 
   /**
    * Plugin-registered handlers for custom Browser→Server message types.
@@ -892,6 +980,8 @@ export function createBrowserGateway(
     }
     const len = Buffer.byteLength(serialized);
     if (pending.bytes + len > MAX_WS_BUFFER) {
+      const diag = socketDiag.get(ws);
+      if (diag) diag.cause = "stalled";
       ws.terminate();
       stalledSocketsTerminated++;
       dropPendingState(ws);
@@ -1305,13 +1395,25 @@ export function createBrowserGateway(
     fanout(serialized, `openspec_update:${cwd}`, undefined);
   }
 
+  // Decides prompt-capability issuance per connection; null = never issue.
+  // See change: add-access-grant-dialog.
+  let promptCapabilityPolicy: ((headers: UpgradeHeaders) => boolean) | null = null;
+
   wss.on("connection", (ws, req) => {
+    // Per-connection identity for the prompt capability; released on close.
+    const grantSocketId = randomUUID();
     const remoteAddr = req?.socket?.remoteAddress ?? 'unknown';
     const origin = req?.headers?.origin ?? 'no-origin';
     const ua = req?.headers?.['user-agent'] ?? 'no-ua';
     console.error(`[browser-gw] browser client connected from ${remoteAddr} origin=${origin} ua=${ua.slice(0, 80)} (total: ${subscriptions.size + 1})`);
     const subs = new Set<string>();
     subscriptions.set(ws, subs);
+    const diag: SocketDiag = { connectedAt: Date.now(), frames: 0, missedPongs: 0, lastBuffered: 0, cause: "peer" };
+    socketDiag.set(ws, diag);
+    ws.on("pong", () => {
+      diag.missedPongs = 0;
+    });
+    if (wss.clients.has(ws)) startKeepalive();
 
     // §9.4/§9.5: on an identity-bound socket, schedule the identity-expiry close
     // and the transport heartbeat. The cleanup runs from the close/error paths
@@ -1412,6 +1514,19 @@ export function createBrowserGateway(
       gateway.onConnect(ws);
     }
 
+    // Issue a prompt capability only to a browser-shaped connection (D1a).
+    // A missing policy, missing headers, or a policy that throws all mean NO
+    // capability: the fail-closed direction. See change: add-access-grant-dialog.
+    let issueCapability = false;
+    try {
+      issueCapability = promptCapabilityPolicy?.((req?.headers ?? {}) as UpgradeHeaders) === true;
+    } catch {
+      issueCapability = false;
+    }
+    if (issueCapability) {
+      sendTo(ws, { type: "grant_channel", capability: issuePromptChannel(grantSocketId) });
+    }
+
     // Atomic windowed snapshot of the session registry + per-group orders,
     // sent LAST in the bootstrap (D3): every small idempotent state frame
     // above is already on the wire, so the one large frame never queues ahead
@@ -1445,6 +1560,7 @@ export function createBrowserGateway(
 
 
     ws.on("message", async (raw) => {
+      diag.frames++;
       // Malformed (non-JSON) frames are silently dropped. Only frame-parse
       // errors are swallowed here — handler exceptions are logged below so
       // real bugs (e.g. node-pty spawn failures) are not silently hidden.
@@ -1927,9 +2043,16 @@ export function createBrowserGateway(
       }
     });
 
-    ws.on("close", () => {
-      console.error(`[browser-gw] browser client disconnected (remaining: ${subscriptions.size - 1})`);
+    ws.on("close", (code?: number, reason?: Buffer) => {
+      console.error(
+        `[browser-gw] browser client disconnected (remaining: ${subscriptions.size - 1})` +
+          ` code=${code ?? "none"} reason=${JSON.stringify(reason ? reason.toString("utf8") : "")}` +
+          ` lifetime=${((Date.now() - diag.connectedAt) / 1000).toFixed(1)}s frames=${diag.frames} cause=${diag.cause}`,
+      );
+      // The capability dies with its connection (spec: access-grant-eligibility).
+      releasePromptChannel(grantSocketId);
       disposeLifetime?.();
+      if (wss.clients.size === 0) stopKeepalive();
       subscriptions.delete(ws);
       replayingSessions.delete(ws);
       // A closed socket can never flush; discard its pending state (D2).
@@ -2163,6 +2286,10 @@ export function createBrowserGateway(
           ...(e.spawnRequestId !== undefined ? { spawnRequestId: e.spawnRequestId } : {}),
         })),
       };
+    },
+
+    setPromptCapabilityPolicy(policy: ((headers: UpgradeHeaders) => boolean) | null): void {
+      promptCapabilityPolicy = policy;
     },
 
     setTestForceShed(enabled: boolean): boolean {

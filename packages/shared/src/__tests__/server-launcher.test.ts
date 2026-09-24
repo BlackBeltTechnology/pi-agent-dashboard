@@ -20,6 +20,7 @@ import {
   RECOVERY_PORT_CONFLICT_EXIT_CODE,
 } from "../server-launcher.js";
 import type { ChildProcess } from "node:child_process";
+import { ToolResolver } from "../platform/binary-lookup.js";
 import type { spawnNodeScript } from "../platform/node-spawn.js";
 import type { isDashboardRunning } from "../server-identity.js";
 
@@ -367,5 +368,40 @@ describe("launchDashboardServer — port-conflict classification", () => {
     expect(isPortConflictExitCode(RECOVERY_PORT_CONFLICT_EXIT_CODE)).toBe(true);
     expect(isPortConflictExitCode(1)).toBe(false);
     expect(isPortConflictExitCode(null)).toBe(false);
+  });
+});
+
+describe("launchDashboardServer — env overlay (#720)", () => {
+  const capturedEnv = (spy: ReturnType<typeof spawnSpy>) =>
+    spy.mock.calls[0]![0]!.spawnOptions?.env as Record<string, string>;
+
+  it("E18: an overlay without PATH keeps the augmented buildSpawnEnv PATH", async () => {
+    const spy = spawnSpy(() => makeFakeChild());
+    await launchDashboardServer(baseOpts({ _spawnNodeScript: spy, env: { FOO: "1" } }));
+    const env = capturedEnv(spy);
+    expect(env.PATH).toBe(new ToolResolver({ processExecPath: process.execPath }).buildSpawnEnv(process.env).PATH);
+    expect(env.FOO).toBe("1");
+  });
+
+  it("E22: bridge-shaped overrides strip PI_DASHBOARD_* markers end-to-end", async () => {
+    vi.stubEnv("PI_DASHBOARD_ELECTRON", "1");
+    vi.stubEnv("PI_DASHBOARD_RESOURCES_PATH", "/r");
+    try {
+      const spy = spawnSpy(() => makeFakeChild());
+      await launchDashboardServer(baseOpts({
+        _spawnNodeScript: spy,
+        env: {
+          DASHBOARD_STARTER: "Bridge",
+          PI_DASHBOARD_ELECTRON: undefined,
+          PI_DASHBOARD_RESOURCES_PATH: undefined,
+        },
+      }));
+      const env = capturedEnv(spy);
+      expect("PI_DASHBOARD_ELECTRON" in env).toBe(false);
+      expect("PI_DASHBOARD_RESOURCES_PATH" in env).toBe(false);
+      expect(env.PATH).toBe(new ToolResolver({ processExecPath: process.execPath }).buildSpawnEnv(process.env).PATH);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

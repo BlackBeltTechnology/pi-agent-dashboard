@@ -123,9 +123,11 @@ function subsumes(candidate: string, other: string): boolean {
 export function subsumesForbiddenGrantSubject(
   candidate: string,
   env?: { homedir?: string },
+  /** Precomputed `forbiddenGrantSubjects(env)`, for a caller testing many rungs. */
+  sets?: ReturnType<typeof forbiddenGrantSubjects>,
 ): boolean {
   const real = realpathNearestAncestor(path.resolve(candidate));
-  const { whole, sensitive } = forbiddenGrantSubjects(env);
+  const { whole, sensitive } = sets ?? forbiddenGrantSubjects(env);
   return [...whole, ...sensitive].some((forbidden) => subsumes(real, forbidden));
 }
 

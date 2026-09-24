@@ -32,3 +32,9 @@ The `llmChanged` save task dispatches `PROVIDER_AUTH_EVENT` (imported from `hook
 ## bound-event-store-by-bytes
 
 - Memory Limits gains three controls: `maxBytesPerSession` and `maxTotalEventBytes` (numeric, labelled in MiB, stored in BYTES — `MIB = 1024*1024` conversion at the edge) and `maxCachedSessions` (plain count). `MemoryLimitsConfig` + `MEMORY_LIMITS_SEED` extended with the three fields; `computeConfigPartial`'s field-level memoryLimits diff already handles them generically. The per-session hint states a floor applies and the effective value is visible in health; the global hint states whole idle sessions are evicted first; the resident-count hint states evicted sessions re-read from their transcript. The section's shared "Requires server restart" line covers all three, like their siblings. i18n keys `session.max{BytesPerSession,TotalEventBytes,CachedSessions}` + `settings.hint.*` added to `i18n.tsx` (zh-CN), `i18n-hu.ts` and `i18n-en-source.json`. A sub-floor value is written AS TYPED (no client clamp/block) — the store owns the clamp. Pinned by `__tests__/settings-field-contract.test.tsx` (F1-F6) and `settings-bespoke-validation.test.tsx` (F7).
+
+## add-access-grant-dialog
+
+- Access page renders `<AccessPromptsSection />` then `<AccessSection />` (siblings). Prompt toggle writes `accessGrants.promptEnabled` instant-apply via `PUT /api/config`, NOT through the Save-bar draft (`computeConfigPartial` does not diff `accessGrants`, so no Save clobbers it). See change: add-access-grant-dialog (tasks 8.1-8.3)
+
+Access page passes `selectedCwd` to `AccessPromptsSection` (YOLO default scope). See change: add-access-grant-dialog (tasks 8b.7a).
