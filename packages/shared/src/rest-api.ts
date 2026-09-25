@@ -168,9 +168,10 @@ export interface FileContentResult {
    */
   content?: string;
   /**
-   * On-disk modification time (ms, rounded). Carried by the editable markdown
-   * surface and echoed back on `POST /api/file/write` for optimistic-concurrency
-   * conflict detection. See change: directory-settings-page-and-scoped-md-editing.
+   * On-disk modification time: full-precision `stat.mtimeMs` (NOT rounded).
+   * Opaque token: echo unchanged on `POST /api/file/write` for optimistic-
+   * concurrency conflict detection.
+   * See change: directory-settings-page-and-scoped-md-editing, fix-editor-mtime-token-precision.
    */
   mtime?: number;
 }
@@ -196,7 +197,7 @@ export interface FileWriteRequest {
 }
 
 export interface FileWriteResult {
-  /** New on-disk mtime after the write (ms, rounded). */
+  /** New on-disk mtime after the write (full-precision `stat.mtimeMs`; opaque token). */
   mtime: number;
 }
 
@@ -228,7 +229,7 @@ export type MdCandidatesResponse = ApiResponse<MdCandidatesResult>;
  */
 export interface MdReadResult {
   content: string;
-  /** On-disk mtime (ms, rounded) the buffer is loaded at; carried into the write. */
+  /** On-disk mtime (full-precision `stat.mtimeMs`; opaque token) the buffer is loaded at; carried into the write. */
   mtime: number;
 }
 
