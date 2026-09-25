@@ -17,6 +17,8 @@ import {
   type DispatchReloadContext,
   dispatchReload,
 } from "../rpc-keeper/dispatch-reload.js";
+import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
+import { mintSpawnToken } from "../auth/spawn-token.js";
 import { createBranchedSessionFile } from "../session/session-file-reader.js";
 import { decideResume } from "../session/session-origin.js";
 import { keeperOptsFromSpawnResult } from "../spawn-process/headless-pid-registry.js";
@@ -736,9 +738,25 @@ export async function handleSpawnSession(
   msg: Extract<BrowserToServerMessage, { type: "spawn_session" }>,
   ctx: BrowserHandlerContext,
 ): Promise<void> {
-  const { ws, headlessPidRegistry, pendingDashboardSpawns, pendingAttachRegistry, pendingInitialPromptRegistry, pendingWorktreeBaseRegistry, pendingClientCorrelations, sendTo } = ctx;
+  const { ws, headlessPidRegistry, pendingDashboardSpawns, pendingAttachRegistry, pendingInitialPromptRegistry, pendingWorktreeBaseRegistry, pendingPrincipalOwnerRegistry, isResolverActive, pendingClientCorrelations, sendTo } = ctx;
   const config = loadConfig();
   const strategy = config.spawnStrategy ?? "tmux";
+
+  // §6.2 / D11: stamp the session owner ONLY through this trusted road, and
+  // only while the resolver is active AND the socket carries a human principal.
+  // Pre-mint the spawn token so the owner is filed against it BEFORE the spawn
+  // await (the `pending-plugin-ref-registry` precedent) — an event arriving
+  // during the await is still attributable. cwd is never an ownership signal;
+  // an inert-era or principal-less socket stays ownerless.
+  const socketPrincipal = (ws as { principal?: Principal }).principal;
+  const ownerToStamp =
+    isResolverActive?.() && socketPrincipal
+      ? { iss: socketPrincipal.iss, sub: socketPrincipal.sub }
+      : undefined;
+  const ownerSpawnToken = ownerToStamp ? mintSpawnToken() : undefined;
+  if (ownerToStamp && ownerSpawnToken) {
+    pendingPrincipalOwnerRegistry?.file(ownerSpawnToken, ownerToStamp);
+  }
 
   // Queue the optional attach intent BEFORE awaiting the spawn so a fast
   // bridge `session_register` cannot lose the intent. See change:
@@ -790,7 +808,13 @@ export async function handleSpawnSession(
   // silently. Previous behaviour left the user staring at an empty state
   // when pi itself was broken in the target folder.
   try {
-    const spawnResult = await spawnPiSession(msg.cwd, { strategy });
+    const spawnResult = await spawnPiSession(msg.cwd, { strategy, ...(ownerSpawnToken ? { spawnToken: ownerSpawnToken } : {}) });
+    // A failed spawn never registers, so drop the pre-filed owner (idempotent,
+    // token-keyed) rather than leave it to expire against a token no session
+    // will ever present.
+    if (!spawnResult.success && ownerSpawnToken) {
+      pendingPrincipalOwnerRegistry?.remove(ownerSpawnToken);
+    }
     if (spawnResult.process && spawnResult.pid) {
       headlessPidRegistry.register(
         spawnResult.pid,
@@ -855,6 +879,8 @@ export async function handleSpawnSession(
       });
     }
   } catch (err) {
+    // Thrown spawn: the session never registers, so drop the pre-filed owner.
+    if (ownerSpawnToken) pendingPrincipalOwnerRegistry?.remove(ownerSpawnToken);
     const message = err instanceof Error ? err.message : String(err);
     const stderr = err instanceof Error && "stderr" in err ? String((err as { stderr: unknown }).stderr).slice(-2048) : undefined;
     sendTo(ws, { type: "spawn_result", cwd: msg.cwd, success: false, message, requestId: msg.requestId });

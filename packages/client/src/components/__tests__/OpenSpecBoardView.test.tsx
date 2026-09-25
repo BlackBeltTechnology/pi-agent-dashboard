@@ -235,4 +235,14 @@ describe("OpenSpecBoardView status stripes", () => {
     rerender(<OpenSpecBoardView {...props({ ...p, selectedId: "s1" })} />);
     expect(scrollIntoView).not.toHaveBeenCalled();
   });
+
+  it("session OS menu panel has fixed and z-popover, not absolute or z-50 (overlay-layering)", () => {
+    render(<OpenSpecBoardView {...props()} />);
+    fireEvent.click(screen.getByTestId("session-os-menu-s1"));
+    const panel = screen.getByTestId("session-os-menu-panel");
+    expect(panel.className).toContain("fixed");
+    expect(panel.className).toContain("z-popover");
+    expect(panel.className).not.toContain("absolute");
+    expect(panel.className).not.toContain("z-50");
+  });
 });

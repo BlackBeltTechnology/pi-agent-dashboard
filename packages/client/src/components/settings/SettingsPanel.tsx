@@ -26,6 +26,7 @@ import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.
 import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { useLocation, useRoute } from "wouter";
 import { useAsyncAction } from "../../hooks/useAsyncAction.js";
 import { useInstalledPackages } from "../../hooks/useInstalledPackages.js";
@@ -67,6 +68,7 @@ import { PackageReadmeDialog } from "../packages/PackageReadmeDialog.js";
 import { PiVersionAdvisory } from "../packages/PiVersionAdvisory.js";
 import { PluginsSection } from "../packages/PluginsSection.js";
 import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
+import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 import type { ResourceType } from "../resource/ResourceCardGrid.js";
 import { RESOURCE_PAGE_TYPE, type ResourcePageId, ScopedResourceGrid } from "../resource/ScopedResourceGrid.js";
@@ -2980,15 +2982,23 @@ function TrustedNetworksSection({
   const [interfaces, setInterfaces] = useState<NetworkInterfaceInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [manualEntry, setManualEntry] = useState("");
-  const dropdownRef = React.useRef<HTMLDivElement>(null);
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
+  const panelRef = React.useRef<HTMLDivElement>(null);
+  const { flipUp, maxHeight, anchorRight, maxWidth, triggerRect } = usePopoverFlip(triggerRef, {
+    open: dropdownOpen,
+    estimatedWidth: 280,
+    minPopoverHeight: 0,
+    preferredAnchor: "left",
+  });
 
   // Close dropdown on outside click
   React.useEffect(() => {
     if (!dropdownOpen) return;
     const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false);
-      }
+      const target = e.target as Node;
+      if (panelRef.current?.contains(target)) return;
+      if (triggerRef.current?.contains(target)) return;
+      setDropdownOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -3075,8 +3085,9 @@ function TrustedNetworksSection({
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative" ref={dropdownRef}>
+        <div className="relative">
           <button
+            ref={triggerRef}
             onClick={fetchInterfaces}
             className="text-xs px-2 py-1 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
             data-testid="trusted-networks-add-local"
@@ -3084,8 +3095,26 @@ function TrustedNetworksSection({
             {loading ? t("settings.detecting", undefined, "Detecting...") : t("settings.addLocalNetwork", undefined, "+ Add Local Network")}
           </button>
           {dropdownOpen && (offerRows.length > 0 || unofferable.length > 0) && (
+            <LayerPortal>
             <div
-              className="absolute left-0 top-full mt-1 z-50 min-w-[280px] bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-lg shadow-xl py-1"
+              ref={panelRef}
+              style={{
+                minWidth: 280,
+                maxHeight,
+                maxWidth,
+                visibility: triggerRect ? "visible" : "hidden",
+                ...(triggerRect
+                  ? flipUp
+                    ? { bottom: Math.round(window.innerHeight - triggerRect.top + 4) }
+                    : { top: Math.round(triggerRect.bottom + 4) }
+                  : {}),
+                ...(triggerRect
+                  ? anchorRight
+                    ? { right: Math.max(0, Math.round(window.innerWidth - triggerRect.right)) }
+                    : { left: Math.round(triggerRect.left) }
+                  : {}),
+              }}
+              className="fixed overflow-y-auto z-popover bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-lg shadow-xl py-1"
               data-testid="trusted-networks-dropdown"
             >
               {offerRows.map((row) => (
@@ -3134,6 +3163,7 @@ function TrustedNetworksSection({
                 </div>
               ))}
             </div>
+            </LayerPortal>
           )}
         </div>
 

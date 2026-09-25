@@ -11,6 +11,9 @@ import type {
 import type { NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { WebSocket, WebSocketServer } from "ws";
 import { getLastBindReachability } from "../auth/bind-reachability-service.js";
+import { canAccessSession, filterSnapshotForPrincipal } from "../identity/session-access.js";
+import { isSessionOwnedMessage } from "../identity/ws-message-scope.js";
+import { installSocketLifetime, type LifetimeSocket } from "../identity/socket-lifetime.js";
 import { type DirectoryService, hasOpenSpecDir, hasOpenSpecRoot } from "../directory-service.js";
 import type { PendingForkRegistry } from "../pending/pending-fork-registry.js";
 import type { EventStore } from "../persistence/memory-event-store.js";
@@ -535,6 +538,10 @@ export function createBrowserGateway(
    *  transcript is not on this filesystem, so this is where its history comes
    *  from. See change: serve-retained-remote-transcripts. */
   remoteTranscriptStore?: import("../session/remote-transcript-store.js").RemoteTranscriptStore,
+  /** §6.2/D11: token-keyed owner correlation filed by the browser spawn road. */
+  pendingPrincipalOwnerRegistry?: import("../pending/pending-principal-owner-registry.js").PendingPrincipalOwnerRegistry,
+  /** §6.2/D11: is a trusted+configured principal resolver active? Gates owner stamping. */
+  isResolverActive?: () => boolean,
   /** Protocol-level keepalive ping interval for browser sockets (ms).
    *  See change: harden-ios-safari-memory-and-ws-diagnostics (design D2). */
   browserPingIntervalMs: number = DEFAULT_BROWSER_PING_INTERVAL_MS,
@@ -1327,6 +1334,51 @@ export function createBrowserGateway(
     return ids.filter((id) => visible.has(id));
   }
 
+  // ── §8.2 live-broadcast owner filter ──────────────────────────────────
+  // While identity is enforced a broadcast ABOUT a session reaches only the
+  // sockets whose principal owns it (ownerless ⇒ no one). `lastKnownOwner`
+  // keeps the owner of a session that is already gone (session_removed);
+  // `withheldSpawnRequestId` keeps the spawn correlation of an add that was
+  // withheld because the owner was stamped just AFTER it, so the promoted add
+  // still lets the owner's UI open its new session.
+  type Owner = { iss: string; sub: string };
+  const lastKnownOwner = new Map<string, Owner>();
+  const withheldSpawnRequestId = new Map<string, string>();
+  const socketPrincipal = (ws: WebSocket): Owner | null => (ws as { principal?: Owner }).principal ?? null;
+  function ownerOf(sessionId: string, fromFrame?: Owner): Owner | undefined {
+    const owner = fromFrame ?? sessionManager.get(sessionId)?.principalOwner ?? lastKnownOwner.get(sessionId);
+    if (owner) lastKnownOwner.set(sessionId, owner);
+    return owner;
+  }
+  /** Folder-only frames (no session id) that disclose a folder's path/state. */
+  const FOLDER_SCOPED = new Set(["git_head_update", "openspec_update"]);
+  const ownerKey = (o: Owner) => `${o.iss}\u0000${o.sub}`;
+  /**
+   * Enforced-mode audience of a folder frame: everyone when the folder is
+   * PINNED (pins are shared settings, D24), else only principals owning a
+   * session in it (its cwd, a subfolder, or a worktree of it). Null = inert.
+   */
+  function folderAudience(cwd: string): ((ws: WebSocket) => boolean) | null {
+    if (!isResolverActive?.()) return null;
+    if ((preferencesStore?.getPinnedDirectories?.() ?? []).includes(cwd)) return () => true;
+    const owners = new Set<string>();
+    for (const s of sessionManager.listAll()) {
+      const o = s.principalOwner as Owner | undefined;
+      if (!o) continue;
+      const c = String(s.cwd ?? "");
+      if (c === cwd || c.startsWith(`${cwd}/`) || s.gitWorktree?.mainPath === cwd) owners.add(ownerKey(o));
+    }
+    return (ws) => {
+      const p = socketPrincipal(ws);
+      return p != null && owners.has(ownerKey(p));
+    };
+  }
+  function sessionIdOf(msg: ServerToBrowserMessage): { id: string; owner?: Owner } | undefined {
+    if (msg.type === "session_added") return { id: msg.session.id, owner: msg.session.principalOwner };
+    const id = (msg as { sessionId?: unknown }).sessionId;
+    return typeof id === "string" ? { id } : undefined;
+  }
+
   function broadcast(msg: ServerToBrowserMessage) {
     // Serialize once per fan-out: O(payload) instead of O(payload ×
     // subscribers). Matters for large recurring frames such as
@@ -1335,6 +1387,9 @@ export function createBrowserGateway(
     // See change: scope-openspec-poll-to-active-cwds.
     if (msg.type === "sessions_reordered") {
       msg = { ...msg, sessionIds: projectOrderThroughWindow(msg.sessionIds) };
+    }
+    if (isResolverActive?.()) {
+      if (broadcastOwnerScoped(msg)) return;
     }
     const { cls, key } = frameClassOf(msg);
     const serialized = JSON.stringify(msg);
@@ -1346,13 +1401,69 @@ export function createBrowserGateway(
     fanout(serialized, cls === "state" ? key : undefined, dirty);
   }
 
+  /** Enforced-mode delivery of a session-scoped frame. Returns false for a
+   *  frame with no session identity (it fans out to everyone as before). */
+  function broadcastOwnerScoped(msg: ServerToBrowserMessage): boolean {
+    if (msg.type === "sessions_reordered") {
+      for (const [ws] of subscriptions) {
+        const principal = socketPrincipal(ws);
+        const visible = msg.sessionIds.filter((id) =>
+          canAccessSession({ active: true, principal, owner: ownerOf(id) }),
+        );
+        if (visible.length > 0) sendTo(ws, { ...msg, sessionIds: visible });
+      }
+      return true;
+    }
+    const target = sessionIdOf(msg);
+    if (!target) {
+      const cwd = (msg as { cwd?: unknown }).cwd;
+      if (!FOLDER_SCOPED.has(msg.type) || typeof cwd !== "string") return false;
+      const audience = folderAudience(cwd);
+      const { cls, key } = frameClassOf(msg);
+      fanout(JSON.stringify(msg), cls === "state" ? key : undefined, deliveryInfoOf(msg), audience ?? undefined);
+      return true;
+    }
+    const owner = ownerOf(target.id, target.owner);
+    if (!owner) {
+      // Not owned (yet): withhold from everyone, remembering the spawn
+      // correlation for the promotion below.
+      if (msg.type === "session_added" && msg.spawnRequestId) withheldSpawnRequestId.set(target.id, msg.spawnRequestId);
+      return true;
+    }
+    // Ownership just established: the owner never saw the (withheld) add, so
+    // hand it the full current session first.
+    const promoted =
+      msg.type === "session_updated" && (msg.updates as { principalOwner?: unknown })?.principalOwner
+        ? sessionManager.get(target.id)
+        : undefined;
+    const spawnRequestId = withheldSpawnRequestId.get(target.id);
+    if (promoted) withheldSpawnRequestId.delete(target.id);
+    if (msg.type === "session_removed") lastKnownOwner.delete(target.id);
+    const { cls, key } = frameClassOf(msg);
+    const serialized = JSON.stringify(msg);
+    const dirty = deliveryInfoOf(msg);
+    const allow = (ws: WebSocket) => canAccessSession({ active: true, principal: socketPrincipal(ws), owner });
+    if (promoted) {
+      const add: ServerToBrowserMessage = {
+        type: "session_added",
+        session: promoted,
+        ...(spawnRequestId ? { spawnRequestId } : {}),
+      } as ServerToBrowserMessage;
+      fanout(JSON.stringify(add), undefined, deliveryInfoOf(add), allow);
+    }
+    fanout(serialized, cls === "state" ? key : undefined, dirty, allow);
+    return true;
+  }
+
   function fanout(
     serialized: string,
     stateKey?: string,
     dirty?: { id: string; kind: RegistryDebtKind; spawnRequestId?: string },
+    allow?: (ws: WebSocket) => boolean,
   ) {
     for (const [ws] of subscriptions) {
       if (ws.readyState !== WebSocket.OPEN) continue;
+      if (allow && !allow(ws)) continue;
       if (stateKey !== undefined) {
         // State class: deferred when over threshold, never shed (D2).
         sendState(ws, stateKey, serialized);
@@ -1385,7 +1496,7 @@ export function createBrowserGateway(
     const header = `{"type":"openspec_update","cwd":${JSON.stringify(cwd)},"data":`;
     const serialized = header + dataSerialized + "}";
     // Pre-serialized state frame: hand fanout the D1 delivery key directly.
-    fanout(serialized, `openspec_update:${cwd}`, undefined);
+    fanout(serialized, `openspec_update:${cwd}`, undefined, folderAudience(cwd) ?? undefined);
   }
 
   // Decides prompt-capability issuance per connection; null = never issue.
@@ -1407,6 +1518,16 @@ export function createBrowserGateway(
       diag.missedPongs = 0;
     });
     if (wss.clients.has(ws)) startKeepalive();
+
+    // §9.4/§9.5: on an identity-bound socket, schedule the identity-expiry close
+    // and the transport heartbeat. The cleanup runs from the close/error paths
+    // so neither timer outlives the socket. Installed ONLY when the resolver is
+    // active — the identity plane owns these timers; the inert era behaves
+    // exactly as before (no per-socket timer), preserving the zero-timer
+    // steady-state invariant existing tests assert.
+    const disposeLifetime = isResolverActive?.()
+      ? installSocketLifetime(ws as unknown as LifetimeSocket)
+      : undefined;
 
     // Send pinned directories on connect
     if (preferencesStore) {
@@ -1469,7 +1590,8 @@ export function createBrowserGateway(
     // See change: fix-cold-boot-openspec-protocol.
     if (directoryService) {
       for (const msg of buildOpenSpecConnectSnapshot(directoryService, hasOpenSpecDir, hasOpenSpecRoot)) {
-        sendTo(ws, msg);
+        const audience = folderAudience(msg.cwd);
+        if (!audience || audience(ws)) sendTo(ws, msg);
       }
       // Replay the cached folder-HEAD map to THIS socket only. `git_head_update`
       // is broadcast on first-seen-or-change, so a browser connecting after the
@@ -1480,7 +1602,8 @@ export function createBrowserGateway(
       // See change: fix-folder-header-worktree-branch-leak.
       if (typeof directoryService.folderHeadSnapshot === "function") {
         for (const { cwd, branch } of directoryService.folderHeadSnapshot()) {
-          sendTo(ws, { type: "git_head_update", cwd, branch });
+          const audience = folderAudience(cwd);
+          if (!audience || audience(ws)) sendTo(ws, { type: "git_head_update", cwd, branch });
         }
       }
     }
@@ -1522,9 +1645,16 @@ export function createBrowserGateway(
       const pinnedDirs = preferencesStore?.getPinnedDirectories?.() ?? [];
       // `typeof` guard: hand-rolled fakes may predate the window API
       // (folderHeadSnapshot precedent); they fall back to the full list.
-      const snapshot = typeof sessionManager.buildSnapshot === "function"
+      const rawSnapshot = typeof sessionManager.buildSnapshot === "function"
         ? sessionManager.buildSnapshot(pinnedDirs)
         : { sessions: sessionManager.listAll(), orders: {} as Record<string, string[]>, endedTotals: {} as Record<string, number> };
+      // §8.2: filter the bootstrap snapshot per-item to sessions this principal
+      // owns — never disclose the full registry. Inert era passes through.
+      const snapshot = filterSnapshotForPrincipal(
+        rawSnapshot,
+        isResolverActive?.() ?? false,
+        (ws as { principal?: { iss: string; sub: string } }).principal ?? null,
+      );
       sendTo(ws, {
         type: "sessions_snapshot",
         ...snapshot,
@@ -1561,6 +1691,8 @@ export function createBrowserGateway(
           pendingResumeIntents,
           pendingClientCorrelations,
           pendingWorktreeBaseRegistry,
+          pendingPrincipalOwnerRegistry,
+          isResolverActive,
           sessionArchive,
           pendingArchiveIntents,
           remoteTranscriptStore,
@@ -1595,6 +1727,32 @@ export function createBrowserGateway(
             }
           },
         };
+
+        // §8.3 owner-equality choke point: a single gate for EVERY session-owned
+        // command (classification in `ws-message-scope.ts`; coverage-tested so a
+        // new road cannot skip it). When the resolver is active, a command
+        // targeting a session the socket's principal does not own is dropped
+        // before dispatch — identical refusal on every road, no frames served.
+        // Inert era + non-session / session-list roads fall through unchanged.
+        // Session-list roads (`sessions_page`, `list_sessions`) cannot be gated
+        // here — they return a SET, not one `sessionId` — so they are per-ITEM
+        // filtered in `session-meta-handler.ts` (`visibleToSocket`), and the
+        // bootstrap snapshot above via `filterSnapshotForPrincipal`.
+        if (isResolverActive?.() && isSessionOwnedMessage(msg.type)) {
+          const sessionId = (msg as { sessionId?: unknown }).sessionId;
+          const owner =
+            typeof sessionId === "string" ? sessionManager.get(sessionId)?.principalOwner : undefined;
+          const allowed = canAccessSession({
+            active: true,
+            principal: (ws as { principal?: { iss: string; sub: string } }).principal ?? null,
+            owner,
+          });
+          if (!allowed) {
+            // Silent drop — no oracle. The client cannot distinguish "not owned"
+            // from "does not exist", matching the list road's invisibility.
+            return;
+          }
+        }
 
         switch (msg.type) {
           case "subscribe":
@@ -1999,6 +2157,7 @@ export function createBrowserGateway(
       );
       // The capability dies with its connection (spec: access-grant-eligibility).
       releasePromptChannel(grantSocketId);
+      disposeLifetime?.();
       if (wss.clients.size === 0) stopKeepalive();
       subscriptions.delete(ws);
       replayingSessions.delete(ws);
@@ -2027,6 +2186,7 @@ export function createBrowserGateway(
     // An errored socket will close, but clear the pending state immediately —
     // its timer must not outlive the socket (D2).
     ws.on("error", () => {
+      disposeLifetime?.();
       dropPendingState(ws);
       dropStatusDebt(ws);
       closeOccupancySpan(ws);

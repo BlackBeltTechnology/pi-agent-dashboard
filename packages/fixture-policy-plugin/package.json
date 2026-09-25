@@ -1,0 +1,32 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-fixture-policy-plugin",
+  "version": "0.8.0",
+  "private": true,
+  "description": "TEST FIXTURE ONLY — a trusted host access policy plugin for the identity-plane E2E harness (openspec: add-multi-user-identity-plane, §11.2). Config-seeds an allow-list of (iss, sub) principals to host actions so the two-user isolation specs can assert domain-event fan-out gating. NOT published; never used in production.",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/fixture-policy-plugin"
+  },
+  "exports": {
+    "./server": {
+      "types": "./src/server/index.ts",
+      "default": "./src/server/index.ts"
+    }
+  },
+  "pi-dashboard-plugin": {
+    "id": "fixture-policy",
+    "fixture": true,
+    "displayName": "Fixture Trusted Policy (test)",
+    "claims": [],
+    "priority": 100,
+    "server": "./src/server/index.ts",
+    "configSchema": "./src/configSchema.json"
+  },
+  "dependencies": {
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0"
+  }
+}

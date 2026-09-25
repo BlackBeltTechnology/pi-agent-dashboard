@@ -23,6 +23,7 @@
   },
   "files": [
     "src/",
+    "!**/test-support",
     "bin/",
     "!**/AGENTS.md",
     "!**/*.AGENTS.md",
@@ -34,6 +35,7 @@
     "bonjour-service": "^1.3.0"
   },
   "devDependencies": {
+    "jose": "^6.0.0",
     "memfs": "^4.57.2",
     "react": "^19.0.0"
   },

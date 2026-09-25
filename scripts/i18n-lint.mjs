@@ -62,8 +62,15 @@ function walk(dir) {
       // the hostless apple-tools installer; its `message:` strings are
       // diagnostics returned as data, never rendered copy. The plugin's client
       // entry is still scanned. See change: extract-mcp-client-plugin.
+      //
+      // keycloak-resolver-plugin/src/server + fixture-policy-plugin are
+      // server-only identity code. Their `throw new Error(...)` strings are
+      // OIDC/protocol diagnostics surfaced via generic error banners + logs,
+      // never UI copy — same rationale as mcp-server-plugin. The keycloak
+      // plugin's CLIENT subtree (the D16 login-provider component) DOES ship
+      // UI copy and stays scanned. See change: add-multi-user-identity-plane.
       if (
-        /node_modules|__tests__|\.test\.|dist|templates|demo-plugin|dashboard-plugin-skill|mcp-server-plugin|browser-plugin\/src\/server|mcp-client-plugin\/src\/core/.test(
+        /node_modules|__tests__|\.test\.|dist|templates|demo-plugin|dashboard-plugin-skill|mcp-server-plugin|keycloak-resolver-plugin\/src\/server|fixture-policy-plugin|browser-plugin\/src\/server|mcp-client-plugin\/src\/core/.test(
           p,
         )
       )

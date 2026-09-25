@@ -51,6 +51,7 @@ import { FolderStatusCapsule } from "../folder/FolderStatusCapsule.js";
 import { projectSetupLabel } from "../folder/folder-menu-labels.js";
 import { FolderOpenSpecSection } from "../openspec/FolderOpenSpecSection.js";
 import { InstallButton } from "../packages/InstallButton.js";
+import { SignedInUserBar } from "../identity/UserBar.js";
 import { PiLogo } from "../primitives/PiLogo.js";
 import { Toast, useToast } from "../primitives/Toast.js";
 import { ThemePicker } from "../settings/ThemePicker.js";
@@ -752,6 +753,10 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
   // Inline state for AddToWorkspace popover and NewWorkspace dialog.
   // See change: folder-workspaces.
   const [addToWsMenuFor, setAddToWsMenuFor] = React.useState<string | null>(null);
+  // A single trigger ref: only one workspace flyout is open at a time (keyed by
+  // `addToWsMenuFor`), so the currently-open button carries this ref and the
+  // portaled `AddToWorkspaceMenu` anchors its `fixed` panel from it.
+  const wsTriggerRef = React.useRef<HTMLButtonElement>(null);
   // Folder actions menu open flag, keyed by folder SCOPE (`folder:<cwd>`) the
   // same way `addToWsMenuFor` is — a cwd key would co-open a folder row and a
   // same-cwd card. See change: add-folder-actions-menu.
@@ -1299,6 +1304,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     return (
       <span className={`relative inline-flex ${wrapperClass}`}>
         <button
+          ref={menuOpen ? wsTriggerRef : undefined}
           type="button"
           onClick={(e) => {
             e.stopPropagation();
@@ -1319,6 +1325,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
           <AddToWorkspaceMenu
             workspaces={workspaces ?? []}
             currentWorkspaceId={owningWsId}
+            triggerRef={wsTriggerRef}
             // Each terminal action also closes the hosting folder actions menu
             // — otherwise picking a workspace leaves the outer menu open behind
             // the dismissed popover. See change: add-folder-actions-menu.
@@ -2605,6 +2612,9 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
       <Toast messages={messages} onDismiss={dismissToast} />
 
       </div>
+      {/* D22 user line, pinned to the bottom of the session stream. Renders
+          nothing unless identity is enforced and a principal resolved. */}
+      <SignedInUserBar connected={connected === true} />
     </div>
   );
 }

@@ -81,6 +81,11 @@ export default defineConfig({
       // Owns the pi-mcp-adapter config surface + version floor. See change:
       // extract-mcp-client-plugin.
       "packages/mcp-client-plugin",
+      // keycloak-resolver-plugin: the bundled identity resolver. Its server
+      // suites (jwks, resolver, config, fake-issuer) + the D16 browser
+      // login-flow suite gate real auth boundaries; a package absent here
+      // never runs its tests. See change: add-multi-user-identity-plane.
+      "packages/keycloak-resolver-plugin",
       "scripts",
       // Pure helpers under tests/e2e/helpers/. NOT the Playwright specs — the
       // project's include glob is scoped to `e2e/helpers/__tests__/`. Added

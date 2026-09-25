@@ -100,6 +100,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/grep", tier: "observe" },
   { method: "GET", path: "/api/health", tier: "observe" },
   { method: "GET", path: "/api/host-gate", tier: "operate" },
+  { method: "GET", path: "/api/identity/login-config", tier: "observe" },
   { method: "GET", path: "/api/kb/config", tier: "observe" },
   { method: "GET", path: "/api/kb/stats", tier: "observe" },
   { method: "GET", path: "/api/known-servers", tier: "operate" },

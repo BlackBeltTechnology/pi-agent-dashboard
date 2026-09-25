@@ -34,6 +34,7 @@
         "qa/**/*.{ts,mjs}",
         ".pi/skills/**/scripts/*.ts",
         "public/sw.js",
+        "spike/*/server.mjs",
         "**/vitest.config.ts"
       ],
       "project": [
@@ -156,6 +157,10 @@
         "src/focusRing.ts",
         "src/statusPresentation.ts",
         "src/minimal-chat/index.ts",
+        "src/identity/pkce.ts",
+        "src/identity/token-store.ts",
+        "src/identity/oidc-flow.ts",
+        "src/identity/dpop.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],
@@ -453,6 +458,27 @@
     },
     "packages/openspec-workflow": {
       "entry": [
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/fixture-policy-plugin": {
+      "entry": [
+        "src/server/index.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/keycloak-resolver-plugin": {
+      "entry": [
+        "src/client/index.tsx",
+        "src/server/index.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],

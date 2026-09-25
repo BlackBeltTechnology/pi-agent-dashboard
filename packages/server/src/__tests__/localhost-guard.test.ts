@@ -359,6 +359,24 @@ describe("guardPathname / isGuardJurisdiction (pathname matching)", () => {
 describe("universal guard — deny by default (S1, S3, S4, S8)", () => {
   // test-plan #S1
   it("denies an untrusted public peer on a route with NO per-route preHandler", async () => {
+    const loginConfigRoutes = (a: FastifyInstance): void => {
+      defaultRoutes(a);
+      a.get("/api/identity/login-config", async () => ({ active: false }));
+    };
+    const loginApp = await buildGuardApp({ routes: loginConfigRoutes });
+    // D16 (LG-3): the browser is the login target and holds no token yet, so the
+    // pre-auth descriptor must pass the universal guard like /api/health does.
+    const admitted = await loginApp.inject({
+      method: "GET",
+      url: "/api/identity/login-config",
+      remoteAddress: UNTRUSTED,
+    });
+    expect(admitted.statusCode).toBe(200);
+    // Control: a normal /api path from the same untrusted network is still denied.
+    const denied = await loginApp.inject({ method: "GET", url: "/api/sessions", remoteAddress: UNTRUSTED });
+    expect(denied.statusCode).toBe(403);
+    await loginApp.close();
+
     const app = await buildGuardApp();
     const res = await app.inject({ method: "GET", url: "/api/sessions", remoteAddress: UNTRUSTED });
     await app.close();

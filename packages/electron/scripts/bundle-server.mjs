@@ -136,6 +136,7 @@ const BUNDLED_PLUGINS = [
   "cost-estimator",
   "quota-plugin",
   "browser-plugin",
+  "keycloak-resolver-plugin",
   "chat-gateway",
 ];
 const BUNDLED_PLUGINS_DIR = path.join(SERVER_BUNDLE, "resources", "plugins");

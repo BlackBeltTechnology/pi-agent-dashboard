@@ -1,10 +1,14 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { Router } from "wouter";
+import { Router, useLocation } from "wouter";
+import { navigate } from "wouter/use-browser-location";
 import App from "./App.js";
+import { LoginPage, SigningInPage } from "./components/identity/LoginPage.js";
 import { ThemeProvider } from "./components/settings/ThemeProvider.js";
 import { MobileProvider } from "./hooks/useMobile.js";
 import { I18nProvider } from "./lib/i18n/i18n.js";
+import { fetchLoginConfig } from "./lib/identity/login-config.js";
+import { bootLoginSession, useLoginSession } from "./lib/identity/login-session.js";
 import "./index.css";
 // KaTeX styles for LaTeX math rendering in MarkdownContent.
 // See change: chat-markdown-local-images-and-math.
@@ -24,6 +28,7 @@ import {
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import { DialogPortal } from "@blackbelt-technology/pi-dashboard-client-utils/DialogPortal";
+import { hasLiveToken, setAccessToken, setIdToken } from "@blackbelt-technology/pi-dashboard-client-utils/identity/token-store";
 import { Popover } from "@blackbelt-technology/pi-dashboard-client-utils/Popover";
 import { SearchableSelectDialog } from "@blackbelt-technology/pi-dashboard-client-utils/SearchableSelectDialog";
 import { StatusPill } from "@blackbelt-technology/pi-dashboard-client-utils/StatusPill";
@@ -41,14 +46,15 @@ import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/das
 import { ThinkingBlock } from "./components/chat/ThinkingBlock.js";
 import { ToolCallStep } from "./components/chat/ToolCallStep.js";
 import { PairLanding } from "./components/connectivity/PairLanding.js";
+import { LoginGate } from "./components/identity/LoginGate.js";
 import { MarkdownContent } from "./components/preview/MarkdownContent.js";
 import { LogBlock } from "./components/primitives/LogBlock.js";
 import { makeToolContext } from "./components/tool-renderers/make-tool-context.js";
+import { installDeviceAuthFetch } from "./lib/pairing/device-auth.js";
 import {
   ModelSelectorPrimitive,
   ThinkingLevelSelectorPrimitive,
 } from "./lib/plugins/shell-primitives.js";
-import { installDeviceAuthFetch } from "./lib/pairing/device-auth.js";
 import { installGrantChannelFetch } from "./lib/access-grants/grant-channel.js";
 import { installUnhandledRejectionReporter } from "./lib/report-error.js";
 
@@ -164,11 +170,50 @@ installDeviceAuthFetch();
 // so a denied read can be held for a verdict. See change: add-access-grant-dialog.
 installGrantChannelFetch();
 
+// D22 dashboard-UI login: consume the login plugin's return (`#pi_handoff`,
+// `#pi_login_error`, `?pi_signed_out=1`) BEFORE <App/> mounts, stripping it from
+// the address bar at once. A handoff code is exchanged for an IN-MEMORY bearer
+// (no cookies), so App's first socket already carries a ticket. Enforced + no
+// token ⇒ straight to the core login page `/login`: no dashboard ever renders
+// while signed out.
+void bootLoginSession({
+  location: window.location,
+  history: window.history,
+  storage: window.sessionStorage,
+  persist: window.localStorage,
+  fetchFn: (...a) => window.fetch(...a),
+  fetchConfig: fetchLoginConfig,
+  setToken: setAccessToken,
+  setIdToken,
+  hasToken: () => hasLiveToken(),
+  navigate: (to) => navigate(to, { replace: true }),
+});
+
 // `/pair` — the phone-camera pairing landing. A scanned pairing QR opens
 // `https://<tls-endpoint>/pair#<payload>`; this route decodes the fragment and
 // runs the challenge→redeem→confirm→poll handshake standalone (no dashboard WS
 // connection needed). Rendered instead of <App/> so it works pre-auth.
-const isPairRoute = window.location.pathname === "/pair";
+// Reactive pre-shell route switch. `/callback` must resolve reactively (not a
+// one-shot `window.location` read): the login gate completes the OIDC exchange
+// then navigates client-side to the return-to, at which point this must swap the
+// gate for <App/> WITHOUT a full-page reload (that would discard the in-memory
+// token). `/pair` keeps its standalone pre-auth landing (D16).
+function RootView(): React.JSX.Element {
+  const [location] = useLocation();
+  if (location === "/pair") return <PairLanding />;
+  if (location === "/callback") return <LoginGate phase="callback" />;
+  if (location === "/logout") return <LoginGate phase="logout" />;
+  return <AfterBoot login={location === "/login"} />;
+}
+
+// Nothing renders until boot has decided (`checking`); a handoff exchange shows
+// the signing-in page; then the login page or the dashboard.
+function AfterBoot({ login }: { login: boolean }): React.JSX.Element | null {
+  const { phase } = useLoginSession();
+  if (phase === "checking") return null;
+  if (phase === "signing-in") return <SigningInPage />;
+  return login ? <LoginPage /> : <App />;
+}
 
 // Register service worker for PWA installability
 if ("serviceWorker" in navigator) {
@@ -182,7 +227,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <ThemeProvider>
           <I18nProvider>
             <MobileProvider>
-              {isPairRoute ? <PairLanding /> : <App />}
+              <RootView />
             </MobileProvider>
           </I18nProvider>
         </ThemeProvider>

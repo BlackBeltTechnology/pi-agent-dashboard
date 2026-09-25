@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Fixture trusted policy plugin configuration (TEST ONLY)",
+  "description": "Config-seeds an allow-list of principals to host actions for the identity-plane E2E harness. When disabled or the allow-list is empty, every non-session road is denied (default-deny). Never used in production. See openspec change: add-multi-user-identity-plane §11.2.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "When false no policy is registered — non-session roads stay ungated (inert)."
+    },
+    "allow": {
+      "type": "array",
+      "description": "Allow-list entries. A request is permitted iff some entry matches the principal and grants the action.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sub"],
+        "properties": {
+          "iss": {
+            "type": "string",
+            "description": "Optional issuer to match. When omitted, matches any issuer for the given sub."
+          },
+          "sub": {
+            "type": "string",
+            "description": "Subject (identity join key) this entry grants."
+          },
+          "actions": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Host actions this principal may perform. `*` grants all actions. Omitted also grants all actions."
+          }
+        }
+      }
+    }
+  }
+}

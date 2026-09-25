@@ -387,6 +387,98 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
     echo "[test-entrypoint] PI_E2E_OAUTH: seeded github provider + bypassUrls:[/] + redirectBaseUrl=${PI_E2E_OAUTH_BASE:-https://pi-e2e-a.example.com} → config.json"
   fi
 
+  # --- Identity plane seed (PI_E2E_IDENTITY=1) ------------------------------
+  # Activates the multi-user identity plane for the §11.2 E2E using a LIGHTWEIGHT
+  # in-container fake OIDC issuer (packages/shared/.../fake-oidc-issuer.ts) — NOT
+  # a real Keycloak. Boots the issuer, waits for discovery, then points the
+  # bundled keycloak-resolver at it + adds it to the trust list. Once active,
+  # every session read/write road is owner-gated (§8.1/§8.2), so the two-user
+  # specs can assert a non-owner reaches none of Anna's sessions. The issuer is
+  # http:// on loopback, so `allowInsecureHttp` is required to activate.
+  #
+  # Opt-in only: unset (the default) never boots the issuer nor trusts the
+  # resolver, so the plane stays inert and every other spec sees the harness
+  # exactly as before. See openspec change: add-multi-user-identity-plane §11.2.
+  if [ "${PI_E2E_IDENTITY:-}" = "1" ]; then
+    IDENTITY_PORT="${PI_E2E_IDENTITY_PORT:-18090}"
+    IDENTITY_ISSUER="${PI_E2E_IDENTITY_ISSUER:-http://127.0.0.1:${IDENTITY_PORT}}"
+    # PI_E2E_IDENTITY_LOGIN=1 → interactive issuer login form (users anna/bela).
+    IDENTITY_USERS=""
+    if [ "${PI_E2E_IDENTITY_LOGIN:-}" = "1" ]; then IDENTITY_USERS="anna:anna-pw,bela:bela-pw"; fi
+    if [ -n "${PI_E2E_IDENTITY_KEYCLOAK:-}" ]; then
+      # REAL Keycloak on the host (e.g. http://localhost:18080/realms/pi-identity).
+      # Forward container localhost:<port> 
+o> host.docker.internal:<port> over
+      # raw TCP so the Host header, and therefore Keycloak's `iss`, is identical
+      # for the host browser and the in-container resolver/login plugin.
+      IDENTITY_ISSUER="${PI_E2E_IDENTITY_KEYCLOAK%/}"
+      IDP_KIND="real Keycloak via host.docker.internal"
+      KC_PORT="$(node -e 'console.log(new URL(process.argv[1]).port || 80)' "${IDENTITY_ISSUER}")"
+      node -e '
+        const net = require("node:net"); const port = Number(process.argv[1]);
+        net.createServer((c) => { const u = net.connect(port, "host.docker.internal"); c.pipe(u).pipe(c);
+          u.on("error", () => c.destroy()); c.on("error", () => u.destroy()); }).listen(port, "127.0.0.1");
+      ' "${KC_PORT}" >/tmp/kc-forward.log 2>&1 &
+    else
+    IDP_KIND="fake issuer, log /tmp/fake-oidc.log"
+    # Boot the fake issuer in the background (tsx, from baked source).
+    PI_E2E_IDENTITY_USERS="${IDENTITY_USERS}" \
+    PI_E2E_IDENTITY_PORT="${IDENTITY_PORT}" \
+    PI_E2E_IDENTITY_ISSUER="${IDENTITY_ISSUER}" \
+    PI_E2E_IDENTITY_AUDIENCE="${PI_E2E_IDENTITY_AUDIENCE:-pi-dashboard}" \
+      /app/node_modules/.bin/tsx /app/scripts/fake-oidc-run.ts \
+      >/tmp/fake-oidc.log 2>&1 &
+    fi
+    # Wait for discovery to answer before seeding (resolver activates lazily,
+    # but a fast spec could race the boot otherwise).
+    for _i in $(seq 1 30); do
+      if curl -fsS "${IDENTITY_ISSUER}/.well-known/openid-configuration" >/dev/null 2>&1; then break; fi
+      sleep 0.5
+    done
+    echo "[test-entrypoint] PI_E2E_IDENTITY: OIDC issuer up at ${IDENTITY_ISSUER} (${IDP_KIND})"
+    node -e '
+      const fs = require("node:fs");
+      const [out, issuer, audience] = process.argv.slice(1);
+      let cfg = {};
+      try { cfg = JSON.parse(fs.readFileSync(out, "utf8")); } catch {}
+      cfg.plugins = {
+        ...(cfg.plugins ?? {}),
+        "keycloak-resolver": { enabled: true, issuer, audience, allowInsecureHttp: true },
+      };
+      const trusted = new Set([
+        ...(cfg.identity?.trustedResolverPlugins ?? []),
+        "keycloak-resolver",
+      ]);
+      cfg.identity = { ...(cfg.identity ?? {}), trustedResolverPlugins: [...trusted] };
+      fs.writeFileSync(out, JSON.stringify(cfg) + "\n");
+    ' "${PI_DIR}/dashboard/config.json" "${IDENTITY_ISSUER}" "${PI_E2E_IDENTITY_AUDIENCE:-pi-dashboard}"
+    echo "[test-entrypoint] PI_E2E_IDENTITY: seeded keycloak-resolver (issuer=${IDENTITY_ISSUER}) + trust → config.json"
+    # Seed one Anna-owned + one Béla-owned ENDED session so the two-user spec can
+    # assert the owner-split over the real server (list/bootstrap/detail gating)
+    # without a slow live spawn. Owner `iss` MUST equal the resolver issuer.
+    node /app/scripts/seed-identity-sessions.mjs "${PI_DIR}/agent/sessions" "${IDENTITY_ISSUER}"
+    # Login plugin (D19/D21): without a trusted login descriptor identity stays
+    # INERT, so the browser never shows "Sign in". Installs the spike login
+    # plane from the mounted checkout and trusts it. tasks §18.10.
+    if [ "${PI_E2E_IDENTITY_LOGIN:-}" = "1" ]; then
+      LOGIN_SRC="${HOST_CWD:-}/spike/identity-login-plane"
+      [ -f "${LOGIN_SRC}/package.json" ] || { echo "[test-entrypoint] FATAL: PI_E2E_IDENTITY_LOGIN=1 but ${LOGIN_SRC} missing" >&2; exit 1; }
+      mkdir -p "${PI_DIR}/dashboard/plugins"
+      cp -a "${LOGIN_SRC}" "${PI_DIR}/dashboard/plugins/identity-login-plane"
+      rm -rf "${PI_DIR}/dashboard/plugins/identity-login-plane/test"
+      node -e '
+        const fs = require("node:fs");
+        const out = process.argv[1];
+        const cfg = JSON.parse(fs.readFileSync(out, "utf8"));
+        const t = new Set([...(cfg.identity?.trustedResolverPlugins ?? []), "identity-login-plane"]);
+        cfg.identity = { ...(cfg.identity ?? {}), trustedResolverPlugins: [...t] };
+        fs.writeFileSync(out, JSON.stringify(cfg) + "\n");
+      ' "${PI_DIR}/dashboard/config.json"
+      export PI_LOGIN_ISSUER="${IDENTITY_ISSUER}" PI_LOGIN_BROWSER_ISSUER="${IDENTITY_ISSUER}" PI_LOGIN_CLIENT_ID="dashboard-web"
+      echo "[test-entrypoint] PI_E2E_IDENTITY_LOGIN: installed + trusted identity-login-plane (issuer=${IDENTITY_ISSUER})"
+    fi
+  fi
+
   # --- Faux model: stage the fixture as a global auto-discovered extension ---
   # pi auto-discovers ~/.pi/agent/extensions/*/index.ts (no -e, no trust gate).
   # Subdir form is required because the extension imports ./faux-scenarios.js.
@@ -784,14 +876,21 @@ done
 echo "[test-entrypoint] health OK"
 
 # One WebSocket connect to /ws (Node 22 ships a global WebSocket client).
-node -e '
-  const url = process.argv[1];
-  const ws = new WebSocket(url);
-  const t = setTimeout(() => { console.error("ws connect timeout"); process.exit(1); }, 5000);
-  ws.onopen = () => { clearTimeout(t); ws.close(); process.exit(0); };
-  ws.onerror = (e) => { clearTimeout(t); console.error("ws error", (e && e.message) || e); process.exit(1); };
-' "ws://localhost:${PORT}/ws" || smoke_fail "WebSocket connect to /ws failed"
-echo "[test-entrypoint] websocket OK"
+# When the identity plane is ACTIVE (PI_E2E_IDENTITY=1) a ticketless browser
+# `/ws` upgrade is REFUSED by design (§9.2) — so this smoke connect would fail
+# and crash-loop PID 1. Skip it; the identity specs assert the ticketed path.
+if [ "${PI_E2E_IDENTITY:-}" = "1" ]; then
+  echo "[test-entrypoint] websocket smoke SKIPPED (PI_E2E_IDENTITY=1: ticketless /ws refused by §9.2)"
+else
+  node -e '
+    const url = process.argv[1];
+    const ws = new WebSocket(url);
+    const t = setTimeout(() => { console.error("ws connect timeout"); process.exit(1); }, 5000);
+    ws.onopen = () => { clearTimeout(t); ws.close(); process.exit(0); };
+    ws.onerror = (e) => { clearTimeout(t); console.error("ws error", (e && e.message) || e); process.exit(1); };
+  ' "ws://localhost:${PORT}/ws" || smoke_fail "WebSocket connect to /ws failed"
+  echo "[test-entrypoint] websocket OK"
+fi
 
 echo "[test-entrypoint] SMOKE PASSED → dashboard ready on http://localhost:${PORT}"
 

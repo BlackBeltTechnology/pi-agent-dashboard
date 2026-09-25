@@ -1,0 +1,14 @@
+{
+  "name": "identity-smoke-plugin",
+  "version": "0.0.0",
+  "private": true,
+  "description": "TEMPORARY smoke plugin (openspec add-multi-user-identity-plane, D19): a drop-in SEPARATE-VIEW login/logout provider. Serves its own pages over the dashboard's Fastify instance and publishes a browser-login descriptor pointing at them. Not part of the client bundle — it must be dropped into <state-dir>/plugins/ to be discovered.",
+  "type": "module",
+  "pi-dashboard-plugin": {
+    "id": "identity-smoke",
+    "displayName": "Identity Smoke (separate-view login/logout)",
+    "priority": 500,
+    "server": "./server.mjs",
+    "claims": []
+  }
+}

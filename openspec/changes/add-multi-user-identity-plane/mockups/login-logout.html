@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mockup: dashboard login page + silent sign-in (D22), v3</title>
+<style>
+  /* Tokens copied verbatim from packages/client/src/index.css (dark :root + [data-theme="light"]). */
+  :root {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+    --bg-hover:rgba(255,255,255,.06); --bg-overlay:rgba(0,0,0,.6);
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#919191; --text-muted:#585858;
+    --border-primary:#252525; --border-secondary:#333; --border-subtle:rgba(255,255,255,.06);
+    --accent-solid:#2563eb; --accent-soft:#1d3a63; --accent-text:#60a5fa;
+    --accent-green:#22c55e; --accent-yellow:#eab308; --accent-red:#ef4444;
+    --radius:.5rem;
+  }
+  [data-theme="light"] {
+    --bg-primary:#fff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+    --bg-hover:rgba(0,0,0,.04); --bg-overlay:rgba(0,0,0,.3);
+    --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#636363; --text-muted:#aaa;
+    --border-primary:#e0e0e0; --border-secondary:#ccc; --border-subtle:rgba(0,0,0,.06);
+    --accent-solid:#2563eb; --accent-soft:#dbeafe; --accent-text:#1d4ed8;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; height:100vh; display:flex; flex-direction:column; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:var(--bg-primary); color:var(--text-primary); }
+  button { font:inherit; }
+  button:focus-visible, a:focus-visible, input:focus-visible { outline:2px solid var(--accent-text); outline-offset:2px; }
+  [hidden] { display:none !important; }
+
+  /* Review toolbar (not part of the product) */
+  .review { position:sticky; top:0; z-index:50; display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; padding:.5rem .75rem; background:var(--bg-secondary); border-bottom:1px solid var(--border-primary); font-size:12px; }
+  .review button { border:1px solid var(--border-secondary); background:var(--bg-tertiary); color:var(--text-secondary); border-radius:999px; padding:.25rem .65rem; cursor:pointer; }
+  .review button[aria-pressed="true"] { background:var(--accent-solid); border-color:var(--accent-solid); color:#fff; }
+  .review .sep { flex:1; }
+  .note { padding:.5rem .75rem; font-size:12px; color:var(--text-tertiary); border-bottom:1px solid var(--border-primary); }
+
+  /* App frame */
+  .frame { position:relative; display:flex; flex:1; min-height:0; overflow:hidden; }
+  .sidebar { position:relative; width:360px; flex-shrink:0; border-right:1px solid var(--border-primary); display:flex; flex-direction:column; background:var(--bg-primary); }
+  .appbar { display:flex; align-items:center; justify-content:space-between; padding:.375rem .75rem; border-bottom:1px solid var(--border-primary); }
+  .row { display:flex; align-items:center; gap:.375rem; }
+  .ico { width:15px; height:15px; fill:currentColor; flex-shrink:0; }
+  .icon-btn { background:none; border:0; padding:2px; color:var(--text-tertiary); cursor:pointer; display:inline-flex; border-radius:4px; }
+  .logo { color:#3b82f6; font-weight:700; font-size:20px; line-height:1; letter-spacing:-1px; }
+  .server { display:inline-flex; align-items:center; gap:.3rem; font-size:12px; color:var(--text-secondary); }
+  .dot { width:6px; height:6px; border-radius:50%; background:var(--accent-green); display:inline-block; }
+  .filters { display:flex; gap:.5rem; padding:.375rem .75rem; border-bottom:1px solid var(--border-primary); }
+  .filters input { flex:1; min-width:0; font-size:12px; padding:.25rem .5rem; border-radius:4px; background:var(--bg-primary); border:1px solid var(--border-subtle); color:var(--text-primary); }
+  .stream { flex:1; overflow:auto; }
+  .empty { padding:1rem .75rem; font-size:13px; color:var(--text-tertiary); }
+  .folder { margin:.5rem; padding:.6rem .7rem; border:1px solid var(--border-primary); border-radius:.75rem; background:var(--bg-secondary); font-size:12px; }
+  .folder .t { font-weight:600; font-size:13px; }
+  .card { margin-top:.5rem; padding:.5rem .6rem; border-radius:.6rem; border:1px solid var(--border-secondary); background:var(--bg-tertiary); }
+  .muted { color:var(--text-tertiary); }
+  .group { margin:.5rem; padding:.45rem .7rem; border-radius:.5rem; background:var(--bg-tertiary); font-size:12px; font-weight:700; letter-spacing:.02em; display:flex; justify-content:space-between; }
+
+  /* ── NEW: user line, bottom of the session stream (bottom-left) ─── */
+  .userbar { display:flex; align-items:center; gap:.55rem; padding:.5rem .75rem; border-top:1px solid var(--border-primary); background:var(--bg-secondary); font-size:12px; }
+  .avatar { width:26px; height:26px; flex-shrink:0; border-radius:50%; display:grid; place-items:center; font-size:11px; font-weight:600; background:var(--accent-soft); color:var(--text-primary); border:1px solid var(--border-secondary); }
+  .who { min-width:0; flex:1; line-height:1.25; }
+  .who .n { font-weight:600; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .who .e { color:var(--text-tertiary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .signout { display:inline-flex; align-items:center; gap:.3rem; background:none; border:1px solid var(--border-secondary); color:var(--text-secondary); border-radius:6px; padding:.25rem .5rem; cursor:pointer; font-size:12px; }
+  .signout:hover { background:var(--bg-hover); color:var(--text-primary); }
+
+  .main { flex:1; display:flex; flex-direction:column; min-width:0; background:var(--bg-primary); }
+  .main-head { display:flex; align-items:center; gap:.5rem; padding:.5rem 1rem; border-bottom:1px solid var(--border-primary); font-size:13px; font-weight:600; min-height:37px; }
+  .bubble { max-width:620px; margin:.75rem 1rem; padding:.7rem .9rem; border-radius:.75rem; background:var(--bg-tertiary); border:1px solid var(--border-primary); font-size:13px; color:var(--text-secondary); line-height:1.5; }
+
+  /* Fake address bar (review aid: shows the URL at each step) */
+  .urlbar { display:flex; align-items:center; gap:.5rem; padding:.35rem .75rem; background:var(--bg-tertiary); border-bottom:1px solid var(--border-primary); font:12px ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--text-secondary); }
+  .urlbar .lock { color:var(--text-muted); }
+
+  /* ── v3: the core LOGIN PAGE — a full page, nothing of the dashboard ── */
+  .page { position:absolute; inset:0; z-index:25; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:1.5rem 1rem 4rem; overflow:auto;
+    background-color:var(--bg-primary);
+    background-image:radial-gradient(var(--border-secondary) 1px, transparent 1px);
+    background-size:22px 22px; }
+  /* fade the dot grid out toward the edges so the card is the focus */
+  .page::before { content:""; position:absolute; inset:0; pointer-events:none;
+    background:radial-gradient(ellipse 60% 55% at 50% 45%, transparent 0%, var(--bg-primary) 78%); }
+  .page > * { position:relative; }
+  .page-brand { display:flex; flex-direction:column; align-items:center; gap:.7rem; margin-bottom:1.5rem; }
+  .brand-tile { width:56px; height:56px; border-radius:16px; display:grid; place-items:center; color:#3b82f6;
+    background:var(--accent-soft); border:1px solid var(--border-secondary); box-shadow:0 1px 0 rgba(255,255,255,.04) inset, 0 6px 18px rgba(0,0,0,.25); }
+  [data-theme="light"] .brand-tile { color:var(--accent-solid); box-shadow:0 6px 18px rgba(37,99,235,.12); }
+  .brand-name { font-size:15px; font-weight:600; letter-spacing:-.01em; color:var(--text-primary); }
+  .dlg { width:min(400px, calc(100vw - 2rem)); padding:2rem 1.75rem 1.5rem; background:var(--bg-secondary); border:1px solid var(--border-secondary); border-radius:1rem;
+    box-shadow:0 1px 0 rgba(255,255,255,.03) inset, 0 24px 48px -12px rgba(0,0,0,.45); }
+  [data-theme="light"] .dlg { box-shadow:0 24px 48px -16px rgba(0,0,0,.14); }
+  .returnto { margin-top:.85rem; text-align:center; font-size:12px; color:var(--text-tertiary); }
+  .returnto code { font-size:11.5px; color:var(--text-secondary); background:var(--bg-tertiary); border:1px solid var(--border-primary); padding:1px 6px; border-radius:4px; }
+  .secured { display:flex; align-items:center; justify-content:center; gap:.35rem; margin-top:1.25rem; padding-top:1rem; border-top:1px solid var(--border-primary); font-size:12px; color:var(--text-tertiary); }
+  .page-foot { position:absolute; bottom:1.1rem; font-size:11px; color:var(--text-muted); }
+  .dlg h1 { margin:0 0 1.35rem; font-size:21px; font-weight:650; letter-spacing:-.015em; text-align:center; }
+  .dlg p { margin:0 0 1.35rem; font-size:13.5px; line-height:1.55; color:var(--text-secondary); text-align:center; }
+  .dlg h1:has(+ p) { margin-bottom:.4rem; }
+  .dlg .status-ico { display:block; margin:0 auto .8rem; }
+  .btn-primary { box-shadow:0 1px 0 rgba(255,255,255,.12) inset, 0 4px 12px -4px rgba(37,99,235,.55); transition:filter .15s, transform .15s; }
+  .btn-primary:hover { filter:brightness(1.08); }
+  .btn-primary:active { transform:translateY(1px); }
+  .btn { width:100%; display:flex; align-items:center; justify-content:center; gap:.5rem; min-height:40px; padding:.55rem 1rem; border-radius:var(--radius); border:1px solid transparent; font-weight:600; font-size:14px; cursor:pointer; }
+  .btn-primary { background:var(--accent-solid); color:#fff; }
+  .btn-secondary { background:var(--bg-tertiary); color:var(--text-primary); border-color:var(--border-secondary); }
+  .btn + .btn { margin-top:.5rem; }
+  .fine { margin-top:.9rem; font-size:12px; color:var(--text-tertiary); line-height:1.45; }
+  .fine code { white-space:nowrap; font-size:11px; background:var(--bg-tertiary); padding:1px 4px; border-radius:3px; }
+  .status-ico { width:28px; height:28px; }
+  .spinner { width:28px; height:28px; border-radius:50%; border:3px solid var(--border-secondary); border-top-color:var(--accent-text); animation:spin .9s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation:none; } }
+
+  /* Stand-in for the external Keycloak page (NOT dashboard UI) */
+  .kc { position:absolute; inset:0; z-index:40; display:grid; place-items:center; background:#f3f4f6; color:#1f2937; }
+  .kc-box { width:min(360px, calc(100vw - 2rem)); background:#fff; border-top:4px solid #0066cc; padding:1.5rem; box-shadow:0 2px 8px rgba(0,0,0,.15); font-size:13px; }
+  .kc-box h2 { margin:0 0 1rem; font-size:18px; font-weight:500; }
+  .kc-box label { display:block; margin:.6rem 0 .2rem; }
+  .kc-box input { width:100%; padding:.45rem; border:1px solid #9ca3af; }
+  .kc-box button { margin-top:1rem; width:100%; padding:.55rem; background:#0066cc; color:#fff; border:0; cursor:pointer; }
+  .kc-url { position:absolute; top:.5rem; left:50%; transform:translateX(-50%); font-size:11px; color:#4b5563; background:#e5e7eb; padding:.2rem .6rem; border-radius:999px; }
+
+  @media (max-width:760px) { .sidebar { width:100%; } .main { display:none; } }
+</style>
+</head>
+<body>
+
+<div class="review" role="toolbar" aria-label="Mockup state">
+  <button data-state="login" aria-pressed="true">1 · Login page</button>
+  <button data-state="silent">2 · Returning user (no click)</button>
+  <button data-state="keycloak">3 · At Keycloak</button>
+  <button data-state="signing-in">4 · Signing in</button>
+  <button data-state="signed-in">5 · Signed in</button>
+  <button data-state="expired">6 · Session expired</button>
+  <button data-state="logged-out">7 · After sign out</button>
+  <button data-state="error">8 · Sign-in failed</button>
+  <button data-state="chooser">9 · Two providers</button>
+  <span class="sep"></span>
+  <button id="theme">Toggle light / dark</button>
+</div>
+<div class="note" id="note"></div>
+<div class="urlbar"><span class="lock">⌂</span><span id="url">localhost:8020/login</span></div>
+
+<div class="frame">
+  <aside class="sidebar">
+    <!-- Existing header, unchanged (no account item at the top) -->
+    <div class="appbar" data-testid="header-app-bar">
+      <div class="row"><span class="logo" aria-hidden="true">TT</span></div>
+      <div class="row">
+        <span class="server">Local <span class="dot"></span></span>
+        <button class="icon-btn" aria-label="Settings"><svg class="ico" viewBox="0 0 24 24"><path d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97s-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1s.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.66Z"/></svg></button>
+      </div>
+    </div>
+    <div class="filters"><input placeholder="Folder..." aria-label="Folder filter" /><input placeholder="Session..." aria-label="Session filter" /></div>
+
+    <!-- Session stream: empty until signed in -->
+    <div class="stream">
+      <div data-when="out" class="empty">No sessions</div>
+      <div data-when="in">
+        <div class="folder">
+          <div class="t">pi-agent-dashboard</div>
+          <div class="muted">develop</div>
+          <div class="card"><div style="font-weight:600">multi user</div><div class="muted">anthropic/claude-opus-5-5 · Idle</div></div>
+        </div>
+        <div class="group"><span>MAC</span><span class="muted">(1)</span></div>
+        <div class="group"><span>RACKINSPECT</span><span class="muted">(6)</span></div>
+      </div>
+    </div>
+
+    <!-- NEW: user line pinned to the bottom of the session stream -->
+    <div class="userbar" data-when="in" data-testid="user-bar">
+      <span class="avatar" aria-hidden="true">AK</span>
+      <div class="who">
+        <div class="n">Anna Kovacs</div>
+        <div class="e"><span class="dot"></span> anna@example.test · Keycloak</div>
+      </div>
+      <button class="signout" data-go="logged-out" data-testid="user-bar-signout">
+        <svg class="ico" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M17 7 15.59 8.41 18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5-5-5M4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5Z"/></svg>
+        Sign out
+      </button>
+    </div>
+  </aside>
+
+  <section class="main">
+    <div class="main-head"><span data-when="in">multi user <span class="muted" style="font-weight:400">Chat</span></span></div>
+    <div data-when="in">
+      <div class="bubble">Both containers I started are gone, along with the test image, and the extra test dashboards are stopped.</div>
+      <div class="bubble">ok so if you open the dashboard without an account...</div>
+    </div>
+  </section>
+
+  <!-- v3: full LOGIN PAGE at /login. Nothing of the dashboard renders behind it. -->
+  <div class="page" data-view="login" data-testid="login-page" hidden>
+    <div class="page-brand"><span class="brand-tile"><svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor" aria-hidden="true"><rect x="3" y="5" width="18" height="3.2" rx="0.6"/><rect x="5.5" y="8.2" width="3.4" height="11.3" rx="0.6"/><rect x="15.1" y="8.2" width="3.4" height="11.3" rx="0.6"/></svg></span><span class="brand-name">pi-dashboard</span></div>
+    <div class="dlg" role="main" aria-labelledby="t1">
+      <h1 id="t1">Sign in to pi-dashboard</h1>
+      
+      <button class="btn btn-primary" data-go="keycloak" data-testid="signin-btn">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M11 7 9.6 8.4l2.6 2.6H2v2h10.2l-2.6 2.6L11 17l5-5-5-5m9 12h-8v2h8c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-8v2h8v14Z"/></svg>
+        Sign in with Keycloak
+      </button>
+      <div class="secured"><svg class="ico" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2h1m-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3Z"/></svg> Secured by Keycloak</div>
+    </div>
+    <span class="page-foot">localhost:8020 · pi-dashboard 0.8.0</span>
+  </div>
+  <div class="page" data-view="silent" data-testid="login-page" hidden>
+    <div class="page-brand"><span class="brand-tile"><svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor" aria-hidden="true"><rect x="3" y="5" width="18" height="3.2" rx="0.6"/><rect x="5.5" y="8.2" width="3.4" height="11.3" rx="0.6"/><rect x="15.1" y="8.2" width="3.4" height="11.3" rx="0.6"/></svg></span><span class="brand-name">pi-dashboard</span></div>
+    <div class="dlg" role="status" aria-live="polite">
+      <div class="spinner" style="margin:0 auto"></div>
+      <h1 style="font-size:18px;margin:1rem 0 0">Signing you in</h1>
+      
+    </div>
+    <span class="page-foot">localhost:8020 · pi-dashboard 0.8.0</span>
+  </div>
+  <div class="page" data-view="signing-in" data-testid="login-page" hidden>
+    <div class="page-brand"><span class="brand-tile"><svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor" aria-hidden="true"><rect x="3" y="5" width="18" height="3.2" rx="0.6"/><rect x="5.5" y="8.2" width="3.4" height="11.3" rx="0.6"/><rect x="15.1" y="8.2" width="3.4" height="11.3" rx="0.6"/></svg></span><span class="brand-name">pi-dashboard</span></div>
+    <div class="dlg" role="status" aria-live="polite">
+      <div class="spinner" style="margin:0 auto"></div>
+      <h1 style="font-size:18px;margin:1rem 0 0">Signing you in</h1>
+      
+    </div>
+    <span class="page-foot">localhost:8020 · pi-dashboard 0.8.0</span>
+  </div>
+  <div class="page" data-view="expired" data-testid="login-page" hidden>
+    <div class="page-brand"><span class="brand-tile"><svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor" aria-hidden="true"><rect x="3" y="5" width="18" height="3.2" rx="0.6"/><rect x="5.5" y="8.2" width="3.4" height="11.3" rx="0.6"/><rect x="15.1" y="8.2" width="3.4" height="11.3" rx="0.6"/></svg></span><span class="brand-name">pi-dashboard</span></div>
+    <div class="dlg" role="alert" aria-labelledby="t5" aria-describedby="d5">
+      <svg class="ico status-ico" viewBox="0 0 24 24" style="color:var(--accent-yellow)"><path d="M12 20a8 8 0 0 0 8-8 8 8 0 0 0-8-8 8 8 0 0 0-8 8 8 8 0 0 0 8 8m0-18a10 10 0 0 1 10 10 10 10 0 0 1-10 10C6.47 22 2 17.5 2 12A10 10 0 0 1 12 2m.5 5v5.25l4.5 2.67-.75 1.23L11 13V7h1.5Z"/></svg>
+      <h1 id="t5">Your session has expired</h1>
+      
+      <button class="btn btn-primary" data-go="keycloak" data-testid="signin-btn">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M11 7 9.6 8.4l2.6 2.6H2v2h10.2l-2.6 2.6L11 17l5-5-5-5m9 12h-8v2h8c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-8v2h8v14Z"/></svg>
+        Sign in with Keycloak
+      </button>
+      <div class="secured"><svg class="ico" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2h1m-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3Z"/></svg> Secured by Keycloak</div>
+    </div>
+    <span class="page-foot">localhost:8020 · pi-dashboard 0.8.0</span>
+  </div>
+  <div class="page" data-view="logged-out" data-testid="login-page" hidden>
+    <div class="page-brand"><span class="brand-tile"><svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor" aria-hidden="true"><rect x="3" y="5" width="18" height="3.2" rx="0.6"/><rect x="5.5" y="8.2" width="3.4" height="11.3" rx="0.6"/><rect x="15.1" y="8.2" width="3.4" height="11.3" rx="0.6"/></svg></span><span class="brand-name">pi-dashboard</span></div>
+    <div class="dlg" role="main" aria-labelledby="t6">
+      <svg class="ico status-ico" viewBox="0 0 24 24" style="color:var(--accent-green)"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2m-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9Z"/></svg>
+      <h1 id="t6">You're signed out</h1>
+      
+      <button class="btn btn-primary" data-go="keycloak" data-testid="signin-btn">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M11 7 9.6 8.4l2.6 2.6H2v2h10.2l-2.6 2.6L11 17l5-5-5-5m9 12h-8v2h8c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-8v2h8v14Z"/></svg>
+        Sign in with Keycloak
+      </button>
+      <div class="secured"><svg class="ico" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2h1m-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3Z"/></svg> Secured by Keycloak</div>
+    </div>
+    <span class="page-foot">localhost:8020 · pi-dashboard 0.8.0</span>
+  </div>
+  <div class="page" data-view="error" data-testid="login-page" hidden>
+    <div class="page-brand"><span class="brand-tile"><svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor" aria-hidden="true"><rect x="3" y="5" width="18" height="3.2" rx="0.6"/><rect x="5.5" y="8.2" width="3.4" height="11.3" rx="0.6"/><rect x="15.1" y="8.2" width="3.4" height="11.3" rx="0.6"/></svg></span><span class="brand-name">pi-dashboard</span></div>
+    <div class="dlg" role="alert" aria-labelledby="t7">
+      <svg class="ico status-ico" viewBox="0 0 24 24" style="color:var(--accent-red)"><path d="M13 14h-2V9h2m0 9h-2v-2h2M1 21h22L12 2 1 21Z"/></svg>
+      <h1 id="t7">Couldn't reach the sign-in service</h1>
+      <p>Keycloak didn't respond.</p>
+      <button class="btn btn-primary" data-go="keycloak">Try again</button>
+      <div class="fine" style="text-align:center">Host owner: <code>pi-dashboard login --local</code></div>
+    </div>
+    <span class="page-foot">localhost:8020 · pi-dashboard 0.8.0</span>
+  </div>
+  <div class="page" data-view="chooser" data-testid="login-page" hidden>
+    <div class="page-brand"><span class="brand-tile"><svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor" aria-hidden="true"><rect x="3" y="5" width="18" height="3.2" rx="0.6"/><rect x="5.5" y="8.2" width="3.4" height="11.3" rx="0.6"/><rect x="15.1" y="8.2" width="3.4" height="11.3" rx="0.6"/></svg></span><span class="brand-name">pi-dashboard</span></div>
+    <div class="dlg" role="main" aria-labelledby="t8">
+      <h1 id="t8">Sign in to pi-dashboard</h1>
+      
+      <button class="btn btn-secondary" data-go="keycloak">Sign in with Keycloak</button>
+      <button class="btn btn-secondary" data-go="keycloak">Sign in with GitHub</button>
+    </div>
+    <span class="page-foot">localhost:8020 · pi-dashboard 0.8.0</span>
+  </div>
+
+  <!-- 3. Stand-in for Keycloak's own login page (external, shown only to make the navigation visible) -->
+  <div class="kc" data-view="keycloak" hidden>
+    <span class="kc-url">localhost:18080/realms/pi-identity/protocol/openid-connect/auth</span>
+    <form class="kc-box" onsubmit="event.preventDefault(); show('signing-in')">
+      <h2>Sign in to your account</h2>
+      <label for="kcu">Username or email</label><input id="kcu" value="anna" />
+      <label for="kcp">Password</label><input id="kcp" type="password" value="anna-pw" />
+      <button type="submit">Sign In</button>
+    </form>
+  </div>
+</div>
+
+<script>
+  const NOTES = {
+    "login": "Signed out → the tab is sent to the core login page /login (a FULL page: no sidebar, no sessions, nothing behind it). The target page rides along as ?returnTo. One button → the plugin's loginUrl → Keycloak. Label comes from the login plugin.",
+    "silent": "Returning user (reload, new tab, token expired) whose Keycloak session is still alive: /login bounces through Keycloak with prompt=none and comes straight back signed in, NO click, no Keycloak form. If Keycloak has no session it answers login_required and the page from state 1 shows. Only when the plugin declares silentSignIn.",
+    "keycloak": "Stand-in for Keycloak's own page (not dashboard UI). Only reached after a click on the login page (no live Keycloak session).",
+    "signing-in": "Back from Keycloak via the plugin (returnTo#pi_handoff=<code>). Spinner page while the one-time code is exchanged; the bearer stays in memory. Then the dashboard opens at returnTo.",
+    "signed-in": "The dashboard at the page the user asked for. User line pinned to the bottom of the session stream (bottom-left): avatar, name, email · provider, Sign out. Header unchanged.",
+    "expired": "Token expired while working: the dashboard is replaced by /login?returnTo=<page>. First a silent attempt (state 2): alive Keycloak session ⇒ back on the page with no click. This page only shows when Keycloak needs the password again.",
+    "logged-out": "Sign out → the plugin's logoutUrl (ends the Keycloak session) → back to /login?pi_signed_out=1. NO silent sign-in here: the user just chose to leave. Copy depends on the provider (GitHub cannot end its session).",
+    "error": "The plugin could not reach Keycloak (setup matrix case I). Same page, plain words first. D23: names the break-glass command for the host owner. No silent retry loop.",
+    "chooser": "D25: several login plugins (Keycloak + GitHub) ⇒ one equal-weight button per provider. The provider you used is remembered for the no-click sign-in and for Sign out."
+  };
+  const URLS = {
+    "login": "localhost:8020/login?returnTo=%2Fsession%2Fmulti-user",
+    "silent": "localhost:8020/login?returnTo=%2Fsession%2Fmulti-user  →  keycloak …/auth?prompt=none  →  back",
+    "keycloak": "localhost:18080/realms/pi-identity/protocol/openid-connect/auth",
+    "signing-in": "localhost:8020/session/multi-user#pi_handoff=•••  (stripped at once)",
+    "signed-in": "localhost:8020/session/multi-user",
+    "expired": "localhost:8020/login?returnTo=%2Fsession%2Fmulti-user",
+    "logged-out": "localhost:8020/login?pi_signed_out=1  (marker stripped at once)",
+    "error": "localhost:8020/login?returnTo=%2Fsession%2Fmulti-user",
+    "chooser": "localhost:8020/login"
+  };
+  const IN = new Set(["signed-in"]);
+  function show(state) {
+    document.querySelectorAll("[data-view]").forEach(v => { v.hidden = v.dataset.view !== state; });
+    const signedIn = IN.has(state);
+    document.querySelectorAll('[data-when="in"]').forEach(e => { e.hidden = !signedIn; });
+    document.querySelectorAll('[data-when="out"]').forEach(e => { e.hidden = signedIn; });
+    document.querySelectorAll(".review [data-state]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.state === state)));
+    document.getElementById("note").textContent = NOTES[state];
+    document.getElementById("url").textContent = URLS[state];
+    const auto = { "signing-in": "signed-in", "silent": "signing-in" }[state];
+    if (auto) setTimeout(() => { if (!document.querySelector(`[data-view="${state}"]`).hidden) show(auto); }, 1400);
+  }
+  document.querySelectorAll(".review [data-state]").forEach(b => b.addEventListener("click", () => show(b.dataset.state)));
+  document.querySelectorAll("[data-go]").forEach(b => b.addEventListener("click", () => show(b.dataset.go)));
+  document.getElementById("theme").addEventListener("click", () => {
+    const h = document.documentElement; h.dataset.theme = h.dataset.theme === "dark" ? "light" : "dark";
+  });
+  show(new URLSearchParams(location.search).get("state") || "login");
+</script>
+</body>
+</html>

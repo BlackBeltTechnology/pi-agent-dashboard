@@ -1,12 +1,28 @@
 import { setSender as setPluginActionSender } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { clearAccessToken } from "@blackbelt-technology/pi-dashboard-client-utils/identity/token-store";
 import type { BrowserToServerMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getApiBase } from "../lib/api/api-context.js";
-import { appendWsTicket, getDeviceBearer, mintWsTicket } from "../lib/pairing/device-auth.js";
+import { appendWsTicket, getApiBearer, mintWsTicket } from "../lib/pairing/device-auth.js";
 
 export type ConnectionStatus = "connected" | "connecting" | "offline" | "auth_required";
 
 const OFFLINE_THRESHOLD = 3;
+
+/**
+ * How many CONSECUTIVE `/auth/status` probe rejections it takes to conclude
+ * `offline` (D17/R2). A single transient probe failure must never flip the UI
+ * to the outage surface — that replaces the sign-in affordance with a dead
+ * end while auth may be the actual problem.
+ */
+const PROBE_OFFLINE_THRESHOLD = 3;
+
+/**
+ * Close code the server fires when a socket's identity token lapses (§9.4,
+ * `identity/socket-lifetime.ts`). Distinct from a transport drop: the client
+ * re-acquires a token and reconnects rather than treating it as an outage.
+ */
+export const IDENTITY_EXPIRED_CLOSE_CODE = 4001;
 
 /** How many refused messages the outbox retains before evicting oldest-first. */
 export const OUTBOX_CAPACITY = 100;
@@ -46,7 +62,7 @@ interface OutboxEntry {
  */
 export type OutboxExpiryListener = (msg: BrowserToServerMessage, entryId: number) => void;
 
-export function useWebSocket(url: string) {
+export function useWebSocket(url: string, onIdentityExpired?: () => void | Promise<void>) {
   const wsRef = useRef<WebSocket | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   // The live socket, exposed for consumers that attach their OWN `message`
@@ -58,9 +74,16 @@ export function useWebSocket(url: string) {
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const backoffRef = useRef(1000);
   const failCountRef = useRef(0);
+  // Consecutive `/auth/status` probe rejections (D17/R2). Reset on any probe
+  // verdict and on a successful connect.
+  const probeFailRef = useRef(0);
   // Holds the latest `connect` so the onclose reconnect timer always re-runs
   // the current ticket-minting path (avoids capturing a stale closure).
   const connectRef = useRef<() => void>(() => {});
+  // Latest identity-expiry callback, kept in a ref so the long-lived `onclose`
+  // closure always calls the current one (§12.4).
+  const onIdentityExpiredRef = useRef(onIdentityExpired);
+  onIdentityExpiredRef.current = onIdentityExpired;
   // Messages refused while the socket was not OPEN. Holds ONLY never-sent
   // messages; a handed-off message is never retained (see design D3).
   const outboxRef = useRef<OutboxEntry[]>([]);
@@ -152,6 +175,7 @@ export function useWebSocket(url: string) {
         setStatus("connected");
         backoffRef.current = 1000;
         failCountRef.current = 0;
+        probeFailRef.current = 0;
         flushOutbox(ws);
       };
 
@@ -166,23 +190,56 @@ export function useWebSocket(url: string) {
         }
       };
 
-      ws.onclose = () => {
+      ws.onclose = (ev) => {
         setWs(null);
+        // Identity lapsed server-side (§9.4). Drop the stale in-memory token so
+        // the next ticket mint never presents it, let the app re-acquire, then
+        // reconnect promptly — an auth refresh, not an outage, so no backoff
+        // escalation and no `offline`/`auth_required` flicker.
+        if (ev?.code === IDENTITY_EXPIRED_CLOSE_CODE) {
+          clearAccessToken();
+          backoffRef.current = 1000;
+          failCountRef.current = 0;
+          setStatus("connecting");
+          void Promise.resolve(onIdentityExpiredRef.current?.()).finally(() => {
+            reconnectTimerRef.current = setTimeout(() => connectRef.current(), 0);
+          });
+          return;
+        }
         failCountRef.current++;
         if (failCountRef.current >= OFFLINE_THRESHOLD) {
-          // Check if it's an auth issue before marking as offline
+          // Check if it's an auth issue before marking as offline. A probe
+          // REJECTION is not an outage verdict (D17/R2): keep "connecting"
+          // and re-probe on the existing backoff; only PROBE_OFFLINE_THRESHOLD
+          // consecutive rejections conclude offline. `authenticated:false`
+          // always wins — the sign-in affordance must stay reachable.
           fetch(`${getApiBase()}/auth/status`)
             .then((res) => res.json())
             .then((data) => {
+              probeFailRef.current = 0;
               if (data.authenticated === false) {
                 setStatus("auth_required");
               } else {
                 setStatus("offline");
               }
             })
-            .catch(() => setStatus("offline"));
+            .catch(() => {
+              probeFailRef.current++;
+              setStatus(probeFailRef.current >= PROBE_OFFLINE_THRESHOLD ? "offline" : "connecting");
+            });
         } else {
           setStatus("connecting");
+          // Signed out is not an outage (D24): ask on the FIRST refusal so the
+          // sign-in dialog shows at once instead of after N backoff retries.
+          // Only `authenticated:false` acts here; errors/true are left to the
+          // threshold path above (D17/R2). A socket that opened meanwhile
+          // (failCount reset) makes the answer stale ⇒ ignored.
+          fetch(`${getApiBase()}/auth/status`)
+            .then((res) => res.json())
+            .then((data) => {
+              if (data?.authenticated === false && failCountRef.current > 0) setStatus("auth_required");
+            })
+            .catch(() => {});
         }
         reconnectTimerRef.current = setTimeout(() => {
           backoffRef.current = Math.min(backoffRef.current * 2, 30000);
@@ -203,12 +260,14 @@ export function useWebSocket(url: string) {
     }
   }, [flushOutbox]);
 
-  // Paired-device browsers (bearer in localStorage) can't set an Authorization
-  // header on a WebSocket and the durable bearer must never ride the socket
-  // (F6). Mint a FRESH single-use ticket per (re)connect and present only that.
-  // Unpaired browsers (cookie/loopback auth) skip ticketing — unchanged path.
+  // A browser holding an API bearer — either a paired-device token (localStorage)
+  // or an identity-plane access token (in-memory, PKCE, §12.3) — can't set an
+  // Authorization header on a WebSocket, and a durable/bearer token must never
+  // ride the socket (F6). Mint a FRESH single-use ticket per (re)connect and
+  // present only that. Browsers with neither (cookie/loopback auth) skip
+  // ticketing — unchanged path.
   const connect = useCallback(() => {
-    if (getDeviceBearer()) {
+    if (getApiBearer()) {
       mintWsTicket("browser")
         .then((ticket) => openSocket(ticket ? appendWsTicket(url, ticket) : url))
         .catch(() => openSocket(url));

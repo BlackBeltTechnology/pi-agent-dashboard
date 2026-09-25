@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Acme Login Plane — Signed out</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; min-height: 100vh; display: grid; place-items: center;
+        font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+        background: radial-gradient(120% 120% at 50% 0%, #241a2f 0%, #0b0810 60%);
+        color: #efe8f8;
+      }
+      main { width: min(32rem, 92vw); padding: 2.25rem; border-radius: 1rem;
+        background: #16101f; border: 1px solid #40304f; box-shadow: 0 24px 60px -24px #000; }
+      .kicker { margin: 0 0 1.25rem; font-size: .72rem; letter-spacing: .14em;
+        text-transform: uppercase; color: #c39bf0; }
+      h1 { margin: 0 0 .5rem; font-size: 1.6rem; }
+      p { margin: 0 0 1rem; color: #b6a8c9; }
+      code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: .8em; background: #241a30; padding: .12em .4em; border-radius: .3rem; color: #e4d6ff; }
+      a.cta { display: block; margin: 1.5rem 0 .5rem; padding: .85rem 1rem; text-align: center;
+        border-radius: .6rem; background: #b98cf0; color: #1c0f2b; font-weight: 650; text-decoration: none; }
+      a.cta:hover { background: #c9a4f5; }
+      a.quiet { display: block; text-align: center; font-size: .82rem; color: #8274a0; text-decoration: none; }
+      .meta { margin: .75rem 0 0; font-size: .8rem; color: #8274a0; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="kicker">separate view · identity-login-plane</p>
+      <h1>You are signed out</h1>
+      <p>
+        Core routed <code>/logout</code> here. Continuing sends you to Keycloak's
+        RP-initiated logout (<code>end_session_endpoint</code>), which ends the
+        Keycloak session too.
+      </p>
+      <a class="cta" href="/identity-login/logout/perform">End Keycloak session</a>
+      <a class="quiet" href="/identity-login/">Back to sign-in</a>
+      <p class="meta">served by <code>GET /identity-login/logout</code> · provider <code>{{ISSUER}}</code></p>
+    </main>
+  </body>
+</html>

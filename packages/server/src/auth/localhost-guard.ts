@@ -294,11 +294,18 @@ const GUARD_JURISDICTION_PREFIXES = ["/api/", "/v1/", "/editor/", "/live/"] as c
 
 /**
  * Fixed in-namespace public endpoints, compared against the EXACT pathname.
- * Only `/api/health` (the liveness probe clients and the tunnel watchdog read).
+ * - `/api/health` (the liveness probe clients and the tunnel watchdog read).
+ * - `/api/identity/login-config` (identity plane, D16): an unauthenticated
+ *   browser — the exact login target — must read the pre-auth login descriptor
+ *   before it holds a token, so it cannot pass the authed path; it discloses
+ *   nothing when the resolver is inert (`{active:false}`).
  * Not copied from `auth-plugin.ts`'s `request.url === "/api/health"`, which
  * misses `?query`; the guard compares the parsed pathname.
  */
-const PUBLIC_IN_NAMESPACE_PATHS: ReadonlySet<string> = new Set(["/api/health"]);
+const PUBLIC_IN_NAMESPACE_PATHS: ReadonlySet<string> = new Set([
+  "/api/health",
+  "/api/identity/login-config",
+]);
 
 /**
  * Resolve `.` / `..` segments (RFC 3986 "remove_dot_segments") in an already
@@ -348,7 +355,7 @@ function removeDotSegments(path: string): string {
  *   `/foo/../api/sessions`   → resolved in jurisdiction    → denied
  *   `/foo/../settings`       → neither in jurisdiction     → no-op (SPA served)
  */
-interface GuardTarget {
+export interface GuardTarget {
   raw: string;
   resolved: string;
 }
@@ -369,7 +376,7 @@ interface GuardTarget {
  * then resolvable.
  * See change: add-universal-network-guard (design: "Path matching").
  */
-function parseGuardTarget(url: string | undefined): GuardTarget | null {
+export function parseGuardTarget(url: string | undefined): GuardTarget | null {
   if (typeof url !== "string" || !url.startsWith("/") || url.startsWith("//")) return null;
   let end = url.length;
   for (const sep of ["?", "#"] as const) {
