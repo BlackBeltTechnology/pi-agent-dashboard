@@ -11,5 +11,5 @@
 ## 3. Verify
 
 - [x] 3.1 Run the full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then grep for failures. Verify there are no new failures.
-- [x] 3.2 Restart the server (`curl -X POST http://localhost:8000/api/restart`). In the split editor, open a `.md` → Edit → change → Save. Verify the dirty dot clears, no changed-on-disk banner appears from the 409 path, and the file holds the edit. Repeat for a `.csv`. (manual QA — deferred, tested later)
+- [x] 3.2 Restart the server (`curl -X POST http://localhost:8000/api/restart`). In the split editor, open a `.md` → Edit → change → Save. Verify the dirty dot clears, no changed-on-disk banner appears from the 409 path, and the file holds the edit. (manual QA — deferred, tested later)
 - [x] 3.3 Update the `file-routes.ts` row in `packages/server/src/routes/AGENTS.md` (or the nearest `AGENTS.md`) with the full-precision `mtime` token and `See change: fix-editor-mtime-token-precision`.

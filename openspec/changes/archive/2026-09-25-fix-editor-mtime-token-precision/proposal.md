@@ -1,12 +1,13 @@
 ## Why
 
-Saving from the split editor pane's Edit tab (`.md`/`.mdx`, `.csv`) always fails on filesystems with sub-millisecond mtimes (macOS APFS, most Linux filesystems). `GET /api/file` returns `mtime: Math.round(stat.mtimeMs)`, while `POST /api/file/write` compares the token against full-precision `stat.mtimeMs`. The two never match, so every save returns `409` and shows the changed-on-disk banner. Its Refresh reloads the unchanged disk content, and the user's edits are lost. The Instructions editor is unaffected because `/api/file/md-read` already returns full precision.
+Saving from the split editor pane's Edit tab (`.md`/`.mdx`) always fails on filesystems with sub-millisecond mtimes (macOS APFS, most Linux filesystems). `GET /api/file` returns `mtime: Math.round(stat.mtimeMs)`, while `POST /api/file/write` compares the token against full-precision `stat.mtimeMs`. The two never match, so every save returns `409` and shows the changed-on-disk banner. Its Refresh reloads the unchanged disk content, and the user's edits are lost. The Instructions editor is unaffected because `/api/file/md-read` already returns full precision.
 
 ## What Changes
 
 - `GET /api/file` returns `mtime` at full precision (`stat.mtimeMs`), matching `/api/file/md-read` and the write-side conflict check.
 - No client change is needed. Viewers already echo the token back verbatim.
-- Out of scope, for possible follow-ups: suppressing the pane banner for the dashboard's own writes, and a "keep mine / overwrite" choice on 409.
+- Out of scope: `.csv` saves (`EditableSpreadsheetTab`). They share the same token path, but `isWritableMdTarget` authorizes only `.md`/`.mdx`, so they currently 403 before the mtime check. Widening that write allowlist is a separate, security-sensitive change.
+- Also out of scope, for possible follow-ups: suppressing the pane banner for the dashboard's own writes, and a "keep mine / overwrite" choice on 409.
 
 ## Capabilities
 

@@ -4,7 +4,7 @@ Two endpoints issue the write concurrency token, and they disagree:
 
 | Endpoint | Token | Consumer |
 |---|---|---|
-| `GET /api/file` (`file-routes.ts` file branch) | `Math.round(stat.mtimeMs)` | `MarkdownViewer`, `EditableSpreadsheetTab` |
+| `GET /api/file` (`file-routes.ts` file branch) | `Math.round(stat.mtimeMs)` | `MarkdownViewer` (`EditableSpreadsheetTab` too, but its `.csv` writes 403 at `isWritableMdTarget` first; out of scope) |
 | `GET /api/file/md-read` | `stat.mtimeMs` | `InstructionsEditorPane` |
 | `POST /api/file/write` check | `current.mtimeMs !== mtime` | all |
 
