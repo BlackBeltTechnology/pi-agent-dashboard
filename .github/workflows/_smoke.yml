@@ -150,6 +150,12 @@ jobs:
         # 'not recognized' leak to stderr. See change: replace-wmic-with-powershell.
         shell: pwsh
         run: npx tsx scripts/windows-introspection-smoke.ts
+      - name: Windows forbidden grant-subjects smoke (platform-scoped list)
+        # The host's %SystemRoot% is listed and no POSIX directory leaks in as
+        # drive-rooted junk (C:\etc). Unit tests can only simulate win32 on
+        # POSIX. See change: surface-denial-remedy-in-previews (test-plan #E24).
+        shell: pwsh
+        run: npx tsx scripts/windows-forbidden-subjects-smoke.ts
       - name: Windows boot-parent-liveness smoke (koffi Tier-2 load)
         # Proves boot-parent-liveness Tier-2 (koffi OpenProcess +
         # WaitForSingleObject) loads on a REAL Windows host — unit tests cannot

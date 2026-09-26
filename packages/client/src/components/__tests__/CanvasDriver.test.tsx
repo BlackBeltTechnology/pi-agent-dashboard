@@ -82,3 +82,20 @@ describe("CanvasDriver — mobile chip tap is foreground", () => {
     expect(api?.paneState.openFiles[0].unread).toBeUndefined();
   });
 });
+
+describe("#E30 canvas provenance source (change: surface-denial-remedy-in-previews, D4)", () => {
+  const tabOf = (path: string) => api?.paneState.openFiles.find((f) => f.path === path);
+
+  it("(a) the auto-open effect opens the tab as auto-opened; restrictCsp unchanged", () => {
+    render(<Harness initial={EMPTY_CANVAS_STATE} />);
+    act(() => setCanvasState(fileState("agent.png")));
+    expect(tabOf("agent.png")).toMatchObject({ autoOpened: true, restrictCsp: true });
+  });
+
+  it("(b) a chip tap opens it as operator-opened; restrictCsp unchanged", () => {
+    tier = "mobile";
+    render(<Harness initial={fileState("tapped.png")} />);
+    fireEvent.click(screen.getByTestId("canvas-file-chip"));
+    expect(tabOf("tapped.png")).toMatchObject({ autoOpened: false, restrictCsp: true });
+  });
+});

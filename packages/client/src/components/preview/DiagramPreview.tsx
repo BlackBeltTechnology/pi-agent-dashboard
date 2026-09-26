@@ -15,6 +15,7 @@ import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { logRejection } from "../../lib/report-error.js";
 import { readTextUrl } from "./raw-url.js";
 import { ZoomControls } from "./ZoomControls.js";
+import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 
 interface Props {
   target: { kind: "file"; cwd: string; path: string };
@@ -22,6 +23,9 @@ interface Props {
 }
 
 export function DiagramPreview({ target, sourceText }: Props) {
+  // Opted out of the access-grant dialog unless a provider declares operator
+  // provenance (surface-denial-remedy-in-previews, D4).
+  const { fetch: previewFetch } = usePreviewFetch();
   const [source, setSource] = useState<string | null>(sourceText ?? null);
   const [svg, setSvg] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -41,7 +45,7 @@ export function DiagramPreview({ target, sourceText }: Props) {
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch(readTextUrl(target));
+        const res = await previewFetch(readTextUrl(target));
         const body = await res.json();
         if (cancelled) return;
         if (body.success && typeof body.data?.content === "string") {
@@ -61,7 +65,7 @@ export function DiagramPreview({ target, sourceText }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [target.cwd, target.path, sourceText]);
+  }, [target.cwd, target.path, sourceText, previewFetch]);
 
   // 2. Once source is available, request render from proxy
   useEffect(() => {

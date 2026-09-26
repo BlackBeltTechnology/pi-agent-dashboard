@@ -36,7 +36,12 @@ beforeEach(() => {
     onchange: null,
   })) as unknown as typeof window.matchMedia;
   globalThis.fetch = vi.fn(() =>
-    Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve("<h1>hi</h1>") }),
+    Promise.resolve({
+      ok: true,
+      status: 200,
+      text: () => Promise.resolve("<h1>hi</h1>"),
+      blob: () => Promise.resolve(new Blob(["png"])),
+    }),
   ) as unknown as typeof fetch;
 });
 
@@ -136,9 +141,12 @@ describe("viewerRegistry — preview/* delegation", () => {
     expect(a?.hasAttribute("controls")).toBe(true);
   });
 
-  it("image mounts the full pan/zoom variant (zoom controls present)", () => {
-    const { getByLabelText } = renderKind("image");
-    expect(getByLabelText("Zoom in")).toBeTruthy();
+  it("image mounts the full pan/zoom variant (zoom controls present)", async () => {
+    // Same-origin: the image loads through fetch → blob: (surface-denial-remedy-in-previews, D1).
+    URL.createObjectURL = vi.fn(() => "blob:img");
+    URL.revokeObjectURL = vi.fn();
+    const { findByLabelText, getByLabelText } = renderKind("image");
+    expect(await findByLabelText("Zoom in")).toBeTruthy();
     expect(getByLabelText("Zoom out")).toBeTruthy();
   });
 

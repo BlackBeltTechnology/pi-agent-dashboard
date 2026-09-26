@@ -39,12 +39,14 @@ vi.mock("pdfjs-dist", () => ({
   GlobalWorkerOptions: { workerSrc: "" },
 }));
 
+import { PreviewProvenance } from "../../../lib/access-grants/preview-provenance.js";
 import { PdfPreview } from "../PdfPreview.js";
 
 const target = { kind: "file" as const, cwd: "/proj", path: "spec.pdf" };
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   pdfViewerCalls.length = 0;
   setDocumentCalls.length = 0;
   vi.clearAllMocks();
@@ -82,9 +84,11 @@ describe("PdfPreview", () => {
     getDocument.mockImplementationOnce(() => ({
       promise: Promise.reject(new Error("boom pdf")),
     }));
+    // The D2 diagnosis probe finds no refusal, so the viewer's own error shows.
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("x", { status: 206 })));
     const { findByText, container } = render(<PdfPreview target={target} />);
     // The rejection is caught and surfaced as the error message.
-    expect(await findByText("boom pdf")).toBeTruthy();
+    expect(await findByText(/boom pdf/)).toBeTruthy();
     expect(container.querySelector(".pdfViewerContainer")).toBeNull();
   });
 
@@ -96,5 +100,26 @@ describe("PdfPreview", () => {
     rerender(<PdfPreview target={{ ...target, path: "other.pdf" }} />);
     await waitFor(() => expect(pdfViewerCalls.length).toBe(2));
     await waitFor(() => expect(destroy).toHaveBeenCalled());
+  });
+});
+
+describe("#E38 PDF is always opted out (change: surface-denial-remedy-in-previews, D2)", () => {
+  const headersOf = (i: number) =>
+    (getDocument.mock.calls as unknown as Array<[{ httpHeaders?: Record<string, string> }]>)[i][0].httpHeaders;
+
+  it("pdf.js receives the empty grant header with no provider", async () => {
+    render(<PdfPreview target={target} />);
+    await waitFor(() => expect(getDocument).toHaveBeenCalledTimes(1));
+    expect(headersOf(0)).toEqual({ "X-Pi-Grant-Channel": "" });
+  });
+
+  it("…and under operator provenance (operator-opened)", async () => {
+    render(
+      <PreviewProvenance autoOpened={false}>
+        <PdfPreview target={target} />
+      </PreviewProvenance>,
+    );
+    await waitFor(() => expect(getDocument).toHaveBeenCalledTimes(1));
+    expect(headersOf(0)).toEqual({ "X-Pi-Grant-Channel": "" });
   });
 });

@@ -12,6 +12,7 @@ import React, { lazy, Suspense, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { FallbackPreview } from "./FallbackPreview.js";
 import { renderedPdfUrl, renderUrl } from "./raw-url.js";
+import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 
 const PdfPreview = lazy(() => import("./PdfPreview.js"));
 
@@ -22,6 +23,9 @@ interface Props {
 type State = "idle" | "loading" | "pdf" | "failed";
 
 export function PptxPreview({ target }: Props) {
+  // Opted out of the access-grant dialog unless a provider declares operator
+  // provenance (surface-denial-remedy-in-previews, D4).
+  const { fetch: previewFetch } = usePreviewFetch();
   const [state, setState] = useState<State>("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -29,7 +33,7 @@ export function PptxPreview({ target }: Props) {
     setState("loading");
     setError(null);
     try {
-      const res = await fetch(renderUrl(target));
+      const res = await previewFetch(renderUrl(target));
       const body = await res.json();
       if (body.success && body.data?.mode === "pdf") {
         setState("pdf");

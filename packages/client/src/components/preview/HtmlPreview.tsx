@@ -9,8 +9,11 @@
 import React, { useEffect, useState } from "react";
 import { withRestrictiveCsp } from "../../lib/canvas/canvas-doc-csp.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { eligibleFetch, usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 import { rawUrl } from "./raw-url.js";
 import { logRejection } from "../../lib/report-error.js";
+import { type DenialFailure, denialFetch } from "./denial-fetch.js";
+import { DenialNotice } from "./DenialNotice.js";
 
 interface Props {
   target: { kind: "file"; cwd: string; path: string };
@@ -25,32 +28,36 @@ interface Props {
 
 export function HtmlPreview({ target, restrictCsp = false }: Props) {
   const [html, setHtml] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<DenialFailure | null>(null);
+  // Opted out unless operator provenance is declared; Ask for access re-runs it
+  // once, eligibly (surface-denial-remedy-in-previews, D4).
+  const { fetch: previewFetch, optedOut } = usePreviewFetch();
+  const [asked, setAsked] = useState(false);
+  const url = rawUrl(target);
 
   useEffect(() => {
     let cancelled = false;
     setHtml(null);
-    setError(null);
+    setFailure(null);
     // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
     void (async () => {
-      try {
-        const res = await fetch(rawUrl(target));
-        if (!res.ok) {
-          if (!cancelled) setError(`HTTP ${res.status}`);
-          return;
-        }
-        const text = await res.text();
-        if (!cancelled) setHtml(restrictCsp ? withRestrictiveCsp(text) : text);
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "failed to load");
+      const r = await denialFetch(asked ? eligibleFetch : previewFetch, url, asked ? false : optedOut);
+      if (cancelled) return;
+      if (r.kind !== "ok") {
+        setFailure(r);
+        return;
       }
+      const text = await r.response.text();
+      if (!cancelled) setHtml(restrictCsp ? withRestrictiveCsp(text) : text);
     })().catch(logRejection("HtmlPreview.render"));
     return () => {
       cancelled = true;
     };
-  }, [target.cwd, target.path, restrictCsp]);
+  }, [url, restrictCsp, asked, previewFetch, optedOut]);
 
-  if (error) return <div className="text-red-400 text-sm p-2">{error}</div>;
+  if (failure) {
+    return <DenialNotice result={failure} url={url} path={target.path} onAsk={() => setAsked(true)} asked={asked} />;
+  }
   if (html == null) return <div className="text-[var(--text-muted)] text-sm p-2">{i18nT("common.loading2", undefined, "Loading…")}</div>;
   return (
     <iframe

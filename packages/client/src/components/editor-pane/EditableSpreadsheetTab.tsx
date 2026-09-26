@@ -22,6 +22,7 @@ import { useI18n } from "../../lib/i18n/i18n.js";
 import { SpreadsheetPreview } from "../preview/SpreadsheetPreview.js";
 import { ChangedOnDiskBanner } from "./ChangedOnDiskBanner.js";
 import type { ViewerProps } from "./types.js";
+import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 
 const MarkdownEditor = lazy(() =>
   import("./MarkdownEditor.js").then((m) => ({ default: m.MarkdownEditor })),
@@ -30,6 +31,9 @@ const MarkdownEditor = lazy(() =>
 const basename = (p: string): string => p.slice(Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\")) + 1);
 
 export default function EditableSpreadsheetTab({ cwd, path }: ViewerProps) {
+  // Opted out of the access-grant dialog unless a provider declares operator
+  // provenance (surface-denial-remedy-in-previews, D4).
+  const { fetch: previewFetch } = usePreviewFetch();
   const { t } = useI18n();
   const [content, setContent] = useState<string | null>(null);
   const [buffer, setBuffer] = useState("");
@@ -43,7 +47,7 @@ export default function EditableSpreadsheetTab({ cwd, path }: ViewerProps) {
     let active = true;
     setError(null);
     setConflict(false);
-    fetch(`${getApiBase()}/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`)
+    previewFetch(`${getApiBase()}/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`)
       .then((res) => res.json())
       .then((body) => {
         if (!active) return;
@@ -60,7 +64,7 @@ export default function EditableSpreadsheetTab({ cwd, path }: ViewerProps) {
     return () => {
       active = false;
     };
-  }, [cwd, path, t]);
+  }, [cwd, path, t, previewFetch]);
 
   // Load the raw text only when Edit is first entered (Preview uses the grid's
   // own fetch), and lazily so the grid path stays content-free.

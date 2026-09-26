@@ -2,7 +2,11 @@ import { useEscapeDismiss } from "@blackbelt-technology/pi-dashboard-client-util
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import { useZoomPan } from "../../hooks/useZoomPan.js";
+import { PreviewProvenance } from "../../lib/access-grants/preview-provenance.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
+import { DenialNotice } from "./DenialNotice.js";
+import { useBlobImage } from "./use-blob-image.js";
 
 const BACKDROP_ID = "lightbox-backdrop";
 
@@ -18,9 +22,39 @@ interface Props {
    * See change: fit-attachments-for-display (task 5.9b, test-plan #F6).
    */
   fallbackSrc?: string;
+  /**
+   * Who opened the lightbox. It opens on an operator click, so the default is
+   * `"operator"` — declared here rather than inherited, because the lightbox can
+   * render inside an auto-opened markdown tab (React context crosses the portal).
+   * See change: surface-denial-remedy-in-previews (D4).
+   */
+  provenance?: "operator" | "auto";
 }
 
-export function ImageLightbox({ src, alt, onClose, fallbackSrc }: Props) {
+/**
+ * True for a same-origin `/api/file/raw` source: the only lightbox source that
+ * loads through `fetch` → `blob:` (design D1). `data:`, `blob:` and cross-origin
+ * sources keep the plain `<img>`, `fallbackSrc` path intact.
+ */
+export function isSameOriginFileRawSrc(src: string): boolean {
+  try {
+    const u = new URL(src, window.location.origin);
+    return u.origin === window.location.origin && u.pathname === "/api/file/raw";
+  } catch {
+    return false;
+  }
+}
+
+export function ImageLightbox({ provenance = "operator", ...props }: Props) {
+  // The provider must sit ABOVE the component whose hooks read it.
+  return (
+    <PreviewProvenance autoOpened={provenance === "auto"}>
+      <LightboxBody {...props} />
+    </PreviewProvenance>
+  );
+}
+
+function LightboxBody({ src, alt, onClose, fallbackSrc }: Omit<Props, "provenance">) {
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
@@ -28,7 +62,15 @@ export function ImageLightbox({ src, alt, onClose, fallbackSrc }: Props) {
   // original rather than inheriting the previous one's fallback.
   const [failed, setFailed] = useState(false);
   useEffect(() => { setFailed(false); }, [src]);
-  const effectiveSrc = failed && fallbackSrc ? fallbackSrc : src;
+  const blob = useBlobImage(isSameOriginFileRawSrc(src) ? src : null);
+  const viaFetch = isSameOriginFileRawSrc(src);
+  const effectiveSrc = viaFetch
+    ? blob.state.status === "ok"
+      ? blob.state.src
+      : null
+    : failed && fallbackSrc
+      ? fallbackSrc
+      : src;
 
   // Escape dismissal routes through the shared escape-stack so an Escape closes
   // only the lightbox, not a dialog/overlay stacked beneath it.
@@ -68,6 +110,17 @@ export function ImageLightbox({ src, alt, onClose, fallbackSrc }: Props) {
           onDoubleClick={handlers.onDoubleClick}
           style={{ touchAction: "none" }}
         >
+          {viaFetch && blob.state.status === "failed" && (
+            <div className="rounded bg-[var(--bg-primary)] cursor-default">
+              <DenialNotice result={blob.state.failure} url={src} path={alt} onAsk={blob.ask} asked={blob.asked} />
+            </div>
+          )}
+          {viaFetch && blob.state.status === "loading" && (
+            <div className="rounded bg-[var(--bg-primary)] p-4 text-sm text-[var(--text-tertiary)]">
+              {i18nT("common.loading2", undefined, "Loading…")}
+            </div>
+          )}
+          {effectiveSrc !== null && (
           <img
             src={effectiveSrc}
             alt={alt}
@@ -81,6 +134,7 @@ export function ImageLightbox({ src, alt, onClose, fallbackSrc }: Props) {
             }}
             draggable={false}
           />
+          )}
         </div>
       </div>
     </DialogPortal>

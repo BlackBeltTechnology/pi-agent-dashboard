@@ -10,6 +10,15 @@ import {
   useEditorPaneState,
 } from "../layout/editor-pane-state.js";
 
+/**
+ * A stored blob as `loadEditorPaneState` returns it: tabs written before
+ * `autoOpened` existed are seeded from `restrictCsp` (surface-denial-remedy-in-previews).
+ */
+const seeded = <S extends { openFiles: Array<{ path: string; restrictCsp?: boolean; autoOpened?: boolean }> }>(state: S): S => ({
+  ...state,
+  openFiles: state.openFiles.map((f) => ({ ...f, autoOpened: f.autoOpened ?? f.restrictCsp === true })),
+});
+
 const tab = (path: string, addedAt = 1): EditorPaneState["openFiles"][number] => ({
   path,
   viewer: "monaco",
@@ -219,7 +228,7 @@ describe("persistence", () => {
   it("round-trips through localStorage", () => {
     const state: EditorPaneState = { openFiles: [tab("a.ts")], activeIndex: 0, treeOpenRoots: ["src"] };
     saveEditorPaneState("sess1", state);
-    expect(loadEditorPaneState("sess1")).toEqual(state);
+    expect(loadEditorPaneState("sess1")).toEqual(seeded(state));
   });
 
   it("returns empty state when nothing is stored", () => {
@@ -250,7 +259,7 @@ describe("persistence", () => {
       treeOpenRoots: [],
     };
     saveEditorPaneState("termsess", state);
-    expect(loadEditorPaneState("termsess")).toEqual(state);
+    expect(loadEditorPaneState("termsess")).toEqual(seeded(state));
   });
 
   it("retains a persisted diff tab across reload (VALID_VIEWERS includes diff)", () => {
@@ -261,7 +270,7 @@ describe("persistence", () => {
       treeOpenRoots: [],
     };
     saveEditorPaneState("diffsess", state);
-    expect(loadEditorPaneState("diffsess")).toEqual(state);
+    expect(loadEditorPaneState("diffsess")).toEqual(seeded(state));
   });
 
   it("E6 persisted blob without `unread` loads valid (back-compat)", () => {
@@ -272,7 +281,7 @@ describe("persistence", () => {
       treeOpenRoots: [],
     };
     localStorage.setItem(`${EDITOR_PANE_KEY_PREFIX}legacy`, JSON.stringify(legacy));
-    expect(loadEditorPaneState("legacy")).toEqual(legacy);
+    expect(loadEditorPaneState("legacy")).toEqual(seeded(legacy));
   });
 
   it("E7 persisted blob with `unread: 42` is rejected as corrupt (type guard)", () => {
@@ -323,5 +332,60 @@ describe("useEditorPaneState", () => {
     expect(result.current[0].openFiles[0].path).toBe("a.ts");
     rerender({ id: "sB" });
     expect(result.current[0].openFiles[0].path).toBe("b.ts");
+  });
+});
+
+describe("tab provenance: autoOpened follows the action that activated the tab (change: surface-denial-remedy-in-previews, D4)", () => {
+  const t = (path: string, autoOpened: boolean) => ({ ...tab(path), autoOpened });
+  const two = (a: boolean, b: boolean, activeIndex = 1): EditorPaneState => ({
+    openFiles: [t("a.png", a), t("b.png", b)],
+    activeIndex,
+    treeOpenRoots: [],
+  });
+  const auto = (s: EditorPaneState, path: string, activate = true) =>
+    editorPaneReducer(s, { type: "openFile", path, viewer: "image", autoOpened: true, activate });
+  const op = (s: EditorPaneState, path: string, activate = true) =>
+    editorPaneReducer(s, { type: "openFile", path, viewer: "image", activate });
+  const autoOf = (s: EditorPaneState, path: string) => s.openFiles.find((f) => f.path === path)?.autoOpened;
+
+  it("#E25 every row of the D4 table", () => {
+    // new tab from an auto-open / an operator open
+    expect(autoOf(auto(EMPTY_PANE_STATE, "n.png"), "n.png")).toBe(true);
+    expect(autoOf(op(EMPTY_PANE_STATE, "n.png"), "n.png")).toBe(false);
+    // auto-open of an existing INACTIVE tab that activates it → true
+    expect(autoOf(auto(two(false, false), "a.png"), "a.png")).toBe(true);
+    // auto-open of the ACTIVE tab → unchanged
+    expect(autoOf(auto(two(false, false), "b.png"), "b.png")).toBe(false);
+    // operator open that activates an existing tab, incl. the active one → false
+    expect(autoOf(op(two(true, true), "a.png"), "a.png")).toBe(false);
+    expect(autoOf(op(two(true, true), "b.png"), "b.png")).toBe(false);
+    // operator tab click → false
+    expect(autoOf(editorPaneReducer(two(true, true), { type: "setActive", index: 0 }), "a.png")).toBe(false);
+    // operator close that re-points activation → the newly active tab is false
+    const closed = editorPaneReducer(two(true, true), { type: "closeTab", index: 1 });
+    expect(closed.activeIndex).toBe(0);
+    expect(autoOf(closed, "a.png")).toBe(false);
+    // background open (operator or auto) that does not activate → unchanged
+    expect(autoOf(op(two(true, false), "a.png", false), "a.png")).toBe(true);
+    expect(autoOf(auto(two(false, false), "a.png", false), "a.png")).toBe(false);
+    // terminal reconcile (closeByPath) re-pointing activation → unchanged
+    const reconciled = editorPaneReducer(two(true, true), { type: "closeByPath", path: "b.png" });
+    expect(reconciled.activeIndex).toBe(0);
+    expect(autoOf(reconciled, "a.png")).toBe(true);
+  });
+
+  it("#E26 persisted provenance: validated as a boolean, seeded from restrictCsp", () => {
+    const key = `${EDITOR_PANE_KEY_PREFIX}prov`;
+    const store = (openFiles: unknown[]) =>
+      localStorage.setItem(key, JSON.stringify({ openFiles, activeIndex: 0, treeOpenRoots: [] }));
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    store([{ ...tab("a.png"), autoOpened: "yes" }]);
+    expect(loadEditorPaneState("prov")).toEqual(EMPTY_PANE_STATE);
+    store([{ ...tab("a.png"), restrictCsp: true }]);
+    expect(loadEditorPaneState("prov").openFiles[0].autoOpened).toBe(true);
+    store([tab("a.png")]);
+    expect(loadEditorPaneState("prov").openFiles[0].autoOpened).toBe(false);
+    err.mockRestore();
+    localStorage.removeItem(key);
   });
 });

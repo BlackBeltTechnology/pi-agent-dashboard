@@ -1,4 +1,9 @@
+import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { afterEach, describe, expect, it } from "vitest";
+import { AccessPlaneRegistry } from "../access-plane.js";
+import { holdDenial, installGrantCoordinator } from "../denial-hold.js";
+import { GrantCoordinator } from "../grant-coordinator.js";
+import type { GrantTransition } from "../pending-grant-registry.js";
 import {
   __resetPromptChannels,
   GRANT_CHANNEL_HEADER,
@@ -131,5 +136,65 @@ describe("maySuspend requires eligible AND enforcing Host admission", () => {
     const mode = "report" as const;
     maySuspend(req({ [GRANT_CHANNEL_HEADER]: cap }), mode);
     expect(mode).toBe("report");
+  });
+});
+
+describe("a request can declare itself ineligible (change: surface-denial-remedy-in-previews, D3)", () => {
+  afterEach(() => installGrantCoordinator(null));
+
+  /** The real gateway (`holdDenial`) + coordinator, a held filesystem plane. */
+  function wire() {
+    const sent: ServerToBrowserMessage[] = [];
+    const transitions: GrantTransition[] = [];
+    const planes = new AccessPlaneRegistry();
+    planes.register({
+      id: "filesystem",
+      mode: "held",
+      yoloEligible: true,
+      store: "access-grants.json",
+      subjectOf: (raw: string) => raw || null,
+      keyOf: (x: string) => x,
+      describe: () => ({ mode: "held", verdicts: ["allow-once", "allow-always", "deny"], store: "access-grants.json" }),
+      grant: async () => ({ ok: true, store: "access-grants.json" }),
+    });
+    installGrantCoordinator(
+      new GrantCoordinator({
+        planes,
+        broadcast: (m) => sent.push(m),
+        hostGateMode: () => "enforce",
+        promptEnabled: () => true,
+        killSwitch: () => false,
+        operatorChannels: () => 1,
+        onTransition: (t) => transitions.push(t),
+      }),
+    );
+    return { sent, transitions };
+  }
+
+  const target = (headers: Record<string, string>) => ({
+    request: { raw: { on() {}, off() {} }, headers, ip: "127.0.0.1" } as never,
+    reply: { raw: {} } as never,
+  });
+  const facts = (rawSubject: string) => ({ plane: "filesystem" as const, rawSubject, origin: "s1" });
+
+  it("#E17 a live capability holder sending an empty header is ineligible: no dialog", async () => {
+    const { sent, transitions } = wire();
+    issuePromptChannel("sock-S");
+    const r = await holdDenial(facts("/d"), target({ [GRANT_CHANNEL_HEADER]: "" }));
+    expect(r).toEqual({ kind: "deny", reason: "ineligible" });
+    expect(sent.filter((m) => m.type === "grant_request")).toHaveLength(0);
+    expect(transitions).toContainEqual(expect.objectContaining({ transition: "degraded", reason: "ineligible" }));
+  });
+
+  it("#E18 the declaration confers nothing: identical to sending no header", async () => {
+    const withHeader = wire();
+    const a = await holdDenial(facts("/d1"), target({ [GRANT_CHANNEL_HEADER]: "" }));
+    const withoutHeader = wire();
+    const b = await holdDenial(facts("/d2"), target({}));
+    expect(a).toEqual(b);
+    expect(withHeader.sent).toEqual(withoutHeader.sent);
+    expect(withHeader.transitions.map((t) => [t.transition, t.reason])).toEqual(
+      withoutHeader.transitions.map((t) => [t.transition, t.reason]),
+    );
   });
 });

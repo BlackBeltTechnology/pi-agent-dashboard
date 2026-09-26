@@ -126,3 +126,65 @@ export interface AccessEntry {
   /** Path grants only: the denied subject a widened grant came from. */
   widenedFrom?: string;
 }
+
+/**
+ * Why the operator was or was not asked about a refused read — the server's
+ * `promptOutcome` (`packages/server/src/access/containment-gate.ts`), mirrored.
+ * Disclosed only to an authenticated or genuinely local caller.
+ * See change: surface-denial-remedy-in-previews (design D5).
+ */
+export const PROMPT_OUTCOMES = [
+  "cannot-ask",
+  "off",
+  "not-enforced",
+  "ineligible",
+  "busy",
+  "throttled",
+  "recently-answered",
+  "allowed-elsewhere",
+  "declined",
+  "unanswered",
+  "ungrantable",
+  "grant-failed",
+  "allowed-but-refused",
+  "unavailable",
+] as const;
+
+export type PromptOutcome = (typeof PROMPT_OUTCOMES)[number];
+
+/** The additive remedy fields of a containment 403, mirrored from the server. */
+export interface DenialRemedy {
+  reason: string;
+  hint: string;
+  subject: string;
+  denialId: string;
+  ancestors: string[];
+  promptOutcome?: PromptOutcome;
+}
+
+/** A 403 body as the client reads it: a refusal with or without remedy fields. */
+export type ParsedDenialBody =
+  | { kind: "denied"; subject: string; denialId: string; promptOutcome?: PromptOutcome }
+  | { kind: "refused"; error: string };
+
+/**
+ * Parse a 403 body defensively. Only a body with a string `denialId` is a
+ * containment denial; anything else is a plain refusal carrying the server's
+ * `error` string. An absent or unknown `promptOutcome` yields NO reason — never
+ * `unavailable`, which would invent a re-ask the server did not offer.
+ */
+export function parseDenialBody(body: unknown): ParsedDenialBody {
+  const b = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  if (typeof b.denialId === "string" && b.denialId.length > 0) {
+    const outcome = (PROMPT_OUTCOMES as readonly unknown[]).includes(b.promptOutcome)
+      ? (b.promptOutcome as PromptOutcome)
+      : undefined;
+    return {
+      kind: "denied",
+      subject: typeof b.subject === "string" ? b.subject : "",
+      denialId: b.denialId,
+      ...(outcome ? { promptOutcome: outcome } : {}),
+    };
+  }
+  return { kind: "refused", error: typeof b.error === "string" ? b.error : "" };
+}
