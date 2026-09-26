@@ -10,6 +10,7 @@ import * as path from "node:path";
 import { type ResolveKeyOptions, resolveVeoKey } from "./env.js";
 import { loadShots } from "./package.js";
 import type { Shot } from "./shots.js";
+import { loadSidecars, type ShotSidecarState, type SidecarProblem } from "./sidecars.js";
 
 export interface ShotReport {
   name: string;
@@ -24,6 +25,14 @@ export interface ShotReport {
   promptWords: number;
   hasPrompt: boolean;
   hasNegative: boolean;
+  /** Present only for sidecar-enabled packages. */
+  sidecar?: ShotSidecarState;
+}
+
+export interface SidecarsReport {
+  enabled: true;
+  timeline: boolean;
+  problems: SidecarProblem[];
 }
 
 export interface InspectReport {
@@ -32,6 +41,8 @@ export interface InspectReport {
   shots: ShotReport[];
   /** Shots missing a Full Veo prompt block. */
   problems: string[];
+  /** Present only for sidecar-enabled packages (film.json exists). */
+  sidecars?: SidecarsReport;
 }
 
 function toShotReport(s: Shot): ShotReport {
@@ -61,12 +72,23 @@ export function inspectPackage(opts: InspectOptions): InspectReport {
   const { key, source } = resolveVeoKey({ ...opts, baseDir });
   const keyState = key ? `FOUND (${source})` : "MISSING — set one before rendering";
   const reports = shots.map(toShotReport);
-  return {
+  const report: InspectReport = {
     baseDir,
     keyState,
     shots: reports,
     problems: reports.filter((s) => !s.hasPrompt).map((s) => s.name),
   };
+  const sc = loadSidecars(opts.target);
+  if (sc.enabled) {
+    for (const r of reports) r.sidecar = sc.shotState.get(r.name) ?? "invalid";
+    report.sidecars = { enabled: true, timeline: sc.timeline !== null, problems: sc.problems };
+  }
+  return report;
+}
+
+function sidecarLines(sc: SidecarsReport): string[] {
+  const head = `Sidecars: enabled, timeline ${sc.timeline ? "present" : "absent"}, ${sc.problems.length} problem(s)`;
+  return ["", head, ...sc.problems.map((p) => `  ✗ [${p.scope}] ${p.message}`)];
 }
 
 /** Render an `InspectReport` as a human-readable table (matches the Python output). */
@@ -91,6 +113,8 @@ export function formatReport(report: InspectReport): string {
     );
     lines.push(`    ${s.title}`);
   }
+
+  if (report.sidecars) lines.push(...sidecarLines(report.sidecars));
 
   lines.push("");
   if (report.problems.length > 0) {

@@ -88,7 +88,39 @@ Copy [`.env.example`](.env.example) and set `VEO_API_KEY=…`. Never commit real
 5. **Assemble in post** — cut the `renders/*.mp4` in timecode order, lay the
    official voiceover + music, bake captions, drop the logo into the reserved
    space of the final shot. (Veo only makes ambient SFX — speech is forbidden in
-   the AUDIO LOCK on purpose.)
+   the AUDIO LOCK on purpose.) With sidecars (`film.json` + `timeline.json`)
+   automate it: `pi-veo export timeline <Project> --clips video_production/renders`
+   → call `video_compose` on the printed spec → `pi-veo mux <Project> --picture
+   <final_video.mp4>` → `video_production/master/master.mp4`.
+
+## Optional: other providers via pi-video-gen
+
+Needs sidecars (`film.json`, `shots/shot_NN.json`) — see the production kit.
+`@amaster.ai/pi-video-gen` is a user-level pi extension, never a dependency of
+this package: `pi install npm:@amaster.ai/pi-video-gen` (verified **0.1.18**;
+0.1.x formats may change). Coupling is file-format only.
+
+1. Run every `pi-veo export` **from the pi session cwd, without `cd`** — pi-video-gen
+   resolves frames and its `outputDir` (default `.video-gen`) against that cwd.
+   If `outputDir` is configured differently, pass `--out <that dir>`.
+2. Call `video_capabilities`, copy the model's duration range and aspect ratios
+   into `--durations <min>-<max>` / `--aspect 16:9,9:16` (not parsed automatically).
+3. `pi-veo export render <Project> [--durations 4-15] [--aspect 16:9]` → call
+   `video_render` with the printed `render-input.json`. SEAMLESS shots become
+   `lastFramePath` = next shot's sketch; `--no-last-frame` for models without
+   first+last frame (e.g. kling-3.0-turbo).
+4. **Resume = call `video_render` again on the SAME spec. Never re-export** — a new
+   job re-bills every shot. Export refuses while a previous spec exists
+   (`.pi-veo/exports.json`); `--new-job` only for a genuinely revised film.
+5. Picture edit: `pi-veo export timeline <Project> --clips .video-gen/<job>/shots`
+   (or `video_production/renders`) → `video_compose` → `pi-veo mux`.
+
+Trade-offs: no seed, no local reference images, resolution = the model default
+(OpenRouter Veo is 720p / 16:9) — keep `pi-veo render` (Veo direct) for 4K/seed
+quality passes; use pi-video-gen for Seedance / Kling / MiniMax. Run
+`/video-gen doctor` and one cheap clip first. `pi-veo mux` needs `ffmpeg` +
+`ffprobe`; `--burn` needs ffmpeg's `subtitles` filter (libass), soft captions
+are the default.
 
 ## Notes & pitfalls
 

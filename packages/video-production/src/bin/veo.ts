@@ -13,10 +13,20 @@
  *                          [--force] [--no-seed] [--enhance-prompt] [--api-key KEY]
  *                          [--poll SECONDS] [--dry-run]
  *   pi-veo storyboard <target> [--only shot_01 …] [--force] [--workers N] [--api-key KEY]
+ *   pi-veo export render <target> [--out DIR] [--job ID] [--new-job] [--no-last-frame]
+ *                          [--durations MIN-MAX] [--aspect 16:9,9:16] [--json]
+ *   pi-veo export timeline <target> --clips DIR [--out DIR] [--job ID] [--json]
+ *   pi-veo mux <target> --picture MP4 [--out FILE] [--force] [--burn]
+ *
+ * `export` writes job specs for @amaster.ai/pi-video-gen (verified 0.1.18);
+ * run it from the pi session cwd. `--out` = clip dir (render), job output dir
+ * (export), master file (mux).
  *
  * <target> may be a project dir, a video_production dir, or a shots dir.
  */
+import { type ExportOptions, exportRender, exportTimeline, formatExportReport } from "../export.js";
 import { formatReport, inspectPackage } from "../inspect.js";
+import { runMux } from "../mux.js";
 import { planRender, type RenderOptions, renderShots } from "../render.js";
 import { generateStoryboard } from "../storyboard.js";
 
@@ -28,7 +38,20 @@ interface Flags {
 }
 
 const LIST_FLAGS = new Set(["shots", "only"]);
-const VALUE_FLAGS = new Set(["model", "resolution", "out", "parallel", "poll", "workers", "api-key"]);
+const VALUE_FLAGS = new Set([
+  "model",
+  "resolution",
+  "out",
+  "parallel",
+  "poll",
+  "workers",
+  "api-key",
+  "job",
+  "clips",
+  "picture",
+  "durations",
+  "aspect",
+]);
 
 function parseFlags(argv: string[]): Flags {
   const f: Flags = { positional: [], bool: new Set(), value: {}, list: {} };
@@ -52,8 +75,8 @@ function parseFlags(argv: string[]): Flags {
   return f;
 }
 
-function requireTarget(f: Flags): string {
-  const target = f.positional[0];
+function requireTarget(f: Flags, index = 0): string {
+  const target = f.positional[index];
   if (!target) {
     console.error("error: missing <target> (project dir, video_production dir, or shots dir)");
     process.exit(1);
@@ -68,7 +91,62 @@ async function cmdParse(f: Flags): Promise<void> {
   } else {
     console.log(formatReport(report));
   }
-  if (report.problems.length > 0) process.exit(1);
+  if (report.problems.length > 0 || (report.sidecars?.problems.length ?? 0) > 0) process.exit(1);
+}
+
+function usageError(message: string): never {
+  console.error(message);
+  process.exit(1);
+}
+
+function parseDurations(v: string | undefined): [number, number] | undefined {
+  if (v === undefined) return undefined;
+  const m = /^(\d+)-(\d+)$/.exec(v);
+  if (!m || Number(m[1]) > Number(m[2])) {
+    usageError("error: --durations must be <min>-<max> integers with min <= max (from video_capabilities)");
+  }
+  return [Number(m[1]), Number(m[2])];
+}
+
+const EXPORT_USAGE =
+  "usage: pi-veo export <render|timeline> <target> [options]\n" +
+  "  render    write .video-gen/<job>/render-input.json for pi-video-gen video_render\n" +
+  "  timeline  write .video-gen/<job>/timeline-input.json for pi-video-gen video_compose (needs --clips <dir>)\n" +
+  "Verified against @amaster.ai/pi-video-gen 0.1.18. Run from the pi session cwd.";
+
+async function cmdExport(f: Flags): Promise<void> {
+  const mode = f.positional[0];
+  if (mode !== "render" && mode !== "timeline") usageError(EXPORT_USAGE);
+  const target = requireTarget(f, 1);
+  const opts: ExportOptions = {
+    target,
+    out: f.value.out,
+    job: f.value.job,
+    newJob: f.bool.has("new-job"),
+    noLastFrame: f.bool.has("no-last-frame"),
+    durations: parseDurations(f.value.durations),
+    aspect: f.value.aspect?.split(",").map((a) => a.trim()).filter(Boolean),
+    clips: f.value.clips,
+  };
+  if (mode === "timeline" && !opts.clips) usageError("error: --clips <dir> is required");
+  const r = mode === "render" ? exportRender(opts) : exportTimeline(opts);
+  if (f.bool.has("json")) {
+    console.log(JSON.stringify({ specPath: r.specPath, jobDir: r.jobDir, tool: r.tool, warnings: r.warnings }, null, 2));
+  } else {
+    console.log(formatExportReport(r));
+  }
+}
+
+async function cmdMux(f: Flags): Promise<void> {
+  const r = await runMux({
+    target: requireTarget(f),
+    picture: f.value.picture,
+    out: f.value.out,
+    force: f.bool.has("force"),
+    burn: f.bool.has("burn"),
+  });
+  for (const w of r.warnings) console.log(`⚠ ${w}`);
+  console.log(`✓ master: ${r.output}`);
 }
 
 function renderOptions(f: Flags): RenderOptions {
@@ -153,13 +231,21 @@ async function main(): Promise<void> {
     case "storyboard":
       await cmdStoryboard(f);
       break;
+    case "export":
+      await cmdExport(f);
+      break;
+    case "mux":
+      await cmdMux(f);
+      break;
     default:
       console.error(
-        "usage: pi-veo <parse|render|plan|storyboard> <target> [options]\n" +
+        "usage: pi-veo <parse|plan|render|storyboard|export|mux> <target> [options]\n" +
           "  parse       dry-run inspector (no key, no API)\n" +
           "  plan        resolve + print the render plan (no API)\n" +
           "  render      render shots to mp4 via Veo 3.1\n" +
-          "  storyboard  (re)generate first-frame sketches via nano-banana",
+          "  storyboard  (re)generate first-frame sketches via nano-banana\n" +
+          "  export      export <render|timeline> <target> — pi-video-gen job specs (no API)\n" +
+          "  mux         mux <target> --picture <mp4> — final VO/music/captions mix via ffmpeg",
       );
       process.exit(1);
   }
