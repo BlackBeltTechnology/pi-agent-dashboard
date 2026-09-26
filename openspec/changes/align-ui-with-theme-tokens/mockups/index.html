@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>align-ui-with-theme-tokens — after</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mockup.css">
+</head>
+<body>
+<header class="topbar">
+  <h1 class="title">Theme-token alignment — after</h1>
+  <div class="controls">
+    <button type="button" class="btn-secondary" id="themeBtn" aria-pressed="false">Light theme</button>
+  </div>
+</header>
+<main class="grid">
+
+<!-- A1 ─────────────────────────────── FolderSpawnButtons.tsx -->
+<section class="panel" aria-labelledby="a1h">
+  <h2 id="a1h" class="panel-title">A1 · Folder spawn tray</h2>
+  <p class="panel-note">Same layout. <code>green-400</code>/<code>orange-400</code> → <code>--tint-green-*</code>/<code>--tint-orange-*</code>.</p>
+  <div class="tray">
+    <button type="button" class="tray-btn tinted tint-green" data-probe="contrast">
+      <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"/></svg>New Session</button>
+    <button type="button" class="tray-btn tinted tint-orange" data-probe="contrast">
+      <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M13,14C9.64,14 8.54,15.35 8.18,16.24C9.25,16.7 10,17.76 10,19A3,3 0 0,1 7,22A3,3 0 0,1 4,19C4,17.69 4.83,16.58 6,16.17V7.83C4.83,7.42 4,6.31 4,5A3,3 0 0,1 7,2A3,3 0 0,1 10,5C10,6.31 9.17,7.42 8,7.83V13.12C8.88,12.47 10.16,12 12,12C14.67,12 15.56,10.66 15.85,9.77C14.77,9.32 14,8.25 14,7A3,3 0 0,1 17,4A3,3 0 0,1 20,7C20,8.34 19.2,9.42 18,9.83C17.71,11.37 16.5,14 13,14Z"/></svg>New Worktree</button>
+  </div>
+</section>
+
+<!-- A2 ─────────────────────────────── SessionCard.tsx -->
+<section class="panel" aria-labelledby="a2h">
+  <h2 id="a2h" class="panel-title">A2 · Session card actions + badges</h2>
+  <p class="panel-note">10 px <code>py-0</code> chips → 12 px chips with a 32 px target (44 px on mobile). Status stays <code>--status-*</code>.</p>
+  <article class="card session">
+    <div class="row">
+      <span class="status-badge idle"><span class="shape" aria-hidden="true"></span>idle</span>
+      <span class="pill neutral">worktree</span>
+    </div>
+    <h3 class="session-name">electron-runtime-overlay-updates</h3>
+    <p class="meta">anthropic/claude-opus-5-5 (medium) · $2.93</p>
+    <div class="card-actions">
+      <button type="button" class="chip-btn tinted tint-blue" data-probe="contrast">Fork</button>
+      <button type="button" class="chip-btn tinted tint-green" data-probe="contrast">+ Session</button>
+      <button type="button" class="chip-btn tinted tint-orange" data-probe="contrast">Worktree</button>
+      <button type="button" class="chip-btn tinted tint-purple" data-probe="contrast">Archive anyway</button>
+    </div>
+  </article>
+  <article class="card session">
+    <div class="row"><span class="status-badge working"><span class="shape" aria-hidden="true"></span>Resuming…</span></div>
+    <h3 class="session-name">add-acp-session-driver</h3>
+  </article>
+</section>
+
+<!-- A3 ─────────────────────────────── WorktreeSpawnDialog.tsx + WorktreeList.tsx -->
+<section class="panel wide" aria-labelledby="a3h">
+  <h2 id="a3h" class="panel-title">A3 · +Worktree dialog</h2>
+  <p class="panel-note">Uppercase <code>--text-muted</code> headings (2.3:1) → <code>--text-secondary</code>. Source toggle 23 px → 32/44 px. Submit <code>bg-blue-500/80</code> → <code>--accent-solid</code>. Collision warning <code>yellow-300</code> → <code>--severity-warning-*</code>.</p>
+  <div class="card dialog">
+    <h3 class="dialog-title">+Worktree Session</h3>
+    <h4 class="section-h">Existing worktrees of this repo</h4>
+    <ul class="wt-list">
+      <li class="wt-row"><div class="wt-text"><span class="wt-branch">develop <span class="pill neutral">main</span></span><span class="meta">/Users/robson/Project/pi-agent-dashboard</span></div><button type="button" class="btn-secondary">Spawn →</button></li>
+      <li class="wt-row"><div class="wt-text"><span class="wt-branch">os/fix-ship-tsconfig-base</span></div><button type="button" class="btn-secondary">Spawn →</button></li>
+    </ul>
+    <h4 class="section-h">Create a new worktree</h4>
+    <div class="seg" role="group" aria-label="Source">
+      <button type="button" class="seg-btn" aria-pressed="true">Fork to new branch</button>
+      <button type="button" class="seg-btn" aria-pressed="false">Check out existing branch</button>
+      <button type="button" class="seg-btn" aria-pressed="false">From a pull request</button>
+    </div>
+    <div class="form">
+      <div class="field"><label for="b1">Base branch</label><input id="b1" class="mono" value="develop"></div>
+      <div class="field"><label for="b2">New branch name</label><input id="b2" class="mono" value="os/fix-ship-tsconfig-base"></div>
+    </div>
+    <div class="warn-block" role="status" data-probe="contrast">
+      <p>Branch "os/fix-ship-tsconfig-base" already exists and is checked out at .worktrees/os-fix-ship-tsconfig-base.</p>
+      <button type="button" class="chip-btn tinted tint-orange">Spawn into that worktree →</button>
+    </div>
+    <div class="form-actions">
+      <button type="button" class="btn-secondary">Cancel</button>
+      <button type="button" class="btn-primary" data-probe="contrast">Create +Session →</button>
+    </div>
+    <p class="help-text">New worktrees start clean. Copy <code>.env</code> and run install steps manually.</p>
+  </div>
+</section>
+
+<!-- A4 ─────────────────────────────── GoalDetailClaim.tsx -->
+<section class="panel" aria-labelledby="a4h">
+  <h2 id="a4h" class="panel-title">A4 · Goal detail controls</h2>
+  <p class="panel-note">16 px <code>text-[10px] py-px</code> buttons → 32/44 px chip buttons; <code>indigo-400</code> → <code>--tint-purple-*</code>; delete → <code>--tint-red-*</code>.</p>
+  <div class="card goal">
+    <div class="goal-head"><span class="pill neutral">pursuing</span><h3 class="dialog-title">Ship ACP session driver</h3></div>
+    <div class="card-actions" role="group" aria-label="Goal loop">
+      <button type="button" class="chip-btn btn-secondary">Pause</button>
+      <button type="button" class="chip-btn btn-secondary">Resume</button>
+      <button type="button" class="chip-btn btn-secondary">Done</button>
+      <button type="button" class="chip-btn btn-secondary">Clear</button>
+      <button type="button" class="chip-btn tinted tint-red" data-probe="contrast">Delete goal</button>
+    </div>
+    <h4 class="section-h">Verdicts</h4>
+    <div class="verdict"><span class="mono-s">t14</span><span class="pill tinted tint-green" data-probe="contrast">progress</span><span>e2e harness green on macOS</span></div>
+    <div class="verdict"><span class="mono-s">t13</span><span class="pill tinted tint-orange" data-probe="contrast">stalled</span><span>waiting on fixture capture</span></div>
+    <div class="goal-bar">
+      <h4 class="section-h">Linked sessions (1)</h4><span class="spacer"></span>
+      <button type="button" class="chip-btn tinted tint-purple" data-probe="contrast">+ New session</button>
+      <button type="button" class="chip-btn btn-secondary">Link existing…</button>
+    </div>
+  </div>
+</section>
+
+<!-- A5 ─────────────────────────────── ConfirmRenderer / SelectRenderer -->
+<section class="panel" aria-labelledby="a5h">
+  <h2 id="a5h" class="panel-title">A5 · Select / confirm prompt</h2>
+  <p class="panel-note">Already token-based; only options gain a 36/44 px target and 13 px text.</p>
+  <div class="renderer">
+    <p class="prompt-q">Which base branch?</p>
+    <button type="button" class="opt">develop</button>
+    <button type="button" class="opt">main</button>
+  </div>
+</section>
+
+<!-- A6 ─────────────────────────────── CreateAutomationDialog.tsx -->
+<section class="panel wide" aria-labelledby="a6h">
+  <h2 id="a6h" class="panel-title">A6 · Automation dialog header + help text</h2>
+  <p class="panel-note">10 px <code>--text-muted</code> help (2.2:1) → 12 px <code>--text-secondary</code>; hard-coded <code>#6ee7b7</code> badge → <code>--tint-green-*</code>.</p>
+  <div class="card form">
+    <div class="goal-head"><h3 class="dialog-title">nightly dependency audit</h3><span class="pill tinted tint-green" data-probe="contrast">enabled</span></div>
+    <p class="mono-s">.pi/automations/nightly-dependency-audit.md</p>
+    <div class="field"><label for="c1">Schedule</label><input id="c1" value="0 3 * * *" class="mono">
+      <p class="help-text" data-probe="contrast">Next run: tomorrow 03:00</p></div>
+    <div class="field"><label for="c2">File path</label><input id="c2" value="" placeholder="reports/audit.md">
+      <p class="help-text" style="color: var(--severity-error-fg)" data-probe="contrast">File path is required for this action.</p></div>
+  </div>
+</section>
+
+<!-- BEFORE ─────────────────────────── live screenshots -->
+<section class="panel wide" aria-labelledby="bh">
+  <h2 id="bh" class="panel-title">Before (live, 2026-09-27)</h2>
+  <div class="grid" style="padding:0">
+    <figure style="margin:0"><img class="before-img" src="before/folder-light.png" alt="Live folder page, light theme: pale green and orange spawn buttons, tiny 10px session card chips"><figcaption class="help-text">Folder page, light</figcaption></figure>
+    <figure style="margin:0"><img class="before-img" src="before/worktree-light.png" alt="Live worktree dialog, light theme: faint uppercase headings and small source toggle"><figcaption class="help-text">Worktree dialog, light</figcaption></figure>
+  </div>
+</section>
+</main>
+<script>
+document.getElementById("themeBtn").addEventListener("click", (e) => {
+  const h = document.documentElement, light = h.dataset.theme !== "light";
+  h.dataset.theme = light ? "light" : "dark";
+  e.currentTarget.textContent = light ? "Dark theme" : "Light theme";
+  e.currentTarget.setAttribute("aria-pressed", String(light));
+});
+</script>
+</body>
+</html>
