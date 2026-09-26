@@ -34,6 +34,10 @@ Constraints:
 - Five model-facing tools and one per-turn injection block, with the pinned tier
   kept byte-stable.
 - One index engine (node:sqlite via `packages/kb`) and no native SQLite addon.
+  One engine, not one file: `docs` stays in kb-extension's store and each
+  other scope gets its own kb database, because the kb store has no
+  multi-root filter and `kb_search` searches every root
+  (`context-manager-kernel` K6).
 - Lessons reach the model when their situation recurs, not when the model
   remembers to search.
 - Existing knowledge is importable, but only through triage and review.
@@ -104,9 +108,17 @@ whose behaviour is small enough to re-specify.
 
 ### D2: One owner per hook; the pinned tier is byte-stable
 - The injection owner uses `systemPromptOptions` sections. The pinned block
-  (≤ ~2 KB: standing preferences, `kind: preference` + `delivery: pinned`)
-  changes only when a pinned lesson changes, which keeps the provider prompt
-  cache warm.
+  changes only when its inputs change, which keeps the provider prompt cache
+  warm. It carries two classes:
+  - the DOX doctrine (~2.3 KB READ, ~4.9 KB READ + WRITE), the same bytes
+    kb-extension injects today;
+  - pinned lessons (`kind: preference` + `delivery: pinned`), capped at
+    ~2 KB.
+- Under the dashboard, the bridge forces `systemPrompt` every turn, so the
+  block is inserted into the forced prompt next to a sentinel line
+  (`context-manager-kernel` K5).
+- Exception: the dashboard bridge's session-context injector (not a context
+  plane) keeps forcing `systemPrompt`; moving it to a section is a follow-up.
 - Everything per-turn goes into a `before_agent_start` `message`, never into
   `systemPrompt`.
 
@@ -259,7 +271,7 @@ Writes and indexing:
   2602.12670). The pinned tier therefore holds only non-standard rules, and
   every tier is A/B-tested before cutover (task 2.2).
 
-### D6: Five tools + deactivated aliases
+### D6: Five tools + aliases
 - **`context_search(query, scope?)`:** runs kb retrieval per scope and fuses
   across scopes with Reciprocal Rank Fusion. The `docs` scope keeps kb's
   current ranking and lanes unchanged.
@@ -269,9 +281,12 @@ Writes and indexing:
   gate and runs the PII/secret scrub before a project-scope write.
 - **`skill_manage`:** forked from hermes with a trimmed description.
 - **`exec`:** see D7.
-- **Old names:** registered and then removed from the active set with
-  `pi.setActiveTools`, so calls from stale prompts still resolve. They are
-  removed after one release.
+- **Old names (corrected by `context-manager-kernel` K8):** pi 0.87.1 runs
+  tool calls only against the active set (`prepareToolCall` → `Tool <name>
+  not found`), so an inactive alias does not resolve. The old names
+  therefore stay **active** for one release. They are unchanged until
+  cutover, then slimmed to one-line deprecation descriptions, and removed
+  after that release.
 - **Retrieval labels from behaviour:** a `context_search` followed by opening
   a result is logged as a click (query → ref, rank). A search followed by
   a grep fallback and then opening a file that was not in the results is
@@ -467,18 +482,20 @@ becoming lessons.
 | Risk | Mitigation |
 |---|---|
 | We own ~30k forked LOC | Drop the ~12k listed in D1. Behavioural tests replace the dropped upstream CI. Each forked module carries its upstream header so fixes can be cherry-picked. |
-| Tool rename breaks prompts, skills and doctrine | Aliases stay registered-but-inactive for one release. The doctrine update is part of the cutover phase. |
+| Tool rename breaks prompts, skills and doctrine | Old names stay registered and **active** for one release (inactive tools do not resolve in pi 0.87.1; `context-manager-kernel` K8). The doctrine update is part of the cutover phase. |
 | Cue false positives teach the model to ignore cards | Explicit triggers, the replay gate (df ≤ 3%), per-lesson `followed` precision with automatic demotion, strict budgets and a silent default. |
 | Lesson files in the repo and web content as a prompt-injection path | Lesson writes go through `lesson` and PR review. Cards are length-capped and delivered in delimited blocks. Web content passes the untrusted-content scanner before indexing. `security-hardening` is applied per phase. |
 | The matcher adds hot-path latency to every tool call | Globs and regexes are precompiled. The budget is measured in the lessons phase (`performance-optimization`). The System-1 relevance gate runs only after a trigger has matched. |
 | The boundary API is new (pi 0.87) | Pin the floor. Contract tests against a real `AgentSession` with a fake provider cover compaction, continuation and cancellation. |
-| Mid-migration double ownership (old packages still installed) | The manager detects the old packages at `session_start` and refuses to register the overlapping hooks, with a clear message, until they are removed. |
+| Mid-migration double ownership (old packages still installed) | The manager detects the old packages by package identity (tool `sourceInfo`, never tool names) once per turn epoch, then stays inert (dispatches nothing, hides its tools) with one notice until they are removed (`context-manager-kernel` K2). |
 | Team-shared lessons leak personal data | A PII/secret scrub gates writes to project scope. The miner's `sensitive` check is only advisory. |
 | System-1 expectations are too high | Opt-in only. The bake-off numbers are documented in D11. |
 
 ## Migration Plan
 
-1. Phases 1–5 ship behind a `contextManager.enabled` flag. While it is off, the
+1. Phases 1–5 ship behind a `contextManager.enabled` flag (`enabled` in
+   `.pi/dashboard/context_manager.json`, project → global, with
+   `PI_CONTEXT_MANAGER=0|1` overriding; `context-manager-kernel` K1). While it is off, the
    package registers nothing. While it is on and the old packages are present,
    the overlap refusal from Risks applies.
 2. The operator runs `/lessons import-hermes` and `/lessons mine --project` in
