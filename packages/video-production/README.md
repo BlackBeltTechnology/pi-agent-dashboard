@@ -9,6 +9,12 @@ written in each shot file. Storyboard first-frames are generated via nano-banana
 Exposed as:
 
 - **pi skills** — `veo-showreel-production-kit` (prompting) + `veo-generator` (render).
+- **pi skills for real footage** — `hyperframes-showreel` (footage → HyperFrames
+  showreel: sampling, edit script, redacted clips, generated composition, Veo as
+  screen-blend FX only, music + punches, delivery render, export QA) and
+  `footage-redaction` (`redact.py`: JSON spec → crop / timed delogo / detector-gated
+  blur in one ffmpeg pass, stdlib-only, contact-sheet verification). The music step
+  uses `@blackbelt-technology/pi-dashboard-music-production`.
 - **CLI bin** — `pi-veo` (`parse` / `plan` / `render` / `storyboard`).
 
 ## Usage

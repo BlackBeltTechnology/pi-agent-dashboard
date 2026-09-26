@@ -1,0 +1,13 @@
+# Deep tier (music-analysis analyze_mir.py). Multi-GB; keep it in its own venv (.venv-mir).
+# Exact pins verified on Python 3.14 / macOS arm64 (2026-09-24).
+# torch/torchaudio are pinned as a matched pair on the 2.11 series.
+librosa==1.0.0
+numpy==2.5.3
+scipy==1.18.1
+soundfile==0.14.0
+matplotlib==3.11.2
+essentia-tensorflow==2.1b6.dev1438
+beat-this==1.1.0
+demucs==4.1.0
+torch==2.11.*
+torchaudio==2.11.*

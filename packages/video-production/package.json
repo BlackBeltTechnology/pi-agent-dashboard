@@ -25,7 +25,9 @@
   "pi": {
     "skills": [
       ".pi/skills/veo-showreel-production-kit",
-      ".pi/skills/veo-generator"
+      ".pi/skills/veo-generator",
+      ".pi/skills/hyperframes-showreel",
+      ".pi/skills/footage-redaction"
     ],
     "tools": [
       {
@@ -58,7 +60,8 @@
     ".env.example",
     "README.md",
     "!**/AGENTS.md",
-    "!**/*.AGENTS.md"
+    "!**/*.AGENTS.md",
+    "!**/__pycache__"
   ],
   "scripts": {
     "test": "vitest run"
