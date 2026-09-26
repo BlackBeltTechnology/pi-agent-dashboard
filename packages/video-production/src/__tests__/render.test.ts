@@ -238,6 +238,14 @@ describe("exportRender — dropped-field warnings (E14)", () => {
   });
 });
 
+describe("exportRender — undeclared shot aspect", () => {
+  it("does not warn when the shot markdown declares no aspect ratio", () => {
+    const md = shotMd({ title: "t", prompt: "p", firstFrame: "storyboard/shot_01.png" }).replace("- Aspect: `16:9`\n", "");
+    const p = proj({ shot_01: { md } }, { ...validFilm(), aspectRatio: "9:16" });
+    expect(render(p).warnings.filter((w) => w.includes("aspect"))).toEqual([]);
+  });
+});
+
 describe("exportRender — unsafe shot names (E15)", () => {
   it.each(["shot_01.2", "shot_01 final"])("rejects %s", (name) => {
     const p = proj({ [name]: {} });

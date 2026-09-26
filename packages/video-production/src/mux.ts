@@ -143,7 +143,12 @@ async function probe(runner: Runner, file: string): Promise<{ duration: number; 
     file,
   ]);
   if (r.code !== 0) fail(`ffprobe failed on ${file}: ${r.stderr.trim().split("\n").slice(-3).join(" | ")}`);
-  const j = JSON.parse(r.stdout) as { format?: { duration?: string }; streams?: { codec_type?: string }[] };
+  let j: { format?: { duration?: string }; streams?: { codec_type?: string }[] };
+  try {
+    j = JSON.parse(r.stdout);
+  } catch {
+    return fail(`ffprobe returned unparseable output for ${file}`);
+  }
   const duration = Number(j.format?.duration);
   if (!Number.isFinite(duration)) fail(`ffprobe reported no duration for ${file}`);
   return { duration, hasAudio: (j.streams ?? []).some((s) => s.codec_type === "audio") };

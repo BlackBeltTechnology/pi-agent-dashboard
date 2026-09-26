@@ -127,7 +127,12 @@ function writeSpec(jobDir: string, file: string, spec: unknown): string {
     fail("job directory exists — exports never reuse a job");
   }
   const specPath = path.join(jobDir, file);
-  fs.writeFileSync(specPath, `${JSON.stringify(spec, null, 2)}\n`);
+  try {
+    fs.writeFileSync(specPath, `${JSON.stringify(spec, null, 2)}\n`);
+  } catch (e) {
+    fs.rmSync(jobDir, { recursive: true, force: true });
+    throw e;
+  }
   return specPath;
 }
 
@@ -152,8 +157,9 @@ export function readRegistry(baseDir: string): Registry {
     return fail(`export registry ${file} is unreadable or not valid JSON — fix or remove it`);
   }
   const r = raw as Partial<Registry> | null;
-  if (!r || typeof r !== "object" || !Array.isArray(r.renders) || !r.renders.every((x) => typeof x === "string")) {
-    fail(`export registry ${file} has an unexpected shape (expected { "renders": string[] }) — fix or remove it`);
+  const valid = Array.isArray(r?.renders) && r.renders.every((x) => typeof x === "string" && path.isAbsolute(x));
+  if (!valid) {
+    fail(`export registry ${file} has an unexpected shape (expected { "renders": absolute-path[] }) — fix or remove it`);
   }
   return raw as Registry;
 }
@@ -271,7 +277,7 @@ function droppedFieldWarnings(shots: Shot[], film: FilmSidecar): string[] {
     if (s.negative && s.negative !== (film.negative ?? "")) {
       w.push(`${s.name}: per-shot negatives are not exported — film.json negative is used`);
     }
-    if (film.aspectRatio && s.aspectRatio !== film.aspectRatio) {
+    if (film.aspectRatio && s.aspectDeclared && s.aspectRatio !== film.aspectRatio) {
       w.push(`${s.name}: per-shot aspect ratios are not exported (${s.aspectRatio} vs film ${film.aspectRatio})`);
     }
   }
@@ -330,8 +336,10 @@ export function exportRender(opts: ExportOptions): ExportResult {
   }
   const built = buildRenderSpec(sc, shots, frames, opts);
   const jobDir = resolveJobDir(opts, cwd, sc, "render");
-  const specPath = writeSpec(jobDir, "render-input.json", built.spec);
+  // Register before writing: a spec must never exist unregistered (re-billing guard).
+  const specPath = path.join(jobDir, "render-input.json");
   appendRegistry(sc.baseDir, reg, specPath);
+  writeSpec(jobDir, "render-input.json", built.spec);
   return { specPath, jobDir, tool: "video_render", cwd, warnings: [...warnings, ...built.warnings] };
 }
 
@@ -382,10 +390,10 @@ function mediaCheck(label: string, file: string, cwd: string): string {
   return real;
 }
 
+/** A clip candidate: anything but a directory (symlinks included, so preflight can reject them). */
 function exists(p: string): boolean {
   try {
-    fs.lstatSync(p);
-    return true;
+    return !fs.lstatSync(p).isDirectory();
   } catch {
     return false;
   }
