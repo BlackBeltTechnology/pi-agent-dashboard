@@ -104,6 +104,61 @@ describe("POST /api/file/write — directory scope", () => {
   });
 });
 
+// The split-pane editors (MarkdownViewer, EditableSpreadsheetTab) load their
+// concurrency token from `GET /api/file`, not `md-read`. That token must
+// round-trip through the write check on filesystems with sub-ms mtimes.
+// See change: fix-editor-mtime-token-precision.
+describe("GET /api/file → POST /api/file/write — token round-trip", () => {
+  let app: FastifyInstance;
+  let cwd: string;
+
+  beforeEach(async () => {
+    cwd = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "fw-rt-")));
+    await fsp.writeFile(path.join(cwd, "notes.md"), "# original\n", "utf-8");
+    app = makeApp([cwd]);
+    await app.ready();
+  });
+
+  afterEach(async () => {
+    await app.close();
+    await fsp.rm(cwd, { recursive: true, force: true });
+  });
+
+  async function loadToken(rel: string): Promise<number> {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(rel)}`,
+    });
+    expect(res.statusCode).toBe(200);
+    return res.json().data.mtime;
+  }
+
+  it("saves a file with a fractional mtime using the token /api/file returned", async () => {
+    const target = path.join(cwd, "notes.md");
+    // Sub-millisecond mtime, as APFS/ext4 report (1700000000000.5 ms).
+    await fsp.utimes(target, 1700000000.0005, 1700000000.0005);
+    expect(Number.isInteger(await readMtime(target))).toBe(false);
+
+    const mtime = await loadToken("notes.md");
+    const res = await write(app, { cwd, path: "notes.md", content: "# edited\n", mtime });
+    expect(res.statusCode).toBe(200);
+    expect(await fsp.readFile(target, "utf-8")).toBe("# edited\n");
+  });
+
+  it("still returns 409 when the file changed on disk after /api/file loaded it", async () => {
+    const target = path.join(cwd, "notes.md");
+    await fsp.utimes(target, 1700000000.0005, 1700000000.0005);
+    const mtime = await loadToken("notes.md");
+
+    await fsp.writeFile(target, "# external\n", "utf-8");
+    await fsp.utimes(target, 1700000100.25, 1700000100.25);
+
+    const res = await write(app, { cwd, path: "notes.md", content: "# mine\n", mtime });
+    expect(res.statusCode).toBe(409);
+    expect(await fsp.readFile(target, "utf-8")).toBe("# external\n");
+  });
+});
+
 describe("POST /api/file/write — global scope", () => {
   let app: FastifyInstance;
   let home: string;
