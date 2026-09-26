@@ -85,6 +85,17 @@ const check = (id, ok, detail) => results.push({ id, ok: !!ok, detail });
   await page.check("#agentsToggle");
   await page.locator("#s7").screenshot({ path: `${out}/state-worktree-dialog.png` });
 
+  // G1-G4 goal detail (folder remembers claude from W-steps)
+  check("G1 goal new-session label says pi", (await page.textContent("#goalNewLabel")) === "New pi session");
+  await page.click("#goalNew");
+  check("G2 goal spawn announces pi, ignores folder agent", /pi session/.test(await page.textContent("#goalStatus")) && !/Claude/.test(await page.textContent("#goalStatus")));
+  await page.click("#goalLinkBtn");
+  check("G3 link list offers pi only + omitted line", (await page.$$eval("#goalLinkList .link-item", (e) => e.map((x) => x.textContent))).every((t) => /\(pi\)/.test(t)) && await page.isVisible("#goalOmitted"));
+  await page.uncheck("#agentsToggle");
+  check("G4 no agents: plain label, no omitted line", (await page.textContent("#goalNewLabel")) === "New session" && await page.isHidden("#goalOmitted"));
+  await page.check("#agentsToggle");
+  await page.locator("#s8").screenshot({ path: `${out}/state-goal-detail.png` });
+
   // A11y: axe in dark and light, menu open
   for (const theme of ["dark", "light"]) {
     await page.evaluate((t) => { document.documentElement.dataset.theme = t; }, theme);
@@ -98,7 +109,7 @@ const check = (id, ok, detail) => results.push({ id, ok: !!ok, detail });
 
   // Target size at 375px (WCAG 2.5.8 ≥24, primary ≥44)
   await page.setViewportSize({ width: 375, height: 800 });
-  const sizes = await page.$$eval("#spawnMain, #spawnMenuBtn, .kebab, .btn-primary, .btn-secondary, .seg-btn, #wtAgent", (els) =>
+  const sizes = await page.$$eval("#spawnMain, #spawnMenuBtn, .kebab, .btn-primary, .btn-secondary, .seg-btn, #wtAgent, .link-item", (els) =>
     els.filter((e) => e.offsetParent).map((e) => ({ id: e.id || e.className, h: e.getBoundingClientRect().height, w: e.getBoundingClientRect().width })));
   const small = sizes.filter((s) => s.h < 44 || s.w < 44);
   check("T1 mobile targets ≥ 44×44", small.length === 0, small.map((s) => `${s.id} ${Math.round(s.w)}×${Math.round(s.h)}`).join("; "));

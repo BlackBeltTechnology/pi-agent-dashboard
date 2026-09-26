@@ -33,7 +33,7 @@ Run: 2026-09-26, Chromium, widths 375 / 768 / 900 / 1440, dark + light.
 | 18 | Error text states a fix | PASS | startup failure names the cause and the config key to change; ended-session callout offers one recovery action |
 | 19 | Zero-data: one primary CTA | PASS | no-agents state = today's single button |
 
-Score (applicable items): **11 / 11**. Probe: **29 / 29** (incl. S7 worktree dialog W1–W5).
+Score (applicable items): **11 / 11**. Probe: **33 / 33** (incl. S7 worktree dialog W1–W5, S8 goal detail G1–G4).
 
 ## 3. PURE friction — task "start a querymt session in this folder"
 
@@ -53,6 +53,7 @@ Worst step: yellow (first-time switch) → task rating **yellow**, by design (Hi
 | F2 | 3 | Long agent names wrapped split button to 4 lines in 2-column tray | Aesthetic/minimalist (H8), scannability | `nowrap` + ellipsis on agent label, full name in `aria-label`/`title` (probe L1) |
 | F3 | 2 | Menu anchored right overflowed viewport left edge, clipping "pi" | Visibility (H1), WCAG 1.4.10 reflow | anchor left, `max-width: calc(100vw - 2rem)` (probe L2/L3) |
 | F5 | 2 | S7 dialog 8 px wider than 375 viewport (grid `1fr` = `minmax(auto,1fr)` held the long `<select>` option width) → page scrolled sideways, agent menu pushed off-screen | WCAG 1.4.10 reflow | `.panel { min-width: 0 }`, `select { width: 100% }` (probe T2/L3) |
+| F6 | 2 | S8 "ACP sessions hidden" line stayed visible with no agents: `.link-list .note { display:flex }` beat the `hidden` attribute | Consistency (H4), no off-goal element | global `[hidden] { display:none !important }` (probe G4); carry to impl: prefer conditional render over `hidden` |
 | F4 | 1 | "Run `scripts/setup.sh` ?" stray space before `?` | microcopy | "Run this script: `scripts/setup.sh`" |
 
 Open: none ≥ severity 2.
@@ -64,6 +65,7 @@ Open: none ≥ severity 2.
 - Pi row meta "Default · flows, subagents, extensions" gives information scent for what ACP sessions lack, instead of a warning dialog.
 - Ended ACP session: remove pi-only actions from the card menu and offer "New <agent> session here" (error prevention H5 + recovery H9).
 - Worktree dialog: one Agent select at the top, not a split button per existing-worktree row (one decision, many targets; avoids N menus). Inherits the parent folder's remembered agent; labels name the agent so the row action is unambiguous.
+- Goals stay pi (D17): `+ New pi session` label only when agents exist (disambiguates from the folder's ACP memory); link picker omits ACP sessions but states the count and reason, so a missing session isn't a mystery.
 - Automation editor: Model row becomes a note; Skill radio disabled with an adjacent reason (not hidden) so the constraint is learnable.
 
 ## 6. LEARN

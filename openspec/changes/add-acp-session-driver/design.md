@@ -22,6 +22,7 @@ Design history: a server-side `AcpDriver` was rejected after two doubt-review cy
 - Filesystem-level isolation of the agent from same-user dashboard files (agent runs as the user; isolation is env-level only).
 - Windows `.cmd`/`.bat` agent commands (require a shell) — rejected with a clear error in phase 1.
 - pi-only features for ACP sessions (flows, subagents, extension UI, kb/memory/roles, fork/tree, reload, steering, on-demand transcript, file listing, terminal commands, token/cost stats); plan rendering beyond the debug raw-event view.
+- Goal pursuit on ACP agents (D17) — goals stay pi-only; a dashboard-run goal loop for ACP is a possible follow-up.
 
 ## Architecture
 
@@ -134,7 +135,7 @@ Host A sessions end on server stop/restart like a crashed pi. Host B: adapter st
 - Automation config (`automation-types.ts`) gains `agent?: string`; `engine.ts` forwards it to `spawnSession`; `automation-schema.ts` validates it against configured agents and requires `action.kind` = `core.prompt` when set (`core.skill` and plugin actions are pi-only → validation error on save and at fire). `CreateAutomationDialog` gains the agent picker (D16); model selector hidden when an agent is chosen.
 - Plugin `ctx.sendToSession(sessionId, text)` on a `driver: "acp"` session always sends `send_prompt` (a leading `/` is passed through as prompt text — ACP agents interpret their own commands) instead of extension-command dispatch.
 - Run completion/result capture already keys off forwarded `agent_end`/`message_end` events, which the adapter synthesises (D7) — no automation engine change beyond the field.
-- Other `spawnSession` callers (goal-plugin, mcp-server-plugin `spawn_session` tool) are unchanged and stay pi.
+- Other `spawnSession` callers (goal-plugin — see D17 — and the mcp-server-plugin `spawn_session` tool) are unchanged and stay pi.
 
 ### D15 — Continue-session guards
 Every path that (re)starts pi for an **existing** session refuses `driver: "acp"` through one helper `refuseIfAcp(session, op)` returning a typed `unsupported_for_acp` error, checked **before** any side effect (kill, resuming flag, placeholder, intent record):
@@ -150,6 +151,14 @@ A prompt to an ended ACP session returns the error with the hint "start a new se
 - Worktree dialog (`WorktreeSpawnDialog`, opened from the tray `+Worktree` button or the OpenSpec board worktree spawn): **one** `Agent` select at the top of the dialog, not a split button per row. It applies to both actions — existing-worktree `Spawn →` rows and `Create +Session →` — and is preselected from the **parent** folder's remembered agent (the dialog's `cwd`; the worktree path is new, so it has no memory of its own). Button labels name the agent (`Spawn querymt →`, `Create + querymt session →`). Choosing here updates the parent folder's memory. Field absent when no agents are configured. Mockup S7.
 - Inherit, no picker: spawn-sibling on a card and the keyboard spawn-sibling shortcut (`App.tsx`) reuse the source session's agent (`acpAgentId` or pi).
 - Always pi, no picker: "Initialize project" (`/skill:project-init` is pi-only).
+
+### D17 — Goals stay pi-only
+Goal pursuit is implemented inside pi by the `@ricoyudog/pi-goal-hermes` extension: the primer's `/goal <objective>` kickoff (`goal-session-primer.ts`), `goal_status` / `pi-goal-hermes:event` snapshots feeding the verdict accumulator and supervisor, loop controls via `sendPluginAction` (pause/resume/done/clear/subgoal), and supervisor respawn via `resume: {sessionFile}` or fresh + re-prime. An ACP agent has none of these: `/goal` would arrive as literal prompt text (D14), no progress would ever be reported so the supervisor would backoff-respawn into its crash-loop breaker, and `resume` is refused (D15). Phase 1 therefore keeps goals on pi:
+- **Spawn under a goal** (`GoalDetailClaim` `+ New session` → `POST /api/folders/goals/:id/sessions {spawn:true}` → `spawnGoalSession` → `ctx.spawnSession`): never passes `agent`, ignores the folder's remembered agent (D16), no picker. When agents are configured the button reads `New pi session` so it doesn't look like it follows the folder's ACP choice.
+- **Supervisor respawn**: unchanged — always pi (`spawnDriver` passes no `agent`).
+- **Link existing**: the route rejects a session with `driver === "acp"` → 400 `{ code: "unsupported_for_acp", error: "Goals need a pi session; ACP agents can't pursue goals." }` before `store.linkSession` / `applyGoalIdToSession` / `primeGoalSession` (nothing stamped, nothing primed). The client link picker omits ACP sessions and, when any were omitted, shows one line `N ACP session(s) hidden — goals need pi.` (explains the omission instead of silently shrinking the list). `PluginSessionManager`'s session projection exposes `driver` (additive, from D12) so the route and client can check it.
+- **Boot reconcile / legacy data**: a goal record that somehow lists an ACP session id (none can be created after this change) is left as-is; the supervisor only drives its own pi `driverSessionId`.
+- Mockup S8.
 
 ## Risks / Trade-offs
 

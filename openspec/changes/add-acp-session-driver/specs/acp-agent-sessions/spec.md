@@ -269,3 +269,18 @@ When at least one ACP agent is configured, the folder spawn button, directory ho
 #### Scenario: No agents configured
 - **WHEN** `acpAgents` is empty
 - **THEN** no spawn control SHALL show an agent menu
+
+### Requirement: Goals stay pi-only
+Spawning a session under a goal and supervisor respawns SHALL always spawn pi, regardless of the folder's remembered agent, and SHALL NOT offer an agent choice. Linking a session whose `driver` is `acp` to a goal SHALL be rejected with `unsupported_for_acp` before any goal link, session stamp or goal kickoff occurs. The goal "link existing" list SHALL omit ACP sessions and SHALL state how many were omitted and why.
+
+#### Scenario: New session under a goal ignores remembered ACP agent
+- **WHEN** folder `/a` remembers agent `qmt` and the user activates `+ New session` on a goal in `/a`
+- **THEN** a pi session SHALL be spawned, stamped with the goal id and primed with the goal kickoff
+
+#### Scenario: Linking an ACP session is refused
+- **WHEN** a client links running ACP session `S` to goal `G`
+- **THEN** the request SHALL fail with `unsupported_for_acp`, `G.sessionIds` SHALL NOT include `S`, `S` SHALL carry no `goalId`, and no `/goal` prompt SHALL be sent to `S`
+
+#### Scenario: Link picker explains omitted ACP sessions
+- **WHEN** folder `/a` has running pi session `P` and running ACP session `S`, and the user opens "Link existing…" on a goal in `/a`
+- **THEN** the list SHALL offer `P` only and SHALL show that one ACP session was hidden because goals need pi

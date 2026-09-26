@@ -100,3 +100,16 @@ document.querySelectorAll(".wt-spawn").forEach((b) => b.addEventListener("click"
   $("#wtStatus").textContent = `Starting ${AGENT_NAMES[$("#wtAgent").value] || "pi"} session in ${b.dataset.path}…`;
 }));
 syncWt();
+
+// S8: goal detail — label says pi only when agents exist; ACP-omitted line only when agents exist
+function syncGoal() {
+  const agentsOn = !split.classList.contains("no-agents");
+  $("#goalNewLabel").textContent = agentsOn ? "New pi session" : "New session";
+  $("#goalOmitted").hidden = !agentsOn;
+}
+$("#agentsToggle").addEventListener("change", syncGoal);
+$("#goalLinkBtn").addEventListener("click", (e) => {
+  const l = $("#goalLinkList"); l.hidden = !l.hidden; e.currentTarget.setAttribute("aria-expanded", String(!l.hidden));
+});
+$("#goalNew").addEventListener("click", () => { $("#goalStatus").textContent = "Starting pi session for this goal…"; });
+syncGoal();
