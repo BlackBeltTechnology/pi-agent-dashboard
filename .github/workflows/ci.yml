@@ -199,3 +199,28 @@ jobs:
           TEST_COPY_MODE: "1"
           PI_BROWSER_RELAY_FAKE: "1"
         run: node scripts/verify-docker-plugin-load.mjs
+
+  # Quick-tier Python behaviour of the music-production skills plus the
+  # video-production footage-redaction script. The deep tier (essentia,
+  # beat_this, demucs, torch) is multi-GB and is NEVER installed here; those
+  # tests self-skip. See change: add-music-production-skills (D10).
+  music-pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Create the quick-tier venv
+        run: |
+          uv venv -p 3.14
+          uv pip install -r packages/music-production/requirements-core.txt pytest
+
+      - name: pytest (music-production + footage-redaction)
+        run: .venv/bin/python -m pytest packages/music-production/tests packages/video-production/tests/redaction

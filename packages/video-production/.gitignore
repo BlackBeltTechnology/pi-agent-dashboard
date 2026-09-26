@@ -1,3 +1,4 @@
 .env
 dist/
 renders/
+__pycache__/
