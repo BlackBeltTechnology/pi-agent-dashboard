@@ -70,6 +70,21 @@ const check = (id, ok, detail) => results.push({ id, ok: !!ok, detail });
   check("K16 ended ACP menu excludes pi-only actions", !cardItems.some((t) => /resume|fork|reload|retry/i.test(t)), cardItems.join(" | "));
   await page.keyboard.press("Escape");
 
+  // W1-W5 worktree dialog
+  await page.evaluate(() => localStorage.clear()); await page.reload();
+  await page.click("#spawnMenuBtn"); await page.click('#spawnMenu [data-agent="claude"]');
+  await page.click("#worktreeBtn");
+  check("W1 dialog inherits tray agent", (await page.inputValue("#wtAgent")) === "claude");
+  check("W2 focus moves to dialog heading", await page.evaluate(() => document.activeElement?.id === "s7h"));
+  check("W3 submit + row labels name the agent", /Claude Agent/.test(await page.textContent("#wtSubmit")) &&
+    /Claude Agent session in/.test(await page.getAttribute(".wt-spawn", "aria-label")));
+  await page.click(".wt-spawn");
+  check("W4 existing-row spawn uses dialog agent", /Starting Claude Agent session in \.worktrees/.test(await page.textContent("#wtStatus")));
+  await page.uncheck("#agentsToggle");
+  check("W5 no agents: agent field hidden, plain labels", (await page.isHidden("#wtAgent")) && (await page.textContent("#wtSubmit")) === "Create + session →");
+  await page.check("#agentsToggle");
+  await page.locator("#s7").screenshot({ path: `${out}/state-worktree-dialog.png` });
+
   // A11y: axe in dark and light, menu open
   for (const theme of ["dark", "light"]) {
     await page.evaluate((t) => { document.documentElement.dataset.theme = t; }, theme);
@@ -83,7 +98,7 @@ const check = (id, ok, detail) => results.push({ id, ok: !!ok, detail });
 
   // Target size at 375px (WCAG 2.5.8 ≥24, primary ≥44)
   await page.setViewportSize({ width: 375, height: 800 });
-  const sizes = await page.$$eval("#spawnMain, #spawnMenuBtn, .kebab, .btn-primary, .btn-secondary", (els) =>
+  const sizes = await page.$$eval("#spawnMain, #spawnMenuBtn, .kebab, .btn-primary, .btn-secondary, .seg-btn, #wtAgent", (els) =>
     els.filter((e) => e.offsetParent).map((e) => ({ id: e.id || e.className, h: e.getBoundingClientRect().height, w: e.getBoundingClientRect().width })));
   const small = sizes.filter((s) => s.h < 44 || s.w < 44);
   check("T1 mobile targets ≥ 44×44", small.length === 0, small.map((s) => `${s.id} ${Math.round(s.w)}×${Math.round(s.h)}`).join("; "));

@@ -100,6 +100,7 @@ Harness notes: "fake agent" = `packages/server/src/acp-bridge/__tests__/fake-acp
 | F11 | picker keyboard (APG menu button) | state-transition | L3 | automated | agents [qmt, claude]; folder tray | focus chevron, ArrowDown, ArrowDown, Enter; reopen, Escape | menu opens on ArrowDown with focus on checked item; Enter selects next agent; focus returns to chevron; Escape closes keeping selection; exactly one `aria-checked="true"` |
 | F12 | ACP surfaces a11y | invariant | L3 | automated | spawn tray with menu open, ACP session cards (running/ended), ended-session callout, startup-failure callout, automation editor with agent | axe `wcag2a/2aa/21aa/22aa` in dark and light | 0 violations in both themes |
 | F13 | picker layout robustness | BVA | L3 | automated | agent name "Claude Agent" (longest configured) | render tray at 375 / 900 / 1440, open menu | main button height ≤ 44 px (single line); menu rect within viewport at all widths; no horizontal scroll at 375 |
+| F14 | worktree dialog agent field | decision-table | L3 | automated | folder remembers `claude`; agents [qmt, claude]; 2 existing worktrees | open +Worktree dialog; click existing-row Spawn; separately Create; repeat with no agents | Agent select preselected `claude`; row + submit labels name the agent; both actions send `spawn_session.agent="claude"` with the worktree cwd; parent-folder memory updated on change; no agents → field absent, labels unchanged |
 
 ### Error-handling
 
@@ -120,13 +121,13 @@ Harness notes: "fake agent" = `packages/server/src/acp-bridge/__tests__/fake-acp
 ## Coverage summary
 
 - Requirements covered: 21/21 (acp-agent-sessions 17, acp-update-model 4)
-- Scenarios by class: edge 59 · perf 4 · frontend 13 · error 9
-- Scenarios by level: L1 69 · L2 2 · L3 12
-- Scenarios by disposition: automated 84 · manual-only 1
+- Scenarios by class: edge 59 · perf 4 · frontend 14 · error 9
+- Scenarios by level: L1 69 · L2 2 · L3 13
+- Scenarios by disposition: automated 85 · manual-only 1
 
 ## UX baseline
 
-Mockups + probe: `mockups/index.html`, `mockups/ux-probe.cjs` (24/24), results `mockups/ux-test.md`. F11–F13 port the probe checks to the real client.
+Mockups + probe: `mockups/index.html`, `mockups/ux-probe.cjs` (29/29), results `mockups/ux-test.md`. F11–F14 port the probe checks to the real client.
 
 ## New infra needed
 

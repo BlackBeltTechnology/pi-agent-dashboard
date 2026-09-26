@@ -254,6 +254,10 @@ When at least one ACP agent is configured, the folder spawn button, directory ho
 - **WHEN** the user spawns agent `qmt` from folder `/a` and later opens the spawn control of `/a` and of `/b`
 - **THEN** `/a` SHALL preselect `qmt` and `/b` SHALL preselect pi
 
+#### Scenario: Worktree dialog applies one agent to both spawn actions
+- **WHEN** folder `/a` remembers agent `qmt` and the user opens the worktree spawn dialog of `/a`, then spawns into an existing worktree or creates a new one
+- **THEN** the dialog SHALL show a single agent choice preselected to `qmt`, and either spawn action SHALL spawn with the agent chosen there
+
 #### Scenario: Removed agent falls back
 - **WHEN** the remembered agent for a folder is removed from `acpAgents`
 - **THEN** the folder's spawn control SHALL preselect pi

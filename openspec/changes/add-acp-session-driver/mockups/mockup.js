@@ -78,3 +78,25 @@ function syncAgent() {
   $("#autoAgentHelp").hidden = !acp;
 }
 $("#autoAgent").addEventListener("change", syncAgent); syncAgent();
+
+// S7: worktree dialog agent field
+const AGENT_NAMES = { pi: "", qmt: "querymt", claude: "Claude Agent" };
+function syncWt() {
+  const agentsOn = !split.classList.contains("no-agents");
+  $("#wtAgentField").classList.toggle("hidden", !agentsOn);
+  const id = agentsOn ? $("#wtAgent").value : "pi";
+  const name = AGENT_NAMES[id];
+  document.querySelectorAll(".wt-agent").forEach((e) => { e.textContent = name; });
+  document.querySelectorAll(".wt-spawn").forEach((b) => b.setAttribute("aria-label", `Spawn ${name || "pi"} session in ${b.dataset.path}`));
+  $("#wtSubmit").textContent = name ? `Create + ${name} session →` : "Create + session →";
+}
+$("#wtAgent").addEventListener("change", syncWt);
+$("#agentsToggle").addEventListener("change", syncWt);
+$("#worktreeBtn").addEventListener("click", () => {
+  $("#wtAgent").value = menu.querySelector('[aria-checked="true"]').dataset.agent; // inherit tray choice
+  syncWt(); $("#s7h").focus(); $("#s7").scrollIntoView({ block: "start" });
+});
+document.querySelectorAll(".wt-spawn").forEach((b) => b.addEventListener("click", () => {
+  $("#wtStatus").textContent = `Starting ${AGENT_NAMES[$("#wtAgent").value] || "pi"} session in ${b.dataset.path}…`;
+}));
+syncWt();

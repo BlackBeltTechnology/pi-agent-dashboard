@@ -53,7 +53,7 @@
         </li>
       </ul>
     </div>
-    <button type="button" class="tray-btn worktree">
+    <button type="button" class="tray-btn worktree" id="worktreeBtn" aria-controls="s7">
       <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M13,14C9.64,14 8.54,15.35 8.18,16.24C9.25,16.7 10,17.76 10,19A3,3 0 0,1 7,22A3,3 0 0,1 4,19C4,17.69 4.83,16.58 6,16.17V7.83C4.83,7.42 4,6.31 4,5A3,3 0 0,1 7,2A3,3 0 0,1 10,5C10,6.31 9.17,7.42 8,7.83V13.12C8.88,12.47 10.16,12 12,12C14.67,12 15.56,10.66 15.85,9.77C14.77,9.32 14,8.25 14,7A3,3 0 0,1 17,4A3,3 0 0,1 20,7C20,8.34 19.2,9.42 18,9.83C17.71,11.37 16.5,14 13,14Z"/></svg>
       New Worktree
     </button>
@@ -179,6 +179,51 @@
       <button type="button" class="btn-primary">Save automation</button>
     </div>
   </form>
+</section>
+
+<!-- S7 ─────────────────────────────────────────────── -->
+<section class="panel wide" id="s7" aria-labelledby="s7h">
+  <h2 id="s7h" class="panel-title" tabindex="-1">S7 · +Worktree dialog</h2>
+  <p class="panel-note">One Agent field covers both spawn actions (existing rows and create-new). Preselected from the parent folder's remembered agent; absent when no agents are configured.</p>
+  <div class="card dialog" role="dialog" aria-labelledby="wtTitle">
+    <div class="dialog-head"><h3 id="wtTitle" class="dialog-title">+Worktree Session</h3><span class="meta">~/Project/pi-agent-dashboard</span></div>
+
+    <div class="field agent-field" id="wtAgentField">
+      <label for="wtAgent">Agent</label>
+      <select id="wtAgent">
+        <option value="pi">pi (default)</option>
+        <option value="qmt">querymt · ends when the dashboard restarts</option>
+        <option value="claude">Claude Agent · survives dashboard restart</option>
+      </select>
+      <p class="help" id="wtAgentHelp">Used for both an existing worktree and a new one.</p>
+    </div>
+
+    <h4 class="dialog-sub">Existing worktrees of this repo</h4>
+    <ul class="wt-list">
+      <li class="wt-row"><div class="wt-text"><span class="wt-branch">os/add-acp-session-driver</span><span class="meta">.worktrees/os-add-acp-session-driver · clean</span></div>
+        <button type="button" class="btn-secondary wt-spawn" data-path=".worktrees/os-add-acp-session-driver">Spawn <span class="wt-agent"></span> →</button></li>
+      <li class="wt-row"><div class="wt-text"><span class="wt-branch">os/fix-ship-tsconfig-base</span><span class="meta">.worktrees/os-fix-ship-tsconfig-base · 2 modified</span></div>
+        <button type="button" class="btn-secondary wt-spawn" data-path=".worktrees/os-fix-ship-tsconfig-base">Spawn <span class="wt-agent"></span> →</button></li>
+    </ul>
+
+    <h4 class="dialog-sub">Create a new worktree</h4>
+    <div class="seg" role="group" aria-label="Source">
+      <button type="button" class="seg-btn" aria-pressed="true">Fork to new branch</button>
+      <button type="button" class="seg-btn" aria-pressed="false">Check out existing branch</button>
+      <button type="button" class="seg-btn" aria-pressed="false">From a pull request</button>
+    </div>
+    <div class="form">
+      <div class="field"><label for="wtBase">Base branch</label><input id="wtBase" value="develop" class="mono"></div>
+      <div class="field"><label for="wtBranch">New branch name</label><input id="wtBranch" value="os/add-acp-session-driver-ui" class="mono"></div>
+      <div class="field"><label for="wtPath">Path</label><input id="wtPath" value=".worktrees/os-add-acp-session-driver-ui" class="mono"></div>
+    </div>
+    <div class="form-actions">
+      <button type="button" class="btn-secondary">Cancel</button>
+      <button type="button" class="btn-primary" id="wtSubmit">Create + session →</button>
+    </div>
+    <p class="note">New worktrees start clean. Copy <code>.env</code> and run install steps manually.</p>
+    <p class="status-line" id="wtStatus" role="status" aria-live="polite"></p>
+  </div>
 </section>
 
 </main>
