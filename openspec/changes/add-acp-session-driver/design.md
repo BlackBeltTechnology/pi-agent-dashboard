@@ -119,7 +119,7 @@ stdout → bounded line splitter (`acp.maxLineBytes`, default 4 MiB; over-long l
 Host A sessions end on server stop/restart like a crashed pi. Host B: adapter state (JSON-RPC ids, queue, accumulators, pending permissions) lives in the adapter process (kept alive by the keeper). Event log: `~/.pi/dashboard/acp/<dashboardSessionId>.events.jsonl`, async batched appends, capped at `acp.eventLogMaxBytes` (default 64 MiB) — on cap, truncate at a turn boundary and record a notice event. On reconnect: `session_register { registerReason: "reattach", driver: "acp" }` **without `eventCount`** (forces the server to accept the full replay) → `models_list` / `commands_list` / current model state → replay log as `event_forward` (including in-progress segment snapshot) → `replay_complete` → re-send pending permission as a fresh `prompt_request`.
 
 ### D12 — `driver` persistence and degraded-feature contract
-`driver` is accepted by the gateway register normaliser, stored on `DashboardSession`, added to `SessionMeta` + `sessionToMeta` (so ended/restored ACP sessions keep it), and included in session payloads. Server rejects pi-only browser ops (flow control/management, extension command dispatch, fork/tree, reload/retry, role pushes, stop-after-turn, terminal commands, file listing) for `driver: "acp"` with a typed "unsupported for ACP sessions" error before forwarding. Client hides the controls by `driver`.
+`driver` and `acpAgentId` (additive `SessionRegisterMessage` fields) are accepted by the gateway register normaliser, stored on `DashboardSession`, added to `SessionMeta` + `sessionToMeta` (so ended/restored ACP sessions keep it), and included in session payloads. Server rejects pi-only browser ops (flow control/management, extension command dispatch, fork/tree, reload/retry, role pushes, stop-after-turn, terminal commands, file listing) for `driver: "acp"` with a typed "unsupported for ACP sessions" error before forwarding. Client hides the controls by `driver`.
 
 ### D13 — Clarified behaviours (scenario-design gate; defaults adopted, override welcome)
 - **Agent exits/crashes while adapter alive** → error shown in chat, pending permissions + queue answered/cleared, adapter unregisters and exits → session ends (same as a pi crash).
@@ -128,6 +128,27 @@ Host A sessions end on server stop/restart like a crashed pi. Host B: adapter st
 - **Event-log cap** → drop oldest whole turns until the log is ≤ 50 % of the cap, then record one notice event.
 - **Performance budget** → adapter overhead p95 < 5 ms per `session/update` → `event_forward`; replay of a log at the 64 MiB default cap completes < 10 s; adapter RSS < 150 MB with the log at cap.
 - **OS scope** → macOS + Linux + Windows (Windows: `.exe` agents only; `.cmd`/`.bat` rejected).
+
+### D14 — Automation and plugin spawns on ACP agents
+- `PluginSpawnOptions` (`dashboard-plugin-runtime` `server-context.ts`) gains `agent?: string`. The host spawn hook (`server.ts` plugin spawn) routes a configured agent exactly like a UI spawn (D2, host by `durable`), keeping `spawnToken`, `pluginRef`, `lifecycle`, `initialPrompt`, `name`, abort/`onSessionEnded` plumbing. Unknown agent → `{ success: false }` with message. With `agent` set, pi-only options are **rejected** (not silently dropped): `scope` (tools/skills/extensions), `resume`, `model` (ACP model is chosen by the agent's config options), `mode: "worktree"`/non-default `sandbox` follow the existing documented not-enforced warning.
+- Automation config (`automation-types.ts`) gains `agent?: string`; `engine.ts` forwards it to `spawnSession`; `automation-schema.ts` validates it against configured agents and requires `action.kind` = `core.prompt` when set (`core.skill` and plugin actions are pi-only → validation error on save and at fire). `CreateAutomationDialog` gains the agent picker (D16); model selector hidden when an agent is chosen.
+- Plugin `ctx.sendToSession(sessionId, text)` on a `driver: "acp"` session always sends `send_prompt` (a leading `/` is passed through as prompt text — ACP agents interpret their own commands) instead of extension-command dispatch.
+- Run completion/result capture already keys off forwarded `agent_end`/`message_end` events, which the adapter synthesises (D7) — no automation engine change beyond the field.
+- Other `spawnSession` callers (goal-plugin, mcp-server-plugin `spawn_session` tool) are unchanged and stay pi.
+
+### D15 — Continue-session guards
+Every path that (re)starts pi for an **existing** session refuses `driver: "acp"` through one helper `refuseIfAcp(session, op)` returning a typed `unsupported_for_acp` error, checked **before** any side effect (kill, resuming flag, placeholder, intent record):
+- `handleHeadlessReload` (reload), `handleSendPrompt` auto-resume of an ended session, `handleResumeSession` (resume + fork, incl. fork-degrade), REST resume/fork (`session-api.ts`), retry (`session-lifecycle.ts` `retry_session`).
+- Boot recovery (`server.ts` recovery grace loop) skips ACP candidates explicitly (not only by missing `sessionFile`).
+- Host B keeper reattach is the only "continue" path for ACP.
+A prompt to an ended ACP session returns the error with the hint "start a new session with this agent"; the client hides Resume/Fork/Reload/Retry for `driver: "acp"` (D12).
+
+### D16 — Agent picker at spawn entry points
+- Shared client component `AgentSpawnPicker`: a split button — main action spawns with the **remembered** agent, chevron opens a menu `pi (default)` + configured agents (`{id,name}` projection). Renders as the plain existing button when no agents are configured (zero change for current users). Remembered choice: per folder cwd in `localStorage` (`pi-dashboard:spawn-agent:<cwd>`), falling back to pi; a remembered id no longer configured falls back to pi.
+- `useSessionActions.handleSpawnSession(cwd, attachProposal?, opts)` gains `opts.agent`; forwarded on `spawn_session`.
+- Entry points: folder `+` (`FolderSpawnButtons`), directory home prompt (`DirectoryHomeView`, initial prompt delivered as the first `send_prompt`), OpenSpec board spawn-with-change (`OpenSpecBoardView`, `attachProposal` is metadata only), worktree dialog (`WorktreeSpawnDialog`), landing page quick spawn (`LandingPage`), automation editor (D14).
+- Inherit, no picker: spawn-sibling on a card and the keyboard spawn-sibling shortcut (`App.tsx`) reuse the source session's agent (`acpAgentId` or pi).
+- Always pi, no picker: "Initialize project" (`/skill:project-init` is pi-only).
 
 ## Risks / Trade-offs
 

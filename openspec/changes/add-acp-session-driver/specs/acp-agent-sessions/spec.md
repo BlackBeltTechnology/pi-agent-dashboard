@@ -189,7 +189,7 @@ This requirement applies to durable (out-of-process) ACP sessions. The adapter S
 - **THEN** after reattach the chat SHALL show the reply as one assistant message containing the text streamed before and after the restart
 
 ### Requirement: Driver persistence and degraded-feature contract
-`driver` from `session_register` SHALL be stored on the session, persisted in session metadata, and included in session payloads, surviving server restarts and session end. The server SHALL reject pi-only browser operations (flow control and management, extension command dispatch, fork/tree navigation, reload/retry, role pushes, stop-after-turn, terminal commands, file listing) for `driver: "acp"` sessions with a typed "unsupported for ACP sessions" error without forwarding them, and the client SHALL hide the corresponding controls.
+`driver` and `acpAgentId` from `session_register` SHALL be stored on the session, persisted in session metadata, and included in session payloads, surviving server restarts and session end. The server SHALL reject pi-only browser operations (flow control and management, extension command dispatch, fork/tree navigation, reload/retry, role pushes, stop-after-turn, terminal commands, file listing) for `driver: "acp"` sessions with a typed "unsupported for ACP sessions" error without forwarding them, and the client SHALL hide the corresponding controls.
 
 #### Scenario: Flow start on ACP session
 - **WHEN** a flow start is requested for an ACP session
@@ -197,5 +197,71 @@ This requirement applies to durable (out-of-process) ACP sessions. The adapter S
 - **AND** nothing SHALL be forwarded to the adapter
 
 #### Scenario: Ended ACP session keeps its driver after restart
-- **WHEN** an ACP session has ended and the server restarts
-- **THEN** the restored session SHALL still report `driver: "acp"` and pi-only controls SHALL stay hidden
+- **WHEN** an ACP session of agent `qmt` has ended and the server restarts
+- **THEN** the restored session SHALL report `driver: "acp"` and `acpAgentId: "qmt"`
+- **AND** pi-only controls SHALL stay hidden
+
+### Requirement: Continue-session guards
+Every server path that starts pi for an existing session — reload, auto-resume on prompt to an ended session, resume, fork (including fork degrade), REST resume/fork, retry, and boot-time recovery — SHALL refuse a `driver: "acp"` session with a typed `unsupported_for_acp` error before any side effect (no process killed, no `resuming` flag, no intent recorded, nothing spawned). Boot-time recovery SHALL skip ACP sessions. A prompt to an ended ACP session SHALL be refused with a hint to start a new session with the same agent. The client SHALL hide Resume, Fork, Reload and Retry for ACP sessions.
+
+#### Scenario: Resume an ended ACP session
+- **WHEN** a resume is requested for an ended ACP session via WebSocket or REST
+- **THEN** the request SHALL fail with `unsupported_for_acp`
+- **AND** no process SHALL be spawned and the session SHALL NOT be marked resuming
+
+#### Scenario: Prompt to an ended ACP session
+- **WHEN** the user sends a prompt to an ended ACP session
+- **THEN** the prompt SHALL be refused with a hint to start a new session with that agent
+- **AND** pi SHALL NOT be started
+
+#### Scenario: Reload a running in-process ACP session
+- **WHEN** a reload is requested for a running ACP session
+- **THEN** the request SHALL fail with `unsupported_for_acp` and the agent process SHALL keep running
+
+#### Scenario: Boot recovery skips ACP
+- **WHEN** the server starts with an ACP session among live-recovery candidates
+- **THEN** no pi process SHALL be spawned for it
+
+### Requirement: Automation and plugin spawns on ACP agents
+The plugin spawn hook SHALL accept an optional `agent` id and start a configured ACP agent through the same host routing as UI spawns, preserving spawn token, plugin reference, lifecycle policy, name, initial prompt, abort and session-end notification behaviour. With `agent` set it SHALL reject pi-only options (`scope`, `resume`, `model`) with an error, and SHALL reject unknown agent ids. Automation definitions SHALL accept an optional `agent`, validated against configured agents; an automation with `agent` SHALL only allow the `core.prompt` action. A plugin `sendToSession` to an ACP session SHALL deliver the text as a prompt, including text starting with `/`.
+
+#### Scenario: Scheduled automation runs on an ACP agent
+- **WHEN** a scheduled automation with `agent: "qmt"` and a `core.prompt` action fires
+- **THEN** an ACP session of agent `qmt` SHALL be started and receive the prompt
+- **AND** the run SHALL complete with the agent's final reply captured as its result when the agent reports idle
+
+#### Scenario: Automation stop kills the ACP run
+- **WHEN** the user stops a running automation run on an ACP agent
+- **THEN** the ACP session and its agent process SHALL be terminated and the run marked stopped
+
+#### Scenario: Skill action with agent rejected
+- **WHEN** an automation with `agent: "qmt"` and a `core.skill` action is saved
+- **THEN** saving SHALL fail with a validation error naming the action kind
+
+#### Scenario: pi-only spawn options rejected
+- **WHEN** a plugin calls the spawn hook with `agent: "qmt"` and `scope: { tools: ["read"] }`
+- **THEN** the hook SHALL return `success: false` with an error naming `scope`
+- **AND** nothing SHALL be spawned
+
+#### Scenario: Slash text to ACP session
+- **WHEN** a plugin calls `sendToSession` with `/review` on an ACP session
+- **THEN** the agent SHALL receive `session/prompt` with text `/review`
+
+### Requirement: Agent picker at spawn entry points
+When at least one ACP agent is configured, the folder spawn button, directory home prompt, OpenSpec board spawn, worktree spawn dialog, landing page quick spawn and automation editor SHALL offer an agent choice (`pi` plus configured agents by name) and spawn with the chosen agent. The last choice SHALL be remembered per folder and preselected; a remembered agent that is no longer configured SHALL fall back to pi. Spawning a sibling from a session card or the keyboard shortcut SHALL reuse the source session's agent. "Initialize project" SHALL always spawn pi. With no agents configured, every spawn control SHALL render exactly as before.
+
+#### Scenario: Picker remembers per folder
+- **WHEN** the user spawns agent `qmt` from folder `/a` and later opens the spawn control of `/a` and of `/b`
+- **THEN** `/a` SHALL preselect `qmt` and `/b` SHALL preselect pi
+
+#### Scenario: Removed agent falls back
+- **WHEN** the remembered agent for a folder is removed from `acpAgents`
+- **THEN** the folder's spawn control SHALL preselect pi
+
+#### Scenario: Sibling inherits agent
+- **WHEN** the user spawns a sibling of an ACP session of agent `qmt`
+- **THEN** the new session SHALL be spawned with agent `qmt` without showing a picker
+
+#### Scenario: No agents configured
+- **WHEN** `acpAgents` is empty
+- **THEN** no spawn control SHALL show an agent menu
