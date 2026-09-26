@@ -87,7 +87,7 @@ function syncWt() {
   const id = agentsOn ? $("#wtAgent").value : "pi";
   const name = AGENT_NAMES[id];
   document.querySelectorAll(".wt-agent").forEach((e) => { e.textContent = name; });
-  document.querySelectorAll(".wt-spawn").forEach((b) => b.setAttribute("aria-label", `Spawn ${name || "pi"} session in ${b.dataset.path}`));
+  document.querySelectorAll(".wt-spawn").forEach((b) => b.setAttribute("aria-label", `New ${name || "pi"} session in ${b.dataset.path}`));
   $("#wtSubmit").textContent = name ? `Create + ${name} session →` : "Create + session →";
 }
 $("#wtAgent").addEventListener("change", syncWt);

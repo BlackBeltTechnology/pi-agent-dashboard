@@ -21,6 +21,9 @@ No existing component test asserts palette classes on the 8 surfaces (checked by
 | E3 | no palette literals on surfaces | EP | L1 | automated | the 8 surface files | regex scan of `className`/`style` for `(text\|bg\|border)-(green\|orange\|blue\|yellow\|indigo\|red\|amber\|purple\|emerald\|sky)-\d`, `#[0-9a-fA-F]{3,8}`, `rgba(` | 0 matches |
 | E4 | status colour on shape only | decision-table | L1 | automated | `SessionCard` rendered in each status incl. resuming | RTL render, read computed class of status word and shape | word uses `--text-secondary`; shape uses `--status-*`; no `--status-*` on text nodes |
 | E5 | text-muted only for decoration | EP | L1 | automated | the 8 surface files | scan `--text-muted` uses | every use is a `disabled:` variant or on an element with `aria-hidden="true"`; 0 other uses |
+| E7 | copy: no spawn wording | EP | L1 | automated | `i18n-en-source.json` values + every `i18nT`/`t` English fallback in `packages/*/src` (non-test) | regex `\b(re)?spawn(s\|ed\|ing)?\b` case-insensitive | 0 matches |
+| E8 | copy: keys + translations stable | invariant | L1 | automated | key sets of en-source, `i18n-hu.ts`, zh table and `i18n-legacy-aliases.ts` before (git `HEAD~`) and after | diff | no key removed or renamed; hu/zh values byte-identical |
+| E9 | copy: exact labels | decision-table | L1 | automated | D9 table rows `git.spawnIntoThatWorktree`, `autoRespawnLabel`, `fieldCount`, `session.spawnASessionAttachedToThis` | render `WorktreeSpawnDialog` collision, goal settings, automation dialog, OpenSpec board row (RTL) | visible text equals the D9 "new" column |
 | E6 | disabled primary keeps legible text | BVA | L1 | automated | worktree Create button with `canSubmit=false` | RTL render | classes `disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)]` present |
 
 ### Frontend quirks
@@ -52,7 +55,7 @@ None: visual-only change, no data path.
 
 ## Coverage summary
 
-edge 6 · perf 0 · frontend 10 · error 1  ·  L1 6 · L2 0 · L3 10 · manual-only 1  ·  automated 16 · manual-only 1
+edge 9 · perf 0 · frontend 10 · error 1  ·  L1 9 · L2 0 · L3 10 · manual-only 1  ·  automated 19 · manual-only 1
 
 ## UX baseline
 

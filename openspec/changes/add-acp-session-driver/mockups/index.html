@@ -20,7 +20,7 @@
 
 <!-- S1 ─────────────────────────────────────────────── -->
 <section class="panel" aria-labelledby="s1h">
-  <h2 id="s1h" class="panel-title">S1 · Folder spawn tray</h2>
+  <h2 id="s1h" class="panel-title">S1 · Folder new-session tray</h2>
   <p class="panel-note">Split button remembers the agent per folder. With no agents configured it is today's single button.</p>
 
   <div class="card folder-card">
@@ -184,7 +184,7 @@
 <!-- S7 ─────────────────────────────────────────────── -->
 <section class="panel wide" id="s7" aria-labelledby="s7h">
   <h2 id="s7h" class="panel-title" tabindex="-1">S7 · +Worktree dialog</h2>
-  <p class="panel-note">One Agent field covers both spawn actions (existing rows and create-new). Preselected from the parent folder's remembered agent; absent when no agents are configured.</p>
+  <p class="panel-note">One Agent field covers both actions (new session in an existing worktree, or create a new one). Preselected from the parent folder's remembered agent; absent when no agents are configured.</p>
   <div class="card dialog" role="dialog" aria-labelledby="wtTitle">
     <div class="dialog-head"><h3 id="wtTitle" class="dialog-title">+Worktree Session</h3><span class="meta">~/Project/pi-agent-dashboard</span></div>
 
@@ -201,9 +201,9 @@
     <h4 class="dialog-sub">Existing worktrees of this repo</h4>
     <ul class="wt-list">
       <li class="wt-row"><div class="wt-text"><span class="wt-branch">os/add-acp-session-driver</span><span class="meta">.worktrees/os-add-acp-session-driver · clean</span></div>
-        <button type="button" class="btn-secondary wt-spawn" data-path=".worktrees/os-add-acp-session-driver">Spawn <span class="wt-agent"></span> →</button></li>
+        <button type="button" class="btn-secondary wt-spawn" data-path=".worktrees/os-add-acp-session-driver">New <span class="wt-agent"></span> session →</button></li>
       <li class="wt-row"><div class="wt-text"><span class="wt-branch">os/fix-ship-tsconfig-base</span><span class="meta">.worktrees/os-fix-ship-tsconfig-base · 2 modified</span></div>
-        <button type="button" class="btn-secondary wt-spawn" data-path=".worktrees/os-fix-ship-tsconfig-base">Spawn <span class="wt-agent"></span> →</button></li>
+        <button type="button" class="btn-secondary wt-spawn" data-path=".worktrees/os-fix-ship-tsconfig-base">New <span class="wt-agent"></span> session →</button></li>
     </ul>
 
     <h4 class="dialog-sub">Create a new worktree</h4>

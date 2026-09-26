@@ -13,13 +13,14 @@ Measured by `mockups/ux-probe.cjs` on the live folder card: **3/10** (computed c
 - **Size floor:** interactive and help text ≥ 12 px, dense metadata ≥ 11 px, nothing smaller; buttons ≥ 44 px tall on mobile and ≥ 32 px (chips/toggles) from `sm:`.
 - **Focus:** every button on these surfaces carries `focus-ring`.
 - **`ui-contract.md`:** primary-button recipe fixed, the tint/severity/status mapping, the two size floors and the "status colour on shape, not text" rule recorded.
+- **Copy:** every user-facing English "spawn"/"respawn" (23 strings across client, goal-plugin, automation-plugin, settings) becomes "new session" / "start" / "restart". Internal identifiers, protocol names and i18n keys are unchanged; Hungarian and Chinese already say "start".
 - Surfaces: `FolderSpawnButtons.tsx`, `SessionCard.tsx`, `WorktreeSpawnDialog.tsx`, `WorktreeList.tsx`, `GoalDetailClaim.tsx` (goal-plugin), `ConfirmRenderer.tsx`, `SelectRenderer.tsx`, `CreateAutomationDialog.tsx` (automation-plugin). Layout, copy and behaviour unchanged.
 - Out of scope: other components (repo-wide sweep), a lint rule banning palette classes, layout redesign, new themes.
 
 ## Capabilities
 
 ### New Capabilities
-<!-- none -->
+- `ui-terminology`: user-facing copy uses "new session"/"start"/"restart", never "spawn"; internal identifiers and i18n keys exempt.
 
 ### Modified Capabilities
 - `message-severity-tokens`: adds identity tint triples (severity triples alias them) and extends the no-raw-colour-literal rule from message components to the listed action surfaces.
@@ -27,7 +28,7 @@ Measured by `mockups/ux-probe.cjs` on the live folder card: **3/10** (computed c
 
 ## Impact
 
-- **Code:** `packages/client/src/index.css` (tint tokens + severity aliases); the 8 surface files above; `ui-contract.md`. No protocol, server or data change.
+- **Code:** `packages/client/src/index.css` (tint tokens + severity aliases); the 8 surface files above; `ui-contract.md`; 23 English strings (code fallbacks + `i18n-en-source.json`) in client, goal-plugin, automation-plugin. No protocol, server or data change.
 - **Compatibility:** visual only. Dark theme looks nearly identical (tints are the same hues, slightly more saturated text); light theme becomes readable. Controls get taller, which may add a few px of vertical space per card; no layout reflow beyond that.
 - **Tests:** existing component tests that assert class names (e.g. `text-green-400`) must update to the token classes; `data-testid`s are untouched so Playwright selectors keep working.
 - **Rollback:** revert the commit; tokens are additive and the severity aliases keep the same values.

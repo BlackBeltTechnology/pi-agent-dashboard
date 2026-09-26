@@ -77,7 +77,7 @@ const check = (id, ok, detail) => results.push({ id, ok: !!ok, detail });
   check("W1 dialog inherits tray agent", (await page.inputValue("#wtAgent")) === "claude");
   check("W2 focus moves to dialog heading", await page.evaluate(() => document.activeElement?.id === "s7h"));
   check("W3 submit + row labels name the agent", /Claude Agent/.test(await page.textContent("#wtSubmit")) &&
-    /Claude Agent session in/.test(await page.getAttribute(".wt-spawn", "aria-label")));
+    /New Claude Agent session in/.test(await page.getAttribute(".wt-spawn", "aria-label")));
   await page.click(".wt-spawn");
   check("W4 existing-row spawn uses dialog agent", /Starting Claude Agent session in \.worktrees/.test(await page.textContent("#wtStatus")));
   await page.uncheck("#agentsToggle");

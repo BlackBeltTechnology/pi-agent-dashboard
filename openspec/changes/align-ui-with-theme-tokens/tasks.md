@@ -17,6 +17,11 @@
 - [ ] 3.1 `ui-contract.md`: primary-button row → D4 recipe; add "Colour roles" table (tint / severity / status, D2), "status colour on shape, not text" (D2b), text floors (≥ 11 px, interactive ≥ 12 px) and target floors (44 px mobile, 32 px `sm:`) (D5), `--text-muted` only for disabled + `aria-hidden` (D3)
 - [ ] 3.2 Update the nearest `AGENTS.md` row for each touched file (`See change: align-ui-with-theme-tokens`)
 
+## 3b. Copy (D9)
+
+- [ ] 3b.1 Replace the 23 English strings in design.md D9 — both the `i18nT`/`t` fallback in code and the `packages/client/src/lib/i18n-en-source.json` value; keep every i18n key, Hungarian and Chinese values untouched
+- [ ] 3b.2 `ui-contract.md`: add a "Terminology" row — "new session" / "start" / "restart", never "spawn" in user-facing copy
+
 ## 4. Test infra
 
 - [ ] 4.1 `tests/e2e/helpers/computed-contrast.ts`: extract the in-page computed-contrast routine from `mockups/ux-probe.cjs` (canvas colour resolve + ancestor composite)
@@ -41,6 +46,10 @@
 - [ ] 5.15 L3 Playwright `tests/e2e/ui-token-alignment.spec.ts`: no layout regression (see tests/e2e/severity-contrast.spec.ts) — input: sidebar at 320 px min width, folder card with 3 sessions · trigger: render · observable: no horizontal overflow; chip row wraps instead of clipping (test-plan #F9)
 - [ ] 5.16 MANUAL: visual match to mockup — input: `mockups/index.html` A1–A6 vs rebuilt live surfaces · trigger: side-by-side screenshots dark + light · observable: reviewer confirms same recipe (hue, weight, radius, spacing); differences listed (test-plan #F10)
 - [ ] 5.17 L3 Playwright `tests/e2e/ui-token-alignment.spec.ts`: error text readable (see tests/e2e/severity-contrast.spec.ts) — input: worktree dialog `branch_exists` error; automation missing-file error · trigger: dark and light · observable: error text uses `--severity-error-fg`, ≥ 12 px, ≥ 4.5:1 (test-plan #X1)
+
+- [ ] 5.18 L1 vitest `packages/client/src/lib/__tests__/ui-copy-no-spawn.test.ts`: copy: no spawn wording (see packages/client/src/lib/__tests__/theme-body-text-contrast.test.ts) — input: i18n-en-source.json values + every i18nT/t English fallback in packages/*/src (non-test) · trigger: regex \b(re)?spawn(s|ed|ing)?\b case-insensitive · observable: 0 matches (test-plan #E7)
+- [ ] 5.19 L1 vitest `packages/client/src/lib/__tests__/ui-copy-no-spawn.test.ts`: copy: keys + translations stable (see same file) — input: key sets of en-source, i18n-hu.ts, zh table, i18n-legacy-aliases.ts before/after · trigger: diff · observable: no key removed or renamed; hu/zh values byte-identical (test-plan #E8)
+- [ ] 5.20 L1 vitest `packages/client/src/components/worktree/__tests__/WorktreeSpawnDialog-primary.test.tsx`: copy: exact labels (see same file) — input: D9 rows git.spawnIntoThatWorktree, autoRespawnLabel, fieldCount, session.spawnASessionAttachedToThis · trigger: RTL render of collision block, goal settings, automation dialog, OpenSpec row · observable: visible text equals D9 "new" column (test-plan #E9)
 
 ## 6. Verification
 

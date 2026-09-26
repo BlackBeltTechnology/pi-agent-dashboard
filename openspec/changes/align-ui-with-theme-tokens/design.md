@@ -8,7 +8,7 @@ Baseline measured 2026-09-27 on the live folder card (light theme, `#fafafa` `--
 
 **Goals:** the 8 listed surfaces pass the probe in dark and light; the look matches the ACP mockups; one written recipe in `ui-contract.md` so new UI follows it.
 
-**Non-Goals:** repo-wide sweep of other components; a Biome/ESLint rule banning palette classes (possible follow-up once the recipe has settled); layout or copy changes; new themes; changing `--severity-*` values.
+**Non-Goals:** repo-wide *style* sweep of other components (the D9 copy sweep IS repo-wide); a Biome/ESLint rule banning palette classes (possible follow-up once the recipe has settled); layout or copy changes; new themes; changing `--severity-*` values.
 
 ## Decisions
 
@@ -50,6 +50,39 @@ Every `<button>`/`<a>` on the surfaces gets the existing `focus-ring` utility (a
 
 ### D8 — ui-contract.md
 Fix the primary-button row (D4), add a "Colour roles" table (D2), the size floors (D5), "status colour on shape, not text" (D2b), and "use `--text-muted` only for decoration". Stale theme-count claims are left alone (out of scope).
+
+### D9 — Copy: "new session", never "spawn"
+"Spawn" is process jargon. User-facing English copy says **new session** (create), **start** (verb), **restart** (for respawn). Internal names stay: protocol messages (`spawn_session`), functions (`spawnSession`), config keys (`spawnStrategy`, `maxConcurrentSpawns`), testids, file names and **i18n keys** (renaming keys would break the Hungarian/Chinese tables and `i18n-legacy-aliases.ts`). Hungarian (`indítás`) and Chinese (`启动`) already say start/launch and are unchanged. Error banners already read "Pi started but never connected…" and are unchanged.
+
+Inventory (2026-09-27, every English string containing spawn/respawn across `packages/*/src` code fallbacks + `packages/client/src/lib/i18n-en-source.json`; 23 strings, 0 hard-coded JSX literals):
+
+| key | where | now | new |
+|---|---|---|---|
+| `fieldCount` | automation-plugin CreateAutomationDialog | Spawn count | Sessions per run |
+| `git.spawnIntoThatWorktree` | client WorktreeSpawnDialog | Spawn into that worktree → | New session in that worktree → |
+| `session.spawnASessionAttachedToThis` | client OpenSpecBoardView | Spawn a session attached to this proposal | New session for this proposal |
+| `worktree.spawnAWorktreeForThisProposal` | client OpenSpecBoardView | Spawn a worktree for this proposal | New worktree session for this proposal |
+| `session.spawnsASessionRunningTheNew` | client OpenSpecBoardView | Spawns a session running the new-change flow. … | Starts a new session running the new-change flow. … |
+| `session.createSpawn` | client | Create & spawn | Create & start session |
+| `session.spawnWorktreeTitle` | client SessionCard | Create git worktree + spawn session inside it | Create a git worktree and start a new session in it |
+| `session.noSpawnFailuresRecorded` | client | No spawn failures recorded. | No failed session starts recorded. |
+| `piRuntime.colSpawn` | client PiRuntimeSection | Spawn | New sessions |
+| `piRuntime.laneSpawn` | client PiRuntimeSection | Sessions spawn | New sessions |
+| `landing.addFolderDescription` | client LandingPage | … so you can spawn sessions inside it. | … so you can start new sessions inside it. |
+| `common.howLongToWaitForA` | client settings | How long to wait for a spawned pi session to connect … | How long to wait for a new pi session to connect … |
+| `git.gitSourceTakesEffect` | client settings | Takes effect for newly spawned sessions. … | Takes effect for new sessions. … |
+| `settings.capturePiOutputHint` | client settings | … Applies to newly spawned sessions. | … Applies to new sessions. |
+| `settings.hint.enableOpenspecPolling` | client settings | … and spawn sessions for them. … | … and start new sessions for them. … |
+| `settings.hint.maxConcurrentSpawns` | client settings | Upper bound on sessions polling spawns at once. … | Maximum new sessions OpenSpec polling starts at once. … |
+| `settings.hint.toolAgent` | client settings | Subagent spawns. | New subagent sessions. |
+| `worktree.afterSpawningAWorktreeAutoRun` | client settings | After spawning a worktree, automatically run its declared | After creating a worktree session, automatically run its declared |
+| `worktree.showWorktreeSpawnButtonsInFolders` | client settings | Show worktree spawn buttons in folders and OpenSpec rows | Show New Worktree buttons in folders and OpenSpec rows |
+| `rolesDepAliasesReport` | subagents/roles settings | … “not configured yet” at spawn time — … | … “not configured yet” when a session starts — … |
+| `autoRespawnDefaultLabel` | goal-plugin settings | Auto-respawn new goals by default | Auto-restart new goals by default |
+| `autoRespawnLabel` | goal-plugin | Auto-respawn on driver death (bounded by budget + crash-loop breaker) | Auto-restart on driver death (bounded by budget + crash-loop breaker) |
+| `autoRespawnHelp` | goal-plugin settings | … the dashboard respawns it to keep pursuing … | … the dashboard starts a new one to keep pursuing … |
+
+Both the `i18nT`/`t` fallback string in code and the `i18n-en-source.json` value change together.
 
 ## Risks / Trade-offs
 

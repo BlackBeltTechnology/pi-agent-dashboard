@@ -55,7 +55,7 @@
 
 ## 4. Client (minimal)
 
-- [ ] 4.1 Spawn dialog agent picker (only when agents configured; default pi)
+- [ ] 4.1 New-session dialog agent picker (only when agents configured; default pi)
 - [ ] 4.2 Hide pi-only controls when `session.driver === "acp"`; driver badge on session card
 
 ## 5. Docs
@@ -150,7 +150,7 @@
 - [ ] 7.83 L3 Playwright `tests/e2e/acp-spawn-picker.spec.ts`: picker keyboard APG menu button (see tests/e2e/optimistic-prompt.spec.ts; probe logic in openspec/changes/add-acp-session-driver/mockups/ux-probe.cjs) — input: agents [qmt, claude], folder tray · trigger: focus chevron, ArrowDown, ArrowDown, Enter; reopen, Escape · observable: opens with focus on checked item; Enter selects next; focus returns; Escape keeps selection; one aria-checked (test-plan #F11)
 - [ ] 7.84 L3 Playwright `tests/e2e/acp-spawn-picker.spec.ts`: ACP surfaces a11y (see tests/e2e/mcp-client-settings-a11y.spec.ts) — input: tray menu open, ACP cards running/ended, ended + startup callouts, automation editor with agent · trigger: axe wcag2a/2aa/21aa/22aa dark and light · observable: 0 violations both themes (test-plan #F12)
 - [ ] 7.85 L3 Playwright `tests/e2e/acp-spawn-picker.spec.ts`: picker layout robustness (see tests/e2e/optimistic-prompt.spec.ts) — input: agent "Claude Agent" · trigger: render at 375/900/1440, open menu · observable: main button ≤ 44 px tall; menu within viewport; no horizontal scroll at 375 (test-plan #F13)
-- [ ] 7.86 L3 Playwright `tests/e2e/acp-spawn-picker.spec.ts`: worktree dialog agent field (see tests/e2e/optimistic-prompt.spec.ts; probe W1–W5 in mockups/ux-probe.cjs) — input: folder remembers claude, 2 existing worktrees · trigger: open +Worktree, click row Spawn; Create; repeat with no agents · observable: select preselected claude; labels name agent; both actions send spawn_session.agent=claude with worktree cwd; no agents → field absent (test-plan #F14)
+- [ ] 7.86 L3 Playwright `tests/e2e/acp-spawn-picker.spec.ts`: worktree dialog agent field (see tests/e2e/optimistic-prompt.spec.ts; probe W1–W5 in mockups/ux-probe.cjs) — input: folder remembers claude, 2 existing worktrees · trigger: open +Worktree, click row "New session →"; Create; repeat with no agents · observable: select preselected claude; labels name agent; both actions send spawn_session.agent=claude with worktree cwd; no agents → field absent (test-plan #F14)
 - [ ] 7.87 L1 vitest `packages/goal-plugin/src/server/__tests__/goal-routes.test.ts`: link ACP session refused (see same file) — input: running session S driver acp in cwd · trigger: POST /api/folders/goals/:id/sessions {sessionId:S} · observable: 400 code unsupported_for_acp; store.linkSession, applyGoalIdToSession, primeGoalSession not called (test-plan #E60)
 - [ ] 7.88 L1 vitest `packages/goal-plugin/src/server/__tests__/goal-routes.test.ts`: goal spawn stays pi (see same file) — input: agents [qmt] configured · trigger: POST …/sessions {spawn:true}; supervisor respawn · observable: spawnGoalSession / ctx.spawnSession opts carry no agent (test-plan #E61)
 - [ ] 7.89 L3 Playwright `tests/e2e/acp-spawn-picker.spec.ts`: goal link picker + label (see tests/e2e/goal-plugin-relocation.spec.ts) — input: folder remembers qmt; running pi P + ACP S; agents configured · trigger: open goal detail, Link existing… · observable: button reads "New pi session"; list offers P only; "1 ACP session hidden — goals need pi." shown; axe 0 violations (test-plan #F15)
